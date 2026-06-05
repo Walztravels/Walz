@@ -27,7 +27,7 @@ export const metadata: Metadata = {
     template: '%s | Walz Travels',
   },
   description:
-    'Walz Travels is your trusted IATA-certified luxury travel agency. Book flights, hotels, private tours and visa services with expert guidance and the best available fares via Sabre GDS.',
+    'Flights, visas, hotels and tours — handled by travel experts who get it right the first time. Book with confidence: IATA certified, Stripe-secured payments, 24/7 WhatsApp support.',
   keywords: [
     'luxury travel agency',
     'flight booking',
@@ -45,10 +45,10 @@ export const metadata: Metadata = {
   openGraph: {
     type: 'website',
     locale: 'en_GB',
-    url: 'https://walztravels.com',
+    url: 'https://walztravels.us',
     siteName: 'Walz Travels',
-    title: 'Walz Travels — Luxury Travel Agency',
-    description: 'Book flights, hotels and private tours with IATA-certified luxury travel experts.',
+    title: 'Walz Travels — Flights, Visas, Hotels & Tours',
+    description: 'Flights, visas, hotels and tours — handled by travel experts who get it right the first time. IATA certified, Stripe-secured payments, 24/7 support.',
     images: [
       {
         url: 'https://images.unsplash.com/photo-1436491865332-7a61a109cc05?w=1200&q=80',
