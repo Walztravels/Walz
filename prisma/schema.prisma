@@ -1,0 +1,615 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ===========================
+// NextAuth Required Models
+// ===========================
+
+model User {
+  id                   String    @id @default(cuid())
+  name                 String?
+  email                String?   @unique
+  emailVerified        DateTime?
+  image                String?
+  stripeCustomerId     String?   @unique
+  password                  String?
+  passwordResetToken        String?
+  passwordResetExpires      DateTime?
+  verificationToken         String?
+  verificationTokenExpires  DateTime?
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+
+  accounts            Account[]
+  sessions            Session[]
+  bookings            Booking[]
+  visaApplications    VisaApplication[]
+  tourEnquiries       TourEnquiry[]
+  portalApplications  PortalApplication[]
+  portalDocuments     PortalDocument[]
+  portalPayments      PortalPayment[]
+  referralCode        ReferralCode?
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@index([userId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+// ===========================
+// Travel Booking Models
+// ===========================
+
+enum BookingType {
+  FLIGHT
+  HOTEL
+  PACKAGE
+}
+
+enum BookingStatus {
+  PENDING
+  CONFIRMED
+  CANCELLED
+  COMPLETED
+  FAILED
+}
+
+enum PaymentStatus {
+  PENDING
+  PROCESSING
+  SUCCEEDED
+  FAILED
+  REFUNDED
+  CANCELLED
+}
+
+model Booking {
+  id               String        @id @default(cuid())
+  userId           String?
+  bookingReference String        @unique
+  pnr              String?
+  type             BookingType
+  status           BookingStatus @default(PENDING)
+  paymentStatus    PaymentStatus @default(PENDING)
+
+  // Pricing
+  totalAmount      Float
+  currency         String        @default("GBP")
+
+  // Stripe
+  stripePaymentIntentId String?
+  stripeClientSecret    String?
+
+  // Contact details
+  contactEmail  String
+  contactPhone  String?
+
+  // Flight details (JSON for flexibility)
+  flightDetails Json?
+
+  // Hotel details (JSON)
+  hotelDetails Json?
+
+  // Passenger details (JSON array)
+  passengers Json?
+
+  // Addons
+  addons Json?
+
+  // Metadata
+  notes     String? @db.Text
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([bookingReference])
+  @@index([pnr])
+  @@index([stripePaymentIntentId])
+  @@index([status])
+  @@index([createdAt])
+}
+
+// ===========================
+// Visa Applications
+// ===========================
+
+enum VisaApplicationStatus {
+  DRAFT
+  SUBMITTED
+  UNDER_REVIEW
+  DOCUMENTS_REQUIRED
+  APPROVED
+  REJECTED
+  WITHDRAWN
+}
+
+model VisaApplication {
+  id        String                @id @default(cuid())
+  userId    String?
+  status    VisaApplicationStatus @default(DRAFT)
+
+  // Applicant details
+  firstName   String
+  lastName    String
+  email       String
+  phone       String
+  dateOfBirth String
+  nationality String
+
+  // Travel details
+  destinationCountry String
+  visaType           String
+  travelDate         String
+  returnDate         String?
+  purpose            String
+
+  // Passport
+  passportNumber String
+  passportExpiry String
+
+  // Checklist
+  hasOnwardTicket    Boolean @default(false)
+  hasAccommodation   Boolean @default(false)
+  previousRefusal    Boolean @default(false)
+
+  // Processing
+  processingFee Float?
+  currency      String  @default("GBP")
+  referenceNumber String? @unique
+
+  additionalInfo String? @db.Text
+  notes          String? @db.Text
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([email])
+  @@index([status])
+  @@index([destinationCountry])
+}
+
+// ===========================
+// Tour Enquiries
+// ===========================
+
+enum TourEnquiryStatus {
+  NEW
+  CONTACTED
+  QUOTED
+  BOOKED
+  CANCELLED
+}
+
+model TourEnquiry {
+  id     String            @id @default(cuid())
+  userId String?
+  status TourEnquiryStatus @default(NEW)
+
+  // Contact
+  firstName String
+  lastName  String
+  email     String
+  phone     String
+
+  // Tour details
+  tourName                String
+  tourDate                String
+  groupSize               Int
+  specialRequirements     String? @db.Text
+  preferredPickupLocation String?
+
+  // Quote
+  quotedPrice Float?
+  currency    String  @default("GBP")
+
+  notes String? @db.Text
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([email])
+  @@index([status])
+  @@index([tourName])
+}
+
+// ===========================
+// Admin CRM Models
+// ===========================
+
+model SiteSetting {
+  id        String   @id @default(cuid())
+  key       String   @unique
+  value     String   @db.Text
+  label     String?
+  updatedAt DateTime @updatedAt
+}
+
+// ===========================
+// Staff & Activity Log
+// ===========================
+
+model Lead {
+  id          String   @id @default(cuid())
+  name        String
+  email       String?
+  whatsapp    String
+  service     String   // Visa Processing, Flight Booking, Holiday Package, Group Travel, Corporate Travel, Hotel Only, Other
+  destination String?
+  travelDate  String?
+  details     String?  @db.Text
+  source      String   @default("homepage")
+  status      String   @default("New") // New, Contacted, Deposit Paid, In Progress, Closed
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([status])
+  @@index([createdAt])
+  @@index([service])
+  @@index([source])
+}
+
+model Staff {
+  id           String    @id @default(cuid())
+  name         String
+  email        String    @unique
+  passwordHash String
+  roleTitle    String    // Free-text role name, e.g. "Senior Sales Agent"
+  accessLevel  String    // Admin | Manager | Coordinator | Sales
+  isActive     Boolean   @default(true)
+  lastLoginAt  DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  activityLogs ActivityLog[]
+
+  @@index([email])
+  @@index([isActive])
+  @@index([accessLevel])
+}
+
+model ActivityLog {
+  id        String   @id @default(cuid())
+  staffId   String?
+  staffName String?
+  action    String
+  detail    String?  @db.Text
+  ipAddress String?
+  createdAt DateTime @default(now())
+
+  staff Staff? @relation(fields: [staffId], references: [id], onDelete: SetNull)
+
+  @@index([staffId])
+  @@index([createdAt])
+}
+
+model WidgetConfig {
+  id      String  @id @default(cuid())
+  key     String  @unique
+  label   String
+  enabled Boolean @default(true)
+  order   Int     @default(0)
+}
+
+model FeaturedDeal {
+  id          String   @id @default(cuid())
+  origin      String
+  destination String
+  price       Float
+  currency    String   @default("GBP")
+  airline     String?
+  imageUrl    String?
+  active      Boolean  @default(true)
+  order       Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model TourListing {
+  id          String   @id @default(cuid())
+  name        String
+  slug        String   @unique
+  description String   @db.Text
+  highlights  String   @db.Text @default("[]")
+  price       Float
+  currency    String   @default("GBP")
+  duration    String
+  location    String
+  imageUrl    String?
+  active      Boolean  @default(true)
+  order       Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model VisaService {
+  id             String   @id @default(cuid())
+  country        String
+  flag           String?
+  visaType       String
+  processingTime String
+  fee            Float
+  currency       String   @default("GBP")
+  requirements   String   @db.Text @default("[]")
+  imageUrl       String?
+  active         Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@unique([country, visaType])
+}
+
+model SiteImage {
+  id        String   @id @default(cuid())
+  key       String   @unique
+  label     String
+  url       String
+  bucket    String   @default("walz-images")
+  path      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// ===========================
+// Blog
+// ===========================
+
+model BlogPost {
+  id               String   @id @default(cuid())
+  title            String
+  slug             String   @unique
+  content          String   @db.Text
+  excerpt          String?  @db.Text
+  category         String   @default("Travel Tips")
+  featuredImageUrl String?
+  metaDescription  String?  @db.Text
+  published        Boolean  @default(false)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@index([slug])
+  @@index([published])
+  @@index([category])
+  @@index([createdAt])
+}
+
+// ===========================
+// Vouchers
+// ===========================
+
+model Voucher {
+  id                    String    @id @default(cuid())
+  code                  String    @unique
+  name                  String?
+
+  // Classification
+  voucherKind           String    @default("gift")   // 'gift' | 'credit'
+  serviceType           String    @default("all")    // 'visa' | 'flight' | 'tour' | 'all'
+  discountType          String    @default("fixed")  // 'fixed' | 'percentage' | 'free'
+
+  // Value
+  amount                Float
+  currency              String    @default("GBP")
+  remainingAmount       Float
+
+  // Tour specific
+  tourName              String?
+
+  // Uses
+  maxUses               Int       @default(1)
+  usedCount             Int       @default(0)
+
+  // Status
+  status                String    @default("ACTIVE") // ACTIVE | PURCHASED | SENT | REDEEMED | EXPIRED | CANCELLED
+  active                Boolean   @default(true)
+
+  // Sender (gift vouchers purchased by users)
+  senderName            String?
+  senderEmail           String?
+
+  // Recipient
+  recipientName         String?
+  recipientEmail        String?
+  personalMessage       String?   @db.Text
+
+  // Delivery
+  scheduledDeliveryDate DateTime?
+  sentAt                DateTime?
+
+  // Redemption
+  redeemedAt            DateTime?
+  redeemedBookingId     String?
+
+  // Payment (purchased vouchers)
+  paymentReference      String?
+  paymentGateway        String?
+  paidAmount            Float?
+
+  // Validity
+  validFrom             DateTime  @default(now())
+  expiresAt             DateTime
+
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+
+  @@index([code])
+  @@index([status])
+  @@index([voucherKind])
+  @@index([active])
+  @@index([recipientEmail])
+  @@index([senderEmail])
+  @@index([expiresAt])
+}
+
+// ===========================
+// Client Portal Models
+// ===========================
+
+enum ApplicationType {
+  VISA
+  FLIGHT
+  HOTEL
+  TOUR
+  PACKAGE
+  OTHER
+}
+
+enum ApplicationStage {
+  ENQUIRY
+  DOCUMENTS_PENDING
+  DOCUMENTS_RECEIVED
+  PROCESSING
+  SUBMITTED
+  APPROVED
+  REJECTED
+  COMPLETED
+}
+
+model PortalApplication {
+  id          String             @id @default(cuid())
+  userId      String
+  refNumber   String             @unique
+  type        ApplicationType    @default(OTHER)
+  stage       ApplicationStage   @default(ENQUIRY)
+  title       String
+  destination String?
+  travelDate  String?
+  notes       String?            @db.Text
+  adminNotes  String?            @db.Text
+  amount      Float?
+  currency    String             @default("GBP")
+  amountPaid  Float              @default(0)
+  createdAt   DateTime           @default(now())
+  updatedAt   DateTime           @updatedAt
+
+  user        User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  documents   PortalDocument[]
+  payments    PortalPayment[]
+  checklist   ChecklistItem[]
+
+  @@index([userId])
+  @@index([stage])
+  @@index([type])
+  @@index([refNumber])
+}
+
+model PortalDocument {
+  id            String   @id @default(cuid())
+  applicationId String
+  userId        String
+  name          String
+  category      String   @default("General")
+  fileUrl       String
+  fileKey       String
+  fileSize      Int?
+  mimeType      String?
+  status        String   @default("PENDING")
+  reviewNote    String?
+  uploadedAt    DateTime @default(now())
+  reviewedAt    DateTime?
+
+  application   PortalApplication @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  user          User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([applicationId])
+  @@index([userId])
+}
+
+model PortalPayment {
+  id            String   @id @default(cuid())
+  applicationId String
+  userId        String
+  amount        Float
+  currency      String   @default("GBP")
+  description   String
+  status        String   @default("PENDING")
+  method        String?
+  reference     String?
+  receiptUrl    String?
+  paidAt        DateTime?
+  createdAt     DateTime @default(now())
+
+  application   PortalApplication @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  user          User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([applicationId])
+  @@index([userId])
+}
+
+model ChecklistItem {
+  id            String    @id @default(cuid())
+  applicationId String
+  label         String
+  description   String?
+  required      Boolean   @default(true)
+  completedAt   DateTime?
+  completedBy   String?
+  order         Int       @default(0)
+
+  application   PortalApplication @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+
+  @@index([applicationId])
+}
+
+model ReferralCode {
+  id        String   @id @default(cuid())
+  userId    String   @unique
+  code      String   @unique
+  uses      Int      @default(0)
+  credits   Float    @default(0)
+  createdAt DateTime @default(now())
+
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([code])
+}

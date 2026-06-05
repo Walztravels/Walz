@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 360">
+  <defs>
+    <clipPath id="globeClip">
+      <circle cx="150" cy="148" r="138"/>
+    </clipPath>
+  </defs>
+  <!-- Globe background -->
+  <circle cx="150" cy="148" r="138" fill="#1099CC"/>
+  <!-- Curved white wave stripes clipped to circle -->
+  <g clip-path="url(#globeClip)">
+    <path d="M12,48  Q150,28  288,48  L288,68  Q150,48  12,68  Z" fill="white"/>
+    <path d="M12,90  Q150,70  288,90  L288,110 Q150,90  12,110 Z" fill="white"/>
+    <path d="M12,132 Q150,112 288,132 L288,152 Q150,132 12,152 Z" fill="white"/>
+    <path d="M12,174 Q150,154 288,174 L288,194 Q150,174 12,194 Z" fill="white"/>
+    <path d="M12,216 Q150,196 288,216 L288,236 Q150,216 12,236 Z" fill="white"/>
+    <path d="M12,258 Q150,238 288,258 L288,278 Q150,258 12,278 Z" fill="white"/>
+  </g>
+  <!-- Text -->
+  <text x="150" y="315" text-anchor="middle"
+        font-family="Georgia,'Times New Roman',serif"
+        font-size="20" font-weight="bold" fill="#1a1a1a" letter-spacing="2.5">THE WALZ TRAVELS</text>
+</svg>
