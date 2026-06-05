@@ -95,6 +95,7 @@ export const config = {
   matcher: [
     '/admin/:path*',
     '/dashboard/:path*',
+    '/portal',
     '/portal/:path*',
     '/login',
   ],
