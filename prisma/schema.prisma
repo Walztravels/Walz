@@ -1,0 +1,334 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ===========================
+// NextAuth Required Models
+// ===========================
+
+model User {
+  id               String    @id @default(cuid())
+  name             String?
+  email            String?   @unique
+  emailVerified    DateTime?
+  image            String?
+  stripeCustomerId String?   @unique
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  accounts         Account[]
+  sessions         Session[]
+  bookings         Booking[]
+  visaApplications VisaApplication[]
+  tourEnquiries    TourEnquiry[]
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@index([userId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+// ===========================
+// Travel Booking Models
+// ===========================
+
+enum BookingType {
+  FLIGHT
+  HOTEL
+  PACKAGE
+}
+
+enum BookingStatus {
+  PENDING
+  CONFIRMED
+  CANCELLED
+  COMPLETED
+  FAILED
+}
+
+enum PaymentStatus {
+  PENDING
+  PROCESSING
+  SUCCEEDED
+  FAILED
+  REFUNDED
+  CANCELLED
+}
+
+model Booking {
+  id               String        @id @default(cuid())
+  userId           String?
+  bookingReference String        @unique
+  pnr              String?
+  type             BookingType
+  status           BookingStatus @default(PENDING)
+  paymentStatus    PaymentStatus @default(PENDING)
+
+  // Pricing
+  totalAmount      Float
+  currency         String        @default("GBP")
+
+  // Stripe
+  stripePaymentIntentId String?
+  stripeClientSecret    String?
+
+  // Contact details
+  contactEmail  String
+  contactPhone  String?
+
+  // Flight details (JSON for flexibility)
+  flightDetails Json?
+
+  // Hotel details (JSON)
+  hotelDetails Json?
+
+  // Passenger details (JSON array)
+  passengers Json?
+
+  // Addons
+  addons Json?
+
+  // Metadata
+  notes     String? @db.Text
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([bookingReference])
+  @@index([pnr])
+  @@index([stripePaymentIntentId])
+  @@index([status])
+  @@index([createdAt])
+}
+
+// ===========================
+// Visa Applications
+// ===========================
+
+enum VisaApplicationStatus {
+  DRAFT
+  SUBMITTED
+  UNDER_REVIEW
+  DOCUMENTS_REQUIRED
+  APPROVED
+  REJECTED
+  WITHDRAWN
+}
+
+model VisaApplication {
+  id        String                @id @default(cuid())
+  userId    String?
+  status    VisaApplicationStatus @default(DRAFT)
+
+  // Applicant details
+  firstName   String
+  lastName    String
+  email       String
+  phone       String
+  dateOfBirth String
+  nationality String
+
+  // Travel details
+  destinationCountry String
+  visaType           String
+  travelDate         String
+  returnDate         String?
+  purpose            String
+
+  // Passport
+  passportNumber String
+  passportExpiry String
+
+  // Checklist
+  hasOnwardTicket    Boolean @default(false)
+  hasAccommodation   Boolean @default(false)
+  previousRefusal    Boolean @default(false)
+
+  // Processing
+  processingFee Float?
+  currency      String  @default("GBP")
+  referenceNumber String? @unique
+
+  additionalInfo String? @db.Text
+  notes          String? @db.Text
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([email])
+  @@index([status])
+  @@index([destinationCountry])
+}
+
+// ===========================
+// Tour Enquiries
+// ===========================
+
+enum TourEnquiryStatus {
+  NEW
+  CONTACTED
+  QUOTED
+  BOOKED
+  CANCELLED
+}
+
+model TourEnquiry {
+  id     String            @id @default(cuid())
+  userId String?
+  status TourEnquiryStatus @default(NEW)
+
+  // Contact
+  firstName String
+  lastName  String
+  email     String
+  phone     String
+
+  // Tour details
+  tourName                String
+  tourDate                String
+  groupSize               Int
+  specialRequirements     String? @db.Text
+  preferredPickupLocation String?
+
+  // Quote
+  quotedPrice Float?
+  currency    String  @default("GBP")
+
+  notes String? @db.Text
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([email])
+  @@index([status])
+  @@index([tourName])
+}
+
+// ===========================
+// Admin CRM Models
+// ===========================
+
+model SiteSetting {
+  id        String   @id @default(cuid())
+  key       String   @unique
+  value     String   @db.Text
+  label     String?
+  updatedAt DateTime @updatedAt
+}
+
+model WidgetConfig {
+  id      String  @id @default(cuid())
+  key     String  @unique
+  label   String
+  enabled Boolean @default(true)
+  order   Int     @default(0)
+}
+
+model FeaturedDeal {
+  id          String   @id @default(cuid())
+  origin      String
+  destination String
+  price       Float
+  currency    String   @default("GBP")
+  airline     String?
+  imageUrl    String?
+  active      Boolean  @default(true)
+  order       Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model TourListing {
+  id          String   @id @default(cuid())
+  name        String
+  slug        String   @unique
+  description String   @db.Text
+  highlights  String   @db.Text @default("[]")
+  price       Float
+  currency    String   @default("GBP")
+  duration    String
+  location    String
+  imageUrl    String?
+  active      Boolean  @default(true)
+  order       Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model VisaService {
+  id             String   @id @default(cuid())
+  country        String
+  flag           String?
+  visaType       String
+  processingTime String
+  fee            Float
+  currency       String   @default("GBP")
+  requirements   String   @db.Text @default("[]")
+  imageUrl       String?
+  active         Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@unique([country, visaType])
+}
+
+model SiteImage {
+  id        String   @id @default(cuid())
+  key       String   @unique
+  label     String
+  url       String
+  bucket    String   @default("walz-images")
+  path      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
