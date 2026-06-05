@@ -1,6 +1,5 @@
 'use client'
 
-// Design enhanced by v0
 export const dynamic = 'force-dynamic'
 
 import { HeroSection } from '@/components/home/HeroSection'
