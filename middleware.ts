@@ -69,29 +69,21 @@ export async function middleware(req: NextRequest) {
   }
 
   // ── User-facing protected routes (next-auth) ──────────────────────────────────
-  // /portal/login is the portal's own login page — must stay public
-  const isPortalLogin = pathname === '/portal/login'
   const protectedRoutes = ['/dashboard', '/portal']
-  if (!isPortalLogin && protectedRoutes.some((route) => pathname.startsWith(route))) {
+  if (protectedRoutes.some((route) => pathname.startsWith(route))) {
     const token = await getToken({ req })
     if (!token) {
-      return NextResponse.redirect(new URL(`/portal/login?callbackUrl=${encodeURIComponent(pathname)}`, req.url))
+      // Redirect to main /login with callbackUrl so they land on portal after sign-in
+      return NextResponse.redirect(
+        new URL(`/login?callbackUrl=${encodeURIComponent(pathname)}`, req.url)
+      )
     }
   }
 
-  // Redirect already-authenticated users away from portal login
-  if (isPortalLogin) {
-    const token = await getToken({ req })
-    if (token) {
-      const callbackUrl = req.nextUrl.searchParams.get('callbackUrl') || '/portal/dashboard'
-      return NextResponse.redirect(new URL(callbackUrl, req.url))
-    }
-  }
-
+  // Redirect already-authenticated users away from /login
   if (pathname === '/login') {
     const token = await getToken({ req })
     if (token) {
-      // Honour an explicit callbackUrl, otherwise send to portal dashboard
       const callbackUrl = req.nextUrl.searchParams.get('callbackUrl') || '/portal/dashboard'
       return NextResponse.redirect(new URL(callbackUrl, req.url))
     }
@@ -105,7 +97,7 @@ export const config = {
     '/admin/:path*',
     '/dashboard/:path*',
     '/portal',
-    '/portal/:path*',
+    '/portal/((?!login$).*)',   // protect /portal/* but NOT /portal/login
     '/login',
   ],
 }

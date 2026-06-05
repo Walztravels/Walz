@@ -7,16 +7,17 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import { signIn, useSession } from 'next-auth/react'
 import Link from 'next/link'
 import Image from 'next/image'
-import { Mail, Lock, User, Loader2, Eye, EyeOff, AlertCircle } from 'lucide-react'
+import { Mail, Lock, User, Loader2, Eye, EyeOff, AlertCircle, CheckCircle } from 'lucide-react'
 
 function LoginContent() {
   const router       = useRouter()
   const searchParams = useSearchParams()
   const { status }   = useSession()
 
-  const callbackUrl = searchParams.get('callbackUrl') || '/dashboard'
+  const callbackUrl = searchParams.get('callbackUrl') || '/portal/dashboard'
   const errorParam  = searchParams.get('error')
-  const modeParam   = searchParams.get('signup')
+  const modeParam     = searchParams.get('signup')
+  const verifiedParam = searchParams.get('verified')
 
   const [tab, setTab]           = useState<'signin' | 'signup'>(modeParam === 'true' ? 'signup' : 'signin')
   const [name, setName]         = useState('')
@@ -124,6 +125,14 @@ function LoginContent() {
           </div>
 
           <div className="p-7 lg:p-8">
+
+            {/* Email verified success banner */}
+            {verifiedParam === 'true' && (
+              <div className="flex items-start gap-3 p-3.5 bg-green-50 border border-green-200 rounded-xl text-green-700 text-sm mb-5">
+                <CheckCircle className="w-4 h-4 mt-0.5 flex-shrink-0" />
+                <span>Email verified! Sign in below to access your portal.</span>
+              </div>
+            )}
 
             {/* Error banner */}
             {error && (

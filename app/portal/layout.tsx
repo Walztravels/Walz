@@ -10,7 +10,7 @@ export default async function PortalLayout({ children }: { children: React.React
   const session = await getServerSession(authOptions)
 
   if (!session) {
-    redirect('/portal/login')
+    redirect('/login?callbackUrl=/portal/dashboard')
   }
 
   return (

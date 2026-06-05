@@ -68,7 +68,7 @@ export async function GET(req: NextRequest) {
             and access your gift vouchers — all from your personal dashboard.
           </p>
           <div style="text-align:center;margin:0 0 28px;">
-            <a href="https://walztravels.us/dashboard"
+            <a href="https://walztravels.us/portal/dashboard"
                style="display:inline-block;background:linear-gradient(135deg,#C9A84C,#E8C97A);color:#0B1F3A;font-weight:700;padding:15px 32px;border-radius:12px;text-decoration:none;font-size:15px;">
               Go to My Dashboard →
             </a>
@@ -102,7 +102,7 @@ export async function GET(req: NextRequest) {
     }).catch(err => console.error('Welcome email error:', err))
   }
 
-  return NextResponse.redirect(`${baseUrl}/account-created`)
+  return NextResponse.redirect(`${baseUrl}/login?verified=true&callbackUrl=/portal/dashboard`)
 }
 
 // POST /api/auth/verify-email  { email }  →  resend verification
