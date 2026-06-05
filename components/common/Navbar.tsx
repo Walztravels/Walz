@@ -15,6 +15,8 @@ import {
   LogOut,
   LayoutDashboard,
   Globe,
+  MessageCircle,
+  Gift,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
@@ -24,6 +26,7 @@ const navLinks = [
   { href: '/hotels', label: 'Hotels', icon: Hotel },
   { href: '/tours', label: 'Tours', icon: Map },
   { href: '/visa', label: 'Visa', icon: FileText },
+  { href: '/gift-vouchers', label: 'Gift Vouchers', icon: Gift },
 ]
 
 export function Navbar() {
@@ -53,11 +56,31 @@ export function Navbar() {
 
   return (
     <>
+      {/* Top Utility Bar */}
+      <div className="bg-walz-deep-navy border-b border-walz-slate/50 hidden lg:block">
+        <div className="container-walz">
+          <div className="flex items-center justify-between h-10 text-xs">
+            <p className="text-walz-muted">
+              Visa support, flights, hotels, tours and group travel — with expert help from Walz Travels.
+            </p>
+            <a
+              href="https://wa.me/447398753797"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center gap-2 text-green-400 hover:text-green-300 font-medium transition-colors"
+            >
+              <MessageCircle className="w-4 h-4" />
+              WhatsApp: +44 7398 753797
+            </a>
+          </div>
+        </div>
+      </div>
+
       <header
         className={cn(
-          'fixed top-0 left-0 right-0 z-50 transition-all duration-300',
+          'fixed top-0 lg:top-10 left-0 right-0 z-50 transition-all duration-300',
           isScrolled
-            ? 'bg-walz-deep-navy/95 backdrop-blur-md shadow-luxury'
+            ? 'lg:top-0 bg-walz-deep-navy/95 backdrop-blur-md shadow-luxury'
             : 'bg-walz-deep-navy'
         )}
       >
@@ -215,6 +238,17 @@ export function Navbar() {
             </button>
           </div>
 
+          {/* Mobile WhatsApp Banner */}
+          <a
+            href="https://wa.me/447398753797"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center gap-2 px-6 py-3 bg-green-600 text-white text-sm font-medium"
+          >
+            <MessageCircle className="w-4 h-4" />
+            WhatsApp: +44 7398 753797
+          </a>
+
           <nav className="flex-1 overflow-y-auto py-4">
             {navLinks.map(({ href, label, icon: Icon }) => (
               <Link
@@ -280,7 +314,7 @@ export function Navbar() {
       </div>
 
       {/* Spacer for fixed navbar */}
-      <div className="h-16 lg:h-20" />
+      <div className="h-16 lg:h-[7.5rem]" />
     </>
   )
 }

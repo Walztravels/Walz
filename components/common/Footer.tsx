@@ -1,5 +1,5 @@
 import Link from 'next/link'
-import { Globe, Mail, MapPin, MessageCircle, Award, Lock } from 'lucide-react'
+import { Globe, Mail, MapPin, MessageCircle, Award, Lock, Phone } from 'lucide-react'
 
 const footerLinks = {
   services: [
@@ -46,11 +46,11 @@ function FacebookIcon() {
   )
 }
 
-// Snapchat ghost SVG
-function SnapchatIcon() {
+// X (Twitter) SVG
+function XIcon() {
   return (
     <svg className="w-4 h-4" viewBox="0 0 24 24" fill="currentColor">
-      <path d="M12.166 1.001c.096 0 .192.003.288.008 1.808.104 3.454.933 4.636 2.306.792.916 1.228 2.022 1.285 3.29l.012.52.003.337c0 .16-.005.32-.015.48l-.006.082.08.032c.38.147.81.219 1.285.219.126 0 .255-.005.384-.015l.104-.009a.48.48 0 0 1 .347.154.466.466 0 0 1-.04.66c-.388.329-.796.594-1.214.79a5.23 5.23 0 0 1-.67.258l-.116.032-.013.12a5.516 5.516 0 0 1-.111.633c-.028.107-.082.2-.154.27-.07.066-.158.105-.256.105-.08 0-.157-.02-.23-.06l-.164-.09c-.52-.284-1.098-.428-1.717-.428-.356 0-.703.054-1.033.163l-.146.055c.21.405.37.833.472 1.276.13.573.165 1.18.102 1.804a6.32 6.32 0 0 1-.52 1.928c-.414.884-1.023 1.612-1.763 2.108a4.72 4.72 0 0 1-1.007.492l-.11.034c.007.038.017.075.028.113.07.24.185.465.34.669.322.425.77.754 1.296.952.2.075.394.13.58.163.228.04.385.052.456.052.153 0 .3-.017.437-.051l.08-.022a.474.474 0 0 1 .403.086.47.47 0 0 1 .161.363v.02a.473.473 0 0 1-.31.44 6.296 6.296 0 0 1-1.028.265c-.263.044-.528.068-.79.072l-.1.001c-.3 0-.573-.036-.804-.107a3.822 3.822 0 0 1-.514-.196c-.418-.2-.8-.476-1.13-.815-.16-.162-.298-.328-.413-.496l-.046-.07-.048.07c-.115.168-.253.334-.413.496-.33.34-.712.615-1.13.815a3.822 3.822 0 0 1-.514.196c-.23.071-.503.107-.804.107l-.1-.001a5.71 5.71 0 0 1-.79-.072 6.296 6.296 0 0 1-1.028-.265.473.473 0 0 1-.31-.44v-.02a.47.47 0 0 1 .161-.363.474.474 0 0 1 .403-.086l.08.022c.137.034.284.051.437.051.07 0 .228-.013.456-.052.186-.033.38-.088.58-.163.526-.198.974-.527 1.296-.952.155-.204.27-.429.34-.669.011-.038.021-.075.028-.113l-.11-.034a4.72 4.72 0 0 1-1.007-.492c-.74-.496-1.349-1.224-1.763-2.108a6.32 6.32 0 0 1-.52-1.928c-.063-.624-.028-1.23.102-1.804.102-.443.262-.871.472-1.276l-.146-.055a3.372 3.372 0 0 0-1.033-.163c-.619 0-1.197.144-1.717.428l-.164.09c-.073.04-.15.06-.23.06-.098 0-.186-.04-.256-.105a.568.568 0 0 1-.154-.27 5.516 5.516 0 0 1-.111-.633l-.013-.12-.116-.032a5.23 5.23 0 0 1-.67-.258c-.418-.196-.826-.461-1.214-.79a.466.466 0 0 1-.04-.66.48.48 0 0 1 .347-.154l.104.009c.129.01.258.015.384.015.475 0 .905-.072 1.285-.219l.08-.032-.006-.082a7.29 7.29 0 0 1-.015-.48l.003-.337.012-.52c.057-1.268.493-2.374 1.285-3.29C8.546 1.94 10.192 1.11 12 1.005l.166-.004z"/>
+      <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/>
     </svg>
   )
 }
@@ -58,7 +58,7 @@ function SnapchatIcon() {
 const socialLinks = [
   { label: 'Instagram', href: 'https://instagram.com/walztravels', Icon: InstagramIcon },
   { label: 'Facebook',  href: 'https://facebook.com/walztravels',  Icon: FacebookIcon  },
-  { label: 'Snapchat',  href: 'https://snapchat.com/add/walztravels', Icon: SnapchatIcon },
+  { label: 'X',  href: 'https://x.com/walztravels', Icon: XIcon },
 ]
 
 export function Footer() {
@@ -87,8 +87,7 @@ export function Footer() {
             </Link>
 
             <p className="text-walz-muted text-sm leading-relaxed mb-6 max-w-sm">
-              Your trusted partner for luxury travel experiences worldwide.
-              IATA certified specialists in flights, tours, visas and hotels.
+              Walz Travels helps clients book flights, hotels, tours, visas, insurance and transfers with expert support from start to finish.
             </p>
 
             {/* Contact Info */}
@@ -106,22 +105,6 @@ export function Footer() {
                 <div>
                   <div className="text-walz-off-white font-medium text-xs">WhatsApp UK</div>
                   <div>+44 7398 753797</div>
-                </div>
-              </a>
-
-              {/* WhatsApp Canada */}
-              <a
-                href="https://wa.me/15557107823"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="flex items-center gap-3 text-sm text-walz-muted hover:text-walz-gold transition-colors group"
-              >
-                <div className="w-8 h-8 rounded-lg bg-green-600 flex items-center justify-center flex-shrink-0 group-hover:bg-green-500 transition-colors">
-                  <MessageCircle className="w-4 h-4 text-white" />
-                </div>
-                <div>
-                  <div className="text-walz-off-white font-medium text-xs">WhatsApp Canada</div>
-                  <div>+1 555 710 7823</div>
                 </div>
               </a>
 
@@ -147,6 +130,22 @@ export function Footer() {
                   <div className="text-walz-off-white font-medium text-xs">Office</div>
                   <div>1 Commercial Street, London, E1 6RF</div>
                 </div>
+              </div>
+            </div>
+
+            {/* Additional Contact Info */}
+            <div className="p-4 rounded-xl bg-walz-slate/30 border border-walz-slate/50 mb-6">
+              <p className="text-walz-gold text-xs font-semibold mb-2">Enquiries</p>
+              <div className="space-y-1 text-sm text-walz-muted">
+                <p>Visa enquiries: <a href="mailto:visa@walztravels.com" className="text-walz-off-white hover:text-walz-gold">visa@walztravels.com</a></p>
+                <p>Group & corporate: <a href="mailto:groups@walztravels.com" className="text-walz-off-white hover:text-walz-gold">groups@walztravels.com</a></p>
+              </div>
+              <div className="mt-3 pt-3 border-t border-walz-slate/50">
+                <p className="text-walz-gold text-xs font-semibold mb-1">Emergency Support</p>
+                <a href="tel:+19843880110" className="flex items-center gap-2 text-walz-off-white hover:text-walz-gold">
+                  <Phone className="w-4 h-4" />
+                  +1 984 388 0110
+                </a>
               </div>
             </div>
 

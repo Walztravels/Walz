@@ -3,46 +3,41 @@
 export const dynamic = 'force-dynamic'
 
 import { HeroSection } from '@/components/home/HeroSection'
-import { TrendingDestinations } from '@/components/home/TrendingDestinations'
+import { HeroOffersStrip } from '@/components/home/HeroOffersStrip'
+import { TrustStrip } from '@/components/home/TrustStrip'
+import { VisaConversionSection } from '@/components/home/VisaConversionSection'
+import { PackageGroupSection } from '@/components/home/PackageGroupSection'
 import { WhyWalzSection } from '@/components/home/WhyWalzSection'
-import { ToursHighlight } from '@/components/home/ToursHighlight'
+import { FAQSection } from '@/components/home/FAQSection'
+import { LeadCaptureSection } from '@/components/home/LeadCaptureSection'
 import Link from 'next/link'
-import { Star, Quote, FileText, Mail, ArrowRight, Check, Gift, BookOpen, Sparkles } from 'lucide-react'
+import { Star, Quote, Mail, ArrowRight, Check, Gift, BookOpen, Sparkles, MessageCircle } from 'lucide-react'
 
 const testimonials = [
   {
-    name: 'Amara Osei',
-    location: 'London, UK',
+    name: 'Adaeze N.',
+    location: 'Lagos',
     rating: 5,
-    text: "Walz Travels made our Dubai honeymoon absolutely perfect. From the business class flights to the Burj Al Arab stay, every detail was flawless. The WhatsApp support was incredible — they were available even at 2am when I had a question!",
-    trip: 'Dubai Honeymoon',
-    initials: 'AO',
+    text: "Walz Travels got my UK visa approved in 3 weeks after two previous refusals. The team handled everything for me.",
+    service: 'Visa Support',
+    initials: 'AN',
   },
   {
-    name: 'Patrick Brennan',
-    location: 'Dublin, Ireland',
+    name: 'Kwame A.',
+    location: 'Accra',
     rating: 5,
-    text: "Booked the private Dublin tour for my parents' anniversary and they were blown away. The guide was so knowledgeable and the whole day was seamlessly organised. Already planning to use Walz Travels for our New York trip.",
-    trip: 'Dublin Private Tour',
-    initials: 'PB',
+    text: "First attempt Canada visa approval. The document checklist was perfect and the team guided me every step of the way.",
+    service: 'Canada Visa',
+    initials: 'KA',
   },
   {
-    name: 'Priya Sharma',
-    location: 'Manchester, UK',
+    name: 'Blessing O.',
+    location: 'London',
     rating: 5,
-    text: "Getting a US visa seemed impossible until Walz Travels stepped in. They guided us through every single document, followed up with the embassy, and we had our visas within 3 weeks. Worth every penny.",
-    trip: 'US Visa Assistance',
-    initials: 'PS',
+    text: "Dubai business trip sorted in 48 hours. Visa, flights and hotel all handled. Outstanding service.",
+    service: 'UAE Business Travel',
+    initials: 'BO',
   },
-]
-
-const visaCountries = [
-  { name: 'United Arab Emirates', code: 'uae', flag: '🇦🇪', processingTime: '3–5 days', from: 85 },
-  { name: 'United States', code: 'usa', flag: '🇺🇸', processingTime: '15–30 days', from: 185 },
-  { name: 'Canada', code: 'canada', flag: '🇨🇦', processingTime: '10–20 days', from: 100 },
-  { name: 'Schengen Area', code: 'schengen', flag: '🇪🇺', processingTime: '10–15 days', from: 90 },
-  { name: 'Australia', code: 'australia', flag: '🇦🇺', processingTime: '20–30 days', from: 145 },
-  { name: 'China', code: 'china', flag: '🇨🇳', processingTime: '4–5 days', from: 151 },
 ]
 
 const blogArticles = [
@@ -57,14 +52,20 @@ export default function HomePage() {
       {/* Hero */}
       <HeroSection />
 
-      {/* Trending Destinations */}
-      <TrendingDestinations />
+      {/* Popular Services Strip */}
+      <HeroOffersStrip />
 
-      {/* Why Walz */}
+      {/* Trust & Proof Strip */}
+      <TrustStrip />
+
+      {/* Visa Conversion Section */}
+      <VisaConversionSection />
+
+      {/* Package & Group Travel */}
+      <PackageGroupSection />
+
+      {/* Why Walz Travels */}
       <WhyWalzSection />
-
-      {/* Tours Highlight */}
-      <ToursHighlight />
 
       {/* Testimonials */}
       <section className="py-20 lg:py-28 bg-luxury-dark relative overflow-hidden">
@@ -79,10 +80,10 @@ export default function HomePage() {
               <span>Client Stories</span>
             </div>
             <h2 className="section-title-light text-balance mb-4">
-              Journeys That Changed Lives
+              What clients say about Walz Travels
             </h2>
             <p className="text-walz-muted max-w-xl mx-auto">
-              Don&apos;t just take our word for it — hear from the travellers we&apos;ve had the privilege of serving.
+              From honeymoon planning to visa support, our clients trust us because we stay involved until the journey is complete.
             </p>
           </div>
 
@@ -92,7 +93,12 @@ export default function HomePage() {
                 key={testimonial.name}
                 className="card-glass p-7 hover:bg-white/10 transition-all duration-300 group"
               >
-                <Quote className="w-10 h-10 text-walz-gold/30 mb-5" />
+                {/* Service Label */}
+                <div className="inline-flex px-3 py-1.5 rounded-full bg-walz-gold/20 text-walz-gold text-xs font-semibold mb-5">
+                  {testimonial.service}
+                </div>
+
+                <Quote className="w-8 h-8 text-walz-gold/30 mb-4" />
 
                 <p className="text-walz-white/90 text-sm leading-relaxed mb-6">
                   &ldquo;{testimonial.text}&rdquo;
@@ -111,11 +117,6 @@ export default function HomePage() {
                       ))}
                     </div>
                   </div>
-                  <div className="flex-shrink-0">
-                    <span className="inline-flex px-3 py-1.5 rounded-full bg-walz-gold/20 text-walz-gold text-[10px] font-semibold">
-                      {testimonial.trip}
-                    </span>
-                  </div>
                 </div>
               </div>
             ))}
@@ -123,53 +124,14 @@ export default function HomePage() {
         </div>
       </section>
 
-      {/* Visa Services */}
-      <section className="py-20 lg:py-28 bg-white relative">
-        <div className="container-walz">
-          <div className="text-center mb-12">
-            <div className="section-label justify-center mb-4">
-              <FileText className="w-4 h-4" />
-              <span>Visa Services</span>
-            </div>
-            <h2 className="section-title text-balance mb-4">
-              Expert Visa Assistance
-            </h2>
-            <p className="text-walz-muted max-w-xl mx-auto">
-              Our visa specialists handle everything from document preparation to application submission,
-              giving you the best chance of approval.
-            </p>
-          </div>
+      {/* FAQ Section */}
+      <FAQSection />
 
-          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 lg:gap-5 mb-12">
-            {visaCountries.map((country) => (
-              <Link
-                key={country.code}
-                href={`/visa/${country.code}`}
-                className="group card-elevated p-5 text-center hover:border-walz-gold/30"
-              >
-                <div className="text-4xl mb-3">{country.flag}</div>
-                <div className="text-sm font-semibold text-walz-deep-navy leading-tight mb-1.5">
-                  {country.name}
-                </div>
-                <div className="text-xs text-walz-muted mb-2">{country.processingTime}</div>
-                <div className="text-sm font-bold text-walz-gold">From £{country.from}</div>
-              </Link>
-            ))}
-          </div>
-
-          <div className="text-center">
-            <Link href="/visa">
-              <button className="btn-gold inline-flex items-center gap-2 px-8 py-3.5 rounded-xl">
-                <span>All Visa Services</span>
-                <ArrowRight className="w-4 h-4" />
-              </button>
-            </Link>
-          </div>
-        </div>
-      </section>
+      {/* Lead Capture Section */}
+      <LeadCaptureSection />
 
       {/* Gift Vouchers */}
-      <section className="py-14 lg:py-20 bg-luxury-dark relative overflow-hidden">
+      <section className="py-14 lg:py-20 bg-walz-cream relative overflow-hidden">
         <div className="absolute inset-0 bg-gradient-to-r from-walz-gold/5 via-transparent to-walz-gold/5" />
         <div className="container-walz relative">
           <div className="flex flex-col md:flex-row items-center justify-between gap-8">
@@ -178,7 +140,7 @@ export default function HomePage() {
                 <Gift className="w-8 h-8 text-walz-deep-navy" />
               </div>
               <div>
-                <h3 className="font-display text-2xl lg:text-3xl font-bold text-walz-white mb-1">
+                <h3 className="font-display text-2xl lg:text-3xl font-bold text-walz-deep-navy mb-1">
                   Give the Gift of Travel
                 </h3>
                 <p className="text-walz-muted text-sm lg:text-base">
@@ -225,6 +187,20 @@ export default function HomePage() {
             ))}
           </div>
 
+          {/* WhatsApp CTA under articles */}
+          <div className="text-center mt-8">
+            <p className="text-walz-muted text-sm mb-3">Need help with any of these routes?</p>
+            <a
+              href="https://wa.me/447398753797"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-2 text-green-600 hover:text-green-500 font-semibold text-sm"
+            >
+              <MessageCircle className="w-4 h-4" />
+              Talk to Walz Travels
+            </a>
+          </div>
+
           <div className="text-center mt-10">
             <Link href="/blog">
               <button className="inline-flex items-center gap-2 px-6 py-3 rounded-xl border-2 border-walz-border text-walz-deep-navy hover:bg-walz-deep-navy hover:text-walz-white hover:border-walz-deep-navy transition-all text-sm font-semibold">
@@ -237,18 +213,17 @@ export default function HomePage() {
       </section>
 
       {/* Newsletter */}
-      <section className="py-20 lg:py-24 bg-walz-cream">
+      <section className="py-20 lg:py-24 bg-white">
         <div className="container-walz">
           <div className="max-w-2xl mx-auto text-center">
             <div className="w-16 h-16 rounded-2xl walz-gold-gradient flex items-center justify-center mx-auto mb-6 shadow-gold-glow">
               <Mail className="w-8 h-8 text-walz-deep-navy" />
             </div>
             <h2 className="section-title mb-4">
-              Get Exclusive Travel Deals
+              Get travel deals, visa updates, and smarter travel tips
             </h2>
             <p className="text-walz-muted mb-8 text-lg">
-              Subscribe to receive hand-picked deals, travel inspiration and exclusive offers
-              from Walz Travels — straight to your inbox.
+              Subscribe to receive hand-picked deals, visa guides and exclusive offers from Walz Travels — straight to your inbox.
             </p>
             <form
               className="flex flex-col sm:flex-row gap-3 max-w-lg mx-auto"
