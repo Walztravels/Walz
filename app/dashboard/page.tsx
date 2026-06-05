@@ -302,7 +302,7 @@ export default async function DashboardPage() {
                   {visaApplications.slice(0, 4).map((app) => (
                     <div key={app.id} className="flex items-center justify-between text-sm">
                       <div>
-                        <span className="text-[#0B1F3A] font-medium">{app.destinationCountry}</span>
+                        <span className="text-[#0B1F3A] font-medium">{app.destinationIso2}</span>
                         <span className="text-gray-400 text-xs ml-1">— {app.visaType}</span>
                       </div>
                       <span className={cn(

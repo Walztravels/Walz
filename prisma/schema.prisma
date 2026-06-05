@@ -38,6 +38,10 @@ model User {
   portalDocuments     PortalDocument[]
   portalPayments      PortalPayment[]
   referralCode        ReferralCode?
+  purchasedVouchers   Voucher[]  @relation("VoucherPurchased")
+  receivedVouchers    Voucher[]  @relation("VoucherReceived")
+  passportVault       PassportVault?
+  applicationDrafts   ApplicationDraft[]
 }
 
 model Account {
@@ -155,65 +159,125 @@ model Booking {
 }
 
 // ===========================
-// Visa Applications
+// Visa Applications (Full)
+// Statuses (String): draft | received | documents_pending | under_review |
+//   ready_to_submit | submitted_to_embassy | decision_pending | approved | refused
 // ===========================
 
-enum VisaApplicationStatus {
-  DRAFT
-  SUBMITTED
-  UNDER_REVIEW
-  DOCUMENTS_REQUIRED
-  APPROVED
-  REJECTED
-  WITHDRAWN
-}
-
 model VisaApplication {
-  id        String                @id @default(cuid())
-  userId    String?
-  status    VisaApplicationStatus @default(DRAFT)
+  id              String    @id @default(cuid())
+  referenceNumber String    @unique
+  userId          String?
+  destinationIso2 String
+  visaType        String    @default("tourist")
 
-  // Applicant details
-  firstName   String
-  lastName    String
-  email       String
-  phone       String
-  dateOfBirth String
-  nationality String
+  // ── Personal ────────────────────────────────────
+  firstName         String?
+  middleName        String?
+  lastName          String?
+  dateOfBirth       DateTime?
+  sex               String?
+  placeOfBirth      String?
+  nationality       String?
+  maritalStatus     String?
 
-  // Travel details
-  destinationCountry String
-  visaType           String
-  travelDate         String
-  returnDate         String?
-  purpose            String
+  // ── Passport ────────────────────────────────────
+  passportNumber      String?
+  passportType        String?
+  passportIssueDate   DateTime?
+  passportExpiryDate  DateTime?
+  issuingAuthority    String?
+  issuingCountry      String?
 
-  // Passport
-  passportNumber String
-  passportExpiry String
+  // ── Contact ─────────────────────────────────────
+  phone        String?
+  email        String?
+  homeAddress  String?
+  homeAddress2 String?
+  city         String?
+  stateRegion  String?
+  country      String?
+  postalCode   String?
 
-  // Checklist
-  hasOnwardTicket    Boolean @default(false)
-  hasAccommodation   Boolean @default(false)
-  previousRefusal    Boolean @default(false)
+  // ── Employment ──────────────────────────────────
+  employmentStatus String?
+  employerName     String?
+  jobTitle         String?
+  employerAddress  String?
+  monthlyIncome    String?
 
-  // Processing
-  processingFee Float?
-  currency      String  @default("GBP")
-  referenceNumber String? @unique
+  // ── Travel ──────────────────────────────────────
+  arrivalDate          DateTime?
+  returnDate           DateTime?
+  purposeOfVisit       String?
+  accommodationName    String?
+  accommodationAddress String?
+  portOfEntry          String?
 
-  additionalInfo String? @db.Text
-  notes          String? @db.Text
+  // ── Visa history ────────────────────────────────
+  previousRefusal        Boolean @default(false)
+  previousRefusalDetails String?
+  previousVisits         Boolean @default(false)
+  previousVisitDetails   String?
+
+  // ── Background ──────────────────────────────────
+  criminalRecord       Boolean @default(false)
+  communicableDisease  Boolean @default(false)
+  deportedBefore       Boolean @default(false)
+
+  // ── Country-specific extra fields (JSON) ────────
+  countrySpecific Json @default("{}")
+
+  // ── Declaration ─────────────────────────────────
+  declarationAccurate  Boolean @default(false)
+  declarationAuthorise Boolean @default(false)
+  declarationFeePolicy Boolean @default(false)
+
+  // ── Status ──────────────────────────────────────
+  status  String @default("draft")
+  isDraft Boolean @default(true)
+
+  // ── Admin ───────────────────────────────────────
+  assignedTo       String?
+  embassyReference String?
+  submissionDate   DateTime?
+  decisionDate     DateTime?
+  decisionNotes    String?   @db.Text
+  govtFeeInstructions String? @db.Text
+
+  // ── Payment ─────────────────────────────────────
+  serviceFeePaid          Boolean  @default(false)
+  serviceFeeAmount        Decimal?
+  serviceFeeCurrency      String   @default("USD")
+  stripePaymentIntentId   String?
+  govtFeePaid             Boolean  @default(false)
+  govtFeeAmount           Decimal?
+
+  // ── PDF ─────────────────────────────────────────
+  pdfUrl String?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+  user  User?                  @relation(fields: [userId], references: [id], onDelete: SetNull)
+  notes VisaApplicationNote[]
 
   @@index([userId])
-  @@index([email])
   @@index([status])
-  @@index([destinationCountry])
+  @@index([destinationIso2])
+  @@index([referenceNumber])
+}
+
+model VisaApplicationNote {
+  id            String          @id @default(cuid())
+  applicationId String
+  authorName    String
+  content       String          @db.Text
+  createdAt     DateTime        @default(now())
+
+  application VisaApplication @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+
+  @@index([applicationId])
 }
 
 // ===========================
@@ -453,6 +517,12 @@ model Voucher {
   status                String    @default("ACTIVE") // ACTIVE | PURCHASED | SENT | REDEEMED | EXPIRED | CANCELLED
   active                Boolean   @default(true)
 
+  // Owner / purchaser — links to portal account
+  purchasedByUserId     String?
+  purchasedByUser       User?     @relation("VoucherPurchased", fields: [purchasedByUserId], references: [id], onDelete: SetNull)
+  recipientUserId       String?
+  recipientUser         User?     @relation("VoucherReceived",  fields: [recipientUserId],  references: [id], onDelete: SetNull)
+
   // Sender (gift vouchers purchased by users)
   senderName            String?
   senderEmail           String?
@@ -489,6 +559,8 @@ model Voucher {
   @@index([recipientEmail])
   @@index([senderEmail])
   @@index([expiresAt])
+  @@index([purchasedByUserId])
+  @@index([recipientUserId])
 }
 
 // ===========================
@@ -612,4 +684,146 @@ model ReferralCode {
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([code])
+}
+
+// ===========================
+// Visa Intelligence Hub
+// ===========================
+
+model VisaRule {
+  passportIso2     String
+  destinationIso2  String
+  ruleType         String   // visa_required | visa_free | evisa | visa_on_arrival | eta
+  maxDays          Int?
+  notes            String?
+  updatedAt        DateTime @updatedAt
+
+  @@id([passportIso2, destinationIso2])
+  @@index([passportIso2])
+  @@index([destinationIso2])
+}
+
+model CountryPortal {
+  destinationIso2   String   @id
+  countryName       String
+  flagEmoji         String?
+  region            String?
+  portalUrl         String?
+  embassyLocatorUrl String?
+  walzFeeUsd        Float    @default(0)
+  walzFeeNgn        Float    @default(0)
+  govtFeeUsd        Float    @default(0)
+  govtFeeAmount     Float    @default(0)
+  govtFeeCurrency   String   @default("USD")
+  processingDaysMin Int      @default(1)
+  processingDaysMax Int      @default(30)
+  maxStayDays       Int      @default(30)
+  validityDays      Int      @default(90)
+  singleOrMultiple  String   @default("single")
+  requiredDocuments String[]
+  healthRequirements Json    @default("{}")
+  jadeTips          String?
+  commonRefusals    String[]
+  advisoryLevel     Int      @default(1)
+  updatedAt         DateTime @updatedAt
+
+  @@index([region])
+  @@index([advisoryLevel])
+}
+
+model PassportVault {
+  id                     String    @id @default(cuid())
+  userId                 String    @unique
+  givenNames             String?
+  surname                String?
+  sex                    String?
+  dateOfBirth            DateTime?
+  placeOfBirth           String?
+  nationality            String?
+  passportIso2           String?
+  dualNationality        String?
+  passportNumber         String?
+  passportType           String    @default("ordinary")
+  issueDate              DateTime?
+  expiryDate             DateTime?
+  issuingAuthority       String?
+  employmentStatus       String?
+  employerName           String?
+  jobTitle               String?
+  incomeRange            String?
+  phone                  String?
+  homeAddress            String?
+  city                   String?
+  stateRegion            String?
+  country                String?
+  postalCode             String?
+  criminalRecord         Boolean   @default(false)
+  priorVisaDenial        Boolean   @default(false)
+  priorVisaDenialDetails String?
+  travelHistory          Json      @default("[]")
+  emergencyContactName   String?
+  emergencyContactPhone  String?
+  isSetupComplete        Boolean   @default(false)
+  updatedAt              DateTime  @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model ApplicationDraft {
+  id                String   @id @default(cuid())
+  userId            String
+  destinationIso2   String?
+  serviceType       String?
+  draftData         Json     @default("{}")
+  status            String   @default("draft")
+  walzApplicationId String?
+  submittedToPortal Boolean  @default(false)
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([status])
+}
+
+model TravelAdvisory {
+  destinationIso2 String   @id
+  advisoryLevel   Int      @default(1)
+  advisoryText    String?
+  message         String?
+  sourceUrl       String?
+  cachedAt        DateTime @default(now())
+}
+
+model VisaFreeCountry {
+  id               String   @id @default(cuid())
+  passportCountry  String
+  destinationIso2  String
+  destinationName  String?
+  stayDays         Int?
+  conditions       String?
+  entryRequirements String[]
+  notes            String?
+
+  @@index([passportCountry])
+  @@index([destinationIso2])
+}
+
+model DocumentGuide {
+  id              String   @id @default(cuid())
+  visaType        String
+  destinationIso2 String?
+  documentName    String
+  whatItIs        String?
+  whyNeeded       String?
+  whatItMustShow  Json     @default("[]")
+  commonMistakes  Json     @default("[]")
+  jadeTip         String?
+  updatedAt       DateTime @updatedAt
+
+  @@index([destinationIso2])
+  @@index([visaType])
 }

@@ -1,110 +1,174 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import Link from 'next/link'
 import { useSession, signOut } from 'next-auth/react'
 import {
-  Menu,
-  X,
-  Plane,
-  Hotel,
-  Map,
-  FileText,
-  ChevronDown,
-  User,
-  LogOut,
-  LayoutDashboard,
-  Gift,
-  MessageCircle,
+  Menu, X, Plane, Hotel, Map, FileText, ChevronDown,
+  User, LogOut, LayoutDashboard, Gift, MessageCircle,
+  Upload, CreditCard, Users, UserCircle, Globe,
 } from 'lucide-react'
 import Image from 'next/image'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 
 const navLinks = [
-  { href: '/flights', label: 'Flights', icon: Plane },
-  { href: '/hotels', label: 'Hotels', icon: Hotel },
-  { href: '/tours', label: 'Tours', icon: Map },
-  { href: '/visa', label: 'Visa', icon: FileText },
-  { href: '/gift', label: 'Gift Vouchers', icon: Gift },
+  { href: '/flights', label: 'Flights',       icon: Plane    },
+  { href: '/hotels',  label: 'Hotels',         icon: Hotel    },
+  { href: '/tours',   label: 'Tours',          icon: Map      },
+  { href: '/gift',    label: 'Gift Vouchers',  icon: Gift     },
+]
+
+const visaDropdownLinks = [
+  { href: '/visa',           label: 'Visa Intelligence',  sub: 'Check any passport + destination', icon: Globe,    divider: false },
+  { href: '/visa#checker',   label: 'Check Requirements', sub: 'Instant visa requirement lookup',  icon: FileText, divider: false },
+  { href: '/visa/uk',        label: 'UK Visa',            sub: 'British visa requirements',        icon: FileText, divider: true  },
+  { href: '/visa/canada',    label: 'Canada Visa',        sub: 'eTA & visitor visa',               icon: FileText, divider: false },
+  { href: '/visa/uae',       label: 'UAE Visa',           sub: 'Dubai, Abu Dhabi & beyond',        icon: FileText, divider: false },
+  { href: '/visa/schengen',  label: 'Schengen Visa',      sub: '27 European countries',            icon: FileText, divider: false },
+  { href: '/visa/usa',       label: 'USA Visa',           sub: 'ESTA, B-1/B-2 & transit',         icon: FileText, divider: false },
+  { href: '/visa#directory', label: 'All Countries',      sub: 'Browse 15+ destinations',          icon: Globe,    divider: true  },
+]
+
+const portalMenu = [
+  { href: '/portal/dashboard',   label: 'My Dashboard',    icon: LayoutDashboard },
+  { href: '/portal/application', label: 'My Applications', icon: FileText        },
+  { href: '/portal/dashboard',   label: 'My Bookings',     icon: Plane           },
+  { href: '/portal/dashboard',   label: 'My Vouchers',     icon: Gift            },
+  { href: '/portal/documents',   label: 'My Documents',    icon: Upload          },
+  { href: '/portal/payments',    label: 'My Payments',     icon: CreditCard      },
+  { href: '/portal/referral',    label: 'Refer a Friend',  icon: Users           },
+  { href: '/portal/profile',     label: 'Profile Settings',icon: UserCircle      },
 ]
 
 export function Navbar() {
   const { data: session, status } = useSession()
-  const [isScrolled, setIsScrolled] = useState(false)
-  const [isMobileOpen, setIsMobileOpen] = useState(false)
+  const [isScrolled,     setIsScrolled]     = useState(false)
+  const [isMobileOpen,   setIsMobileOpen]   = useState(false)
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false)
+  const [isVisaOpen,     setIsVisaOpen]     = useState(false)
+  const [isMobileVisaOpen, setIsMobileVisaOpen] = useState(false)
+  const dropdownRef  = useRef<HTMLDivElement>(null)
+  const visaRef      = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
-    const handleScroll = () => {
-      setIsScrolled(window.scrollY > 10)
-    }
-    window.addEventListener('scroll', handleScroll, { passive: true })
-    return () => window.removeEventListener('scroll', handleScroll)
+    const onScroll = () => setIsScrolled(window.scrollY > 10)
+    window.addEventListener('scroll', onScroll, { passive: true })
+    return () => window.removeEventListener('scroll', onScroll)
   }, [])
 
   useEffect(() => {
-    if (isMobileOpen) {
-      document.body.style.overflow = 'hidden'
-    } else {
-      document.body.style.overflow = ''
-    }
-    return () => {
-      document.body.style.overflow = ''
-    }
+    document.body.style.overflow = isMobileOpen ? 'hidden' : ''
+    return () => { document.body.style.overflow = '' }
   }, [isMobileOpen])
+
+  // Close user dropdown on outside click
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+        setIsUserMenuOpen(false)
+      }
+    }
+    if (isUserMenuOpen) document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [isUserMenuOpen])
+
+  // Close visa dropdown on outside click
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (visaRef.current && !visaRef.current.contains(e.target as Node)) {
+        setIsVisaOpen(false)
+      }
+    }
+    if (isVisaOpen) document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [isVisaOpen])
+
+  const firstName = session?.user?.name?.split(' ')[0] || 'Account'
+  const initial   = session?.user?.name?.[0]?.toUpperCase()
+              || session?.user?.email?.[0]?.toUpperCase()
+              || 'W'
 
   return (
     <>
-      <header
-        className={cn(
-          'fixed top-0 left-0 right-0 z-50 transition-all duration-300',
-          isScrolled
-            ? 'bg-walz-deep-navy/95 backdrop-blur-md shadow-luxury'
-            : 'bg-walz-deep-navy'
-        )}
-      >
+      <header className={cn(
+        'fixed top-0 left-0 right-0 z-50 transition-all duration-300',
+        isScrolled ? 'bg-walz-deep-navy/95 backdrop-blur-md shadow-luxury' : 'bg-walz-deep-navy',
+      )}>
         {/* Utility bar */}
         <div className="hidden lg:block border-b border-walz-slate/50 bg-walz-navy/60">
           <div className="container-walz flex items-center justify-between py-1.5 text-xs text-walz-muted">
-            <span>Visa support, flights, hotels, tours and group travel — with expert help from Walz Travels.</span>
-            <a
-              href="https://wa.me/447398753797"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="flex items-center gap-1.5 text-green-400 hover:text-green-300 transition-colors font-medium"
-            >
+            <span>Visa support, flights, hotels, tours and group travel — expert help from Walz Travels.</span>
+            <a href="https://wa.me/447398753797" target="_blank" rel="noopener noreferrer"
+              className="flex items-center gap-1.5 text-green-400 hover:text-green-300 transition-colors font-medium">
               <MessageCircle className="w-3.5 h-3.5" />
               WhatsApp +44 7398 753797
             </a>
           </div>
         </div>
+
         <div className="container-walz">
           <div className="flex items-center justify-between h-16 lg:h-20">
+
             {/* Logo */}
             <Link href="/" className="flex items-center group" onClick={() => setIsMobileOpen(false)}>
-              <Image
-                src="/walz-logo.png"
-                alt="Walz Travels"
-                width={140}
-                height={140}
-                className="h-10 lg:h-12 w-auto object-contain group-hover:opacity-90 transition-opacity"
-                priority
-              />
+              <Image src="/walz-logo.png" alt="Walz Travels" width={140} height={140}
+                className="h-10 lg:h-12 w-auto object-contain group-hover:opacity-90 transition-opacity" priority />
             </Link>
 
             {/* Desktop Nav */}
             <nav className="hidden lg:flex items-center gap-1">
               {navLinks.map(({ href, label, icon: Icon }) => (
-                <Link
-                  key={href}
-                  href={href}
-                  className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-walz-muted hover:text-walz-gold hover:bg-walz-slate/50 transition-all duration-200 text-sm font-medium"
-                >
+                <Link key={href} href={href}
+                  className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-walz-muted hover:text-walz-gold hover:bg-walz-slate/50 transition-all text-sm font-medium">
                   <Icon className="w-4 h-4" />
                   {label}
                 </Link>
               ))}
+
+              {/* Visa dropdown */}
+              <div className="relative" ref={visaRef}>
+                <button
+                  onClick={() => setIsVisaOpen(v => !v)}
+                  className={cn(
+                    'flex items-center gap-1.5 px-4 py-2 rounded-lg transition-all text-sm font-medium',
+                    isVisaOpen
+                      ? 'text-walz-gold bg-walz-slate/50'
+                      : 'text-walz-muted hover:text-walz-gold hover:bg-walz-slate/50',
+                  )}
+                >
+                  <Globe className="w-4 h-4" />
+                  Visa
+                  <ChevronDown className={cn('w-3.5 h-3.5 transition-transform', isVisaOpen && 'rotate-180')} />
+                </button>
+
+                {isVisaOpen && (
+                  <div className="absolute left-0 mt-2 w-72 bg-white rounded-xl shadow-luxury border border-walz-border z-50 overflow-hidden">
+                    <div className="px-4 py-3 bg-[#0B1F3A]">
+                      <p className="text-xs font-bold text-[#C9A84C] uppercase tracking-wider">Visa Intelligence</p>
+                      <p className="text-[10px] text-white/40 mt-0.5">199 destinations · live government data</p>
+                    </div>
+                    <div className="py-1">
+                      {visaDropdownLinks.map(({ href, label, sub, icon: Icon, divider }) => (
+                        <span key={href}>
+                          {divider && <div className="my-1 border-t border-gray-100" />}
+                          <Link
+                            href={href}
+                            onClick={() => setIsVisaOpen(false)}
+                            className="flex items-start gap-3 px-4 py-2.5 hover:bg-[#F4F6F9] transition-colors group"
+                          >
+                            <Icon className="w-4 h-4 text-[#C9A84C] flex-shrink-0 mt-0.5" />
+                            <div>
+                              <p className="text-sm font-semibold text-[#0B1F3A] group-hover:text-[#C9A84C] transition-colors leading-tight">{label}</p>
+                              <p className="text-xs text-gray-400 mt-0.5">{sub}</p>
+                            </div>
+                          </Link>
+                        </span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
             </nav>
 
             {/* Desktop Auth */}
@@ -112,66 +176,47 @@ export function Navbar() {
               {status === 'loading' ? (
                 <div className="w-8 h-8 rounded-full bg-walz-slate animate-pulse" />
               ) : session ? (
-                <div className="relative">
+                /* ── Logged-in dropdown ── */
+                <div className="relative" ref={dropdownRef}>
                   <button
-                    onClick={() => setIsUserMenuOpen(!isUserMenuOpen)}
-                    className="flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-walz-slate/50 transition-colors group"
+                    onClick={() => setIsUserMenuOpen(v => !v)}
+                    className="flex items-center gap-2 px-3 py-2 rounded-lg hover:bg-walz-slate/50 transition-colors"
                   >
                     <div className="w-8 h-8 rounded-full walz-gold-gradient flex items-center justify-center text-walz-deep-navy font-bold text-sm">
-                      {session.user?.name?.[0]?.toUpperCase() || session.user?.email?.[0]?.toUpperCase() || 'W'}
+                      {initial}
                     </div>
-                    <span className="text-walz-white text-sm font-medium max-w-[120px] truncate">
-                      {session.user?.name?.split(' ')[0] || 'Account'}
-                    </span>
+                    <span className="text-walz-white text-sm font-medium max-w-[110px] truncate">{firstName}</span>
                     <ChevronDown className={cn('w-4 h-4 text-walz-muted transition-transform', isUserMenuOpen && 'rotate-180')} />
                   </button>
 
                   {isUserMenuOpen && (
-                    <>
-                      <div
-                        className="fixed inset-0 z-10"
-                        onClick={() => setIsUserMenuOpen(false)}
-                      />
-                      <div className="absolute right-0 mt-2 w-52 bg-white rounded-xl shadow-luxury border border-walz-border z-20 overflow-hidden">
-                        <div className="px-4 py-3 border-b border-walz-border">
-                          <p className="text-xs text-walz-muted">Signed in as</p>
-                          <p className="text-sm font-medium text-walz-deep-navy truncate">
-                            {session.user?.email}
-                          </p>
-                        </div>
-                        <div className="py-1">
-                          <Link
-                            href="/dashboard"
-                            onClick={() => setIsUserMenuOpen(false)}
-                            className="flex items-center gap-2 px-4 py-2.5 text-sm text-walz-deep-navy hover:bg-walz-off-white transition-colors"
-                          >
-                            <LayoutDashboard className="w-4 h-4 text-walz-muted" />
-                            My Dashboard
-                          </Link>
-                          <Link
-                            href="/dashboard?tab=bookings"
-                            onClick={() => setIsUserMenuOpen(false)}
-                            className="flex items-center gap-2 px-4 py-2.5 text-sm text-walz-deep-navy hover:bg-walz-off-white transition-colors"
-                          >
-                            <Plane className="w-4 h-4 text-walz-muted" />
-                            My Bookings
-                          </Link>
-                          <button
-                            onClick={() => {
-                              setIsUserMenuOpen(false)
-                              signOut({ callbackUrl: '/' })
-                            }}
-                            className="w-full flex items-center gap-2 px-4 py-2.5 text-sm text-walz-error hover:bg-red-50 transition-colors"
-                          >
-                            <LogOut className="w-4 h-4" />
-                            Sign Out
-                          </button>
-                        </div>
+                    <div className="absolute right-0 mt-2 w-56 bg-white rounded-xl shadow-luxury border border-walz-border z-50 overflow-hidden">
+                      <div className="px-4 py-3 bg-[#0B1F3A]">
+                        <p className="text-[10px] text-white/50 uppercase tracking-wider">Signed in as</p>
+                        <p className="text-sm font-semibold text-white truncate mt-0.5">{session.user?.email}</p>
                       </div>
-                    </>
+                      <div className="py-1">
+                        {portalMenu.map(({ href, label, icon: Icon }) => (
+                          <Link key={label} href={href}
+                            onClick={() => setIsUserMenuOpen(false)}
+                            className="flex items-center gap-2.5 px-4 py-2.5 text-sm text-walz-deep-navy hover:bg-[#F4F6F9] transition-colors">
+                            <Icon className="w-4 h-4 text-[#C9A84C] flex-shrink-0" />
+                            {label}
+                          </Link>
+                        ))}
+                        <div className="my-1 border-t border-gray-100" />
+                        <button
+                          onClick={() => { setIsUserMenuOpen(false); signOut({ callbackUrl: '/' }) }}
+                          className="w-full flex items-center gap-2.5 px-4 py-2.5 text-sm text-red-600 hover:bg-red-50 transition-colors">
+                          <LogOut className="w-4 h-4" />
+                          Sign Out
+                        </button>
+                      </div>
+                    </div>
                   )}
                 </div>
               ) : (
+                /* ── Logged-out ── */
                 <>
                   <Link href="/login">
                     <Button variant="ghost" size="sm" className="text-walz-muted hover:text-walz-white hover:bg-walz-slate/50">
@@ -179,20 +224,15 @@ export function Navbar() {
                     </Button>
                   </Link>
                   <Link href="/login?signup=true">
-                    <Button variant="gold" size="sm">
-                      Get Started
-                    </Button>
+                    <Button variant="gold" size="sm">Get Started</Button>
                   </Link>
                 </>
               )}
             </div>
 
             {/* Mobile Menu Button */}
-            <button
-              className="lg:hidden p-2 rounded-lg text-walz-muted hover:text-walz-white hover:bg-walz-slate/50 transition-colors"
-              onClick={() => setIsMobileOpen(!isMobileOpen)}
-              aria-label="Toggle menu"
-            >
+            <button className="lg:hidden p-2 rounded-lg text-walz-muted hover:text-walz-white hover:bg-walz-slate/50 transition-colors"
+              onClick={() => setIsMobileOpen(v => !v)} aria-label="Toggle menu">
               {isMobileOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
             </button>
           </div>
@@ -200,49 +240,75 @@ export function Navbar() {
       </header>
 
       {/* Mobile Menu */}
-      <div
-        className={cn(
-          'fixed inset-0 z-40 lg:hidden transition-opacity duration-300',
-          isMobileOpen ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none'
-        )}
-      >
+      <div className={cn(
+        'fixed inset-0 z-40 lg:hidden transition-opacity duration-300',
+        isMobileOpen ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none',
+      )}>
         <div className="absolute inset-0 bg-black/60" onClick={() => setIsMobileOpen(false)} />
-        <div
-          className={cn(
-            'absolute right-0 top-0 bottom-0 w-72 bg-walz-deep-navy shadow-luxury transition-transform duration-300 flex flex-col',
-            isMobileOpen ? 'translate-x-0' : 'translate-x-full'
-          )}
-        >
+        <div className={cn(
+          'absolute right-0 top-0 bottom-0 w-72 bg-walz-deep-navy shadow-luxury transition-transform duration-300 flex flex-col',
+          isMobileOpen ? 'translate-x-0' : 'translate-x-full',
+        )}>
           <div className="flex items-center justify-between p-4 pt-5 border-b border-walz-slate">
-            <Link href="/" onClick={() => setIsMobileOpen(false)} className="flex items-center">
-              <Image
-                src="/walz-logo.png"
-                alt="Walz Travels"
-                width={140}
-                height={140}
-                className="h-9 w-auto object-contain"
-              />
+            <Link href="/" onClick={() => setIsMobileOpen(false)}>
+              <Image src="/walz-logo.png" alt="Walz Travels" width={110} height={40} className="h-9 w-auto object-contain" />
             </Link>
-            <button
-              onClick={() => setIsMobileOpen(false)}
-              className="p-1 rounded text-walz-muted hover:text-walz-white"
-            >
+            <button onClick={() => setIsMobileOpen(false)} className="p-1 rounded text-walz-muted hover:text-walz-white">
               <X className="w-5 h-5" />
             </button>
           </div>
 
           <nav className="flex-1 overflow-y-auto py-4">
+            {/* Main site links */}
+            <p className="px-6 py-1.5 text-[10px] font-semibold text-walz-muted uppercase tracking-wider">Explore</p>
             {navLinks.map(({ href, label, icon: Icon }) => (
-              <Link
-                key={href}
-                href={href}
-                onClick={() => setIsMobileOpen(false)}
-                className="flex items-center gap-3 px-6 py-3.5 text-walz-muted hover:text-walz-gold hover:bg-walz-slate/30 transition-colors"
-              >
+              <Link key={href} href={href} onClick={() => setIsMobileOpen(false)}
+                className="flex items-center gap-3 px-6 py-3 text-walz-muted hover:text-walz-gold hover:bg-walz-slate/30 transition-colors">
                 <Icon className="w-5 h-5" />
-                <span className="font-medium">{label}</span>
+                <span className="font-medium text-sm">{label}</span>
               </Link>
             ))}
+
+            {/* Visa accordion */}
+            <button
+              onClick={() => setIsMobileVisaOpen(v => !v)}
+              className="w-full flex items-center justify-between px-6 py-3 text-walz-muted hover:text-walz-gold hover:bg-walz-slate/30 transition-colors"
+            >
+              <span className="flex items-center gap-3">
+                <Globe className="w-5 h-5" />
+                <span className="font-medium text-sm">Visa</span>
+              </span>
+              <ChevronDown className={cn('w-4 h-4 transition-transform', isMobileVisaOpen && 'rotate-180')} />
+            </button>
+            {isMobileVisaOpen && (
+              <div className="bg-walz-slate/20 border-l-2 border-[#C9A84C]/40 ml-6 mr-3 rounded-r-lg mb-1">
+                {visaDropdownLinks.map(({ href, label, divider }) => (
+                  <span key={href}>
+                    {divider && <div className="border-t border-white/10 mx-3" />}
+                    <Link href={href}
+                      onClick={() => { setIsMobileOpen(false); setIsMobileVisaOpen(false) }}
+                      className="flex items-center gap-2 px-4 py-2.5 text-walz-muted hover:text-walz-gold transition-colors text-sm">
+                      <span className="w-1 h-1 rounded-full bg-[#C9A84C] flex-shrink-0" />
+                      {label}
+                    </Link>
+                  </span>
+                ))}
+              </div>
+            )}
+
+            {session && (
+              <>
+                <div className="my-2 border-t border-walz-slate/50 mx-4" />
+                <p className="px-6 py-1.5 text-[10px] font-semibold text-walz-muted uppercase tracking-wider">My Account</p>
+                {portalMenu.map(({ href, label, icon: Icon }) => (
+                  <Link key={label} href={href} onClick={() => setIsMobileOpen(false)}
+                    className="flex items-center gap-3 px-6 py-3 text-walz-muted hover:text-walz-gold hover:bg-walz-slate/30 transition-colors">
+                    <Icon className="w-4 h-4 text-[#C9A84C]" />
+                    <span className="font-medium text-sm">{label}</span>
+                  </Link>
+                ))}
+              </>
+            )}
           </nav>
 
           <div className="p-4 border-t border-walz-slate space-y-2">
@@ -250,28 +316,21 @@ export function Navbar() {
               <>
                 <div className="flex items-center gap-3 px-2 py-2 mb-2">
                   <div className="w-9 h-9 rounded-full walz-gold-gradient flex items-center justify-center text-walz-deep-navy font-bold">
-                    {session.user?.name?.[0]?.toUpperCase() || 'W'}
+                    {initial}
                   </div>
-                  <div>
-                    <p className="text-walz-white text-sm font-medium">{session.user?.name}</p>
+                  <div className="min-w-0">
+                    <p className="text-walz-white text-sm font-medium truncate">{session.user?.name || firstName}</p>
                     <p className="text-walz-muted text-xs truncate">{session.user?.email}</p>
                   </div>
                 </div>
-                <Link href="/dashboard" onClick={() => setIsMobileOpen(false)}>
-                  <Button variant="navy" className="w-full" size="sm">
+                <Link href="/portal/dashboard" onClick={() => setIsMobileOpen(false)}>
+                  <Button variant="navy" className="w-full border border-walz-slate" size="sm">
                     <LayoutDashboard className="w-4 h-4 mr-2" />
-                    My Dashboard
+                    My Account
                   </Button>
                 </Link>
-                <Button
-                  variant="ghost"
-                  className="w-full text-walz-error hover:bg-red-500/10"
-                  size="sm"
-                  onClick={() => {
-                    setIsMobileOpen(false)
-                    signOut({ callbackUrl: '/' })
-                  }}
-                >
+                <Button variant="ghost" className="w-full text-walz-error hover:bg-red-500/10" size="sm"
+                  onClick={() => { setIsMobileOpen(false); signOut({ callbackUrl: '/' }) }}>
                   <LogOut className="w-4 h-4 mr-2" />
                   Sign Out
                 </Button>
@@ -285,9 +344,7 @@ export function Navbar() {
                   </Button>
                 </Link>
                 <Link href="/login?signup=true" onClick={() => setIsMobileOpen(false)}>
-                  <Button variant="gold" className="w-full">
-                    Get Started
-                  </Button>
+                  <Button variant="gold" className="w-full">Get Started</Button>
                 </Link>
               </>
             )}
@@ -295,7 +352,7 @@ export function Navbar() {
         </div>
       </div>
 
-      {/* Spacer for fixed navbar (utility bar ~32px + nav 80px = 112px desktop) */}
+      {/* Spacer */}
       <div className="h-16 lg:h-28" />
     </>
   )

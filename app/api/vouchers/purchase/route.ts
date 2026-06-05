@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
+import { getServerSession } from 'next-auth'
+import { authOptions } from '@/lib/auth'
 import prisma from '@/lib/db'
 import { sendVoucherEmail, sendVoucherAdminNotification } from '@/lib/voucher-email'
 import { verifyHelcimTransaction, isTransactionValid } from '@/lib/helcim'
@@ -61,6 +63,10 @@ async function verifyStripe(paymentIntentId: string) {
 }
 
 export async function POST(req: NextRequest) {
+  // Capture logged-in user so voucher appears in their portal
+  const session = await getServerSession(authOptions)
+  const purchasedByUserId = session?.user?.id ?? null
+
   const body = await req.json().catch(() => null)
   if (!body) return NextResponse.json({ error: 'Invalid request' }, { status: 400 })
 
@@ -122,6 +128,7 @@ export async function POST(req: NextRequest) {
       maxUses:       1,
       status:        shouldSendNow ? 'SENT' : 'PURCHASED',
       active:        true,
+      purchasedByUserId: purchasedByUserId,
       senderName:    d.senderName,
       senderEmail:   d.senderEmail,
       recipientName:  d.recipientName,

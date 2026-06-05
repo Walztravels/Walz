@@ -1,0 +1,78 @@
+import { NextRequest, NextResponse } from 'next/server'
+import { cookies } from 'next/headers'
+import { prisma } from '@/lib/db'
+import { sendVisaStatusUpdate, sendApplicationFormLink } from '@/lib/email-visa'
+
+async function isAdmin() {
+  const token = cookies().get('admin_token')?.value
+  return !!token
+}
+
+type Params = { params: { id: string } }
+
+// GET /api/admin/visa-applications/[id]
+export async function GET(_req: NextRequest, { params }: Params) {
+  if (!await isAdmin()) return NextResponse.json({ error: 'Unauthorised' }, { status: 401 })
+
+  const app = await prisma.visaApplication.findUnique({
+    where: { id: params.id },
+    include: {
+      user: { select: { name: true, email: true } },
+      notes: { orderBy: { createdAt: 'desc' } },
+    },
+  })
+  if (!app) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+
+  return NextResponse.json({ application: app })
+}
+
+// PATCH /api/admin/visa-applications/[id] — update any field including status
+export async function PATCH(req: NextRequest, { params }: Params) {
+  if (!await isAdmin()) return NextResponse.json({ error: 'Unauthorised' }, { status: 401 })
+
+  const body = await req.json()
+  const { _addNote, _sendFormLink, ...fields } = body
+
+  // Handle "send form link to client" action
+  if (_sendFormLink) {
+    const { clientEmail, clientName, personalMessage } = _sendFormLink
+    const app = await prisma.visaApplication.findUnique({ where: { id: params.id } })
+    if (app && clientEmail) {
+      try { await sendApplicationFormLink(app, clientEmail, clientName, personalMessage) } catch (e) { console.error(e) }
+    }
+    return NextResponse.json({ ok: true })
+  }
+
+  const dateFields = [
+    'dateOfBirth', 'passportIssueDate', 'passportExpiryDate',
+    'arrivalDate', 'returnDate', 'submissionDate', 'decisionDate',
+  ]
+  const data: Record<string, unknown> = {}
+
+  for (const [key, value] of Object.entries(fields)) {
+    if (key === 'id' || key === 'userId' || key === 'referenceNumber') continue
+    if (dateFields.includes(key)) {
+      data[key] = value ? new Date(value as string) : null
+    } else {
+      data[key] = value
+    }
+  }
+
+  // When status changes to 'received', ensure isDraft=false
+  if (data.status) {
+    if (data.status !== 'draft') data.isDraft = false
+  }
+
+  const updated = await prisma.visaApplication.update({
+    where: { id: params.id },
+    data: { ...data, updatedAt: new Date() },
+    include: { user: { select: { name: true, email: true } } },
+  })
+
+  // If status changed, send email notification to client
+  if (fields.status && fields.status !== 'draft' && updated.email) {
+    try { await sendVisaStatusUpdate(updated) } catch (e) { console.error(e) }
+  }
+
+  return NextResponse.json({ application: updated })
+}

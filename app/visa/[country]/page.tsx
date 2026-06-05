@@ -1,428 +1,316 @@
 import { notFound } from 'next/navigation'
 import Link from 'next/link'
-import { Check, Clock, DollarSign, FileText, AlertCircle, Phone, Mail } from 'lucide-react'
+import { Clock, CheckCircle, AlertTriangle, ArrowLeft, MessageCircle, Plane, Hotel } from 'lucide-react'
+import { prisma } from '@/lib/db'
+import { ADVISORY_CONFIG, RULE_TYPE_CONFIG } from '@/lib/countries'
 import type { Metadata } from 'next'
 
-interface VisaType {
-  type: string
-  fee: number
-  processingTime: string
+export const dynamic = 'force-dynamic'
+
+// ─── Slug → ISO2 map ─────────────────────────────────────────────────────────
+// Covers old static slugs, new friendly slugs, and raw ISO2 codes
+const SLUG_TO_ISO2: Record<string, string> = {
+  // Friendly slugs
+  uk:             'GB',
+  'great-britain': 'GB',
+  gb:             'GB',
+  canada:         'CA',
+  uae:            'AE',
+  'united-arab-emirates': 'AE',
+  schengen:       'FR',
+  france:         'FR',
+  usa:            'US',
+  'united-states': 'US',
+  america:        'US',
+  australia:      'AU',
+  vietnam:        'VN',
+  india:          'IN',
+  turkey:         'TR',
+  kenya:          'KE',
+  egypt:          'EG',
+  philippines:    'PH',
+  morocco:        'MA',
+  'new-zealand':  'NZ',
+  'south-africa': 'ZA',
 }
 
-interface CountryVisaData {
-  name: string
-  flag: string
-  description: string
-  visaTypes: VisaType[]
-  requirements: string[]
-  importantNotes: string[]
-  processingNotes: string
-}
-
-const visaData: Record<string, CountryVisaData> = {
-  uae: {
-    name: 'United Arab Emirates',
-    flag: '🇦🇪',
-    description: 'The UAE is one of the most popular destinations for British travellers, offering world-class shopping, dining, and attractions in Dubai and Abu Dhabi. Visa requirements depend on your nationality.',
-    visaTypes: [
-      { type: 'Tourist Visa (30 days)', fee: 85, processingTime: '3–5 business days' },
-      { type: 'Tourist Visa (90 days)', fee: 165, processingTime: '5–7 business days' },
-      { type: 'Business Visa (30 days)', fee: 145, processingTime: '5–7 business days' },
-      { type: 'Transit Visa (48 hours)', fee: 45, processingTime: '1–2 business days' },
-    ],
-    requirements: [
-      'Valid passport with at least 6 months validity',
-      'Confirmed return flight ticket',
-      'Hotel booking confirmation',
-      'Bank statement showing sufficient funds (last 3 months)',
-      '2 passport-size photographs (white background)',
-      'Comprehensive travel insurance',
-      'Completed visa application form',
-    ],
-    importantNotes: [
-      'British passport holders can obtain a free 30-day visa on arrival',
-      'Visa can be extended once for an additional 30 days',
-      'Dress codes apply in public areas — pack modestly',
-      'Alcohol is only permitted in licensed venues',
-    ],
-    processingNotes: 'Applications should be submitted at least 2 weeks before travel to allow processing time.',
-  },
-  usa: {
-    name: 'United States of America',
-    flag: '🇺🇸',
-    description: 'The USA offers an incredible variety of experiences, from New York City\'s iconic skyline to the beaches of Florida and the National Parks of the West. Visa requirements vary based on your nationality and travel purpose.',
-    visaTypes: [
-      { type: 'ESTA (Visa Waiver Program)', fee: 21, processingTime: '72 hours (usually faster)' },
-      { type: 'B-1/B-2 Tourist/Business Visa', fee: 185, processingTime: '15–30 business days' },
-      { type: 'Transit Visa (C)', fee: 185, processingTime: '10–15 business days' },
-    ],
-    requirements: [
-      'Valid passport (at least 6 months beyond travel dates)',
-      'Completed DS-160 application form',
-      'US visa photograph (2×2 inches)',
-      'Bank statements (last 6 months)',
-      'Employment letter and pay slips',
-      'Proof of strong ties to home country',
-      'Travel itinerary and hotel bookings',
-      'Evidence of return travel',
-      'Interview at US Embassy/Consulate (for B-1/B-2)',
-    ],
-    importantNotes: [
-      'Most British citizens can use ESTA (check eligibility at esta.cbp.dhs.gov)',
-      'ESTA is valid for 2 years or until passport expires',
-      'ESTA allows stays of up to 90 days',
-      'Criminal record or previous visa refusals may affect eligibility',
-    ],
-    processingNotes: 'US Embassy appointments can be limited. Book as early as possible — ideally 3–6 months before travel.',
-  },
-  canada: {
-    name: 'Canada',
-    flag: '🇨🇦',
-    description: 'Canada is a vast and beautiful country with stunning natural landscapes, vibrant multicultural cities, and world-renowned hospitality. Entry requirements depend on how you\'re travelling.',
-    visaTypes: [
-      { type: 'eTA (Electronic Travel Authorization)', fee: 7, processingTime: '72 hours (often minutes)' },
-      { type: 'Visitor Visa (Temporary Resident Visa)', fee: 100, processingTime: '10–20 business days' },
-      { type: 'Super Visa (Parents & Grandparents)', fee: 100, processingTime: '4–8 weeks' },
-    ],
-    requirements: [
-      'Valid passport',
-      'IMM 5257 (Visitor Visa) or online eTA application',
-      'Recent photographs (35mm × 45mm)',
-      'Proof of financial support',
-      'Ties to home country (employment, family, property)',
-      'Travel itinerary',
-      'Letter of invitation (if applicable)',
-      'Medical examination (if required)',
-    ],
-    importantNotes: [
-      'British passport holders travelling by air only need an eTA',
-      'eTA is linked electronically to your passport',
-      'eTA is valid for 5 years or until passport expires',
-      'Land or sea travel requires a Visitor Visa',
-    ],
-    processingNotes: 'Apply for your eTA or visa well in advance. Processing can take longer during peak periods.',
-  },
-  schengen: {
-    name: 'Schengen Area',
-    flag: '🇪🇺',
-    description: 'The Schengen Area comprises 27 European countries that have abolished passport and border controls at their mutual borders. A single Schengen visa allows travel across all member states.',
-    visaTypes: [
-      { type: 'Short-Stay Visa (Type C) — up to 90 days', fee: 90, processingTime: '10–15 business days' },
-      { type: 'Long-Stay National Visa (Type D)', fee: 90, processingTime: '15–30 business days' },
-      { type: 'Airport Transit Visa (Type A)', fee: 90, processingTime: '5–10 business days' },
-    ],
-    requirements: [
-      'Valid passport (at least 3 months beyond planned departure)',
-      'Completed Schengen visa application form',
-      '2 recent passport-size photographs',
-      'Travel insurance (minimum €30,000 coverage)',
-      'Confirmed flight reservations',
-      'Proof of accommodation',
-      'Bank statements (last 3 months)',
-      'Employment letter/payslips or proof of self-employment',
-      'Proof of civil status (marriage certificate if applicable)',
-    ],
-    importantNotes: [
-      'Apply to the embassy of your primary destination country',
-      'You can stay up to 90 days within any 180-day period',
-      'Travel insurance must cover the entire Schengen area',
-      'Processing fee is non-refundable regardless of outcome',
-    ],
-    processingNotes: 'Apply no earlier than 6 months before travel and no later than 15 working days before departure.',
-  },
-  australia: {
-    name: 'Australia',
-    flag: '🇦🇺',
-    description: 'Australia offers a unique blend of vibrant cities, stunning outback landscapes, and world-famous beaches. From the Sydney Opera House to the Great Barrier Reef, it\'s a destination like no other.',
-    visaTypes: [
-      { type: 'eVisitor (subclass 651) — UK passport holders', fee: 0, processingTime: '24–72 hours' },
-      { type: 'Visitor Visa (subclass 600)', fee: 145, processingTime: '20–30 business days' },
-      { type: 'Electronic Travel Authority (subclass 601)', fee: 20, processingTime: '24–72 hours' },
-    ],
-    requirements: [
-      'Valid passport',
-      'Online visa application via ImmiAccount',
-      'Health insurance',
-      'Bank statements',
-      'Employment evidence',
-      'Travel itinerary',
-      'Character documents (police check) if required',
-      'Health examination if required',
-    ],
-    importantNotes: [
-      'UK passport holders can apply for the free eVisitor visa online',
-      'Allows stays of up to 3 months per visit (12-month validity)',
-      'Must declare certain items at the border',
-      'Working Holiday Visa available for 18–30 year olds',
-    ],
-    processingNotes: 'Most British travellers receive their visa quickly via the online system. Allow extra time for complex cases.',
-  },
-  china: {
-    name: 'China',
-    flag: '🇨🇳',
-    description: 'China is a land of contrasts — ancient traditions alongside futuristic cities, the Great Wall, and the Forbidden City. Experience one of the world\'s most fascinating cultures.',
-    visaTypes: [
-      { type: 'Tourist Visa (L)', fee: 151, processingTime: '4–5 business days' },
-      { type: 'Business Visa (M)', fee: 151, processingTime: '4–5 business days' },
-      { type: 'Transit Visa (G)', fee: 151, processingTime: '4–5 business days' },
-      { type: 'Express Processing (+50%)', fee: 226, processingTime: '2–3 business days' },
-    ],
-    requirements: [
-      'Valid passport (at least 6 months validity)',
-      'Completed China visa application form (V.2013)',
-      '1 passport-size photograph',
-      'Round-trip flight tickets',
-      'Hotel booking confirmation',
-      'Bank statement (last 3 months)',
-      'Employment letter',
-      'Invitation letter (for business visa)',
-    ],
-    importantNotes: [
-      'China introduced 15-day visa-free entry for UK passport holders (2024)',
-      'Visa-free applies to ordinary passport holders — check current rules',
-      'Internet access is restricted — use a VPN',
-      'Mandarin or at least some Chinese phrases will be very helpful',
-    ],
-    processingNotes: 'Apply at the Chinese Visa Application Service Centre. Bring originals and photocopies of all documents.',
-  },
-}
-
-type Props = {
+interface Props {
   params: { country: string }
 }
 
-export async function generateStaticParams() {
-  return Object.keys(visaData).map((country) => ({ country }))
+function resolveIso2(slug: string): string {
+  const lower = slug.toLowerCase()
+  // Check friendly slug map first
+  if (SLUG_TO_ISO2[lower]) return SLUG_TO_ISO2[lower]
+  // Fall through to upper-cased ISO2 direct lookup
+  return slug.toUpperCase()
+}
+
+function AdvisoryBadge({ level }: { level: number }) {
+  const cfg = ADVISORY_CONFIG[level as keyof typeof ADVISORY_CONFIG] ?? ADVISORY_CONFIG[1]
+  return (
+    <span className={`inline-flex items-center gap-1.5 text-sm font-semibold px-3 py-1.5 rounded-full border ${cfg.bg} ${cfg.color} ${cfg.border}`}>
+      <span className={`w-2 h-2 rounded-full ${cfg.dot}`} />
+      Level {level} — {cfg.label}
+    </span>
+  )
 }
 
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
-  const data = visaData[params.country]
-  if (!data) return {}
+  const iso2 = resolveIso2(params.country)
+  const portal = await prisma.countryPortal.findUnique({ where: { destinationIso2: iso2 } })
+  if (!portal) return { title: 'Visa Requirements — Walz Travels' }
   return {
-    title: `${data.name} Visa`,
-    description: `Visa requirements, fees and processing times for ${data.name}. Expert assistance from Walz Travels.`,
+    title: `${portal.countryName} Visa Requirements — Walz Travels`,
+    description: `Visa fees, processing times, required documents and Jade's insider tips for ${portal.countryName}. Expert visa assistance from Walz Travels.`,
   }
 }
 
-export default function VisaCountryPage({ params }: Props) {
-  const data = visaData[params.country]
+export default async function VisaCountryPage({ params }: Props) {
+  const iso2 = resolveIso2(params.country)
 
-  if (!data) {
-    notFound()
-  }
+  const [portal, advisory, ngRule, docGuides] = await Promise.all([
+    prisma.countryPortal.findUnique({ where: { destinationIso2: iso2 } }),
+    prisma.travelAdvisory.findUnique({ where: { destinationIso2: iso2 } }),
+    prisma.visaRule.findUnique({
+      where: { passportIso2_destinationIso2: { passportIso2: 'NG', destinationIso2: iso2 } },
+    }),
+    prisma.documentGuide.findMany({ where: { destinationIso2: iso2 } }),
+  ])
+
+  if (!portal) notFound()
+
+  const ruleType = ngRule?.ruleType ?? 'visa_required'
+  const ruleCfg  = RULE_TYPE_CONFIG[ruleType as keyof typeof RULE_TYPE_CONFIG] ?? RULE_TYPE_CONFIG.visa_required
+  const advisoryLevel = advisory?.advisoryLevel ?? portal.advisoryLevel
+  const advisoryCfg   = ADVISORY_CONFIG[advisoryLevel as keyof typeof ADVISORY_CONFIG] ?? ADVISORY_CONFIG[1]
 
   return (
-    <div className="min-h-screen bg-walz-off-white">
-      {/* Header */}
-      <div className="bg-walz-deep-navy">
-        <div className="container-walz py-10 lg:py-14">
-          <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6">
-            <div>
-              <div className="flex items-center gap-3 mb-3">
-                <span className="text-5xl">{data.flag}</span>
-                <div>
-                  <div className="text-walz-muted text-xs tracking-wider uppercase mb-1">
-                    Visa Services
-                  </div>
-                  <h1 className="font-display text-2xl lg:text-3xl font-bold text-walz-white">
-                    {data.name} Visa
-                  </h1>
-                </div>
+    <div className="min-h-screen bg-[#F4F6F9]">
+      {/* Hero */}
+      <div className="bg-[#0B1F3A] text-white px-4 pt-8 pb-12">
+        <div className="max-w-3xl mx-auto">
+          <Link href="/visa"
+            className="inline-flex items-center gap-1.5 text-white/50 hover:text-white text-sm mb-6 transition-colors">
+            <ArrowLeft className="w-4 h-4" /> Back to Visa Intelligence
+          </Link>
+          <div className="flex items-start gap-5">
+            <span className="text-6xl leading-none">{portal.flagEmoji}</span>
+            <div className="flex-1">
+              <h1 className="text-3xl font-bold mb-2">{portal.countryName} Visa</h1>
+              <div className="flex items-center gap-3 flex-wrap">
+                <AdvisoryBadge level={advisoryLevel} />
+                <span className="text-white/40 text-sm">{portal.region}</span>
               </div>
-              <p className="text-walz-muted max-w-2xl text-sm leading-relaxed">
-                {data.description}
-              </p>
-            </div>
-            <div className="flex gap-3 flex-shrink-0">
-              <a
-                href="https://wa.me/447398753797"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="btn-gold text-sm px-5 py-2.5 rounded-lg flex items-center gap-2 whitespace-nowrap"
-              >
-                <Phone className="w-4 h-4" />
-                Apply via WhatsApp
-              </a>
+              {advisory?.message && (
+                <p className="text-white/60 text-sm mt-3">{advisory.message}</p>
+              )}
             </div>
           </div>
         </div>
       </div>
 
-      <div className="container-walz py-8 lg:py-12">
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-          {/* Main Content */}
-          <div className="lg:col-span-2 space-y-6">
-            {/* Visa Types & Fees */}
-            <div className="bg-white rounded-2xl border border-walz-border shadow-card p-6">
-              <h2 className="font-display text-xl font-bold text-walz-deep-navy mb-5 flex items-center gap-2">
-                <DollarSign className="w-5 h-5 text-walz-gold" />
-                Visa Types & Fees
-              </h2>
-              <div className="overflow-x-auto">
-                <table className="w-full">
-                  <thead>
-                    <tr className="border-b border-walz-border">
-                      <th className="text-left py-3 px-4 text-sm font-semibold text-walz-slate">Visa Type</th>
-                      <th className="text-left py-3 px-4 text-sm font-semibold text-walz-slate">Processing Time</th>
-                      <th className="text-right py-3 px-4 text-sm font-semibold text-walz-slate">Fee</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {data.visaTypes.map((visaType, index) => (
-                      <tr
-                        key={index}
-                        className={index % 2 === 0 ? 'bg-walz-off-white/50' : ''}
-                      >
-                        <td className="py-3 px-4 text-sm text-walz-deep-navy font-medium">
-                          {visaType.type}
-                        </td>
-                        <td className="py-3 px-4">
-                          <div className="flex items-center gap-1.5 text-sm text-walz-muted">
-                            <Clock className="w-3.5 h-3.5 text-walz-gold" />
-                            {visaType.processingTime}
-                          </div>
-                        </td>
-                        <td className="py-3 px-4 text-right">
-                          {visaType.fee === 0 ? (
-                            <span className="badge-gold">Free</span>
-                          ) : (
-                            <span className="font-bold text-walz-gold">£{visaType.fee}</span>
-                          )}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-              <p className="text-xs text-walz-muted mt-4 flex items-start gap-1.5">
-                <AlertCircle className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" />
-                {data.processingNotes}
+      <div className="max-w-3xl mx-auto px-4 py-8 space-y-6">
+
+        {/* Visa Requirement (Nigerian passport default) */}
+        <div className={`rounded-2xl p-6 border-2 ${ruleCfg.bg} ${
+          ruleType === 'visa_free' ? 'border-green-300' :
+          ruleType === 'evisa' || ruleType === 'eta' ? 'border-purple-200' :
+          ruleType === 'visa_on_arrival' ? 'border-blue-200' : 'border-red-200'
+        }`}>
+          <div className="flex items-center gap-3 mb-1">
+            <span className="text-3xl">{ruleCfg.badge}</span>
+            <div>
+              <h2 className={`text-xl font-bold ${ruleCfg.color}`}>{ruleCfg.label}</h2>
+              <p className={`text-sm ${ruleCfg.color} opacity-70`}>
+                For 🇳🇬 Nigerian passport holders
+                {ngRule?.maxDays ? ` · up to ${ngRule.maxDays} days` : ''}
               </p>
             </div>
+          </div>
+          {ngRule?.notes && <p className={`text-sm mt-2 ${ruleCfg.color} opacity-60`}>{ngRule.notes}</p>}
+          <p className="text-xs mt-3 text-gray-400">
+            Requirements may vary by passport. Use the{' '}
+            <Link href="/visa" className="text-[#C9A84C] hover:underline">Visa Checker</Link>
+            {' '}for your specific passport.
+          </p>
+        </div>
 
-            {/* Requirements */}
-            <div className="bg-white rounded-2xl border border-walz-border shadow-card p-6">
-              <h2 className="font-display text-xl font-bold text-walz-deep-navy mb-5 flex items-center gap-2">
-                <FileText className="w-5 h-5 text-walz-gold" />
-                Required Documents
-              </h2>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                {data.requirements.map((req, index) => (
-                  <div key={index} className="flex items-start gap-2.5">
-                    <div className="w-5 h-5 rounded-full walz-gold-gradient flex items-center justify-center flex-shrink-0 mt-0.5">
-                      <Check className="w-3 h-3 text-walz-deep-navy" />
-                    </div>
-                    <span className="text-sm text-walz-slate">{req}</span>
-                  </div>
-                ))}
-              </div>
+        {/* Stats grid */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+          {[
+            { label: 'Walz Fee', value: portal.walzFeeUsd > 0 ? `$${portal.walzFeeUsd}` : 'Contact us', sub: portal.walzFeeNgn > 0 ? `₦${(portal.walzFeeNgn / 1000).toFixed(0)}k` : undefined },
+            { label: 'Govt Fee', value: portal.govtFeeAmount > 0 ? `${portal.govtFeeCurrency} ${portal.govtFeeAmount}` : 'Included' },
+            { label: 'Processing', value: `${portal.processingDaysMin}–${portal.processingDaysMax} days` },
+            { label: 'Max Stay', value: `${portal.maxStayDays} days`, sub: `${portal.singleOrMultiple} entry` },
+          ].map(({ label, value, sub }) => (
+            <div key={label} className="bg-white rounded-xl border border-gray-100 p-4 text-center">
+              <div className="text-[#0B1F3A] font-bold text-lg">{value}</div>
+              {sub && <div className="text-gray-400 text-xs">{sub}</div>}
+              <div className="text-gray-400 text-xs mt-1">{label}</div>
             </div>
+          ))}
+        </div>
 
-            {/* Important Notes */}
-            <div className="bg-walz-deep-navy rounded-2xl p-6">
-              <h2 className="font-display text-xl font-bold text-walz-white mb-5 flex items-center gap-2">
-                <AlertCircle className="w-5 h-5 text-walz-gold" />
-                Important Notes
-              </h2>
-              <div className="space-y-3">
-                {data.importantNotes.map((note, index) => (
-                  <div key={index} className="flex items-start gap-3">
-                    <div className="w-1.5 h-1.5 rounded-full bg-walz-gold mt-2 flex-shrink-0" />
-                    <p className="text-walz-off-white/80 text-sm leading-relaxed">{note}</p>
+        {/* Required Documents */}
+        {portal.requiredDocuments.length > 0 && (
+          <div className="bg-white rounded-2xl border border-gray-100 p-6">
+            <h3 className="font-bold text-[#0B1F3A] mb-4 flex items-center gap-2">
+              <CheckCircle className="w-5 h-5 text-[#C9A84C]" />
+              Required Documents
+            </h3>
+            <div className="space-y-3">
+              {portal.requiredDocuments.map((doc, i) => {
+                const guide = docGuides.find(g => doc.toLowerCase().includes(g.documentName.toLowerCase().split(' ')[0]))
+                return (
+                  <div key={i} className="p-3 border border-gray-100 rounded-xl">
+                    <div className="flex items-start gap-2">
+                      <CheckCircle className="w-4 h-4 text-green-500 flex-shrink-0 mt-0.5" />
+                      <div className="flex-1">
+                        <p className="text-sm font-medium text-[#0B1F3A]">{doc}</p>
+                        {guide && (
+                          <div className="mt-2 space-y-2">
+                            {guide.whatItIs && <p className="text-xs text-gray-500">{guide.whatItIs}</p>}
+                            {(guide.whatItMustShow as string[]).length > 0 && (
+                              <div>
+                                <p className="text-xs font-semibold text-gray-600 mb-1">Must show:</p>
+                                <ul className="space-y-1">
+                                  {(guide.whatItMustShow as string[]).map((item, j) => (
+                                    <li key={j} className="text-xs text-gray-500 flex items-start gap-1">
+                                      <span className="text-[#C9A84C] flex-shrink-0">·</span> {item}
+                                    </li>
+                                  ))}
+                                </ul>
+                              </div>
+                            )}
+                            {(guide.commonMistakes as string[]).length > 0 && (
+                              <div className="bg-amber-50 rounded-lg p-2">
+                                <p className="text-xs font-semibold text-amber-700 mb-1">Common mistakes:</p>
+                                {(guide.commonMistakes as string[]).slice(0, 3).map((m, j) => (
+                                  <p key={j} className="text-xs text-amber-700">⚠ {m}</p>
+                                ))}
+                              </div>
+                            )}
+                            {guide.jadeTip && (
+                              <div className="bg-[#0B1F3A] rounded-lg p-2.5 flex gap-2">
+                                <span className="text-[#C9A84C] font-bold text-xs flex-shrink-0">J</span>
+                                <p className="text-xs text-white/70">{guide.jadeTip}</p>
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    </div>
                   </div>
-                ))}
+                )
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* Jade Tips */}
+        {portal.jadeTips && (
+          <div className="bg-[#0B1F3A] rounded-2xl p-6">
+            <div className="flex items-start gap-4">
+              <div className="w-10 h-10 rounded-full bg-[#C9A84C] flex items-center justify-center text-[#0B1F3A] font-bold flex-shrink-0">J</div>
+              <div>
+                <p className="text-[#C9A84C] font-bold text-sm uppercase tracking-wider mb-2">Jade's Insider Guide</p>
+                <p className="text-white/80 leading-relaxed">{portal.jadeTips}</p>
               </div>
             </div>
           </div>
+        )}
 
-          {/* Sidebar */}
-          <div className="space-y-5">
-            {/* Apply CTA */}
-            <div className="bg-white rounded-2xl border border-walz-border shadow-card p-5">
-              <h3 className="font-display text-lg font-bold text-walz-deep-navy mb-3">
-                Apply with Walz Travels
-              </h3>
-              <p className="text-walz-muted text-sm leading-relaxed mb-5">
-                Let our experienced visa specialists handle your application from start to finish.
-                We ensure everything is correct before submission.
-              </p>
-              <div className="space-y-3">
-                <a
-                  href={`/visa/${params.country}/apply`}
-                  className="btn-gold w-full flex items-center justify-center gap-2 text-sm rounded-lg"
-                >
-                  <FileText className="w-4 h-4" />
-                  Start Application
-                </a>
-                <a
-                  href="https://wa.me/447398753797"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="w-full flex items-center justify-center gap-2 text-sm font-medium py-2.5 rounded-lg border-2 border-green-600 text-green-600 hover:bg-green-50 transition-colors"
-                >
-                  <Phone className="w-4 h-4" />
-                  WhatsApp Us
-                </a>
-                <a
-                  href="mailto:visa@walztravels.com"
-                  className="w-full flex items-center justify-center gap-2 text-sm font-medium py-2.5 rounded-lg border border-walz-border text-walz-slate hover:border-walz-gold hover:text-walz-gold transition-colors"
-                >
-                  <Mail className="w-4 h-4" />
-                  Email Us
-                </a>
-              </div>
+        {/* Common Refusals */}
+        {portal.commonRefusals.length > 0 && (
+          <div className="bg-white rounded-2xl border border-red-100 p-6">
+            <h3 className="font-bold text-[#0B1F3A] mb-4 flex items-center gap-2">
+              <AlertTriangle className="w-5 h-5 text-red-500" />
+              Why Applications Get Rejected
+            </h3>
+            <div className="space-y-2">
+              {portal.commonRefusals.map((r, i) => (
+                <div key={i} className="flex items-start gap-2 p-3 bg-red-50 rounded-lg">
+                  <AlertTriangle className="w-4 h-4 text-red-500 flex-shrink-0 mt-0.5" />
+                  <span className="text-sm text-red-700">{r}</span>
+                </div>
+              ))}
             </div>
+          </div>
+        )}
 
-            {/* Why use Walz */}
-            <div className="bg-walz-off-white rounded-2xl border border-walz-border p-5">
-              <h3 className="font-semibold text-walz-deep-navy text-sm mb-3">
-                Why use Walz Travels?
-              </h3>
-              <div className="space-y-2.5">
-                {[
-                  'Document checklist provided',
-                  'Application review before submission',
-                  'Embassy appointment assistance',
-                  'Regular status updates',
-                  'Resubmission support if required',
-                ].map((benefit) => (
-                  <div key={benefit} className="flex items-center gap-2">
-                    <Check className="w-4 h-4 text-walz-gold flex-shrink-0" />
-                    <span className="text-sm text-walz-slate">{benefit}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            {/* Other Visa Destinations */}
-            <div className="bg-white rounded-2xl border border-walz-border shadow-card p-5">
-              <h3 className="font-semibold text-walz-deep-navy text-sm mb-3">
-                Other Destinations
-              </h3>
-              <div className="space-y-2">
-                {Object.entries(visaData)
-                  .filter(([key]) => key !== params.country)
-                  .slice(0, 5)
-                  .map(([key, country]) => (
-                    <Link
-                      key={key}
-                      href={`/visa/${key}`}
-                      className="flex items-center gap-2 text-sm text-walz-slate hover:text-walz-gold transition-colors py-0.5"
-                    >
-                      <span>{country.flag}</span>
-                      <span>{country.name}</span>
-                    </Link>
-                  ))}
-              </div>
-              <Link
-                href="/visa"
-                className="text-xs text-walz-gold hover:underline mt-3 block"
-              >
-                View all visa services →
-              </Link>
-            </div>
+        {/* Apply CTAs */}
+        <div className="bg-white rounded-2xl border border-gray-100 p-6">
+          <h3 className="font-bold text-[#0B1F3A] mb-1">Ready to apply?</h3>
+          <p className="text-sm text-gray-500 mb-4">Start your {portal.countryName} visa application with Walz Travels. We handle everything end-to-end.</p>
+          <div className="flex flex-col sm:flex-row gap-3">
+            <Link href={`/visa/apply/${params.country}`}
+              className="flex-1 flex items-center justify-center gap-2 px-6 py-4 bg-[#C9A84C] hover:bg-[#b8943d] text-[#0B1F3A] font-bold text-sm rounded-xl transition-colors">
+              Apply with Walz Travels →
+            </Link>
+            <a href="https://wa.me/447398753797" target="_blank" rel="noopener noreferrer"
+              className="flex-1 flex items-center justify-center gap-2 px-6 py-4 border-2 border-[#0B1F3A] text-[#0B1F3A] font-bold text-sm rounded-xl hover:bg-gray-50 transition-colors">
+              <MessageCircle className="w-4 h-4" />
+              Ask Jade First
+            </a>
+          </div>
+          <div className="mt-4 p-4 bg-green-50 rounded-xl border border-green-100">
+            <p className="text-sm text-green-800 font-medium">💬 WhatsApp Support Available</p>
+            <p className="text-xs text-green-700 mt-0.5">+44 7398 753797 — Mon–Sat 8am–8pm (UK time)</p>
           </div>
         </div>
+
+        {/* Other Visa Destinations */}
+        <div className="bg-white rounded-2xl border border-gray-100 p-6">
+          <h3 className="font-bold text-[#0B1F3A] mb-4">Popular Destinations</h3>
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+            {[
+              { slug: 'uk',       flag: '🇬🇧', name: 'United Kingdom' },
+              { slug: 'canada',   flag: '🇨🇦', name: 'Canada'         },
+              { slug: 'uae',      flag: '🇦🇪', name: 'UAE'            },
+              { slug: 'schengen', flag: '🇪🇺', name: 'Schengen'       },
+              { slug: 'usa',      flag: '🇺🇸', name: 'USA'            },
+              { slug: 'australia',flag: '🇦🇺', name: 'Australia'      },
+            ]
+              .filter(d => d.slug !== params.country)
+              .map(d => (
+                <Link key={d.slug} href={`/visa/${d.slug}`}
+                  className="flex items-center gap-2 p-3 rounded-xl border border-gray-100 hover:border-[#C9A84C]/40 hover:bg-[#F4F6F9] transition-colors text-sm text-[#0B1F3A] font-medium">
+                  <span>{d.flag}</span>
+                  <span>{d.name}</span>
+                </Link>
+              ))}
+          </div>
+          <Link href="/visa" className="block text-center text-xs text-[#C9A84C] hover:underline mt-4">
+            View all destinations →
+          </Link>
+        </div>
+
+        {/* Cross-sell */}
+        <div className="grid grid-cols-2 gap-4">
+          <Link href="/flights" className="flex items-center gap-3 p-4 bg-blue-50 border border-blue-100 rounded-xl hover:border-blue-200 transition-colors">
+            <Plane className="w-5 h-5 text-blue-600 flex-shrink-0" />
+            <div>
+              <p className="text-sm font-semibold text-blue-900">Flights to {portal.countryName}</p>
+              <p className="text-xs text-blue-600">Search best fares →</p>
+            </div>
+          </Link>
+          <Link href="/hotels" className="flex items-center gap-3 p-4 bg-purple-50 border border-purple-100 rounded-xl hover:border-purple-200 transition-colors">
+            <Hotel className="w-5 h-5 text-purple-600 flex-shrink-0" />
+            <div>
+              <p className="text-sm font-semibold text-purple-900">Hotels in {portal.countryName}</p>
+              <p className="text-xs text-purple-600">Compare & book →</p>
+            </div>
+          </Link>
+        </div>
+
+        {/* Disclaimer */}
+        <p className="text-xs text-gray-400 text-center leading-relaxed pb-8">
+          Walz Travels provides visa information sourced from official government portals, refreshed regularly.
+          Entry decisions are made solely by destination country immigration authorities. Always verify current
+          requirements with the official embassy before travel. Walz Travels is not liable for denied entry or
+          application rejections.
+        </p>
       </div>
     </div>
   )
