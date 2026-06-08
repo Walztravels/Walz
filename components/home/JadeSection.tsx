@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useRef } from 'react'
+import Image from 'next/image'
 import gsap from 'gsap'
 import ScrollTrigger from 'gsap/ScrollTrigger'
 import { MessageCircle, Zap, Search, Map } from 'lucide-react'
@@ -57,8 +58,22 @@ export function JadeSection() {
           {/* Glow ring */}
           <div className="absolute inset-0 rounded-full bg-[#C9A84C]/20 animate-ping" style={{ animationDuration: '2.5s' }} />
           <div className="absolute inset-[-8px] rounded-full border border-[#C9A84C]/20" />
-          <div className="w-24 h-24 rounded-full bg-gradient-to-br from-[#C9A84C]/30 to-[#C9A84C]/10 border border-[#C9A84C]/40 flex items-center justify-center relative z-10">
-            <span className="text-4xl select-none">🤖</span>
+          <div
+            className="w-24 h-24 rounded-full overflow-hidden relative z-10"
+            style={{
+              background: 'radial-gradient(circle at 50% 30%, #dceaf5 0%, #c8dff0 60%, #a8cce8 100%)',
+              border: '2px solid rgba(201,168,76,0.55)',
+              boxShadow: '0 0 40px rgba(201,168,76,0.25)',
+            }}
+          >
+            <Image
+              src="/jade-avatar.jpg"
+              alt="Jade — Your AI Travel Advisor"
+              fill
+              className="object-cover"
+              style={{ objectPosition: '50% 8%' }}
+              sizes="96px"
+            />
           </div>
         </div>
 
