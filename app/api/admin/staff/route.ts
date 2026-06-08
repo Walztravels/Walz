@@ -13,7 +13,7 @@ export async function GET() {
     orderBy: [{ isActive: 'desc' }, { createdAt: 'asc' }],
     select: {
       id: true, name: true, email: true, roleTitle: true,
-      accessLevel: true, isActive: true, lastLoginAt: true, createdAt: true,
+      accessLevel: true, role: true, isActive: true, lastLoginAt: true, createdAt: true,
     },
   })
 
@@ -29,7 +29,7 @@ export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => null)
   if (!body) return NextResponse.json({ error: 'Invalid body' }, { status: 400 })
 
-  const { name, email, roleTitle, accessLevel, password } = body as Record<string, string>
+  const { name, email, roleTitle, accessLevel, role, password } = body as Record<string, string>
 
   if (!name || !email || !roleTitle || !accessLevel || !password) {
     return NextResponse.json({ error: 'All fields are required' }, { status: 400 })
@@ -39,6 +39,9 @@ export async function POST(req: NextRequest) {
   if (!VALID_LEVELS.includes(accessLevel)) {
     return NextResponse.json({ error: 'Invalid access level' }, { status: 400 })
   }
+
+  const VALID_ROLES = ['super_admin', 'general_manager', 'senior_manager', 'coordinator', 'sales_rep']
+  const staffRole   = role && VALID_ROLES.includes(role) ? role : 'sales_rep'
 
   if (password.length < 8) {
     return NextResponse.json({ error: 'Password must be at least 8 characters' }, { status: 400 })
@@ -58,11 +61,12 @@ export async function POST(req: NextRequest) {
       passwordHash,
       roleTitle: roleTitle.trim(),
       accessLevel,
+      role: staffRole,
       isActive: true,
     },
     select: {
       id: true, name: true, email: true, roleTitle: true,
-      accessLevel: true, isActive: true, createdAt: true,
+      accessLevel: true, role: true, isActive: true, createdAt: true,
     },
   })
 

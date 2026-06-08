@@ -15,26 +15,32 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
   const existing = await prisma.staff.findUnique({ where: { id: params.id } })
   if (!existing) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
-  const { name, email, roleTitle, accessLevel, isActive } = body as Record<string, string | boolean>
+  const { name, email, roleTitle, accessLevel, role, isActive } = body as Record<string, string | boolean>
 
   const VALID_LEVELS = ['Admin', 'Manager', 'Coordinator', 'Sales']
   if (accessLevel && !VALID_LEVELS.includes(accessLevel as string)) {
     return NextResponse.json({ error: 'Invalid access level' }, { status: 400 })
   }
 
+  const VALID_ROLES = ['super_admin', 'general_manager', 'senior_manager', 'coordinator', 'sales_rep']
+  if (role && !VALID_ROLES.includes(role as string)) {
+    return NextResponse.json({ error: 'Invalid role' }, { status: 400 })
+  }
+
   const updateData: Record<string, unknown> = {}
-  if (name       !== undefined) updateData.name        = String(name).trim()
-  if (email      !== undefined) updateData.email       = String(email).toLowerCase().trim()
-  if (roleTitle  !== undefined) updateData.roleTitle   = String(roleTitle).trim()
+  if (name        !== undefined) updateData.name        = String(name).trim()
+  if (email       !== undefined) updateData.email       = String(email).toLowerCase().trim()
+  if (roleTitle   !== undefined) updateData.roleTitle   = String(roleTitle).trim()
   if (accessLevel !== undefined) updateData.accessLevel = accessLevel
-  if (isActive   !== undefined) updateData.isActive    = Boolean(isActive)
+  if (role        !== undefined) updateData.role        = role
+  if (isActive    !== undefined) updateData.isActive    = Boolean(isActive)
 
   const staff = await prisma.staff.update({
     where: { id: params.id },
     data: updateData,
     select: {
       id: true, name: true, email: true, roleTitle: true,
-      accessLevel: true, isActive: true, lastLoginAt: true, createdAt: true,
+      accessLevel: true, role: true, isActive: true, lastLoginAt: true, createdAt: true,
     },
   })
 

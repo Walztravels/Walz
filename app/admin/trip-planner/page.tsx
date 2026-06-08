@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import {
   Map, Users, Globe, Calendar, FileText, ChevronRight,
@@ -8,6 +9,7 @@ import {
   Plus, Sparkles,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { useStaffPermissions } from '@/hooks/useStaffPermissions'
 
 type Trip = {
   id: string; title: string; destination: string; status: string; updatedAt: string; createdAt: string
@@ -27,10 +29,18 @@ const STATUS_COLORS: Record<string, string> = {
 }
 
 export default function AdminTripPlannerPage() {
+  const router = useRouter()
+  const { can, loading: permLoading } = useStaffPermissions()
+
   const [trips, setTrips]     = useState<Trip[]>([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch]   = useState('')
   const [statusFilter, setStatusFilter] = useState('ALL')
+
+  // Access guard
+  useEffect(() => {
+    if (!permLoading && !can('trips_view')) router.replace('/admin/unauthorized')
+  }, [permLoading, can, router])
 
   useEffect(() => {
     fetch('/api/advisor/trips')

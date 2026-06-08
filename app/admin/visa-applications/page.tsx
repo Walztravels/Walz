@@ -1,12 +1,14 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import {
   Search, Globe, Clock, ChevronRight,
   Loader2, RefreshCw, Send, X, CheckCircle,
 } from 'lucide-react'
 import { STATUS_CONFIG, VISA_AGENTS, VISA_CONFIGS } from '@/lib/visa-config'
+import { useStaffPermissions } from '@/hooks/useStaffPermissions'
 
 interface VisaApp {
   id: string; referenceNumber: string; destinationIso2: string; visaType: string
@@ -58,12 +60,20 @@ interface SendFormState {
 }
 
 export default function AdminVisaApplicationsPage() {
+  const router = useRouter()
+  const { can, loading: permLoading } = useStaffPermissions()
+
   const [apps, setApps]               = useState<VisaApp[]>([])
   const [loading, setLoading]         = useState(true)
   const [statusFilter, setStatusFilter] = useState('all')
   const [destFilter, setDestFilter]   = useState('all')
   const [agentFilter, setAgentFilter] = useState('all')
   const [search, setSearch]           = useState('')
+
+  // Access guard
+  useEffect(() => {
+    if (!permLoading && !can('visa_view')) router.replace('/admin/unauthorized')
+  }, [permLoading, can, router])
 
   // Send-form modal
   const [modalOpen, setModalOpen]   = useState(false)
