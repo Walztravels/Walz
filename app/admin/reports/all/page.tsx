@@ -1,10 +1,12 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
+import { useRouter } from 'next/navigation'
 import {
   Loader2, Search, Filter, Download, CheckCircle, X, ChevronLeft, ChevronRight,
   TrendingUp, AlertCircle, ClipboardList, Users,
 } from 'lucide-react'
+import { useStaffPermissions } from '@/hooks/useStaffPermissions'
 
 interface StaffReport {
   id: string
@@ -146,11 +148,18 @@ function ReviewModal({ report, onClose, onReviewed }: {
 const LIMIT = 25
 
 export default function AllReportsPage() {
+  const router = useRouter()
+  const { can, loading: permLoading } = useStaffPermissions()
+
   const [reports, setReports]     = useState<StaffReport[]>([])
   const [total, setTotal]         = useState(0)
   const [page, setPage]           = useState(1)
   const [loading, setLoading]     = useState(true)
   const [accessDenied, setDenied] = useState(false)
+
+  useEffect(() => {
+    if (!permLoading && !can('reports_all')) router.replace('/admin/unauthorized')
+  }, [permLoading, can, router])
   const [viewing, setViewing]     = useState<StaffReport | null>(null)
   const [selected, setSelected]   = useState<Set<string>>(new Set())
   const [bulkMarking, setBulk]    = useState(false)

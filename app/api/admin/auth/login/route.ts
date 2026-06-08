@@ -162,8 +162,9 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Invalid credentials' }, { status: 401 })
     }
 
-    const staffName = staffMember.name
-    const staffRole = staffMember.accessLevel
+    const staffName    = staffMember.name
+    const staffRole    = staffMember.accessLevel
+    const staffRbacRole = staffMember.role ?? staffMember.accessLevel
 
     // Update last login timestamp
     await prisma.staff.update({
@@ -192,7 +193,7 @@ export async function POST(req: NextRequest) {
         staffId:   staffMember.id,
         staffName,
         action:    'Staff Login',
-        detail:    `${staffName} signed in (${staffRole})${ipAddress ? ` from ${ipAddress}` : ''}`,
+        detail:    `${staffName} signed in (${staffRbacRole})${ipAddress ? ` from ${ipAddress}` : ''}`,
       },
     }).catch((e: unknown) => console.error('ActivityLog create failed:', e))
 
@@ -201,7 +202,7 @@ export async function POST(req: NextRequest) {
       const resend = getResend()
       if (resend) {
         const subject = `Staff Login Alert — ${staffName} — ${fmtDateTime(loginAt)}`
-        const html    = buildLoginAlertHtml(staffName, staffRole, normalizedEmail, ipAddress, browser, operatingSystem, loginAt)
+        const html    = buildLoginAlertHtml(staffName, staffRbacRole, normalizedEmail, ipAddress, browser, operatingSystem, loginAt)
         await Promise.all([
           resend.emails.send({
             from:    'Walz Travels <noreply@walztravels.com>',

@@ -1,7 +1,9 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
+import { useRouter } from 'next/navigation'
 import { Loader2, Send, CheckCircle, AlertCircle, X, ChevronDown, ClipboardList } from 'lucide-react'
+import { useStaffPermissions } from '@/hooks/useStaffPermissions'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 interface StaffReport {
@@ -150,6 +152,9 @@ const EMPTY_FORM = {
 }
 
 export default function MyReportsPage() {
+  const router = useRouter()
+  const { can, loading: permLoading } = useStaffPermissions()
+
   const [form, setForm]       = useState({ ...EMPTY_FORM })
   const [submitting, setSub]  = useState(false)
   const [toast, setToast]     = useState<{ type: 'success' | 'error'; msg: string } | null>(null)
@@ -157,6 +162,10 @@ export default function MyReportsPage() {
   const [loading, setLoading] = useState(true)
   const [viewing, setViewing] = useState<StaffReport | null>(null)
   const [formOpen, setFormOpen] = useState(true)
+
+  useEffect(() => {
+    if (!permLoading && !can('reports_view')) router.replace('/admin/unauthorized')
+  }, [permLoading, can, router])
 
   const loadReports = useCallback(async () => {
     setLoading(true)
