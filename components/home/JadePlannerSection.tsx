@@ -533,10 +533,11 @@ export function JadePlannerSection() {
                   }}
                 >
                   <Image
-                    src="/jade-avatar.png"
+                    src="/jade-avatar.jpg"
                     alt="Jade — Your AI Travel Advisor"
                     fill
-                    className="object-cover object-top"
+                    className="object-cover"
+                    style={{ objectPosition: '50% 8%' }}
                     sizes="(max-width: 1024px) 180px, 280px"
                     priority
                   />
