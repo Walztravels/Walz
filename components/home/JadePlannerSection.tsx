@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
+import Image from 'next/image'
 import gsap from 'gsap'
 import ScrollTrigger from 'gsap/ScrollTrigger'
 import { ArrowRight } from 'lucide-react'
@@ -523,21 +524,22 @@ export function JadePlannerSection() {
 
                 {/* Avatar circle */}
                 <div
-                  className="w-[180px] h-[180px] lg:w-[280px] lg:h-[280px] rounded-full flex items-center justify-center relative z-10"
+                  className="w-[180px] h-[180px] lg:w-[280px] lg:h-[280px] rounded-full overflow-hidden relative z-10"
                   style={{
-                    background:
-                      'radial-gradient(circle at 35% 35%, rgba(201,168,76,0.28) 0%, rgba(201,168,76,0.1) 45%, rgba(11,31,58,0.85) 100%)',
-                    border:    '2px solid rgba(201,168,76,0.45)',
+                    background: 'radial-gradient(circle at 50% 30%, #dceaf5 0%, #c8dff0 60%, #a8cce8 100%)',
+                    border:    '2.5px solid rgba(201,168,76,0.55)',
                     boxShadow:
-                      '0 0 80px rgba(201,168,76,0.14), 0 0 160px rgba(201,168,76,0.06), inset 0 0 60px rgba(201,168,76,0.06)',
+                      '0 0 80px rgba(201,168,76,0.22), 0 0 160px rgba(201,168,76,0.10), inset 0 0 30px rgba(201,168,76,0.06)',
                   }}
                 >
-                  <span
-                    className="font-display font-bold text-[#C9A84C] select-none"
-                    style={{ fontSize: 'clamp(5rem, 12vw, 9rem)', lineHeight: 1 }}
-                  >
-                    J
-                  </span>
+                  <Image
+                    src="/jade-avatar.png"
+                    alt="Jade — Your AI Travel Advisor"
+                    fill
+                    className="object-cover object-top"
+                    sizes="(max-width: 1024px) 180px, 280px"
+                    priority
+                  />
                 </div>
               </div>
 
