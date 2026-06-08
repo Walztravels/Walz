@@ -2,6 +2,31 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ── Custom cursor — hide default, show custom on desktop ─────────────────── */
+@media (hover: hover) and (pointer: fine) {
+  *, *::before, *::after {
+    cursor: none !important;
+  }
+}
+
+@media (max-width: 768px),
+       (hover: none),
+       (pointer: coarse) {
+  .cursor-dot,
+  .cursor-circle {
+    display: none !important;
+  }
+}
+
+/* ── Marquee ──────────────────────────────────────────────────────────────── */
+@keyframes marquee {
+  from { transform: translateX(0); }
+  to   { transform: translateX(-50%); }
+}
+.animate-marquee {
+  animation: marquee 32s linear infinite;
+}
+
 /* ── Jade Chat Animation ──────────────────────────────────────────────────── */
 @keyframes jade-slide-up {
   from { opacity: 0; transform: translateY(12px) scale(0.98); }
@@ -249,3 +274,57 @@
     display: none !important;
   }
 }
+
+/* ── Reduced motion — accessibility requirement ───────────────────────────── */
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation: none !important;
+    transition: none !important;
+  }
+}
+
+/* ── Scroll reveal keyframe (used by semi-cinematic pages) ────────────────── */
+@keyframes walz-fade-up {
+  from { opacity: 0; transform: translateY(28px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* ── Ken Burns — slow cinematic zoom (tours slideshow) ────────────────────── */
+@keyframes kenBurns {
+  from { transform: scale(1)    translateX(0) translateY(0); }
+  to   { transform: scale(1.08) translateX(-1%) translateY(-1%); }
+}
+.ken-burns {
+  animation: kenBurns 8s ease-in-out forwards;
+}
+
+/* ── Crossfade slide transitions ─────────────────────────────────────────── */
+@keyframes walz-fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+.slide-fade-in {
+  animation: walz-fade-in 0.8s ease forwards;
+}
+
+/* ── About page: animated gradient for final CTA ─────────────────────────── */
+@keyframes walz-gradient-shift {
+  0%, 100% { background-position: 0% 50%; }
+  50%       { background-position: 100% 50%; }
+}
+.animate-gradient-bg {
+  background: linear-gradient(-45deg, #0B1F3A, #0f2d52, #152545, #091828);
+  background-size: 400% 400%;
+  animation: walz-gradient-shift 10s ease infinite;
+}
+
+/* ── Scroll reveal helpers ────────────────────────────────────────────────── */
+.reveal-ready {
+  transition: opacity 0.7s ease, transform 0.7s ease;
+}
+.reveal-hidden { opacity: 0; transform: translateY(32px); }
+.reveal-shown  { opacity: 1; transform: translateY(0);    }
+.reveal-from-right-hidden { opacity: 0; transform: translateX(40px); }
+.reveal-from-right-shown  { opacity: 1; transform: translateX(0);    }
+.reveal-from-left-hidden  { opacity: 0; transform: translateX(-40px); }
+.reveal-from-left-shown   { opacity: 1; transform: translateX(0);     }

@@ -1,10 +1,12 @@
 import type { Metadata } from 'next'
 import { Playfair_Display, DM_Sans } from 'next/font/google'
 import './globals.css'
-import { Navbar } from '@/components/common/Navbar'
-import { Footer } from '@/components/common/Footer'
+import { PublicShell } from '@/components/common/PublicShell'
 import { SessionProvider } from '@/components/providers/SessionProvider'
-import { JadeChat } from '@/components/jade/JadeChat'
+import { LenisProvider } from '@/components/providers/LenisProvider'
+import dynamic from 'next/dynamic'
+
+const Cursor = dynamic(() => import('@/components/ui/Cursor'), { ssr: false })
 
 const playfairDisplay = Playfair_Display({
   subsets: ['latin'],
@@ -19,6 +21,13 @@ const dmSans = DM_Sans({
   display: 'swap',
   weight: ['300', '400', '500', '600', '700'],
 })
+
+export const viewport = {
+  themeColor: '#0B1F3A',
+  width: 'device-width',
+  initialScale: 1,
+  maximumScale: 1,
+}
 
 export const metadata: Metadata = {
   title: {
@@ -67,6 +76,7 @@ export const metadata: Metadata = {
     index: true,
     follow: true,
   },
+  manifest: '/manifest.json',
   icons: {
     icon: [
       { url: '/favicon.ico',   sizes: '16x16 32x32 48x64 128x256', type: 'image/x-icon' },
@@ -90,12 +100,12 @@ export default function RootLayout({
     >
       <body className="font-sans bg-walz-off-white text-walz-deep-navy antialiased min-h-screen flex flex-col">
         <SessionProvider>
-          <Navbar />
-          <main className="flex-1">
-            {children}
-          </main>
-          <Footer />
-          <JadeChat />
+          <LenisProvider>
+            <Cursor />
+            <PublicShell>
+              {children}
+            </PublicShell>
+          </LenisProvider>
         </SessionProvider>
       </body>
     </html>

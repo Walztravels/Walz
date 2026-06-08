@@ -1,6 +1,9 @@
 import { NextResponse } from 'next/server'
 import prisma from '@/lib/db'
 
+export const dynamic = 'force-dynamic'
+export const revalidate = 0
+
 // Public endpoint — returns all active tour listings ordered by `order` field
 export async function GET() {
   try {

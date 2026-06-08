@@ -1,40 +1,98 @@
 'use client'
 
 import Link from 'next/link'
-import NextImage from 'next/image'
+import Image from 'next/image'
 import { usePathname, useRouter } from 'next/navigation'
 import {
-  LayoutDashboard, BookOpen, Plane, Map, FileText, Users,
-  Settings, LayoutGrid, Image, LogOut, ChevronRight, Globe, Rss, Gift, UserCog, MessageSquare,
+  LayoutDashboard, Users, UserPlus, MessageSquare,
+  BookOpen, Plane, Hotel, Map,
+  Globe, Send, Brain,
+  Rss, Gift, Image as ImageIcon, LayoutGrid, Tv2,
+  UserCog, Activity, FileText, ClipboardList,
+  Settings, LogOut, PenSquare, Compass, History, Package, Sparkles,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
-const NAV = [
-  { href: '/admin/dashboard', label: 'Dashboard', icon: LayoutDashboard },
-  { href: '/admin/bookings', label: 'Bookings', icon: BookOpen },
-  { href: '/admin/leads', label: 'Lead Enquiries', icon: MessageSquare },
-  { href: '/admin/portal', label: 'Client Portal', icon: LayoutDashboard },
-  { href: '/admin/flights', label: 'Flights', icon: Plane },
-  { href: '/admin/tours', label: 'Tours', icon: Map },
-  { href: '/admin/visa-applications', label: 'Visa Applications', icon: Globe },
-  { href: '/admin/visa', label: 'Visa Services', icon: FileText },
-  { href: '/admin/visa-intelligence', label: 'Visa Intelligence', icon: Globe },
-  { href: '/admin/blog', label: 'Blog', icon: Rss },
-  { href: '/admin/vouchers', label: 'Vouchers', icon: Gift },
-  { href: '/admin/clients', label: 'Clients', icon: Users },
-  { href: '/admin/widgets', label: 'Widgets', icon: LayoutGrid },
-  { href: '/admin/images', label: 'Images', icon: Image },
-  { href: '/admin/staff', label: 'Staff', icon: UserCog },
-  { href: '/admin/settings', label: 'Settings', icon: Settings },
+// ── Nav structure ─────────────────────────────────────────────────────────────
+const SECTIONS = [
+  {
+    label: 'Overview',
+    items: [
+      { href: '/admin/dashboard', label: 'Dashboard', icon: LayoutDashboard },
+    ],
+  },
+  {
+    label: 'Clients',
+    items: [
+      { href: '/admin/clients',     label: 'All Clients', icon: Users },
+      { href: '/admin/clients/new', label: 'New Client',  icon: UserPlus, exact: true },
+      { href: '/admin/leads',       label: 'Leads',       icon: MessageSquare },
+    ],
+  },
+  {
+    label: 'Bookings',
+    items: [
+      { href: '/admin/bookings',              label: 'All Bookings', icon: BookOpen },
+      { href: '/admin/bookings?type=flight',  label: 'Flights',      icon: Plane, exact: true },
+      { href: '/admin/bookings?type=hotel',   label: 'Hotels',       icon: Hotel, exact: true },
+      { href: '/admin/bookings?type=tour',    label: 'Tours (Book)', icon: Map,   exact: true },
+    ],
+  },
+  {
+    label: 'Visa',
+    items: [
+      { href: '/admin/visa-applications', label: 'Applications',     icon: Globe },
+      { href: '/admin/visa-intelligence', label: 'Visa Intelligence', icon: Brain },
+    ],
+  },
+  {
+    label: 'Planning',
+    items: [
+      { href: '/admin/trip-planner',         label: 'Trip Planner', icon: Compass },
+      { href: '/admin/trip-planner/history', label: 'Trip History', icon: History, exact: true },
+    ],
+  },
+  {
+    label: 'Content',
+    items: [
+      { href: '/admin/content',   label: 'Content Manager', icon: PenSquare },
+      { href: '/admin/tours',     label: 'Tours',           icon: Map },
+      { href: '/admin/blog',      label: 'Blog',            icon: Rss },
+      { href: '/admin/vouchers',  label: 'Gift Vouchers',   icon: Gift },
+      { href: '/admin/images',    label: 'Images',          icon: ImageIcon },
+      { href: '/admin/widgets',   label: 'Widgets',         icon: LayoutGrid },
+    ],
+  },
+  {
+    label: 'Team',
+    items: [
+      { href: '/admin/staff',        label: 'Staff',        icon: UserCog },
+      { href: '/admin/activity',     label: 'Activity Log', icon: Activity },
+      { href: '/admin/reports',      label: 'My Reports',   icon: FileText, exact: true },
+      { href: '/admin/reports/all',  label: 'All Reports',  icon: ClipboardList, exact: true },
+    ],
+  },
+  {
+    label: 'Settings',
+    items: [
+      { href: '/admin/settings',           label: 'General',  icon: Settings },
+      { href: '/admin/settings/payments',  label: 'Payments', icon: Tv2, exact: true },
+      { href: '/admin/settings/emails',    label: 'Emails',   icon: Send, exact: true },
+    ],
+  },
 ]
 
-interface Props {
-  adminEmail?: string
-}
-
-export function AdminSidebar({ adminEmail }: Props) {
+// ── Component ─────────────────────────────────────────────────────────────────
+export function AdminSidebar() {
   const pathname = usePathname()
-  const router = useRouter()
+  const router   = useRouter()
+
+  function isActive(href: string, exact?: boolean) {
+    // Strip query string for comparison
+    const path = href.split('?')[0]
+    if (exact) return pathname === path
+    return pathname === path || pathname.startsWith(path + '/')
+  }
 
   async function handleLogout() {
     await fetch('/api/admin/auth/logout', { method: 'POST' })
@@ -42,61 +100,60 @@ export function AdminSidebar({ adminEmail }: Props) {
   }
 
   return (
-    <aside className="flex flex-col w-64 min-h-screen bg-[#0B1F3A] text-white">
+    <aside className="flex flex-col w-60 min-h-screen bg-[#0B1F3A] flex-shrink-0 border-r border-white/5">
 
       {/* Logo */}
-      <div className="px-6 py-5 border-b border-white/10">
-        <Link href="/admin/dashboard" className="flex flex-col items-start">
-          <NextImage
+      <div className="px-5 py-4 border-b border-white/10 flex-shrink-0">
+        <Link href="/admin/dashboard" className="flex flex-col items-start gap-0.5">
+          <Image
             src="/walz-logo.png"
             alt="Walz Travels"
-            width={120}
-            height={120}
-            className="w-[120px] h-auto object-contain"
+            width={96}
+            height={96}
+            className="w-[96px] h-auto object-contain"
           />
-          <div className="text-[10px] text-[#C9A84C] tracking-widest uppercase mt-1">Admin CRM</div>
+          <span className="text-[10px] text-[#C9A84C] tracking-[0.2em] uppercase font-semibold">
+            Admin Panel
+          </span>
         </Link>
       </div>
 
       {/* Navigation */}
-      <nav className="flex-1 px-3 py-4 space-y-0.5 overflow-y-auto">
-        {NAV.map(({ href, label, icon: Icon }) => {
-          const active = pathname === href || pathname.startsWith(href + '/')
-          return (
-            <Link
-              key={href}
-              href={href}
-              className={cn(
-                'flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all group',
-                active
-                  ? 'bg-[#C9A84C] text-[#0B1F3A]'
-                  : 'text-white/70 hover:bg-white/10 hover:text-white'
-              )}
-            >
-              <Icon className="w-4 h-4 flex-shrink-0" />
-              <span className="flex-1">{label}</span>
-              {active && <ChevronRight className="w-3 h-3" />}
-            </Link>
-          )
-        })}
+      <nav className="flex-1 overflow-y-auto py-4 px-3 space-y-5">
+        {SECTIONS.map(({ label, items }) => (
+          <div key={label}>
+            <p className="px-3 mb-1 text-[10px] font-bold text-white/30 uppercase tracking-[0.15em]">
+              {label}
+            </p>
+            <div className="space-y-0.5">
+              {items.map(({ href, label: itemLabel, icon: Icon, exact }) => {
+                const active = isActive(href, exact)
+                return (
+                  <Link
+                    key={href}
+                    href={href}
+                    className={cn(
+                      'flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium transition-all',
+                      active
+                        ? 'bg-[#C9A84C] text-[#0B1F3A]'
+                        : 'text-white/65 hover:bg-white/8 hover:text-white'
+                    )}
+                  >
+                    <Icon className="w-4 h-4 flex-shrink-0" />
+                    <span>{itemLabel}</span>
+                  </Link>
+                )
+              })}
+            </div>
+          </div>
+        ))}
       </nav>
 
-      {/* Footer */}
-      <div className="px-3 py-4 border-t border-white/10 space-y-1">
-        <Link
-          href="/"
-          target="_blank"
-          className="flex items-center gap-3 px-3 py-2 rounded-lg text-xs text-white/50 hover:text-white/80 hover:bg-white/10 transition-all"
-        >
-          <Globe className="w-4 h-4" />
-          View Live Site
-        </Link>
-        <div className="px-3 py-2">
-          <p className="text-xs text-white/40 truncate">{adminEmail}</p>
-        </div>
+      {/* Sign out */}
+      <div className="flex-shrink-0 px-3 py-4 border-t border-white/10">
         <button
           onClick={handleLogout}
-          className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm text-white/70 hover:bg-red-500/20 hover:text-red-400 transition-all"
+          className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm text-white/60 hover:bg-red-500/15 hover:text-red-400 transition-all font-medium"
         >
           <LogOut className="w-4 h-4" />
           Sign Out

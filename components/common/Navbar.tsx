@@ -6,7 +6,7 @@ import { useSession, signOut } from 'next-auth/react'
 import {
   Menu, X, Plane, Hotel, Map, FileText, ChevronDown,
   User, LogOut, LayoutDashboard, Gift, MessageCircle,
-  Upload, CreditCard, Users, UserCircle, Globe,
+  Upload, CreditCard, Users, UserCircle, Globe, Compass,
 } from 'lucide-react'
 import Image from 'next/image'
 import { Button } from '@/components/ui/button'
@@ -16,6 +16,7 @@ const navLinks = [
   { href: '/flights', label: 'Flights',       icon: Plane    },
   { href: '/hotels',  label: 'Hotels',         icon: Hotel    },
   { href: '/tours',   label: 'Tours',          icon: Map      },
+  { href: '/about',   label: 'About',          icon: Users    },
   { href: '/gift',    label: 'Gift Vouchers',  icon: Gift     },
 ]
 
@@ -32,6 +33,7 @@ const visaDropdownLinks = [
 
 const portalMenu = [
   { href: '/portal/dashboard',   label: 'My Dashboard',    icon: LayoutDashboard },
+  { href: '/plan/library',       label: 'My Trips',        icon: Compass         },
   { href: '/portal/application', label: 'My Applications', icon: FileText        },
   { href: '/portal/dashboard',   label: 'My Bookings',     icon: Plane           },
   { href: '/portal/dashboard',   label: 'My Vouchers',     icon: Gift            },

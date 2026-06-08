@@ -7,20 +7,21 @@ import { signOut } from 'next-auth/react'
 import {
   LayoutDashboard, FileText, Upload, CreditCard,
   CheckSquare, Users, LogOut, Globe, ChevronRight,
-  UserCircle, MessageCircle, Shield,
+  UserCircle, MessageCircle, Shield, Compass,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 const NAV = [
-  { href: '/portal/dashboard',        label: 'Dashboard',       icon: LayoutDashboard },
-  { href: '/portal/application',      label: 'Applications',    icon: FileText        },
-  { href: '/portal/documents',        label: 'Documents',       icon: Upload          },
-  { href: '/portal/payments',         label: 'Payments',        icon: CreditCard      },
-  { href: '/portal/checklist',        label: 'Checklist',       icon: CheckSquare     },
-  { href: '/portal/passport-vault',   label: 'Passport Vault',  icon: Shield          },
-  { href: '/visa-hub',                label: 'Visa Intelligence',icon: Globe           },
-  { href: '/portal/referral',         label: 'Refer & Earn',    icon: Users           },
-  { href: '/portal/profile',          label: 'My Profile',      icon: UserCircle      },
+  { href: '/portal/dashboard',        label: 'Dashboard',        icon: LayoutDashboard },
+  { href: '/plan/library',            label: 'My Trips',         icon: Compass         },
+  { href: '/portal/application',      label: 'Applications',     icon: FileText        },
+  { href: '/portal/documents',        label: 'Documents',        icon: Upload          },
+  { href: '/portal/payments',         label: 'Payments',         icon: CreditCard      },
+  { href: '/portal/checklist',        label: 'Checklist',        icon: CheckSquare     },
+  { href: '/portal/passport-vault',   label: 'Passport Vault',   icon: Shield          },
+  { href: '/visa-hub',                label: 'Visa Intelligence', icon: Globe           },
+  { href: '/portal/referral',         label: 'Refer & Earn',     icon: Users           },
+  { href: '/portal/profile',          label: 'My Profile',       icon: UserCircle      },
 ]
 
 interface Props {

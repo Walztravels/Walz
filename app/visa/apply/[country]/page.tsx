@@ -413,7 +413,7 @@ function StepDeclaration({ form, update, config }: {
 }
 
 // ─── Auto-save hook ───────────────────────────────────────────────────────────
-function useAutoSave(appId: string | null, data: FormData, delay = 800) {
+function useAutoSave(appId: string | null, data: FormData, token?: string, delay = 800) {
   const [saving, setSaving] = useState(false)
   const [lastSaved, setLastSaved] = useState<Date | null>(null)
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -425,12 +425,12 @@ function useAutoSave(appId: string | null, data: FormData, delay = 800) {
       await fetch(`/api/visa-application/${appId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(patch),
+        body: JSON.stringify(token ? { ...patch, _token: token } : patch),
       })
       setLastSaved(new Date())
     } catch { /* silent */ }
     setSaving(false)
-  }, [appId])
+  }, [appId, token])
 
   const debouncedSave = useCallback((patch: Partial<FormData>) => {
     if (timer.current) clearTimeout(timer.current)
@@ -489,55 +489,85 @@ export default function VisaApplyPage() {
   const iso2 = SLUG_TO_ISO2[params.country?.toLowerCase() ?? ''] ?? params.country?.toUpperCase()
   const config = getVisaConfig(iso2)
 
+  const tokenParam = searchParams.get('token')
+
   const [step, setStep] = useState(0)
   const [form, setForm] = useState<FormData>(EMPTY_FORM)
   const [appId, setAppId] = useState<string | null>(null)
   const [refNumber, setRefNumber] = useState<string | null>(null)
   const [creating, setCreating] = useState(false)
   const [loading, setLoading] = useState(true)
+  const [isAdminFlow, setIsAdminFlow] = useState(false)
+  const [tokenError, setTokenError] = useState<string | null>(null)
+  const [submitting, setSubmitting] = useState(false)
 
-  const { debouncedSave, saving, lastSaved } = useAutoSave(appId, form)
+  const { debouncedSave, saving, lastSaved } = useAutoSave(appId, form, tokenParam ?? undefined)
+
+  // Helper: map API app → form state
+  function mapAppToForm(app: Record<string, unknown>): Partial<FormData> {
+    const f: Partial<FormData> = {}
+    for (const key of Object.keys(EMPTY_FORM)) {
+      const v = app[key]
+      if (v !== null && v !== undefined) {
+        if (typeof EMPTY_FORM[key] === 'boolean') f[key] = Boolean(v)
+        else if (key.endsWith('Date') || key === 'dateOfBirth') {
+          f[key] = v ? new Date(v as string).toISOString().split('T')[0] : ''
+        } else {
+          f[key] = String(v ?? '')
+        }
+      }
+    }
+    if (app.countrySpecific && typeof app.countrySpecific === 'object') {
+      for (const [k, v] of Object.entries(app.countrySpecific as Record<string, unknown>)) {
+        f[k] = v as string | boolean
+      }
+    }
+    return f
+  }
 
   // Load existing draft or create new one
   useEffect(() => {
-    if (authStatus === 'loading') return
-    if (authStatus === 'unauthenticated') {
-      router.push(`/login?callbackUrl=/visa/apply/${params.country}`)
-      return
-    }
     if (!config) { setLoading(false); return }
 
     const draftId = searchParams.get('draft')
 
     async function init() {
       setCreating(true)
+
+      // ── FLOW 1: Admin-initiated token link ─────────────────────────────────
+      if (tokenParam) {
+        const tokenRes = await fetch(`/api/visa-application/verify-token?t=${tokenParam}`)
+        const tokenData = await tokenRes.json()
+        if (!tokenData.valid) {
+          setTokenError(tokenData.error ?? 'This link is invalid or has expired.')
+          setCreating(false)
+          setLoading(false)
+          return
+        }
+        setIsAdminFlow(true)
+        const app = tokenData.application
+        setAppId(app.id)
+        setRefNumber(app.referenceNumber)
+        setForm(prev => ({ ...prev, ...mapAppToForm(app) } as FormData))
+        setCreating(false)
+        setLoading(false)
+        return
+      }
+
+      // ── FLOW 2: Client self-apply (requires auth) ──────────────────────────
+      if (authStatus === 'loading') return
+      if (authStatus === 'unauthenticated') {
+        router.push(`/login?callbackUrl=/visa/apply/${params.country}`)
+        return
+      }
+
       if (draftId) {
-        // Load existing draft
         const res = await fetch(`/api/visa-application/${draftId}`)
         if (res.ok) {
           const { application: app } = await res.json()
           setAppId(app.id)
           setRefNumber(app.referenceNumber)
-          // Map DB fields to form
-          const f: Partial<FormData> = {}
-          for (const key of Object.keys(EMPTY_FORM)) {
-            const v = app[key]
-            if (v !== null && v !== undefined) {
-              if (typeof EMPTY_FORM[key] === 'boolean') f[key] = Boolean(v)
-              else if (key.endsWith('Date') || key === 'dateOfBirth') {
-                f[key] = v ? new Date(v).toISOString().split('T')[0] : ''
-              } else {
-                f[key] = String(v ?? '')
-              }
-            }
-          }
-          // Country-specific
-          if (app.countrySpecific) {
-            for (const [k, v] of Object.entries(app.countrySpecific as Record<string, unknown>)) {
-              f[k] = v as string | boolean
-            }
-          }
-          setForm(prev => ({ ...prev, ...f } as FormData))
+          setForm(prev => ({ ...prev, ...mapAppToForm(app) } as FormData))
           setCreating(false)
           setLoading(false)
           return
@@ -554,22 +584,9 @@ export default function VisaApplyPage() {
         const { application } = await res.json()
         setAppId(application.id)
         setRefNumber(application.referenceNumber)
-        // Pre-fill from returned app
-        const f: Partial<FormData> = {}
-        for (const key of Object.keys(EMPTY_FORM)) {
-          const v = application[key]
-          if (v !== null && v !== undefined) {
-            if (typeof EMPTY_FORM[key] === 'boolean') f[key] = Boolean(v)
-            else if (key.endsWith('Date') || key === 'dateOfBirth') {
-              f[key] = v ? new Date(v).toISOString().split('T')[0] : ''
-            } else {
-              f[key] = String(v ?? '')
-            }
-          }
-        }
+        const f = mapAppToForm(application)
         if (config) f.visaType = config.visaTypes[0]
         setForm(prev => ({ ...prev, ...f } as FormData))
-        // Update URL without reload
         window.history.replaceState({}, '', `/visa/apply/${params.country}?draft=${application.id}`)
       }
       setCreating(false)
@@ -577,7 +594,7 @@ export default function VisaApplyPage() {
     }
     init()
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [authStatus, iso2, params.country])
+  }, [authStatus, iso2, params.country, tokenParam])
 
   function update(key: string, value: string | boolean) {
     setForm(prev => {
@@ -628,7 +645,7 @@ export default function VisaApplyPage() {
 
   const [error, setError] = useState<string | null>(null)
 
-  function goNext() {
+  async function goNext() {
     const err = validate()
     if (err) { setError(err); return }
     setError(null)
@@ -636,8 +653,27 @@ export default function VisaApplyPage() {
       setStep(s => s + 1)
       window.scrollTo({ top: 0, behavior: 'smooth' })
     } else {
-      // Submit — go to payment
-      if (appId) router.push(`/visa/apply/${params.country}/payment?id=${appId}`)
+      if (isAdminFlow && appId && tokenParam) {
+        // Admin-initiated: submit directly — no payment
+        setSubmitting(true)
+        const res = await fetch(`/api/visa-application/${appId}/submit`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ token: tokenParam }),
+        })
+        if (res.ok) {
+          const { referenceNumber } = await res.json()
+          const name = encodeURIComponent([form.firstName, form.lastName].filter(Boolean).join(' '))
+          router.push(`/visa/apply/confirmation?ref=${referenceNumber}&name=${name}`)
+        } else {
+          const d = await res.json()
+          setError(d.error ?? 'Submission failed. Please try again or contact Walz Travels.')
+        }
+        setSubmitting(false)
+      } else {
+        // Client self-apply: go to payment page
+        if (appId) router.push(`/visa/apply/${params.country}/payment?id=${appId}`)
+      }
     }
   }
 
@@ -646,7 +682,26 @@ export default function VisaApplyPage() {
     if (step > 0) { setStep(s => s - 1); window.scrollTo({ top: 0, behavior: 'smooth' }) }
   }
 
-  if (loading || authStatus === 'loading') {
+  // Token error screen
+  if (tokenError) {
+    return (
+      <div className="min-h-screen bg-[#F4F6F9] flex items-center justify-center px-4">
+        <div className="bg-white rounded-2xl p-8 max-w-md w-full text-center shadow-sm border border-gray-100">
+          <div className="w-14 h-14 rounded-full bg-red-100 flex items-center justify-center mx-auto mb-4">
+            <AlertCircle className="w-7 h-7 text-red-500" />
+          </div>
+          <h2 className="font-bold text-[#0B1F3A] text-xl mb-2">Link Invalid or Expired</h2>
+          <p className="text-gray-500 text-sm mb-6 leading-relaxed">{tokenError}</p>
+          <a href="https://wa.me/447398753797" target="_blank" rel="noopener noreferrer"
+            className="inline-flex items-center gap-2 px-6 py-3 bg-[#C9A84C] text-[#0B1F3A] font-bold rounded-xl text-sm">
+            Contact Walz Travels on WhatsApp
+          </a>
+        </div>
+      </div>
+    )
+  }
+
+  if (loading || (!tokenParam && authStatus === 'loading')) {
     return (
       <div className="min-h-screen bg-[#F4F6F9] flex items-center justify-center">
         <div className="text-center">
@@ -675,13 +730,24 @@ export default function VisaApplyPage() {
 
   return (
     <div className="min-h-screen bg-[#F4F6F9]">
+      {/* Admin-flow banner */}
+      {isAdminFlow && (
+        <div className="bg-[#C9A84C] px-4 py-2.5">
+          <div className="max-w-2xl mx-auto flex items-center gap-2 text-sm text-[#0B1F3A]">
+            <span className="font-bold">📋 Walz Travels Application Form</span>
+            <span className="opacity-70">— Review all fields, then click Submit. No payment required.</span>
+          </div>
+        </div>
+      )}
+
       {/* Header */}
       <div className="bg-[#0B1F3A] px-4 py-6">
         <div className="max-w-2xl mx-auto">
-          <Link href={`/visa/${params.country}`}
-            className="inline-flex items-center gap-1.5 text-white/50 hover:text-white text-sm mb-4 transition-colors">
-            <ArrowLeft className="w-4 h-4" /> Back
-          </Link>
+          {!isAdminFlow && (
+            <Link href="/visa" className="flex items-center gap-1.5 text-white/50 hover:text-white/80 text-sm mb-4 transition-colors">
+              <ArrowLeft className="w-4 h-4" /> Back to Visa Services
+            </Link>
+          )}
           <div className="flex items-center gap-4">
             <span className="text-4xl">{config.flag}</span>
             <div>
@@ -748,12 +814,16 @@ export default function VisaApplyPage() {
               </p>
             </div>
 
-            <button onClick={goNext}
-              className="flex items-center gap-2 px-6 py-2.5 bg-[#C9A84C] hover:bg-[#b8943d] text-[#0B1F3A] font-bold text-sm rounded-xl transition-colors">
-              {step === STEPS.length - 1 ? (
-                <><FileText className="w-4 h-4" /> Review & Pay</>
-              ) : (
+            <button onClick={goNext} disabled={saving || submitting}
+              className="flex items-center gap-2 px-6 py-2.5 bg-[#C9A84C] hover:bg-[#b8943d] text-[#0B1F3A] font-bold text-sm rounded-xl transition-colors disabled:opacity-60 disabled:cursor-not-allowed">
+              {submitting ? (
+                <><Loader2 className="w-4 h-4 animate-spin" /> Submitting…</>
+              ) : step < STEPS.length - 1 ? (
                 <>Next <ChevronRight className="w-4 h-4" /></>
+              ) : isAdminFlow ? (
+                <><CheckCircle className="w-4 h-4" /> Submit Application</>
+              ) : (
+                <><FileText className="w-4 h-4" /> Review & Pay</>
               )}
             </button>
           </div>

@@ -83,20 +83,27 @@ export async function sendVisaApplicationConfirmation(app: any) {
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-export async function sendVisaAdminNotification(app: any) {
+export async function sendVisaAdminNotification(app: any, initiatedBy: 'admin' | 'client' = 'client') {
   const resend = getResend()
   const config = getVisaConfig(app.destinationIso2)
   const clientName = `${app.firstName ?? ''} ${app.lastName ?? ''}`.trim() || 'Unknown'
   const adminUrl = `${BASE_URL}/admin/visa-applications/${app.id}`
+  const isAdmin = initiatedBy === 'admin'
 
   await resend.emails.send({
     from: FROM,
     to: ADMIN,
-    subject: `🆕 New visa application — ${clientName} — ${config?.name ?? app.destinationIso2} (${app.referenceNumber})`,
+    subject: isAdmin
+      ? `🔔 Admin-Initiated Application — ${clientName} — ${config?.name ?? app.destinationIso2} (${app.referenceNumber})`
+      : `🆕 New Application + Payment — ${clientName} — ${config?.name ?? app.destinationIso2} (${app.referenceNumber})`,
     html: `
       ${header()}
       <div style="padding:32px 40px;">
-        <h2 style="margin:0 0 16px;color:#0B1F3A;">New Visa Application Received</h2>
+        <h2 style="margin:0 0 8px;color:#0B1F3A;">${isAdmin ? 'Admin-Initiated Application Submitted' : 'New Visa Application + Payment Received'}</h2>
+        ${isAdmin
+          ? `<div style="background:#fef3c7;border:1px solid #f59e0b;border-radius:8px;padding:12px 16px;margin:0 0 16px;"><p style="margin:0;color:#92400e;font-size:13px;font-weight:700;">🔔 Admin-Initiated — No payment collected. Jade arranged this application directly.</p></div>`
+          : `<div style="background:#dcfce7;border:1px solid #86efac;border-radius:8px;padding:12px 16px;margin:0 0 16px;"><p style="margin:0;color:#166534;font-size:13px;font-weight:700;">💳 Client Self-Applied — Service fee payment received.</p></div>`
+        }
         <table style="width:100%;border-collapse:collapse;margin:0 0 24px;">
           <tr style="background:#F4F6F9;"><td style="padding:10px 16px;color:#64748b;font-size:13px;width:40%;">Reference</td><td style="padding:10px 16px;color:#0B1F3A;font-weight:700;">${app.referenceNumber}</td></tr>
           <tr><td style="padding:10px 16px;color:#64748b;font-size:13px;">Client</td><td style="padding:10px 16px;color:#0B1F3A;">${clientName}</td></tr>
@@ -104,7 +111,7 @@ export async function sendVisaAdminNotification(app: any) {
           <tr><td style="padding:10px 16px;color:#64748b;font-size:13px;">Phone</td><td style="padding:10px 16px;color:#0B1F3A;">${app.phone ?? '—'}</td></tr>
           <tr style="background:#F4F6F9;"><td style="padding:10px 16px;color:#64748b;font-size:13px;">Destination</td><td style="padding:10px 16px;color:#0B1F3A;">${config?.flag ?? ''} ${config?.name ?? app.destinationIso2}</td></tr>
           <tr><td style="padding:10px 16px;color:#64748b;font-size:13px;">Visa Type</td><td style="padding:10px 16px;color:#0B1F3A;">${app.visaType}</td></tr>
-          <tr style="background:#F4F6F9;"><td style="padding:10px 16px;color:#64748b;font-size:13px;">Service Fee</td><td style="padding:10px 16px;color:#16a34a;font-weight:700;">USD $${app.serviceFeeAmount} PAID</td></tr>
+          <tr style="background:#F4F6F9;"><td style="padding:10px 16px;color:#64748b;font-size:13px;">${isAdmin ? 'Service Fee' : 'Service Fee Paid'}</td><td style="padding:10px 16px;${isAdmin ? 'color:#9a3412' : 'color:#16a34a'};font-weight:700;">${isAdmin ? 'Not collected (admin flow)' : `USD $${app.serviceFeeAmount} PAID`}</td></tr>
           <tr><td style="padding:10px 16px;color:#64748b;font-size:13px;">Arrival Date</td><td style="padding:10px 16px;color:#0B1F3A;">${app.arrivalDate ? new Date(app.arrivalDate).toLocaleDateString('en-GB') : '—'}</td></tr>
         </table>
         <a href="${adminUrl}" style="display:inline-block;background:#0B1F3A;color:#C9A84C;font-weight:700;font-size:14px;padding:14px 28px;border-radius:10px;text-decoration:none;">
@@ -194,10 +201,10 @@ export async function sendGovtFeeInstructions(app: any, instructions: string) {
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-export async function sendApplicationFormLink(app: any, clientEmail: string, clientName: string, personalMessage?: string) {
+export async function sendApplicationFormLink(app: any, clientEmail: string, clientName: string, personalMessage?: string, formUrl?: string) {
   const resend = getResend()
   const config = getVisaConfig(app.destinationIso2)
-  const formUrl = `${BASE_URL}/visa/apply/${app.destinationIso2.toLowerCase()}?draft=${app.id}`
+  const resolvedFormUrl = formUrl ?? `${BASE_URL}/visa/apply/${app.destinationIso2.toLowerCase()}?draft=${app.id}`
 
   await resend.emails.send({
     from: FROM,
@@ -211,13 +218,11 @@ export async function sendApplicationFormLink(app: any, clientEmail: string, cli
         ${personalMessage ? `<div style="background:#F4F6F9;border-left:4px solid #C9A84C;border-radius:8px;padding:16px;margin:0 0 20px;"><p style="margin:0;color:#0B1F3A;font-size:14px;">${personalMessage}</p></div>` : ''}
         <p style="color:#475569;font-size:14px;margin:0 0 20px;">
           Jade has prepared your <strong>${config?.name ?? app.destinationIso2}</strong> visa application form.
-          All your details have been pre-filled from your passport vault to save you time.
+          Your known details have been pre-filled to save you time — please review and complete all fields.
         </p>
-        <p style="color:#475569;font-size:14px;margin:0 0 24px;">
-          Review the form, make any necessary edits, and submit. Your application will be submitted
-          to the embassy by the Walz Travels team once complete and payment is confirmed.
-        </p>
-        <a href="${formUrl}" style="display:block;text-align:center;background:#C9A84C;color:#0B1F3A;font-weight:700;font-size:16px;padding:16px 32px;border-radius:12px;text-decoration:none;margin:0 0 24px;">
+        <p style="color:#475569;font-size:14px;margin:0 0 8px;">✅ <strong>No payment required</strong> — Jade will handle payment separately.</p>
+        <p style="color:#475569;font-size:14px;margin:0 0 24px;">Simply complete the form, review your details, and click Submit. Jade will be in touch within 24 hours.</p>
+        <a href="${resolvedFormUrl}" style="display:block;text-align:center;background:#C9A84C;color:#0B1F3A;font-weight:700;font-size:16px;padding:16px 32px;border-radius:12px;text-decoration:none;margin:0 0 24px;">
           Complete My Application →
         </a>
         <div style="background:#0B1F3A;border-radius:10px;padding:16px 20px;">

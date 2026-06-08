@@ -1,8 +1,27 @@
 import Script from 'next/script'
 
 export const metadata = {
-  title: 'Travel Blog | Walz Travels',
+  title: 'Travel Blog',
   description: 'Visa guides, destination inspiration, travel tips and news — everything you need for your next adventure.',
+  openGraph: {
+    type: 'website',
+    url: 'https://walztravels.us/blog',
+    title: 'Travel Blog | Walz Travels',
+    description: 'Visa guides, destination inspiration, travel tips and news — everything you need for your next adventure.',
+    images: [
+      {
+        url: 'https://images.unsplash.com/photo-1488085061387-422e29b40080?w=1200&q=80',
+        width: 1200,
+        height: 630,
+        alt: 'Walz Travels Travel Blog',
+      },
+    ],
+  },
+  twitter: {
+    card: 'summary_large_image',
+    title: 'Travel Blog | Walz Travels',
+    description: 'Visa guides, destination tips and travel news from the Walz Travels team.',
+  },
 }
 
 export default function BlogPage() {

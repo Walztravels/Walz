@@ -8,7 +8,7 @@ import {
   FileText, Clock, CheckCircle, XCircle, Loader2, ChevronRight,
   Plus, MessageCircle, AlertCircle, Plane, Hotel, Map, Gift,
   CreditCard, Upload, Star, Users, Activity, TicketCheck,
-  ArrowRight, Wallet, Globe, RefreshCw, Shield, Search,
+  ArrowRight, Wallet, Globe, RefreshCw, Shield, Search, Compass,
 } from 'lucide-react'
 import { CountrySelectLight } from '@/components/visa/CountrySelect'
 
@@ -109,6 +109,7 @@ export default function PortalDashboard() {
   const [visaDestination, setVisaDestination] = useState('')
   const [visaChecking, setVisaChecking]     = useState(false)
   const [visaResult, setVisaResult]         = useState<{ ruleType: string; label: string; badge: string } | null>(null)
+  const [myTrips, setMyTrips]               = useState<{ id: string; title: string; destination: string; status: string; coverImage: string | null; startDate: string | null; days: { id: string }[] }[]>([])
 
   const firstName = session?.user?.name?.split(' ')[0] || session?.user?.email?.split('@')[0] || 'there'
 
@@ -120,6 +121,10 @@ export default function PortalDashboard() {
     fetch('/api/passport-vault')
       .then(r => r.json())
       .then(d => { if (d.vault) { setVault(d.vault); if (d.vault.passportIso2) setVisaPassport(d.vault.passportIso2) } })
+      .catch(() => {})
+    fetch('/api/trips')
+      .then(r => r.json())
+      .then(d => { if (d.trips) setMyTrips(d.trips.slice(0, 3)) })
       .catch(() => {})
   }, [])
 
@@ -237,6 +242,56 @@ export default function PortalDashboard() {
       </div>
 
       <div className="max-w-5xl mx-auto px-5 lg:px-8 pb-24 space-y-6">
+
+        {/* ── Section 0: My Trips (Jade Planner) ───────────────────── */}
+        <Section
+          id="trips"
+          title="My Trips"
+          icon={<Map className="w-5 h-5 text-[#C9A84C]" />}
+          count={myTrips.length}
+          viewAll="/plan/library"
+        >
+          {myTrips.length === 0 ? (
+            <EmptyState
+              icon={<Compass className="w-10 h-10 text-gray-300" />}
+              title="No trips planned yet"
+              sub="Start planning your next trip with Jade — our AI travel planner. Build a day-by-day itinerary in minutes."
+              cta={{ label: 'Start planning', href: '/plan/new' }}
+            />
+          ) : (
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              {myTrips.map(trip => {
+                const STATUS_BG: Record<string, string> = {
+                  DRAFT: 'bg-gray-100 text-gray-500', PLANNING: 'bg-blue-50 text-blue-600',
+                  CONFIRMED: 'bg-green-50 text-green-600', COMPLETED: 'bg-amber-50 text-amber-600',
+                  CANCELLED: 'bg-red-50 text-red-500',
+                }
+                return (
+                  <Link key={trip.id} href={`/plan/${trip.id}`} className="block bg-white rounded-xl border border-gray-100 hover:border-[#C9A84C]/30 hover:shadow-sm transition-all overflow-hidden group">
+                    <div className="relative h-24 bg-[#0B1F3A] overflow-hidden">
+                      {trip.coverImage ? (
+                        <img src={trip.coverImage} alt={trip.title} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" />
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center"><Map className="w-6 h-6 text-white/10" /></div>
+                      )}
+                    </div>
+                    <div className="p-3">
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className={`text-[10px] font-bold uppercase px-1.5 py-0.5 rounded-full ${STATUS_BG[trip.status] ?? 'bg-gray-100 text-gray-500'}`}>{trip.status}</span>
+                      </div>
+                      <p className="text-sm font-bold text-[#0B1F3A] truncate">{trip.title}</p>
+                      <p className="text-xs text-gray-400 flex items-center gap-1 mt-0.5"><Globe className="w-3 h-3" />{trip.destination}</p>
+                    </div>
+                  </Link>
+                )
+              })}
+              <Link href="/plan/new" className="flex flex-col items-center justify-center gap-2 rounded-xl border-2 border-dashed border-gray-200 hover:border-[#C9A84C]/40 p-6 text-gray-300 hover:text-[#C9A84C]/60 transition-all min-h-[140px]">
+                <Plus className="w-6 h-6" />
+                <span className="text-xs font-semibold">New trip</span>
+              </Link>
+            </div>
+          )}
+        </Section>
 
         {/* ── Section 1: My Applications ───────────────────────────── */}
         <Section

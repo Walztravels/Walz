@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
@@ -14,6 +14,7 @@ import {
   MapPin,
   CheckCircle,
   Image as ImageIcon,
+  ChevronDown,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -166,10 +167,34 @@ function EnquiryModal({ tourName, onClose }: { tourName: string; onClose: () => 
   )
 }
 
-// ── Tour Card ──────────────────────────────────────────────────────────────────
+// ── Tour Card — IntersectionObserver scroll fade-in ────────────────────────────
 
-function TourCard({ tour }: { tour: DbTour }) {
+function TourCard({ tour, index }: { tour: DbTour; index: number }) {
   const [isEnquiryOpen, setIsEnquiryOpen] = useState(false)
+  const cardRef = useRef<HTMLDivElement>(null)
+
+  // Scroll fade-in — IntersectionObserver, staggered by index
+  useEffect(() => {
+    const el = cardRef.current
+    if (!el) return
+
+    el.style.opacity = '0'
+    el.style.transform = 'translateY(32px)'
+    el.style.transition = `opacity 0.55s ease ${index * 100}ms, transform 0.55s ease ${index * 100}ms`
+
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting) {
+          el.style.opacity = '1'
+          el.style.transform = 'translateY(0)'
+          observer.unobserve(el)
+        }
+      },
+      { threshold: 0.1 }
+    )
+    observer.observe(el)
+    return () => observer.disconnect()
+  }, [index])
 
   let highlights: string[] = []
   try { highlights = JSON.parse(tour.highlights) } catch { highlights = [] }
@@ -180,12 +205,17 @@ function TourCard({ tour }: { tour: DbTour }) {
 
   return (
     <>
-      <div id={tour.slug} className="bg-white rounded-2xl border border-walz-border shadow-card overflow-hidden scroll-mt-24">
-        {/* Image */}
+      {/* group class enables image zoom on card hover */}
+      <div
+        ref={cardRef}
+        id={tour.slug}
+        className="group bg-white rounded-2xl border border-walz-border shadow-card overflow-hidden scroll-mt-24"
+      >
+        {/* Image — overflow-hidden clips the zoom */}
         <div className="relative h-64 lg:h-72 overflow-hidden bg-gray-100">
           {tour.imageUrl ? (
             <div
-              className="absolute inset-0 bg-cover bg-center"
+              className="absolute inset-0 bg-cover bg-center transition-transform duration-300 group-hover:scale-[1.03]"
               style={{ backgroundImage: `url('${tour.imageUrl}')` }}
             />
           ) : (
@@ -230,7 +260,7 @@ function TourCard({ tour }: { tour: DbTour }) {
             </div>
           </div>
 
-          <p className="text-walz-muted text-sm leading-relaxed mb-5">{tour.description}</p>
+          <p className="text-walz-muted text-sm leading-relaxed mb-5 line-clamp-3">{tour.description}</p>
 
           {/* Highlights */}
           {highlights.length > 0 && (
@@ -271,8 +301,11 @@ function TourCard({ tour }: { tour: DbTour }) {
 export default function ToursPage() {
   const [tours, setTours] = useState<DbTour[]>([])
   const [loading, setLoading] = useState(true)
+  // Controls hero text fade-in on mount — no GSAP
+  const [ready, setReady] = useState(false)
 
   useEffect(() => {
+    setReady(true)
     fetch('/api/tours')
       .then((r) => r.json())
       .then((data) => { setTours(Array.isArray(data) ? data : []); setLoading(false) })
@@ -281,28 +314,42 @@ export default function ToursPage() {
 
   return (
     <div className="min-h-screen bg-walz-off-white">
-      {/* Hero */}
+
+      {/* ── Hero — fullscreen, static image, gradient bottom-up ─────────────── */}
       <div
-        className="relative py-16 lg:py-24 bg-cover bg-center"
-        style={{ backgroundImage: "url('https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=1800&q=80')" }}
+        className="relative h-screen min-h-[640px] bg-cover bg-center flex items-end"
+        style={{ backgroundImage: "url('https://images.unsplash.com/photo-1469854523086-cc02fe5d8800?w=1800&q=80')" }}
       >
-        <div className="absolute inset-0 bg-walz-deep-navy/80" />
-        <div className="relative container-walz text-center">
-          <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-walz-gold/10 border border-walz-gold/30 mb-5">
+        {/* Gradient overlay — bottom up */}
+        <div className="absolute inset-0 bg-gradient-to-t from-[#0B1F3A]/95 via-[#0B1F3A]/30 to-transparent" />
+
+        {/* Hero content — bottom-anchored */}
+        <div className="relative container-walz pb-16 lg:pb-24">
+          {/* Badge */}
+          <div className={`inline-flex items-center gap-2 px-4 py-2 rounded-full bg-walz-gold/10 border border-walz-gold/30 mb-6 transition-all duration-700 ${ready ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-6'}`}>
             <MapPin className="w-4 h-4 text-walz-gold" />
-            <span className="text-walz-gold text-sm font-medium">Private Tours</span>
+            <span className="text-walz-gold text-sm font-semibold tracking-wide">Private Tours</span>
           </div>
-          <h1 className="font-display text-3xl lg:text-5xl font-bold text-walz-white mb-4">
-            Exclusive Private Tours
+
+          {/* Heading — fades in on load */}
+          <h1 className={`font-display text-4xl sm:text-5xl lg:text-6xl font-bold text-walz-white mb-4 leading-tight transition-all duration-700 ${ready ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-6'}`}>
+            Exclusive<br className="hidden sm:block" /> Private Tours
           </h1>
-          <p className="text-walz-muted max-w-2xl mx-auto text-lg leading-relaxed">
+
+          {/* Subheading — fades in 0.3s after heading */}
+          <p className={`text-white/60 max-w-xl text-base lg:text-lg leading-relaxed transition-all duration-700 delay-300 ${ready ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-6'}`}>
             Discover the world&apos;s finest destinations with our expert private guides.
             Every tour is fully personalised to your interests and pace.
           </p>
+
+          {/* Scroll cue */}
+          <div className={`mt-10 transition-all duration-700 delay-500 ${ready ? 'opacity-60' : 'opacity-0'}`}>
+            <ChevronDown className="w-6 h-6 text-white animate-bounce" />
+          </div>
         </div>
       </div>
 
-      {/* Tours */}
+      {/* ── Tours ────────────────────────────────────────────────────────────── */}
       <div className="container-walz py-12 lg:py-16 space-y-8 lg:space-y-12">
         {loading ? (
           <div className="flex items-center justify-center py-20">
@@ -315,11 +362,12 @@ export default function ToursPage() {
             <p className="text-sm">Check back shortly or contact us to discuss a private tour.</p>
           </div>
         ) : (
-          tours.map((tour) => <TourCard key={tour.id} tour={tour} />)
+          // Pass index for staggered IntersectionObserver delay
+          tours.map((tour, index) => <TourCard key={tour.id} tour={tour} index={index} />)
         )}
       </div>
 
-      {/* Bottom CTA */}
+      {/* ── Bottom CTA ───────────────────────────────────────────────────────── */}
       <div className="bg-walz-deep-navy py-12">
         <div className="container-walz text-center">
           <h2 className="font-display text-2xl font-bold text-walz-white mb-3">Want a Custom Tour?</h2>
@@ -332,6 +380,7 @@ export default function ToursPage() {
           </a>
         </div>
       </div>
+
     </div>
   )
 }

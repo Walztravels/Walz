@@ -6,8 +6,9 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
 }
 
 // ===========================
@@ -42,6 +43,9 @@ model User {
   receivedVouchers    Voucher[]  @relation("VoucherReceived")
   passportVault       PassportVault?
   applicationDrafts   ApplicationDraft[]
+  trips               Trip[]
+  tripCollaborations  TripCollaborator[]
+  savedItineraries    SavedItinerary[]
 }
 
 model Account {
@@ -234,8 +238,9 @@ model VisaApplication {
   declarationFeePolicy Boolean @default(false)
 
   // ── Status ──────────────────────────────────────
-  status  String @default("draft")
-  isDraft Boolean @default(true)
+  status      String @default("draft")
+  isDraft     Boolean @default(true)
+  initiatedBy String @default("client") // "admin" | "client"
 
   // ── Admin ───────────────────────────────────────
   assignedTo       String?
@@ -259,8 +264,9 @@ model VisaApplication {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  user  User?                  @relation(fields: [userId], references: [id], onDelete: SetNull)
-  notes VisaApplicationNote[]
+  user   User?                  @relation(fields: [userId], references: [id], onDelete: SetNull)
+  notes  VisaApplicationNote[]
+  tokens VisaApplicationToken[]
 
   @@index([userId])
   @@index([status])
@@ -277,6 +283,22 @@ model VisaApplicationNote {
 
   application VisaApplication @relation(fields: [applicationId], references: [id], onDelete: Cascade)
 
+  @@index([applicationId])
+}
+
+model VisaApplicationToken {
+  id            String          @id @default(cuid())
+  token         String          @unique @default(cuid())
+  applicationId String
+  clientEmail   String
+  clientName    String
+  used          Boolean         @default(false)
+  expiresAt     DateTime
+  createdAt     DateTime        @default(now())
+
+  application VisaApplication @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+
+  @@index([token])
   @@index([applicationId])
 }
 
@@ -430,6 +452,7 @@ model TourListing {
   duration    String
   location    String
   imageUrl    String?
+  photos      String[] // ordered array of photo URLs (index 0 = hero/cover)
   active      Boolean  @default(true)
   order       Int      @default(0)
   createdAt   DateTime @default(now())
@@ -826,4 +849,329 @@ model DocumentGuide {
 
   @@index([destinationIso2])
   @@index([visaType])
+}
+
+// ===========================
+// Staff Reports
+// ===========================
+
+model StaffReport {
+  id                    String   @id @default(cuid())
+  staffId               String?
+  staffName             String
+  staffEmail            String
+  staffRole             String?
+  reportType            String
+  periodFrom            DateTime @db.Date
+  periodTo              DateTime @db.Date
+  summary               String?  @db.Text
+  clientsContacted      Int      @default(0)
+  followUps             Int      @default(0)
+  depositsCollected     Int      @default(0)
+  applicationsSubmitted Int      @default(0)
+  visaReceived          Int      @default(0)
+  visaSubmitted         Int      @default(0)
+  approvals             Int      @default(0)
+  refusals              Int      @default(0)
+  pendingApplications   Int      @default(0)
+  flightBookings        Int      @default(0)
+  hotelBookings         Int      @default(0)
+  tourBookings          Int      @default(0)
+  totalRevenue          Float    @default(0)
+  revenueCurrency       String   @default("USD")
+  issuesChallenges      String?  @db.Text
+  nextPeriodGoals       String?  @db.Text
+  additionalNotes       String?  @db.Text
+  notifyEmails          String[] @default(["contact@walztravels.com", "reservations@walztravels.com", "joseph@walztravels.com", "info@walztravels.com"])
+  reviewedByAdmin       Boolean  @default(false)
+  reviewedAt            DateTime?
+  reviewedBy            String?
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  @@index([staffId])
+  @@index([staffEmail])
+  @@index([reportType])
+  @@index([createdAt])
+}
+
+model StaffLoginLog {
+  id              String   @id @default(cuid())
+  staffId         String?
+  staffName       String?
+  staffEmail      String?
+  staffRole       String?
+  ipAddress       String?
+  userAgent       String?  @db.Text
+  browser         String?
+  operatingSystem String?
+  loginAt         DateTime @default(now())
+  location        String?
+
+  @@index([staffEmail])
+  @@index([loginAt])
+}
+
+model NewsletterSubscriber {
+  id          String   @id @default(cuid())
+  email       String   @unique
+  subscribedAt DateTime @default(now())
+  source      String?  @default("homepage")
+  active      Boolean  @default(true)
+
+  @@index([email])
+  @@index([subscribedAt])
+}
+
+// ===========================
+// Content Management
+// ===========================
+
+model SiteContent {
+  id        String   @id @default(cuid())
+  key       String   @unique
+  value     String   @db.Text
+  label     String?
+  group     String   @default("general")
+  updatedAt DateTime @updatedAt
+}
+
+model TimelineEvent {
+  id          String   @id @default(cuid())
+  icon        String   @default("plane")   // plane | landmark | leaf | globe
+  title       String
+  description String   @db.Text
+  order       Int      @default(0)
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([order])
+  @@index([active])
+}
+
+model TeamMember {
+  id        String   @id @default(cuid())
+  name      String
+  role      String
+  bio       String?  @db.Text
+  photoUrl  String?
+  whatsapp  String?
+  order     Int      @default(0)
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([order])
+  @@index([active])
+}
+
+// ===========================
+// Jade Planner
+// ===========================
+
+enum TripStatus {
+  DRAFT
+  PLANNING
+  CONFIRMED
+  COMPLETED
+  CANCELLED
+}
+
+enum TripItemType {
+  FLIGHT
+  HOTEL
+  TOUR
+  VISA
+  ACTIVITY
+  RESTAURANT
+  TRANSPORT
+  NOTE
+  CUSTOM
+}
+
+model Trip {
+  id          String     @id @default(cuid())
+  userId      String
+  title       String
+  destination String
+  description String?    @db.Text
+  coverImage  String?
+  startDate   DateTime?
+  endDate     DateTime?
+  status      TripStatus @default(DRAFT)
+  isPublic    Boolean    @default(false)
+  shareToken  String?    @unique
+  budget      Float?
+  currency    String     @default("GBP")
+  notes       String?    @db.Text
+  templateId  String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user          User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  template      TripTemplate?      @relation(fields: [templateId], references: [id], onDelete: SetNull)
+  days          TripDay[]
+  items         TripItem[]
+  collaborators TripCollaborator[]
+  proposals     TripProposal[]
+  messages      TripMessage[]
+
+  @@index([userId])
+  @@index([status])
+  @@index([shareToken])
+  @@index([templateId])
+}
+
+model TripDay {
+  id        String    @id @default(cuid())
+  tripId    String
+  dayNumber Int
+  date      DateTime?
+  title     String?
+  notes     String?   @db.Text
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  trip  Trip       @relation(fields: [tripId], references: [id], onDelete: Cascade)
+  items TripItem[]
+
+  @@unique([tripId, dayNumber])
+  @@index([tripId])
+}
+
+model TripItem {
+  id          String       @id @default(cuid())
+  tripId      String
+  dayId       String?
+  type        TripItemType @default(CUSTOM)
+  title       String
+  description String?      @db.Text
+  location    String?
+  startTime   String?
+  endTime     String?
+  cost        Float?
+  currency    String       @default("GBP")
+  imageUrl    String?
+  externalUrl String?
+  bookingRef  String?
+  confirmed   Boolean      @default(false)
+  order       Int          @default(0)
+  metadata    Json         @default("{}")
+  sourceType  String?
+  sourceId    String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  trip Trip     @relation(fields: [tripId], references: [id], onDelete: Cascade)
+  day  TripDay? @relation(fields: [dayId], references: [id], onDelete: SetNull)
+
+  @@index([tripId])
+  @@index([dayId])
+  @@index([type])
+}
+
+model TripCollaborator {
+  id          String  @id @default(cuid())
+  tripId      String
+  userId      String?
+  email       String
+  role        String  @default("viewer")
+  status      String  @default("pending")
+  inviteToken String? @unique
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  trip Trip  @relation(fields: [tripId], references: [id], onDelete: Cascade)
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([tripId])
+  @@index([userId])
+  @@index([email])
+  @@index([inviteToken])
+}
+
+model TripProposal {
+  id         String    @id @default(cuid())
+  tripId     String
+  staffId    String?
+  staffName  String?
+  title      String
+  content    String    @db.Text
+  itinerary  Json      @default("[]")
+  totalCost  Float?
+  currency   String    @default("GBP")
+  status     String    @default("draft")
+  validUntil DateTime?
+  pdfUrl     String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  trip Trip @relation(fields: [tripId], references: [id], onDelete: Cascade)
+
+  @@index([tripId])
+  @@index([staffId])
+  @@index([status])
+}
+
+model TripTemplate {
+  id          String   @id @default(cuid())
+  name        String
+  destination String
+  description String?  @db.Text
+  coverImage  String?
+  duration    Int
+  highlights  String[]
+  itinerary   Json     @default("[]")
+  category    String   @default("leisure")
+  tags        String[]
+  active      Boolean  @default(true)
+  order       Int      @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  trips Trip[]
+
+  @@index([category])
+  @@index([active])
+  @@index([destination])
+}
+
+model TripMessage {
+  id       String @id @default(cuid())
+  tripId   String
+  role     String
+  content  String @db.Text
+  metadata Json   @default("{}")
+
+  createdAt DateTime @default(now())
+
+  trip Trip @relation(fields: [tripId], references: [id], onDelete: Cascade)
+
+  @@index([tripId])
+  @@index([createdAt])
+}
+
+model SavedItinerary {
+  id          String  @id @default(cuid())
+  userId      String
+  title       String
+  source      String
+  itinerary   Json    @default("{}")
+  destination String?
+  duration    Int?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([source])
 }

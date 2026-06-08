@@ -22,7 +22,7 @@ const footerLinks = {
   ],
   support: [
     { label: 'Help Centre', href: '/help' },
-    { label: 'Manage Booking', href: '/dashboard' },
+    { label: 'Manage Booking', href: '/portal/dashboard' },
     { label: 'Cancellations', href: '/help/cancellations' },
     { label: 'Baggage Policy', href: '/help/baggage' },
     { label: 'Privacy Policy', href: '/privacy' },
@@ -67,7 +67,7 @@ export function Footer() {
   const currentYear = new Date().getFullYear()
 
   return (
-    <footer className="bg-walz-deep-navy text-walz-off-white">
+    <footer className="bg-walz-deep-navy text-walz-off-white pb-[100px] sm:pb-0">
       {/* Main Footer */}
       <div className="container-walz py-16 lg:py-20">
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-10 lg:gap-8">

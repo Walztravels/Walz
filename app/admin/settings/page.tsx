@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import {
   Save, RefreshCw, CheckCircle, Building2, Mail, Phone,
-  Share2, MapPin,
+  Share2, MapPin, DollarSign,
 } from 'lucide-react'
 
 interface Setting {
@@ -44,8 +44,22 @@ const GROUPS = [
     description: 'Include full international code, e.g. +447911123456',
     keys: [
       { key: 'whatsapp_uk',     type: 'tel', hint: 'UK number with +44 prefix' },
+      { key: 'whatsapp_us',     type: 'tel', hint: 'US number with +1 prefix' },
       { key: 'whatsapp_canada', type: 'tel', hint: 'Canada number with +1 prefix' },
       { key: 'call_jade',       type: 'tel', hint: 'Jade direct line' },
+    ],
+  },
+  {
+    id: 'visa_fees',
+    title: 'Visa Service Fees',
+    icon: DollarSign,
+    description: 'Walz Travels service fee displayed on the visa page (e.g. £149)',
+    keys: [
+      { key: 'visa_fee_uk',       type: 'text', hint: 'e.g. £149' },
+      { key: 'visa_fee_canada',   type: 'text', hint: 'e.g. £149' },
+      { key: 'visa_fee_uae',      type: 'text', hint: 'e.g. £99'  },
+      { key: 'visa_fee_schengen', type: 'text', hint: 'e.g. £149' },
+      { key: 'visa_fee_usa',      type: 'text', hint: 'e.g. £199' },
     ],
   },
   {

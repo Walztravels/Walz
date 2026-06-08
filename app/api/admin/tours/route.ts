@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { revalidatePath } from 'next/cache'
 import { getAdminSession } from '@/lib/admin-auth'
 import prisma from '@/lib/db'
 import { z } from 'zod'
@@ -13,6 +14,7 @@ const tourSchema = z.object({
   duration: z.string().min(1),
   location: z.string().min(2),
   imageUrl: z.string().url().optional().or(z.literal('')),
+  photos: z.array(z.string()).optional().default([]),
   active: z.boolean().default(true),
   order: z.number().default(0),
 })
@@ -37,6 +39,9 @@ export async function POST(req: NextRequest) {
   // Auto-generate slug if not unique
   const data = parsed.data
   const tour = await prisma.tourListing.create({ data })
+  revalidatePath('/')
+  revalidatePath('/tours')
+  revalidatePath(`/tours/${tour.slug}`)
   return NextResponse.json(tour, { status: 201 })
 }
 
@@ -52,6 +57,9 @@ export async function PUT(req: NextRequest) {
     return NextResponse.json({ error: 'Invalid data' }, { status: 400 })
   }
   const tour = await prisma.tourListing.update({ where: { id }, data: parsed.data })
+  revalidatePath('/')
+  revalidatePath('/tours')
+  revalidatePath(`/tours/${tour.slug}`)
   return NextResponse.json(tour)
 }
 
@@ -62,5 +70,7 @@ export async function DELETE(req: NextRequest) {
   const { id } = await req.json().catch(() => ({}))
   if (!id) return NextResponse.json({ error: 'id required' }, { status: 400 })
   await prisma.tourListing.delete({ where: { id } })
+  revalidatePath('/')
+  revalidatePath('/tours')
   return NextResponse.json({ success: true })
 }

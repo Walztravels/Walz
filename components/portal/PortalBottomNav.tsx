@@ -2,13 +2,13 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { LayoutDashboard, FileText, Upload, Gift, UserCircle } from 'lucide-react'
+import { LayoutDashboard, FileText, Compass, Gift, UserCircle } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 const ITEMS = [
   { href: '/portal/dashboard',   label: 'Home',         icon: LayoutDashboard },
+  { href: '/plan/library',       label: 'My Trips',     icon: Compass         },
   { href: '/portal/application', label: 'Applications', icon: FileText        },
-  { href: '/portal/documents',   label: 'Documents',    icon: Upload          },
   { href: '/portal/dashboard#vouchers', label: 'Vouchers', icon: Gift         },
   { href: '/portal/profile',     label: 'Account',      icon: UserCircle      },
 ]

@@ -237,7 +237,15 @@ function HotelsPageContent() {
     <div className="min-h-screen bg-walz-off-white">
       {/* Search Bar */}
       <div className="bg-walz-deep-navy shadow-luxury">
-        <div className="container-walz py-6">
+        <div className="container-walz pt-6 pb-2">
+          <h1 className="font-display text-walz-white font-bold text-2xl lg:text-3xl mb-1">
+            Book Hotels
+          </h1>
+          <p className="text-walz-muted text-sm mb-4">
+            Global inventory · free cancellation options · 24/7 support
+          </p>
+        </div>
+        <div className="container-walz pb-6">
           <HotelSearchForm onResults={(results) => {
             setHotels(results)
             setHasSearched(true)

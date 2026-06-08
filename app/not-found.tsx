@@ -2,7 +2,7 @@ import Link from 'next/link'
 import Image from 'next/image'
 
 export const metadata = {
-  title: 'Page Not Found | Walz Travels',
+  title: { absolute: 'Page Not Found | Walz Travels' },
 }
 
 export default function NotFound() {
@@ -39,10 +39,10 @@ export default function NotFound() {
             ← Back to Homepage
           </Link>
           <Link
-            href="/flights"
+            href="/visa"
             className="inline-flex items-center justify-center px-6 py-3 border-2 border-[#C9A84C] text-[#C9A84C] font-semibold rounded-xl text-sm hover:bg-[#C9A84C] hover:text-[#0B1F3A] transition-colors"
           >
-            Search Flights
+            Explore Our Services
           </Link>
         </div>
 

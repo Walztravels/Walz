@@ -14,7 +14,7 @@
 interface WalzLogoProps {
   /** Pixel width/height of the globe itself */
   size?: number
-  /** 'icon' = globe only | 'full' = globe + "THE WALZ TRAVELS" text beneath */
+  /** 'icon' = globe only | 'full' = globe + "Walz Travels" text beneath */
   variant?: 'icon' | 'full'
   className?: string
   /** Optional aria label */
@@ -128,7 +128,7 @@ export function WalzLogo({
           fill="currentColor"
           fontWeight="600"
         >
-          THE WALZ TRAVELS
+          Walz Travels
         </text>
       )}
     </svg>
