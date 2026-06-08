@@ -7,17 +7,19 @@ import {
   Menu, X, Plane, Hotel, Map, FileText, ChevronDown,
   User, LogOut, LayoutDashboard, Gift, MessageCircle,
   Upload, CreditCard, Users, UserCircle, Globe, Compass,
+  Signal,
 } from 'lucide-react'
 import Image from 'next/image'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 
 const navLinks = [
-  { href: '/flights', label: 'Flights',       icon: Plane    },
-  { href: '/hotels',  label: 'Hotels',         icon: Hotel    },
-  { href: '/tours',   label: 'Tours',          icon: Map      },
-  { href: '/about',   label: 'About',          icon: Users    },
-  { href: '/gift',    label: 'Gift Vouchers',  icon: Gift     },
+  { href: '/flights', label: 'Flights',        icon: Plane    },
+  { href: '/hotels',  label: 'Hotels',          icon: Hotel    },
+  { href: '/tours',   label: 'Tours',           icon: Map      },
+  { href: '/esim',    label: 'Jade Connect',    icon: Signal   },
+  { href: '/about',   label: 'About',           icon: Users    },
+  { href: '/gift',    label: 'Gift Vouchers',   icon: Gift     },
 ]
 
 const visaDropdownLinks = [
@@ -38,6 +40,7 @@ const portalMenu = [
   { href: '/portal/dashboard',   label: 'My Bookings',     icon: Plane           },
   { href: '/portal/dashboard',   label: 'My Vouchers',     icon: Gift            },
   { href: '/portal/documents',   label: 'My Documents',    icon: Upload          },
+  { href: '/portal/esims',       label: 'My eSIMs',        icon: Signal          },
   { href: '/portal/payments',    label: 'My Payments',     icon: CreditCard      },
   { href: '/portal/referral',    label: 'Refer a Friend',  icon: Users           },
   { href: '/portal/profile',     label: 'Profile Settings',icon: UserCircle      },

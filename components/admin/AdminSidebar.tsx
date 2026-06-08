@@ -10,7 +10,7 @@ import {
   Rss, Gift, Image as ImageIcon, LayoutGrid, Tv2,
   UserCog, Activity, FileText, ClipboardList,
   Settings, LogOut, PenSquare, Compass, History,
-  CreditCard, Shield,
+  CreditCard, Shield, Signal,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useStaffPermissions } from '@/hooks/useStaffPermissions'
@@ -66,6 +66,12 @@ const SECTIONS: NavSection[] = [
     items: [
       { href: '/admin/visa-applications', label: 'Applications',     icon: Globe,  permission: 'visa_view' },
       { href: '/admin/visa-intelligence', label: 'Visa Intelligence', icon: Brain,  permission: 'visa_view' },
+    ],
+  },
+  {
+    label: 'Jade Connect',
+    items: [
+      { href: '/admin/esim', label: 'eSIM Orders', icon: Signal },
     ],
   },
   {

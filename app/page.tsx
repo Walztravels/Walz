@@ -18,6 +18,7 @@ import { JadeSection }            from '@/components/home/JadeSection'
 import { DestinationsGrid }       from '@/components/home/DestinationsGrid'
 import { FinalCTA }               from '@/components/home/FinalCTA'
 import { JadePlannerSection }     from '@/components/home/JadePlannerSection'
+import { EsimBanner }             from '@/components/home/EsimBanner'
 
 // ── Legacy sections kept intact ───────────────────────────────────────────────
 import { ToursHighlight }         from '@/components/home/ToursHighlight'
@@ -73,6 +74,9 @@ export default function HomePage() {
 
       {/* 6 — Visa intelligence horizontal scroll */}
       <VisaIntelligenceSection />
+
+      {/* 6.25 — Jade Connect eSIM banner */}
+      <EsimBanner />
 
       {/* 6.5 — Jade AI Trip Planner cinematic section */}
       <JadePlannerSection />

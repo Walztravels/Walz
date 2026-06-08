@@ -46,6 +46,7 @@ model User {
   trips               Trip[]
   tripCollaborations  TripCollaborator[]
   savedItineraries    SavedItinerary[]
+  esimOrders          EsimOrder[]
 }
 
 model Account {
@@ -988,6 +989,7 @@ enum TripItemType {
   HOTEL
   TOUR
   VISA
+  ESIM
   ACTIVITY
   RESTAURANT
   TRANSPORT
@@ -1179,6 +1181,46 @@ model SavedItinerary {
 
   @@index([userId])
   @@index([source])
+}
+
+// ===========================
+// JADE CONNECT — eSIM Orders
+// ===========================
+
+model EsimOrder {
+  id                  String    @id @default(cuid())
+  userId              String?
+  tripId              String?
+  orderRef            String    @unique
+  esimAccessOrderNo   String?
+  destination         String
+  destinationIso2     String
+  packageCode         String
+  packageName         String
+  durationDays        Int
+  dataGb              Float?
+  wholesaleCostUsd    Float
+  retailPriceUsd      Float
+  marginUsd           Float
+  currency            String    @default("USD")
+  iccid               String?
+  qrCodeUrl           String?
+  activationCode      String?
+  smdpAddress         String?
+  status              String    @default("pending")
+  stripePaymentId     String?
+  purchasedAt         DateTime  @default(now())
+  activatedAt         DateTime?
+  expiresAt           DateTime?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  user  User?  @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@index([status])
+  @@index([destinationIso2])
+  @@index([orderRef])
 }
 
 // ===========================
