@@ -1,10 +1,10 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { Suspense, useEffect, useState } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
 import Image from 'next/image'
 import Link from 'next/link'
-import { Check, Download, Mail, MessageCircle, Smartphone, AlertCircle } from 'lucide-react'
+import { Check, Download, Mail, MessageCircle, Smartphone, AlertCircle, Loader2 } from 'lucide-react'
 
 interface OrderResult {
   success:        boolean
@@ -17,7 +17,7 @@ interface OrderResult {
   error?:         string
 }
 
-export default function EsimConfirmationPage() {
+function ConfirmationContent() {
   const params    = useSearchParams()
   const router    = useRouter()
   const sessionId = params.get('session_id')
@@ -210,5 +210,20 @@ export default function EsimConfirmationPage() {
         </div>
       </div>
     </div>
+  )
+}
+
+export default function EsimConfirmationPage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen bg-[#0B1F3A] flex items-center justify-center">
+        <div className="text-center">
+          <Loader2 className="w-10 h-10 text-[#C9A84C] animate-spin mx-auto mb-4" />
+          <p className="text-white/60 text-sm">Loading your eSIM…</p>
+        </div>
+      </div>
+    }>
+      <ConfirmationContent />
+    </Suspense>
   )
 }
