@@ -156,7 +156,7 @@ export function HeroSection() {
           className="flex flex-col sm:flex-row items-center gap-3 mb-10"
           style={{ opacity: 0 }}
         >
-          <Link href="/book">
+          <Link href="/plan/new">
             <button className="group flex items-center gap-2.5 px-8 py-3.5 bg-[#C9A84C] hover:bg-[#d4b05a] text-[#0B1F3A] font-bold text-sm rounded-full transition-all duration-300 hover:scale-105 active:scale-100 shadow-lg shadow-[#C9A84C]/25 whitespace-nowrap">
               Start Your Journey
               <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />

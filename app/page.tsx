@@ -111,27 +111,25 @@ export default function HomePage() {
           </div>
 
           <ul className="divide-y divide-[#0B1F3A]/8 max-w-2xl">
-            {articles.length === 0
-              ? [1, 2, 3].map(i => (
-                  <li key={i} className="py-4">
-                    <div className="h-4 bg-gray-200 rounded animate-pulse w-3/4" />
-                    <div className="h-3 bg-gray-100 rounded animate-pulse w-1/4 mt-2" />
-                  </li>
-                ))
-              : articles.map(a => (
-                  <li key={a.id} className="py-4 group">
-                    <Link href={`/blog?post=${a.slug}`} className="flex items-start justify-between gap-4">
-                      <span className="text-[#0B1F3A] font-medium text-sm leading-snug group-hover:text-[#C9A84C] transition-colors">
-                        {a.title}
-                      </span>
-                      <span className="text-[#0B1F3A]/40 text-xs whitespace-nowrap mt-0.5 flex-shrink-0 flex items-center gap-1">
-                        <BookOpen className="w-3 h-3" />
-                        {a.date}
-                      </span>
-                    </Link>
-                  </li>
-                ))
-            }
+            {(articles.length > 0 ? articles.map(a => ({
+              id: a.id, title: a.title, slug: a.slug, date: a.date, isPlaceholder: false,
+            })) : [
+              { id: 'p1', title: '10 Things to Know Before Applying for a UK Visa', slug: 'uk-visa-tips', date: 'Jun 2025', isPlaceholder: true },
+              { id: 'p2', title: 'Dubai in 5 Days: The Ultimate First-Time Itinerary', slug: 'dubai-5-days', date: 'May 2025', isPlaceholder: true },
+              { id: 'p3', title: 'Canada Visitor Visa: Documents That Actually Get Approved', slug: 'canada-visitor-visa', date: 'Apr 2025', isPlaceholder: true },
+            ]).map(a => (
+              <li key={a.id} className="py-4 group">
+                <Link href={`/blog?post=${a.slug}`} className="flex items-start justify-between gap-4">
+                  <span className="text-[#0B1F3A] font-medium text-sm leading-snug group-hover:text-[#C9A84C] transition-colors">
+                    {a.title}
+                  </span>
+                  <span className="text-[#0B1F3A]/40 text-xs whitespace-nowrap mt-0.5 flex-shrink-0 flex items-center gap-1">
+                    <BookOpen className="w-3 h-3" />
+                    {a.date}
+                  </span>
+                </Link>
+              </li>
+            ))}
           </ul>
 
           <div className="mt-6 md:hidden">
@@ -184,11 +182,11 @@ export default function HomePage() {
             </p>
             {nlStatus === 'success' ? (
               <div className="max-w-md mx-auto py-3 px-5 bg-green-50 border border-green-200 rounded-full text-green-700 text-sm font-medium">
-                🎉 You&apos;re subscribed! Check your inbox for a welcome email.
+                Thank you — you are on the list.
               </div>
             ) : nlStatus === 'exists' ? (
               <div className="max-w-md mx-auto py-3 px-5 bg-[#F5F2EE] border border-[#C9A84C]/30 rounded-full text-[#0B1F3A]/60 text-sm">
-                You&apos;re already subscribed — we&apos;ll keep the deals coming!
+                You are already on the list — we&apos;ll keep the deals coming!
               </div>
             ) : (
               <form className="flex flex-col sm:flex-row gap-3 max-w-md mx-auto" onSubmit={handleNewsletterSubmit}>
@@ -214,7 +212,7 @@ export default function HomePage() {
               <p className="text-red-500 text-xs mt-2 text-center">Something went wrong. Please try again.</p>
             )}
             <div className="flex items-center justify-center gap-4 mt-5 text-xs text-[#0B1F3A]/40">
-              {['5,000+ subscribers', 'Weekly deals', 'Exclusive offers'].map(item => (
+              {['Join our travel community', 'Weekly deals', 'Exclusive offers'].map(item => (
                 <div key={item} className="flex items-center gap-1">
                   <Check className="w-3 h-3 text-[#C9A84C]" />
                   <span>{item}</span>

@@ -7,14 +7,14 @@ import gsap from 'gsap'
 import ScrollTrigger from 'gsap/ScrollTrigger'
 
 const DESTINATIONS = [
-  { name: 'London',      href: '/visa/uk',       img: 'https://images.unsplash.com/photo-1513635269975-59663e0ac1ad?w=800&q=80', span: 'col-span-2 row-span-2' },
-  { name: 'Dubai',       href: '/visa/uae',      img: 'https://images.unsplash.com/photo-1512453979798-5ea266f8880c?w=600&q=80', span: 'col-span-1 row-span-1' },
-  { name: 'Toronto',     href: '/visa/canada',   img: 'https://images.unsplash.com/photo-1517935706615-2717063c2225?w=600&q=80', span: 'col-span-1 row-span-1' },
-  { name: 'Paris',       href: '/visa/schengen', img: 'https://images.unsplash.com/photo-1502602898657-3e91760cbb34?w=600&q=80', span: 'col-span-1 row-span-2' },
-  { name: 'New York',    href: '/visa/usa',      img: 'https://images.unsplash.com/photo-1499092346302-2a6d82e0d6e5?w=600&q=80', span: 'col-span-1 row-span-1' },
-  { name: 'Amsterdam',   href: '/visa/schengen', img: 'https://images.unsplash.com/photo-1534351590666-13e3e96b5017?w=600&q=80', span: 'col-span-1 row-span-1' },
-  { name: 'Maldives',    href: '/visa#checker',  img: 'https://images.unsplash.com/photo-1514282401047-d79a71a590e8?w=800&q=80', span: 'col-span-2 row-span-1' },
-  { name: 'Singapore',   href: '/visa#checker',  img: 'https://images.unsplash.com/photo-1525625293386-3f8f99389edd?w=600&q=80', span: 'col-span-1 row-span-1' },
+  { name: 'London',      href: '/packages/london',                  img: 'https://images.unsplash.com/photo-1513635269975-59663e0ac1ad?w=800&q=80', span: 'col-span-2 row-span-2' },
+  { name: 'Dubai',       href: '/packages/dubai',                   img: 'https://images.unsplash.com/photo-1512453979798-5ea266f8880c?w=600&q=80', span: 'col-span-1 row-span-1' },
+  { name: 'Toronto',     href: '/packages/toronto',                 img: 'https://images.unsplash.com/photo-1517935706615-2717063c2225?w=600&q=80', span: 'col-span-1 row-span-1' },
+  { name: 'Paris',       href: '/packages/paris',                   img: 'https://images.unsplash.com/photo-1502602898657-3e91760cbb34?w=600&q=80', span: 'col-span-1 row-span-2' },
+  { name: 'New York',    href: '/packages/new-york',                img: 'https://images.unsplash.com/photo-1499092346302-2a6d82e0d6e5?w=600&q=80', span: 'col-span-1 row-span-1' },
+  { name: 'Amsterdam',   href: '/packages/amsterdam',               img: 'https://images.unsplash.com/photo-1534351590666-13e3e96b5017?w=600&q=80', span: 'col-span-1 row-span-1' },
+  { name: 'Maldives',    href: '/plan/new?destination=maldives',    img: 'https://images.unsplash.com/photo-1514282401047-d79a71a590e8?w=800&q=80', span: 'col-span-2 row-span-1' },
+  { name: 'Singapore',   href: '/plan/new?destination=singapore',   img: 'https://images.unsplash.com/photo-1525625293386-3f8f99389edd?w=600&q=80', span: 'col-span-1 row-span-1' },
 ]
 
 export function DestinationsGrid() {

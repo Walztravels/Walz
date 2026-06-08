@@ -141,8 +141,8 @@ export function Footer() {
                   <MapPin className="w-4 h-4 text-walz-gold" />
                 </div>
                 <div>
-                  <div className="text-walz-off-white font-medium text-xs">Office</div>
-                  <div>1 Commercial Street, London, E1 6RF</div>
+                  <div className="text-walz-off-white font-medium text-xs">Locations</div>
+                  <div>London · Toronto · Dubai · Lagos · Accra</div>
                 </div>
               </div>
 

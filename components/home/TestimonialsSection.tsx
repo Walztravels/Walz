@@ -30,6 +30,22 @@ const TESTIMONIALS = [
     text: "Getting a US visa seemed impossible until Walz Travels stepped in. They guided us through every single document, followed up with the embassy, and we had our visas within 3 weeks. Worth every penny.",
     initials: 'PS',
   },
+  {
+    name: 'Kwame A.',
+    location: 'Accra',
+    trip: 'Canada Visitor Visa',
+    rating: 5,
+    text: "Canada visa approved first attempt. The document checklist was perfect — not a single thing missing. I had tried twice before with other agents and failed. Walz Travels made the whole process simple and straightforward.",
+    initials: 'KA',
+  },
+  {
+    name: 'Blessing O.',
+    location: 'London',
+    trip: 'UAE Business Travel',
+    rating: 5,
+    text: "Dubai business trip sorted in 48 hours. Visa, flights and hotel all handled without me having to chase anyone. Everything was confirmed and ready to go before I even had time to worry. Exceptional service.",
+    initials: 'BO',
+  },
 ]
 
 export function TestimonialsSection() {
