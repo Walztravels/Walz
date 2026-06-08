@@ -7,14 +7,20 @@ const SECRET = new TextEncoder().encode(
 )
 
 export interface AdminPayload {
-  email: string
-  role: 'admin'
-  iat?: number
-  exp?: number
+  email:      string
+  role:       'admin'          // kept for backward-compat
+  staffRole:  string           // actual RBAC role: super_admin | general_manager | ...
+  staffId?:   string
+  iat?:       number
+  exp?:       number
 }
 
-export async function signAdminToken(email: string): Promise<string> {
-  return new SignJWT({ email, role: 'admin' })
+export async function signAdminToken(
+  email:     string,
+  staffRole: string  = 'sales_rep',
+  staffId?:  string,
+): Promise<string> {
+  return new SignJWT({ email, role: 'admin', staffRole, staffId })
     .setProtectedHeader({ alg: 'HS256' })
     .setIssuedAt()
     .setExpirationTime('12h')

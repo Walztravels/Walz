@@ -219,12 +219,13 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    const token = await signAdminToken(normalizedEmail)
+    const token = await signAdminToken(normalizedEmail, staffMember.role, staffMember.id)
     const response = NextResponse.json({
       success:     true,
       email:       normalizedEmail,
       staffName,
       accessLevel: staffRole,
+      role:        staffMember.role,
     })
     response.cookies.set(COOKIE_NAME, token, {
       httpOnly: true,

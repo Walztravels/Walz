@@ -6,14 +6,18 @@ const ADMIN_COOKIE = 'admin_token'
 
 /**
  * Verify a HS256 JWT using the Web Crypto API (Edge-compatible, no extra deps).
+ * Returns the decoded payload on success, or null on failure.
  */
-async function verifyAdminCookie(req: NextRequest): Promise<boolean> {
+async function verifyAdminCookie(req: NextRequest): Promise<{
+  email: string
+  staffRole: string
+} | null> {
   const token = req.cookies.get(ADMIN_COOKIE)?.value
-  if (!token) return false
+  if (!token) return null
 
   try {
     const parts = token.split('.')
-    if (parts.length !== 3) return false
+    if (parts.length !== 3) return null
     const [headerB64, payloadB64, sigB64] = parts
 
     const secret = process.env.JWT_ADMIN_SECRET ?? 'walz-admin-secret-change-me-in-production'
@@ -22,7 +26,6 @@ async function verifyAdminCookie(req: NextRequest): Promise<boolean> {
       'raw', keyData, { name: 'HMAC', hash: 'SHA-256' }, false, ['verify']
     )
 
-    // Base64URL → ArrayBuffer
     function b64urlToBuffer(s: string): ArrayBuffer {
       const b64 = s.replace(/-/g, '+').replace(/_/g, '/')
       const bin = atob(b64)
@@ -32,37 +35,74 @@ async function verifyAdminCookie(req: NextRequest): Promise<boolean> {
     }
 
     const data = new TextEncoder().encode(`${headerB64}.${payloadB64}`)
-    const sig = b64urlToBuffer(sigB64)
+    const sig  = b64urlToBuffer(sigB64)
 
     const valid = await crypto.subtle.verify('HMAC', key, sig, data)
-    if (!valid) return false
+    if (!valid) return null
 
-    // Check expiry
     const payload = JSON.parse(new TextDecoder().decode(b64urlToBuffer(payloadB64)))
-    if (payload.exp && payload.exp < Math.floor(Date.now() / 1000)) return false
+    if (payload.exp && payload.exp < Math.floor(Date.now() / 1000)) return null
 
-    return true
+    return {
+      email:     payload.email     ?? '',
+      staffRole: payload.staffRole ?? 'sales_rep',
+    }
   } catch {
-    return false
+    return null
   }
 }
+
+/**
+ * Role hierarchy — index = seniority (higher = more access).
+ * Used for coarse "minimum role" checks in middleware.
+ */
+const ROLE_HIERARCHY = ['sales_rep', 'coordinator', 'senior_manager', 'general_manager', 'super_admin']
+
+function isAtLeast(userRole: string, minRole: string): boolean {
+  return ROLE_HIERARCHY.indexOf(userRole) >= ROLE_HIERARCHY.indexOf(minRole)
+}
+
+/**
+ * Routes that require a minimum role to even access.
+ * Fine-grained permission checks (button visibility, data filtering) happen inside each page.
+ */
+const ROUTE_MIN_ROLES: Array<{ prefix: string; minRole: string }> = [
+  { prefix: '/admin/settings',   minRole: 'super_admin'     },
+  { prefix: '/admin/staff',      minRole: 'super_admin'     },
+  { prefix: '/admin/reports',    minRole: 'coordinator'     },
+  { prefix: '/admin/payments',   minRole: 'coordinator'     },
+]
 
 export async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl
 
   // ── Admin routes ─────────────────────────────────────────────────────────────
   if (pathname.startsWith('/admin')) {
+    // Always allow the login page
     if (pathname === '/admin/login') {
-      if (await verifyAdminCookie(req)) {
+      const session = await verifyAdminCookie(req)
+      if (session) {
         return NextResponse.redirect(new URL('/admin/dashboard', req.url))
       }
       return NextResponse.next()
     }
 
-    if (!(await verifyAdminCookie(req))) {
+    // Allow the unauthorized page without auth
+    if (pathname === '/admin/unauthorized') {
+      return NextResponse.next()
+    }
+
+    const session = await verifyAdminCookie(req)
+    if (!session) {
       const loginUrl = new URL('/admin/login', req.url)
       loginUrl.searchParams.set('from', pathname)
       return NextResponse.redirect(loginUrl)
+    }
+
+    // Role-based route guard (coarse — checks minimum role)
+    const routeRule = ROUTE_MIN_ROLES.find((r) => pathname.startsWith(r.prefix))
+    if (routeRule && !isAtLeast(session.staffRole, routeRule.minRole)) {
+      return NextResponse.redirect(new URL('/admin/unauthorized', req.url))
     }
 
     return NextResponse.next()
@@ -73,7 +113,6 @@ export async function middleware(req: NextRequest) {
   if (protectedRoutes.some((route) => pathname.startsWith(route))) {
     const token = await getToken({ req })
     if (!token) {
-      // Redirect to main /login with callbackUrl so they land on portal after sign-in
       return NextResponse.redirect(
         new URL(`/login?callbackUrl=${encodeURIComponent(pathname)}`, req.url)
       )
@@ -97,7 +136,7 @@ export const config = {
     '/admin/:path*',
     '/dashboard/:path*',
     '/portal',
-    '/portal/((?!login$).*)',   // protect /portal/* but NOT /portal/login
+    '/portal/((?!login$).*)',
     '/login',
   ],
 }

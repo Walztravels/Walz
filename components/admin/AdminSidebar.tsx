@@ -9,86 +9,121 @@ import {
   Globe, Send, Brain,
   Rss, Gift, Image as ImageIcon, LayoutGrid, Tv2,
   UserCog, Activity, FileText, ClipboardList,
-  Settings, LogOut, PenSquare, Compass, History, Package, Sparkles,
+  Settings, LogOut, PenSquare, Compass, History,
+  CreditCard, Shield,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { useStaffPermissions } from '@/hooks/useStaffPermissions'
+import type { PermissionKey } from '@/lib/permissions'
+
+// ── Nav item type ─────────────────────────────────────────────────────────────
+interface NavItem {
+  href:       string
+  label:      string
+  icon:       React.ElementType
+  exact?:     boolean
+  /** If set, item is hidden unless the staff has this permission */
+  permission?: PermissionKey
+}
+
+interface NavSection {
+  label:       string
+  items:       NavItem[]
+  /** If set, the entire section is hidden unless staff has any of these */
+  anyPermission?: PermissionKey[]
+}
 
 // ── Nav structure ─────────────────────────────────────────────────────────────
-const SECTIONS = [
+const SECTIONS: NavSection[] = [
   {
     label: 'Overview',
     items: [
-      { href: '/admin/dashboard', label: 'Dashboard', icon: LayoutDashboard },
+      { href: '/admin/dashboard', label: 'Dashboard', icon: LayoutDashboard, permission: 'dashboard_view' },
     ],
   },
   {
     label: 'Clients',
+    anyPermission: ['applications_view', 'bookings_view'],
     items: [
-      { href: '/admin/clients',     label: 'All Clients', icon: Users },
-      { href: '/admin/clients/new', label: 'New Client',  icon: UserPlus, exact: true },
-      { href: '/admin/leads',       label: 'Leads',       icon: MessageSquare },
+      { href: '/admin/clients',     label: 'All Clients', icon: Users,        permission: 'applications_view' },
+      { href: '/admin/clients/new', label: 'New Client',  icon: UserPlus,     permission: 'applications_create', exact: true },
+      { href: '/admin/leads',       label: 'Leads',       icon: MessageSquare, permission: 'applications_view' },
     ],
   },
   {
     label: 'Bookings',
+    anyPermission: ['bookings_view'],
     items: [
-      { href: '/admin/bookings',              label: 'All Bookings', icon: BookOpen },
-      { href: '/admin/bookings?type=flight',  label: 'Flights',      icon: Plane, exact: true },
-      { href: '/admin/bookings?type=hotel',   label: 'Hotels',       icon: Hotel, exact: true },
-      { href: '/admin/bookings?type=tour',    label: 'Tours (Book)', icon: Map,   exact: true },
+      { href: '/admin/bookings',             label: 'All Bookings', icon: BookOpen, permission: 'bookings_view' },
+      { href: '/admin/bookings?type=flight', label: 'Flights',      icon: Plane,    permission: 'bookings_view', exact: true },
+      { href: '/admin/bookings?type=hotel',  label: 'Hotels',       icon: Hotel,    permission: 'bookings_view', exact: true },
+      { href: '/admin/bookings?type=tour',   label: 'Tours',        icon: Map,      permission: 'bookings_view', exact: true },
     ],
   },
   {
     label: 'Visa',
+    anyPermission: ['visa_view'],
     items: [
-      { href: '/admin/visa-applications', label: 'Applications',     icon: Globe },
-      { href: '/admin/visa-intelligence', label: 'Visa Intelligence', icon: Brain },
+      { href: '/admin/visa-applications', label: 'Applications',     icon: Globe,  permission: 'visa_view' },
+      { href: '/admin/visa-intelligence', label: 'Visa Intelligence', icon: Brain,  permission: 'visa_view' },
     ],
   },
   {
     label: 'Planning',
+    anyPermission: ['trips_view'],
     items: [
-      { href: '/admin/trip-planner',         label: 'Trip Planner', icon: Compass },
-      { href: '/admin/trip-planner/history', label: 'Trip History', icon: History, exact: true },
+      { href: '/admin/trip-planner',         label: 'Trip Planner', icon: Compass, permission: 'trips_view' },
+      { href: '/admin/trip-planner/history', label: 'Trip History', icon: History, permission: 'trips_view', exact: true },
+    ],
+  },
+  {
+    label: 'Payments',
+    anyPermission: ['payments_view'],
+    items: [
+      { href: '/admin/payments', label: 'Payments', icon: CreditCard, permission: 'payments_view' },
     ],
   },
   {
     label: 'Content',
+    anyPermission: ['cms_view'],
     items: [
-      { href: '/admin/content',   label: 'Content Manager', icon: PenSquare },
-      { href: '/admin/tours',     label: 'Tours',           icon: Map },
-      { href: '/admin/blog',      label: 'Blog',            icon: Rss },
-      { href: '/admin/vouchers',  label: 'Gift Vouchers',   icon: Gift },
-      { href: '/admin/images',    label: 'Images',          icon: ImageIcon },
-      { href: '/admin/widgets',   label: 'Widgets',         icon: LayoutGrid },
+      { href: '/admin/content',   label: 'Content Manager', icon: PenSquare,  permission: 'cms_view' },
+      { href: '/admin/tours',     label: 'Tours',           icon: Map,        permission: 'cms_view' },
+      { href: '/admin/blog',      label: 'Blog',            icon: Rss,        permission: 'cms_view' },
+      { href: '/admin/vouchers',  label: 'Gift Vouchers',   icon: Gift,       permission: 'cms_view' },
+      { href: '/admin/images',    label: 'Images',          icon: ImageIcon,  permission: 'cms_view' },
+      { href: '/admin/widgets',   label: 'Widgets',         icon: LayoutGrid, permission: 'cms_view' },
     ],
   },
   {
     label: 'Team',
+    anyPermission: ['staff_view', 'reports_view'],
     items: [
-      { href: '/admin/staff',        label: 'Staff',        icon: UserCog },
-      { href: '/admin/activity',     label: 'Activity Log', icon: Activity },
-      { href: '/admin/reports',      label: 'My Reports',   icon: FileText, exact: true },
-      { href: '/admin/reports/all',  label: 'All Reports',  icon: ClipboardList, exact: true },
+      { href: '/admin/staff',       label: 'Staff',        icon: UserCog,      permission: 'staff_view' },
+      { href: '/admin/activity',    label: 'Activity Log', icon: Activity,     permission: 'staff_view' },
+      { href: '/admin/reports',     label: 'My Reports',   icon: FileText,     permission: 'reports_view', exact: true },
+      { href: '/admin/reports/all', label: 'All Reports',  icon: ClipboardList, permission: 'reports_all',  exact: true },
     ],
   },
   {
     label: 'Settings',
+    anyPermission: ['settings_view'],
     items: [
-      { href: '/admin/settings',           label: 'General',  icon: Settings },
-      { href: '/admin/settings/payments',  label: 'Payments', icon: Tv2, exact: true },
-      { href: '/admin/settings/emails',    label: 'Emails',   icon: Send, exact: true },
+      { href: '/admin/settings',              label: 'General',       icon: Settings, permission: 'settings_view' },
+      { href: '/admin/settings/roles',        label: 'Role Manager',  icon: Shield,   permission: 'settings_roles', exact: true },
+      { href: '/admin/settings/payments',     label: 'Payments',      icon: Tv2,      permission: 'settings_edit', exact: true },
+      { href: '/admin/settings/emails',       label: 'Emails',        icon: Send,     permission: 'settings_edit', exact: true },
     ],
   },
 ]
 
 // ── Component ─────────────────────────────────────────────────────────────────
 export function AdminSidebar() {
-  const pathname = usePathname()
-  const router   = useRouter()
+  const pathname   = usePathname()
+  const router     = useRouter()
+  const { can, canAny, profile, loading } = useStaffPermissions()
 
   function isActive(href: string, exact?: boolean) {
-    // Strip query string for comparison
     const path = href.split('?')[0]
     if (exact) return pathname === path
     return pathname === path || pathname.startsWith(path + '/')
@@ -118,35 +153,66 @@ export function AdminSidebar() {
         </Link>
       </div>
 
-      {/* Navigation */}
-      <nav className="flex-1 overflow-y-auto py-4 px-3 space-y-5">
-        {SECTIONS.map(({ label, items }) => (
-          <div key={label}>
-            <p className="px-3 mb-1 text-[10px] font-bold text-white/30 uppercase tracking-[0.15em]">
-              {label}
-            </p>
-            <div className="space-y-0.5">
-              {items.map(({ href, label: itemLabel, icon: Icon, exact }) => {
-                const active = isActive(href, exact)
-                return (
-                  <Link
-                    key={href}
-                    href={href}
-                    className={cn(
-                      'flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium transition-all',
-                      active
-                        ? 'bg-[#C9A84C] text-[#0B1F3A]'
-                        : 'text-white/65 hover:bg-white/8 hover:text-white'
-                    )}
-                  >
-                    <Icon className="w-4 h-4 flex-shrink-0" />
-                    <span>{itemLabel}</span>
-                  </Link>
-                )
-              })}
+      {/* Staff pill */}
+      {!loading && profile && (
+        <div className="mx-3 mt-3 mb-1 px-3 py-2.5 bg-white/5 rounded-xl">
+          <div className="flex items-center gap-2.5">
+            <div className="w-7 h-7 rounded-full bg-[#C9A84C] flex items-center justify-center text-[#0B1F3A] font-bold text-xs flex-shrink-0">
+              {profile.name[0]?.toUpperCase() ?? 'A'}
+            </div>
+            <div className="min-w-0">
+              <p className="text-white text-xs font-semibold leading-tight truncate">{profile.name}</p>
+              <span className={cn('inline-block text-[9px] font-bold px-1.5 py-0.5 rounded-full mt-0.5', profile.roleBadge)}>
+                {profile.roleLabel}
+              </span>
             </div>
           </div>
-        ))}
+        </div>
+      )}
+
+      {/* Navigation */}
+      <nav className="flex-1 overflow-y-auto py-3 px-3 space-y-4">
+        {SECTIONS.map(({ label, items, anyPermission }) => {
+          // Hide entire section if no permissions
+          const sectionVisible = anyPermission
+            ? canAny(anyPermission)
+            : true
+
+          // Filter items individually
+          const visibleItems = items.filter((item) =>
+            item.permission ? can(item.permission) : true
+          )
+
+          if (!sectionVisible || visibleItems.length === 0) return null
+
+          return (
+            <div key={label}>
+              <p className="px-3 mb-1 text-[10px] font-bold text-white/30 uppercase tracking-[0.15em]">
+                {label}
+              </p>
+              <div className="space-y-0.5">
+                {visibleItems.map(({ href, label: itemLabel, icon: Icon, exact }) => {
+                  const active = isActive(href, exact)
+                  return (
+                    <Link
+                      key={href}
+                      href={href}
+                      className={cn(
+                        'flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium transition-all',
+                        active
+                          ? 'bg-[#C9A84C] text-[#0B1F3A]'
+                          : 'text-white/65 hover:bg-white/8 hover:text-white'
+                      )}
+                    >
+                      <Icon className="w-4 h-4 flex-shrink-0" />
+                      <span>{itemLabel}</span>
+                    </Link>
+                  )
+                })}
+              </div>
+            </div>
+          )
+        })}
       </nav>
 
       {/* Sign out */}

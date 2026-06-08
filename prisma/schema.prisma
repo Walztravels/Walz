@@ -390,8 +390,12 @@ model Staff {
   name         String
   email        String    @unique
   passwordHash String
-  roleTitle    String    // Free-text role name, e.g. "Senior Sales Agent"
-  accessLevel  String    // Admin | Manager | Coordinator | Sales
+  roleTitle    String    // Free-text job title e.g. "Senior Sales Agent"
+  accessLevel  String    @default("sales_rep") // legacy compat — maps to role
+  role         String    @default("sales_rep") // super_admin | general_manager | senior_manager | coordinator | sales_rep
+  permissions  Json      @default("{}")        // per-staff overrides (empty = use role defaults)
+  country      String?
+  whatsapp     String?
   isActive     Boolean   @default(true)
   lastLoginAt  DateTime?
   createdAt    DateTime  @default(now())
@@ -402,6 +406,7 @@ model Staff {
   @@index([email])
   @@index([isActive])
   @@index([accessLevel])
+  @@index([role])
 }
 
 model ActivityLog {
@@ -1174,4 +1179,20 @@ model SavedItinerary {
 
   @@index([userId])
   @@index([source])
+}
+
+// ===========================
+// RBAC — Role Permissions
+// ===========================
+
+model RolePermission {
+  id          String   @id @default(cuid())
+  role        String   @unique  // super_admin | general_manager | senior_manager | coordinator | sales_rep
+  label       String
+  color       String
+  permissions Json     @default("{}")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([role])
 }
