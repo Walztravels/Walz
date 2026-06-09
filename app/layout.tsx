@@ -12,14 +12,16 @@ const playfairDisplay = Playfair_Display({
   subsets: ['latin'],
   variable: '--font-playfair',
   display: 'swap',
-  weight: ['400', '500', '600', '700', '800', '900'],
+  // Only load weights that are actually rendered (400 = body, 700 = bold headings)
+  weight: ['400', '700'],
 })
 
 const dmSans = DM_Sans({
   subsets: ['latin'],
   variable: '--font-dm-sans',
   display: 'swap',
-  weight: ['300', '400', '500', '600', '700'],
+  // Drop 300 (light) — not used in the design system
+  weight: ['400', '500', '600', '700'],
 })
 
 export const viewport = {
@@ -98,6 +100,12 @@ export default function RootLayout({
       className={`${playfairDisplay.variable} ${dmSans.variable}`}
       suppressHydrationWarning
     >
+      <head>
+        {/* Speed up image loading — preconnect to the CDN we hit on every page */}
+        <link rel="preconnect" href="https://images.unsplash.com" />
+        <link rel="dns-prefetch" href="https://images.unsplash.com" />
+        <link rel="preconnect" href="https://bxacijnrgqgmyqyfgumg.supabase.co" />
+      </head>
       <body className="font-sans bg-walz-off-white text-walz-deep-navy antialiased min-h-screen flex flex-col">
         <SessionProvider>
           <LenisProvider>

@@ -55,7 +55,7 @@ export function Navbar() {
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false)
   const [isVisaOpen,     setIsVisaOpen]     = useState(false)
   const [isMobileVisaOpen, setIsMobileVisaOpen] = useState(false)
-  const [logoUrl,        setLogoUrl]        = useState('/walz-logo.png')
+  const [logoUrl,        setLogoUrl]        = useState('/walz-logo.svg')
   const dropdownRef  = useRef<HTMLDivElement>(null)
   const visaRef      = useRef<HTMLDivElement>(null)
 

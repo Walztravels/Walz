@@ -1,9 +1,27 @@
 /** @type {import('next').NextConfig} */
 
 const nextConfig = {
+  // ── General ───────────────────────────────────────────────────────────────
+  poweredByHeader: false,
+
+  // ── Image optimisation ────────────────────────────────────────────────────
+  images: {
+    // Serve AVIF first (50-60 % smaller), WebP as fallback
+    formats: ['image/avif', 'image/webp'],
+    // Cache optimised images for 24 h on the CDN edge
+    minimumCacheTTL: 86400,
+    remotePatterns: [
+      { protocol: 'https', hostname: 'images.unsplash.com', pathname: '/**' },
+      { protocol: 'https', hostname: 'plus.unsplash.com',   pathname: '/**' },
+      { protocol: 'https', hostname: 'lh3.googleusercontent.com', pathname: '/**' },
+      // Supabase Storage — for media-managed images via the admin panel
+      { protocol: 'https', hostname: 'bxacijnrgqgmyqyfgumg.supabase.co', pathname: '/storage/**' },
+    ],
+  },
+
+  // ── Redirects ─────────────────────────────────────────────────────────────
   async redirects() {
     return [
-      // Redirect walztravels.us → www.walztravels.com (permanent 308)
       {
         source:      '/:path*',
         has:         [{ type: 'host', value: 'walztravels.us' }],
@@ -16,7 +34,6 @@ const nextConfig = {
         destination: 'https://www.walztravels.com/:path*',
         permanent:   true,
       },
-      // Non-www → www (walztravels.com → www.walztravels.com)
       {
         source:      '/:path*',
         has:         [{ type: 'host', value: 'walztravels.com' }],
@@ -26,30 +43,20 @@ const nextConfig = {
     ]
   },
 
-  images: {
-    remotePatterns: [
-      {
-        protocol: 'https',
-        hostname: 'images.unsplash.com',
-        port: '',
-        pathname: '/**',
-      },
-      {
-        protocol: 'https',
-        hostname: 'plus.unsplash.com',
-        port: '',
-        pathname: '/**',
-      },
-      {
-        protocol: 'https',
-        hostname: 'lh3.googleusercontent.com',
-        port: '',
-        pathname: '/**',
-      },
-    ],
-  },
+  // ── HTTP headers ──────────────────────────────────────────────────────────
   async headers() {
     return [
+      // ── Immutable long-term cache for hashed Next.js bundles ─────────────
+      {
+        source:  '/_next/static/:path*',
+        headers: [{ key: 'Cache-Control', value: 'public, max-age=31536000, immutable' }],
+      },
+      // ── 7-day cache for public static assets (logo, favicon, etc.) ────────
+      {
+        source:  '/:file(.*\\.(?:ico|png|jpg|jpeg|gif|webp|svg|woff2|woff|ttf))',
+        headers: [{ key: 'Cache-Control', value: 'public, max-age=604800, stale-while-revalidate=2592000' }],
+      },
+      // ── API CORS ──────────────────────────────────────────────────────────
       {
         source: '/api/:path*',
         headers: [
@@ -58,13 +65,13 @@ const nextConfig = {
           { key: 'Access-Control-Allow-Methods', value: 'GET,DELETE,PATCH,POST,PUT,OPTIONS' },
           {
             key: 'Access-Control-Allow-Headers',
-            value:
-              'X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version, Authorization',
+            value: 'X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version, Authorization',
           },
         ],
       },
     ]
   },
+
   experimental: {
     serverComponentsExternalPackages: ['@prisma/client', 'prisma'],
   },

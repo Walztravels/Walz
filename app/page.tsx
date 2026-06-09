@@ -1,27 +1,32 @@
 'use client'
 
-export const dynamic = 'force-dynamic'
-
 import { useState, useEffect } from 'react'
+import dynamic from 'next/dynamic'
 import Link from 'next/link'
 import { ArrowRight, Check, Mail, Gift, BookOpen, Rss } from 'lucide-react'
 
-// ── Cinematic sections ────────────────────────────────────────────────────────
-import { HeroSection }            from '@/components/home/HeroSection'
-import { MarqueeStrip }           from '@/components/home/MarqueeStrip'
-import { OffersSection }          from '@/components/home/OffersSection'
-import { StatsStrip }             from '@/components/home/StatsStrip'
-import { VisaIntelligenceSection } from '@/components/home/VisaIntelligenceSection'
-import { TestimonialsSection }    from '@/components/home/TestimonialsSection'
-import { WhyWalzSection }         from '@/components/home/WhyWalzSection'
-import { JadeSection }            from '@/components/home/JadeSection'
-import { DestinationsGrid }       from '@/components/home/DestinationsGrid'
-import { FinalCTA }               from '@/components/home/FinalCTA'
-import { JadePlannerSection }     from '@/components/home/JadePlannerSection'
-import { EsimBanner }             from '@/components/home/EsimBanner'
+// ── Above-fold — always in the initial bundle ─────────────────────────────────
+import { HeroSection }  from '@/components/home/HeroSection'
+import { MarqueeStrip } from '@/components/home/MarqueeStrip'
 
-// ── Legacy sections kept intact ───────────────────────────────────────────────
-import { ToursHighlight }         from '@/components/home/ToursHighlight'
+// ── Below-fold — code-split into separate lazy chunks ─────────────────────────
+// Chunks download as the user scrolls; initial JS is drastically smaller.
+const dyn = <T extends Record<string, React.ComponentType>>(
+  loader: () => Promise<T>,
+  key: keyof T,
+) => dynamic(() => loader().then(m => ({ default: m[key] as React.ComponentType })))
+
+const OffersSection           = dyn(() => import('@/components/home/OffersSection'),           'OffersSection')
+const StatsStrip              = dyn(() => import('@/components/home/StatsStrip'),              'StatsStrip')
+const ToursHighlight          = dyn(() => import('@/components/home/ToursHighlight'),          'ToursHighlight')
+const VisaIntelligenceSection = dyn(() => import('@/components/home/VisaIntelligenceSection'), 'VisaIntelligenceSection')
+const EsimBanner              = dyn(() => import('@/components/home/EsimBanner'),              'EsimBanner')
+const JadePlannerSection      = dyn(() => import('@/components/home/JadePlannerSection'),      'JadePlannerSection')
+const TestimonialsSection     = dyn(() => import('@/components/home/TestimonialsSection'),     'TestimonialsSection')
+const WhyWalzSection          = dyn(() => import('@/components/home/WhyWalzSection'),          'WhyWalzSection')
+const JadeSection             = dyn(() => import('@/components/home/JadeSection'),             'JadeSection')
+const DestinationsGrid        = dyn(() => import('@/components/home/DestinationsGrid'),        'DestinationsGrid')
+const FinalCTA                = dyn(() => import('@/components/home/FinalCTA'),                'FinalCTA')
 
 interface SoroArticle { id: string; title: string; slug: string; date: string }
 

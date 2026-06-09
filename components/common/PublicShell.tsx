@@ -1,9 +1,15 @@
 'use client'
 
 import { usePathname } from 'next/navigation'
+import dynamic from 'next/dynamic'
 import { Navbar } from './Navbar'
 import { Footer } from './Footer'
-import { JadeChat } from '../jade/JadeChat'
+
+// JadeChat is a floating widget — defer it so it never blocks first paint
+const JadeChat = dynamic(
+  () => import('../jade/JadeChat').then(m => ({ default: m.JadeChat })),
+  { ssr: false },
+)
 
 /**
  * Wraps public pages with Navbar, Footer, JadeChat.
