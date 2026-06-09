@@ -88,8 +88,21 @@ const ICON_MAP: Record<string, React.ElementType> = {
 export default function AboutPage() {
   // Hero state
   const [bgIndex, setBgIndex]         = useState(0)
+  const [heroImages, setHeroImages]   = useState(HERO_IMAGES)
   const [subnavVisible, setSubnavVisible] = useState(false)
   const [timeline, setTimeline]       = useState<TimelineItem[]>(TIMELINE_FALLBACK)
+
+  // Fetch dynamic hero background from media manager
+  useEffect(() => {
+    fetch('/api/media/about_hero_bg')
+      .then(r => r.ok ? r.json() : null)
+      .then(d => {
+        if (d?.url) {
+          setHeroImages(prev => [{ src: d.url, label: 'About Hero' }, ...prev.slice(1)])
+        }
+      })
+      .catch(() => {})
+  }, [])
 
   // Refs — sections
   const heroRef     = useRef<HTMLDivElement>(null)
@@ -140,7 +153,7 @@ export default function AboutPage() {
 
   // ── Hero image cycling ─────────────────────────────────────────────────────
   useEffect(() => {
-    const timer = setInterval(() => setBgIndex((i) => (i + 1) % HERO_IMAGES.length), 5000)
+    const timer = setInterval(() => setBgIndex((i) => (i + 1) % heroImages.length), 5000)
     return () => clearInterval(timer)
   }, [])
 
@@ -303,7 +316,7 @@ export default function AboutPage() {
       <section ref={heroRef} className="relative w-full overflow-hidden" style={{ height: '100vh', minHeight: '640px' }}>
 
         {/* Cycling background images */}
-        {HERO_IMAGES.map((img, i) => (
+        {heroImages.map((img, i) => (
           <div
             key={img.src}
             className="absolute inset-0 bg-cover bg-center"

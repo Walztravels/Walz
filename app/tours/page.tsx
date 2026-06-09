@@ -299,10 +299,17 @@ function TourCard({ tour, index }: { tour: DbTour; index: number }) {
 // ── Page ───────────────────────────────────────────────────────────────────────
 
 export default function ToursPage() {
-  const [tours, setTours] = useState<DbTour[]>([])
+  const [tours,   setTours]   = useState<DbTour[]>([])
   const [loading, setLoading] = useState(true)
-  // Controls hero text fade-in on mount — no GSAP
-  const [ready, setReady] = useState(false)
+  const [ready,   setReady]   = useState(false)
+  const [heroUrl, setHeroUrl] = useState('https://images.unsplash.com/photo-1469854523086-cc02fe5d8800?w=1800&q=80')
+
+  useEffect(() => {
+    fetch('/api/media/tours_hero_bg')
+      .then(r => r.ok ? r.json() : null)
+      .then(d => { if (d?.url) setHeroUrl(d.url) })
+      .catch(() => {})
+  }, [])
 
   useEffect(() => {
     setReady(true)
@@ -318,7 +325,7 @@ export default function ToursPage() {
       {/* ── Hero — fullscreen, static image, gradient bottom-up ─────────────── */}
       <div
         className="relative h-screen min-h-[640px] bg-cover bg-center flex items-end"
-        style={{ backgroundImage: "url('https://images.unsplash.com/photo-1469854523086-cc02fe5d8800?w=1800&q=80')" }}
+        style={{ backgroundImage: `url('${heroUrl}')` }}
       >
         {/* Gradient overlay — bottom up */}
         <div className="absolute inset-0 bg-gradient-to-t from-[#0B1F3A]/95 via-[#0B1F3A]/30 to-transparent" />

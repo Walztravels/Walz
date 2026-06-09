@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import gsap from 'gsap'
 import ScrollTrigger from 'gsap/ScrollTrigger'
 import {
@@ -70,6 +70,15 @@ const HOW_IT_WORKS = [
 // ── Page ──────────────────────────────────────────────────────────────────────
 
 export default function InsurancePage() {
+  const [heroBg, setHeroBg] = useState<string | null>(null)
+
+  useEffect(() => {
+    fetch('/api/media/insurance_hero_bg')
+      .then(r => r.ok ? r.json() : null)
+      .then(d => { if (d?.url) setHeroBg(d.url) })
+      .catch(() => {})
+  }, [])
+
   const eyebrowRef  = useRef<HTMLParagraphElement>(null)
   const h1Ref       = useRef<HTMLSpanElement>(null)
   const subRef      = useRef<HTMLParagraphElement>(null)
@@ -154,6 +163,12 @@ export default function InsurancePage() {
       >
         {/* Layered backgrounds */}
         <div className="absolute inset-0 bg-[#0B1F3A]">
+          {heroBg && (
+            <div
+              className="absolute inset-0 bg-cover bg-center opacity-25"
+              style={{ backgroundImage: `url('${heroBg}')` }}
+            />
+          )}
           <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_50%_-10%,_#1C3557_0%,_transparent_65%)]" />
           <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_80%_100%,_rgba(201,168,76,0.08)_0%,_transparent_50%)]" />
         </div>

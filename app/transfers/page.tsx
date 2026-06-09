@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import gsap from 'gsap'
 import ScrollTrigger from 'gsap/ScrollTrigger'
 import {
@@ -115,6 +115,14 @@ export default function TransfersPage() {
   const processRef  = useRef<HTMLElement>(null)
   const areasRef    = useRef<HTMLElement>(null)
   const finalRef    = useRef<HTMLElement>(null)
+  const [heroBg, setHeroBg] = useState<string | null>(null)
+
+  useEffect(() => {
+    fetch('/api/media/transfers_hero_bg')
+      .then(r => r.ok ? r.json() : null)
+      .then(d => { if (d?.url) setHeroBg(d.url) })
+      .catch(() => {})
+  }, [])
 
   // ── Hero GSAP reveal ─────────────────────────────────────────────────────
   useEffect(() => {
@@ -191,6 +199,12 @@ export default function TransfersPage() {
       >
         {/* Background layers */}
         <div className="absolute inset-0 bg-[#0B1F3A]">
+          {heroBg && (
+            <div
+              className="absolute inset-0 bg-cover bg-center opacity-20"
+              style={{ backgroundImage: `url('${heroBg}')` }}
+            />
+          )}
           <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_50%_-5%,_#1C3557_0%,_transparent_65%)]" />
           <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_20%_90%,_rgba(201,168,76,0.07)_0%,_transparent_55%)]" />
         </div>

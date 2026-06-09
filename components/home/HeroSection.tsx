@@ -8,7 +8,8 @@ import ScrollTrigger from 'gsap/ScrollTrigger'
 import { SearchTabs } from '@/components/search/SearchTabs'
 import { ArrowRight, MessageCircle } from 'lucide-react'
 
-export function HeroSection() {
+export function HeroSection({ bgUrl }: { bgUrl?: string | null }) {
+  const heroBg = bgUrl || 'https://images.unsplash.com/photo-1464037866556-6812c9d1c72e?w=2000&q=85'
   const sectionRef  = useRef<HTMLElement>(null)
   const bgRef       = useRef<HTMLDivElement>(null)
   const eyebrowRef  = useRef<HTMLParagraphElement>(null)
@@ -92,7 +93,7 @@ export function HeroSection() {
       {/* ── Background with parallax ─────────────────────────────────── */}
       <div ref={bgRef} className="absolute inset-0 will-change-transform scale-110">
         <Image
-          src="https://images.unsplash.com/photo-1464037866556-6812c9d1c72e?w=2000&q=85"
+          src={heroBg}
           alt="Luxury travel aerial view"
           fill
           priority

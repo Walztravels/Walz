@@ -18,12 +18,14 @@ import type { PermissionKey } from '@/lib/permissions'
 
 // ── Nav item type ─────────────────────────────────────────────────────────────
 interface NavItem {
-  href:       string
-  label:      string
-  icon:       React.ElementType
-  exact?:     boolean
+  href:            string
+  label:           string
+  icon:            React.ElementType
+  exact?:          boolean
   /** If set, item is hidden unless the staff has this permission */
-  permission?: PermissionKey
+  permission?:     PermissionKey
+  /** If true, item is hidden unless the logged-in staff is super_admin */
+  superAdminOnly?: boolean
 }
 
 interface NavSection {
@@ -97,7 +99,7 @@ const SECTIONS: NavSection[] = [
       { href: '/admin/tours',     label: 'Tours',           icon: Map,        permission: 'cms_view' },
       { href: '/admin/blog',      label: 'Blog',            icon: Rss,        permission: 'cms_view' },
       { href: '/admin/vouchers',  label: 'Gift Vouchers',   icon: Gift,       permission: 'cms_view' },
-      { href: '/admin/images',    label: 'Images',          icon: ImageIcon,  permission: 'cms_view' },
+      { href: '/admin/images',    label: 'Media & Images',  icon: ImageIcon,  superAdminOnly: true },
       { href: '/admin/widgets',   label: 'Widgets',         icon: LayoutGrid, permission: 'cms_view' },
     ],
   },
@@ -185,9 +187,11 @@ export function AdminSidebar() {
             : true
 
           // Filter items individually
-          const visibleItems = items.filter((item) =>
-            item.permission ? can(item.permission) : true
-          )
+          const visibleItems = items.filter((item) => {
+            if (item.superAdminOnly && profile?.role !== 'super_admin') return false
+            if (item.permission && !can(item.permission)) return false
+            return true
+          })
 
           if (!sectionVisible || visibleItems.length === 0) return null
 

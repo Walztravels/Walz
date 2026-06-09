@@ -327,6 +327,14 @@ export default function VisaPage() {
   const [passport, setPassport]         = useState('NG')
   const [destination, setDestination]   = useState('')
   const [result, setResult]             = useState<VisaResult | null>(null)
+  const [visaHeroBg, setVisaHeroBg]     = useState("url('https://images.unsplash.com/photo-1436491865332-7a61a109cc05?w=1800&q=80')")
+
+  useEffect(() => {
+    fetch('/api/media/visa_hero_bg')
+      .then(r => r.ok ? r.json() : null)
+      .then(d => { if (d?.url) setVisaHeroBg(`url('${d.url}')`) })
+      .catch(() => {})
+  }, [])
   const [checking, setChecking]         = useState(false)
   const [portals, setPortals]           = useState<Portal[]>([])
   const [regionFilter, setRegionFilter] = useState('All')
@@ -369,7 +377,7 @@ export default function VisaPage() {
         style={{
           height: '70vh',
           minHeight: '520px',
-          backgroundImage: "url('https://images.unsplash.com/photo-1436491865332-7a61a109cc05?w=1800&q=80')",
+          backgroundImage: visaHeroBg,
         }}
       >
         {/* Overlay gradient */}

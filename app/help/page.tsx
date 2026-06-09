@@ -126,6 +126,14 @@ export default function HelpPage() {
   const ctaSecRef  = useRef<HTMLElement>(null)
 
   const [openFaq, setOpenFaq] = useState<number | null>(null)
+  const [heroBg,  setHeroBg]  = useState<string | null>(null)
+
+  useEffect(() => {
+    fetch('/api/media/help_hero_bg')
+      .then(r => r.ok ? r.json() : null)
+      .then(d => { if (d?.url) setHeroBg(d.url) })
+      .catch(() => {})
+  }, [])
 
   // ── Hero GSAP reveal ───────────────────────────────────────────────────────
   useEffect(() => {
@@ -210,6 +218,12 @@ export default function HelpPage() {
       >
         {/* Background gradient */}
         <div className="absolute inset-0 bg-[#0B1F3A]">
+          {heroBg && (
+            <div
+              className="absolute inset-0 bg-cover bg-center opacity-20"
+              style={{ backgroundImage: `url('${heroBg}')` }}
+            />
+          )}
           <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_50%_-5%,_#1C3557_0%,_transparent_65%)]" />
           <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_85%_90%,_rgba(201,168,76,0.07)_0%,_transparent_55%)]" />
         </div>

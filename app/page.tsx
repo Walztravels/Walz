@@ -26,9 +26,17 @@ import { ToursHighlight }         from '@/components/home/ToursHighlight'
 interface SoroArticle { id: string; title: string; slug: string; date: string }
 
 export default function HomePage() {
-  const [articles, setArticles] = useState<SoroArticle[]>([])
-  const [nlEmail, setNlEmail] = useState('')
-  const [nlStatus, setNlStatus] = useState<'idle' | 'loading' | 'success' | 'error' | 'exists'>('idle')
+  const [articles,  setArticles]  = useState<SoroArticle[]>([])
+  const [nlEmail,   setNlEmail]   = useState('')
+  const [nlStatus,  setNlStatus]  = useState<'idle' | 'loading' | 'success' | 'error' | 'exists'>('idle')
+  const [heroBg,    setHeroBg]    = useState<string | null>(null)
+
+  useEffect(() => {
+    fetch('/api/media/home_hero_bg')
+      .then(r => r.ok ? r.json() : null)
+      .then(d => { if (d?.url) setHeroBg(d.url) })
+      .catch(() => {})
+  }, [])
 
   async function handleNewsletterSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -58,7 +66,7 @@ export default function HomePage() {
   return (
     <>
       {/* 1 — Fullscreen cinematic hero */}
-      <HeroSection />
+      <HeroSection bgUrl={heroBg} />
 
       {/* 2 — Scrolling marquee strip */}
       <MarqueeStrip />
