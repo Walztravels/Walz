@@ -29,7 +29,7 @@ export async function POST(req: NextRequest) {
   const paymentIntentId = String(checkoutSession.payment_intent ?? '')
 
   // Forward to /api/esim/order to place the eSIM and save to DB
-  const origin = req.headers.get('origin') ?? 'https://walztravels.us'
+  const origin = req.headers.get('origin') ?? 'https://walztravels.com'
   const orderRes = await fetch(`${origin}/api/esim/order`, {
     method: 'POST',
     headers: {

@@ -13,7 +13,7 @@ function getResend() {
 // GET /api/auth/verify-email?token=xxx  →  verify and redirect
 export async function GET(req: NextRequest) {
   const token = req.nextUrl.searchParams.get('token')
-  const baseUrl = process.env.NEXTAUTH_URL ?? 'https://walztravels.us'
+  const baseUrl = process.env.NEXTAUTH_URL ?? 'https://walztravels.com'
 
   if (!token) {
     return NextResponse.redirect(`${baseUrl}/login?error=InvalidToken`)
@@ -57,7 +57,7 @@ export async function GET(req: NextRequest) {
       <table width="560" cellpadding="0" cellspacing="0" style="max-width:560px;width:100%;background:#fff;border-radius:16px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.08);">
 
         <tr><td style="background:linear-gradient(135deg,#0A1628,#1C3557);padding:40px;text-align:center;">
-          <img src="https://walztravels.us/walz-logo.png" alt="Walz Travels" width="200" height="200" style="display:block;margin:0 auto 16px;width:200px;height:auto;" />
+          <img src="https://walztravels.com/walz-logo.png" alt="Walz Travels" width="200" height="200" style="display:block;margin:0 auto 16px;width:200px;height:auto;" />
           <p style="margin:0;color:#C9A84C;font-size:12px;letter-spacing:2px;text-transform:uppercase;">Your account is active</p>
         </td></tr>
 
@@ -68,7 +68,7 @@ export async function GET(req: NextRequest) {
             and access your gift vouchers — all from your personal dashboard.
           </p>
           <div style="text-align:center;margin:0 0 28px;">
-            <a href="https://walztravels.us/portal/dashboard"
+            <a href="https://walztravels.com/portal/dashboard"
                style="display:inline-block;background:linear-gradient(135deg,#C9A84C,#E8C97A);color:#0B1F3A;font-weight:700;padding:15px 32px;border-radius:12px;text-decoration:none;font-size:15px;">
               Go to My Dashboard →
             </a>
@@ -128,7 +128,7 @@ export async function POST(req: NextRequest) {
       data: { verificationToken: token, verificationTokenExpires: expires },
     })
 
-    const baseUrl   = process.env.NEXTAUTH_URL ?? 'https://walztravels.us'
+    const baseUrl   = process.env.NEXTAUTH_URL ?? 'https://walztravels.com'
     const verifyUrl = `${baseUrl}/api/auth/verify-email?token=${token}`
     const resend    = getResend()
 

@@ -36,7 +36,7 @@ const CATEGORY_COLORS: Record<string, string> = {
 
 async function getPost(slug: string): Promise<{ post: Post; related: RelatedPost[] } | null> {
   try {
-    const baseUrl = process.env.NEXT_PUBLIC_SITE_URL || 'https://walztravels.us'
+    const baseUrl = process.env.NEXT_PUBLIC_SITE_URL || 'https://walztravels.com'
     const res = await fetch(`${baseUrl}/api/blog/${slug}`, { next: { revalidate: 60 } })
     if (!res.ok) return null
     return res.json()
@@ -79,7 +79,7 @@ export default async function BlogPostPage({ params }: { params: { slug: string 
   if (!data) notFound()
 
   const { post, related } = data
-  const postUrl = `https://walztravels.us/blog/${post.slug}`
+  const postUrl = `https://walztravels.com/blog/${post.slug}`
 
   const shareLinks = {
     twitter: `https://twitter.com/intent/tweet?text=${encodeURIComponent(post.title)}&url=${encodeURIComponent(postUrl)}`,

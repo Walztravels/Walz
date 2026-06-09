@@ -59,13 +59,13 @@ export async function POST(request: NextRequest) {
   // Notify Glory
   try {
     await resend.emails.send({
-      from:    'Walz Travels Portal <noreply@walztravels.us>',
+      from:    'Walz Travels Portal <noreply@walztravels.com>',
       to:      'contact@walztravels.com',
       subject: `New Document Upload — ${user.name ?? user.email} · ${application.refNumber}`,
       html: `
         <div style="font-family: Arial, sans-serif; max-width: 600px;">
           <div style="background: #0A1628; padding: 20px; text-align: center;">
-            <img src="https://www.walztravels.us/walz-logo.png" alt="Walz Travels" style="height: 40px;" />
+            <img src="https://www.walztravels.com/walz-logo.png" alt="Walz Travels" style="height: 40px;" />
           </div>
           <div style="background: #F7F4EF; padding: 30px;">
             <h2 style="color: #0A1628;">New Document Uploaded</h2>
@@ -74,7 +74,7 @@ export async function POST(request: NextRequest) {
             <p><strong>Document:</strong> ${body.name}</p>
             <p><strong>Category:</strong> ${body.category ?? 'General'}</p>
             <div style="margin-top: 20px;">
-              <a href="https://www.walztravels.us/admin/clients" style="background: #0A1628; color: #fff; padding: 12px 24px; border-radius: 8px; text-decoration: none; font-weight: 600;">Review in Admin</a>
+              <a href="https://www.walztravels.com/admin/clients" style="background: #0A1628; color: #fff; padding: 12px 24px; border-radius: 8px; text-decoration: none; font-weight: 600;">Review in Admin</a>
             </div>
           </div>
         </div>

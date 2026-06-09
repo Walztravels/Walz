@@ -450,7 +450,7 @@ function Step3({
     customizations: {
       title:       'Walz Travels Gift Voucher',
       description: `${selected.option.label} — ${selected.value.label}`,
-      logo:        'https://walztravels.us/walz-logo.png',
+      logo:        'https://walztravels.com/walz-logo.png',
     },
   }
 

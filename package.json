@@ -39,6 +39,7 @@
     "@supabase/supabase-js": "^2.106.2",
     "@types/bcryptjs": "^2.4.6",
     "bcryptjs": "^3.0.3",
+    "canvas-confetti": "^1.9.4",
     "class-variance-authority": "^0.7.0",
     "clsx": "^2.1.1",
     "date-fns": "^3.6.0",
@@ -60,6 +61,7 @@
     "zod": "^3.23.8"
   },
   "devDependencies": {
+    "@types/canvas-confetti": "^1.9.0",
     "@types/node": "^20.16.10",
     "@types/react": "^18.3.9",
     "@types/react-dom": "^18.3.0",

@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+
+  <!-- Core pages -->
+  <url><loc>https://www.walztravels.com/</loc><changefreq>weekly</changefreq><priority>1.0</priority></url>
+  <url><loc>https://www.walztravels.com/flights</loc><changefreq>daily</changefreq><priority>0.9</priority></url>
+  <url><loc>https://www.walztravels.com/hotels</loc><changefreq>daily</changefreq><priority>0.9</priority></url>
+  <url><loc>https://www.walztravels.com/tours</loc><changefreq>weekly</changefreq><priority>0.9</priority></url>
+  <url><loc>https://www.walztravels.com/visa</loc><changefreq>weekly</changefreq><priority>0.9</priority></url>
+  <url><loc>https://www.walztravels.com/esim</loc><changefreq>weekly</changefreq><priority>0.8</priority></url>
+  <url><loc>https://www.walztravels.com/plan</loc><changefreq>monthly</changefreq><priority>0.8</priority></url>
+  <url><loc>https://www.walztravels.com/gift</loc><changefreq>monthly</changefreq><priority>0.7</priority></url>
+  <url><loc>https://www.walztravels.com/blog</loc><changefreq>daily</changefreq><priority>0.8</priority></url>
+  <url><loc>https://www.walztravels.com/about</loc><changefreq>monthly</changefreq><priority>0.7</priority></url>
+  <url><loc>https://www.walztravels.com/help</loc><changefreq>monthly</changefreq><priority>0.6</priority></url>
+  <url><loc>https://www.walztravels.com/careers</loc><changefreq>monthly</changefreq><priority>0.6</priority></url>
+  <url><loc>https://www.walztravels.com/privacy</loc><changefreq>yearly</changefreq><priority>0.3</priority></url>
+  <url><loc>https://www.walztravels.com/terms</loc><changefreq>yearly</changefreq><priority>0.3</priority></url>
+
+  <!-- Destination packages -->
+  <url><loc>https://www.walztravels.com/packages/london</loc><changefreq>weekly</changefreq><priority>0.8</priority></url>
+  <url><loc>https://www.walztravels.com/packages/dubai</loc><changefreq>weekly</changefreq><priority>0.8</priority></url>
+  <url><loc>https://www.walztravels.com/packages/toronto</loc><changefreq>weekly</changefreq><priority>0.8</priority></url>
+  <url><loc>https://www.walztravels.com/packages/paris</loc><changefreq>weekly</changefreq><priority>0.8</priority></url>
+  <url><loc>https://www.walztravels.com/packages/new-york</loc><changefreq>weekly</changefreq><priority>0.8</priority></url>
+  <url><loc>https://www.walztravels.com/packages/accra</loc><changefreq>weekly</changefreq><priority>0.8</priority></url>
+
+  <!-- Visa country pages -->
+  <url><loc>https://www.walztravels.com/visa/uk</loc><changefreq>weekly</changefreq><priority>0.8</priority></url>
+  <url><loc>https://www.walztravels.com/visa/canada</loc><changefreq>weekly</changefreq><priority>0.8</priority></url>
+  <url><loc>https://www.walztravels.com/visa/uae</loc><changefreq>weekly</changefreq><priority>0.8</priority></url>
+  <url><loc>https://www.walztravels.com/visa/schengen</loc><changefreq>weekly</changefreq><priority>0.8</priority></url>
+  <url><loc>https://www.walztravels.com/visa/usa</loc><changefreq>weekly</changefreq><priority>0.8</priority></url>
+
+</urlset>

@@ -92,7 +92,7 @@ function buildGuestEmail(d: TourBookingEmailData): string {
 
     <!-- Header -->
     <div style="background:linear-gradient(135deg,#0A1628,#1C3557);padding:40px;text-align:center;">
-      <img src="https://walztravels.us/walz-logo.png" alt="Walz Travels" width="200" height="200" style="display:block;margin:0 auto 16px;width:200px;height:auto;" />
+      <img src="https://walztravels.com/walz-logo.png" alt="Walz Travels" width="200" height="200" style="display:block;margin:0 auto 16px;width:200px;height:auto;" />
       <p style="margin:0;color:#8B9BAE;font-size:13px;letter-spacing:1px;text-transform:uppercase;">Luxury Travel Agency</p>
     </div>
 

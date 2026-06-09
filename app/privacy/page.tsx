@@ -11,7 +11,7 @@ const SECTIONS = [
     title: '1. Who We Are',
     body: `Walz Travels Ltd ("Walz Travels", "we", "us" or "our") is a travel agency incorporated in the United Kingdom (Company registration pending). Our registered office is at 1 Commercial Street, London, E1 6RF.
 
-We operate the website walztravels.us and related services including flight booking, hotel booking, private tours, visa assistance and gift vouchers.
+We operate the website walztravels.com and related services including flight booking, hotel booking, private tours, visa assistance and gift vouchers.
 
 For any privacy-related queries, contact us at: contact@walztravels.com`,
   },

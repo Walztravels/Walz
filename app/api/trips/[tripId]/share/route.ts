@@ -46,7 +46,7 @@ export async function GET(req: NextRequest, { params }: Ctx) {
     isPublic:   trip.isPublic,
     shareToken: trip.shareToken,
     shareUrl:   trip.shareToken
-      ? `${process.env.NEXTAUTH_URL ?? 'https://walztravels.us'}/plan/${params.tripId}/share?token=${trip.shareToken}`
+      ? `${process.env.NEXTAUTH_URL ?? 'https://walztravels.com'}/plan/${params.tripId}/share?token=${trip.shareToken}`
       : null,
   })
 }
@@ -85,7 +85,7 @@ export async function POST(req: NextRequest, { params }: Ctx) {
     isPublic:   updated.isPublic,
     shareToken: updated.shareToken,
     shareUrl:   updated.shareToken
-      ? `${process.env.NEXTAUTH_URL ?? 'https://walztravels.us'}/plan/${params.tripId}/share?token=${updated.shareToken}`
+      ? `${process.env.NEXTAUTH_URL ?? 'https://walztravels.com'}/plan/${params.tripId}/share?token=${updated.shareToken}`
       : null,
   })
 }

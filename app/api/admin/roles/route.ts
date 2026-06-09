@@ -12,13 +12,14 @@ export async function GET() {
   const session = await getAdminSession()
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const staffRole = session.staffRole ?? ''
-  if (staffRole !== 'super_admin') {
-    // Only super_admin can edit roles — but allow read for the settings page
+  // Allow super_admin from JWT or confirmed via DB
+  const jwtIsSuperAdmin = (session.staffRole ?? '') === 'super_admin'
+  if (!jwtIsSuperAdmin) {
     const staff = await prisma.staff.findUnique({
       where:  { email: session.email },
       select: { role: true },
     })
+    // Require at least a valid staff record (any role may read role list for settings UI)
     if (!staff) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
 

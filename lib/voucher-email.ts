@@ -21,7 +21,7 @@ function fmt(amount: number, currency: string) {
 function header() {
   return `
   <div style="background:linear-gradient(135deg,#0A1628,#1C3557);padding:36px 40px 28px;text-align:center;">
-    <img src="https://walztravels.us/walz-logo.png" alt="Walz Travels" width="200" height="200" style="display:block;margin:0 auto 12px;width:200px;height:auto;" />
+    <img src="https://walztravels.com/walz-logo.png" alt="Walz Travels" width="200" height="200" style="display:block;margin:0 auto 12px;width:200px;height:auto;" />
     <p style="margin:6px 0 0;color:#C9A84C;font-size:12px;letter-spacing:2px;text-transform:uppercase;">Gift Voucher</p>
   </div>`
 }
@@ -121,9 +121,9 @@ export async function sendVoucherEmail(data: {
                style="display:inline-block;background:#25D366;color:#fff;padding:12px 20px;border-radius:10px;text-decoration:none;font-size:14px;font-weight:600;">
               💬 WhatsApp Us
             </a>
-            <a href="https://walztravels.us"
+            <a href="https://walztravels.com"
                style="display:inline-block;background:#0B1F3A;color:#C9A84C;padding:12px 20px;border-radius:10px;text-decoration:none;font-size:14px;font-weight:600;">
-              ✈️ Book at walztravels.us
+              ✈️ Book at walztravels.com
             </a>
           </div>
         </td></tr>
@@ -183,7 +183,7 @@ export async function sendTravelCreditEmail(data: {
         <!-- Header -->
         <tr><td>
           <div style="background:linear-gradient(135deg,#0A1628,#1C3557);padding:36px 40px 28px;text-align:center;">
-            <img src="https://walztravels.us/walz-logo.png" alt="Walz Travels" width="200" height="200" style="display:block;margin:0 auto 12px;width:200px;height:auto;" />
+            <img src="https://walztravels.com/walz-logo.png" alt="Walz Travels" width="200" height="200" style="display:block;margin:0 auto 12px;width:200px;height:auto;" />
             <p style="margin:6px 0 0;color:#C9A84C;font-size:12px;letter-spacing:2px;text-transform:uppercase;">Travel Credit Voucher</p>
           </div>
         </td></tr>
@@ -229,7 +229,7 @@ export async function sendTravelCreditEmail(data: {
                style="display:inline-block;background:#25D366;color:#fff;padding:12px 20px;border-radius:10px;text-decoration:none;font-size:14px;font-weight:600;">
               💬 WhatsApp Us
             </a>
-            <a href="https://walztravels.us"
+            <a href="https://walztravels.com"
                style="display:inline-block;background:#0B1F3A;color:#C9A84C;padding:12px 20px;border-radius:10px;text-decoration:none;font-size:14px;font-weight:600;">
               ✈️ Browse Trips
             </a>

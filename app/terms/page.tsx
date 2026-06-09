@@ -9,7 +9,7 @@ export const metadata: Metadata = {
 const SECTIONS = [
   {
     title: '1. About These Terms',
-    body: `These Terms of Service ("Terms") govern your use of the Walz Travels website (walztravels.us) and all related booking services operated by Walz Travels Ltd ("Walz Travels", "we", "us" or "our").
+    body: `These Terms of Service ("Terms") govern your use of the Walz Travels website (walztravels.com) and all related booking services operated by Walz Travels Ltd ("Walz Travels", "we", "us" or "our").
 
 By accessing our website or placing a booking, you agree to be bound by these Terms. If you do not agree, please do not use our services.`,
   },

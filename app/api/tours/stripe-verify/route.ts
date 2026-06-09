@@ -131,7 +131,7 @@ export async function GET(req: NextRequest) {
 <body style="margin:0;padding:0;font-family:system-ui,sans-serif;background:#F7F4EF;">
 <div style="max-width:600px;margin:0 auto;background:#fff;">
   <div style="background:linear-gradient(135deg,#0A1628,#1C3557);padding:40px;text-align:center;">
-    <img src="https://walztravels.us/walz-logo.png" alt="Walz Travels" width="200" height="200" style="display:block;margin:0 auto 16px;width:200px;height:auto;" />
+    <img src="https://walztravels.com/walz-logo.png" alt="Walz Travels" width="200" height="200" style="display:block;margin:0 auto 16px;width:200px;height:auto;" />
   </div>
   <div style="padding:40px;">
     <h2 style="color:#0A1628;margin:0 0 8px;">Your booking is confirmed! 🎉</h2>

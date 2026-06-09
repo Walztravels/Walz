@@ -43,13 +43,13 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
     }
     try {
       await resend.emails.send({
-        from:    'Walz Travels <noreply@walztravels.us>',
+        from:    'Walz Travels <noreply@walztravels.com>',
         to:      application.user.email,
         subject: `Application Update — ${application.title}: ${STAGE_LABELS[parsed.data.stage]}`,
         html: `
           <div style="font-family: Arial, sans-serif; max-width: 600px;">
             <div style="background: #0A1628; padding: 20px; text-align: center;">
-              <img src="https://www.walztravels.us/walz-logo.png" alt="Walz Travels" style="height: 40px;" />
+              <img src="https://www.walztravels.com/walz-logo.png" alt="Walz Travels" style="height: 40px;" />
             </div>
             <div style="background: #F7F4EF; padding: 30px;">
               <h2 style="color: #0A1628;">Application Status Update</h2>
@@ -59,7 +59,7 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
               ${parsed.data.stage === 'DOCUMENTS_PENDING' ? '<p style="color: #D4880A;"><strong>Action required:</strong> Please log in to your portal and upload the required documents.</p>' : ''}
               ${application.adminNotes ? `<p><strong>Note from our team:</strong> ${application.adminNotes}</p>` : ''}
               <div style="margin-top: 24px; text-align: center;">
-                <a href="https://www.walztravels.us/portal/dashboard" style="background: #0A1628; color: #fff; padding: 12px 28px; border-radius: 8px; text-decoration: none; font-weight: 600;">View Application</a>
+                <a href="https://www.walztravels.com/portal/dashboard" style="background: #0A1628; color: #fff; padding: 12px 28px; border-radius: 8px; text-decoration: none; font-weight: 600;">View Application</a>
               </div>
             </div>
           </div>

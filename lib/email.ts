@@ -56,7 +56,7 @@ function emailHeader(): string {
   return `
     <div style="background: linear-gradient(135deg, #0A1628, #1C3557); padding: 36px 40px 28px; text-align: center;">
       <img
-        src="https://walztravels.us/walz-logo.png"
+        src="https://walztravels.com/walz-logo.png"
         alt="Walz Travels"
         width="200"
         height="200"
@@ -303,7 +303,7 @@ export async function sendBookingNotificationToAdmin(data: AdminNotificationData
         <!-- Admin Header -->
         <div style="background: #0A1628; padding: 24px 32px; display: flex; align-items: center; justify-content: space-between;">
           <div>
-            <img src="https://walztravels.us/walz-logo.png" alt="Walz Travels" width="200" height="200" style="display:inline-block;vertical-align:middle;width:200px;height:auto;" />
+            <img src="https://walztravels.com/walz-logo.png" alt="Walz Travels" width="200" height="200" style="display:inline-block;vertical-align:middle;width:200px;height:auto;" />
             <span style="color: #8B9BAE; font-size: 13px; margin-left: 12px; vertical-align: middle;">Admin Notification</span>
           </div>
           <span style="background: #C9A84C; color: #0A1628; font-size: 12px; font-weight: 700; padding: 4px 12px; border-radius: 20px; text-transform: uppercase;">NEW BOOKING</span>
@@ -432,7 +432,7 @@ export async function sendVisaApplicationReceived(email: string, country: string
     <body style="margin: 0; padding: 0; font-family: system-ui, sans-serif; background: #F7F4EF;">
       <div style="max-width: 600px; margin: 0 auto; background: #fff;">
         <div style="background: linear-gradient(135deg, #0A1628, #1C3557); padding: 40px; text-align: center;">
-          <img src="https://walztravels.us/walz-logo.png" alt="Walz Travels" width="200" height="200" style="display:block;margin:0 auto 16px;width:200px;height:auto;" />
+          <img src="https://walztravels.com/walz-logo.png" alt="Walz Travels" width="200" height="200" style="display:block;margin:0 auto 16px;width:200px;height:auto;" />
         </div>
         <div style="padding: 40px;">
           <h2 style="color: #0A1628; margin: 0 0 16px;">Visa Application Received</h2>
@@ -477,7 +477,7 @@ export async function sendTourEnquiryConfirmation(email: string, tourName: strin
     <body style="margin: 0; padding: 0; font-family: system-ui, sans-serif; background: #F7F4EF;">
       <div style="max-width: 600px; margin: 0 auto; background: #fff;">
         <div style="background: linear-gradient(135deg, #0A1628, #1C3557); padding: 40px; text-align: center;">
-          <img src="https://walztravels.us/walz-logo.png" alt="Walz Travels" width="200" height="200" style="display:block;margin:0 auto 16px;width:200px;height:auto;" />
+          <img src="https://walztravels.com/walz-logo.png" alt="Walz Travels" width="200" height="200" style="display:block;margin:0 auto 16px;width:200px;height:auto;" />
         </div>
         <div style="padding: 40px;">
           <h2 style="color: #0A1628; margin: 0 0 16px;">Tour Enquiry Received!</h2>
@@ -523,7 +523,7 @@ export async function sendPasswordResetEmail(email: string, resetUrl: string) {
     <body style="margin: 0; padding: 0; font-family: system-ui, sans-serif; background: #F7F4EF;">
       <div style="max-width: 600px; margin: 0 auto; background: #fff;">
         <div style="background: linear-gradient(135deg, #0A1628, #1C3557); padding: 40px; text-align: center;">
-          <img src="https://walztravels.us/walz-logo.png" alt="Walz Travels" width="200" height="200" style="display:block;margin:0 auto 16px;width:200px;height:auto;" />
+          <img src="https://walztravels.com/walz-logo.png" alt="Walz Travels" width="200" height="200" style="display:block;margin:0 auto 16px;width:200px;height:auto;" />
         </div>
         <div style="padding: 40px; text-align: center;">
           <h2 style="color: #0A1628; margin: 0 0 16px;">Reset Your Password</h2>

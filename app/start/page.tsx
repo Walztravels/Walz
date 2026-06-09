@@ -7,7 +7,7 @@ export const metadata: Metadata = {
   description: 'Tell us what you need and our expert team will guide you every step of the way — flights, hotels, tours, visa and more.',
   openGraph: {
     type: 'website',
-    url: 'https://walztravels.us/start',
+    url: 'https://walztravels.com/start',
     title: 'Get Started | Walz Travels',
     description: 'Tell us what you need and our expert team will guide you every step of the way.',
     images: [{ url: 'https://images.unsplash.com/photo-1436491865332-7a61a109cc05?w=1200&q=80', width: 1200, height: 630 }],

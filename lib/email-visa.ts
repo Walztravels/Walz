@@ -3,7 +3,7 @@ import { getVisaConfig, STATUS_CONFIG } from '@/lib/visa-config'
 
 const FROM = 'Jade at Walz Travels <jade@walztravels.com>'
 const ADMIN = 'contact@walztravels.com'
-const BASE_URL = 'https://walztravels.us'
+const BASE_URL = 'https://walztravels.com'
 
 function header() {
   return `<div style="background:#0B1F3A;padding:32px 40px 24px;text-align:center;">
@@ -19,7 +19,7 @@ function footer() {
       💬 <a href="https://wa.me/447398753797" style="color:#C9A84C;">WhatsApp +44 7398 753797</a> &nbsp;|&nbsp;
       ✉️ <a href="mailto:contact@walztravels.com" style="color:#C9A84C;">contact@walztravels.com</a>
     </p>
-    <p style="margin:12px 0 0;color:#94a3b8;font-size:11px;">Walz Travels Ltd · walztravels.us</p>
+    <p style="margin:12px 0 0;color:#94a3b8;font-size:11px;">Walz Travels Ltd · walztravels.com</p>
   </div>`
 }
 

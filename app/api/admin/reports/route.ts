@@ -82,7 +82,7 @@ function buildEmailHtml(r: {
 <table width="600" cellpadding="0" cellspacing="0" style="max-width:600px;width:100%;background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 2px 16px rgba(0,0,0,0.08);">
 
   <tr><td style="background:#0B1F3A;padding:24px 32px;">
-    <img src="https://walztravels.us/walz-logo.png" alt="Walz Travels" width="80" style="display:block;margin:0 0 12px;width:80px;height:auto;" />
+    <img src="https://walztravels.com/walz-logo.png" alt="Walz Travels" width="80" style="display:block;margin:0 0 12px;width:80px;height:auto;" />
     <h1 style="margin:0;color:#C9A84C;font-size:18px;font-weight:700;">Staff Report</h1>
     <p style="margin:4px 0 0;color:#8B9BAE;font-size:12px;text-transform:uppercase;letter-spacing:0.8px;">${r.reportType}</p>
   </td></tr>
@@ -126,7 +126,7 @@ function buildEmailHtml(r: {
     ${r.additionalNotes  ? section('Additional Notes',      `<p style="margin:0;color:#374151;font-size:13px;line-height:1.7;white-space:pre-wrap;">${r.additionalNotes}</p>`)      : ''}
 
     <div style="margin:24px 0;text-align:center;">
-      <a href="https://walztravels.us/admin/reports/all"
+      <a href="https://walztravels.com/admin/reports/all"
          style="display:inline-block;background:#C9A84C;color:#0B1F3A;font-weight:700;padding:12px 28px;border-radius:8px;text-decoration:none;font-size:14px;">
         View All Reports →
       </a>

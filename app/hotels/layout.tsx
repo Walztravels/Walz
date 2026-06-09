@@ -6,7 +6,7 @@ export const metadata: Metadata = {
     'Find and book hotels worldwide with Walz Travels. Compare rates, read reviews, and book luxury stays with expert guidance and 24/7 support.',
   openGraph: {
     type: 'website',
-    url: 'https://walztravels.us/hotels',
+    url: 'https://walztravels.com/hotels',
     title: 'Book Hotels | Walz Travels',
     description:
       'Find and book hotels worldwide with Walz Travels. Compare rates, read reviews, and book luxury stays with expert guidance and 24/7 support.',

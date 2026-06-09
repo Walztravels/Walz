@@ -6,7 +6,7 @@ export const metadata: Metadata = {
     'Walz Travels — connecting the African diaspora to every destination on earth. Our story, our mission, and why thousands of clients trust us.',
   openGraph: {
     type: 'website',
-    url: 'https://walztravels.us/about',
+    url: 'https://walztravels.com/about',
     title: 'About Walz Travels',
     description:
       'Connecting the African diaspora to every destination on earth since 2019.',

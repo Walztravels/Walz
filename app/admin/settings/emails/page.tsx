@@ -15,7 +15,7 @@ const TEMPLATES = [
 
 Welcome to Walz Travels! Your client portal is now active.
 
-Portal: https://walztravels.us/portal
+Portal: https://walztravels.com/portal
 Reference: [reference]
 
 If you need help, WhatsApp Jade at +1 786 797 7884.
@@ -58,7 +58,7 @@ New Status: [status]
 [notes]
 
 Log in to your portal to view full details:
-https://walztravels.us/portal
+https://walztravels.com/portal
 
 Warm regards,
 Walz Travels`,
@@ -94,7 +94,7 @@ We have received your document upload for application [reference].
 
 Our team will review it and get back to you if anything is needed.
 
-View your portal: https://walztravels.us/portal
+View your portal: https://walztravels.com/portal
 
 Best regards,
 Walz Travels`,

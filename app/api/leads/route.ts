@@ -60,13 +60,13 @@ export async function POST(request: NextRequest) {
   // Email notification to admin
   try {
     await resend.emails.send({
-      from:    'Walz Travels <noreply@walztravels.us>',
+      from:    'Walz Travels <noreply@walztravels.com>',
       to:      'contact@walztravels.com',
       subject: `New Lead: ${data.service} — ${data.name}`,
       html: `
         <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
           <div style="background: #0A1628; padding: 20px; text-align: center;">
-            <img src="https://www.walztravels.us/walz-logo.png" alt="Walz Travels" style="height: 40px;" />
+            <img src="https://www.walztravels.com/walz-logo.png" alt="Walz Travels" style="height: 40px;" />
           </div>
           <div style="background: #F7F4EF; padding: 30px;">
             <h2 style="color: #0A1628; margin: 0 0 20px;">New Lead Submission</h2>
@@ -81,7 +81,7 @@ export async function POST(request: NextRequest) {
               <tr><td style="padding: 8px 0; color: #8B9BAE; font-size: 14px;">Details</td><td style="padding: 8px 0; color: #0A1628;">${data.details || '—'}</td></tr>
             </table>
             <div style="margin-top: 24px; text-align: center;">
-              <a href="https://www.walztravels.us/admin/leads" style="background: #0A1628; color: #fff; padding: 12px 28px; border-radius: 8px; text-decoration: none; font-weight: 600;">View in Admin CRM</a>
+              <a href="https://www.walztravels.com/admin/leads" style="background: #0A1628; color: #fff; padding: 12px 28px; border-radius: 8px; text-decoration: none; font-weight: 600;">View in Admin CRM</a>
             </div>
           </div>
         </div>

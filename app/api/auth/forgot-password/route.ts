@@ -26,7 +26,7 @@ export async function POST(req: NextRequest) {
       data: { passwordResetToken: token, passwordResetExpires: expires },
     })
 
-    const resetUrl = `${process.env.NEXTAUTH_URL ?? 'https://walztravels.us'}/reset-password?token=${token}`
+    const resetUrl = `${process.env.NEXTAUTH_URL ?? 'https://walztravels.com'}/reset-password?token=${token}`
 
     if (process.env.RESEND_API_KEY) {
       const resend = new Resend(process.env.RESEND_API_KEY)
@@ -43,7 +43,7 @@ export async function POST(req: NextRequest) {
     <tr><td align="center">
       <table width="560" cellpadding="0" cellspacing="0" style="max-width:560px;width:100%;background:#fff;border-radius:16px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.08);">
         <tr><td style="background:linear-gradient(135deg,#0A1628,#1C3557);padding:36px 40px 28px;text-align:center;">
-          <img src="https://walztravels.us/walz-logo.png" alt="Walz Travels" width="200" height="200" style="display:block;margin:0 auto 16px;width:200px;height:auto;" />
+          <img src="https://walztravels.com/walz-logo.png" alt="Walz Travels" width="200" height="200" style="display:block;margin:0 auto 16px;width:200px;height:auto;" />
           <p style="margin:0;color:#C9A84C;font-size:12px;letter-spacing:2px;text-transform:uppercase;">Password Reset</p>
         </td></tr>
         <tr><td style="padding:36px 40px;">

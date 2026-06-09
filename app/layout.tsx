@@ -53,7 +53,7 @@ export const metadata: Metadata = {
   openGraph: {
     type: 'website',
     locale: 'en_GB',
-    url: 'https://www.walztravels.us',
+    url: 'https://www.walztravels.com',
     siteName: 'Walz Travels',
     title: 'Walz Travels — Luxury Travel Agency',
     description: 'Book flights, hotels and private tours with IATA-certified luxury travel experts.',

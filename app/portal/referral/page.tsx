@@ -30,7 +30,7 @@ export default function PortalReferralPage() {
     setTimeout(() => setCopied(false), 2500)
   }
 
-  const shareLink = referral ? `https://walztravels.us/?ref=${referral.code}` : ''
+  const shareLink = referral ? `https://walztravels.com/?ref=${referral.code}` : ''
 
   const copyLink = () => {
     navigator.clipboard.writeText(shareLink)

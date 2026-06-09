@@ -85,13 +85,13 @@ export async function POST(request: NextRequest) {
   // Email Glory / admin
   try {
     await resend.emails.send({
-      from:    'Walz Travels Portal <noreply@walztravels.us>',
+      from:    'Walz Travels Portal <noreply@walztravels.com>',
       to:      'contact@walztravels.com',
       subject: `📎 New Document — ${user?.name ?? session.user.email} · ${application.refNumber}`,
       html: `
         <div style="font-family: Arial, sans-serif; max-width: 600px;">
           <div style="background: #0A1628; padding: 20px; text-align: center;">
-            <img src="https://www.walztravels.us/walz-logo.png" alt="Walz Travels" style="height:40px;" />
+            <img src="https://www.walztravels.com/walz-logo.png" alt="Walz Travels" style="height:40px;" />
           </div>
           <div style="background: #F7F4EF; padding: 30px;">
             <h2 style="color: #0A1628; margin-top:0;">New Document Uploaded</h2>
@@ -103,7 +103,7 @@ export async function POST(request: NextRequest) {
               <tr><td style="padding:6px 0; color:#666;">File size</td><td style="padding:6px 0; color:#0A1628;">${(file.size / 1024).toFixed(1)} KB</td></tr>
             </table>
             <div style="margin-top:24px; text-align:center;">
-              <a href="https://www.walztravels.us/admin/clients" style="background:#0A1628; color:#fff; padding:12px 28px; border-radius:8px; text-decoration:none; font-weight:600;">Review in Admin →</a>
+              <a href="https://www.walztravels.com/admin/clients" style="background:#0A1628; color:#fff; padding:12px 28px; border-radius:8px; text-decoration:none; font-weight:600;">Review in Admin →</a>
             </div>
           </div>
         </div>

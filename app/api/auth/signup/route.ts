@@ -54,7 +54,7 @@ export async function POST(req: NextRequest) {
       },
     })
 
-    const baseUrl    = process.env.NEXTAUTH_URL ?? 'https://walztravels.us'
+    const baseUrl    = process.env.NEXTAUTH_URL ?? 'https://walztravels.com'
     const verifyUrl  = `${baseUrl}/api/auth/verify-email?token=${verificationToken}`
     const resend     = getResend()
 
@@ -74,7 +74,7 @@ export async function POST(req: NextRequest) {
       <table width="560" cellpadding="0" cellspacing="0" style="max-width:560px;width:100%;background:#fff;border-radius:16px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.08);">
 
         <tr><td style="background:linear-gradient(135deg,#0A1628,#1C3557);padding:36px 40px 28px;text-align:center;">
-          <img src="https://walztravels.us/walz-logo.png" alt="Walz Travels" width="200" height="200" style="display:block;margin:0 auto 16px;width:200px;height:auto;" />
+          <img src="https://walztravels.com/walz-logo.png" alt="Walz Travels" width="200" height="200" style="display:block;margin:0 auto 16px;width:200px;height:auto;" />
           <p style="margin:0;color:#C9A84C;font-size:12px;letter-spacing:2px;text-transform:uppercase;">Email Verification</p>
         </td></tr>
 
@@ -136,7 +136,7 @@ export async function POST(req: NextRequest) {
       </table>
       <div style="margin-top:20px;padding:12px 16px;background:#FFF8EC;border-radius:8px;border-left:3px solid #C9A84C;">
         <p style="margin:0;color:#0B1F3A;font-size:13px;">
-          View in admin: <a href="https://walztravels.us/admin/clients" style="color:#C9A84C;">walztravels.us/admin/clients</a>
+          View in admin: <a href="https://walztravels.com/admin/clients" style="color:#C9A84C;">walztravels.com/admin/clients</a>
         </p>
       </div>
     </div>

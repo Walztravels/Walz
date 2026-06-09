@@ -14,10 +14,12 @@ const schema = z.object({
   destination:     z.string().min(1),
   destinationIso2: z.string().min(2),
   durationDays:    z.number().int().min(1),
-  dataGb:          z.number().nullable().optional(),
-  dataLabelStr:    z.string().optional().default(''),
-  wholesaleUsd:    z.number().min(0),
-  retailUsd:       z.number().min(0.01),
+  dataAmount:      z.number().nullable().optional(),
+  dataUnit:        z.string().optional().default('MB'),
+  dataLabel:       z.string().optional().default(''),
+  wholesaleUsd:    z.number().positive(),
+  retailUsd:       z.number().positive(),
+  speed:           z.string().optional().default('4G'),
   tripId:          z.string().optional(),
 })
 
@@ -27,32 +29,19 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Unauthorised' }, { status: 401 })
   }
 
-  const body = await req.json().catch(() => null)
+  const body   = await req.json().catch(() => null)
   const parsed = schema.safeParse(body)
   if (!parsed.success) {
     return NextResponse.json({ error: 'Invalid data', details: parsed.error.flatten() }, { status: 400 })
   }
 
   const d = parsed.data
-  const origin = req.headers.get('origin') ?? 'https://walztravels.com'
 
-  // Encode eSIM details in metadata for webhook
-  const stripeSession = await stripe.checkout.sessions.create({
-    payment_method_types: ['card'],
-    mode:                 'payment',
-    customer_email:       session.user.email,
-    line_items: [{
-      price_data: {
-        currency:     'usd',
-        unit_amount:  Math.round(d.retailUsd * 100),
-        product_data: {
-          name:        `Jade Connect eSIM — ${d.destination}`,
-          description: `${d.packageName} · ${d.durationDays} days · ${d.dataLabelStr || (d.dataGb ? `${d.dataGb} GB` : 'Unlimited')}`,
-          images:      ['https://walztravels.com/walz-logo.png'],
-        },
-      },
-      quantity: 1,
-    }],
+  // Create a PaymentIntent so we can use Stripe Elements (embedded, no redirect)
+  const intent = await stripe.paymentIntents.create({
+    amount:   Math.round(d.retailUsd * 100),
+    currency: 'usd',
+    receipt_email: session.user.email,
     metadata: {
       type:            'esim',
       packageCode:     d.packageCode,
@@ -60,16 +49,16 @@ export async function POST(req: NextRequest) {
       destination:     d.destination,
       destinationIso2: d.destinationIso2,
       durationDays:    String(d.durationDays),
-      dataGb:          String(d.dataGb ?? ''),
-      dataLabelStr:    d.dataLabelStr,
+      dataAmount:      String(d.dataAmount ?? ''),
+      dataUnit:        d.dataUnit,
+      dataLabel:       d.dataLabel,
       wholesaleUsd:    String(d.wholesaleUsd),
       retailUsd:       String(d.retailUsd),
+      speed:           d.speed,
       tripId:          d.tripId ?? '',
       customerEmail:   session.user.email,
     },
-    success_url: `${origin}/esim/confirmation?session_id={CHECKOUT_SESSION_ID}`,
-    cancel_url:  `${origin}/esim?cancelled=1`,
   })
 
-  return NextResponse.json({ url: stripeSession.url, sessionId: stripeSession.id })
+  return NextResponse.json({ clientSecret: intent.client_secret })
 }

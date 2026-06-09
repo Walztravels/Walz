@@ -16,7 +16,7 @@ const CATEGORIES = [
     faqs: [
       {
         q: 'How do I book a flight with Walz Travels?',
-        a: 'Visit walztravels.us/flights and search your route. Select your preferred flight and complete the booking form. Our team will confirm and issue your ticket within 2 hours of payment.',
+        a: 'Visit walztravels.com/flights and search your route. Select your preferred flight and complete the booking form. Our team will confirm and issue your ticket within 2 hours of payment.',
       },
       {
         q: 'What payment methods do you accept?',
@@ -71,7 +71,7 @@ const CATEGORIES = [
       },
       {
         q: 'How do I upload my documents?',
-        a: 'Log into your portal at walztravels.us/portal and go to My Documents. Upload each document in the correct category.',
+        a: 'Log into your portal at walztravels.com/portal and go to My Documents. Upload each document in the correct category.',
       },
       {
         q: 'Can you help with family visa applications?',
@@ -117,7 +117,7 @@ const CATEGORIES = [
     faqs: [
       {
         q: 'How do I access my client portal?',
-        a: 'Go to walztravels.us/login and sign in with your email and password. Your portal shows all your applications, bookings and documents.',
+        a: 'Go to walztravels.com/login and sign in with your email and password. Your portal shows all your applications, bookings and documents.',
       },
       {
         q: 'How do I create an account?',

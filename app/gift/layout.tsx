@@ -6,7 +6,7 @@ export const metadata: Metadata = {
     'Give the gift of travel. Walz Travels gift vouchers can be used for flights, hotels, private tours and visa services. The perfect present for any traveller.',
   openGraph: {
     type: 'website',
-    url: 'https://walztravels.us/gift',
+    url: 'https://walztravels.com/gift',
     title: 'Gift Vouchers | Walz Travels',
     description:
       'Give the gift of travel. Walz Travels gift vouchers can be used for flights, hotels, private tours and visa services.',

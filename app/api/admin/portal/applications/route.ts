@@ -80,13 +80,13 @@ export async function POST(request: NextRequest) {
   try {
     if (application.user?.email) {
       await resend.emails.send({
-        from:    'Walz Travels <noreply@walztravels.us>',
+        from:    'Walz Travels <noreply@walztravels.com>',
         to:      application.user.email,
         subject: `Application Created — ${application.title} (${refNumber})`,
         html: `
           <div style="font-family: Arial, sans-serif; max-width: 600px;">
             <div style="background: #0A1628; padding: 20px; text-align: center;">
-              <img src="https://www.walztravels.us/walz-logo.png" alt="Walz Travels" style="height: 40px;" />
+              <img src="https://www.walztravels.com/walz-logo.png" alt="Walz Travels" style="height: 40px;" />
             </div>
             <div style="background: #F7F4EF; padding: 30px;">
               <h2 style="color: #0A1628;">Your application has been created</h2>
@@ -95,7 +95,7 @@ export async function POST(request: NextRequest) {
               <p><strong>Reference:</strong> ${refNumber}</p>
               <p>Log in to your portal to view progress, upload documents, and track your application.</p>
               <div style="margin-top: 24px; text-align: center;">
-                <a href="https://www.walztravels.us/portal/dashboard" style="background: #0A1628; color: #fff; padding: 12px 28px; border-radius: 8px; text-decoration: none; font-weight: 600;">View My Application</a>
+                <a href="https://www.walztravels.com/portal/dashboard" style="background: #0A1628; color: #fff; padding: 12px 28px; border-radius: 8px; text-decoration: none; font-weight: 600;">View My Application</a>
               </div>
             </div>
           </div>

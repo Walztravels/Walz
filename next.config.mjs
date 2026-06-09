@@ -1,7 +1,31 @@
 /** @type {import('next').NextConfig} */
 
-
 const nextConfig = {
+  async redirects() {
+    return [
+      // Redirect walztravels.us → www.walztravels.com (permanent 308)
+      {
+        source:      '/:path*',
+        has:         [{ type: 'host', value: 'walztravels.us' }],
+        destination: 'https://www.walztravels.com/:path*',
+        permanent:   true,
+      },
+      {
+        source:      '/:path*',
+        has:         [{ type: 'host', value: 'www.walztravels.us' }],
+        destination: 'https://www.walztravels.com/:path*',
+        permanent:   true,
+      },
+      // Non-www → www (walztravels.com → www.walztravels.com)
+      {
+        source:      '/:path*',
+        has:         [{ type: 'host', value: 'walztravels.com' }],
+        destination: 'https://www.walztravels.com/:path*',
+        permanent:   true,
+      },
+    ]
+  },
+
   images: {
     remotePatterns: [
       {

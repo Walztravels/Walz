@@ -29,7 +29,7 @@ const OPENINGS = [
     title: 'Frontend Engineer',
     type: 'Contract',
     location: 'Remote',
-    description: 'Build and maintain walztravels.us — Next.js 14, TypeScript, Tailwind, GSAP. You\'ll work directly with the founding team.',
+    description: 'Build and maintain walztravels.com — Next.js 14, TypeScript, Tailwind, GSAP. You\'ll work directly with the founding team.',
   },
 ]
 

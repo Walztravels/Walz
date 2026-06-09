@@ -5,7 +5,7 @@ export const metadata = {
   description: 'Visa guides, destination inspiration, travel tips and news — everything you need for your next adventure.',
   openGraph: {
     type: 'website',
-    url: 'https://walztravels.us/blog',
+    url: 'https://walztravels.com/blog',
     title: 'Travel Blog | Walz Travels',
     description: 'Visa guides, destination inspiration, travel tips and news — everything you need for your next adventure.',
     images: [

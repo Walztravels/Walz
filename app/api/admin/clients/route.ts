@@ -134,7 +134,7 @@ export async function POST(req: NextRequest) {
   // Send portal welcome email if requested
   if (sendPortalLink) {
     const resend = getResend()
-    const portalUrl = `${process.env.NEXTAUTH_URL ?? 'https://walztravels.us'}/portal/login`
+    const portalUrl = `${process.env.NEXTAUTH_URL ?? 'https://walztravels.com'}/portal/login`
 
     if (resend) {
       await resend.emails.send({
@@ -151,7 +151,7 @@ export async function POST(req: NextRequest) {
 <table width="560" cellpadding="0" cellspacing="0" style="max-width:560px;width:100%;background:#fff;border-radius:16px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.08);">
 
   <tr><td style="background:linear-gradient(135deg,#0B1F3A,#1C3557);padding:36px 40px 28px;text-align:center;">
-    <img src="https://walztravels.us/walz-logo.png" alt="Walz Travels" width="120" style="display:block;margin:0 auto 16px;width:120px;height:auto;" />
+    <img src="https://walztravels.com/walz-logo.png" alt="Walz Travels" width="120" style="display:block;margin:0 auto 16px;width:120px;height:auto;" />
     <p style="margin:0;color:#C9A84C;font-size:12px;letter-spacing:2px;text-transform:uppercase;font-weight:600;">Your Client Portal</p>
   </td></tr>
 

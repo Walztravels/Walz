@@ -15,9 +15,16 @@ export async function PATCH(
   const session = await getAdminSession()
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  // Only super_admin can edit role permissions
-  if ((session.staffRole ?? '') !== 'super_admin') {
-    return NextResponse.json({ error: 'Only Super Admin can edit role permissions.' }, { status: 403 })
+  // Only super_admin can edit role permissions (check JWT first, then DB fallback)
+  const jwtIsSuperAdmin = (session.staffRole ?? '') === 'super_admin'
+  if (!jwtIsSuperAdmin) {
+    const staffRecord = await prisma.staff.findUnique({
+      where:  { email: session.email },
+      select: { role: true },
+    })
+    if (staffRecord?.role !== 'super_admin') {
+      return NextResponse.json({ error: 'Only Super Admin can edit role permissions.' }, { status: 403 })
+    }
   }
 
   const { role } = await params

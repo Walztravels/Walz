@@ -6,7 +6,7 @@ export const metadata: Metadata = {
     'Check visa requirements for any passport and destination instantly. Walz Travels visa specialists achieve a 90%+ approval rate — expert preparation, document coaching and embassy follow-up.',
   openGraph: {
     type: 'website',
-    url: 'https://walztravels.us/visa',
+    url: 'https://walztravels.com/visa',
     title: 'Visa Intelligence | Walz Travels',
     description:
       'Check visa requirements for any passport and destination instantly. 90%+ approval rate with expert preparation and document coaching.',

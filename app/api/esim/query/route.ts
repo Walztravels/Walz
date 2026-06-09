@@ -12,60 +12,50 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Unauthorised' }, { status: 401 })
   }
 
-  const { orderRef, iccid } = await req.json().catch(() => ({}))
-  if (!orderRef && !iccid) {
-    return NextResponse.json({ error: 'orderRef or iccid required' }, { status: 400 })
+  const { iccid, orderRef } = await req.json().catch(() => ({}))
+  if (!iccid && !orderRef) {
+    return NextResponse.json({ error: 'iccid or orderRef required' }, { status: 400 })
   }
 
-  // Verify ownership
   const user = await prisma.user.findUnique({ where: { email: session.user.email } })
   if (!user) return NextResponse.json({ error: 'User not found' }, { status: 404 })
 
+  // Verify ownership
   const localOrder = await prisma.esimOrder.findFirst({
-    where: {
-      userId: user.id,
-      OR: [
-        { orderRef: orderRef ?? '' },
-        { iccid: iccid ?? '' },
-      ],
-    },
+    where: { userId: user.id, OR: [{ iccid: iccid ?? '' }, { orderRef: orderRef ?? '' }] },
   })
   if (!localOrder) return NextResponse.json({ error: 'Order not found' }, { status: 404 })
 
   try {
-    const res = await fetch(`${ESIM_BASE}/open/esim/query`, {
+    const res  = await fetch(`${ESIM_BASE}/open/esim/query`, {
       method:  'POST',
       headers: esimHeaders(),
-      body:    JSON.stringify({
-        orderNo: localOrder.esimAccessOrderNo ?? localOrder.orderRef,
-        iccid:   localOrder.iccid ?? '',
-      }),
+      body:    JSON.stringify({ iccid: localOrder.iccid ?? '' }),
     })
     const json = await res.json()
-    const data = json?.obj ?? {}
+    const obj  = json?.obj ?? {}
 
-    // Update local status if changed
-    const remoteStatus = data.esimStatus ?? data.status ?? null
+    // Sync status to DB
+    const remoteStatus = obj.esimStatus ?? obj.status ?? null
     if (remoteStatus && remoteStatus !== localOrder.status) {
       await prisma.esimOrder.update({
         where: { id: localOrder.id },
         data: {
           status:      remoteStatus,
-          activatedAt: remoteStatus === 'IN_USE' ? new Date() : localOrder.activatedAt,
+          activatedAt: remoteStatus === 'IN_USE' && !localOrder.activatedAt ? new Date() : localOrder.activatedAt,
         },
       })
     }
 
     return NextResponse.json({
-      status:       remoteStatus ?? localOrder.status,
-      iccid:        data.iccid ?? localOrder.iccid,
-      dataRemaining: data.remaining,
-      dataTotal:    data.total,
-      expiresAt:    data.expiredTime ?? localOrder.expiresAt,
-      raw:          data,
+      status:        remoteStatus ?? localOrder.status,
+      iccid:         obj.iccid ?? localOrder.iccid,
+      dataRemaining: obj.remaining ?? obj.residualFlow,
+      dataTotal:     obj.total ?? obj.totalFlow,
+      expiresAt:     obj.expiredTime ?? localOrder.expiresAt,
     })
   } catch (err) {
     console.error('[esim/query]', err)
-    return NextResponse.json({ status: localOrder.status, error: 'Query failed' }, { status: 200 })
+    return NextResponse.json({ status: localOrder.status }, { status: 200 })
   }
 }

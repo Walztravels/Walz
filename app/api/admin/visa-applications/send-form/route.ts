@@ -59,7 +59,7 @@ export async function POST(req: NextRequest) {
 
   // Form URL with token
   const slug = ISO2_TO_SLUG[application.destinationIso2] ?? application.destinationIso2.toLowerCase()
-  const formUrl = `https://walztravels.us/visa/apply/${slug}?token=${tokenRecord.token}&draft=${application.id}`
+  const formUrl = `https://walztravels.com/visa/apply/${slug}?token=${tokenRecord.token}&draft=${application.id}`
 
   // Email client
   try {

@@ -63,7 +63,7 @@ function buildLoginAlertHtml(staffName: string, staffRole: string, email: string
 <table width="580" cellpadding="0" cellspacing="0" style="max-width:580px;width:100%;background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 2px 16px rgba(0,0,0,0.08);">
 
   <tr><td style="background:#0B1F3A;padding:24px 32px;">
-    <img src="https://walztravels.us/walz-logo.png" alt="Walz Travels" width="70" style="display:block;margin:0 0 12px;" />
+    <img src="https://walztravels.com/walz-logo.png" alt="Walz Travels" width="70" style="display:block;margin:0 0 12px;" />
     <h1 style="margin:0;color:#C9A84C;font-size:17px;font-weight:700;">Staff Login Alert</h1>
     <p style="margin:4px 0 0;color:#8B9BAE;font-size:12px;text-transform:uppercase;letter-spacing:0.8px;">Security Notification</p>
   </td></tr>
@@ -105,7 +105,7 @@ function buildLoginAlertHtml(staffName: string, staffRole: string, email: string
     </table>
 
     <div style="margin:24px 0;text-align:center;">
-      <a href="https://walztravels.us/admin/activity"
+      <a href="https://walztravels.com/admin/activity"
          style="display:inline-block;background:#C9A84C;color:#0B1F3A;font-weight:700;padding:11px 24px;border-radius:8px;text-decoration:none;font-size:13px;">
         View Activity Log →
       </a>

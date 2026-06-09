@@ -6,7 +6,7 @@ import prisma from '@/lib/db'
 const DEFAULT_SETTINGS: Record<string, { label: string; value: string; group: string }> = {
   // General
   business_name:   { label: 'Business Name',      value: 'Walz Travels',                        group: 'general' },
-  website_url:     { label: 'Website URL',         value: 'https://walztravels.us',               group: 'general' },
+  website_url:     { label: 'Website URL',         value: 'https://walztravels.com',               group: 'general' },
   office_address:  { label: 'Office Address',      value: '1 Commercial Street, London, E1 6RF', group: 'general' },
 
   // Emails
