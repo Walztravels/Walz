@@ -5,6 +5,23 @@ import prisma from '@/lib/db'
 
 const MEDIA_BUCKET = 'site-media'
 
+// ── Row type ──────────────────────────────────────────────────────────────────
+interface SiteMediaRow {
+  id:           string
+  media_key:    string
+  label:        string
+  page:         string
+  section:      string
+  media_type:   string
+  current_url:  string | null
+  original_url: string | null
+  file_name:    string | null
+  file_size:    number | null
+  alt_text:     string | null
+  updated_at:   string | null
+  updated_by:   string | null
+}
+
 // ── Helper: check super_admin ─────────────────────────────────────────────────
 async function requireSuperAdmin(session: Awaited<ReturnType<typeof getAdminSession>>) {
   if (!session) return false
@@ -13,43 +30,37 @@ async function requireSuperAdmin(session: Awaited<ReturnType<typeof getAdminSess
   return staff?.role === 'super_admin'
 }
 
-// ── Helper: get supabase (returns null if not configured) ─────────────────────
+// ── Helper: Supabase admin client (for Storage only) ─────────────────────────
 function trySupabase() {
   try { return getSupabaseAdmin() } catch { return null }
 }
 
-// ── GET — fetch all media records, grouped by page ────────────────────────────
+// ── GET — fetch all media records ─────────────────────────────────────────────
 export async function GET() {
   const session = await getAdminSession()
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const supabase = trySupabase()
-  if (!supabase) return NextResponse.json({ error: 'Storage not configured' }, { status: 503 })
+  try {
+    // Use raw SQL — bypasses PostgREST schema cache (table created outside Supabase API)
+    const data = await prisma.$queryRawUnsafe<SiteMediaRow[]>(
+      'SELECT * FROM site_media ORDER BY page, section, label',
+    )
 
-  const { data, error } = await supabase
-    .from('site_media')
-    .select('*')
-    .order('page')
-    .order('section')
-    .order('label')
+    const grouped: Record<string, SiteMediaRow[]> = {}
+    for (const item of data) {
+      if (!grouped[item.page]) grouped[item.page] = []
+      grouped[item.page].push(item)
+    }
 
-  if (error) {
-    console.error('[GET /api/admin/media]', error.message)
-    return NextResponse.json({ error: error.message }, { status: 500 })
+    return NextResponse.json({ media: data, grouped })
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : 'Unknown error'
+    console.error('[GET /api/admin/media]', msg)
+    return NextResponse.json({ error: msg }, { status: 500 })
   }
-
-  // Group by page
-  const grouped: Record<string, unknown[]> = {}
-  for (const item of data ?? []) {
-    const page = (item as { page: string }).page
-    if (!grouped[page]) grouped[page] = []
-    grouped[page].push(item)
-  }
-
-  return NextResponse.json({ media: data ?? [], grouped })
 }
 
-// ── PATCH — replace image ─────────────────────────────────────────────────────
+// ── PATCH — replace image or update alt text ──────────────────────────────────
 export async function PATCH(req: NextRequest) {
   const session = await getAdminSession()
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
@@ -57,28 +68,23 @@ export async function PATCH(req: NextRequest) {
     return NextResponse.json({ error: 'Super Admin only' }, { status: 403 })
   }
 
-  const supabase = trySupabase()
-  if (!supabase) return NextResponse.json({ error: 'Storage not configured' }, { status: 503 })
-
   const formData = await req.formData().catch(() => null)
   if (!formData) return NextResponse.json({ error: 'Invalid form data' }, { status: 400 })
 
-  const mediaKey  = formData.get('media_key') as string | null
-  const file      = formData.get('file')      as File | null
-  const altText   = formData.get('alt_text')  as string | null
+  const mediaKey = formData.get('media_key') as string | null
+  const file     = formData.get('file')      as File | null
+  const altText  = formData.get('alt_text')  as string | null
 
   if (!mediaKey) return NextResponse.json({ error: 'media_key is required' }, { status: 400 })
 
-  // Fetch existing record
-  const { data: existing, error: fetchErr } = await supabase
-    .from('site_media')
-    .select('*')
-    .eq('media_key', mediaKey)
-    .single()
+  // Fetch existing record via Prisma (bypasses PostgREST)
+  const rows = await prisma.$queryRawUnsafe<SiteMediaRow[]>(
+    'SELECT * FROM site_media WHERE media_key = $1 LIMIT 1',
+    mediaKey,
+  ).catch(() => [] as SiteMediaRow[])
 
-  if (fetchErr || !existing) {
-    return NextResponse.json({ error: `Media key '${mediaKey}' not found` }, { status: 404 })
-  }
+  const existing = rows[0] ?? null
+  if (!existing) return NextResponse.json({ error: `Media key '${mediaKey}' not found` }, { status: 404 })
 
   // Resolve uploader name
   const staffRecord = await prisma.staff.findUnique({
@@ -87,18 +93,20 @@ export async function PATCH(req: NextRequest) {
   })
   const updaterName = staffRecord?.name ?? session.email
 
-  let newUrl = existing.current_url as string
+  let newUrl = existing.current_url
 
   // ── Upload file if provided ────────────────────────────────────────────────
   if (file) {
     if (file.size > 10 * 1024 * 1024) {
       return NextResponse.json({ error: 'File too large — maximum 10 MB' }, { status: 400 })
     }
-
     const allowed = ['image/jpeg', 'image/png', 'image/webp', 'image/svg+xml', 'image/gif']
     if (!allowed.includes(file.type)) {
       return NextResponse.json({ error: 'Invalid file type — use JPG, PNG, WebP, SVG or GIF' }, { status: 400 })
     }
+
+    const supabase = trySupabase()
+    if (!supabase) return NextResponse.json({ error: 'Storage not configured' }, { status: 503 })
 
     const ext  = file.name.split('.').pop()?.toLowerCase() ?? 'jpg'
     const path = `${mediaKey}-${Date.now()}.${ext}`
@@ -116,41 +124,43 @@ export async function PATCH(req: NextRequest) {
     const { data: { publicUrl } } = supabase.storage.from(MEDIA_BUCKET).getPublicUrl(path)
     newUrl = publicUrl
 
-    // If this is the first custom upload, preserve original_url
+    // Preserve original_url on first custom upload
     if (!existing.original_url) {
-      await supabase
-        .from('site_media')
-        .update({ original_url: existing.current_url })
-        .eq('media_key', mediaKey)
+      await prisma.$executeRawUnsafe(
+        'UPDATE site_media SET original_url = $1 WHERE media_key = $2 AND original_url IS NULL',
+        existing.current_url,
+        mediaKey,
+      ).catch(() => {})
     }
   }
 
-  // Build update payload
-  const updatePayload: Record<string, unknown> = {
-    current_url:  newUrl,
-    updated_at:   new Date().toISOString(),
-    updated_by:   updaterName,
-  }
+  // Build dynamic SET clause
+  const setCols: string[]  = ['current_url = $1', 'updated_at = $2', 'updated_by = $3']
+  const values:  unknown[] = [newUrl, new Date().toISOString(), updaterName]
+  let   p                  = 4
+
   if (file) {
-    updatePayload.file_name  = file.name
-    updatePayload.file_size  = file.size
+    setCols.push(`file_name = $${p++}`, `file_size = $${p++}`)
+    values.push(file.name, file.size)
   }
   if (altText !== null) {
-    updatePayload.alt_text = altText
+    setCols.push(`alt_text = $${p++}`)
+    values.push(altText)
   }
 
-  const { data: updated, error: updateErr } = await supabase
-    .from('site_media')
-    .update(updatePayload)
-    .eq('media_key', mediaKey)
-    .select()
-    .single()
+  values.push(mediaKey)
+  await prisma.$executeRawUnsafe(
+    `UPDATE site_media SET ${setCols.join(', ')} WHERE media_key = $${p}`,
+    ...values,
+  )
 
-  if (updateErr) {
-    return NextResponse.json({ error: updateErr.message }, { status: 500 })
-  }
+  // Return updated record
+  const updated = (await prisma.$queryRawUnsafe<SiteMediaRow[]>(
+    'SELECT * FROM site_media WHERE media_key = $1 LIMIT 1',
+    mediaKey,
+  ))[0]
 
-  // ── Activity log ─────────────────────────────────────────────────────────
+  // Activity log
   if (staffRecord) {
     await prisma.activityLog.create({
       data: {
@@ -173,18 +183,15 @@ export async function DELETE(req: NextRequest) {
     return NextResponse.json({ error: 'Super Admin only' }, { status: 403 })
   }
 
-  const supabase = trySupabase()
-  if (!supabase) return NextResponse.json({ error: 'Storage not configured' }, { status: 503 })
-
   const body = await req.json().catch(() => ({})) as { media_key?: string }
   if (!body.media_key) return NextResponse.json({ error: 'media_key is required' }, { status: 400 })
 
-  const { data: existing } = await supabase
-    .from('site_media')
-    .select('*')
-    .eq('media_key', body.media_key)
-    .single()
+  const rows = await prisma.$queryRawUnsafe<SiteMediaRow[]>(
+    'SELECT * FROM site_media WHERE media_key = $1 LIMIT 1',
+    body.media_key,
+  ).catch(() => [] as SiteMediaRow[])
 
+  const existing = rows[0] ?? null
   if (!existing) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
   const staffRecord = await prisma.staff.findUnique({
@@ -192,20 +199,21 @@ export async function DELETE(req: NextRequest) {
     select: { id: true, name: true },
   })
 
-  const { data: reset, error: resetErr } = await supabase
-    .from('site_media')
-    .update({
-      current_url: existing.original_url ?? existing.current_url,
-      file_name:   null,
-      file_size:   null,
-      updated_at:  new Date().toISOString(),
-      updated_by:  staffRecord?.name ?? session.email,
-    })
-    .eq('media_key', body.media_key)
-    .select()
-    .single()
+  await prisma.$executeRawUnsafe(
+    `UPDATE site_media
+     SET current_url = $1, file_name = NULL, file_size = NULL,
+         updated_at = $2, updated_by = $3
+     WHERE media_key = $4`,
+    existing.original_url ?? existing.current_url,
+    new Date().toISOString(),
+    staffRecord?.name ?? session.email,
+    body.media_key,
+  )
 
-  if (resetErr) return NextResponse.json({ error: resetErr.message }, { status: 500 })
+  const reset = (await prisma.$queryRawUnsafe<SiteMediaRow[]>(
+    'SELECT * FROM site_media WHERE media_key = $1 LIMIT 1',
+    body.media_key,
+  ))[0]
 
   if (staffRecord) {
     await prisma.activityLog.create({
