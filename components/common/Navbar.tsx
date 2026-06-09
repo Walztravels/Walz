@@ -9,9 +9,11 @@ import {
   Upload, CreditCard, Users, UserCircle, Globe, Compass,
   Signal,
 } from 'lucide-react'
-import Image from 'next/image'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
+
+const LOGO_CACHE_KEY = 'walz_logo_url'
+const LOGO_CACHE_TTL = 60 * 60 * 1000 // 1 hour
 
 const navLinks = [
   { href: '/flights', label: 'Flights',        icon: Plane    },
@@ -53,6 +55,7 @@ export function Navbar() {
   const [isUserMenuOpen, setIsUserMenuOpen] = useState(false)
   const [isVisaOpen,     setIsVisaOpen]     = useState(false)
   const [isMobileVisaOpen, setIsMobileVisaOpen] = useState(false)
+  const [logoUrl,        setLogoUrl]        = useState('/walz-logo.png')
   const dropdownRef  = useRef<HTMLDivElement>(null)
   const visaRef      = useRef<HTMLDivElement>(null)
 
@@ -60,6 +63,45 @@ export function Navbar() {
     const onScroll = () => setIsScrolled(window.scrollY > 10)
     window.addEventListener('scroll', onScroll, { passive: true })
     return () => window.removeEventListener('scroll', onScroll)
+  }, [])
+
+  // Dynamic logo — fetch from site_media, cache 1 hour in localStorage
+  useEffect(() => {
+    function loadFromApi() {
+      fetch('/api/media/logo_main')
+        .then(r => r.json())
+        .then((d: { url?: string | null }) => {
+          if (d.url) {
+            setLogoUrl(d.url)
+            try {
+              localStorage.setItem(LOGO_CACHE_KEY, JSON.stringify({ url: d.url, ts: Date.now() }))
+            } catch { /* storage unavailable */ }
+          }
+        })
+        .catch(() => { /* keep static fallback */ })
+    }
+
+    // Try localStorage cache first
+    let cacheHit = false
+    try {
+      const raw = localStorage.getItem(LOGO_CACHE_KEY)
+      if (raw) {
+        const { url, ts } = JSON.parse(raw) as { url: string; ts: number }
+        if (url && Date.now() - ts < LOGO_CACHE_TTL) {
+          setLogoUrl(url)
+          cacheHit = true
+        }
+      }
+    } catch { /* ignore */ }
+    if (!cacheHit) loadFromApi()
+
+    // Admin uploads a new logo → clear cache and refetch
+    const onLogoUpdated = () => {
+      try { localStorage.removeItem(LOGO_CACHE_KEY) } catch { /* ignore */ }
+      loadFromApi()
+    }
+    window.addEventListener('walz:logo-updated', onLogoUpdated)
+    return () => window.removeEventListener('walz:logo-updated', onLogoUpdated)
   }, [])
 
   useEffect(() => {
@@ -117,8 +159,9 @@ export function Navbar() {
 
             {/* Logo */}
             <Link href="/" className="flex items-center group" onClick={() => setIsMobileOpen(false)}>
-              <Image src="/walz-logo.png" alt="Walz Travels" width={140} height={140}
-                className="h-10 lg:h-12 w-auto object-contain group-hover:opacity-90 transition-opacity" priority />
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={logoUrl} alt="Walz Travels"
+                className="h-10 lg:h-12 w-auto object-contain group-hover:opacity-90 transition-opacity" />
             </Link>
 
             {/* Desktop Nav */}
@@ -256,7 +299,8 @@ export function Navbar() {
         )}>
           <div className="flex items-center justify-between p-4 pt-5 border-b border-walz-slate">
             <Link href="/" onClick={() => setIsMobileOpen(false)}>
-              <Image src="/walz-logo.png" alt="Walz Travels" width={110} height={40} className="h-9 w-auto object-contain" />
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={logoUrl} alt="Walz Travels" className="h-9 w-auto object-contain" />
             </Link>
             <button onClick={() => setIsMobileOpen(false)} className="p-1 rounded text-walz-muted hover:text-walz-white">
               <X className="w-5 h-5" />

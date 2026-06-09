@@ -402,6 +402,11 @@ export default function MediaImagesPage() {
 
       if (res.ok) {
         setUploadProgress(100)
+        // Invalidate navbar logo cache if a logo was updated
+        if (replaceTarget.media_key === 'logo_main' || replaceTarget.media_key === 'logo_white') {
+          try { localStorage.removeItem('walz_logo_url') } catch { /* ignore */ }
+          window.dispatchEvent(new Event('walz:logo-updated'))
+        }
         await loadMedia()
         showToast('success', `✓ ${replaceTarget.label} updated — changes live immediately`)
         setTimeout(closeReplace, 600)
@@ -454,6 +459,11 @@ export default function MediaImagesPage() {
     })
     const data = await res.json().catch(() => ({}))
     if (res.ok) {
+      // Invalidate navbar logo cache if a logo was reset
+      if (item.media_key === 'logo_main' || item.media_key === 'logo_white') {
+        try { localStorage.removeItem('walz_logo_url') } catch { /* ignore */ }
+        window.dispatchEvent(new Event('walz:logo-updated'))
+      }
       await loadMedia()
       showToast('success', `${item.label} reset to default`)
     } else {
