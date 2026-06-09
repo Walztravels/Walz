@@ -158,12 +158,24 @@ export default function RoleManagerPage() {
 
   const fetchRoles = useCallback(async () => {
     setLoading(true)
+    setError(null)
     try {
-      const res  = await fetch('/api/admin/roles')
-      const data = await res.json()
-      if (Array.isArray(data)) setRoles(data)
-    } catch {
-      setError('Failed to load role permissions')
+      const res  = await fetch('/api/admin/roles', { credentials: 'include' })
+      const data = await res.json().catch(() => null)
+      console.log('[RoleManager] fetchRoles status:', res.status, 'isArray:', Array.isArray(data))
+      if (!res.ok) {
+        setError(data?.error ?? `Failed to load roles (HTTP ${res.status})`)
+        return
+      }
+      if (Array.isArray(data)) {
+        setRoles(data)
+      } else {
+        setError('Unexpected response from server — roles not loaded')
+      }
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e)
+      console.error('[RoleManager] fetchRoles error:', msg)
+      setError('Failed to load role permissions: ' + msg)
     } finally {
       setLoading(false)
     }
@@ -176,17 +188,31 @@ export default function RoleManagerPage() {
     if (!rp) return
     setSaving(roleSlug)
     setError(null)
+
+    console.log('[RoleManager] Saving role:', roleSlug)
+    console.log('[RoleManager] Permissions:', rp.permissions)
+
     try {
       const res = await fetch(`/api/admin/roles/${roleSlug}`, {
-        method:  'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({ permissions: rp.permissions }),
+        method:      'PATCH',
+        credentials: 'include',
+        headers:     { 'Content-Type': 'application/json' },
+        body:        JSON.stringify({ permissions: rp.permissions }),
       })
-      if (!res.ok) throw new Error('Save failed')
+
+      const data = await res.json().catch(() => ({}))
+      console.log('[RoleManager] Response status:', res.status, 'body:', data)
+
+      if (!res.ok) {
+        throw new Error(data.error ?? `HTTP ${res.status} — save failed`)
+      }
+
       setSaved(roleSlug)
-      setTimeout(() => setSaved(null), 2500)
-    } catch {
-      setError(`Failed to save ${rp.label}`)
+      setTimeout(() => setSaved(null), 3000)
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e)
+      console.error('[RoleManager] Save error:', msg)
+      setError(`Failed to save ${rp.label}: ${msg}`)
     } finally {
       setSaving(null)
     }

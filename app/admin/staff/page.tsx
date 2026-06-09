@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation'
 import {
   UserPlus, RefreshCw, ShieldCheck, Eye, EyeOff, Pencil,
   Trash2, RotateCcw, CheckCircle, XCircle, X, Users, Activity,
-  Globe,
+  Globe, ChevronDown,
 } from 'lucide-react'
 import { useStaffPermissions } from '@/hooks/useStaffPermissions'
 import { cn } from '@/lib/utils'
@@ -35,39 +35,44 @@ interface ActivityEntry {
 
 // ── Role configuration ────────────────────────────────────────────────────────
 const STAFF_ROLES: {
-  value:       RbacRole
-  label:       string
-  description: string
-  badge:       string
-  dot:         string
+  value:           RbacRole
+  label:           string
+  description:     string   // short — table reference card
+  fullDescription: string   // long — shown in form info box
+  badge:           string
+  dot:             string
 }[] = [
   {
-    value:       'general_manager',
-    label:       'General Manager',
-    description: 'Full access — all operations',
-    badge:       'bg-purple-100 text-purple-700',
-    dot:         'bg-purple-500',
+    value:           'general_manager',
+    label:           'General Manager',
+    description:     'Full access — all operations',
+    fullDescription: 'Full operations access. Manages clients, bookings, visa applications, trip planner and all content. Cannot access system settings or payment gateways.',
+    badge:           'bg-purple-100 text-purple-700',
+    dot:             'bg-purple-500',
   },
   {
-    value:       'senior_manager',
-    label:       'Senior Manager',
-    description: 'Operations — clients, visa, trips',
-    badge:       'bg-blue-100 text-blue-700',
-    dot:         'bg-blue-500',
+    value:           'senior_manager',
+    label:           'Senior Manager',
+    description:     'Operations — clients, visa, trips',
+    fullDescription: 'Operations access. Manages clients, bookings, visa applications and trip planner. Cannot access staff management, settings or financial reports.',
+    badge:           'bg-blue-100 text-blue-700',
+    dot:             'bg-blue-500',
   },
   {
-    value:       'coordinator',
-    label:       'Coordinator',
-    description: 'Visa and documents only',
-    badge:       'bg-green-100 text-green-700',
-    dot:         'bg-green-500',
+    value:           'coordinator',
+    label:           'Coordinator',
+    description:     'Visa and documents only',
+    fullDescription: 'Visa and documents only. Manages visa applications and document review. View only access to clients. Cannot access bookings or settings.',
+    badge:           'bg-green-100 text-green-700',
+    dot:             'bg-green-500',
   },
   {
-    value:       'sales_rep',
-    label:       'Sales Representative',
-    description: 'Leads and reports only',
-    badge:       'bg-orange-100 text-orange-700',
-    dot:         'bg-orange-500',
+    value:           'sales_rep',
+    label:           'Sales Representative',
+    description:     'Leads and reports only',
+    fullDescription: 'Leads and reports only. Manages leads and submits daily reports. View only access to clients. Cannot access visa applications or bookings.',
+    badge:           'bg-orange-100 text-orange-700',
+    dot:             'bg-orange-500',
   },
 ]
 
@@ -215,35 +220,30 @@ function StaffModal({
 
           {/* Staff Role */}
           <div>
-            <label className="block text-xs font-semibold text-gray-500 mb-2 uppercase tracking-wider">
+            <label className="block text-xs font-semibold text-gray-500 mb-1.5 uppercase tracking-wider">
               Staff Role
             </label>
-            <div className="space-y-2">
-              {STAFF_ROLES.map(r => (
-                <button
-                  key={r.value}
-                  type="button"
-                  onClick={() => setRole(r.value)}
-                  className={cn(
-                    'w-full flex items-center gap-3 px-4 py-3 rounded-xl border-2 text-left transition-all',
-                    role === r.value
-                      ? 'border-[#C9A84C] bg-[#C9A84C]/5'
-                      : 'border-gray-100 hover:border-gray-200 bg-white'
-                  )}
-                >
-                  <div className={cn('w-2.5 h-2.5 rounded-full flex-shrink-0', r.dot)} />
-                  <div className="flex-1 min-w-0">
-                    <p className={cn('text-sm font-semibold', role === r.value ? 'text-[#0B1F3A]' : 'text-gray-700')}>
-                      {r.label}
-                    </p>
-                    <p className="text-xs text-gray-400 mt-0.5">{r.description}</p>
-                  </div>
-                  {role === r.value && (
-                    <CheckCircle className="w-4 h-4 text-[#C9A84C] flex-shrink-0" />
-                  )}
-                </button>
-              ))}
+            <div className="relative">
+              <select
+                value={role}
+                onChange={e => setRole(e.target.value as RbacRole)}
+                required
+                className="w-full px-3 py-2.5 bg-white border border-gray-200 rounded-xl text-sm text-gray-800 appearance-none focus:outline-none focus:border-[#C9A84C] focus:ring-1 focus:ring-[#C9A84C] pr-9"
+              >
+                <option value="" disabled>Select a role…</option>
+                {STAFF_ROLES.map(r => (
+                  <option key={r.value} value={r.value}>{r.label}</option>
+                ))}
+              </select>
+              <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
             </div>
+            {/* Dynamic description */}
+            {role && selectedRole && (
+              <div className="mt-2 px-3 py-2.5 bg-blue-50 border border-blue-100 rounded-xl flex items-start gap-2">
+                <span className={cn('mt-0.5 w-2 h-2 rounded-full flex-shrink-0', selectedRole.dot)} />
+                <p className="text-xs text-blue-800 leading-relaxed">{selectedRole.fullDescription}</p>
+              </div>
+            )}
           </div>
 
           {/* Portal Access toggle */}
