@@ -183,11 +183,6 @@ export default function InsurancePage() {
 
         {/* Content */}
         <div className="relative z-10 max-w-3xl">
-          {/* Shield icon */}
-          <div className="w-16 h-16 rounded-2xl bg-[#C9A84C] flex items-center justify-center mx-auto mb-8">
-            <Shield className="w-8 h-8 text-[#0B1F3A]" />
-          </div>
-
           <p
             ref={eyebrowRef}
             className="text-[#C9A84C] text-[11px] font-semibold tracking-[0.22em] uppercase mb-6"

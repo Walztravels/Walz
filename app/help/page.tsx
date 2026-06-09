@@ -228,25 +228,6 @@ export default function HelpPage() {
           <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_85%_90%,_rgba(201,168,76,0.07)_0%,_transparent_55%)]" />
         </div>
 
-        {/* Floating question marks */}
-        <div className="absolute inset-0 pointer-events-none overflow-hidden select-none" aria-hidden>
-          {FLOAT_QS.map((q, i) => (
-            <span
-              key={i}
-              className="absolute font-display font-bold text-white leading-none"
-              style={{
-                top:       q.top,
-                left:      q.left,
-                right:     q.right,
-                fontSize:  q.size,
-                opacity:   q.opacity,
-                animation: `helpFloat ${q.dur} ${q.delay} ease-in-out infinite`,
-              }}
-            >
-              ?
-            </span>
-          ))}
-        </div>
 
         {/* Content */}
         <div className="relative z-10 max-w-3xl">
