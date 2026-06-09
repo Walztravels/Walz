@@ -10,7 +10,7 @@ export default function AdminLoginPage() {
   const searchParams = useSearchParams()
   const from = searchParams.get('from') ?? '/admin/dashboard'
 
-  const [email, setEmail] = useState('contact@walztravels.com')
+  const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [showPw, setShowPw] = useState(false)
   const [error, setError] = useState('')
