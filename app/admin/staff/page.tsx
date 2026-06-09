@@ -4,90 +4,124 @@ import { useState, useEffect, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import {
   UserPlus, RefreshCw, ShieldCheck, Eye, EyeOff, Pencil,
-  Trash2, RotateCcw, CheckCircle, XCircle, ChevronDown, X,
-  Users, Activity,
+  Trash2, RotateCcw, CheckCircle, XCircle, X, Users, Activity,
+  Globe,
 } from 'lucide-react'
 import { useStaffPermissions } from '@/hooks/useStaffPermissions'
+import { cn } from '@/lib/utils'
 
-type AccessLevel = 'Admin' | 'Manager' | 'Coordinator' | 'Sales'
-
-type RbacRole = 'super_admin' | 'general_manager' | 'senior_manager' | 'coordinator' | 'sales_rep'
+// ── Types ─────────────────────────────────────────────────────────────────────
+type RbacRole = 'general_manager' | 'senior_manager' | 'coordinator' | 'sales_rep'
 
 interface StaffMember {
-  id: string
-  name: string
-  email: string
-  roleTitle: string
-  accessLevel: AccessLevel
-  role: RbacRole
-  isActive: boolean
-  lastLoginAt: string | null
-  createdAt: string
+  id:           string
+  name:         string
+  email:        string
+  roleTitle:    string
+  role:         RbacRole | 'super_admin'
+  portalAccess: boolean
+  isActive:     boolean
+  lastLoginAt:  string | null
+  createdAt:    string
 }
-
-const RBAC_ROLES: { value: RbacRole; label: string; badge: string }[] = [
-  { value: 'super_admin',     label: 'Super Admin',        badge: 'bg-violet-100 text-violet-700' },
-  { value: 'general_manager', label: 'General Manager',    badge: 'bg-[#0B1F3A]/10 text-[#0B1F3A]' },
-  { value: 'senior_manager',  label: 'Senior Manager',     badge: 'bg-[#C9A84C]/20 text-[#8a6b1e]' },
-  { value: 'coordinator',     label: 'Coordinator',        badge: 'bg-blue-100 text-blue-700' },
-  { value: 'sales_rep',       label: 'Sales Representative', badge: 'bg-green-100 text-green-700' },
-]
 
 interface ActivityEntry {
-  id: string
+  id:        string
   staffName: string | null
-  action: string
-  detail: string | null
+  action:    string
+  detail:    string | null
   createdAt: string
 }
 
-const ACCESS_LEVELS: AccessLevel[] = ['Admin', 'Manager', 'Coordinator', 'Sales']
+// ── Role configuration ────────────────────────────────────────────────────────
+const STAFF_ROLES: {
+  value:       RbacRole
+  label:       string
+  description: string
+  badge:       string
+  dot:         string
+}[] = [
+  {
+    value:       'general_manager',
+    label:       'General Manager',
+    description: 'Full access — all operations',
+    badge:       'bg-purple-100 text-purple-700',
+    dot:         'bg-purple-500',
+  },
+  {
+    value:       'senior_manager',
+    label:       'Senior Manager',
+    description: 'Operations — clients, visa, trips',
+    badge:       'bg-blue-100 text-blue-700',
+    dot:         'bg-blue-500',
+  },
+  {
+    value:       'coordinator',
+    label:       'Coordinator',
+    description: 'Visa and documents only',
+    badge:       'bg-green-100 text-green-700',
+    dot:         'bg-green-500',
+  },
+  {
+    value:       'sales_rep',
+    label:       'Sales Representative',
+    description: 'Leads and reports only',
+    badge:       'bg-orange-100 text-orange-700',
+    dot:         'bg-orange-500',
+  },
+]
 
-const LEVEL_COLORS: Record<AccessLevel, string> = {
-  Admin:       'bg-[#0B1F3A] text-white',
-  Manager:     'bg-[#C9A84C]/20 text-[#8a6b1e]',
-  Coordinator: 'bg-blue-100 text-blue-700',
-  Sales:       'bg-green-100 text-green-700',
+// super_admin badge — only shown in table, not selectable in form
+const SUPER_ADMIN_BADGE = 'bg-violet-100 text-violet-700'
+
+function getRoleMeta(role: string) {
+  const found = STAFF_ROLES.find(r => r.value === role)
+  if (found) return found
+  if (role === 'super_admin') return {
+    value: 'super_admin', label: 'Super Admin',
+    description: 'Full system access',
+    badge: SUPER_ADMIN_BADGE, dot: 'bg-violet-500',
+  }
+  return { value: role, label: role, description: '', badge: 'bg-gray-100 text-gray-600', dot: 'bg-gray-400' }
 }
 
-const LEVEL_PERMS: Record<AccessLevel, string[]> = {
-  Admin:       ['Full access to everything', 'Add & remove staff', 'Change all settings'],
-  Manager:     ['Bookings, Clients, Tours, Visa — view & manage', 'Reports — view only', 'No access: Settings, Staff, Financials'],
-  Coordinator: ['Assigned service area only', 'Clients — view only', 'No access: Settings, Staff, Financials'],
-  Sales:       ['Leads — view & add only', 'No access: Bookings, Settings, Financials, Staff'],
-}
-
+// ── Formatters ────────────────────────────────────────────────────────────────
 function fmtDate(iso: string | null) {
   if (!iso) return 'Never'
   return new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })
 }
-
 function fmtDateTime(iso: string) {
   return new Date(iso).toLocaleString('en-GB', {
     day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit',
   })
 }
 
-// ─── Add/Edit Staff Modal ────────────────────────────────────────────────────
+// ── Add / Edit Staff Modal ────────────────────────────────────────────────────
 function StaffModal({
   initial,
   onClose,
   onSaved,
 }: {
-  initial?: StaffMember
-  onClose: () => void
-  onSaved: () => void
+  initial?:  StaffMember
+  onClose:   () => void
+  onSaved:   () => void
 }) {
   const isEdit = !!initial
-  const [name,        setName]        = useState(initial?.name        ?? '')
-  const [email,       setEmail]       = useState(initial?.email       ?? '')
-  const [roleTitle,   setRoleTitle]   = useState(initial?.roleTitle   ?? '')
-  const [accessLevel, setAccessLevel] = useState<AccessLevel>(initial?.accessLevel ?? 'Sales')
-  const [rbacRole,    setRbacRole]    = useState<RbacRole>(initial?.role ?? 'sales_rep')
-  const [password,    setPassword]    = useState('')
-  const [showPw,      setShowPw]      = useState(false)
-  const [saving,      setSaving]      = useState(false)
-  const [error,       setError]       = useState('')
+
+  const [name,         setName]         = useState(initial?.name         ?? '')
+  const [email,        setEmail]        = useState(initial?.email        ?? '')
+  const [roleTitle,    setRoleTitle]    = useState(initial?.roleTitle    ?? '')
+  const [role,         setRole]         = useState<RbacRole>(
+    // super_admin can't be set via UI — default edit to general_manager for display
+    (initial?.role === 'super_admin' ? 'general_manager' : initial?.role) ?? 'sales_rep'
+  )
+  const [portalAccess, setPortalAccess] = useState(initial?.portalAccess ?? false)
+  const [password,     setPassword]     = useState('')
+  const [showPw,       setShowPw]       = useState(false)
+  const [saving,       setSaving]       = useState(false)
+  const [error,        setError]        = useState('')
+
+  const selectedRole = STAFF_ROLES.find(r => r.value === role)!
 
   async function submit(e: React.FormEvent) {
     e.preventDefault()
@@ -96,17 +130,17 @@ function StaffModal({
     try {
       if (isEdit) {
         const res = await fetch(`/api/admin/staff/${initial!.id}`, {
-          method: 'PUT',
+          method:  'PUT',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ name, email, roleTitle, accessLevel, role: rbacRole }),
+          body:    JSON.stringify({ name, roleTitle, role, portalAccess }),
         })
         const d = await res.json()
         if (!res.ok) { setError(d.error ?? 'Failed to update'); return }
       } else {
         const res = await fetch('/api/admin/staff', {
-          method: 'POST',
+          method:  'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ name, email, roleTitle, accessLevel, role: rbacRole, password }),
+          body:    JSON.stringify({ name, email, roleTitle, role, portalAccess, password }),
         })
         const d = await res.json()
         if (!res.ok) { setError(d.error ?? 'Failed to create'); return }
@@ -121,7 +155,7 @@ function StaffModal({
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden">
 
-        {/* Modal header */}
+        {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
           <div className="flex items-center gap-2">
             <UserPlus className="w-5 h-5 text-[#C9A84C]" />
@@ -141,9 +175,12 @@ function StaffModal({
             </div>
           )}
 
+          {/* Name + Email */}
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="block text-xs font-semibold text-gray-600 mb-1.5 uppercase tracking-wider">Full Name</label>
+              <label className="block text-xs font-semibold text-gray-500 mb-1.5 uppercase tracking-wider">
+                Full Name
+              </label>
               <input
                 value={name} onChange={e => setName(e.target.value)} required
                 placeholder="Jane Smith"
@@ -151,75 +188,115 @@ function StaffModal({
               />
             </div>
             <div>
-              <label className="block text-xs font-semibold text-gray-600 mb-1.5 uppercase tracking-wider">Email Address</label>
+              <label className="block text-xs font-semibold text-gray-500 mb-1.5 uppercase tracking-wider">
+                Email Address
+              </label>
               <input
-                type="email" value={email} onChange={e => setEmail(e.target.value)} required
+                type="email" value={email} onChange={e => setEmail(e.target.value)}
+                required disabled={isEdit}
                 placeholder="jane@walztravels.com"
-                disabled={isEdit}
                 className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-[#C9A84C] focus:ring-1 focus:ring-[#C9A84C] disabled:bg-gray-50 disabled:text-gray-400"
               />
             </div>
           </div>
 
+          {/* Job title */}
           <div>
-            <label className="block text-xs font-semibold text-gray-600 mb-1.5 uppercase tracking-wider">Role Title</label>
+            <label className="block text-xs font-semibold text-gray-500 mb-1.5 uppercase tracking-wider">
+              Job Title
+            </label>
             <input
               value={roleTitle} onChange={e => setRoleTitle(e.target.value)} required
               placeholder="e.g. Senior Sales Agent, Visa Coordinator…"
               className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-[#C9A84C] focus:ring-1 focus:ring-[#C9A84C]"
             />
-            <p className="text-xs text-gray-400 mt-1">Free text — type any role name</p>
+            <p className="text-xs text-gray-400 mt-1">Free text — type any job title</p>
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-xs font-semibold text-gray-600 mb-1.5 uppercase tracking-wider">Access Level</label>
-              <div className="relative">
-                <select
-                  value={accessLevel} onChange={e => setAccessLevel(e.target.value as AccessLevel)}
-                  className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm appearance-none focus:outline-none focus:border-[#C9A84C] focus:ring-1 focus:ring-[#C9A84C] pr-8"
+          {/* Staff Role */}
+          <div>
+            <label className="block text-xs font-semibold text-gray-500 mb-2 uppercase tracking-wider">
+              Staff Role
+            </label>
+            <div className="space-y-2">
+              {STAFF_ROLES.map(r => (
+                <button
+                  key={r.value}
+                  type="button"
+                  onClick={() => setRole(r.value)}
+                  className={cn(
+                    'w-full flex items-center gap-3 px-4 py-3 rounded-xl border-2 text-left transition-all',
+                    role === r.value
+                      ? 'border-[#C9A84C] bg-[#C9A84C]/5'
+                      : 'border-gray-100 hover:border-gray-200 bg-white'
+                  )}
                 >
-                  {ACCESS_LEVELS.map(l => (
-                    <option key={l} value={l}>{l}</option>
-                  ))}
-                </select>
-                <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
-              </div>
-            </div>
-            <div>
-              <label className="block text-xs font-semibold text-gray-600 mb-1.5 uppercase tracking-wider">Portal Role</label>
-              <div className="relative">
-                <select
-                  value={rbacRole} onChange={e => setRbacRole(e.target.value as RbacRole)}
-                  className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm appearance-none focus:outline-none focus:border-[#C9A84C] focus:ring-1 focus:ring-[#C9A84C] pr-8"
-                >
-                  {RBAC_ROLES.filter(r => r.value !== 'super_admin').map(r => (
-                    <option key={r.value} value={r.value}>{r.label}</option>
-                  ))}
-                </select>
-                <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
-              </div>
-              <p className="text-xs text-gray-400 mt-1">Controls sidebar & data access</p>
+                  <div className={cn('w-2.5 h-2.5 rounded-full flex-shrink-0', r.dot)} />
+                  <div className="flex-1 min-w-0">
+                    <p className={cn('text-sm font-semibold', role === r.value ? 'text-[#0B1F3A]' : 'text-gray-700')}>
+                      {r.label}
+                    </p>
+                    <p className="text-xs text-gray-400 mt-0.5">{r.description}</p>
+                  </div>
+                  {role === r.value && (
+                    <CheckCircle className="w-4 h-4 text-[#C9A84C] flex-shrink-0" />
+                  )}
+                </button>
+              ))}
             </div>
           </div>
-          {/* Permissions preview */}
-          <ul className="space-y-0.5">
-            {LEVEL_PERMS[accessLevel].map(p => (
-              <li key={p} className="text-xs text-gray-500 flex items-start gap-1.5">
-                <span className="text-[#C9A84C] mt-0.5">•</span>
-                {p}
-              </li>
-            ))}
-          </ul>
 
+          {/* Portal Access toggle */}
+          <div>
+            <label className="block text-xs font-semibold text-gray-500 mb-2 uppercase tracking-wider">
+              Client Portal Access
+            </label>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => setPortalAccess(false)}
+                className={cn(
+                  'flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl border-2 text-sm font-semibold transition-all',
+                  !portalAccess
+                    ? 'border-[#0B1F3A] bg-[#0B1F3A] text-white'
+                    : 'border-gray-200 text-gray-500 hover:border-gray-300'
+                )}
+              >
+                <XCircle className="w-4 h-4" />
+                No — Admin only
+              </button>
+              <button
+                type="button"
+                onClick={() => setPortalAccess(true)}
+                className={cn(
+                  'flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl border-2 text-sm font-semibold transition-all',
+                  portalAccess
+                    ? 'border-green-600 bg-green-600 text-white'
+                    : 'border-gray-200 text-gray-500 hover:border-gray-300'
+                )}
+              >
+                <Globe className="w-4 h-4" />
+                Yes — Portal + Admin
+              </button>
+            </div>
+            <p className="text-xs text-gray-400 mt-1.5">
+              {portalAccess
+                ? 'Staff can log in to both the admin panel and the client portal.'
+                : 'Admin panel access only.'}
+            </p>
+          </div>
+
+          {/* Temporary password (create only) */}
           {!isEdit && (
             <div>
-              <label className="block text-xs font-semibold text-gray-600 mb-1.5 uppercase tracking-wider">Temporary Password</label>
+              <label className="block text-xs font-semibold text-gray-500 mb-1.5 uppercase tracking-wider">
+                Temporary Password
+              </label>
               <div className="relative">
                 <input
                   type={showPw ? 'text' : 'password'}
-                  value={password} onChange={e => setPassword(e.target.value)} required
-                  placeholder="Min. 8 characters"
+                  value={password} onChange={e => setPassword(e.target.value)}
+                  required placeholder="Min. 8 characters"
                   className="w-full border border-gray-200 rounded-xl px-3 py-2.5 pr-10 text-sm focus:outline-none focus:border-[#C9A84C] focus:ring-1 focus:ring-[#C9A84C]"
                 />
                 <button type="button" onClick={() => setShowPw(!showPw)}
@@ -227,11 +304,14 @@ function StaffModal({
                   {showPw ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                 </button>
               </div>
-              <p className="text-xs text-gray-400 mt-1">Staff member will log in with this password</p>
+              <p className="text-xs text-gray-400 mt-1">
+                A welcome email with login details will be sent automatically.
+              </p>
             </div>
           )}
 
-          <div className="flex justify-end gap-3 pt-2">
+          {/* Actions */}
+          <div className="flex justify-end gap-3 pt-1">
             <button type="button" onClick={onClose}
               className="px-5 py-2.5 text-sm font-semibold text-gray-600 hover:text-gray-800 border border-gray-200 rounded-xl hover:bg-gray-50 transition-colors">
               Cancel
@@ -248,15 +328,15 @@ function StaffModal({
   )
 }
 
-// ─── Reset Password Modal ────────────────────────────────────────────────────
+// ── Reset Password Modal ──────────────────────────────────────────────────────
 function ResetPasswordModal({
   staff,
   onClose,
   onDone,
 }: {
-  staff: StaffMember
+  staff:   StaffMember
   onClose: () => void
-  onDone: () => void
+  onDone:  () => void
 }) {
   const [newPassword, setNewPassword] = useState('')
   const [showPw,      setShowPw]      = useState(false)
@@ -270,9 +350,9 @@ function ResetPasswordModal({
     setSaving(true)
     try {
       const res = await fetch(`/api/admin/staff/${staff.id}`, {
-        method: 'POST',
+        method:  'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ newPassword }),
+        body:    JSON.stringify({ newPassword }),
       })
       const d = await res.json()
       if (!res.ok) { setError(d.error ?? 'Failed'); return }
@@ -297,7 +377,7 @@ function ResetPasswordModal({
           <p className="text-sm text-gray-500">
             Set a new password for <span className="font-semibold text-[#0B1F3A]">{staff.name}</span>
           </p>
-          {error && <p className="text-sm text-red-500">{error}</p>}
+          {error   && <p className="text-sm text-red-500">{error}</p>}
           {success && (
             <div className="flex items-center gap-2 text-green-600 text-sm font-medium">
               <CheckCircle className="w-4 h-4" /> Password updated
@@ -332,22 +412,21 @@ function ResetPasswordModal({
   )
 }
 
-// ─── Main Page ───────────────────────────────────────────────────────────────
+// ── Main Page ─────────────────────────────────────────────────────────────────
 export default function StaffPage() {
   const router = useRouter()
   const { can, loading: permLoading } = useStaffPermissions()
 
-  const [staff,       setStaff]       = useState<StaffMember[]>([])
-  const [activity,    setActivity]    = useState<ActivityEntry[]>([])
-  const [loading,     setLoading]     = useState(true)
-  const [tab,         setTab]         = useState<'staff' | 'activity'>('staff')
-  const [showAdd,     setShowAdd]     = useState(false)
-  const [editing,     setEditing]     = useState<StaffMember | null>(null)
-  const [resetting,   setResetting]   = useState<StaffMember | null>(null)
-  const [togglingId,  setTogglingId]  = useState<string | null>(null)
-  const [deletingId,  setDeletingId]  = useState<string | null>(null)
+  const [staff,      setStaff]      = useState<StaffMember[]>([])
+  const [activity,   setActivity]   = useState<ActivityEntry[]>([])
+  const [loading,    setLoading]    = useState(true)
+  const [tab,        setTab]        = useState<'staff' | 'activity'>('staff')
+  const [showAdd,    setShowAdd]    = useState(false)
+  const [editing,    setEditing]    = useState<StaffMember | null>(null)
+  const [resetting,  setResetting]  = useState<StaffMember | null>(null)
+  const [togglingId, setTogglingId] = useState<string | null>(null)
+  const [deletingId, setDeletingId] = useState<string | null>(null)
 
-  // Access guard
   useEffect(() => {
     if (!permLoading && !can('staff_view')) router.replace('/admin/unauthorized')
   }, [permLoading, can, router])
@@ -376,9 +455,9 @@ export default function StaffPage() {
     setTogglingId(member.id)
     try {
       await fetch(`/api/admin/staff/${member.id}`, {
-        method: 'PUT',
+        method:  'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ isActive: !member.isActive }),
+        body:    JSON.stringify({ isActive: !member.isActive }),
       })
       await load()
     } finally {
@@ -430,9 +509,10 @@ export default function StaffPage() {
       <div className="flex gap-1 mb-6 bg-gray-100 p-1 rounded-xl w-fit">
         {([['staff', Users, 'Team'], ['activity', Activity, 'Activity Log']] as const).map(([id, Icon, label]) => (
           <button key={id} onClick={() => setTab(id)}
-            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-all ${
+            className={cn(
+              'flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-all',
               tab === id ? 'bg-white text-[#0B1F3A] shadow-sm' : 'text-gray-500 hover:text-gray-700'
-            }`}>
+            )}>
             <Icon className="w-4 h-4" />
             {label}
           </button>
@@ -444,7 +524,7 @@ export default function StaffPage() {
         loading ? (
           <div className="bg-white rounded-2xl border border-gray-100 p-8">
             <div className="space-y-4">
-              {[1,2,3].map(i => (
+              {[1, 2, 3].map(i => (
                 <div key={i} className="h-16 bg-gray-100 rounded-xl animate-pulse" />
               ))}
             </div>
@@ -461,109 +541,125 @@ export default function StaffPage() {
               <thead>
                 <tr className="border-b border-gray-100">
                   <th className="text-left px-6 py-3.5 text-xs font-semibold text-gray-500 uppercase tracking-wider">Name</th>
+                  <th className="text-left px-4 py-3.5 text-xs font-semibold text-gray-500 uppercase tracking-wider">Job Title</th>
                   <th className="text-left px-4 py-3.5 text-xs font-semibold text-gray-500 uppercase tracking-wider">Role</th>
-                  <th className="text-left px-4 py-3.5 text-xs font-semibold text-gray-500 uppercase tracking-wider">Access</th>
+                  <th className="text-left px-4 py-3.5 text-xs font-semibold text-gray-500 uppercase tracking-wider">Portal</th>
                   <th className="text-left px-4 py-3.5 text-xs font-semibold text-gray-500 uppercase tracking-wider">Last Login</th>
                   <th className="text-left px-4 py-3.5 text-xs font-semibold text-gray-500 uppercase tracking-wider">Status</th>
                   <th className="px-4 py-3.5" />
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-50">
-                {staff.map((member) => (
-                  <tr key={member.id} className="hover:bg-gray-50/50 transition-colors">
-                    <td className="px-6 py-4">
-                      <div className="flex items-center gap-3">
-                        <div className="w-9 h-9 rounded-full bg-[#0B1F3A] flex items-center justify-center flex-shrink-0">
-                          <span className="text-white text-xs font-bold">
-                            {member.name.split(' ').map(n => n[0]).join('').slice(0,2).toUpperCase()}
-                          </span>
-                        </div>
-                        <div>
-                          <p className="font-semibold text-[#0B1F3A]">{member.name}</p>
-                          <p className="text-xs text-gray-400">{member.email}</p>
-                        </div>
-                      </div>
-                    </td>
-                    <td className="px-4 py-4">
-                      <span className="text-gray-600">{member.roleTitle}</span>
-                    </td>
-                    <td className="px-4 py-4">
-                      <div className="flex flex-col gap-1">
-                        <span className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold ${LEVEL_COLORS[member.accessLevel]}`}>
-                          <ShieldCheck className="w-3 h-3" />
-                          {member.accessLevel}
-                        </span>
-                        {(() => {
-                          const r = RBAC_ROLES.find(r => r.value === member.role)
-                          return r ? (
-                            <span className={`inline-flex px-2 py-0.5 rounded-full text-[10px] font-bold ${r.badge}`}>
-                              {r.label}
+                {staff.map((member) => {
+                  const roleMeta = getRoleMeta(member.role)
+                  return (
+                    <tr key={member.id} className="hover:bg-gray-50/50 transition-colors">
+
+                      {/* Name */}
+                      <td className="px-6 py-4">
+                        <div className="flex items-center gap-3">
+                          <div className="w-9 h-9 rounded-full bg-[#0B1F3A] flex items-center justify-center flex-shrink-0">
+                            <span className="text-white text-xs font-bold">
+                              {member.name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase()}
                             </span>
-                          ) : null
-                        })()}
-                      </div>
-                    </td>
-                    <td className="px-4 py-4 text-gray-500 text-xs">
-                      {fmtDate(member.lastLoginAt)}
-                    </td>
-                    <td className="px-4 py-4">
-                      {member.isActive
-                        ? <span className="flex items-center gap-1 text-green-600 text-xs font-medium"><CheckCircle className="w-3.5 h-3.5" />Active</span>
-                        : <span className="flex items-center gap-1 text-gray-400 text-xs font-medium"><XCircle className="w-3.5 h-3.5" />Inactive</span>
-                      }
-                    </td>
-                    <td className="px-4 py-4">
-                      <div className="flex items-center justify-end gap-1">
-                        {/* Edit */}
-                        {can('staff_edit') && (
-                          <button onClick={() => setEditing(member)}
-                            className="p-1.5 text-gray-400 hover:text-[#0B1F3A] hover:bg-gray-100 rounded-lg transition-colors" title="Edit">
-                            <Pencil className="w-3.5 h-3.5" />
-                          </button>
+                          </div>
+                          <div>
+                            <p className="font-semibold text-[#0B1F3A]">{member.name}</p>
+                            <p className="text-xs text-gray-400">{member.email}</p>
+                          </div>
+                        </div>
+                      </td>
+
+                      {/* Job title */}
+                      <td className="px-4 py-4 text-gray-600 text-sm">{member.roleTitle}</td>
+
+                      {/* Role badge */}
+                      <td className="px-4 py-4">
+                        <span className={cn(
+                          'inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold',
+                          roleMeta.badge
+                        )}>
+                          <span className={cn('w-1.5 h-1.5 rounded-full', roleMeta.dot)} />
+                          {roleMeta.label}
+                        </span>
+                      </td>
+
+                      {/* Portal access */}
+                      <td className="px-4 py-4">
+                        {member.portalAccess ? (
+                          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-green-100 text-green-700">
+                            <CheckCircle className="w-3 h-3" />
+                            Yes
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-gray-100 text-gray-500">
+                            No
+                          </span>
                         )}
-                        {/* Reset password */}
-                        {can('staff_edit') && (
-                          <button onClick={() => setResetting(member)}
-                            className="p-1.5 text-gray-400 hover:text-[#C9A84C] hover:bg-[#C9A84C]/10 rounded-lg transition-colors" title="Reset password">
-                            <RotateCcw className="w-3.5 h-3.5" />
-                          </button>
-                        )}
-                        {/* Toggle active */}
-                        {can('staff_edit') && (
-                          <button
-                            onClick={() => toggleActive(member)}
-                            disabled={togglingId === member.id}
-                            className={`p-1.5 rounded-lg transition-colors ${
-                              member.isActive
-                                ? 'text-gray-400 hover:text-red-500 hover:bg-red-50'
-                                : 'text-gray-400 hover:text-green-600 hover:bg-green-50'
-                            }`}
-                            title={member.isActive ? 'Deactivate' : 'Activate'}
-                          >
-                            {togglingId === member.id
-                              ? <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                              : member.isActive
-                                ? <XCircle className="w-3.5 h-3.5" />
-                                : <CheckCircle className="w-3.5 h-3.5" />
-                            }
-                          </button>
-                        )}
-                        {/* Delete */}
-                        {can('staff_delete') && (
-                          <button
-                            onClick={() => deleteMember(member)}
-                            disabled={deletingId === member.id}
-                            className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors" title="Remove">
-                            {deletingId === member.id
-                              ? <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                              : <Trash2 className="w-3.5 h-3.5" />
-                            }
-                          </button>
-                        )}
-                      </div>
-                    </td>
-                  </tr>
-                ))}
+                      </td>
+
+                      {/* Last login */}
+                      <td className="px-4 py-4 text-gray-500 text-xs">{fmtDate(member.lastLoginAt)}</td>
+
+                      {/* Status */}
+                      <td className="px-4 py-4">
+                        {member.isActive
+                          ? <span className="flex items-center gap-1 text-green-600 text-xs font-medium"><CheckCircle className="w-3.5 h-3.5" />Active</span>
+                          : <span className="flex items-center gap-1 text-gray-400 text-xs font-medium"><XCircle className="w-3.5 h-3.5" />Inactive</span>
+                        }
+                      </td>
+
+                      {/* Actions */}
+                      <td className="px-4 py-4">
+                        <div className="flex items-center justify-end gap-1">
+                          {can('staff_edit') && (
+                            <button onClick={() => setEditing(member)}
+                              className="p-1.5 text-gray-400 hover:text-[#0B1F3A] hover:bg-gray-100 rounded-lg transition-colors" title="Edit">
+                              <Pencil className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+                          {can('staff_edit') && (
+                            <button onClick={() => setResetting(member)}
+                              className="p-1.5 text-gray-400 hover:text-[#C9A84C] hover:bg-[#C9A84C]/10 rounded-lg transition-colors" title="Reset password">
+                              <RotateCcw className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+                          {can('staff_edit') && (
+                            <button
+                              onClick={() => toggleActive(member)}
+                              disabled={togglingId === member.id}
+                              className={cn(
+                                'p-1.5 rounded-lg transition-colors',
+                                member.isActive
+                                  ? 'text-gray-400 hover:text-red-500 hover:bg-red-50'
+                                  : 'text-gray-400 hover:text-green-600 hover:bg-green-50'
+                              )}
+                              title={member.isActive ? 'Deactivate' : 'Activate'}
+                            >
+                              {togglingId === member.id
+                                ? <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                                : member.isActive
+                                  ? <XCircle className="w-3.5 h-3.5" />
+                                  : <CheckCircle className="w-3.5 h-3.5" />
+                              }
+                            </button>
+                          )}
+                          {can('staff_delete') && (
+                            <button
+                              onClick={() => deleteMember(member)}
+                              disabled={deletingId === member.id}
+                              className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors" title="Remove">
+                              {deletingId === member.id
+                                ? <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                                : <Trash2 className="w-3.5 h-3.5" />
+                              }
+                            </button>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  )
+                })}
               </tbody>
             </table>
           </div>
@@ -598,30 +694,32 @@ export default function StaffPage() {
         </div>
       )}
 
-      {/* Permissions reference card */}
+      {/* Role reference card */}
       {tab === 'staff' && (
         <div className="mt-6 bg-white rounded-2xl border border-gray-100 overflow-hidden">
           <div className="px-6 py-4 border-b border-gray-100">
             <h3 className="font-bold text-[#0B1F3A] text-sm flex items-center gap-2">
               <ShieldCheck className="w-4 h-4 text-[#C9A84C]" />
-              Access Level Reference
+              Role Permissions Reference
             </h3>
           </div>
           <div className="grid grid-cols-2 lg:grid-cols-4 divide-x divide-y lg:divide-y-0 divide-gray-100">
-            {ACCESS_LEVELS.map(level => (
-              <div key={level} className="px-5 py-4">
-                <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold mb-3 ${LEVEL_COLORS[level]}`}>
-                  <ShieldCheck className="w-3 h-3" />
-                  {level}
+            {STAFF_ROLES.map(r => (
+              <div key={r.value} className="px-5 py-4">
+                <span className={cn(
+                  'inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold mb-3',
+                  r.badge
+                )}>
+                  <span className={cn('w-1.5 h-1.5 rounded-full', r.dot)} />
+                  {r.label}
                 </span>
-                <ul className="space-y-1">
-                  {LEVEL_PERMS[level].map(p => (
-                    <li key={p} className="text-xs text-gray-500 flex items-start gap-1">
-                      <span className="text-[#C9A84C] mt-0.5 flex-shrink-0">•</span>
-                      {p}
-                    </li>
-                  ))}
-                </ul>
+                <p className="text-xs text-gray-500 leading-relaxed">{r.description}</p>
+                <p className="text-xs text-gray-400 mt-1.5">
+                  Permissions set in{' '}
+                  <a href="/admin/settings/roles" className="text-[#C9A84C] hover:underline font-medium">
+                    Role Manager
+                  </a>
+                </p>
               </div>
             ))}
           </div>

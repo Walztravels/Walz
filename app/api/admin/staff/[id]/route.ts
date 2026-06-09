@@ -3,8 +3,29 @@ import bcrypt from 'bcryptjs'
 import { getAdminSession } from '@/lib/admin-auth'
 import prisma from '@/lib/db'
 
-// PUT /api/admin/staff/[id]  — update staff member
-export async function PUT(req: NextRequest, { params }: { params: { id: string } }) {
+const VALID_ROLES = ['super_admin', 'general_manager', 'senior_manager', 'coordinator', 'sales_rep']
+
+const ROLE_LABELS: Record<string, string> = {
+  super_admin:     'Super Admin',
+  general_manager: 'General Manager',
+  senior_manager:  'Senior Manager',
+  coordinator:     'Coordinator',
+  sales_rep:       'Sales Representative',
+}
+
+const ROLE_TO_ACCESS: Record<string, string> = {
+  super_admin:     'Admin',
+  general_manager: 'Manager',
+  senior_manager:  'Manager',
+  coordinator:     'Coordinator',
+  sales_rep:       'Sales',
+}
+
+// ── PUT — update staff member ─────────────────────────────────────────────────
+export async function PUT(
+  req: NextRequest,
+  { params }: { params: { id: string } }
+) {
   if (!(await getAdminSession())) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
@@ -15,47 +36,53 @@ export async function PUT(req: NextRequest, { params }: { params: { id: string }
   const existing = await prisma.staff.findUnique({ where: { id: params.id } })
   if (!existing) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
-  const { name, email, roleTitle, accessLevel, role, isActive } = body as Record<string, string | boolean>
+  const { name, roleTitle, role, portalAccess, isActive } =
+    body as Record<string, string | boolean>
 
-  const VALID_LEVELS = ['Admin', 'Manager', 'Coordinator', 'Sales']
-  if (accessLevel && !VALID_LEVELS.includes(accessLevel as string)) {
-    return NextResponse.json({ error: 'Invalid access level' }, { status: 400 })
-  }
-
-  const VALID_ROLES = ['super_admin', 'general_manager', 'senior_manager', 'coordinator', 'sales_rep']
-  if (role && !VALID_ROLES.includes(role as string)) {
-    return NextResponse.json({ error: 'Invalid role' }, { status: 400 })
+  if (role !== undefined) {
+    const roleStr = String(role)
+    if (!VALID_ROLES.includes(roleStr)) {
+      return NextResponse.json({ error: 'Invalid role' }, { status: 400 })
+    }
   }
 
   const updateData: Record<string, unknown> = {}
-  if (name        !== undefined) updateData.name        = String(name).trim()
-  if (email       !== undefined) updateData.email       = String(email).toLowerCase().trim()
-  if (roleTitle   !== undefined) updateData.roleTitle   = String(roleTitle).trim()
-  if (accessLevel !== undefined) updateData.accessLevel = accessLevel
-  if (role        !== undefined) updateData.role        = role
-  if (isActive    !== undefined) updateData.isActive    = Boolean(isActive)
+  if (name         !== undefined) updateData.name         = String(name).trim()
+  if (roleTitle    !== undefined) updateData.roleTitle     = String(roleTitle).trim()
+  if (role         !== undefined) {
+    updateData.role        = String(role)
+    updateData.accessLevel = ROLE_TO_ACCESS[String(role)] ?? 'Sales'
+  }
+  if (portalAccess !== undefined) updateData.portalAccess = Boolean(portalAccess)
+  if (isActive     !== undefined) updateData.isActive     = Boolean(isActive)
 
   const staff = await prisma.staff.update({
     where: { id: params.id },
-    data: updateData,
+    data:  updateData,
     select: {
       id: true, name: true, email: true, roleTitle: true,
-      accessLevel: true, role: true, isActive: true, lastLoginAt: true, createdAt: true,
+      role: true, portalAccess: true, isActive: true,
+      lastLoginAt: true, createdAt: true,
     },
   })
 
+  const changedFields = Object.keys(updateData)
+  const detail = changedFields.includes('role')
+    ? `${staff.name}'s role updated to ${ROLE_LABELS[String(role)]}`
+    : `${staff.name} (${staff.email}) updated — ${changedFields.join(', ')}`
+
   await prisma.activityLog.create({
-    data: {
-      action: 'staff_updated',
-      detail: `Staff member ${staff.name} updated. Changes: ${Object.keys(updateData).join(', ')}`,
-    },
-  })
+    data: { action: 'staff_updated', detail },
+  }).catch(() => {})
 
   return NextResponse.json({ staff })
 }
 
-// DELETE /api/admin/staff/[id]  — remove staff member
-export async function DELETE(_req: NextRequest, { params }: { params: { id: string } }) {
+// ── DELETE — remove staff member ──────────────────────────────────────────────
+export async function DELETE(
+  _req: NextRequest,
+  { params }: { params: { id: string } }
+) {
   if (!(await getAdminSession())) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
@@ -68,15 +95,18 @@ export async function DELETE(_req: NextRequest, { params }: { params: { id: stri
   await prisma.activityLog.create({
     data: {
       action: 'staff_deleted',
-      detail: `Staff member ${existing.name} (${existing.email}) was removed`,
+      detail: `${existing.name} (${existing.email}) was removed`,
     },
-  })
+  }).catch(() => {})
 
   return NextResponse.json({ success: true })
 }
 
-// POST /api/admin/staff/[id]  — reset password
-export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
+// ── POST — reset password ─────────────────────────────────────────────────────
+export async function POST(
+  req: NextRequest,
+  { params }: { params: { id: string } }
+) {
   if (!(await getAdminSession())) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
@@ -99,7 +129,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       action: 'password_reset',
       detail: `Password reset for ${existing.name} (${existing.email})`,
     },
-  })
+  }).catch(() => {})
 
   return NextResponse.json({ success: true })
 }

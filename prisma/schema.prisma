@@ -392,9 +392,10 @@ model Staff {
   email        String    @unique
   passwordHash String
   roleTitle    String    // Free-text job title e.g. "Senior Sales Agent"
-  accessLevel  String    @default("sales_rep") // legacy compat — maps to role
+  accessLevel  String    @default("sales_rep") // legacy compat — derived from role
   role         String    @default("sales_rep") // super_admin | general_manager | senior_manager | coordinator | sales_rep
-  permissions  Json      @default("{}")        // per-staff overrides (empty = use role defaults)
+  portalAccess Boolean   @default(false)        // can also log into client portal at /portal
+  permissions  Json      @default("{}")         // per-staff overrides (empty = use role defaults)
   country      String?
   whatsapp     String?
   isActive     Boolean   @default(true)
