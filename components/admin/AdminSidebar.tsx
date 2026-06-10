@@ -1,8 +1,8 @@
 'use client'
 
 import Link from 'next/link'
-import Image from 'next/image'
 import { usePathname, useRouter } from 'next/navigation'
+import { useState, useEffect } from 'react'
 import {
   LayoutDashboard, Users, UserPlus, MessageSquare,
   BookOpen, Plane, Hotel, Map,
@@ -132,10 +132,39 @@ const SECTIONS: NavSection[] = [
 ]
 
 // ── Component ─────────────────────────────────────────────────────────────────
+const LOGO_CACHE_KEY = 'walz_logo_url'
+const LOGO_CACHE_TTL  = 60 * 60 * 1000
+
 export function AdminSidebar() {
   const pathname   = usePathname()
   const router     = useRouter()
   const { can, canAny, profile, loading } = useStaffPermissions()
+  const [logoUrl, setLogoUrl] = useState('/walz-logo.svg')
+
+  useEffect(() => {
+    function loadLogo() {
+      fetch('/api/media/logo_main')
+        .then(r => r.json())
+        .then((d: { url?: string | null }) => {
+          if (d.url) {
+            setLogoUrl(d.url)
+            try { localStorage.setItem(LOGO_CACHE_KEY, JSON.stringify({ url: d.url, ts: Date.now() })) } catch { }
+          }
+        }).catch(() => {})
+    }
+    let hit = false
+    try {
+      const raw = localStorage.getItem(LOGO_CACHE_KEY)
+      if (raw) {
+        const { url, ts } = JSON.parse(raw) as { url: string; ts: number }
+        if (url && Date.now() - ts < LOGO_CACHE_TTL) { setLogoUrl(url); hit = true }
+      }
+    } catch { }
+    if (!hit) loadLogo()
+    const onUpdate = () => { try { localStorage.removeItem(LOGO_CACHE_KEY) } catch { } loadLogo() }
+    window.addEventListener('walz:logo-updated', onUpdate)
+    return () => window.removeEventListener('walz:logo-updated', onUpdate)
+  }, [])
 
   function isActive(href: string, exact?: boolean) {
     const path = href.split('?')[0]
@@ -154,13 +183,8 @@ export function AdminSidebar() {
       {/* Logo */}
       <div className="px-5 py-4 border-b border-white/10 flex-shrink-0">
         <Link href="/admin/dashboard" className="flex flex-col items-start gap-0.5">
-          <Image
-            src="/walz-logo.png"
-            alt="Walz Travels"
-            width={96}
-            height={96}
-            className="w-[96px] h-auto object-contain"
-          />
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={logoUrl} alt="Walz Travels" className="w-[96px] h-auto object-contain" />
           <span className="text-[10px] text-[#C9A84C] tracking-[0.2em] uppercase font-semibold">
             Admin Panel
           </span>

@@ -1,6 +1,43 @@
+'use client'
+
 import Link from 'next/link'
-import Image from 'next/image'
+import { useState, useEffect } from 'react'
 import { Mail, MapPin, MessageCircle, Award, Lock } from 'lucide-react'
+
+const LOGO_CACHE_KEY = 'walz_logo_url'
+const LOGO_CACHE_TTL  = 60 * 60 * 1000
+
+function FooterLogo() {
+  const [src, setSrc] = useState('/walz-logo.svg')
+
+  useEffect(() => {
+    function load() {
+      fetch('/api/media/logo_main')
+        .then(r => r.json())
+        .then((d: { url?: string | null }) => {
+          if (d.url) {
+            setSrc(d.url)
+            try { localStorage.setItem(LOGO_CACHE_KEY, JSON.stringify({ url: d.url, ts: Date.now() })) } catch { }
+          }
+        }).catch(() => {})
+    }
+    let hit = false
+    try {
+      const raw = localStorage.getItem(LOGO_CACHE_KEY)
+      if (raw) {
+        const { url, ts } = JSON.parse(raw) as { url: string; ts: number }
+        if (url && Date.now() - ts < LOGO_CACHE_TTL) { setSrc(url); hit = true }
+      }
+    } catch { }
+    if (!hit) load()
+    const onUpdate = () => { try { localStorage.removeItem(LOGO_CACHE_KEY) } catch { } load() }
+    window.addEventListener('walz:logo-updated', onUpdate)
+    return () => window.removeEventListener('walz:logo-updated', onUpdate)
+  }, [])
+
+  // eslint-disable-next-line @next/next/no-img-element
+  return <img src={src} alt="Walz Travels" className="w-[120px] h-auto object-contain group-hover:opacity-90 transition-opacity" />
+}
 
 const footerLinks = {
   services: [
@@ -75,13 +112,7 @@ export function Footer() {
           {/* Brand Column */}
           <div className="lg:col-span-2">
             <Link href="/" className="inline-flex mb-6 group">
-              <Image
-                src="/walz-logo.png"
-                alt="Walz Travels"
-                width={120}
-                height={120}
-                className="w-[120px] h-auto object-contain group-hover:opacity-90 transition-opacity"
-              />
+              <FooterLogo />
             </Link>
 
             <p className="text-walz-muted text-sm leading-relaxed mb-6 max-w-sm">

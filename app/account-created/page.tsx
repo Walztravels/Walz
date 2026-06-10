@@ -48,7 +48,7 @@ export default function AccountCreatedPage() {
 
           {/* CTA buttons */}
           <div className="space-y-3">
-            <Link href="/dashboard" className="block">
+            <Link href="/portal/dashboard" className="block">
               <button className="w-full h-12 bg-[#0B1F3A] hover:bg-[#0d2345] text-white font-bold text-sm rounded-xl transition-colors flex items-center justify-center gap-2">
                 Go to My Account →
               </button>
