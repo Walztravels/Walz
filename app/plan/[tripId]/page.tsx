@@ -10,7 +10,7 @@ import {
   Globe, Calendar, Clock, DollarSign, Share2, Loader2,
   Sparkles, Send, Map, ArrowLeft, Settings, BookmarkCheck,
   Plane, Hotel, ActivitySquare, Utensils, Car, FileText, Tag,
-  GripVertical, MoreHorizontal, ChevronRight, Lock, Unlock,
+  GripVertical, MoreHorizontal, ChevronRight, Lock, Unlock, Shield,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
@@ -353,6 +353,23 @@ export default function TripPlannerPage({ params }: { params: Promise<{ tripId: 
             <span className="hidden sm:inline">{trip.destination}</span>
           </div>
 
+          {/* Insure Trip button — pre-fills dates on /insurance */}
+          {(trip.startDate || trip.endDate) && (() => {
+            const params = new URLSearchParams()
+            if (trip.startDate) params.set('from', trip.startDate.split('T')[0])
+            if (trip.endDate)   params.set('to',   trip.endDate.split('T')[0])
+            return (
+              <Link
+                href={`/insurance?${params.toString()}`}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all flex-shrink-0 bg-[#C9A84C]/15 border border-[#C9A84C]/30 text-[#C9A84C] hover:bg-[#C9A84C]/25"
+                title="Get travel insurance for this trip"
+              >
+                <Shield className="w-3.5 h-3.5" />
+                <span className="hidden sm:inline">Insure Trip</span>
+              </Link>
+            )
+          })()}
+
           {/* Share button */}
           <button
             onClick={toggleShare}
@@ -603,8 +620,33 @@ export default function TripPlannerPage({ params }: { params: Promise<{ tripId: 
 
           {/* ── Settings panel ── */}
           {panel === 'settings' && (
-            <div className="flex-1 overflow-y-auto p-4">
+            <div className="flex-1 overflow-y-auto p-4 space-y-4">
               <TripSettings trip={trip} tripId={tripId} onSaved={(updated) => setTrip(prev => prev ? { ...prev, ...updated } : prev)} />
+
+              {/* ── Insurance CTA ── */}
+              {(() => {
+                const params = new URLSearchParams()
+                if (trip.startDate) params.set('from', trip.startDate.split('T')[0])
+                if (trip.endDate)   params.set('to',   trip.endDate.split('T')[0])
+                return (
+                  <div className="rounded-xl border border-[#C9A84C]/20 bg-[#C9A84C]/5 p-4">
+                    <div className="flex items-center gap-2 mb-2">
+                      <Shield className="w-4 h-4 text-[#C9A84C]" />
+                      <span className="text-sm font-bold text-white">Trip Insurance</span>
+                    </div>
+                    <p className="text-xs text-white/50 mb-3">
+                      Protect your trip with Walz Travel Shield — cover for medical emergencies, cancellations and baggage. From $45.
+                    </p>
+                    <Link
+                      href={`/insurance?${params.toString()}`}
+                      className="flex items-center justify-center gap-2 w-full px-3 py-2.5 rounded-xl bg-[#C9A84C] text-[#0B1F3A] font-bold text-xs hover:bg-[#d4b05a] transition-colors"
+                    >
+                      <Shield className="w-3.5 h-3.5" />
+                      Get a Free Quote
+                    </Link>
+                  </div>
+                )
+              })()}
             </div>
           )}
         </div>

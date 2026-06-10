@@ -1,8 +1,8 @@
 'use client'
 
-import { useEffect, useRef, useState, useCallback } from 'react'
+import { useEffect, useRef, useState, useCallback, Suspense } from 'react'
 import { useSession } from 'next-auth/react'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import gsap from 'gsap'
 import ScrollTrigger from 'gsap/ScrollTrigger'
 import {
@@ -381,15 +381,16 @@ function CheckoutModal({
 
 // ── Page ──────────────────────────────────────────────────────────────────────
 
-export default function InsurancePage() {
+function InsurancePageInner() {
   const { data: session } = useSession()
+  const params = useSearchParams()
   const [heroBg, setHeroBg] = useState<string | null>(null)
 
-  // ── Quote form state ───────────────────────────────────────────────────────
-  const [destination,  setDestination]  = useState('')
+  // ── Quote form state — pre-fillable via URL params (?dest=FR&from=2026-07-01&to=2026-07-14) ──
+  const [destination,  setDestination]  = useState(params.get('dest') ?? '')
   const [origin,       setOrigin]       = useState('GB')
-  const [startDate,    setStartDate]    = useState('')
-  const [endDate,      setEndDate]      = useState('')
+  const [startDate,    setStartDate]    = useState(params.get('from') ?? '')
+  const [endDate,      setEndDate]      = useState(params.get('to')   ?? '')
   const [numTravellers, setNumTravellers] = useState(1)
   const [travellers,   setTravellers]   = useState<Traveller[]>([{ date_of_birth: '', is_primary: true }])
   const [tripCost,     setTripCost]     = useState('')
@@ -976,5 +977,18 @@ export default function InsurancePage() {
         />
       )}
     </div>
+  )
+}
+
+// Wrap in Suspense so useSearchParams doesn't break static rendering
+export default function InsurancePage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen bg-[#0B1F3A] flex items-center justify-center">
+        <div className="w-8 h-8 border-2 border-[#C9A84C] border-t-transparent rounded-full animate-spin" />
+      </div>
+    }>
+      <InsurancePageInner />
+    </Suspense>
   )
 }

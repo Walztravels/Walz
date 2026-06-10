@@ -5,7 +5,7 @@ import { format } from 'date-fns'
 import {
   Search, RefreshCw, Shield, Download, CheckCircle,
   Clock, XCircle, ChevronLeft, ChevronRight, MapPin, Calendar,
-  ExternalLink,
+  ExternalLink, Database,
 } from 'lucide-react'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -59,6 +59,7 @@ export default function AdminInsurancePage() {
   const [search,     setSearch]     = useState('')
   const [status,     setStatus]     = useState('all')
   const [page,       setPage]       = useState(1)
+  const [setupState, setSetupState] = useState<'idle' | 'running' | 'done' | 'error'>('idle')
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -81,6 +82,18 @@ export default function AdminInsurancePage() {
   // Reset to page 1 when filters change
   useEffect(() => { setPage(1) }, [status, search])
 
+  async function runSetup() {
+    if (setupState === 'running') return
+    setSetupState('running')
+    try {
+      const res = await fetch('/api/insurance/setup', { method: 'POST' })
+      if (res.ok) { setSetupState('done'); load() }
+      else         { setSetupState('error') }
+    } catch {
+      setSetupState('error')
+    }
+  }
+
   // Stats derived from current page (full stats would need a separate endpoint)
   const approvedCount = orders.filter(o => o.status === 'approved').length
   const pendingCount  = orders.filter(o => o.status === 'pending').length
@@ -95,13 +108,24 @@ export default function AdminInsurancePage() {
           <h1 className="text-xl font-bold text-[#0B1F3A]">Insurance Orders</h1>
           <p className="text-sm text-gray-500 mt-0.5">Walz Travel Shield — powered by Battleface</p>
         </div>
-        <button
-          onClick={load}
-          className="flex items-center gap-2 px-4 py-2 rounded-xl border border-gray-200 bg-white text-sm font-semibold text-gray-600 hover:border-gray-300 transition-colors"
-        >
-          <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
-          Refresh
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={runSetup}
+            disabled={setupState === 'running' || setupState === 'done'}
+            title="Create insurance_quotes and insurance_orders tables in the database"
+            className="flex items-center gap-2 px-4 py-2 rounded-xl border border-gray-200 bg-white text-sm font-semibold text-gray-600 hover:border-[#C9A84C] transition-colors disabled:opacity-60"
+          >
+            <Database className={`w-4 h-4 ${setupState === 'running' ? 'animate-spin text-[#C9A84C]' : setupState === 'done' ? 'text-green-500' : ''}`} />
+            {setupState === 'done' ? 'Tables Ready ✓' : setupState === 'error' ? 'Setup Failed' : 'Run DB Setup'}
+          </button>
+          <button
+            onClick={load}
+            className="flex items-center gap-2 px-4 py-2 rounded-xl border border-gray-200 bg-white text-sm font-semibold text-gray-600 hover:border-gray-300 transition-colors"
+          >
+            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+            Refresh
+          </button>
+        </div>
       </div>
 
       {/* ── Summary cards ──────────────────────────────────────────────── */}
