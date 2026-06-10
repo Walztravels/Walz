@@ -9,6 +9,7 @@ import {
   Plus, MessageCircle, AlertCircle, Plane, Hotel, Map, Gift,
   CreditCard, Upload, Star, Users, Activity, TicketCheck,
   ArrowRight, Wallet, Globe, RefreshCw, Shield, Search, Compass,
+  Download, Phone, Calendar, MapPin,
 } from 'lucide-react'
 import { CountrySelectLight } from '@/components/visa/CountrySelect'
 
@@ -42,6 +43,22 @@ interface Voucher {
 
 interface ActivityItem {
   type: string; label: string; detail: string; date: string
+}
+
+interface InsurancePolicy {
+  id:                  string
+  battleface_order_id: string
+  order_reference:     string | null
+  plan_name:           string | null
+  status:              string
+  premium:             number
+  currency:            string
+  destination_country: string
+  trip_start_date:     string
+  trip_end_date:       string
+  policy_number:       string | null
+  policy_document_url: string | null
+  created_at:          string
 }
 
 interface DashboardData {
@@ -110,6 +127,7 @@ export default function PortalDashboard() {
   const [visaChecking, setVisaChecking]     = useState(false)
   const [visaResult, setVisaResult]         = useState<{ ruleType: string; label: string; badge: string } | null>(null)
   const [myTrips, setMyTrips]               = useState<{ id: string; title: string; destination: string; status: string; coverImage: string | null; startDate: string | null; days: { id: string }[] }[]>([])
+  const [policies, setPolicies]             = useState<InsurancePolicy[]>([])
 
   const firstName = session?.user?.name?.split(' ')[0] || session?.user?.email?.split('@')[0] || 'there'
 
@@ -125,6 +143,10 @@ export default function PortalDashboard() {
     fetch('/api/trips')
       .then(r => r.json())
       .then(d => { if (d.trips) setMyTrips(d.trips.slice(0, 3)) })
+      .catch(() => {})
+    fetch('/api/portal/insurance')
+      .then(r => r.json())
+      .then(d => { if (d.policies) setPolicies(d.policies) })
       .catch(() => {})
   }, [])
 
@@ -213,11 +235,11 @@ export default function PortalDashboard() {
       <div className="max-w-5xl mx-auto px-5 lg:px-8 py-5">
         <div className="grid grid-cols-3 sm:grid-cols-6 gap-3">
           {[
-            { href: '/portal/documents', icon: Upload, label: 'Upload Docs', color: 'text-purple-600 bg-purple-50' },
-            { href: '/flights',          icon: Plane,  label: 'Book Flight', color: 'text-blue-600 bg-blue-50' },
-            { href: '/tours',            icon: Map,    label: 'Book Tour',   color: 'text-green-600 bg-green-50' },
-            { href: '/gift',             icon: Gift,   label: 'Gift Voucher',color: 'text-amber-600 bg-amber-50' },
-            { href: '/portal/referral',  icon: Users,  label: 'Refer Friend',color: 'text-pink-600 bg-pink-50' },
+            { href: '/portal/documents', icon: Upload,         label: 'Upload Docs',  color: 'text-purple-600 bg-purple-50' },
+            { href: '/flights',          icon: Plane,          label: 'Book Flight',  color: 'text-blue-600 bg-blue-50' },
+            { href: '/insurance',        icon: Shield,         label: 'Insurance',    color: 'text-[#C9A84C] bg-amber-50' },
+            { href: '/tours',            icon: Map,            label: 'Book Tour',    color: 'text-green-600 bg-green-50' },
+            { href: '/gift',             icon: Gift,           label: 'Gift Voucher', color: 'text-amber-600 bg-amber-50' },
             { href: 'https://wa.me/447398753797', icon: MessageCircle, label: 'WhatsApp', color: 'text-green-600 bg-green-50', external: true },
           ].map(({ href, icon: Icon, label, color, external }) => (
             external ? (
@@ -408,6 +430,90 @@ export default function PortalDashboard() {
                         <span>{format(new Date(b.createdAt), 'd MMM yyyy')}</span>
                       </div>
                     </div>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </Section>
+
+        {/* ── Section 2b: My Insurance ─────────────────────────────── */}
+        <Section
+          id="insurance"
+          title="My Insurance"
+          icon={<Shield className="w-5 h-5 text-[#C9A84C]" />}
+          count={policies.length}
+          viewAll="/insurance"
+        >
+          {policies.length === 0 ? (
+            <EmptyState
+              icon={<Shield className="w-10 h-10 text-gray-300" />}
+              title="No insurance policies yet"
+              sub="Protect your next trip with Walz Travel Shield — powered by Battleface. Cover for medical emergencies, cancellations, and more."
+              cta={{ label: 'Get a Free Quote', href: '/insurance' }}
+            />
+          ) : (
+            <div className="space-y-3">
+              {policies.map(p => {
+                const ref     = p.policy_number || p.order_reference || p.battleface_order_id
+                const active  = p.status === 'approved'
+                const pending = p.status === 'pending'
+                return (
+                  <div key={p.id} className={`rounded-xl border p-4 ${
+                    active  ? 'border-green-200 bg-green-50/40' :
+                    pending ? 'border-amber-200 bg-amber-50/30' :
+                              'border-gray-100 bg-gray-50/50'
+                  }`}>
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="flex items-center gap-3">
+                        <div className={`w-9 h-9 rounded-lg flex items-center justify-center shrink-0 ${
+                          active ? 'bg-green-100' : pending ? 'bg-amber-100' : 'bg-gray-100'
+                        }`}>
+                          <Shield className={`w-4 h-4 ${active ? 'text-green-600' : pending ? 'text-amber-600' : 'text-gray-400'}`} />
+                        </div>
+                        <div>
+                          <div className="flex items-center gap-2 flex-wrap mb-0.5">
+                            <span className="font-semibold text-[#0B1F3A] text-sm">{p.plan_name ?? 'Walz Travel Shield'}</span>
+                            <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${
+                              active  ? 'bg-green-100 text-green-700' :
+                              pending ? 'bg-amber-100 text-amber-700' :
+                                        'bg-gray-100 text-gray-500'
+                            }`}>
+                              {active ? 'Active' : pending ? 'Pending' : p.status}
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-3 text-xs text-gray-500 flex-wrap">
+                            <span className="flex items-center gap-1"><MapPin className="w-3 h-3" />{p.destination_country}</span>
+                            <span className="flex items-center gap-1">
+                              <Calendar className="w-3 h-3" />
+                              {p.trip_start_date} → {p.trip_end_date}
+                            </span>
+                            <span className="font-bold text-[#0B1F3A]">{p.currency} {Number(p.premium).toFixed(2)}</span>
+                          </div>
+                          {ref && (
+                            <p className="text-xs text-gray-400 mt-1 font-mono">{ref}</p>
+                          )}
+                        </div>
+                      </div>
+                      {p.policy_document_url && (
+                        <a
+                          href={p.policy_document_url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          title="Download policy document"
+                          className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-[#0B1F3A] text-white text-xs font-semibold hover:bg-[#C9A84C] hover:text-[#0B1F3A] transition-colors shrink-0"
+                        >
+                          <Download className="w-3.5 h-3.5" />
+                          Download
+                        </a>
+                      )}
+                    </div>
+                    {active && (
+                      <div className="mt-3 pt-3 border-t border-green-200/60 flex items-center gap-2 text-xs text-green-700">
+                        <Phone className="w-3 h-3 shrink-0" />
+                        <span>24/7 Emergency: <strong>+1 800 TRAVEL</strong> — quote your policy reference</span>
+                      </div>
+                    )}
                   </div>
                 )
               })}

@@ -71,6 +71,12 @@ const SECTIONS: NavSection[] = [
     ],
   },
   {
+    label: 'Insurance',
+    items: [
+      { href: '/admin/insurance', label: 'Insurance Orders', icon: Shield },
+    ],
+  },
+  {
     label: 'Jade Connect',
     items: [
       { href: '/admin/esim', label: 'eSIM Orders', icon: Signal },

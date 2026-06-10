@@ -1,6 +1,6 @@
 import { notFound } from 'next/navigation'
 import Link from 'next/link'
-import { Clock, CheckCircle, AlertTriangle, ArrowLeft, MessageCircle, Plane, Hotel } from 'lucide-react'
+import { Clock, CheckCircle, AlertTriangle, ArrowLeft, MessageCircle, Plane, Hotel, Shield } from 'lucide-react'
 import { prisma } from '@/lib/db'
 import { ADVISORY_CONFIG, RULE_TYPE_CONFIG } from '@/lib/countries'
 import type { Metadata } from 'next'
@@ -235,6 +235,115 @@ export default async function VisaCountryPage({ params }: Props) {
                   <span className="text-sm text-red-700">{r}</span>
                 </div>
               ))}
+            </div>
+          </div>
+        )}
+
+        {/* ── Insurance upsell — varies by destination ────────────── */}
+        {iso2 === 'FR' && (
+          /* Schengen — MANDATORY: all Schengen visas require min €30,000 medical cover */
+          <div className="rounded-2xl border-2 border-red-200 bg-red-50 p-5">
+            <div className="flex items-start gap-3">
+              <div className="w-10 h-10 rounded-xl bg-red-100 flex items-center justify-center shrink-0 mt-0.5">
+                <AlertTriangle className="w-5 h-5 text-red-600" />
+              </div>
+              <div className="flex-1">
+                <h3 className="font-bold text-red-800 text-base mb-1">
+                  Travel Insurance is Mandatory for a Schengen Visa
+                </h3>
+                <p className="text-sm text-red-700 mb-3">
+                  All Schengen visa applicants must show proof of travel insurance covering a minimum of
+                  <strong> €30,000 in medical expenses</strong>, valid for the entire Schengen area and
+                  duration of stay. Without it, your application will be refused.
+                </p>
+                <div className="bg-white rounded-xl border border-red-200 p-4 mb-3">
+                  <div className="flex items-center gap-3">
+                    <Shield className="w-5 h-5 text-[#C9A84C] shrink-0" />
+                    <div className="flex-1">
+                      <p className="text-sm font-bold text-[#0B1F3A]">Walz Travel Shield — Schengen Compliant</p>
+                      <p className="text-xs text-gray-500">Covers the full €30,000+ requirement · from USD $45 · instant policy document</p>
+                    </div>
+                    <Link
+                      href="/insurance?dest=FR"
+                      className="flex-shrink-0 px-4 py-2 bg-[#C9A84C] text-[#0B1F3A] text-sm font-bold rounded-xl hover:bg-[#b8943d] transition-colors"
+                    >
+                      Get Cover
+                    </Link>
+                  </div>
+                </div>
+                <p className="text-xs text-red-600">
+                  Your policy document will be emailed instantly after payment — submit it directly with your visa application.
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {iso2 === 'US' && (
+          /* USA — STRONG recommendation: US medical costs can exceed $50,000 */
+          <div className="rounded-2xl border-2 border-amber-200 bg-amber-50 p-5">
+            <div className="flex items-start gap-3">
+              <div className="w-10 h-10 rounded-xl bg-[#C9A84C]/20 flex items-center justify-center shrink-0 mt-0.5">
+                <Shield className="w-5 h-5 text-[#C9A84C]" />
+              </div>
+              <div className="flex-1">
+                <h3 className="font-bold text-[#0B1F3A] text-base mb-1">
+                  We Strongly Recommend Travel Insurance for the USA
+                </h3>
+                <p className="text-sm text-gray-700 mb-3">
+                  The United States has the highest healthcare costs in the world.
+                  A single emergency hospital admission can exceed <strong>$50,000 USD</strong>.
+                  There is no reciprocal health agreement — you pay in full, upfront.
+                </p>
+                <div className="bg-white rounded-xl border border-amber-200 p-4 mb-3">
+                  <div className="flex items-center gap-3">
+                    <Shield className="w-5 h-5 text-[#C9A84C] shrink-0" />
+                    <div className="flex-1">
+                      <p className="text-sm font-bold text-[#0B1F3A]">Walz Travel Shield — USA</p>
+                      <p className="text-xs text-gray-500">Medical cover + cancellation + baggage · from USD $55 · instant policy</p>
+                    </div>
+                    <Link
+                      href="/insurance?dest=US"
+                      className="flex-shrink-0 px-4 py-2 bg-[#C9A84C] text-[#0B1F3A] text-sm font-bold rounded-xl hover:bg-[#b8943d] transition-colors"
+                    >
+                      Get Cover
+                    </Link>
+                  </div>
+                </div>
+                <p className="text-xs text-gray-500">
+                  Not required for a US visa but considered essential by every experienced traveller.
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {iso2 === 'GB' && (
+          /* UK — optional upsell */
+          <div className="rounded-2xl border border-[#C9A84C]/30 bg-[#C9A84C]/5 p-5">
+            <div className="flex items-start gap-3">
+              <div className="w-10 h-10 rounded-xl bg-[#C9A84C]/15 flex items-center justify-center shrink-0 mt-0.5">
+                <Shield className="w-5 h-5 text-[#C9A84C]" />
+              </div>
+              <div className="flex-1">
+                <h3 className="font-bold text-[#0B1F3A] text-base mb-1">
+                  Add Travel Insurance for Your UK Trip
+                </h3>
+                <p className="text-sm text-gray-600 mb-3">
+                  While not mandatory for a UK visa, travel insurance protects your trip cost if your application is refused,
+                  your flight is cancelled, or you fall ill abroad. Cover starts from USD $35.
+                </p>
+                <div className="flex items-center gap-3">
+                  <Link
+                    href="/insurance?dest=GB"
+                    className="inline-flex items-center gap-2 px-5 py-2.5 bg-[#0B1F3A] text-white text-sm font-bold rounded-xl hover:bg-[#0d2345] transition-colors"
+                  >
+                    <Shield className="w-4 h-4" />
+                    Get a Free Quote
+                  </Link>
+                  <span className="text-xs text-gray-400">From USD $35 · instant policy document</span>
+                </div>
+              </div>
             </div>
           </div>
         )}
