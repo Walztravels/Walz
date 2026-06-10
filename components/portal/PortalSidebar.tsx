@@ -1,8 +1,8 @@
 'use client'
 
 import Link from 'next/link'
-import Image from 'next/image'
 import { usePathname } from 'next/navigation'
+import { useEffect, useState } from 'react'
 import { signOut } from 'next-auth/react'
 import {
   LayoutDashboard, FileText, Upload, CreditCard,
@@ -11,10 +11,14 @@ import {
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
+const LOGO_CACHE_KEY = 'walz_logo_url'
+const LOGO_CACHE_TTL  = 60 * 60 * 1000
+
 const NAV = [
   { href: '/portal/dashboard',        label: 'Dashboard',        icon: LayoutDashboard },
   { href: '/plan/library',            label: 'My Trips',         icon: Compass         },
   { href: '/portal/application',      label: 'Applications',     icon: FileText        },
+  { href: '/insurance',               label: 'Insurance',        icon: Shield          },
   { href: '/portal/documents',        label: 'Documents',        icon: Upload          },
   { href: '/portal/payments',         label: 'Payments',         icon: CreditCard      },
   { href: '/portal/checklist',        label: 'Checklist',        icon: CheckSquare     },
@@ -31,14 +35,40 @@ interface Props {
 
 export function PortalSidebar({ userName, userEmail }: Props) {
   const pathname = usePathname()
+  const [logoUrl, setLogoUrl] = useState('/walz-logo.svg')
+
+  useEffect(() => {
+    function loadLogo() {
+      fetch('/api/media/logo_main')
+        .then(r => r.json())
+        .then((d: { url?: string | null }) => {
+          if (d.url) {
+            setLogoUrl(d.url)
+            try { localStorage.setItem(LOGO_CACHE_KEY, JSON.stringify({ url: d.url, ts: Date.now() })) } catch { }
+          }
+        }).catch(() => {})
+    }
+    let hit = false
+    try {
+      const raw = localStorage.getItem(LOGO_CACHE_KEY)
+      if (raw) {
+        const { url, ts } = JSON.parse(raw) as { url: string; ts: number }
+        if (url && Date.now() - ts < LOGO_CACHE_TTL) { setLogoUrl(url); hit = true }
+      }
+    } catch { }
+    if (!hit) loadLogo()
+    const onUpdate = () => { try { localStorage.removeItem(LOGO_CACHE_KEY) } catch { } loadLogo() }
+    window.addEventListener('walz:logo-updated', onUpdate)
+    return () => window.removeEventListener('walz:logo-updated', onUpdate)
+  }, [])
 
   return (
     <aside className="flex flex-col w-60 min-h-screen bg-[#0B1F3A] text-white flex-shrink-0">
       {/* Logo */}
       <div className="px-5 py-5 border-b border-white/10">
         <Link href="/" className="flex flex-col items-start">
-          <Image src="/walz-logo.png" alt="Walz Travels" width={110} height={40}
-            className="w-[110px] h-auto object-contain" />
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={logoUrl} alt="Walz Travels" className="w-[110px] h-auto object-contain" />
           <div className="text-[10px] text-[#C9A84C] tracking-widest uppercase mt-1">Client Portal</div>
         </Link>
       </div>
