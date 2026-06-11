@@ -25,6 +25,9 @@ export const metadata: Metadata = {
     description:
       'Instant visa requirement checks + 90%+ approval rate from our specialist team.',
   },
+  alternates: {
+    canonical: 'https://www.walztravels.com/visa',
+  },
 }
 
 export default function VisaLayout({ children }: { children: React.ReactNode }) {

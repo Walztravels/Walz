@@ -9,7 +9,7 @@ import {
   Plus, MessageCircle, AlertCircle, Plane, Hotel, Map, Gift,
   CreditCard, Upload, Star, Users, Activity, TicketCheck,
   ArrowRight, Wallet, Globe, RefreshCw, Shield, Search, Compass,
-  Download, Phone, Calendar, MapPin,
+  Download, Phone, Calendar, MapPin, Car, Package2,
 } from 'lucide-react'
 import { CountrySelectLight } from '@/components/visa/CountrySelect'
 
@@ -43,6 +43,13 @@ interface Voucher {
 
 interface ActivityItem {
   type: string; label: string; detail: string; date: string
+}
+
+interface TicketRow {
+  id: string; ticket_reference: string
+  client_name: string | null; client_email: string | null
+  ticket_type: string; pdf_url: string | null
+  sent_at: string | null; created_at: string
 }
 
 interface InsurancePolicy {
@@ -107,6 +114,22 @@ function bookingStatusColor(s: string) {
   return 'bg-amber-100 text-amber-700'
 }
 
+function ticketTypeIcon(type: string) {
+  const cls = 'w-4 h-4'
+  if (type === 'flight')   return <Plane    className={`${cls} text-blue-500`} />
+  if (type === 'hotel')    return <Hotel    className={`${cls} text-green-500`} />
+  if (type === 'tour')     return <Map      className={`${cls} text-purple-500`} />
+  if (type === 'transfer') return <Car      className={`${cls} text-amber-500`} />
+  if (type === 'visa')     return <FileText className={`${cls} text-red-500`} />
+  if (type === 'package')  return <Package2 className={`${cls} text-[#C9A84C]`} />
+  return <TicketCheck className={`${cls} text-gray-400`} />
+}
+
+const TICKET_TYPE_LABELS: Record<string, string> = {
+  flight: 'Flight Ticket', hotel: 'Hotel Voucher', tour: 'Tour Confirmation',
+  transfer: 'Transfer Voucher', visa: 'Visa Appointment', package: 'Holiday Package',
+}
+
 function activityIcon(type: string) {
   if (type === 'booking')     return <Plane className="w-3.5 h-3.5 text-blue-500" />
   if (type === 'document')    return <Upload className="w-3.5 h-3.5 text-purple-500" />
@@ -128,6 +151,7 @@ export default function PortalDashboard() {
   const [visaResult, setVisaResult]         = useState<{ ruleType: string; label: string; badge: string } | null>(null)
   const [myTrips, setMyTrips]               = useState<{ id: string; title: string; destination: string; status: string; coverImage: string | null; startDate: string | null; days: { id: string }[] }[]>([])
   const [policies, setPolicies]             = useState<InsurancePolicy[]>([])
+  const [myTickets, setMyTickets]           = useState<TicketRow[]>([])
 
   const firstName = session?.user?.name?.split(' ')[0] || session?.user?.email?.split('@')[0] || 'there'
 
@@ -147,6 +171,10 @@ export default function PortalDashboard() {
     fetch('/api/portal/insurance')
       .then(r => r.json())
       .then(d => { if (d.policies) setPolicies(d.policies) })
+      .catch(() => {})
+    fetch('/api/portal/tickets')
+      .then(r => r.json())
+      .then(d => { if (d.tickets) setMyTickets(d.tickets) })
       .catch(() => {})
   }, [])
 
@@ -517,6 +545,56 @@ export default function PortalDashboard() {
                   </div>
                 )
               })}
+            </div>
+          )}
+        </Section>
+
+        {/* ── Section 2c: My Tickets ───────────────────────────────── */}
+        <Section
+          id="tickets"
+          title="My Tickets"
+          icon={<TicketCheck className="w-5 h-5 text-[#C9A84C]" />}
+          count={myTickets.length}
+        >
+          {myTickets.length === 0 ? (
+            <EmptyState
+              icon={<TicketCheck className="w-10 h-10 text-gray-300" />}
+              title="No travel documents yet"
+              sub="Your flight tickets, hotel vouchers, tour confirmations and other travel documents sent by Walz Travels will appear here."
+            />
+          ) : (
+            <div className="space-y-3">
+              {myTickets.map(t => (
+                <div key={t.id} className="flex items-center justify-between gap-3 p-3.5 rounded-xl border border-gray-100 bg-white hover:border-[#C9A84C]/30 hover:bg-[#FFFBF0]/50 transition-colors">
+                  <div className="flex items-center gap-3 min-w-0">
+                    <div className="w-9 h-9 rounded-lg bg-gray-50 border border-gray-100 flex items-center justify-center flex-shrink-0">
+                      {ticketTypeIcon(t.ticket_type)}
+                    </div>
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-sm font-bold text-[#0B1F3A] font-mono">{t.ticket_reference}</span>
+                        <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-gray-100 text-gray-500">
+                          {TICKET_TYPE_LABELS[t.ticket_type] ?? t.ticket_type}
+                        </span>
+                      </div>
+                      <div className="text-xs text-gray-400 mt-0.5 truncate">
+                        {t.sent_at ? `Received ${new Date(t.sent_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}` : 'Pending'}
+                      </div>
+                    </div>
+                  </div>
+                  {t.pdf_url && (
+                    <a
+                      href={t.pdf_url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-[#0B1F3A] text-white text-xs font-semibold hover:bg-[#C9A84C] hover:text-[#0B1F3A] transition-colors shrink-0"
+                    >
+                      <Download className="w-3.5 h-3.5" />
+                      PDF
+                    </a>
+                  )}
+                </div>
+              ))}
             </div>
           )}
         </Section>

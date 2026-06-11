@@ -25,6 +25,9 @@ export const metadata: Metadata = {
     description:
       'Give the gift of travel — vouchers redeemable for flights, hotels, tours and visa services.',
   },
+  alternates: {
+    canonical: 'https://www.walztravels.com/gift',
+  },
 }
 
 export default function GiftLayout({ children }: { children: React.ReactNode }) {

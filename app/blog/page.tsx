@@ -22,6 +22,9 @@ export const metadata = {
     title: 'Travel Blog | Walz Travels',
     description: 'Visa guides, destination tips and travel news from the Walz Travels team.',
   },
+  alternates: {
+    canonical: 'https://www.walztravels.com/blog',
+  },
 }
 
 export default function BlogPage() {

@@ -4,6 +4,7 @@ import Link from 'next/link'
 export const metadata: Metadata = {
   title: 'Terms of Service',
   description: 'Walz Travels Terms of Service — the rules and conditions that govern use of our travel booking platform.',
+  alternates: { canonical: 'https://www.walztravels.com/terms' },
 }
 
 const SECTIONS = [

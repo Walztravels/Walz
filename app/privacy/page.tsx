@@ -4,6 +4,7 @@ import Link from 'next/link'
 export const metadata: Metadata = {
   title: 'Privacy Policy',
   description: 'Walz Travels Privacy Policy — how we collect, use and protect your personal data.',
+  alternates: { canonical: 'https://www.walztravels.com/privacy' },
 }
 
 const SECTIONS = [

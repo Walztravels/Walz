@@ -25,6 +25,9 @@ export const metadata: Metadata = {
     description:
       'Search 400+ airlines with Sabre GDS — best available fares, expert support.',
   },
+  alternates: {
+    canonical: 'https://www.walztravels.com/flights',
+  },
 }
 
 export default function FlightsLayout({ children }: { children: React.ReactNode }) {

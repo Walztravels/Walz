@@ -10,7 +10,7 @@ import {
   Rss, Gift, Image as ImageIcon, LayoutGrid, Tv2,
   UserCog, Activity, FileText, ClipboardList,
   Settings, LogOut, PenSquare, Compass, History,
-  CreditCard, Shield, Signal,
+  CreditCard, Shield, Signal, Ticket, LayoutTemplate,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useStaffPermissions } from '@/hooks/useStaffPermissions'
@@ -88,6 +88,14 @@ const SECTIONS: NavSection[] = [
     items: [
       { href: '/admin/trip-planner',         label: 'Trip Planner', icon: Compass, permission: 'trips_view' },
       { href: '/admin/trip-planner/history', label: 'Trip History', icon: History, permission: 'trips_view', exact: true },
+    ],
+  },
+  {
+    label: 'Documents',
+    items: [
+      { href: '/admin/ticket-generator',           label: 'Ticket Generator', icon: Ticket },
+      { href: '/admin/ticket-generator/history',   label: 'Ticket History',   icon: History, exact: true },
+      { href: '/admin/ticket-generator/templates', label: 'Templates',        icon: LayoutTemplate, exact: true },
     ],
   },
   {

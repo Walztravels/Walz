@@ -25,6 +25,9 @@ export const metadata: Metadata = {
     description:
       'Compare rates and book luxury hotels worldwide — expert support from Walz Travels.',
   },
+  alternates: {
+    canonical: 'https://www.walztravels.com/hotels',
+  },
 }
 
 export default function HotelsLayout({ children }: { children: React.ReactNode }) {

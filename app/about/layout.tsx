@@ -24,6 +24,9 @@ export const metadata: Metadata = {
     title: 'About Walz Travels',
     description: 'Connecting the African diaspora to every destination on earth.',
   },
+  alternates: {
+    canonical: 'https://www.walztravels.com/about',
+  },
 }
 
 export default function AboutLayout({ children }: { children: React.ReactNode }) {

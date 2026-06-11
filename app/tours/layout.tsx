@@ -25,6 +25,9 @@ export const metadata: Metadata = {
     description:
       'Curated private tours worldwide — bespoke itineraries and expert local guides.',
   },
+  alternates: {
+    canonical: 'https://www.walztravels.com/tours',
+  },
 }
 
 export default function ToursLayout({ children }: { children: React.ReactNode }) {
