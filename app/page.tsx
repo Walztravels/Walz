@@ -16,7 +16,7 @@ const dyn = <T extends Record<string, React.ComponentType>>(
   key: keyof T,
 ) => dynamic(() => loader().then(m => ({ default: m[key] as React.ComponentType })))
 
-const OffersSection           = dyn(() => import('@/components/home/OffersSection'),           'OffersSection')
+// OffersSection removed — replaced by TopSellers (cinematic package cards)
 const StatsStrip              = dyn(() => import('@/components/home/StatsStrip'),              'StatsStrip')
 const ToursHighlight          = dyn(() => import('@/components/home/ToursHighlight'),          'ToursHighlight')
 const VisaIntelligenceSection = dyn(() => import('@/components/home/VisaIntelligenceSection'), 'VisaIntelligenceSection')
@@ -25,7 +25,7 @@ const JadePlannerSection      = dyn(() => import('@/components/home/JadePlannerS
 const TestimonialsSection     = dyn(() => import('@/components/home/TestimonialsSection'),     'TestimonialsSection')
 const WhyWalzSection          = dyn(() => import('@/components/home/WhyWalzSection'),          'WhyWalzSection')
 const JadeSection             = dyn(() => import('@/components/home/JadeSection'),             'JadeSection')
-const DestinationsGrid        = dyn(() => import('@/components/home/DestinationsGrid'),        'DestinationsGrid')
+const TopSellers              = dynamic(() => import('@/components/home/TopSellers'),           { ssr: false })
 const FinalCTA                = dyn(() => import('@/components/home/FinalCTA'),                'FinalCTA')
 
 interface SoroArticle { id: string; title: string; slug: string; date: string }
@@ -73,11 +73,12 @@ export default function HomePage() {
       {/* 1 — Fullscreen cinematic hero */}
       <HeroSection bgUrl={heroBg} />
 
-      {/* 2 — Scrolling marquee strip */}
-      <MarqueeStrip />
-
-      {/* 3 — Featured destination offer cards */}
-      <OffersSection />
+      {/* Spacer — accommodates the search widget's translate-y-1/2 overflow */}
+      {/* Mobile: ~28px (collapsed bar ½); desktop: ~148px (full SearchTabs ½) */}
+      <div className="bg-[#0B1F3A] pt-8 lg:pt-40">
+        {/* 2 — Scrolling marquee strip */}
+        <MarqueeStrip />
+      </div>
 
       {/* 4 — Animated statistics */}
       <StatsStrip />
@@ -103,8 +104,8 @@ export default function HomePage() {
       {/* 9 — Jade AI introduction */}
       <JadeSection />
 
-      {/* 10 — Destinations grid */}
-      <DestinationsGrid />
+      {/* 10 — Top selling packages */}
+      <TopSellers />
 
       {/* 11 — Blog preview */}
       <section className="py-16 lg:py-20 bg-[#F5F2EE]">
