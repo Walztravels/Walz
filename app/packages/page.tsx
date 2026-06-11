@@ -3,6 +3,7 @@ import Link from 'next/link'
 import Image from 'next/image'
 import prisma from '@/lib/db'
 import { PackageFilters } from '@/components/PackageFilters'
+import FeaturedDepartureSlider, { type SpotlightPackage } from '@/components/FeaturedDepartureSlider'
 
 export const revalidate = 60
 
@@ -141,19 +142,34 @@ function formatDate(dateStr: string): string {
 
 export default async function PackagesPage() {
   let packages: PackageCard[] = []
+  let spotlight: SpotlightPackage[] = []
 
   try {
-    const rows = await prisma.$queryRawUnsafe<PackageCard[]>(
-      `SELECT id, slug, title, destination, country_iso2, tagline, images,
-              duration_days, duration_nights, price_per_person, currency,
-              original_price, package_type, departure_date, departure_city,
-              total_seats, seats_booked, visa_included, flight_included,
-              hotel_included, meals, is_featured
-       FROM travel_packages
-       WHERE is_active = true
-       ORDER BY is_featured DESC, display_order ASC, created_at DESC`,
-    )
-    packages = rows.map((p) => ({ ...p, images: safeJsonImages(p.images) }))
+    const [pkgRows, spotRows] = await Promise.all([
+      prisma.$queryRawUnsafe<PackageCard[]>(
+        `SELECT id, slug, title, destination, country_iso2, tagline, images,
+                duration_days, duration_nights, price_per_person, currency,
+                original_price, package_type, departure_date, departure_city,
+                total_seats, seats_booked, visa_included, flight_included,
+                hotel_included, meals, is_featured
+         FROM travel_packages
+         WHERE is_active = true
+         ORDER BY is_featured DESC, display_order ASC, created_at DESC`,
+      ),
+      prisma.$queryRawUnsafe<SpotlightPackage[]>(
+        `SELECT id, slug, title, destination, country_iso2, tagline, images,
+                price_per_person, original_price, currency, duration_days,
+                duration_nights, departure_date, departure_city, total_seats,
+                seats_booked, package_type, visa_included, flight_included,
+                hotel_included
+         FROM travel_packages
+         WHERE is_active = true AND is_spotlight = true
+         ORDER BY departure_date ASC NULLS LAST
+         LIMIT 5`,
+      ),
+    ])
+    packages = pkgRows.map((p) => ({ ...p, images: safeJsonImages(p.images) }))
+    spotlight = spotRows.map((p) => ({ ...p, images: safeJsonImages(p.images) })) as SpotlightPackage[]
   } catch {
     // DB unavailable — use fallbacks
   }
@@ -162,15 +178,8 @@ export default async function PackagesPage() {
     packages = FALLBACK_PACKAGES
   }
 
-  const featured = packages.find((p) => p.is_featured) ?? packages[0]
-  const seatsRemaining =
-    featured.total_seats != null ? featured.total_seats - featured.seats_booked : null
-  const isLowSeats =
-    seatsRemaining != null &&
-    featured.total_seats != null &&
-    seatsRemaining <= featured.total_seats * 0.5
   const featuredHero =
-    featured.images[0] ??
+    (spotlight[0]?.images[0] ?? packages.find(p => p.is_featured)?.images[0]) ??
     'https://images.unsplash.com/photo-1488085061387-422e29b40080?w=1600&q=85'
 
   return (
@@ -183,16 +192,16 @@ export default async function PackagesPage() {
           fill
           priority
           sizes="100vw"
-          alt={featured.title}
+          alt="Walz Travels Packages"
           className="object-cover"
         />
         <div className="absolute inset-0 bg-gradient-to-t from-[#0B1F3A]/90 via-[#0B1F3A]/50 to-[#0B1F3A]/30" />
         <div className="absolute inset-0 bg-gradient-to-r from-[#0B1F3A]/60 to-transparent" />
-        <div className="absolute bottom-0 left-0 right-0 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pb-16 lg:pb-24">
+        <div className="absolute bottom-0 left-0 right-0 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pb-10 lg:pb-24">
           <p className="text-[#C9A84C] text-xs font-bold uppercase tracking-[0.3em] mb-4">
             Walz Travels Packages
           </p>
-          <h1 className="font-display text-5xl sm:text-6xl lg:text-7xl text-white font-bold leading-tight max-w-3xl mb-5">
+          <h1 className="font-display text-4xl sm:text-5xl lg:text-7xl text-white font-bold leading-tight max-w-3xl mb-5">
             Journeys,<br />Perfected.
           </h1>
           <p className="text-white/75 text-lg max-w-xl leading-relaxed">
@@ -201,75 +210,9 @@ export default async function PackagesPage() {
         </div>
       </section>
 
-      {/* ── FEATURED SPOTLIGHT BANNER ── */}
-      <div className="relative z-10 -mt-20 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="rounded-3xl overflow-hidden h-[340px] lg:h-[420px] relative shadow-2xl">
-          <Image
-            src={featuredHero}
-            fill
-            sizes="(max-width: 1280px) 100vw, 1280px"
-            alt={featured.title}
-            className="object-cover transition-transform duration-1000 hover:scale-105"
-          />
-          <div className="absolute inset-0 bg-gradient-to-r from-[#0B1F3A]/95 via-[#0B1F3A]/60 to-transparent" />
-          <div className="absolute inset-0 flex items-center px-8 lg:px-12">
-            <div className="max-w-lg">
-              <span className="inline-block bg-[#C9A84C] text-[#0B1F3A] text-xs font-bold uppercase tracking-widest px-3 py-1.5 rounded-full mb-4">
-                Featured Departure
-              </span>
-              <h2 className="font-display text-3xl lg:text-4xl text-white font-bold leading-tight mb-2">
-                {featured.title}
-              </h2>
-              {featured.tagline && (
-                <p className="text-white/70 text-base mb-4">{featured.tagline}</p>
-              )}
-              <p className="text-white/60 text-sm mb-4">
-                {featured.duration_days} Days
-                {featured.duration_nights ? ` · ${featured.duration_nights} Nights` : ''}
-                {featured.departure_city ? ` · Departs ${featured.departure_city}` : ''}
-                {featured.departure_date ? ` · ${formatDate(featured.departure_date)}` : ''}
-              </p>
-              {featured.total_seats != null && seatsRemaining != null && (
-                <div className="mb-4">
-                  <p className="text-white/60 text-xs mb-1.5">
-                    {featured.seats_booked} of {featured.total_seats} seats booked
-                  </p>
-                  <div className="h-1.5 bg-white/20 rounded-full overflow-hidden w-48">
-                    <div
-                      className="h-full bg-[#C9A84C] rounded-full"
-                      style={{
-                        width: `${Math.min(100, (featured.seats_booked / featured.total_seats!) * 100)}%`,
-                      }}
-                    />
-                  </div>
-                  {isLowSeats && (
-                    <p className="text-[#C9A84C] text-xs mt-1.5 font-semibold">
-                      Only {seatsRemaining} {seatsRemaining === 1 ? 'seat' : 'seats'} remaining
-                    </p>
-                  )}
-                </div>
-              )}
-              <div className="flex items-baseline gap-2 mb-5">
-                {featured.original_price != null && (
-                  <span className="text-white/50 line-through text-sm">
-                    {featured.currency} {featured.original_price.toLocaleString()}
-                  </span>
-                )}
-                <span className="text-[#C9A84C] text-2xl font-bold">
-                  From {featured.currency} {featured.price_per_person.toLocaleString()}
-                </span>
-                <span className="text-white/60 text-xs">per person</span>
-              </div>
-              <Link
-                href={`/packages/${featured.slug}`}
-                className="inline-block px-6 py-3 rounded-xl font-bold text-sm transition-opacity hover:opacity-90"
-                style={{ backgroundColor: '#C9A84C', color: '#0B1F3A' }}
-              >
-                View Package →
-              </Link>
-            </div>
-          </div>
-        </div>
+      {/* ── FEATURED DEPARTURE SLIDER ── */}
+      <div className="relative z-10 mt-6 lg:-mt-20 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        <FeaturedDepartureSlider initialPackages={spotlight} />
       </div>
 
       {/* ── FILTER + GRID ── */}

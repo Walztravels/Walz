@@ -44,7 +44,7 @@ export async function PATCH(req: NextRequest, { params }: RouteContext) {
       'duration_nights', 'total_seats', 'seats_booked', 'hotel_rating', 'display_order',
     ]
     const boolFields = [
-      'visa_included', 'flight_included', 'hotel_included', 'is_featured', 'is_active',
+      'visa_included', 'flight_included', 'hotel_included', 'is_featured', 'is_active', 'is_spotlight',
     ]
     const arrayFields = ['highlights', 'inclusions', 'exclusions', 'images']
     const tsFields = ['departure_date', 'return_date']

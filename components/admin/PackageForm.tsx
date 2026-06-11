@@ -36,6 +36,7 @@ export interface TravelPackage {
   hotel_rating: number | null
   meals: string
   is_featured: boolean
+  is_spotlight: boolean
   is_active: boolean
   seo_title: string
   seo_description: string
@@ -140,8 +141,9 @@ export default function PackageForm({ initialData, onSubmit, isLoading }: Props)
   const [seoTitle, setSeoTitle]     = useState(d.seo_title ?? '')
   const [seoDesc, setSeoDesc]       = useState(d.seo_description ?? '')
   const [dispOrder, setDispOrder]   = useState(String(d.display_order ?? 0))
-  const [isFeatured, setIsFeatured] = useState(d.is_featured ?? false)
-  const [isActive, setIsActive]     = useState(d.is_active !== undefined ? d.is_active : true)
+  const [isFeatured, setIsFeatured]   = useState(d.is_featured ?? false)
+  const [isSpotlight, setIsSpotlight] = useState(d.is_spotlight ?? false)
+  const [isActive, setIsActive]       = useState(d.is_active !== undefined ? d.is_active : true)
 
   // ── Image helpers ──────────────────────────────────────────────────────────
 
@@ -222,6 +224,7 @@ export default function PackageForm({ initialData, onSubmit, isLoading }: Props)
       seo_description: seoDesc,
       display_order: Number(dispOrder) || 0,
       is_featured: isFeatured,
+      is_spotlight: isSpotlight,
       is_active: isActive,
     }
     await onSubmit(data)
@@ -305,7 +308,7 @@ export default function PackageForm({ initialData, onSubmit, isLoading }: Props)
       {/* ── Section 2: Images ────────────────────────────────────────────── */}
       <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
         <SectionHeading>2. Images</SectionHeading>
-        <p className="text-xs text-gray-400 mb-4">Drag slots to reorder. Slot 1 is the cover image.</p>
+        <p className="text-xs text-gray-400 mb-4">Drag slots to reorder. Slot 1 is the cover image and is used as the Featured Departure slider backdrop when Spotlight is enabled.</p>
         <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-4">
           {images.map((url, idx) => (
             <div
@@ -664,6 +667,27 @@ export default function PackageForm({ initialData, onSubmit, isLoading }: Props)
                 <span className="text-sm font-medium text-gray-700">{label}</span>
               </label>
             ))}
+          </div>
+
+          {/* Spotlight toggle */}
+          <div className="pt-2 border-t border-gray-100">
+            <label className="flex items-start gap-3 cursor-pointer select-none">
+              <button
+                type="button"
+                onClick={() => setIsSpotlight(v => !v)}
+                className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors focus:outline-none mt-0.5 flex-shrink-0 ${
+                  isSpotlight ? 'bg-amber-400' : 'bg-gray-300'
+                }`}
+              >
+                <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow transition-transform ${isSpotlight ? 'translate-x-[18px]' : 'translate-x-1'}`} />
+              </button>
+              <div>
+                <span className="text-sm font-medium text-gray-700">Show in Featured Departure slider</span>
+                <p className="text-xs text-gray-400 mt-0.5">
+                  Rotates in the large banner at the top of the Packages page. Best for group departures with dates and seats. Image 1 is used as the slide backdrop.
+                </p>
+              </div>
+            </label>
           </div>
         </div>
       </div>

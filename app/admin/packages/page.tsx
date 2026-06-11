@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
-import { Plus, Star, Pencil, Trash2, Loader2 } from 'lucide-react'
+import { Plus, Star, Pencil, Trash2, Loader2, Zap } from 'lucide-react'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -17,6 +17,7 @@ interface TravelPackage {
   seats_booked: number
   total_seats: number | null
   is_featured: boolean
+  is_spotlight: boolean
   is_active: boolean
   images: string[]
   created_at: string
@@ -59,7 +60,7 @@ export default function PackagesPage() {
 
   useEffect(() => { load() }, [])
 
-  async function toggleField(pkg: TravelPackage, field: 'is_featured' | 'is_active') {
+  async function toggleField(pkg: TravelPackage, field: 'is_featured' | 'is_spotlight' | 'is_active') {
     setToggling(`${pkg.id}-${field}`)
     // Optimistic update
     setPackages(prev =>
@@ -140,6 +141,7 @@ export default function PackagesPage() {
                   <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide hidden sm:table-cell">Type</th>
                   <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Price</th>
                   <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide hidden lg:table-cell">Seats</th>
+                  <th className="text-center px-3 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Spotlight</th>
                   <th className="text-center px-3 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Featured</th>
                   <th className="text-center px-3 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Active</th>
                   <th className="text-right px-5 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Actions</th>
@@ -187,6 +189,26 @@ export default function PackagesPage() {
                     <td className="px-4 py-3.5 text-gray-600 text-sm hidden lg:table-cell">
                       {pkg.seats_booked ?? 0}
                       {pkg.total_seats != null ? ` / ${pkg.total_seats}` : ''}
+                    </td>
+
+                    {/* Spotlight toggle */}
+                    <td className="px-3 py-3.5 text-center">
+                      <button
+                        onClick={() => toggleField(pkg, 'is_spotlight')}
+                        disabled={toggling === `${pkg.id}-is_spotlight`}
+                        title={pkg.is_spotlight ? 'Remove from spotlight' : 'Add to spotlight slider'}
+                        className="transition-colors disabled:opacity-40"
+                      >
+                        {toggling === `${pkg.id}-is_spotlight` ? (
+                          <Loader2 className="w-4 h-4 text-gray-400 animate-spin mx-auto" />
+                        ) : (
+                          <Zap
+                            className={`w-5 h-5 mx-auto transition-colors ${
+                              pkg.is_spotlight ? 'fill-amber-400 text-amber-400' : 'text-gray-300 hover:text-amber-400'
+                            }`}
+                          />
+                        )}
+                      </button>
                     </td>
 
                     {/* Featured toggle */}
