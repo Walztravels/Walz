@@ -10,7 +10,8 @@
     "db:push": "prisma db push",
     "db:migrate": "prisma migrate dev",
     "db:seed": "ts-node --project tsconfig.json prisma/seed.ts",
-    "db:studio": "prisma studio"
+    "db:studio": "prisma studio",
+    "seed": "npx prisma db seed"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.98.0",
@@ -72,5 +73,8 @@
     "tailwindcss": "^3.4.12",
     "ts-node": "^10.9.2",
     "typescript": "^5.6.2"
+  },
+  "prisma": {
+    "seed": "ts-node prisma/seed.ts"
   }
 }

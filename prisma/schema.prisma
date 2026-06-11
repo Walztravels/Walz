@@ -359,6 +359,7 @@ model SiteSetting {
   key       String   @unique
   value     String   @db.Text
   label     String?
+  createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
 
@@ -1247,6 +1248,57 @@ model EsimTopup {
 }
 
 // ===========================
+// Tours (bookable tours catalogue)
+// ===========================
+
+model Tour {
+  id          String   @id @default(cuid())
+  name        String
+  slug        String   @unique
+  location    String
+  duration    String
+  price       Float
+  currency    String   @default("USD")
+  description String
+  highlights  String?
+  photos      String[]
+  active      Boolean  @default(true)
+  order       Int      @default(0)
+  imageUrl    String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([slug])
+  @@index([active])
+}
+
+// ===========================
+// Packages (destination holiday packages)
+// ===========================
+
+model Package {
+  id               String   @id @default(cuid())
+  slug             String   @unique
+  destinationName  String
+  destinationIso2  String?
+  tagline          String?
+  heroImageUrl     String?
+  averageDays      Int?
+  startingPriceUsd Float?
+  bestTimeToVisit  String?
+  visaRequired     Boolean  @default(false)
+  visaIso2         String?
+  showOnWebsite    Boolean  @default(true)
+  displayOrder     Int      @default(0)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@index([slug])
+  @@index([showOnWebsite])
+  @@index([displayOrder])
+}
+
+// ===========================
 // RBAC — Role Permissions
 // ===========================
 
@@ -1260,4 +1312,41 @@ model RolePermission {
   updatedAt   DateTime @updatedAt
 
   @@index([role])
+}
+
+// ===========================
+// Legacy raw tables (kept in sync to prevent data loss)
+// ===========================
+
+/// Raw site_media table — managed outside Prisma ORM
+model site_media {
+  id           String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  media_key    String    @unique
+  label        String
+  page         String
+  section      String
+  media_type   String
+  current_url  String?
+  original_url String?
+  file_name    String?
+  file_size    Int?
+  width        Int?
+  height       Int?
+  alt_text     String?
+  updated_at   DateTime? @default(now()) @db.Timestamptz(6)
+  updated_by   String?
+}
+
+/// Raw ticket_templates table — managed outside Prisma ORM
+model ticket_templates {
+  id            String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  template_name String
+  template_type String
+  template_html String    @default("")
+  is_active     Boolean?  @default(true)
+  is_default    Boolean?  @default(false)
+  created_at    DateTime? @default(now()) @db.Timestamptz(6)
+  updated_at    DateTime? @default(now()) @db.Timestamptz(6)
+
+  @@index([template_type], map: "idx_ticket_templates_type")
 }
