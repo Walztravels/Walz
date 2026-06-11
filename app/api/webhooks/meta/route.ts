@@ -1,0 +1,295 @@
+/**
+ * app/api/webhooks/meta/route.ts
+ *
+ * Meta Webhook — handles Facebook Messenger and Instagram DM events.
+ *
+ * GET  — webhook verification (Meta pings this to confirm the endpoint)
+ * POST — incoming messages from Facebook pages and Instagram accounts
+ *
+ * Deploy this first, then register the URL in Meta Developer Console:
+ *   https://developers.facebook.com → your app → Webhooks
+ *   Callback URL: https://www.walztravels.com/api/webhooks/meta
+ *   Verify Token: META_VERIFY_TOKEN env var value
+ */
+
+import { NextResponse } from 'next/server'
+import prisma from '@/lib/db'
+
+export const dynamic = 'force-dynamic'
+
+// ── GET — Meta webhook verification ──────────────────────────────────────────
+export async function GET(req: Request) {
+  const url       = new URL(req.url)
+  const mode      = url.searchParams.get('hub.mode')
+  const token     = url.searchParams.get('hub.verify_token')
+  const challenge = url.searchParams.get('hub.challenge')
+
+  console.log('[meta-webhook] Verification attempt:', { mode, token: token?.slice(0, 6) + '…' })
+
+  if (mode === 'subscribe' && token === process.env.META_VERIFY_TOKEN) {
+    console.log('[meta-webhook] Verified successfully')
+    return new Response(challenge!, {
+      status: 200,
+      headers: { 'Content-Type': 'text/plain' },
+    })
+  }
+
+  console.warn('[meta-webhook] Verification FAILED — check META_VERIFY_TOKEN env var')
+  return new Response('Forbidden', { status: 403 })
+}
+
+// ── POST — Incoming messages ──────────────────────────────────────────────────
+export async function POST(req: Request) {
+  try {
+    const body = await req.json()
+
+    console.log('[meta-webhook] Received:', JSON.stringify(body, null, 2))
+
+    for (const entry of body.entry ?? []) {
+
+      // ── Facebook Messenger messages ───────────────────────────────────────
+      for (const messaging of entry.messaging ?? []) {
+        if (messaging.message && !messaging.message.is_echo) {
+          await handleFacebookMessage(messaging)
+        }
+      }
+
+      // ── Instagram DM messages ─────────────────────────────────────────────
+      for (const change of entry.changes ?? []) {
+        if (change.field === 'messages' && change.value?.messages) {
+          for (const msg of change.value.messages) {
+            if (msg.from?.id !== change.value.id) {
+              await handleInstagramMessage(msg, change.value)
+            }
+          }
+        }
+      }
+    }
+
+    return NextResponse.json({ status: 'ok' })
+
+  } catch (error) {
+    // Always return 200 — Meta will retry on non-200 and flood the endpoint
+    console.error('[meta-webhook] Error:', error)
+    return NextResponse.json({ status: 'ok' }, { status: 200 })
+  }
+}
+
+// ── Facebook Messenger handler ────────────────────────────────────────────────
+async function handleFacebookMessage(messaging: MessagePayload) {
+  const senderId    = messaging.sender.id
+  const messageText = messaging.message?.text ?? '[attachment]'
+  const timestamp   = new Date(messaging.timestamp * 1000).toISOString()
+
+  // Fetch sender profile from Graph API
+  let senderName = 'Facebook User'
+  try {
+    const res     = await fetch(
+      `https://graph.facebook.com/v18.0/${senderId}?fields=first_name,last_name&access_token=${process.env.META_PAGE_ACCESS_TOKEN}`
+    )
+    const profile = await res.json() as { first_name?: string; last_name?: string }
+    if (profile.first_name) {
+      senderName = [profile.first_name, profile.last_name].filter(Boolean).join(' ')
+    }
+  } catch (e) {
+    console.error('[meta-webhook] FB profile fetch error:', e)
+  }
+
+  await upsertLead({
+    source:    'facebook',
+    sourceId:  senderId,
+    name:      senderName,
+    message:   messageText,
+    timestamp,
+    platform:  'Facebook',
+  })
+}
+
+// ── Instagram DM handler ──────────────────────────────────────────────────────
+async function handleInstagramMessage(
+  msg:   IGMessage,
+  value: IGValue,
+) {
+  const senderId = msg.from?.id
+  if (!senderId) return
+
+  const username    = msg.from?.username ?? 'instagram_user'
+  const messageText = msg.text ?? '[attachment]'
+  const timestamp   = new Date(parseInt(msg.timestamp ?? '0') * 1000).toISOString()
+
+  await upsertLead({
+    source:            'instagram',
+    sourceId:          senderId,
+    name:              '@' + username,
+    instagramUsername: username,
+    message:           messageText,
+    timestamp,
+    platform:          'Instagram',
+  })
+}
+
+// ── Upsert lead + trigger Jade ────────────────────────────────────────────────
+async function upsertLead(params: {
+  source:             string
+  sourceId:           string
+  name:               string
+  instagramUsername?: string
+  message:            string
+  timestamp:          string
+  platform:           string
+}) {
+  const { source, sourceId, name, instagramUsername, message, timestamp, platform } = params
+
+  const newMsg: ConversationMessage = { role: 'client', message, timestamp }
+
+  // Look up by source + sourceId
+  const existing = await prisma.lead.findFirst({
+    where: { source, sourceId },
+  })
+
+  let lead: Awaited<ReturnType<typeof prisma.lead.findFirst>>
+
+  if (existing) {
+    const conversation: ConversationMessage[] = [...((existing.conversation as unknown as ConversationMessage[]) ?? []), newMsg]
+
+    lead = await prisma.lead.update({
+      where: { id: existing.id },
+      data: {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        conversation: conversation as any,
+        lastMessage:   message,
+        lastMessageAt: new Date(timestamp),
+        isRead:        false,
+      },
+    })
+
+    await sendJadeReply(lead as Lead, message, source)
+
+  } else {
+    lead = await prisma.lead.create({
+      data: {
+        name,
+        source,
+        sourceId,
+        instagramUsername: instagramUsername ?? null,
+        service:           'Other',
+        whatsapp:          null,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        conversation:      [newMsg] as any,
+        lastMessage:       message,
+        lastMessageAt:     new Date(timestamp),
+        isRead:            false,
+        jadeActive:        true,
+        assignedTo:        'Glory',
+        platform,
+        status:            'New',
+      },
+    })
+
+    await sendJadeReply(lead as Lead, message, source)
+  }
+
+  // Admin notification (non-fatal if it fails)
+  await prisma.notification
+    .create({
+      data: {
+        type:    `new_${source}_message`,
+        title:   `New ${platform} message`,
+        message: `${name}: ${message.substring(0, 80)}`,
+        read:    false,
+      },
+    })
+    .catch(err => console.error('[meta-webhook] Notification create error:', err))
+}
+
+// ── Jade auto-reply ───────────────────────────────────────────────────────────
+async function sendJadeReply(lead: Lead, userMessage: string, source: string) {
+  if (lead.jadeActive === false) return
+
+  try {
+    const { getJadeResponse } = await import('@/lib/jade-messaging')
+
+    const { response } = await getJadeResponse(
+      userMessage,
+      (lead.conversation as ConversationMessage[]) ?? [],
+      source === 'instagram' ? 'Instagram' : 'Facebook Messenger',
+      lead.name,
+    )
+
+    // Send reply via Graph API
+    const accessToken = source === 'instagram'
+      ? process.env.INSTAGRAM_ACCESS_TOKEN
+      : process.env.META_PAGE_ACCESS_TOKEN
+
+    if (accessToken) {
+      const sendRes = await fetch('https://graph.facebook.com/v18.0/me/messages', {
+        method:  'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization:  `Bearer ${accessToken}`,
+        },
+        body: JSON.stringify({
+          recipient: { id: lead.sourceId },
+          message:   { text: response },
+        }),
+      })
+
+      if (!sendRes.ok) {
+        const err = await sendRes.text()
+        console.error('[meta-webhook] Graph API send error:', err)
+      }
+    } else {
+      console.warn('[meta-webhook] No access token for', source)
+    }
+
+    // Append Jade reply to conversation
+    const updatedConv: ConversationMessage[] = [
+      ...((lead.conversation as unknown as ConversationMessage[]) ?? []),
+      { role: 'jade', message: response, timestamp: new Date().toISOString() },
+    ]
+
+    await prisma.lead.update({
+      where: { id: lead.id },
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      data:  { conversation: updatedConv as any },
+    })
+
+  } catch (error) {
+    console.error('[meta-webhook] Jade reply error:', error)
+  }
+}
+
+// ── Types ─────────────────────────────────────────────────────────────────────
+
+interface MessagePayload {
+  sender:    { id: string }
+  recipient: { id: string }
+  timestamp: number
+  message?: { text?: string; is_echo?: boolean }
+}
+
+interface IGMessage {
+  from?:      { id?: string; username?: string }
+  text?:      string
+  timestamp?: string
+}
+
+interface IGValue {
+  id?:      string
+  messages?: IGMessage[]
+}
+
+interface ConversationMessage {
+  role:      'client' | 'jade'
+  message:   string
+  timestamp: string
+}
+
+// Minimal Lead type matching Prisma output
+interface Lead {
+  id:           string
+  name:         string
+  sourceId:     string | null
+  jadeActive:   boolean
+  conversation: unknown
+}

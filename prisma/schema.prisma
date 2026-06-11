@@ -371,20 +371,51 @@ model Lead {
   id          String   @id @default(cuid())
   name        String
   email       String?
-  whatsapp    String
-  service     String   // Visa Processing, Flight Booking, Holiday Package, Group Travel, Corporate Travel, Hotel Only, Other
+  whatsapp    String?
+  service     String   @default("Other") // Visa Processing, Flight Booking, Holiday Package, Group Travel, Corporate Travel, Hotel Only, Other
   destination String?
   travelDate  String?
   details     String?  @db.Text
-  source      String   @default("homepage")
-  status      String   @default("New") // New, Contacted, Deposit Paid, In Progress, Closed
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  source      String   @default("homepage") // homepage | facebook | instagram | whatsapp | referral
+  status      String   @default("New")      // New, Contacted, Deposit Paid, In Progress, Closed
+  // ── Social / messaging ─────────────────────────────────────────────────
+  sourceId          String?   // FB/IG PSID or unique sender id
+  instagramUsername String?
+  conversation      Json      @default("[]")  // [{role, message, timestamp}]
+  lastMessage       String?   @db.Text
+  lastMessageAt     DateTime?
+  isRead            Boolean   @default(true)
+  jadeActive        Boolean   @default(true)
+  assignedTo        String?
+  platform          String?   // Facebook | Instagram | WhatsApp | Website
+  // ──────────────────────────────────────────────────────────────────────
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([status])
   @@index([createdAt])
   @@index([service])
   @@index([source])
+  @@index([sourceId])
+  @@index([isRead])
+}
+
+// ===========================
+// Notifications (admin alerts)
+// ===========================
+
+model Notification {
+  id        String   @id @default(cuid())
+  type      String   // new_facebook_message | new_instagram_message | new_lead | etc.
+  title     String
+  message   String   @db.Text
+  read      Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([read])
+  @@index([type])
+  @@index([createdAt])
 }
 
 model Staff {
