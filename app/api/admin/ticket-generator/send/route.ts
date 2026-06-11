@@ -3,10 +3,8 @@ import { getAdminSession } from '@/lib/admin-auth'
 import prisma from '@/lib/db'
 import { Resend } from 'resend'
 import { renderToBuffer } from '@react-pdf/renderer'
-import { renderToStaticMarkup } from 'react-dom/server'
 import React from 'react'
 import { TicketPDFDocument } from '@/components/admin/TicketPDF'
-import { FlightTicketEmail } from '@/components/tickets/FlightTicketEmail'
 import { generateFlightICS } from '@/lib/generateICS'
 import { createClient } from '@supabase/supabase-js'
 import type { FlightTicketEmailProps, FlightLeg } from '@/types/flight-ticket'
@@ -171,6 +169,8 @@ export async function POST(req: NextRequest) {
       agentMessage: body.message as string | undefined,
     }
 
+    const { renderToStaticMarkup } = await import('react-dom/server')
+    const { FlightTicketEmail }    = await import('@/components/tickets/FlightTicketEmail')
     const emailHtml = '<!DOCTYPE html>' + renderToStaticMarkup(
       React.createElement(FlightTicketEmail, emailProps)
     )
