@@ -9,6 +9,7 @@ import {
   Plus, Trash2, AlertCircle, RefreshCw, Copy, Check,
 } from 'lucide-react'
 import { TicketPreview } from '@/components/admin/TicketPreview'
+import type { FlightLeg as FlightLegType, Passenger as FlightPassenger, PricingBreakdown } from '@/types/flight-ticket'
 
 // ─── Ticket type config ────────────────────────────────────────────────────────
 
@@ -33,6 +34,18 @@ const STEPS = ['Ticket Type', 'Client Info', 'Booking Details', 'Message & Send'
 // ─── State types ───────────────────────────────────────────────────────────────
 
 interface Passenger { name: string; passport: string; seat: string }
+
+// ── New flight ticket types (multi-leg) ──────────────────────────────────────
+
+interface FlightTicketData {
+  pnr:          string
+  tripType:     'one-way' | 'return'
+  outbound:     FlightLegType[]
+  inbound:      FlightLegType[]
+  passengers:   FlightPassenger[]
+  includePricing: boolean
+  pricing: PricingBreakdown
+}
 interface InclusionItem { included: boolean; note: string }
 
 interface ClientInfo  { name: string; email: string; phone: string }
@@ -47,6 +60,25 @@ interface PackageData { package_reference: string; package_name: string; destina
 
 const BLANK_CLIENT: ClientInfo = { name: '', email: '', phone: '' }
 const BLANK_FLIGHT: FlightData = { booking_ref: '', pnr: '', airline: '', flight_number: '', from_city: '', from_code: '', to_city: '', to_code: '', departure_date: '', departure_time: '', arrival_date: '', arrival_time: '', duration: '', cabin_class: 'Economy', seat_number: '', baggage_allowance: '23kg', passport_number: '', additional_passengers: [] }
+const BLANK_LEG: FlightLegType = {
+  flightNumber: '', airline: '', aircraft: '', operatedBy: '',
+  departureCode: '', departureCity: '', departureAirport: '', departureCountry: '', departureTerminal: '',
+  departureDate: '', departureTime: '',
+  arrivalCode: '', arrivalCity: '', arrivalAirport: '', arrivalCountry: '', arrivalTerminal: '',
+  arrivalDate: '', arrivalTime: '', arrivalNextDay: false,
+  duration: '', cabinClass: 'Economy', baggage: '23kg', seat: '', mealPreference: '', connectionTime: '',
+}
+const BLANK_FLIGHT_PASSENGER: FlightPassenger = {
+  title: 'Mr', firstName: '', lastName: '', eTicketNumber: '', cabinClass: 'Economy', seat: '', meal: '',
+}
+const BLANK_FLIGHT_TICKET: FlightTicketData = {
+  pnr: '', tripType: 'one-way',
+  outbound: [{ ...BLANK_LEG }],
+  inbound:  [],
+  passengers: [{ ...BLANK_FLIGHT_PASSENGER }],
+  includePricing: false,
+  pricing: { currency: 'USD', currencySymbol: '$', baseFare: 0, taxes: 0, total: 0, passengerCount: 1, grandTotal: 0, lineItems: [] },
+}
 const BLANK_HOTEL: HotelData = { booking_ref: '', hotel_name: '', hotel_address: '', hotel_phone: '', hotel_email: '', checkin_date: '', checkin_time: '14:00', checkout_date: '', checkout_time: '12:00', num_nights: '', room_type: '', num_guests: '1', guest_names: '', confirmation_number: '', special_requests: '' }
 const BLANK_TOUR: TourData = { booking_ref: '', tour_name: '', tour_operator: '', guide_name: '', tour_date: '', tour_time: '', duration: '', meeting_point: '', num_guests: '1', guest_names: '', pickup_included: false, pickup_address: '', pickup_time: '', what_included: '', what_to_bring: '', emergency_contact: '' }
 const BLANK_TRANSFER: TransferData = { booking_ref: '', transfer_company: '', vehicle_type: 'Sedan', driver_name: '', driver_phone: '', pickup_location: '', pickup_date: '', pickup_time: '', dropoff_location: '', flight_number: '', num_passengers: '1', passenger_names: '', special_instructions: '' }
@@ -145,87 +177,376 @@ function Step2({ client, setClient }: { client: ClientInfo; setClient: (c: Clien
 
 // ─── STEP 3 variants ───────────────────────────────────────────────────────────
 
-function FlightStep({ d, set }: { d: FlightData; set: (v: FlightData) => void }) {
-  function setPax(i: number, k: keyof Passenger, v: string) {
-    const pax = [...d.additional_passengers]
-    pax[i] = { ...pax[i], [k]: v }
-    set({ ...d, additional_passengers: pax })
+// ─── NEW FLIGHT TICKET STEP (multi-leg, passengers, pricing) ──────────────────
+
+function LegForm({
+  leg, index, total, direction,
+  onChange, onRemove,
+}: {
+  leg: FlightLegType
+  index: number
+  total: number
+  direction: 'outbound' | 'inbound'
+  onChange: (l: FlightLegType) => void
+  onRemove: () => void
+}) {
+  const s = (k: keyof FlightLegType, v: unknown) => onChange({ ...leg, [k]: v })
+  const isLast = index === total - 1
+  const label = direction === 'outbound' ? 'Outbound' : 'Inbound'
+
+  return (
+    <div className="rounded-xl border border-gray-200 bg-gray-50 overflow-hidden">
+      <div className="flex items-center justify-between px-4 py-2.5 bg-[#0B1F3A]">
+        <span className="text-[10px] font-bold text-[#C9A84C] uppercase tracking-wider">
+          {label} Leg {index + 1}
+        </span>
+        {total > 1 && (
+          <button type="button" onClick={onRemove} className="text-red-400 hover:text-red-300 transition">
+            <Trash2 className="w-3.5 h-3.5" />
+          </button>
+        )}
+      </div>
+      <div className="p-4 space-y-3">
+        <Row>
+          <F label="Flight Number" req>
+            <input className={base} placeholder="BA 0076" value={leg.flightNumber}
+              onChange={e => s('flightNumber', e.target.value)} />
+          </F>
+          <F label="Airline" req>
+            <input className={base} placeholder="Airline name" value={leg.airline}
+              onChange={e => s('airline', e.target.value)} />
+          </F>
+        </Row>
+        <Row>
+          <F label="Aircraft (optional)">
+            <input className={base} placeholder="Boeing 777-300ER" value={leg.aircraft ?? ''}
+              onChange={e => s('aircraft', e.target.value)} />
+          </F>
+          <F label="Operated By (optional)">
+            <input className={base} placeholder="Operated by name" value={leg.operatedBy ?? ''}
+              onChange={e => s('operatedBy', e.target.value)} />
+          </F>
+        </Row>
+
+        <div className="border-t border-gray-200 pt-3">
+          <div className="text-[9px] font-bold text-[#0B1F3A] uppercase tracking-wider mb-2 flex items-center gap-1.5">
+            <span className="w-0.5 h-3 bg-blue-400 rounded-full" />Departure
+          </div>
+          <div className="grid grid-cols-3 gap-2">
+            <F label="IATA Code" req>
+              <input className={base} placeholder="LOS" maxLength={3}
+                value={leg.departureCode} onChange={e => s('departureCode', e.target.value.toUpperCase())} />
+            </F>
+            <F label="City" req>
+              <input className={base} placeholder="Lagos" value={leg.departureCity}
+                onChange={e => s('departureCity', e.target.value)} />
+            </F>
+            <F label="Terminal">
+              <input className={base} placeholder="T1" value={leg.departureTerminal ?? ''}
+                onChange={e => s('departureTerminal', e.target.value)} />
+            </F>
+          </div>
+          <Row>
+            <F label="Airport Name">
+              <input className={base} placeholder="Murtala Muhammed International" value={leg.departureAirport}
+                onChange={e => s('departureAirport', e.target.value)} />
+            </F>
+            <F label="Country">
+              <input className={base} placeholder="Nigeria" value={leg.departureCountry}
+                onChange={e => s('departureCountry', e.target.value)} />
+            </F>
+          </Row>
+          <Row>
+            <F label="Date" req>
+              <input className={base} type="date" value={leg.departureDate}
+                onChange={e => s('departureDate', e.target.value)} />
+            </F>
+            <F label="Time" req>
+              <input className={base} type="time" value={leg.departureTime}
+                onChange={e => s('departureTime', e.target.value)} />
+            </F>
+          </Row>
+        </div>
+
+        <div className="border-t border-gray-200 pt-3">
+          <div className="text-[9px] font-bold text-[#0B1F3A] uppercase tracking-wider mb-2 flex items-center gap-1.5">
+            <span className="w-0.5 h-3 bg-green-400 rounded-full" />Arrival
+          </div>
+          <div className="grid grid-cols-3 gap-2">
+            <F label="IATA Code" req>
+              <input className={base} placeholder="LHR" maxLength={3}
+                value={leg.arrivalCode} onChange={e => s('arrivalCode', e.target.value.toUpperCase())} />
+            </F>
+            <F label="City" req>
+              <input className={base} placeholder="London" value={leg.arrivalCity}
+                onChange={e => s('arrivalCity', e.target.value)} />
+            </F>
+            <F label="Terminal">
+              <input className={base} placeholder="T5" value={leg.arrivalTerminal ?? ''}
+                onChange={e => s('arrivalTerminal', e.target.value)} />
+            </F>
+          </div>
+          <Row>
+            <F label="Airport Name">
+              <input className={base} placeholder="Heathrow Airport" value={leg.arrivalAirport}
+                onChange={e => s('arrivalAirport', e.target.value)} />
+            </F>
+            <F label="Country">
+              <input className={base} placeholder="United Kingdom" value={leg.arrivalCountry}
+                onChange={e => s('arrivalCountry', e.target.value)} />
+            </F>
+          </Row>
+          <Row>
+            <F label="Date" req>
+              <input className={base} type="date" value={leg.arrivalDate}
+                onChange={e => s('arrivalDate', e.target.value)} />
+            </F>
+            <F label="Time" req>
+              <input className={base} type="time" value={leg.arrivalTime}
+                onChange={e => s('arrivalTime', e.target.value)} />
+            </F>
+          </Row>
+          <div className="flex items-center gap-2 mt-1">
+            <input type="checkbox" id={`nextday-${direction}-${index}`}
+              checked={!!leg.arrivalNextDay}
+              onChange={e => s('arrivalNextDay', e.target.checked)}
+              className="rounded accent-[#C9A84C]" />
+            <label htmlFor={`nextday-${direction}-${index}`} className="text-[10px] text-gray-500">
+              Arrives next day (+1)
+            </label>
+          </div>
+        </div>
+
+        <div className="border-t border-gray-200 pt-3">
+          <div className="text-[9px] font-bold text-[#0B1F3A] uppercase tracking-wider mb-2 flex items-center gap-1.5">
+            <span className="w-0.5 h-3 bg-[#C9A84C] rounded-full" />Flight Details
+          </div>
+          <Row>
+            <F label="Duration" req>
+              <input className={base} placeholder="6h 30m" value={leg.duration}
+                onChange={e => s('duration', e.target.value)} />
+            </F>
+            <F label="Cabin Class">
+              <select className={base} value={leg.cabinClass} onChange={e => s('cabinClass', e.target.value)}>
+                {['Economy', 'Premium Economy', 'Business', 'First Class'].map(o => <option key={o}>{o}</option>)}
+              </select>
+            </F>
+          </Row>
+          <Row>
+            <F label="Baggage Allowance" req>
+              <input className={base} placeholder="23kg" value={leg.baggage}
+                onChange={e => s('baggage', e.target.value)} />
+            </F>
+            <F label="Seat Number (optional)">
+              <input className={base} placeholder="24A" value={leg.seat ?? ''}
+                onChange={e => s('seat', e.target.value)} />
+            </F>
+          </Row>
+          <F label="Meal Preference (optional)">
+            <input className={base} placeholder="Standard / Vegetarian / Halal / Kosher..." value={leg.mealPreference ?? ''}
+              onChange={e => s('mealPreference', e.target.value)} />
+          </F>
+          {!isLast && (
+            <F label="Connection Time (optional)">
+              <input className={base} placeholder="2h 15m" value={leg.connectionTime ?? ''}
+                onChange={e => s('connectionTime', e.target.value)} />
+            </F>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function FlightTicketStep({ d, set }: { d: FlightTicketData; set: (v: FlightTicketData) => void }) {
+  const addLeg = (dir: 'outbound' | 'inbound') => {
+    set({ ...d, [dir]: [...d[dir], { ...BLANK_LEG }] })
   }
+  const removeLeg = (dir: 'outbound' | 'inbound', i: number) => {
+    set({ ...d, [dir]: d[dir].filter((_, j) => j !== i) })
+  }
+  const updateLeg = (dir: 'outbound' | 'inbound', i: number, leg: FlightLegType) => {
+    const arr = [...d[dir]]; arr[i] = leg
+    set({ ...d, [dir]: arr })
+  }
+  const addPax = () => {
+    set({ ...d, passengers: [...d.passengers, { ...BLANK_FLIGHT_PASSENGER }] })
+  }
+  const removePax = (i: number) => {
+    set({ ...d, passengers: d.passengers.filter((_, j) => j !== i) })
+  }
+  const updatePax = (i: number, pax: FlightPassenger) => {
+    const arr = [...d.passengers]; arr[i] = pax
+    set({ ...d, passengers: arr })
+  }
+  const setPricing = (k: keyof PricingBreakdown, v: unknown) => {
+    const p = { ...d.pricing, [k]: v }
+    p.total = Number(p.baseFare) + Number(p.taxes) + Number(p.carrierFees ?? 0)
+    p.grandTotal = p.total * Number(p.passengerCount)
+    set({ ...d, pricing: p })
+  }
+
   return (
     <div className="space-y-4">
-      <Section title="Passenger">
-        <F label="Passport Number">
-          <input className={base} placeholder="A12345678" value={d.passport_number}
-            onChange={e => set({ ...d, passport_number: e.target.value })} />
-        </F>
-      </Section>
-      <Section title="Route">
+      {/* PNR + Trip Type */}
+      <Section title="Booking">
         <Row>
-          <F label="From City" req><input className={base} placeholder="Lagos" value={d.from_city} onChange={e => set({ ...d, from_city: e.target.value })} /></F>
-          <F label="From Code" req><input className={base} placeholder="LOS" maxLength={3} value={d.from_code} onChange={e => set({ ...d, from_code: e.target.value.toUpperCase() })} /></F>
-        </Row>
-        <Row>
-          <F label="To City" req><input className={base} placeholder="London" value={d.to_city} onChange={e => set({ ...d, to_city: e.target.value })} /></F>
-          <F label="To Code" req><input className={base} placeholder="LHR" maxLength={3} value={d.to_code} onChange={e => set({ ...d, to_code: e.target.value.toUpperCase() })} /></F>
-        </Row>
-      </Section>
-      <Section title="Flight Info">
-        <Row>
-          <F label="Airline" req><input className={base} placeholder="British Airways" value={d.airline} onChange={e => set({ ...d, airline: e.target.value })} /></F>
-          <F label="Flight Number"><input className={base} placeholder="BA 0076" value={d.flight_number} onChange={e => set({ ...d, flight_number: e.target.value })} /></F>
-        </Row>
-        <Row>
-          <F label="Cabin Class">
-            <select className={base} value={d.cabin_class} onChange={e => set({ ...d, cabin_class: e.target.value })}>
-              {['Economy','Premium Economy','Business','First Class'].map(o => <option key={o}>{o}</option>)}
+          <F label="Airline PNR" req>
+            <input className={base} placeholder="ABCXYZ" maxLength={8}
+              value={d.pnr} onChange={e => set({ ...d, pnr: e.target.value.toUpperCase() })} />
+          </F>
+          <F label="Trip Type" req>
+            <select className={base} value={d.tripType}
+              onChange={e => {
+                const t = e.target.value as 'one-way' | 'return'
+                set({ ...d, tripType: t, inbound: t === 'one-way' ? [] : (d.inbound.length ? d.inbound : [{ ...BLANK_LEG }]) })
+              }}>
+              <option value="one-way">One Way</option>
+              <option value="return">Return</option>
             </select>
           </F>
-          <F label="Duration"><input className={base} placeholder="6h 30m" value={d.duration} onChange={e => set({ ...d, duration: e.target.value })} /></F>
-        </Row>
-        <Row>
-          <F label="Booking Ref"><input className={base} placeholder="ABCDEF" value={d.booking_ref} onChange={e => set({ ...d, booking_ref: e.target.value })} /></F>
-          <F label="PNR"><input className={base} placeholder="XYZABC" value={d.pnr} onChange={e => set({ ...d, pnr: e.target.value })} /></F>
         </Row>
       </Section>
-      <Section title="Departure">
-        <Row>
-          <F label="Date"><input className={base} type="date" value={d.departure_date} onChange={e => set({ ...d, departure_date: e.target.value })} /></F>
-          <F label="Time"><input className={base} type="time" value={d.departure_time} onChange={e => set({ ...d, departure_time: e.target.value })} /></F>
-        </Row>
+
+      {/* Outbound legs */}
+      <Section title="Outbound Flights">
+        {d.outbound.map((leg, i) => (
+          <LegForm key={i} leg={leg} index={i} total={d.outbound.length}
+            direction="outbound"
+            onChange={l => updateLeg('outbound', i, l)}
+            onRemove={() => removeLeg('outbound', i)} />
+        ))}
+        {d.outbound.length < 4 && (
+          <button type="button" onClick={() => addLeg('outbound')}
+            className="flex items-center gap-2 text-xs text-[#C9A84C] font-semibold hover:text-[#B8973B] transition">
+            <Plus className="w-3.5 h-3.5" /> Add Outbound Leg
+          </button>
+        )}
       </Section>
-      <Section title="Arrival">
-        <Row>
-          <F label="Date"><input className={base} type="date" value={d.arrival_date} onChange={e => set({ ...d, arrival_date: e.target.value })} /></F>
-          <F label="Time"><input className={base} type="time" value={d.arrival_time} onChange={e => set({ ...d, arrival_time: e.target.value })} /></F>
-        </Row>
-      </Section>
-      <Section title="Seat & Baggage">
-        <Row>
-          <F label="Seat Number"><input className={base} placeholder="24A" value={d.seat_number} onChange={e => set({ ...d, seat_number: e.target.value })} /></F>
-          <F label="Baggage Allowance"><input className={base} placeholder="23kg" value={d.baggage_allowance} onChange={e => set({ ...d, baggage_allowance: e.target.value })} /></F>
-        </Row>
-      </Section>
-      <Section title="Additional Passengers">
-        {d.additional_passengers.map((p, i) => (
-          <div key={i} className="p-3 rounded-xl border border-gray-200 bg-gray-50 space-y-2">
-            <div className="flex items-center justify-between">
-              <span className="text-[10px] font-bold text-[#0B1F3A] uppercase tracking-wider">Passenger {i + 2}</span>
-              <button type="button" onClick={() => set({ ...d, additional_passengers: d.additional_passengers.filter((_, j) => j !== i) })} className="text-gray-400 hover:text-red-500 transition">
-                <Trash2 className="w-3.5 h-3.5" />
-              </button>
+
+      {/* Inbound legs — only if return */}
+      {d.tripType === 'return' && (
+        <Section title="Inbound Flights">
+          {d.inbound.map((leg, i) => (
+            <LegForm key={i} leg={leg} index={i} total={d.inbound.length}
+              direction="inbound"
+              onChange={l => updateLeg('inbound', i, l)}
+              onRemove={() => removeLeg('inbound', i)} />
+          ))}
+          {d.inbound.length < 4 && (
+            <button type="button" onClick={() => addLeg('inbound')}
+              className="flex items-center gap-2 text-xs text-[#C9A84C] font-semibold hover:text-[#B8973B] transition">
+              <Plus className="w-3.5 h-3.5" /> Add Inbound Leg
+            </button>
+          )}
+        </Section>
+      )}
+
+      {/* Passengers */}
+      <Section title="Passengers">
+        {d.passengers.map((p, i) => (
+          <div key={i} className="rounded-xl border border-gray-200 bg-gray-50 overflow-hidden">
+            <div className="flex items-center justify-between px-4 py-2 bg-[#F3F4F6]">
+              <span className="text-[10px] font-bold text-[#0B1F3A] uppercase tracking-wider">Passenger {i + 1}</span>
+              {d.passengers.length > 1 && (
+                <button type="button" onClick={() => removePax(i)} className="text-gray-400 hover:text-red-500 transition">
+                  <Trash2 className="w-3.5 h-3.5" />
+                </button>
+              )}
             </div>
-            <F label="Full Name"><input className={base} placeholder="Jane Doe" value={p.name} onChange={e => setPax(i,'name',e.target.value)} /></F>
-            <Row>
-              <F label="Passport"><input className={base} placeholder="B98765432" value={p.passport} onChange={e => setPax(i,'passport',e.target.value)} /></F>
-              <F label="Seat"><input className={base} placeholder="24B" value={p.seat} onChange={e => setPax(i,'seat',e.target.value)} /></F>
-            </Row>
+            <div className="p-3 space-y-2">
+              <div className="grid grid-cols-3 gap-2">
+                <F label="Title">
+                  <select className={base} value={p.title} onChange={e => updatePax(i, { ...p, title: e.target.value })}>
+                    {['Mr','Mrs','Ms','Miss','Dr','Prof'].map(t => <option key={t}>{t}</option>)}
+                  </select>
+                </F>
+                <F label="First Name" req>
+                  <input className={base} placeholder="John" value={p.firstName}
+                    onChange={e => updatePax(i, { ...p, firstName: e.target.value })} />
+                </F>
+                <F label="Last Name" req>
+                  <input className={base} placeholder="Doe" value={p.lastName}
+                    onChange={e => updatePax(i, { ...p, lastName: e.target.value })} />
+                </F>
+              </div>
+              <Row>
+                <F label="E-Ticket Number">
+                  <input className={base} placeholder="180-1234567890" value={p.eTicketNumber ?? ''}
+                    onChange={e => updatePax(i, { ...p, eTicketNumber: e.target.value })} />
+                </F>
+                <F label="Cabin Class">
+                  <select className={base} value={p.cabinClass} onChange={e => updatePax(i, { ...p, cabinClass: e.target.value })}>
+                    {['Economy', 'Premium Economy', 'Business', 'First Class'].map(o => <option key={o}>{o}</option>)}
+                  </select>
+                </F>
+              </Row>
+              <Row>
+                <F label="Seat">
+                  <input className={base} placeholder="24A" value={p.seat ?? ''}
+                    onChange={e => updatePax(i, { ...p, seat: e.target.value })} />
+                </F>
+                <F label="Meal Preference">
+                  <input className={base} placeholder="Standard" value={p.meal ?? ''}
+                    onChange={e => updatePax(i, { ...p, meal: e.target.value })} />
+                </F>
+              </Row>
+            </div>
           </div>
         ))}
-        {d.additional_passengers.length < 5 && (
-          <button type="button" onClick={() => set({ ...d, additional_passengers: [...d.additional_passengers, { name:'', passport:'', seat:'' }] })}
+        {d.passengers.length < 9 && (
+          <button type="button" onClick={addPax}
             className="flex items-center gap-2 text-xs text-[#C9A84C] font-semibold hover:text-[#B8973B] transition">
             <Plus className="w-3.5 h-3.5" /> Add Passenger
           </button>
+        )}
+      </Section>
+
+      {/* Pricing (optional) */}
+      <Section title="Pricing">
+        <div className="flex items-center gap-3">
+          <input type="checkbox" id="include-pricing" checked={d.includePricing}
+            onChange={e => set({ ...d, includePricing: e.target.checked })}
+            className="rounded accent-[#C9A84C]" />
+          <label htmlFor="include-pricing" className="text-xs text-gray-600">Include pricing breakdown in email</label>
+        </div>
+        {d.includePricing && (
+          <div className="space-y-3 pt-2">
+            <Row>
+              <F label="Currency">
+                <select className={base} value={d.pricing.currency}
+                  onChange={e => {
+                    const sym: Record<string, string> = { USD:'$', GBP:'£', EUR:'€', CAD:'CA$', AED:'د.إ', NGN:'₦', GHS:'GH₵' }
+                    set({ ...d, pricing: { ...d.pricing, currency: e.target.value, currencySymbol: sym[e.target.value] ?? e.target.value } })
+                  }}>
+                  {['USD','GBP','EUR','CAD','AED','NGN','GHS'].map(c => <option key={c}>{c}</option>)}
+                </select>
+              </F>
+              <F label="Passengers">
+                <input className={base} type="number" min="1" value={d.pricing.passengerCount}
+                  onChange={e => setPricing('passengerCount', parseInt(e.target.value) || 1)} />
+              </F>
+            </Row>
+            <Row>
+              <F label="Base Fare (per pax)">
+                <input className={base} type="number" step="0.01" min="0" value={d.pricing.baseFare}
+                  onChange={e => setPricing('baseFare', parseFloat(e.target.value) || 0)} />
+              </F>
+              <F label="Taxes & Fees (per pax)">
+                <input className={base} type="number" step="0.01" min="0" value={d.pricing.taxes}
+                  onChange={e => setPricing('taxes', parseFloat(e.target.value) || 0)} />
+              </F>
+            </Row>
+            <F label="Carrier Fees (optional)">
+              <input className={base} type="number" step="0.01" min="0" value={d.pricing.carrierFees ?? ''}
+                onChange={e => setPricing('carrierFees', parseFloat(e.target.value) || undefined)} />
+            </F>
+            <div className="p-3 bg-[#F7F4EF] rounded-lg border border-[#E8D98B]">
+              <div className="text-[10px] text-gray-500 mb-1">Auto-calculated</div>
+              <div className="flex justify-between text-xs"><span>Total per pax</span><span className="font-bold">{d.pricing.currency} {d.pricing.total.toFixed(2)}</span></div>
+              <div className="flex justify-between text-sm font-bold text-[#C9A84C] mt-1"><span>Grand Total ({d.pricing.passengerCount} pax)</span><span>{d.pricing.currencySymbol}{d.pricing.grandTotal.toFixed(2)}</span></div>
+            </div>
+          </div>
         )}
       </Section>
     </div>
@@ -462,18 +783,18 @@ function PackageStep({ d, set }: { d: PackageData; set: (v: PackageData) => void
 // ─── STEP 3 wrapper ─────────────────────────────────────────────────────────────
 
 function Step3({
-  ticketType, flight, hotel, tour, transfer, visa, pkg,
-  setFlight, setHotel, setTour, setTransfer, setVisa, setPkg,
+  ticketType, flightTicket, hotel, tour, transfer, visa, pkg,
+  setFlightTicket, setHotel, setTour, setTransfer, setVisa, setPkg,
 }: {
   ticketType: string
-  flight: FlightData; hotel: HotelData; tour: TourData
+  flightTicket: FlightTicketData; hotel: HotelData; tour: TourData
   transfer: TransferData; visa: VisaData; pkg: PackageData
-  setFlight: (v: FlightData) => void; setHotel: (v: HotelData) => void
+  setFlightTicket: (v: FlightTicketData) => void; setHotel: (v: HotelData) => void
   setTour: (v: TourData) => void; setTransfer: (v: TransferData) => void
   setVisa: (v: VisaData) => void; setPkg: (v: PackageData) => void
 }) {
   if (!ticketType) return <p className="text-xs text-gray-400 text-center py-6">Please select a ticket type in Step 1 first.</p>
-  if (ticketType === 'flight')   return <FlightStep   d={flight}   set={setFlight} />
+  if (ticketType === 'flight')   return <FlightTicketStep d={flightTicket} set={setFlightTicket} />
   if (ticketType === 'hotel')    return <HotelStep    d={hotel}    set={setHotel} />
   if (ticketType === 'tour')     return <TourStep     d={tour}     set={setTour} />
   if (ticketType === 'transfer') return <TransferStep d={transfer} set={setTransfer} />
@@ -573,9 +894,35 @@ function Stepper({ step }: { step: number }) {
 
 // ─── Build API payload ─────────────────────────────────────────────────────────
 
-function buildPayload(ticketType: string, client: ClientInfo, message: string, flight: FlightData, hotel: HotelData, tour: TourData, transfer: TransferData, visa: VisaData, pkg: PackageData): Record<string, unknown> {
+function buildPayload(ticketType: string, client: ClientInfo, message: string, flightTicket: FlightTicketData, hotel: HotelData, tour: TourData, transfer: TransferData, visa: VisaData, pkg: PackageData): Record<string, unknown> {
   const base = { ticket_type: ticketType, client_name: client.name, client_email: client.email, client_phone: client.phone, message }
-  if (ticketType === 'flight')   return { ...base, passport_number: flight.passport_number, from_city: flight.from_city, from_code: flight.from_code, to_city: flight.to_city, to_code: flight.to_code, airline: flight.airline, flight_number: flight.flight_number, cabin_class: flight.cabin_class, departure_date: flight.departure_date, departure_time: flight.departure_time, arrival_date: flight.arrival_date, arrival_time: flight.arrival_time, duration: flight.duration, seat_number: flight.seat_number, baggage_allowance: flight.baggage_allowance, booking_reference: flight.booking_ref, pnr: flight.pnr, additional_passengers: flight.additional_passengers }
+  if (ticketType === 'flight') {
+    const lastOutbound = flightTicket.outbound[flightTicket.outbound.length - 1]
+    return {
+      ...base,
+      pnr: flightTicket.pnr,
+      tripType: flightTicket.tripType,
+      outbound: flightTicket.outbound,
+      inbound: flightTicket.inbound,
+      passengers: flightTicket.passengers,
+      firstName: client.name.split(' ')[0] ?? '',
+      lastName: client.name.split(' ').slice(1).join(' ') ?? '',
+      title: '',
+      email: client.email,
+      phone: client.phone,
+      // Flat fields for preview/legacy compatibility
+      from_city: flightTicket.outbound[0]?.departureCity ?? '',
+      from_code: flightTicket.outbound[0]?.departureCode ?? '',
+      to_city: lastOutbound?.arrivalCity ?? '',
+      to_code: lastOutbound?.arrivalCode ?? '',
+      airline: flightTicket.outbound[0]?.airline ?? '',
+      flight_number: flightTicket.outbound[0]?.flightNumber ?? '',
+      cabin_class: flightTicket.outbound[0]?.cabinClass ?? '',
+      departure_date: flightTicket.outbound[0]?.departureDate ?? '',
+      departure_time: flightTicket.outbound[0]?.departureTime ?? '',
+      ...(flightTicket.includePricing ? { pricing: flightTicket.pricing } : {}),
+    }
+  }
   if (ticketType === 'hotel')    return { ...base, num_guests: hotel.num_guests, guest_names: hotel.guest_names, hotel_name: hotel.hotel_name, hotel_address: hotel.hotel_address, hotel_phone: hotel.hotel_phone, hotel_email: hotel.hotel_email, checkin_date: hotel.checkin_date, checkin_time: hotel.checkin_time, checkout_date: hotel.checkout_date, checkout_time: hotel.checkout_time, num_nights: hotel.num_nights, room_type: hotel.room_type, confirmation_number: hotel.confirmation_number, special_requests: hotel.special_requests }
   if (ticketType === 'tour')     return { ...base, num_guests: tour.num_guests, guest_names: tour.guest_names, tour_name: tour.tour_name, tour_operator: tour.tour_operator, guide_name: tour.guide_name, tour_date: tour.tour_date, tour_time: tour.tour_time, duration: tour.duration, meeting_point: tour.meeting_point, pickup_included: tour.pickup_included ? 'yes' : 'no', pickup_address: tour.pickup_address, pickup_time: tour.pickup_time, what_included: tour.what_included, what_to_bring: tour.what_to_bring, emergency_contact: tour.emergency_contact, booking_reference: tour.booking_ref }
   if (ticketType === 'transfer') return { ...base, num_passengers: transfer.num_passengers, passenger_names: transfer.passenger_names, transfer_company: transfer.transfer_company, vehicle_type: transfer.vehicle_type, driver_name: transfer.driver_name, driver_phone: transfer.driver_phone, pickup_location: transfer.pickup_location, pickup_date: transfer.pickup_date, pickup_time: transfer.pickup_time, dropoff_location: transfer.dropoff_location, flight_number: transfer.flight_number, booking_reference: transfer.booking_ref, special_instructions: transfer.special_instructions }
@@ -586,8 +933,8 @@ function buildPayload(ticketType: string, client: ClientInfo, message: string, f
 
 // ─── Build preview data ────────────────────────────────────────────────────────
 
-function buildPreview(ticketType: string, client: ClientInfo, message: string, flight: FlightData, hotel: HotelData, tour: TourData, transfer: TransferData, visa: VisaData, pkg: PackageData): Record<string, unknown> {
-  const b = buildPayload(ticketType, client, message, flight, hotel, tour, transfer, visa, pkg)
+function buildPreview(ticketType: string, client: ClientInfo, message: string, flightTicket: FlightTicketData, hotel: HotelData, tour: TourData, transfer: TransferData, visa: VisaData, pkg: PackageData): Record<string, unknown> {
+  const b = buildPayload(ticketType, client, message, flightTicket, hotel, tour, transfer, visa, pkg)
   return { ...b, ticket_reference: 'WLZ-PREVIEW' }
 }
 
@@ -599,6 +946,7 @@ export default function TicketGeneratorPage() {
   const [client, setClient]         = useState<ClientInfo>(BLANK_CLIENT)
   const [message, setMessage]       = useState('')
   const [flight, setFlight]         = useState<FlightData>(BLANK_FLIGHT)
+  const [flightTicket, setFlightTicket] = useState<FlightTicketData>(BLANK_FLIGHT_TICKET)
   const [hotel, setHotel]           = useState<HotelData>(BLANK_HOTEL)
   const [tour, setTour]             = useState<TourData>(BLANK_TOUR)
   const [transfer, setTransfer]     = useState<TransferData>(BLANK_TRANSFER)
@@ -619,6 +967,7 @@ export default function TicketGeneratorPage() {
     setStep(1); setTicketType(''); setClient(BLANK_CLIENT); setMessage('')
     setFlight(BLANK_FLIGHT); setHotel(BLANK_HOTEL); setTour(BLANK_TOUR)
     setTransfer(BLANK_TRANSFER); setVisa(BLANK_VISA); setPkg(BLANK_PACKAGE)
+    setFlightTicket(BLANK_FLIGHT_TICKET)
     setToast(null); setSentRef(null)
   }
 
@@ -628,7 +977,7 @@ export default function TicketGeneratorPage() {
     try {
       const res = await fetch('/api/admin/ticket-generator/generate', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(buildPayload(ticketType, client, message, flight, hotel, tour, transfer, visa, pkg)),
+        body: JSON.stringify(buildPayload(ticketType, client, message, flightTicket, hotel, tour, transfer, visa, pkg)),
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || 'Failed to generate PDF')
@@ -650,7 +999,7 @@ export default function TicketGeneratorPage() {
     try {
       const res = await fetch('/api/admin/ticket-generator/send', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(buildPayload(ticketType, client, message, flight, hotel, tour, transfer, visa, pkg)),
+        body: JSON.stringify(buildPayload(ticketType, client, message, flightTicket, hotel, tour, transfer, visa, pkg)),
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || 'Failed to send ticket')
@@ -661,7 +1010,7 @@ export default function TicketGeneratorPage() {
   }
 
   const canNext = step === 1 ? !!ticketType : step === 2 ? !!client.name && !!client.email : true
-  const previewData = buildPreview(ticketType, client, message, flight, hotel, tour, transfer, visa, pkg)
+  const previewData = buildPreview(ticketType, client, message, flightTicket, hotel, tour, transfer, visa, pkg)
 
   return (
     // Pull the page out of the admin layout's p-6/p-8 padding so we can do a full-bleed two-column layout
@@ -701,8 +1050,8 @@ export default function TicketGeneratorPage() {
             {step === 2 && <Step2 client={client} setClient={setClient} />}
             {step === 3 && (
               <Step3 ticketType={ticketType}
-                flight={flight} hotel={hotel} tour={tour} transfer={transfer} visa={visa} pkg={pkg}
-                setFlight={setFlight} setHotel={setHotel} setTour={setTour} setTransfer={setTransfer} setVisa={setVisa} setPkg={setPkg}
+                flightTicket={flightTicket} hotel={hotel} tour={tour} transfer={transfer} visa={visa} pkg={pkg}
+                setFlightTicket={setFlightTicket} setHotel={setHotel} setTour={setTour} setTransfer={setTransfer} setVisa={setVisa} setPkg={setPkg}
               />
             )}
             {step === 4 && (

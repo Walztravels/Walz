@@ -3,9 +3,13 @@ import { getAdminSession } from '@/lib/admin-auth'
 import prisma from '@/lib/db'
 import { Resend } from 'resend'
 import { renderToBuffer } from '@react-pdf/renderer'
+import { renderToStaticMarkup } from 'react-dom/server'
 import React from 'react'
 import { TicketPDFDocument } from '@/components/admin/TicketPDF'
+import { FlightTicketEmail } from '@/components/tickets/FlightTicketEmail'
+import { generateFlightICS } from '@/lib/generateICS'
 import { createClient } from '@supabase/supabase-js'
+import type { FlightTicketEmailProps, FlightLeg } from '@/types/flight-ticket'
 
 export const dynamic = 'force-dynamic'
 
@@ -133,9 +137,84 @@ export async function POST(req: NextRequest) {
   const name    = (body.client_name as string | undefined) ?? 'Valued Client'
   const message = (body.message as string | undefined) ??
     `Dear ${name}, please find your ${TYPE_LABELS[type] ?? type} confirmation attached. Contact us anytime on WhatsApp if you need assistance.`
-  const details = keyDetails(type, ticketData as Record<string, unknown>)
   const icon    = TYPE_ICONS[type] ?? '📄'
   const label   = TYPE_LABELS[type] ?? 'Travel Document'
+
+  const resend  = new Resend(resendKey)
+
+  // ── Flight: use FlightTicketEmail component ──────────────────────────────
+  if (type === 'flight' && Array.isArray(body.outbound) && (body.outbound as FlightLeg[]).length > 0) {
+    const outbound = body.outbound as FlightLeg[]
+    const inbound  = (body.inbound as FlightLeg[] | undefined) ?? []
+
+    const lastOutbound = outbound[outbound.length - 1]
+    const dep = outbound[0]?.departureCity ?? ''
+    const arr = lastOutbound?.arrivalCity ?? ''
+    const pnr = (body.pnr as string | undefined) ?? reference
+
+    // Build email props
+    const emailProps: FlightTicketEmailProps = {
+      reference,
+      pnr,
+      issueDate: new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' }),
+      issuedBy:  session.email ?? 'Walz Travels',
+      title:     (body.title as string | undefined) ?? '',
+      firstName: (body.firstName as string | undefined) ?? name.split(' ')[0] ?? '',
+      lastName:  (body.lastName  as string | undefined) ?? name.split(' ').slice(1).join(' ') ?? '',
+      email:     body.client_email as string,
+      phone:     (body.client_phone as string | undefined) ?? '',
+      outbound,
+      inbound,
+      tripType:  (body.tripType as 'one-way' | 'return' | undefined) ?? 'one-way',
+      passengers: (body.passengers as FlightTicketEmailProps['passengers'] | undefined) ?? [],
+      pricing:    body.pricing as FlightTicketEmailProps['pricing'] | undefined,
+      agentMessage: body.message as string | undefined,
+    }
+
+    const emailHtml = '<!DOCTYPE html>' + renderToStaticMarkup(
+      React.createElement(FlightTicketEmail, emailProps)
+    )
+
+    // Generate ICS
+    const passengerName = [emailProps.firstName, emailProps.lastName].filter(Boolean).join(' ') || name
+    const icsContent = generateFlightICS(outbound, inbound, passengerName, reference, pnr)
+
+    // Upload ICS to Supabase Storage
+    const icsPath = `tickets/${now.getFullYear()}/${String(now.getMonth() + 1).padStart(2, '0')}/${reference}.ics`
+    try {
+      await supabase.storage.from(BUCKET).upload(icsPath, Buffer.from(icsContent), { contentType: 'text/calendar', upsert: true })
+    } catch { /* non-fatal */ }
+
+    const flightSubject = `✈️ Flight Confirmation — ${dep} → ${arr} — Ref: ${pnr}`
+    const flightFilename = `WALZ-FLIGHT-${reference}-${String(name).replace(/\s+/g, '-')}.pdf`
+    const icsFilename = `WALZ-FLIGHT-${reference}.ics`
+
+    try {
+      await resend.emails.send({
+        from:        'Walz Travels <contact@walztravels.com>',
+        to:          body.client_email as string,
+        subject:     flightSubject,
+        html:        emailHtml,
+        attachments: [
+          { filename: flightFilename, content: pdfBuffer.toString('base64') },
+          { filename: icsFilename,    content: Buffer.from(icsContent).toString('base64') },
+        ],
+      })
+    } catch (err) {
+      console.error('[ticket-generator/send] Resend error (flight):', err)
+      return NextResponse.json({ error: 'PDF generated but email failed to send' }, { status: 500 })
+    }
+
+    return NextResponse.json({
+      success:          true,
+      ticket_reference: reference,
+      pdf_url:          pdfUrl,
+      sent_to:          body.client_email,
+    })
+  }
+
+  // ── Generic: use branded HTML template ───────────────────────────────────
+  const details = keyDetails(type, ticketData as Record<string, unknown>)
 
   const html = `
     <div style="font-family:sans-serif;max-width:600px;margin:0 auto;padding:32px 24px;background:#fff">
@@ -200,7 +279,6 @@ export async function POST(req: NextRequest) {
     </div>
   `
 
-  const resend  = new Resend(resendKey)
   const subject = emailSubject(type, ticketData as Record<string, unknown>)
   const filename = `WALZ-${type.toUpperCase()}-${reference}-${String(name).replace(/\s+/g, '-')}.pdf`
 
