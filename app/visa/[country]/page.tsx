@@ -4,6 +4,7 @@ import { Clock, CheckCircle, AlertTriangle, ArrowLeft, MessageCircle, Plane, Hot
 import { prisma } from '@/lib/db'
 import { ADVISORY_CONFIG, RULE_TYPE_CONFIG } from '@/lib/countries'
 import type { Metadata } from 'next'
+import { Price } from '@/components/common/Price'
 
 export const dynamic = 'force-dynamic'
 
@@ -138,18 +139,39 @@ export default async function VisaCountryPage({ params }: Props) {
 
         {/* Stats grid */}
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-          {[
-            { label: 'Walz Fee', value: portal.walzFeeUsd > 0 ? `$${portal.walzFeeUsd}` : 'Contact us', sub: portal.walzFeeNgn > 0 ? `₦${(portal.walzFeeNgn / 1000).toFixed(0)}k` : undefined },
-            { label: 'Govt Fee', value: portal.govtFeeAmount > 0 ? `${portal.govtFeeCurrency} ${portal.govtFeeAmount}` : 'Included' },
-            { label: 'Processing', value: `${portal.processingDaysMin}–${portal.processingDaysMax} days` },
-            { label: 'Max Stay', value: `${portal.maxStayDays} days`, sub: `${portal.singleOrMultiple} entry` },
-          ].map(({ label, value, sub }) => (
-            <div key={label} className="bg-white rounded-xl border border-gray-100 p-4 text-center">
-              <div className="text-[#0B1F3A] font-bold text-lg">{value}</div>
-              {sub && <div className="text-gray-400 text-xs">{sub}</div>}
-              <div className="text-gray-400 text-xs mt-1">{label}</div>
+          {/* Walz Fee — uses Price for live currency conversion */}
+          <div className="bg-white rounded-xl border border-gray-100 p-4 text-center">
+            {portal.walzFeeUsd > 0 ? (
+              <>
+                <Price amount={portal.walzFeeUsd} from="USD" size="md" />
+                {portal.walzFeeNgn > 0 && (
+                  <div className="text-gray-400 text-xs mt-0.5">₦{(portal.walzFeeNgn / 1000).toFixed(0)}k</div>
+                )}
+              </>
+            ) : (
+              <div className="text-[#0B1F3A] font-bold text-lg">Contact us</div>
+            )}
+            <div className="text-gray-400 text-xs mt-1">Walz Fee</div>
+            <div className="text-gray-300 text-[10px] mt-0.5">Change currency ↑</div>
+          </div>
+          {/* Govt Fee */}
+          <div className="bg-white rounded-xl border border-gray-100 p-4 text-center">
+            <div className="text-[#0B1F3A] font-bold text-lg">
+              {portal.govtFeeAmount > 0 ? `${portal.govtFeeCurrency} ${portal.govtFeeAmount}` : 'Included'}
             </div>
-          ))}
+            <div className="text-gray-400 text-xs mt-1">Govt Fee</div>
+          </div>
+          {/* Processing */}
+          <div className="bg-white rounded-xl border border-gray-100 p-4 text-center">
+            <div className="text-[#0B1F3A] font-bold text-lg">{portal.processingDaysMin}–{portal.processingDaysMax} days</div>
+            <div className="text-gray-400 text-xs mt-1">Processing</div>
+          </div>
+          {/* Max Stay */}
+          <div className="bg-white rounded-xl border border-gray-100 p-4 text-center">
+            <div className="text-[#0B1F3A] font-bold text-lg">{portal.maxStayDays} days</div>
+            <div className="text-gray-400 text-xs">{portal.singleOrMultiple} entry</div>
+            <div className="text-gray-400 text-xs mt-1">Max Stay</div>
+          </div>
         </div>
 
         {/* Required Documents */}

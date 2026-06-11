@@ -5,6 +5,7 @@ import './globals.css'
 import { PublicShell } from '@/components/common/PublicShell'
 import { SessionProvider } from '@/components/providers/SessionProvider'
 import { LenisProvider } from '@/components/providers/LenisProvider'
+import { CurrencyProvider } from '@/lib/context/CurrencyContext'
 import dynamic from 'next/dynamic'
 
 const Cursor = dynamic(() => import('@/components/ui/Cursor'), { ssr: false })
@@ -221,12 +222,14 @@ export default function RootLayout({
       </head>
       <body className="font-sans bg-walz-off-white text-walz-deep-navy antialiased min-h-screen flex flex-col">
         <SessionProvider>
-          <LenisProvider>
-            <Cursor />
-            <PublicShell>
-              {children}
-            </PublicShell>
-          </LenisProvider>
+          <CurrencyProvider>
+            <LenisProvider>
+              <Cursor />
+              <PublicShell>
+                {children}
+              </PublicShell>
+            </LenisProvider>
+          </CurrencyProvider>
         </SessionProvider>
       </body>
     </html>

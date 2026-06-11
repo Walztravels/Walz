@@ -11,6 +11,12 @@ const JadeChat = dynamic(
   { ssr: false },
 )
 
+// Currency converter floating widget — defer for same reason
+const CurrencyConverter = dynamic(
+  () => import('./CurrencyConverter').then(m => ({ default: m.CurrencyConverter })),
+  { ssr: false },
+)
+
 /**
  * Wraps public pages with Navbar, Footer, JadeChat.
  * Admin pages bypass all public chrome — the admin layout handles its own shell.
@@ -30,6 +36,7 @@ export function PublicShell({ children }: { children: React.ReactNode }) {
       <main className="flex-1">{children}</main>
       <Footer />
       <JadeChat />
+      <CurrencyConverter />
     </>
   )
 }

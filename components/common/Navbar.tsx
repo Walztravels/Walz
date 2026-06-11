@@ -7,10 +7,12 @@ import {
   Menu, X, Plane, Hotel, Map, FileText, ChevronDown,
   User, LogOut, LayoutDashboard, Gift, MessageCircle,
   Upload, CreditCard, Users, UserCircle, Globe, Compass,
-  Signal,
+  Signal, Check,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
+import { useCurrency } from '@/lib/context/CurrencyContext'
+import { CURRENCIES } from '@/lib/currencies'
 
 const LOGO_CACHE_KEY = 'walz_logo_url'
 const LOGO_CACHE_TTL = 60 * 60 * 1000 // 1 hour
@@ -50,14 +52,19 @@ const portalMenu = [
 
 export function Navbar() {
   const { data: session, status } = useSession()
-  const [isScrolled,     setIsScrolled]     = useState(false)
-  const [isMobileOpen,   setIsMobileOpen]   = useState(false)
-  const [isUserMenuOpen, setIsUserMenuOpen] = useState(false)
-  const [isVisaOpen,     setIsVisaOpen]     = useState(false)
+  const [isScrolled,       setIsScrolled]       = useState(false)
+  const [isMobileOpen,     setIsMobileOpen]     = useState(false)
+  const [isUserMenuOpen,   setIsUserMenuOpen]   = useState(false)
+  const [isVisaOpen,       setIsVisaOpen]       = useState(false)
   const [isMobileVisaOpen, setIsMobileVisaOpen] = useState(false)
-  const [logoUrl,        setLogoUrl]        = useState('/walz-logo.svg')
+  const [isCurrencyOpen,   setIsCurrencyOpen]   = useState(false)
+  const [logoUrl,          setLogoUrl]          = useState('/walz-logo.svg')
   const dropdownRef  = useRef<HTMLDivElement>(null)
   const visaRef      = useRef<HTMLDivElement>(null)
+  const currencyRef  = useRef<HTMLDivElement>(null)
+
+  const { selectedCurrency, setSelectedCurrency } = useCurrency()
+  const activeCurrency = CURRENCIES.find(c => c.code === selectedCurrency) ?? CURRENCIES[0]
 
   useEffect(() => {
     const onScroll = () => setIsScrolled(window.scrollY > 10)
@@ -130,6 +137,17 @@ export function Navbar() {
     if (isVisaOpen) document.addEventListener('mousedown', handler)
     return () => document.removeEventListener('mousedown', handler)
   }, [isVisaOpen])
+
+  // Close currency dropdown on outside click
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (currencyRef.current && !currencyRef.current.contains(e.target as Node)) {
+        setIsCurrencyOpen(false)
+      }
+    }
+    if (isCurrencyOpen) document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [isCurrencyOpen])
 
   const firstName = session?.user?.name?.split(' ')[0] || 'Account'
   const initial   = session?.user?.name?.[0]?.toUpperCase()
@@ -218,6 +236,48 @@ export function Navbar() {
                 )}
               </div>
             </nav>
+
+            {/* Rates link — desktop */}
+            <Link
+              href="/currency"
+              className="hidden lg:flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-walz-muted hover:text-walz-gold hover:bg-walz-slate/50 transition-all text-sm font-medium"
+            >
+              <span>💱</span>
+              <span>Rates</span>
+            </Link>
+
+            {/* Currency selector — desktop */}
+            <div className="hidden lg:block relative" ref={currencyRef}>
+              <button
+                onClick={() => setIsCurrencyOpen(v => !v)}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-walz-muted hover:text-walz-gold hover:bg-walz-slate/50 transition-all text-sm font-medium"
+              >
+                <span className="text-base leading-none">{activeCurrency.flag}</span>
+                <span>{activeCurrency.code}</span>
+                <ChevronDown className={cn('w-3 h-3 transition-transform', isCurrencyOpen && 'rotate-180')} />
+              </button>
+
+              {isCurrencyOpen && (
+                <div className="absolute right-0 mt-2 w-52 bg-white rounded-xl shadow-luxury border border-walz-border z-50 overflow-hidden py-1">
+                  {CURRENCIES.map(c => (
+                    <button
+                      key={c.code}
+                      onClick={() => { setSelectedCurrency(c.code); setIsCurrencyOpen(false) }}
+                      className="w-full flex items-center justify-between gap-2 px-4 py-2.5 text-sm text-walz-deep-navy hover:bg-[#F4F6F9] transition-colors"
+                    >
+                      <span className="flex items-center gap-2.5">
+                        <span className="text-base">{c.flag}</span>
+                        <span className="font-medium">{c.code}</span>
+                        <span className="text-walz-muted text-xs truncate">{c.name}</span>
+                      </span>
+                      {c.code === selectedCurrency && (
+                        <Check className="w-3.5 h-3.5 text-[#C9A84C] flex-shrink-0" />
+                      )}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
 
             {/* Desktop Auth */}
             <div className="hidden lg:flex items-center gap-3">
@@ -344,6 +404,37 @@ export function Navbar() {
                 ))}
               </div>
             )}
+
+            {/* Currency + Rates — mobile */}
+            <div className="my-2 border-t border-walz-slate/50 mx-4" />
+            <p className="px-6 py-1.5 text-[10px] font-semibold text-walz-muted uppercase tracking-wider">Currency</p>
+            <Link
+              href="/currency"
+              onClick={() => setIsMobileOpen(false)}
+              className="flex items-center gap-3 px-6 py-3 text-walz-muted hover:text-walz-gold hover:bg-walz-slate/30 transition-colors"
+            >
+              <span className="text-lg">💱</span>
+              <span className="font-medium text-sm">Live Exchange Rates</span>
+            </Link>
+            <div className="px-6 pb-2">
+              <div className="grid grid-cols-3 gap-1.5">
+                {CURRENCIES.map(c => (
+                  <button
+                    key={c.code}
+                    onClick={() => setSelectedCurrency(c.code)}
+                    className={cn(
+                      'flex items-center gap-1.5 px-2 py-1.5 rounded-lg text-xs font-medium transition-all',
+                      c.code === selectedCurrency
+                        ? 'bg-[#C9A84C] text-[#0B1F3A]'
+                        : 'text-walz-muted hover:text-walz-gold hover:bg-walz-slate/40',
+                    )}
+                  >
+                    <span>{c.flag}</span>
+                    <span>{c.code}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
 
             {session && (
               <>

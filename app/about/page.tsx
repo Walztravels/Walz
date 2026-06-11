@@ -491,64 +491,36 @@ export default function AboutPage() {
             <h2 className="font-display text-3xl lg:text-4xl font-bold text-white">A Story of Growth</h2>
           </div>
 
-          {/* Desktop: horizontal timeline */}
-          <div className="hidden lg:block">
-            {/* Connecting line */}
-            <div className="relative mb-12">
-              <div className="absolute top-1/2 left-0 right-0 h-0.5 bg-[#C9A84C]/20" />
-              <div
-                ref={timelineLineRef}
-                className="absolute top-1/2 left-0 right-0 h-0.5 bg-[#C9A84C] origin-left"
-              />
-              {/* Milestone dots */}
-              <div className="relative flex justify-between">
-                {timeline.map((_, i) => (
-                  <div key={i} className="w-4 h-4 rounded-full bg-[#C9A84C] border-4 border-[#091828] relative z-10" style={{ marginTop: '-8px' }} />
-                ))}
-              </div>
-            </div>
-
-            {/* Milestone cards */}
-            <div className="grid grid-cols-4 gap-8">
-              {timeline.map((item, i) => {
-                const IconComp = ICON_MAP[item.icon] ?? Plane
-                return (
-                  <div
-                    key={item.id}
-                    ref={(el) => { milestoneRefs.current[i] = el }}
-                    className="flex flex-col items-center text-center"
-                  >
-                    <div className="w-12 h-12 rounded-full bg-[#C9A84C]/15 border border-[#C9A84C]/40 flex items-center justify-center mb-4">
-                      <IconComp className="w-5 h-5 text-[#C9A84C]" />
-                    </div>
-                    <h3 className="font-display font-bold text-white mb-3 text-lg">{item.title}</h3>
-                    <p className="text-white/55 text-sm leading-relaxed">{item.description}</p>
-                  </div>
-                )
-              })}
-            </div>
+          {/* Single responsive timeline — vertical on mobile, horizontal grid on desktop */}
+          {/* Desktop: animated connector line (absolute, hidden on mobile) */}
+          <div className="relative hidden lg:block mb-10 h-0.5">
+            <div className="absolute inset-0 bg-[#C9A84C]/20" />
+            <div ref={timelineLineRef} className="absolute inset-0 bg-[#C9A84C] origin-left" />
           </div>
 
-          {/* Mobile: vertical timeline */}
-          <div className="lg:hidden space-y-10">
+          <div className="space-y-10 lg:grid lg:grid-cols-4 lg:gap-8 lg:space-y-0">
             {timeline.map((item, i) => {
               const IconComp = ICON_MAP[item.icon] ?? Plane
               return (
                 <div
                   key={item.id}
                   ref={(el) => { milestoneRefs.current[i] = el }}
-                  className="flex gap-5"
+                  className="flex gap-5 lg:flex-col lg:items-center lg:text-center"
                 >
-                  <div className="flex flex-col items-center">
-                    <div className="w-11 h-11 rounded-full bg-[#C9A84C]/15 border border-[#C9A84C]/40 flex items-center justify-center flex-shrink-0">
+                  {/* Icon + mobile connector line */}
+                  <div className="flex flex-col items-center lg:block lg:mb-4">
+                    <div className="w-11 h-11 lg:w-12 lg:h-12 rounded-full bg-[#C9A84C]/15 border border-[#C9A84C]/40 flex items-center justify-center flex-shrink-0">
                       <IconComp className="w-5 h-5 text-[#C9A84C]" />
                     </div>
+                    {/* Mobile-only vertical connector */}
                     {i < timeline.length - 1 && (
-                      <div className="flex-1 w-0.5 bg-[#C9A84C]/20 mt-3" />
+                      <div className="flex-1 w-0.5 bg-[#C9A84C]/20 mt-3 lg:hidden" />
                     )}
                   </div>
-                  <div className="pb-8">
-                    <h3 className="font-display font-bold text-white mb-2 text-lg">{item.title}</h3>
+
+                  {/* Text */}
+                  <div className="pb-8 lg:pb-0">
+                    <h3 className="font-display font-bold text-white mb-2 lg:mb-3 text-lg">{item.title}</h3>
                     <p className="text-white/55 text-sm leading-relaxed">{item.description}</p>
                   </div>
                 </div>
