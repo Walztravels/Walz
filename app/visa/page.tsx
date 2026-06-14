@@ -9,6 +9,7 @@ import {
   MessageCircle, Shield, Loader2, ChevronDown, TrendingUp,
 } from 'lucide-react'
 import { CountrySelect } from '@/components/visa/CountrySelect'
+import { JadeChatButton } from '@/components/ui/JadeChatButton'
 import { ADVISORY_CONFIG, RULE_TYPE_CONFIG, getCountryByIso2 } from '@/lib/countries'
 import { ISO2_TO_SLUG } from '@/lib/visa-config'
 import { VisaApplicationForm } from '@/components/VisaApplicationForm'
@@ -188,11 +189,14 @@ function VisaResultCard({ result, passport, destination }: {
               className="flex-1 flex items-center justify-center gap-2 px-6 py-4 bg-[#C9A84C] hover:bg-[#b8943d] text-[#0B1F3A] font-bold text-sm rounded-xl transition-colors">
               Apply with Walz Travels →
             </Link>
-            <a href="https://wa.me/447398753797" target="_blank" rel="noopener noreferrer"
-              className="flex-1 flex items-center justify-center gap-2 px-6 py-4 border-2 border-[#0B1F3A] text-[#0B1F3A] font-bold text-sm rounded-xl hover:bg-gray-50 transition-colors">
-              <MessageCircle className="w-4 h-4" />
+            <JadeChatButton
+              service="Visa"
+              detail="Visa Application"
+              page="/visa"
+              className="flex-1 flex items-center justify-center gap-2 px-6 py-4 border-2 border-[#0B1F3A] text-[#0B1F3A] font-bold text-sm rounded-xl hover:bg-gray-50 transition-colors"
+            >
               Ask Jade First
-            </a>
+            </JadeChatButton>
           </div>
         </>
       )}

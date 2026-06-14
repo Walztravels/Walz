@@ -272,9 +272,10 @@ export default function RootLayout({
                   locale: 'en',
                   type: 'standard',
                   darkMode: 'auto',
+                  launcherTitle: 'Chat with Jade',
                 };
                 (function(d,t){
-                  var BASE_URL="${process.env.NEXT_PUBLIC_CHATWOOT_BASE_URL || 'https://chatwoot-production-d486.up.railway.app'}";
+                  var BASE_URL="${process.env.NEXT_PUBLIC_CHATWOOT_BASE_URL || 'https://chat.walztravels.com'}";
                   var g=d.createElement(t),s=d.getElementsByTagName(t)[0];
                   g.src=BASE_URL+"/packs/js/sdk.js";
                   g.defer=true; g.async=true;

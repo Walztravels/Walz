@@ -7,6 +7,7 @@ import gsap from 'gsap'
 import ScrollTrigger from 'gsap/ScrollTrigger'
 import { SearchTabs } from '@/components/search/SearchTabs'
 import { ArrowRight, MessageCircle, Search } from 'lucide-react'
+import { JadeChatButton } from '@/components/ui/JadeChatButton'
 
 export function HeroSection({ bgUrl }: { bgUrl?: string | null }) {
   const heroBg     = bgUrl || 'https://images.unsplash.com/photo-1464037866556-6812c9d1c72e?w=2000&q=85'
@@ -137,15 +138,11 @@ export function HeroSection({ bgUrl }: { bgUrl?: string | null }) {
               <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
             </button>
           </Link>
-          <a
-            href="https://wa.me/447398753797"
-            target="_blank"
-            rel="noopener noreferrer"
+          <JadeChatButton
+            service="General"
+            page="/"
             className="flex items-center gap-2.5 px-8 py-3.5 border border-white/25 hover:border-[#C9A84C] text-white hover:text-[#C9A84C] font-semibold text-sm rounded-full transition-all duration-300 hover:scale-105 active:scale-100 whitespace-nowrap backdrop-blur-sm"
-          >
-            <MessageCircle className="w-4 h-4" />
-            Chat with Jade
-          </a>
+          />
         </div>
       </div>
 

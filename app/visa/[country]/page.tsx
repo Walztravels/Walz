@@ -5,6 +5,7 @@ import { prisma } from '@/lib/db'
 import { ADVISORY_CONFIG, RULE_TYPE_CONFIG } from '@/lib/countries'
 import type { Metadata } from 'next'
 import { Price } from '@/components/common/Price'
+import { JadeChatButton } from '@/components/ui/JadeChatButton'
 
 export const dynamic = 'force-dynamic'
 
@@ -379,11 +380,14 @@ export default async function VisaCountryPage({ params }: Props) {
               className="flex-1 flex items-center justify-center gap-2 px-6 py-4 bg-[#C9A84C] hover:bg-[#b8943d] text-[#0B1F3A] font-bold text-sm rounded-xl transition-colors">
               Apply with Walz Travels →
             </Link>
-            <a href="https://wa.me/447398753797" target="_blank" rel="noopener noreferrer"
-              className="flex-1 flex items-center justify-center gap-2 px-6 py-4 border-2 border-[#0B1F3A] text-[#0B1F3A] font-bold text-sm rounded-xl hover:bg-gray-50 transition-colors">
-              <MessageCircle className="w-4 h-4" />
+            <JadeChatButton
+              service="Visa"
+              detail={`${portal.countryName} Visa`}
+              page={`/visa/${params.country}`}
+              className="flex-1 flex items-center justify-center gap-2 px-6 py-4 border-2 border-[#0B1F3A] text-[#0B1F3A] font-bold text-sm rounded-xl hover:bg-gray-50 transition-colors"
+            >
               Ask Jade First
-            </a>
+            </JadeChatButton>
           </div>
           <div className="mt-4 p-4 bg-green-50 rounded-xl border border-green-100">
             <p className="text-sm text-green-800 font-medium">💬 WhatsApp Support Available</p>
