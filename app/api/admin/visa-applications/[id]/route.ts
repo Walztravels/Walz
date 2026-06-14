@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { cookies } from 'next/headers'
 import { prisma } from '@/lib/db'
+import { getSupabaseAdmin } from '@/lib/supabase'
 import { sendVisaStatusUpdate, sendApplicationFormLink } from '@/lib/email-visa'
 
 async function isAdmin() {
@@ -23,7 +24,23 @@ export async function GET(_req: NextRequest, { params }: Params) {
   })
   if (!app) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
-  return NextResponse.json({ application: app })
+  // Fetch bank_statement_* columns — added via raw SQL, not in Prisma schema
+  const { data: bankData } = await getSupabaseAdmin()
+    .from('visa_applications')
+    .select('bank_statement_url, bank_statement_admin_url, bank_statement_analysis, bank_statement_analyzed_at, bank_statement_uploaded_by')
+    .eq('id', params.id)
+    .single()
+
+  return NextResponse.json({
+    application: {
+      ...app,
+      bank_statement_url:        bankData?.bank_statement_url        ?? null,
+      bank_statement_admin_url:  bankData?.bank_statement_admin_url  ?? null,
+      bank_statement_analysis:   bankData?.bank_statement_analysis   ?? null,
+      bank_statement_analyzed_at: bankData?.bank_statement_analyzed_at ?? null,
+      bank_statement_uploaded_by: bankData?.bank_statement_uploaded_by ?? null,
+    },
+  })
 }
 
 // PATCH /api/admin/visa-applications/[id] — update any field including status
