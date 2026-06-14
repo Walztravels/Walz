@@ -4,7 +4,7 @@ import Link from 'next/link'
 import Image from 'next/image'
 import prisma from '@/lib/db'
 import { MapPin, Clock, ArrowLeft, Check, ArrowRight } from 'lucide-react'
-import BookingCard from '@/components/packages/BookingCard'
+import { BookingCard } from '@/components/packages/BookingCard'
 
 export const revalidate = 60
 
@@ -144,14 +144,12 @@ export default async function PackageDetailPage({ params }: RouteContext) {
           {/* Right — BookingCard */}
           <div className="lg:col-span-1">
             <BookingCard
-              pkg={{
-                slug: pkg.slug,
-                name: pkg.name,
-                price: pkg.price,
-                currency: pkg.currency,
-                location: pkg.location,
-                duration: pkg.duration,
-              }}
+              packageSlug={pkg.slug}
+              packageName={pkg.name}
+              price={pkg.price}
+              currency={pkg.currency}
+              location={pkg.location}
+              duration={pkg.duration}
             />
           </div>
         </div>

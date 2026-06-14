@@ -96,16 +96,24 @@ function StripePaymentForm({
 
 // ── Public component ──────────────────────────────────────────────────────────
 
-interface PackageInfo {
-  slug: string
-  name: string
+interface BookingCardProps {
+  packageId?: string
+  packageName: string
+  packageSlug: string
   price: number
   currency: string
   location: string
   duration: string
 }
 
-export default function BookingCard({ pkg }: { pkg: PackageInfo }) {
+export function BookingCard({
+  packageName,
+  packageSlug,
+  price,
+  currency,
+}: BookingCardProps) {
+  // Shim: build the pkg-shaped object the body of this component expects
+  const pkg = { slug: packageSlug, name: packageName, price, currency }
   const [open, setOpen] = useState(false)
   const [step, setStep] = useState<1 | 2 | 3>(1)
 
@@ -465,3 +473,5 @@ export default function BookingCard({ pkg }: { pkg: PackageInfo }) {
     </>
   )
 }
+
+export default BookingCard
