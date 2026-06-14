@@ -2,23 +2,11 @@ import type { Metadata } from 'next'
 import Link from 'next/link'
 import Image from 'next/image'
 import prisma from '@/lib/db'
-import { PackageFilters } from '@/components/PackageFilters'
-import FeaturedDepartureSlider, { type SpotlightPackage } from '@/components/FeaturedDepartureSlider'
+import { MapPin, Clock, ArrowRight } from 'lucide-react'
 
 export const revalidate = 60
 
-export const metadata: Metadata = {
-  title: { absolute: 'Travel Packages | Walz Travels' },
-  description:
-    'Group tours and holiday packages from Lagos and Accra. Flights, visas, hotels and tours included. Dubai, London, Zanzibar and more.',
-  alternates: { canonical: 'https://www.walztravels.com/packages' },
-  openGraph: {
-    title: 'Travel Packages | Walz Travels',
-    description:
-      'Group tours and holiday packages from Lagos and Accra. Flights, visas, hotels and tours included.',
-  },
-}
-
+// Kept for backwards-compat with PackageFilters component
 export interface PackageCard {
   id: string
   slug: string
@@ -44,143 +32,41 @@ export interface PackageCard {
   is_featured: boolean
 }
 
-const FALLBACK_PACKAGES: PackageCard[] = [
-  {
-    id: 'f1',
-    slug: 'dubai-group-december-2026',
-    title: 'Dubai Group Escape — December 2026',
-    destination: 'Dubai, UAE',
-    country_iso2: 'AE',
-    tagline: '5 nights of luxury, desert and skyline',
-    images: ['https://images.unsplash.com/photo-1512453979798-5ea266f8880c?w=800&q=85'],
-    duration_days: 6,
-    duration_nights: 5,
-    price_per_person: 1850,
-    currency: 'USD',
-    original_price: 2100,
-    package_type: 'group',
-    departure_date: '2026-12-10',
-    departure_city: 'Lagos',
-    total_seats: 20,
-    seats_booked: 7,
-    visa_included: true,
-    flight_included: true,
-    hotel_included: true,
-    meals: 'Breakfast daily',
-    is_featured: true,
+export const metadata: Metadata = {
+  title: { absolute: 'Travel Packages | Walz Travels' },
+  description:
+    'Group tours and holiday packages from Lagos and Accra. Flights, visas, hotels and tours included. Dubai, London, Zanzibar and more.',
+  alternates: { canonical: 'https://www.walztravels.com/packages' },
+  openGraph: {
+    title: 'Travel Packages | Walz Travels',
+    description:
+      'Group tours and holiday packages from Lagos and Accra. Flights, visas, hotels and tours included.',
   },
-  {
-    id: 'f2',
-    slug: 'london-group-february-2027',
-    title: 'London City Break — February 2027',
-    destination: 'London, UK',
-    country_iso2: 'GB',
-    tagline: '7 nights exploring the best of London',
-    images: ['https://images.unsplash.com/photo-1513635269975-59663e0ac1ad?w=800&q=85'],
-    duration_days: 8,
-    duration_nights: 7,
-    price_per_person: 2100,
-    currency: 'GBP',
-    original_price: 2400,
-    package_type: 'group',
-    departure_date: '2027-02-05',
-    departure_city: 'Lagos',
-    total_seats: 18,
-    seats_booked: 4,
-    visa_included: true,
-    flight_included: true,
-    hotel_included: true,
-    meals: 'Breakfast daily',
-    is_featured: false,
-  },
-  {
-    id: 'f3',
-    slug: 'zanzibar-honeymoon-special',
-    title: 'Zanzibar Honeymoon Escape',
-    destination: 'Zanzibar, Tanzania',
-    country_iso2: 'TZ',
-    tagline: 'Overwater villas and private beaches',
-    images: ['https://images.unsplash.com/photo-1590523741831-ab7e8b8f9c7f?w=800&q=85'],
-    duration_days: 9,
-    duration_nights: 8,
-    price_per_person: 2800,
-    currency: 'USD',
-    original_price: null,
-    package_type: 'honeymoon',
-    departure_date: null,
-    departure_city: null,
-    total_seats: null,
-    seats_booked: 0,
-    visa_included: false,
-    flight_included: true,
-    hotel_included: true,
-    meals: 'All-inclusive',
-    is_featured: false,
-  },
-]
+}
 
-function safeJsonImages(value: unknown): string[] {
-  if (Array.isArray(value)) return value as string[]
-  if (typeof value === 'string') {
-    try {
-      const parsed = JSON.parse(value)
-      return Array.isArray(parsed) ? parsed : []
-    } catch {
-      return []
-    }
+function parseHighlights(raw: string): string[] {
+  try {
+    const parsed = JSON.parse(raw)
+    return Array.isArray(parsed) ? parsed : []
+  } catch {
+    return []
   }
-  return []
 }
 
-function formatDate(dateStr: string): string {
-  return new Date(dateStr).toLocaleDateString('en-GB', {
-    day: 'numeric',
-    month: 'short',
-    year: 'numeric',
-  })
+function coverPhoto(pkg: { photos: string[]; imageUrl: string | null }): string | null {
+  return pkg.photos[0] ?? pkg.imageUrl ?? null
 }
+
+const HERO_FALLBACK = 'https://images.unsplash.com/photo-1488085061387-422e29b40080?w=1600&q=85'
 
 export default async function PackagesPage() {
-  let packages: PackageCard[] = []
-  let spotlight: SpotlightPackage[] = []
+  const packages = await prisma.tourListing.findMany({
+    where: { active: true },
+    orderBy: { order: 'asc' },
+  })
 
-  try {
-    const [pkgRows, spotRows] = await Promise.all([
-      prisma.$queryRawUnsafe<PackageCard[]>(
-        `SELECT id, slug, title, destination, country_iso2, tagline, images,
-                duration_days, duration_nights, price_per_person, currency,
-                original_price, package_type, departure_date, departure_city,
-                total_seats, seats_booked, visa_included, flight_included,
-                hotel_included, meals, is_featured
-         FROM travel_packages
-         WHERE is_active = true
-         ORDER BY is_featured DESC, display_order ASC, created_at DESC`,
-      ),
-      prisma.$queryRawUnsafe<SpotlightPackage[]>(
-        `SELECT id, slug, title, destination, country_iso2, tagline, images,
-                price_per_person, original_price, currency, duration_days,
-                duration_nights, departure_date, departure_city, total_seats,
-                seats_booked, package_type, visa_included, flight_included,
-                hotel_included
-         FROM travel_packages
-         WHERE is_active = true AND is_spotlight = true
-         ORDER BY departure_date ASC NULLS LAST
-         LIMIT 5`,
-      ),
-    ])
-    packages = pkgRows.map((p) => ({ ...p, images: safeJsonImages(p.images) }))
-    spotlight = spotRows.map((p) => ({ ...p, images: safeJsonImages(p.images) })) as SpotlightPackage[]
-  } catch {
-    // DB unavailable — use fallbacks
-  }
-
-  if (packages.length === 0) {
-    packages = FALLBACK_PACKAGES
-  }
-
-  const featuredHero =
-    (spotlight[0]?.images[0] ?? packages.find(p => p.is_featured)?.images[0]) ??
-    'https://images.unsplash.com/photo-1488085061387-422e29b40080?w=1600&q=85'
+  const heroImage =
+    (packages[0] ? coverPhoto(packages[0]) : null) ?? HERO_FALLBACK
 
   return (
     <div className="min-h-screen" style={{ backgroundColor: '#FAF7F2' }}>
@@ -188,7 +74,7 @@ export default async function PackagesPage() {
       {/* ── CINEMATIC HERO ── */}
       <section className="relative h-[60vh] min-h-[480px] overflow-hidden">
         <Image
-          src={featuredHero}
+          src={heroImage}
           fill
           priority
           sizes="100vw"
@@ -210,14 +96,93 @@ export default async function PackagesPage() {
         </div>
       </section>
 
-      {/* ── FEATURED DEPARTURE SLIDER ── */}
-      <div className="relative z-10 mt-6 lg:-mt-20 max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <FeaturedDepartureSlider initialPackages={spotlight} />
-      </div>
-
-      {/* ── FILTER + GRID ── */}
+      {/* ── PACKAGE GRID ── */}
       <section className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-16">
-        <PackageFilters packages={packages} />
+        {packages.length === 0 ? (
+          <div className="text-center py-20">
+            <p className="text-gray-400 text-lg">No packages available right now. Check back soon.</p>
+          </div>
+        ) : (
+          <>
+            <div className="mb-10">
+              <h2 className="text-3xl font-bold text-[#0B1F3A] font-display">Our Packages</h2>
+              <p className="text-gray-500 mt-2">
+                {packages.length} package{packages.length !== 1 ? 's' : ''} available
+              </p>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+              {packages.map((pkg, index) => {
+                const cover = coverPhoto(pkg)
+                const highlights = parseHighlights(pkg.highlights)
+                return (
+                  <Link
+                    key={pkg.id}
+                    href={`/packages/${pkg.slug}`}
+                    className="group bg-white rounded-2xl overflow-hidden shadow-sm border border-gray-100 hover:shadow-lg transition-all duration-300"
+                  >
+                    {/* Photo */}
+                    <div className="relative h-56 overflow-hidden bg-gray-100">
+                      {cover ? (
+                        <Image
+                          src={cover}
+                          fill
+                          sizes="(max-width: 640px) 100vw, (max-width: 1024px) 50vw, 33vw"
+                          alt={pkg.name}
+                          className="object-cover group-hover:scale-105 transition-transform duration-500"
+                          priority={index < 3}
+                        />
+                      ) : (
+                        <div className="absolute inset-0 bg-gradient-to-br from-[#0B1F3A] to-[#1a3358]" />
+                      )}
+                      <div className="absolute inset-0 bg-gradient-to-t from-black/40 to-transparent" />
+                      <div className="absolute top-3 left-3">
+                        <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-[#C9A84C] text-[#0B1F3A]">
+                          {pkg.currency} {pkg.price.toLocaleString()}
+                        </span>
+                      </div>
+                    </div>
+
+                    {/* Content */}
+                    <div className="p-5">
+                      <h3 className="font-bold text-[#0B1F3A] text-lg leading-snug mb-1 group-hover:text-[#C9A84C] transition-colors">
+                        {pkg.name}
+                      </h3>
+                      <div className="flex items-center gap-3 text-xs text-gray-500 mb-3">
+                        <span className="flex items-center gap-1">
+                          <MapPin className="w-3 h-3" /> {pkg.location}
+                        </span>
+                        <span className="flex items-center gap-1">
+                          <Clock className="w-3 h-3" /> {pkg.duration}
+                        </span>
+                      </div>
+                      {highlights.length > 0 && (
+                        <ul className="space-y-1 mb-4">
+                          {highlights.slice(0, 3).map((h, i) => (
+                            <li key={i} className="flex items-start gap-1.5 text-xs text-gray-600">
+                              <span className="text-[#C9A84C] mt-0.5 flex-shrink-0">✓</span>
+                              {h}
+                            </li>
+                          ))}
+                        </ul>
+                      )}
+                      <div className="flex items-center justify-between pt-3 border-t border-gray-100">
+                        <div>
+                          <p className="text-xs text-gray-400">From</p>
+                          <p className="font-bold text-[#C9A84C]">
+                            {pkg.currency} {pkg.price.toLocaleString()} <span className="text-gray-400 font-normal text-xs">/ person</span>
+                          </p>
+                        </div>
+                        <span className="flex items-center gap-1 text-xs font-semibold text-[#0B1F3A] group-hover:text-[#C9A84C] transition-colors">
+                          View Package <ArrowRight className="w-3.5 h-3.5" />
+                        </span>
+                      </div>
+                    </div>
+                  </Link>
+                )
+              })}
+            </div>
+          </>
+        )}
       </section>
 
       {/* ── CTA BANNER ── */}
@@ -244,7 +209,7 @@ export default async function PackagesPage() {
               href="https://wa.me/447398753797?text=Hi!%20I%20want%20to%20enquire%20about%20a%20custom%20travel%20package."
               target="_blank"
               rel="noopener noreferrer"
-              className="inline-flex items-center gap-3 px-8 py-4 rounded-2xl font-bold text-sm transition-opacity hover:opacity-90 cursor-pointer"
+              className="inline-flex items-center gap-3 px-8 py-4 rounded-2xl font-bold text-sm transition-opacity hover:opacity-90"
               style={{ backgroundColor: '#C9A84C', color: '#0B1F3A' }}
             >
               <svg viewBox="0 0 24 24" fill="currentColor" className="w-5 h-5 flex-shrink-0">
