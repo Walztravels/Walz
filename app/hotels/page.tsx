@@ -15,6 +15,7 @@ import {
   SlidersHorizontal,
 } from 'lucide-react'
 import { HotelSearchForm } from '@/components/search/HotelSearchForm'
+import { HotelPromos } from '@/components/promos/HotelPromos'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Button } from '@/components/ui/button'
 import { formatPrice } from '@/lib/utils'
@@ -278,15 +279,7 @@ function HotelsPageContent() {
 
         {/* Empty state */}
         {!isLoading && !error && !hasSearched && (
-          <div className="text-center py-20">
-            <div className="w-16 h-16 rounded-full walz-gold-gradient flex items-center justify-center mx-auto mb-4 shadow-gold-glow">
-              <Hotel className="w-8 h-8 text-walz-deep-navy" />
-            </div>
-            <h2 className="font-display text-2xl font-bold text-walz-deep-navy mb-2">Find Your Perfect Stay</h2>
-            <p className="text-walz-muted max-w-sm mx-auto">
-              Search for hotels using the form above to see availability and pricing.
-            </p>
-          </div>
+          <HotelPromos />
         )}
 
         {/* Results */}

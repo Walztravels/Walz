@@ -1,9 +1,10 @@
 'use client'
 
 import { useState, useEffect, useCallback, Suspense } from 'react'
-import { useSearchParams } from 'next/navigation'
+import { useSearchParams, useRouter } from 'next/navigation'
 import { Plane, SortAsc, AlertCircle } from 'lucide-react'
 import { FlightSearchForm } from '@/components/search/FlightSearchForm'
+import { FlightPromos } from '@/components/promos/FlightPromos'
 import { FlightCard } from '@/components/flights/FlightCard'
 import { FlightFilters } from '@/components/flights/FlightFilters'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -135,6 +136,7 @@ function WhatsAppFallback() {
 
 function FlightsPageContent() {
   const searchParams = useSearchParams()
+  const router = useRouter()
   const [allFlights, setAllFlights] = useState<FlightResult[]>([])
   const [filteredFlights, setFilteredFlights] = useState<FlightResult[]>([])
   const [filters, setFilters] = useState<SearchFilters>({})
@@ -269,7 +271,7 @@ function FlightsPageContent() {
             400+ airlines · Sabre GDS · Best available fares
           </p>
         </div>
-        <div className="container-walz pb-6">
+        <div data-search-form className="container-walz pb-6">
           <FlightSearchForm
             onResults={(results) => {
               setAllFlights(results)
@@ -326,17 +328,15 @@ function FlightsPageContent() {
 
         {/* Results State: Empty (no search yet) */}
         {!isLoading && !error && !hasSearched && (
-          <div className="text-center py-20">
-            <div className="w-16 h-16 rounded-full walz-gold-gradient flex items-center justify-center mx-auto mb-4 shadow-gold-glow">
-              <Plane className="w-8 h-8 text-walz-deep-navy" />
-            </div>
-            <h2 className="font-display text-2xl font-bold text-walz-deep-navy mb-2">
-              Ready to Fly?
-            </h2>
-            <p className="text-walz-muted max-w-sm mx-auto">
-              Use the search form above to find the best available flights for your journey.
-            </p>
-          </div>
+          <FlightPromos
+            onSearch={(params) => {
+              const url = new URL(window.location.href)
+              Object.entries(params).forEach(([k, v]) => url.searchParams.set(k, v))
+              window.history.replaceState({}, '', url.toString())
+              document.querySelector('[data-search-form]')?.scrollIntoView({ behavior: 'smooth' })
+              router.push(`/flights?${new URLSearchParams(params).toString()}`)
+            }}
+          />
         )}
 
         {/* Results State: Results */}

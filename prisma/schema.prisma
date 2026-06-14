@@ -470,14 +470,44 @@ model FeaturedDeal {
   id          String   @id @default(cuid())
   origin      String
   destination String
+  fromLabel   String   @default("")
+  toLabel     String   @default("")
+  tripType    String   @default("ROUNDTRIP")
+  departDate  String?
+  returnDate  String?
   price       Float
   currency    String   @default("GBP")
   airline     String?
+  caption     String?
+  badge       String?
+  photos      String   @default("[]")
   imageUrl    String?
   active      Boolean  @default(true)
   order       Int      @default(0)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+}
+
+model FeaturedHotel {
+  id            String   @id @default(cuid())
+  name          String
+  location      String
+  searchQuery   String
+  propertyType  String   @default("Hotel")
+  rating        Float?
+  reviewCount   Int?
+  reviewLabel   String?
+  priceFrom     Float?
+  priceOriginal Float?
+  currency      String   @default("USD")
+  caption       String?
+  badge         String?
+  photos        String   @default("[]")
+  bookingUrl    String?
+  active        Boolean  @default(true)
+  order         Int      @default(0)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
 }
 
 model TourListing {

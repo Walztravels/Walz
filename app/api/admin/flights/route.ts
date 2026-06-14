@@ -4,14 +4,22 @@ import prisma from '@/lib/db'
 import { z } from 'zod'
 
 const dealSchema = z.object({
-  origin: z.string().min(2),
+  origin:      z.string().min(2),
   destination: z.string().min(2),
-  price: z.number().positive(),
-  currency: z.string().default('GBP'),
-  airline: z.string().optional(),
-  imageUrl: z.string().url().optional().or(z.literal('')),
-  active: z.boolean().default(true),
-  order: z.number().default(0),
+  fromLabel:   z.string().default(''),
+  toLabel:     z.string().default(''),
+  tripType:    z.string().default('ROUNDTRIP'),
+  departDate:  z.string().optional().default(''),
+  returnDate:  z.string().optional().default(''),
+  price:       z.number().positive(),
+  currency:    z.string().default('GBP'),
+  airline:     z.string().optional(),
+  caption:     z.string().optional(),
+  badge:       z.string().optional(),
+  photos:      z.string().default('[]'),
+  imageUrl:    z.string().optional(),
+  active:      z.boolean().default(true),
+  order:       z.number().default(0),
 })
 
 export async function GET() {

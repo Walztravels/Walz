@@ -69,6 +69,8 @@ const SECTIONS: NavSection[] = [
       { href: '/admin/bookings?type=flight', label: 'Flights',      icon: Plane,    permission: 'bookings_view', exact: true },
       { href: '/admin/bookings?type=hotel',  label: 'Hotels',       icon: Hotel,    permission: 'bookings_view', exact: true },
       { href: '/admin/bookings?type=tour',   label: 'Tours',        icon: Map,      permission: 'bookings_view', exact: true },
+      { href: '/admin/flights',              label: 'Flight Promos', icon: Plane,   permission: 'cms_view', exact: true },
+      { href: '/admin/hotels',               label: 'Hotel Promos',  icon: Hotel,   permission: 'cms_view', exact: true },
     ],
   },
   {
