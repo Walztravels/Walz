@@ -693,6 +693,14 @@ model PortalApplication {
   amount      Float?
   currency    String             @default("GBP")
   amountPaid  Float              @default(0)
+
+  // Admin-editable fee breakdown
+  walzFee      Float?
+  walzCurrency String?           @default("GBP")
+  govFee       Float?
+  govCurrency  String?           @default("GBP")
+  govFeeNote   String?           @default("paid later")
+
   createdAt   DateTime           @default(now())
   updatedAt   DateTime           @updatedAt
 

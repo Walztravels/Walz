@@ -19,6 +19,11 @@ interface Application {
   amountPaid: number
   currency: string
   adminNotes: string | null
+  walzFee:     number | null
+  walzCurrency: string | null
+  govFee:      number | null
+  govCurrency: string | null
+  govFeeNote:  string | null
   createdAt: string
   user: { name: string | null; email: string | null }
   documents: { id: string; status: string }[]
@@ -46,6 +51,46 @@ export default function AdminPortalPage() {
   const [stage, setStage]       = useState<string>('ALL')
   const [saving, setSaving]     = useState<string | null>(null)
   const [editNotes, setEditNotes] = useState<Record<string, string>>({})
+
+  // Fee editing — one app at a time
+  const [editingFeesFor, setEditingFeesFor] = useState<string | null>(null)
+  const [walzFee,     setWalzFee]     = useState<number | ''>('')
+  const [walzCur,     setWalzCur]     = useState('GBP')
+  const [govFee,      setGovFee]      = useState<number | ''>('')
+  const [govCur,      setGovCur]      = useState('GBP')
+  const [govNote,     setGovNote]     = useState('paid later')
+  const [feesSaving,  setFeesSaving]  = useState(false)
+
+  function openFeeEditor(app: Application) {
+    setWalzFee(app.walzFee ?? app.amount ?? '')
+    setWalzCur(app.walzCurrency ?? app.currency ?? 'GBP')
+    setGovFee(app.govFee ?? '')
+    setGovCur(app.govCurrency ?? 'GBP')
+    setGovNote(app.govFeeNote ?? 'paid later')
+    setEditingFeesFor(app.id)
+  }
+
+  async function saveFees(appId: string) {
+    setFeesSaving(true)
+    const fee = walzFee !== '' ? Number(walzFee) : null
+    await fetch(`/api/admin/portal/applications/${appId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        walzFee:     fee,
+        walzCurrency: walzCur,
+        govFee:      govFee !== '' ? Number(govFee) : null,
+        govCurrency: govCur,
+        govFeeNote:  govNote,
+        // keep amount in sync for backwards-compat
+        amount:   fee,
+        currency: walzCur,
+      }),
+    })
+    await load()
+    setEditingFeesFor(null)
+    setFeesSaving(false)
+  }
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -211,6 +256,128 @@ export default function AdminPortalPage() {
                       >
                         Email client
                       </a>
+                    )}
+                  </div>
+
+                  {/* ── Fee Summary ── */}
+                  <div className="mt-4 bg-gray-50 rounded-xl border border-gray-100 p-4">
+                    <div className="flex items-center justify-between mb-3">
+                      <h4 className="font-semibold text-[#0B1F3A] text-sm">Fee Summary</h4>
+                      {editingFeesFor !== app.id ? (
+                        <button
+                          onClick={() => openFeeEditor(app)}
+                          className="text-xs text-[#C9A84C] hover:underline font-medium"
+                        >
+                          Edit fees
+                        </button>
+                      ) : (
+                        <button
+                          onClick={() => setEditingFeesFor(null)}
+                          className="text-xs text-gray-400 hover:text-gray-600"
+                        >
+                          Cancel
+                        </button>
+                      )}
+                    </div>
+
+                    {editingFeesFor !== app.id ? (
+                      /* Read-only display */
+                      <div className="space-y-2 text-sm">
+                        {app.walzFee != null && app.walzFee > 0 ? (
+                          <>
+                            <div className="flex justify-between">
+                              <span className="text-gray-500">Walz Travels Service Fee</span>
+                              <span className="font-semibold text-[#0B1F3A]">
+                                {app.walzCurrency ?? app.currency} {app.walzFee.toLocaleString()}
+                              </span>
+                            </div>
+                            {app.govFee != null && app.govFee > 0 && (
+                              <div className="flex justify-between">
+                                <span className="text-gray-500">
+                                  Government Fee
+                                  {app.govFeeNote && <span className="text-gray-400 ml-1">({app.govFeeNote})</span>}
+                                </span>
+                                <span className="font-semibold text-gray-600">
+                                  {app.govCurrency ?? app.currency} {app.govFee.toLocaleString()}
+                                </span>
+                              </div>
+                            )}
+                            <div className="flex justify-between border-t border-gray-200 pt-2 mt-2">
+                              <span className="font-semibold text-[#0B1F3A]">Due today</span>
+                              <span className="font-bold text-[#C9A84C]">
+                                {app.walzCurrency ?? app.currency} {app.walzFee.toLocaleString()}
+                              </span>
+                            </div>
+                          </>
+                        ) : (
+                          <p className="text-gray-400 text-xs text-center py-1">
+                            No fees set — click <span className="text-[#C9A84C]">Edit fees</span> to add
+                          </p>
+                        )}
+                      </div>
+                    ) : (
+                      /* Editable form */
+                      <div className="space-y-3">
+                        <div>
+                          <label className="block text-xs font-medium text-gray-500 mb-1">Walz Travels Service Fee</label>
+                          <div className="flex gap-2">
+                            <select
+                              value={walzCur}
+                              onChange={e => setWalzCur(e.target.value)}
+                              className="w-24 border border-gray-200 rounded-xl px-2 py-2 text-sm outline-none focus:border-[#C9A84C]"
+                            >
+                              {['GBP','USD','EUR','CAD','NGN','GHS','AED'].map(c => (
+                                <option key={c} value={c}>{c}</option>
+                              ))}
+                            </select>
+                            <input
+                              type="number"
+                              value={walzFee}
+                              onChange={e => setWalzFee(e.target.value === '' ? '' : Number(e.target.value))}
+                              placeholder="0.00"
+                              className="flex-1 border border-gray-200 rounded-xl px-3 py-2 text-sm outline-none focus:border-[#C9A84C]"
+                            />
+                          </div>
+                        </div>
+                        <div>
+                          <label className="block text-xs font-medium text-gray-500 mb-1">Government / Embassy Fee</label>
+                          <div className="flex gap-2">
+                            <select
+                              value={govCur}
+                              onChange={e => setGovCur(e.target.value)}
+                              className="w-24 border border-gray-200 rounded-xl px-2 py-2 text-sm outline-none focus:border-[#C9A84C]"
+                            >
+                              {['GBP','USD','EUR','CAD','NGN','GHS','AED'].map(c => (
+                                <option key={c} value={c}>{c}</option>
+                              ))}
+                            </select>
+                            <input
+                              type="number"
+                              value={govFee}
+                              onChange={e => setGovFee(e.target.value === '' ? '' : Number(e.target.value))}
+                              placeholder="0.00 (optional)"
+                              className="flex-1 border border-gray-200 rounded-xl px-3 py-2 text-sm outline-none focus:border-[#C9A84C]"
+                            />
+                          </div>
+                          <select
+                            value={govNote}
+                            onChange={e => setGovNote(e.target.value)}
+                            className="w-full mt-2 border border-gray-200 rounded-xl px-3 py-2 text-xs outline-none focus:border-[#C9A84C]"
+                          >
+                            <option value="paid later">paid later</option>
+                            <option value="paid at embassy">paid at embassy</option>
+                            <option value="paid direct">paid direct</option>
+                            <option value="included">included</option>
+                          </select>
+                        </div>
+                        <button
+                          onClick={() => saveFees(app.id)}
+                          disabled={feesSaving}
+                          className="w-full bg-[#C9A84C] text-[#0B1F3A] font-bold py-2 rounded-xl text-sm hover:bg-[#d4b45f] disabled:opacity-50 transition-colors"
+                        >
+                          {feesSaving ? 'Saving…' : 'Save Fees'}
+                        </button>
+                      </div>
                     )}
                   </div>
 

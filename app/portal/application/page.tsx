@@ -16,6 +16,8 @@ interface PortalApp {
   id: string; refNumber: string; title: string; type: string; stage: Stage
   destination: string | null; travelDate: string | null
   amount: number | null; currency: string; amountPaid: number
+  walzFee: number | null; walzCurrency: string | null
+  govFee: number | null; govCurrency: string | null; govFeeNote: string | null
   createdAt: string; updatedAt: string
   documents: { id: string; status: string }[]
   payments: { id: string; amount: number; currency: string; status: string }[]
@@ -259,9 +261,10 @@ export default function ApplicationsPage() {
                             {doneCL}/{totalCL} checklist
                           </span>
                         )}
-                        {app.amount && (
+                        {(app.walzFee ?? app.amount) && (
                           <span className="font-medium text-[#0B1F3A]">
-                            {app.currency} {app.amountPaid.toFixed(0)} / {app.amount.toFixed(0)} paid
+                            {app.walzCurrency ?? app.currency}{' '}
+                            {(app.walzFee ?? app.amount)!.toLocaleString()} due
                           </span>
                         )}
                         <span className="flex items-center gap-1">

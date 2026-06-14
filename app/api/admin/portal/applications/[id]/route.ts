@@ -7,10 +7,16 @@ import { z } from 'zod'
 const resend = new Resend(process.env.RESEND_API_KEY)
 
 const updateSchema = z.object({
-  stage:      z.enum(['ENQUIRY', 'DOCUMENTS_PENDING', 'DOCUMENTS_RECEIVED', 'PROCESSING', 'SUBMITTED', 'APPROVED', 'REJECTED', 'COMPLETED']).optional(),
-  adminNotes: z.string().optional(),
-  amount:     z.number().optional(),
-  amountPaid: z.number().optional(),
+  stage:       z.enum(['ENQUIRY', 'DOCUMENTS_PENDING', 'DOCUMENTS_RECEIVED', 'PROCESSING', 'SUBMITTED', 'APPROVED', 'REJECTED', 'COMPLETED']).optional(),
+  adminNotes:  z.string().optional(),
+  amount:      z.number().nullable().optional(),
+  amountPaid:  z.number().optional(),
+  currency:    z.string().optional(),
+  walzFee:     z.number().nullable().optional(),
+  walzCurrency: z.string().nullable().optional(),
+  govFee:      z.number().nullable().optional(),
+  govCurrency: z.string().nullable().optional(),
+  govFeeNote:  z.string().nullable().optional(),
 }).partial()
 
 export async function PATCH(request: NextRequest, { params }: { params: { id: string } }) {
