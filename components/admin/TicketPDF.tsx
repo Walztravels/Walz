@@ -8,7 +8,7 @@
 
 import React from 'react'
 import {
-  Document, Page, Text, View, StyleSheet, Font, Svg, Path, Line,
+  Document, Page, Text, View, StyleSheet, Font, Svg, Path, Line, Image,
 } from '@react-pdf/renderer'
 
 // ── Brand colours ─────────────────────────────────────────────────────────────
@@ -200,7 +200,7 @@ function TicketHeader({ type, reference }: { type: string; reference: string }) 
     <>
       <View style={s.header}>
         <View style={s.headerLeft}>
-          <Text style={s.brandName}>WALZ TRAVELS</Text>
+          <Image src="https://www.walztravels.com/walz-logo-white.png" style={{ height: 28, objectFit: 'contain' }} />
           <Text style={s.brandTag}>YOUR JOURNEY. OUR EXPERTISE.</Text>
         </View>
         <View style={s.headerRight}>

@@ -7,7 +7,7 @@
 
 import React from 'react'
 import {
-  Document, Page, Text, View, StyleSheet, Line, Svg,
+  Document, Page, Text, View, StyleSheet, Line, Svg, Image,
 } from '@react-pdf/renderer'
 import type { FlightTicketEmailProps, FlightLeg, Passenger, PricingBreakdown } from '@/types/flight-ticket'
 
@@ -474,7 +474,7 @@ function PageHeader({ pnr, reference }: { pnr: string; reference: string }) {
       <View style={s.pageHeader} fixed>
         {/* Logo */}
         <View style={s.logoBlock}>
-          <Text style={s.logoName}>WALZ TRAVELS</Text>
+          <Image src="https://www.walztravels.com/walz-logo.png" style={{ height: 28, objectFit: 'contain' }} />
           <Text style={s.logoTag}>YOUR JOURNEY. OUR EXPERTISE.</Text>
         </View>
 

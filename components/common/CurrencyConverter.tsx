@@ -79,11 +79,11 @@ export function CurrencyConverter() {
   const setTo   = (code: string) => { setToCode(code);   persist(fromCode, code) }
 
   const numAmount  = parseFloat(amount) || 0
-  const converted  = convert(numAmount, fromCode)
   const toCurrency = CURRENCIES.find(c => c.code === toCode)
   const fromRate   = rates[fromCode] ?? 1
   const toRate     = rates[toCode]   ?? 1
   const unitRate   = toRate / fromRate
+  const converted  = (numAmount / fromRate) * toRate
 
   return (
     <div ref={containerRef} className="fixed bottom-6 left-6 z-40" style={{ bottom: 96 }}>

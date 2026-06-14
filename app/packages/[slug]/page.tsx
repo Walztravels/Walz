@@ -4,7 +4,7 @@ import Link from 'next/link'
 import Image from 'next/image'
 import prisma from '@/lib/db'
 import { PackageGallery } from '@/components/PackageGallery'
-import PackageBookingModal from '@/components/PackageBookingModal'
+import BookingButton from '@/components/packages/BookingButton'
 import CinematicPackageCard from '@/components/CinematicPackageCard'
 
 export const revalidate = 60
@@ -637,8 +637,18 @@ function PackageDetail({
                       </div>
                     )}
 
-                    {/* Book button — triggers modal via custom event */}
-                    <BookButton />
+                    {/* Book button — client component, manages modal open state */}
+                    <BookingButton pkg={{
+                      id: pkg.id,
+                      slug: pkg.slug,
+                      title: pkg.title,
+                      price_per_person: pkg.price_per_person,
+                      currency: pkg.currency,
+                      deposit_amount: pkg.deposit_amount,
+                      departure_date: pkg.departure_date,
+                      total_seats: pkg.total_seats,
+                      seats_booked: pkg.seats_booked,
+                    }} />
 
                     {/* WhatsApp */}
                     <a
@@ -674,17 +684,6 @@ function PackageDetail({
         </div>
       </div>
 
-      <PackageBookingModal pkg={{
-        id: pkg.id,
-        slug: pkg.slug,
-        title: pkg.title,
-        price_per_person: pkg.price_per_person,
-        currency: pkg.currency,
-        deposit_amount: pkg.deposit_amount,
-        departure_date: pkg.departure_date,
-        total_seats: pkg.total_seats,
-        seats_booked: pkg.seats_booked,
-      }} />
     </>
   )
 }
@@ -775,30 +774,6 @@ function DestinationFallback({
         </div>
       </div>
     </div>
-  )
-}
-
-// ── Book button — rendered via inline script to avoid a client boundary ───────
-// Using a raw <script> + onclick attribute so the entire page stays a server component.
-
-function BookButton() {
-  return (
-    <>
-      <button
-        id="open-booking-btn"
-        type="button"
-        className="w-full py-3.5 rounded-xl font-bold text-sm transition-opacity hover:opacity-90 cursor-pointer"
-        style={{ backgroundColor: '#C9A84C', color: '#0B1F3A' }}
-      >
-        Book This Package
-      </button>
-      {/* Attach the event without making this a client component */}
-      <script
-        dangerouslySetInnerHTML={{
-          __html: `document.getElementById('open-booking-btn')?.addEventListener('click',function(){window.dispatchEvent(new Event('open-booking-modal'))})`,
-        }}
-      />
-    </>
   )
 }
 

@@ -539,7 +539,7 @@ export function VisaIntelligenceSection() {
 
         {/* Footer link */}
         <div className="mt-10 text-center">
-          <Link href="/visa" className="inline-flex items-center gap-2 text-white/35 hover:text-[#C9A84C] text-sm transition-colors">
+          <Link href="/packages" className="inline-flex items-center gap-2 text-white/35 hover:text-[#C9A84C] text-sm transition-colors">
             Browse all 199 destinations <ArrowRight className="w-3.5 h-3.5" />
           </Link>
         </div>

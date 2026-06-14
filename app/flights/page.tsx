@@ -78,6 +78,61 @@ function applySorting(flights: FlightResult[], sort: SortOption): FlightResult[]
   }
 }
 
+function WhatsAppFallback() {
+  const [from, setFrom] = useState('')
+  const [to, setTo] = useState('')
+  const [date, setDate] = useState('')
+  const [passengers, setPassengers] = useState('1')
+  const msg = `Hi, I need to book a flight. From: ${from || '?'} To: ${to || '?'} Date: ${date || '?'} Passengers: ${passengers}`
+  return (
+    <div className="text-center py-16 max-w-lg mx-auto">
+      <div className="w-14 h-14 rounded-full walz-gold-gradient flex items-center justify-center mx-auto mb-4 shadow-gold-glow">
+        <Plane className="w-7 h-7 text-walz-deep-navy" />
+      </div>
+      <h2 className="font-display text-2xl font-bold text-walz-deep-navy mb-2">Search Flights</h2>
+      <p className="text-walz-muted mb-8 text-sm">
+        Search for the best flight prices worldwide. Our team finds the most competitive fares across all airlines.
+      </p>
+      <div className="bg-white rounded-2xl border border-walz-border p-6 text-left space-y-4 mb-6">
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="block text-xs font-semibold text-walz-deep-navy mb-1">From</label>
+            <input value={from} onChange={e => setFrom(e.target.value)} placeholder="e.g. London LHR"
+              className="w-full border border-walz-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-walz-gold" />
+          </div>
+          <div>
+            <label className="block text-xs font-semibold text-walz-deep-navy mb-1">To</label>
+            <input value={to} onChange={e => setTo(e.target.value)} placeholder="e.g. Lagos LOS"
+              className="w-full border border-walz-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-walz-gold" />
+          </div>
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="block text-xs font-semibold text-walz-deep-navy mb-1">Date</label>
+            <input type="date" value={date} onChange={e => setDate(e.target.value)}
+              className="w-full border border-walz-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-walz-gold" />
+          </div>
+          <div>
+            <label className="block text-xs font-semibold text-walz-deep-navy mb-1">Passengers</label>
+            <select value={passengers} onChange={e => setPassengers(e.target.value)}
+              className="w-full border border-walz-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-walz-gold">
+              {[1,2,3,4,5,6,7,8].map(n => <option key={n} value={n}>{n} passenger{n > 1 ? 's' : ''}</option>)}
+            </select>
+          </div>
+        </div>
+        <a
+          href={`https://wa.me/447398753797?text=${encodeURIComponent(msg)}`}
+          target="_blank" rel="noopener noreferrer"
+          className="block w-full text-center bg-green-500 hover:bg-green-600 text-white font-semibold rounded-xl py-3 transition-colors"
+        >
+          Search via WhatsApp
+        </a>
+      </div>
+      <p className="text-sm text-walz-muted">Or message Jade on WhatsApp for instant flight quotes</p>
+    </div>
+  )
+}
+
 function FlightsPageContent() {
   const searchParams = useSearchParams()
   const [allFlights, setAllFlights] = useState<FlightResult[]>([])
@@ -87,6 +142,14 @@ function FlightsPageContent() {
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [hasSearched, setHasSearched] = useState(false)
+  const [showFallback, setShowFallback] = useState(false)
+
+  // Show WhatsApp fallback if search hangs for > 5 seconds
+  useEffect(() => {
+    if (!isLoading) { setShowFallback(false); return }
+    const t = setTimeout(() => setShowFallback(true), 5000)
+    return () => clearTimeout(t)
+  }, [isLoading])
 
   const airlines = [...new Set(allFlights.map((f) => f.validatingCarrier))]
   const priceRange = allFlights.length > 0
@@ -225,7 +288,7 @@ function FlightsPageContent() {
 
       <div className="container-walz py-8">
         {/* Results State: Loading */}
-        {isLoading && (
+        {isLoading && !showFallback && (
           <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
             <div className="lg:col-span-1">
               <Skeleton className="h-96 rounded-2xl" />
@@ -238,6 +301,9 @@ function FlightsPageContent() {
             </div>
           </div>
         )}
+
+        {/* Fallback: shown after 5s of loading */}
+        {isLoading && showFallback && <WhatsAppFallback />}
 
         {/* Results State: Error */}
         {!isLoading && error && (

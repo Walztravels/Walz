@@ -11,9 +11,13 @@ const nextConfig = {
     // Cache optimised images for 24 h on the CDN edge
     minimumCacheTTL: 86400,
     remotePatterns: [
-      { protocol: 'https', hostname: 'images.unsplash.com', pathname: '/**' },
-      { protocol: 'https', hostname: 'plus.unsplash.com',   pathname: '/**' },
-      { protocol: 'https', hostname: 'lh3.googleusercontent.com', pathname: '/**' },
+      { protocol: 'https', hostname: 'images.unsplash.com',              pathname: '/**' },
+      { protocol: 'https', hostname: 'plus.unsplash.com',                pathname: '/**' },
+      { protocol: 'https', hostname: 'lh3.googleusercontent.com',        pathname: '/**' },
+      { protocol: 'https', hostname: 'www.walztravels.com',               pathname: '/**' },
+      { protocol: 'https', hostname: 'walztravels.com',                   pathname: '/**' },
+      { protocol: 'https', hostname: 'cdn.walztravels.com',               pathname: '/**' },
+      { protocol: 'https', hostname: 'us.chat-img.sintra.ai',            pathname: '/**' },
       // Supabase Storage — for media-managed images via the admin panel
       { protocol: 'https', hostname: 'bxacijnrgqgmyqyfgumg.supabase.co', pathname: '/storage/**' },
     ],
@@ -73,7 +77,10 @@ const nextConfig = {
   },
 
   experimental: {
-    serverComponentsExternalPackages: ['@prisma/client', 'prisma'],
+    serverComponentsExternalPackages: ['@prisma/client', 'prisma', 'pdf-parse'],
+    serverActions: {
+      bodySizeLimit: '25mb',
+    },
   },
 }
 

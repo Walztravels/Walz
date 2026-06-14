@@ -296,6 +296,66 @@ function TourCard({ tour, index }: { tour: DbTour; index: number }) {
   )
 }
 
+// ── Fallback tours (shown if DB fetch fails or times out) ─────────────────────
+
+const FALLBACK_TOURS: DbTour[] = [
+  {
+    id: '1', slug: 'niagara-falls-vip', active: true, order: 1,
+    name: 'Niagara Falls VIP Private Tour',
+    location: 'Niagara Falls, Canada',
+    duration: '8 hours',
+    price: 450,
+    currency: 'CAD',
+    description: 'Private guide, luxury vehicle, and exclusive viewpoints — see the falls without the crowds. From Toronto, full day.',
+    highlights: JSON.stringify(['Private guide throughout', 'Luxury vehicle', 'Exclusive viewpoints', 'Hotel pickup available']),
+    imageUrl: 'https://images.unsplash.com/photo-1501854140801-50d01698950b?w=800&q=80',
+  },
+  {
+    id: '2', slug: 'london-private-day-tour', active: true, order: 2,
+    name: 'London Private Day Tour',
+    location: 'London, United Kingdom',
+    duration: '8 hours',
+    price: 295,
+    currency: 'GBP',
+    description: 'Buckingham Palace, the Tower of London, and a Thames cruise — a full day of London highlights with a private guide.',
+    highlights: JSON.stringify(['Buckingham Palace', 'Tower of London', 'Thames cruise', 'Westminster & Big Ben']),
+    imageUrl: 'https://images.unsplash.com/photo-1513635269975-59663e0ac1ad?w=800&q=80',
+  },
+  {
+    id: '3', slug: 'dubai-city-desert-safari', active: true, order: 3,
+    name: 'Dubai City and Desert Safari',
+    location: 'Dubai, UAE',
+    duration: '10 hours',
+    price: 200,
+    currency: 'USD',
+    description: 'Glide past the Marina skyline on a private yacht with chilled drinks and unforgettable sunset views over the Gulf.',
+    highlights: JSON.stringify(['Burj Khalifa views', 'Desert dune bashing', 'Traditional dinner', 'Private guide']),
+    imageUrl: 'https://images.unsplash.com/photo-1512453979798-5ea266f8880c?w=800&q=80',
+  },
+  {
+    id: '4', slug: 'dublin-private-day-tour', active: true, order: 4,
+    name: 'Dublin Private Day Tour',
+    location: 'Dublin, Ireland',
+    duration: '8 hours',
+    price: 275,
+    currency: 'EUR',
+    description: "Trinity College, the Guinness Storehouse, and Dublin's best pubs — explored at your pace with a local expert guide.",
+    highlights: JSON.stringify(['Trinity College', 'Guinness Storehouse', 'Temple Bar district', 'Kilmainham Gaol']),
+    imageUrl: 'https://images.unsplash.com/photo-1564959130747-897fb406b9af?w=800&q=80',
+  },
+  {
+    id: '5', slug: 'paris-full-day-tour', active: true, order: 5,
+    name: 'Paris Full Day Private Tour',
+    location: 'Paris, France',
+    duration: '8 hours',
+    price: 250,
+    currency: 'EUR',
+    description: 'Eiffel Tower, Louvre Museum, Notre Dame and a Seine river cruise — the iconic Paris experience.',
+    highlights: JSON.stringify(['Eiffel Tower', 'Louvre Museum', 'Notre Dame', 'Seine river cruise']),
+    imageUrl: 'https://images.unsplash.com/photo-1502602898657-3e91760cbb34?w=800&q=80',
+  },
+]
+
 // ── Page ───────────────────────────────────────────────────────────────────────
 
 export default function ToursPage() {
@@ -313,10 +373,27 @@ export default function ToursPage() {
 
   useEffect(() => {
     setReady(true)
+
+    // 5-second timeout: if DB hangs, show fallback tours
+    const timer = setTimeout(() => {
+      setTours(prev => prev.length === 0 ? FALLBACK_TOURS : prev)
+      setLoading(false)
+    }, 5000)
+
     fetch('/api/tours')
       .then((r) => r.json())
-      .then((data) => { setTours(Array.isArray(data) ? data : []); setLoading(false) })
-      .catch(() => setLoading(false))
+      .then((data) => {
+        clearTimeout(timer)
+        setTours(Array.isArray(data) && data.length > 0 ? data : FALLBACK_TOURS)
+        setLoading(false)
+      })
+      .catch(() => {
+        clearTimeout(timer)
+        setTours(FALLBACK_TOURS)
+        setLoading(false)
+      })
+
+    return () => clearTimeout(timer)
   }, [])
 
   return (

@@ -8,7 +8,7 @@ import FeaturedDepartureSlider, { type SpotlightPackage } from '@/components/Fea
 export const revalidate = 60
 
 export const metadata: Metadata = {
-  title: 'Travel Packages | Group Tours and Holidays | Walz Travels',
+  title: { absolute: 'Travel Packages | Walz Travels' },
   description:
     'Group tours and holiday packages from Lagos and Accra. Flights, visas, hotels and tours included. Dubai, London, Zanzibar and more.',
   alternates: { canonical: 'https://www.walztravels.com/packages' },
@@ -202,7 +202,7 @@ export default async function PackagesPage() {
             Walz Travels Packages
           </p>
           <h1 className="font-display text-4xl sm:text-5xl lg:text-7xl text-white font-bold leading-tight max-w-3xl mb-5">
-            Journeys,<br />Perfected.
+            Journeys, <br />Perfected.
           </h1>
           <p className="text-white/75 text-lg max-w-xl leading-relaxed">
             Group departures and private escapes — visa, flights, hotels and experiences in one seamless price.

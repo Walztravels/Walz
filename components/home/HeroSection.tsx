@@ -6,21 +6,20 @@ import Link from 'next/link'
 import gsap from 'gsap'
 import ScrollTrigger from 'gsap/ScrollTrigger'
 import { SearchTabs } from '@/components/search/SearchTabs'
-import { ArrowRight, MessageCircle } from 'lucide-react'
+import { ArrowRight, MessageCircle, Search } from 'lucide-react'
 
 export function HeroSection({ bgUrl }: { bgUrl?: string | null }) {
-  const heroBg = bgUrl || 'https://images.unsplash.com/photo-1464037866556-6812c9d1c72e?w=2000&q=85'
-  const sectionRef  = useRef<HTMLElement>(null)
-  const bgRef       = useRef<HTMLDivElement>(null)
-  const eyebrowRef  = useRef<HTMLParagraphElement>(null)
-  const line1Ref    = useRef<HTMLSpanElement>(null)
-  const line2Ref    = useRef<HTMLSpanElement>(null)
-  const line3Ref    = useRef<HTMLSpanElement>(null)
-  const subRef      = useRef<HTMLParagraphElement>(null)
-  const ctaRef      = useRef<HTMLDivElement>(null)
-  const scrollRef   = useRef<HTMLDivElement>(null)
-  const searchRef   = useRef<HTMLDivElement>(null)
-  const [scrolled, setScrolled] = useState(false)
+  const heroBg     = bgUrl || 'https://images.unsplash.com/photo-1464037866556-6812c9d1c72e?w=2000&q=85'
+  const sectionRef = useRef<HTMLElement>(null)
+  const bgRef      = useRef<HTMLDivElement>(null)
+  const eyebrowRef = useRef<HTMLParagraphElement>(null)
+  const line1Ref   = useRef<HTMLSpanElement>(null)
+  const line2Ref   = useRef<HTMLSpanElement>(null)
+  const line3Ref   = useRef<HTMLSpanElement>(null)
+  const subRef     = useRef<HTMLParagraphElement>(null)
+  const ctaRef     = useRef<HTMLDivElement>(null)
+  const searchRef  = useRef<HTMLDivElement>(null)
+  const [searchExpanded, setSearchExpanded] = useState(false)
 
   useEffect(() => {
     gsap.registerPlugin(ScrollTrigger)
@@ -30,23 +29,14 @@ export function HeroSection({ bgUrl }: { bgUrl?: string | null }) {
 
     const tl = gsap.timeline({ defaults: { ease: 'power3.out' } })
 
-    // Eyebrow
     tl.from(eyebrowRef.current, { opacity: 0, y: 20, duration: 0.8 }, 0.4)
-
-    // Headline lines — clip-path reveal from bottom
     tl.from(
       [line1Ref.current, line2Ref.current, line3Ref.current],
       { yPercent: 110, opacity: 0, duration: 1.2, stagger: 0.15 },
       0.9,
     )
-
-    // Subheadline
-    tl.from(subRef.current, { opacity: 0, y: 30, duration: 0.8 }, 1.7)
-
-    // CTA buttons
-    tl.from(ctaRef.current, { opacity: 0, y: 24, duration: 0.7 }, 2.1)
-
-    // Search tabs
+    tl.from(subRef.current,  { opacity: 0, y: 30, duration: 0.8 }, 1.7)
+    tl.from(ctaRef.current,  { opacity: 0, y: 24, duration: 0.7 }, 2.1)
     tl.from(searchRef.current, { opacity: 0, y: 30, duration: 0.8 }, 2.3)
 
     // Parallax background — desktop only
@@ -57,58 +47,42 @@ export function HeroSection({ bgUrl }: { bgUrl?: string | null }) {
         scrollTrigger: {
           trigger: sectionRef.current,
           start: 'top top',
-          end: 'bottom top',
+          end:   'bottom top',
           scrub: true,
         },
       })
-    }
-
-    // Scroll indicator pulse
-    const scrollEl = scrollRef.current
-    if (scrollEl) {
-      gsap.to(scrollEl, {
-        opacity: 0.3,
-        yoyo: true,
-        repeat: -1,
-        duration: 1.4,
-        ease: 'power1.inOut',
-      })
-    }
-
-    const handleScroll = () => {
-      if (window.scrollY > 80) setScrolled(true)
-    }
-    window.addEventListener('scroll', handleScroll, { passive: true })
-
-    return () => {
-      window.removeEventListener('scroll', handleScroll)
     }
   }, [])
 
   return (
     <section
       ref={sectionRef}
-      className="relative h-screen min-h-[640px] flex flex-col items-center justify-center overflow-hidden bg-[#0B1F3A]"
+      // No overflow-hidden on the section itself — lets search widget bleed below
+      className="relative min-h-[70vh] md:min-h-[80vh] lg:h-screen lg:min-h-[640px] flex flex-col items-center justify-center bg-[#0B1F3A]"
     >
-      {/* ── Background with parallax ─────────────────────────────────── */}
-      <div ref={bgRef} className="absolute inset-0 will-change-transform scale-110">
-        <Image
-          src={heroBg}
-          alt="Luxury travel aerial view"
-          fill
-          priority
-          className="object-cover object-center"
-          sizes="100vw"
-          data-cursor="EXPLORE"
-        />
+      {/* Background — overflow-hidden on inner wrapper clips parallax image */}
+      <div className="absolute inset-0 overflow-hidden">
+        <div ref={bgRef} className="absolute inset-0 will-change-transform scale-110">
+          <Image
+            src={heroBg}
+            alt="Luxury travel aerial view"
+            fill
+            priority
+            fetchPriority="high"
+            className="object-cover object-center"
+            sizes="100vw"
+            quality={75}
+            data-cursor="EXPLORE"
+          />
+        </div>
       </div>
 
-      {/* ── Gradient overlays ────────────────────────────────────────── */}
+      {/* Gradient overlays */}
       <div className="absolute inset-0 bg-gradient-to-b from-[#0B1F3A]/75 via-[#0B1F3A]/45 to-[#0B1F3A]/92" />
       <div className="absolute inset-0 bg-gradient-to-r from-[#0B1F3A]/50 via-transparent to-[#0B1F3A]/20" />
 
-      {/* ── Hero content ─────────────────────────────────────────────── */}
-      <div className="relative z-10 w-full max-w-6xl mx-auto px-5 sm:px-8 flex flex-col items-center text-center pt-16 lg:pt-20">
+      {/* Headline + CTAs — centered, padded bottom to clear the pinned search widget */}
+      <div className="relative z-10 w-full max-w-6xl mx-auto px-5 sm:px-8 flex flex-col items-center text-center pt-16 lg:pt-20 pb-32 lg:pb-52">
 
         {/* Eyebrow */}
         <p
@@ -119,7 +93,7 @@ export function HeroSection({ bgUrl }: { bgUrl?: string | null }) {
           Your Trusted Global Travel Partner
         </p>
 
-        {/* Headline — each line in clip overflow wrapper */}
+        {/* Headline — clip-path reveal per line */}
         <h1 className="font-display font-bold text-white leading-[0.92] mb-7 select-none">
           {(
             [
@@ -127,14 +101,14 @@ export function HeroSection({ bgUrl }: { bgUrl?: string | null }) {
               { ref: line2Ref, text: 'Is Waiting' },
               { ref: line3Ref, text: 'For You.' },
             ] as { ref: React.RefObject<HTMLSpanElement>; text: string }[]
-          ).map(({ ref, text }) => (
+          ).map(({ ref, text }, i, arr) => (
             <span key={text} className="block overflow-hidden">
               <span
                 ref={ref}
                 className="block text-[clamp(2.8rem,8.5vw,6.8rem)]"
                 style={{ transform: 'translateY(110%)', opacity: 0 }}
               >
-                {text}
+                {text}{i < arr.length - 1 ? ' ' : ''}
               </span>
             </span>
           ))}
@@ -154,7 +128,7 @@ export function HeroSection({ bgUrl }: { bgUrl?: string | null }) {
         {/* CTA buttons */}
         <div
           ref={ctaRef}
-          className="flex flex-col sm:flex-row items-center gap-3 mb-10"
+          className="flex flex-col sm:flex-row items-center gap-3"
           style={{ opacity: 0 }}
         >
           <Link href="/plan/new">
@@ -173,25 +147,39 @@ export function HeroSection({ bgUrl }: { bgUrl?: string | null }) {
             Chat with Jade
           </a>
         </div>
-
-        {/* Search widget */}
-        <div ref={searchRef} className="w-full" style={{ opacity: 0 }}>
-          <SearchTabs />
-        </div>
       </div>
 
-      {/* ── Scroll indicator ─────────────────────────────────────────── */}
-      {!scrolled && (
-        <div
-          ref={scrollRef}
-          className="absolute bottom-7 left-1/2 -translate-x-1/2 flex flex-col items-center gap-2 pointer-events-none"
-        >
-          <span className="text-white/40 text-[9px] tracking-[0.25em] uppercase font-medium">
-            Scroll to explore
-          </span>
-          <div className="w-px h-8 bg-gradient-to-b from-white/40 to-transparent" />
+      {/* Search widget — pinned to bottom, translate-y-1/2 overlaps into next section */}
+      <div
+        ref={searchRef}
+        className="absolute bottom-0 left-0 right-0 z-20 translate-y-1/2 px-4 sm:px-6 lg:px-8"
+        style={{ opacity: 0 }}
+      >
+        <div className="max-w-5xl mx-auto drop-shadow-2xl">
+          {/* Mobile: single collapsed tap-to-search bar */}
+          {!searchExpanded && (
+            <div
+              className="lg:hidden flex items-center gap-3 bg-[#0B1F3A] border border-white/15 rounded-2xl px-4 py-3.5 cursor-pointer shadow-luxury"
+              onClick={() => setSearchExpanded(true)}
+            >
+              <Search className="w-5 h-5 text-[#C9A84C] flex-shrink-0" />
+              <span className="text-white/70 text-sm">Where do you want to go?</span>
+              <span className="ml-auto text-[#C9A84C] text-sm font-semibold whitespace-nowrap">Search →</span>
+            </div>
+          )}
+
+          {/* Full form — always on desktop, shown on mobile after tap */}
+          <div className={searchExpanded ? 'block' : 'hidden lg:block'}>
+            <SearchTabs />
+            <button
+              className="lg:hidden mt-2 text-white/50 text-sm w-full text-center py-2 hover:text-white/80 transition-colors"
+              onClick={() => setSearchExpanded(false)}
+            >
+              Cancel
+            </button>
+          </div>
         </div>
-      )}
+      </div>
     </section>
   )
 }

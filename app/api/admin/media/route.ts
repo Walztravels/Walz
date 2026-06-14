@@ -3,7 +3,7 @@ import { getAdminSession } from '@/lib/admin-auth'
 import { getSupabaseAdmin } from '@/lib/supabase'
 import prisma from '@/lib/db'
 
-const MEDIA_BUCKET = 'site-media'
+const MEDIA_BUCKET = 'walz-images'
 
 // ── Row type ──────────────────────────────────────────────────────────────────
 interface SiteMediaRow {
@@ -134,10 +134,10 @@ export async function PATCH(req: NextRequest) {
     }
   }
 
-  // Build dynamic SET clause
-  const setCols: string[]  = ['current_url = $1', 'updated_at = $2', 'updated_by = $3']
-  const values:  unknown[] = [newUrl, new Date().toISOString(), updaterName]
-  let   p                  = 4
+  // Build dynamic SET clause — use NOW() for timestamptz column to avoid text cast error
+  const setCols: string[]  = ['current_url = $1', 'updated_at = NOW()', 'updated_by = $2']
+  const values:  unknown[] = [newUrl, updaterName]
+  let   p                  = 3
 
   if (file) {
     setCols.push(`file_name = $${p++}`, `file_size = $${p++}`)
@@ -202,10 +202,9 @@ export async function DELETE(req: NextRequest) {
   await prisma.$executeRawUnsafe(
     `UPDATE site_media
      SET current_url = $1, file_name = NULL, file_size = NULL,
-         updated_at = $2, updated_by = $3
-     WHERE media_key = $4`,
+         updated_at = NOW(), updated_by = $2
+     WHERE media_key = $3`,
     existing.original_url ?? existing.current_url,
-    new Date().toISOString(),
     staffRecord?.name ?? session.email,
     body.media_key,
   )

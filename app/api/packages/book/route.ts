@@ -330,6 +330,8 @@ export async function POST(request: Request) {
     clientPhone,
     clientCountry,
     specialRequests,
+    payment_gateway,
+    payment_currency,
   } = body as {
     packageId?: string
     packageSlug?: string
@@ -340,6 +342,8 @@ export async function POST(request: Request) {
     clientPhone?: string
     clientCountry?: string
     specialRequests?: string
+    payment_gateway?: string
+    payment_currency?: string
   }
 
   // Validation
@@ -401,13 +405,15 @@ export async function POST(request: Request) {
     const depositDue = pkg.deposit_amount ? Number(pkg.deposit_amount) * numTravellers : null
     const currency = pkg.currency || 'USD'
 
-    // 5. Insert booking
+    // 5. Insert booking — payment_pending means awaiting online deposit
+    const initialPaymentStatus = payment_gateway ? 'payment_pending' : 'pending'
     await prisma.$executeRawUnsafe(
       `INSERT INTO package_bookings
          (booking_ref, package_id, package_title, package_slug, client_name, client_email,
           client_phone, client_country, num_travellers, special_requests,
-          total_price, deposit_amount, currency, payment_status, status, created_at, updated_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,'pending','pending',NOW(),NOW())`,
+          total_price, deposit_amount, currency, payment_status, payment_gateway,
+          payment_currency, status, created_at, updated_at)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,'pending',NOW(),NOW())`,
       bookingRef,
       packageId,
       packageTitle.trim(),
@@ -420,7 +426,10 @@ export async function POST(request: Request) {
       (specialRequests && specialRequests.trim()) ? specialRequests.trim() : null,
       totalPrice,
       depositDue,
-      currency
+      currency,
+      initialPaymentStatus,
+      payment_gateway || null,
+      payment_currency || null
     )
 
     // 6. Increment seats_booked

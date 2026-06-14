@@ -43,7 +43,7 @@ function minutesAgo(iso: string): string {
 const QUICK_AMOUNTS = [100, 500, 1_000, 5_000, 10_000, 50_000, 100_000]
 
 export default function CurrencyPage() {
-  const { rates, convert, format, lastUpdated, loading, selectedCurrency, setSelectedCurrency } = useCurrency()
+  const { rates, format, lastUpdated, loading, selectedCurrency, setSelectedCurrency } = useCurrency()
 
   const [fromCode,  setFromCode]  = useState('USD')
   const [toCode,    setToCode]    = useState('GBP')
@@ -69,12 +69,12 @@ export default function CurrencyPage() {
   }
 
   const numAmount = parseFloat(amount) || 0
-  const converted = convert(numAmount, fromCode)
   const fromCurr  = CURRENCIES.find(c => c.code === fromCode)
   const toCurr    = CURRENCIES.find(c => c.code === toCode)
   const fromRate  = rates[fromCode] ?? 1
   const toRate    = rates[toCode]   ?? 1
   const unitRate  = toRate / fromRate
+  const converted = (numAmount / fromRate) * toRate
 
   return (
     <div className="min-h-screen bg-[#F8F7F4]">

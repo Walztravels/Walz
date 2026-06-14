@@ -397,14 +397,15 @@ export function JadePlannerSection() {
                     const idx = HEADLINE_LINES
                       .slice(0, li)
                       .reduce((acc, l) => acc + l.length, 0) + wi
+                    const isLastWord = wi === line.length - 1
+                    const isLastLine = li === HEADLINE_LINES.length - 1
                     return (
                       <span
                         key={wi}
                         ref={el => { wordRefs.current[idx] = el }}
                         className="inline-block"
-                        style={{ marginRight: '0.28em' }}
                       >
-                        {word}
+                        {word}{(!isLastWord || !isLastLine) ? ' ' : ''}
                       </span>
                     )
                   })}

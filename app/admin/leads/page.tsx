@@ -2,7 +2,8 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import { format } from 'date-fns'
-import { MessageSquare, RefreshCw } from 'lucide-react'
+import { MessageSquare, RefreshCw, Inbox } from 'lucide-react'
+import Link from 'next/link'
 
 type LeadStatus = 'New' | 'Contacted' | 'Deposit Paid' | 'In Progress' | 'Closed'
 
@@ -133,6 +134,7 @@ export default function LeadsPage() {
                     <th className="text-left px-4 py-3 font-semibold text-gray-600 text-xs uppercase tracking-wide">Status</th>
                     <th className="text-left px-4 py-3 font-semibold text-gray-600 text-xs uppercase tracking-wide">Received</th>
                     <th className="text-left px-4 py-3 font-semibold text-gray-600 text-xs uppercase tracking-wide">Update</th>
+                    <th className="text-left px-4 py-3 font-semibold text-gray-600 text-xs uppercase tracking-wide">Inbox</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-50">
@@ -178,6 +180,15 @@ export default function LeadsPage() {
                             <option key={s} value={s}>{s}</option>
                           ))}
                         </select>
+                      </td>
+                      <td className="px-4 py-3">
+                        <Link
+                          href={`/admin/inbox?lead=${lead.id}`}
+                          className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium bg-[#0B1F3A]/5 text-[#0B1F3A] hover:bg-[#C9A84C]/15 hover:text-[#8B6914] transition-colors"
+                        >
+                          <Inbox className="w-3 h-3" />
+                          Open
+                        </Link>
                       </td>
                     </tr>
                   ))}

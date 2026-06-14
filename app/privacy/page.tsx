@@ -75,8 +75,11 @@ We do not sell your personal data to third parties for marketing purposes.`,
 When data is no longer required, we securely delete or anonymise it.`,
   },
   {
+    id: 'data-deletion',
     title: '7. Your Rights',
-    body: `Under UK GDPR and the Data Protection Act 2018, you have the right to:
+    body: `To request deletion of your personal data that Walz Travels has received from Facebook or Instagram, please email contact@walztravels.com with the subject line "Data Deletion Request". We will process your request within 30 days and confirm deletion by email.
+
+Under UK GDPR and the Data Protection Act 2018, you have the right to:
 
 • Access: request a copy of the personal data we hold about you
 • Rectification: request correction of inaccurate or incomplete data
@@ -149,8 +152,8 @@ export default function PrivacyPage() {
         </div>
 
         <div className="space-y-10">
-          {SECTIONS.map(({ title, body }) => (
-            <section key={title}>
+          {SECTIONS.map(({ title, body, id }) => (
+            <section key={title} {...(id ? { id } : {})}>
               <h2 className="font-display text-lg font-bold text-[#0B1F3A] mb-3">{title}</h2>
               <div className="text-[#0B1F3A]/65 text-sm leading-relaxed whitespace-pre-line">{body}</div>
             </section>

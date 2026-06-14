@@ -5,12 +5,13 @@ import Link from 'next/link'
 import { useSession } from 'next-auth/react'
 import {
   Globe, Search, Clock, ChevronRight, AlertTriangle,
-  CheckCircle, Info, Plane, Hotel,
+  CheckCircle, Plane, Hotel,
   MessageCircle, Shield, Loader2, ChevronDown, TrendingUp,
 } from 'lucide-react'
 import { CountrySelect } from '@/components/visa/CountrySelect'
 import { ADVISORY_CONFIG, RULE_TYPE_CONFIG, getCountryByIso2 } from '@/lib/countries'
 import { ISO2_TO_SLUG } from '@/lib/visa-config'
+import { VisaApplicationForm } from '@/components/VisaApplicationForm'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -196,33 +197,27 @@ function VisaResultCard({ result, passport, destination }: {
         </>
       )}
 
-      {/* No portal — but rule found */}
-      {!portal && result.rule && (
-        <div className="bg-white rounded-xl border border-gray-100 p-5 mb-4">
-          <p className="text-sm text-gray-600 mb-4">
-            We have basic visa requirements for this route. Contact our team for full guidance and application support.
-          </p>
-          <a href="https://wa.me/447398753797" target="_blank" rel="noopener noreferrer"
-            className="inline-flex items-center gap-2 px-5 py-3 bg-[#C9A84C] text-[#0B1F3A] font-bold text-sm rounded-xl hover:bg-[#b8943d] transition-colors">
-            <MessageCircle className="w-4 h-4" />
-            Get Full Guidance on WhatsApp
-          </a>
-        </div>
-      )}
-
-      {/* Not found */}
-      {!result.found && (
-        <div className="bg-white rounded-xl border border-gray-100 p-6 text-center mb-4">
-          <Info className="w-8 h-8 text-gray-300 mx-auto mb-3" />
-          <h3 className="font-semibold text-[#0B1F3A] mb-2">Route not in our database yet</h3>
-          <p className="text-sm text-gray-500 mb-4">
-            We may still be able to help. Our team handles visa applications for many routes not yet in our online checker.
-          </p>
-          <a href="https://wa.me/447398753797" target="_blank" rel="noopener noreferrer"
-            className="inline-flex items-center gap-2 px-5 py-3 bg-[#0B1F3A] text-white font-bold text-sm rounded-xl hover:bg-[#0d2345] transition-colors">
-            <MessageCircle className="w-4 h-4" />
-            Ask Walz on WhatsApp
-          </a>
+      {/* No portal OR not found — manual application flow */}
+      {(!portal || !result.found) && (
+        <div className="mb-4">
+          <div className="bg-[#0B1F3A] rounded-2xl p-6 mb-2">
+            <div className="flex items-start gap-3">
+              <div className="w-9 h-9 rounded-full bg-[#C9A84C] flex items-center justify-center font-bold text-[#0B1F3A] flex-shrink-0 text-sm">J</div>
+              <div>
+                <h3 className="text-white font-bold text-base mb-1">We Handle This Destination Manually</h3>
+                <p className="text-white/65 text-sm leading-relaxed">
+                  Submit your details below and our visa team will review your application and respond within 24 hours.
+                </p>
+              </div>
+            </div>
+          </div>
+          <VisaApplicationForm
+            destinationIso2={destination}
+            destinationName={destinationCountry?.name ?? destination}
+            destinationFlag={destinationCountry?.flag}
+            source="unsupported_destination"
+            inline
+          />
         </div>
       )}
 

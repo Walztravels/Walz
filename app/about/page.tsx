@@ -345,10 +345,10 @@ export default function AboutPage() {
           {/* Headline — 3 lines with clip containers */}
           <h1 className="font-display font-bold leading-[1.0] mb-8" style={{ fontSize: 'clamp(3.5rem, 9vw, 8rem)' }}>
             <div ref={line1Wrap} className="overflow-hidden">
-              <div ref={line1Ref}>Connecting</div>
+              <div ref={line1Ref}>Connecting </div>
             </div>
             <div ref={line2Wrap} className="overflow-hidden">
-              <div ref={line2Ref} className="text-[#C9A84C]">The World</div>
+              <div ref={line2Ref} className="text-[#C9A84C]">The World </div>
             </div>
             <div ref={line3Wrap} className="overflow-hidden">
               <div ref={line3Ref}>One Journey at a Time.</div>
@@ -401,7 +401,9 @@ export default function AboutPage() {
           <span className="block text-[#C9A84C] font-display text-[clamp(4rem,8vw,6.5rem)] leading-none mb-6 select-none">&ldquo;</span>
           <p className="font-display font-bold text-[clamp(1.6rem,3.5vw,2.6rem)] leading-snug text-white tracking-tight">
             {QUOTE_WORDS.map((word, i) => (
-              <span key={i} className="word inline-block mr-[0.28em]">{word}</span>
+              <span key={i} className="word inline-block mr-[0.28em]">
+                {word}{i < QUOTE_WORDS.length - 1 ? ' ' : ''}
+              </span>
             ))}
           </p>
         </div>

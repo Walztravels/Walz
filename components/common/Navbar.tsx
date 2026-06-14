@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react'
 import Link from 'next/link'
+import { usePathname } from 'next/navigation'
 import { useSession, signOut } from 'next-auth/react'
 import {
   Menu, X, Plane, Hotel, Map, FileText, ChevronDown,
@@ -18,12 +19,13 @@ const LOGO_CACHE_KEY = 'walz_logo_url'
 const LOGO_CACHE_TTL = 60 * 60 * 1000 // 1 hour
 
 const navLinks = [
-  { href: '/flights', label: 'Flights',        icon: Plane    },
-  { href: '/hotels',  label: 'Hotels',          icon: Hotel    },
-  { href: '/tours',   label: 'Tours',           icon: Map      },
-  { href: '/esim',    label: 'Jade Connect',    icon: Signal   },
-  { href: '/about',   label: 'About',           icon: Users    },
-  { href: '/gift',    label: 'Gift Vouchers',   icon: Gift     },
+  { href: '/flights',   label: 'Flights',        icon: Plane    },
+  { href: '/hotels',    label: 'Hotels',          icon: Hotel    },
+  { href: '/tours',     label: 'Tours',           icon: Map      },
+  { href: '/packages',  label: 'Packages',        icon: Compass  },
+  { href: '/esim',      label: 'Jade Connect',    icon: Signal   },
+  { href: '/about',     label: 'About',           icon: Users    },
+  { href: '/gift',      label: 'Gift Vouchers',   icon: Gift     },
 ]
 
 const visaDropdownLinks = [
@@ -65,6 +67,11 @@ export function Navbar() {
 
   const { selectedCurrency, setSelectedCurrency } = useCurrency()
   const activeCurrency = CURRENCIES.find(c => c.code === selectedCurrency) ?? CURRENCIES[0]
+  const pathname = usePathname()
+
+  useEffect(() => {
+    setIsMobileOpen(false)
+  }, [pathname])
 
   useEffect(() => {
     const onScroll = () => setIsScrolled(window.scrollY > 10)
@@ -326,12 +333,12 @@ export function Navbar() {
               ) : (
                 /* ── Logged-out ── */
                 <>
-                  <Link href="/login">
+                  <Link href="/portal">
                     <Button variant="ghost" size="sm" className="text-walz-muted hover:text-walz-white hover:bg-walz-slate/50">
                       Sign In
                     </Button>
                   </Link>
-                  <Link href="/login?signup=true">
+                  <Link href="/portal">
                     <Button variant="gold" size="sm">Get Started</Button>
                   </Link>
                 </>
@@ -347,16 +354,19 @@ export function Navbar() {
         </div>
       </header>
 
-      {/* Mobile Menu */}
+      {/* Mobile Menu — z-[60] sits above the z-50 header */}
       <div className={cn(
-        'fixed inset-0 z-40 lg:hidden transition-opacity duration-300',
+        'fixed inset-0 z-[60] lg:hidden transition-opacity duration-300',
         isMobileOpen ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none',
       )}>
         <div className="absolute inset-0 bg-black/60" onClick={() => setIsMobileOpen(false)} />
-        <div className={cn(
-          'absolute right-0 top-0 bottom-0 w-72 bg-walz-deep-navy shadow-luxury transition-transform duration-300 flex flex-col',
-          isMobileOpen ? 'translate-x-0' : 'translate-x-full',
-        )}>
+        <div
+          className={cn(
+            'absolute right-0 top-0 bottom-0 w-72 bg-walz-deep-navy shadow-luxury transition-transform duration-300 flex flex-col',
+            isMobileOpen ? 'translate-x-0' : 'translate-x-full',
+          )}
+          onClick={(e) => e.stopPropagation()}
+        >
           <div className="flex items-center justify-between p-4 pt-5 border-b border-walz-slate">
             <Link href="/" onClick={() => setIsMobileOpen(false)}>
               {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -477,13 +487,13 @@ export function Navbar() {
               </>
             ) : (
               <>
-                <Link href="/login" onClick={() => setIsMobileOpen(false)}>
+                <Link href="/portal" onClick={() => setIsMobileOpen(false)}>
                   <Button variant="navy" className="w-full border border-walz-slate">
                     <User className="w-4 h-4 mr-2" />
                     Sign In
                   </Button>
                 </Link>
-                <Link href="/login?signup=true" onClick={() => setIsMobileOpen(false)}>
+                <Link href="/portal" onClick={() => setIsMobileOpen(false)}>
                   <Button variant="gold" className="w-full">Get Started</Button>
                 </Link>
               </>

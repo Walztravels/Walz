@@ -34,15 +34,35 @@ export async function POST(request: NextRequest) {
 
         console.log(`[Stripe Webhook] Payment succeeded: ${paymentIntent.id}`)
 
-        await prisma.booking.updateMany({
-          where: {
-            stripePaymentIntentId: paymentIntent.id,
-            paymentStatus: 'PENDING',
-          },
-          data: {
-            paymentStatus: 'SUCCEEDED',
-          },
-        })
+        // Package deposit payment
+        if (paymentIntent.metadata?.type === 'deposit' && paymentIntent.metadata.booking_ref) {
+          await prisma.$executeRawUnsafe(
+            `UPDATE package_bookings
+             SET payment_status = 'deposit_paid',
+                 payment_gateway = 'stripe',
+                 payment_intent_id = $1,
+                 deposit_paid_at = NOW(),
+                 deposit_amount_paid = $2,
+                 payment_currency = $3,
+                 updated_at = NOW()
+             WHERE booking_ref = $4`,
+            paymentIntent.id,
+            paymentIntent.amount_received / 100,
+            paymentIntent.currency,
+            paymentIntent.metadata.booking_ref
+          )
+        } else {
+          // Existing flight/tour booking handling
+          await prisma.booking.updateMany({
+            where: {
+              stripePaymentIntentId: paymentIntent.id,
+              paymentStatus: 'PENDING',
+            },
+            data: {
+              paymentStatus: 'SUCCEEDED',
+            },
+          })
+        }
 
         break
       }

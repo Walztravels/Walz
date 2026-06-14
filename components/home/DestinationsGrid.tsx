@@ -7,14 +7,14 @@ import gsap from 'gsap'
 import ScrollTrigger from 'gsap/ScrollTrigger'
 
 const DESTINATIONS = [
-  { name: 'London',      href: '/packages/london',                  img: 'https://images.unsplash.com/photo-1513635269975-59663e0ac1ad?w=800&q=80', span: 'col-span-2 row-span-2' },
-  { name: 'Dubai',       href: '/packages/dubai',                   img: 'https://images.unsplash.com/photo-1512453979798-5ea266f8880c?w=600&q=80', span: 'col-span-1 row-span-1' },
-  { name: 'Toronto',     href: '/packages/toronto',                 img: 'https://images.unsplash.com/photo-1517935706615-2717063c2225?w=600&q=80', span: 'col-span-1 row-span-1' },
-  { name: 'Paris',       href: '/packages/paris',                   img: 'https://images.unsplash.com/photo-1502602898657-3e91760cbb34?w=600&q=80', span: 'col-span-1 row-span-2' },
-  { name: 'New York',    href: '/packages/new-york',                img: 'https://images.unsplash.com/photo-1499092346302-2a6d82e0d6e5?w=600&q=80', span: 'col-span-1 row-span-1' },
-  { name: 'Amsterdam',   href: '/packages/amsterdam',               img: 'https://images.unsplash.com/photo-1534351590666-13e3e96b5017?w=600&q=80', span: 'col-span-1 row-span-1' },
-  { name: 'Maldives',    href: '/plan/new?destination=maldives',    img: 'https://images.unsplash.com/photo-1514282401047-d79a71a590e8?w=800&q=80', span: 'col-span-2 row-span-1' },
-  { name: 'Singapore',   href: '/plan/new?destination=singapore',   img: 'https://images.unsplash.com/photo-1525625293386-3f8f99389edd?w=600&q=80', span: 'col-span-1 row-span-1' },
+  { name: 'London',      href: '/packages/london',    img: 'https://images.unsplash.com/photo-1513635269975-59663e0ac1ad?w=800&q=80',  span: 'col-span-2 row-span-2' },
+  { name: 'Dubai',       href: '/packages/dubai',     img: 'https://images.unsplash.com/photo-1512453979798-5ea266f8880c?w=600&q=80',  span: 'col-span-1 row-span-1' },
+  { name: 'Toronto',     href: '/packages/toronto',   img: 'https://images.unsplash.com/photo-1486325212027-8081e485255e?w=600&q=80',  span: 'col-span-1 row-span-1' },
+  { name: 'Paris',       href: '/packages/paris',     img: 'https://images.unsplash.com/photo-1502602898657-3e91760cbb34?w=600&q=80',  span: 'col-span-1 row-span-2' },
+  { name: 'New York',    href: '/packages/new-york',  img: 'https://images.unsplash.com/photo-1496442226666-8d4d0e62e6e9?w=600&q=80',  span: 'col-span-1 row-span-1' },
+  { name: 'Amsterdam',   href: '/packages/amsterdam', img: 'https://images.unsplash.com/photo-1534351590666-13e3e96b5017?w=600&q=80',  span: 'col-span-1 row-span-1' },
+  { name: 'Maldives',    href: '/packages/maldives',  img: 'https://images.unsplash.com/photo-1573843981267-be1999ff37cd?w=800&q=80',  span: 'col-span-2 row-span-1' },
+  { name: 'Singapore',   href: '/packages/singapore', img: 'https://images.unsplash.com/photo-1565967511849-76a60a516170?w=600&q=80',  span: 'col-span-1 row-span-1' },
 ]
 
 export function DestinationsGrid() {
@@ -55,7 +55,7 @@ export function DestinationsGrid() {
               Popular Destinations
             </h2>
           </div>
-          <Link href="/visa" className="hidden md:flex items-center gap-2 text-sm font-semibold text-[#0B1F3A] border-b border-[#0B1F3A]/20 hover:border-[#C9A84C] hover:text-[#C9A84C] transition-colors pb-0.5">
+          <Link href="/packages" className="hidden md:flex items-center gap-2 text-sm font-semibold text-[#0B1F3A] border-b border-[#0B1F3A]/20 hover:border-[#C9A84C] hover:text-[#C9A84C] transition-colors pb-0.5">
             View all destinations
           </Link>
         </div>

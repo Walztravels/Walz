@@ -3,6 +3,7 @@
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { useState, useEffect } from 'react'
+import { createClient } from '@supabase/supabase-js'
 import {
   LayoutDashboard, Users, UserPlus, MessageSquare,
   BookOpen, Plane, Hotel, Map,
@@ -10,7 +11,8 @@ import {
   Rss, Gift, Image as ImageIcon, LayoutGrid, Tv2,
   UserCog, Activity, FileText, ClipboardList,
   Settings, LogOut, PenSquare, Compass, History,
-  CreditCard, Shield, Signal, Ticket, LayoutTemplate,
+  CreditCard, Shield, Signal, Ticket, LayoutTemplate, Layers,
+  Briefcase, Inbox,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useStaffPermissions } from '@/hooks/useStaffPermissions'
@@ -44,12 +46,19 @@ const SECTIONS: NavSection[] = [
     ],
   },
   {
+    label: 'Communications',
+    anyPermission: ['applications_view'],
+    items: [
+      { href: '/admin/inbox', label: 'Inbox', icon: Inbox, permission: 'applications_view' },
+      { href: '/admin/leads', label: 'Leads', icon: MessageSquare, permission: 'applications_view' },
+    ],
+  },
+  {
     label: 'Clients',
     anyPermission: ['applications_view', 'bookings_view'],
     items: [
       { href: '/admin/clients',     label: 'All Clients', icon: Users,        permission: 'applications_view' },
       { href: '/admin/clients/new', label: 'New Client',  icon: UserPlus,     permission: 'applications_create', exact: true },
-      { href: '/admin/leads',       label: 'Leads',       icon: MessageSquare, permission: 'applications_view' },
     ],
   },
   {
@@ -109,12 +118,21 @@ const SECTIONS: NavSection[] = [
     label: 'Content',
     anyPermission: ['cms_view'],
     items: [
-      { href: '/admin/content',   label: 'Content Manager', icon: PenSquare,  permission: 'cms_view' },
-      { href: '/admin/tours',     label: 'Tours',           icon: Map,        permission: 'cms_view' },
-      { href: '/admin/blog',      label: 'Blog',            icon: Rss,        permission: 'cms_view' },
-      { href: '/admin/vouchers',  label: 'Gift Vouchers',   icon: Gift,       permission: 'cms_view' },
-      { href: '/admin/images',    label: 'Media & Images',  icon: ImageIcon,  superAdminOnly: true },
-      { href: '/admin/widgets',   label: 'Widgets',         icon: LayoutGrid, permission: 'cms_view' },
+      { href: '/admin/content',      label: 'Content Manager', icon: PenSquare,  permission: 'cms_view' },
+      { href: '/admin/hero-slides',  label: 'Hero Slides',     icon: Layers,     permission: 'cms_view' },
+      { href: '/admin/tours',        label: 'Tours',           icon: Map,        permission: 'cms_view' },
+      { href: '/admin/blog',         label: 'Blog',            icon: Rss,        permission: 'cms_view' },
+      { href: '/admin/vouchers',     label: 'Gift Vouchers',   icon: Gift,       permission: 'cms_view' },
+      { href: '/admin/images',       label: 'Media & Images',  icon: ImageIcon,  superAdminOnly: true },
+      { href: '/admin/widgets',      label: 'Widgets',         icon: LayoutGrid, permission: 'cms_view' },
+    ],
+  },
+  {
+    label: 'Packages',
+    anyPermission: ['cms_view'],
+    items: [
+      { href: '/admin/packages',          label: 'All Packages', icon: Briefcase, permission: 'cms_view' },
+      { href: '/admin/package-bookings',  label: 'Bookings',     icon: BookOpen,  permission: 'bookings_view' },
     ],
   },
   {
@@ -147,7 +165,8 @@ export function AdminSidebar() {
   const pathname   = usePathname()
   const router     = useRouter()
   const { can, canAny, profile, loading } = useStaffPermissions()
-  const [logoUrl, setLogoUrl] = useState('/walz-logo.svg')
+  const [logoUrl,      setLogoUrl]      = useState('/walz-logo.svg')
+  const [unreadCount,  setUnreadCount]  = useState(0)
 
   useEffect(() => {
     function loadLogo() {
@@ -172,6 +191,32 @@ export function AdminSidebar() {
     const onUpdate = () => { try { localStorage.removeItem(LOGO_CACHE_KEY) } catch { } loadLogo() }
     window.addEventListener('walz:logo-updated', onUpdate)
     return () => window.removeEventListener('walz:logo-updated', onUpdate)
+  }, [])
+
+  // Live unread badge
+  useEffect(() => {
+    const url = process.env.NEXT_PUBLIC_SUPABASE_URL
+    const key = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+    if (!url || !key) return
+
+    const fetchUnread = async () => {
+      try {
+        const res  = await fetch('/api/admin/inbox/leads?unread=true')
+        const data = await res.json() as { leads: Array<{ unread_count?: number }> }
+        const total = (data.leads ?? []).reduce((s, l) => s + (l.unread_count ?? 0), 0)
+        setUnreadCount(total)
+      } catch { /* non-fatal */ }
+    }
+
+    fetchUnread()
+
+    const sb = createClient(url, key)
+    const channel = sb
+      .channel('sidebar-unread')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'leads' }, () => fetchUnread())
+      .subscribe()
+
+    return () => { sb.removeChannel(channel) }
   }, [])
 
   function isActive(href: string, exact?: boolean) {
@@ -253,7 +298,12 @@ export function AdminSidebar() {
                       )}
                     >
                       <Icon className="w-4 h-4 flex-shrink-0" />
-                      <span>{itemLabel}</span>
+                      <span className="flex-1">{itemLabel}</span>
+                      {href === '/admin/inbox' && unreadCount > 0 && (
+                        <span className="min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center">
+                          {unreadCount > 99 ? '99+' : unreadCount}
+                        </span>
+                      )}
                     </Link>
                   )
                 })}

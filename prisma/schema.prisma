@@ -1381,3 +1381,28 @@ model ticket_templates {
 
   @@index([template_type], map: "idx_ticket_templates_type")
 }
+
+// ===========================
+// Hero Slides (homepage slideshow)
+// ===========================
+
+model HeroSlide {
+  id               String   @id @default(cuid())
+  imageUrl         String
+  headline         String
+  subheadline      String?
+  badgeEmoji       String?
+  badgeText        String?
+  ctaPrimaryText   String
+  ctaPrimaryLink   String
+  ctaSecondaryText String?
+  ctaSecondaryLink String?
+  overlayDarkness  Int      @default(55)
+  slideOrder       Int      @default(0)
+  active           Boolean  @default(true)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  @@index([active])
+  @@index([slideOrder])
+}

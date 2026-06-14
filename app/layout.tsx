@@ -79,7 +79,7 @@ export const metadata: Metadata = {
     description: 'Expert visa processing, flight bookings, hotels and private tours across UK, Canada, UAE and beyond.',
     images: [
       {
-        url: 'https://images.unsplash.com/photo-1436491865332-7a61a109cc05?w=1200&q=80',
+        url: 'https://us.chat-img.sintra.ai/aeb90658-6cce-491a-8a0f-bfc14a8cdc69/e2fd6df1-f938-441d-a8d8-37a20caa465b/walz-travels-og-share-image.png',
         width: 1200,
         height: 630,
         alt: 'Walz Travels — Trusted Travel Agency',
@@ -91,6 +91,7 @@ export const metadata: Metadata = {
     title: 'Walz Travels | Flights, Visas and Tours — Trusted Travel Agency',
     description: 'Expert visa processing, flight bookings, hotels and private tours across UK, Canada, UAE and beyond.',
     creator: '@walztravels',
+    images: ['https://us.chat-img.sintra.ai/aeb90658-6cce-491a-8a0f-bfc14a8cdc69/e2fd6df1-f938-441d-a8d8-37a20caa465b/walz-travels-og-share-image.png'],
   },
   robots: {
     index: true,
@@ -99,11 +100,15 @@ export const metadata: Metadata = {
   manifest: '/manifest.json',
   icons: {
     icon: [
-      { url: '/favicon.ico',   sizes: '16x16 32x32 48x64 128x256', type: 'image/x-icon' },
-      { url: '/walz-logo.png', sizes: '512x512',                   type: 'image/png'    },
+      { url: '/favicon.ico',       sizes: 'any',    type: 'image/x-icon' },
+      { url: '/favicon-16x16.png', sizes: '16x16',  type: 'image/png'    },
+      { url: '/favicon-32x32.png', sizes: '32x32',  type: 'image/png'    },
+      { url: '/favicon-48x48.png', sizes: '48x48',  type: 'image/png'    },
+      { url: '/icon-192x192.png',  sizes: '192x192', type: 'image/png'   },
+      { url: '/icon-512x512.png',  sizes: '512x512', type: 'image/png'   },
     ],
     shortcut: '/favicon.ico',
-    apple:    { url: '/walz-logo.png', sizes: '180x180', type: 'image/png' },
+    apple:    { url: '/apple-touch-icon.png', sizes: '180x180', type: 'image/png' },
   },
 }
 
@@ -118,57 +123,93 @@ export default function RootLayout({
       className={`${playfairDisplay.variable} ${dmSans.variable}`}
       suppressHydrationWarning
     >
-      {/* FIX 5 — Organisation / LocalBusiness schema */}
-      <script
-        type="application/ld+json"
-        dangerouslySetInnerHTML={{
-          __html: JSON.stringify({
-            '@context': 'https://schema.org',
-            '@type': ['TravelAgency', 'LocalBusiness'],
-            name: 'Walz Travels',
-            alternateName: 'THE WALZ TRAVELS INC',
-            description:
-              'Global travel and visa consultancy serving the African diaspora across Canada, United Kingdom, UAE, Nigeria and Ghana.',
-            url: 'https://www.walztravels.com',
-            logo: 'https://www.walztravels.com/walz-logo.png',
-            telephone: '+447398753797',
-            email: 'contact@walztravels.com',
-            address: {
-              '@type': 'PostalAddress',
-              addressLocality: 'Toronto',
-              addressRegion: 'Ontario',
-              addressCountry: 'CA',
-            },
-            areaServed: [
-              'Canada',
-              'United Kingdom',
-              'United Arab Emirates',
-              'Nigeria',
-              'Ghana',
-            ],
-            serviceType: [
-              'Visa Processing',
-              'Flight Booking',
-              'Hotel Reservation',
-              'Private Tours',
-              'Travel Insurance',
-              'Airport Transfers',
-            ],
-            priceRange: '$$',
-            openingHours: 'Mo-Fr 09:00-18:00',
-            sameAs: [
-              'https://instagram.com/walz_travels',
-              'https://facebook.com/walztravels',
-              'https://linkedin.com/company/walztravels',
-            ],
-          }),
-        }}
-      />
       <head>
         {/* Speed up image loading — preconnect to the CDN we hit on every page */}
         <link rel="preconnect" href="https://images.unsplash.com" />
         <link rel="dns-prefetch" href="https://images.unsplash.com" />
         <link rel="preconnect" href="https://bxacijnrgqgmyqyfgumg.supabase.co" />
+
+        {/* Organisation / LocalBusiness schema — single canonical instance in head */}
+        <script
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{
+            __html: JSON.stringify({
+              '@context': 'https://schema.org',
+              '@graph': [
+                {
+                  '@type': ['TravelAgency', 'LocalBusiness'],
+                  '@id': 'https://www.walztravels.com/#organization',
+                  name: 'Walz Travels',
+                  legalName: 'THE WALZ TRAVELS INC',
+                  url: 'https://www.walztravels.com',
+                  logo: {
+                    '@type': 'ImageObject',
+                    url: 'https://www.walztravels.com/walz-logo.png',
+                    width: 1350,
+                    height: 1350,
+                  },
+                  image: 'https://www.walztravels.com/og-image.png',
+                  description:
+                    'Walz Travels is a premium global travel and visa consultancy offering international flight bookings, visa processing for UK, Canada, Schengen, USA and UAE, luxury tour packages, hotel bookings and bespoke travel itineraries for individuals, families and corporate clients worldwide.',
+                  telephone: '+447398753797',
+                  email: 'contact@walztravels.com',
+                  address: [
+                    {
+                      '@type': 'PostalAddress',
+                      addressCountry: 'CA',
+                      addressRegion: 'Ontario',
+                      addressLocality: 'Thorold',
+                    },
+                  ],
+                  areaServed: [
+                    { '@type': 'Country', name: 'Canada' },
+                    { '@type': 'Country', name: 'United Kingdom' },
+                    { '@type': 'Country', name: 'United Arab Emirates' },
+                    { '@type': 'Country', name: 'Nigeria' },
+                    { '@type': 'Country', name: 'Ghana' },
+                    { '@type': 'Country', name: 'United States' },
+                  ],
+                  hasOfferCatalog: {
+                    '@type': 'OfferCatalog',
+                    name: 'Travel Services',
+                    itemListElement: [
+                      { '@type': 'Offer', itemOffered: { '@type': 'Service', name: 'Schengen Visa Processing' } },
+                      { '@type': 'Offer', itemOffered: { '@type': 'Service', name: 'UK Visa Processing' } },
+                      { '@type': 'Offer', itemOffered: { '@type': 'Service', name: 'Canada Visa Processing' } },
+                      { '@type': 'Offer', itemOffered: { '@type': 'Service', name: 'USA Visa Processing' } },
+                      { '@type': 'Offer', itemOffered: { '@type': 'Service', name: 'UAE Visa Processing' } },
+                      { '@type': 'Offer', itemOffered: { '@type': 'Service', name: 'International Flight Bookings' } },
+                      { '@type': 'Offer', itemOffered: { '@type': 'Service', name: 'Luxury Tour Packages' } },
+                      { '@type': 'Offer', itemOffered: { '@type': 'Service', name: 'Hotel Bookings' } },
+                      { '@type': 'Offer', itemOffered: { '@type': 'Service', name: 'Corporate Travel Management' } },
+                    ],
+                  },
+                  sameAs: [
+                    'https://instagram.com/walz_travels',
+                    'https://facebook.com/walztravels',
+                    'https://linkedin.com/company/walztravels',
+                    'https://youtube.com/@walztravels',
+                    'https://x.com/walztravels',
+                  ],
+                  contactPoint: {
+                    '@type': 'ContactPoint',
+                    telephone: '+447398753797',
+                    contactType: 'customer service',
+                    availableLanguage: ['English'],
+                    areaServed: ['CA', 'GB', 'AE', 'NG', 'GH', 'US'],
+                  },
+                  openingHoursSpecification: {
+                    '@type': 'OpeningHoursSpecification',
+                    dayOfWeek: ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'],
+                    opens: '00:00',
+                    closes: '23:59',
+                  },
+                  priceRange: '$$',
+                },
+              ],
+            }),
+          }}
+        />
 
         {/* Meta Pixel */}
         <script
@@ -199,26 +240,57 @@ export default function RootLayout({
         </noscript>
         {/* End Meta Pixel */}
 
-        {/* Google Analytics 4 */}
+        {/* Google Analytics 4 — ID hardcoded (GA4 measurement IDs are public) */}
         <Script
-          src={`https://www.googletagmanager.com/gtag/js?id=${process.env.NEXT_PUBLIC_GA_MEASUREMENT_ID}`}
+          src="https://www.googletagmanager.com/gtag/js?id=G-KJH17JHQST"
           strategy="afterInteractive"
         />
         <Script
-          id="google-analytics"
+          id="ga4"
           strategy="afterInteractive"
           dangerouslySetInnerHTML={{
             __html: `
               window.dataLayer = window.dataLayer || [];
-              function gtag(){ dataLayer.push(arguments); }
+              function gtag(){dataLayer.push(arguments);}
               gtag('js', new Date());
-              gtag('config', '${process.env.NEXT_PUBLIC_GA_MEASUREMENT_ID}', {
-                page_path: window.location.pathname,
-              });
+              gtag('config', 'G-KJH17JHQST');
             `,
           }}
         />
         {/* End Google Analytics 4 */}
+
+        {/* Chatwoot live chat widget */}
+        <Script
+          id="chatwoot-sdk"
+          strategy="lazyOnload"
+          dangerouslySetInnerHTML={{
+            __html: `
+              if (!window.location.pathname.startsWith('/admin')) {
+                window.chatwootSettings = {
+                  hideMessageBubble: false,
+                  position: 'right',
+                  locale: 'en',
+                  type: 'standard',
+                  darkMode: 'auto',
+                };
+                (function(d,t){
+                  var BASE_URL="${process.env.NEXT_PUBLIC_CHATWOOT_BASE_URL || 'https://chatwoot-production-d486.up.railway.app'}";
+                  var g=d.createElement(t),s=d.getElementsByTagName(t)[0];
+                  g.src=BASE_URL+"/packs/js/sdk.js";
+                  g.defer=true; g.async=true;
+                  s.parentNode.insertBefore(g,s);
+                  g.onload=function(){
+                    window.chatwootSDK.run({
+                      websiteToken:"${process.env.NEXT_PUBLIC_CHATWOOT_WEBSITE_TOKEN || 'xEmkV63FyRkBYXTjzYPxyWCx'}",
+                      baseUrl:BASE_URL
+                    })
+                  }
+                })(document,"script");
+              }
+            `,
+          }}
+        />
+        {/* End Chatwoot */}
       </head>
       <body className="font-sans bg-walz-off-white text-walz-deep-navy antialiased min-h-screen flex flex-col">
         <SessionProvider>

@@ -362,8 +362,8 @@ export function TicketPreview({ data }: { data: TicketPreviewData }) {
       {/* Header */}
       <div className="px-7 py-5 flex items-center justify-between" style={{ backgroundColor: NAVY }}>
         <div>
-          <div className="text-white font-black text-lg tracking-tight">WALZ TRAVELS</div>
-          <div className="text-[9px] tracking-[0.25em] uppercase mt-0.5" style={{ color: GOLD }}>YOUR JOURNEY. OUR EXPERTISE.</div>
+          <img src="https://www.walztravels.com/walz-logo-white.png" alt="Walz Travels" className="h-8 w-auto object-contain" />
+          <div className="text-[9px] tracking-[0.25em] uppercase mt-1" style={{ color: GOLD }}>YOUR JOURNEY. OUR EXPERTISE.</div>
         </div>
         <div className="flex flex-col items-end gap-1.5">
           <div className="px-2.5 py-1 rounded text-[10px] font-bold" style={{ backgroundColor: GOLD, color: NAVY }}>
