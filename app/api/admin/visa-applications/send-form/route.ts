@@ -13,7 +13,7 @@ async function isAdmin() {
 export async function POST(req: NextRequest) {
   if (!await isAdmin()) return NextResponse.json({ error: 'Unauthorised' }, { status: 401 })
 
-  const { clientEmail, clientName, destinationIso2, visaType, personalMessage } = await req.json()
+  const { clientEmail, clientName, destinationIso2, visaType, personalMessage, walzFee, feeCurrency, paymentChoice } = await req.json()
 
   if (!clientEmail || !destinationIso2) {
     return NextResponse.json({ error: 'clientEmail and destinationIso2 required' }, { status: 400 })
@@ -41,6 +41,10 @@ export async function POST(req: NextRequest) {
       status: 'draft',
       isDraft: true,
       initiatedBy: 'admin',
+      ...(walzFee != null && walzFee > 0 ? {
+        serviceFeeAmount:   walzFee,
+        serviceFeeCurrency: feeCurrency ?? 'GBP',
+      } : {}),
     },
   })
 
@@ -57,13 +61,18 @@ export async function POST(req: NextRequest) {
     },
   })
 
-  // Form URL with token
+  // Form URL with token — encode payment choice so client page can act on it
   const slug = ISO2_TO_SLUG[application.destinationIso2] ?? application.destinationIso2.toLowerCase()
-  const formUrl = `https://walztravels.com/visa/apply/${slug}?token=${tokenRecord.token}&draft=${application.id}`
+  const paymentParam = walzFee && walzFee > 0 ? `&payment=${paymentChoice ?? 'later'}` : ''
+  const formUrl = `https://walztravels.com/visa/apply/${slug}?token=${tokenRecord.token}&draft=${application.id}${paymentParam}`
+
+  const feeInfo = walzFee && walzFee > 0
+    ? { amount: walzFee, currency: feeCurrency ?? 'GBP', paymentChoice: paymentChoice ?? 'later' }
+    : null
 
   // Email client
   try {
-    await sendApplicationFormLink(application, clientEmail, clientName || 'Client', personalMessage, formUrl)
+    await sendApplicationFormLink(application, clientEmail, clientName || 'Client', personalMessage, formUrl, feeInfo)
   } catch (e) {
     console.error('Form link email failed:', e)
   }

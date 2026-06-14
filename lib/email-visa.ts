@@ -201,10 +201,39 @@ export async function sendGovtFeeInstructions(app: any, instructions: string) {
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-export async function sendApplicationFormLink(app: any, clientEmail: string, clientName: string, personalMessage?: string, formUrl?: string) {
+export async function sendApplicationFormLink(
+  app: any,
+  clientEmail: string,
+  clientName: string,
+  personalMessage?: string,
+  formUrl?: string,
+  feeInfo?: { amount: number; currency: string; paymentChoice: 'now' | 'later' } | null,
+) {
   const resend = getResend()
   const config = getVisaConfig(app.destinationIso2)
   const resolvedFormUrl = formUrl ?? `${BASE_URL}/visa/apply/${app.destinationIso2.toLowerCase()}?draft=${app.id}`
+
+  const feeHtml = feeInfo ? `
+    <div style="background:#f5f0e8;border-radius:12px;padding:16px;margin:16px 0;text-align:center;">
+      <p style="color:#666;font-size:12px;margin:0 0 4px;text-transform:uppercase;letter-spacing:1px;">
+        Walz Travels Service Fee
+      </p>
+      <p style="color:#0B1F3A;font-size:24px;font-weight:bold;margin:0;">
+        ${feeInfo.currency} ${Number(feeInfo.amount).toLocaleString()}
+      </p>
+      <p style="color:#999;font-size:12px;margin:6px 0 0;">
+        ${feeInfo.paymentChoice === 'now'
+          ? 'Payment required to complete your application'
+          : 'You can submit now and pay later'}
+      </p>
+    </div>
+  ` : ''
+
+  const paymentNote = feeInfo
+    ? feeInfo.paymentChoice === 'now'
+      ? `<p style="color:#475569;font-size:14px;margin:0 0 8px;">💳 <strong>Payment of ${feeInfo.currency} ${Number(feeInfo.amount).toLocaleString()} required</strong> — you'll be prompted to pay via Flutterwave when you submit.</p>`
+      : `<p style="color:#475569;font-size:14px;margin:0 0 8px;">📋 <strong>Service fee: ${feeInfo.currency} ${Number(feeInfo.amount).toLocaleString()}</strong> — complete the form now and Jade will send a payment link after review.</p>`
+    : `<p style="color:#475569;font-size:14px;margin:0 0 8px;">✅ <strong>No payment required</strong> — Jade will handle payment separately.</p>`
 
   await resend.emails.send({
     from: FROM,
@@ -220,7 +249,8 @@ export async function sendApplicationFormLink(app: any, clientEmail: string, cli
           Jade has prepared your <strong>${config?.name ?? app.destinationIso2}</strong> visa application form.
           Your known details have been pre-filled to save you time — please review and complete all fields.
         </p>
-        <p style="color:#475569;font-size:14px;margin:0 0 8px;">✅ <strong>No payment required</strong> — Jade will handle payment separately.</p>
+        ${feeHtml}
+        ${paymentNote}
         <p style="color:#475569;font-size:14px;margin:0 0 24px;">Simply complete the form, review your details, and click Submit. Jade will be in touch within 24 hours.</p>
         <a href="${resolvedFormUrl}" style="display:block;text-align:center;background:#C9A84C;color:#0B1F3A;font-weight:700;font-size:16px;padding:16px 32px;border-radius:12px;text-decoration:none;margin:0 0 24px;">
           Complete My Application →

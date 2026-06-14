@@ -82,6 +82,9 @@ export default function AdminVisaApplicationsPage() {
   const [sendForm, setSendForm]     = useState<SendFormState>({
     clientEmail: '', clientName: '', destinationIso2: '', visaType: 'tourist', personalMessage: '',
   })
+  const [walzFee,      setWalzFee]      = useState<number | ''>('')
+  const [feeCurrency,  setFeeCurrency]  = useState('GBP')
+  const [paymentChoice, setPaymentChoice] = useState<'now' | 'later'>('later')
 
   async function load() {
     setLoading(true)
@@ -108,7 +111,12 @@ export default function AdminVisaApplicationsPage() {
       const res = await fetch('/api/admin/visa-applications/send-form', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(sendForm),
+        body: JSON.stringify({
+          ...sendForm,
+          walzFee:       walzFee !== '' ? Number(walzFee) : null,
+          feeCurrency,
+          paymentChoice,
+        }),
       })
       const d = await res.json()
       if (res.ok) {
@@ -126,6 +134,9 @@ export default function AdminVisaApplicationsPage() {
     setModalOpen(false)
     setSentLink(null)
     setSendForm({ clientEmail: '', clientName: '', destinationIso2: '', visaType: 'tourist', personalMessage: '' })
+    setWalzFee('')
+    setFeeCurrency('GBP')
+    setPaymentChoice('later')
   }
 
   const statCounts = ALL_STATUSES.slice(1).reduce<Record<string, number>>((acc, s) => {
@@ -389,8 +400,89 @@ export default function AdminVisaApplicationsPage() {
                   />
                 </div>
 
+                {/* ─── Walz Fee ─────────────────────────────────── */}
+                <div className="border-t border-gray-100 pt-4">
+                  <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">
+                    Service Fee (optional)
+                  </label>
+                  <div className="grid grid-cols-3 gap-3">
+                    <div className="col-span-2">
+                      <label className="block text-xs font-medium text-gray-400 mb-1">Walz Fee</label>
+                      <input
+                        type="number"
+                        value={walzFee}
+                        onChange={e => setWalzFee(e.target.value === '' ? '' : Number(e.target.value))}
+                        placeholder="e.g. 150"
+                        className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm outline-none focus:border-[#C9A84C]"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-400 mb-1">Currency</label>
+                      <select
+                        value={feeCurrency}
+                        onChange={e => setFeeCurrency(e.target.value)}
+                        className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm outline-none focus:border-[#C9A84C]"
+                      >
+                        {['GBP', 'USD', 'EUR', 'CAD', 'NGN', 'GHS', 'AED'].map(c => (
+                          <option key={c} value={c}>{c}</option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+                </div>
+
+                {/* ─── Payment option ────────────────────────────── */}
+                {walzFee !== '' && walzFee > 0 && (
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-3">
+                      Payment Option
+                    </label>
+                    <div className="grid grid-cols-2 gap-3">
+                      <label className={`flex items-start gap-3 p-3 rounded-xl border-2 cursor-pointer transition-all
+                        ${paymentChoice === 'later'
+                          ? 'border-[#C9A84C] bg-amber-50'
+                          : 'border-gray-200 hover:border-gray-300'}`}>
+                        <input
+                          type="radio"
+                          name="paymentChoice"
+                          value="later"
+                          checked={paymentChoice === 'later'}
+                          onChange={() => setPaymentChoice('later')}
+                          className="mt-0.5 accent-[#C9A84C]"
+                        />
+                        <div>
+                          <p className="text-sm font-semibold text-[#0B1F3A]">Submit & Pay Later</p>
+                          <p className="text-xs text-gray-400 mt-0.5">Client fills form now, pays via link after</p>
+                        </div>
+                      </label>
+                      <label className={`flex items-start gap-3 p-3 rounded-xl border-2 cursor-pointer transition-all
+                        ${paymentChoice === 'now'
+                          ? 'border-[#C9A84C] bg-amber-50'
+                          : 'border-gray-200 hover:border-gray-300'}`}>
+                        <input
+                          type="radio"
+                          name="paymentChoice"
+                          value="now"
+                          checked={paymentChoice === 'now'}
+                          onChange={() => setPaymentChoice('now')}
+                          className="mt-0.5 accent-[#C9A84C]"
+                        />
+                        <div>
+                          <p className="text-sm font-semibold text-[#0B1F3A]">Pay via Flutterwave</p>
+                          <p className="text-xs text-gray-400 mt-0.5">Client pays {feeCurrency} {walzFee} when submitting</p>
+                        </div>
+                      </label>
+                    </div>
+                  </div>
+                )}
+
                 <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-xs text-amber-700">
-                  🔔 This creates a draft application and emails the client a secure 7-day link. <strong>No payment will be collected.</strong>
+                  🔔 This creates a draft application and emails the client a secure 7-day link.{' '}
+                  {walzFee && walzFee > 0 && paymentChoice === 'now'
+                    ? <strong>Client will be asked to pay {feeCurrency} {walzFee} via Flutterwave when submitting.</strong>
+                    : walzFee && walzFee > 0
+                      ? <strong>Fee of {feeCurrency} {walzFee} will be shown — client pays later.</strong>
+                      : <strong>No payment will be collected.</strong>}
                 </div>
 
                 <button type="submit" disabled={sending || !sendForm.clientEmail || !sendForm.destinationIso2}
