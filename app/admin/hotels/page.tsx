@@ -1,7 +1,7 @@
 'use client'
 
-import { useState, useEffect } from 'react'
-import { Plus, Pencil, Trash2, ToggleLeft, ToggleRight, X } from 'lucide-react'
+import { useState, useEffect, useRef } from 'react'
+import { Plus, Pencil, Trash2, ToggleLeft, ToggleRight, X, Upload, Star, GripVertical } from 'lucide-react'
 
 interface HotelDeal {
   id: string
@@ -31,12 +31,81 @@ const EMPTY: Omit<HotelDeal, 'id'> = {
   active: true, order: 0,
 }
 
+// ── Photo grid with drag-to-reorder ──────────────────────────────────────────
+
+function PhotoGrid({
+  photos,
+  onReorder,
+  onDelete,
+}: {
+  photos: string[]
+  onReorder: (photos: string[]) => void
+  onDelete: (index: number) => void
+}) {
+  const dragIndex = useRef<number | null>(null)
+
+  function handleDragOver(e: React.DragEvent, i: number) {
+    e.preventDefault()
+    const from = dragIndex.current
+    if (from === null || from === i) return
+    const next = [...photos]
+    const [moved] = next.splice(from, 1)
+    next.splice(i, 0, moved)
+    dragIndex.current = i
+    onReorder(next)
+  }
+
+  return (
+    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+      {photos.map((url, i) => (
+        <div
+          key={url + i}
+          draggable
+          onDragStart={() => { dragIndex.current = i }}
+          onDragOver={e => handleDragOver(e, i)}
+          onDragEnd={() => { dragIndex.current = null }}
+          className="relative group rounded-xl overflow-hidden bg-gray-100 cursor-grab active:cursor-grabbing border-2 border-transparent hover:border-[#C9A84C] transition-colors"
+          style={{ aspectRatio: '4/3' }}
+        >
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={url} alt={`Photo ${i + 1}`} className="w-full h-full object-cover" />
+
+          {i === 0 && (
+            <div className="absolute top-1 left-1 bg-[#C9A84C] text-[#0B1F3A] text-[10px] font-bold px-1.5 py-0.5 rounded-md flex items-center gap-0.5">
+              <Star className="w-2.5 h-2.5" /> Cover
+            </div>
+          )}
+
+          <div className="absolute top-1 right-1 opacity-0 group-hover:opacity-100 transition-opacity">
+            <div className="bg-black/50 rounded p-0.5"><GripVertical className="w-3 h-3 text-white" /></div>
+          </div>
+
+          <button
+            type="button"
+            onClick={() => onDelete(i)}
+            className="absolute bottom-1 right-1 opacity-0 group-hover:opacity-100 transition-opacity bg-red-500/90 text-white rounded-md p-0.5"
+          >
+            <X className="w-3 h-3" />
+          </button>
+
+          <div className="absolute bottom-1 left-1 bg-black/50 text-white text-[10px] rounded px-1 leading-4">{i + 1}</div>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+// ── Main page ─────────────────────────────────────────────────────────────────
+
 export default function AdminHotelsPage() {
-  const [hotels, setHotels] = useState<HotelDeal[]>([])
-  const [loading, setLoading] = useState(true)
-  const [modal, setModal] = useState<Partial<HotelDeal> | null>(null)
-  const [saving, setSaving] = useState(false)
-  const [photoInput, setPhotoInput] = useState('')
+  const [hotels, setHotels]       = useState<HotelDeal[]>([])
+  const [loading, setLoading]     = useState(true)
+  const [modal, setModal]         = useState<Partial<HotelDeal> | null>(null)
+  const [photoUrls, setPhotoUrls] = useState<string[]>([])
+  const [saving, setSaving]       = useState(false)
+  const [uploading, setUploading] = useState(false)
+  const [uploadProgress, setUploadProgress] = useState('')
+  const fileRef = useRef<HTMLInputElement>(null)
 
   async function load() {
     setLoading(true)
@@ -51,19 +120,56 @@ export default function AdminHotelsPage() {
     const target = h ?? EMPTY
     setModal(target)
     try {
-      setPhotoInput((JSON.parse(target.photos || '[]') as string[]).join('\n'))
-    } catch { setPhotoInput('') }
+      setPhotoUrls(JSON.parse(target.photos || '[]') as string[])
+    } catch { setPhotoUrls([]) }
   }
+
+  // ── Photo upload ────────────────────────────────────────────────────────────
+
+  async function uploadFile(file: File, index: number): Promise<string | null> {
+    const slug = (modal?.name ?? 'hotel').toLowerCase().replace(/\s+/g, '-')
+    const formData = new FormData()
+    formData.append('file', file)
+    formData.append('key', `hotel_${slug}_photo_${index}_${Date.now()}`)
+    formData.append('label', `Hotel Photo — ${modal?.name ?? 'hotel'} #${index + 1}`)
+    const res = await fetch('/api/admin/images', { method: 'POST', body: formData })
+    if (!res.ok) return null
+    const data = await res.json() as { url: string }
+    return data.url
+  }
+
+  async function handleFilesSelected(e: React.ChangeEvent<HTMLInputElement>) {
+    const files = Array.from(e.target.files ?? [])
+    if (!files.length) return
+    e.target.value = ''
+
+    const toUpload = files.slice(0, 10 - photoUrls.length)
+    if (!toUpload.length) return
+
+    setUploading(true)
+    const uploaded: string[] = []
+
+    for (let i = 0; i < toUpload.length; i++) {
+      setUploadProgress(`Uploading ${i + 1} of ${toUpload.length}…`)
+      const url = await uploadFile(toUpload[i], photoUrls.length + i)
+      if (url) uploaded.push(url)
+    }
+
+    setPhotoUrls(prev => [...prev, ...uploaded])
+    setUploading(false)
+    setUploadProgress('')
+  }
+
+  // ── Save ─────────────────────────────────────────────────────────────────────
 
   async function save() {
     setSaving(true)
-    const photos = photoInput.split('\n').map(u => u.trim()).filter(Boolean)
     const payload = {
       ...modal,
-      photos: JSON.stringify(photos),
-      rating: modal?.rating ? Number(modal.rating) : null,
-      reviewCount: modal?.reviewCount ? Number(modal.reviewCount) : null,
-      priceFrom: modal?.priceFrom ? Number(modal.priceFrom) : null,
+      photos: JSON.stringify(photoUrls),
+      rating:       modal?.rating       ? Number(modal.rating)       : null,
+      reviewCount:  modal?.reviewCount  ? Number(modal.reviewCount)  : null,
+      priceFrom:    modal?.priceFrom    ? Number(modal.priceFrom)    : null,
       priceOriginal: modal?.priceOriginal ? Number(modal.priceOriginal) : null,
     }
     await fetch('/api/admin/hotels', {
@@ -94,6 +200,8 @@ export default function AdminHotelsPage() {
     })
     await load()
   }
+
+  const photoCount = photoUrls.length
 
   return (
     <div>
@@ -155,7 +263,7 @@ export default function AdminHotelsPage() {
         </table>
       </div>
 
-      {/* Modal */}
+      {/* ── Modal ── */}
       {modal !== null && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 overflow-y-auto">
           <div className="bg-white rounded-2xl p-6 w-full max-w-2xl shadow-2xl my-4">
@@ -181,7 +289,7 @@ export default function AdminHotelsPage() {
                 <div>
                   <label className="block text-xs font-medium text-gray-500 mb-1">Search Query *</label>
                   <input value={modal.searchQuery ?? ''} onChange={e => setModal({ ...modal, searchQuery: e.target.value })}
-                    placeholder="e.g. Jasper (pre-fills hotel search)"
+                    placeholder="e.g. Jasper"
                     className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm outline-none focus:border-[#C9A84C]" />
                 </div>
                 <div>
@@ -193,23 +301,27 @@ export default function AdminHotelsPage() {
                 </div>
                 <div>
                   <label className="block text-xs font-medium text-gray-500 mb-1">Rating (e.g. 8.4)</label>
-                  <input type="number" step="0.1" min="0" max="10" value={modal.rating ?? ''} onChange={e => setModal({ ...modal, rating: e.target.value ? Number(e.target.value) : null })}
+                  <input type="number" step="0.1" min="0" max="10" value={modal.rating ?? ''}
+                    onChange={e => setModal({ ...modal, rating: e.target.value ? Number(e.target.value) : null })}
                     className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm outline-none focus:border-[#C9A84C]" />
                 </div>
                 <div>
                   <label className="block text-xs font-medium text-gray-500 mb-1">Review Count</label>
-                  <input type="number" value={modal.reviewCount ?? ''} onChange={e => setModal({ ...modal, reviewCount: e.target.value ? Number(e.target.value) : null })}
+                  <input type="number" value={modal.reviewCount ?? ''}
+                    onChange={e => setModal({ ...modal, reviewCount: e.target.value ? Number(e.target.value) : null })}
                     placeholder="e.g. 621"
                     className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm outline-none focus:border-[#C9A84C]" />
                 </div>
                 <div>
                   <label className="block text-xs font-medium text-gray-500 mb-1">Price From</label>
-                  <input type="number" value={modal.priceFrom ?? ''} onChange={e => setModal({ ...modal, priceFrom: e.target.value ? Number(e.target.value) : null })}
+                  <input type="number" value={modal.priceFrom ?? ''}
+                    onChange={e => setModal({ ...modal, priceFrom: e.target.value ? Number(e.target.value) : null })}
                     className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm outline-none focus:border-[#C9A84C]" />
                 </div>
                 <div>
-                  <label className="block text-xs font-medium text-gray-500 mb-1">Original Price (for strikethrough)</label>
-                  <input type="number" value={modal.priceOriginal ?? ''} onChange={e => setModal({ ...modal, priceOriginal: e.target.value ? Number(e.target.value) : null })}
+                  <label className="block text-xs font-medium text-gray-500 mb-1">Original Price (strikethrough)</label>
+                  <input type="number" value={modal.priceOriginal ?? ''}
+                    onChange={e => setModal({ ...modal, priceOriginal: e.target.value ? Number(e.target.value) : null })}
                     className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm outline-none focus:border-[#C9A84C]" />
                 </div>
                 <div>
@@ -229,7 +341,8 @@ export default function AdminHotelsPage() {
                 </div>
                 <div>
                   <label className="block text-xs font-medium text-gray-500 mb-1">Display Order</label>
-                  <input type="number" value={modal.order ?? 0} onChange={e => setModal({ ...modal, order: Number(e.target.value) })}
+                  <input type="number" value={modal.order ?? 0}
+                    onChange={e => setModal({ ...modal, order: Number(e.target.value) })}
                     className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm outline-none focus:border-[#C9A84C]" />
                 </div>
                 <div className="col-span-2">
@@ -239,26 +352,80 @@ export default function AdminHotelsPage() {
                     className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm outline-none focus:border-[#C9A84C]" />
                 </div>
                 <div className="col-span-2">
-                  <label className="block text-xs font-medium text-gray-500 mb-1">Direct Booking URL (optional — leave blank to use hotel search)</label>
+                  <label className="block text-xs font-medium text-gray-500 mb-1">Direct Booking URL (optional)</label>
                   <input value={modal.bookingUrl ?? ''} onChange={e => setModal({ ...modal, bookingUrl: e.target.value || null })}
                     placeholder="https://booking.com/hotel/..."
                     className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm outline-none focus:border-[#C9A84C]" />
                 </div>
+
+                {/* ── Photos ── */}
                 <div className="col-span-2">
-                  <label className="block text-xs font-medium text-gray-500 mb-1">
-                    Photo URLs — one per line (first photo is the cover)
-                  </label>
-                  <textarea
-                    value={photoInput}
-                    onChange={e => setPhotoInput(e.target.value)}
-                    rows={4}
-                    placeholder={"https://images.unsplash.com/photo-xxx\nhttps://images.unsplash.com/photo-yyy"}
-                    className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm outline-none focus:border-[#C9A84C] resize-none font-mono"
+                  <div className="flex items-center justify-between mb-2">
+                    <label className="text-xs font-medium text-gray-500">
+                      Photos
+                      <span className="ml-1 text-gray-400 font-normal">
+                        ({photoCount}/10) · first = cover
+                      </span>
+                    </label>
+                    {photoCount < 10 && (
+                      <button
+                        type="button"
+                        onClick={() => fileRef.current?.click()}
+                        disabled={uploading}
+                        className="flex items-center gap-1.5 text-xs text-[#C9A84C] hover:text-[#0B1F3A] font-medium disabled:opacity-50 transition-colors"
+                      >
+                        <Upload className="w-3.5 h-3.5" />
+                        {uploading ? uploadProgress : 'Add photos'}
+                      </button>
+                    )}
+                  </div>
+
+                  <input
+                    ref={fileRef}
+                    type="file"
+                    accept="image/*"
+                    multiple
+                    className="hidden"
+                    onChange={handleFilesSelected}
                   />
-                  <p className="text-xs text-gray-400 mt-1">Add multiple URLs for a photo slideshow. Use Unsplash or Supabase storage URLs.</p>
+
+                  {photoCount > 0 ? (
+                    <div className="space-y-3">
+                      <PhotoGrid
+                        photos={photoUrls}
+                        onReorder={setPhotoUrls}
+                        onDelete={i => setPhotoUrls(prev => prev.filter((_, idx) => idx !== i))}
+                      />
+                      {photoCount < 10 && (
+                        <button
+                          type="button"
+                          onClick={() => fileRef.current?.click()}
+                          disabled={uploading}
+                          className="w-full h-14 flex items-center justify-center gap-2 border-2 border-dashed border-gray-200 hover:border-[#C9A84C] text-gray-400 hover:text-[#C9A84C] rounded-xl text-xs transition-all disabled:opacity-50"
+                        >
+                          <Upload className="w-4 h-4" />
+                          {uploading ? uploadProgress : `Add more (${10 - photoCount} remaining)`}
+                        </button>
+                      )}
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => fileRef.current?.click()}
+                      disabled={uploading}
+                      className="w-full h-28 flex flex-col items-center justify-center gap-2 border-2 border-dashed border-gray-200 hover:border-[#C9A84C] text-gray-400 hover:text-[#C9A84C] rounded-xl text-sm transition-all disabled:opacity-50"
+                    >
+                      <Upload className="w-6 h-6" />
+                      <span className="font-medium">{uploading ? uploadProgress : 'Upload hotel photos'}</span>
+                      <span className="text-xs text-gray-300">JPG, PNG, WebP · up to 10 · first = cover</span>
+                    </button>
+                  )}
                 </div>
+
                 <label className="col-span-2 flex items-center gap-3 cursor-pointer">
-                  <input type="checkbox" checked={modal.active ?? true} onChange={e => setModal({ ...modal, active: e.target.checked })} className="w-4 h-4 accent-[#C9A84C]" />
+                  <input type="checkbox" checked={modal.active ?? true}
+                    onChange={e => setModal({ ...modal, active: e.target.checked })}
+                    className="w-4 h-4 accent-[#C9A84C]" />
                   <span className="text-sm text-gray-700">Show on website</span>
                 </label>
               </div>

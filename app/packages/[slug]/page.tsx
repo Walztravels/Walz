@@ -4,6 +4,7 @@ import Link from 'next/link'
 import Image from 'next/image'
 import prisma from '@/lib/db'
 import { MapPin, Clock, ArrowLeft, Check, ArrowRight } from 'lucide-react'
+import BookingCard from '@/components/packages/BookingCard'
 
 export const revalidate = 60
 
@@ -47,10 +48,6 @@ export default async function PackageDetailPage({ params }: RouteContext) {
   const highlights = parseHighlights(pkg.highlights)
   const allPhotos = pkg.photos.filter(Boolean)
   const heroImage = coverPhoto(pkg) ?? 'https://images.unsplash.com/photo-1488085061387-422e29b40080?w=1600&q=85'
-
-  const waText = encodeURIComponent(
-    `Hi! I'm interested in the ${pkg.name} package (${pkg.currency} ${pkg.price.toLocaleString()}). Please send me more details.`
-  )
 
   return (
     <div className="min-h-screen bg-[#FAF7F2]">
@@ -144,47 +141,18 @@ export default async function PackageDetailPage({ params }: RouteContext) {
             )}
           </div>
 
-          {/* Right — sticky booking card */}
+          {/* Right — BookingCard */}
           <div className="lg:col-span-1">
-            <div className="sticky top-6 bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
-              <div className="mb-5">
-                <p className="text-xs text-gray-400 mb-1">Starting from</p>
-                <p className="text-3xl font-bold text-[#0B1F3A]">
-                  {pkg.currency} {pkg.price.toLocaleString()}
-                </p>
-                <p className="text-gray-500 text-sm mt-0.5">per person</p>
-              </div>
-
-              <div className="space-y-2 mb-6 text-sm">
-                <div className="flex items-center gap-2 text-gray-600">
-                  <MapPin className="w-4 h-4 text-[#C9A84C]" />
-                  {pkg.location}
-                </div>
-                <div className="flex items-center gap-2 text-gray-600">
-                  <Clock className="w-4 h-4 text-[#C9A84C]" />
-                  {pkg.duration}
-                </div>
-              </div>
-
-              <a
-                href={`https://wa.me/447398753797?text=${waText}`}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="block w-full text-center py-3.5 rounded-xl font-bold text-sm transition-opacity hover:opacity-90 mb-3"
-                style={{ backgroundColor: '#C9A84C', color: '#0B1F3A' }}
-              >
-                Book via WhatsApp
-              </a>
-              <a
-                href={`mailto:contact@walztravels.com?subject=${encodeURIComponent(`Enquiry: ${pkg.name}`)}`}
-                className="block w-full text-center py-3 rounded-xl font-semibold text-sm border border-[#0B1F3A] text-[#0B1F3A] hover:bg-[#0B1F3A] hover:text-white transition-colors"
-              >
-                Email Us
-              </a>
-              <p className="text-xs text-gray-400 text-center mt-3">
-                No payment now — we&apos;ll confirm availability first
-              </p>
-            </div>
+            <BookingCard
+              pkg={{
+                slug: pkg.slug,
+                name: pkg.name,
+                price: pkg.price,
+                currency: pkg.currency,
+                location: pkg.location,
+                duration: pkg.duration,
+              }}
+            />
           </div>
         </div>
 
