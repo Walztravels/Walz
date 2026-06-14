@@ -1379,6 +1379,52 @@ model RolePermission {
 // Legacy raw tables (kept in sync to prevent data loss)
 // ===========================
 
+/// Raw travel_packages table — managed outside Prisma ORM (do NOT remove this model or prisma db push will drop the table)
+model travel_packages {
+  id                String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  title             String
+  slug              String    @unique
+  destination       String?
+  country_iso2      String?
+  tagline           String?
+  description       String?
+  package_type      String?
+  departure_city    String?
+  currency          String?   @default("GBP")
+  meals             String?
+  seo_title         String?
+  seo_description   String?
+  price_per_person  Decimal   @db.Decimal(10, 2)
+  original_price    Decimal?  @db.Decimal(10, 2)
+  deposit_amount    Decimal?  @db.Decimal(10, 2)
+  duration_days     Int?
+  duration_nights   Int?
+  total_seats       Int?
+  seats_booked      Int?      @default(0)
+  hotel_rating      Decimal?  @db.Decimal(3, 1)
+  display_order     Int?      @default(0)
+  visa_included     Boolean?  @default(false)
+  flight_included   Boolean?  @default(false)
+  hotel_included    Boolean?  @default(false)
+  is_featured       Boolean?  @default(false)
+  is_active         Boolean?  @default(true)
+  is_spotlight      Boolean?  @default(false)
+  highlights        String[]
+  inclusions        String[]
+  exclusions        String[]
+  images            String[]
+  itinerary         Json?     @default("[]")
+  departure_date    DateTime? @db.Timestamptz(6)
+  return_date       DateTime? @db.Timestamptz(6)
+  created_at        DateTime? @default(now()) @db.Timestamptz(6)
+  updated_at        DateTime? @default(now()) @db.Timestamptz(6)
+
+  @@index([slug])
+  @@index([is_active])
+  @@index([is_featured])
+  @@index([display_order])
+}
+
 /// Raw site_media table — managed outside Prisma ORM
 model site_media {
   id           String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
