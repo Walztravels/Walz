@@ -12,7 +12,7 @@ import {
   UserCog, Activity, FileText, ClipboardList,
   Settings, LogOut, PenSquare, Compass, History,
   CreditCard, Shield, Signal, Ticket, LayoutTemplate, Layers,
-  Briefcase, Inbox,
+  Briefcase, Inbox, ScanSearch,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useStaffPermissions } from '@/hooks/useStaffPermissions'
@@ -75,8 +75,9 @@ const SECTIONS: NavSection[] = [
     label: 'Visa',
     anyPermission: ['visa_view'],
     items: [
-      { href: '/admin/visa-applications', label: 'Applications',     icon: Globe,  permission: 'visa_view' },
-      { href: '/admin/visa-intelligence', label: 'Visa Intelligence', icon: Brain,  permission: 'visa_view' },
+      { href: '/admin/visa-applications',      label: 'Applications',     icon: Globe,      permission: 'visa_view' },
+      { href: '/admin/visa-intelligence',      label: 'Visa Intelligence', icon: Brain,      permission: 'visa_view' },
+      { href: '/admin/visa/bank-analyser',     label: 'Bank Analyser',     icon: ScanSearch, permission: 'visa_view' },
     ],
   },
   {

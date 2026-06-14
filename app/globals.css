@@ -337,3 +337,29 @@
 .reveal-from-right-shown  { opacity: 1; transform: translateX(0);    }
 .reveal-from-left-hidden  { opacity: 0; transform: translateX(-40px); }
 .reveal-from-left-shown   { opacity: 1; transform: translateX(0);     }
+
+/* ── Bank Analyser print / PDF styles ─────────────────────── */
+@media print {
+  /* Hide everything except the report */
+  body > *:not(#bank-analyser-report) { display: none !important; }
+  #bank-analyser-report { display: block !important; }
+
+  .no-print { display: none !important; }
+
+  body {
+    background: white !important;
+    font-size: 13px;
+    color: #111;
+  }
+
+  #bank-analyser-report {
+    max-width: 100%;
+    padding: 0;
+    margin: 0;
+  }
+
+  .print-section {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+}
