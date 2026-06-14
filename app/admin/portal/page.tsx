@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { format } from 'date-fns'
 import { LayoutDashboard, RefreshCw, ChevronDown, CheckCircle, FileText, CreditCard } from 'lucide-react'
+import BankStatementCard from '@/components/admin/BankStatementCard'
 
 type Stage = 'ENQUIRY' | 'DOCUMENTS_PENDING' | 'DOCUMENTS_RECEIVED' | 'PROCESSING' | 'SUBMITTED' | 'APPROVED' | 'REJECTED' | 'COMPLETED'
 
@@ -212,6 +213,12 @@ export default function AdminPortalPage() {
                       </a>
                     )}
                   </div>
+
+                  <BankStatementCard
+                    applicationId={app.id}
+                    destination={app.destination ?? 'uk'}
+                    applicantName={app.user.name ?? app.title}
+                  />
                 </div>
               )
             })}
