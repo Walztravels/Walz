@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { revalidatePath } from 'next/cache'
 import { getAdminSession } from '@/lib/admin-auth'
 import prisma from '@/lib/db'
 import { z } from 'zod'
@@ -40,6 +41,8 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Invalid data', details: parsed.error.flatten() }, { status: 400 })
   }
   const deal = await prisma.featuredDeal.create({ data: parsed.data })
+  revalidatePath('/flights')
+  revalidatePath('/')
   return NextResponse.json(deal, { status: 201 })
 }
 
@@ -55,6 +58,8 @@ export async function PUT(req: NextRequest) {
     return NextResponse.json({ error: 'Invalid data' }, { status: 400 })
   }
   const deal = await prisma.featuredDeal.update({ where: { id }, data: parsed.data })
+  revalidatePath('/flights')
+  revalidatePath('/')
   return NextResponse.json(deal)
 }
 
@@ -65,5 +70,7 @@ export async function DELETE(req: NextRequest) {
   const { id } = await req.json().catch(() => ({}))
   if (!id) return NextResponse.json({ error: 'id required' }, { status: 400 })
   await prisma.featuredDeal.delete({ where: { id } })
+  revalidatePath('/flights')
+  revalidatePath('/')
   return NextResponse.json({ success: true })
 }
