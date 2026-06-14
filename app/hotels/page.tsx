@@ -213,7 +213,7 @@ function HotelsPageContent() {
     setHasSearched(true)
 
     try {
-      const response = await fetch('/api/search/hotels', {
+      const response = await fetch('/api/hotelbeds/hotels', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(searchData),
