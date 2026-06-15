@@ -96,6 +96,8 @@ enum BookingType {
   FLIGHT
   HOTEL
   PACKAGE
+  ACTIVITY
+  TRANSFER
 }
 
 enum BookingStatus {
@@ -261,6 +263,11 @@ model VisaApplication {
 
   // ── PDF ─────────────────────────────────────────
   pdfUrl String?
+
+  // ── Form tracking ────────────────────────────────
+  openedAt  DateTime?
+  startedAt DateTime?
+  viewCount Int       @default(0)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -674,6 +681,7 @@ enum ApplicationStage {
   DOCUMENTS_RECEIVED
   PROCESSING
   SUBMITTED
+  AWAITING_DECISION
   APPROVED
   REJECTED
   COMPLETED
@@ -704,6 +712,10 @@ model PortalApplication {
   createdAt   DateTime           @default(now())
   updatedAt   DateTime           @updatedAt
 
+  // Progress tracker
+  trackingToken String?                 @unique @default(cuid())
+  updates       VisaApplicationUpdate[]
+
   user        User               @relation(fields: [userId], references: [id], onDelete: Cascade)
   documents   PortalDocument[]
   payments    PortalPayment[]
@@ -713,6 +725,33 @@ model PortalApplication {
   @@index([stage])
   @@index([type])
   @@index([refNumber])
+}
+
+model VisaApplicationUpdate {
+  id            String   @id @default(cuid())
+  createdAt     DateTime @default(now())
+
+  applicationId String
+  application   PortalApplication @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+
+  adminName     String   @default("Walz Travels Team")
+  type          String   @default("STATUS_UPDATE")
+  // STATUS_UPDATE | NOTE | DOCUMENT | APPOINTMENT | DECISION
+
+  newStatus     String?
+  title         String
+  message       String   @db.Text
+
+  documentName  String?
+  documentUrl   String?
+  documentType  String?
+  // EMBASSY_FORM | APPOINTMENT_LETTER | VISA_COPY | CHECKLIST | OTHER
+
+  emailSent     Boolean  @default(false)
+  emailSentAt   DateTime?
+  isClientVisible Boolean @default(true)
+
+  @@index([applicationId])
 }
 
 model PortalDocument {
@@ -1489,4 +1528,135 @@ model HeroSlide {
 
   @@index([active])
   @@index([slideOrder])
+}
+
+// ===========================
+// Payroll
+// ===========================
+
+model StaffMember {
+  id              String    @id @default(cuid())
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  name            String
+  email           String    @unique
+  role            String
+  location        String
+  department      String    @default("Operations")
+  currency        String    @default("NGN")
+  baseSalary      Float
+  payDay          Int       @default(28)
+  bankName        String?
+  accountNumber   String?
+  isActive        Boolean   @default(true)
+  hexnodeDeviceId String?
+
+  payslips        Payslip[]
+}
+
+model Payslip {
+  id              String      @id @default(cuid())
+  createdAt       DateTime    @default(now())
+
+  staffMember     StaffMember @relation(fields: [staffMemberId], references: [id])
+  staffMemberId   String
+
+  month           Int
+  year            Int
+
+  baseSalary      Float
+  bonus           Float       @default(0)
+  allowance       Float       @default(0)
+
+  attendanceDeduction Float   @default(0)
+  otherDeduction  Float       @default(0)
+  deductionNote   String?
+
+  grossPay        Float
+  netPay          Float
+  currency        String
+
+  emailSentAt     DateTime?
+  paidAt          DateTime?
+  status          String      @default("PENDING")
+
+  missedCheckIns  Int         @default(0)
+
+  @@unique([staffMemberId, month, year])
+  @@index([month, year])
+  @@index([status])
+}
+
+// ===========================
+// Activities
+// ===========================
+
+model Activity {
+  id          String   @id @default(cuid())
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  title       String
+  slug        String   @unique
+  description String   @db.Text
+  shortDesc   String?
+
+  image       String?
+  gallery     String[] @default([])
+
+  price       Float
+  currency    String   @default("GBP")
+  duration    String
+
+  location     String
+  meetingPoint String?
+  category     String
+  badge        String?
+
+  included    String[] @default([])
+  notIncluded String[] @default([])
+  notes       String?  @db.Text
+
+  isFeatured  Boolean  @default(false)
+  isPublished Boolean  @default(false)
+  sortOrder   Int      @default(0)
+
+  bookings    ActivityBooking[]
+
+  @@index([category])
+  @@index([isFeatured, isPublished])
+}
+
+model ActivityBooking {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+
+  activity   Activity? @relation(fields: [activityId], references: [id])
+  activityId String?
+
+  clientName  String
+  clientEmail String
+  clientPhone String?
+
+  activityTitle String?
+  location      String?
+  travelDate    String?
+
+  date        DateTime?
+  adults      Int       @default(1)
+  totalAmount Float?
+  currency    String    @default("GBP")
+
+  status          String  @default("ENQUIRY")
+  paymentStatus   String  @default("UNPAID")
+  paymentRef      String?
+  stripeSessionId String?
+  notes           String?
+
+  convertedToLeadId String?
+
+  @@index([activityId])
+  @@index([status])
+  @@index([stripeSessionId])
 }

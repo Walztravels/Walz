@@ -1,9 +1,9 @@
 import { notFound } from 'next/navigation'
 import Image from 'next/image'
 import Link from 'next/link'
-import { MapPin, Clock, Users, Check, X, ArrowLeft, Star } from 'lucide-react'
+import { MapPin, Clock, Check, X, ArrowLeft } from 'lucide-react'
 import { getActivityBySlug, STATIC_ACTIVITIES } from '@/lib/activities-data'
-import { JadeChat } from '@/components/ui/JadeChat'
+import { BookingSidebar } from '@/components/activities/BookingSidebar'
 import prisma from '@/lib/db'
 import type { Metadata } from 'next'
 
@@ -45,19 +45,7 @@ export default async function ActivityLandingPage({ params }: { params: { slug: 
   const activity = await getActivity(params.slug)
   if (!activity) notFound()
 
-  const sym           = SYM[activity.currency] ?? ''
-  const priceStr      = `${activity.currency} ${sym}${Number(activity.price).toLocaleString()}`
   const categoryLabel = CATEGORY_LABELS[activity.category] ?? activity.category
-
-  const jadeContext = {
-    source:      'activity_page',
-    pageTitle:   activity.title,
-    pageUrl:     `/activities/${activity.slug}`,
-    price:       priceStr,
-    location:    activity.location,
-    category:    activity.category,
-    enquiryType: 'activity_booking',
-  }
 
   return (
     <div className="min-h-screen bg-[#F5F0E8]">
@@ -157,49 +145,7 @@ export default async function ActivityLandingPage({ params }: { params: { slug: 
           </div>
 
           {/* Booking sidebar */}
-          <div>
-            <div className="bg-white rounded-2xl p-6 shadow-sm sticky top-6">
-              <p className="text-gray-400 text-xs uppercase tracking-wider mb-1">From</p>
-              <p className="text-3xl font-bold text-[#0B1F3A] mb-0.5">
-                {sym}{Number(activity.price).toLocaleString()}
-              </p>
-              <p className="text-gray-400 text-xs mb-5">
-                {activity.currency} per person · {activity.duration}
-              </p>
-
-              <JadeChat
-                context={jadeContext}
-                label="Chat with Jade to Book"
-                className="w-full mb-3 py-3.5"
-                variant="primary"
-              />
-
-              <a href={`mailto:contact@walztravels.com?subject=${encodeURIComponent(`Activity Enquiry — ${activity.title}`)}&body=${encodeURIComponent(`Hi,\n\nI'm interested in:\n\n${activity.title}\nLocation: ${activity.location}\nDuration: ${activity.duration}\nPrice: ${priceStr}\n\nPlease send me availability and booking details.\n\nThank you`)}`}
-                className="flex items-center justify-center w-full border border-gray-200 text-gray-500 hover:bg-gray-50 py-3 rounded-full transition-colors text-sm mb-5">
-                Enquire by email
-              </a>
-
-              <div className="space-y-3 pt-4 border-t border-gray-100">
-                {[
-                  { icon: Clock,  text: activity.duration },
-                  { icon: MapPin, text: activity.location },
-                  { icon: Users,  text: 'All group sizes welcome' },
-                  { icon: Star,   text: activity.badge ?? 'Walz Curated Experience' },
-                ].map((item, i) => (
-                  <div key={i} className="flex items-center gap-2.5 text-sm text-gray-500">
-                    <item.icon className="w-4 h-4 text-[#C9A84C] flex-shrink-0" />
-                    {item.text}
-                  </div>
-                ))}
-              </div>
-
-              <div className="mt-5 pt-4 border-t border-gray-100 text-center">
-                <p className="text-xs text-gray-400 leading-relaxed">
-                  Jade will confirm availability, answer questions, and handle your booking via WhatsApp, Instagram, or Facebook — all in one place.
-                </p>
-              </div>
-            </div>
-          </div>
+          <BookingSidebar activity={activity} />
         </div>
 
         {/* More experiences */}

@@ -127,6 +127,28 @@ export async function POST(request: NextRequest) {
         break
       }
 
+      case 'checkout.session.completed': {
+        const session = event.data.object as Stripe.Checkout.Session
+        if (session.metadata?.type === 'activity_booking') {
+          await prisma.activityBooking.create({
+            data: {
+              clientName:      session.metadata.clientName  || 'Unknown',
+              clientEmail:     session.metadata.clientEmail || session.customer_email || '',
+              activityTitle:   session.metadata.activityTitle || null,
+              location:        session.metadata.location || null,
+              travelDate:      session.metadata.travelDate || null,
+              adults:          parseInt(session.metadata.adults || '1'),
+              totalAmount:     (session.amount_total ?? 0) / 100,
+              currency:        session.currency?.toUpperCase() ?? 'GBP',
+              stripeSessionId: session.id,
+              status:          'confirmed',
+              paymentStatus:   'PAID',
+            },
+          })
+        }
+        break
+      }
+
       default:
         console.log(`[Stripe Webhook] Unhandled event type: ${event.type}`)
     }
