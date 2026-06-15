@@ -194,7 +194,7 @@ export async function GET(req: NextRequest) {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let hotelbedsActivities: any[] = []
 
-  if (destination && process.env.HOTELBEDS_ACTIVITIES_API_KEY) {
+  if (destination) {
     const destCode = resolveDestCode(destination)
 
     if (destCode) {
