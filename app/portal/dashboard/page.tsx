@@ -15,7 +15,7 @@ import { CountrySelectLight } from '@/components/visa/CountrySelect'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-type Stage = 'ENQUIRY' | 'DOCUMENTS_PENDING' | 'DOCUMENTS_RECEIVED' | 'PROCESSING' | 'SUBMITTED' | 'APPROVED' | 'REJECTED' | 'COMPLETED'
+type Stage = 'ENQUIRY' | 'DOCUMENTS_PENDING' | 'DOCUMENTS_RECEIVED' | 'PROCESSING' | 'SUBMITTED' | 'AWAITING_DECISION' | 'APPROVED' | 'REJECTED' | 'COMPLETED'
 
 interface Application {
   id: string; refNumber: string; title: string; type: string; stage: Stage
@@ -24,6 +24,7 @@ interface Application {
   documents: { id: string; status: string }[]
   payments: { id: string; amount: number; currency: string; status: string; paidAt: string | null; description: string }[]
   checklist: { id: string; completedAt: string | null }[]
+  updates?: { id: string; createdAt: string; title: string; newStatus?: string | null }[]
 }
 
 interface Booking {
@@ -80,18 +81,20 @@ interface DashboardData {
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
-const STAGE_ORDER: Stage[] = ['ENQUIRY','DOCUMENTS_PENDING','DOCUMENTS_RECEIVED','PROCESSING','SUBMITTED','APPROVED','COMPLETED']
+const STAGE_ORDER: Stage[] = ['ENQUIRY','DOCUMENTS_PENDING','DOCUMENTS_RECEIVED','PROCESSING','SUBMITTED','AWAITING_DECISION','APPROVED','COMPLETED']
 
 const STAGE_LABELS: Record<Stage, string> = {
   ENQUIRY: 'Enquiry Received', DOCUMENTS_PENDING: 'Documents Pending',
   DOCUMENTS_RECEIVED: 'Documents Received', PROCESSING: 'Processing',
-  SUBMITTED: 'Submitted', APPROVED: 'Approved', REJECTED: 'Rejected', COMPLETED: 'Completed',
+  SUBMITTED: 'Submitted', AWAITING_DECISION: 'Awaiting Decision',
+  APPROVED: 'Approved', REJECTED: 'Refused', COMPLETED: 'Completed',
 }
 
 const STAGE_COLOR: Record<Stage, string> = {
   ENQUIRY: 'bg-blue-100 text-blue-700', DOCUMENTS_PENDING: 'bg-amber-100 text-amber-700',
   DOCUMENTS_RECEIVED: 'bg-yellow-100 text-yellow-700', PROCESSING: 'bg-purple-100 text-purple-700',
-  SUBMITTED: 'bg-indigo-100 text-indigo-700', APPROVED: 'bg-green-100 text-green-700',
+  SUBMITTED: 'bg-indigo-100 text-indigo-700', AWAITING_DECISION: 'bg-orange-100 text-orange-700',
+  APPROVED: 'bg-green-100 text-green-700',
   REJECTED: 'bg-red-100 text-red-700', COMPLETED: 'bg-gray-100 text-gray-600',
 }
 
@@ -378,6 +381,14 @@ export default function PortalDashboard() {
                         <h3 className="font-bold text-[#0B1F3A] leading-tight">{app.title}</h3>
                         {app.destination && (
                           <p className="text-sm text-gray-400 mt-0.5">{app.destination}{app.travelDate ? ` · ${app.travelDate}` : ''}</p>
+                        )}
+                        {app.updates && app.updates.length > 0 && (
+                          <div className="flex items-center gap-1.5 mt-1.5">
+                            <div className="w-2 h-2 rounded-full bg-[#C9A84C] animate-pulse" />
+                            <span className="text-xs text-[#C9A84C] font-medium">
+                              {app.updates.length} update{app.updates.length !== 1 ? 's' : ''} from Walz Travels
+                            </span>
+                          </div>
                         )}
                       </div>
                       <Link href={`/portal/application/${app.id}`}

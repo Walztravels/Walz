@@ -16,6 +16,10 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
       documents: { orderBy: { uploadedAt: 'desc' } },
       payments:  { orderBy: { createdAt: 'desc' } },
       checklist: { orderBy: { order: 'asc' } },
+      updates: {
+        where:   { isClientVisible: true },
+        orderBy: { createdAt: 'desc' },
+      },
     },
   })
 

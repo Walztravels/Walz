@@ -27,6 +27,12 @@ export async function GET(_req: NextRequest) {
         documents: { select: { id: true, status: true, uploadedAt: true } },
         payments:  { select: { id: true, amount: true, currency: true, status: true, paidAt: true, description: true } },
         checklist: { select: { id: true, completedAt: true } },
+        updates: {
+          where:   { isClientVisible: true },
+          orderBy: { createdAt: 'desc' },
+          take: 5,
+          select: { id: true, createdAt: true, title: true, newStatus: true },
+        },
       },
       orderBy: { updatedAt: 'desc' },
     }),
