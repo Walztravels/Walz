@@ -199,35 +199,44 @@ export async function GET(req: NextRequest) {
 
     if (destCode) {
       try {
-        const from = dateFrom ?? new Date().toISOString().slice(0, 10)
-        const to   = dateTo   ?? new Date(Date.now() + 90 * 86_400_000).toISOString().slice(0, 10)
-
-        const adultsCount = parseInt(searchParams.get('adults') ?? '2')
-        const paxes = Array.from({ length: Math.max(1, adultsCount) }, () => ({ age: 30 }))
-
         const qs = new URLSearchParams({
           destination: destCode,
-          fromDate:    from,
-          toDate:      to,
-          language:    'en',
           limit:       '40',
           offset:      '0',
         })
 
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const data: any = await hotelbedsRequest('activities', `/activities?${qs}`)
+        const data: any = await hotelbedsRequest('activities-cache', `/portfolio?${qs}`)
 
-        console.log('[HB Activities] GET', destCode, 'count:', data?.activities?.length ?? 0, 'error:', data?.errors?.[0]?.text ?? null)
+        console.log('[HB Cache API]', destCode, 'count:', data?.length ?? data?.activities?.length ?? 0)
 
-        if (Array.isArray(data?.activities)) {
-          hotelbedsActivities = data.activities
-            .map((a: object) => mapHBActivity(a, destination))
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            .filter((a: any) => a.title && a.price > 0)
-        }
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const items: any[] = Array.isArray(data) ? data : (data?.activities ?? [])
+
+        hotelbedsActivities = items.map((a: object) => {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const act = a as any
+          return {
+            id:          act.code,
+            slug:        `hb-${act.code}`,
+            title:       act.name ?? act.code,
+            shortDesc:   act.type ?? '',
+            description: act.type ?? '',
+            image:       '',
+            price:       0,
+            currency:    'USD',
+            duration:    '',
+            location:    destination,
+            category:    mapHBCategory([act.type ?? '']),
+            badge:       null,
+            source:      'hotelbeds-cache',
+            modalities:  act.modalities ?? [],
+          }
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        }).filter((a: any) => a.title && a.title !== a.id)
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : String(err)
-        console.error('[Hotelbeds Activities error]', msg)
+        console.error('[Hotelbeds Cache error]', msg)
       }
     } else {
       console.warn('[Hotelbeds Activities] No dest code for:', destination)

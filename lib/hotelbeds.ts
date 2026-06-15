@@ -1,6 +1,6 @@
 import crypto from 'crypto'
 
-type HotelbedsAPI = 'hotel' | 'content' | 'activities' | 'transfers'
+type HotelbedsAPI = 'hotel' | 'content' | 'activities' | 'activities-cache' | 'activities-content' | 'transfers'
 
 const CREDENTIALS: Record<HotelbedsAPI, { key: string; secret: string }> = {
   hotel: {
@@ -15,6 +15,14 @@ const CREDENTIALS: Record<HotelbedsAPI, { key: string; secret: string }> = {
     key:    process.env.HOTELBEDS_ACTIVITIES_API_KEY ?? 'abe8019a385ba89c13063f9fe9a13575',
     secret: process.env.HOTELBEDS_ACTIVITIES_SECRET  ?? 'VNSIEVUVur',
   },
+  'activities-cache': {
+    key:    process.env.HOTELBEDS_ACTIVITIES_API_KEY ?? 'abe8019a385ba89c13063f9fe9a13575',
+    secret: process.env.HOTELBEDS_ACTIVITIES_SECRET  ?? 'VNSIEVUVur',
+  },
+  'activities-content': {
+    key:    process.env.HOTELBEDS_ACTIVITIES_API_KEY ?? 'abe8019a385ba89c13063f9fe9a13575',
+    secret: process.env.HOTELBEDS_ACTIVITIES_SECRET  ?? 'VNSIEVUVur',
+  },
   transfers: {
     key:    process.env.HOTELBEDS_TRANSFERS_API_KEY ?? '3bc0e240098af5c828736f59bf7ecbf2',
     secret: process.env.HOTELBEDS_TRANSFERS_SECRET  ?? 'wMfgvPkvyl',
@@ -22,10 +30,12 @@ const CREDENTIALS: Record<HotelbedsAPI, { key: string; secret: string }> = {
 }
 
 const BASE_URLS: Record<HotelbedsAPI, string> = {
-  hotel:      'https://api.test.hotelbeds.com/hotel-api/1.0',
-  content:    'https://api.test.hotelbeds.com/hotel-content-api/1.0',
-  activities: 'https://api.test.hotelbeds.com/activity-api/1.0',
-  transfers:  'https://api.test.hotelbeds.com/transfer-api/1.0',
+  hotel:                'https://api.test.hotelbeds.com/hotel-api/1.0',
+  content:              'https://api.test.hotelbeds.com/hotel-content-api/1.0',
+  activities:           'https://api.test.hotelbeds.com/activity-api/1.0',
+  'activities-cache':   'https://api.test.hotelbeds.com/activity-cache-api/1.0',
+  'activities-content': 'https://api.test.hotelbeds.com/activity-content-api/3.0',
+  transfers:            'https://api.test.hotelbeds.com/transfer-api/1.0',
 }
 
 function makeSignature(api: HotelbedsAPI): string {
