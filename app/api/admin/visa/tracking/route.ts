@@ -1,13 +1,24 @@
 import { NextResponse } from 'next/server'
-import { getServerSession } from 'next-auth'
-import { authOptions } from '@/lib/auth'
+import { cookies } from 'next/headers'
 import { prisma } from '@/lib/db'
 
-export async function GET() {
-  const session = await getServerSession(authOptions)
-  if (!session?.user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+// ── Auth: use admin_token cookie (same as all other admin APIs) ──────────────
+async function isAdmin() {
+  return !!cookies().get('admin_token')?.value
+}
 
+export async function GET() {
+  if (!await isAdmin()) {
+    return NextResponse.json({ error: 'Unauthorised' }, { status: 401 })
+  }
+
+  // Include BOTH:
+  // - isDraft: true  → admin sent the form, client hasn't submitted yet (Sent / Opened)
+  // - isDraft: false → client submitted the form (In Progress / Submitted / Paid)
   const applications = await prisma.visaApplication.findMany({
+    where: {
+      initiatedBy: 'admin',   // only admin-sent forms in the tracker
+    },
     orderBy: { createdAt: 'desc' },
     take: 200,
     select: {
@@ -18,6 +29,7 @@ export async function GET() {
       destinationIso2:     true,
       visaType:            true,
       status:              true,
+      isDraft:             true,
       openedAt:            true,
       startedAt:           true,
       submissionDate:      true,
@@ -37,17 +49,20 @@ export async function GET() {
   const mapped = applications.map(a => ({
     id:                  a.id,
     clientEmail:         a.tokens[0]?.clientEmail ?? a.email ?? '',
-    clientName:          a.tokens[0]?.clientName ?? (a.firstName ? `${a.firstName} ${a.lastName ?? ''}`.trim() : undefined),
+    clientName:          a.tokens[0]?.clientName
+                           ?? (a.firstName ? `${a.firstName} ${a.lastName ?? ''}`.trim() : '—'),
     destination:         a.destinationIso2,
     visaType:            a.visaType,
-    sentAt:              a.tokens[0]?.createdAt ?? null,
-    openedAt:            a.openedAt,
-    startedAt:           a.startedAt,
-    submittedAt:         a.submissionDate,
+    // sentAt = when the token was created (when admin sent the link)
+    sentAt:              a.tokens[0]?.createdAt ?? a.createdAt,
+    openedAt:            a.openedAt   ?? null,
+    startedAt:           a.startedAt  ?? null,
+    submittedAt:         a.submissionDate ?? null,
     paymentStatus:       a.serviceFeePaid ? 'PAID' : 'UNPAID',
-    viewCount:           a.viewCount,
+    viewCount:           a.viewCount  ?? 0,
     serviceFeeAmount:    a.serviceFeeAmount?.toString(),
     serviceFeeCurrency:  a.serviceFeeCurrency,
+    status:              a.status,
   }))
 
   return NextResponse.json({ applications: mapped })
