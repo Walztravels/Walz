@@ -398,14 +398,15 @@ export function JadePlannerSection() {
                       .slice(0, li)
                       .reduce((acc, l) => acc + l.length, 0) + wi
                     const isLastWord = wi === line.length - 1
-                    const isLastLine = li === HEADLINE_LINES.length - 1
                     return (
-                      <span
-                        key={wi}
-                        ref={el => { wordRefs.current[idx] = el }}
-                        className="inline-block"
-                      >
-                        {word}{(!isLastWord || !isLastLine) ? ' ' : ''}
+                      <span key={wi}>
+                        <span
+                          ref={el => { wordRefs.current[idx] = el }}
+                          className="inline-block"
+                        >
+                          {word}
+                        </span>
+                        {!isLastWord && ' '}
                       </span>
                     )
                   })}
@@ -540,7 +541,7 @@ export function JadePlannerSection() {
                     className="object-cover"
                     style={{ objectPosition: '50% 8%' }}
                     sizes="(max-width: 1024px) 180px, 280px"
-                    priority
+                    loading="lazy"
                   />
                 </div>
               </div>
