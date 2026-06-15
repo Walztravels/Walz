@@ -393,20 +393,18 @@ export function JadePlannerSection() {
               {HEADLINE_LINES.map((line, li) => (
                 <div key={li} className="overflow-hidden block">
                   {line.map((word, wi) => {
-                    // Global word index for wordRefs
                     const idx = HEADLINE_LINES
                       .slice(0, li)
                       .reduce((acc, l) => acc + l.length, 0) + wi
                     const isLastWord = wi === line.length - 1
                     return (
-                      <span key={wi}>
-                        <span
-                          ref={el => { wordRefs.current[idx] = el }}
-                          className="inline-block"
-                        >
-                          {word}
-                        </span>
-                        {!isLastWord && ' '}
+                      <span
+                        key={wi}
+                        ref={el => { wordRefs.current[idx] = el }}
+                        className="inline-block"
+                        style={!isLastWord ? { marginRight: '0.28em' } : undefined}
+                      >
+                        {word}
                       </span>
                     )
                   })}

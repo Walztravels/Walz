@@ -32,7 +32,7 @@ export const STATIC_ACTIVITIES = [
     title:        'Dubai Desert Sunset Experience',
     shortDesc:    'Dune bashing, camel riding, and a traditional Bedouin dinner under the stars.',
     description:  'Leave the city behind and venture deep into the Arabian desert for an evening you will never forget. Your expert driver will take you dune bashing through the golden sands as the sun begins to set. Arrive at a traditional Bedouin camp for camel riding, sandboarding, henna painting, and shisha before sitting down to a sumptuous Middle Eastern feast under a canopy of stars. Belly dancing and tanoura shows complete a truly magical evening.',
-    image:        'https://images.unsplash.com/photo-1451337516015-6b6e9a44a8a3?w=1200&q=90',
+    image:        'https://images.unsplash.com/photo-1539650116574-8efeb43e2750?w=1200&q=90',
     price:        350,
     currency:     'AED',
     duration:     '6 hours',
