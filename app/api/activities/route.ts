@@ -226,8 +226,10 @@ export async function GET(req: NextRequest) {
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             .filter((a: any) => a.title && a.price > 0)
         }
-      } catch (err) {
-        console.error('[Hotelbeds Activities error]', err)
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err)
+        console.error('[Hotelbeds Activities error]', msg)
+        return NextResponse.json({ activities: [], source: 'error', debug: msg })
       }
     } else {
       console.warn('[Hotelbeds Activities] No dest code for:', destination)
@@ -236,6 +238,10 @@ export async function GET(req: NextRequest) {
 
   // ── 3. Merge: DB first, then Hotelbeds live ───────────────────────────────
   const combined = [...dbActivities, ...hotelbedsActivities]
+  // TEMP DEBUG
+  if (combined.length === 0 && destination) {
+    console.log('[Activities Debug] combined empty, destination:', destination, 'hotelbedsCount:', hotelbedsActivities.length, 'dbCount:', dbActivities.length)
+  }
 
   // ── 4. Static fallback only when completely empty ─────────────────────────
   if (combined.length === 0) {
