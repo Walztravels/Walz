@@ -102,9 +102,17 @@ function mapHBCategory(codes: string[]): string {
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function mapHBActivity(a: any, destName: string): object {
+  // Image: handle both GET (a.media[]) and POST (a.content.media.images[].urls[]) response shapes
+  const contentImg = (() => {
+    const imgs: { urls?: { sizeType: string; resource: string }[] }[] = a.content?.media?.images ?? []
+    const urlObj = imgs[0]?.urls?.find(u => u.sizeType === 'LARGE' || u.sizeType === 'LARGE2') ?? imgs[0]?.urls?.[0]
+    return urlObj?.resource ?? null
+  })()
+
   const img =
     a.media?.find((m: { type: string; url: string }) => m.type === 'PHOTO' || m.type === 'photo')?.url ||
     a.media?.[0]?.url ||
+    contentImg ||
     a.images?.[0]?.url ||
     a.content?.images?.[0]?.url ||
     ''
@@ -115,8 +123,10 @@ function mapHBActivity(a: any, destName: string): object {
     ...(a.categories ?? []).map((c: any) => c.code ?? c),
   ].filter(Boolean)
 
+  // Price: handle amountFrom (GET) and amountsFrom[0].amount (POST) shapes
   const price = parseFloat(
     a.amountFrom ??
+    a.amountsFrom?.[0]?.amount ??
     a.rates?.[0]?.rateDetails?.[0]?.totalAmount ??
     a.minRate ??
     '0'
@@ -131,12 +141,15 @@ function mapHBActivity(a: any, destName: string): object {
         : `${durationMins} mins`
     : ''
 
+  const rawDesc: string = a.content?.description ?? a.content?.briefDescription ?? ''
+  const cleanDesc = rawDesc.replace(/<[^>]*>/g, '').trim()
+
   return {
     id:          String(a.code),
     slug:        `hb-${a.code}`,
     title:       a.name ?? a.content?.name ?? 'Activity',
-    shortDesc:   a.content?.briefDescription ?? (a.content?.description ?? '').slice(0, 150),
-    description: a.content?.description ?? a.content?.briefDescription ?? '',
+    shortDesc:   a.content?.briefDescription?.replace(/<[^>]*>/g, '').trim() ?? cleanDesc.slice(0, 150),
+    description: cleanDesc,
     image:       img,
     price,
     currency:    a.currency ?? 'USD',
