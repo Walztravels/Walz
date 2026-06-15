@@ -218,14 +218,35 @@ export async function GET(req: NextRequest) {
           { method: 'POST', body: requestBody }
         )
 
-        console.log('[HB Activities]', destCode, 'results:', data?.activities?.length ?? 0, 'error:', data?.errors?.[0]?.text ?? null)
+        const rawCount = data?.activities?.length ?? 0
+        const rawSample = data?.activities?.[0] ?? null
+        console.log('[HB Activities]', destCode, 'raw count:', rawCount, 'error:', data?.errors?.[0]?.text ?? null)
 
-        if (Array.isArray(data?.activities)) {
-          hotelbedsActivities = data.activities
-            .map((a: object) => mapHBActivity(a, destination))
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            .filter((a: any) => a.title && a.price > 0)
+        // TEMP: expose raw response shape for debugging
+        if (rawCount === 0 || !Array.isArray(data?.activities)) {
+          return NextResponse.json({
+            activities: [],
+            source: 'hb-empty',
+            debug: {
+              destCode,
+              rawCount,
+              errors: data?.errors ?? null,
+              topLevelKeys: data ? Object.keys(data) : null,
+            },
+          })
         }
+
+        // TEMP: expose first raw item so we can see the actual field names
+        return NextResponse.json({
+          activities: [],
+          source: 'hb-raw-sample',
+          debug: {
+            destCode,
+            rawCount,
+            sample: rawSample,
+          },
+        })
+
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : String(err)
         console.error('[Hotelbeds Activities error]', msg)
