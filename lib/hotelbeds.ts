@@ -16,8 +16,8 @@ const CREDENTIALS: Record<HotelbedsAPI, { key: string; secret: string }> = {
     secret: process.env.HOTELBEDS_ACTIVITIES_SECRET  ?? 'VNSIEVUVur',
   },
   transfers: {
-    key:    process.env.HOTELBEDS_TRANSFERS_API_KEY!,
-    secret: process.env.HOTELBEDS_TRANSFERS_SECRET!,
+    key:    process.env.HOTELBEDS_TRANSFERS_API_KEY ?? '3bc0e240098af5c828736f59bf7ecbf2',
+    secret: process.env.HOTELBEDS_TRANSFERS_SECRET  ?? 'wMfgvPkvyl',
   },
 }
 
