@@ -202,18 +202,23 @@ export async function GET(req: NextRequest) {
         const from = dateFrom ?? new Date().toISOString().slice(0, 10)
         const to   = dateTo   ?? new Date(Date.now() + 90 * 86_400_000).toISOString().slice(0, 10)
 
-        const qs = new URLSearchParams({
-          destination: destCode,
-          fromDate:    from,
-          toDate:      to,
-          language:    'en',
-          limit:       '40',
-          offset:      '0',
-        })
-        if (category) qs.set('type', category.toUpperCase())
+        const requestBody = {
+          filters: [{ searchFilterItems: [{ type: 'destination', value: destCode }] }],
+          from,
+          to,
+          language:   'en',
+          pagination: { itemsPerPage: 40, page: 1 },
+          order:      'DEFAULT',
+        }
 
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const data: any = await hotelbedsRequest('activities', `/activities?${qs}`)
+        const data: any = await hotelbedsRequest(
+          'activities',
+          '/activities',
+          { method: 'POST', body: requestBody }
+        )
+
+        console.log('[HB Activities]', destCode, 'results:', data?.activities?.length ?? 0, 'error:', data?.errors?.[0]?.text ?? null)
 
         if (Array.isArray(data?.activities)) {
           hotelbedsActivities = data.activities
@@ -222,7 +227,7 @@ export async function GET(req: NextRequest) {
             .filter((a: any) => a.title && a.price > 0)
         }
       } catch (err) {
-        console.error('[Hotelbeds Activities]', err)
+        console.error('[Hotelbeds Activities error]', err)
       }
     } else {
       console.warn('[Hotelbeds Activities] No dest code for:', destination)
