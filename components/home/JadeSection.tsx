@@ -4,7 +4,8 @@ import { useEffect, useRef } from 'react'
 import Image from 'next/image'
 import gsap from 'gsap'
 import ScrollTrigger from 'gsap/ScrollTrigger'
-import { MessageCircle, Zap, Search, Map } from 'lucide-react'
+import { Zap, Search, Map } from 'lucide-react'
+import { JadeChat } from '@/components/ui/JadeChat'
 
 const CAPABILITIES = [
   {
@@ -112,17 +113,19 @@ export function JadeSection() {
         </div>
 
         {/* CTA */}
-        <a
-          href="https://wa.me/447398753797"
-          target="_blank"
-          rel="noopener noreferrer"
-          className="relative inline-flex items-center gap-2.5 px-8 py-4 bg-[#C9A84C] hover:bg-[#d4b05a] text-[#0B1F3A] font-bold text-sm rounded-full transition-all duration-300 hover:scale-105 active:scale-100 shadow-lg shadow-[#C9A84C]/30"
-        >
-          {/* Pulse */}
-          <span className="absolute inset-0 rounded-full bg-[#C9A84C] animate-ping opacity-30" style={{ animationDuration: '2s' }} />
-          <MessageCircle className="w-4 h-4 relative z-10" />
-          <span className="relative z-10">WhatsApp Jade Now</span>
-        </a>
+        <div className="relative inline-flex">
+          <span className="absolute inset-0 rounded-full bg-[#C9A84C] animate-ping opacity-30 pointer-events-none" style={{ animationDuration: '2s' }} />
+          <JadeChat
+            context={{
+              source:      'homepage_jade_section',
+              pageTitle:   'Jade — AI Travel Assistant',
+              enquiryType: 'general_enquiry',
+            }}
+            label="Chat with Jade Now"
+            className="relative shadow-lg shadow-[#C9A84C]/30 hover:scale-105 active:scale-100 px-8 py-4 text-sm"
+            variant="primary"
+          />
+        </div>
       </div>
     </section>
   )

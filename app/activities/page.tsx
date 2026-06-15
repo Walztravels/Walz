@@ -2,7 +2,9 @@
 
 import { useState, useEffect, useRef } from 'react'
 import Image from 'next/image'
+import Link from 'next/link'
 import { Search, MapPin, Calendar, Users, ChevronDown, ArrowRight, Compass } from 'lucide-react'
+import { JadeChat } from '@/components/ui/JadeChat'
 
 // ─── Category data with cinematic imagery ────────────────────────────────────
 const CATEGORIES = [
@@ -65,6 +67,7 @@ const CATEGORIES = [
 // ─── Featured experiences ─────────────────────────────────────────────────────
 const FEATURED = [
   {
+    slug:        'serengeti-safari-3-day',
     title:       'Serengeti Safari — 3 Days',
     location:    'Tanzania',
     price:       'From USD 890',
@@ -75,6 +78,7 @@ const FEATURED = [
     category:    'Wildlife & Safari',
   },
   {
+    slug:        'dubai-desert-sunset-experience',
     title:       'Dubai Desert Sunset Experience',
     location:    'UAE',
     price:       'From AED 350',
@@ -85,6 +89,7 @@ const FEATURED = [
     category:    'Adventure & Sports',
   },
   {
+    slug:        'zanzibar-spice-culture-tour',
     title:       'Zanzibar Spice & Culture Tour',
     location:    'Tanzania',
     price:       'From USD 55',
@@ -95,6 +100,7 @@ const FEATURED = [
     category:    'Culture & History',
   },
   {
+    slug:        'london-thames-sunset-private-boat',
     title:       'London Thames at Sunset — Private Boat',
     location:    'United Kingdom',
     price:       'From GBP 120',
@@ -482,22 +488,15 @@ export default function ActivitiesPage() {
                       </p>
                       <p className="text-[#C9A84C] font-bold text-lg">{exp.price}</p>
                     </div>
-                    {exp.slug ? (
-                      <a href={`/activities/${exp.slug}`}
-                        className="bg-white/10 backdrop-blur-sm border border-white/20
-                          text-white text-xs px-4 py-2 rounded-full
-                          hover:bg-[#C9A84C] hover:text-[#0B1F3A] hover:border-[#C9A84C]
-                          transition-all duration-300 font-semibold">
-                        Explore →
-                      </a>
-                    ) : (
-                      <button className="bg-white/10 backdrop-blur-sm border border-white/20
+                    <Link
+                      href={`/activities/${exp.slug ?? exp.title.toLowerCase().replace(/[^a-z0-9\s-]/g, '').replace(/\s+/g, '-')}`}
+                      className="bg-white/10 backdrop-blur-sm border border-white/20
                         text-white text-xs px-4 py-2 rounded-full
                         hover:bg-[#C9A84C] hover:text-[#0B1F3A] hover:border-[#C9A84C]
-                        transition-all duration-300 font-semibold">
-                        Explore →
-                      </button>
-                    )}
+                        transition-all duration-300 font-semibold"
+                    >
+                      Explore →
+                    </Link>
                   </div>
                 </div>
               </div>
@@ -543,17 +542,17 @@ export default function ActivitiesPage() {
             hotels, and the experience — everything in one booking.
           </p>
           <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
-            <a
-              href="https://wa.me/447398753797?text=Hi%2C%20I%20want%20to%20book%20an%20activity%20or%20experience"
-              target="_blank"
-              rel="noreferrer"
-              className="group flex items-center gap-3 bg-[#C9A84C] text-[#0B1F3A]
-                font-bold px-8 py-4 rounded-full hover:bg-white transition-all duration-300
-                text-sm uppercase tracking-widest"
-            >
-              Chat with Jade
-              <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
-            </a>
+            <JadeChat
+              context={{
+                source:      'activities_page',
+                pageTitle:   'Activities & Experiences',
+                pageUrl:     '/activities',
+                enquiryType: 'activity_enquiry',
+              }}
+              label="Chat with Jade"
+              className="px-8 py-4 text-sm uppercase tracking-widest"
+              variant="primary"
+            />
             <button
               onClick={() => document.getElementById('search-form')?.scrollIntoView({ behavior: 'smooth' })}
               className="flex items-center gap-2 border border-[#C9A84C]/40 text-[#C9A84C]

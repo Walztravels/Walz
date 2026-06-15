@@ -19,6 +19,7 @@ import {
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { cn } from '@/lib/utils'
+import { JadeChat } from '@/components/ui/JadeChat'
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -282,9 +283,19 @@ function TourCard({ tour, index }: { tour: DbTour; index: number }) {
             <a href={`/tours/book?slug=${tour.slug}`} className="flex-1">
               <Button variant="gold" className="w-full">Book Now</Button>
             </a>
-            <Button variant="navy" className="whitespace-nowrap" onClick={() => setIsEnquiryOpen(true)}>
-              Enquire
-            </Button>
+            <JadeChat
+              context={{
+                source:      'tour_page',
+                pageTitle:   tour.name,
+                pageUrl:     `/tours`,
+                price:       `${tour.currency} ${tour.price}`,
+                location:    tour.location,
+                enquiryType: 'tour_booking',
+              }}
+              label="Enquire with Jade"
+              className="whitespace-nowrap px-4 py-2 text-xs"
+              variant="outline"
+            />
           </div>
         </div>
       </div>

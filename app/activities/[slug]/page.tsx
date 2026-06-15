@@ -1,167 +1,229 @@
 import { notFound } from 'next/navigation'
-import { prisma } from '@/lib/db'
 import Image from 'next/image'
+import Link from 'next/link'
+import { MapPin, Clock, Users, Check, X, ArrowLeft, Star } from 'lucide-react'
+import { getActivityBySlug, STATIC_ACTIVITIES } from '@/lib/activities-data'
+import { JadeChat } from '@/components/ui/JadeChat'
+import prisma from '@/lib/db'
 import type { Metadata } from 'next'
-import { Clock, MapPin, Check, X, MessageCircle } from 'lucide-react'
 
-interface Props { params: { slug: string } }
+export async function generateStaticParams() {
+  return STATIC_ACTIVITIES.map(a => ({ slug: a.slug }))
+}
 
-export async function generateMetadata({ params }: Props): Promise<Metadata> {
-  const a = await prisma.activity.findUnique({ where: { slug: params.slug } })
-  if (!a) return { title: 'Activity Not Found' }
+export async function generateMetadata({ params }: { params: { slug: string } }): Promise<Metadata> {
+  const a = await getActivity(params.slug)
+  if (!a) return { title: 'Activity | Walz Travels' }
   return {
     title:       `${a.title} | Walz Travels`,
-    description: a.shortDesc ?? a.description.slice(0, 155),
-    openGraph: {
-      title: a.title,
-      description: a.shortDesc ?? a.description.slice(0, 155),
-      images: a.image ? [a.image] : [],
-    },
+    description: a.shortDesc ?? (a.description ?? '').slice(0, 160),
   }
 }
 
-const SYM: Record<string, string> = { GBP:'£',USD:'$',EUR:'€',CAD:'CA$',NGN:'₦',GHS:'₵',AED:'AED ' }
+async function getActivity(slug: string) {
+  try {
+    const db = await prisma.activity.findUnique({ where: { slug, isPublished: true } })
+    if (db) return db
+  } catch {}
+  return getActivityBySlug(slug)
+}
 
-export default async function ActivityPage({ params }: Props) {
-  const activity = await prisma.activity.findUnique({
-    where: { slug: params.slug, isPublished: true },
-  })
+const SYM: Record<string, string> = {
+  GBP: '£', USD: '$', EUR: '€', CAD: 'CA$', NGN: '₦', GHS: '₵', AED: 'AED ',
+}
 
+const CATEGORY_LABELS: Record<string, string> = {
+  beach:     'Beach & Water',
+  culture:   'Culture & History',
+  wildlife:  'Wildlife & Safari',
+  adventure: 'Adventure & Sports',
+  food:      'Food & Drink',
+  air:       'Helicopter & Air',
+}
+
+export default async function ActivityLandingPage({ params }: { params: { slug: string } }) {
+  const activity = await getActivity(params.slug)
   if (!activity) notFound()
 
-  const waText = encodeURIComponent(
-    `Hi Walz Travels! I'm interested in booking "${activity.title}" (${SYM[activity.currency] ?? ''}${activity.price.toLocaleString()}). Please can you give me more details?`
-  )
-  const waLink = `https://wa.me/447398753797?text=${waText}`
+  const sym           = SYM[activity.currency] ?? ''
+  const priceStr      = `${activity.currency} ${sym}${Number(activity.price).toLocaleString()}`
+  const categoryLabel = CATEGORY_LABELS[activity.category] ?? activity.category
+
+  const jadeContext = {
+    source:      'activity_page',
+    pageTitle:   activity.title,
+    pageUrl:     `/activities/${activity.slug}`,
+    price:       priceStr,
+    location:    activity.location,
+    category:    activity.category,
+    enquiryType: 'activity_booking',
+  }
 
   return (
-    <main className="min-h-screen bg-[#070f1e]">
-      {/* Hero */}
-      <div className="relative h-[55vh] min-h-[380px] bg-[#0d2347] overflow-hidden">
-        {activity.image && (
-          <Image
-            src={activity.image}
-            alt={activity.title}
-            fill
-            priority
-            className="object-cover"
-            sizes="100vw"
-          />
-        )}
-        <div className="absolute inset-0 bg-gradient-to-t from-[#070f1e] via-black/40 to-transparent" />
+    <div className="min-h-screen bg-[#F5F0E8]">
 
-        {/* Badge */}
+      {/* Hero */}
+      <div className="relative h-[55vh] md:h-[70vh] overflow-hidden">
+        {activity.image ? (
+          <Image src={activity.image} alt={activity.title} fill priority className="object-cover" />
+        ) : (
+          <div className="absolute inset-0 bg-[#0B1F3A]" />
+        )}
+        <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/30 to-black/10" />
+
+        <Link href="/activities"
+          className="absolute top-6 left-6 flex items-center gap-2 text-white/80 hover:text-white bg-black/30 backdrop-blur-sm px-4 py-2 rounded-full text-sm transition-colors z-10">
+          <ArrowLeft className="w-4 h-4" /> All Experiences
+        </Link>
+
         {activity.badge && (
-          <div className="absolute top-6 left-6">
-            <span className="bg-[#C9A84C] text-[#0B1F3A] text-xs font-bold px-3 py-1.5 rounded-full uppercase tracking-wider">
+          <div className="absolute top-6 right-6 z-10">
+            <span className="bg-[#C9A84C] text-[#0B1F3A] font-bold text-xs px-3 py-1.5 rounded-full uppercase tracking-wider">
               {activity.badge}
             </span>
           </div>
         )}
 
-        {/* Category */}
-        <div className="absolute top-6 right-6">
-          <span className="bg-white/15 backdrop-blur-sm text-white text-xs font-medium px-3 py-1.5 rounded-full capitalize border border-white/20">
-            {activity.category}
-          </span>
+        <div className="absolute bottom-0 left-0 right-0 p-6 md:p-12 z-10">
+          <p className="text-[#C9A84C] text-xs uppercase tracking-[3px] mb-2">{categoryLabel}</p>
+          <h1 className="text-white font-bold leading-tight mb-3"
+            style={{ fontSize: 'clamp(1.8rem, 4vw, 3.5rem)' }}>
+            {activity.title}
+          </h1>
+          <div className="flex flex-wrap items-center gap-4 text-white/70 text-sm">
+            <span className="flex items-center gap-1.5">
+              <MapPin className="w-4 h-4 flex-shrink-0" />{activity.location}
+            </span>
+            <span className="flex items-center gap-1.5">
+              <Clock className="w-4 h-4 flex-shrink-0" />{activity.duration}
+            </span>
+          </div>
         </div>
       </div>
 
       {/* Content */}
-      <div className="max-w-4xl mx-auto px-6 -mt-16 relative z-10 pb-24">
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+      <div className="max-w-5xl mx-auto px-4 py-10">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
 
-          {/* Main column */}
-          <div className="md:col-span-2">
-            <h1 className="text-3xl md:text-4xl font-bold text-white leading-tight mb-3">
-              {activity.title}
-            </h1>
-
-            <div className="flex flex-wrap items-center gap-4 mb-6 text-sm text-white/60">
-              <span className="flex items-center gap-1.5">
-                <MapPin className="w-4 h-4 text-[#C9A84C]" />
-                {activity.location}
-              </span>
-              <span className="flex items-center gap-1.5">
-                <Clock className="w-4 h-4 text-[#C9A84C]" />
-                {activity.duration}
-              </span>
+          {/* Main */}
+          <div className="lg:col-span-2 space-y-6">
+            <div className="bg-white rounded-2xl p-6 shadow-sm">
+              <h2 className="font-bold text-[#0B1F3A] text-lg mb-3">About this experience</h2>
+              <p className="text-gray-600 leading-relaxed">{activity.description}</p>
             </div>
 
-            <p className="text-white/75 leading-relaxed mb-8 text-base">
-              {activity.description}
-            </p>
+            {activity.included && activity.included.length > 0 && (
+              <div className="bg-white rounded-2xl p-6 shadow-sm">
+                <h2 className="font-bold text-[#0B1F3A] text-lg mb-4">What&apos;s included</h2>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                  {activity.included.map((item: string, i: number) => (
+                    <div key={i} className="flex items-start gap-2.5 text-sm text-gray-600">
+                      <Check className="w-4 h-4 text-green-500 flex-shrink-0 mt-0.5" />{item}
+                    </div>
+                  ))}
+                </div>
+
+                {activity.notIncluded && activity.notIncluded.length > 0 && (
+                  <div className="mt-5 pt-5 border-t border-gray-100">
+                    <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">Not included</p>
+                    <div className="space-y-2">
+                      {activity.notIncluded.map((item: string, i: number) => (
+                        <div key={i} className="flex items-start gap-2.5 text-sm text-gray-400">
+                          <X className="w-4 h-4 text-gray-300 flex-shrink-0 mt-0.5" />{item}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
 
             {activity.meetingPoint && (
-              <div className="bg-white/5 border border-white/10 rounded-2xl px-5 py-4 mb-6">
-                <p className="text-xs text-white/40 font-semibold uppercase tracking-wider mb-1">Meeting Point</p>
-                <p className="text-white text-sm">{activity.meetingPoint}</p>
-              </div>
-            )}
-
-            {activity.included.length > 0 && (
-              <div className="mb-6">
-                <h3 className="text-white font-bold mb-3 text-sm uppercase tracking-wider">What&apos;s Included</h3>
-                <ul className="space-y-2">
-                  {activity.included.map((item, i) => (
-                    <li key={i} className="flex items-start gap-2 text-white/75 text-sm">
-                      <Check className="w-4 h-4 text-[#C9A84C] flex-shrink-0 mt-0.5" />
-                      {item}
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            )}
-
-            {activity.notIncluded.length > 0 && (
-              <div className="mb-6">
-                <h3 className="text-white font-bold mb-3 text-sm uppercase tracking-wider">Not Included</h3>
-                <ul className="space-y-2">
-                  {activity.notIncluded.map((item, i) => (
-                    <li key={i} className="flex items-start gap-2 text-white/50 text-sm">
-                      <X className="w-4 h-4 text-red-400 flex-shrink-0 mt-0.5" />
-                      {item}
-                    </li>
-                  ))}
-                </ul>
+              <div className="bg-white rounded-2xl p-6 shadow-sm">
+                <h2 className="font-bold text-[#0B1F3A] text-lg mb-2">Meeting point</h2>
+                <p className="text-gray-600 text-sm flex items-start gap-2">
+                  <MapPin className="w-4 h-4 text-[#C9A84C] flex-shrink-0 mt-0.5" />
+                  {activity.meetingPoint}
+                </p>
               </div>
             )}
 
             {activity.notes && (
-              <div className="bg-amber-900/20 border border-[#C9A84C]/20 rounded-2xl px-5 py-4 mb-6">
-                <p className="text-xs text-[#C9A84C] font-semibold uppercase tracking-wider mb-2">Important Notes</p>
-                <p className="text-white/70 text-sm whitespace-pre-line">{activity.notes}</p>
+              <div className="bg-amber-50 border border-amber-100 rounded-2xl p-5">
+                <p className="font-semibold text-amber-900 text-sm mb-1.5">Important notes</p>
+                <p className="text-amber-800 text-sm leading-relaxed">{activity.notes}</p>
               </div>
             )}
           </div>
 
           {/* Booking sidebar */}
-          <div className="md:col-span-1">
-            <div className="bg-[#0d2347] border border-white/10 rounded-2xl p-6 sticky top-6">
-              <p className="text-white/40 text-xs font-semibold uppercase tracking-wider mb-1">Price from</p>
-              <p className="text-4xl font-bold text-white mb-0.5">
-                {SYM[activity.currency] ?? ''}{activity.price.toLocaleString()}
+          <div>
+            <div className="bg-white rounded-2xl p-6 shadow-sm sticky top-6">
+              <p className="text-gray-400 text-xs uppercase tracking-wider mb-1">From</p>
+              <p className="text-3xl font-bold text-[#0B1F3A] mb-0.5">
+                {sym}{Number(activity.price).toLocaleString()}
               </p>
-              <p className="text-white/40 text-xs mb-6">per person · {activity.currency}</p>
+              <p className="text-gray-400 text-xs mb-5">
+                {activity.currency} per person · {activity.duration}
+              </p>
 
-              <a href={waLink} target="_blank" rel="noreferrer"
-                className="flex items-center justify-center gap-2 w-full bg-[#25D366] hover:bg-[#20bd5c] text-white font-bold py-3.5 rounded-xl transition-colors text-sm mb-3">
-                <MessageCircle className="w-4 h-4" />
-                Book via WhatsApp
+              <JadeChat
+                context={jadeContext}
+                label="Chat with Jade to Book"
+                className="w-full mb-3 py-3.5"
+                variant="primary"
+              />
+
+              <a href={`mailto:contact@walztravels.com?subject=${encodeURIComponent(`Activity Enquiry — ${activity.title}`)}&body=${encodeURIComponent(`Hi,\n\nI'm interested in:\n\n${activity.title}\nLocation: ${activity.location}\nDuration: ${activity.duration}\nPrice: ${priceStr}\n\nPlease send me availability and booking details.\n\nThank you`)}`}
+                className="flex items-center justify-center w-full border border-gray-200 text-gray-500 hover:bg-gray-50 py-3 rounded-full transition-colors text-sm mb-5">
+                Enquire by email
               </a>
 
-              <a href={`mailto:hello@walztravels.com?subject=${encodeURIComponent(`Booking: ${activity.title}`)}`}
-                className="flex items-center justify-center gap-2 w-full bg-white/8 hover:bg-white/12 border border-white/15 text-white/80 font-medium py-3 rounded-xl transition-colors text-sm">
-                Email Us Instead
-              </a>
+              <div className="space-y-3 pt-4 border-t border-gray-100">
+                {[
+                  { icon: Clock,  text: activity.duration },
+                  { icon: MapPin, text: activity.location },
+                  { icon: Users,  text: 'All group sizes welcome' },
+                  { icon: Star,   text: activity.badge ?? 'Walz Curated Experience' },
+                ].map((item, i) => (
+                  <div key={i} className="flex items-center gap-2.5 text-sm text-gray-500">
+                    <item.icon className="w-4 h-4 text-[#C9A84C] flex-shrink-0" />
+                    {item.text}
+                  </div>
+                ))}
+              </div>
 
-              <p className="text-white/30 text-xs text-center mt-4 leading-relaxed">
-                Our team will confirm availability and guide you through the booking.
-              </p>
+              <div className="mt-5 pt-4 border-t border-gray-100 text-center">
+                <p className="text-xs text-gray-400 leading-relaxed">
+                  Jade will confirm availability, answer questions, and handle your booking via WhatsApp, Instagram, or Facebook — all in one place.
+                </p>
+              </div>
             </div>
           </div>
         </div>
+
+        {/* More experiences */}
+        <div className="mt-16">
+          <h2 className="font-bold text-[#0B1F3A] text-xl mb-6">More experiences</h2>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            {STATIC_ACTIVITIES.filter(a => a.slug !== activity.slug).slice(0, 3).map(a => (
+              <Link key={a.slug} href={`/activities/${a.slug}`}
+                className="group relative overflow-hidden rounded-2xl h-48 block">
+                <Image src={a.image} alt={a.title} fill loading="lazy"
+                  className="object-cover transition-transform duration-500 group-hover:scale-105" />
+                <div className="absolute inset-0 bg-gradient-to-t from-black/70 to-transparent" />
+                <div className="absolute bottom-0 left-0 right-0 p-4">
+                  <p className="text-[#C9A84C] text-xs uppercase tracking-wider mb-1">{a.duration}</p>
+                  <p className="text-white font-bold text-sm leading-tight">{a.title}</p>
+                  <p className="text-white/60 text-xs mt-1">
+                    {SYM[a.currency]}{a.price.toLocaleString()} from
+                  </p>
+                </div>
+              </Link>
+            ))}
+          </div>
+        </div>
       </div>
-    </main>
+    </div>
   )
 }
