@@ -202,55 +202,32 @@ export async function GET(req: NextRequest) {
         const from = dateFrom ?? new Date().toISOString().slice(0, 10)
         const to   = dateTo   ?? new Date(Date.now() + 90 * 86_400_000).toISOString().slice(0, 10)
 
-        const requestBody = {
-          filters: [{ searchFilterItems: [{ type: 'destination', value: destCode }] }],
-          from,
-          to,
-          language:   'en',
-          pagination: { itemsPerPage: 40, page: 1 },
-          order:      'DEFAULT',
-        }
+        const adultsCount = parseInt(searchParams.get('adults') ?? '2')
+        const paxes = Array.from({ length: Math.max(1, adultsCount) }, () => ({ age: 30 }))
 
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const data: any = await hotelbedsRequest(
-          'activities',
-          '/activities',
-          { method: 'POST', body: requestBody }
-        )
-
-        const rawCount = data?.activities?.length ?? 0
-        const rawSample = data?.activities?.[0] ?? null
-        console.log('[HB Activities]', destCode, 'raw count:', rawCount, 'error:', data?.errors?.[0]?.text ?? null)
-
-        // TEMP: expose raw response shape for debugging
-        if (rawCount === 0 || !Array.isArray(data?.activities)) {
-          return NextResponse.json({
-            activities: [],
-            source: 'hb-empty',
-            debug: {
-              destCode,
-              rawCount,
-              errors: data?.errors ?? null,
-              topLevelKeys: data ? Object.keys(data) : null,
-            },
-          })
-        }
-
-        // TEMP: expose first raw item so we can see the actual field names
-        return NextResponse.json({
-          activities: [],
-          source: 'hb-raw-sample',
-          debug: {
-            destCode,
-            rawCount,
-            sample: rawSample,
-          },
+        const qs = new URLSearchParams({
+          destination: destCode,
+          fromDate:    from,
+          toDate:      to,
+          language:    'en',
+          limit:       '40',
+          offset:      '0',
         })
 
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const data: any = await hotelbedsRequest('activities', `/activities?${qs}`)
+
+        console.log('[HB Activities] GET', destCode, 'count:', data?.activities?.length ?? 0, 'error:', data?.errors?.[0]?.text ?? null)
+
+        if (Array.isArray(data?.activities)) {
+          hotelbedsActivities = data.activities
+            .map((a: object) => mapHBActivity(a, destination))
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            .filter((a: any) => a.title && a.price > 0)
+        }
       } catch (err: unknown) {
         const msg = err instanceof Error ? err.message : String(err)
         console.error('[Hotelbeds Activities error]', msg)
-        return NextResponse.json({ activities: [], source: 'error', debug: msg })
       }
     } else {
       console.warn('[Hotelbeds Activities] No dest code for:', destination)
@@ -259,10 +236,6 @@ export async function GET(req: NextRequest) {
 
   // ── 3. Merge: DB first, then Hotelbeds live ───────────────────────────────
   const combined = [...dbActivities, ...hotelbedsActivities]
-  // TEMP DEBUG
-  if (combined.length === 0 && destination) {
-    console.log('[Activities Debug] combined empty, destination:', destination, 'hotelbedsCount:', hotelbedsActivities.length, 'dbCount:', dbActivities.length)
-  }
 
   // ── 4. Static fallback only when completely empty ─────────────────────────
   if (combined.length === 0) {
