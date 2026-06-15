@@ -4,40 +4,51 @@ import { hotelbedsRequest }         from '@/lib/hotelbeds'
 export const dynamic = 'force-dynamic'
 
 const TERMINAL_MAP: Record<string, string> = {
-  // UK
-  'heathrow':       'LHRTM', 'lhr': 'LHRTM',
-  'gatwick':        'LGWTM', 'lgw': 'LGWTM',
-  'stansted':       'STNTM', 'stn': 'STNTM',
-  'luton':          'LTNTM', 'ltn': 'LTNTM',
-  'london city':    'LCYTM', 'lcy': 'LCYTM',
-  'manchester':     'MANTM', 'man': 'MANTM',
-  'birmingham':     'BHXTM', 'bhx': 'BHXTM',
-  'edinburgh':      'EDITM', 'edi': 'EDITM',
+  // UK Airports — plain IATA codes
+  'heathrow':           'LHR', 'lhr': 'LHR',
+  'london heathrow':    'LHR',
+  'gatwick':            'LGW', 'lgw': 'LGW',
+  'london gatwick':     'LGW',
+  'stansted':           'STN', 'stn': 'STN',
+  'london stansted':    'STN',
+  'luton':              'LTN', 'ltn': 'LTN',
+  'london luton':       'LTN',
+  'london city':        'LCY', 'lcy': 'LCY',
+  'manchester':         'MAN', 'man': 'MAN',
+  'birmingham':         'BHX', 'bhx': 'BHX',
+  'edinburgh':          'EDI', 'edi': 'EDI',
+  'glasgow':            'GLA', 'gla': 'GLA',
+  'bristol':            'BRS', 'brs': 'BRS',
   // UAE
-  'dubai':               'DXBTM', 'dxb': 'DXBTM',
-  'dubai international': 'DXBTM',
-  'abu dhabi':           'AUHTM', 'auh': 'AUHTM',
+  'dubai':               'DXB', 'dxb': 'DXB',
+  'dubai international': 'DXB',
+  'abu dhabi':           'AUH', 'auh': 'AUH',
   // Africa
-  'lagos':        'LOSTM', 'los': 'LOSTM',
-  'accra':        'ACCTM', 'acc': 'ACCTM',
-  'nairobi':      'NBOTM', 'nbo': 'NBOTM',
-  'johannesburg': 'JNBTM', 'jnb': 'JNBTM',
-  'cape town':    'CPTTM', 'cpt': 'CPTTM',
-  'dar es salaam':'DARTM', 'dar': 'DARTM',
-  // Americas
-  'toronto': 'YTOTM', 'yto': 'YTOTM',
-  'pearson': 'YTOTM',
-  'vancouver':'YVRTM', 'yvr': 'YVRTM',
+  'lagos':          'LOS', 'los': 'LOS',
+  'accra':          'ACC', 'acc': 'ACC',
+  'nairobi':        'NBO', 'nbo': 'NBO',
+  'johannesburg':   'JNB', 'jnb': 'JNB',
+  'cape town':      'CPT', 'cpt': 'CPT',
+  'dar es salaam':  'DAR', 'dar': 'DAR',
+  'zanzibar':       'ZNZ', 'znz': 'ZNZ',
+  'kilimanjaro':    'JRO', 'jro': 'JRO',
+  // Canada
+  'toronto': 'YYZ', 'yyz': 'YYZ',
+  'pearson': 'YYZ',
+  'vancouver':'YVR', 'yvr': 'YVR',
   // Europe
-  'paris':     'CDGTM', 'cdg': 'CDGTM',
-  'amsterdam': 'AMSTM', 'ams': 'AMSTM',
-  'rome':      'FCOTM', 'fco': 'FCOTM',
-  'barcelona': 'BCNTM', 'bcn': 'BCNTM',
-  'madrid':    'MADTM', 'mad': 'MADTM',
-  // Asia
-  'istanbul':  'ISTTM', 'ist': 'ISTTM',
-  'bangkok':   'BKKTM', 'bkk': 'BKKTM',
-  'singapore': 'SINTM', 'sin': 'SINTM',
+  'paris':     'CDG', 'cdg': 'CDG',
+  'amsterdam': 'AMS', 'ams': 'AMS',
+  'rome':      'FCO', 'fco': 'FCO',
+  'barcelona': 'BCN', 'bcn': 'BCN',
+  'madrid':    'MAD', 'mad': 'MAD',
+  'lisbon':    'LIS', 'lis': 'LIS',
+  // Asia & Africa (cont.)
+  'istanbul':  'IST', 'ist': 'IST',
+  'bangkok':   'BKK', 'bkk': 'BKK',
+  'singapore': 'SIN', 'sin': 'SIN',
+  'cairo':     'CAI', 'cai': 'CAI',
+  'marrakech': 'RAK', 'rak': 'RAK',
 }
 
 function resolveTerminal(name: string): string | null {
