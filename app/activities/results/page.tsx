@@ -4,8 +4,9 @@ import { useState, useEffect, Suspense } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
 import Image from 'next/image'
 import Link from 'next/link'
-import { Search, MapPin, ArrowLeft, Loader2, Calendar, Users, SlidersHorizontal } from 'lucide-react'
+import { Search, MapPin, ArrowLeft, Loader2, Calendar, Users, SlidersHorizontal, MessageCircle } from 'lucide-react'
 import { STATIC_ACTIVITIES } from '@/lib/activities-data'
+import '@/lib/useJadeChat'
 
 const CATEGORIES = [
   { id: 'beach',     label: 'Beach & Water' },
@@ -169,47 +170,98 @@ function ResultsContent() {
             </p>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
-              {results.map(act => (
-                <Link key={act.slug} href={`/activities/${act.slug}`}
-                  className="group relative overflow-hidden rounded-2xl bg-white/5 border border-white/10 hover:border-[#C9A84C]/40 hover:shadow-[0_0_30px_rgba(201,168,76,0.1)] transition-all duration-300">
-                  <div className="relative h-52 overflow-hidden">
-                    <Image src={act.image} alt={act.title} fill
-                      className="object-cover group-hover:scale-105 transition-transform duration-500" />
-                    <div className="absolute inset-0 bg-gradient-to-t from-black/70 to-transparent" />
-                    {act.badge && (
-                      <div className="absolute top-3 left-3">
-                        <span className="bg-[#C9A84C] text-[#0B1F3A] text-[10px] font-bold px-2.5 py-1 rounded-full uppercase tracking-wider">
-                          {act.badge}
-                        </span>
+              {results.map(act => {
+                const isHotelbeds = act.slug?.startsWith('hb-')
+
+                const cardInner = (
+                  <>
+                    <div className="relative h-52 overflow-hidden">
+                      {act.image ? (
+                        <Image src={act.image} alt={act.title} fill
+                          className="object-cover group-hover:scale-105 transition-transform duration-500" />
+                      ) : (
+                        <div className="w-full h-full bg-white/5 flex items-center justify-center">
+                          <MapPin className="w-8 h-8 text-white/10" />
+                        </div>
+                      )}
+                      <div className="absolute inset-0 bg-gradient-to-t from-black/70 to-transparent" />
+                      {act.badge && (
+                        <div className="absolute top-3 left-3">
+                          <span className="bg-[#C9A84C] text-[#0B1F3A] text-[10px] font-bold px-2.5 py-1 rounded-full uppercase tracking-wider">
+                            {act.badge}
+                          </span>
+                        </div>
+                      )}
+                      {isHotelbeds && (
+                        <div className="absolute top-3 right-3">
+                          <span className="bg-white/10 backdrop-blur-sm text-white/70 text-[10px] px-2 py-0.5 rounded-full">
+                            Live
+                          </span>
+                        </div>
+                      )}
+                      <div className="absolute bottom-3 left-3 right-3">
+                        <p className="text-[#C9A84C] text-xs uppercase tracking-wider">
+                          {act.category} · {act.duration}
+                        </p>
                       </div>
-                    )}
-                    <div className="absolute bottom-3 left-3 right-3">
-                      <p className="text-[#C9A84C] text-xs uppercase tracking-wider">
-                        {act.category} · {act.duration}
-                      </p>
                     </div>
-                  </div>
-                  <div className="p-4">
-                    <h3 className="text-white font-bold text-base leading-tight mb-1 group-hover:text-[#C9A84C] transition-colors">
-                      {act.title}
-                    </h3>
-                    <p className="text-white/40 text-xs flex items-center gap-1 mb-2">
-                      <MapPin className="w-3 h-3" /> {act.location}
-                    </p>
-                    <p className="text-white/50 text-xs leading-relaxed line-clamp-2">
-                      {act.shortDesc ?? act.description}
-                    </p>
-                    <div className="flex items-center justify-between mt-4">
-                      <p className="text-[#C9A84C] font-bold">
-                        From {SYM[act.currency] ?? act.currency}{Number(act.price).toLocaleString()}
+                    <div className="p-4">
+                      <h3 className="text-white font-bold text-base leading-tight mb-1 group-hover:text-[#C9A84C] transition-colors">
+                        {act.title}
+                      </h3>
+                      <p className="text-white/40 text-xs flex items-center gap-1 mb-2">
+                        <MapPin className="w-3 h-3" /> {act.location}
                       </p>
-                      <span className="text-xs text-white/50 group-hover:text-[#C9A84C] transition-colors font-semibold">
-                        Explore →
-                      </span>
+                      <p className="text-white/50 text-xs leading-relaxed line-clamp-2">
+                        {act.shortDesc ?? act.description}
+                      </p>
+                      <div className="flex items-center justify-between mt-4">
+                        <p className="text-[#C9A84C] font-bold">
+                          From {SYM[act.currency] ?? act.currency}{Number(act.price).toLocaleString()}
+                        </p>
+                        {isHotelbeds ? (
+                          <span className="flex items-center gap-1 text-xs text-[#C9A84C] font-semibold">
+                            <MessageCircle className="w-3 h-3" /> Book with Jade
+                          </span>
+                        ) : (
+                          <span className="text-xs text-white/50 group-hover:text-[#C9A84C] transition-colors font-semibold">
+                            Explore →
+                          </span>
+                        )}
+                      </div>
                     </div>
+                  </>
+                )
+
+                return isHotelbeds ? (
+                  <div
+                    key={act.slug}
+                    className="group relative overflow-hidden rounded-2xl bg-white/5 border border-white/10 hover:border-[#C9A84C]/40 hover:shadow-[0_0_30px_rgba(201,168,76,0.1)] transition-all duration-300 cursor-pointer"
+                    onClick={() => {
+                      if (typeof window !== 'undefined' && window.$chatwoot) {
+                        window.$chatwoot.setCustomAttributes({
+                          source:       'activity_search',
+                          activity:     act.title,
+                          price:        `${act.currency} ${act.price}`,
+                          location:     act.location,
+                          enquiry_type: 'activity_booking',
+                        })
+                        window.$chatwoot.toggle('open')
+                      }
+                    }}
+                  >
+                    {cardInner}
                   </div>
-                </Link>
-              ))}
+                ) : (
+                  <Link
+                    key={act.slug}
+                    href={`/activities/${act.slug}`}
+                    className="group relative overflow-hidden rounded-2xl bg-white/5 border border-white/10 hover:border-[#C9A84C]/40 hover:shadow-[0_0_30px_rgba(201,168,76,0.1)] transition-all duration-300"
+                  >
+                    {cardInner}
+                  </Link>
+                )
+              })}
             </div>
           </>
         )}
