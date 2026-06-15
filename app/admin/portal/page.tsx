@@ -2,10 +2,11 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import { format } from 'date-fns'
-import { LayoutDashboard, RefreshCw, ChevronDown, CheckCircle, FileText, CreditCard } from 'lucide-react'
+import { LayoutDashboard, RefreshCw, ChevronDown, CheckCircle, FileText, CreditCard, ExternalLink } from 'lucide-react'
 import BankStatementCard from '@/components/admin/BankStatementCard'
+import Link from 'next/link'
 
-type Stage = 'ENQUIRY' | 'DOCUMENTS_PENDING' | 'DOCUMENTS_RECEIVED' | 'PROCESSING' | 'SUBMITTED' | 'APPROVED' | 'REJECTED' | 'COMPLETED'
+type Stage = 'ENQUIRY' | 'DOCUMENTS_PENDING' | 'DOCUMENTS_RECEIVED' | 'PROCESSING' | 'SUBMITTED' | 'AWAITING_DECISION' | 'APPROVED' | 'REJECTED' | 'COMPLETED'
 
 interface Application {
   id: string
@@ -31,16 +32,18 @@ interface Application {
   checklist: { id: string; completedAt: string | null }[]
 }
 
-const STAGES: Stage[] = ['ENQUIRY', 'DOCUMENTS_PENDING', 'DOCUMENTS_RECEIVED', 'PROCESSING', 'SUBMITTED', 'APPROVED', 'REJECTED', 'COMPLETED']
+const STAGES: Stage[] = ['ENQUIRY', 'DOCUMENTS_PENDING', 'DOCUMENTS_RECEIVED', 'PROCESSING', 'SUBMITTED', 'AWAITING_DECISION', 'APPROVED', 'REJECTED', 'COMPLETED']
 const STAGE_LABELS: Record<Stage, string> = {
   ENQUIRY: 'Enquiry', DOCUMENTS_PENDING: 'Docs Pending',
   DOCUMENTS_RECEIVED: 'Docs Received', PROCESSING: 'Processing',
-  SUBMITTED: 'Submitted', APPROVED: 'Approved', REJECTED: 'Rejected', COMPLETED: 'Completed',
+  SUBMITTED: 'Submitted', AWAITING_DECISION: 'Awaiting Decision',
+  APPROVED: 'Approved', REJECTED: 'Rejected', COMPLETED: 'Completed',
 }
 const STAGE_COLOR: Record<Stage, string> = {
   ENQUIRY: 'bg-blue-100 text-blue-700', DOCUMENTS_PENDING: 'bg-amber-100 text-amber-700',
   DOCUMENTS_RECEIVED: 'bg-yellow-100 text-yellow-700', PROCESSING: 'bg-purple-100 text-purple-700',
-  SUBMITTED: 'bg-indigo-100 text-indigo-700', APPROVED: 'bg-green-100 text-green-700',
+  SUBMITTED: 'bg-indigo-100 text-indigo-700', AWAITING_DECISION: 'bg-orange-100 text-orange-700',
+  APPROVED: 'bg-green-100 text-green-700',
   REJECTED: 'bg-red-100 text-red-700', COMPLETED: 'bg-gray-100 text-gray-600',
 }
 
@@ -257,6 +260,12 @@ export default function AdminPortalPage() {
                         Email client
                       </a>
                     )}
+                    <Link
+                      href={`/admin/portal/${app.id}`}
+                      className="flex items-center gap-1 text-xs font-semibold text-[#0B1F3A] bg-[#C9A84C]/10 hover:bg-[#C9A84C]/20 border border-[#C9A84C]/30 px-3 py-2 rounded-lg transition-colors"
+                    >
+                      <ExternalLink className="w-3 h-3" /> View &amp; Update
+                    </Link>
                   </div>
 
                   {/* ── Fee Summary ── */}

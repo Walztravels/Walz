@@ -7,7 +7,7 @@ import { z } from 'zod'
 const resend = new Resend(process.env.RESEND_API_KEY)
 
 const updateSchema = z.object({
-  stage:       z.enum(['ENQUIRY', 'DOCUMENTS_PENDING', 'DOCUMENTS_RECEIVED', 'PROCESSING', 'SUBMITTED', 'APPROVED', 'REJECTED', 'COMPLETED']).optional(),
+  stage:       z.enum(['ENQUIRY', 'DOCUMENTS_PENDING', 'DOCUMENTS_RECEIVED', 'PROCESSING', 'SUBMITTED', 'AWAITING_DECISION', 'APPROVED', 'REJECTED', 'COMPLETED']).optional(),
   adminNotes:  z.string().optional(),
   amount:      z.number().nullable().optional(),
   amountPaid:  z.number().optional(),
@@ -18,6 +18,21 @@ const updateSchema = z.object({
   govCurrency: z.string().nullable().optional(),
   govFeeNote:  z.string().nullable().optional(),
 }).partial()
+
+export async function GET(_: NextRequest, { params }: { params: { id: string } }) {
+  const session = await getAdminSession()
+  if (!session) return NextResponse.json({ error: 'Unauthorised' }, { status: 401 })
+
+  const application = await prisma.portalApplication.findUnique({
+    where:   { id: params.id },
+    include: {
+      user:    { select: { name: true, email: true } },
+      updates: { orderBy: { createdAt: 'asc' } },
+    },
+  })
+  if (!application) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+  return NextResponse.json({ application })
+}
 
 export async function PATCH(request: NextRequest, { params }: { params: { id: string } }) {
   const session = await getAdminSession()
