@@ -12,7 +12,7 @@ import {
   UserCog, Activity, FileText, ClipboardList,
   Settings, LogOut, PenSquare, Compass, History,
   CreditCard, Shield, Signal, Ticket, LayoutTemplate, Layers,
-  Briefcase, Inbox, ScanSearch, DollarSign, BarChart2,
+  Briefcase, Inbox, ScanSearch, DollarSign, BarChart2, Plus,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useStaffPermissions } from '@/hooks/useStaffPermissions'
@@ -65,6 +65,7 @@ const SECTIONS: NavSection[] = [
     label: 'Bookings',
     anyPermission: ['bookings_view'],
     items: [
+      { href: '/admin/book',                 label: 'New Booking',  icon: Plus,     permission: 'bookings_view' },
       { href: '/admin/bookings',             label: 'All Bookings', icon: BookOpen, permission: 'bookings_view' },
       { href: '/admin/bookings?type=flight', label: 'Flights',      icon: Plane,    permission: 'bookings_view', exact: true },
       { href: '/admin/bookings?type=hotel',  label: 'Hotels',       icon: Hotel,    permission: 'bookings_view', exact: true },
