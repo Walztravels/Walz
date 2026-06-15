@@ -198,46 +198,158 @@ export async function GET(req: NextRequest) {
     const destCode = resolveDestCode(destination)
 
     if (destCode) {
+      // ── STEP A: Cache API — get portfolio (no dates needed) ──────────────
       try {
-        const qs = new URLSearchParams({
-          destination: destCode,
-          limit:       '40',
-          offset:      '0',
-        })
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const cacheData: any = await hotelbedsRequest(
+          'activities-cache',
+          `/portfolio?destination=${destCode}&limit=40&offset=0`,
+        )
 
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const data: any = await hotelbedsRequest('activities-cache', `/portfolio?${qs}`)
+        const rawItems: any[] = Array.isArray(cacheData)
+          ? cacheData
+          : (cacheData?.activities ?? [])
 
-        console.log('[HB Cache API]', destCode, 'count:', data?.length ?? data?.activities?.length ?? 0)
+        console.log('[HB Cache API]', destCode, 'count:', rawItems.length)
 
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const items: any[] = Array.isArray(data) ? data : (data?.activities ?? [])
-
-        hotelbedsActivities = items.map((a: object) => {
+        hotelbedsActivities = rawItems
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          const act = a as any
-          return {
-            id:          act.code,
-            slug:        `hb-${act.code}`,
-            title:       act.name ?? act.code,
-            shortDesc:   act.type ?? '',
-            description: act.type ?? '',
-            image:       '',
-            price:       0,
-            currency:    'USD',
-            duration:    '',
-            location:    destination,
-            category:    mapHBCategory([act.type ?? '']),
-            badge:       null,
-            source:      'hotelbeds-cache',
-            modalities:  act.modalities ?? [],
-          }
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        }).filter((a: any) => a.title && a.title !== a.id)
-      } catch (err: unknown) {
-        const msg = err instanceof Error ? err.message : String(err)
-        console.error('[Hotelbeds Cache error]', msg)
+          .map((a: any) => ({
+            ...mapHBActivity(a, destination),
+            modalities: a.modalities ?? [],
+          }))
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          .filter((a: any) => a.title)
+      } catch (cacheErr: unknown) {
+        const msg = cacheErr instanceof Error ? cacheErr.message : String(cacheErr)
+        console.error('[HB Cache API error]', msg)
       }
+
+      // ── STEP B: Content API MULTI — enrich with images + descriptions ────
+      if (hotelbedsActivities.length > 0) {
+        try {
+          const codes = hotelbedsActivities
+            .slice(0, 40)
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            .map((a: any) => ({
+              activityCode:  a.id,
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              modalityCodes: (a.modalities ?? []).slice(0, 2).map((m: any) => m.code).filter(Boolean),
+            }))
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            .filter((c: any) => c.activityCode && c.modalityCodes.length > 0)
+
+          if (codes.length > 0) {
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const contentData: any = await hotelbedsRequest(
+              'activities-content',
+              '/activities',
+              { method: 'POST', body: { codes, language: 'en' } },
+            )
+
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const contentItems: any[] = Array.isArray(contentData)
+              ? contentData
+              : (contentData?.activities ?? [])
+
+            console.log('[HB Content API] enriched:', contentItems.length)
+
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const contentMap: Record<string, any> = {}
+            for (const item of contentItems) {
+              const code = item.code ?? item.activityCode
+              if (code) contentMap[code] = item
+            }
+
+            hotelbedsActivities = hotelbedsActivities.map((a: any) => {
+              const c = contentMap[a.id]
+              if (!c) return a
+
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              const images: any[] = c.media?.images ?? c.images ?? []
+              const urlObj =
+                images[0]?.urls?.find((u: any) => u.sizeType === 'LARGE' || u.sizeType === 'LARGE2') ??
+                images[0]?.urls?.[0]
+              const img = urlObj?.resource ?? c.media?.[0]?.url ?? a.image
+
+              const rawDesc =
+                c.content?.description ??
+                c.description ??
+                c.content?.briefDescription ??
+                a.description ?? ''
+              const desc = rawDesc.replace(/<[^>]*>/g, '').trim()
+
+              const durMins = c.durationInMinutes ?? c.duration
+              const duration = durMins
+                ? durMins >= 1440
+                  ? `${Math.round(durMins / 1440)} day${Math.round(durMins / 1440) > 1 ? 's' : ''}`
+                  : durMins >= 60
+                    ? `${Math.round(durMins / 60)} hr${Math.round(durMins / 60) > 1 ? 's' : ''}`
+                    : `${durMins} min`
+                : a.duration
+
+              return { ...a, image: img || a.image, description: desc || a.description, duration }
+            })
+          }
+        } catch (contentErr: unknown) {
+          const msg = contentErr instanceof Error ? contentErr.message : String(contentErr)
+          console.error('[HB Content API error]', msg)
+        }
+      }
+
+      // ── STEP C: Booking API — get live prices ────────────────────────────
+      if (hotelbedsActivities.length > 0) {
+        try {
+          const from = dateFrom ?? new Date().toISOString().slice(0, 10)
+          const to   = dateTo   ?? new Date(Date.now() + 30 * 86_400_000).toISOString().slice(0, 10)
+
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const priceData: any = await hotelbedsRequest(
+            'activities',
+            '/activities',
+            {
+              method: 'POST',
+              body: {
+                filters: [{ searchFilterItems: [{ type: 'destination', value: destCode }] }],
+                from,
+                to,
+                language:   'en',
+                pagination: { itemsPerPage: 40, page: 1 },
+                order:      'DEFAULT',
+              },
+            },
+          )
+
+          const priceMap: Record<string, number> = {}
+          const currMap:  Record<string, string> = {}
+
+          for (const item of priceData?.activities ?? []) {
+            const code  = item.code
+            const price = parseFloat(item.amountFrom ?? item.amountsFrom?.[0]?.amount ?? '0')
+            if (code && price > 0) {
+              priceMap[code] = price
+              currMap[code]  = item.currency ?? 'USD'
+            }
+          }
+
+          console.log('[HB Booking API] prices for:', Object.keys(priceMap).length, 'activities')
+
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          hotelbedsActivities = hotelbedsActivities.map((a: any) => ({
+            ...a,
+            price:    priceMap[a.id] ?? a.price,
+            currency: currMap[a.id]  ?? a.currency,
+          }))
+        } catch (priceErr: unknown) {
+          const msg = priceErr instanceof Error ? priceErr.message : String(priceErr)
+          console.error('[HB Booking API price error]', msg)
+        }
+      }
+
+      // Strip internal modalities field before returning
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      hotelbedsActivities = hotelbedsActivities.map(({ modalities: _m, ...rest }: any) => rest)
     } else {
       console.warn('[Hotelbeds Activities] No dest code for:', destination)
     }
