@@ -32,7 +32,7 @@ const CREDENTIALS: Record<HotelbedsAPI, { key: string; secret: string }> = {
 const BASE_URLS: Record<HotelbedsAPI, string> = {
   hotel:                'https://api.test.hotelbeds.com/hotel-api/1.0',
   content:              'https://api.test.hotelbeds.com/hotel-content-api/1.0',
-  activities:           'https://api.test.hotelbeds.com/activity-api/1.0',
+  activities:           'https://api.test.hotelbeds.com/activity-booking-api/1.0',
   'activities-cache':   'https://api.test.hotelbeds.com/activity-cache-api/1.0',
   'activities-content': 'https://api.test.hotelbeds.com/activity-content-api/3.0',
   transfers:            'https://api.test.hotelbeds.com/transfer-api/1.0',
