@@ -12,7 +12,7 @@ import {
   UserCog, Activity, FileText, ClipboardList,
   Settings, LogOut, PenSquare, Compass, History,
   CreditCard, Shield, Signal, Ticket, LayoutTemplate, Layers,
-  Briefcase, Inbox, ScanSearch,
+  Briefcase, Inbox, ScanSearch, DollarSign, BarChart2,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useStaffPermissions } from '@/hooks/useStaffPermissions'
@@ -80,6 +80,7 @@ const SECTIONS: NavSection[] = [
       { href: '/admin/visa-applications',      label: 'Applications',     icon: Globe,      permission: 'visa_view' },
       { href: '/admin/visa-intelligence',      label: 'Visa Intelligence', icon: Brain,      permission: 'visa_view' },
       { href: '/admin/visa/bank-analyser',     label: 'Bank Analyser',     icon: ScanSearch, permission: 'visa_view' },
+      { href: '/admin/visa/tracking',          label: 'Form Tracking',     icon: BarChart2,  permission: 'visa_view' },
     ],
   },
   {
@@ -134,8 +135,10 @@ const SECTIONS: NavSection[] = [
     label: 'Packages',
     anyPermission: ['cms_view'],
     items: [
-      { href: '/admin/packages',          label: 'All Packages', icon: Briefcase, permission: 'cms_view' },
-      { href: '/admin/package-bookings',  label: 'Bookings',     icon: BookOpen,  permission: 'bookings_view' },
+      { href: '/admin/packages',               label: 'All Packages',      icon: Briefcase, permission: 'cms_view' },
+      { href: '/admin/package-bookings',       label: 'Bookings',          icon: BookOpen,  permission: 'bookings_view' },
+      { href: '/admin/activities',             label: 'Activities',        icon: Compass,   permission: 'cms_view' },
+      { href: '/admin/activities/bookings',    label: 'Activity Bookings', icon: BookOpen,  permission: 'bookings_view' },
     ],
   },
   {
@@ -143,6 +146,7 @@ const SECTIONS: NavSection[] = [
     anyPermission: ['staff_view', 'reports_view'],
     items: [
       { href: '/admin/staff',       label: 'Staff',        icon: UserCog,      permission: 'staff_view' },
+      { href: '/admin/payroll',     label: 'Payroll',      icon: DollarSign,   permission: 'staff_view' },
       { href: '/admin/activity',    label: 'Activity Log', icon: Activity,     permission: 'staff_view' },
       { href: '/admin/reports',     label: 'My Reports',   icon: FileText,     permission: 'reports_view', exact: true },
       { href: '/admin/reports/all', label: 'All Reports',  icon: ClipboardList, permission: 'reports_all',  exact: true },

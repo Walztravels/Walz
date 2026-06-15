@@ -114,14 +114,23 @@ const STATS = [
   { number: '24/7', label: 'Support' },
 ]
 
+interface FeaturedItem {
+  title: string; location: string; price: string; badge?: string
+  description: string; image: string; duration: string; category: string
+  slug?: string
+}
+
+const SYM: Record<string, string> = { GBP:'£',USD:'$',EUR:'€',CAD:'CA$',NGN:'₦',GHS:'₵',AED:'AED ' }
+
 export default function ActivitiesPage() {
-  const [activeCategory, setActiveCategory] = useState<string | null>(null)
-  const [destination,    setDestination]    = useState('')
-  const [fromDate,       setFromDate]       = useState('')
-  const [toDate,         setToDate]         = useState('')
-  const [adults,         setAdults]         = useState(2)
-  const [heroLoaded,     setHeroLoaded]     = useState(false)
-  const [visibleStats,   setVisibleStats]   = useState(false)
+  const [activeCategory,    setActiveCategory]    = useState<string | null>(null)
+  const [destination,       setDestination]       = useState('')
+  const [fromDate,          setFromDate]          = useState('')
+  const [toDate,            setToDate]            = useState('')
+  const [adults,            setAdults]            = useState(2)
+  const [heroLoaded,        setHeroLoaded]        = useState(false)
+  const [visibleStats,      setVisibleStats]      = useState(false)
+  const [featuredActivities, setFeaturedActivities] = useState<FeaturedItem[]>(FEATURED)
   const statsRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -131,6 +140,27 @@ export default function ActivitiesPage() {
     )
     if (statsRef.current) observer.observe(statsRef.current)
     return () => observer.disconnect()
+  }, [])
+
+  useEffect(() => {
+    fetch('/api/activities?featured=true')
+      .then(r => r.json())
+      .then(d => {
+        if (Array.isArray(d.activities) && d.activities.length > 0) {
+          setFeaturedActivities(d.activities.map((a: any) => ({
+            title:       a.title,
+            location:    a.location,
+            price:       `From ${SYM[a.currency] ?? a.currency}${a.price.toLocaleString()}`,
+            badge:       a.badge,
+            description: a.shortDesc ?? a.description,
+            image:       a.image ?? 'https://images.unsplash.com/photo-1476514525535-07fb3b4ae5f1?w=900&q=80',
+            duration:    a.duration,
+            category:    a.category,
+            slug:        a.slug,
+          })))
+        }
+      })
+      .catch(() => {})
   }, [])
 
   function handleSearch(e: React.FormEvent) {
@@ -412,7 +442,7 @@ export default function ActivitiesPage() {
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-            {FEATURED.map((exp, i) => (
+            {featuredActivities.map((exp, i) => (
               <div
                 key={exp.title}
                 className={`group relative overflow-hidden rounded-3xl cursor-pointer
@@ -452,12 +482,22 @@ export default function ActivitiesPage() {
                       </p>
                       <p className="text-[#C9A84C] font-bold text-lg">{exp.price}</p>
                     </div>
-                    <button className="bg-white/10 backdrop-blur-sm border border-white/20
-                      text-white text-xs px-4 py-2 rounded-full
-                      hover:bg-[#C9A84C] hover:text-[#0B1F3A] hover:border-[#C9A84C]
-                      transition-all duration-300 font-semibold">
-                      Explore →
-                    </button>
+                    {exp.slug ? (
+                      <a href={`/activities/${exp.slug}`}
+                        className="bg-white/10 backdrop-blur-sm border border-white/20
+                          text-white text-xs px-4 py-2 rounded-full
+                          hover:bg-[#C9A84C] hover:text-[#0B1F3A] hover:border-[#C9A84C]
+                          transition-all duration-300 font-semibold">
+                        Explore →
+                      </a>
+                    ) : (
+                      <button className="bg-white/10 backdrop-blur-sm border border-white/20
+                        text-white text-xs px-4 py-2 rounded-full
+                        hover:bg-[#C9A84C] hover:text-[#0B1F3A] hover:border-[#C9A84C]
+                        transition-all duration-300 font-semibold">
+                        Explore →
+                      </button>
+                    )}
                   </div>
                 </div>
               </div>

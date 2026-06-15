@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import {
   Search, Mail, MessageCircle, ChevronDown, ChevronUp,
-  FileText, CreditCard, CheckSquare, RefreshCw,
+  FileText, CreditCard, CheckSquare, RefreshCw, UserPlus, Loader2,
 } from 'lucide-react'
 import { format } from 'date-fns'
 
@@ -58,6 +58,29 @@ export default function AdminClientsPage() {
   const [expanded, setExpanded]   = useState<string | null>(null)
   const [saving, setSaving]       = useState<string | null>(null)
   const [editNotes, setEditNotes] = useState<Record<string, string>>({})
+  const [converting, setConverting] = useState<string | null>(null)
+  const [toast, setToast]           = useState<string | null>(null)
+
+  function showToast(msg: string) { setToast(msg); setTimeout(() => setToast(null), 3000) }
+
+  async function convertToLead(c: Client) {
+    setConverting(c.id)
+    try {
+      const res = await fetch('/api/admin/leads', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name:    c.name ?? c.email.split('@')[0],
+          email:   c.email,
+          source:  'CLIENT_CONVERSION',
+          service: 'Other',
+          notes:   `Converted from client: ${c._count?.bookings ?? 0} bookings`,
+        }),
+      })
+      const data = await res.json()
+      showToast(data.lead?.id ? 'Created as lead!' : 'Failed to create lead')
+    } catch { showToast('Error converting to lead') }
+    setConverting(null)
+  }
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -108,6 +131,11 @@ export default function AdminClientsPage() {
 
   return (
     <div>
+      {toast && (
+        <div className="fixed top-4 right-4 z-50 bg-[#0B1F3A] text-white px-4 py-3 rounded-xl shadow-xl text-sm">
+          {toast}
+        </div>
+      )}
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-2xl font-bold text-[#0B1F3A]">Clients</h1>
@@ -169,6 +197,13 @@ export default function AdminClientsPage() {
                     className="p-2 text-gray-400 hover:text-green-600 hover:bg-green-50 rounded-lg transition-colors">
                     <MessageCircle className="w-4 h-4" />
                   </a>
+                  <button onClick={() => convertToLead(c)} disabled={converting === c.id}
+                    title="Convert to Lead"
+                    className="p-2 text-gray-400 hover:text-[#C9A84C] hover:bg-amber-50 rounded-lg transition-colors disabled:opacity-50">
+                    {converting === c.id
+                      ? <Loader2 className="w-4 h-4 animate-spin" />
+                      : <UserPlus className="w-4 h-4" />}
+                  </button>
                 </div>
                 {isOpen
                   ? <ChevronUp className="w-4 h-4 text-gray-400 flex-shrink-0" />
