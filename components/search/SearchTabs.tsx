@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { Plane, Hotel, Map, FileText } from 'lucide-react'
+import { Plane, Hotel, Sparkles, FileText } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { FlightSearchForm } from './FlightSearchForm'
 import { HotelSearchForm } from './HotelSearchForm'
@@ -16,7 +16,7 @@ interface SearchTabsProps {
 const tabs = [
   { id: 'flights', label: 'Flights', icon: Plane },
   { id: 'hotels', label: 'Hotels', icon: Hotel },
-  { id: 'tours', label: 'Tours', icon: Map },
+  { id: 'experiences', label: 'Experiences', icon: Sparkles },
   { id: 'visa', label: 'Visa', icon: FileText },
 ]
 
@@ -53,20 +53,56 @@ export function SearchTabs({ onFlightResults, onHotelResults, compact = false }:
         {activeTab === 'hotels' && (
           <HotelSearchForm onResults={onHotelResults} />
         )}
-        {activeTab === 'tours' && (
-          <div className="p-6">
-            <div className="text-center py-8">
-              <Map className="w-12 h-12 text-walz-gold mx-auto mb-4" />
-              <h3 className="font-display text-xl text-walz-deep-navy mb-2">Private Tours</h3>
-              <p className="text-walz-muted mb-6 max-w-sm mx-auto">
-                Discover our hand-crafted private tours in Dublin and London with expert local guides.
-              </p>
-              <a
-                href="/tours"
-                className="inline-block btn-gold"
-              >
-                View All Tours
-              </a>
+        {activeTab === 'experiences' && (
+          <div className="p-5">
+            <p className="text-[11px] text-gray-400 uppercase tracking-widest font-semibold mb-4">
+              What kind of experience are you looking for?
+            </p>
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              {[
+                {
+                  href:   'https://www.walztravels.com/activities',
+                  emoji:  '🎭',
+                  label:  'Activities',
+                  desc:   'Tickets, day trips & curated experiences in 100+ destinations',
+                  accent: 'hover:border-amber-400/60 hover:bg-amber-50/40',
+                  tag:    'Powered by Hotelbeds',
+                },
+                {
+                  href:   'https://www.walztravels.com/tours',
+                  emoji:  '🗺️',
+                  label:  'Tours',
+                  desc:   'Exclusive private guided tours with expert local guides',
+                  accent: 'hover:border-emerald-400/60 hover:bg-emerald-50/40',
+                  tag:    'Private & Group',
+                },
+                {
+                  href:   'https://www.walztravels.com/packages',
+                  emoji:  '📦',
+                  label:  'Packages',
+                  desc:   'All-inclusive group packages, bundles & curated getaways',
+                  accent: 'hover:border-blue-400/60 hover:bg-blue-50/40',
+                  tag:    'Best Value',
+                },
+              ].map(({ href, emoji, label, desc, accent, tag }) => (
+                <a
+                  key={href}
+                  href={href}
+                  className={`group flex flex-col gap-2 p-4 rounded-xl border border-gray-200
+                    transition-all duration-200 ${accent}`}
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="text-2xl">{emoji}</span>
+                    <span className="text-[10px] font-semibold text-gray-400 bg-gray-100
+                      px-2 py-0.5 rounded-full">{tag}</span>
+                  </div>
+                  <p className="font-bold text-[#0B1F3A] text-sm">{label}</p>
+                  <p className="text-gray-400 text-xs leading-relaxed">{desc}</p>
+                  <p className="text-[#C9A84C] text-xs font-semibold mt-1">
+                    Explore {label} →
+                  </p>
+                </a>
+              ))}
             </div>
           </div>
         )}
