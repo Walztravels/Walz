@@ -17,7 +17,8 @@ export async function POST(req: NextRequest) {
     const body = await req.json()
     const {
       applicationId,
-      fileUrl,
+      fileUrl: rawFileUrl,
+      storagePath,
       destination,
       applicantName,
       passportCountry,
@@ -26,13 +27,28 @@ export async function POST(req: NextRequest) {
 
     console.log('[Bank Analyser] START applicationId:', applicationId, 'dest:', destination)
 
-    if (!applicationId || !fileUrl || !destination) {
-      return NextResponse.json({ error: 'Missing required fields: applicationId, fileUrl, destination' }, { status: 400 })
+    if (!applicationId || (!rawFileUrl && !storagePath) || !destination) {
+      return NextResponse.json({ error: 'Missing required fields: applicationId, (fileUrl or storagePath), destination' }, { status: 400 })
+    }
+
+    // If a storagePath was provided (new direct-upload flow), create a signed download URL
+    // now that the file actually exists in storage.
+    let fileUrl: string = rawFileUrl
+    if (!fileUrl && storagePath) {
+      const supabaseForSign = getSupabaseAdmin()
+      const { data: signed, error: signErr } = await supabaseForSign.storage
+        .from('visa-documents')
+        .createSignedUrl(storagePath, 60 * 60 * 2) // 2 h
+      if (signErr || !signed?.signedUrl) {
+        console.error('[Bank Analyser] createSignedUrl failed:', signErr?.message)
+        return NextResponse.json({ error: 'Could not access uploaded file. Please try uploading again.' }, { status: 500 })
+      }
+      fileUrl = signed.signedUrl
     }
 
     if (typeof fileUrl !== 'string' || !fileUrl.startsWith('http')) {
       console.error('[Bank Analyser] Invalid fileUrl:', fileUrl)
-      return NextResponse.json({ error: 'Invalid file URL — signed URL generation may have failed. Please try again.' }, { status: 400 })
+      return NextResponse.json({ error: 'Invalid file URL. Please try again.' }, { status: 400 })
     }
 
     // Support both visa_applications (legacy) and bank_statement_analyses (portal)
@@ -65,12 +81,23 @@ export async function POST(req: NextRequest) {
 
     const supabase = getSupabaseAdmin()
 
-    const analysis = await analyzeBankStatement(
-      buffer,
-      destination,
-      applicantName ?? 'Applicant',
-      passportCountry ?? 'Nigeria',
-    )
+    let analysis: Awaited<ReturnType<typeof analyzeBankStatement>>
+    try {
+      analysis = await analyzeBankStatement(
+        buffer,
+        destination,
+        applicantName ?? 'Applicant',
+        passportCountry ?? 'Nigeria',
+      )
+    } catch (analysisErr: unknown) {
+      const msg = analysisErr instanceof Error ? analysisErr.message : String(analysisErr)
+      console.error('[Bank Analyser] analyzeBankStatement threw:', msg)
+      return NextResponse.json({ error: `Analysis failed: ${msg}` }, { status: 500 })
+    }
+
+    if (!analysis || typeof analysis !== 'object') {
+      return NextResponse.json({ error: 'Analysis returned no data' }, { status: 500 })
+    }
     console.log('[Bank Analyser] analysis complete, engine:', analysis.analysisEngine, 'status:', analysis.status)
 
     if (targetTable === 'bank_statement_analyses') {
