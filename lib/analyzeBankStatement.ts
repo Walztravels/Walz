@@ -1,4 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk'
+import type { Message, MessageParam } from '@anthropic-ai/sdk/resources/messages'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -112,8 +113,10 @@ Same destination thresholds apply.`,
 
 // ─── Main function ────────────────────────────────────────────────────────────
 
+// Accepts raw PDF as base64 string — Claude reads the PDF directly via document API.
+// This replaces the old extractedText approach and removes the pdf-parse dependency.
 export async function analyzeBankStatement(
-  extractedText: string,
+  pdfBase64: string,
   destination: string,
   applicantName: string,
   passportCountry = 'Nigeria',
@@ -128,11 +131,6 @@ export async function analyzeBankStatement(
 
   const key = destination.toLowerCase().replace(/\s+/g, '')
   const req = EMBASSY_REQUIREMENTS[key] ?? EMBASSY_REQUIREMENTS['uk']
-
-  // Truncate very long statements — Claude handles ~15k chars well, beyond that = diminishing returns
-  const text = extractedText.length > 15_000
-    ? extractedText.slice(0, 15_000) + '\n\n[STATEMENT TRUNCATED — first 15,000 characters analysed]'
-    : extractedText
 
   const SYSTEM_PROMPT = `You are a senior visa application specialist with 15 years of experience \
 at a travel consultancy. You have processed thousands of visa applications for UK, Canada, USA, \
@@ -149,7 +147,7 @@ Rules:
 - Be encouraging but honest in summary (never reveal PASS/REVIEW/FLAG label to client)
 - Never invent transactions — only report what is visible in the statement text`
 
-  const USER_PROMPT = `Analyse this bank statement for a ${destination.toUpperCase()} visa application.
+  const USER_PROMPT = `Analyse the bank statement PDF attached above for a ${destination.toUpperCase()} visa application.
 
 APPLICANT: ${applicantName}
 PASSPORT COUNTRY: ${passportCountry}
@@ -160,12 +158,7 @@ ${req.notes}
 
 MINIMUM BALANCE THRESHOLD: ${req.min} ${req.currency} maintained consistently over ${req.months} months.
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-BANK STATEMENT TEXT:
-${text}
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-Analyse every transaction, every balance figure, every credit pattern, and every anomaly.
+Read every page of the PDF. Analyse every transaction, every balance figure, every credit pattern, and every anomaly.
 
 Return ONLY a raw JSON object — no markdown, no code fences, no explanation before or after. \
 Just the JSON starting with { and ending with }.
@@ -226,15 +219,33 @@ WHAT COUNTS AS A LARGE UNEXPLAINED WITHDRAWAL:
 
 Be thorough — a missed flag can cause a visa rejection. A false flag causes unnecessary anxiety.`
 
-  console.log('[analyzeBankStatement] calling Claude API, text length:', text.length)
-  let response: Awaited<ReturnType<typeof client.messages.create>>
+  const userMessage: MessageParam = {
+    role: 'user',
+    content: [
+      {
+        type:   'document',
+        source: {
+          type:       'base64',
+          media_type: 'application/pdf',
+          data:       pdfBase64,
+        },
+      },
+      {
+        type: 'text',
+        text: USER_PROMPT,
+      },
+    ],
+  }
+
+  console.log('[analyzeBankStatement] calling Claude API with PDF document, base64 length:', pdfBase64.length)
+  let response: Message
   try {
     response = await client.messages.create({
       model:      'claude-sonnet-4-6',
       max_tokens: 2500,
       system:     SYSTEM_PROMPT,
-      messages:   [{ role: 'user', content: USER_PROMPT }],
-    })
+      messages:   [userMessage],
+    }) as Message
   } catch (claudeErr: unknown) {
     const msg = claudeErr instanceof Error ? claudeErr.message : String(claudeErr)
     console.error('[analyzeBankStatement] Claude API error:', msg)

@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { extractPdfText } from '@/lib/extractPdfText'
 import { analyzeBankStatement } from '@/lib/analyzeBankStatement'
 import { getSupabaseAdmin } from '@/lib/supabase'
 
@@ -64,48 +63,14 @@ export async function POST(req: NextRequest) {
     const buffer = Buffer.from(arrayBuffer)
     console.log('[Bank Analyser] PDF buffer size:', buffer.byteLength, 'bytes')
 
-    let pdfResult: Awaited<ReturnType<typeof extractPdfText>>
-    try {
-      pdfResult = await extractPdfText(buffer)
-    } catch (pdfErr) {
-      console.error('[Bank Analyser] PDF extraction failed:', pdfErr)
-      return NextResponse.json({ error: 'Could not read the PDF. Please ensure the file is a valid, non-corrupted bank statement.' }, { status: 422 })
-    }
-    const { text, isLikelyScanned, pageCount, charCount } = pdfResult
-    console.log('[Bank Analyser] PDF parsed — pages:', pageCount, 'chars:', charCount, 'scanned:', isLikelyScanned)
+    // Send PDF directly to Claude — no text extraction needed
+    const base64Pdf = buffer.toString('base64')
+    console.log('[Bank Analyser] base64 length:', base64Pdf.length, 'calling Claude...')
 
     const supabase = getSupabaseAdmin()
 
-    // Scanned / image-based PDF — flag for manual review
-    if (isLikelyScanned || charCount < 200) {
-      const scannedAnalysis = {
-        status: 'REVIEW',
-        agentNotes: `SCANNED PDF — extracted only ${charCount} chars across ${pageCount} pages. Ask client for a digitally generated statement (downloaded from bank app/website), or review manually.`,
-        summary: 'Our team will review your bank statement and contact you shortly.',
-        confidence: 'low',
-        warnings: ['PDF appears to be scanned — manual review required'],
-      }
-
-      if (targetTable === 'bank_statement_analyses') {
-        await supabase.from('bank_statement_analyses').upsert(
-          { application_id: applicationId, analysis: scannedAnalysis, analyzed_at: new Date().toISOString(), uploaded_by: uploadedBy },
-          { onConflict: 'application_id' }
-        )
-      } else {
-        await supabase.from('visa_applications').update({
-          bank_statement_analysis: scannedAnalysis,
-          bank_statement_analyzed_at: new Date().toISOString(),
-          bank_statement_uploaded_by: uploadedBy,
-        }).eq('id', applicationId)
-      }
-
-      return NextResponse.json({ success: false, scanned: true })
-    }
-
-    // Analyze with Claude
-    console.log('[Bank Analyser] calling Claude (text length:', text.length, ')')
     const analysis = await analyzeBankStatement(
-      text,
+      base64Pdf,
       destination,
       applicantName ?? 'Applicant',
       passportCountry ?? 'Nigeria',
