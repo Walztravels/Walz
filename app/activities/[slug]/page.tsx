@@ -21,11 +21,33 @@ export async function generateMetadata({ params }: { params: { slug: string } })
 }
 
 async function getActivity(slug: string) {
+  // 1. DB (admin-curated activities)
   try {
     const db = await prisma.activity.findUnique({ where: { slug, isPublished: true } })
     if (db) return db
   } catch {}
-  return getActivityBySlug(slug)
+
+  // 2. Static fallback
+  const staticAct = getActivityBySlug(slug)
+  if (staticAct) return staticAct
+
+  // 3. Live Hotelbeds Content API for hb- slugs
+  if (slug.startsWith('hb-')) {
+    try {
+      const rawCode = slug.replace(/^hb-/, '')
+      const base    = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://www.walztravels.com'
+      const res     = await fetch(
+        `${base}/api/activities/content/${encodeURIComponent(rawCode)}`,
+        { next: { revalidate: 3600 } }
+      )
+      if (res.ok) {
+        const data = await res.json()
+        if (data.activity) return data.activity
+      }
+    } catch {}
+  }
+
+  return null
 }
 
 const SYM: Record<string, string> = {

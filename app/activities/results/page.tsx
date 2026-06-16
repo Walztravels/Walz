@@ -126,12 +126,14 @@ function ActivityCard({ act, fromDate, adults }: { act: Activity; fromDate: stri
           )}
         </div>
 
-        {/* Top-right: price badge */}
-        <div className="absolute top-2.5 right-2.5">
-          <span className="bg-[#C9A84C] text-[#0B1F3A] text-xs font-bold px-2.5 py-1 rounded-full">
-            {act.price > 0 ? `${sym}${Number(act.price).toLocaleString()}` : 'Quote'}
-          </span>
-        </div>
+        {/* Top-right: price badge — only shown when a real price exists */}
+        {act.price > 0 && (
+          <div className="absolute top-2.5 right-2.5">
+            <span className="bg-[#C9A84C] text-[#0B1F3A] text-xs font-bold px-2.5 py-1 rounded-full">
+              {sym}{Number(act.price).toLocaleString()}
+            </span>
+          </div>
+        )}
       </div>
 
       {/* Body */}
@@ -272,8 +274,6 @@ function ResultsContent() {
     search(destination, fromDate, toDate)
   }
 
-  const isHotelbedsSource = results.some(a => a.slug?.startsWith('hb-'))
-
   return (
     <div className="min-h-screen bg-[#0B1F3A]">
 
@@ -333,20 +333,11 @@ function ResultsContent() {
             <h1 className="text-white font-bold text-2xl md:text-3xl mb-1">
               Things to do in {initDest}
             </h1>
-            <div className="flex items-center gap-3 text-white/40 text-sm flex-wrap">
-              {!loading && (
-                <span>{filteredResults.length} experience{filteredResults.length !== 1 ? 's' : ''} found</span>
-              )}
-              {isHotelbedsSource && (
-                <>
-                  <span>·</span>
-                  <span className="flex items-center gap-1.5">
-                    <span className="w-2 h-2 rounded-full bg-green-400 animate-pulse inline-block" />
-                    Powered by Hotelbeds
-                  </span>
-                </>
-              )}
-            </div>
+            {!loading && (
+              <p className="text-white/40 text-sm">
+                {filteredResults.length} experience{filteredResults.length !== 1 ? 's' : ''} available
+              </p>
+            )}
           </div>
         </div>
       )}

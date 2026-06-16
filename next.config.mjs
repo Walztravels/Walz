@@ -20,6 +20,11 @@ const nextConfig = {
       { protocol: 'https', hostname: 'us.chat-img.sintra.ai',            pathname: '/**' },
       // Supabase Storage — for media-managed images via the admin panel
       { protocol: 'https', hostname: 'bxacijnrgqgmyqyfgumg.supabase.co', pathname: '/storage/**' },
+      // Hotelbeds activity & hotel images
+      { protocol: 'https', hostname: 'photos.hotelbeds.com',             pathname: '/**' },
+      { protocol: 'https', hostname: '**.hotelbeds.com',                 pathname: '/**' },
+      { protocol: 'https', hostname: 'cdn.hotelbeds.com',                pathname: '/**' },
+      { protocol: 'https', hostname: '**.giata.com',                     pathname: '/**' },
     ],
   },
 

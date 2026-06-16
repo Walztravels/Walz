@@ -72,7 +72,7 @@ function resolveDestCode(name: string): string | null {
   return null
 }
 
-// ── Map Hotelbeds activity → our Activity shape ─────────────────────────────
+// ── Category mapping ─────────────────────────────────────────────────────────
 const CAT_MAP: Record<string, string> = {
   'TOUR':       'culture',
   'EXCURSION':  'adventure',
@@ -100,31 +100,49 @@ function mapHBCategory(codes: string[]): string {
   return 'adventure'
 }
 
+// ── Exhaustive image extraction across all known HB response shapes ──────────
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-function extractImage(a: any): string {
-  // Content API shape: content.media.images[].urls[{sizeType, resource}]
-  const contentImgs: { urls?: { sizeType: string; resource: string }[] }[] =
-    a.content?.media?.images ?? []
-  const contentUrl =
-    contentImgs[0]?.urls?.find((u: { sizeType: string; resource: string }) =>
-      u.sizeType === 'LARGE' || u.sizeType === 'LARGE2'
-    )?.resource ??
-    contentImgs[0]?.urls?.[0]?.resource ??
-    null
+function extractHBImage(item: any): string {
+  // Shape 1: Content API — media.images[].urls[{sizeType, resource}]
+  const contentImages: { urls?: { sizeType: string; resource: string }[] }[] =
+    item.media?.images ?? item.images ?? []
+  for (const img of contentImages) {
+    const urlArr = Array.isArray(img.urls) ? img.urls : []
+    const pick =
+      urlArr.find((u: { sizeType: string }) => u.sizeType === 'LARGE' || u.sizeType === 'LARGE2') ??
+      urlArr[0]
+    const resource = (pick as { resource?: string })?.resource
+    if (resource?.startsWith('http')) return resource
+  }
 
-  // Cache API shape: media[{type, url}]
-  const cacheUrl =
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    a.media?.find((m: any) => m.type === 'PHOTO' || m.type === 'photo')?.url ??
-    a.media?.[0]?.url ??
-    null
+  // Shape 2: Cache API — media[{type, url}]
+  const mediaArr: { type?: string; url?: string; resource?: string }[] =
+    Array.isArray(item.media) ? item.media : []
+  for (const m of mediaArr) {
+    if (m.url?.startsWith('http'))      return m.url
+    if (m.resource?.startsWith('http')) return m.resource
+  }
 
-  return cacheUrl ?? contentUrl ?? a.images?.[0]?.url ?? a.content?.images?.[0]?.url ?? ''
+  // Shape 3: GIATA picture list
+  if (item.pictureList?.[0]?.numericId) {
+    return `https://photos.hotelbeds.com/giata/${item.pictureList[0].numericId}.jpg`
+  }
+
+  // Shape 4: content sub-object fallback
+  const subImages: { urls?: { resource?: string }[] }[] =
+    item.content?.media?.images ?? []
+  for (const img of subImages) {
+    const url = img.urls?.[0]?.resource
+    if (url?.startsWith('http')) return url
+  }
+
+  return ''
 }
 
+// ── Map a Cache API activity to our shape ────────────────────────────────────
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function mapHBActivity(a: any, destName: string): object {
-  const img = extractImage(a)
+  const img = extractHBImage(a)
 
   const categoryCodes = [
     a.activityFactsheetType,
@@ -132,7 +150,6 @@ function mapHBActivity(a: any, destName: string): object {
     ...(a.categories ?? []).map((c: any) => c.code ?? c),
   ].filter(Boolean)
 
-  // Price: handle amountFrom (GET) and amountsFrom[0].amount (POST) shapes
   const price = parseFloat(
     a.amountFrom ??
     a.amountsFrom?.[0]?.amount ??
@@ -153,14 +170,12 @@ function mapHBActivity(a: any, destName: string): object {
   const rawDesc: string = a.content?.description ?? a.content?.briefDescription ?? ''
   const cleanDesc = rawDesc.replace(/<[^>]*>/g, '').trim()
 
-  // freeCancel: explicit flag or empty cancellation policy list
   const freeCancel: boolean = !!(
     a.freeCancellationAvailable === true ||
     a.freeCancel === true ||
     (Array.isArray(a.cancellationPolicies) && a.cancellationPolicies.length === 0)
   )
 
-  // rating: from valuations array or overallValuation field
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const rawRating = a.overallValuation ?? a.valuations?.[0]?.average ?? a.valuations?.[0]?.value
   const rating: number | null = rawRating ? parseFloat(String(rawRating)) || null : null
@@ -221,7 +236,7 @@ export async function GET(req: NextRequest) {
     const destCode = resolveDestCode(destination)
 
     if (destCode) {
-      // ── STEP A: Cache API — get portfolio (no dates needed) ──────────────
+      // ── STEP A: Cache API — get portfolio ────────────────────────────────
       try {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const cacheData: any = await hotelbedsRequest(
@@ -245,8 +260,10 @@ export async function GET(req: NextRequest) {
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           .filter((a: any) => a.title)
       } catch (cacheErr: unknown) {
-        const msg = cacheErr instanceof Error ? cacheErr.message : String(cacheErr)
-        console.error('[HB Cache API error]', msg)
+        console.error('[HB Cache API error]', {
+          message: cacheErr instanceof Error ? cacheErr.message : String(cacheErr),
+          stack:   cacheErr instanceof Error ? cacheErr.stack?.slice(0, 300) : undefined,
+        })
       }
 
       // ── STEP B: Content API MULTI — enrich with images + descriptions ────
@@ -256,12 +273,15 @@ export async function GET(req: NextRequest) {
             .slice(0, 40)
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             .map((a: any) => ({
-              activityCode:  a.id,
+              // BUG FIX: strip hb- prefix — Content API expects raw code
+              activityCode:  String(a.id).replace(/^hb-/, ''),
+              // Allow empty modalityCodes — API accepts it and returns all modalities
               // eslint-disable-next-line @typescript-eslint/no-explicit-any
-              modalityCodes: (a.modalities ?? []).slice(0, 2).map((m: any) => m.code).filter(Boolean),
+              modalityCodes: (a.modalities ?? []).slice(0, 3).map((m: any) => m.code).filter(Boolean),
             }))
+            // Only filter out completely missing activityCodes, not empty modalityCodes
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            .filter((c: any) => c.activityCode && c.modalityCodes.length > 0)
+            .filter((c: any) => c.activityCode)
 
           if (codes.length > 0) {
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -276,25 +296,23 @@ export async function GET(req: NextRequest) {
               ? contentData
               : (contentData?.activities ?? [])
 
-            console.log('[HB Content API] enriched:', contentItems.length)
+            console.log('[HB Content API] enriched:', contentItems.length, 'of', codes.length)
 
+            // Key content map by RAW code (no hb- prefix)
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             const contentMap: Record<string, any> = {}
             for (const item of contentItems) {
-              const code = item.code ?? item.activityCode
+              const code = String(item.code ?? item.activityCode ?? '').replace(/^hb-/, '')
               if (code) contentMap[code] = item
             }
 
             hotelbedsActivities = hotelbedsActivities.map((a: any) => {
-              const c = contentMap[a.id]
+              // BUG FIX: look up by raw code (strip hb- prefix from a.id)
+              const rawCode = String(a.id).replace(/^hb-/, '')
+              const c = contentMap[rawCode]
               if (!c) return a
 
-              // eslint-disable-next-line @typescript-eslint/no-explicit-any
-              const images: any[] = c.media?.images ?? c.images ?? []
-              const urlObj =
-                images[0]?.urls?.find((u: any) => u.sizeType === 'LARGE' || u.sizeType === 'LARGE2') ??
-                images[0]?.urls?.[0]
-              const img = urlObj?.resource ?? c.media?.[0]?.url ?? a.image
+              const img = extractHBImage(c) || a.image
 
               const rawDesc =
                 c.content?.description ??
@@ -312,12 +330,23 @@ export async function GET(req: NextRequest) {
                     : `${durMins} min`
                 : a.duration
 
-              return { ...a, image: img || a.image, description: desc || a.description, duration }
+              // Enrich freeCancel and rating from Content API data too
+              const freeCancel: boolean = a.freeCancel || !!(
+                c.freeCancellationAvailable === true ||
+                (Array.isArray(c.cancellationPolicies) && c.cancellationPolicies.length === 0)
+              )
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              const rawRating = c.overallValuation ?? c.valuations?.[0]?.average ?? c.valuations?.[0]?.value
+              const rating = rawRating ? parseFloat(String(rawRating)) || a.rating : a.rating
+
+              return { ...a, image: img, description: desc || a.description, duration, freeCancel, rating }
             })
           }
         } catch (contentErr: unknown) {
-          const msg = contentErr instanceof Error ? contentErr.message : String(contentErr)
-          console.error('[HB Content API error]', msg)
+          console.error('[HB Content API FULL ERROR]', {
+            message: contentErr instanceof Error ? contentErr.message : String(contentErr),
+            stack:   contentErr instanceof Error ? contentErr.stack?.slice(0, 300) : undefined,
+          })
         }
       }
 
@@ -344,11 +373,12 @@ export async function GET(req: NextRequest) {
             },
           )
 
+          // Booking API returns raw codes (no hb- prefix) — key map by raw code
           const priceMap: Record<string, number> = {}
           const currMap:  Record<string, string> = {}
 
           for (const item of priceData?.activities ?? []) {
-            const code  = item.code
+            const code  = String(item.code ?? '').replace(/^hb-/, '')
             const price = parseFloat(item.amountFrom ?? item.amountsFrom?.[0]?.amount ?? '0')
             if (code && price > 0) {
               priceMap[code] = price
@@ -358,15 +388,21 @@ export async function GET(req: NextRequest) {
 
           console.log('[HB Booking API] prices for:', Object.keys(priceMap).length, 'activities')
 
+          // BUG FIX: look up by raw code (strip hb- prefix from a.id)
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          hotelbedsActivities = hotelbedsActivities.map((a: any) => ({
-            ...a,
-            price:    priceMap[a.id] ?? a.price,
-            currency: currMap[a.id]  ?? a.currency,
-          }))
+          hotelbedsActivities = hotelbedsActivities.map((a: any) => {
+            const rawCode = String(a.id).replace(/^hb-/, '')
+            return {
+              ...a,
+              price:    priceMap[rawCode] ?? a.price,
+              currency: currMap[rawCode]  ?? a.currency,
+            }
+          })
         } catch (priceErr: unknown) {
-          const msg = priceErr instanceof Error ? priceErr.message : String(priceErr)
-          console.error('[HB Booking API price error]', msg)
+          console.error('[HB Booking API FULL ERROR]', {
+            message: priceErr instanceof Error ? priceErr.message : String(priceErr),
+            stack:   priceErr instanceof Error ? priceErr.stack?.slice(0, 300) : undefined,
+          })
         }
       }
 
@@ -383,8 +419,8 @@ export async function GET(req: NextRequest) {
 
   // ── 4. Static fallback only when completely empty ─────────────────────────
   if (combined.length === 0) {
-    const lower    = search.toLowerCase()
-    const statics  = lower
+    const lower   = search.toLowerCase()
+    const statics = lower
       ? STATIC_ACTIVITIES.filter(a =>
           a.location.toLowerCase().includes(lower) ||
           a.title.toLowerCase().includes(lower) ||
