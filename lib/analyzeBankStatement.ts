@@ -185,90 +185,41 @@ function buildPrompts(destination: string, applicantName: string, passportCountr
   const key = destination.toLowerCase().replace(/\s+/g, '')
   const req = EMBASSY_REQUIREMENTS[key] ?? EMBASSY_REQUIREMENTS['uk']
 
-  const system = `You are a senior visa application specialist and forensic financial analyst with 15 years of experience at a premium travel consultancy. You have personally reviewed over 10,000 bank statements for UK, Canada, USA, Schengen, UAE, and Australia visa applications.
+  const system = `You are a senior visa application specialist and forensic financial analyst with 15 years of experience at a premium travel consultancy. You analyse bank statements for visa applications and know exactly what embassy officers look for.
 
-Your analysis must be EXHAUSTIVE and LINE-BY-LINE:
-- Read and account for every single transaction visible in the statement
-- Do not skip or summarise transactions — list them all in the monthlyBreakdown
-- Use the EXACT currency shown in the statement — never convert unless explicitly asked
-- Calculate figures precisely from the actual numbers on the statement — no rounding guesses
-- An embassy officer will compare your analysis against the physical statement — every figure must be accurate
-- Be forensic: spot patterns a casual reader would miss
-- In agentNotes be brutally honest — this is internal only and shapes what the agent tells the client`
+Rules:
+- Read every transaction on the statement — use the EXACT currency shown (never assume)
+- Calculate figures from the actual numbers — no estimates
+- In agentNotes be brutally direct — this is internal only
+- Do NOT list every routine transaction. The monthlyBreakdown contains SUMMARY figures + ONLY notable/suspicious transactions per month`
 
   const textSection = extractedText.trim().length > 200
-    ? `\n\nEXTRACTED STATEMENT TEXT:\n---\n${extractedText.slice(0, 90000)}\n---\n`
+    ? `\n\nBANK STATEMENT TEXT:\n---\n${extractedText.slice(0, 80000)}\n---\n`
     : ''
 
-  const user = `Perform a FULL LINE-BY-LINE analysis of the bank statement ${extractedText.trim().length > 200 ? 'text below' : 'PDF attached above'}.
+  const user = `Analyse the bank statement ${extractedText.trim().length > 200 ? 'text below' : 'PDF attached above'} for a ${destination.toUpperCase()} visa application.
 
-APPLICANT: ${applicantName}
-PASSPORT COUNTRY: ${passportCountry}
-VISA DESTINATION: ${destination.toUpperCase()}
+APPLICANT: ${applicantName} | PASSPORT: ${passportCountry} | DESTINATION: ${destination.toUpperCase()}
+MINIMUM THRESHOLD: ${req.min} ${req.currency} consistently over ${req.months} months.
 
-═══════════════════════════════════════════
-EMBASSY REQUIREMENTS FOR ${destination.toUpperCase()}
-═══════════════════════════════════════════
+EMBASSY REQUIREMENTS (${destination.toUpperCase()}):
 ${req.notes}
-
-MINIMUM THRESHOLD: ${req.min} ${req.currency} maintained consistently over ${req.months} months.
 
 ${req.specificChecks}
 ${textSection}
-═══════════════════════════════════════════
-ANALYSIS INSTRUCTIONS
-═══════════════════════════════════════════
+READ EVERY PAGE AND EVERY TRANSACTION. Then output the JSON below.
 
-STEP 1 — IDENTIFY THE STATEMENT:
-- Account holder name, bank name, account number (last 4 digits only), statement dates
-- Detect the currency from the statement itself — use this currency for ALL figures
-- Count the exact number of months covered
+RULES FOR monthlyBreakdown.transactions — IMPORTANT:
+- Include ONLY transactions that are notable, suspicious, or need embassy attention
+- Do NOT list every grocery purchase or utility payment — skip routine debits
+- DO include: all salary/income credits, all cash transactions, all large debits (>10% of monthly balance), any round-number deposits, any returned payments, any unidentified transfers
+- This keeps the JSON concise so nothing gets cut off
 
-STEP 2 — MONTH-BY-MONTH BREAKDOWN:
-For EACH calendar month in the statement:
-- Opening balance (first figure for that month)
-- Closing balance (last figure for that month)
-- List EVERY transaction: date, full description as printed, amount, type (credit/debit), running balance if shown
-- Mark any transaction with a flag if it is suspicious or notable (null if clean)
-- Total credits and total debits for the month
-
-STEP 3 — INCOME ANALYSIS:
-- Identify the primary income source — employer name, amount, date received each month
-- Check for consistency: same employer, same approximate date, same approximate amount
-- Identify any secondary income: freelance, rental, transfers, business receipts
-- Calculate estimated monthly income from all sources
-
-STEP 4 — BALANCE ANALYSIS:
-- Identify every point where the balance fell below the embassy threshold (${req.min} ${req.currency})
-- Record the exact date and exact balance at each dip
-- Identify the lowest balance in the entire period
-- Calculate the true average monthly balance (not just month-end figures — average of all visible balance points)
-
-STEP 5 — RED FLAG ANALYSIS:
-Flag every instance of:
-a) Cash deposits or withdrawals (any amount)
-b) Round-number deposits (500, 1000, 5000, etc.) with no clear source
-c) Large credits within 28 days of the statement end date
-d) Transfers from unidentified persons ("TFR FROM MR A", "FASTER PAYMENT")
-e) Vague large withdrawals ("CASH", "ATM", "WITHDRAWAL")
-f) Returned direct debits or failed payments
-g) Overdraft charges or interest charges
-h) Dormant periods (weeks with no activity)
-i) Multiple credits on the same day from different sources
-j) Any balance spike not explained by regular salary
-
-STEP 6 — EMBASSY VERDICT:
-Apply the ${destination.toUpperCase()} specific criteria above to determine PASS/REVIEW/FLAG.
-Write specific, actionable recommendations using actual figures from the statement.
-
-═══════════════════════════════════════════
-OUTPUT FORMAT — CRITICAL
-═══════════════════════════════════════════
-Return ONLY a valid JSON object. Start immediately with {. No text before or after. No markdown.
+Return ONLY valid JSON. Start with {. No markdown, no preamble.
 
 {
   "status": "PASS | REVIEW | FLAG",
-  "currency": "exact currency code from the statement e.g. GBP, NGN, USD",
+  "currency": "exact currency from statement (GBP / NGN / USD / etc.)",
   "statementPeriod": "Month YYYY – Month YYYY",
   "monthsAnalyzed": 3,
   "averageMonthlyBalance": 0,
@@ -282,7 +233,7 @@ Return ONLY a valid JSON object. Start immediately with {. No text before or aft
   "salaryCreditsDetected": true,
   "salaryAmount": 0,
   "salaryFrequency": "monthly",
-  "otherIncomeSources": ["describe each other income source"],
+  "otherIncomeSources": ["e.g. rental income from XYZ"],
   "monthlyBreakdown": [
     {
       "month": "July 2023",
@@ -293,11 +244,11 @@ Return ONLY a valid JSON object. Start immediately with {. No text before or aft
       "transactions": [
         {
           "date": "01 Jul 2023",
-          "description": "EXACT DESCRIPTION AS PRINTED",
+          "description": "EXACT DESCRIPTION FROM STATEMENT",
           "amount": 0,
           "type": "credit",
           "runningBalance": 0,
-          "flag": null
+          "flag": "reason if suspicious, otherwise null"
         }
       ]
     }
@@ -305,10 +256,10 @@ Return ONLY a valid JSON object. Start immediately with {. No text before or aft
   "suspiciousTransactions": [
     {
       "date": "date",
-      "description": "exact description",
+      "description": "exact description from statement",
       "amount": 0,
       "type": "debit",
-      "reason": "specific reason why this is suspicious",
+      "reason": "why this is a concern for the embassy",
       "severity": "high | medium | low"
     }
   ],
@@ -316,7 +267,7 @@ Return ONLY a valid JSON object. Start immediately with {. No text before or aft
     { "date": "exact date", "balance": 0, "threshold": ${req.min} }
   ],
   "largeUnexplainedWithdrawals": [
-    { "date": "date", "amount": 0, "description": "exact description from statement" }
+    { "date": "date", "amount": 0, "description": "exact description" }
   ],
   "embassyThresholdMet": true,
   "embassyMinimumRequired": ${req.min},
@@ -326,12 +277,12 @@ Return ONLY a valid JSON object. Start immediately with {. No text before or aft
   "roundNumberDeposits": false,
   "unusualDepositPattern": false,
   "recommendations": [
-    "Specific actionable recommendation referencing actual dates and amounts from this statement"
+    "Specific recommendation with actual dates and amounts from this statement"
   ],
-  "summary": "2–3 sentence client-facing summary. Encouraging but honest. Never mention PASS/REVIEW/FLAG. No jargon.",
-  "agentNotes": "Internal use only. Be direct and forensic. State: (1) overall financial health, (2) specific concerns with dates/amounts, (3) whether to proceed or wait, (4) what the client must provide to strengthen the application.",
+  "summary": "2–3 sentences client-facing. Honest but encouraging. Never say PASS/REVIEW/FLAG.",
+  "agentNotes": "Internal only. (1) Financial health verdict. (2) Specific concerns with exact dates/amounts. (3) Proceed or wait? (4) What must client provide?",
   "confidence": "high | medium | low",
-  "warnings": ["specific warning with date/amount if applicable"]
+  "warnings": ["specific warning with date/amount"]
 }`
 
   return { system, user, req }
@@ -362,7 +313,7 @@ async function analyzeWithClaudeDocument(
   try {
     response = await client.messages.create({
       model:      'claude-sonnet-4-6',
-      max_tokens: 8000,
+      max_tokens: 4096,
       system,
       messages: [
         { role: 'user',      content: [docBlock, { type: 'text', text: user }] },
@@ -401,7 +352,7 @@ async function analyzeWithClaudeText(
   try {
     response = await client.messages.create({
       model:      'claude-sonnet-4-6',
-      max_tokens: 8000,
+      max_tokens: 4096,
       system,
       messages: [
         { role: 'user',      content: user },
