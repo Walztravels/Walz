@@ -8,6 +8,11 @@ export type AdminRole =
   | 'sales_agent'
   | 'accountant'
   | 'customer_support'
+  // ── Backward-compatible aliases for existing staff ───────────────────────
+  | 'general_manager'
+  | 'senior_manager'
+  | 'coordinator'
+  | 'sales_rep'
 
 export type Permission =
   | 'dashboard'
@@ -103,14 +108,44 @@ export const ROLE_PERMISSIONS: Record<AdminRole, Permission[]> = {
   customer_support: [
     'dashboard', 'inbox', 'clients', 'bookings', 'visa', 'leads', 'approvals',
   ],
+  // ── Backward-compatible aliases for existing staff ───────────────────────
+  general_manager: [
+    'dashboard', 'analytics', 'inbox', 'clients', 'clients.create', 'clients.all',
+    'leads', 'leads.all', 'bookings', 'bookings.create', 'bookings.all',
+    'flights', 'hotels', 'visa', 'visa.approve', 'visa.documents',
+    'tours', 'tours.manage', 'transfers', 'payments', 'reports', 'reports.financial',
+    'reports.all', 'staff', 'suppliers', 'commissions', 'approvals', 'approvals.resolve',
+    'blog', 'blog.publish', 'documents', 'content', 'tools', 'settings', 'audit_logs',
+    'api_keys', 'payroll',
+  ],
+  senior_manager: [
+    'dashboard', 'analytics', 'inbox', 'clients', 'clients.create', 'clients.all',
+    'leads', 'leads.all', 'bookings', 'bookings.create', 'bookings.all',
+    'flights', 'hotels', 'visa', 'visa.approve', 'visa.documents',
+    'tours', 'transfers', 'reports', 'approvals', 'blog', 'documents',
+  ],
+  coordinator: [
+    'dashboard', 'inbox', 'clients', 'clients.create', 'leads',
+    'bookings', 'bookings.create', 'visa', 'visa.documents', 'visa.approve',
+    'documents', 'reports', 'approvals', 'transfers',
+  ],
+  sales_rep: [
+    'dashboard', 'inbox', 'leads', 'clients', 'clients.create',
+    'bookings.create', 'approvals',
+  ],
 }
 
 export function hasPermission(
   staff: { role: string; permissions: unknown },
   permission: Permission,
 ): boolean {
-  const role      = staff.role as AdminRole
-  const rolePerms = ROLE_PERMISSIONS[role] ?? []
+  const role = staff.role as AdminRole
+
+  // Unknown roles fall back to the most restrictive known role
+  const knownRoles = Object.keys(ROLE_PERMISSIONS) as AdminRole[]
+  const safeRole   = knownRoles.includes(role) ? role : 'sales_rep'
+  const rolePerms  = ROLE_PERMISSIONS[safeRole] ?? []
+
   const overrides = (
     typeof staff.permissions === 'object' && staff.permissions !== null
       ? staff.permissions
@@ -146,6 +181,11 @@ export const ROLE_LABELS: Record<AdminRole, string> = {
   sales_agent:        'Sales Agent',
   accountant:         'Accountant',
   customer_support:   'Customer Support',
+  // ── Backward-compatible aliases ──────────────────────────────────────────
+  general_manager:    'General Manager',
+  senior_manager:     'Senior Manager',
+  coordinator:        'Coordinator',
+  sales_rep:          'Sales Rep',
 }
 
 export const ROLE_BADGE_CLASSES: Record<AdminRole, string> = {
@@ -158,6 +198,11 @@ export const ROLE_BADGE_CLASSES: Record<AdminRole, string> = {
   sales_agent:        'bg-orange-500 text-white',
   accountant:         'bg-rose-600 text-white',
   customer_support:   'bg-gray-500 text-white',
+  // ── Backward-compatible aliases ──────────────────────────────────────────
+  general_manager:    'bg-blue-600 text-white',
+  senior_manager:     'bg-teal-600 text-white',
+  coordinator:        'bg-indigo-600 text-white',
+  sales_rep:          'bg-orange-500 text-white',
 }
 
 // ── Nav definition ─────────────────────────────────────────────────────────────
@@ -203,9 +248,11 @@ export const NAV_ITEMS: NavSection[] = [
   {
     section: 'SERVICES',
     items: [
-      { href: '/admin/visa',        label: 'Visa',           icon: 'FileText',        permission: 'visa'            },
-      { href: '/admin/tours',       label: 'Tours',          icon: 'Map',             permission: 'tours'           },
-      { href: '/admin/documents',   label: 'Documents',      icon: 'FolderOpen',      permission: 'documents'       },
+      { href: '/admin/visa',               label: 'Visa Applications',   icon: 'FileText',     permission: 'visa'       },
+      { href: '/admin/visa-applications',  label: 'Application Tracker', icon: 'ClipboardList', permission: 'visa'      },
+      { href: '/admin/visa/bank-analyser', label: 'Bank Analyser',       icon: 'ScanSearch',    permission: 'visa'      },
+      { href: '/admin/tours',              label: 'Tours',               icon: 'Map',           permission: 'tours'     },
+      { href: '/admin/documents',          label: 'Documents',           icon: 'FolderOpen',    permission: 'documents' },
     ],
   },
   {
@@ -226,24 +273,31 @@ export const NAV_ITEMS: NavSection[] = [
   {
     section: 'CONTENT',
     items: [
-      { href: '/admin/blog',        label: 'Blog',           icon: 'BookOpen',        permission: 'blog'            },
-      { href: '/admin/content',     label: 'Website Editor', icon: 'Edit',            permission: 'content'         },
+      { href: '/admin/blog',          label: 'Blog',            icon: 'BookOpen', permission: 'blog'         },
+      { href: '/admin/blog/new',      label: 'New Post',        icon: 'Plus',     permission: 'blog.publish' },
+      { href: '/admin/content',       label: 'Website Content', icon: 'Edit',     permission: 'content'      },
+      { href: '/admin/site-settings', label: 'Site Settings',   icon: 'Sliders',  permission: 'settings'     },
     ],
   },
   {
     section: 'SYSTEM',
     items: [
-      { href: '/admin/staff',       label: 'Staff',          icon: 'Shield',          permission: 'staff'           },
-      { href: '/admin/suppliers',   label: 'Suppliers',      icon: 'Package',         permission: 'suppliers'       },
-      { href: '/admin/tools',       label: 'Tools',          icon: 'Wrench',          permission: 'tools'           },
-      { href: '/admin/audit-logs',  label: 'Audit Logs',     icon: 'Activity',        permission: 'audit_logs'      },
-      { href: '/admin/api-keys',    label: 'API Keys',       icon: 'Key',             permission: 'api_keys'        },
-      { href: '/admin/settings',    label: 'Settings',       icon: 'Settings',        permission: 'settings'        },
+      { href: '/admin/staff',       label: 'Staff',     icon: 'Shield',     permission: 'staff'        },
+      { href: '/admin/staff/new',   label: 'Add Staff', icon: 'UserPlus',   permission: 'staff.create' },
+      { href: '/admin/suppliers',   label: 'Suppliers', icon: 'Package',    permission: 'suppliers'    },
+      { href: '/admin/tools',       label: 'Tools',     icon: 'Wrench',     permission: 'tools'        },
+      { href: '/admin/audit-logs',  label: 'Audit Logs',icon: 'Activity',   permission: 'audit_logs'   },
+      { href: '/admin/api-keys',    label: 'API Keys',  icon: 'Key',        permission: 'api_keys'     },
+      { href: '/admin/settings',    label: 'Settings',  icon: 'Settings',   permission: 'settings'     },
+      { href: '/admin/payroll',     label: 'Payroll',   icon: 'DollarSign', permission: 'payroll'      },
     ],
   },
 ]
 
 export function getNavForStaff(staff: { role: string; permissions: unknown }): NavSection[] {
+  // Super admin sees everything — no filtering
+  if (staff.role === 'super_admin') return NAV_ITEMS
+
   return NAV_ITEMS
     .map(section => ({
       ...section,
