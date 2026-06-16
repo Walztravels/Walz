@@ -81,20 +81,6 @@ function ActivityCard({ act, fromDate, adults }: { act: Activity; fromDate: stri
     router.push(`/activities/${act.slug}`)
   }
 
-  function handleAskJade(e: React.MouseEvent) {
-    e.stopPropagation()
-    if (typeof window !== 'undefined' && window.$chatwoot) {
-      window.$chatwoot.setCustomAttributes({
-        source:       'activity_search',
-        activity:     act.title,
-        price:        `${act.currency} ${act.price}`,
-        location:     act.location,
-        enquiry_type: 'activity_booking',
-      })
-      window.$chatwoot.toggle('open')
-    }
-  }
-
   return (
     <div
       onClick={() => router.push(`/activities/${act.slug}`)}
@@ -188,12 +174,15 @@ function ActivityCard({ act, fromDate, adults }: { act: Activity; fromDate: stri
               {added ? 'Added!' : 'Add to Cart'}
             </button>
           </div>
-          <button
-            onClick={handleAskJade}
+          <a
+            href="https://wa.me/447398753797"
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={e => e.stopPropagation()}
             className="text-[10px] text-gray-400 hover:text-[#C9A84C] transition-colors text-center"
           >
-            Ask Jade about this →
-          </button>
+            Ask Jade on WhatsApp →
+          </a>
         </div>
       </div>
     </div>
