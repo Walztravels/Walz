@@ -20,7 +20,7 @@ export async function POST(req: NextRequest) {
   const file = formData.get('file') as File | null
   if (!file)                          return NextResponse.json({ error: 'No file provided' }, { status: 400 })
   if (file.type !== 'application/pdf') return NextResponse.json({ error: 'PDF files only' },  { status: 400 })
-  if (file.size > 25 * 1024 * 1024)  return NextResponse.json({ error: 'File exceeds 25MB' }, { status: 413 })
+  if (file.size > 50 * 1024 * 1024)  return NextResponse.json({ error: 'File exceeds 50MB' }, { status: 413 })
 
   // service role client — bypasses RLS entirely
   const supabase    = getSupabaseAdmin()

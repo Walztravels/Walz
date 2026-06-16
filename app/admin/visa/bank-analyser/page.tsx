@@ -17,7 +17,7 @@ const PASSPORT_COUNTRIES = [
   'India', 'Pakistan', 'Bangladesh', 'Philippines', 'Other',
 ]
 
-const MAX_MB = 25
+const MAX_MB = 50
 
 interface Analysis {
   status: 'PASS' | 'REVIEW' | 'FLAG'

@@ -82,9 +82,9 @@ const nextConfig = {
   },
 
   experimental: {
-    serverComponentsExternalPackages: ['@prisma/client', 'prisma', 'pdf-parse'],
+    serverComponentsExternalPackages: ['@prisma/client', 'prisma'],
     serverActions: {
-      bodySizeLimit: '25mb',
+      bodySizeLimit: '50mb',
     },
   },
 }

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { analyzeBankStatement } from '@/lib/analyzeBankStatement'
 import { getSupabaseAdmin } from '@/lib/supabase'
 
-export const maxDuration = 60
+export const maxDuration = 120
 
 export async function POST(req: NextRequest) {
   try {
@@ -56,8 +56,8 @@ export async function POST(req: NextRequest) {
     }
 
     const arrayBuffer = await fileRes.arrayBuffer()
-    if (arrayBuffer.byteLength > 25 * 1024 * 1024) {
-      return NextResponse.json({ error: 'File exceeds 25MB limit' }, { status: 413 })
+    if (arrayBuffer.byteLength > 50 * 1024 * 1024) {
+      return NextResponse.json({ error: 'File exceeds 50MB limit' }, { status: 413 })
     }
 
     const buffer = Buffer.from(arrayBuffer)

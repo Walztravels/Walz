@@ -1,5 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk'
-import type { Message, MessageParam } from '@anthropic-ai/sdk/resources/messages'
+import type { Message, MessageParam, DocumentBlockParam } from '@anthropic-ai/sdk/resources/messages'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -219,22 +219,18 @@ WHAT COUNTS AS A LARGE UNEXPLAINED WITHDRAWAL:
 
 Be thorough — a missed flag can cause a visa rejection. A false flag causes unnecessary anxiety.`
 
+  const docBlock: DocumentBlockParam = {
+    type:   'document',
+    source: {
+      type:       'base64',
+      media_type: 'application/pdf',
+      data:       pdfBase64,
+    },
+  }
+
   const userMessage: MessageParam = {
-    role: 'user',
-    content: [
-      {
-        type:   'document',
-        source: {
-          type:       'base64',
-          media_type: 'application/pdf',
-          data:       pdfBase64,
-        },
-      },
-      {
-        type: 'text',
-        text: USER_PROMPT,
-      },
-    ],
+    role:    'user',
+    content: [docBlock, { type: 'text', text: USER_PROMPT }],
   }
 
   console.log('[analyzeBankStatement] calling Claude API with PDF document, base64 length:', pdfBase64.length)
@@ -242,7 +238,7 @@ Be thorough — a missed flag can cause a visa rejection. A false flag causes un
   try {
     response = await client.messages.create({
       model:      'claude-sonnet-4-6',
-      max_tokens: 2500,
+      max_tokens: 4096,
       system:     SYSTEM_PROMPT,
       messages:   [userMessage],
     }) as Message
@@ -251,15 +247,27 @@ Be thorough — a missed flag can cause a visa rejection. A false flag causes un
     console.error('[analyzeBankStatement] Claude API error:', msg)
     throw new Error(`Claude API error: ${msg}`)
   }
-  console.log('[analyzeBankStatement] Claude API response received')
+  console.log('[analyzeBankStatement] Claude API response received, stop_reason:', response.stop_reason)
 
   const raw = response.content[0].type === 'text' ? response.content[0].text.trim() : ''
-  const clean = raw.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '').trim()
+  console.log('[analyzeBankStatement] Raw response preview:', raw.slice(0, 300))
+
+  // Strip markdown code fences if present
+  let clean = raw.replace(/^```(?:json)?\s*\n?/, '').replace(/\n?```\s*$/, '').trim()
+
+  // If response has text before/after the JSON object, extract just the JSON
+  if (!clean.startsWith('{')) {
+    const jsonStart = clean.indexOf('{')
+    const jsonEnd   = clean.lastIndexOf('}')
+    if (jsonStart >= 0 && jsonEnd > jsonStart) {
+      clean = clean.slice(jsonStart, jsonEnd + 1)
+    }
+  }
 
   try {
     return JSON.parse(clean) as BankStatementAnalysis
   } catch {
-    console.error('Bank statement analysis parse failed. Raw:', clean.substring(0, 300))
+    console.error('[analyzeBankStatement] JSON parse failed. clean preview:', clean.slice(0, 500))
     return {
       status: 'REVIEW',
       currency: 'UNKNOWN',
