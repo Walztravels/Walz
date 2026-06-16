@@ -19,13 +19,14 @@ const LOGO_CACHE_KEY = 'walz_logo_url'
 const LOGO_CACHE_TTL = 60 * 60 * 1000 // 1 hour
 
 const navLinks = [
-  { href: '/flights',   label: 'Flights',        icon: Plane    },
-  { href: '/hotels',    label: 'Hotels',          icon: Hotel    },
-  { href: '/tours',     label: 'Tours',           icon: Map      },
-  { href: '/packages',  label: 'Packages',        icon: Compass  },
-  { href: '/esim',      label: 'Jade Connect',    icon: Signal   },
-  { href: '/about',     label: 'About',           icon: Users    },
-  { href: '/gift',      label: 'Gift Vouchers',   icon: Gift     },
+  { href: '/flights',    label: 'Flights',        icon: Plane    },
+  { href: '/hotels',     label: 'Hotels',          icon: Hotel    },
+  { href: '/activities', label: 'Activities',      icon: Map      },
+  { href: '/tours',      label: 'Tours',           icon: Map      },
+  { href: '/packages',   label: 'Packages',        icon: Compass  },
+  { href: '/esim',       label: 'Jade Connect',    icon: Signal   },
+  { href: '/about',      label: 'About',           icon: Users    },
+  { href: '/gift',       label: 'Gift Vouchers',   icon: Gift     },
 ]
 
 const visaDropdownLinks = [
@@ -60,7 +61,7 @@ export function Navbar() {
   const [isVisaOpen,       setIsVisaOpen]       = useState(false)
   const [isMobileVisaOpen, setIsMobileVisaOpen] = useState(false)
   const [isCurrencyOpen,   setIsCurrencyOpen]   = useState(false)
-  const [logoUrl,          setLogoUrl]          = useState('/walz-logo.svg')
+  const [logoUrl,          setLogoUrl]          = useState('/walz-logo.png')
   const dropdownRef  = useRef<HTMLDivElement>(null)
   const visaRef      = useRef<HTMLDivElement>(null)
   const currencyRef  = useRef<HTMLDivElement>(null)
@@ -186,7 +187,7 @@ export function Navbar() {
             <Link href="/" className="flex items-center group" onClick={() => setIsMobileOpen(false)}>
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img src={logoUrl} alt="Walz Travels"
-                className="h-10 lg:h-12 w-auto object-contain group-hover:opacity-90 transition-opacity" />
+                className="h-10 lg:h-12 w-auto min-w-[100px] max-w-[160px] object-contain group-hover:opacity-90 transition-opacity brightness-0 invert" />
             </Link>
 
             {/* Desktop Nav */}
@@ -243,15 +244,6 @@ export function Navbar() {
                 )}
               </div>
             </nav>
-
-            {/* Rates link — desktop */}
-            <Link
-              href="/currency"
-              className="hidden lg:flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-walz-muted hover:text-walz-gold hover:bg-walz-slate/50 transition-all text-sm font-medium"
-            >
-              <span>💱</span>
-              <span>Rates</span>
-            </Link>
 
             {/* Currency selector — desktop */}
             <div className="hidden lg:block relative" ref={currencyRef}>
@@ -370,7 +362,7 @@ export function Navbar() {
           <div className="flex items-center justify-between p-4 pt-5 border-b border-walz-slate">
             <Link href="/" onClick={() => setIsMobileOpen(false)}>
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={logoUrl} alt="Walz Travels" className="h-9 w-auto object-contain" />
+              <img src={logoUrl} alt="Walz Travels" className="h-9 w-auto min-w-[90px] max-w-[140px] object-contain brightness-0 invert" />
             </Link>
             <button onClick={() => setIsMobileOpen(false)} className="p-1 rounded text-walz-muted hover:text-walz-white">
               <X className="w-5 h-5" />
@@ -414,37 +406,6 @@ export function Navbar() {
                 ))}
               </div>
             )}
-
-            {/* Currency + Rates — mobile */}
-            <div className="my-2 border-t border-walz-slate/50 mx-4" />
-            <p className="px-6 py-1.5 text-[10px] font-semibold text-walz-muted uppercase tracking-wider">Currency</p>
-            <Link
-              href="/currency"
-              onClick={() => setIsMobileOpen(false)}
-              className="flex items-center gap-3 px-6 py-3 text-walz-muted hover:text-walz-gold hover:bg-walz-slate/30 transition-colors"
-            >
-              <span className="text-lg">💱</span>
-              <span className="font-medium text-sm">Live Exchange Rates</span>
-            </Link>
-            <div className="px-6 pb-2">
-              <div className="grid grid-cols-3 gap-1.5">
-                {CURRENCIES.map(c => (
-                  <button
-                    key={c.code}
-                    onClick={() => setSelectedCurrency(c.code)}
-                    className={cn(
-                      'flex items-center gap-1.5 px-2 py-1.5 rounded-lg text-xs font-medium transition-all',
-                      c.code === selectedCurrency
-                        ? 'bg-[#C9A84C] text-[#0B1F3A]'
-                        : 'text-walz-muted hover:text-walz-gold hover:bg-walz-slate/40',
-                    )}
-                  >
-                    <span>{c.flag}</span>
-                    <span>{c.code}</span>
-                  </button>
-                ))}
-              </div>
-            </div>
 
             {session && (
               <>
