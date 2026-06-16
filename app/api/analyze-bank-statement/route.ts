@@ -7,6 +7,14 @@ export const maxDuration = 60
 
 export async function POST(req: NextRequest) {
   try {
+    const t0 = Date.now()
+
+    // Guard: ensure API key is set before doing anything expensive
+    if (!process.env.ANTHROPIC_API_KEY) {
+      console.error('[Bank Analyser] ANTHROPIC_API_KEY is not set')
+      return NextResponse.json({ error: 'AI service not configured — ANTHROPIC_API_KEY missing' }, { status: 500 })
+    }
+
     const body = await req.json()
     const {
       applicationId,
@@ -16,6 +24,8 @@ export async function POST(req: NextRequest) {
       passportCountry,
       uploadedBy = 'client',
     } = body
+
+    console.log('[Bank Analyser] START applicationId:', applicationId, 'dest:', destination)
 
     if (!applicationId || !fileUrl || !destination) {
       return NextResponse.json({ error: 'Missing required fields: applicationId, fileUrl, destination' }, { status: 400 })
@@ -52,6 +62,8 @@ export async function POST(req: NextRequest) {
     }
 
     const buffer = Buffer.from(arrayBuffer)
+    console.log('[Bank Analyser] PDF buffer size:', buffer.byteLength, 'bytes')
+
     let pdfResult: Awaited<ReturnType<typeof extractPdfText>>
     try {
       pdfResult = await extractPdfText(buffer)
@@ -60,6 +72,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Could not read the PDF. Please ensure the file is a valid, non-corrupted bank statement.' }, { status: 422 })
     }
     const { text, isLikelyScanned, pageCount, charCount } = pdfResult
+    console.log('[Bank Analyser] PDF parsed — pages:', pageCount, 'chars:', charCount, 'scanned:', isLikelyScanned)
 
     const supabase = getSupabaseAdmin()
 
@@ -90,12 +103,14 @@ export async function POST(req: NextRequest) {
     }
 
     // Analyze with Claude
+    console.log('[Bank Analyser] calling Claude (text length:', text.length, ')')
     const analysis = await analyzeBankStatement(
       text,
       destination,
       applicantName ?? 'Applicant',
       passportCountry ?? 'Nigeria',
     )
+    console.log('[Bank Analyser] Claude analysis complete, status:', analysis.status)
 
     // Save analysis to correct table
     let saveError: unknown = null
@@ -120,11 +135,13 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Failed to save analysis' }, { status: 500 })
     }
 
+    console.log('[Bank Analyser] DONE in', Date.now() - t0, 'ms')
     return NextResponse.json({ success: true, analysis })
 
   } catch (err: unknown) {
-    const msg = err instanceof Error ? err.message : String(err)
-    console.error('[Bank Analyser] Unhandled error:', msg)
-    return NextResponse.json({ error: `Analysis error: ${msg}` }, { status: 500 })
+    const msg  = err instanceof Error ? err.message : String(err)
+    const stack = err instanceof Error ? err.stack?.slice(0, 500) : undefined
+    console.error('[Bank Analyser] Unhandled error:', msg, stack)
+    return NextResponse.json({ error: msg }, { status: 500 })
   }
 }

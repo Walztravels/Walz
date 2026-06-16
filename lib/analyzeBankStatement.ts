@@ -1,7 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk'
 
-const client = new Anthropic()
-
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 export interface BankStatementAnalysis {
@@ -120,8 +118,21 @@ export async function analyzeBankStatement(
   applicantName: string,
   passportCountry = 'Nigeria',
 ): Promise<BankStatementAnalysis> {
+  const apiKey = process.env.ANTHROPIC_API_KEY
+  if (!apiKey) {
+    throw new Error('ANTHROPIC_API_KEY environment variable is not set')
+  }
+
+  // Create client inside function so env var is read at call-time, not module load
+  const client = new Anthropic({ apiKey })
+
   const key = destination.toLowerCase().replace(/\s+/g, '')
   const req = EMBASSY_REQUIREMENTS[key] ?? EMBASSY_REQUIREMENTS['uk']
+
+  // Truncate very long statements — Claude handles ~15k chars well, beyond that = diminishing returns
+  const text = extractedText.length > 15_000
+    ? extractedText.slice(0, 15_000) + '\n\n[STATEMENT TRUNCATED — first 15,000 characters analysed]'
+    : extractedText
 
   const SYSTEM_PROMPT = `You are a senior visa application specialist with 15 years of experience \
 at a travel consultancy. You have processed thousands of visa applications for UK, Canada, USA, \
@@ -151,7 +162,7 @@ MINIMUM BALANCE THRESHOLD: ${req.min} ${req.currency} maintained consistently ov
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 BANK STATEMENT TEXT:
-${extractedText}
+${text}
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 Analyse every transaction, every balance figure, every credit pattern, and every anomaly.
@@ -215,12 +226,21 @@ WHAT COUNTS AS A LARGE UNEXPLAINED WITHDRAWAL:
 
 Be thorough — a missed flag can cause a visa rejection. A false flag causes unnecessary anxiety.`
 
-  const response = await client.messages.create({
-    model: 'claude-sonnet-4-6',
-    max_tokens: 2500,
-    system: SYSTEM_PROMPT,
-    messages: [{ role: 'user', content: USER_PROMPT }],
-  })
+  console.log('[analyzeBankStatement] calling Claude API, text length:', text.length)
+  let response: Awaited<ReturnType<typeof client.messages.create>>
+  try {
+    response = await client.messages.create({
+      model:      'claude-sonnet-4-6',
+      max_tokens: 2500,
+      system:     SYSTEM_PROMPT,
+      messages:   [{ role: 'user', content: USER_PROMPT }],
+    })
+  } catch (claudeErr: unknown) {
+    const msg = claudeErr instanceof Error ? claudeErr.message : String(claudeErr)
+    console.error('[analyzeBankStatement] Claude API error:', msg)
+    throw new Error(`Claude API error: ${msg}`)
+  }
+  console.log('[analyzeBankStatement] Claude API response received')
 
   const raw = response.content[0].type === 'text' ? response.content[0].text.trim() : ''
   const clean = raw.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '').trim()
