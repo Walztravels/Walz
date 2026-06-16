@@ -109,6 +109,13 @@ export default function BankAnalyserPage() {
         }),
       })
 
+      if (!res.ok) {
+        const errText = await res.text()
+        let errMsg = `Analysis failed (${res.status})`
+        try { errMsg = JSON.parse(errText).error ?? errMsg } catch { /* non-JSON body */ }
+        throw new Error(errMsg)
+      }
+
       const data = await res.json()
       if (data.success) {
         setAnalysis(data.analysis)

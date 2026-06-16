@@ -38,11 +38,16 @@ export async function POST(req: NextRequest) {
   }
 
   // Signed URL valid 2 hours — enough for analysis + Claude processing
-  const { data: signed } = await supabase.storage
+  const { data: signed, error: signError } = await supabase.storage
     .from(BUCKET)
     .createSignedUrl(storagePath, 60 * 60 * 2)
 
-  const fileUrl = signed?.signedUrl ?? ''
+  if (signError || !signed?.signedUrl) {
+    console.error('[Bank Analyser Upload] Signed URL creation failed:', signError?.message)
+    return NextResponse.json({ error: 'File uploaded but could not create download URL. Please try again.' }, { status: 500 })
+  }
+
+  const fileUrl = signed.signedUrl
 
   // Seed initial row so analyze route can upsert cleanly
   await supabase
