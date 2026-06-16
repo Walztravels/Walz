@@ -172,116 +172,93 @@ function EnquiryModal({ tourName, onClose }: { tourName: string; onClose: () => 
 
 function TourCard({ tour, index }: { tour: DbTour; index: number }) {
   const [isEnquiryOpen, setIsEnquiryOpen] = useState(false)
+  const [visible, setVisible] = useState(false)
   const cardRef = useRef<HTMLDivElement>(null)
 
   // Scroll fade-in — IntersectionObserver, staggered by index
   useEffect(() => {
     const el = cardRef.current
     if (!el) return
-
-    el.style.opacity = '0'
-    el.style.transform = 'translateY(32px)'
-    el.style.transition = `opacity 0.55s ease ${index * 100}ms, transform 0.55s ease ${index * 100}ms`
-
     const observer = new IntersectionObserver(
       ([entry]) => {
         if (entry.isIntersecting) {
-          el.style.opacity = '1'
-          el.style.transform = 'translateY(0)'
+          setVisible(true)
           observer.unobserve(el)
         }
       },
-      { threshold: 0.1 }
+      { threshold: 0.1 },
     )
     observer.observe(el)
     return () => observer.disconnect()
   }, [index])
 
-  let highlights: string[] = []
-  try { highlights = JSON.parse(tour.highlights) } catch { highlights = [] }
-
-  const price = new Intl.NumberFormat('en-GB', {
-    style: 'currency', currency: tour.currency, maximumFractionDigits: 0,
-  }).format(tour.price)
+  let parsedHighlights: string[] = []
+  try { parsedHighlights = JSON.parse(tour.highlights) } catch { parsedHighlights = [] }
 
   return (
     <>
-      {/* group class enables image zoom on card hover */}
       <div
         ref={cardRef}
-        id={tour.slug}
-        className="group bg-white rounded-2xl border border-walz-border shadow-card overflow-hidden scroll-mt-24"
+        className={`group bg-white rounded-2xl overflow-hidden border border-gray-100
+          shadow-sm hover:shadow-xl transition-all duration-500 flex flex-col
+          ${visible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-8'}`}
+        style={{ transitionDelay: `${index * 80}ms` }}
       >
-        {/* Image — overflow-hidden clips the zoom */}
-        <div className="relative h-64 lg:h-72 overflow-hidden bg-gray-100">
+        {/* Image */}
+        <div className="relative h-52 overflow-hidden bg-walz-deep-navy/10">
           {tour.imageUrl ? (
-            <div
-              className="absolute inset-0 bg-cover bg-center transition-transform duration-300 group-hover:scale-[1.03]"
-              style={{ backgroundImage: `url('${tour.imageUrl}')` }}
+            <img
+              src={tour.imageUrl}
+              alt={tour.name}
+              className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
             />
           ) : (
-            <div className="absolute inset-0 flex items-center justify-center text-gray-300">
-              <ImageIcon className="w-16 h-16" />
+            <div className="w-full h-full flex items-center justify-center bg-gradient-to-br from-[#1C3557] to-[#0B1F3A]">
+              <ImageIcon className="w-10 h-10 text-white/20" />
             </div>
           )}
-          <div className="absolute inset-0 bg-gradient-to-t from-walz-deep-navy/80 via-walz-deep-navy/20 to-transparent" />
-          <div className="absolute bottom-5 left-5 right-5">
-            <div className="flex items-end justify-between">
-              <div>
-                <h2 className="font-display text-2xl lg:text-3xl font-bold text-walz-white mb-1">{tour.name}</h2>
-                <div className="flex items-center gap-2 text-walz-muted text-sm">
-                  <MapPin className="w-3.5 h-3.5 text-walz-gold" />
-                  {tour.location}
-                </div>
-              </div>
-              <div className="text-right">
-                <div className="text-walz-muted text-xs">From</div>
-                <div className="text-walz-gold font-bold text-2xl">{price}</div>
-                <div className="text-walz-muted text-xs">per person</div>
-              </div>
-            </div>
+          {/* Price badge */}
+          <div className="absolute top-3 right-3 bg-walz-gold text-walz-deep-navy text-xs font-bold px-3 py-1.5 rounded-full">
+            From {tour.currency} {tour.price.toLocaleString()}
           </div>
         </div>
 
         {/* Content */}
-        <div className="p-5 lg:p-6">
-          {/* Meta */}
-          <div className="flex flex-wrap gap-4 mb-4">
-            <div className="flex items-center gap-1.5 text-sm text-walz-muted">
-              <Clock className="w-4 h-4 text-walz-gold" />
-              <span>{tour.duration}</span>
-            </div>
-            <div className="flex items-center gap-1.5 text-sm text-walz-muted">
-              <Users className="w-4 h-4 text-walz-gold" />
-              <span>Private tour</span>
-            </div>
-            <div className="flex items-center gap-1.5 text-sm text-walz-muted">
-              <Star className="w-4 h-4 text-walz-gold fill-walz-gold" />
-              <span>Highly rated</span>
-            </div>
+        <div className="p-5 flex flex-col flex-1">
+          <h3 className="font-display text-base font-bold text-walz-deep-navy mb-1 leading-snug line-clamp-2">
+            {tour.name}
+          </h3>
+
+          {/* Meta row */}
+          <div className="flex items-center gap-3 text-walz-muted text-xs mb-3">
+            <span className="flex items-center gap-1">
+              <MapPin className="w-3 h-3" />{tour.location}
+            </span>
+            <span className="flex items-center gap-1">
+              <Clock className="w-3 h-3" />{tour.duration}
+            </span>
           </div>
 
-          <p className="text-walz-muted text-sm leading-relaxed mb-5 line-clamp-3">{tour.description}</p>
+          <p className="text-walz-muted text-sm leading-relaxed line-clamp-2 mb-4 flex-1">
+            {tour.description}
+          </p>
 
-          {/* Highlights */}
-          {highlights.length > 0 && (
-            <div className="mb-5">
-              <h4 className="text-sm font-semibold text-walz-deep-navy mb-3">Tour Highlights</h4>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                {highlights.map((h, i) => (
-                  <div key={i} className="flex items-center gap-2">
-                    <Check className="w-4 h-4 text-walz-gold flex-shrink-0" />
-                    <span className="text-sm text-walz-slate">{h}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
+          {/* Highlights — top 3 only */}
+          {parsedHighlights.length > 0 && (
+            <ul className="space-y-1 mb-4">
+              {parsedHighlights.slice(0, 3).map((h, i) => (
+                <li key={i} className="flex items-center gap-2 text-xs text-walz-deep-navy">
+                  <Check className="w-3 h-3 text-walz-gold flex-shrink-0" />
+                  {h}
+                </li>
+              ))}
+            </ul>
           )}
 
-          {/* CTA */}
-          <div className="flex gap-3 pt-4 border-t border-walz-border">
+          {/* CTA buttons */}
+          <div className="flex gap-2 pt-3 border-t border-gray-100 mt-auto">
             <a href={`/tours/book?slug=${tour.slug}`} className="flex-1">
-              <Button variant="gold" className="w-full">Book Now</Button>
+              <Button variant="gold" className="w-full text-xs py-2.5">Book Now</Button>
             </a>
             <JadeChat
               context={{
@@ -292,8 +269,8 @@ function TourCard({ tour, index }: { tour: DbTour; index: number }) {
                 location:    tour.location,
                 enquiryType: 'tour_booking',
               }}
-              label="Enquire with Jade"
-              className="whitespace-nowrap px-4 py-2 text-xs"
+              label="Enquire"
+              className="whitespace-nowrap px-3 py-2 text-xs"
               variant="outline"
             />
           </div>
@@ -445,7 +422,7 @@ export default function ToursPage() {
       </div>
 
       {/* ── Tours ────────────────────────────────────────────────────────────── */}
-      <div className="container-walz py-12 lg:py-16 space-y-8 lg:space-y-12">
+      <div className="container-walz py-12 lg:py-16">
         {loading ? (
           <div className="flex items-center justify-center py-20">
             <Loader2 className="w-8 h-8 animate-spin text-walz-gold" />
@@ -457,8 +434,11 @@ export default function ToursPage() {
             <p className="text-sm">Check back shortly or contact us to discuss a private tour.</p>
           </div>
         ) : (
-          // Pass index for staggered IntersectionObserver delay
-          tours.map((tour, index) => <TourCard key={tour.id} tour={tour} index={index} />)
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+            {tours.map((tour, index) => (
+              <TourCard key={tour.id} tour={tour} index={index} />
+            ))}
+          </div>
         )}
       </div>
 
