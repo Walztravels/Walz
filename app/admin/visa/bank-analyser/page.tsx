@@ -39,60 +39,99 @@ class AnalysisErrorBoundary extends Component<
 
 // ─── Sanitize raw AI output before setting state ──────────────────────────────
 
+function safeArr<T>(x: unknown): T[] { return Array.isArray(x) ? x as T[] : [] }
+function safeStr(x: unknown, fallback = ''): string { return typeof x === 'string' ? x : fallback }
+function safeNum(x: unknown, fallback = 0): number   { const n = Number(x); return isNaN(n) ? fallback : n }
+function safeObj(x: unknown): Record<string, unknown> | null {
+  return x && typeof x === 'object' && !Array.isArray(x) ? x as Record<string, unknown> : null
+}
+
 function sanitizeAnalysis(raw: unknown): BankStatementAnalysis {
   const r = (raw ?? {}) as Record<string, unknown>
+
+  // Deep-sanitize nested objects so their array fields are never non-arrays
+  const sf  = safeObj(r.spendingForensics)
+  const soff = safeObj(r.sourceOfFundsForensics)
+  const sv  = safeObj(r.salaryVerification)
+  const os  = safeObj(r.officerSimulation)
+  const sofc = safeObj(r.sourceOfFundsClassification)
+  const ea  = safeArr<Record<string, unknown>>(r.embassyAssessments)
+
+  // Sanitize each monthlyBreakdown item so .transactions is always an array
+  const monthlyBreakdown = safeArr<Record<string, unknown>>(r.monthlyBreakdown).map(m => {
+    const mo = (m ?? {}) as Record<string, unknown>
+    return { ...mo, transactions: safeArr(mo.transactions) }
+  }) as unknown as BankStatementAnalysis['monthlyBreakdown']
+
   return {
     ...(r as unknown as BankStatementAnalysis),
-    status:          ['PASS', 'REVIEW', 'FLAG'].includes(r.status as string) ? r.status as 'PASS'|'REVIEW'|'FLAG' : 'REVIEW',
-    summary:         typeof r.summary    === 'string' ? r.summary    : '',
-    agentNotes:      typeof r.agentNotes === 'string' ? r.agentNotes : '',
-    currency:        typeof r.currency   === 'string' ? r.currency   : '',
-    statementPeriod: typeof r.statementPeriod === 'string' ? r.statementPeriod : '',
-    confidence:      ['high','medium','low'].includes(r.confidence as string) ? r.confidence as 'high'|'medium'|'low' : 'medium',
-    recommendations: Array.isArray(r.recommendations)
-      ? r.recommendations.map((x: unknown) => typeof x === 'string' ? x : JSON.stringify(x))
-      : [],
-    warnings: Array.isArray(r.warnings)
-      ? r.warnings.map((x: unknown) => typeof x === 'string' ? x : JSON.stringify(x))
-      : [],
-    suspiciousTransactions: Array.isArray(r.suspiciousTransactions)
-      ? r.suspiciousTransactions.map((t: unknown) => {
-          const tx = (t ?? {}) as Record<string, unknown>
-          return {
-            date:        String(tx.date        ?? ''),
-            description: String(tx.description ?? ''),
-            amount:      Number(tx.amount      ?? 0),
-            type:        (tx.type === 'credit' ? 'credit' : 'debit') as 'credit'|'debit',
-            reason:      String(tx.reason      ?? ''),
-            severity:    (['high','medium','low'].includes(tx.severity as string) ? tx.severity : 'low') as 'high'|'medium'|'low',
-          }
-        })
-      : [],
-    largeUnexplainedWithdrawals: Array.isArray(r.largeUnexplainedWithdrawals)
-      ? r.largeUnexplainedWithdrawals.map((w: unknown) => {
-          const wx = (w ?? {}) as Record<string, unknown>
-          return { date: String(wx.date ?? ''), amount: Number(wx.amount ?? 0), description: String(wx.description ?? '') }
-        })
-      : [],
-    averageMonthlyBalance:  Number(r.averageMonthlyBalance  ?? 0),
-    lowestBalance:          Number(r.lowestBalance          ?? 0),
-    highestBalance:         Number(r.highestBalance         ?? 0),
-    closingBalance:         Number(r.closingBalance         ?? 0),
-    totalCredits:           Number(r.totalCredits           ?? 0),
-    totalDebits:            Number(r.totalDebits            ?? 0),
-    estimatedMonthlyIncome: Number(r.estimatedMonthlyIncome ?? 0),
-    embassyMinimumRequired: Number(r.embassyMinimumRequired ?? 0),
-    overdraftCount:         Number(r.overdraftCount         ?? 0),
-    // Ensure nested array fields are never null
-    monthlyBreakdown:       Array.isArray(r.monthlyBreakdown)       ? r.monthlyBreakdown       : [],
-    spendingCategories:     Array.isArray(r.spendingCategories)     ? r.spendingCategories      : [],
-    sourceOfFunds:          Array.isArray(r.sourceOfFunds)          ? r.sourceOfFunds            : [],
-    largeTransactions:      Array.isArray(r.largeTransactions)      ? r.largeTransactions        : [],
-    balanceDipsBelow:       Array.isArray(r.balanceDipsBelow)       ? r.balanceDipsBelow         : [],
-    riskFlags:              Array.isArray(r.riskFlags)              ? r.riskFlags                : [],
-    embassyAssessments:     Array.isArray(r.embassyAssessments)     ? r.embassyAssessments       : [],
-    behavioralAnomalies:    Array.isArray(r.behavioralAnomalies)    ? r.behavioralAnomalies      : [],
-    otherIncomeSources:     Array.isArray(r.otherIncomeSources)     ? r.otherIncomeSources       : [],
+    // ── Scalar fields ────────────────────────────────────────────────────────
+    status:                 (['PASS','REVIEW','FLAG'] as string[]).includes(r.status as string) ? r.status as 'PASS'|'REVIEW'|'FLAG' : 'REVIEW',
+    summary:                safeStr(r.summary),
+    agentNotes:             safeStr(r.agentNotes),
+    currency:               safeStr(r.currency),
+    statementPeriod:        safeStr(r.statementPeriod),
+    confidence:             (['high','medium','low'] as string[]).includes(r.confidence as string) ? r.confidence as 'high'|'medium'|'low' : 'medium',
+    averageMonthlyBalance:  safeNum(r.averageMonthlyBalance),
+    lowestBalance:          safeNum(r.lowestBalance),
+    highestBalance:         safeNum(r.highestBalance),
+    closingBalance:         safeNum(r.closingBalance),
+    totalCredits:           safeNum(r.totalCredits),
+    totalDebits:            safeNum(r.totalDebits),
+    estimatedMonthlyIncome: safeNum(r.estimatedMonthlyIncome),
+    embassyMinimumRequired: safeNum(r.embassyMinimumRequired),
+    overdraftCount:         safeNum(r.overdraftCount),
+    // ── Top-level array fields ───────────────────────────────────────────────
+    recommendations: safeArr<string>(r.recommendations).map(x => typeof x === 'string' ? x : JSON.stringify(x)),
+    warnings:        safeArr<string>(r.warnings).map(x => typeof x === 'string' ? x : JSON.stringify(x)),
+    suspiciousTransactions: safeArr<unknown>(r.suspiciousTransactions).map((t) => {
+      const tx = (safeObj(t) ?? {}) as Record<string, unknown>
+      return {
+        date: safeStr(tx.date), description: safeStr(tx.description),
+        amount: safeNum(tx.amount),
+        type: (tx.type === 'credit' ? 'credit' : 'debit') as 'credit'|'debit',
+        reason: safeStr(tx.reason),
+        severity: (['high','medium','low'] as string[]).includes(tx.severity as string) ? tx.severity as 'high'|'medium'|'low' : 'low',
+      }
+    }),
+    largeUnexplainedWithdrawals: safeArr<unknown>(r.largeUnexplainedWithdrawals).map((w) => {
+      const wx = (safeObj(w) ?? {}) as Record<string, unknown>
+      return { date: safeStr(wx.date), amount: safeNum(wx.amount), description: safeStr(wx.description) }
+    }),
+    monthlyBreakdown,
+    spendingCategories:  safeArr(r.spendingCategories),
+    sourceOfFunds:       safeArr(r.sourceOfFunds),
+    largeTransactions:   safeArr(r.largeTransactions),
+    balanceDipsBelow:    safeArr(r.balanceDipsBelow),
+    riskFlags:           safeArr(r.riskFlags),
+    embassyAssessments:  ea.map(a => ({ ...a, concerns: safeArr<string>(a.concerns) })) as unknown as BankStatementAnalysis['embassyAssessments'],
+    behavioralAnomalies: safeArr(r.behavioralAnomalies),
+    otherIncomeSources:  safeArr(r.otherIncomeSources),
+    // ── Nested objects — sanitize their inner arrays ─────────────────────────
+    spendingForensics: (sf ? {
+      ...sf,
+      dormantPeriods:    safeArr(sf.dormantPeriods),
+      recurringExpenses: safeArr<string>(sf.recurringExpenses),
+    } : r.spendingForensics) as unknown as BankStatementAnalysis['spendingForensics'],
+    sourceOfFundsForensics: (soff ? {
+      ...soff,
+      unexplainedCredits:  safeArr(soff.unexplainedCredits),
+      roundNumberDeposits: safeArr(soff.roundNumberDeposits),
+    } : r.sourceOfFundsForensics) as unknown as BankStatementAnalysis['sourceOfFundsForensics'],
+    salaryVerification: (sv ? {
+      ...sv,
+      depositDates:  safeArr<string>(sv.depositDates),
+      missingMonths: safeArr<string>(sv.missingMonths),
+    } : r.salaryVerification) as unknown as BankStatementAnalysis['salaryVerification'],
+    officerSimulation: (os ? {
+      ...os,
+      reasonsToApprove:  safeArr<string>(os.reasonsToApprove),
+      reasonsForConcern: safeArr<string>(os.reasonsForConcern),
+    } : r.officerSimulation) as unknown as BankStatementAnalysis['officerSimulation'],
+    sourceOfFundsClassification: (sofc ? {
+      ...sofc,
+      categories: safeArr(sofc.categories),
+    } : r.sourceOfFundsClassification) as unknown as BankStatementAnalysis['sourceOfFundsClassification'],
   }
 }
 
