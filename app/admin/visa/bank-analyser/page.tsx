@@ -84,15 +84,22 @@ export default function BankAnalyserPage() {
     setEmailSent(false)
 
     try {
-      // Upload via server-side API route (uses service role key — bypasses RLS)
-      const uploadForm = new FormData()
-      uploadForm.append('file', file)
-      const upRes = await fetch('/api/admin/bank-analyser/upload', {
-        method: 'POST',
-        body: uploadForm,
+      // Step 1: Get a signed upload URL (tiny JSON — no file payload through Vercel)
+      const presignRes = await fetch('/api/admin/bank-analyser/presign', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ fileSize: file.size }),
       })
-      if (!upRes.ok) throw new Error('Upload failed: ' + await upRes.text())
-      const { refId, fileUrl } = await upRes.json()
+      if (!presignRes.ok) throw new Error('Upload failed: ' + await presignRes.text())
+      const { refId, uploadUrl, fileUrl } = await presignRes.json()
+
+      // Step 2: Upload directly to Supabase Storage (bypasses Vercel — no size limit)
+      const putRes = await fetch(uploadUrl, {
+        method:  'PUT',
+        headers: { 'Content-Type': 'application/pdf' },
+        body:    file,
+      })
+      if (!putRes.ok) throw new Error(`Storage upload failed (${putRes.status})`)
 
       setUploading(false)
       setAnalyzing(true)
