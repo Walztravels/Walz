@@ -77,27 +77,24 @@ export async function POST(req: NextRequest) {
     )
     console.log('[Bank Analyser] Claude analysis complete, status:', analysis.status)
 
-    // Save analysis to correct table
-    let saveError: unknown = null
-
     if (targetTable === 'bank_statement_analyses') {
+      // Admin standalone flow — save is best-effort; never block returning the analysis
       const { error } = await supabase.from('bank_statement_analyses').upsert(
         { [idField]: applicationId, analysis, analyzed_at: new Date().toISOString(), uploaded_by: uploadedBy },
         { onConflict: idField }
       )
-      saveError = error
+      if (error) console.error('[Bank Analyser] DB save skipped (non-fatal):', error.message)
     } else {
+      // Portal flow (visa_applications) — save is required
       const { error } = await supabase.from('visa_applications').update({
         bank_statement_analysis: analysis,
         bank_statement_analyzed_at: new Date().toISOString(),
         bank_statement_uploaded_by: uploadedBy,
       }).eq('id', applicationId)
-      saveError = error
-    }
-
-    if (saveError) {
-      console.error('[Bank Analyser] Supabase save error:', saveError)
-      return NextResponse.json({ error: 'Failed to save analysis' }, { status: 500 })
+      if (error) {
+        console.error('[Bank Analyser] Supabase save error:', error)
+        return NextResponse.json({ error: 'Failed to save analysis' }, { status: 500 })
+      }
     }
 
     console.log('[Bank Analyser] DONE in', Date.now() - t0, 'ms')
