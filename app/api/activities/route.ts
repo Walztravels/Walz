@@ -103,36 +103,41 @@ function mapHBCategory(codes: string[]): string {
 // ── Exhaustive image extraction across all known HB response shapes ──────────
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function extractHBImage(item: any): string {
-  // Shape 1: Content API — media.images[].urls[{sizeType, resource}]
-  const contentImages: { urls?: { sizeType: string; resource: string }[] }[] =
-    item.media?.images ?? item.images ?? []
-  for (const img of contentImages) {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const imgList: any[] = item.media?.images ?? item.images ?? []
+
+  for (const img of imgList) {
+    // Shape 1: Content API — urls[{sizeType, resource}]
     const urlArr = Array.isArray(img.urls) ? img.urls : []
     const pick =
-      urlArr.find((u: { sizeType: string }) => u.sizeType === 'LARGE' || u.sizeType === 'LARGE2') ??
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      urlArr.find((u: any) => u.sizeType === 'LARGE' || u.sizeType === 'LARGE2') ??
       urlArr[0]
     const resource = (pick as { resource?: string })?.resource
     if (resource?.startsWith('http')) return resource
+
+    // Shape 2: Cache API — images[{url: "..."}]  (direct url field, no urls array)
+    if ((img as { url?: string }).url?.startsWith('http')) return (img as { url: string }).url
   }
 
-  // Shape 2: Cache API — media[{type, url}]
-  const mediaArr: { type?: string; url?: string; resource?: string }[] =
+  // Shape 3: Cache API — media as flat array [{url, resource}]
+  const mediaArr: { url?: string; resource?: string }[] =
     Array.isArray(item.media) ? item.media : []
   for (const m of mediaArr) {
     if (m.url?.startsWith('http'))      return m.url
     if (m.resource?.startsWith('http')) return m.resource
   }
 
-  // Shape 3: GIATA picture list
+  // Shape 4: GIATA picture list
   if (item.pictureList?.[0]?.numericId) {
     return `https://photos.hotelbeds.com/giata/${item.pictureList[0].numericId}.jpg`
   }
 
-  // Shape 4: content sub-object fallback
-  const subImages: { urls?: { resource?: string }[] }[] =
-    item.content?.media?.images ?? []
+  // Shape 5: content sub-object
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const subImages: any[] = item.content?.media?.images ?? []
   for (const img of subImages) {
-    const url = img.urls?.[0]?.resource
+    const url = img.urls?.[0]?.resource ?? img.url
     if (url?.startsWith('http')) return url
   }
 
