@@ -1,6 +1,7 @@
 import Anthropic from '@anthropic-ai/sdk'
 import OpenAI from 'openai'
 import type { Message } from '@anthropic-ai/sdk/resources/messages'
+import type { DocumentBlockParam } from '@anthropic-ai/sdk/resources/messages'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -113,14 +114,9 @@ Same destination thresholds apply.`,
   },
 }
 
-// ─── Shared prompt builder ────────────────────────────────────────────────────
+// ─── Prompt builder ────────────────────────────────────────────────────────────
 
-function buildPrompts(
-  extractedText: string,
-  destination: string,
-  applicantName: string,
-  passportCountry: string,
-) {
+function buildPrompts(destination: string, applicantName: string, passportCountry: string, extractedText = '') {
   const key = destination.toLowerCase().replace(/\s+/g, '')
   const req = EMBASSY_REQUIREMENTS[key] ?? EMBASSY_REQUIREMENTS['uk']
 
@@ -128,41 +124,38 @@ function buildPrompts(
 at a travel consultancy. You have processed thousands of visa applications for UK, Canada, USA, \
 Schengen, and UAE embassies and you know exactly what immigration officers look for and flag.
 
-Your job is to analyse a client's bank statement and provide:
-1. A structured data assessment for the Walz Travels internal team
-2. Actionable recommendations the client can act on before submission
-3. An honest expert opinion — if the application looks weak, say so clearly in agentNotes
-
 Rules:
-- Be precise with numbers
+- Be precise with numbers — read every transaction and every balance figure on the statement
 - Be direct and specific in agentNotes
 - Be encouraging but honest in summary (never reveal PASS/REVIEW/FLAG label to client)
-- Never invent transactions — only report what is visible in the statement text`
+- Never invent transactions — only report what is visible in the statement`
 
-  const user = `Analyse the bank statement below for a ${destination.toUpperCase()} visa application.
+  const textSection = extractedText.trim().length > 200
+    ? `\n\nEXTRACTED STATEMENT TEXT (for reference):\n---\n${extractedText.slice(0, 80000)}\n---\n`
+    : ''
+
+  const user = `Analyse the bank statement ${extractedText.trim().length > 200 ? 'text below' : 'PDF attached above'} for a ${destination.toUpperCase()} visa application.
 
 APPLICANT: ${applicantName}
 PASSPORT COUNTRY: ${passportCountry}
 VISA DESTINATION: ${destination.toUpperCase()}
 
-EMBASSY REQUIREMENTS AND OFFICER PRIORITIES:
+EMBASSY REQUIREMENTS:
 ${req.notes}
 
-MINIMUM BALANCE THRESHOLD: ${req.min} ${req.currency} maintained consistently over ${req.months} months.
+MINIMUM BALANCE THRESHOLD: ${req.min} ${req.currency} consistently over ${req.months} months.
+${textSection}
+OUTPUT RULES — CRITICAL:
+- Return ONLY a valid JSON object
+- Start immediately with { — do not write any text before or after
+- No markdown, no code fences, no explanation
+- Every field in the schema below must be present
 
-BANK STATEMENT TEXT:
----
-${extractedText.slice(0, 80000)}
----
-
-Return ONLY a raw JSON object — no markdown, no code fences, no explanation before or after. \
-Just the JSON starting with { and ending with }.
-
-Required JSON structure:
+JSON SCHEMA:
 {
-  "status": "PASS",
-  "currency": "GBP",
-  "statementPeriod": "January 2025 – March 2025",
+  "status": "PASS | REVIEW | FLAG",
+  "currency": "detected currency code e.g. GBP",
+  "statementPeriod": "e.g. January 2025 – March 2025",
   "monthsAnalyzed": 3,
   "averageMonthlyBalance": 4200,
   "lowestBalance": 1850,
@@ -187,53 +180,79 @@ Required JSON structure:
   "roundNumberDeposits": false,
   "unusualDepositPattern": false,
   "recommendations": [],
-  "summary": "Client-facing plain English summary — no jargon, no PASS/REVIEW/FLAG label.",
-  "agentNotes": "Internal-only. Direct, specific. Include proceed/wait recommendation.",
-  "confidence": "high",
+  "summary": "Client-facing plain English summary — no jargon, no PASS/REVIEW/FLAG label",
+  "agentNotes": "Internal only — direct, specific, include proceed/wait recommendation",
+  "confidence": "high | medium | low",
   "warnings": []
 }
 
-STATUS DECISION RULES:
-- PASS → average balance clearly above ${req.min} ${req.currency}, income regular, pattern consistent, no disqualifying flags
-- REVIEW → borderline balance OR minor irregularities that need explanation but are not disqualifying
-- FLAG → balance below threshold, irregular/unverifiable income, funds parking evidence, overdrafts, or patterns an embassy officer would question
+STATUS RULES:
+- PASS → balance clearly above ${req.min} ${req.currency}, regular income, clean pattern
+- REVIEW → borderline balance OR minor irregularities needing explanation
+- FLAG → balance below threshold, irregular income, overdrafts, funds parking, or anything an embassy officer would question
 
-WHAT TO FLAG AS SUSPICIOUS:
-- Large round-number cash deposits (e.g. exactly £5,000, £10,000) with no source
-- Balance spikes in the final 2–4 weeks of the statement (funds parking signal)
-- Vague large withdrawals (e.g. "CASH", "WITHDRAWAL") with no payee name
+SUSPICIOUS PATTERNS TO FLAG:
+- Round-number cash deposits (£5,000, £10,000) with no source
+- Balance spikes in final 2–4 weeks (funds parking)
+- Vague large withdrawals: "CASH", "WITHDRAWAL" with no payee
 - Overdrafts or returned direct debits
-- Transfers from unidentified sources just before statement closing date
-- Stated income does not match salary credits
 - Dormant account that suddenly shows activity
-- Multiple credits on the same day from different sources shortly before period end
-
-WHAT COUNTS AS A LARGE UNEXPLAINED WITHDRAWAL:
-- Any single debit above 30% of the average monthly balance
-- Any debit above ${Math.round(req.min * 0.5)} ${req.currency} with a vague description
-
-Be thorough — a missed flag can cause a visa rejection. A false flag causes unnecessary anxiety.`
+- Transfers from unidentified sources near statement end
+- Large unexplained debit = any single debit above 30% of avg monthly balance or above ${Math.round(req.min * 0.5)} ${req.currency} with vague description`
 
   return { system, user, req }
 }
 
-// ─── JSON extractor ───────────────────────────────────────────────────────────
+// ─── Claude (document API + JSON prefill) ────────────────────────────────────
+// Sends the raw PDF to Claude and uses the assistant-prefill trick ({ at the
+// start of the assistant turn) to guarantee JSON output with no preamble.
 
-function extractJson(raw: string): string {
-  // Strip markdown code fences
-  let clean = raw.replace(/^```(?:json)?\s*\n?/, '').replace(/\n?```\s*$/, '').trim()
-  // Find first { and last } in case there's surrounding text
-  if (!clean.startsWith('{')) {
-    const s = clean.indexOf('{')
-    const e = clean.lastIndexOf('}')
-    if (s >= 0 && e > s) clean = clean.slice(s, e + 1)
+async function analyzeWithClaudeDocument(
+  base64Pdf: string,
+  destination: string,
+  applicantName: string,
+  passportCountry: string,
+): Promise<BankStatementAnalysis> {
+  const apiKey = process.env.ANTHROPIC_API_KEY
+  if (!apiKey) throw new Error('ANTHROPIC_API_KEY not set')
+
+  const client = new Anthropic({ apiKey })
+  const { system, user, req } = buildPrompts(destination, applicantName, passportCountry)
+
+  const docBlock: DocumentBlockParam = {
+    type:   'document',
+    source: { type: 'base64', media_type: 'application/pdf', data: base64Pdf },
   }
-  return clean
+
+  console.log('[Claude-doc] calling API, base64 length:', base64Pdf.length)
+
+  let response: Message
+  try {
+    response = await client.messages.create({
+      model:      'claude-sonnet-4-6',
+      max_tokens: 4096,
+      system,
+      messages: [
+        { role: 'user',      content: [docBlock, { type: 'text', text: user }] },
+        // Prefill forces Claude to start immediately with JSON — no preamble possible
+        { role: 'assistant', content: '{' },
+      ],
+    }) as Message
+  } catch (e) {
+    throw new Error(`Claude API error: ${e instanceof Error ? e.message : String(e)}`)
+  }
+
+  const tail = response.content[0].type === 'text' ? response.content[0].text : ''
+  const raw  = '{' + tail  // reconstruct: prefill + continuation
+  console.log('[Claude-doc] stop_reason:', response.stop_reason, '| raw preview:', raw.slice(0, 200))
+
+  const parsed = JSON.parse(raw) as BankStatementAnalysis
+  return { ...parsed, analysisEngine: 'Claude claude-sonnet-4-6' }
 }
 
-// ─── Claude analyser ──────────────────────────────────────────────────────────
+// ─── Claude (text mode) ───────────────────────────────────────────────────────
 
-async function analyzeWithClaude(
+async function analyzeWithClaudeText(
   extractedText: string,
   destination: string,
   applicantName: string,
@@ -243,30 +262,34 @@ async function analyzeWithClaude(
   if (!apiKey) throw new Error('ANTHROPIC_API_KEY not set')
 
   const client = new Anthropic({ apiKey })
-  const { system, user, req } = buildPrompts(extractedText, destination, applicantName, passportCountry)
+  const { system, user } = buildPrompts(destination, applicantName, passportCountry, extractedText)
 
-  console.log('[Claude] calling API, text length:', extractedText.length)
+  console.log('[Claude-text] calling API, text length:', extractedText.length)
+
   let response: Message
   try {
     response = await client.messages.create({
       model:      'claude-sonnet-4-6',
       max_tokens: 4096,
       system,
-      messages:   [{ role: 'user', content: user }],
+      messages: [
+        { role: 'user',      content: user },
+        { role: 'assistant', content: '{' },
+      ],
     }) as Message
   } catch (e) {
-    throw new Error(`Claude API error: ${e instanceof Error ? e.message : String(e)}`)
+    throw new Error(`Claude text API error: ${e instanceof Error ? e.message : String(e)}`)
   }
 
-  const raw = response.content[0].type === 'text' ? response.content[0].text : ''
-  console.log('[Claude] stop_reason:', response.stop_reason, '| response preview:', raw.slice(0, 200))
+  const tail = response.content[0].type === 'text' ? response.content[0].text : ''
+  const raw  = '{' + tail
+  console.log('[Claude-text] stop_reason:', response.stop_reason, '| raw preview:', raw.slice(0, 200))
 
-  const clean = extractJson(raw)
-  const parsed = JSON.parse(clean) as BankStatementAnalysis
+  const parsed = JSON.parse(raw) as BankStatementAnalysis
   return { ...parsed, analysisEngine: 'Claude claude-sonnet-4-6' }
 }
 
-// ─── OpenAI (ChatGPT) analyser ────────────────────────────────────────────────
+// ─── OpenAI GPT-4o (text mode) ───────────────────────────────────────────────
 
 async function analyzeWithOpenAI(
   extractedText: string,
@@ -278,33 +301,52 @@ async function analyzeWithOpenAI(
   if (!apiKey) throw new Error('OPENAI_API_KEY not set')
 
   const client = new OpenAI({ apiKey })
-  const { system, user, req } = buildPrompts(extractedText, destination, applicantName, passportCountry)
+  const { system, user } = buildPrompts(destination, applicantName, passportCountry, extractedText)
 
   console.log('[OpenAI] calling GPT-4o, text length:', extractedText.length)
+
   const response = await client.chat.completions.create({
-    model:       'gpt-4o',
-    max_tokens:  4096,
-    temperature: 0,
+    model:           'gpt-4o',
+    max_tokens:      4096,
+    temperature:     0,
+    response_format: { type: 'json_object' },
     messages: [
       { role: 'system', content: system },
       { role: 'user',   content: user   },
     ],
-    response_format: { type: 'json_object' },
   })
 
   const raw = response.choices[0]?.message?.content ?? ''
   console.log('[OpenAI] finish_reason:', response.choices[0]?.finish_reason, '| preview:', raw.slice(0, 200))
 
-  const clean = extractJson(raw)
-  const parsed = JSON.parse(clean) as BankStatementAnalysis
+  const parsed = JSON.parse(raw) as BankStatementAnalysis
   return { ...parsed, analysisEngine: 'ChatGPT gpt-4o' }
+}
+
+// ─── PDF text extractor ───────────────────────────────────────────────────────
+
+async function extractPdfText(pdfBuffer: Buffer): Promise<string> {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const mod      = await import('pdf-parse') as any
+    const pdfParse = mod.default ?? mod
+    const result   = await pdfParse(pdfBuffer)
+    return result.text ?? ''
+  } catch {
+    return ''
+  }
 }
 
 // ─── Main entry point ─────────────────────────────────────────────────────────
 
-// Accepts raw PDF buffer. Extracts text via dynamic pdf-parse import (avoids
-// module-level crash in Vercel serverless), then tries Claude first, falls
-// back to OpenAI GPT-4o if Claude fails or returns invalid JSON.
+// Strategy:
+//  1. Claude document API — sends the raw PDF bytes so Claude can visually read it.
+//     Uses the JSON prefill trick to guarantee { ... } output with no preamble.
+//     Works for both text-based and scanned PDFs.
+//  2. If Claude doc API fails: extract text via pdf-parse → Claude text mode
+//  3. If Claude text mode also fails: extract text → OpenAI GPT-4o
+//  4. All engines failed → return manual-review fallback
+
 export async function analyzeBankStatement(
   pdfBuffer: Buffer,
   destination: string,
@@ -313,39 +355,42 @@ export async function analyzeBankStatement(
 ): Promise<BankStatementAnalysis> {
   const key = destination.toLowerCase().replace(/\s+/g, '')
   const req = EMBASSY_REQUIREMENTS[key] ?? EMBASSY_REQUIREMENTS['uk']
+  const base64Pdf = pdfBuffer.toString('base64')
 
-  // Extract text from PDF using dynamic import (avoids module-level init crash)
-  let extractedText = ''
+  // 1. Claude document API (primary — reads the actual PDF)
   try {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const mod      = await import('pdf-parse') as any
-    const pdfParse = mod.default ?? mod
-    const result   = await pdfParse(pdfBuffer)
-    extractedText  = result.text ?? ''
-    console.log('[analyzeBankStatement] pdf-parse extracted', extractedText.length, 'chars')
-  } catch (e) {
-    console.warn('[analyzeBankStatement] pdf-parse failed:', e instanceof Error ? e.message : e)
-  }
-
-  // Try Claude
-  try {
-    const result = await analyzeWithClaude(extractedText, destination, applicantName, passportCountry)
-    console.log('[analyzeBankStatement] Claude succeeded, status:', result.status)
+    const result = await analyzeWithClaudeDocument(base64Pdf, destination, applicantName, passportCountry)
+    console.log('[analyzeBankStatement] Claude-doc succeeded, status:', result.status)
     return result
-  } catch (claudeErr) {
-    console.warn('[analyzeBankStatement] Claude failed:', claudeErr instanceof Error ? claudeErr.message : claudeErr)
+  } catch (e) {
+    console.warn('[analyzeBankStatement] Claude-doc failed:', e instanceof Error ? e.message : e)
   }
 
-  // Fallback: OpenAI GPT-4o
+  // 2. Extract text for text-based fallbacks
+  const extractedText = await extractPdfText(pdfBuffer)
+  console.log('[analyzeBankStatement] pdf-parse extracted', extractedText.length, 'chars')
+
+  // 3. Claude text mode
+  if (extractedText.length > 100) {
+    try {
+      const result = await analyzeWithClaudeText(extractedText, destination, applicantName, passportCountry)
+      console.log('[analyzeBankStatement] Claude-text succeeded, status:', result.status)
+      return result
+    } catch (e) {
+      console.warn('[analyzeBankStatement] Claude-text failed:', e instanceof Error ? e.message : e)
+    }
+  }
+
+  // 4. OpenAI GPT-4o
   try {
     const result = await analyzeWithOpenAI(extractedText, destination, applicantName, passportCountry)
     console.log('[analyzeBankStatement] OpenAI succeeded, status:', result.status)
     return result
-  } catch (openaiErr) {
-    console.error('[analyzeBankStatement] OpenAI also failed:', openaiErr instanceof Error ? openaiErr.message : openaiErr)
+  } catch (e) {
+    console.error('[analyzeBankStatement] OpenAI also failed:', e instanceof Error ? e.message : e)
   }
 
-  // Both failed
+  // All engines failed
   return {
     status: 'REVIEW',
     currency: 'UNKNOWN',
@@ -375,7 +420,7 @@ export async function analyzeBankStatement(
     unusualDepositPattern: false,
     recommendations: ['Manual review required — AI analysis is temporarily unavailable.'],
     summary: 'Our team will review your bank statement and get back to you within 24 hours.',
-    agentNotes: 'ANALYSIS UNAVAILABLE — Both Claude and OpenAI engines failed. Check ANTHROPIC_API_KEY and OPENAI_API_KEY in Vercel environment variables. Review PDF manually.',
+    agentNotes: 'ANALYSIS UNAVAILABLE — All AI engines failed. Check ANTHROPIC_API_KEY and OPENAI_API_KEY in Vercel env vars. Review the PDF manually.',
     confidence: 'low',
     warnings: ['Automatic analysis unavailable — manual review required'],
     analysisEngine: 'none',
