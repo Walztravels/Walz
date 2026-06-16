@@ -151,9 +151,11 @@ model Booking {
   addons Json?
 
   // Metadata
-  notes     String? @db.Text
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  notes            String? @db.Text
+  createdByStaffId String?
+  branch           String  @default("nigeria")
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
 
   user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
 
@@ -246,8 +248,10 @@ model VisaApplication {
   initiatedBy String @default("client") // "admin" | "client"
 
   // ── Admin ───────────────────────────────────────
-  assignedTo       String?
-  embassyReference String?
+  assignedTo        String?
+  assignedOfficerId String?
+  branch            String  @default("nigeria")
+  embassyReference  String?
   submissionDate   DateTime?
   decisionDate     DateTime?
   decisionNotes    String?   @db.Text
@@ -393,7 +397,9 @@ model Lead {
   lastMessageAt     DateTime?
   isRead            Boolean   @default(true)
   jadeActive        Boolean   @default(true)
-  assignedTo        String?
+  assignedTo        String?   // legacy string assignment
+  assignedToId      String?   // FK to Staff (row-level security)
+  branch            String    @default("nigeria")
   platform          String?   // Facebook | Instagram | WhatsApp | Website
   // ──────────────────────────────────────────────────────────────────────
   createdAt DateTime @default(now())
@@ -405,6 +411,8 @@ model Lead {
   @@index([source])
   @@index([sourceId])
   @@index([isRead])
+  @@index([assignedToId])
+  @@index([branch])
 }
 
 // ===========================
@@ -432,9 +440,14 @@ model Staff {
   passwordHash String
   roleTitle    String    // Free-text job title e.g. "Senior Sales Agent"
   accessLevel  String    @default("sales_rep") // legacy compat — derived from role
-  role         String    @default("sales_rep") // super_admin | general_manager | senior_manager | coordinator | sales_rep
-  portalAccess Boolean   @default(false)        // can also log into client portal at /portal
+  role         String    @default("sales_rep")
+  // departments: general | visa | flights | tours | hotels | sales | accounts | support
+  department   String    @default("general")
+  // branches: nigeria | uk | canada | ghana | uae | remote
+  branch       String    @default("nigeria")
+  managerId    String?   // who this staff member reports to
   permissions  Json      @default("{}")         // per-staff overrides (empty = use role defaults)
+  portalAccess Boolean   @default(false)        // can also log into client portal at /portal
   country      String?
   whatsapp     String?
   isActive     Boolean   @default(true)
@@ -443,25 +456,38 @@ model Staff {
   updatedAt    DateTime  @updatedAt
 
   activityLogs ActivityLog[]
+  manager      Staff?    @relation("StaffManager", fields: [managerId], references: [id])
+  reports      Staff[]   @relation("StaffManager")
 
   @@index([email])
   @@index([isActive])
   @@index([accessLevel])
   @@index([role])
+  @@index([branch])
+  @@index([department])
 }
 
 model ActivityLog {
-  id        String   @id @default(cuid())
-  staffId   String?
-  staffName String?
-  action    String
-  detail    String?  @db.Text
-  ipAddress String?
-  createdAt DateTime @default(now())
+  id          String   @id @default(cuid())
+  staffId     String?
+  staffName   String?
+  staffRole   String?
+  staffBranch String?
+  action      String
+  module      String?  // bookings | visa | clients | staff | settings | content | approvals
+  entityId    String?
+  entityType  String?
+  detail      String?  @db.Text
+  ipAddress   String?
+  userAgent   String?
+  before      Json?
+  after       Json?
+  createdAt   DateTime @default(now())
 
   staff Staff? @relation(fields: [staffId], references: [id], onDelete: SetNull)
 
   @@index([staffId])
+  @@index([module])
   @@index([createdAt])
 }
 
@@ -1047,9 +1073,33 @@ model SiteContent {
   id        String   @id @default(cuid())
   key       String   @unique
   value     String   @db.Text
+  type      String   @default("text")
   label     String?
   group     String   @default("general")
+  page      String   @default("general")
+  updatedBy String?
   updatedAt DateTime @updatedAt
+}
+
+model ApprovalRequest {
+  id          String    @id @default(cuid())
+  type        String    // refund | booking_cancel | visa_approve | discount
+  status      String    @default("pending") // pending | approved | rejected
+  requestedBy String    // staff email
+  approvedBy  String?   // staff email
+  entityId    String    // booking ID, visa ID, etc.
+  entityType  String    // booking | visa | refund
+  amount      Float?
+  currency    String?
+  reason      String    @db.Text
+  notes       String?   @db.Text
+  requestedAt DateTime  @default(now())
+  resolvedAt  DateTime?
+  branch      String    @default("nigeria")
+
+  @@index([status])
+  @@index([requestedBy])
+  @@index([branch])
 }
 
 model TimelineEvent {

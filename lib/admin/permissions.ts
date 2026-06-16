@@ -1,0 +1,253 @@
+export type AdminRole =
+  | 'super_admin'
+  | 'operations_manager'
+  | 'visa_officer'
+  | 'flight_staff'
+  | 'tours_staff'
+  | 'hotel_staff'
+  | 'sales_agent'
+  | 'accountant'
+  | 'customer_support'
+
+export type Permission =
+  | 'dashboard'
+  | 'analytics'
+  | 'inbox'
+  | 'clients'
+  | 'clients.create'
+  | 'clients.delete'
+  | 'clients.all'
+  | 'leads'
+  | 'leads.all'
+  | 'bookings'
+  | 'bookings.create'
+  | 'bookings.delete'
+  | 'bookings.all'
+  | 'flights'
+  | 'flights.issue'
+  | 'hotels'
+  | 'hotels.manage'
+  | 'visa'
+  | 'visa.approve'
+  | 'visa.documents'
+  | 'tours'
+  | 'tours.manage'
+  | 'transfers'
+  | 'payments'
+  | 'payments.refund'
+  | 'payments.all'
+  | 'reports'
+  | 'reports.financial'
+  | 'reports.all'
+  | 'staff'
+  | 'staff.create'
+  | 'staff.edit'
+  | 'staff.delete'
+  | 'payroll'
+  | 'commissions'
+  | 'suppliers'
+  | 'tools'
+  | 'settings'
+  | 'content'
+  | 'audit_logs'
+  | 'api_keys'
+  | 'approvals'
+  | 'approvals.resolve'
+  | 'blog'
+  | 'blog.publish'
+  | 'documents'
+
+export const ROLE_PERMISSIONS: Record<AdminRole, Permission[]> = {
+  super_admin: [
+    'dashboard', 'analytics', 'inbox', 'clients', 'clients.create', 'clients.delete', 'clients.all',
+    'leads', 'leads.all', 'bookings', 'bookings.create', 'bookings.delete', 'bookings.all',
+    'flights', 'flights.issue', 'hotels', 'hotels.manage', 'visa', 'visa.approve', 'visa.documents',
+    'tours', 'tours.manage', 'transfers', 'payments', 'payments.refund', 'payments.all',
+    'reports', 'reports.financial', 'reports.all', 'staff', 'staff.create', 'staff.edit', 'staff.delete',
+    'payroll', 'commissions', 'suppliers', 'tools', 'settings', 'content', 'audit_logs', 'api_keys',
+    'approvals', 'approvals.resolve', 'blog', 'blog.publish', 'documents',
+  ],
+  operations_manager: [
+    'dashboard', 'analytics', 'inbox', 'clients', 'clients.create', 'clients.all',
+    'leads', 'leads.all', 'bookings', 'bookings.create', 'bookings.all',
+    'flights', 'hotels', 'visa', 'visa.approve', 'tours', 'transfers',
+    'payments', 'reports', 'reports.financial', 'reports.all',
+    'staff', 'suppliers', 'commissions', 'approvals', 'approvals.resolve',
+    'blog', 'documents',
+  ],
+  visa_officer: [
+    'dashboard', 'inbox', 'clients', 'visa', 'visa.approve', 'visa.documents',
+    'documents', 'reports', 'approvals',
+  ],
+  flight_staff: [
+    'dashboard', 'inbox', 'bookings', 'bookings.create', 'flights', 'flights.issue',
+    'clients', 'transfers', 'approvals',
+  ],
+  tours_staff: [
+    'dashboard', 'inbox', 'tours', 'tours.manage', 'bookings', 'bookings.create',
+    'clients', 'documents', 'transfers',
+  ],
+  hotel_staff: [
+    'dashboard', 'inbox', 'hotels', 'hotels.manage', 'bookings', 'bookings.create',
+    'clients',
+  ],
+  sales_agent: [
+    'dashboard', 'inbox', 'leads', 'clients', 'clients.create',
+    'bookings.create', 'commissions', 'approvals',
+  ],
+  accountant: [
+    'dashboard', 'payments', 'payments.refund', 'payments.all',
+    'reports', 'reports.financial', 'reports.all', 'commissions', 'payroll',
+    'approvals', 'approvals.resolve',
+  ],
+  customer_support: [
+    'dashboard', 'inbox', 'clients', 'bookings', 'visa', 'leads', 'approvals',
+  ],
+}
+
+export function hasPermission(
+  staff: { role: string; permissions: unknown },
+  permission: Permission,
+): boolean {
+  const role      = staff.role as AdminRole
+  const rolePerms = ROLE_PERMISSIONS[role] ?? []
+  const overrides = (
+    typeof staff.permissions === 'object' && staff.permissions !== null
+      ? staff.permissions
+      : {}
+  ) as Record<string, boolean>
+
+  if (overrides[permission] === true)  return true
+  if (overrides[permission] === false) return false
+  return rolePerms.includes(permission)
+}
+
+export function canSeeAllRecords(
+  staff: { role: string; permissions: unknown },
+  module: 'clients' | 'leads' | 'bookings',
+): boolean {
+  const permMap: Record<string, Permission> = {
+    clients:  'clients.all',
+    leads:    'leads.all',
+    bookings: 'bookings.all',
+  }
+  return hasPermission(staff, permMap[module])
+}
+
+// ── Role display config ────────────────────────────────────────────────────────
+
+export const ROLE_LABELS: Record<AdminRole, string> = {
+  super_admin:        'Super Admin',
+  operations_manager: 'Operations Manager',
+  visa_officer:       'Visa Officer',
+  flight_staff:       'Flight Staff',
+  tours_staff:        'Tours Staff',
+  hotel_staff:        'Hotel Staff',
+  sales_agent:        'Sales Agent',
+  accountant:         'Accountant',
+  customer_support:   'Customer Support',
+}
+
+export const ROLE_BADGE_CLASSES: Record<AdminRole, string> = {
+  super_admin:        'bg-yellow-500 text-yellow-950',
+  operations_manager: 'bg-blue-600 text-white',
+  visa_officer:       'bg-purple-600 text-white',
+  flight_staff:       'bg-sky-500 text-white',
+  tours_staff:        'bg-green-600 text-white',
+  hotel_staff:        'bg-teal-600 text-white',
+  sales_agent:        'bg-orange-500 text-white',
+  accountant:         'bg-rose-600 text-white',
+  customer_support:   'bg-gray-500 text-white',
+}
+
+// ── Nav definition ─────────────────────────────────────────────────────────────
+
+export interface NavItem {
+  href:       string
+  label:      string
+  icon:       string
+  permission: Permission
+}
+
+export interface NavSection {
+  section: string
+  items:   NavItem[]
+}
+
+export const NAV_ITEMS: NavSection[] = [
+  {
+    section: 'OVERVIEW',
+    items: [
+      { href: '/admin/dashboard',   label: 'Dashboard',      icon: 'LayoutDashboard', permission: 'dashboard'       },
+      { href: '/admin/analytics',   label: 'Analytics',      icon: 'TrendingUp',      permission: 'analytics'       },
+      { href: '/admin/inbox',       label: 'Inbox',          icon: 'MessageSquare',   permission: 'inbox'           },
+    ],
+  },
+  {
+    section: 'CLIENTS & LEADS',
+    items: [
+      { href: '/admin/clients',     label: 'Clients',        icon: 'Users',           permission: 'clients'         },
+      { href: '/admin/leads',       label: 'Leads',          icon: 'UserPlus',        permission: 'leads'           },
+    ],
+  },
+  {
+    section: 'BOOKINGS',
+    items: [
+      { href: '/admin/bookings',    label: 'All Bookings',   icon: 'Calendar',        permission: 'bookings'        },
+      { href: '/admin/book',        label: 'New Booking',    icon: 'Plus',            permission: 'bookings.create' },
+      { href: '/admin/flights',     label: 'Flights',        icon: 'Plane',           permission: 'flights'         },
+      { href: '/admin/hotels',      label: 'Hotels',         icon: 'Building2',       permission: 'hotels'          },
+      { href: '/admin/transfers',   label: 'Transfers',      icon: 'Car',             permission: 'transfers'       },
+    ],
+  },
+  {
+    section: 'SERVICES',
+    items: [
+      { href: '/admin/visa',        label: 'Visa',           icon: 'FileText',        permission: 'visa'            },
+      { href: '/admin/tours',       label: 'Tours',          icon: 'Map',             permission: 'tours'           },
+      { href: '/admin/documents',   label: 'Documents',      icon: 'FolderOpen',      permission: 'documents'       },
+    ],
+  },
+  {
+    section: 'FINANCE',
+    items: [
+      { href: '/admin/payments',    label: 'Payments',       icon: 'CreditCard',      permission: 'payments'        },
+      { href: '/admin/commissions', label: 'Commissions',    icon: 'Award',           permission: 'commissions'     },
+      { href: '/admin/payroll',     label: 'Payroll',        icon: 'DollarSign',      permission: 'payroll'         },
+    ],
+  },
+  {
+    section: 'REPORTS',
+    items: [
+      { href: '/admin/reports',     label: 'Reports',        icon: 'BarChart2',       permission: 'reports'         },
+      { href: '/admin/approvals',   label: 'Approvals',      icon: 'CheckCircle',     permission: 'approvals'       },
+    ],
+  },
+  {
+    section: 'CONTENT',
+    items: [
+      { href: '/admin/blog',        label: 'Blog',           icon: 'BookOpen',        permission: 'blog'            },
+      { href: '/admin/content',     label: 'Website Editor', icon: 'Edit',            permission: 'content'         },
+    ],
+  },
+  {
+    section: 'SYSTEM',
+    items: [
+      { href: '/admin/staff',       label: 'Staff',          icon: 'Shield',          permission: 'staff'           },
+      { href: '/admin/suppliers',   label: 'Suppliers',      icon: 'Package',         permission: 'suppliers'       },
+      { href: '/admin/tools',       label: 'Tools',          icon: 'Wrench',          permission: 'tools'           },
+      { href: '/admin/audit-logs',  label: 'Audit Logs',     icon: 'Activity',        permission: 'audit_logs'      },
+      { href: '/admin/api-keys',    label: 'API Keys',       icon: 'Key',             permission: 'api_keys'        },
+      { href: '/admin/settings',    label: 'Settings',       icon: 'Settings',        permission: 'settings'        },
+    ],
+  },
+]
+
+export function getNavForStaff(staff: { role: string; permissions: unknown }): NavSection[] {
+  return NAV_ITEMS
+    .map(section => ({
+      ...section,
+      items: section.items.filter(item => hasPermission(staff, item.permission)),
+    }))
+    .filter(section => section.items.length > 0)
+}

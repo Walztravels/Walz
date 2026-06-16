@@ -3,6 +3,33 @@ import bcrypt from 'bcryptjs'
 import { getAdminSession } from '@/lib/admin-auth'
 import prisma from '@/lib/db'
 
+// ── GET — fetch a single staff member ─────────────────────────────────────────
+export async function GET(
+  _req: NextRequest,
+  { params }: { params: { id: string } },
+) {
+  const session = await getAdminSession()
+  if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
+  const staff = await prisma.staff.findUnique({
+    where:  { id: params.id },
+    select: {
+      id:          true,
+      name:        true,
+      email:       true,
+      role:        true,
+      roleTitle:   true,
+      branch:      true,
+      department:  true,
+      permissions: true,
+      isActive:    true,
+    },
+  })
+
+  if (!staff) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+  return NextResponse.json({ staff })
+}
+
 const VALID_ROLES = ['super_admin', 'general_manager', 'senior_manager', 'coordinator', 'sales_rep']
 
 const ROLE_LABELS: Record<string, string> = {

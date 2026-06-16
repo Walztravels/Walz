@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { getAdminSession } from '@/lib/admin-auth'
 import { getStaffPermissionsByEmail } from '@/lib/getStaffPermissions'
 import { ROLE_LABELS, ROLE_COLORS, ROLE_BG_CLASSES, EMPTY_PERMISSIONS } from '@/lib/permissions'
+import { ROLE_LABELS as NEW_ROLE_LABELS, ROLE_BADGE_CLASSES } from '@/lib/admin/permissions'
 import { prisma } from '@/lib/db'
 
 const ALLOWED_EMAILS = (process.env.ADMIN_EMAILS ?? 'contact@walztravels.com')
@@ -30,6 +31,8 @@ export async function GET() {
       email:      true,
       role:       true,
       roleTitle:  true,
+      branch:     true,
+      department: true,
       isActive:   true,
     },
   })
@@ -66,17 +69,26 @@ export async function GET() {
 
   const { staffId: _sid, role: _r, ...permissions } = await getStaffPermissionsByEmail(session.email)
 
-  const role = staff.role as keyof typeof ROLE_LABELS
+  const oldRole = staff.role as keyof typeof ROLE_LABELS
+  // Prefer new 9-role label if present, fall back to old 5-role label
+  const roleLabel = NEW_ROLE_LABELS[staff.role as keyof typeof NEW_ROLE_LABELS]
+    ?? ROLE_LABELS[oldRole]
+    ?? staff.role
+  const roleBadge = ROLE_BADGE_CLASSES[staff.role as keyof typeof ROLE_BADGE_CLASSES]
+    ?? ROLE_BG_CLASSES[oldRole]
+    ?? 'bg-gray-500 text-white'
 
   return NextResponse.json({
-    id:        staff.id,
-    name:      staff.name,
-    email:     staff.email,
-    role:      staff.role,
-    roleTitle: staff.roleTitle,
-    roleLabel: ROLE_LABELS[role]   ?? staff.role,
-    roleColor: ROLE_COLORS[role]   ?? '#6B7280',
-    roleBadge: ROLE_BG_CLASSES[role] ?? 'bg-gray-500 text-white',
+    id:         staff.id,
+    name:       staff.name,
+    email:      staff.email,
+    role:       staff.role,
+    roleTitle:  staff.roleTitle,
+    branch:     staff.branch     ?? 'nigeria',
+    department: staff.department ?? 'general',
+    roleLabel,
+    roleColor:  ROLE_COLORS[oldRole] ?? '#6B7280',
+    roleBadge,
     permissions,
   })
 }
