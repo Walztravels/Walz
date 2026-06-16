@@ -8,7 +8,7 @@ import {
   Menu, X, Plane, Hotel, Map, FileText, ChevronDown,
   User, LogOut, LayoutDashboard, Gift, MessageCircle,
   Upload, CreditCard, Users, UserCircle, Globe, Compass,
-  Signal, Check,
+  Signal, Check, MapPin, Sparkles,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
@@ -19,14 +19,17 @@ const LOGO_CACHE_KEY = 'walz_logo_url'
 const LOGO_CACHE_TTL = 60 * 60 * 1000 // 1 hour
 
 const navLinks = [
-  { href: '/flights',    label: 'Flights',        icon: Plane    },
-  { href: '/hotels',     label: 'Hotels',          icon: Hotel    },
-  { href: '/activities', label: 'Activities',      icon: Map      },
-  { href: '/tours',      label: 'Tours',           icon: Map      },
-  { href: '/packages',   label: 'Packages',        icon: Compass  },
-  { href: '/esim',       label: 'Jade Connect',    icon: Signal   },
-  { href: '/about',      label: 'About',           icon: Users    },
-  { href: '/gift',       label: 'Gift Vouchers',   icon: Gift     },
+  { href: '/flights', label: 'Flights',       icon: Plane  },
+  { href: '/hotels',  label: 'Hotels',        icon: Hotel  },
+  { href: '/esim',    label: 'Jade Connect',  icon: Signal },
+  { href: '/about',   label: 'About',         icon: Users  },
+  { href: '/gift',    label: 'Gift Vouchers', icon: Gift   },
+]
+
+const experienceLinks = [
+  { href: '/tours',      label: 'Tours',      sub: 'Private guided tours worldwide',         icon: Map     },
+  { href: '/packages',   label: 'Packages',   sub: 'All-inclusive group packages & bundles', icon: Compass },
+  { href: '/activities', label: 'Activities', sub: 'Things to do in 100+ destinations',      icon: MapPin  },
 ]
 
 const visaDropdownLinks = [
@@ -58,13 +61,16 @@ export function Navbar() {
   const [isScrolled,       setIsScrolled]       = useState(false)
   const [isMobileOpen,     setIsMobileOpen]     = useState(false)
   const [isUserMenuOpen,   setIsUserMenuOpen]   = useState(false)
-  const [isVisaOpen,       setIsVisaOpen]       = useState(false)
-  const [isMobileVisaOpen, setIsMobileVisaOpen] = useState(false)
+  const [isVisaOpen,           setIsVisaOpen]           = useState(false)
+  const [isMobileVisaOpen,     setIsMobileVisaOpen]     = useState(false)
+  const [isExperiencesOpen,    setIsExperiencesOpen]    = useState(false)
+  const [isMobileExpOpen,      setIsMobileExpOpen]      = useState(false)
   const [isCurrencyOpen,   setIsCurrencyOpen]   = useState(false)
   const [logoUrl,          setLogoUrl]          = useState('/walz-logo.png')
-  const dropdownRef  = useRef<HTMLDivElement>(null)
-  const visaRef      = useRef<HTMLDivElement>(null)
-  const currencyRef  = useRef<HTMLDivElement>(null)
+  const dropdownRef    = useRef<HTMLDivElement>(null)
+  const visaRef        = useRef<HTMLDivElement>(null)
+  const experiencesRef = useRef<HTMLDivElement>(null)
+  const currencyRef    = useRef<HTMLDivElement>(null)
 
   const { selectedCurrency, setSelectedCurrency } = useCurrency()
   const activeCurrency = CURRENCIES.find(c => c.code === selectedCurrency) ?? CURRENCIES[0]
@@ -146,6 +152,17 @@ export function Navbar() {
     return () => document.removeEventListener('mousedown', handler)
   }, [isVisaOpen])
 
+  // Close experiences dropdown on outside click
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (experiencesRef.current && !experiencesRef.current.contains(e.target as Node)) {
+        setIsExperiencesOpen(false)
+      }
+    }
+    if (isExperiencesOpen) document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [isExperiencesOpen])
+
   // Close currency dropdown on outside click
   useEffect(() => {
     const handler = (e: MouseEvent) => {
@@ -199,6 +216,44 @@ export function Navbar() {
                   {label}
                 </Link>
               ))}
+
+              {/* Experiences dropdown */}
+              <div ref={experiencesRef} className="relative">
+                <button
+                  onClick={() => { setIsExperiencesOpen(p => !p); setIsVisaOpen(false) }}
+                  className={cn(
+                    'flex items-center gap-1.5 px-4 py-2 rounded-lg transition-all text-sm font-medium',
+                    isExperiencesOpen
+                      ? 'text-walz-gold bg-walz-slate/50'
+                      : 'text-walz-muted hover:text-walz-gold hover:bg-walz-slate/50',
+                  )}
+                >
+                  <Sparkles className="w-4 h-4" />
+                  Experiences
+                  <ChevronDown className={cn('w-3.5 h-3.5 transition-transform duration-200', isExperiencesOpen && 'rotate-180')} />
+                </button>
+
+                {isExperiencesOpen && (
+                  <div className="absolute left-0 mt-2 w-64 bg-white rounded-2xl shadow-luxury border border-gray-100 overflow-hidden z-50 py-2">
+                    {experienceLinks.map(({ href, label, sub, icon: Icon }) => (
+                      <Link
+                        key={href}
+                        href={href}
+                        onClick={() => setIsExperiencesOpen(false)}
+                        className="flex items-start gap-3 px-4 py-3 hover:bg-gray-50 transition-colors group"
+                      >
+                        <div className="w-8 h-8 rounded-lg bg-[#C9A84C]/10 flex items-center justify-center flex-shrink-0 mt-0.5 group-hover:bg-[#C9A84C]/20">
+                          <Icon className="w-4 h-4 text-[#C9A84C]" />
+                        </div>
+                        <div>
+                          <p className="text-sm font-semibold text-walz-deep-navy">{label}</p>
+                          <p className="text-xs text-gray-400 mt-0.5">{sub}</p>
+                        </div>
+                      </Link>
+                    ))}
+                  </div>
+                )}
+              </div>
 
               {/* Visa dropdown */}
               <div className="relative" ref={visaRef}>
@@ -379,6 +434,33 @@ export function Navbar() {
                 <span className="font-medium text-sm">{label}</span>
               </Link>
             ))}
+
+            {/* Experiences accordion */}
+            <button
+              onClick={() => setIsMobileExpOpen(v => !v)}
+              className="w-full flex items-center justify-between px-6 py-3 text-walz-muted hover:text-walz-gold hover:bg-walz-slate/30 transition-colors"
+            >
+              <span className="flex items-center gap-3">
+                <Sparkles className="w-5 h-5" />
+                <span className="font-medium text-sm">Experiences</span>
+              </span>
+              <ChevronDown className={cn('w-4 h-4 transition-transform', isMobileExpOpen && 'rotate-180')} />
+            </button>
+            {isMobileExpOpen && (
+              <div className="bg-walz-slate/20 border-l-2 border-[#C9A84C]/40 ml-6 mr-3 rounded-r-lg mb-1">
+                {experienceLinks.map(({ href, label, icon: Icon }) => (
+                  <Link
+                    key={href}
+                    href={href}
+                    onClick={() => { setIsMobileOpen(false); setIsMobileExpOpen(false) }}
+                    className="flex items-center gap-2 px-4 py-2.5 text-walz-muted hover:text-walz-gold transition-colors text-sm"
+                  >
+                    <Icon className="w-4 h-4 text-[#C9A84C]" />
+                    {label}
+                  </Link>
+                ))}
+              </div>
+            )}
 
             {/* Visa accordion */}
             <button
