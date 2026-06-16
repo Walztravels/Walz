@@ -80,7 +80,7 @@ function ResultsContent() {
       </div>
 
       {/* Results */}
-      <div className="max-w-4xl mx-auto px-5 py-8">
+      <div className="max-w-3xl mx-auto px-5 py-8">
         {error && (
           <div className="bg-amber-50 border border-amber-200 rounded-2xl p-5 mb-6 text-center">
             <p className="text-amber-800 font-semibold text-sm mb-1">Live search unavailable</p>
@@ -97,7 +97,7 @@ function ResultsContent() {
 
         {!error && transfers.length === 0 && (
           <div className="text-center py-16">
-            <Car className="w-12 h-12 text-gray-300 mx-auto mb-4" strokeWidth={1} />
+            <div className="text-5xl mb-4">🚗</div>
             <p className="text-gray-500 font-semibold mb-1">No transfers found</p>
             <p className="text-gray-400 text-sm mb-6">Try different locations or dates</p>
             <a
@@ -112,54 +112,56 @@ function ResultsContent() {
 
         {transfers.length > 0 && (
           <>
-            <p className="text-[#0B1F3A] font-semibold mb-5 text-sm">
+            <p className="text-[#0B1F3A] font-semibold mb-4 text-sm">
               {transfers.length} transfer option{transfers.length !== 1 ? 's' : ''} available
             </p>
-            <div className="space-y-4">
+            <div className="space-y-3">
               {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
               {transfers.map((t: any) => {
                 const sym = SYM[t.currency] ?? (t.currency + ' ')
+                const vehicleEmoji = t.type === 'SHARED' ? '🚌' : t.vehicle?.toLowerCase().includes('van') ? '🚐' : '🚗'
                 return (
                   <div key={t.id ?? t.rateKey}
                     className="bg-white rounded-2xl border border-gray-100 overflow-hidden shadow-sm hover:shadow-md transition-shadow">
-                    <div className="p-5 flex flex-col sm:flex-row gap-4">
-                      <div className="w-16 h-16 rounded-xl bg-[#F5F2EE] flex items-center justify-center flex-shrink-0">
+                    <div className="p-4 flex items-center gap-4">
+                      {/* Vehicle icon */}
+                      <div className="w-14 h-14 rounded-xl bg-[#F5F2EE] flex items-center justify-center flex-shrink-0 text-3xl">
                         {t.image
-                          ? <img src={t.image} alt={t.name} className="w-12 h-12 object-contain" />
-                          : <Car className="w-8 h-8 text-[#C9A84C]" />
+                          ? <img src={t.image} alt={t.name} className="w-10 h-10 object-contain" />
+                          : vehicleEmoji
                         }
                       </div>
 
-                      <div className="flex-1">
-                        <div className="flex items-start justify-between gap-3 flex-wrap">
-                          <div>
-                            <p className="font-bold text-[#0B1F3A] text-base">{t.name}</p>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="min-w-0">
+                            <p className="font-bold text-[#0B1F3A] text-sm truncate">{t.name}</p>
                             {t.category && <p className="text-xs text-gray-400">{t.category}</p>}
                           </div>
-                          <div className="text-right">
-                            <p className="text-2xl font-bold text-[#0B1F3A]">{sym}{t.price.toLocaleString()}</p>
-                            <p className="text-xs text-gray-400">total for your journey</p>
+                          <div className="text-right flex-shrink-0">
+                            <p className="text-xl font-bold text-[#0B1F3A]">{sym}{t.price.toLocaleString()}</p>
+                            <p className="text-[10px] text-gray-400">total</p>
                           </div>
                         </div>
 
-                        <div className="flex flex-wrap gap-3 mt-3">
+                        <div className="flex flex-wrap gap-2 mt-2">
                           {t.passengers && (
                             <span className="flex items-center gap-1 text-xs text-gray-500">
-                              <Users className="w-3.5 h-3.5 text-[#C9A84C]" /> Up to {t.passengers} passengers
+                              <Users className="w-3 h-3 text-[#C9A84C]" /> {t.passengers} pax
                             </span>
                           )}
                           {t.bags && (
                             <span className="flex items-center gap-1 text-xs text-gray-500">
-                              <Briefcase className="w-3.5 h-3.5 text-[#C9A84C]" /> {t.bags} bags
+                              <Briefcase className="w-3 h-3 text-[#C9A84C]" /> {t.bags} bags
                             </span>
                           )}
                           {t.duration && (
                             <span className="flex items-center gap-1 text-xs text-gray-500">
-                              <Clock className="w-3.5 h-3.5 text-[#C9A84C]" /> ~{t.duration}
+                              <Clock className="w-3 h-3 text-[#C9A84C]" /> ~{t.duration}
                             </span>
                           )}
                           {t.type && (
-                            <span className="text-xs bg-[#F5F2EE] text-[#0B1F3A] px-2.5 py-1 rounded-full font-medium">
+                            <span className="text-xs bg-[#F5F2EE] text-[#0B1F3A] px-2 py-0.5 rounded-full font-medium">
                               {t.type === 'PRIVATE' ? '🔒 Private' : t.type === 'SHARED' ? '👥 Shared' : t.type}
                             </span>
                           )}
@@ -167,7 +169,7 @@ function ResultsContent() {
                       </div>
                     </div>
 
-                    <div className="border-t border-gray-100 px-5 py-3">
+                    <div className="border-t border-gray-100 px-4 py-2.5">
                       <button
                         onClick={() => bookWhatsApp(t)}
                         className="w-full flex items-center justify-center gap-2 bg-[#C9A84C] text-[#0B1F3A]

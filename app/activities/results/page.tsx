@@ -4,7 +4,7 @@ import { useState, useEffect, Suspense } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
 import Image from 'next/image'
 import Link from 'next/link'
-import { Search, MapPin, ArrowLeft, Loader2, Calendar, Users, SlidersHorizontal, MessageCircle } from 'lucide-react'
+import { Search, MapPin, ArrowLeft, Loader2, Calendar, Users, SlidersHorizontal, MessageCircle, Star, Clock, CreditCard } from 'lucide-react'
 import { STATIC_ACTIVITIES } from '@/lib/activities-data'
 import '@/lib/useJadeChat'
 
@@ -169,13 +169,49 @@ function ResultsContent() {
               {category ? ` · ${CATEGORIES.find(c => c.id === category)?.label}` : ''}
             </p>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
               {results.map(act => {
                 const isHotelbeds = act.slug?.startsWith('hb-')
+                const priceLabel  = act.price > 0
+                  ? `From ${SYM[act.currency] ?? act.currency}${Number(act.price).toLocaleString()}`
+                  : 'Get Quote'
 
-                const cardInner = (
+                function openJade() {
+                  if (typeof window !== 'undefined' && window.$chatwoot) {
+                    window.$chatwoot.setCustomAttributes({
+                      source:       'activity_search',
+                      activity:     act.title,
+                      price:        `${act.currency} ${act.price}`,
+                      location:     act.location,
+                      enquiry_type: 'activity_booking',
+                    })
+                    window.$chatwoot.toggle('open')
+                  }
+                }
+
+                async function handleStripe(e: React.MouseEvent) {
+                  e.preventDefault()
+                  try {
+                    const res = await fetch('/api/stripe/activity-checkout', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({
+                        activitySlug:  act.slug,
+                        activityTitle: act.title,
+                        price:         act.price,
+                        currency:      act.currency?.toLowerCase() || 'gbp',
+                        quantity:      1,
+                      }),
+                    })
+                    const data = await res.json()
+                    if (data.url) window.location.href = data.url
+                  } catch { /* ignore */ }
+                }
+
+                const cardContent = (
                   <>
-                    <div className="relative h-52 overflow-hidden">
+                    {/* Image */}
+                    <div className="relative h-44 overflow-hidden">
                       {act.image ? (
                         <Image src={act.image} alt={act.title} fill
                           className="object-cover group-hover:scale-105 transition-transform duration-500" />
@@ -184,51 +220,78 @@ function ResultsContent() {
                           <MapPin className="w-8 h-8 text-white/10" />
                         </div>
                       )}
-                      <div className="absolute inset-0 bg-gradient-to-t from-black/70 to-transparent" />
-                      {act.badge && (
-                        <div className="absolute top-3 left-3">
-                          <span className="bg-[#C9A84C] text-[#0B1F3A] text-[10px] font-bold px-2.5 py-1 rounded-full uppercase tracking-wider">
-                            {act.badge}
+                      <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent" />
+
+                      {/* Category badge */}
+                      {act.category && (
+                        <div className="absolute top-2.5 left-2.5">
+                          <span className="bg-black/50 backdrop-blur-sm text-white text-[10px] font-semibold px-2 py-0.5 rounded-full capitalize">
+                            {act.category}
                           </span>
                         </div>
                       )}
-                      {isHotelbeds && (
-                        <div className="absolute top-3 right-3">
-                          <span className="bg-white/10 backdrop-blur-sm text-white/70 text-[10px] px-2 py-0.5 rounded-full">
-                            Live
+
+                      {/* Live / badge tag */}
+                      {(act.badge || isHotelbeds) && (
+                        <div className="absolute top-2.5 right-2.5">
+                          <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                            act.badge
+                              ? 'bg-[#C9A84C] text-[#0B1F3A] uppercase tracking-wider'
+                              : 'bg-white/10 backdrop-blur-sm text-white/70'
+                          }`}>
+                            {act.badge ?? 'Live'}
                           </span>
                         </div>
                       )}
-                      <div className="absolute bottom-3 left-3 right-3">
-                        <p className="text-[#C9A84C] text-xs uppercase tracking-wider">
-                          {act.category} · {act.duration}
-                        </p>
+
+                      {/* Price badge */}
+                      <div className="absolute bottom-0 left-0 right-0 px-3 py-2.5">
+                        <span className="text-[#C9A84C] font-bold text-sm">{priceLabel}</span>
                       </div>
                     </div>
-                    <div className="p-4">
-                      <h3 className="text-white font-bold text-base leading-tight mb-1 group-hover:text-[#C9A84C] transition-colors">
+
+                    {/* Body */}
+                    <div className="p-3.5 flex flex-col gap-2">
+                      <h3 className="text-white font-bold text-sm leading-snug line-clamp-2 group-hover:text-[#C9A84C] transition-colors">
                         {act.title}
                       </h3>
-                      <p className="text-white/40 text-xs flex items-center gap-1 mb-2">
-                        <MapPin className="w-3 h-3" /> {act.location}
-                      </p>
-                      <p className="text-white/50 text-xs leading-relaxed line-clamp-2">
-                        {act.shortDesc ?? act.description}
-                      </p>
-                      <div className="flex items-center justify-between mt-4">
-                        <p className="text-[#C9A84C] font-bold">
-                          From {SYM[act.currency] ?? act.currency}{Number(act.price).toLocaleString()}
-                        </p>
-                        {isHotelbeds ? (
-                          <span className="flex items-center gap-1 text-xs text-[#C9A84C] font-semibold">
-                            <MessageCircle className="w-3 h-3" /> Book with Jade
-                          </span>
-                        ) : (
-                          <span className="text-xs text-white/50 group-hover:text-[#C9A84C] transition-colors font-semibold">
-                            Explore →
+
+                      <div className="flex items-center gap-3 text-white/40 text-xs">
+                        {act.duration && (
+                          <span className="flex items-center gap-1">
+                            <Clock className="w-3 h-3" />{act.duration}
                           </span>
                         )}
+                        <span className="flex items-center gap-1">
+                          <MapPin className="w-3 h-3" />{act.location}
+                        </span>
                       </div>
+
+                      {/* 4-star rating */}
+                      <div className="flex items-center gap-0.5">
+                        {[1,2,3,4].map(i => (
+                          <Star key={i} className="w-3 h-3 fill-[#C9A84C] text-[#C9A84C]" />
+                        ))}
+                        <Star className="w-3 h-3 text-white/20" />
+                        <span className="text-white/30 text-[10px] ml-1">4.0</span>
+                      </div>
+
+                      {/* CTA */}
+                      {isHotelbeds ? (
+                        <button
+                          onClick={openJade}
+                          className="mt-1 w-full flex items-center justify-center gap-1.5 bg-white/5 hover:bg-[#C9A84C]/20 border border-white/10 hover:border-[#C9A84C]/40 text-[#C9A84C] font-semibold text-xs py-2 rounded-xl transition-all"
+                        >
+                          <MessageCircle className="w-3.5 h-3.5" /> Book with Jade
+                        </button>
+                      ) : (
+                        <button
+                          onClick={handleStripe}
+                          className="mt-1 w-full flex items-center justify-center gap-1.5 bg-[#C9A84C] hover:bg-[#d4b05a] text-[#0B1F3A] font-bold text-xs py-2 rounded-xl transition-all"
+                        >
+                          <CreditCard className="w-3.5 h-3.5" /> Book Now
+                        </button>
+                      )}
                     </div>
                   </>
                 )
@@ -236,30 +299,17 @@ function ResultsContent() {
                 return isHotelbeds ? (
                   <div
                     key={act.slug}
-                    className="group relative overflow-hidden rounded-2xl bg-white/5 border border-white/10 hover:border-[#C9A84C]/40 hover:shadow-[0_0_30px_rgba(201,168,76,0.1)] transition-all duration-300 cursor-pointer"
-                    onClick={() => {
-                      if (typeof window !== 'undefined' && window.$chatwoot) {
-                        window.$chatwoot.setCustomAttributes({
-                          source:       'activity_search',
-                          activity:     act.title,
-                          price:        `${act.currency} ${act.price}`,
-                          location:     act.location,
-                          enquiry_type: 'activity_booking',
-                        })
-                        window.$chatwoot.toggle('open')
-                      }
-                    }}
+                    className="group relative overflow-hidden rounded-2xl bg-white/5 border border-white/10 hover:border-[#C9A84C]/40 hover:shadow-[0_0_24px_rgba(201,168,76,0.12)] transition-all duration-300 cursor-pointer flex flex-col"
                   >
-                    {cardInner}
+                    {cardContent}
                   </div>
                 ) : (
-                  <Link
+                  <div
                     key={act.slug}
-                    href={`/activities/${act.slug}`}
-                    className="group relative overflow-hidden rounded-2xl bg-white/5 border border-white/10 hover:border-[#C9A84C]/40 hover:shadow-[0_0_30px_rgba(201,168,76,0.1)] transition-all duration-300"
+                    className="group relative overflow-hidden rounded-2xl bg-white/5 border border-white/10 hover:border-[#C9A84C]/40 hover:shadow-[0_0_24px_rgba(201,168,76,0.12)] transition-all duration-300 flex flex-col"
                   >
-                    {cardInner}
-                  </Link>
+                    {cardContent}
+                  </div>
                 )
               })}
             </div>

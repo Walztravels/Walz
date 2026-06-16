@@ -8,7 +8,7 @@ import {
   Menu, X, Plane, Hotel, Map, FileText, ChevronDown,
   User, LogOut, LayoutDashboard, Gift, MessageCircle,
   Upload, CreditCard, Users, UserCircle, Globe, Compass,
-  Signal, Check, MapPin, Sparkles,
+  Signal, Check, MapPin, Sparkles, Car, Package,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
@@ -27,9 +27,10 @@ const navLinks = [
 ]
 
 const experienceLinks = [
-  { href: '/tours',      label: 'Tours',      sub: 'Private guided tours worldwide',         icon: Map     },
-  { href: '/packages',   label: 'Packages',   sub: 'All-inclusive group packages & bundles', icon: Compass },
-  { href: '/activities', label: 'Activities', sub: 'Things to do in 100+ destinations',      icon: MapPin  },
+  { href: '/activities', label: 'Activities', sub: 'Things to do in 100+ destinations',       icon: MapPin  },
+  { href: '/transfers',  label: 'Transfers',  sub: 'Airport & hotel transfers worldwide',     icon: Car     },
+  { href: '/tours',      label: 'Tours',      sub: 'Private guided tours with local experts', icon: Map     },
+  { href: '/packages',   label: 'Packages',   sub: 'All-inclusive group packages & bundles',  icon: Package },
 ]
 
 const visaDropdownLinks = [
