@@ -8,12 +8,13 @@ import {
   Menu, X, Plane, Hotel, Map, FileText, ChevronDown,
   User, LogOut, LayoutDashboard, Gift, MessageCircle,
   Upload, CreditCard, Users, UserCircle, Globe, Compass,
-  Signal, Check, MapPin, Sparkles, Car, Package,
+  Signal, Check, MapPin, Sparkles, Car, Package, ShoppingCart,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { useCurrency } from '@/lib/context/CurrencyContext'
 import { CURRENCIES } from '@/lib/currencies'
+import { useCart } from '@/lib/context/CartContext'
 
 const LOGO_CACHE_KEY = 'walz_logo_url'
 const LOGO_CACHE_TTL = 60 * 60 * 1000 // 1 hour
@@ -76,6 +77,7 @@ export function Navbar() {
   const { selectedCurrency, setSelectedCurrency } = useCurrency()
   const activeCurrency = CURRENCIES.find(c => c.code === selectedCurrency) ?? CURRENCIES[0]
   const pathname = usePathname()
+  const { itemCount } = useCart()
 
   useEffect(() => {
     setIsMobileOpen(false)
@@ -334,6 +336,17 @@ export function Navbar() {
               )}
             </div>
 
+            {/* Cart icon — desktop */}
+            <Link href="/cart" className="hidden lg:flex relative items-center p-2 rounded-lg text-walz-muted hover:text-walz-gold hover:bg-walz-slate/50 transition-all">
+              <ShoppingCart className="w-5 h-5" />
+              {itemCount > 0 && (
+                <span className="absolute -top-0.5 -right-0.5 w-4 h-4 bg-[#C9A84C] text-[#0B1F3A]
+                  text-[10px] font-bold rounded-full flex items-center justify-center">
+                  {itemCount}
+                </span>
+              )}
+            </Link>
+
             {/* Desktop Auth */}
             <div className="hidden lg:flex items-center gap-3">
               {status === 'loading' ? (
@@ -462,6 +475,23 @@ export function Navbar() {
                 ))}
               </div>
             )}
+
+            {/* Cart link — mobile */}
+            <Link
+              href="/cart"
+              onClick={() => setIsMobileOpen(false)}
+              className="flex items-center justify-between px-6 py-3 text-walz-muted hover:text-walz-gold hover:bg-walz-slate/30 transition-colors"
+            >
+              <span className="flex items-center gap-3">
+                <ShoppingCart className="w-5 h-5" />
+                <span className="font-medium text-sm">Cart</span>
+              </span>
+              {itemCount > 0 && (
+                <span className="w-5 h-5 bg-[#C9A84C] text-[#0B1F3A] text-[10px] font-bold rounded-full flex items-center justify-center">
+                  {itemCount}
+                </span>
+              )}
+            </Link>
 
             {/* Visa accordion */}
             <button

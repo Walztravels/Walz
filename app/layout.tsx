@@ -6,6 +6,7 @@ import { PublicShell } from '@/components/common/PublicShell'
 import { SessionProvider } from '@/components/providers/SessionProvider'
 import { LenisProvider } from '@/components/providers/LenisProvider'
 import { CurrencyProvider } from '@/lib/context/CurrencyContext'
+import { CartProvider }    from '@/lib/context/CartContext'
 import dynamic from 'next/dynamic'
 
 const Cursor = dynamic(() => import('@/components/ui/Cursor'), { ssr: false })
@@ -36,7 +37,7 @@ export const viewport = {
 export const metadata: Metadata = {
   // FIX 2 — updated title
   title: {
-    default: 'Walz Travels | Flights, Visas and Tours — Trusted Travel Agency',
+    default: 'Walz Travels | Flights, Visas & Tours',
     template: '%s | Walz Travels',
   },
   // FIX 3 — under 155 chars, no IATA claim
@@ -75,7 +76,7 @@ export const metadata: Metadata = {
     locale: 'en_GB',
     url: 'https://www.walztravels.com',
     siteName: 'Walz Travels',
-    title: 'Walz Travels | Flights, Visas and Tours — Trusted Travel Agency',
+    title: 'Walz Travels | Flights, Visas & Tours',
     description: 'Expert visa processing, flight bookings, hotels and private tours across UK, Canada, UAE and beyond.',
     images: [
       {
@@ -88,7 +89,7 @@ export const metadata: Metadata = {
   },
   twitter: {
     card: 'summary_large_image',
-    title: 'Walz Travels | Flights, Visas and Tours — Trusted Travel Agency',
+    title: 'Walz Travels | Flights, Visas & Tours',
     description: 'Expert visa processing, flight bookings, hotels and private tours across UK, Canada, UAE and beyond.',
     creator: '@walztravels',
     images: ['https://us.chat-img.sintra.ai/aeb90658-6cce-491a-8a0f-bfc14a8cdc69/e2fd6df1-f938-441d-a8d8-37a20caa465b/walz-travels-og-share-image.png'],
@@ -153,14 +154,12 @@ export default function RootLayout({
                     'Walz Travels is a premium global travel and visa consultancy offering international flight bookings, visa processing for UK, Canada, Schengen, USA and UAE, luxury tour packages, hotel bookings and bespoke travel itineraries for individuals, families and corporate clients worldwide.',
                   telephone: '+447398753797',
                   email: 'contact@walztravels.com',
-                  address: [
-                    {
-                      '@type': 'PostalAddress',
-                      addressCountry: 'CA',
-                      addressRegion: 'Ontario',
-                      addressLocality: 'Thorold',
-                    },
-                  ],
+                  address: {
+                    '@type': 'PostalAddress',
+                    addressCountry: 'CA',
+                    addressRegion: 'Ontario',
+                    addressLocality: 'Toronto',
+                  },
                   areaServed: [
                     { '@type': 'Country', name: 'Canada' },
                     { '@type': 'Country', name: 'United Kingdom' },
@@ -296,12 +295,14 @@ export default function RootLayout({
       <body className="font-sans bg-walz-off-white text-walz-deep-navy antialiased min-h-screen flex flex-col">
         <SessionProvider>
           <CurrencyProvider>
-            <LenisProvider>
-              <Cursor />
-              <PublicShell>
-                {children}
-              </PublicShell>
-            </LenisProvider>
+            <CartProvider>
+              <LenisProvider>
+                <Cursor />
+                <PublicShell>
+                  {children}
+                </PublicShell>
+              </LenisProvider>
+            </CartProvider>
           </CurrencyProvider>
         </SessionProvider>
       </body>
