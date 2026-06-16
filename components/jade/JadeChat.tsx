@@ -1,69 +1,59 @@
 'use client'
 
 import { useState, useRef, useEffect } from 'react'
+import { useRouter } from 'next/navigation'
 import { X, Send, Loader2, MessageCircle } from 'lucide-react'
 
-// ── Types ─────────────────────────────────────────────────────────────────────
-
 interface Message {
-  id: string
-  role: 'user' | 'assistant'
+  id:      string
+  role:    'user' | 'assistant'
   content: string
 }
 
-// ── Constants ─────────────────────────────────────────────────────────────────
-
 const WELCOME: Message = {
-  id: 'welcome',
-  role: 'assistant',
-  content: "Hi there! I'm Jade, your Walz Travels assistant ✈️\n\nI'm here to help you plan your perfect trip — whether that's finding great flights, booking a private tour, sorting your visa, or recommending where to stay. What can I help you with today?",
+  id:      'welcome',
+  role:    'assistant',
+  content: "Hi there! I'm Jade, your Walz Travels AI assistant ✈️\n\nTell me where you want to go and I'll build a complete trip for you — flights, hotel, activities, transfers and more. What can I plan for you today?",
 }
 
 const QUICK_ACTIONS = [
-  { emoji: '✈️', label: 'Find flights',  msg: "I need help finding flights." },
-  { emoji: '🗺️', label: 'Book a tour',  msg: "I'm interested in booking a private tour." },
-  { emoji: '📋', label: 'Visa help',     msg: "I need help with visa requirements." },
-  { emoji: '🏨', label: 'Hotels',        msg: "Can you recommend hotels for my trip?" },
+  { emoji: '🌴', label: 'Dubai 5 days',       msg: 'Plan a 5-day trip to Dubai for 2 people' },
+  { emoji: '🎭', label: 'London activities',  msg: 'What activities are available in London?' },
+  { emoji: '🚗', label: 'Airport transfer',   msg: 'I need an airport transfer in Dubai' },
+  { emoji: '🏝️', label: 'Zanzibar family',   msg: 'Family package for Zanzibar — 2 adults 2 kids' },
 ]
 
-// ── Avatar ────────────────────────────────────────────────────────────────────
+// Internal path detection for clickable links in AI responses
+const INTERNAL_PATHS = ['/activities', '/transfers', '/tours', '/hotels', '/flights', '/cart', '/packages', '/visa']
 
 function JadeAvatar({ size = 40 }: { size?: number }) {
   return (
     <div
       className="rounded-full flex-shrink-0 flex items-center justify-center"
       style={{
-        width: size,
-        height: size,
+        width:     size,
+        height:    size,
         background: 'linear-gradient(135deg, #0B1F3A 0%, #1a3a5c 100%)',
         boxShadow: '0 0 0 2px #C9A84C55',
       }}
     >
-      {/* Elegant female silhouette */}
       <svg width={size * 0.62} height={size * 0.62} viewBox="0 0 32 32" fill="none">
-        {/* Head */}
         <ellipse cx="16" cy="10" rx="5.5" ry="6" fill="#C9A84C" opacity="0.95" />
-        {/* Hair */}
         <ellipse cx="16" cy="7" rx="6" ry="4" fill="#C9A84C" opacity="0.7" />
         <path d="M10.5 10 Q9 14 10 17" stroke="#C9A84C" strokeWidth="1.5" strokeLinecap="round" opacity="0.7" />
         <path d="M21.5 10 Q23 14 22 17" stroke="#C9A84C" strokeWidth="1.5" strokeLinecap="round" opacity="0.7" />
-        {/* Shoulders / body */}
         <path d="M8 28 Q8 20 16 20 Q24 20 24 28" fill="#C9A84C" opacity="0.85" />
-        {/* Neck */}
         <rect x="14" y="16" width="4" height="4.5" rx="2" fill="#C9A84C" opacity="0.9" />
-        {/* Collar detail */}
         <path d="M11 22 Q16 25 21 22" stroke="#0B1F3A" strokeWidth="0.8" strokeLinecap="round" opacity="0.4" />
       </svg>
     </div>
   )
 }
 
-// ── Typing dots ───────────────────────────────────────────────────────────────
-
 function TypingDots() {
   return (
     <span className="inline-flex items-center gap-1 py-0.5">
-      {[0, 150, 300].map((delay) => (
+      {[0, 150, 300].map(delay => (
         <span
           key={delay}
           className="w-1.5 h-1.5 bg-gray-400 rounded-full animate-bounce"
@@ -74,16 +64,41 @@ function TypingDots() {
   )
 }
 
-// ── Message bubble ────────────────────────────────────────────────────────────
+function renderWithLinks(text: string, onNavigate: (path: string) => void): React.ReactNode[] {
+  // Match internal paths like /activities, /cart etc (with optional trailing path)
+  const pattern = new RegExp(`(${INTERNAL_PATHS.map(p => p.replace('/', '\\/')).join('|')}[^\\s,;.!?]*)`, 'g')
+  const parts   = text.split(pattern)
+  return parts.map((part, i) => {
+    if (INTERNAL_PATHS.some(p => part.startsWith(p))) {
+      return (
+        <button
+          key={i}
+          onClick={() => onNavigate(part)}
+          className="text-[#C9A84C] underline hover:no-underline font-medium"
+        >
+          {part}
+        </button>
+      )
+    }
+    return part
+  })
+}
 
-function Bubble({ msg, isStreaming }: { msg: Message; isStreaming: boolean }) {
-  const isUser = msg.role === 'user'
+function Bubble({
+  msg,
+  isTyping,
+  onNavigate,
+}: {
+  msg:        Message
+  isTyping:   boolean
+  onNavigate: (path: string) => void
+}) {
+  const isUser  = msg.role === 'user'
   const isEmpty = !msg.content
 
-  // Detect WhatsApp mentions to show a quick-connect button
   const showWhatsApp =
     !isUser &&
-    !isStreaming &&
+    !isTyping &&
     msg.content.toLowerCase().includes('whatsapp')
 
   return (
@@ -98,7 +113,12 @@ function Bubble({ msg, isStreaming }: { msg: Message; isStreaming: boolean }) {
               : 'bg-white text-gray-800 shadow-sm border border-gray-100 rounded-tl-sm'
             }`}
         >
-          {isEmpty && isStreaming ? <TypingDots /> : msg.content}
+          {isEmpty && isTyping
+            ? <TypingDots />
+            : isUser
+              ? msg.content
+              : renderWithLinks(msg.content, onNavigate)
+          }
         </div>
 
         {showWhatsApp && (
@@ -119,25 +139,21 @@ function Bubble({ msg, isStreaming }: { msg: Message; isStreaming: boolean }) {
   )
 }
 
-// ── Main Component ────────────────────────────────────────────────────────────
-
 export function JadeChat() {
-  const [open, setOpen] = useState(false)
-  const [messages, setMessages] = useState<Message[]>([WELCOME])
-  const [input, setInput] = useState('')
-  const [streaming, setStreaming] = useState(false)
-  const [unread, setUnread] = useState(false)
+  const router = useRouter()
+  const [open,      setOpen]      = useState(false)
+  const [messages,  setMessages]  = useState<Message[]>([WELCOME])
+  const [input,     setInput]     = useState('')
+  const [thinking,  setThinking]  = useState(false)
+  const [unread,    setUnread]    = useState(false)
 
   const bottomRef = useRef<HTMLDivElement>(null)
-  const inputRef = useRef<HTMLInputElement>(null)
-  const abortRef = useRef<AbortController | null>(null)
+  const inputRef  = useRef<HTMLInputElement>(null)
 
-  // Auto-scroll on new messages
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
 
-  // Focus input and clear unread badge when opened
   useEffect(() => {
     if (open) {
       setUnread(false)
@@ -145,71 +161,53 @@ export function JadeChat() {
     }
   }, [open])
 
-  // Show unread dot after 8 s if chat never opened (gentle nudge)
   useEffect(() => {
     const t = setTimeout(() => { if (!open) setUnread(true) }, 8000)
     return () => clearTimeout(t)
   }, [open])
 
+  function navigate(path: string) {
+    setOpen(false)
+    router.push(path)
+  }
+
   async function send(text: string) {
     const trimmed = text.trim()
-    if (!trimmed || streaming) return
+    if (!trimmed || thinking) return
 
-    const userMsg: Message = { id: `u-${Date.now()}`, role: 'user', content: trimmed }
-    const asstId = `a-${Date.now() + 1}`
+    const userMsg: Message = { id: `u-${Date.now()}`, role: 'user',      content: trimmed }
+    const asstId  = `a-${Date.now() + 1}`
 
-    // Snapshot history + new user message for the API call
-    const history = [...messages, userMsg].map(({ role, content }) => ({ role, content }))
-
-    setMessages((prev) => [
+    setMessages(prev => [
       ...prev,
       userMsg,
       { id: asstId, role: 'assistant', content: '' },
     ])
     setInput('')
-    setStreaming(true)
+    setThinking(true)
 
     try {
-      abortRef.current?.abort()
-      abortRef.current = new AbortController()
-
-      const res = await fetch('/api/chat/jade', {
-        method: 'POST',
+      const res = await fetch('/api/jade/search', {
+        method:  'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ messages: history }),
-        signal: abortRef.current.signal,
+        body:    JSON.stringify({
+          message:             trimmed,
+          conversationHistory: messages.map(({ role, content }) => ({ role, content })),
+        }),
       })
 
-      if (!res.ok || !res.body) throw new Error('Bad response')
+      const data = await res.json()
+      const reply = data.reply ?? "I'm having trouble right now. WhatsApp us on +44 7398 753797 for instant help."
 
-      const reader = res.body.getReader()
-      const decoder = new TextDecoder()
-
-      while (true) {
-        const { done, value } = await reader.read()
-        if (done) break
-        const chunk = decoder.decode(value, { stream: true })
-        setMessages((prev) =>
-          prev.map((m) =>
-            m.id === asstId ? { ...m, content: m.content + chunk } : m
-          )
-        )
-      }
-    } catch (err) {
-      if ((err as Error).name === 'AbortError') return
-      setMessages((prev) =>
-        prev.map((m) =>
-          m.id === asstId
-            ? {
-                ...m,
-                content:
-                  "I'm having a bit of trouble connecting right now. You can reach our team directly on WhatsApp at +447398753797 — they'll be happy to help!",
-              }
-            : m
-        )
-      )
+      setMessages(prev => prev.map(m => m.id === asstId ? { ...m, content: reply } : m))
+    } catch {
+      setMessages(prev => prev.map(m =>
+        m.id === asstId
+          ? { ...m, content: "I'm having a bit of trouble connecting right now. You can reach our team directly on WhatsApp at +447398753797 — they'll be happy to help!" }
+          : m
+      ))
     } finally {
-      setStreaming(false)
+      setThinking(false)
     }
   }
 
@@ -218,11 +216,11 @@ export function JadeChat() {
     send(input)
   }
 
-  const showQuickActions = messages.length <= 1 && !streaming
+  const showQuickActions = messages.length <= 1 && !thinking
 
   return (
     <>
-      {/* ── Chat Panel ──────────────────────────────────────────────────── */}
+      {/* Chat Panel */}
       {open && (
         <div
           className="fixed bottom-[72px] right-4 sm:right-6 z-50
@@ -239,10 +237,8 @@ export function JadeChat() {
               <span className="absolute bottom-0 right-0 w-3 h-3 bg-green-400 rounded-full border-2 border-[#0B1F3A]" />
             </div>
             <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-1.5">
-                <h3 className="text-white font-bold text-sm leading-none">Jade</h3>
-              </div>
-              <p className="text-[#8B9BAE] text-[11px] mt-0.5">Walz Travels Assistant · Online now</p>
+              <h3 className="text-white font-bold text-sm leading-none">Jade</h3>
+              <p className="text-[#8B9BAE] text-[11px] mt-0.5">AI Travel Assistant · Online now</p>
             </div>
             <button
               onClick={() => setOpen(false)}
@@ -259,7 +255,8 @@ export function JadeChat() {
               <Bubble
                 key={msg.id}
                 msg={msg}
-                isStreaming={streaming && i === messages.length - 1}
+                isTyping={thinking && i === messages.length - 1}
+                onNavigate={navigate}
               />
             ))}
             <div ref={bottomRef} />
@@ -268,7 +265,7 @@ export function JadeChat() {
           {/* Quick actions */}
           {showQuickActions && (
             <div className="px-4 pt-3 pb-2 bg-[#F7F8FA] border-t border-gray-200 flex-shrink-0">
-              <p className="text-[10px] text-gray-400 uppercase tracking-wider mb-2 font-medium">Quick help</p>
+              <p className="text-[10px] text-gray-400 uppercase tracking-wider mb-2 font-medium">Quick start</p>
               <div className="grid grid-cols-2 gap-1.5">
                 {QUICK_ACTIONS.map(({ emoji, label, msg }) => (
                   <button
@@ -296,40 +293,40 @@ export function JadeChat() {
               <input
                 ref={inputRef}
                 value={input}
-                onChange={(e) => setInput(e.target.value)}
-                onKeyDown={(e) => {
+                onChange={e => setInput(e.target.value)}
+                onKeyDown={e => {
                   if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(input) }
                 }}
-                placeholder="Ask Jade anything…"
-                disabled={streaming}
+                placeholder="Where do you want to go?"
+                disabled={thinking}
                 className="flex-1 bg-gray-50 border border-gray-200 rounded-xl px-4 py-2.5
                            text-sm outline-none focus:border-[#C9A84C] focus:bg-white
                            transition-all placeholder-gray-400 disabled:opacity-50"
               />
               <button
                 type="submit"
-                disabled={!input.trim() || streaming}
+                disabled={!input.trim() || thinking}
                 className="w-10 h-10 rounded-xl bg-[#C9A84C] hover:bg-[#d4b45f]
                            disabled:bg-gray-200 flex items-center justify-center
                            transition-colors flex-shrink-0 shadow-sm"
                 aria-label="Send message"
               >
-                {streaming
+                {thinking
                   ? <Loader2 className="w-4 h-4 text-gray-500 animate-spin" />
                   : <Send className="w-3.5 h-3.5 text-[#0B1F3A]" />
                 }
               </button>
             </div>
             <p className="text-center text-[10px] text-gray-300 mt-2 leading-none">
-              Powered by Walz Travels AI · walztravels.com
+              Jade AI by Walz Travels · walztravels.com
             </p>
           </form>
         </div>
       )}
 
-      {/* ── Floating Button ──────────────────────────────────────────────── */}
+      {/* Floating Button */}
       <button
-        onClick={() => setOpen((v) => !v)}
+        onClick={() => setOpen(v => !v)}
         aria-label={open ? 'Close chat' : 'Chat with Jade'}
         className={`fixed bottom-4 right-4 sm:right-6 z-50
                     flex items-center gap-2.5

@@ -48,13 +48,15 @@ function SuccessContent() {
           Your vouchers and confirmation have been sent to your email and WhatsApp.
         </p>
         <div className="flex flex-col gap-3">
-          {booking?.voucherUrl && (
-            <a href={booking.voucherUrl}
-              className="flex items-center justify-center gap-2 bg-[#0B1F3A] text-white
-                font-bold py-3 rounded-xl text-sm hover:bg-[#162d52] transition-colors">
-              <Download className="w-4 h-4" /> Download Voucher (PDF)
-            </a>
-          )}
+          <a
+            href={booking?.voucherUrl ?? `/api/voucher/${ref}`}
+            target="_blank"
+            rel="noreferrer"
+            className="flex items-center justify-center gap-2 bg-[#0B1F3A] text-white
+              font-bold py-3 rounded-xl text-sm hover:bg-[#162d52] transition-colors"
+          >
+            <Download className="w-4 h-4" /> Download Voucher (PDF)
+          </a>
           <a href="https://wa.me/447398753797" target="_blank" rel="noreferrer"
             className="flex items-center justify-center gap-2 bg-green-500 text-white
               font-bold py-3 rounded-xl text-sm hover:bg-green-600 transition-colors">
