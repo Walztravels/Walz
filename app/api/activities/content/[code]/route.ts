@@ -1,7 +1,45 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { hotelbedsRequest } from '@/lib/hotelbeds'
+import { hotelbedsRequest }          from '@/lib/hotelbeds'
 
 export const dynamic = 'force-dynamic'
+
+// Common destinations to search when we don't know the destination for a slug
+const DEST_CODES = ['DXB', 'LON', 'PAR', 'NYC', 'NBO', 'JRO', 'CPT', 'BKK', 'SIN', 'IST']
+
+// Fetch the real modality codes for a given activity code from the Cache API.
+// Tries each destination until the activity is found (or returns [] as fallback).
+async function getModalitiesForCode(
+  hbCode: string,
+  hintDest?: string,
+): Promise<string[]> {
+  const destsToTry = hintDest
+    ? [hintDest, ...DEST_CODES.filter(d => d !== hintDest)]
+    : DEST_CODES
+
+  for (const dest of destsToTry) {
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const cacheData: any = await hotelbedsRequest(
+        'activities-cache',
+        `/portfolio?destination=${dest}&limit=100&offset=0`,
+      )
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const items: any[] = Array.isArray(cacheData)
+        ? cacheData
+        : (cacheData?.activities ?? [])
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const found = items.find((a: any) => String(a.code).replace(/^hb-/, '') === hbCode)
+      if (found?.modalities?.length > 0) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        return found.modalities.map((m: any) => m.code).filter(Boolean).slice(0, 3)
+      }
+    } catch {
+      // try next destination
+    }
+  }
+  return []
+}
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function extractImg(item: any): string {
@@ -26,8 +64,13 @@ export async function GET(
   req: NextRequest,
   { params }: { params: { code: string } }
 ) {
-  const rawCode  = decodeURIComponent(params.code).replace(/^hb-/, '')
-  const language = new URL(req.url).searchParams.get('language') ?? 'en'
+  const rawCode    = decodeURIComponent(params.code).replace(/^hb-/, '')
+  const language   = new URL(req.url).searchParams.get('language') ?? 'en'
+  const hintDest   = new URL(req.url).searchParams.get('destination') ?? undefined
+
+  // Get real modality codes so Content API returns results
+  const modalityCodes = await getModalitiesForCode(rawCode, hintDest)
+  console.log('[Content /[code]] modalityCodes for', rawCode, ':', modalityCodes)
 
   try {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -37,7 +80,10 @@ export async function GET(
       {
         method: 'POST',
         body: {
-          codes:    [{ activityCode: rawCode, modalityCodes: [] }],
+          codes: [{
+            activityCode:  rawCode,
+            modalityCodes,
+          }],
           language,
         },
       },

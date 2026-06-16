@@ -269,19 +269,25 @@ export async function GET(req: NextRequest) {
       // ── STEP B: Content API MULTI — enrich with images + descriptions ────
       if (hotelbedsActivities.length > 0) {
         try {
+          // Content API requires non-empty modalityCodes — filter out activities
+          // with no modalities (they'd return 0 results and can pollute the batch)
           const codes = hotelbedsActivities
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            .filter((a: any) => a.id && a.modalities?.length > 0)
             .slice(0, 40)
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             .map((a: any) => ({
-              // BUG FIX: strip hb- prefix — Content API expects raw code
               activityCode:  String(a.id).replace(/^hb-/, ''),
-              // Allow empty modalityCodes — API accepts it and returns all modalities
               // eslint-disable-next-line @typescript-eslint/no-explicit-any
-              modalityCodes: (a.modalities ?? []).slice(0, 3).map((m: any) => m.code).filter(Boolean),
+              modalityCodes: (a.modalities as any[])
+                .slice(0, 3)
+                .map((m: any) => m.code)
+                .filter((c: unknown) => c && typeof c === 'string'),
             }))
-            // Only filter out completely missing activityCodes, not empty modalityCodes
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            .filter((c: any) => c.activityCode)
+            .filter((c: any) => c.activityCode && c.modalityCodes.length > 0)
+
+          console.log('[HB Content API] codes to enrich:', JSON.stringify(codes.slice(0, 2)))
 
           if (codes.length > 0) {
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -297,6 +303,11 @@ export async function GET(req: NextRequest) {
               : (contentData?.activities ?? [])
 
             console.log('[HB Content API] enriched:', contentItems.length, 'of', codes.length)
+            if (contentItems[0]) {
+              console.log('[HB Content API] first item keys:', Object.keys(contentItems[0]))
+              console.log('[HB Content API] first item images:',
+                JSON.stringify(contentItems[0]?.media?.images?.[0]?.urls?.[0]))
+            }
 
             // Key content map by RAW code (no hb- prefix)
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
