@@ -83,36 +83,15 @@ export default function BankAnalyserPage() {
     setEmailSent(false)
 
     try {
-      const SUPABASE_URL     = process.env.NEXT_PUBLIC_SUPABASE_URL!
-      const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-      const refId        = `standalone-${Date.now()}`
-      const storagePath  = `standalone/${refId}/bank-statement.pdf`
-
-      const upRes = await fetch(`${SUPABASE_URL}/storage/v1/object/visa-documents/${storagePath}`, {
+      // Upload via server-side API route (uses service role key — bypasses RLS)
+      const uploadForm = new FormData()
+      uploadForm.append('file', file)
+      const upRes = await fetch('/api/admin/bank-analyser/upload', {
         method: 'POST',
-        headers: {
-          apikey: SUPABASE_ANON_KEY,
-          Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
-          'Content-Type': 'application/pdf',
-          'x-upsert': 'true',
-        },
-        body: file,
+        body: uploadForm,
       })
       if (!upRes.ok) throw new Error('Upload failed: ' + await upRes.text())
-
-      const fileUrl = `${SUPABASE_URL}/storage/v1/object/public/visa-documents/${storagePath}`
-
-      // Save record to bank_statement_analyses
-      await fetch(`${SUPABASE_URL}/rest/v1/bank_statement_analyses`, {
-        method: 'POST',
-        headers: {
-          apikey: SUPABASE_ANON_KEY,
-          Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
-          'Content-Type': 'application/json',
-          Prefer: 'return=minimal,resolution=merge-duplicates',
-        },
-        body: JSON.stringify({ application_id: refId, admin_file_url: fileUrl, uploaded_by: 'admin' }),
-      })
+      const { refId, fileUrl } = await upRes.json()
 
       setUploading(false)
       setAnalyzing(true)
