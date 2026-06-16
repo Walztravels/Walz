@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import { Loader2, CreditCard, MapPin, Clock, Users, Star } from 'lucide-react'
 import { JadeChat } from '@/components/ui/JadeChat'
+import { AddToCartButton } from '@/components/activities/AddToCartButton'
 
 const SYM: Record<string, string> = {
   GBP: '£', USD: '$', EUR: '€', CAD: 'CA$', NGN: '₦', GHS: '₵', AED: 'AED ',
@@ -128,7 +129,16 @@ export function BookingSidebar({ activity }: { activity: ActivityInfo }) {
         <p className="text-red-500 text-xs mb-3 text-center">{checkoutError}</p>
       )}
 
-      {/* Primary CTA — Stripe */}
+      {/* Primary CTA — Add to Cart */}
+      <div className="mb-3">
+        <AddToCartButton
+          activity={activity}
+          date={travelDate}
+          adults={adults}
+        />
+      </div>
+
+      {/* Secondary CTA — Stripe direct checkout */}
       <button
         onClick={handleStripeCheckout}
         disabled={checkingOut}
@@ -146,7 +156,7 @@ export function BookingSidebar({ activity }: { activity: ActivityInfo }) {
         }
       </button>
 
-      {/* Secondary CTA — Jade chat */}
+      {/* Tertiary CTA — Jade chat */}
       <JadeChat
         context={jadeContext}
         label="Chat with Jade Instead"

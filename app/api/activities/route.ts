@@ -101,21 +101,30 @@ function mapHBCategory(codes: string[]): string {
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-function mapHBActivity(a: any, destName: string): object {
-  // Image: handle both GET (a.media[]) and POST (a.content.media.images[].urls[]) response shapes
-  const contentImg = (() => {
-    const imgs: { urls?: { sizeType: string; resource: string }[] }[] = a.content?.media?.images ?? []
-    const urlObj = imgs[0]?.urls?.find(u => u.sizeType === 'LARGE' || u.sizeType === 'LARGE2') ?? imgs[0]?.urls?.[0]
-    return urlObj?.resource ?? null
-  })()
+function extractImage(a: any): string {
+  // Content API shape: content.media.images[].urls[{sizeType, resource}]
+  const contentImgs: { urls?: { sizeType: string; resource: string }[] }[] =
+    a.content?.media?.images ?? []
+  const contentUrl =
+    contentImgs[0]?.urls?.find((u: { sizeType: string; resource: string }) =>
+      u.sizeType === 'LARGE' || u.sizeType === 'LARGE2'
+    )?.resource ??
+    contentImgs[0]?.urls?.[0]?.resource ??
+    null
 
-  const img =
-    a.media?.find((m: { type: string; url: string }) => m.type === 'PHOTO' || m.type === 'photo')?.url ||
-    a.media?.[0]?.url ||
-    contentImg ||
-    a.images?.[0]?.url ||
-    a.content?.images?.[0]?.url ||
-    ''
+  // Cache API shape: media[{type, url}]
+  const cacheUrl =
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    a.media?.find((m: any) => m.type === 'PHOTO' || m.type === 'photo')?.url ??
+    a.media?.[0]?.url ??
+    null
+
+  return cacheUrl ?? contentUrl ?? a.images?.[0]?.url ?? a.content?.images?.[0]?.url ?? ''
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function mapHBActivity(a: any, destName: string): object {
+  const img = extractImage(a)
 
   const categoryCodes = [
     a.activityFactsheetType,
@@ -144,6 +153,18 @@ function mapHBActivity(a: any, destName: string): object {
   const rawDesc: string = a.content?.description ?? a.content?.briefDescription ?? ''
   const cleanDesc = rawDesc.replace(/<[^>]*>/g, '').trim()
 
+  // freeCancel: explicit flag or empty cancellation policy list
+  const freeCancel: boolean = !!(
+    a.freeCancellationAvailable === true ||
+    a.freeCancel === true ||
+    (Array.isArray(a.cancellationPolicies) && a.cancellationPolicies.length === 0)
+  )
+
+  // rating: from valuations array or overallValuation field
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const rawRating = a.overallValuation ?? a.valuations?.[0]?.average ?? a.valuations?.[0]?.value
+  const rating: number | null = rawRating ? parseFloat(String(rawRating)) || null : null
+
   return {
     id:          String(a.code),
     slug:        `hb-${a.code}`,
@@ -157,6 +178,8 @@ function mapHBActivity(a: any, destName: string): object {
     location:    destName,
     category:    mapHBCategory(categoryCodes),
     badge:       null,
+    freeCancel,
+    rating,
     source:      'hotelbeds',
   }
 }

@@ -120,6 +120,18 @@ const STATS = [
   { number: '24/7', label: 'Support' },
 ]
 
+// ─── Interest filters ─────────────────────────────────────────────────────────
+const INTERESTS = [
+  { id: 'adventure', label: 'Adventure', emoji: '🧗' },
+  { id: 'family',    label: 'Family',    emoji: '👨‍👩‍👧' },
+  { id: 'culture',   label: 'Culture',   emoji: '🏛️' },
+  { id: 'luxury',    label: 'Luxury',    emoji: '💎' },
+  { id: 'food',      label: 'Food',      emoji: '🍽️' },
+  { id: 'nightlife', label: 'Nightlife', emoji: '🌙' },
+  { id: 'nature',    label: 'Nature',    emoji: '🌿' },
+  { id: 'tours',     label: 'Tours',     emoji: '🗺️' },
+]
+
 interface FeaturedItem {
   title: string; location: string; price: string; badge?: string
   description: string; image: string; duration: string; category: string
@@ -130,6 +142,7 @@ const SYM: Record<string, string> = { GBP:'£',USD:'$',EUR:'€',CAD:'CA$',NGN:'
 
 export default function ActivitiesPage() {
   const [activeCategory,    setActiveCategory]    = useState<string | null>(null)
+  const [interest,          setInterest]          = useState('')
   const [destination,       setDestination]       = useState('')
   const [fromDate,          setFromDate]          = useState('')
   const [toDate,            setToDate]            = useState('')
@@ -177,6 +190,7 @@ export default function ActivitiesPage() {
       to:     toDate,
       adults: String(adults),
       ...(activeCategory ? { category: activeCategory } : {}),
+      ...(interest ? { interest } : {}),
     })
     window.location.href = `/activities/results?${params}`
   }
@@ -369,6 +383,24 @@ export default function ActivitiesPage() {
                     pl-12 pr-4 py-4 text-white placeholder-white/30
                     focus:outline-none focus:border-[#C9A84C] transition-colors text-sm"
                 />
+              </div>
+
+              {/* Interest pills */}
+              <div className="flex flex-wrap gap-2">
+                {INTERESTS.map(it => (
+                  <button
+                    type="button"
+                    key={it.id}
+                    onClick={() => setInterest(interest === it.id ? '' : it.id)}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-semibold transition-all ${
+                      interest === it.id
+                        ? 'bg-[#C9A84C] text-[#0B1F3A]'
+                        : 'bg-white/10 text-white/70 hover:bg-white/20 border border-white/20'
+                    }`}
+                  >
+                    <span>{it.emoji}</span>{it.label}
+                  </button>
+                ))}
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
