@@ -240,8 +240,8 @@ export const NAV_ITEMS: NavSection[] = [
     items: [
       { href: '/admin/bookings',    label: 'All Bookings',   icon: 'Calendar',        permission: 'bookings'        },
       { href: '/admin/book',        label: 'New Booking',    icon: 'Plus',            permission: 'bookings.create' },
-      { href: '/admin/flights',     label: 'Flights',        icon: 'Plane',           permission: 'flights'         },
-      { href: '/admin/hotels',      label: 'Hotels',         icon: 'Building2',       permission: 'hotels'          },
+      { href: '/admin/flights',     label: 'Flight Deals',   icon: 'Plane',           permission: 'flights'         },
+      { href: '/admin/hotels',      label: 'Hotel Promos',   icon: 'Building2',       permission: 'hotels'          },
       { href: '/admin/transfers',   label: 'Transfers',      icon: 'Car',             permission: 'transfers'       },
     ],
   },
@@ -249,10 +249,14 @@ export const NAV_ITEMS: NavSection[] = [
     section: 'SERVICES',
     items: [
       { href: '/admin/visa',               label: 'Visa Applications',   icon: 'FileText',     permission: 'visa'       },
-      { href: '/admin/visa-applications',  label: 'Application Tracker', icon: 'ClipboardList', permission: 'visa'      },
+      { href: '/admin/visa-applications',  label: 'Form Tracker',        icon: 'ClipboardList', permission: 'visa'      },
       { href: '/admin/visa/bank-analyser', label: 'Bank Analyser',       icon: 'ScanSearch',    permission: 'visa'      },
       { href: '/admin/tours',              label: 'Tours',               icon: 'Map',           permission: 'tours'     },
       { href: '/admin/documents',          label: 'Documents',           icon: 'FolderOpen',    permission: 'documents' },
+      { href: '/admin/activities',         label: 'Activities',          icon: 'MapPin',        permission: 'tours'     },
+      { href: '/admin/packages',           label: 'Packages',            icon: 'Package',       permission: 'tours'     },
+      { href: '/admin/esim',               label: 'Jade Connect / eSIM', icon: 'Signal',        permission: 'bookings'  },
+      { href: '/admin/portal',             label: 'Client Portal',       icon: 'Globe',         permission: 'clients'   },
     ],
   },
   {
@@ -271,8 +275,9 @@ export const NAV_ITEMS: NavSection[] = [
     ],
   },
   {
-    section: 'CONTENT',
+    section: 'WEBSITE',
     items: [
+      { href: '/admin/hero-slides',   label: 'Hero Slides',     icon: 'Image',    permission: 'content'      },
       { href: '/admin/blog',          label: 'Blog',            icon: 'BookOpen', permission: 'blog'         },
       { href: '/admin/blog/new',      label: 'New Post',        icon: 'Plus',     permission: 'blog.publish' },
       { href: '/admin/content',       label: 'Website Content', icon: 'Edit',     permission: 'content'      },
@@ -282,14 +287,12 @@ export const NAV_ITEMS: NavSection[] = [
   {
     section: 'SYSTEM',
     items: [
-      { href: '/admin/staff',       label: 'Staff',     icon: 'Shield',     permission: 'staff'        },
-      { href: '/admin/staff/new',   label: 'Add Staff', icon: 'UserPlus',   permission: 'staff.create' },
-      { href: '/admin/suppliers',   label: 'Suppliers', icon: 'Package',    permission: 'suppliers'    },
-      { href: '/admin/tools',       label: 'Tools',     icon: 'Wrench',     permission: 'tools'        },
-      { href: '/admin/audit-logs',  label: 'Audit Logs',icon: 'Activity',   permission: 'audit_logs'   },
-      { href: '/admin/api-keys',    label: 'API Keys',  icon: 'Key',        permission: 'api_keys'     },
-      { href: '/admin/settings',    label: 'Settings',  icon: 'Settings',   permission: 'settings'     },
-      { href: '/admin/payroll',     label: 'Payroll',   icon: 'DollarSign', permission: 'payroll'      },
+      { href: '/admin/staff',       label: 'Staff',     icon: 'Shield',   permission: 'staff'      },
+      { href: '/admin/staff/new',   label: 'Add Staff', icon: 'UserPlus', permission: 'staff.create' },
+      { href: '/admin/suppliers',   label: 'Suppliers', icon: 'Package',  permission: 'suppliers'  },
+      { href: '/admin/audit-logs',  label: 'Audit Logs',icon: 'Activity', permission: 'audit_logs' },
+      { href: '/admin/api-keys',    label: 'API Keys',  icon: 'Key',      permission: 'api_keys'   },
+      { href: '/admin/settings',    label: 'Settings',  icon: 'Settings', permission: 'settings'   },
     ],
   },
 ]

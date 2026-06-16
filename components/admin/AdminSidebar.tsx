@@ -12,6 +12,7 @@ import {
   BarChart2, CheckCircle,
   BookOpen, Edit, Sliders,
   Shield, Package, Wrench, Activity, Key, Settings,
+  MapPin, Signal, Globe, Image,
   LogOut,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -55,6 +56,10 @@ const ICON_MAP: Record<string, React.ElementType> = {
   Activity,
   Key,
   Settings,
+  MapPin,
+  Signal,
+  Globe,
+  Image,
 }
 
 const LOGO_CACHE_KEY = 'walz_logo_url'
