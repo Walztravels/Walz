@@ -10,7 +10,7 @@ import { ArrowRight, MessageCircle, Search } from 'lucide-react'
 import { JadeChatButton } from '@/components/ui/JadeChatButton'
 
 export function HeroSection({ bgUrl }: { bgUrl?: string | null }) {
-  const heroBg     = bgUrl || 'https://images.unsplash.com/photo-1464037866556-6812c9d1c72e?w=2000&q=85'
+  const heroBg     = bgUrl || 'https://us.chat-img.sintra.ai/aeb90658-6cce-491a-8a0f-bfc14a8cdc69/c760de26-34bd-4aac-af9b-cbd82eb4b938/image.png'
   const sectionRef = useRef<HTMLElement>(null)
   const bgRef      = useRef<HTMLDivElement>(null)
   const eyebrowRef = useRef<HTMLParagraphElement>(null)
@@ -26,7 +26,17 @@ export function HeroSection({ bgUrl }: { bgUrl?: string | null }) {
     gsap.registerPlugin(ScrollTrigger)
 
     const prefersReduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
-    if (prefersReduced) return
+    if (prefersReduced) {
+      // Skip animation but make everything visible immediately
+      if (eyebrowRef.current)  eyebrowRef.current.style.opacity  = '1'
+      if (line1Ref.current)    { line1Ref.current.style.opacity = '1'; line1Ref.current.style.transform = 'none' }
+      if (line2Ref.current)    { line2Ref.current.style.opacity = '1'; line2Ref.current.style.transform = 'none' }
+      if (line3Ref.current)    { line3Ref.current.style.opacity = '1'; line3Ref.current.style.transform = 'none' }
+      if (subRef.current)      subRef.current.style.opacity      = '1'
+      if (ctaRef.current)      ctaRef.current.style.opacity      = '1'
+      if (searchRef.current)   searchRef.current.style.opacity   = '1'
+      return
+    }
 
     const tl = gsap.timeline({ defaults: { ease: 'power3.out' } })
 
@@ -150,7 +160,7 @@ export function HeroSection({ bgUrl }: { bgUrl?: string | null }) {
       <div
         ref={searchRef}
         className="absolute bottom-0 left-0 right-0 z-20 translate-y-1/2 px-4 sm:px-6 lg:px-8"
-        style={{ opacity: 0 }}
+        style={{ opacity: 0, transition: 'opacity 0.3s ease' }}
       >
         <div className="max-w-5xl mx-auto drop-shadow-2xl">
           {/* Mobile: single collapsed tap-to-search bar */}
