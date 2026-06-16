@@ -21,6 +21,7 @@ const MAX_MB = 50
 
 interface Analysis {
   status: 'PASS' | 'REVIEW' | 'FLAG'
+  analysisEngine?: string
   currency?: string
   statementPeriod?: string
   monthsAnalyzed?: number
@@ -346,6 +347,9 @@ export default function BankAnalyserPage() {
                     )}
                     {analysis.confidence && (
                       <p className="text-xs text-gray-400 mt-0.5 capitalize">AI confidence: {analysis.confidence}</p>
+                    )}
+                    {analysis.analysisEngine && analysis.analysisEngine !== 'none' && (
+                      <p className="text-xs text-gray-400 mt-0.5">Analysed by: {analysis.analysisEngine}</p>
                     )}
                   </div>
                 </div>

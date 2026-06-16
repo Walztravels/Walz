@@ -8,10 +8,10 @@ export async function POST(req: NextRequest) {
   try {
     const t0 = Date.now()
 
-    // Guard: ensure API key is set before doing anything expensive
-    if (!process.env.ANTHROPIC_API_KEY) {
-      console.error('[Bank Analyser] ANTHROPIC_API_KEY is not set')
-      return NextResponse.json({ error: 'AI service not configured — ANTHROPIC_API_KEY missing' }, { status: 500 })
+    // Guard: at least one AI engine must be configured
+    if (!process.env.ANTHROPIC_API_KEY && !process.env.OPENAI_API_KEY) {
+      console.error('[Bank Analyser] Neither ANTHROPIC_API_KEY nor OPENAI_API_KEY is set')
+      return NextResponse.json({ error: 'AI service not configured — no API keys set' }, { status: 500 })
     }
 
     const body = await req.json()
@@ -63,19 +63,15 @@ export async function POST(req: NextRequest) {
     const buffer = Buffer.from(arrayBuffer)
     console.log('[Bank Analyser] PDF buffer size:', buffer.byteLength, 'bytes')
 
-    // Send PDF directly to Claude — no text extraction needed
-    const base64Pdf = buffer.toString('base64')
-    console.log('[Bank Analyser] base64 length:', base64Pdf.length, 'calling Claude...')
-
     const supabase = getSupabaseAdmin()
 
     const analysis = await analyzeBankStatement(
-      base64Pdf,
+      buffer,
       destination,
       applicantName ?? 'Applicant',
       passportCountry ?? 'Nigeria',
     )
-    console.log('[Bank Analyser] Claude analysis complete, status:', analysis.status)
+    console.log('[Bank Analyser] analysis complete, engine:', analysis.analysisEngine, 'status:', analysis.status)
 
     if (targetTable === 'bank_statement_analyses') {
       // Admin standalone flow — save is best-effort; never block returning the analysis
