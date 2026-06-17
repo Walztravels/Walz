@@ -273,6 +273,12 @@ model VisaApplication {
   startedAt DateTime?
   viewCount Int       @default(0)
 
+  // ── Appointment ──────────────────────────────────
+  appointmentDate     DateTime?
+  appointmentNotes    String?
+  appointmentLocation String?
+  lastEmailSentAt     DateTime?
+
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -1710,4 +1716,17 @@ model ActivityBooking {
   @@index([activityId])
   @@index([status])
   @@index([stripeSessionId])
+}
+
+model Supplier {
+  id        String   @id @default(cuid())
+  name      String
+  type      String
+  contact   String?
+  phone     String?
+  website   String?
+  status    String   @default("active")
+  notes     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }

@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import { format } from 'date-fns'
-import { LayoutDashboard, RefreshCw, ChevronDown, CheckCircle, FileText, CreditCard, ExternalLink } from 'lucide-react'
+import { LayoutDashboard, RefreshCw, ChevronDown, CheckCircle, FileText, CreditCard, ExternalLink, Send, X, Loader2 } from 'lucide-react'
 import BankStatementCard from '@/components/admin/BankStatementCard'
 import Link from 'next/link'
 
@@ -47,6 +47,12 @@ const STAGE_COLOR: Record<Stage, string> = {
   REJECTED: 'bg-red-100 text-red-700', COMPLETED: 'bg-gray-100 text-gray-600',
 }
 
+interface SendUpdateModal {
+  appId: string
+  refNumber: string
+  email: string | null
+}
+
 export default function AdminPortalPage() {
   const [apps, setApps]         = useState<Application[]>([])
   const [total, setTotal]       = useState(0)
@@ -54,6 +60,17 @@ export default function AdminPortalPage() {
   const [stage, setStage]       = useState<string>('ALL')
   const [saving, setSaving]     = useState<string | null>(null)
   const [editNotes, setEditNotes] = useState<Record<string, string>>({})
+
+  // Send Update modal state
+  const [sendModal, setSendModal]             = useState<SendUpdateModal | null>(null)
+  const [sendSubject, setSendSubject]         = useState('')
+  const [sendMessage, setSendMessage]         = useState('')
+  const [sendApptDate, setSendApptDate]       = useState('')
+  const [sendApptLoc, setSendApptLoc]         = useState('')
+  const [sendApptNotes, setSendApptNotes]     = useState('')
+  const [sendStatus, setSendStatus]           = useState('')
+  const [sendLoading, setSendLoading]         = useState(false)
+  const [sendSuccess, setSendSuccess]         = useState(false)
 
   // Fee editing — one app at a time
   const [editingFeesFor, setEditingFeesFor] = useState<string | null>(null)
@@ -117,6 +134,37 @@ export default function AdminPortalPage() {
       body: JSON.stringify({ stage: newStage }),
     })
     setSaving(null)
+  }
+
+  function openSendModal(app: Application) {
+    setSendModal({ appId: app.id, refNumber: app.refNumber, email: app.user.email })
+    setSendSubject(`Update on your visa application — Ref: ${app.refNumber}`)
+    setSendMessage('')
+    setSendApptDate('')
+    setSendApptLoc('')
+    setSendApptNotes('')
+    setSendStatus('')
+    setSendSuccess(false)
+  }
+
+  async function submitSendUpdate() {
+    if (!sendModal) return
+    setSendLoading(true)
+    await fetch(`/api/admin/visa-applications/${sendModal.appId}/notify`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        subject:             sendSubject,
+        message:             sendMessage,
+        appointmentDate:     sendApptDate || undefined,
+        appointmentLocation: sendApptLoc  || undefined,
+        appointmentNotes:    sendApptNotes || undefined,
+        updateStatus:        sendStatus   || undefined,
+      }),
+    })
+    setSendLoading(false)
+    setSendSuccess(true)
+    setTimeout(() => setSendModal(null), 1500)
   }
 
   const saveNotes = async (id: string) => {
@@ -260,6 +308,12 @@ export default function AdminPortalPage() {
                         Email client
                       </a>
                     )}
+                    <button
+                      onClick={() => openSendModal(app)}
+                      className="flex items-center gap-1.5 text-xs font-semibold text-white bg-[#C9A84C] hover:bg-[#d4b45f] px-3 py-2 rounded-lg transition-colors"
+                    >
+                      <Send className="w-3 h-3" /> Send Update
+                    </button>
                     <Link
                       href={`/admin/portal/${app.id}`}
                       className="flex items-center gap-1 text-xs font-semibold text-[#0B1F3A] bg-[#C9A84C]/10 hover:bg-[#C9A84C]/20 border border-[#C9A84C]/30 px-3 py-2 rounded-lg transition-colors"
@@ -401,6 +455,91 @@ export default function AdminPortalPage() {
           </div>
         )}
       </div>
+
+      {/* Send Update Modal */}
+      {sendModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
+              <div>
+                <h2 className="font-bold text-[#0B1F3A]">Send Update</h2>
+                <p className="text-xs text-gray-400 mt-0.5">
+                  Ref: {sendModal.refNumber} · {sendModal.email ?? 'No email on file'}
+                </p>
+              </div>
+              <button onClick={() => setSendModal(null)} className="text-gray-400 hover:text-gray-600">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="p-6 space-y-4">
+              <div>
+                <label className="block text-xs font-semibold text-gray-600 mb-1">Subject</label>
+                <input value={sendSubject} onChange={e => setSendSubject(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-200 rounded-xl text-sm outline-none focus:border-[#C9A84C]" />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-gray-600 mb-1">Message</label>
+                <textarea value={sendMessage} onChange={e => setSendMessage(e.target.value)} rows={4}
+                  placeholder="Write your update message to the client…"
+                  className="w-full px-3 py-2 border border-gray-200 rounded-xl text-sm outline-none focus:border-[#C9A84C] resize-none" />
+              </div>
+              <div className="border-t border-gray-100 pt-4">
+                <p className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-3">Appointment (optional)</p>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-600 mb-1">Date &amp; Time</label>
+                    <input type="datetime-local" value={sendApptDate} onChange={e => setSendApptDate(e.target.value)}
+                      className="w-full px-3 py-2 border border-gray-200 rounded-xl text-sm outline-none focus:border-[#C9A84C]" />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-600 mb-1">Location</label>
+                    <input value={sendApptLoc} onChange={e => setSendApptLoc(e.target.value)}
+                      placeholder="e.g. VFS London"
+                      className="w-full px-3 py-2 border border-gray-200 rounded-xl text-sm outline-none focus:border-[#C9A84C]" />
+                  </div>
+                </div>
+                <div className="mt-3">
+                  <label className="block text-xs font-semibold text-gray-600 mb-1">Appointment Notes</label>
+                  <input value={sendApptNotes} onChange={e => setSendApptNotes(e.target.value)}
+                    placeholder="e.g. Bring original passport"
+                    className="w-full px-3 py-2 border border-gray-200 rounded-xl text-sm outline-none focus:border-[#C9A84C]" />
+                </div>
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-gray-600 mb-1">Update Status (optional)</label>
+                <select value={sendStatus} onChange={e => setSendStatus(e.target.value)}
+                  className="w-full px-3 py-2 border border-gray-200 rounded-xl text-sm outline-none focus:border-[#C9A84C]">
+                  <option value="">— Keep current status —</option>
+                  <option value="received">Received</option>
+                  <option value="documents_pending">Documents Pending</option>
+                  <option value="under_review">Under Review</option>
+                  <option value="ready_to_submit">Ready to Submit</option>
+                  <option value="submitted_to_embassy">Submitted to Embassy</option>
+                  <option value="decision_pending">Decision Pending</option>
+                  <option value="approved">Approved</option>
+                  <option value="refused">Refused</option>
+                </select>
+              </div>
+            </div>
+            <div className="flex gap-3 px-6 pb-6">
+              <button onClick={() => setSendModal(null)}
+                className="flex-1 py-2.5 border border-gray-200 rounded-xl text-sm font-semibold text-gray-600 hover:bg-gray-50 transition-colors">
+                Cancel
+              </button>
+              <button onClick={submitSendUpdate} disabled={sendLoading || sendSuccess || !sendModal.email}
+                className="flex-1 py-2.5 bg-[#0B1F3A] text-white rounded-xl text-sm font-semibold hover:bg-[#0B1F3A]/90 disabled:opacity-50 flex items-center justify-center gap-2 transition-colors">
+                {sendLoading ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : sendSuccess ? (
+                  <>✓ Sent!</>
+                ) : (
+                  <><Send className="w-4 h-4" /> Send Email</>
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
