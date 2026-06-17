@@ -49,6 +49,7 @@ interface VisaApp {
   stripePaymentIntentId: string | null
   govtFeePaid: boolean; govtFeeAmount: string | null
   initiatedBy: string
+  appointmentDate: string | null; appointmentLocation: string | null; appointmentNotes: string | null
   createdAt: string; updatedAt: string
   user: { name: string | null; email: string | null } | null
   notes: VisaNote[]
@@ -300,6 +301,229 @@ function DocumentChecklist({ appId, destIso2 }: { appId: string; destIso2: strin
           Email Checklist to Client
         </button>
       )}
+    </div>
+  )
+}
+
+// ─── Embassy Pack Section ────────────────────────────────────────────────────
+
+const DEFAULT_EMBASSY_DOCS: Record<string, string[]> = {
+  CA: [
+    'Valid passport (original + 1 copy of bio data page)',
+    'Completed IMM 5257 application form',
+    'Two recent passport-sized photographs',
+    'Proof of funds — bank statements (last 3 months)',
+    'Employment letter or proof of business',
+    'Return flight itinerary',
+    'Hotel or accommodation booking confirmation',
+    'Invitation letter (if visiting family/friends)',
+    'Travel insurance covering your trip',
+    'Utility bill or proof of address',
+    'Any previous visas (copies)',
+  ],
+  GB: [
+    'Valid passport (original + photocopy of bio data page)',
+    'Completed UK Visitor Visa application (online)',
+    'Biometric enrolment confirmation letter',
+    'Two recent passport-sized photographs',
+    'Bank statements (last 6 months)',
+    'Employer letter confirming employment, salary, and approved leave',
+    'Proof of accommodation in the UK',
+    'Return flight itinerary',
+    'Travel insurance (minimum £30,000 cover)',
+    'Proof of ties to home country',
+  ],
+  US: [
+    'Valid passport',
+    'DS-160 confirmation page',
+    'Visa interview appointment letter',
+    'SEVIS fee receipt (student visas)',
+    'One recent passport-sized photograph (5x5cm, white background)',
+    'Bank statements (last 6 months)',
+    'Employment letter / proof of funds',
+    'Invitation letter (if applicable)',
+    'Proof of property or family ties',
+  ],
+  AE: [
+    'Original valid passport',
+    'Passport-sized photograph (white background)',
+    'Visa approval printout (sent by Walz Travels)',
+    'Return flight itinerary',
+    'Hotel or accommodation confirmation',
+    'Travel insurance',
+    'Proof of funds',
+  ],
+  FR: [
+    'Valid passport (valid for at least 3 months beyond travel dates)',
+    'Completed Schengen visa application form',
+    'Two recent passport-sized photographs',
+    'Travel itinerary (flights + hotel)',
+    'Travel insurance (minimum €30,000 coverage)',
+    'Bank statements (last 3 months)',
+    'Employment letter or business registration',
+    'Proof of accommodation',
+  ],
+}
+
+function EmbassyPackSection({ app }: { app: VisaApp }) {
+  const defaultDocs = DEFAULT_EMBASSY_DOCS[app.destinationIso2?.toUpperCase() ?? ''] ?? [
+    'Valid passport (original)',
+    'Completed visa application form',
+    'Two passport-sized photographs',
+    'Bank statements (last 3 months)',
+    'Employment letter / proof of funds',
+    'Travel itinerary (flights + hotel)',
+    'Travel insurance',
+  ]
+
+  const [appointmentDate,     setAppointmentDate]     = useState(app.appointmentDate?.split('T')[0] ?? '')
+  const [appointmentTime,     setAppointmentTime]     = useState('')
+  const [appointmentLocation, setAppointmentLocation] = useState(app.appointmentLocation ?? '')
+  const [appointmentRef,      setAppointmentRef]      = useState(app.appointmentNotes ?? '')
+  const [docList,             setDocList]             = useState<string[]>(defaultDocs)
+  const [customDoc,           setCustomDoc]           = useState('')
+  const [extraInstructions,   setExtraInstructions]   = useState('')
+  const [sending,             setSending]             = useState(false)
+  const [sentOk,              setSentOk]              = useState(false)
+
+  function addCustomDoc() {
+    if (!customDoc.trim()) return
+    setDocList(prev => [...prev, customDoc.trim()])
+    setCustomDoc('')
+  }
+
+  function removeDoc(i: number) {
+    setDocList(prev => prev.filter((_, idx) => idx !== i))
+  }
+
+  async function sendPack() {
+    if (!app.email) return
+    setSending(true)
+    try {
+      const res = await fetch(`/api/admin/visa-applications/${app.id}/embassy-pack`, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({
+          appointmentDate:     appointmentDate     || null,
+          appointmentTime:     appointmentTime     || null,
+          appointmentLocation: appointmentLocation || null,
+          appointmentRef:      appointmentRef      || null,
+          documents:           docList,
+          extraInstructions:   extraInstructions   || null,
+        }),
+      })
+      if (res.ok) {
+        setSentOk(true)
+        setTimeout(() => setSentOk(false), 3000)
+      }
+    } catch {}
+    setSending(false)
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="bg-blue-50 border border-blue-100 rounded-xl p-3">
+        <p className="text-xs text-blue-700">
+          📋 Send the client a preparation pack with their appointment details
+          and a full list of documents to bring to the embassy.
+        </p>
+      </div>
+
+      {/* Appointment details */}
+      <div className="space-y-2">
+        <p className="text-xs font-bold text-gray-500 uppercase tracking-wider">Appointment Details</p>
+        <div className="grid grid-cols-2 gap-2">
+          <div>
+            <label className="text-[10px] text-gray-400 font-semibold uppercase block mb-1">Date</label>
+            <input type="date" value={appointmentDate}
+              onChange={e => setAppointmentDate(e.target.value)}
+              className="w-full h-9 px-3 border border-gray-200 rounded-xl text-xs focus:outline-none focus:border-[#C9A84C]" />
+          </div>
+          <div>
+            <label className="text-[10px] text-gray-400 font-semibold uppercase block mb-1">Time</label>
+            <input type="time" value={appointmentTime}
+              onChange={e => setAppointmentTime(e.target.value)}
+              className="w-full h-9 px-3 border border-gray-200 rounded-xl text-xs focus:outline-none focus:border-[#C9A84C]" />
+          </div>
+        </div>
+        <div>
+          <label className="text-[10px] text-gray-400 font-semibold uppercase block mb-1">Embassy / VFS Location</label>
+          <input value={appointmentLocation}
+            onChange={e => setAppointmentLocation(e.target.value)}
+            placeholder="e.g. VFS Global, 66-68 Hammersmith Rd, London W14 8UD"
+            className="w-full h-9 px-3 border border-gray-200 rounded-xl text-xs focus:outline-none focus:border-[#C9A84C]" />
+        </div>
+        <div>
+          <label className="text-[10px] text-gray-400 font-semibold uppercase block mb-1">
+            Appointment / GWF Reference <span className="text-gray-400 font-normal normal-case">(optional)</span>
+          </label>
+          <input value={appointmentRef}
+            onChange={e => setAppointmentRef(e.target.value)}
+            placeholder="e.g. GWF075XXXXXX"
+            className="w-full h-9 px-3 border border-gray-200 rounded-xl text-xs focus:outline-none focus:border-[#C9A84C]" />
+        </div>
+      </div>
+
+      {/* Document list */}
+      <div>
+        <p className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">
+          Documents to Bring ({docList.length})
+        </p>
+        <div className="space-y-1 max-h-48 overflow-y-auto">
+          {docList.map((doc, i) => (
+            <div key={i} className="flex items-center gap-2 bg-gray-50 rounded-lg px-3 py-1.5">
+              <span className="text-green-500 text-xs">✓</span>
+              <span className="text-xs text-[#0B1F3A] flex-1">{doc}</span>
+              <button onClick={() => removeDoc(i)}
+                className="text-gray-300 hover:text-red-400 transition-colors">
+                <X className="w-3 h-3" />
+              </button>
+            </div>
+          ))}
+        </div>
+        <div className="flex gap-2 mt-2">
+          <input value={customDoc} onChange={e => setCustomDoc(e.target.value)}
+            onKeyDown={e => e.key === 'Enter' && addCustomDoc()}
+            placeholder="Add a document…"
+            className="flex-1 h-8 px-3 border border-gray-200 rounded-xl text-xs focus:outline-none focus:border-[#C9A84C]" />
+          <button onClick={addCustomDoc}
+            className="px-3 h-8 bg-gray-100 hover:bg-gray-200 rounded-xl text-xs font-semibold text-gray-600 transition-colors">
+            Add
+          </button>
+        </div>
+      </div>
+
+      {/* Extra instructions */}
+      <div>
+        <label className="text-xs font-bold text-gray-500 uppercase tracking-wider block mb-1.5">
+          Additional Instructions{' '}
+          <span className="text-gray-400 font-normal normal-case">(optional)</span>
+        </label>
+        <textarea value={extraInstructions}
+          onChange={e => setExtraInstructions(e.target.value)}
+          placeholder="e.g. Please arrive 15 minutes early. Wear smart casual clothing."
+          rows={3}
+          className="w-full border border-gray-200 rounded-xl px-3 py-2 text-xs focus:outline-none focus:border-[#C9A84C] resize-none leading-relaxed" />
+      </div>
+
+      {!app.email && (
+        <p className="text-xs text-red-400">⚠️ No email address on file — cannot send embassy pack.</p>
+      )}
+      <button
+        onClick={sendPack}
+        disabled={sending || !app.email}
+        className={`w-full flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-bold transition-colors disabled:opacity-50 ${
+          sentOk ? 'bg-green-500 text-white' : 'bg-[#0B1F3A] text-white hover:bg-[#162d52]'
+        }`}
+      >
+        {sending
+          ? <Loader2 className="w-4 h-4 animate-spin" />
+          : sentOk
+            ? <CheckCircle className="w-4 h-4" />
+            : <Send className="w-4 h-4" />
+        }
+        {sending ? 'Sending…' : sentOk ? 'Pack Sent!' : 'Send Embassy Pack to Client'}
+      </button>
     </div>
   )
 }
@@ -1096,6 +1320,11 @@ export default function AdminVisaDetailPage() {
                 Mark as Submitted
               </button>
             </div>
+          </ActionSection>
+
+          {/* Embassy Appointment Pack */}
+          <ActionSection id="embassypack" title="Embassy Appointment Pack" icon={ClipboardList}>
+            <EmbassyPackSection app={app} />
           </ActionSection>
 
           {/* Decision */}

@@ -5,21 +5,24 @@ import { getSupabaseAdmin } from '@/lib/supabase'
 import { sendVisaStatusUpdate, sendApplicationFormLink } from '@/lib/email-visa'
 
 async function isAdmin() {
-  const token = cookies().get('admin_token')?.value
-  return !!token
+  const c = await cookies()
+  return !!(c.get('admin_token')?.value)
 }
 
-type Params = { params: { id: string } }
+type Params = { params: Promise<{ id: string }> }
 
 // GET /api/admin/visa-applications/[id]
 export async function GET(_req: NextRequest, { params }: Params) {
   if (!await isAdmin()) return NextResponse.json({ error: 'Unauthorised' }, { status: 401 })
 
+  const { id } = await params
+
   const app = await prisma.visaApplication.findUnique({
-    where: { id: params.id },
+    where: { id },
     include: {
-      user: { select: { name: true, email: true } },
-      notes: { orderBy: { createdAt: 'desc' } },
+      user:   { select: { name: true, email: true } },
+      notes:  { orderBy: { createdAt: 'desc' } },
+      tokens: { orderBy: { createdAt: 'desc' } },
     },
   })
   if (!app) return NextResponse.json({ error: 'Not found' }, { status: 404 })
@@ -28,15 +31,15 @@ export async function GET(_req: NextRequest, { params }: Params) {
   const { data: bankData } = await getSupabaseAdmin()
     .from('visa_applications')
     .select('bank_statement_url, bank_statement_admin_url, bank_statement_analysis, bank_statement_analyzed_at, bank_statement_uploaded_by')
-    .eq('id', params.id)
+    .eq('id', id)
     .single()
 
   return NextResponse.json({
     application: {
       ...app,
-      bank_statement_url:        bankData?.bank_statement_url        ?? null,
-      bank_statement_admin_url:  bankData?.bank_statement_admin_url  ?? null,
-      bank_statement_analysis:   bankData?.bank_statement_analysis   ?? null,
+      bank_statement_url:         bankData?.bank_statement_url        ?? null,
+      bank_statement_admin_url:   bankData?.bank_statement_admin_url  ?? null,
+      bank_statement_analysis:    bankData?.bank_statement_analysis   ?? null,
       bank_statement_analyzed_at: bankData?.bank_statement_analyzed_at ?? null,
       bank_statement_uploaded_by: bankData?.bank_statement_uploaded_by ?? null,
     },
@@ -47,13 +50,14 @@ export async function GET(_req: NextRequest, { params }: Params) {
 export async function PATCH(req: NextRequest, { params }: Params) {
   if (!await isAdmin()) return NextResponse.json({ error: 'Unauthorised' }, { status: 401 })
 
+  const { id } = await params
   const body = await req.json()
   const { _addNote, _sendFormLink, ...fields } = body
 
   // Handle "send form link to client" action
   if (_sendFormLink) {
     const { clientEmail, clientName, personalMessage } = _sendFormLink
-    const app = await prisma.visaApplication.findUnique({ where: { id: params.id } })
+    const app = await prisma.visaApplication.findUnique({ where: { id } })
     if (app && clientEmail) {
       try { await sendApplicationFormLink(app, clientEmail, clientName, personalMessage) } catch (e) { console.error(e) }
     }
@@ -81,14 +85,24 @@ export async function PATCH(req: NextRequest, { params }: Params) {
   }
 
   const updated = await prisma.visaApplication.update({
-    where: { id: params.id },
+    where: { id },
     data: { ...data, updatedAt: new Date() },
-    include: { user: { select: { name: true, email: true } } },
+    include: {
+      user:   { select: { name: true, email: true } },
+      tokens: { orderBy: { createdAt: 'desc' } },
+    },
   })
 
   // If status changed, send email notification to client
-  if (fields.status && fields.status !== 'draft' && updated.email) {
-    try { await sendVisaStatusUpdate(updated) } catch (e) { console.error(e) }
+  if (fields.status && fields.status !== 'draft') {
+    const emailTo = updated.email ?? updated.user?.email
+    if (emailTo) {
+      try {
+        await sendVisaStatusUpdate({ ...updated, email: emailTo })
+      } catch (e) {
+        console.error('[VisaStatus] Email failed:', e)
+      }
+    }
   }
 
   return NextResponse.json({ application: updated })
