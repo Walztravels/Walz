@@ -8,7 +8,7 @@ export async function POST(req: NextRequest) {
   const session = await getAdminSession()
   if (!session) return NextResponse.json({ error: 'Unauthorised' }, { status: 401 })
 
-  const { clientEmail, clientName, destination, analysis, refId } = await req.json()
+  const { clientEmail, clientName, destination, analysis, refId, reportUrl } = await req.json()
 
   if (!clientEmail || !analysis) {
     return NextResponse.json({ error: 'Missing required fields' }, { status: 400 })
@@ -92,7 +92,22 @@ export async function POST(req: NextRequest) {
 
       ${recsHtml}
 
-      <div style="margin-top:32px;padding:20px;background:#0B1F3A;border-radius:10px;text-align:center">
+      ${reportUrl ? `
+      <div style="margin-top:24px;background:#f0f9ff;border:1px solid #bae6fd;border-radius:10px;padding:20px 24px">
+        <p style="margin:0 0 8px;font-weight:700;color:#0B1F3A;font-size:14px">📄 Your Financial Eligibility Report</p>
+        <p style="margin:0 0 14px;color:#374151;font-size:13px;line-height:1.6">
+          View your full report online — includes embassy readiness, income verification, and personalised recommendations.
+          The link is valid for 30 days.
+        </p>
+        <a href="${reportUrl}" style="display:inline-block;background:#0B1F3A;color:#fff;text-decoration:none;font-weight:700;padding:12px 28px;border-radius:8px;font-size:14px">
+          View Full Report →
+        </a>
+        <p style="margin:10px 0 0;color:#9ca3af;font-size:11px">
+          Or copy this link: <span style="color:#0B1F3A">${reportUrl}</span>
+        </p>
+      </div>` : ''}
+
+      <div style="margin-top:24px;padding:20px;background:#0B1F3A;border-radius:10px;text-align:center">
         <p style="margin:0 0 14px;color:rgba(255,255,255,.8);font-size:14px">Have questions? Our team is ready to help.</p>
         <div>
           <a href="https://wa.me/447398753797" style="display:inline-block;background:#C9A84C;color:#0B1F3A;text-decoration:none;font-weight:700;padding:10px 24px;border-radius:6px;font-size:13px;margin:4px">

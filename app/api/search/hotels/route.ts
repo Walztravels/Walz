@@ -42,21 +42,71 @@ export async function POST(request: NextRequest) {
       filter.maxCategory = Math.max(...starRating)
     }
 
-    const data = await hotelbedsRequest('hotel', '/hotels', {
-      method: 'POST',
-      body: {
-        sourceMarket: 'GB',
-        stay:         { checkIn, checkOut },
-        occupancies:  [{ rooms, adults, children }],
-        destination:  { code: String(destination).toUpperCase() },
-        filter,
-        currency,
-        language: 'ENG',
-        reviews: [{ type: 'HOTELBEDS', maxRate: 5, minRate: 1, minReviewCount: 1 }],
-      },
-    })
+    // Minimum required fields only — sourceMarket and reviews are optional and can cause failures
+    let data: any
+    try {
+      data = await hotelbedsRequest('hotel', '/hotels', {
+        method: 'POST',
+        body: {
+          stay:        { checkIn, checkOut },
+          occupancies: [{ rooms, adults, children }],
+          destination: { code: String(destination).toUpperCase() },
+          filter,
+          currency,
+          language: 'ENG',
+        },
+      })
+    } catch (err: any) {
+      const msg = String(err.message ?? '')
+      console.error('[hotel-search] Hotelbeds error:', msg)
+      if (msg.includes('403') || msg.toLowerCase().includes('quota') || msg.toLowerCase().includes('rate limit')) {
+        return NextResponse.json(
+          { error: 'Hotel availability is temporarily unavailable due to high demand. Please try again in a few minutes.' },
+          { status: 503 }
+        )
+      }
+      if (msg.includes('400')) {
+        return NextResponse.json(
+          { error: 'No hotels found for this destination. Please try a different location or dates.' },
+          { status: 400 }
+        )
+      }
+      throw err
+    }
 
     const rawHotels = data.hotels?.hotels ?? []
+
+    // Fetch images from content API — non-critical, bail after 8 s
+    const hotelCodes = rawHotels.map((h: any) => String(h.code)).join(',')
+    let imagesByCode: Record<string, string[]> = {}
+    if (hotelCodes) {
+      try {
+        const imagePromise = hotelbedsRequest('content', '/hotels', {
+          params: { codes: hotelCodes, fields: 'images', language: 'ENG' },
+        })
+        const timeoutPromise = new Promise<null>((_, reject) =>
+          setTimeout(() => reject(new Error('images timeout')), 8000)
+        )
+        const contentData = await Promise.race([imagePromise, timeoutPromise]) as any
+        if (contentData) {
+          const IMAGE_CDN = 'https://photos.hotelbeds.com/giata/'
+          const PREFERRED = ['CON', 'FAC', 'PIE', 'GEN']
+          for (const ch of (contentData.hotels ?? [])) {
+            const imgs: any[] = ch.images ?? []
+            const sorted = imgs.sort((a: any, b: any) => {
+              const ai = PREFERRED.indexOf(a.imageTypeCode)
+              const bi = PREFERRED.indexOf(b.imageTypeCode)
+              const ap = ai === -1 ? 99 : ai
+              const bp = bi === -1 ? 99 : bi
+              return ap !== bp ? ap - bp : (a.visualOrder ?? 999) - (b.visualOrder ?? 999)
+            })
+            imagesByCode[String(ch.code)] = sorted.slice(0, 5).map((img: any) => IMAGE_CDN + img.path)
+          }
+        }
+      } catch {
+        // Images are non-critical — proceed without them
+      }
+    }
 
     const nights = Math.max(
       1,
@@ -75,9 +125,11 @@ export async function POST(request: NextRequest) {
 
       const review      = h.reviews?.[0]
       const addressLine = [h.address, h.zoneName].find(Boolean) ?? h.destinationName ?? ''
+      const rateKey     = rate?.rateKey ?? ''
 
       return {
         id:        String(h.code),
+        rateKey,
         hotelCode: String(h.code),
         chainCode: h.chainCode ?? '',
         name:      h.name ?? 'Unknown Hotel',
@@ -91,7 +143,7 @@ export async function POST(request: NextRequest) {
         pricePerNight: { amount: pricePerNight, currency },
         totalPrice:    { amount: totalPrice,    currency },
         amenities:   [],
-        images:      [],
+        images:      imagesByCode[String(h.code)] ?? [],
         rating:      review?.rate       ?? undefined,
         reviewCount: review?.reviewCount ?? undefined,
         isRefundable,

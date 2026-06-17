@@ -318,8 +318,8 @@ export default function BookingsPage() {
 
       {/* ── Cancel Booking Modal ── */}
       {cancelTarget && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl p-6 w-full max-w-md shadow-2xl">
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 overflow-y-auto">
+          <div className="bg-white rounded-2xl p-6 w-full max-w-md shadow-2xl my-auto">
 
             {issuedCode ? (
               /* ── Success: voucher issued ── */
@@ -451,8 +451,8 @@ export default function BookingsPage() {
 
       {/* Send Update Modal */}
       {msgModalId && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl p-6 w-full max-w-md shadow-2xl">
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4 overflow-y-auto">
+          <div className="bg-white rounded-2xl p-6 w-full max-w-md shadow-2xl my-auto">
             <h3 className="font-bold text-[#0B1F3A] mb-4">Send Update to Client</h3>
             <textarea
               value={updateMsg}

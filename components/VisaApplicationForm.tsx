@@ -629,6 +629,7 @@ export function VisaApplicationForm({
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [confirmed, setConfirmed] = useState<{ refNumber: string; email: string } | null>(null)
+  const [draftFees, setDraftFees] = useState<{ walzFee: number; walzCurrency: string; govFee: number | null } | null>(null)
 
   const { debouncedSave, saving, lastSaved } = useAutoSave(appId, adminToken)
 
@@ -694,6 +695,13 @@ export function VisaApplicationForm({
           setAppId(app.id)
           setRefNumber(app.referenceNumber)
           setForm(prev => ({ ...prev, ...mapAppToForm(app) } as VFormData))
+          if (app.serviceFeeAmount != null) {
+            setDraftFees({
+              walzFee:     Number(app.serviceFeeAmount),
+              walzCurrency: app.serviceFeeCurrency ?? 'USD',
+              govFee:      app.govtFeeAmount != null ? Number(app.govtFeeAmount) : null,
+            })
+          }
           setCreating(false)
           setLoading(false)
           return
@@ -962,43 +970,27 @@ export function VisaApplicationForm({
         </p>
       </div>
 
-      {/* Fee summary — only for supported destinations in full-page mode */}
-      {!inline && !isUnsupported && (() => {
-        const displayWalzFee     = feeOverride?.walzFee     ?? config.serviceFeeUsd
-        const displayWalzCur     = feeOverride?.walzCurrency ?? 'USD'
-        const displayGovFee      = feeOverride?.govFee      ?? null
-        const displayGovCur      = feeOverride?.govCurrency  ?? config.govtFeeCurrency
-        const displayGovNote     = feeOverride?.govFeeNote   ?? 'paid later'
-        const displayGovDisplay  = displayGovFee != null
-          ? `${displayGovCur} ${Number(displayGovFee).toLocaleString()}`
-          : config.govtFeeDisplay
-        return (
-          <div className="mt-4 bg-white rounded-2xl border border-gray-100 p-5">
-            <div className="flex items-center justify-between mb-3">
-              <h3 className="font-semibold text-[#0B1F3A] text-sm">Fee Summary</h3>
-              <span className="text-xs text-gray-400">{config.flag} {config.name}</span>
-            </div>
-            <div className="space-y-2">
-              {displayWalzFee > 0 && (
-                <div className="flex justify-between text-sm">
-                  <span className="text-gray-600">Walz Travels Service Fee</span>
-                  <span className="font-bold text-[#0B1F3A]">{displayWalzCur} {Number(displayWalzFee).toLocaleString()}</span>
-                </div>
-              )}
-              <div className="flex justify-between text-sm">
-                <span className="text-gray-600">Government Fee ({displayGovNote})</span>
-                <span className="text-gray-500">{displayGovDisplay}</span>
-              </div>
-              {displayWalzFee > 0 && (
-                <div className="border-t border-gray-100 pt-2 flex justify-between text-sm font-bold">
-                  <span className="text-[#0B1F3A]">Due today</span>
-                  <span className="text-[#C9A84C]">{displayWalzCur} {Number(displayWalzFee).toLocaleString()}</span>
-                </div>
-              )}
-            </div>
+      {/* Fee summary — only shown when admin explicitly set fees on this draft */}
+      {!inline && draftFees != null && (
+        <div className="mt-4 bg-white rounded-2xl border border-gray-100 p-5">
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="font-semibold text-[#0B1F3A] text-sm">Fee Summary</h3>
+            <span className="text-xs text-gray-400">{config.flag} {config.name}</span>
           </div>
-        )
-      })()}
+          <div className="space-y-2">
+            <div className="flex justify-between text-sm">
+              <span className="text-gray-600">Walz Travels Service Fee</span>
+              <span className="font-bold text-[#0B1F3A]">{draftFees.walzCurrency} {Number(draftFees.walzFee).toLocaleString()}</span>
+            </div>
+            {draftFees.govFee != null && (
+              <div className="flex justify-between text-sm">
+                <span className="text-gray-600">Government Fee (paid later)</span>
+                <span className="text-gray-500">USD {Number(draftFees.govFee).toLocaleString()}</span>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   )
 

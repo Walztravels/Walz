@@ -1,8 +1,7 @@
 import { Suspense } from 'react'
 import { notFound } from 'next/navigation'
 import prisma from '@/lib/db'
-import { CheckCircle, Calendar, Users, FileText, Building } from 'lucide-react'
-
+import { CheckCircle, MapPin, Calendar, Users, FileText } from 'lucide-react'
 import { PrintButton } from '@/components/hotels/PrintButton'
 
 export const dynamic = 'force-dynamic'
@@ -11,106 +10,97 @@ async function VoucherContent({ ref }: { ref: string }) {
   const booking = await prisma.booking.findFirst({
     where: { bookingReference: ref, type: 'HOTEL' },
   })
-
   if (!booking) notFound()
 
   const info = (booking.passengers as any[])[0]
+  const fmt  = (d: string) => new Date(d).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })
 
   return (
-    <div className="min-h-screen bg-[#F5F0E8] py-10 px-4">
-      <div className="max-w-2xl mx-auto">
+    <div className="min-h-screen bg-[#F5F0E8] py-10 px-4 print:bg-white">
+      <div className="max-w-xl mx-auto space-y-4">
 
-        <div className="bg-[#0B1F3A] rounded-2xl p-6 mb-6 text-center">
+        <div className="bg-[#0B1F3A] rounded-2xl p-6 text-center">
           <CheckCircle className="w-10 h-10 text-green-400 mx-auto mb-3" />
-          <h1 className="text-white text-2xl font-bold">Booking Confirmed</h1>
-          <p className="text-white/60 text-sm mt-1">Your hotel booking is confirmed</p>
+          <h1 className="text-white text-2xl font-bold">Hotel Booking Confirmed</h1>
+          <p className="text-white/50 text-sm mt-1">Powered by Hotelbeds · Walz Travels</p>
         </div>
 
-        {/* Cert 4.4 — booking references mandatory */}
-        <div className="bg-white rounded-2xl p-5 mb-4 shadow-sm">
-          <h2 className="font-bold text-[#0B1F3A] mb-3 flex items-center gap-2">
+        {/* References */}
+        <div className="bg-white rounded-2xl p-5 shadow-sm">
+          <h2 className="font-bold text-[#0B1F3A] mb-3 flex items-center gap-2 text-sm">
             <FileText className="w-4 h-4 text-[#C9A84C]" /> Booking References
           </h2>
           <div className="grid grid-cols-2 gap-3 text-sm">
             <div>
-              <p className="text-gray-400 text-xs">Walz Travels Reference</p>
+              <p className="text-gray-400 text-xs">Walz Reference</p>
               <p className="font-bold text-[#0B1F3A] font-mono">{booking.bookingReference}</p>
             </div>
             <div>
-              <p className="text-gray-400 text-xs">Supplier Reference</p>
-              <p className="font-bold text-[#0B1F3A] font-mono">{info?.hotelbedsRef ?? '—'}</p>
+              <p className="text-gray-400 text-xs">Hotelbeds Reference</p>
+              <p className="font-bold text-[#0B1F3A] font-mono text-sm">{info?.hotelbedsRef}</p>
             </div>
           </div>
         </div>
 
-        {/* Cert 4.2 — hotel information mandatory */}
-        <div className="bg-white rounded-2xl p-5 mb-4 shadow-sm">
-          <h2 className="font-bold text-[#0B1F3A] mb-3 flex items-center gap-2">
-            <Building className="w-4 h-4 text-[#C9A84C]" /> Hotel Information
+        {/* Hotel */}
+        <div className="bg-white rounded-2xl p-5 shadow-sm">
+          <h2 className="font-bold text-[#0B1F3A] mb-3 flex items-center gap-2 text-sm">
+            <MapPin className="w-4 h-4 text-[#C9A84C]" /> Hotel Details
           </h2>
           <div className="space-y-2 text-sm">
             <div className="flex justify-between">
-              <span className="text-gray-500">Hotel</span>
-              <span className="font-semibold text-[#0B1F3A]">{info?.hotelName}</span>
+              <span className="text-gray-400">Hotel</span>
+              <span className="font-semibold text-[#0B1F3A] text-right max-w-[60%]">{info?.hotelName}</span>
             </div>
-            <div className="flex justify-between">
-              <span className="text-gray-500">Room type</span>
-              <span className="font-semibold">{info?.roomName}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-gray-500">Board type</span>
-              <span className="font-semibold">{info?.boardName}</span>
-            </div>
+            {info?.roomName  && <div className="flex justify-between"><span className="text-gray-400">Room</span><span className="font-medium">{info.roomName}</span></div>}
+            {info?.boardName && <div className="flex justify-between"><span className="text-gray-400">Board</span><span className="font-medium">{info.boardName}</span></div>}
           </div>
         </div>
 
-        {/* Cert 4.4 — stay dates mandatory */}
-        <div className="bg-white rounded-2xl p-5 mb-4 shadow-sm">
-          <h2 className="font-bold text-[#0B1F3A] mb-3 flex items-center gap-2">
+        {/* Dates */}
+        <div className="bg-white rounded-2xl p-5 shadow-sm">
+          <h2 className="font-bold text-[#0B1F3A] mb-3 flex items-center gap-2 text-sm">
             <Calendar className="w-4 h-4 text-[#C9A84C]" /> Stay Dates
           </h2>
           <div className="grid grid-cols-2 gap-4 text-sm">
-            <div>
-              <p className="text-gray-400 text-xs">Check-in</p>
-              <p className="font-bold text-[#0B1F3A]">{info?.checkIn}</p>
-            </div>
-            <div>
-              <p className="text-gray-400 text-xs">Check-out</p>
-              <p className="font-bold text-[#0B1F3A]">{info?.checkOut}</p>
-            </div>
+            <div><p className="text-gray-400 text-xs">Check-in</p><p className="font-bold text-[#0B1F3A]">{fmt(info?.checkIn)}</p></div>
+            <div><p className="text-gray-400 text-xs">Check-out</p><p className="font-bold text-[#0B1F3A]">{fmt(info?.checkOut)}</p></div>
           </div>
         </div>
 
-        {/* Cert 4.3 — guest details mandatory */}
-        <div className="bg-white rounded-2xl p-5 mb-4 shadow-sm">
-          <h2 className="font-bold text-[#0B1F3A] mb-3 flex items-center gap-2">
+        {/* Guests */}
+        <div className="bg-white rounded-2xl p-5 shadow-sm">
+          <h2 className="font-bold text-[#0B1F3A] mb-3 flex items-center gap-2 text-sm">
             <Users className="w-4 h-4 text-[#C9A84C]" /> Guest Details
           </h2>
-          <div className="text-sm">
-            <p className="text-gray-500">Lead Passenger</p>
-            <p className="font-bold text-[#0B1F3A]">{info?.holderName}</p>
+          <div className="space-y-1.5 text-sm">
+            <div className="flex justify-between"><span className="text-gray-400">Lead Guest</span><span className="font-semibold text-[#0B1F3A]">{info?.holderName}</span></div>
+            <div className="flex justify-between"><span className="text-gray-400">Email</span><span className="text-gray-600">{info?.holderEmail}</span></div>
+            {info?.holderPhone && <div className="flex justify-between"><span className="text-gray-400">Phone</span><span className="text-gray-600">{info.holderPhone}</span></div>}
           </div>
         </div>
 
-        {/* Cert 4.5 — payment information mandatory */}
-        <div className="bg-amber-50 border border-amber-200 rounded-2xl p-5 mb-4 text-sm text-gray-700">
-          <p className="font-semibold text-[#0B1F3A] mb-1">Payment Information</p>
-          <p>
-            Payable through <strong>{info?.supplier?.name ?? 'HBX Group'}</strong>,
-            acting as agent for the service operating company, details of which can be provided
-            upon request. VAT: {info?.supplier?.vatNumber ?? 'N/A'}.
-            Reference: {info?.hotelbedsRef}
+        {/* Payment — cert req 4.5 */}
+        <div className="bg-amber-50 border border-amber-200 rounded-2xl p-5 text-sm">
+          <p className="font-semibold text-[#0B1F3A] mb-1">Payment</p>
+          <p className="text-gray-600">
+            Payable through <strong>{info?.supplier?.name ?? 'HBX Group'}</strong>, acting as agent
+            for the service operating company. VAT: {info?.supplier?.vatNumber ?? 'N/A'}.
+            Reference: {info?.hotelbedsRef}.
+          </p>
+          <p className="text-[#0B1F3A] font-bold mt-2 text-base">
+            {booking.currency} {Number(booking.totalAmount).toLocaleString()} — PAID
           </p>
         </div>
 
-        {/* Cert 3.8 — cancellation policies */}
+        {/* Cancellation — cert req 3.8 */}
         {Array.isArray(info?.cancellationPolicies) && info.cancellationPolicies.length > 0 && (
-          <div className="bg-red-50 border border-red-100 rounded-2xl p-5 mb-4 text-sm">
+          <div className="bg-red-50 border border-red-100 rounded-2xl p-5 text-sm">
             <p className="font-semibold text-red-800 mb-2">Cancellation Policy</p>
             {info.cancellationPolicies.map((p: any, i: number) => (
               <p key={i} className="text-red-700">
-                Cancellation fee of <strong>{booking.currency} {p.amount}</strong> applies
-                from <strong>{new Date(p.from).toLocaleDateString('en-GB')}</strong>
+                Fee of <strong>{booking.currency} {p.amount}</strong> applies from{' '}
+                <strong>{new Date(p.from).toLocaleDateString('en-GB')}</strong>
               </p>
             ))}
           </div>
@@ -118,17 +108,18 @@ async function VoucherContent({ ref }: { ref: string }) {
 
         <PrintButton />
 
-        <p className="text-center text-xs text-gray-400 mt-4">
-          Questions? WhatsApp us on +44 7398 753797 · contact@walztravels.com
+        <p className="text-center text-xs text-gray-400 print:hidden">
+          Questions? WhatsApp +44 7398 753797 · contact@walztravels.com
         </p>
       </div>
     </div>
   )
 }
 
-export default function VoucherPage({ searchParams }: { searchParams: { ref: string } }) {
+export default function HotelVoucherPage({ searchParams }: { searchParams: { ref?: string } }) {
+  if (!searchParams.ref) notFound()
   return (
-    <Suspense>
+    <Suspense fallback={<div className="min-h-screen flex items-center justify-center"><div className="w-8 h-8 border-4 border-[#C9A84C] border-t-transparent rounded-full animate-spin" /></div>}>
       <VoucherContent ref={searchParams.ref} />
     </Suspense>
   )

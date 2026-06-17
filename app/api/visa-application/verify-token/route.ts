@@ -16,6 +16,14 @@ export async function GET(req: NextRequest) {
   if (record.used) return NextResponse.json({ valid: false, error: 'This form link has already been submitted. Contact Walz Travels if you need to make changes.' }, { status: 410 })
   if (new Date() > record.expiresAt) return NextResponse.json({ valid: false, error: 'This link expired after 7 days. Please contact Walz Travels for a new link.' }, { status: 410 })
 
+  // Track open + increment view count
+  const trackData: Record<string, unknown> = { viewCount: { increment: 1 } }
+  if (!record.application.openedAt) trackData.openedAt = new Date()
+  await prisma.visaApplication.update({
+    where: { id: record.application.id },
+    data:  trackData,
+  }).catch(() => {})
+
   return NextResponse.json({
     valid: true,
     clientEmail: record.clientEmail,

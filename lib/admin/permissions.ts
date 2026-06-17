@@ -248,9 +248,9 @@ export const NAV_ITEMS: NavSection[] = [
   {
     section: 'SERVICES',
     items: [
-      { href: '/admin/visa',               label: 'Visa Applications',   icon: 'FileText',     permission: 'visa'       },
-      { href: '/admin/form-tracker',        label: 'Form Tracker',        icon: 'ClipboardList', permission: 'visa'      },
-      { href: '/admin/visa/bank-analyser', label: 'Bank Analyser',       icon: 'ScanSearch',    permission: 'visa'      },
+      { href: '/admin/visa-applications',  label: 'Visa Applications',   icon: 'FileText',      permission: 'visa'      },
+      { href: '/admin/visa-pricing',       label: 'Visa Pricing',         icon: 'Tag',           permission: 'visa'      },
+      { href: '/admin/visa/bank-analyser', label: 'Bank Analyser',        icon: 'ScanSearch',    permission: 'visa'      },
       { href: '/admin/tours',              label: 'Tours',               icon: 'Map',           permission: 'tours'     },
       { href: '/admin/documents',          label: 'Documents',           icon: 'FolderOpen',    permission: 'documents' },
       { href: '/admin/activities',         label: 'Activities',          icon: 'MapPin',        permission: 'tours'     },

@@ -306,9 +306,10 @@ export function HotelSearchWidget() {
       {selected && (
         <HotelBookingModal
           hotel={selected.hotel as any}
-          rate={selected.rate}
           checkIn={checkIn}
           checkOut={checkOut}
+          adults={adults}
+          rooms={rooms}
           onClose={() => setSelected(null)}
         />
       )}

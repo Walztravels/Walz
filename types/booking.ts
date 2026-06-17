@@ -54,6 +54,7 @@ export interface HotelAmenity {
 
 export interface HotelResult {
   id: string
+  rateKey: string
   hotelCode: string
   chainCode: string
   name: string

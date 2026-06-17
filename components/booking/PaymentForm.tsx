@@ -1,14 +1,13 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useFlutterwave, closePaymentModal } from 'flutterwave-react-v3'
 import { loadStripe } from '@stripe/stripe-js'
 import { Elements, PaymentElement, useStripe, useElements } from '@stripe/react-stripe-js'
-import { Shield, Lock, CreditCard, Loader2, Smartphone, Building2 } from 'lucide-react'
+import { Shield, Lock, CreditCard, Loader2, Smartphone, Building2 } from 'lucide-react' // Building2 kept for Flutterwave panel
 import { Button } from '@/components/ui/button'
 import { formatPrice } from '@/lib/utils'
 import { cn } from '@/lib/utils'
-import { HelcimPayButton } from '@/components/payment/HelcimPayButton'
 
 // Singleton — initialised once at module level so it's never recreated on re-render
 const stripePromise = process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY
@@ -87,7 +86,7 @@ interface PaymentFormProps {
   customerName: string
   customerPhone?: string
   bookingReference?: string
-  onSuccess: (transactionId: string | number, gateway: 'flutterwave' | 'stripe' | 'helcim') => void
+  onSuccess: (transactionId: string | number, gateway: 'flutterwave' | 'stripe') => void
   onError: (error: string) => void
 }
 
@@ -102,7 +101,7 @@ export function PaymentForm({
   onSuccess,
   onError,
 }: PaymentFormProps) {
-  const [gateway, setGateway] = useState<'flutterwave' | 'stripe' | 'helcim'>('helcim')
+  const [gateway, setGateway] = useState<'stripe' | 'flutterwave'>('stripe')
   const [isFlwProcessing, setIsFlwProcessing] = useState(false)
   const [clientSecret, setClientSecret] = useState<string | null>(null)
   const [isLoadingStripe, setIsLoadingStripe] = useState(false)
@@ -161,6 +160,12 @@ export function PaymentForm({
     }
   }
 
+  // Auto-load Stripe on mount since it is the default gateway
+  useEffect(() => {
+    handleSwitchToStripe()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
   // ── Flutterwave launch ─────────────────────────────────────────────────────
   const handleFlwPay = () => {
     setIsFlwProcessing(true)
@@ -204,26 +209,26 @@ export function PaymentForm({
         </div>
       </div>
 
-      {/* Gateway selector tabs */}
-      <div className="grid grid-cols-3 gap-1.5 p-1 bg-walz-off-white rounded-xl border border-walz-border">
+      {/* Gateway selector */}
+      <div className="grid grid-cols-2 gap-1.5 p-1 bg-walz-off-white rounded-xl border border-walz-border">
         <button
           type="button"
-          onClick={() => setGateway('helcim')}
+          onClick={handleSwitchToStripe}
           className={cn(
-            'flex items-center justify-center gap-1.5 py-2.5 px-2 rounded-lg text-xs font-semibold transition-all',
-            gateway === 'helcim'
+            'flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-lg text-xs font-semibold transition-all',
+            gateway === 'stripe'
               ? 'bg-white shadow-sm text-walz-deep-navy border border-walz-border'
               : 'text-walz-muted hover:text-walz-deep-navy'
           )}
         >
           <CreditCard className="w-3.5 h-3.5" />
-          Helcim
+          Card (Stripe)
         </button>
         <button
           type="button"
           onClick={() => setGateway('flutterwave')}
           className={cn(
-            'flex items-center justify-center gap-1.5 py-2.5 px-2 rounded-lg text-xs font-semibold transition-all',
+            'flex items-center justify-center gap-1.5 py-2.5 px-3 rounded-lg text-xs font-semibold transition-all',
             gateway === 'flutterwave'
               ? 'bg-white shadow-sm text-walz-deep-navy border border-walz-border'
               : 'text-walz-muted hover:text-walz-deep-navy'
@@ -232,34 +237,7 @@ export function PaymentForm({
           <Smartphone className="w-3.5 h-3.5" />
           Flutterwave
         </button>
-        <button
-          type="button"
-          onClick={handleSwitchToStripe}
-          className={cn(
-            'flex items-center justify-center gap-1.5 py-2.5 px-2 rounded-lg text-xs font-semibold transition-all',
-            gateway === 'stripe'
-              ? 'bg-white shadow-sm text-walz-deep-navy border border-walz-border'
-              : 'text-walz-muted hover:text-walz-deep-navy'
-          )}
-        >
-          <CreditCard className="w-3.5 h-3.5" />
-          Stripe
-        </button>
       </div>
-
-      {/* ── Helcim panel ── */}
-      {gateway === 'helcim' && (
-        <div className="space-y-3">
-          <HelcimPayButton
-            amount={amount}
-            currency={currency}
-            invoiceNumber={bookingReference}
-            label={`Pay ${formatPrice(amount, currency.toUpperCase())} Securely`}
-            onSuccess={(txId) => onSuccess(txId, 'helcim')}
-            onError={onError}
-          />
-        </div>
-      )}
 
       {/* ── Flutterwave panel ── */}
       {gateway === 'flutterwave' && (

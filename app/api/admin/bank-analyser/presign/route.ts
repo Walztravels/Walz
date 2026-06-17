@@ -31,19 +31,12 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Could not create upload URL. Please try again.' }, { status: 500 })
   }
 
-  // Pre-generate download URL (used by the analyze route after upload completes)
-  const { data: dlData, error: dlErr } = await supabase.storage
-    .from(BUCKET)
-    .createSignedUrl(storagePath, 60 * 60 * 2) // 2 hours
-
-  if (dlErr || !dlData?.signedUrl) {
-    console.error('[Presign] createSignedUrl failed:', dlErr?.message)
-    return NextResponse.json({ error: 'Could not create download URL. Please try again.' }, { status: 500 })
-  }
-
+  // Return the storage path so the analyze route can create a signed download URL
+  // AFTER the file has been uploaded. Supabase requires the object to exist before
+  // createSignedUrl will succeed, so we can't pre-generate the URL here.
   return NextResponse.json({
     refId,
+    storagePath,
     uploadUrl: uploadData.signedUrl,
-    fileUrl:   dlData.signedUrl,
   })
 }

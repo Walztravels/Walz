@@ -11,18 +11,92 @@ import { Input } from '@/components/ui/input'
 import type { HotelResult } from '@/types/booking'
 
 const popularDestinations = [
-  { code: 'DXB', city: 'Dubai', country: 'UAE' },
-  { code: 'LON', city: 'London', country: 'UK' },
-  { code: 'NYC', city: 'New York', country: 'USA' },
-  { code: 'PAR', city: 'Paris', country: 'France' },
-  { code: 'TYO', city: 'Tokyo', country: 'Japan' },
-  { code: 'SYD', city: 'Sydney', country: 'Australia' },
-  { code: 'SIN', city: 'Singapore', country: 'Singapore' },
-  { code: 'MLE', city: 'Maldives', country: 'Maldives' },
-  { code: 'DUB', city: 'Dublin', country: 'Ireland' },
-  { code: 'BCN', city: 'Barcelona', country: 'Spain' },
-  { code: 'ROM', city: 'Rome', country: 'Italy' },
-  { code: 'AMS', city: 'Amsterdam', country: 'Netherlands' },
+  // ── Nigeria ──────────────────────────────────────────
+  { code: 'LOS', city: 'Lagos',           country: 'Nigeria' },
+  { code: 'ABV', city: 'Abuja',           country: 'Nigeria' },
+  { code: 'PHC', city: 'Port Harcourt',   country: 'Nigeria' },
+  // ── Ghana ────────────────────────────────────────────
+  { code: 'ACC', city: 'Accra',           country: 'Ghana' },
+  { code: 'KMS', city: 'Kumasi',          country: 'Ghana' },
+  // ── East Africa ──────────────────────────────────────
+  { code: 'NBO', city: 'Nairobi',         country: 'Kenya' },
+  { code: 'MBA', city: 'Mombasa',         country: 'Kenya' },
+  { code: 'DAR', city: 'Dar es Salaam',   country: 'Tanzania' },
+  { code: 'ZNZ', city: 'Zanzibar',        country: 'Tanzania' },
+  { code: 'ADD', city: 'Addis Ababa',     country: 'Ethiopia' },
+  { code: 'KGL', city: 'Kigali',          country: 'Rwanda' },
+  // ── Southern Africa ──────────────────────────────────
+  { code: 'JNB', city: 'Johannesburg',    country: 'South Africa' },
+  { code: 'CPT', city: 'Cape Town',       country: 'South Africa' },
+  { code: 'DUR', city: 'Durban',          country: 'South Africa' },
+  // ── West Africa ──────────────────────────────────────
+  { code: 'DKR', city: 'Dakar',           country: 'Senegal' },
+  { code: 'ABJ', city: 'Abidjan',         country: 'Ivory Coast' },
+  { code: 'CMN', city: 'Casablanca',      country: 'Morocco' },
+  { code: 'CAI', city: 'Cairo',           country: 'Egypt' },
+  // ── UK ───────────────────────────────────────────────
+  { code: 'LON', city: 'London',          country: 'UK' },
+  { code: 'MAN', city: 'Manchester',      country: 'UK' },
+  { code: 'BHX', city: 'Birmingham',      country: 'UK' },
+  { code: 'EDI', city: 'Edinburgh',       country: 'UK' },
+  { code: 'LBA', city: 'Leeds',           country: 'UK' },
+  { code: 'BRS', city: 'Bristol',         country: 'UK' },
+  // ── Canada ───────────────────────────────────────────
+  { code: 'YTO', city: 'Toronto',         country: 'Canada' },
+  { code: 'YVR', city: 'Vancouver',       country: 'Canada' },
+  { code: 'YMQ', city: 'Montreal',        country: 'Canada' },
+  { code: 'YYC', city: 'Calgary',         country: 'Canada' },
+  { code: 'YOW', city: 'Ottawa',          country: 'Canada' },
+  // ── UAE ──────────────────────────────────────────────
+  { code: 'DXB', city: 'Dubai',           country: 'UAE' },
+  { code: 'AUH', city: 'Abu Dhabi',       country: 'UAE' },
+  { code: 'SHJ', city: 'Sharjah',         country: 'UAE' },
+  // ── USA ──────────────────────────────────────────────
+  { code: 'NYC', city: 'New York',        country: 'USA' },
+  { code: 'LAX', city: 'Los Angeles',     country: 'USA' },
+  { code: 'MIA', city: 'Miami',           country: 'USA' },
+  { code: 'CHI', city: 'Chicago',         country: 'USA' },
+  { code: 'HOU', city: 'Houston',         country: 'USA' },
+  { code: 'ATL', city: 'Atlanta',         country: 'USA' },
+  { code: 'LAS', city: 'Las Vegas',       country: 'USA' },
+  { code: 'WAS', city: 'Washington DC',   country: 'USA' },
+  // ── Europe ───────────────────────────────────────────
+  { code: 'PAR', city: 'Paris',           country: 'France' },
+  { code: 'AMS', city: 'Amsterdam',       country: 'Netherlands' },
+  { code: 'BCN', city: 'Barcelona',       country: 'Spain' },
+  { code: 'MAD', city: 'Madrid',          country: 'Spain' },
+  { code: 'ROM', city: 'Rome',            country: 'Italy' },
+  { code: 'MIL', city: 'Milan',           country: 'Italy' },
+  { code: 'FRA', city: 'Frankfurt',       country: 'Germany' },
+  { code: 'BER', city: 'Berlin',          country: 'Germany' },
+  { code: 'IST', city: 'Istanbul',        country: 'Turkey' },
+  { code: 'ATH', city: 'Athens',          country: 'Greece' },
+  { code: 'LIS', city: 'Lisbon',          country: 'Portugal' },
+  { code: 'VIE', city: 'Vienna',          country: 'Austria' },
+  { code: 'ZRH', city: 'Zurich',          country: 'Switzerland' },
+  { code: 'DUB', city: 'Dublin',          country: 'Ireland' },
+  { code: 'CPH', city: 'Copenhagen',      country: 'Denmark' },
+  { code: 'STO', city: 'Stockholm',       country: 'Sweden' },
+  // ── Middle East ──────────────────────────────────────
+  { code: 'DOH', city: 'Doha',            country: 'Qatar' },
+  { code: 'RUH', city: 'Riyadh',          country: 'Saudi Arabia' },
+  { code: 'JED', city: 'Jeddah',          country: 'Saudi Arabia' },
+  { code: 'AMM', city: 'Amman',           country: 'Jordan' },
+  // ── Asia & Pacific ───────────────────────────────────
+  { code: 'SIN', city: 'Singapore',       country: 'Singapore' },
+  { code: 'BKK', city: 'Bangkok',         country: 'Thailand' },
+  { code: 'KUL', city: 'Kuala Lumpur',    country: 'Malaysia' },
+  { code: 'HKG', city: 'Hong Kong',       country: 'Hong Kong' },
+  { code: 'NRT', city: 'Tokyo',            country: 'Japan' },
+  { code: 'SYD', city: 'Sydney',          country: 'Australia' },
+  { code: 'MEL', city: 'Melbourne',       country: 'Australia' },
+  { code: 'MLE', city: 'Maldives',        country: 'Maldives' },
+  { code: 'BOM', city: 'Mumbai',          country: 'India' },
+  { code: 'DEL', city: 'Delhi',           country: 'India' },
+  // ── Americas ─────────────────────────────────────────
+  { code: 'CUN', city: 'Cancun',          country: 'Mexico' },
+  { code: 'GRU', city: 'São Paulo',       country: 'Brazil' },
+  { code: 'GIG', city: 'Rio de Janeiro',  country: 'Brazil' },
 ]
 
 const hotelSchema = z.object({
@@ -36,8 +110,15 @@ const hotelSchema = z.object({
 
 type HotelFormData = z.infer<typeof hotelSchema>
 
+export interface HotelSearchMeta {
+  checkIn: string
+  checkOut: string
+  adults: number
+  rooms: number
+}
+
 interface HotelSearchFormProps {
-  onResults?: (results: HotelResult[]) => void
+  onResults?: (results: HotelResult[], meta: HotelSearchMeta) => void
   initialValues?: Partial<HotelFormData>
 }
 
@@ -47,6 +128,7 @@ export function HotelSearchForm({ onResults, initialValues }: HotelSearchFormPro
   const [error, setError] = useState<string | null>(null)
   const [destQuery, setDestQuery] = useState('')
   const [isDestOpen, setIsDestOpen] = useState(false)
+  const [resolvedCode, setResolvedCode] = useState<string | null>(null)
 
   const {
     register,
@@ -72,24 +154,43 @@ export function HotelSearchForm({ onResults, initialValues }: HotelSearchFormPro
   const children = watch('children')
 
   const filteredDests = destQuery.length >= 1
-    ? popularDestinations.filter(
-        (d) =>
+    ? popularDestinations
+        .filter(d =>
           d.city.toLowerCase().includes(destQuery.toLowerCase()) ||
           d.country.toLowerCase().includes(destQuery.toLowerCase()) ||
-          d.code.toLowerCase().includes(destQuery.toLowerCase())
-      )
-    : popularDestinations.slice(0, 8)
+          d.code.toLowerCase().startsWith(destQuery.toLowerCase())
+        )
+        .slice(0, 8)
+    : []
 
   const onSubmit = async (data: HotelFormData) => {
     setIsLoading(true)
     setError(null)
+
+    // Resolve destination to a valid Hotelbeds code
+    let destCode = resolvedCode ?? data.destination
+    if (!popularDestinations.some(d => d.code === destCode)) {
+      const q = destQuery.toLowerCase()
+      const match = popularDestinations.find(d =>
+        d.city.toLowerCase() === q ||
+        d.city.toLowerCase().startsWith(q) ||
+        d.code.toLowerCase() === q
+      )
+      if (match) {
+        destCode = match.code
+      } else {
+        setError('Please select a destination from the suggestions list.')
+        setIsLoading(false)
+        return
+      }
+    }
 
     try {
       if (onResults) {
         const response = await fetch('/api/search/hotels', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(data),
+          body: JSON.stringify({ ...data, destination: destCode }),
         })
 
         if (!response.ok) {
@@ -98,10 +199,10 @@ export function HotelSearchForm({ onResults, initialValues }: HotelSearchFormPro
         }
 
         const results = await response.json() as HotelResult[]
-        onResults(results)
+        onResults(results, { checkIn: data.checkIn, checkOut: data.checkOut, adults: data.adults, rooms: data.rooms })
       } else {
         const params = new URLSearchParams({
-          destination: data.destination,
+          destination: destCode,
           checkIn: data.checkIn,
           checkOut: data.checkOut,
           rooms: String(data.rooms),
@@ -132,9 +233,10 @@ export function HotelSearchForm({ onResults, initialValues }: HotelSearchFormPro
               onChange={(e) => {
                 setDestQuery(e.target.value)
                 setValue('destination', e.target.value)
-                setIsDestOpen(true)
+                setResolvedCode(null)
+                setIsDestOpen(e.target.value.length > 0)
               }}
-              onFocus={() => setIsDestOpen(true)}
+              onFocus={() => { if (destQuery.length > 0) setIsDestOpen(true) }}
               placeholder="City, hotel or destination"
               className="input-walz h-12"
             />
@@ -156,6 +258,7 @@ export function HotelSearchForm({ onResults, initialValues }: HotelSearchFormPro
                         onClick={() => {
                           setValue('destination', dest.code)
                           setDestQuery(dest.city)
+                          setResolvedCode(dest.code)
                           setIsDestOpen(false)
                         }}
                         className="w-full flex items-center gap-3 px-4 py-3 hover:bg-walz-off-white transition-colors text-left"

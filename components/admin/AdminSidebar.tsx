@@ -7,7 +7,7 @@ import { createClient } from '@supabase/supabase-js'
 import {
   LayoutDashboard, TrendingUp, MessageSquare,
   Users, UserPlus, Calendar, Plus, Plane, Building2, Car,
-  FileText, Map, FolderOpen, ClipboardList, ScanSearch,
+  FileText, Map, FolderOpen, ClipboardList, ScanSearch, Tag,
   CreditCard, Award, DollarSign,
   BarChart2, CheckCircle,
   BookOpen, Edit, Sliders,
@@ -62,6 +62,7 @@ const ICON_MAP: Record<string, React.ElementType> = {
   Globe,
   Image,
   ShieldCheck,
+  Tag,
 }
 
 const LOGO_CACHE_KEY = 'walz_logo_url'

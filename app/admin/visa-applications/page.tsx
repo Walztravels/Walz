@@ -9,6 +9,7 @@ import {
 } from 'lucide-react'
 import { STATUS_CONFIG, VISA_AGENTS, VISA_CONFIGS } from '@/lib/visa-config'
 import { useStaffPermissions } from '@/hooks/useStaffPermissions'
+import FormTracker from '@/components/admin/visa/FormTracker'
 
 interface VisaApp {
   id: string; referenceNumber: string; destinationIso2: string; visaType: string
@@ -59,9 +60,19 @@ interface SendFormState {
   personalMessage: string
 }
 
+interface AppStats {
+  total:               number
+  submittedToEmbassy:  number
+  inProgress:          number
+  approved:            number
+}
+
 export default function AdminVisaApplicationsPage() {
   const router = useRouter()
   const { can, loading: permLoading } = useStaffPermissions()
+
+  const [activeTab, setActiveTab]     = useState<'applications' | 'form-tracker'>('applications')
+  const [stats, setStats]             = useState<AppStats | null>(null)
 
   const [apps, setApps]               = useState<VisaApp[]>([])
   const [loading, setLoading]         = useState(true)
@@ -75,6 +86,14 @@ export default function AdminVisaApplicationsPage() {
     if (!permLoading && !can('visa_view')) router.replace('/admin/unauthorized')
   }, [permLoading, can, router])
 
+  // Load aggregate stats once
+  useEffect(() => {
+    fetch('/api/admin/visa-applications?stats=true')
+      .then(r => r.json())
+      .then(d => setStats(d.stats ?? null))
+      .catch(() => {})
+  }, [])
+
   // Send-form modal
   const [modalOpen, setModalOpen]   = useState(false)
   const [sending, setSending]       = useState(false)
@@ -85,6 +104,9 @@ export default function AdminVisaApplicationsPage() {
   const [walzFee,      setWalzFee]      = useState<number | ''>('')
   const [feeCurrency,  setFeeCurrency]  = useState('GBP')
   const [paymentChoice, setPaymentChoice] = useState<'now' | 'later'>('later')
+  const [govtFee,      setGovtFee]      = useState<number | ''>('')
+  const [govtCurrency, setGovtCurrency] = useState('USD')
+  const [showGovtFee,  setShowGovtFee]  = useState(true)
 
   async function load() {
     setLoading(true)
@@ -116,6 +138,9 @@ export default function AdminVisaApplicationsPage() {
           walzFee:       walzFee !== '' ? Number(walzFee) : null,
           feeCurrency,
           paymentChoice,
+          govtFee:       govtFee !== '' ? Number(govtFee) : null,
+          govtCurrency,
+          showGovtFee,
         }),
       })
       const d = await res.json()
@@ -137,6 +162,9 @@ export default function AdminVisaApplicationsPage() {
     setWalzFee('')
     setFeeCurrency('GBP')
     setPaymentChoice('later')
+    setGovtFee('')
+    setGovtCurrency('USD')
+    setShowGovtFee(true)
   }
 
   const statCounts = ALL_STATUSES.slice(1).reduce<Record<string, number>>((acc, s) => {
@@ -147,10 +175,10 @@ export default function AdminVisaApplicationsPage() {
   return (
     <div className="p-6 max-w-7xl mx-auto">
       {/* Header */}
-      <div className="flex items-center justify-between mb-6">
+      <div className="flex items-center justify-between mb-4">
         <div>
           <h1 className="text-2xl font-bold text-[#0B1F3A]">Visa Applications</h1>
-          <p className="text-gray-500 text-sm mt-0.5">{apps.length} application{apps.length !== 1 ? 's' : ''} · Manage, track and submit</p>
+          <p className="text-gray-500 text-sm mt-0.5">Manage, track and submit visa applications</p>
         </div>
         <div className="flex items-center gap-2">
           <button onClick={load} disabled={loading}
@@ -165,6 +193,45 @@ export default function AdminVisaApplicationsPage() {
           </button>
         </div>
       </div>
+
+      {/* Stats bar */}
+      {stats && (
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">
+          {[
+            { label: 'Total Applications',    value: stats.total,              color: 'text-[#0B1F3A]',  bg: 'bg-white'        },
+            { label: 'Submitted to Embassy',  value: stats.submittedToEmbassy, color: 'text-indigo-700', bg: 'bg-indigo-50'    },
+            { label: 'In Progress',           value: stats.inProgress,         color: 'text-amber-700',  bg: 'bg-amber-50'     },
+            { label: 'Approved',              value: stats.approved,           color: 'text-green-700',  bg: 'bg-green-50'     },
+          ].map(s => (
+            <div key={s.label} className={`${s.bg} rounded-2xl border border-gray-100 shadow-sm p-4`}>
+              <p className="text-xs text-gray-400 font-medium">{s.label}</p>
+              <p className={`text-2xl font-bold mt-0.5 ${s.color}`}>{s.value}</p>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Tabs */}
+      <div className="flex gap-1 bg-white rounded-2xl shadow-sm border border-gray-100 p-1 w-fit mb-5">
+        <button onClick={() => setActiveTab('applications')}
+          className={`px-5 py-2 rounded-xl text-sm font-semibold transition-all ${
+            activeTab === 'applications' ? 'bg-[#0B1F3A] text-white' : 'text-gray-500 hover:text-[#0B1F3A]'
+          }`}>
+          Applications
+        </button>
+        <button onClick={() => setActiveTab('form-tracker')}
+          className={`px-5 py-2 rounded-xl text-sm font-semibold transition-all ${
+            activeTab === 'form-tracker' ? 'bg-[#0B1F3A] text-white' : 'text-gray-500 hover:text-[#0B1F3A]'
+          }`}>
+          Form Tracker
+        </button>
+      </div>
+
+      {/* Form Tracker tab */}
+      {activeTab === 'form-tracker' && <FormTracker />}
+
+      {/* Applications tab */}
+      {activeTab === 'applications' && <>
 
       {/* Status count pills */}
       <div className="flex gap-2 flex-wrap mb-6">
@@ -306,12 +373,14 @@ export default function AdminVisaApplicationsPage() {
         </div>
       )}
 
+      </>}
+
       {/* ── Send Form to Client Modal ── */}
       {modalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md overflow-hidden">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md flex flex-col max-h-[90vh]">
             {/* Header */}
-            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
+            <div className="flex-shrink-0 flex items-center justify-between px-6 py-4 border-b border-gray-100">
               <div>
                 <h2 className="text-lg font-bold text-[#0B1F3A]">Send Application Form</h2>
                 <p className="text-xs text-gray-500 mt-0.5">Client receives a direct link — no login or payment required</p>
@@ -342,7 +411,7 @@ export default function AdminVisaApplicationsPage() {
               </div>
             ) : (
               /* Form */
-              <form onSubmit={handleSendForm} className="p-6 space-y-4">
+              <form onSubmit={handleSendForm} className="overflow-y-auto p-6 space-y-4">
                 <div className="grid grid-cols-2 gap-4">
                   <div className="col-span-2">
                     <label className="block text-xs font-semibold text-gray-700 mb-1">Client Email *</label>
@@ -476,6 +545,51 @@ export default function AdminVisaApplicationsPage() {
                   </div>
                 )}
 
+                {/* ─── Govt Fee ─────────────────────────────────── */}
+                <div className="border-t border-gray-100 pt-4">
+                  <div className="flex items-center justify-between mb-3">
+                    <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide">
+                      Government Fee (optional)
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => setShowGovtFee(p => !p)}
+                      className="flex items-center gap-2 text-xs text-gray-500 hover:text-[#0B1F3A] transition-colors"
+                    >
+                      <span className={showGovtFee ? 'text-[#0B1F3A] font-semibold' : 'text-gray-400'}>
+                        {showGovtFee ? 'Shown to client' : 'Hidden from client'}
+                      </span>
+                      <span className={`relative inline-flex w-9 h-5 rounded-full transition-colors ${showGovtFee ? 'bg-[#C9A84C]' : 'bg-gray-200'}`}>
+                        <span className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${showGovtFee ? 'translate-x-4' : ''}`} />
+                      </span>
+                    </button>
+                  </div>
+                  <div className="grid grid-cols-3 gap-3">
+                    <div className="col-span-2">
+                      <label className="block text-xs font-medium text-gray-400 mb-1">Amount</label>
+                      <input
+                        type="number"
+                        value={govtFee}
+                        onChange={e => setGovtFee(e.target.value === '' ? '' : Number(e.target.value))}
+                        placeholder="e.g. 100"
+                        className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm outline-none focus:border-[#C9A84C]"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-medium text-gray-400 mb-1">Currency</label>
+                      <select
+                        value={govtCurrency}
+                        onChange={e => setGovtCurrency(e.target.value)}
+                        className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm outline-none focus:border-[#C9A84C]"
+                      >
+                        {['USD', 'GBP', 'EUR', 'CAD', 'NGN', 'GHS', 'AED'].map(c => (
+                          <option key={c} value={c}>{c}</option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+                </div>
+
                 <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-xs text-amber-700">
                   🔔 This creates a draft application and emails the client a secure 7-day link.{' '}
                   {walzFee && walzFee > 0 && paymentChoice === 'now'
@@ -483,6 +597,8 @@ export default function AdminVisaApplicationsPage() {
                     : walzFee && walzFee > 0
                       ? <strong>Fee of {feeCurrency} {walzFee} will be shown — client pays later.</strong>
                       : <strong>No payment will be collected.</strong>}
+                  {govtFee && govtFee > 0 && showGovtFee && <span> Govt fee of {govtCurrency} {govtFee} will be shown to client.</span>}
+                  {govtFee && govtFee > 0 && !showGovtFee && <span> Govt fee set but <strong>hidden</strong> from client.</span>}
                 </div>
 
                 <button type="submit" disabled={sending || !sendForm.clientEmail || !sendForm.destinationIso2}

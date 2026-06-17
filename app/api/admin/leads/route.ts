@@ -27,6 +27,29 @@ export async function GET(request: NextRequest) {
   return NextResponse.json({ leads, total, page, pageSize })
 }
 
+// POST /api/admin/leads — create a new lead
+export async function POST(request: NextRequest) {
+  let body: unknown
+  try { body = await request.json() } catch {
+    return NextResponse.json({ error: 'Invalid body' }, { status: 400 })
+  }
+
+  const { name, email, phone, source, details, service, notes } = body as Record<string, string>
+  if (!name) return NextResponse.json({ error: 'name required' }, { status: 400 })
+
+  const lead = await prisma.lead.create({
+    data: {
+      name,
+      email:    email   || undefined,
+      whatsapp: phone   || undefined,
+      source:   source  || 'admin',
+      service:  service || 'Other',
+      details:  notes || details || undefined,
+    },
+  })
+  return NextResponse.json({ lead })
+}
+
 // PATCH /api/admin/leads — update lead status
 const patchSchema = z.object({
   id:     z.string().cuid(),

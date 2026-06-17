@@ -207,25 +207,43 @@ export async function sendApplicationFormLink(
   clientName: string,
   personalMessage?: string,
   formUrl?: string,
-  feeInfo?: { amount: number; currency: string; paymentChoice: 'now' | 'later' } | null,
+  feeInfo?: { amount: number; currency: string; paymentChoice: 'now' | 'later'; govtFee?: number; govtCurrency?: string; showGovtFee?: boolean } | null,
 ) {
   const resend = getResend()
   const config = getVisaConfig(app.destinationIso2)
   const resolvedFormUrl = formUrl ?? `${BASE_URL}/visa/apply/${app.destinationIso2.toLowerCase()}?draft=${app.id}`
 
-  const feeHtml = feeInfo ? `
-    <div style="background:#f5f0e8;border-radius:12px;padding:16px;margin:16px 0;text-align:center;">
-      <p style="color:#666;font-size:12px;margin:0 0 4px;text-transform:uppercase;letter-spacing:1px;">
-        Walz Travels Service Fee
-      </p>
-      <p style="color:#0B1F3A;font-size:24px;font-weight:bold;margin:0;">
-        ${feeInfo.currency} ${Number(feeInfo.amount).toLocaleString()}
-      </p>
-      <p style="color:#999;font-size:12px;margin:6px 0 0;">
-        ${feeInfo.paymentChoice === 'now'
-          ? 'Payment required to complete your application'
-          : 'You can submit now and pay later'}
-      </p>
+  const govtFeeRow = feeInfo?.govtFee && feeInfo.showGovtFee !== false ? `
+    <tr>
+      <td style="padding:8px 0;color:#64748b;font-size:13px;border-top:1px solid #e2e8f0;">Government Fee</td>
+      <td style="padding:8px 0;color:#0B1F3A;font-size:13px;font-weight:600;text-align:right;border-top:1px solid #e2e8f0;">
+        ${feeInfo.govtCurrency ?? 'USD'} ${Number(feeInfo.govtFee).toLocaleString()} <span style="color:#999;font-weight:400;font-size:12px;">(paid later)</span>
+      </td>
+    </tr>
+  ` : ''
+
+  const feeHtml = feeInfo && (feeInfo.amount > 0 || (feeInfo.govtFee && feeInfo.showGovtFee !== false)) ? `
+    <div style="background:#f5f0e8;border-radius:12px;padding:16px;margin:16px 0;">
+      <table style="width:100%;border-collapse:collapse;">
+        <tbody>
+          ${feeInfo.amount > 0 ? `
+          <tr>
+            <td style="padding:8px 0;color:#64748b;font-size:13px;">Walz Travels Service Fee</td>
+            <td style="padding:8px 0;color:#0B1F3A;font-size:22px;font-weight:bold;text-align:right;">
+              ${feeInfo.currency} ${Number(feeInfo.amount).toLocaleString()}
+            </td>
+          </tr>
+          <tr>
+            <td colspan="2" style="padding:0 0 4px;color:#999;font-size:12px;">
+              ${feeInfo.paymentChoice === 'now'
+                ? 'Payment required to complete your application'
+                : 'You can submit now and pay later'}
+            </td>
+          </tr>
+          ` : ''}
+          ${govtFeeRow}
+        </tbody>
+      </table>
     </div>
   ` : ''
 

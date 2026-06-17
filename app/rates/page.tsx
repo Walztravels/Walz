@@ -1,30 +1,51 @@
 import Link from 'next/link'
+import prisma from '@/lib/db'
+
+export const dynamic = 'force-dynamic'
 
 export const metadata = {
   title: 'Service Rates — Walz Travels',
   description: 'Transparent pricing for visa applications, travel planning, and all Walz Travels services.',
 }
 
-const VISA_RATES = [
-  { destination: 'United Kingdom',   type: 'Standard Visitor Visa',   fee: '£150',  gov: '£115',  total: '£265',  time: '3–8 weeks' },
-  { destination: 'United Kingdom',   type: 'Priority Visa',           fee: '£200',  gov: '£500',  total: '£700',  time: '5–10 days' },
-  { destination: 'Canada',           type: 'Visitor Visa / eTA',      fee: '£120',  gov: 'CAD 7', total: '£120+', time: '2–6 weeks' },
-  { destination: 'USA',              type: 'B-1/B-2 Visitor Visa',    fee: '£180',  gov: '$185',  total: '£180+', time: '4–12 weeks' },
-  { destination: 'Schengen',         type: 'Short Stay Visa',         fee: '£130',  gov: '€90',   total: '£130+', time: '3–6 weeks' },
-  { destination: 'UAE / Dubai',      type: 'Tourist Visa',            fee: '£100',  gov: 'AED 250', total: '£100+', time: '3–5 days' },
-  { destination: 'Australia',        type: 'eVisitor / Tourist Visa', fee: '£110',  gov: 'AUD 20', total: '£110+', time: '1–4 weeks' },
+const FALLBACK_RATES = [
+  { country: 'United Kingdom', flag: '🇬🇧', visaType: 'Standard Visitor Visa',   fee: 150, currency: 'GBP', processingTime: '3–8 weeks' },
+  { country: 'United Kingdom', flag: '🇬🇧', visaType: 'Priority Visa',           fee: 200, currency: 'GBP', processingTime: '5–10 days' },
+  { country: 'Canada',         flag: '🇨🇦', visaType: 'Visitor Visa / eTA',      fee: 120, currency: 'GBP', processingTime: '2–6 weeks' },
+  { country: 'USA',            flag: '🇺🇸', visaType: 'B-1/B-2 Visitor Visa',    fee: 180, currency: 'GBP', processingTime: '4–12 weeks' },
+  { country: 'Schengen',       flag: '🇪🇺', visaType: 'Short Stay Visa',         fee: 130, currency: 'GBP', processingTime: '3–6 weeks' },
+  { country: 'UAE / Dubai',    flag: '🇦🇪', visaType: 'Tourist Visa',            fee: 100, currency: 'GBP', processingTime: '3–5 days' },
+  { country: 'Australia',      flag: '🇦🇺', visaType: 'eVisitor / Tourist Visa', fee: 110, currency: 'GBP', processingTime: '1–4 weeks' },
 ]
+
+const SYM: Record<string, string> = {
+  GBP: '£', USD: '$', EUR: '€', CAD: 'CA$', AED: 'AED ', AUD: 'A$', NGN: '₦',
+}
 
 const SERVICE_RATES = [
-  { service: 'Express Consultation', desc: '30-min call with a visa specialist', price: 'Free', note: 'No commitment required' },
-  { service: 'Document Review',      desc: 'Full review of your application documents', price: 'Included', note: 'Included in all packages' },
-  { service: 'Flight Booking',       desc: 'Best-fare flight search & booking', price: 'From £25', note: 'Per booking' },
-  { service: 'Hotel Booking',        desc: 'Curated hotel selection & booking', price: 'From £15', note: 'Per booking' },
-  { service: 'Travel Insurance',     desc: 'Walz Travel Shield — powered by Battleface', price: 'From £12', note: 'Per person' },
-  { service: 'eSIM / Jade Connect',  desc: 'Global data SIM for 190+ countries', price: 'From £4', note: 'Per 1GB plan' },
+  { service: 'Express Consultation', desc: '30-min call with a visa specialist',            price: 'Free',    note: 'No commitment required'      },
+  { service: 'Document Review',      desc: 'Full review of your application documents',     price: 'Included', note: 'Included in all packages'   },
+  { service: 'Flight Booking',       desc: 'Best-fare flight search & booking',             price: 'From £25', note: 'Per booking'                },
+  { service: 'Hotel Booking',        desc: 'Curated hotel selection & booking',             price: 'From £15', note: 'Per booking'                },
+  { service: 'Travel Insurance',     desc: 'Walz Travel Shield — powered by Battleface',   price: 'From £12', note: 'Per person'                 },
+  { service: 'eSIM / Jade Connect',  desc: 'Global data SIM for 190+ countries',           price: 'From £4',  note: 'Per 1GB plan'               },
 ]
 
-export default function RatesPage() {
+async function getRates() {
+  try {
+    return await prisma.visaService.findMany({
+      where:   { active: true },
+      orderBy: { createdAt: 'asc' },
+    })
+  } catch {
+    return []
+  }
+}
+
+export default async function RatesPage() {
+  const dbRates = await getRates()
+  const rates   = dbRates.length > 0 ? dbRates : FALLBACK_RATES
+
   return (
     <div className="min-h-screen bg-[#F5F0E8]">
 
@@ -47,23 +68,28 @@ export default function RatesPage() {
             Government / embassy fees are separate and paid directly.
           </p>
           <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden shadow-sm">
-            <div className="grid grid-cols-5 gap-3 px-5 py-3 bg-gray-50 border-b border-gray-100 text-xs font-semibold text-gray-400 uppercase tracking-wider">
+            <div className="grid grid-cols-4 gap-3 px-5 py-3 bg-gray-50 border-b border-gray-100 text-xs font-semibold text-gray-400 uppercase tracking-wider">
               <div className="col-span-2">Destination / Type</div>
               <div>Walz Fee</div>
-              <div>Gov. Fee</div>
               <div>Est. Time</div>
             </div>
-            {VISA_RATES.map((r, i) => (
-              <div key={i} className={`grid grid-cols-5 gap-3 px-5 py-4 items-center ${i < VISA_RATES.length - 1 ? 'border-b border-gray-50' : ''}`}>
-                <div className="col-span-2">
-                  <p className="font-semibold text-[#0B1F3A] text-sm">{r.destination}</p>
-                  <p className="text-xs text-gray-400">{r.type}</p>
+            {rates.map((r, i) => {
+              const flag = 'flag' in r ? (r.flag ?? '') : ''
+              const sym  = SYM[r.currency] ?? r.currency
+              return (
+                <div key={i} className={`grid grid-cols-4 gap-3 px-5 py-4 items-center ${i < rates.length - 1 ? 'border-b border-gray-50' : ''}`}>
+                  <div className="col-span-2">
+                    <p className="font-semibold text-[#0B1F3A] text-sm">
+                      {flag && <span className="mr-1.5">{flag}</span>}
+                      {r.country}
+                    </p>
+                    <p className="text-xs text-gray-400">{r.visaType}</p>
+                  </div>
+                  <p className="font-bold text-[#C9A84C] text-sm">{sym}{r.fee.toLocaleString()}</p>
+                  <p className="text-xs text-gray-500">{r.processingTime}</p>
                 </div>
-                <p className="font-bold text-[#C9A84C] text-sm">{r.fee}</p>
-                <p className="text-xs text-gray-500">{r.gov}</p>
-                <p className="text-xs text-gray-500">{r.time}</p>
-              </div>
-            ))}
+              )
+            })}
           </div>
           <p className="text-xs text-gray-400 mt-3">
             * Government/embassy fees are approximate and subject to change. Exact amounts confirmed at time of application.

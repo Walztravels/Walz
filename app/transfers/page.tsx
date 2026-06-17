@@ -6,8 +6,13 @@ import ScrollTrigger from 'gsap/ScrollTrigger'
 import {
   Car, MessageCircle,
   Users, Briefcase, MapPin, Clock, Shield, Star,
-  ArrowRight,
+  ArrowRight, AlertCircle,
 } from 'lucide-react'
+import { TransferSearchForm, type TransferSearchParams } from '@/components/transfers/TransferSearchForm'
+import { TransferResultCard, type TransferResult } from '@/components/transfers/TransferResultCard'
+import { TransferBookingModal } from '@/components/transfers/TransferBookingModal'
+
+export const dynamic = 'force-dynamic'
 
 // ── Vehicle cards ─────────────────────────────────────────────────────────────
 
@@ -66,8 +71,8 @@ const INCLUSIONS = [
 const PROCESS = [
   {
     step: '01',
-    title: 'Book via WhatsApp',
-    body: 'Share your flight number, pickup date and number of passengers. We\'ll confirm your vehicle and price within 15 minutes.',
+    title: 'Search & Book Online',
+    body: 'Enter your pickup and drop-off airports, date, time, and passenger count. Instant results with live pricing.',
   },
   {
     step: '02',
@@ -109,13 +114,40 @@ export default function TransfersPage() {
   const eyebrowRef  = useRef<HTMLParagraphElement>(null)
   const h1Ref       = useRef<HTMLSpanElement>(null)
   const subRef      = useRef<HTMLParagraphElement>(null)
-  const ctaRef      = useRef<HTMLDivElement>(null)
   const carsRef     = useRef<HTMLDivElement>(null)
   const inclRef     = useRef<HTMLElement>(null)
   const processRef  = useRef<HTMLElement>(null)
   const areasRef    = useRef<HTMLElement>(null)
   const finalRef    = useRef<HTMLElement>(null)
   const [heroBg, setHeroBg] = useState<string | null>(null)
+
+  const [loading,   setLoading]   = useState(false)
+  const [error,     setError]     = useState<string | null>(null)
+  const [results,   setResults]   = useState<TransferResult[] | null>(null)
+  const [lastSearch, setLastSearch] = useState<TransferSearchParams | null>(null)
+  const [selected,  setSelected]  = useState<TransferResult | null>(null)
+
+  async function handleSearch(params: TransferSearchParams) {
+    setLoading(true); setError(null); setResults(null); setLastSearch(params)
+    try {
+      const qs = new URLSearchParams({
+        fromCode: params.fromCode,
+        toCode:   params.toCode,
+        fromDate: params.fromDate,
+        fromTime: params.fromTime,
+        adults:   String(params.adults),
+        children: String(params.children),
+      })
+      const res  = await fetch(`/api/hotelbeds/transfers?${qs.toString()}`)
+      const data = await res.json()
+      if (!data.ok) throw new Error(data.error ?? 'Search failed')
+      setResults(data.transfers ?? [])
+    } catch (e: any) {
+      setError(e.message)
+    } finally {
+      setLoading(false)
+    }
+  }
 
   useEffect(() => {
     fetch('/api/media/transfers_hero_bg')
@@ -133,7 +165,6 @@ export default function TransfersPage() {
     tl.from(eyebrowRef.current, { opacity: 0, y: 16, duration: 0.8 }, 0.3)
     tl.from(h1Ref.current,      { yPercent: 110, opacity: 0, duration: 1.1 }, 0.7)
     tl.from(subRef.current,     { opacity: 0, y: 24, duration: 0.8 }, 1.5)
-    tl.from(ctaRef.current,     { opacity: 0, y: 20, duration: 0.7 }, 2.0)
   }, [])
 
   // ── Vehicle cards stagger ─────────────────────────────────────────────────
@@ -192,10 +223,100 @@ export default function TransfersPage() {
   return (
     <div className="min-h-screen bg-[#0B1F3A]">
 
+      {/* ── Section 0: Online booking search ─────────────────────────────── */}
+      <section className="bg-[#0B1F3A] pt-10 pb-0 px-5 sm:px-8">
+        <div className="max-w-3xl mx-auto">
+          <div className="text-center mb-6">
+            <p className="text-[#C9A84C] text-[11px] font-semibold tracking-[0.22em] uppercase mb-2">
+              Book Online — Instant Results
+            </p>
+            <h2 className="font-display text-white font-bold text-[clamp(1.5rem,3vw,2.2rem)] leading-tight">
+              Search Airport Transfers
+            </h2>
+            <p className="text-white/50 text-sm mt-2">Live pricing · Instant confirmation · Hotelbeds powered</p>
+          </div>
+
+          <TransferSearchForm onSearch={handleSearch} loading={loading} />
+
+          {/* Loading */}
+          {loading && (
+            <div className="mt-6 space-y-3">
+              {[1, 2, 3].map(i => (
+                <div key={i} className="bg-white/5 rounded-2xl h-32 animate-pulse border border-white/10" />
+              ))}
+            </div>
+          )}
+
+          {/* Error */}
+          {error && !loading && (
+            <div className="mt-6 flex items-center gap-3 bg-red-900/30 border border-red-500/30 text-red-300 rounded-2xl px-5 py-4 text-sm">
+              <AlertCircle className="w-5 h-5 flex-shrink-0" />
+              <div>
+                <p className="font-semibold">Search failed</p>
+                <p className="mt-0.5 text-red-400 text-xs">{error}</p>
+                <p className="mt-1 text-xs text-red-400/70">
+                  Or <a href="https://wa.me/447398753797?text=Hi%20Walz%20Travels%2C%20I%20need%20an%20airport%20transfer." target="_blank" rel="noopener noreferrer" className="underline hover:text-red-300">WhatsApp us</a> for a manual quote.
+                </p>
+              </div>
+            </div>
+          )}
+
+          {/* Results */}
+          {results && !loading && (
+            <div className="mt-6">
+              <div className="flex items-center justify-between mb-3">
+                <p className="text-white/60 text-sm">
+                  <span className="text-white font-bold">{results.length}</span> transfer{results.length !== 1 ? 's' : ''} available
+                </p>
+                <button onClick={() => { setResults(null); setError(null) }} className="text-xs text-[#C9A84C] hover:underline">
+                  ← New search
+                </button>
+              </div>
+
+              {results.length === 0 ? (
+                <div className="bg-white/5 border border-white/10 rounded-2xl p-8 text-center">
+                  <Car className="w-10 h-10 text-white/20 mx-auto mb-3" strokeWidth={1} />
+                  <p className="text-white font-semibold">No transfers found</p>
+                  <p className="text-white/40 text-sm mt-1 mb-4">Try different airports or dates, or book via WhatsApp.</p>
+                  <a
+                    href="https://wa.me/447398753797?text=Hi%20Walz%20Travels%2C%20I%20need%20an%20airport%20transfer."
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-2 px-5 py-2.5 bg-[#25D366] text-white font-bold text-sm rounded-full hover:bg-[#1fbe5a] transition-colors"
+                  >
+                    <MessageCircle className="w-4 h-4" />
+                    Book via WhatsApp
+                  </a>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {results.map((t, i) => (
+                    <TransferResultCard
+                      key={t.transferKey || i}
+                      transfer={t}
+                      onSelect={setSelected}
+                      fromName={lastSearch?.fromName ?? ''}
+                      toName={lastSearch?.toName ?? ''}
+                      passengers={(lastSearch?.adults ?? 2) + (lastSearch?.children ?? 0)}
+                    />
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      </section>
+
+      {/* ── Divider ──────────────────────────────────────────────────────── */}
+      <div className="flex items-center gap-4 max-w-3xl mx-auto px-5 py-8">
+        <div className="flex-1 h-px bg-white/10" />
+        <span className="text-white/30 text-xs uppercase tracking-widest flex-shrink-0">or book via WhatsApp</span>
+        <div className="flex-1 h-px bg-white/10" />
+      </div>
+
       {/* ── Section 1: Hero ──────────────────────────────────────────────── */}
       <section
-        className="relative overflow-hidden flex flex-col items-center justify-center text-center px-5"
-        style={{ minHeight: '100vh' }}
+        className="relative overflow-hidden flex flex-col items-center justify-center text-center px-5 py-24"
       >
         {/* Background layers */}
         <div className="absolute inset-0 bg-[#0B1F3A]">
@@ -207,19 +328,6 @@ export default function TransfersPage() {
           )}
           <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_50%_-5%,_#1C3557_0%,_transparent_65%)]" />
           <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_20%_90%,_rgba(201,168,76,0.07)_0%,_transparent_55%)]" />
-        </div>
-
-        {/* Road / motion lines decorative */}
-        <div className="absolute inset-0 pointer-events-none overflow-hidden" aria-hidden>
-          <div className="absolute bottom-0 left-0 right-0 h-[40%] bg-gradient-to-t from-[#0B1F3A]/60 to-transparent" />
-          <div className="absolute top-[35%] left-0 right-0 h-px bg-white/[0.03]" />
-          <div className="absolute top-[38%] left-0 right-0 h-px bg-white/[0.025]" />
-          <div className="absolute top-[32%] left-0 right-0 h-px bg-white/[0.03]" />
-          {/* Moving dashes suggestion */}
-          <div className="absolute top-1/2 left-[10%] w-8 h-0.5 bg-[#C9A84C]/10 rounded-full" />
-          <div className="absolute top-1/2 left-[30%] w-12 h-0.5 bg-[#C9A84C]/8 rounded-full" />
-          <div className="absolute top-1/2 left-[55%] w-8 h-0.5 bg-[#C9A84C]/8 rounded-full" />
-          <div className="absolute top-1/2 left-[75%] w-10 h-0.5 bg-[#C9A84C]/10 rounded-full" />
         </div>
 
         {/* Content */}
@@ -251,7 +359,7 @@ export default function TransfersPage() {
             and a professional driver — all included.
           </p>
 
-          <div ref={ctaRef} className="flex flex-col sm:flex-row items-center justify-center gap-3" style={{ opacity: 0 }}>
+          <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
             <a
               href="https://wa.me/447398753797?text=Hi%20Walz%20Travels%2C%20I%20need%20an%20airport%20transfer."
               target="_blank"
@@ -309,7 +417,6 @@ export default function TransfersPage() {
                 className="group rounded-2xl overflow-hidden border border-[#E2D9CC] hover:border-[#C9A84C]/40 hover:shadow-xl transition-all duration-300"
                 style={{ opacity: 0, transform: 'translateY(28px)' }}
               >
-                {/* Vehicle graphic area */}
                 <div className={`relative h-36 bg-gradient-to-br ${imgGradient} flex items-center justify-center overflow-hidden`}>
                   <Car className="w-16 h-16 text-white/15 group-hover:text-white/22 transition-colors duration-300" strokeWidth={1} />
                   <span className="absolute top-3 left-3 px-2.5 py-1 bg-[#C9A84C] text-[#0B1F3A] text-[10px] font-bold rounded-full">
@@ -317,7 +424,6 @@ export default function TransfersPage() {
                   </span>
                 </div>
 
-                {/* Info */}
                 <div className="p-5 bg-white">
                   <h3 className="text-[#0B1F3A] font-bold text-base mb-1">{name}</h3>
                   <p className="text-[#0B1F3A]/50 text-xs mb-4 leading-relaxed">{desc}</p>
@@ -387,24 +493,20 @@ export default function TransfersPage() {
               How It Works
             </p>
             <h2 className="font-display text-[#0B1F3A] font-bold text-[clamp(1.8rem,3.5vw,2.8rem)] leading-tight">
-              From Quote to Destination
+              From Search to Destination
             </h2>
           </div>
 
-          {/* Vertical steps on mobile, horizontal on lg */}
           <div className="grid grid-cols-1 lg:grid-cols-4 gap-5">
             {PROCESS.map(({ step, title, body }, i) => (
               <div key={step} className="flex lg:flex-col gap-5 lg:gap-0">
-                {/* Step badge */}
                 <div className="flex-shrink-0 flex lg:flex-col items-center lg:items-start gap-3 lg:gap-0 lg:mb-4">
                   <div className="w-10 h-10 rounded-xl bg-[#0B1F3A] flex items-center justify-center">
                     <span className="text-[#C9A84C] text-xs font-bold">{step}</span>
                   </div>
-                  {/* Connector line on desktop */}
                   {i < PROCESS.length - 1 && (
                     <div className="hidden lg:block w-full h-px bg-[#0B1F3A]/10 mt-5 -mb-5 ml-5" style={{ marginLeft: '2.5rem' }} />
                   )}
-                  {/* Connector line on mobile */}
                   {i < PROCESS.length - 1 && (
                     <div className="lg:hidden w-px h-full bg-[#0B1F3A]/10 ml-5" />
                   )}
@@ -466,11 +568,10 @@ export default function TransfersPage() {
               <Car className="w-7 h-7 text-[#0B1F3A]" />
             </div>
             <h2 className="font-display text-white font-bold text-[clamp(1.8rem,4vw,3rem)] leading-tight mb-4">
-              Book Your Transfer
+              Need Help Booking?
             </h2>
             <p className="text-white/50 text-base mb-8 max-w-md mx-auto leading-relaxed">
-              Tell us your flight details and we&apos;ll confirm your driver, vehicle and fixed price
-              — usually within 15 minutes.
+              If you can&apos;t find what you need online, WhatsApp us and Jade will confirm your transfer — usually within 15 minutes.
             </p>
             <a
               href="https://wa.me/447398753797?text=Hi%20Walz%20Travels%2C%20I%20need%20an%20airport%20transfer."
@@ -485,6 +586,14 @@ export default function TransfersPage() {
         </div>
       </section>
 
+      {/* ── Booking modal ─────────────────────────────────────────────────── */}
+      {selected && lastSearch && (
+        <TransferBookingModal
+          transfer={selected}
+          search={lastSearch}
+          onClose={() => setSelected(null)}
+        />
+      )}
     </div>
   )
 }

@@ -13,7 +13,7 @@ async function isAdmin() {
 export async function POST(req: NextRequest) {
   if (!await isAdmin()) return NextResponse.json({ error: 'Unauthorised' }, { status: 401 })
 
-  const { clientEmail, clientName, destinationIso2, visaType, personalMessage, walzFee, feeCurrency, paymentChoice } = await req.json()
+  const { clientEmail, clientName, destinationIso2, visaType, personalMessage, walzFee, feeCurrency, paymentChoice, govtFee, govtCurrency, showGovtFee } = await req.json()
 
   if (!clientEmail || !destinationIso2) {
     return NextResponse.json({ error: 'clientEmail and destinationIso2 required' }, { status: 400 })
@@ -45,6 +45,9 @@ export async function POST(req: NextRequest) {
         serviceFeeAmount:   walzFee,
         serviceFeeCurrency: feeCurrency ?? 'GBP',
       } : {}),
+      ...(govtFee != null && govtFee > 0 && showGovtFee !== false ? {
+        govtFeeAmount: govtFee,
+      } : {}),
     },
   })
 
@@ -67,8 +70,24 @@ export async function POST(req: NextRequest) {
   const formUrl = `https://walztravels.com/visa/apply/${slug}?token=${tokenRecord.token}&draft=${application.id}${paymentParam}`
 
   const feeInfo = walzFee && walzFee > 0
-    ? { amount: walzFee, currency: feeCurrency ?? 'GBP', paymentChoice: paymentChoice ?? 'later' }
-    : null
+    ? {
+        amount: walzFee,
+        currency: feeCurrency ?? 'GBP',
+        paymentChoice: paymentChoice ?? 'later',
+        govtFee:      govtFee && govtFee > 0 ? govtFee : undefined,
+        govtCurrency: govtFee && govtFee > 0 ? (govtCurrency ?? 'USD') : undefined,
+        showGovtFee:  showGovtFee !== false,
+      }
+    : govtFee && govtFee > 0
+      ? {
+          amount: 0,
+          currency: feeCurrency ?? 'GBP',
+          paymentChoice: 'later' as const,
+          govtFee,
+          govtCurrency: govtCurrency ?? 'USD',
+          showGovtFee:  showGovtFee !== false,
+        }
+      : null
 
   // Email client
   try {

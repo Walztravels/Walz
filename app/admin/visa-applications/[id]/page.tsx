@@ -144,15 +144,15 @@ function SendFormModal({ app, onClose }: { app: VisaApp; onClose: () => void }) 
 
   return (
     <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-2xl w-full max-w-lg shadow-2xl">
-        <div className="flex items-center justify-between p-6 border-b border-gray-100">
+      <div className="bg-white rounded-2xl w-full max-w-lg shadow-2xl flex flex-col max-h-[90vh]">
+        <div className="flex-shrink-0 flex items-center justify-between p-6 border-b border-gray-100">
           <div>
             <h3 className="font-bold text-[#0B1F3A] text-lg">Send Application Form to Client</h3>
             <p className="text-xs text-gray-500 mt-0.5">Generates a secure 7-day link — no payment required</p>
           </div>
           <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-gray-100"><X className="w-4 h-4" /></button>
         </div>
-        <div className="p-6 space-y-4">
+        <div className="overflow-y-auto p-6 space-y-4">
           <div>
             <label className="text-xs font-semibold text-gray-600 block mb-1">Client Name</label>
             <input value={clientName} onChange={e => setClientName(e.target.value)}
@@ -299,6 +299,10 @@ export default function AdminVisaDetailPage() {
   const [addingNote, setAddingNote] = useState(false)
   const [govtFeeText, setGovtFeeText] = useState('')
   const [sendingGovtFee, setSendingGovtFee] = useState(false)
+  const [svcFeeEdit, setSvcFeeEdit] = useState('')
+  const [svcCurEdit, setSvcCurEdit] = useState('USD')
+  const [govFeeEdit, setGovFeeEdit] = useState('')
+  const [feesSaving, setFeesSaving] = useState(false)
   const [embassyRef, setEmbassyRef] = useState('')
   const [submissionDate, setSubmissionDate] = useState('')
   const [decisionStatus, setDecisionStatus] = useState<'approved' | 'refused'>('approved')
@@ -317,6 +321,9 @@ export default function AdminVisaDetailPage() {
       setNewAgent(d.application.assignedTo ?? '')
       setGovtFeeText(d.application.govtFeeInstructions ?? '')
       setEmbassyRef(d.application.embassyReference ?? '')
+      setSvcFeeEdit(d.application.serviceFeeAmount ?? '')
+      setSvcCurEdit(d.application.serviceFeeCurrency ?? 'USD')
+      setGovFeeEdit(d.application.govtFeeAmount ?? '')
     }
     setLoading(false)
   }
@@ -386,6 +393,24 @@ export default function AdminVisaDetailPage() {
       setNoteText('')
     }
     setAddingNote(false)
+  }
+
+  async function saveFeeOverrides() {
+    if (!app) return
+    setFeesSaving(true)
+    await fetch(`/api/admin/visa-applications/${app.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        serviceFeeAmount: svcFeeEdit !== '' ? Number(svcFeeEdit) : null,
+        serviceFeeCurrency: svcCurEdit || 'USD',
+        govtFeeAmount: govFeeEdit !== '' ? Number(govFeeEdit) : null,
+      }),
+    })
+    setSaveMsg('Fees saved')
+    setTimeout(() => setSaveMsg(''), 2500)
+    setFeesSaving(false)
+    load()
   }
 
   async function sendGovtFeeInstructions() {
@@ -860,6 +885,37 @@ export default function AdminVisaDetailPage() {
           {/* Document checklist */}
           <ActionSection id="checklist" title="Document Checklist" icon={ClipboardList}>
             <DocumentChecklist appId={app.id} destIso2={app.destinationIso2} />
+          </ActionSection>
+
+          {/* Fee Overrides */}
+          <ActionSection id="fees" title="Fee Overrides" icon={Building2}>
+            <div className="space-y-3">
+              <div className="flex gap-2">
+                <div className="flex-1">
+                  <label className="text-xs font-semibold text-gray-600 block mb-1">Service Fee</label>
+                  <input type="number" value={svcFeeEdit} onChange={e => setSvcFeeEdit(e.target.value)}
+                    placeholder={`Default: ${config?.serviceFeeUsd ?? '—'}`}
+                    className="w-full h-9 px-3 border border-gray-200 rounded-xl text-sm outline-none focus:border-[#C9A84C]" />
+                </div>
+                <div className="w-24">
+                  <label className="text-xs font-semibold text-gray-600 block mb-1">Currency</label>
+                  <input value={svcCurEdit} onChange={e => setSvcCurEdit(e.target.value.toUpperCase())}
+                    placeholder="USD" maxLength={3}
+                    className="w-full h-9 px-3 border border-gray-200 rounded-xl text-sm outline-none focus:border-[#C9A84C] uppercase" />
+                </div>
+              </div>
+              <div>
+                <label className="text-xs font-semibold text-gray-600 block mb-1">Government Fee Amount</label>
+                <input type="number" value={govFeeEdit} onChange={e => setGovFeeEdit(e.target.value)}
+                  placeholder={`Default: ${config?.govtFeeDisplay ?? '—'}`}
+                  className="w-full h-9 px-3 border border-gray-200 rounded-xl text-sm outline-none focus:border-[#C9A84C]" />
+              </div>
+              <button onClick={saveFeeOverrides} disabled={feesSaving}
+                className="w-full py-2 bg-[#0B1F3A] text-[#C9A84C] text-xs font-bold rounded-xl flex items-center justify-center gap-2 disabled:opacity-50">
+                {feesSaving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Check className="w-3.5 h-3.5" />}
+                Save Fee Overrides
+              </button>
+            </div>
           </ActionSection>
 
           {/* Govt fee instructions */}

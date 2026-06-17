@@ -174,10 +174,18 @@ export default function VisaPaymentPage() {
   const [payMethod, setPayMethod] = useState<'card' | 'later'>('card')
   const [app, setApp] = useState<{
     referenceNumber: string; firstName: string; lastName: string; visaType: string; email: string
+    serviceFeeAmount: string | null; serviceFeeCurrency: string
+    govtFeeAmount: string | null; govtFeeInstructions: string | null
   } | null>(null)
   const [loading, setLoading] = useState(true)
 
   const config = getVisaConfig(params.country)
+
+  const svcFee = app?.serviceFeeAmount != null ? Number(app.serviceFeeAmount) : (config?.serviceFeeUsd ?? 0)
+  const svcCur = app?.serviceFeeCurrency ?? 'USD'
+  const govtDisplay = app?.govtFeeAmount != null
+    ? `~${Number(app.govtFeeAmount).toLocaleString()} USD`
+    : (config?.govtFeeDisplay ?? 'Government fee paid separately')
 
   useEffect(() => {
     if (!appId) return
@@ -241,19 +249,19 @@ export default function VisaPaymentPage() {
                   <p className="font-semibold text-[#0B1F3A]">Walz Travels Service Fee</p>
                   <p className="text-xs text-gray-400">Full application preparation, submission & tracking</p>
                 </div>
-                <span className="font-bold text-[#0B1F3A] text-base ml-4">USD ${config.serviceFeeUsd}</span>
+                <span className="font-bold text-[#0B1F3A] text-base ml-4">{svcCur} {svcFee}</span>
               </div>
             </div>
             <div className="bg-[#F4F6F9] rounded-xl p-3 flex items-start gap-2">
               <Clock className="w-4 h-4 text-gray-400 flex-shrink-0 mt-0.5" />
               <div>
                 <p className="text-xs font-semibold text-gray-600">Government Fee — paid separately</p>
-                <p className="text-xs text-gray-400 mt-0.5">{config.govtFeeDisplay} · Walz tells you exactly when and how to pay</p>
+                <p className="text-xs text-gray-400 mt-0.5">{govtDisplay} · Walz tells you exactly when and how to pay</p>
               </div>
             </div>
             <div className="border-t border-gray-200 pt-3 flex justify-between font-bold">
               <span className="text-[#0B1F3A]">Total due now</span>
-              <span className="text-[#C9A84C] text-xl">USD ${config.serviceFeeUsd}</span>
+              <span className="text-[#C9A84C] text-xl">{svcCur} {svcFee}</span>
             </div>
           </div>
         </div>
@@ -294,7 +302,7 @@ export default function VisaPaymentPage() {
         {payMethod === 'card' ? (
           <Elements stripe={stripePromise}>
             <CheckoutForm
-              appId={appId} amount={config.serviceFeeUsd} config={config}
+              appId={appId} amount={svcFee} config={config}
               refNumber={app?.referenceNumber ?? ''} applicantName={applicantName}
               onSuccess={handleSuccess}
             />

@@ -8,7 +8,7 @@ const LOGO_CACHE_KEY = 'walz_logo_url'
 const LOGO_CACHE_TTL  = 60 * 60 * 1000
 
 function FooterLogo() {
-  const [src, setSrc] = useState('/walz-logo.svg')
+  const [src, setSrc] = useState('/walz-logo.png')
 
   useEffect(() => {
     function load() {
@@ -36,7 +36,7 @@ function FooterLogo() {
   }, [])
 
   // eslint-disable-next-line @next/next/no-img-element
-  return <img src={src} alt="Walz Travels" className="w-[120px] h-auto object-contain group-hover:opacity-90 transition-opacity" />
+  return <img src={src} alt="Walz Travels" className="w-[120px] h-auto object-contain group-hover:opacity-90 transition-opacity brightness-0 invert" />
 }
 
 const footerLinks = {
@@ -48,6 +48,7 @@ const footerLinks = {
     { label: 'Gift Vouchers', href: '/gift' },
     { label: 'Travel Insurance', href: '/insurance' },
     { label: 'Airport Transfers', href: '/transfers' },
+    { label: 'Exchange Rates', href: '/currency' },
   ],
   company: [
     { label: 'About Walz Travels', href: '/about' },
@@ -313,9 +314,14 @@ export function Footer() {
               </div>
             </div>
 
-            <p className="text-walz-muted text-xs text-center sm:text-right">
-              © {currentYear} Walz Travels Ltd. All rights reserved.
-            </p>
+            <div className="text-center sm:text-right">
+              <p className="text-walz-muted text-xs">
+                © {currentYear} Walz Travels Ltd. All rights reserved.
+              </p>
+              <address className="not-italic text-walz-muted/60 text-[10px] mt-0.5">
+                THE WALZ TRAVELS INC · Ontario, Canada · Registered in England &amp; Wales
+              </address>
+            </div>
           </div>
         </div>
       </div>
