@@ -1730,3 +1730,56 @@ model Supplier {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
+
+model DocumentRequest {
+  id            String    @id @default(cuid())
+  token         String    @unique @default(cuid())
+
+  applicationId String?
+  visaAppId     String?
+
+  clientEmail   String
+  clientName    String
+
+  requestedBy   String
+  requestedDocs Json
+  message       String?   @db.Text
+  deadline      DateTime?
+
+  status        String    @default("pending")
+  uploadedCount Int       @default(0)
+  totalRequired Int       @default(1)
+
+  emailSentAt   DateTime?
+  openedAt      DateTime?
+  completedAt   DateTime?
+  expiresAt     DateTime
+
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  uploads       DocumentUpload[]
+
+  @@index([token])
+  @@index([clientEmail])
+  @@index([applicationId])
+  @@index([visaAppId])
+}
+
+model DocumentUpload {
+  id          String          @id @default(cuid())
+  requestId   String
+  docName     String
+  category    String          @default("General")
+  fileUrl     String
+  fileKey     String
+  fileName    String
+  fileSize    Int?
+  mimeType    String?
+  uploadedAt  DateTime        @default(now())
+  status      String          @default("pending")
+  reviewNote  String?
+
+  request DocumentRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  @@index([requestId])
+}

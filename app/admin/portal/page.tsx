@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import { format } from 'date-fns'
-import { LayoutDashboard, RefreshCw, ChevronDown, CheckCircle, FileText, CreditCard, ExternalLink, Send, X, Loader2 } from 'lucide-react'
+import { LayoutDashboard, RefreshCw, ChevronDown, CheckCircle, FileText, CreditCard, ExternalLink, Send, X, Loader2, FolderUp, Copy, Plus, Trash2, ChevronUp, Eye, Download } from 'lucide-react'
 import BankStatementCard from '@/components/admin/BankStatementCard'
 import Link from 'next/link'
 
@@ -53,6 +53,64 @@ interface SendUpdateModal {
   email: string | null
 }
 
+interface DocItem {
+  name:         string
+  description?: string
+  required?:    boolean
+  category?:    string
+}
+
+interface DocUpload {
+  id:         string
+  docName:    string
+  fileName:   string
+  fileSize:   number | null
+  fileUrl:    string
+  uploadedAt: string
+  status:     string
+  reviewNote: string | null
+}
+
+interface DocRequest {
+  id:           string
+  token:        string
+  status:       string
+  clientEmail:  string
+  clientName:   string
+  requestedBy:  string
+  requestedDocs: DocItem[]
+  message:      string | null
+  deadline:     string | null
+  expiresAt:    string
+  uploadedCount: number
+  totalRequired: number
+  emailSentAt:  string | null
+  openedAt:     string | null
+  completedAt:  string | null
+  createdAt:    string
+  uploads:      DocUpload[]
+}
+
+const COMMON_DOCS: DocItem[] = [
+  { name: 'Passport (Bio data page)',  description: 'Clear scan of passport info page',                   category: 'Identity',   required: true  },
+  { name: 'Bank Statement (3 months)', description: 'Last 3 months showing salary credits',               category: 'Financial',  required: true  },
+  { name: 'Proof of Employment',       description: 'Employment letter or pay slip',                      category: 'Employment', required: true  },
+  { name: 'Utility Bill',              description: 'Proof of address — not older than 3 months',         category: 'Address',    required: true  },
+  { name: 'Flight Itinerary',          description: 'Confirmed or dummy flight booking',                  category: 'Travel',     required: true  },
+  { name: 'Hotel Booking',             description: 'Hotel reservation confirmation',                     category: 'Travel',     required: false },
+  { name: 'Travel Insurance',          description: 'Policy covering the travel dates',                   category: 'Travel',     required: false },
+  { name: 'Invitation Letter',         description: 'From host in destination country',                   category: 'Other',      required: false },
+  { name: 'Photo (passport-size)',     description: 'White background, recent photo',                     category: 'Identity',   required: true  },
+  { name: 'Birth Certificate',         description: 'For family applications',                            category: 'Identity',   required: false },
+]
+
+interface RequestDocsModal {
+  appId:       string
+  clientEmail: string
+  clientName:  string
+  refNumber:   string
+}
+
 export default function AdminPortalPage() {
   const [apps, setApps]         = useState<Application[]>([])
   const [total, setTotal]       = useState(0)
@@ -60,6 +118,20 @@ export default function AdminPortalPage() {
   const [stage, setStage]       = useState<string>('ALL')
   const [saving, setSaving]     = useState<string | null>(null)
   const [editNotes, setEditNotes] = useState<Record<string, string>>({})
+
+  // Request Docs modal state
+  const [reqDocsModal, setReqDocsModal]       = useState<RequestDocsModal | null>(null)
+  const [reqDocSelected, setReqDocSelected]   = useState<Set<string>>(new Set())
+  const [reqDocCustom, setReqDocCustom]       = useState<DocItem[]>([])
+  const [reqDocMessage, setReqDocMessage]     = useState('')
+  const [reqDocDeadline, setReqDocDeadline]   = useState('')
+  const [reqDocSending, setReqDocSending]     = useState(false)
+  const [reqDocResult, setReqDocResult]       = useState<{ link: string; email: string } | null>(null)
+  const [copied, setCopied]                   = useState(false)
+  // Document requests panel per application
+  const [docReqs, setDocReqs]                 = useState<Record<string, DocRequest[]>>({})
+  const [docsOpen, setDocsOpen]               = useState<Set<string>>(new Set())
+  const [docsLoading, setDocsLoading]         = useState<Set<string>>(new Set())
 
   // Send Update modal state
   const [sendModal, setSendModal]             = useState<SendUpdateModal | null>(null)
@@ -134,6 +206,88 @@ export default function AdminPortalPage() {
       body: JSON.stringify({ stage: newStage }),
     })
     setSaving(null)
+  }
+
+  function openReqDocs(app: Application) {
+    setReqDocsModal({ appId: app.id, clientEmail: app.user.email ?? '', clientName: app.user.name ?? app.title, refNumber: app.refNumber })
+    setReqDocSelected(new Set())
+    setReqDocCustom([])
+    setReqDocMessage('')
+    setReqDocDeadline('')
+    setReqDocResult(null)
+    setCopied(false)
+  }
+
+  function toggleReqDoc(name: string) {
+    setReqDocSelected(prev => {
+      const n = new Set(prev)
+      if (n.has(name)) n.delete(name); else n.add(name)
+      return n
+    })
+  }
+
+  async function submitReqDocs() {
+    if (!reqDocsModal) return
+    const selected = COMMON_DOCS.filter(d => reqDocSelected.has(d.name))
+    const allDocs  = [...selected, ...reqDocCustom]
+    if (allDocs.length === 0) return alert('Select at least one document')
+
+    setReqDocSending(true)
+    const res = await fetch('/api/admin/document-requests', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        applicationId: reqDocsModal.appId,
+        clientEmail:   reqDocsModal.clientEmail,
+        clientName:    reqDocsModal.clientName,
+        requestedDocs: allDocs,
+        message:       reqDocMessage || undefined,
+        deadline:      reqDocDeadline || undefined,
+      }),
+    })
+    const d = await res.json()
+    setReqDocSending(false)
+    if (res.ok) {
+      setReqDocResult({ link: d.uploadLink, email: reqDocsModal.clientEmail })
+    } else {
+      alert(d.error ?? 'Failed to send request')
+    }
+  }
+
+  async function loadDocRequests(appId: string) {
+    if (docsLoading.has(appId)) return
+    setDocsLoading(prev => new Set([...prev, appId]))
+    const res = await fetch(`/api/admin/document-requests?applicationId=${appId}`)
+    const d   = await res.json()
+    setDocReqs(prev => ({ ...prev, [appId]: (d.requests ?? []).map((r: DocRequest & { requestedDocs: unknown }) => ({
+      ...r,
+      requestedDocs: typeof r.requestedDocs === 'string' ? JSON.parse(r.requestedDocs) : r.requestedDocs,
+    })) }))
+    setDocsLoading(prev => { const n = new Set(prev); n.delete(appId); return n })
+  }
+
+  function toggleDocsPanel(appId: string) {
+    setDocsOpen(prev => {
+      const n = new Set(prev)
+      if (n.has(appId)) { n.delete(appId) } else { n.add(appId); loadDocRequests(appId) }
+      return n
+    })
+  }
+
+  async function reviewUpload(requestId: string, uploadId: string, status: string, note: string) {
+    await fetch(`/api/admin/document-requests/${requestId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ uploadId, status, reviewNote: note }),
+    })
+    // Refresh doc requests for the parent app
+    const appId = Object.keys(docReqs).find(aid =>
+      docReqs[aid]?.some(r => r.id === requestId)
+    )
+    if (appId) {
+      setDocsLoading(prev => { const n = new Set(prev); n.delete(appId); return n })
+      loadDocRequests(appId)
+    }
   }
 
   function openSendModal(app: Application) {
@@ -314,6 +468,12 @@ export default function AdminPortalPage() {
                     >
                       <Send className="w-3 h-3" /> Send Update
                     </button>
+                    <button
+                      onClick={() => openReqDocs(app)}
+                      className="flex items-center gap-1.5 text-xs font-semibold text-[#0B1F3A] bg-blue-50 hover:bg-blue-100 border border-blue-200 px-3 py-2 rounded-lg transition-colors"
+                    >
+                      <FolderUp className="w-3 h-3" /> Request Docs
+                    </button>
                     <Link
                       href={`/admin/portal/${app.id}`}
                       className="flex items-center gap-1 text-xs font-semibold text-[#0B1F3A] bg-[#C9A84C]/10 hover:bg-[#C9A84C]/20 border border-[#C9A84C]/30 px-3 py-2 rounded-lg transition-colors"
@@ -449,12 +609,184 @@ export default function AdminPortalPage() {
                     destination={app.destination ?? 'uk'}
                     applicantName={app.user.name ?? app.title}
                   />
+
+                  {/* Document Requests panel */}
+                  <div className="mt-3">
+                    <button
+                      onClick={() => toggleDocsPanel(app.id)}
+                      className="flex items-center gap-2 text-xs font-semibold text-gray-500 hover:text-[#0B1F3A] transition-colors"
+                    >
+                      {docsOpen.has(app.id) ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+                      Document Requests
+                      {docReqs[app.id]?.length > 0 && (
+                        <span className="bg-blue-100 text-blue-700 text-[10px] font-bold px-1.5 py-0.5 rounded-full">
+                          {docReqs[app.id].length}
+                        </span>
+                      )}
+                    </button>
+
+                    {docsOpen.has(app.id) && (
+                      <div className="mt-2 space-y-2">
+                        {docsLoading.has(app.id) ? (
+                          <div className="flex items-center gap-2 py-3 text-gray-400 text-xs">
+                            <Loader2 className="w-3.5 h-3.5 animate-spin" /> Loading…
+                          </div>
+                        ) : (docReqs[app.id] ?? []).length === 0 ? (
+                          <p className="text-xs text-gray-400 py-2">No document requests sent yet.</p>
+                        ) : (
+                          (docReqs[app.id] ?? []).map(req => (
+                            <DocRequestCard key={req.id} req={req} onReview={reviewUpload} />
+                          ))
+                        )}
+                      </div>
+                    )}
+                  </div>
                 </div>
               )
             })}
           </div>
         )}
       </div>
+
+      {/* Request Docs Modal */}
+      {reqDocsModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
+              <div>
+                <h2 className="font-bold text-[#0B1F3A]">Request Documents</h2>
+                <p className="text-xs text-gray-400 mt-0.5">
+                  {reqDocsModal.clientName} · {reqDocsModal.clientEmail || 'No email on file'}
+                </p>
+              </div>
+              <button onClick={() => setReqDocsModal(null)} className="text-gray-400 hover:text-gray-600">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {reqDocResult ? (
+              /* Success state */
+              <div className="p-6 space-y-4">
+                <div className="bg-green-50 border border-green-200 rounded-2xl p-4 flex items-start gap-3">
+                  <CheckCircle className="w-5 h-5 text-green-500 flex-shrink-0 mt-0.5" />
+                  <div>
+                    <p className="font-bold text-green-800 text-sm">Request sent!</p>
+                    <p className="text-green-700 text-xs mt-0.5">
+                      Email sent to <strong>{reqDocResult.email}</strong> with upload link.
+                    </p>
+                  </div>
+                </div>
+                <div>
+                  <p className="text-xs font-semibold text-gray-600 mb-1">Upload link (share manually if needed):</p>
+                  <div className="flex items-center gap-2">
+                    <code className="flex-1 bg-gray-50 border border-gray-200 rounded-xl px-3 py-2 text-xs text-gray-600 truncate">
+                      {reqDocResult.link}
+                    </code>
+                    <button
+                      onClick={() => { navigator.clipboard.writeText(reqDocResult!.link); setCopied(true); setTimeout(() => setCopied(false), 2000) }}
+                      className="flex-shrink-0 flex items-center gap-1.5 px-3 py-2 bg-[#0B1F3A] text-white rounded-xl text-xs font-semibold"
+                    >
+                      <Copy className="w-3.5 h-3.5" />
+                      {copied ? 'Copied!' : 'Copy'}
+                    </button>
+                  </div>
+                </div>
+                <button onClick={() => setReqDocsModal(null)}
+                  className="w-full py-2.5 border border-gray-200 rounded-xl text-sm font-semibold text-gray-600 hover:bg-gray-50">
+                  Close
+                </button>
+              </div>
+            ) : (
+              <div className="p-6 space-y-5">
+                {/* Common doc checklist */}
+                <div>
+                  <p className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-2">Select Documents</p>
+                  <div className="space-y-1.5 max-h-56 overflow-y-auto">
+                    {COMMON_DOCS.map(doc => (
+                      <label key={doc.name} className="flex items-start gap-3 cursor-pointer p-2 rounded-xl hover:bg-gray-50 transition-colors">
+                        <input
+                          type="checkbox"
+                          checked={reqDocSelected.has(doc.name)}
+                          onChange={() => toggleReqDoc(doc.name)}
+                          className="mt-0.5 accent-[#C9A84C]"
+                        />
+                        <div className="min-w-0 flex-1">
+                          <p className="text-sm font-semibold text-[#0B1F3A] leading-tight">{doc.name}</p>
+                          {doc.description && <p className="text-xs text-gray-400 mt-0.5">{doc.description}</p>}
+                        </div>
+                        <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded flex-shrink-0 mt-0.5 ${
+                          doc.required !== false ? 'bg-red-50 text-red-500' : 'bg-gray-100 text-gray-400'
+                        }`}>
+                          {doc.required !== false ? 'Req' : 'Opt'}
+                        </span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Custom docs */}
+                {reqDocCustom.length > 0 && (
+                  <div className="space-y-2">
+                    <p className="text-xs font-bold text-gray-400 uppercase tracking-widest">Custom Documents</p>
+                    {reqDocCustom.map((d, i) => (
+                      <div key={i} className="flex items-center gap-2 bg-blue-50 border border-blue-100 rounded-xl px-3 py-2">
+                        <span className="flex-1 text-sm text-[#0B1F3A] font-semibold">{d.name}</span>
+                        <button onClick={() => setReqDocCustom(prev => prev.filter((_, j) => j !== i))}
+                          className="text-gray-400 hover:text-red-500">
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <button
+                  onClick={() => {
+                    const name = prompt('Document name:')
+                    if (name?.trim()) setReqDocCustom(prev => [...prev, { name: name.trim(), required: true }])
+                  }}
+                  className="flex items-center gap-1.5 text-xs text-blue-600 font-semibold hover:text-blue-800"
+                >
+                  <Plus className="w-3.5 h-3.5" /> Add custom document
+                </button>
+
+                <div>
+                  <label className="block text-xs font-semibold text-gray-600 mb-1">Message to client (optional)</label>
+                  <textarea value={reqDocMessage} onChange={e => setReqDocMessage(e.target.value)} rows={3}
+                    placeholder="e.g. Please upload clear scans — blurry photos will not be accepted."
+                    className="w-full px-3 py-2 border border-gray-200 rounded-xl text-sm outline-none focus:border-[#C9A84C] resize-none" />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-gray-600 mb-1">Deadline (optional)</label>
+                  <input type="date" value={reqDocDeadline} onChange={e => setReqDocDeadline(e.target.value)}
+                    min={new Date().toISOString().split('T')[0]}
+                    className="w-full px-3 py-2 border border-gray-200 rounded-xl text-sm outline-none focus:border-[#C9A84C]" />
+                </div>
+
+                <div className="flex gap-3">
+                  <button onClick={() => setReqDocsModal(null)}
+                    className="flex-1 py-2.5 border border-gray-200 rounded-xl text-sm font-semibold text-gray-600 hover:bg-gray-50">
+                    Cancel
+                  </button>
+                  <button
+                    onClick={submitReqDocs}
+                    disabled={reqDocSending || (reqDocSelected.size === 0 && reqDocCustom.length === 0) || !reqDocsModal.clientEmail}
+                    className="flex-1 py-2.5 bg-[#0B1F3A] text-white rounded-xl text-sm font-semibold disabled:opacity-50 flex items-center justify-center gap-2 hover:bg-[#0B1F3A]/90 transition-colors"
+                  >
+                    {reqDocSending
+                      ? <><Loader2 className="w-4 h-4 animate-spin" /> Sending…</>
+                      : <><FolderUp className="w-4 h-4" /> Send Request ({reqDocSelected.size + reqDocCustom.length} docs)</>
+                    }
+                  </button>
+                </div>
+                {!reqDocsModal.clientEmail && (
+                  <p className="text-xs text-red-500 text-center">No email address on file for this client.</p>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Send Update Modal */}
       {sendModal && (
@@ -538,6 +870,129 @@ export default function AdminPortalPage() {
               </button>
             </div>
           </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── DocRequestCard — shows one document request with uploads ─────────────────
+function DocRequestCard({
+  req,
+  onReview,
+}: {
+  req: DocRequest
+  onReview: (requestId: string, uploadId: string, status: string, note: string) => Promise<void>
+}) {
+  const SITE = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://www.walztravels.com'
+  const [reviewNotes, setReviewNotes] = useState<Record<string, string>>({})
+  const [acting, setActing]           = useState<string | null>(null)
+
+  const statusBadge = {
+    pending:  'bg-amber-100 text-amber-700',
+    partial:  'bg-blue-100 text-blue-700',
+    complete: 'bg-green-100 text-green-700',
+    expired:  'bg-gray-100 text-gray-500',
+  }[req.status] ?? 'bg-gray-100 text-gray-500'
+
+  async function handleReview(uploadId: string, status: string) {
+    setActing(uploadId)
+    await onReview(req.id, uploadId, status, reviewNotes[uploadId] ?? '')
+    setActing(null)
+  }
+
+  return (
+    <div className="bg-gray-50 border border-gray-100 rounded-xl p-3 space-y-2">
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${statusBadge}`}>
+            {req.status}
+          </span>
+          <span className="text-xs text-gray-500">
+            {req.uploadedCount}/{req.totalRequired} docs · sent{' '}
+            {new Date(req.createdAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}
+          </span>
+          {req.openedAt && (
+            <span className="text-[10px] text-blue-500 font-medium">Opened</span>
+          )}
+        </div>
+        <a
+          href={`${SITE}/upload/${req.token}`}
+          target="_blank" rel="noreferrer"
+          className="flex items-center gap-1 text-[10px] text-gray-400 hover:text-[#C9A84C] font-mono"
+          title="Open upload link"
+        >
+          <Eye className="w-3 h-3" />
+          link
+        </a>
+      </div>
+
+      {/* Requested docs summary */}
+      <div className="flex flex-wrap gap-1">
+        {(Array.isArray(req.requestedDocs) ? req.requestedDocs : []).map((d, i) => {
+          const uploaded = req.uploads.some(u => u.docName === d.name)
+          return (
+            <span key={i} className={`text-[10px] px-2 py-0.5 rounded-full font-medium ${
+              uploaded ? 'bg-green-100 text-green-700' : 'bg-gray-200 text-gray-500'
+            }`}>
+              {d.name}
+            </span>
+          )
+        })}
+      </div>
+
+      {/* Uploaded files */}
+      {req.uploads.length > 0 && (
+        <div className="space-y-1.5 pt-1 border-t border-gray-100">
+          {req.uploads.map(u => (
+            <div key={u.id} className="bg-white border border-gray-100 rounded-lg p-2.5">
+              <div className="flex items-center gap-2 mb-1.5">
+                <FileText className="w-3.5 h-3.5 text-[#C9A84C] flex-shrink-0" />
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs font-semibold text-[#0B1F3A] truncate">{u.docName}</p>
+                  <p className="text-[10px] text-gray-400 truncate">{u.fileName}</p>
+                </div>
+                <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
+                  u.status === 'approved' ? 'bg-green-100 text-green-700' :
+                  u.status === 'rejected' ? 'bg-red-100 text-red-600' :
+                  'bg-amber-100 text-amber-700'
+                }`}>
+                  {u.status}
+                </span>
+                <a href={u.fileUrl} target="_blank" rel="noreferrer"
+                  className="text-gray-400 hover:text-[#C9A84C] flex-shrink-0">
+                  <Download className="w-3.5 h-3.5" />
+                </a>
+              </div>
+              {u.status === 'pending' && (
+                <div className="flex items-center gap-1.5">
+                  <input
+                    value={reviewNotes[u.id] ?? ''}
+                    onChange={e => setReviewNotes(p => ({ ...p, [u.id]: e.target.value }))}
+                    placeholder="Review note (optional)"
+                    className="flex-1 text-[11px] px-2 py-1 border border-gray-200 rounded-lg outline-none focus:border-[#C9A84C]"
+                  />
+                  <button
+                    onClick={() => handleReview(u.id, 'approved')}
+                    disabled={acting === u.id}
+                    className="text-[11px] px-2 py-1 bg-green-600 text-white rounded-lg font-semibold hover:bg-green-700 disabled:opacity-50"
+                  >
+                    {acting === u.id ? '…' : '✓'}
+                  </button>
+                  <button
+                    onClick={() => handleReview(u.id, 'rejected')}
+                    disabled={acting === u.id}
+                    className="text-[11px] px-2 py-1 bg-red-500 text-white rounded-lg font-semibold hover:bg-red-600 disabled:opacity-50"
+                  >
+                    ✕
+                  </button>
+                </div>
+              )}
+              {u.reviewNote && (
+                <p className="text-[10px] text-gray-500 italic mt-1">Note: {u.reviewNote}</p>
+              )}
+            </div>
+          ))}
         </div>
       )}
     </div>
