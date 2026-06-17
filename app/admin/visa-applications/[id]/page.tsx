@@ -8,7 +8,7 @@ import {
   FileText, User, Globe, Briefcase, Plane, Shield, MessageCircle,
   ChevronDown, Plus, Send, Edit3, X, Clock, Building2, Phone,
   Mail, Check, AlertCircle, ExternalLink,
-  ClipboardList, StickyNote, Flag, Calendar,
+  ClipboardList, StickyNote, Flag, Calendar, FolderUp,
 } from 'lucide-react'
 import type { BankStatementAnalysis } from '@/lib/analyzeBankStatement'
 import { BankStatementPanel } from '@/components/admin/BankStatementPanel'
@@ -59,6 +59,34 @@ interface VisaApp {
   bank_statement_analyzed_at?: string | null
   bank_statement_uploaded_by?: string | null
 }
+
+interface DocUpload {
+  id: string; docName: string; fileName: string
+  fileUrl: string; uploadedAt: string; status: string
+}
+
+interface DocRequest {
+  id: string; status: string
+  uploadedCount: number; totalRequired: number
+  requestedDocs: Array<{ name: string; description?: string; required?: boolean }>
+  message: string | null; createdAt: string
+  uploads: DocUpload[]
+}
+
+const COMMON_DOCS = [
+  { name: 'Passport (bio data page)',  description: 'Clear scan of passport info page',             required: true  },
+  { name: 'Bank Statement (3 months)', description: 'Last 3 months showing salary credits',         required: true  },
+  { name: 'Proof of Employment',       description: 'Employment letter or recent pay slip',          required: true  },
+  { name: 'Utility Bill',              description: 'Proof of address, not older than 3 months',    required: false },
+  { name: 'Travel Itinerary',          description: 'Confirmed or dummy flight booking',             required: false },
+  { name: 'Hotel Booking',             description: 'Hotel reservation confirmation',                required: false },
+  { name: 'Travel Insurance',          description: 'Policy covering travel dates',                  required: false },
+  { name: 'Invitation Letter',         description: 'From host in destination country',              required: false },
+  { name: 'Passport Photo',            description: 'White background, recent photo',                required: false },
+  { name: 'Sponsor Letter',            description: 'Letter from financial sponsor',                 required: false },
+  { name: 'Birth Certificate',         description: 'For family or dependent applications',          required: false },
+  { name: 'Marriage Certificate',      description: 'For married applicants / spouse visa',          required: false },
+]
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 function fmtDate(iso: string | null) {
@@ -310,6 +338,16 @@ export default function AdminVisaDetailPage() {
   const [recordingDecision, setRecordingDecision] = useState(false)
   const [openSection, setOpenSection] = useState<string>('status')
 
+  // Document request state
+  const [docRequests,   setDocRequests]   = useState<DocRequest[]>([])
+  const [docReqLoaded,  setDocReqLoaded]  = useState(false)
+  const [docReqLoading, setDocReqLoading] = useState(false)
+  const [showDocModal,  setShowDocModal]  = useState(false)
+  const [selectedDocs,  setSelectedDocs]  = useState<string[]>([])
+  const [docMessage,    setDocMessage]    = useState('')
+  const [sendingDocs,   setSendingDocs]   = useState(false)
+  const [docSentOk,     setDocSentOk]     = useState(false)
+
   async function load() {
     setLoading(true)
     const res = await fetch(`/api/admin/visa-applications/${id}`)
@@ -463,6 +501,59 @@ export default function AdminVisaDetailPage() {
     load()
   }
 
+  async function loadDocRequests() {
+    if (docReqLoaded || docReqLoading || !app) return
+    setDocReqLoading(true)
+    try {
+      const res  = await fetch(`/api/admin/document-requests?visaAppId=${app.id}`)
+      const data = await res.json()
+      setDocRequests(
+        (data.requests ?? []).map((r: DocRequest & { requestedDocs: unknown }) => ({
+          ...r,
+          requestedDocs: typeof r.requestedDocs === 'string'
+            ? JSON.parse(r.requestedDocs)
+            : r.requestedDocs,
+        }))
+      )
+      setDocReqLoaded(true)
+    } catch {}
+    setDocReqLoading(false)
+  }
+
+  async function sendDocRequest() {
+    if (!app || selectedDocs.length === 0) return
+    setSendingDocs(true)
+    try {
+      const docs = selectedDocs.map(name => {
+        const c = COMMON_DOCS.find(d => d.name === name)
+        return c ?? { name, required: true }
+      })
+      const res = await fetch('/api/admin/document-requests', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({
+          visaAppId:     app.id,
+          clientEmail:   app.email ?? '',
+          clientName:    [app.firstName, app.lastName].filter(Boolean).join(' ') || 'Applicant',
+          requestedDocs: docs,
+          message:       docMessage || null,
+        }),
+      })
+      if (res.ok) {
+        setDocSentOk(true)
+        setDocReqLoaded(false)
+        setTimeout(() => {
+          setDocSentOk(false)
+          setShowDocModal(false)
+          setSelectedDocs([])
+          setDocMessage('')
+          loadDocRequests()
+        }, 1500)
+      }
+    } catch {}
+    setSendingDocs(false)
+  }
+
   if (loading) return (
     <div className="flex items-center justify-center min-h-[60vh]">
       <Loader2 className="w-8 h-8 text-[#C9A84C] animate-spin" />
@@ -539,13 +630,13 @@ export default function AdminVisaDetailPage() {
     )
   }
 
-  function ActionSection({ id: sId, title, icon: Icon, children }: {
-    id: string; title: string; icon: React.ComponentType<{ className?: string }>; children: React.ReactNode
+  function ActionSection({ id: sId, title, icon: Icon, children, onOpen }: {
+    id: string; title: string; icon: React.ComponentType<{ className?: string }>; children: React.ReactNode; onOpen?: () => void
   }) {
     const open = openSection === sId
     return (
       <div className="border border-gray-100 rounded-xl overflow-hidden">
-        <button onClick={() => setOpenSection(open ? '' : sId)}
+        <button onClick={() => { const willOpen = !open; setOpenSection(willOpen ? sId : ''); if (willOpen && onOpen) onOpen() }}
           className={`w-full flex items-center justify-between p-4 text-left transition-colors ${open ? 'bg-[#0B1F3A] text-white' : 'bg-white hover:bg-gray-50'}`}>
           <div className="flex items-center gap-2">
             <Icon className={`w-4 h-4 ${open ? 'text-[#C9A84C]' : 'text-gray-400'}`} />
@@ -887,6 +978,49 @@ export default function AdminVisaDetailPage() {
             <DocumentChecklist appId={app.id} destIso2={app.destinationIso2} />
           </ActionSection>
 
+          {/* Request Documents */}
+          <ActionSection id="docrequest" title="Request Documents" icon={FolderUp} onOpen={loadDocRequests}>
+            <div className="space-y-3">
+              {docReqLoading && (
+                <div className="flex items-center gap-2 text-xs text-gray-400 py-2">
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" /> Loading…
+                </div>
+              )}
+              {!docReqLoading && docRequests.length === 0 && (
+                <p className="text-xs text-gray-400 py-1">No document requests sent yet.</p>
+              )}
+              {docRequests.map(req => (
+                <div key={req.id} className="bg-gray-50 rounded-xl p-3 text-xs space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <span className={`font-bold px-2 py-0.5 rounded-full text-[10px] uppercase tracking-wide ${
+                      req.status === 'completed' ? 'bg-green-100 text-green-700' :
+                      req.status === 'partial'   ? 'bg-amber-100 text-amber-700' :
+                                                   'bg-blue-100 text-blue-700'
+                    }`}>{req.status}</span>
+                    <span className="text-gray-400">{new Date(req.createdAt).toLocaleDateString()}</span>
+                  </div>
+                  <p className="text-gray-500">
+                    {req.uploadedCount}/{req.totalRequired} docs uploaded
+                  </p>
+                  <div className="flex flex-wrap gap-1">
+                    {req.requestedDocs.map((d, i) => (
+                      <span key={i} className="bg-white border border-gray-200 text-gray-600 px-2 py-0.5 rounded-full text-[10px]">
+                        {d.name}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              ))}
+              <button
+                onClick={() => setShowDocModal(true)}
+                className="w-full flex items-center justify-center gap-2 bg-[#0B1F3A] text-white text-xs font-semibold py-2.5 rounded-xl hover:bg-[#0a1a31] transition-colors"
+              >
+                <FolderUp className="w-3.5 h-3.5" />
+                Send Document Request
+              </button>
+            </div>
+          </ActionSection>
+
           {/* Fee Overrides */}
           <ActionSection id="fees" title="Fee Overrides" icon={Building2}>
             <div className="space-y-3">
@@ -1015,6 +1149,104 @@ export default function AdminVisaDetailPage() {
           </div>
         </div>
       </div>
+
+      {/* Request Documents Modal */}
+      {showDocModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden">
+            {/* Header */}
+            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
+              <div className="flex items-center gap-2.5">
+                <FolderUp className="w-5 h-5 text-[#C9A84C]" />
+                <h2 className="text-base font-bold text-[#0B1F3A]">Request Documents</h2>
+              </div>
+              <button onClick={() => { setShowDocModal(false); setSelectedDocs([]); setDocMessage('') }}
+                className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400 transition-colors">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Body */}
+            <div className="px-6 py-4 space-y-4 max-h-[60vh] overflow-y-auto">
+              {/* Recipient info */}
+              <div className="bg-gray-50 rounded-xl px-4 py-3 text-xs text-gray-500 space-y-0.5">
+                <p><span className="font-semibold text-gray-700">To:</span> {[app.firstName, app.lastName].filter(Boolean).join(' ') || 'Applicant'}</p>
+                <p><span className="font-semibold text-gray-700">Email:</span> {app.email ?? '—'}</p>
+              </div>
+
+              {/* Document selector */}
+              <div>
+                <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">Select Documents</p>
+                <div className="grid grid-cols-2 gap-2">
+                  {COMMON_DOCS.map(doc => {
+                    const selected = selectedDocs.includes(doc.name)
+                    return (
+                      <button
+                        key={doc.name}
+                        onClick={() => setSelectedDocs(prev =>
+                          selected ? prev.filter(n => n !== doc.name) : [...prev, doc.name]
+                        )}
+                        className={`flex items-start gap-2 p-2.5 rounded-xl border text-left text-xs transition-all ${
+                          selected
+                            ? 'border-[#C9A84C] bg-amber-50 text-[#0B1F3A]'
+                            : 'border-gray-100 hover:border-gray-200 text-gray-500'
+                        }`}
+                      >
+                        <span className={`mt-0.5 w-3.5 h-3.5 flex-shrink-0 rounded border ${
+                          selected ? 'bg-[#C9A84C] border-[#C9A84C]' : 'border-gray-300'
+                        } flex items-center justify-center`}>
+                          {selected && <Check className="w-2.5 h-2.5 text-white" />}
+                        </span>
+                        <span className="leading-snug font-medium">{doc.name}</span>
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+
+              {/* Message */}
+              <div>
+                <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">Message (optional)</p>
+                <textarea
+                  value={docMessage}
+                  onChange={e => setDocMessage(e.target.value)}
+                  rows={3}
+                  placeholder="Any specific instructions for the client…"
+                  className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-[#C9A84C] resize-none text-[#0B1F3A] placeholder:text-gray-300"
+                />
+              </div>
+            </div>
+
+            {/* Footer */}
+            <div className="px-6 py-4 border-t border-gray-100 flex items-center justify-between gap-3">
+              <span className="text-xs text-gray-400">
+                {selectedDocs.length} doc{selectedDocs.length !== 1 ? 's' : ''} selected
+              </span>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => { setShowDocModal(false); setSelectedDocs([]); setDocMessage('') }}
+                  className="px-4 py-2 rounded-xl border border-gray-200 text-sm text-gray-500 hover:bg-gray-50 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={sendDocRequest}
+                  disabled={sendingDocs || selectedDocs.length === 0}
+                  className="flex items-center gap-2 bg-[#C9A84C] text-[#0B1F3A] font-bold px-5 py-2 rounded-xl text-sm hover:bg-[#b8973f] disabled:opacity-50 transition-colors"
+                >
+                  {sendingDocs ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : docSentOk ? (
+                    <><Check className="w-4 h-4" /> Sent!</>
+                  ) : (
+                    <><FolderUp className="w-4 h-4" /> Send Request</>
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
