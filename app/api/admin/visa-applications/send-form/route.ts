@@ -5,7 +5,8 @@ import { generateVisaRef, ISO2_TO_SLUG } from '@/lib/visa-config'
 import { sendApplicationFormLink } from '@/lib/email-visa'
 
 async function isAdmin() {
-  return !!cookies().get('admin_token')?.value
+  const c = await cookies()
+  return !!(c.get('admin_token')?.value)
 }
 
 // POST /api/admin/visa-applications/send-form

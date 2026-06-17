@@ -3,8 +3,8 @@ import { cookies } from 'next/headers'
 import { prisma } from '@/lib/db'
 
 async function isAdmin() {
-  const token = cookies().get('admin_token')?.value
-  return !!token
+  const c = await cookies()
+  return !!(c.get('admin_token')?.value)
 }
 
 export async function GET(req: NextRequest) {

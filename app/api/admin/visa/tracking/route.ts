@@ -4,7 +4,8 @@ import { prisma } from '@/lib/db'
 
 // ── Auth: use admin_token cookie (same as all other admin APIs) ──────────────
 async function isAdmin() {
-  return !!cookies().get('admin_token')?.value
+  const c = await cookies()
+  return !!(c.get('admin_token')?.value)
 }
 
 export async function GET() {

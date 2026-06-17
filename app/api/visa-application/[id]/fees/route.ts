@@ -3,7 +3,8 @@ import { cookies } from 'next/headers'
 import prisma from '@/lib/db'
 
 export async function PATCH(req: NextRequest, { params }: { params: { id: string } }) {
-  const token = cookies().get('admin_token')?.value
+  const c = await cookies()
+  const token = c.get('admin_token')?.value
   if (!token) return NextResponse.json({ error: 'Unauthorised' }, { status: 401 })
 
   const { serviceFeeAmount, serviceFeeCurrency, govtFeeAmount, govtFeeInstructions } = await req.json()
