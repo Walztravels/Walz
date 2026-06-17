@@ -1,276 +1,527 @@
 'use client'
 
-import { useState, useEffect } from 'react'
-import Link from 'next/link'
-import { Plus, Star, Pencil, Trash2, Loader2, Zap } from 'lucide-react'
+import { useState, useEffect, useRef, useCallback } from 'react'
+import {
+  Plus, Pencil, Trash2, ToggleLeft, ToggleRight, X,
+  MapPin, Clock, DollarSign, Upload, Image as ImageIcon,
+  GripVertical, Star, CheckCircle, AlertCircle, Loader2,
+} from 'lucide-react'
 
-// ── Types ─────────────────────────────────────────────────────────────────────
-
-interface TravelPackage {
-  id: string
-  slug: string
-  title: string
-  destination: string
-  package_type: 'group' | 'private' | 'honeymoon' | 'corporate'
-  price_per_person: number
-  currency: string
-  seats_booked: number
-  total_seats: number | null
-  is_featured: boolean
-  is_spotlight: boolean
-  is_active: boolean
-  images: string[]
-  created_at: string
+interface Package {
+  id: string; name: string; slug: string; description: string; highlights: string
+  price: number; currency: string; duration: string; location: string
+  imageUrl: string | null; photos: string[]
+  active: boolean; order: number; type: string
 }
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
-
-const TYPE_COLORS: Record<string, string> = {
-  group:     'bg-blue-100 text-blue-700',
-  private:   'bg-purple-100 text-purple-700',
-  honeymoon: 'bg-pink-100 text-pink-700',
-  corporate: 'bg-gray-100 text-gray-700',
+const EMPTY: Omit<Package, 'id' | 'type'> = {
+  name: '', slug: '', description: '', highlights: '[]',
+  price: 0, currency: 'GBP', duration: '', location: '',
+  imageUrl: '', photos: [], active: true, order: 0,
 }
 
-function fmt(amount: number, currency = 'USD') {
-  try {
-    return new Intl.NumberFormat('en-GB', { style: 'currency', currency, maximumFractionDigits: 0 }).format(amount)
-  } catch {
-    return `${currency} ${amount}`
-  }
+function toSlug(s: string) {
+  return s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')
 }
 
-// ── Page ──────────────────────────────────────────────────────────────────────
+interface ToastMsg { type: 'success' | 'error'; text: string }
 
-export default function PackagesPage() {
-  const [packages, setPackages] = useState<TravelPackage[]>([])
-  const [loading, setLoading]   = useState(true)
-  const [toggling, setToggling] = useState<string | null>(null)
+function Toast({ toast }: { toast: ToastMsg | null }) {
+  if (!toast) return null
+  return (
+    <div className={`fixed bottom-6 right-6 z-[60] flex items-center gap-3 px-5 py-3 rounded-xl shadow-2xl text-sm font-semibold transition-all ${
+      toast.type === 'success' ? 'bg-green-600 text-white' : 'bg-red-600 text-white'
+    }`}>
+      {toast.type === 'success'
+        ? <CheckCircle className="w-4 h-4 flex-shrink-0" />
+        : <AlertCircle className="w-4 h-4 flex-shrink-0" />}
+      {toast.text}
+    </div>
+  )
+}
 
-  async function load() {
-    setLoading(true)
-    try {
-      const res = await fetch('/api/admin/packages')
-      const data = await res.json()
-      setPackages(Array.isArray(data) ? data : [])
-    } finally {
-      setLoading(false)
-    }
-  }
+interface PhotoGridProps {
+  photos: string[]
+  onReorder: (photos: string[]) => void
+  onDelete: (index: number) => void
+}
 
-  useEffect(() => { load() }, [])
+function PhotoGrid({ photos, onReorder, onDelete }: PhotoGridProps) {
+  const dragIndexRef = useRef<number | null>(null)
 
-  async function toggleField(pkg: TravelPackage, field: 'is_featured' | 'is_spotlight' | 'is_active') {
-    setToggling(`${pkg.id}-${field}`)
-    // Optimistic update
-    setPackages(prev =>
-      prev.map(p => p.id === pkg.id ? { ...p, [field]: !p[field] } : p)
-    )
-    try {
-      await fetch(`/api/admin/packages/${pkg.id}`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ [field]: !pkg[field] }),
-      })
-    } catch {
-      // Revert on error
-      setPackages(prev =>
-        prev.map(p => p.id === pkg.id ? { ...p, [field]: pkg[field] } : p)
-      )
-    } finally {
-      setToggling(null)
-    }
-  }
+  function handleDragStart(i: number) { dragIndexRef.current = i }
 
-  async function deletePackage(pkg: TravelPackage) {
-    if (!window.confirm(`Delete "${pkg.title}"? This cannot be undone.`)) return
-    try {
-      await fetch(`/api/admin/packages/${pkg.id}`, { method: 'DELETE' })
-      setPackages(prev => prev.filter(p => p.id !== pkg.id))
-    } catch {
-      alert('Failed to delete package.')
-    }
+  function handleDragOver(e: React.DragEvent, i: number) {
+    e.preventDefault()
+    const from = dragIndexRef.current
+    if (from === null || from === i) return
+    const next = [...photos]
+    const [moved] = next.splice(from, 1)
+    next.splice(i, 0, moved)
+    dragIndexRef.current = i
+    onReorder(next)
   }
 
   return (
+    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+      {photos.map((url, i) => (
+        <div
+          key={url + i}
+          draggable
+          onDragStart={() => handleDragStart(i)}
+          onDragOver={(e) => handleDragOver(e, i)}
+          onDragEnd={() => { dragIndexRef.current = null }}
+          className="relative group rounded-xl overflow-hidden bg-gray-100 cursor-grab active:cursor-grabbing border-2 border-transparent hover:border-[#C9A84C] transition-colors"
+          style={{ aspectRatio: '4/3' }}
+        >
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={url} alt={`Photo ${i + 1}`} className="w-full h-full object-cover" />
+
+          {i === 0 && (
+            <div className="absolute top-1 left-1 bg-[#C9A84C] text-[#0B1F3A] text-[10px] font-bold px-1.5 py-0.5 rounded-md flex items-center gap-0.5">
+              <Star className="w-2.5 h-2.5" /> Cover
+            </div>
+          )}
+
+          <div className="absolute top-1 right-1 opacity-0 group-hover:opacity-100 transition-opacity">
+            <div className="bg-black/50 rounded p-0.5"><GripVertical className="w-3 h-3 text-white" /></div>
+          </div>
+
+          <button
+            type="button"
+            onClick={() => onDelete(i)}
+            className="absolute bottom-1 right-1 opacity-0 group-hover:opacity-100 transition-opacity bg-red-500/90 text-white rounded-md p-0.5"
+          >
+            <X className="w-3 h-3" />
+          </button>
+
+          <div className="absolute bottom-1 left-1 bg-black/50 text-white text-[10px] rounded px-1 leading-4">{i + 1}</div>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+export default function PackagesAdminPage() {
+  const [packages, setPackages]         = useState<Package[]>([])
+  const [loading, setLoading]           = useState(true)
+  const [modal, setModal]               = useState<Partial<Package> | null>(null)
+  const [saving, setSaving]             = useState(false)
+  const [uploading, setUploading]       = useState(false)
+  const [uploadProgress, setUploadProgress] = useState('')
+  const [toast, setToast]               = useState<ToastMsg | null>(null)
+  const [autoSavedAt, setAutoSavedAt]   = useState<Date | null>(null)
+  const fileRef                         = useRef<HTMLInputElement>(null)
+  const autoSaveTimer                   = useRef<ReturnType<typeof setInterval> | null>(null)
+  const lastSavedSnapshot               = useRef<string>('')
+
+  function showToast(type: 'success' | 'error', text: string) {
+    setToast({ type, text })
+    setTimeout(() => setToast(null), 4000)
+  }
+
+  const load = useCallback(async () => {
+    setLoading(true)
+    const res = await fetch('/api/admin/packages')
+    setPackages((await res.json()) ?? [])
+    setLoading(false)
+  }, [])
+
+  useEffect(() => { void load() }, [load])
+
+  useEffect(() => {
+    if (!modal?.id || saving || uploading) return
+
+    autoSaveTimer.current = setInterval(async () => {
+      const snap = JSON.stringify(modal)
+      if (snap === lastSavedSnapshot.current) return
+      const photos = modal.photos ?? []
+      const imageUrl = photos[0] ?? modal.imageUrl ?? ''
+      const res = await fetch('/api/admin/packages', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...modal, photos, imageUrl, price: Number(modal.price ?? 0) }),
+      })
+      if (res.ok) {
+        lastSavedSnapshot.current = snap
+        setAutoSavedAt(new Date())
+      }
+    }, 30_000)
+
+    return () => { if (autoSaveTimer.current) clearInterval(autoSaveTimer.current) }
+  }, [modal, saving, uploading])
+
+  function openModal(pkg: Partial<Package>) {
+    setModal({ ...EMPTY, ...pkg })
+    setUploadProgress('')
+    setAutoSavedAt(null)
+    lastSavedSnapshot.current = JSON.stringify({ ...EMPTY, ...pkg })
+  }
+
+  async function uploadFile(file: File, slug: string, index: number): Promise<string | null> {
+    const formData = new FormData()
+    formData.append('file', file)
+    formData.append('key', `package_${slug}_photo_${index}_${Date.now()}`)
+    formData.append('label', `Package Photo — ${slug} #${index + 1}`)
+    const res = await fetch('/api/admin/images', { method: 'POST', body: formData })
+    if (!res.ok) return null
+    const data = await res.json() as { url: string }
+    return data.url
+  }
+
+  async function handleFilesSelected(e: React.ChangeEvent<HTMLInputElement>) {
+    const files = Array.from(e.target.files ?? [])
+    if (!files.length) return
+    e.target.value = ''
+
+    const currentPhotos = modal?.photos ?? []
+    const toUpload = files.slice(0, 10 - currentPhotos.length)
+    if (!toUpload.length) return
+
+    setUploading(true)
+    const slug = modal?.slug || toSlug(modal?.name ?? 'package')
+    const uploaded: string[] = []
+
+    for (let i = 0; i < toUpload.length; i++) {
+      setUploadProgress(`Uploading ${i + 1} of ${toUpload.length}…`)
+      const url = await uploadFile(toUpload[i], slug, currentPhotos.length + i)
+      if (url) uploaded.push(url)
+    }
+
+    const newPhotos = [...currentPhotos, ...uploaded]
+    setModal((m) => m ? { ...m, photos: newPhotos, imageUrl: newPhotos[0] ?? m.imageUrl } : m)
+    setUploading(false)
+    setUploadProgress('')
+  }
+
+  function reorderPhotos(photos: string[]) {
+    setModal((m) => m ? { ...m, photos, imageUrl: photos[0] ?? '' } : m)
+  }
+
+  function deletePhoto(index: number) {
+    const photos = (modal?.photos ?? []).filter((_, i) => i !== index)
+    setModal((m) => m ? { ...m, photos, imageUrl: photos[0] ?? '' } : m)
+  }
+
+  async function save() {
+    setSaving(true)
+    const method = modal?.id ? 'PUT' : 'POST'
+    const photos = modal?.photos ?? []
+    const imageUrl = photos[0] ?? modal?.imageUrl ?? ''
+
+    try {
+      const res = await fetch('/api/admin/packages', {
+        method,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...modal, photos, imageUrl, price: Number(modal?.price ?? 0) }),
+      })
+      if (!res.ok) throw new Error('Save failed')
+      await load()
+      setModal(null)
+      showToast('success', 'Package saved successfully')
+    } catch {
+      showToast('error', 'Error saving package. Please try again.')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  async function deletePackage(id: string) {
+    if (!confirm('Delete this package listing?')) return
+    await fetch('/api/admin/packages', {
+      method: 'DELETE', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id }),
+    })
+    await load()
+    showToast('success', 'Package deleted')
+  }
+
+  async function toggleActive(p: Package) {
+    await fetch('/api/admin/packages', {
+      method: 'PUT', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id: p.id, active: !p.active }),
+    })
+    await load()
+    showToast('success', p.active ? 'Package hidden from website' : 'Package now visible on website')
+  }
+
+  const coverPhoto = (p: Package) => p.photos?.[0] ?? p.imageUrl ?? null
+  const photoCount = modal?.photos?.length ?? 0
+
+  return (
     <div>
-      {/* Header */}
       <div className="mb-6 flex items-start justify-between">
         <div>
-          <h1 className="text-2xl font-bold text-[#0B1F3A]">Packages</h1>
-          <p className="text-gray-500 text-sm mt-1">
-            {packages.length} package{packages.length !== 1 ? 's' : ''}
-          </p>
+          <h1 className="text-2xl font-bold text-[#0B1F3A]">Package Listings</h1>
+          <p className="text-gray-500 text-sm mt-1">Add, edit and manage holiday packages shown on the website.</p>
         </div>
-        <Link
-          href="/admin/packages/new"
-          className="flex items-center gap-2 px-4 py-2.5 bg-[#0B1F3A] text-white text-sm font-semibold rounded-xl hover:bg-[#1a3a5c] transition-colors"
+        <button
+          onClick={() => openModal(EMPTY)}
+          className="flex items-center gap-2 bg-[#C9A84C] hover:bg-[#d4b45f] text-[#0B1F3A] font-bold px-4 py-2.5 rounded-xl text-sm transition-colors"
         >
-          <Plus className="w-4 h-4" />
-          New Package
-        </Link>
+          <Plus className="w-4 h-4" /> Add Package
+        </button>
       </div>
 
-      {/* Table */}
       {loading ? (
-        <div className="space-y-3">
-          {Array.from({ length: 5 }).map((_, i) => (
-            <div key={i} className="h-16 bg-gray-100 rounded-xl animate-pulse" />
-          ))}
-        </div>
+        <div className="bg-white rounded-2xl p-12 text-center text-gray-400">Loading…</div>
       ) : packages.length === 0 ? (
-        <div className="text-center py-20 border-2 border-dashed border-gray-200 rounded-2xl">
-          <div className="text-5xl mb-4">✈️</div>
-          <h3 className="font-bold text-[#0B1F3A] text-lg mb-1">No packages yet</h3>
-          <p className="text-gray-500 text-sm mb-5">Create your first travel package to get started.</p>
-          <Link
-            href="/admin/packages/new"
-            className="inline-flex items-center gap-2 px-5 py-2.5 bg-[#0B1F3A] text-white text-sm font-semibold rounded-xl hover:bg-[#1a3a5c] transition-colors"
-          >
-            <Plus className="w-4 h-4" /> Create Package
-          </Link>
+        <div className="bg-white rounded-2xl p-12 text-center text-gray-400">
+          No packages yet. Click &quot;Add Package&quot; to create one.
         </div>
       ) : (
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead className="bg-[#F7F8FA] border-b border-gray-100">
-                <tr>
-                  <th className="text-left px-5 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Package</th>
-                  <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide hidden md:table-cell">Destination</th>
-                  <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide hidden sm:table-cell">Type</th>
-                  <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Price</th>
-                  <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide hidden lg:table-cell">Seats</th>
-                  <th className="text-center px-3 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Spotlight</th>
-                  <th className="text-center px-3 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Featured</th>
-                  <th className="text-center px-3 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Active</th>
-                  <th className="text-right px-5 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-50">
-                {packages.map(pkg => (
-                  <tr key={pkg.id} className="hover:bg-gray-50/50 transition-colors">
-                    {/* Package name + thumb */}
-                    <td className="px-5 py-3.5">
-                      <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 rounded-lg overflow-hidden bg-gray-100 flex-shrink-0">
-                          {pkg.images?.[0] ? (
-                            // eslint-disable-next-line @next/next/no-img-element
-                            <img src={pkg.images[0]} alt="" className="w-full h-full object-cover" />
-                          ) : (
-                            <div className="w-full h-full flex items-center justify-center text-gray-300 text-lg">✈️</div>
-                          )}
-                        </div>
-                        <div className="min-w-0">
-                          <p className="font-semibold text-[#0B1F3A] leading-snug line-clamp-1">{pkg.title}</p>
-                          <p className="text-xs text-gray-400 font-mono mt-0.5">{pkg.slug}</p>
-                        </div>
-                      </div>
-                    </td>
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+          {packages.map((p) => (
+            <div
+              key={p.id}
+              className={`bg-white rounded-2xl shadow-sm border overflow-hidden ${
+                p.active ? 'border-gray-100' : 'border-gray-200 opacity-60'
+              }`}
+            >
+              <div className="h-44 bg-gray-100 overflow-hidden relative">
+                {coverPhoto(p) ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={coverPhoto(p)!} alt={p.name} className="w-full h-full object-cover" />
+                ) : (
+                  <div className="w-full h-full flex items-center justify-center text-gray-300">
+                    <ImageIcon className="w-10 h-10" />
+                  </div>
+                )}
+                {(p.photos?.length ?? 0) > 1 && (
+                  <div className="absolute bottom-2 right-2 bg-black/60 text-white text-xs px-2 py-0.5 rounded-full">
+                    +{p.photos.length - 1} more
+                  </div>
+                )}
+              </div>
 
-                    {/* Destination */}
-                    <td className="px-4 py-3.5 text-gray-600 text-sm hidden md:table-cell">
-                      {pkg.destination || '—'}
-                    </td>
+              <div className="p-5">
+                <div className="flex items-start justify-between mb-2">
+                  <h3 className="font-bold text-[#0B1F3A] leading-tight">{p.name}</h3>
+                  <button onClick={() => toggleActive(p)} className="ml-2 flex-shrink-0" title={p.active ? 'Hide from website' : 'Show on website'}>
+                    {p.active
+                      ? <ToggleRight className="w-5 h-5 text-green-500" />
+                      : <ToggleLeft className="w-5 h-5 text-gray-400" />}
+                  </button>
+                </div>
+                <p className="text-sm text-gray-500 line-clamp-2 mb-3">{p.description}</p>
+                <div className="flex items-center gap-3 text-xs text-gray-500 mb-4 flex-wrap">
+                  <span className="flex items-center gap-1"><MapPin className="w-3 h-3" />{p.location}</span>
+                  <span className="flex items-center gap-1"><Clock className="w-3 h-3" />{p.duration}</span>
+                  <span className="flex items-center gap-1 font-bold text-[#C9A84C]">
+                    <DollarSign className="w-3 h-3" />
+                    {new Intl.NumberFormat('en-GB', { style: 'currency', currency: p.currency }).format(p.price)}
+                  </span>
+                </div>
+                <div className="flex items-center gap-2 border-t border-gray-100 pt-3">
+                  <button
+                    onClick={() => openModal(p)}
+                    className="flex items-center gap-1.5 text-xs text-gray-500 hover:text-[#0B1F3A] px-3 py-1.5 rounded-lg hover:bg-gray-100 transition-colors"
+                  >
+                    <Pencil className="w-3.5 h-3.5" /> Edit
+                  </button>
+                  <button
+                    onClick={() => deletePackage(p.id)}
+                    className="flex items-center gap-1.5 text-xs text-gray-400 hover:text-red-600 px-3 py-1.5 rounded-lg hover:bg-red-50 transition-colors"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" /> Delete
+                  </button>
+                </div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
 
-                    {/* Type badge */}
-                    <td className="px-4 py-3.5 hidden sm:table-cell">
-                      <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold capitalize ${TYPE_COLORS[pkg.package_type] ?? 'bg-gray-100 text-gray-600'}`}>
-                        {pkg.package_type}
+      {modal !== null && (
+        <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
+          <div
+            className="bg-white rounded-2xl w-full max-w-2xl shadow-2xl flex flex-col"
+            style={{ maxHeight: '90vh' }}
+          >
+            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 flex-shrink-0">
+              <div>
+                <h3 className="font-bold text-[#0B1F3A] text-lg">
+                  {modal.id ? 'Edit Package' : 'New Package'}
+                </h3>
+                {autoSavedAt && (
+                  <p className="text-xs text-gray-400 mt-0.5">
+                    Auto saved at {autoSavedAt.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                  </p>
+                )}
+              </div>
+              <button onClick={() => setModal(null)} className="text-gray-400 hover:text-gray-600 p-1 rounded-lg hover:bg-gray-100">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto px-6 py-5">
+              <div className="space-y-5">
+
+                <div>
+                  <label className="block text-xs font-medium text-gray-500 mb-1">Package Name *</label>
+                  <input
+                    value={modal.name ?? ''}
+                    onChange={(e) => setModal({ ...modal, name: e.target.value, slug: toSlug(e.target.value) })}
+                    placeholder="e.g. Dubai Group Escape 7 Nights"
+                    className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm outline-none focus:border-[#C9A84C]"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-medium text-gray-500 mb-1">Description *</label>
+                  <textarea
+                    value={modal.description ?? ''}
+                    onChange={(e) => setModal({ ...modal, description: e.target.value })}
+                    rows={3}
+                    placeholder="Describe this package…"
+                    className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm outline-none focus:border-[#C9A84C] resize-none"
+                  />
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs font-medium text-gray-500 mb-1">Location / Destination *</label>
+                    <input
+                      value={modal.location ?? ''}
+                      onChange={(e) => setModal({ ...modal, location: e.target.value })}
+                      placeholder="e.g. Dubai, UAE"
+                      className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm outline-none focus:border-[#C9A84C]"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-500 mb-1">Duration *</label>
+                    <input
+                      value={modal.duration ?? ''}
+                      onChange={(e) => setModal({ ...modal, duration: e.target.value })}
+                      placeholder="e.g. 7 nights · 8 days"
+                      className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm outline-none focus:border-[#C9A84C]"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-500 mb-1">Price *</label>
+                    <input
+                      type="number"
+                      value={modal.price ?? 0}
+                      onChange={(e) => setModal({ ...modal, price: Number(e.target.value) })}
+                      className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm outline-none focus:border-[#C9A84C]"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-gray-500 mb-1">Currency</label>
+                    <select
+                      value={modal.currency ?? 'GBP'}
+                      onChange={(e) => setModal({ ...modal, currency: e.target.value })}
+                      className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm outline-none focus:border-[#C9A84C]"
+                    >
+                      {['GBP', 'USD', 'EUR', 'NGN', 'AED'].map((c) => <option key={c}>{c}</option>)}
+                    </select>
+                  </div>
+                </div>
+
+                <div>
+                  <div className="flex items-center justify-between mb-2">
+                    <label className="block text-xs font-medium text-gray-500">
+                      Photos
+                      <span className="ml-1 text-gray-400 font-normal">
+                        ({photoCount}/10) — drag to reorder · first = cover
                       </span>
-                    </td>
-
-                    {/* Price */}
-                    <td className="px-4 py-3.5 font-semibold text-[#0B1F3A]">
-                      {fmt(pkg.price_per_person, pkg.currency)}
-                    </td>
-
-                    {/* Seats */}
-                    <td className="px-4 py-3.5 text-gray-600 text-sm hidden lg:table-cell">
-                      {pkg.seats_booked ?? 0}
-                      {pkg.total_seats != null ? ` / ${pkg.total_seats}` : ''}
-                    </td>
-
-                    {/* Spotlight toggle */}
-                    <td className="px-3 py-3.5 text-center">
+                    </label>
+                    {photoCount < 10 && (
                       <button
-                        onClick={() => toggleField(pkg, 'is_spotlight')}
-                        disabled={toggling === `${pkg.id}-is_spotlight`}
-                        title={pkg.is_spotlight ? 'Remove from spotlight' : 'Add to spotlight slider'}
-                        className="transition-colors disabled:opacity-40"
+                        type="button"
+                        onClick={() => fileRef.current?.click()}
+                        disabled={uploading}
+                        className="flex items-center gap-1.5 text-xs text-[#C9A84C] hover:text-[#0B1F3A] font-medium disabled:opacity-50"
                       >
-                        {toggling === `${pkg.id}-is_spotlight` ? (
-                          <Loader2 className="w-4 h-4 text-gray-400 animate-spin mx-auto" />
-                        ) : (
-                          <Zap
-                            className={`w-5 h-5 mx-auto transition-colors ${
-                              pkg.is_spotlight ? 'fill-amber-400 text-amber-400' : 'text-gray-300 hover:text-amber-400'
-                            }`}
-                          />
-                        )}
+                        <Upload className="w-3.5 h-3.5" />
+                        {uploading ? uploadProgress : 'Add photos'}
                       </button>
-                    </td>
+                    )}
+                  </div>
 
-                    {/* Featured toggle */}
-                    <td className="px-3 py-3.5 text-center">
-                      <button
-                        onClick={() => toggleField(pkg, 'is_featured')}
-                        disabled={toggling === `${pkg.id}-is_featured`}
-                        title={pkg.is_featured ? 'Remove from featured' : 'Mark as featured'}
-                        className="transition-colors disabled:opacity-40"
-                      >
-                        {toggling === `${pkg.id}-is_featured` ? (
-                          <Loader2 className="w-4 h-4 text-gray-400 animate-spin mx-auto" />
-                        ) : (
-                          <Star
-                            className={`w-5 h-5 mx-auto transition-colors ${
-                              pkg.is_featured ? 'fill-[#C9A84C] text-[#C9A84C]' : 'text-gray-300 hover:text-[#C9A84C]'
-                            }`}
-                          />
-                        )}
-                      </button>
-                    </td>
+                  <input
+                    ref={fileRef}
+                    type="file"
+                    accept="image/*"
+                    multiple
+                    className="hidden"
+                    onChange={handleFilesSelected}
+                  />
 
-                    {/* Active toggle */}
-                    <td className="px-3 py-3.5 text-center">
-                      <button
-                        onClick={() => toggleField(pkg, 'is_active')}
-                        disabled={toggling === `${pkg.id}-is_active`}
-                        title={pkg.is_active ? 'Deactivate' : 'Activate'}
-                        className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors focus:outline-none disabled:opacity-40 ${
-                          pkg.is_active ? 'bg-emerald-500' : 'bg-gray-300'
-                        }`}
-                      >
-                        <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow transition-transform ${pkg.is_active ? 'translate-x-[18px]' : 'translate-x-1'}`} />
-                      </button>
-                    </td>
-
-                    {/* Actions */}
-                    <td className="px-5 py-3.5">
-                      <div className="flex items-center justify-end gap-1">
-                        <Link
-                          href={`/admin/packages/${pkg.id}/edit`}
-                          className="p-1.5 rounded-lg text-gray-400 hover:text-[#0B1F3A] hover:bg-gray-100 transition-colors"
-                          title="Edit"
-                        >
-                          <Pencil className="w-3.5 h-3.5" />
-                        </Link>
+                  {photoCount > 0 ? (
+                    <div className="space-y-3">
+                      <PhotoGrid
+                        photos={modal.photos ?? []}
+                        onReorder={reorderPhotos}
+                        onDelete={deletePhoto}
+                      />
+                      {photoCount < 10 && (
                         <button
-                          onClick={() => deletePackage(pkg)}
-                          className="p-1.5 rounded-lg text-gray-400 hover:text-red-600 hover:bg-red-50 transition-colors"
-                          title="Delete"
+                          type="button"
+                          onClick={() => fileRef.current?.click()}
+                          disabled={uploading}
+                          className="w-full h-14 flex items-center justify-center gap-2 border-2 border-dashed border-gray-200 hover:border-[#C9A84C] text-gray-400 hover:text-[#C9A84C] rounded-xl text-xs transition-all disabled:opacity-50"
                         >
-                          <Trash2 className="w-3.5 h-3.5" />
+                          <Upload className="w-4 h-4" />
+                          {uploading ? uploadProgress : `Add more (${10 - photoCount} remaining)`}
                         </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+                      )}
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => fileRef.current?.click()}
+                      disabled={uploading}
+                      className="w-full h-28 flex flex-col items-center justify-center gap-2 border-2 border-dashed border-gray-200 hover:border-[#C9A84C] text-gray-400 hover:text-[#C9A84C] rounded-xl text-sm transition-all disabled:opacity-50"
+                    >
+                      <Upload className="w-6 h-6" />
+                      <span className="font-medium">{uploading ? uploadProgress : 'Upload package photos'}</span>
+                      <span className="text-xs text-gray-300">JPG, PNG, WebP · up to 10 · first = cover</span>
+                    </button>
+                  )}
+                </div>
+
+                <label className="flex items-center gap-3 cursor-pointer p-3 rounded-xl hover:bg-gray-50 transition-colors">
+                  <input
+                    type="checkbox"
+                    checked={modal.active ?? true}
+                    onChange={(e) => setModal({ ...modal, active: e.target.checked })}
+                    className="w-4 h-4 accent-[#C9A84C]"
+                  />
+                  <div>
+                    <span className="text-sm font-medium text-gray-700">Show on website</span>
+                    <p className="text-xs text-gray-400 mt-0.5">Package appears on /packages when active</p>
+                  </div>
+                </label>
+
+              </div>
+            </div>
+
+            <div className="flex-shrink-0 px-6 py-4 border-t border-gray-100 bg-white rounded-b-2xl flex gap-3">
+              <button
+                onClick={save}
+                disabled={saving || uploading}
+                className="flex-1 flex items-center justify-center gap-2 bg-[#0B1F3A] hover:bg-[#1a3358] text-white py-2.5 rounded-xl text-sm font-semibold transition-colors disabled:opacity-60"
+              >
+                {saving ? (
+                  <><Loader2 className="w-4 h-4 animate-spin" /> Saving…</>
+                ) : (
+                  'Save Package'
+                )}
+              </button>
+              <button
+                onClick={() => setModal(null)}
+                className="px-6 border border-gray-200 hover:bg-gray-50 text-gray-600 py-2.5 rounded-xl text-sm font-medium transition-colors"
+              >
+                Cancel
+              </button>
+            </div>
+
           </div>
         </div>
       )}
+
+      <Toast toast={toast} />
     </div>
   )
 }

@@ -1,114 +1,97 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { revalidatePath } from 'next/cache'
+import { getAdminSession } from '@/lib/admin-auth'
 import prisma from '@/lib/db'
 
 export const dynamic = 'force-dynamic'
 
-// ── GET /api/admin/packages ────────────────────────────────────────────────────
 export async function GET() {
-  try {
-    const packages = await prisma.$queryRawUnsafe(
-      `SELECT * FROM travel_packages ORDER BY display_order ASC, created_at DESC`
-    )
-    return NextResponse.json(packages)
-  } catch (err) {
-    console.error('[packages GET]', err)
-    return NextResponse.json({ error: 'Failed to fetch packages' }, { status: 500 })
+  if (!(await getAdminSession())) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
+  const packages = await prisma.tourListing.findMany({
+    where: { type: 'package' },
+    orderBy: { order: 'asc' },
+  })
+  return NextResponse.json(packages)
 }
 
-// ── POST /api/admin/packages ───────────────────────────────────────────────────
 export async function POST(req: NextRequest) {
-  try {
-    const body = await req.json()
-
-    const { title, slug, price_per_person } = body
-    if (!title || !slug || price_per_person === undefined) {
-      return NextResponse.json(
-        { error: 'title, slug, and price_per_person are required' },
-        { status: 400 }
-      )
-    }
-
-    // Slug uniqueness check
-    const existing = await prisma.$queryRawUnsafe(
-      `SELECT id FROM travel_packages WHERE slug = $1`,
-      slug
-    ) as unknown[]
-    if (existing && (existing as unknown[]).length > 0) {
-      return NextResponse.json({ error: 'Slug already exists' }, { status: 409 })
-    }
-
-    // Build column lists from provided fields
-    const columns: string[] = ['title', 'slug', 'price_per_person']
-    const placeholders: string[] = ['$1', '$2', '$3']
-    const values: unknown[] = [title, slug, Number(price_per_person)]
-    let idx = 4
-
-    const textFields = [
-      'destination', 'country_iso2', 'tagline', 'description',
-      'package_type', 'departure_city', 'currency', 'meals',
-      'seo_title', 'seo_description',
-    ]
-    const numberFields = [
-      'original_price', 'deposit_amount', 'duration_days', 'duration_nights',
-      'total_seats', 'seats_booked', 'hotel_rating', 'display_order',
-    ]
-    const boolFields = [
-      'visa_included', 'flight_included', 'hotel_included', 'is_featured', 'is_active', 'is_spotlight',
-    ]
-    const arrayFields = ['highlights', 'inclusions', 'exclusions', 'images']
-    const tsFields = ['departure_date', 'return_date']
-
-    for (const f of textFields) {
-      if (body[f] !== undefined && body[f] !== '') {
-        columns.push(f); placeholders.push(`$${idx++}`); values.push(String(body[f]))
-      }
-    }
-    for (const f of numberFields) {
-      if (body[f] !== undefined && body[f] !== '' && body[f] !== null) {
-        columns.push(f); placeholders.push(`$${idx++}`); values.push(Number(body[f]))
-      }
-    }
-    for (const f of boolFields) {
-      if (body[f] !== undefined) {
-        columns.push(f); placeholders.push(`$${idx++}`); values.push(Boolean(body[f]))
-      }
-    }
-    for (const f of arrayFields) {
-      if (body[f] !== undefined) {
-        columns.push(f)
-        placeholders.push(`$${idx++}::text[]`)
-        values.push(Array.isArray(body[f]) ? body[f] : [])
-      }
-    }
-    if (body.itinerary !== undefined) {
-      columns.push('itinerary')
-      placeholders.push(`$${idx++}::jsonb`)
-      values.push(JSON.stringify(body.itinerary ?? []))
-    }
-    for (const f of tsFields) {
-      if (body[f]) {
-        columns.push(f); placeholders.push(`$${idx++}`); values.push(body[f])
-      }
-    }
-
-    columns.push('created_at', 'updated_at')
-    placeholders.push('NOW()', 'NOW()')
-
-    const sql = `
-      INSERT INTO travel_packages (${columns.join(', ')})
-      VALUES (${placeholders.join(', ')})
-      RETURNING *
-    `
-    const rows = await prisma.$queryRawUnsafe(sql, ...values) as unknown[]
-    const created = (rows as Array<{ slug: string }>)[0]
-    revalidatePath('/packages')
-    revalidatePath(`/packages/${created.slug}`)
-    revalidatePath('/')
-    return NextResponse.json(created, { status: 201 })
-  } catch (err) {
-    console.error('[packages POST]', err)
-    return NextResponse.json({ error: 'Failed to create package' }, { status: 500 })
+  if (!(await getAdminSession())) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
+  const body = await req.json().catch(() => null) as Record<string, unknown> | null
+  if (!body?.name) return NextResponse.json({ error: 'name required' }, { status: 400 })
+
+  const slug =
+    (body.slug as string) ||
+    (body.name as string).toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '')
+
+  const pkg = await prisma.tourListing.create({
+    data: {
+      name:        String(body.name),
+      slug,
+      description: String(body.description ?? ''),
+      highlights:  String(body.highlights ?? '[]'),
+      price:       Number(body.price ?? 0),
+      currency:    String(body.currency ?? 'GBP'),
+      duration:    String(body.duration ?? ''),
+      location:    String(body.location ?? ''),
+      imageUrl:    body.imageUrl ? String(body.imageUrl) : null,
+      photos:      Array.isArray(body.photos) ? (body.photos as string[]) : [],
+      active:      body.active !== undefined ? Boolean(body.active) : true,
+      order:       Number(body.order ?? 0),
+      type:        'package',
+    },
+  })
+
+  revalidatePath('/packages')
+  revalidatePath(`/packages/${pkg.slug}`)
+  revalidatePath('/')
+  return NextResponse.json(pkg, { status: 201 })
+}
+
+export async function PUT(req: NextRequest) {
+  if (!(await getAdminSession())) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+  const body = await req.json().catch(() => null) as Record<string, unknown> | null
+  if (!body) return NextResponse.json({ error: 'body required' }, { status: 400 })
+  const id = body.id as string | undefined
+  if (!id) return NextResponse.json({ error: 'id required' }, { status: 400 })
+
+  const pkg = await prisma.tourListing.update({
+    where: { id },
+    data: {
+      ...(body.name        !== undefined && { name:        String(body.name) }),
+      ...(body.slug        !== undefined && { slug:        String(body.slug) }),
+      ...(body.description !== undefined && { description: String(body.description) }),
+      ...(body.highlights  !== undefined && { highlights:  String(body.highlights) }),
+      ...(body.price       !== undefined && { price:       Number(body.price) }),
+      ...(body.currency    !== undefined && { currency:    String(body.currency) }),
+      ...(body.duration    !== undefined && { duration:    String(body.duration) }),
+      ...(body.location    !== undefined && { location:    String(body.location) }),
+      ...(body.imageUrl    !== undefined && { imageUrl:    body.imageUrl ? String(body.imageUrl) : null }),
+      ...(body.photos      !== undefined && { photos:      Array.isArray(body.photos) ? (body.photos as string[]) : [] }),
+      ...(body.active      !== undefined && { active:      Boolean(body.active) }),
+      ...(body.order       !== undefined && { order:       Number(body.order) }),
+    },
+  })
+
+  revalidatePath('/packages')
+  revalidatePath(`/packages/${pkg.slug}`)
+  revalidatePath('/')
+  return NextResponse.json(pkg)
+}
+
+export async function DELETE(req: NextRequest) {
+  if (!(await getAdminSession())) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+  const { id } = await req.json().catch(() => ({})) as { id?: string }
+  if (!id) return NextResponse.json({ error: 'id required' }, { status: 400 })
+  await prisma.tourListing.delete({ where: { id } })
+  revalidatePath('/packages')
+  revalidatePath('/')
+  return NextResponse.json({ success: true })
 }

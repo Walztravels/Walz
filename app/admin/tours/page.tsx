@@ -11,13 +11,13 @@ interface Tour {
   id: string; name: string; slug: string; description: string; highlights: string
   price: number; currency: string; duration: string; location: string
   imageUrl: string | null; photos: string[]
-  active: boolean; order: number
+  active: boolean; order: number; type: string
 }
 
 const EMPTY: Omit<Tour, 'id'> = {
   name: '', slug: '', description: '', highlights: '[]',
   price: 0, currency: 'GBP', duration: '', location: '',
-  imageUrl: '', photos: [], active: true, order: 0,
+  imageUrl: '', photos: [], active: true, order: 0, type: 'tour',
 }
 
 function toSlug(s: string) {

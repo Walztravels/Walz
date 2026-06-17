@@ -23,7 +23,10 @@ export async function GET() {
   if (!(await getAdminSession())) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
-  const tours = await prisma.tourListing.findMany({ orderBy: { order: 'asc' } })
+  const tours = await prisma.tourListing.findMany({
+    where: { type: 'tour' },
+    orderBy: { order: 'asc' },
+  })
   return NextResponse.json(tours)
 }
 
@@ -38,7 +41,7 @@ export async function POST(req: NextRequest) {
   }
   // Auto-generate slug if not unique
   const data = parsed.data
-  const tour = await prisma.tourListing.create({ data })
+  const tour = await prisma.tourListing.create({ data: { ...data, type: 'tour' } })
   revalidatePath('/')
   revalidatePath('/tours')
   revalidatePath(`/tours/${tour.slug}`)

@@ -61,7 +61,7 @@ const HERO_FALLBACK = 'https://images.unsplash.com/photo-1488085061387-422e29b40
 
 export default async function PackagesPage() {
   const packages = await prisma.tourListing.findMany({
-    where: { active: true },
+    where: { active: true, type: 'package' },
     orderBy: { order: 'asc' },
   })
 

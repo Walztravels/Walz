@@ -368,7 +368,7 @@ export default function ToursPage() {
       setLoading(false)
     }, 5000)
 
-    fetch('/api/tours')
+    fetch('/api/tours?type=tour')
       .then((r) => r.json())
       .then((data) => {
         clearTimeout(timer)

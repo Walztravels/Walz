@@ -557,6 +557,7 @@ model TourListing {
   photos      String[] // ordered array of photo URLs (index 0 = hero/cover)
   active      Boolean  @default(true)
   order       Int      @default(0)
+  type        String   @default("tour") // "tour" | "package"
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 }
