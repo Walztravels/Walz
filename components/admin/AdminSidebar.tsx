@@ -13,6 +13,7 @@ import {
   BookOpen, Edit, Sliders,
   Shield, Package, Wrench, Activity, Key, Settings,
   MapPin, Signal, Globe, Image,
+  ShieldCheck,
   LogOut,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -60,6 +61,7 @@ const ICON_MAP: Record<string, React.ElementType> = {
   Signal,
   Globe,
   Image,
+  ShieldCheck,
 }
 
 const LOGO_CACHE_KEY = 'walz_logo_url'

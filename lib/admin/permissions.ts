@@ -131,7 +131,7 @@ export const ROLE_PERMISSIONS: Record<AdminRole, Permission[]> = {
   ],
   sales_rep: [
     'dashboard', 'inbox', 'leads', 'clients', 'clients.create',
-    'bookings.create', 'approvals',
+    'bookings.create', 'approvals', 'reports',
   ],
 }
 
@@ -270,7 +270,7 @@ export const NAV_ITEMS: NavSection[] = [
   {
     section: 'REPORTS',
     items: [
-      { href: '/admin/reports',     label: 'Reports',        icon: 'BarChart2',       permission: 'reports'         },
+      { href: '/admin/reports',     label: 'Staff Reports',  icon: 'ClipboardList',   permission: 'reports'         },
       { href: '/admin/approvals',   label: 'Approvals',      icon: 'CheckCircle',     permission: 'approvals'       },
     ],
   },
@@ -287,12 +287,13 @@ export const NAV_ITEMS: NavSection[] = [
   {
     section: 'SYSTEM',
     items: [
-      { href: '/admin/staff',       label: 'Staff',     icon: 'Shield',   permission: 'staff'      },
-      { href: '/admin/staff/new',   label: 'Add Staff', icon: 'UserPlus', permission: 'staff.create' },
-      { href: '/admin/suppliers',   label: 'Suppliers', icon: 'Package',  permission: 'suppliers'  },
-      { href: '/admin/audit-logs',  label: 'Audit Logs',icon: 'Activity', permission: 'audit_logs' },
-      { href: '/admin/api-keys',    label: 'API Keys',  icon: 'Key',      permission: 'api_keys'   },
-      { href: '/admin/settings',    label: 'Settings',  icon: 'Settings', permission: 'settings'   },
+      { href: '/admin/staff',       label: 'Staff',        icon: 'Shield',      permission: 'staff'       },
+      { href: '/admin/staff/new',   label: 'Add Staff',    icon: 'UserPlus',    permission: 'staff.create' },
+      { href: '/admin/roles',       label: 'Role Manager', icon: 'ShieldCheck', permission: 'staff'       },
+      { href: '/admin/suppliers',   label: 'Suppliers',    icon: 'Package',     permission: 'suppliers'   },
+      { href: '/admin/audit-logs',  label: 'Audit Logs',   icon: 'Activity',    permission: 'audit_logs'  },
+      { href: '/admin/api-keys',    label: 'API Keys',     icon: 'Key',         permission: 'api_keys'    },
+      { href: '/admin/settings',    label: 'Settings',     icon: 'Settings',    permission: 'settings'    },
     ],
   },
 ]

@@ -11,14 +11,27 @@ import { useStaffPermissions } from '@/hooks/useStaffPermissions'
 import { cn } from '@/lib/utils'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
-type RbacRole = 'general_manager' | 'senior_manager' | 'coordinator' | 'sales_rep'
+type RbacRole =
+  | 'super_admin'
+  | 'operations_manager'
+  | 'general_manager'
+  | 'senior_manager'
+  | 'visa_officer'
+  | 'flight_staff'
+  | 'tours_staff'
+  | 'hotel_staff'
+  | 'sales_agent'
+  | 'sales_rep'
+  | 'coordinator'
+  | 'accountant'
+  | 'customer_support'
 
 interface StaffMember {
   id:           string
   name:         string
   email:        string
   roleTitle:    string
-  role:         RbacRole | 'super_admin'
+  role:         RbacRole
   portalAccess: boolean
   isActive:     boolean
   lastLoginAt:  string | null
@@ -43,36 +56,100 @@ const STAFF_ROLES: {
   dot:             string
 }[] = [
   {
-    value:           'general_manager',
-    label:           'General Manager',
-    description:     'Full access — all operations',
-    fullDescription: 'Full operations access. Manages clients, bookings, visa applications, trip planner and all content. Cannot access system settings or payment gateways.',
-    badge:           'bg-purple-100 text-purple-700',
-    dot:             'bg-purple-500',
-  },
-  {
-    value:           'senior_manager',
-    label:           'Senior Manager',
-    description:     'Operations — clients, visa, trips',
-    fullDescription: 'Operations access. Manages clients, bookings, visa applications and trip planner. Cannot access staff management, settings or financial reports.',
+    value:           'operations_manager',
+    label:           'Operations Manager',
+    description:     'All bookings, clients & staff oversight',
+    fullDescription: 'Full operational access. Manages all bookings, clients, visa processing, supplier management and staff performance. Cannot access system settings or API credentials.',
     badge:           'bg-blue-100 text-blue-700',
     dot:             'bg-blue-500',
   },
   {
-    value:           'coordinator',
-    label:           'Coordinator',
-    description:     'Visa and documents only',
-    fullDescription: 'Visa and documents only. Manages visa applications and document review. View only access to clients. Cannot access bookings or settings.',
+    value:           'general_manager',
+    label:           'General Manager',
+    description:     'Broad access — bookings, clients, visa & tours',
+    fullDescription: 'Operations access. Manages clients, bookings, visa applications and trip planner. Cannot access staff management, settings or financial reports.',
+    badge:           'bg-indigo-100 text-indigo-700',
+    dot:             'bg-indigo-500',
+  },
+  {
+    value:           'senior_manager',
+    label:           'Senior Manager',
+    description:     'Bookings, visa, clients & reports',
+    fullDescription: 'Senior management access. Manages bookings, visa applications and client records. Has access to reports and analytics. Cannot manage staff or settings.',
+    badge:           'bg-teal-100 text-teal-700',
+    dot:             'bg-teal-500',
+  },
+  {
+    value:           'visa_officer',
+    label:           'Visa Officer',
+    description:     'Visa applications, documents & compliance',
+    fullDescription: 'Visa department access only. Processes visa applications, reviews documents, tracks embassy appointments and manages compliance reports.',
+    badge:           'bg-purple-100 text-purple-700',
+    dot:             'bg-purple-500',
+  },
+  {
+    value:           'flight_staff',
+    label:           'Flight Ticketing Staff',
+    description:     'Flights, tickets, PNRs & refunds',
+    fullDescription: 'Flight operations access. Issues and manages tickets, PNR management, refund requests and airline communications. No access to visa or accounts.',
+    badge:           'bg-sky-100 text-sky-700',
+    dot:             'bg-sky-500',
+  },
+  {
+    value:           'tours_staff',
+    label:           'Tours & Activities Staff',
+    description:     'Tours, activities & vouchers',
+    fullDescription: 'Tours department access. Manages tours, Hotelbeds activities, tour guides and customer vouchers.',
     badge:           'bg-green-100 text-green-700',
     dot:             'bg-green-500',
+  },
+  {
+    value:           'hotel_staff',
+    label:           'Hotel Reservation Staff',
+    description:     'Hotel bookings & guest management',
+    fullDescription: 'Hotel department access. Manages hotel bookings, supplier relationships and guest management.',
+    badge:           'bg-cyan-100 text-cyan-700',
+    dot:             'bg-cyan-500',
+  },
+  {
+    value:           'sales_agent',
+    label:           'Sales Agent',
+    description:     'Assigned leads, CRM & quotes',
+    fullDescription: 'Sales access only. Manages assigned leads, CRM, quotes and invoices. Can only see their own clients and leads. Cannot see other agents data.',
+    badge:           'bg-orange-100 text-orange-700',
+    dot:             'bg-orange-500',
+  },
+  {
+    value:           'coordinator',
+    label:           'Coordinator',
+    description:     'Visa, clients & bookings coordination',
+    fullDescription: 'Coordination access. Manages visa processing, client files and booking coordination. Cannot see financial reports or staff management.',
+    badge:           'bg-amber-100 text-amber-700',
+    dot:             'bg-amber-500',
   },
   {
     value:           'sales_rep',
     label:           'Sales Representative',
     description:     'Leads and reports only',
-    fullDescription: 'Leads and reports only. Manages leads and submits daily reports. View only access to clients. Cannot access visa applications or bookings.',
-    badge:           'bg-orange-100 text-orange-700',
-    dot:             'bg-orange-500',
+    fullDescription: 'Leads and reports only. Manages leads and submits daily reports. View only access to clients.',
+    badge:           'bg-yellow-100 text-yellow-700',
+    dot:             'bg-yellow-500',
+  },
+  {
+    value:           'accountant',
+    label:           'Accountant',
+    description:     'Payments, refunds & financial reports',
+    fullDescription: 'Finance access only. Manages payments, refunds, invoices and revenue reports. Cannot modify bookings or visa files.',
+    badge:           'bg-rose-100 text-rose-700',
+    dot:             'bg-rose-500',
+  },
+  {
+    value:           'customer_support',
+    label:           'Customer Support',
+    description:     'Tickets, client profiles & booking status',
+    fullDescription: 'Support access only. Manages support tickets, client profiles and booking status updates. Cannot issue refunds or access financial data.',
+    badge:           'bg-slate-100 text-slate-700',
+    dot:             'bg-slate-500',
   },
 ]
 
@@ -117,8 +194,8 @@ function StaffModal({
   const [email,        setEmail]        = useState(initial?.email        ?? '')
   const [roleTitle,    setRoleTitle]    = useState(initial?.roleTitle    ?? '')
   const [role,         setRole]         = useState<RbacRole>(
-    // super_admin can't be set via UI — default edit to general_manager for display
-    (initial?.role === 'super_admin' ? 'general_manager' : initial?.role) ?? 'sales_rep'
+    // super_admin can't be set via UI — default edit to operations_manager for display
+    (initial?.role === 'super_admin' ? 'operations_manager' : initial?.role) ?? 'sales_rep'
   )
   const [portalAccess, setPortalAccess] = useState(initial?.portalAccess ?? false)
   const [password,     setPassword]     = useState('')
@@ -157,11 +234,11 @@ function StaffModal({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm overflow-y-auto">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg flex flex-col max-h-[90vh] my-auto">
 
         {/* Header */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
+        <div className="flex-shrink-0 flex items-center justify-between px-6 py-4 border-b border-gray-100 rounded-t-2xl">
           <div className="flex items-center gap-2">
             <UserPlus className="w-5 h-5 text-[#C9A84C]" />
             <h2 className="font-bold text-[#0B1F3A]">
@@ -173,7 +250,7 @@ function StaffModal({
           </button>
         </div>
 
-        <form onSubmit={submit} className="px-6 py-5 space-y-4">
+        <form onSubmit={submit} className="overflow-y-auto px-6 py-5 space-y-4">
           {error && (
             <div className="px-4 py-3 bg-red-50 border border-red-200 rounded-xl text-red-600 text-sm">
               {error}
@@ -364,8 +441,8 @@ function ResetPasswordModal({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm overflow-hidden">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm overflow-y-auto">
+      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm max-h-[90vh] overflow-y-auto my-auto">
         <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
           <div className="flex items-center gap-2">
             <RotateCcw className="w-4 h-4 text-[#C9A84C]" />
