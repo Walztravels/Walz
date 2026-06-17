@@ -165,9 +165,9 @@ export async function generateMetadata(
 ): Promise<Metadata> {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const a: any = await getActivityData(params.slug)
-  if (!a) return { title: 'Activity | Walz Travels' }
+  if (!a) return { title: 'Activity' }
   return {
-    title:       `${a.title} | Walz Travels`,
+    title:       a.title,
     description: (a.shortDesc ?? a.description ?? '').slice(0, 160),
   }
 }

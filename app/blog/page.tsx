@@ -2,7 +2,7 @@ import Link from 'next/link'
 import type { Metadata } from 'next'
 
 export const metadata: Metadata = {
-  title: 'Travel Blog | Walz Travels',
+  title: 'Travel Blog',
   description: 'Visa guides, destination inspiration, travel tips and news — everything you need for your next adventure.',
   openGraph: {
     type: 'website',

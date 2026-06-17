@@ -1,7 +1,7 @@
 import type { Metadata } from 'next'
 
 export const metadata: Metadata = {
-  title: 'Activities & Tours | Walz Travels',
+  title: 'Activities & Tours',
   description: 'Book tours, excursions, and activities worldwide with Walz Travels. Discover experiences at your destination — from city tours to adventure sports.',
   openGraph: {
     type:        'website',
