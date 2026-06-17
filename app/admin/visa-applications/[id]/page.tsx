@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
 import {
@@ -8,7 +8,7 @@ import {
   FileText, User, Globe, Briefcase, Plane, Shield, MessageCircle,
   ChevronDown, Plus, Send, Edit3, X, Clock, Building2, Phone,
   Mail, Check, AlertCircle, ExternalLink,
-  ClipboardList, StickyNote, Flag, Calendar, FolderUp,
+  ClipboardList, StickyNote, Flag, Calendar, FolderUp, Upload,
 } from 'lucide-react'
 import type { BankStatementAnalysis } from '@/lib/analyzeBankStatement'
 import { BankStatementPanel } from '@/components/admin/BankStatementPanel'
@@ -385,6 +385,9 @@ function EmbassyPackSection({ app }: { app: VisaApp }) {
   const [extraInstructions,   setExtraInstructions]   = useState('')
   const [sending,             setSending]             = useState(false)
   const [sentOk,              setSentOk]              = useState(false)
+  const [attachFile,          setAttachFile]          = useState<File | null>(null)
+  const [attachName,          setAttachName]          = useState('')
+  const fileInputRef = useRef<HTMLInputElement>(null)
 
   function addCustomDoc() {
     if (!customDoc.trim()) return
@@ -400,23 +403,32 @@ function EmbassyPackSection({ app }: { app: VisaApp }) {
     if (!app.email) return
     setSending(true)
     try {
+      const formData = new FormData()
+      formData.append('appointmentDate',     appointmentDate     || '')
+      formData.append('appointmentTime',     appointmentTime     || '')
+      formData.append('appointmentLocation', appointmentLocation || '')
+      formData.append('appointmentRef',      appointmentRef      || '')
+      formData.append('documents',           JSON.stringify(docList))
+      formData.append('extraInstructions',   extraInstructions   || '')
+      if (attachFile) {
+        formData.append('attachment', attachFile, attachFile.name)
+      }
+
       const res = await fetch(`/api/admin/visa-applications/${app.id}/embassy-pack`, {
-        method:  'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({
-          appointmentDate:     appointmentDate     || null,
-          appointmentTime:     appointmentTime     || null,
-          appointmentLocation: appointmentLocation || null,
-          appointmentRef:      appointmentRef      || null,
-          documents:           docList,
-          extraInstructions:   extraInstructions   || null,
-        }),
+        method: 'POST',
+        body:   formData,
       })
       if (res.ok) {
         setSentOk(true)
         setTimeout(() => setSentOk(false), 3000)
+      } else {
+        const d = await res.json().catch(() => ({}))
+        alert((d as { error?: string }).error ?? 'Failed to send. Please try again.')
       }
-    } catch {}
+    } catch (err) {
+      console.error('[EmbassyPack]', err)
+      alert('Failed to send. Please try again.')
+    }
     setSending(false)
   }
 
@@ -504,6 +516,49 @@ function EmbassyPackSection({ app }: { app: VisaApp }) {
           placeholder="e.g. Please arrive 15 minutes early. Wear smart casual clothing."
           rows={3}
           className="w-full border border-gray-200 rounded-xl px-3 py-2 text-xs focus:outline-none focus:border-[#C9A84C] resize-none leading-relaxed" />
+      </div>
+
+      {/* PDF Attachment */}
+      <div>
+        <p className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">
+          Attach Document{' '}
+          <span className="text-gray-400 font-normal normal-case">(optional)</span>
+        </p>
+        {attachFile ? (
+          <div className="flex items-center gap-3 bg-blue-50 border border-blue-200 rounded-xl px-3 py-2.5">
+            <FileText className="w-4 h-4 text-blue-500 flex-shrink-0" />
+            <div className="flex-1 min-w-0">
+              <p className="text-xs font-semibold text-[#0B1F3A] truncate">{attachFile.name}</p>
+              <p className="text-[10px] text-gray-400">{(attachFile.size / 1024 / 1024).toFixed(1)} MB</p>
+            </div>
+            <button
+              onClick={() => { setAttachFile(null); setAttachName('') }}
+              className="text-gray-400 hover:text-red-400 transition-colors flex-shrink-0">
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        ) : (
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            className="w-full flex items-center justify-center gap-2 py-3 rounded-xl border-2 border-dashed border-gray-200 hover:border-[#C9A84C] text-sm text-gray-400 hover:text-[#C9A84C] transition-all">
+            <Upload className="w-4 h-4" />
+            Upload PDF to attach to email
+          </button>
+        )}
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept=".pdf,.doc,.docx,.jpg,.jpeg,.png"
+          className="hidden"
+          onChange={e => {
+            const file = e.target.files?.[0]
+            if (file) { setAttachFile(file); setAttachName(file.name) }
+            e.target.value = ''
+          }}
+        />
+        <p className="text-[10px] text-gray-400 mt-1">
+          PDF, Word, or image · max 10MB · will be attached to the client email
+        </p>
       </div>
 
       {!app.email && (
