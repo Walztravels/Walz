@@ -533,6 +533,9 @@ export default function BankAnalyserPage() {
   const [emailBusy,    setEmailBusy]    = useState(false)
   const [emailSent,    setEmailSent]    = useState(false)
   const [workflowMsg,  setWorkflowMsg]  = useState('')
+  const [pdfBusy,      setPdfBusy]      = useState(false)
+  const [pdfEmailBusy, setPdfEmailBusy] = useState(false)
+  const [pdfEmailSent, setPdfEmailSent] = useState(false)
 
   // V2 — 6-agent pipeline
   const [useV2,         setUseV2]         = useState(true)
@@ -740,6 +743,60 @@ export default function BankAnalyserPage() {
       setWorkflowMsg(e instanceof Error ? e.message : String(e))
     } finally {
       setEmailBusy(false)
+    }
+  }
+
+  async function handleDownloadPdf() {
+    if (!analysis) return
+    setPdfBusy(true); setWorkflowMsg('')
+    try {
+      const res = await fetch('/api/admin/visa/report', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          analysis, applicantName: clientName, destination, passportCountry: country,
+          applicationId: appId, action: 'download',
+        }),
+      })
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}))
+        throw new Error(j.error ?? `PDF generation failed (${res.status})`)
+      }
+      const blob = await res.blob()
+      const url  = URL.createObjectURL(blob)
+      const a    = document.createElement('a')
+      a.href     = url
+      a.download = `Walz-Visa-Report-${clientName.replace(/\s+/g, '-')}.pdf`
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(url)
+      setWorkflowMsg('PDF downloaded.')
+    } catch (e) {
+      setWorkflowMsg(e instanceof Error ? e.message : 'PDF download failed')
+    } finally {
+      setPdfBusy(false)
+    }
+  }
+
+  async function handleEmailPdfReport() {
+    if (!analysis || !clientEmail) { setWorkflowMsg('Enter client email first.'); return }
+    setPdfEmailBusy(true); setWorkflowMsg('')
+    try {
+      const res = await fetch('/api/admin/visa/report', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          analysis, applicantName: clientName, destination, passportCountry: country,
+          email: clientEmail, applicationId: appId, action: 'email',
+        }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error ?? 'Could not send PDF report')
+      setPdfEmailSent(true)
+      setWorkflowMsg(`PDF report emailed to ${clientEmail}`)
+    } catch (e) {
+      setWorkflowMsg(e instanceof Error ? e.message : 'Email failed')
+    } finally {
+      setPdfEmailBusy(false)
     }
   }
 
@@ -968,10 +1025,28 @@ export default function BankAnalyserPage() {
                   {emailBusy ? <><div className="w-3 h-3 border-2 border-current border-t-transparent rounded-full animate-spin" /> Sending…</> : emailSent ? '✓ Email Sent' : '📧 Send to Client'}
                 </button>
 
-                {/* Step 3b — save PDF directly without needing a link */}
+                {/* Step 3b — view & print */}
                 <button onClick={() => { setActiveTab('client') }}
                   className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold bg-gray-100 text-gray-700 hover:bg-gray-200">
                   🖨 View & Print PDF
+                </button>
+
+                {/* Step 4 — download proper PDF via react-pdf */}
+                <button onClick={handleDownloadPdf} disabled={pdfBusy}
+                  className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold bg-[#0a1628] text-white hover:bg-[#132038] disabled:opacity-40 disabled:cursor-not-allowed">
+                  {pdfBusy
+                    ? <><div className="w-3 h-3 border-2 border-current border-t-transparent rounded-full animate-spin" /> Generating…</>
+                    : '⬇ Download PDF Report'}
+                </button>
+
+                {/* Step 5 — email PDF as attachment */}
+                <button onClick={handleEmailPdfReport} disabled={pdfEmailBusy || pdfEmailSent || !clientEmail}
+                  title={!clientEmail ? 'Add client email in the form above' : ''}
+                  className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold transition-colors ${pdfEmailSent ? 'bg-green-100 text-green-700' : 'bg-purple-600 text-white hover:bg-purple-700'} disabled:opacity-40 disabled:cursor-not-allowed`}>
+                  {pdfEmailBusy
+                    ? <><div className="w-3 h-3 border-2 border-current border-t-transparent rounded-full animate-spin" /> Sending PDF…</>
+                    : pdfEmailSent ? '✓ PDF Report Sent'
+                    : '📨 Email PDF Report'}
                 </button>
               </div>
 
