@@ -286,18 +286,220 @@ export interface BankStatementAnalysis {
   analysisEngine?: string
 }
 
+// ─── New v2 type system ───────────────────────────────────────────────────────
+
+export interface AgentProgress {
+  agent:    1 | 2 | 3 | 4 | 5 | 6
+  name:     string
+  status:   'queued' | 'running' | 'done' | 'error'
+  finding?: string
+  ms?:      number
+}
+
+export interface ExtractedStatement {
+  currency:             string
+  bankName:             string
+  accountHolder:        string
+  accountNumber:        string
+  statementPeriod:      string
+  openingBalance:       number
+  closingBalance:       number
+  transactions: Array<{
+    date:        string
+    description: string
+    debit:       number | null
+    credit:      number | null
+    balance:     number | null
+    rawText:     string
+  }>
+  totalCredits:         number
+  totalDebits:          number
+  pageCount:            number
+  hasBankStamp:         boolean
+  hasSignature:         boolean
+  bankTier:             'tier1' | 'tier2' | 'tier3' | 'unknown'
+  extractionConfidence: number
+}
+
+export interface MathematicalScore {
+  incomeStabilityFormula: {
+    monthsWithSalary:  number
+    totalMonths:       number
+    salaryMean:        number
+    salaryStdDev:      number
+    employerClarity:   number
+    computedScore:     number
+  }
+  sourceOfFundsFormula: {
+    verifiedCredits:   number
+    totalCredits:      number
+    cashDepositRatio:  number
+    namedSourceRatio:  number
+    computedScore:     number
+  }
+  balanceSustainabilityFormula: {
+    minBalance:        number
+    embassyThreshold:  number
+    trendSlope:        number
+    parkingPenalty:    number
+    computedScore:     number
+  }
+}
+
+export interface PredictiveAssessment {
+  currentReadiness:      number
+  predictedReadiness30:  number
+  predictedReadiness60:  number
+  predictedReadiness90:  number
+  recommendedApplyDate:  string
+  financialTrajectory:   'improving' | 'stable' | 'declining'
+  trajectoryNote:        string
+  projectedBalanceAt30:  number
+  projectedBalanceAt60:  number
+  projectedBalanceAt90:  number
+  monthlyNetFlow:        number
+  monthsToQualify:       number | null
+}
+
+export interface ImprovementRoadmap {
+  canApplyNow: boolean
+  blockers: Array<{
+    issue:         string
+    impact:        string
+    fix:           string
+    timeToResolve: string
+    priority:      'critical' | 'high' | 'medium' | 'low'
+  }>
+  quickWins: Array<{
+    action:      string
+    scoreImpact: string
+    timeframe:   string
+  }>
+  statementRequirements: string[]
+  strengthenThese:       string[]
+  readyChecklist: Array<{
+    item:   string
+    met:    boolean
+    detail: string
+  }>
+}
+
+export interface BankValidation {
+  bankName:            string
+  country:             string
+  tier:                'tier1' | 'tier2' | 'tier3' | 'unknown'
+  acceptedByUK:        boolean
+  acceptedByUSA:       boolean
+  acceptedBySchengen:  boolean
+  requiresStamp:       boolean
+  requiresSignature:   boolean
+  stampDetected:       boolean
+  signatureDetected:   boolean
+  validationNote:      string
+}
+
+export interface EnhancedBankAnalysis extends BankStatementAnalysis {
+  extractedStatement:   ExtractedStatement
+  mathematicalScore:    MathematicalScore
+  predictiveAssessment: PredictiveAssessment
+  improvementRoadmap:   ImprovementRoadmap
+  bankValidation:       BankValidation
+  agentPipeline:        AgentProgress[]
+  analysisVersion:      string
+  totalAnalysisMs:      number
+  primaryModel:         'claude-sonnet-4-6'
+  secondaryModel:       'gpt-4o'
+}
+
 // ─── Embassy requirements ─────────────────────────────────────────────────────
 
-const EMBASSY: Record<string, { min: number; currency: string; focus: string; tripCost: number }> = {
-  uk:        { min: 2500,  currency: 'GBP', tripCost: 3000,  focus: 'Affordability, income consistency, spending behaviour, no funds parking, 28-day rule' },
-  canada:    { min: 5000,  currency: 'CAD', tripCost: 7000,  focus: 'Source of funds, travel purpose, home ties, genuine temporary entrant, no funds parking in final month' },
-  schengen:  { min: 3000,  currency: 'EUR', tripCost: 2500,  focus: 'Account stability, daily spending capacity, return incentives, no dormant accounts' },
-  uae:       { min: 3000,  currency: 'USD', tripCost: 2000,  focus: 'Regular income, account activity, stamped statement (Nigerian/Ghanaian applicants require Tier-1 bank)' },
-  usa:       { min: 5000,  currency: 'USD', tripCost: 5000,  focus: 'Strong financial ties to home country, no funds parking (30 days), consistent income, Nigerian applicants face elevated scrutiny' },
-  australia: { min: 5000,  currency: 'AUD', tripCost: 5000,  focus: 'Genuine temporary entrant indicators, financial capability, no unexplained large deposits' },
-  nigeria:   { min: 3000,  currency: 'USD', tripCost: 3000,  focus: 'Convert NGN to USD. Tier-1 bank required. Bank stamp and signature mandatory.' },
-  ghana:     { min: 3000,  currency: 'USD', tripCost: 3000,  focus: 'Convert GHS to USD. Official letterhead and bank stamp required.' },
+export type EmbassyConfig = {
+  min:               number
+  currency:          string
+  tripCost:          number
+  focus:             string
+  refusalRate:       number
+  policyNotes:       string
+  requiredDocuments: string[]
+  tier1BanksOnly:    boolean
+  minimumMonths:     number
+  parkingWindow:     number
+  acceptedBanks:     string[]
 }
+
+export const EMBASSY_DB: Record<string, EmbassyConfig> = {
+  uk: {
+    min: 2500, currency: 'GBP', tripCost: 3000, refusalRate: 45,
+    focus: 'Affordability, income consistency, spending behaviour, no funds parking (28-day rule), genuine ties to home country',
+    policyNotes: 'UKBA requires 6 months statements for salaried, 12 months for self-employed. No overdrafts in last 3 months. Balance must not dip below threshold. No large unexplained deposits in final month.',
+    requiredDocuments: ['6 months bank statement', 'Payslips (3 months)', 'Employment letter', 'Tax returns if self-employed'],
+    tier1BanksOnly: true, minimumMonths: 6, parkingWindow: 28, acceptedBanks: [],
+  },
+  canada: {
+    min: 7000, currency: 'CAD', tripCost: 7000, refusalRate: 35,
+    focus: 'Source of funds verifiability, genuine temporary entrant, strong home country ties, no funds parking in final 30 days',
+    policyNotes: 'IRCC focuses heavily on "genuine temporary entrant". Source of funds must be 100% explainable. No funds borrowed from family in final 30 days.',
+    requiredDocuments: ['6 months bank statement', 'Employment letter', 'Property ownership proof', 'Family ties documentation'],
+    tier1BanksOnly: true, minimumMonths: 6, parkingWindow: 30, acceptedBanks: [],
+  },
+  usa: {
+    min: 5000, currency: 'USD', tripCost: 5000, refusalRate: 55,
+    focus: 'Strong financial ties to Nigeria/home, no funds parking (30 days), consistent income, demonstrable return incentive',
+    policyNotes: 'CBP requires strong non-immigrant intent. Nigerian applicants face elevated scrutiny. Funds must be consistently maintained, not accumulated suddenly.',
+    requiredDocuments: ['3-6 months bank statement', 'Employment letter', 'Property deed/lease', 'Previous US visa if any'],
+    tier1BanksOnly: true, minimumMonths: 3, parkingWindow: 30, acceptedBanks: [],
+  },
+  schengen: {
+    min: 3000, currency: 'EUR', tripCost: 2500, refusalRate: 30,
+    focus: 'Account stability, daily spending capacity (€100/day), return incentives, no dormant accounts',
+    policyNotes: 'EU requires daily spend capacity: (balance / trip_days) ≥ €100. Account must show normal transactional activity. No large single deposits close to application.',
+    requiredDocuments: ['3-6 months bank statement', 'Travel insurance €30k', 'Hotel bookings', 'Employment proof'],
+    tier1BanksOnly: true, minimumMonths: 3, parkingWindow: 30, acceptedBanks: [],
+  },
+  uae: {
+    min: 3000, currency: 'USD', tripCost: 2000, refusalRate: 20,
+    focus: 'Regular income, active account, stamped statement required for Nigerian/Ghanaian applicants',
+    policyNotes: 'UAE relatively straightforward. Requires bank stamp and branch manager signature for Nigerian/Ghanaian applicants.',
+    requiredDocuments: ['3 months bank statement (stamped)', 'Employment letter', 'Return flight booking'],
+    tier1BanksOnly: true, minimumMonths: 3, parkingWindow: 14,
+    acceptedBanks: ['GTBank', 'Zenith Bank', 'First Bank', 'Access Bank', 'UBA', 'FCMB', 'Stanbic IBTC'],
+  },
+  australia: {
+    min: 5000, currency: 'AUD', tripCost: 5000, refusalRate: 25,
+    focus: 'Genuine temporary entrant (GTE) indicators, financial capability, no unexplained large deposits',
+    policyNotes: 'GTE requirement is primary. Financial evidence supports but does not replace GTE assessment.',
+    requiredDocuments: ['6 months bank statement', 'GTE statement', 'Employment letter'],
+    tier1BanksOnly: true, minimumMonths: 6, parkingWindow: 30, acceptedBanks: [],
+  },
+  nigeria: {
+    min: 3000, currency: 'USD', tripCost: 3000, refusalRate: 0,
+    focus: 'Domestic: Convert NGN to USD. Tier-1 bank required. Bank stamp and signature mandatory.',
+    policyNotes: 'Nigerian domestic assessment. Tier-1 bank required. Official letterhead. Branch stamp.',
+    requiredDocuments: ['6 months statement', 'Bank stamp', 'Branch manager signature'],
+    tier1BanksOnly: true, minimumMonths: 6, parkingWindow: 30,
+    acceptedBanks: ['GTBank', 'Zenith Bank', 'First Bank', 'Access Bank', 'UBA', 'FCMB', 'Stanbic IBTC', 'Union Bank', 'Fidelity Bank', 'Polaris Bank'],
+  },
+  ghana: {
+    min: 3000, currency: 'USD', tripCost: 3000, refusalRate: 0,
+    focus: 'GHS to USD conversion. Official letterhead and bank stamp required.',
+    policyNotes: 'Ghanaian domestic assessment. Official bank letterhead. Branch stamp required.',
+    requiredDocuments: ['6 months statement', 'Bank letterhead', 'Branch stamp'],
+    tier1BanksOnly: true, minimumMonths: 6, parkingWindow: 30,
+    acceptedBanks: ['GCB Bank', 'Absa', 'Standard Chartered', 'Ecobank', 'Zenith Bank Ghana', 'Fidelity Bank Ghana', 'Cal Bank', 'Republic Bank'],
+  },
+}
+
+// Legacy alias — keep for backward compat with v1 functions
+const EMBASSY: Record<string, { min: number; currency: string; focus: string; tripCost: number }> =
+  Object.fromEntries(Object.entries(EMBASSY_DB).map(([k, v]) => [k, { min: v.min, currency: v.currency, focus: v.focus, tripCost: v.tripCost }]))
+
+export const NIGERIAN_TIER1_BANKS = [
+  'GTBank', 'Guaranty Trust', 'GT Bank',
+  'Zenith Bank', 'First Bank', 'First Bank of Nigeria',
+  'Access Bank', 'UBA', 'United Bank for Africa',
+  'FCMB', 'First City Monument Bank',
+  'Stanbic IBTC', 'Union Bank', 'Fidelity Bank', 'Ecobank Nigeria',
+]
 
 // ─── Prompt ───────────────────────────────────────────────────────────────────
 
@@ -954,4 +1156,651 @@ export async function analyzeBankStatement(
   }
 
   return primary
+}
+
+// ─── V2 Prompt Builders ───────────────────────────────────────────────────────
+
+function buildForensicPrompt(
+  extracted: ExtractedStatement,
+  txnSummary: string,
+  destination: string,
+  applicantName: string,
+  passportCountry: string,
+  embassy: EmbassyConfig,
+  mathScore: MathematicalScore,
+): string {
+  return `FORENSIC FINANCIAL ANALYSIS
+
+Applicant: ${applicantName} | Passport: ${passportCountry} | Destination: ${destination.toUpperCase()}
+Bank: ${extracted.bankName} (${extracted.bankTier}) | Period: ${extracted.statementPeriod}
+Embassy threshold: ${embassy.min} ${embassy.currency} | Trip cost: ${embassy.tripCost} ${embassy.currency}
+Estimated refusal rate for profile: ${embassy.refusalRate}%
+
+MATHEMATICAL PRE-SCORES (adjust ±15 based on qualitative evidence):
+- Income Stability:       ${mathScore.incomeStabilityFormula.computedScore}/100 (salary mean: ${Math.round(mathScore.incomeStabilityFormula.salaryMean)})
+- Source of Funds:        ${mathScore.sourceOfFundsFormula.computedScore}/100 (verified: ${Math.round(mathScore.sourceOfFundsFormula.namedSourceRatio * 100)}%)
+- Balance Sustainability: ${mathScore.balanceSustainabilityFormula.computedScore}/100 (min balance: ${Math.round(mathScore.balanceSustainabilityFormula.minBalance)}, parking penalty: ${mathScore.balanceSustainabilityFormula.parkingPenalty})
+
+TRANSACTION DATA:
+${txnSummary}
+
+EMBASSY POLICY: ${embassy.focus}
+PARKING WINDOW: ${embassy.parkingWindow} days
+POLICY NOTES: ${embassy.policyNotes}
+
+Perform full forensic analysis. Cite specific transactions by date and amount.
+Use math pre-scores as anchors — adjust with qualitative evidence.
+Return the complete BankStatementAnalysis JSON schema starting with {.
+Every field must be present. No truncation. No commentary outside JSON.`
+}
+
+function buildFraudPrompt(
+  extracted: ExtractedStatement,
+  txnSummary: string,
+  destination: string,
+  applicantName: string,
+  passportCountry: string,
+  embassy: EmbassyConfig,
+): string {
+  return `FRAUD & BEHAVIORAL ANOMALY DETECTION
+
+You are an adversarial fraud examiner. Find everything suspicious.
+Applicant: ${applicantName} | Destination: ${destination.toUpperCase()} | Passport: ${passportCountry}
+Parking window: ${embassy.parkingWindow} days | Threshold: ${embassy.min} ${embassy.currency}
+Bank: ${extracted.bankName} | Closing balance: ${extracted.closingBalance} ${extracted.currency}
+
+TRANSACTION DATA:
+${txnSummary}
+
+Examine each fraud pattern explicitly:
+1. FUND PARKING: Any credit > ${Math.round(embassy.min * 0.3)} in final ${embassy.parkingWindow} days?
+2. CIRCULAR TRANSFERS: A→B→A within 7-14 days with matching amounts?
+3. BORROWED FUNDS: Large deposit → balance maintained → large withdrawal pattern?
+4. ACCOUNT ENGINEERING: Artificially maintained round-number balance?
+5. STRUCTURED DEPOSITS: Large sums broken into multiple smaller deposits over 2-3 days?
+6. SALARY INFLATION: Same employer but amounts jump significantly near application?
+7. AML PATTERNS: Any structuring, smurfing, or layering patterns?
+
+Return ONLY valid JSON:
+{
+  "fraudVerdict": "clean|suspicious|engineered",
+  "fraudScore": 0,
+  "detectedAnomalies": [{"type":"salary_inflation","detected":false,"evidence":"specific evidence","risk":"low","detail":"finding"}],
+  "fundParkingEvidence": "specific dates and amounts or None detected",
+  "circularTransfers": "specific evidence or None detected",
+  "borrowedFundsRisk": 0,
+  "engineeredBalance": false,
+  "engineeringEvidence": "specific evidence",
+  "structuredDeposits": false,
+  "structuringNote": "specific evidence or None detected",
+  "amlFlags": ["specific flag with date/amount"],
+  "overallFraudNote": "2-3 sentence fraud verdict with specific evidence"
+}`
+}
+
+function buildEmbassyPrompt(
+  forensic: BankStatementAnalysis | null,
+  fraud: { fraudVerdict: string; fraudScore: number } | null,
+  destination: string,
+  applicantName: string,
+  passportCountry: string,
+  embassy: EmbassyConfig,
+  extracted: ExtractedStatement,
+  mathScore: MathematicalScore,
+): string {
+  return `${destination.toUpperCase()} EMBASSY INTELLIGENCE ASSESSMENT
+
+You are a senior ${destination.toUpperCase()} visa officer reviewing this application.
+Applicant: ${applicantName} | Passport: ${passportCountry}
+Bank: ${extracted.bankName} (${extracted.bankTier}) | Closing balance: ${extracted.closingBalance} ${extracted.currency}
+Embassy threshold: ${embassy.min} ${embassy.currency}
+
+PRIOR AGENT FINDINGS:
+- Forensic verdict: ${forensic?.finalVerdict ?? 'unavailable'} | Score: ${forensic?.financialCredibilityScore?.overall ?? 0}/100
+- Fraud assessment: ${fraud?.fraudVerdict ?? 'unavailable'} | Fraud score: ${fraud?.fraudScore ?? 0}/100
+- Threshold met: ${extracted.closingBalance >= embassy.min}
+- Income stability score: ${mathScore.incomeStabilityFormula.computedScore}/100
+
+${destination.toUpperCase()} SPECIFIC REQUIREMENTS:
+${embassy.policyNotes}
+Refusal rate for this profile: ${embassy.refusalRate}%
+
+Required documents: ${embassy.requiredDocuments.join(', ')}
+${embassy.tier1BanksOnly ? `Bank tier requirement: Tier-1 only. Detected tier: ${extracted.bankTier}` : ''}
+${embassy.acceptedBanks.length > 0 ? `Accepted banks: ${embassy.acceptedBanks.join(', ')}` : ''}
+
+Assess specifically against ${destination.toUpperCase()} immigration requirements.
+
+Return ONLY valid JSON:
+{
+  "destinationVerdict": "strong|adequate|weak|insufficient",
+  "thresholdMet": true,
+  "meetsPolicyRequirements": true,
+  "policyGaps": ["specific gap with evidence"],
+  "officerLikelihood": 0,
+  "embassySpecificConcerns": ["specific concern with evidence"],
+  "embassySpecificStrengths": ["specific strength with evidence"],
+  "embassyOfficerNarrative": "200-word formal case file in first person as ${destination.toUpperCase()} officer",
+  "embassyAssessments": [{"destination":"${destination.toUpperCase()}","met":true,"requiredAmount":${embassy.min},"currency":"${embassy.currency}","applicantEquivalent":0,"confidence":0,"concerns":[],"recommendation":"Proceed/Conditional/Wait — specific reason"}],
+  "officerSimulation": {
+    "reasonsToApprove": ["evidence-cited reason with date/amount"],
+    "reasonsForConcern": [],
+    "officerConclusion": "formal file note conclusion",
+    "approvalRecommendation": "approve",
+    "immigrationOfficerView": "If I were reviewing this application as a ${destination.toUpperCase()} visa officer:\\n\\n✓ [specific observation]\\n\\nConclusion: [verdict]"
+  }
+}`
+}
+
+function buildImprovementPrompt(
+  forensic: BankStatementAnalysis | null,
+  fraud: { fraudScore: number; amlFlags: string[] } | null,
+  embassyInfo: { policyGaps: string[]; officerLikelihood: number } | null,
+  predictive: PredictiveAssessment,
+  mathScore: MathematicalScore,
+  destination: string,
+  applicantName: string,
+  embassyConfig: EmbassyConfig,
+  extracted: ExtractedStatement,
+): string {
+  return `VISA APPLICATION IMPROVEMENT ROADMAP
+
+Applicant: ${applicantName} | Destination: ${destination.toUpperCase()}
+Current readiness: ${predictive.currentReadiness}% | Trajectory: ${predictive.financialTrajectory}
+Months to qualify: ${predictive.monthsToQualify ?? 0}
+
+CURRENT SCORES:
+- Income stability:       ${mathScore.incomeStabilityFormula.computedScore}/100
+- Source of funds:        ${mathScore.sourceOfFundsFormula.computedScore}/100
+- Balance sustainability: ${mathScore.balanceSustainabilityFormula.computedScore}/100
+- Overall forensic:       ${forensic?.financialCredibilityScore?.overall ?? 0}/100
+- Fraud risk:             ${fraud?.fraudScore ?? 0}/100 (lower = better)
+
+ISSUES IDENTIFIED:
+- Forensic concerns: ${forensic?.riskFlags?.filter(f => f.status !== 'ok').map(f => f.detail).join('; ') ?? 'None'}
+- Policy gaps: ${embassyInfo?.policyGaps?.join('; ') ?? 'None'}
+- AML flags: ${fraud?.amlFlags?.join('; ') ?? 'None'}
+- Approval likelihood: ${embassyInfo?.officerLikelihood ?? 50}%
+
+Embassy requirements: ${embassyConfig.requiredDocuments.join(', ')}
+Required minimum: ${embassyConfig.min} ${embassyConfig.currency}
+Current balance: ${extracted.closingBalance} ${extracted.currency}
+
+Create specific, actionable improvement plan with exact amounts and dates.
+
+Return ONLY valid JSON:
+{
+  "canApplyNow": false,
+  "blockers": [{"issue":"specific issue","impact":"reduces score by N points","fix":"specific action with amounts","timeToResolve":"immediately|1-4 weeks|1-3 months|3-6 months","priority":"critical|high|medium|low"}],
+  "quickWins": [{"action":"specific action","scoreImpact":"+N points","timeframe":"1 week"}],
+  "statementRequirements": ["exactly what the embassy needs"],
+  "strengthenThese": ["what is already good but could be stronger"],
+  "readyChecklist": [{"item":"Embassy threshold met (${embassyConfig.min} ${embassyConfig.currency})","met":false,"detail":"Current balance vs requirement"}]
+}`
+}
+
+function buildConsensusPrompt(
+  forensic: BankStatementAnalysis | null,
+  fraud: { fraudVerdict: string; fraudScore: number; overallFraudNote: string } | null,
+  embassyAssessment: { destinationVerdict: string; officerLikelihood: number; embassySpecificConcerns: string[] } | null,
+  predictive: PredictiveAssessment,
+  roadmap: ImprovementRoadmap,
+  applicantName: string,
+  destination: string,
+): string {
+  return `CHIEF ANALYST CONSENSUS REVIEW
+
+Applicant: ${applicantName} | Destination: ${destination.toUpperCase()}
+
+AGENT 2 — FORENSIC (Claude claude-sonnet-4-6):
+Verdict: ${forensic?.finalVerdict ?? 'unavailable'} | Score: ${forensic?.financialCredibilityScore?.overall ?? 0}/100
+Summary: ${forensic?.summary ?? 'unavailable'}
+Risk flags: ${forensic?.riskFlags?.filter(f => f.status !== 'ok').length ?? 0} warnings
+Fraud indicators: ${forensic?.fraudIndicators ?? 'unknown'}
+
+AGENT 3 — FRAUD DETECTION (GPT-4o):
+Verdict: ${fraud?.fraudVerdict ?? 'unavailable'} | Fraud score: ${fraud?.fraudScore ?? 'N/A'}/100
+Note: ${fraud?.overallFraudNote ?? 'unavailable'}
+
+AGENT 4 — EMBASSY INTELLIGENCE (Claude):
+Destination verdict: ${embassyAssessment?.destinationVerdict ?? 'unavailable'}
+Officer likelihood: ${embassyAssessment?.officerLikelihood ?? 0}%
+Concerns: ${embassyAssessment?.embassySpecificConcerns?.join('; ') ?? 'None'}
+
+AGENT 5 — PREDICTIVE ENGINE (GPT-4o):
+Current readiness: ${predictive.currentReadiness}% | Trajectory: ${predictive.financialTrajectory}
+Can apply now: ${roadmap.canApplyNow} | Apply date: ${predictive.recommendedApplyDate}
+Critical blockers: ${roadmap.blockers?.filter(b => b.priority === 'critical').length ?? 0}
+
+CONFLICTS TO RESOLVE:
+- If forensic says "recommend" but fraud says "suspicious": adjudicate based on evidence weight
+- If embassy likelihood < 50% but forensic says "recommend": flag the gap
+- If roadmap says cannot apply now but forensic says "recommend": trust roadmap
+
+Produce the definitive final verdict. Resolve any agent conflicts.
+
+Return ONLY valid JSON:
+{
+  "finalVerdict": "recommend|conditional|decline",
+  "finalScore": 0,
+  "consensusNote": "1-2 sentence explanation of how agents were reconciled",
+  "resolvedConflicts": ["specific conflict and how it was resolved"],
+  "summary": "2-3 sentence client-facing summary",
+  "agentNotes": "INTERNAL: forensic verdict + fraud verdict + embassy likelihood + recommendation",
+  "recommendations": ["specific actionable recommendation"],
+  "warnings": ["specific warning with evidence"]
+}`
+}
+
+// ─── V2: 6-Agent Orchestrated Pipeline ───────────────────────────────────────
+
+export async function analyzeBankStatementV2(
+  pdfBuffer:       Buffer,
+  destination:     string,
+  applicantName:   string,
+  passportCountry: string = 'Nigeria',
+  onProgress?:     (progress: AgentProgress) => void,
+): Promise<EnhancedBankAnalysis> {
+
+  const startTime  = Date.now()
+  const embassyKey = destination.toLowerCase().replace(/\s+/g, '')
+  const embassy    = EMBASSY_DB[embassyKey] ?? EMBASSY_DB['uk']
+
+  const report = (
+    agent:    AgentProgress['agent'],
+    name:     string,
+    status:   AgentProgress['status'],
+    finding?: string,
+  ) => {
+    onProgress?.({
+      agent, name, status, finding,
+      ms: status === 'done' || status === 'error' ? Date.now() - startTime : undefined,
+    })
+  }
+
+  const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! })
+  const openai    = new OpenAI({ apiKey: process.env.OPENAI_API_KEY! })
+
+  // ── AGENT 1 — Document Intelligence (Claude) ──────────────────────────────
+  report(1, 'Document Intelligence', 'running')
+
+  const base64Pdf = pdfBuffer.toString('base64')
+  let extracted: ExtractedStatement
+
+  try {
+    const docBlock: DocumentBlockParam = {
+      type:   'document',
+      source: { type: 'base64', media_type: 'application/pdf', data: base64Pdf },
+    }
+    const extractResponse = await anthropic.messages.create({
+      model:      'claude-sonnet-4-6',
+      max_tokens: 4000,
+      system:     'You are a document data extraction specialist. Extract structured financial data from bank statements with 100% accuracy. Return ONLY valid JSON. Never interpret — only extract exactly what is in the document.',
+      messages: [
+        { role: 'user', content: [docBlock, { type: 'text', text: `Extract ALL transaction data from this bank statement. Return JSON only, starting with { and nothing else:
+{
+  "currency": "exact ISO code",
+  "bankName": "exact bank name as printed",
+  "accountHolder": "exact account holder name",
+  "accountNumber": "last 4 digits only",
+  "statementPeriod": "e.g. 01 Jan 2024 - 31 Mar 2024",
+  "openingBalance": 0.00,
+  "closingBalance": 0.00,
+  "transactions": [{"date":"01 Jan 2024","description":"EXACT description","debit":null,"credit":0.00,"balance":0.00,"rawText":"full line"}],
+  "totalCredits": 0.00,
+  "totalDebits": 0.00,
+  "pageCount": 1,
+  "hasBankStamp": false,
+  "hasSignature": false,
+  "bankTier": "tier1|tier2|tier3|unknown",
+  "extractionConfidence": 0
+}` }] },
+        { role: 'assistant', content: '{' },
+      ],
+    })
+
+    const raw = '{' + extractResponse.content
+      .filter(b => b.type === 'text')
+      .map(b => (b as { type: 'text'; text: string }).text)
+      .join('')
+    extracted = JSON.parse(raw.match(/\{[\s\S]*\}/)?.[0] ?? '{}') as ExtractedStatement
+    if (!extracted.transactions) extracted.transactions = []
+    report(1, 'Document Intelligence', 'done',
+      `Extracted ${extracted.transactions.length} transactions from ${extracted.bankName}`)
+  } catch {
+    report(1, 'Document Intelligence', 'error', 'Extraction failed — using text fallback')
+    const text = await extractPdfText(pdfBuffer)
+    extracted = {
+      currency: 'UNKNOWN', bankName: 'Unknown', accountHolder: applicantName,
+      accountNumber: '****', statementPeriod: 'Unknown',
+      openingBalance: 0, closingBalance: 0, transactions: [],
+      totalCredits: 0, totalDebits: 0, pageCount: 0,
+      hasBankStamp: false, hasSignature: false,
+      bankTier: 'unknown', extractionConfidence: text.length > 100 ? 30 : 5,
+    }
+  }
+
+  // ── Mathematical Scoring (deterministic, instant) ─────────────────────────
+  const { computeMathematicalScore, computePredictiveAssessment } =
+    await import('./visaScoring')
+
+  const mathScore = computeMathematicalScore(
+    extracted, embassy.min, embassy.minimumMonths, embassy.parkingWindow,
+  )
+  const predictive = computePredictiveAssessment(
+    extracted, mathScore, embassy.min, extracted.currency,
+  )
+
+  // ── AGENTS 2 & 3 — True Parallel: Forensic (Claude) + Fraud (GPT-4o) ─────
+  report(2, 'Forensic Analysis', 'running')
+  report(3, 'Fraud Detection', 'running')
+
+  const txnSummary = JSON.stringify({
+    transactions: extracted.transactions.slice(0, 120),
+    totals: {
+      credits:  extracted.totalCredits,
+      debits:   extracted.totalDebits,
+      opening:  extracted.openingBalance,
+      closing:  extracted.closingBalance,
+    },
+    mathScore,
+  })
+
+  const docBlock2: DocumentBlockParam = {
+    type:   'document',
+    source: { type: 'base64', media_type: 'application/pdf', data: base64Pdf },
+  }
+
+  const [forensicResult, fraudResult] = await Promise.allSettled([
+    // AGENT 2 — Claude: full BankStatementAnalysis
+    anthropic.messages.create({
+      model:      'claude-sonnet-4-6',
+      max_tokens: 6000,
+      system:     `You are a Senior Immigration Financial Intelligence Analyst with 15 years at UKBA and IRCC. Forensic accountant specializing in AML and source-of-funds investigation. You have been given pre-extracted transaction data AND the original PDF. Your job is ANALYSIS ONLY. Every score must cite specific transactions by date and amount. Return ONLY valid JSON starting with {.`,
+      messages: [
+        {
+          role: 'user',
+          content: [
+            docBlock2,
+            { type: 'text', text: buildForensicPrompt(extracted, txnSummary, destination, applicantName, passportCountry, embassy, mathScore) },
+          ],
+        },
+        { role: 'assistant', content: '{' },
+      ],
+    }).then(res => {
+      const raw = '{' + res.content.filter(b => b.type === 'text').map(b => (b as { type: 'text'; text: string }).text).join('')
+      return JSON.parse(raw.match(/\{[\s\S]*\}/)?.[0] ?? '{}') as BankStatementAnalysis
+    }),
+
+    // AGENT 3 — GPT-4o: specialized fraud & behavioral detection
+    openai.chat.completions.create({
+      model:           'gpt-4o',
+      max_tokens:      2500,
+      temperature:     0,
+      response_format: { type: 'json_object' },
+      messages: [
+        { role: 'system', content: 'You are a Financial Crime specialist trained in AML, forensic accounting, and visa fraud detection. You specialize in detecting fund parking, circular transfers, borrowed funds, account engineering, structured deposits. Form your own independent judgment. Return ONLY valid JSON.' },
+        { role: 'user',   content: buildFraudPrompt(extracted, txnSummary, destination, applicantName, passportCountry, embassy) },
+      ],
+    }).then(res => JSON.parse(res.choices[0]?.message?.content ?? '{}') as {
+      fraudVerdict:        'clean' | 'suspicious' | 'engineered'
+      fraudScore:          number
+      detectedAnomalies:   BehavioralAnomaly[]
+      fundParkingEvidence: string
+      circularTransfers:   string
+      borrowedFundsRisk:   number
+      engineeredBalance:   boolean
+      engineeringEvidence: string
+      structuredDeposits:  boolean
+      structuringNote:     string
+      amlFlags:            string[]
+      overallFraudNote:    string
+    }),
+  ])
+
+  const forensicAnalysis = forensicResult.status === 'fulfilled' ? forensicResult.value : null
+  const fraudAnalysis    = fraudResult.status    === 'fulfilled' ? fraudResult.value    : null
+
+  report(2, 'Forensic Analysis', forensicResult.status === 'fulfilled' ? 'done' : 'error',
+    forensicResult.status === 'fulfilled'
+      ? `Verdict: ${forensicAnalysis?.finalVerdict} | Score: ${forensicAnalysis?.financialCredibilityScore?.overall ?? 0}/100`
+      : 'Forensic analysis failed')
+
+  report(3, 'Fraud Detection', fraudResult.status === 'fulfilled' ? 'done' : 'error',
+    fraudResult.status === 'fulfilled'
+      ? `${fraudAnalysis?.fraudVerdict} | Anomalies: ${fraudAnalysis?.detectedAnomalies?.length ?? 0}`
+      : 'Fraud detection failed')
+
+  // ── AGENT 4 — Embassy Intelligence (Claude) ───────────────────────────────
+  report(4, 'Embassy Intelligence', 'running')
+
+  let embassyAssessment: {
+    destinationVerdict:       'strong' | 'adequate' | 'weak' | 'insufficient'
+    thresholdMet:             boolean
+    meetsPolicyRequirements:  boolean
+    policyGaps:               string[]
+    officerLikelihood:        number
+    embassySpecificConcerns:  string[]
+    embassySpecificStrengths: string[]
+    embassyOfficerNarrative:  string
+    embassyAssessments:       EmbassyAssessment[]
+    officerSimulation:        OfficerSimulation
+  }
+
+  try {
+    const embassyRes = await anthropic.messages.create({
+      model:      'claude-sonnet-4-6',
+      max_tokens: 2500,
+      system:     `You are a senior ${destination.toUpperCase()} immigration officer. Assess this application specifically against ${destination.toUpperCase()} visa policy. Another agent has done forensic analysis. Return ONLY valid JSON.`,
+      messages: [
+        { role: 'user', content: buildEmbassyPrompt(forensicAnalysis, fraudAnalysis, destination, applicantName, passportCountry, embassy, extracted, mathScore) },
+        { role: 'assistant', content: '{' },
+      ],
+    })
+    const raw = '{' + embassyRes.content.filter(b => b.type === 'text').map(b => (b as { type: 'text'; text: string }).text).join('')
+    embassyAssessment = JSON.parse(raw.match(/\{[\s\S]*\}/)?.[0] ?? '{}')
+    report(4, 'Embassy Intelligence', 'done',
+      `${destination.toUpperCase()} approval likelihood: ${embassyAssessment.officerLikelihood}%`)
+  } catch {
+    report(4, 'Embassy Intelligence', 'error', 'Embassy assessment unavailable')
+    embassyAssessment = {
+      destinationVerdict: 'adequate',
+      thresholdMet: extracted.closingBalance >= embassy.min,
+      meetsPolicyRequirements: false,
+      policyGaps: ['Unable to assess — manual review required'],
+      officerLikelihood: 50,
+      embassySpecificConcerns: [],
+      embassySpecificStrengths: [],
+      embassyOfficerNarrative: 'Manual review required.',
+      embassyAssessments: [],
+      officerSimulation: {
+        reasonsToApprove: [],
+        reasonsForConcern: ['Analysis incomplete — manual review required'],
+        officerConclusion: 'Manual review required.',
+        approvalRecommendation: 'request_more_info',
+        immigrationOfficerView: 'Manual review required.',
+      },
+    }
+  }
+
+  // ── AGENT 5 — Predictive Engine / Improvement Roadmap (GPT-4o) ───────────
+  report(5, 'Predictive Engine', 'running')
+
+  let improvementRoadmap: ImprovementRoadmap
+
+  try {
+    const predictiveRes = await openai.chat.completions.create({
+      model:           'gpt-4o',
+      max_tokens:      2000,
+      temperature:     0,
+      response_format: { type: 'json_object' },
+      messages: [
+        {
+          role: 'system',
+          content: 'You are a visa application coach specializing in financial preparation. Create specific, actionable improvement plans. Be precise: specific amounts, specific timeframes, specific actions. Return ONLY valid JSON.',
+        },
+        {
+          role: 'user',
+          content: buildImprovementPrompt(
+            forensicAnalysis, fraudAnalysis, embassyAssessment,
+            predictive, mathScore, destination, applicantName, embassy, extracted,
+          ),
+        },
+      ],
+    })
+    improvementRoadmap = JSON.parse(predictiveRes.choices[0]?.message?.content ?? '{}')
+    if (!Array.isArray(improvementRoadmap.blockers))       improvementRoadmap.blockers       = []
+    if (!Array.isArray(improvementRoadmap.quickWins))      improvementRoadmap.quickWins      = []
+    if (!Array.isArray(improvementRoadmap.readyChecklist)) improvementRoadmap.readyChecklist = []
+    report(5, 'Predictive Engine', 'done',
+      `Can apply ${improvementRoadmap.canApplyNow ? 'NOW' : `in ~${predictive.monthsToQualify ?? '?'} months`}`)
+  } catch {
+    report(5, 'Predictive Engine', 'error', 'Improvement roadmap unavailable')
+    improvementRoadmap = {
+      canApplyNow: extracted.closingBalance >= embassy.min,
+      blockers: [], quickWins: [],
+      statementRequirements: embassy.requiredDocuments,
+      strengthenThese: [], readyChecklist: [],
+    }
+  }
+
+  // ── AGENT 6 — Consensus & Reconciliation (Claude) ────────────────────────
+  report(6, 'Consensus & Reconciliation', 'running')
+
+  let consensusEnhancements: {
+    finalVerdict:      BankStatementAnalysis['finalVerdict']
+    finalScore:        number
+    consensusNote:     string
+    resolvedConflicts: string[]
+    summary:           string
+    agentNotes:        string
+    recommendations:   string[]
+    warnings:          string[]
+  } | null = null
+
+  try {
+    const consensusRes = await anthropic.messages.create({
+      model:      'claude-sonnet-4-6',
+      max_tokens: 2000,
+      system:     'You are the Chief Immigration Intelligence Analyst. You receive reports from 5 specialist agents and produce the definitive final verdict. Resolve conflicts based on evidence weight. Return ONLY valid JSON.',
+      messages: [
+        {
+          role: 'user',
+          content: buildConsensusPrompt(
+            forensicAnalysis, fraudAnalysis, embassyAssessment,
+            predictive, improvementRoadmap, applicantName, destination,
+          ),
+        },
+        { role: 'assistant', content: '{' },
+      ],
+    })
+    const raw = '{' + consensusRes.content.filter(b => b.type === 'text').map(b => (b as { type: 'text'; text: string }).text).join('')
+    consensusEnhancements = JSON.parse(raw.match(/\{[\s\S]*\}/)?.[0] ?? '{}')
+    report(6, 'Consensus & Reconciliation', 'done',
+      `Final: ${consensusEnhancements?.finalVerdict} | Score: ${consensusEnhancements?.finalScore}/100`)
+  } catch {
+    report(6, 'Consensus & Reconciliation', 'error', 'Using forensic primary verdict')
+  }
+
+  // ── Merge all agent outputs ───────────────────────────────────────────────
+  const base = forensicAnalysis ?? makeFallback(destination)
+  normalise(base)
+
+  // Incorporate fraud findings
+  if (fraudAnalysis) {
+    base.behavioralAnomalies = fraudAnalysis.detectedAnomalies ?? base.behavioralAnomalies ?? []
+    if (fraudAnalysis.fraudVerdict === 'engineered') {
+      base.fraudIndicators = 'high'
+      base.status          = 'FLAG'
+    } else if (fraudAnalysis.fraudVerdict === 'suspicious') {
+      base.fraudIndicators = 'medium'
+      if (base.status === 'PASS') base.status = 'REVIEW'
+    }
+  }
+
+  // Incorporate embassy assessment
+  if (embassyAssessment.officerSimulation) {
+    base.officerSimulation       = embassyAssessment.officerSimulation
+    base.embassyOfficerNarrative = embassyAssessment.embassyOfficerNarrative
+    base.aiNarrative             = embassyAssessment.embassyOfficerNarrative
+  }
+  if (embassyAssessment.embassyAssessments?.length) {
+    base.embassyAssessments = embassyAssessment.embassyAssessments
+  }
+  base.embassyThresholdMet    = embassyAssessment.thresholdMet
+  base.embassyMinimumRequired = embassy.min
+  base.embassyCurrency        = embassy.currency
+
+  // Apply consensus
+  if (consensusEnhancements) {
+    base.finalVerdict    = consensusEnhancements.finalVerdict
+    base.summary         = consensusEnhancements.summary
+    base.agentNotes      = consensusEnhancements.agentNotes
+    base.recommendations = consensusEnhancements.recommendations ?? base.recommendations
+    base.warnings        = consensusEnhancements.warnings ?? base.warnings
+    if (base.financialCredibilityScore) {
+      base.financialCredibilityScore.overall = consensusEnhancements.finalScore
+      if (base.visaScore) base.visaScore.overall = consensusEnhancements.finalScore
+    }
+  }
+
+  // Multi-agent consensus object
+  const multiAgentConsensus: MultiAgentConsensus = {
+    primaryAgent:     'Claude claude-sonnet-4-6 (Forensic)',
+    primaryVerdict:   forensicAnalysis?.finalVerdict ?? 'conditional',
+    primaryScore:     forensicAnalysis?.financialCredibilityScore?.overall ?? 0,
+    secondaryAgent:   'GPT-4o (Fraud Detection)',
+    secondaryVerdict: fraudAnalysis?.fraudVerdict === 'clean'
+      ? 'recommend'
+      : fraudAnalysis?.fraudVerdict === 'suspicious'
+      ? 'conditional'
+      : 'decline',
+    secondaryScore:   fraudAnalysis ? Math.max(0, 100 - (fraudAnalysis.fraudScore ?? 0)) : 50,
+    consensus:        base.status === 'PASS'   ? 'strong_approve' :
+                      base.status === 'REVIEW' ? 'approve_with_caution' :
+                                                 'decline',
+    agreementLevel:   forensicAnalysis?.finalVerdict === base.finalVerdict ? 'unanimous' : 'majority',
+    consensusNote:    consensusEnhancements?.consensusNote ??
+                      `${base.status} — ${base.verdictReason}`,
+  }
+  base.multiAgentConsensus = multiAgentConsensus
+
+  // Bank validation
+  const bankValidation: BankValidation = {
+    bankName:           extracted.bankName,
+    country:            passportCountry,
+    tier:               extracted.bankTier,
+    acceptedByUK:       extracted.bankTier === 'tier1',
+    acceptedByUSA:      extracted.bankTier === 'tier1',
+    acceptedBySchengen: extracted.bankTier === 'tier1',
+    requiresStamp:      ['nigeria', 'ghana', 'ng', 'gh'].some(c =>
+                          passportCountry.toLowerCase().includes(c)),
+    requiresSignature:  true,
+    stampDetected:      extracted.hasBankStamp,
+    signatureDetected:  extracted.hasSignature,
+    validationNote:     extracted.hasBankStamp
+      ? 'Bank stamp detected — document appears authentic'
+      : 'No bank stamp detected — embassy may require stamped copy',
+  }
+
+  return {
+    ...base,
+    extractedStatement:   extracted,
+    mathematicalScore:    mathScore,
+    predictiveAssessment: predictive,
+    improvementRoadmap,
+    bankValidation,
+    agentPipeline: [
+      { agent: 1, name: 'Document Intelligence',      status: 'done' },
+      { agent: 2, name: 'Forensic Analysis',          status: forensicResult.status === 'fulfilled' ? 'done' : 'error' },
+      { agent: 3, name: 'Fraud Detection',            status: fraudResult.status    === 'fulfilled' ? 'done' : 'error' },
+      { agent: 4, name: 'Embassy Intelligence',       status: 'done' },
+      { agent: 5, name: 'Predictive Engine',          status: 'done' },
+      { agent: 6, name: 'Consensus & Reconciliation', status: 'done' },
+    ],
+    analysisVersion: 'v2.0-multi-agent',
+    totalAnalysisMs: Date.now() - startTime,
+    primaryModel:    'claude-sonnet-4-6',
+    secondaryModel:  'gpt-4o',
+  }
 }

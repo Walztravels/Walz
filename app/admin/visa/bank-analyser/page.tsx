@@ -4,6 +4,7 @@ import { useState, Component, type ReactNode } from 'react'
 import type {
   BankStatementAnalysis, FinancialCredibilityScore, RiskFlag,
   BehavioralAnomaly, MultiAgentConsensus,
+  AgentProgress, EnhancedBankAnalysis,
 } from '@/lib/analyzeBankStatement'
 import { ClientReportView } from '@/components/ClientReportView'
 
@@ -526,12 +527,16 @@ export default function BankAnalyserPage() {
   const [appId,       setAppId]       = useState('')
   const [error,       setError]       = useState('')
 
-  const [activeTab,   setActiveTab]   = useState<'internal' | 'client'>('internal')
-  const [reportUrl,   setReportUrl]   = useState('')
-  const [publishBusy, setPublishBusy] = useState(false)
-  const [emailBusy,   setEmailBusy]   = useState(false)
-  const [emailSent,   setEmailSent]   = useState(false)
-  const [workflowMsg, setWorkflowMsg] = useState('')
+  const [activeTab,    setActiveTab]    = useState<'internal' | 'client'>('internal')
+  const [reportUrl,    setReportUrl]    = useState('')
+  const [publishBusy,  setPublishBusy]  = useState(false)
+  const [emailBusy,    setEmailBusy]    = useState(false)
+  const [emailSent,    setEmailSent]    = useState(false)
+  const [workflowMsg,  setWorkflowMsg]  = useState('')
+
+  // V2 — 6-agent pipeline
+  const [useV2,         setUseV2]         = useState(true)
+  const [agentPipeline, setAgentPipeline] = useState<AgentProgress[]>([])
 
   const fileSizeMB = file ? file.size / 1024 / 1024 : 0
 
@@ -581,6 +586,117 @@ export default function BankAnalyserPage() {
       setAppId(id)
       setProgress('')
       setActiveTab('internal')
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : String(e))
+      setProgress('')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  async function handleAnalyseV2() {
+    if (!file || !destination.trim() || !clientName.trim()) {
+      setError('Please fill in all fields and select a PDF file.')
+      return
+    }
+    if (fileSizeMB > MAX_MB) {
+      setError(`File too large (${fileSizeMB.toFixed(1)} MB). Maximum is ${MAX_MB} MB.`)
+      return
+    }
+
+    setLoading(true); setError(''); setAnalysis(null); setReportUrl('')
+    setEmailSent(false); setAgentPipeline([])
+
+    try {
+      // Step 1: Upload via presign (same as v1)
+      setProgress('Preparing secure upload…')
+      const presignRes = await fetch('/api/admin/bank-analyser/presign', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fileSize: file.size }),
+      })
+      if (!presignRes.ok) {
+        const j = await presignRes.json().catch(() => ({ error: presignRes.statusText }))
+        throw new Error(j?.error ?? `Presign failed (${presignRes.status})`)
+      }
+      const { uploadUrl, storagePath } = await presignRes.json()
+
+      setProgress(`Uploading ${fileSizeMB.toFixed(1)} MB…`)
+      const putRes = await fetch(uploadUrl, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/pdf' },
+        body: file,
+      })
+      if (!putRes.ok) throw new Error(`Upload failed (${putRes.status})`)
+
+      // Step 2: SSE stream from 6-agent pipeline
+      setProgress('Launching 6-agent forensic pipeline…')
+      const id = `standalone-${Date.now()}`
+
+      const sseRes = await fetch('/api/admin/bank-analyser/analyse-v2', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          storagePath, destination,
+          applicantName: clientName,
+          passportCountry: country,
+          applicationId: id,
+        }),
+      })
+
+      if (!sseRes.ok || !sseRes.body) {
+        const j = await sseRes.json().catch(() => ({ error: `HTTP ${sseRes.status}` }))
+        throw new Error(j?.error ?? `Analysis failed (${sseRes.status})`)
+      }
+
+      // Read SSE stream
+      const reader  = sseRes.body.getReader()
+      const decoder = new TextDecoder()
+      let buffer    = ''
+
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+        buffer += decoder.decode(value, { stream: true })
+
+        const lines = buffer.split('\n\n')
+        buffer = lines.pop() ?? ''
+
+        for (const chunk of lines) {
+          const dataLine = chunk.split('\n').find(l => l.startsWith('data: '))
+          if (!dataLine) continue
+          const json = dataLine.slice(6)
+          try {
+            const msg = JSON.parse(json) as { type: string; payload: unknown }
+
+            if (msg.type === 'progress') {
+              const p = msg.payload as AgentProgress
+              setAgentPipeline(prev => {
+                const next = prev.filter(a => a.agent !== p.agent)
+                return [...next, p].sort((a, b) => a.agent - b.agent)
+              })
+              setProgress(`Agent ${p.agent}: ${p.name} — ${p.status}`)
+            }
+
+            if (msg.type === 'result') {
+              const raw = msg.payload as EnhancedBankAnalysis
+              setAnalysis(sanitizeAnalysis(raw))
+              setAppId(id)
+              setProgress('')
+              setActiveTab('internal')
+            }
+
+            if (msg.type === 'error') {
+              const e = msg.payload as { message: string }
+              throw new Error(e.message)
+            }
+          } catch (parseErr) {
+            if (parseErr instanceof Error && parseErr.message !== 'Unexpected end of JSON input') {
+              throw parseErr
+            }
+          }
+        }
+      }
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : String(e))
       setProgress('')
@@ -744,10 +860,78 @@ export default function BankAnalyserPage() {
               </div>
             )}
 
-            <button onClick={handleAnalyse}
+            {/* V2 Agent Pipeline Progress */}
+            {loading && useV2 && agentPipeline.length > 0 && (
+              <div className="mb-4 bg-[#0a1628] rounded-xl p-4">
+                <p className="text-[10px] text-[#c9a84c] font-bold uppercase tracking-widest mb-3">
+                  6-Agent Forensic Pipeline
+                </p>
+                <div className="space-y-2">
+                  {agentPipeline.map(a => (
+                    <div key={a.agent} className="flex items-center gap-3">
+                      <span className={`flex-shrink-0 w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold ${
+                        a.status === 'done'    ? 'bg-green-500 text-white' :
+                        a.status === 'running' ? 'bg-[#c9a84c] text-[#0a1628]' :
+                        a.status === 'error'   ? 'bg-red-500 text-white' :
+                        'bg-white/10 text-white/40'
+                      }`}>
+                        {a.status === 'running' ? (
+                          <span className="w-3 h-3 border border-current border-t-transparent rounded-full animate-spin" />
+                        ) : a.status === 'done' ? '✓' : a.status === 'error' ? '✗' : a.agent}
+                      </span>
+                      <div className="flex-1 min-w-0">
+                        <span className={`text-xs font-semibold ${
+                          a.status === 'done' ? 'text-green-400' :
+                          a.status === 'running' ? 'text-[#c9a84c]' :
+                          a.status === 'error' ? 'text-red-400' : 'text-white/30'
+                        }`}>
+                          Agent {a.agent}: {a.name}
+                        </span>
+                        {a.finding && (
+                          <p className="text-[10px] text-white/50 truncate">{a.finding}</p>
+                        )}
+                      </div>
+                      {a.ms && (
+                        <span className="text-[10px] text-white/30 flex-shrink-0">
+                          {(a.ms / 1000).toFixed(1)}s
+                        </span>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* V1 / V2 toggle */}
+            <div className="flex items-center gap-3 mb-3">
+              <span className="text-xs text-gray-500 font-semibold uppercase tracking-wide">Engine:</span>
+              <div className="flex rounded-lg border border-gray-200 overflow-hidden">
+                <button
+                  onClick={() => setUseV2(false)}
+                  className={`px-3 py-1.5 text-xs font-semibold transition-colors ${!useV2 ? 'bg-[#0a1628] text-white' : 'text-gray-500 hover:bg-gray-50'}`}>
+                  V1 Standard
+                </button>
+                <button
+                  onClick={() => setUseV2(true)}
+                  className={`px-3 py-1.5 text-xs font-semibold transition-colors ${useV2 ? 'bg-[#c9a84c] text-[#0a1628]' : 'text-gray-500 hover:bg-gray-50'}`}>
+                  ⚡ V2 6-Agent Pipeline
+                </button>
+              </div>
+              {useV2 && (
+                <span className="text-[10px] text-[#c9a84c] bg-[#c9a84c]/10 px-2 py-0.5 rounded-full font-semibold">
+                  Claude + GPT-4o · True Parallel
+                </span>
+              )}
+            </div>
+
+            <button onClick={useV2 ? handleAnalyseV2 : handleAnalyse}
               disabled={loading || !file || !destination || !clientName}
               className="w-full bg-[#0a1628] hover:bg-[#132038] disabled:opacity-40 disabled:cursor-not-allowed text-white font-bold py-3 rounded-xl text-sm transition-colors">
-              {loading ? 'Running Multi-Agent Analysis…' : '🔍 Run Forensic Intelligence Analysis'}
+              {loading
+                ? (useV2 ? '⚡ 6-Agent Pipeline Running…' : 'Running Analysis…')
+                : useV2
+                ? '⚡ Run 6-Agent Forensic Pipeline'
+                : '🔍 Run Forensic Intelligence Analysis'}
             </button>
           </div>
 
@@ -894,6 +1078,270 @@ export default function BankAnalyserPage() {
                   </div>
                 </div>
               )}
+
+              {/* ── V2 Agent Pipeline Summary (post-analysis) ──────────── */}
+              {(analysis as EnhancedBankAnalysis).analysisVersion === 'v2.0-multi-agent' && (
+                <div className="bg-[#0a1628] rounded-2xl p-5">
+                  <div className="flex items-center justify-between mb-4">
+                    <div>
+                      <p className="text-[#c9a84c] text-xs font-bold uppercase tracking-widest">6-Agent Forensic Pipeline</p>
+                      <p className="text-white/40 text-[10px] mt-0.5">v2.0-multi-agent · Claude claude-sonnet-4-6 + GPT-4o</p>
+                    </div>
+                    <span className="text-xs text-white/40">
+                      {((analysis as EnhancedBankAnalysis).totalAnalysisMs / 1000).toFixed(1)}s total
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                    {((analysis as EnhancedBankAnalysis).agentPipeline ?? []).map(a => (
+                      <div key={a.agent} className={`rounded-xl p-3 border ${
+                        a.status === 'done'  ? 'bg-green-900/20 border-green-700/30' :
+                        a.status === 'error' ? 'bg-red-900/20 border-red-700/30' :
+                        'bg-white/5 border-white/10'
+                      }`}>
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className={`w-5 h-5 rounded-full flex items-center justify-center text-[9px] font-bold flex-shrink-0 ${
+                            a.status === 'done'  ? 'bg-green-500 text-white' :
+                            a.status === 'error' ? 'bg-red-500 text-white' :
+                            'bg-white/20 text-white/60'
+                          }`}>
+                            {a.status === 'done' ? '✓' : a.status === 'error' ? '✗' : a.agent}
+                          </span>
+                          <span className="text-[10px] font-bold text-white/70">Agent {a.agent}</span>
+                        </div>
+                        <p className="text-xs text-white/50">{a.name}</p>
+                        {a.finding && <p className="text-[10px] text-white/30 mt-1 line-clamp-2">{a.finding}</p>}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* ── Mathematical Scores (V2) ────────────────────────────── */}
+              {(analysis as EnhancedBankAnalysis).mathematicalScore && (() => {
+                const ms = (analysis as EnhancedBankAnalysis).mathematicalScore
+                return (
+                  <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+                    <div className="px-5 py-3.5 bg-gray-50 border-b border-gray-100 flex items-center gap-2">
+                      <span>📐</span>
+                      <h3 className="text-sm font-bold text-gray-800 uppercase tracking-wide">Mathematical Scoring Engine</h3>
+                      <span className="text-[10px] text-gray-400 bg-gray-200 px-2 py-0.5 rounded-full">Deterministic</span>
+                    </div>
+                    <div className="p-5 grid grid-cols-1 md:grid-cols-3 gap-6">
+                      {[
+                        {
+                          label: 'Income Stability',
+                          score: ms.incomeStabilityFormula.computedScore,
+                          detail: `${ms.incomeStabilityFormula.monthsWithSalary}/${ms.incomeStabilityFormula.totalMonths} months with salary · Mean: ${Math.round(ms.incomeStabilityFormula.salaryMean).toLocaleString()}`,
+                          formula: `(${ms.incomeStabilityFormula.monthsWithSalary}/${ms.incomeStabilityFormula.totalMonths}×50) + (variance×30) + (clarity×20)`,
+                        },
+                        {
+                          label: 'Source of Funds',
+                          score: ms.sourceOfFundsFormula.computedScore,
+                          detail: `${Math.round(ms.sourceOfFundsFormula.namedSourceRatio * 100)}% verified · ${Math.round(ms.sourceOfFundsFormula.cashDepositRatio * 100)}% cash`,
+                          formula: `(verified/total×60) + (no_cash×20) + (named_sources×20)`,
+                        },
+                        {
+                          label: 'Balance Sustainability',
+                          score: ms.balanceSustainabilityFormula.computedScore,
+                          detail: `Min: ${Math.round(ms.balanceSustainabilityFormula.minBalance).toLocaleString()} vs threshold: ${Math.round(ms.balanceSustainabilityFormula.embassyThreshold).toLocaleString()}${ms.balanceSustainabilityFormula.parkingPenalty > 0 ? ' · ⚠ Parking penalty' : ''}`,
+                          formula: `(min/threshold×40) + (trend×30) - ${ms.balanceSustainabilityFormula.parkingPenalty} parking`,
+                        },
+                      ].map(item => (
+                        <div key={item.label} className="space-y-2">
+                          <div className="flex justify-between items-center">
+                            <span className="text-xs font-bold text-gray-700">{item.label}</span>
+                            <span className="text-sm font-black" style={{ color: scoreColor(item.score) }}>{item.score}/100</span>
+                          </div>
+                          <div className="h-2.5 bg-gray-100 rounded-full overflow-hidden">
+                            <div className="h-full rounded-full transition-all" style={{ width: `${item.score}%`, backgroundColor: scoreColor(item.score) }} />
+                          </div>
+                          <p className="text-[10px] text-gray-500">{item.detail}</p>
+                          <p className="text-[9px] text-gray-400 font-mono bg-gray-50 px-2 py-1 rounded">{item.formula}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )
+              })()}
+
+              {/* ── Predictive Assessment (V2) ──────────────────────────── */}
+              {(analysis as EnhancedBankAnalysis).predictiveAssessment && (() => {
+                const pred = (analysis as EnhancedBankAnalysis).predictiveAssessment
+                const trajColor = pred.financialTrajectory === 'improving' ? '#22c55e' : pred.financialTrajectory === 'declining' ? '#ef4444' : '#eab308'
+                return (
+                  <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+                    <div className="px-5 py-3.5 bg-gray-50 border-b border-gray-100 flex items-center gap-2">
+                      <span>📈</span>
+                      <h3 className="text-sm font-bold text-gray-800 uppercase tracking-wide">Predictive Financial Engine</h3>
+                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                        pred.financialTrajectory === 'improving' ? 'bg-green-100 text-green-700' :
+                        pred.financialTrajectory === 'declining' ? 'bg-red-100 text-red-700' :
+                        'bg-yellow-100 text-yellow-700'
+                      }`}>
+                        {pred.financialTrajectory === 'improving' ? '↗' : pred.financialTrajectory === 'declining' ? '↘' : '→'} {pred.financialTrajectory}
+                      </span>
+                    </div>
+                    <div className="p-5">
+                      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-5">
+                        {[
+                          { label: 'Now', score: pred.currentReadiness,     bal: analysis.closingBalance },
+                          { label: '30 days', score: pred.predictedReadiness30, bal: pred.projectedBalanceAt30 },
+                          { label: '60 days', score: pred.predictedReadiness60, bal: pred.projectedBalanceAt60 },
+                          { label: '90 days', score: pred.predictedReadiness90, bal: pred.projectedBalanceAt90 },
+                        ].map(item => (
+                          <div key={item.label} className="text-center bg-gray-50 rounded-xl p-3">
+                            <p className="text-[10px] text-gray-500 uppercase tracking-wide mb-1">{item.label}</p>
+                            <p className="text-xl font-black" style={{ color: scoreColor(item.score) }}>{item.score}%</p>
+                            <p className="text-xs text-gray-500 mt-0.5">{Math.round(item.bal ?? 0).toLocaleString()}</p>
+                          </div>
+                        ))}
+                      </div>
+                      <div className="flex flex-col md:flex-row gap-4 items-start">
+                        <div className="flex-1 bg-blue-50 border border-blue-200 rounded-xl p-4">
+                          <p className="text-xs font-bold text-blue-700 mb-1">Recommended Apply Date</p>
+                          <p className="text-sm font-bold text-blue-900">{pred.recommendedApplyDate}</p>
+                          {pred.monthsToQualify !== null && pred.monthsToQualify > 0 && (
+                            <p className="text-xs text-blue-600 mt-1">~{pred.monthsToQualify} months at current trajectory</p>
+                          )}
+                        </div>
+                        <div className="flex-1 bg-gray-50 border border-gray-200 rounded-xl p-4">
+                          <p className="text-xs font-bold text-gray-600 mb-1">Monthly Net Flow</p>
+                          <p className="text-sm font-bold" style={{ color: trajColor }}>
+                            {pred.monthlyNetFlow >= 0 ? '+' : ''}{Math.round(pred.monthlyNetFlow).toLocaleString()}
+                          </p>
+                          <p className="text-xs text-gray-500 mt-1">{pred.trajectoryNote}</p>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )
+              })()}
+
+              {/* ── Bank Validation (V2) ────────────────────────────────── */}
+              {(analysis as EnhancedBankAnalysis).bankValidation && (() => {
+                const bv = (analysis as EnhancedBankAnalysis).bankValidation
+                return (
+                  <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+                    <div className="px-5 py-3.5 bg-gray-50 border-b border-gray-100 flex items-center gap-2">
+                      <span>🏦</span>
+                      <h3 className="text-sm font-bold text-gray-800 uppercase tracking-wide">Bank Validation</h3>
+                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                        bv.tier === 'tier1' ? 'bg-green-100 text-green-700' :
+                        bv.tier === 'tier2' ? 'bg-yellow-100 text-yellow-700' :
+                        'bg-red-100 text-red-700'
+                      }`}>
+                        {bv.tier.toUpperCase()}
+                      </span>
+                    </div>
+                    <div className="p-5">
+                      <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mb-4">
+                        {[
+                          { label: 'Bank',       value: bv.bankName,  ok: true },
+                          { label: 'Tier',       value: bv.tier.toUpperCase(), ok: bv.tier === 'tier1' },
+                          { label: 'UK Accept',  value: bv.acceptedByUK ? 'Yes' : 'No',       ok: bv.acceptedByUK },
+                          { label: 'USA Accept', value: bv.acceptedByUSA ? 'Yes' : 'No',      ok: bv.acceptedByUSA },
+                          { label: 'Schengen',   value: bv.acceptedBySchengen ? 'Yes' : 'No', ok: bv.acceptedBySchengen },
+                          { label: 'Bank Stamp', value: bv.stampDetected ? 'Detected ✓' : 'Not found ✗', ok: bv.stampDetected },
+                        ].map(item => (
+                          <div key={item.label} className={`rounded-xl p-3 text-center border ${item.ok ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'}`}>
+                            <p className="text-[10px] text-gray-500 uppercase tracking-wide mb-0.5">{item.label}</p>
+                            <p className={`text-xs font-bold ${item.ok ? 'text-green-700' : 'text-red-700'}`}>{item.value}</p>
+                          </div>
+                        ))}
+                      </div>
+                      <p className={`text-xs p-3 rounded-lg ${bv.stampDetected ? 'bg-green-50 text-green-700' : 'bg-amber-50 text-amber-700'}`}>
+                        {bv.validationNote}
+                      </p>
+                    </div>
+                  </div>
+                )
+              })()}
+
+              {/* ── Improvement Roadmap (V2) ────────────────────────────── */}
+              {(analysis as EnhancedBankAnalysis).improvementRoadmap && (() => {
+                const rm = (analysis as EnhancedBankAnalysis).improvementRoadmap
+                return (
+                  <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+                    <div className="px-5 py-3.5 bg-gray-50 border-b border-gray-100 flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <span>🗺</span>
+                        <h3 className="text-sm font-bold text-gray-800 uppercase tracking-wide">Improvement Roadmap</h3>
+                      </div>
+                      <span className={`text-xs font-bold px-3 py-1 rounded-full ${rm.canApplyNow ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
+                        {rm.canApplyNow ? '✓ Can Apply Now' : '✗ Not Ready Yet'}
+                      </span>
+                    </div>
+                    <div className="p-5 space-y-5">
+                      {/* Critical blockers */}
+                      {rm.blockers?.length > 0 && (
+                        <div>
+                          <p className="text-xs font-bold text-gray-600 uppercase tracking-wide mb-3">Blockers</p>
+                          <div className="space-y-3">
+                            {rm.blockers.map((b, i) => (
+                              <div key={i} className={`rounded-xl p-4 border-l-4 ${
+                                b.priority === 'critical' ? 'bg-red-50 border-red-500' :
+                                b.priority === 'high'     ? 'bg-orange-50 border-orange-400' :
+                                b.priority === 'medium'   ? 'bg-yellow-50 border-yellow-400' :
+                                'bg-gray-50 border-gray-300'
+                              }`}>
+                                <div className="flex items-start justify-between gap-2 mb-1">
+                                  <p className="text-sm font-bold text-gray-800">{b.issue}</p>
+                                  <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full flex-shrink-0 uppercase ${
+                                    b.priority === 'critical' ? 'bg-red-200 text-red-700' :
+                                    b.priority === 'high'     ? 'bg-orange-200 text-orange-700' :
+                                    'bg-yellow-200 text-yellow-700'
+                                  }`}>{b.priority}</span>
+                                </div>
+                                <p className="text-xs text-gray-500 mb-2">{b.impact}</p>
+                                <p className="text-xs text-gray-700 bg-white/80 rounded-lg px-3 py-2 border">{b.fix}</p>
+                                <p className="text-[10px] text-gray-400 mt-1">⏱ {b.timeToResolve}</p>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Quick wins */}
+                      {rm.quickWins?.length > 0 && (
+                        <div>
+                          <p className="text-xs font-bold text-gray-600 uppercase tracking-wide mb-3">Quick Wins</p>
+                          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                            {rm.quickWins.map((w, i) => (
+                              <div key={i} className="bg-green-50 border border-green-200 rounded-xl p-3">
+                                <p className="text-xs font-bold text-green-800">{w.action}</p>
+                                <div className="flex items-center gap-2 mt-1">
+                                  <span className="text-[10px] font-bold text-green-600 bg-green-100 px-2 py-0.5 rounded-full">{w.scoreImpact}</span>
+                                  <span className="text-[10px] text-green-500">⏱ {w.timeframe}</span>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Ready checklist */}
+                      {rm.readyChecklist?.length > 0 && (
+                        <div>
+                          <p className="text-xs font-bold text-gray-600 uppercase tracking-wide mb-3">Readiness Checklist</p>
+                          <div className="space-y-2">
+                            {rm.readyChecklist.map((item, i) => (
+                              <div key={i} className="flex items-start gap-3">
+                                <span className={`flex-shrink-0 w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold mt-0.5 ${item.met ? 'bg-green-500 text-white' : 'bg-red-500 text-white'}`}>
+                                  {item.met ? '✓' : '✗'}
+                                </span>
+                                <div>
+                                  <p className="text-xs font-semibold text-gray-700">{item.item}</p>
+                                  <p className="text-[10px] text-gray-400">{item.detail}</p>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )
+              })()}
 
               {/* ── Multi-Agent Consensus ─────────────────────────────── */}
               {analysis.multiAgentConsensus && (
