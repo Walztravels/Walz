@@ -1783,3 +1783,26 @@ model DocumentUpload {
   request DocumentRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
   @@index([requestId])
 }
+
+model Testimonial {
+  id        String   @id @default(cuid())
+  name      String
+  location  String
+  trip      String
+  rating    Int      @default(5)
+  text      String   @db.Text
+  initials  String
+  active    Boolean  @default(true)
+  sortOrder Int      @default(99)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model HomeStat {
+  id        String  @id @default(cuid())
+  value     Int
+  suffix    String  @default("")
+  label     String
+  sortOrder Int     @default(99)
+  active    Boolean @default(true)
+}

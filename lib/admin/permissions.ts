@@ -278,11 +278,17 @@ export const NAV_ITEMS: NavSection[] = [
   {
     section: 'WEBSITE',
     items: [
-      { href: '/admin/hero-slides',   label: 'Hero Slides',     icon: 'Image',    permission: 'content'      },
-      { href: '/admin/blog',          label: 'Blog',            icon: 'BookOpen', permission: 'blog'         },
-      { href: '/admin/blog/new',      label: 'New Post',        icon: 'Plus',     permission: 'blog.publish' },
-      { href: '/admin/content',       label: 'Website Content', icon: 'Edit',     permission: 'content'      },
-      { href: '/admin/site-settings', label: 'Site Settings',   icon: 'Sliders',  permission: 'settings'     },
+      { href: '/admin/hero-slides',     label: 'Hero Slides',      icon: 'Image',         permission: 'content'   },
+      { href: '/admin/blog',            label: 'Blog',             icon: 'BookOpen',      permission: 'blog'      },
+      { href: '/admin/blog/new',        label: 'New Post',         icon: 'Plus',          permission: 'blog.publish' },
+      { href: '/admin/content',         label: 'Website Content',  icon: 'Edit',          permission: 'content'   },
+      { href: '/admin/testimonials',    label: 'Testimonials',     icon: 'Star',          permission: 'content'   },
+      { href: '/admin/stats',           label: 'Homepage Stats',   icon: 'TrendingUp',    permission: 'content'   },
+      { href: '/admin/featured-deals',  label: 'Featured Deals',   icon: 'Tag',           permission: 'bookings'  },
+      { href: '/admin/travel-advisory', label: 'Travel Advisories',icon: 'AlertTriangle', permission: 'visa'      },
+      { href: '/admin/newsletter',      label: 'Newsletter',       icon: 'Mail',          permission: 'clients'   },
+      { href: '/admin/referrals',       label: 'Referral Codes',   icon: 'Users',         permission: 'clients'   },
+      { href: '/admin/site-settings',   label: 'Site Settings',    icon: 'Sliders',       permission: 'settings'  },
     ],
   },
   {

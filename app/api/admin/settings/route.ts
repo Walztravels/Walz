@@ -32,6 +32,15 @@ const DEFAULT_SETTINGS: Record<string, { label: string; value: string; group: st
   facebook:        { label: 'Facebook',             value: '@walztravels',                         group: 'social' },
   snapchat:        { label: 'Snapchat',             value: '@walztravels',                         group: 'social' },
   twitter:         { label: 'Twitter / X',          value: '@walztravels',                         group: 'social' },
+
+  // Email Notifications
+  admin_email:        { label: 'Admin Alert Email',   value: 'contact@walztravels.com', group: 'notifications' },
+  visa_email:         { label: 'Visa Alert Email',    value: 'visa@walztravels.com',    group: 'notifications' },
+  finance_email:      { label: 'Finance Alert Email', value: 'contact@walztravels.com', group: 'notifications' },
+
+  // Payment Gateway Display
+  gateway_stripe_pk:  { label: 'Stripe Public Key',      value: '', group: 'gateway' },
+  gateway_flw_public: { label: 'Flutterwave Public Key', value: '', group: 'gateway' },
 }
 
 // Prefixes that are always accepted without being in DEFAULT_SETTINGS

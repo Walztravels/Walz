@@ -5,6 +5,7 @@ import Image from 'next/image'
 import gsap from 'gsap'
 import ScrollTrigger from 'gsap/ScrollTrigger'
 import { ArrowRight } from 'lucide-react'
+import { useSettings, waLink } from '@/hooks/useSettings'
 import { cn } from '@/lib/utils'
 
 // ── Data ──────────────────────────────────────────────────────────────────────
@@ -102,6 +103,7 @@ const HEADLINE_LINES = [
 // ── Component ─────────────────────────────────────────────────────────────────
 
 export function JadePlannerSection() {
+  const settings    = useSettings()
   const sectionRef  = useRef<HTMLDivElement>(null)
   const accentRef   = useRef<HTMLDivElement>(null)
   const mapRef      = useRef<HTMLDivElement>(null)
@@ -625,9 +627,7 @@ export function JadePlannerSection() {
               {/* Book This Trip CTA */}
               <div className="px-5 pb-4">
                 <a
-                  href={`https://wa.me/447398753797?text=${encodeURIComponent(
-                    `Hi, I'm interested in booking a ${preview.city ?? 'trip'} with Walz Travels. Can you help me plan it?`
-                  )}`}
+                  href={waLink(settings.whatsapp_uk, `Hi, I'm interested in booking a ${preview.city ?? 'trip'} with Walz Travels. Can you help me plan it?`)}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="flex items-center justify-center gap-2 w-full bg-[#C9A84C] text-[#0B1F3A] font-bold text-sm py-3 rounded-xl hover:bg-[#d4b05a] transition-all hover:scale-[1.02] active:scale-100">

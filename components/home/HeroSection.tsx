@@ -12,7 +12,33 @@ import { JadeChatButton } from '@/components/ui/JadeChatButton'
 const FALLBACK_BG = 'https://images.unsplash.com/photo-1436491865332-7a61a109cc05?w=1920&q=80'
 
 export function HeroSection({ bgUrl }: { bgUrl?: string | null }) {
-  const heroBg     = bgUrl || FALLBACK_BG
+  const heroBg = bgUrl || FALLBACK_BG
+
+  const [content, setContent] = useState({
+    eyebrow: 'UK · Canada · Schengen · UAE · USA Visas',
+    line1:   'Your Visa.',
+    line2:   'Your Journey.',
+    line3:   'Handled.',
+    sub:     'Expert visa processing from £120.\nUK, Canada, Schengen, UAE & more.',
+  })
+
+  useEffect(() => {
+    fetch('/api/public/content')
+      .then(r => r.json())
+      .then(data => {
+        if (data.home_hero_eyebrow) {
+          setContent(c => ({
+            eyebrow: data.home_hero_eyebrow ?? c.eyebrow,
+            line1:   data.home_hero_line1   ?? c.line1,
+            line2:   data.home_hero_line2   ?? c.line2,
+            line3:   data.home_hero_line3   ?? c.line3,
+            sub:     data.home_hero_sub     ?? c.sub,
+          }))
+        }
+      })
+      .catch(() => {})
+  }, [])
+
   const sectionRef = useRef<HTMLElement>(null)
   const bgRef      = useRef<HTMLDivElement>(null)
   const eyebrowRef = useRef<HTMLParagraphElement>(null)
@@ -130,16 +156,16 @@ export function HeroSection({ bgUrl }: { bgUrl?: string | null }) {
           ref={eyebrowRef}
           className="text-[#C9A84C] text-[11px] font-medium tracking-[0.22em] uppercase mb-7"
         >
-          UK · Canada · Schengen · UAE · USA Visas
+          {content.eyebrow}
         </p>
 
         {/* Headline */}
         <h1 className="font-display font-bold text-white leading-[0.92] mb-7 select-none">
           {(
             [
-              { ref: line1Ref, text: 'Your Visa.' },
-              { ref: line2Ref, text: 'Your Journey.' },
-              { ref: line3Ref, text: 'Handled.' },
+              { ref: line1Ref, text: content.line1 },
+              { ref: line2Ref, text: content.line2 },
+              { ref: line3Ref, text: content.line3 },
             ] as { ref: React.RefObject<HTMLSpanElement>; text: string }[]
           ).map(({ ref, text }, i, arr) => (
             <span key={text} className="block overflow-hidden">
@@ -158,9 +184,9 @@ export function HeroSection({ bgUrl }: { bgUrl?: string | null }) {
           ref={subRef}
           className="text-white/60 text-base sm:text-lg lg:text-xl max-w-lg leading-relaxed mb-9"
         >
-          Expert visa processing from £120.
-          <br className="hidden sm:block" />
-          UK, Canada, Schengen, UAE &amp; more.
+          {content.sub.split('\n').map((line, i) => (
+            <span key={i}>{line}{i < content.sub.split('\n').length - 1 && <br className="hidden sm:block" />}</span>
+          ))}
         </p>
 
         {/* CTA buttons */}

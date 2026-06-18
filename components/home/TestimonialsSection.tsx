@@ -50,19 +50,37 @@ const TESTIMONIALS = [
 
 export function TestimonialsSection() {
   const [active, setActive] = useState(0)
+  const [dbTestimonials, setDbTestimonials] = useState<typeof TESTIMONIALS>([])
   const sectionRef = useRef<HTMLDivElement>(null)
   const quoteRef   = useRef<HTMLDivElement>(null)
   const textRef    = useRef<HTMLParagraphElement>(null)
   const authorRef  = useRef<HTMLDivElement>(null)
   const intervalRef = useRef<ReturnType<typeof setInterval>>()
 
+  // Load testimonials from DB, fall back to hardcoded if empty
+  useEffect(() => {
+    fetch('/api/public/testimonials')
+      .then(r => r.json())
+      .then(data => {
+        if (data.items?.length > 0) {
+          setDbTestimonials(data.items.map((t: {
+            name: string; location: string; trip: string
+            rating: number; text: string; initials: string
+          }) => ({ name: t.name, location: t.location, trip: t.trip, rating: t.rating, text: t.text, initials: t.initials })))
+        }
+      })
+      .catch(() => {})
+  }, [])
+
+  const testimonials = dbTestimonials.length > 0 ? dbTestimonials : TESTIMONIALS
+
   // Auto-advance
   useEffect(() => {
     intervalRef.current = setInterval(() => {
-      setActive(a => (a + 1) % TESTIMONIALS.length)
+      setActive(a => (a + 1) % testimonials.length)
     }, 5500)
     return () => clearInterval(intervalRef.current)
-  }, [])
+  }, [testimonials.length])
 
   // Animate on scroll enter
   useEffect(() => {
@@ -94,7 +112,7 @@ export function TestimonialsSection() {
     )
   }, [active])
 
-  const t = TESTIMONIALS[active]
+  const t = testimonials[active] ?? testimonials[0]
 
   return (
     <section ref={sectionRef} className="bg-[#0B1F3A] py-20 lg:py-28 px-5 sm:px-8">
@@ -140,7 +158,7 @@ export function TestimonialsSection() {
 
         {/* Dot navigation */}
         <div className="flex items-center justify-center gap-2.5 mt-10">
-          {TESTIMONIALS.map((_, i) => (
+          {testimonials.map((_, i) => (
             <button
               key={i}
               onClick={() => {

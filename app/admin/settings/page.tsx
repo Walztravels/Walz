@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import {
   Save, RefreshCw, CheckCircle, Building2, Mail, Phone,
-  Share2, MapPin, DollarSign,
+  Share2, MapPin, DollarSign, Bell, CreditCard,
 } from 'lucide-react'
 
 interface Setting {
@@ -72,6 +72,27 @@ const GROUPS = [
       { key: 'facebook',  type: 'text', hint: '@handle or full URL' },
       { key: 'snapchat',  type: 'text', hint: '@handle' },
       { key: 'twitter',   type: 'text', hint: '@handle or full URL' },
+    ],
+  },
+  {
+    id: 'notifications',
+    title: 'Email Notifications',
+    icon: Bell,
+    description: 'Which email receives admin alerts for new applications and bookings',
+    keys: [
+      { key: 'admin_email',   type: 'email', hint: 'Receives all admin alerts' },
+      { key: 'visa_email',    type: 'email', hint: 'New visa application alerts' },
+      { key: 'finance_email', type: 'email', hint: 'Payment and refund alerts' },
+    ],
+  },
+  {
+    id: 'gateway',
+    title: 'Payment Gateway Display',
+    icon: CreditCard,
+    description: 'Publicly displayed gateway identifiers (not secret keys)',
+    keys: [
+      { key: 'gateway_stripe_pk',  type: 'text', hint: 'Stripe publishable key (pk_live_...)' },
+      { key: 'gateway_flw_public', type: 'text', hint: 'Flutterwave public key (FLWPUBK_...)' },
     ],
   },
 ]

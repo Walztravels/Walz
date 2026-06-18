@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import gsap from 'gsap'
 import ScrollTrigger from 'gsap/ScrollTrigger'
 
@@ -12,15 +12,25 @@ const STATS = [
 ]
 
 export function StatsStrip() {
+  const [dbStats, setDbStats] = useState<typeof STATS>([])
   const sectionRef = useRef<HTMLDivElement>(null)
   const numRefs    = useRef<(HTMLSpanElement | null)[]>([])
+
+  useEffect(() => {
+    fetch('/api/public/stats')
+      .then(r => r.json())
+      .then(data => { if (data.items?.length > 0) setDbStats(data.items) })
+      .catch(() => {})
+  }, [])
+
+  const stats = dbStats.length > 0 ? dbStats : STATS
 
   useEffect(() => {
     gsap.registerPlugin(ScrollTrigger)
 
     numRefs.current.forEach((el, i) => {
       if (!el) return
-      const stat = STATS[i]
+      const stat = stats[i]
       const prefersReduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
 
       if (prefersReduced) {
@@ -49,7 +59,7 @@ export function StatsStrip() {
     <section ref={sectionRef} className="bg-[#081629] py-16 lg:py-20">
       <div className="max-w-6xl mx-auto px-5 sm:px-8">
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-8 lg:gap-12">
-          {STATS.map(({ value, suffix, label }, i) => (
+          {stats.map(({ value, suffix, label }, i) => (
             <div key={label} className="text-center">
               <div className="flex items-baseline justify-center gap-0.5 mb-2">
                 <span
