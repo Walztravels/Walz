@@ -31,6 +31,21 @@ const SERVICE_RATES = [
   { service: 'eSIM / Jade Connect',  desc: 'Global data SIM for 190+ countries',           price: 'From £4',  note: 'Per 1GB plan'               },
 ]
 
+function getCountrySlug(country: string): string {
+  const map: Record<string, string> = {
+    'United Kingdom': 'united-kingdom',
+    'Canada':         'canada',
+    'USA':            'usa',
+    'Schengen':       'schengen',
+    'UAE / Dubai':    'uae',
+    'UAE':            'uae',
+    'Australia':      'australia',
+    'Nigeria':        'nigeria',
+    'Ghana':          'ghana',
+  }
+  return map[country] ?? country.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '')
+}
+
 async function getRates() {
   try {
     return await prisma.visaService.findMany({
@@ -68,16 +83,17 @@ export default async function RatesPage() {
             Government / embassy fees are separate and paid directly.
           </p>
           <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden shadow-sm">
-            <div className="grid grid-cols-4 gap-3 px-5 py-3 bg-gray-50 border-b border-gray-100 text-xs font-semibold text-gray-400 uppercase tracking-wider">
+            <div className="grid grid-cols-5 gap-3 px-5 py-3 bg-gray-50 border-b border-gray-100 text-xs font-semibold text-gray-400 uppercase tracking-wider">
               <div className="col-span-2">Destination / Type</div>
               <div>Walz Fee</div>
-              <div>Est. Time</div>
+              <div className="hidden sm:block">Est. Time</div>
+              <div></div>
             </div>
             {rates.map((r, i) => {
               const flag = 'flag' in r ? (r.flag ?? '') : ''
               const sym  = SYM[r.currency] ?? r.currency
               return (
-                <div key={i} className={`grid grid-cols-4 gap-3 px-5 py-4 items-center ${i < rates.length - 1 ? 'border-b border-gray-50' : ''}`}>
+                <div key={i} className={`grid grid-cols-5 gap-3 px-5 py-4 items-center ${i < rates.length - 1 ? 'border-b border-gray-50' : ''}`}>
                   <div className="col-span-2">
                     <p className="font-semibold text-[#0B1F3A] text-sm">
                       {flag && <span className="mr-1.5">{flag}</span>}
@@ -86,7 +102,14 @@ export default async function RatesPage() {
                     <p className="text-xs text-gray-400">{r.visaType}</p>
                   </div>
                   <p className="font-bold text-[#C9A84C] text-sm">{sym}{r.fee.toLocaleString()}</p>
-                  <p className="text-xs text-gray-500">{r.processingTime}</p>
+                  <p className="text-xs text-gray-500 hidden sm:block">{r.processingTime}</p>
+                  <div className="flex justify-end">
+                    <Link
+                      href={`/visa/apply/${getCountrySlug(r.country)}`}
+                      className="text-xs font-bold text-[#C9A84C] hover:text-[#0B1F3A] bg-[#C9A84C]/10 hover:bg-[#C9A84C] px-3 py-1.5 rounded-full transition-all whitespace-nowrap">
+                      Apply →
+                    </Link>
+                  </div>
                 </div>
               )
             })}

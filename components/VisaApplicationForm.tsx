@@ -7,7 +7,7 @@ import Link from 'next/link'
 import {
   ChevronRight, ChevronLeft, Save, CheckCircle, ArrowLeft,
   Loader2, Globe, Shield, AlertCircle, User, FileText,
-  Phone, Briefcase, Plane, Clock, AlertTriangle, Lock, LogIn, Upload,
+  Phone, Briefcase, Plane, Clock, AlertTriangle, Lock, LogIn, Upload, CreditCard,
 } from 'lucide-react'
 import { getVisaConfig, ISO2_TO_SLUG, VisaCountryConfig } from '@/lib/visa-config'
 import type { BankStatementAnalysis } from '@/lib/analyzeBankStatement'
@@ -62,6 +62,7 @@ const STEPS = [
   { label: 'Background',  icon: AlertTriangle },
   { label: 'Documents',   icon: Upload        },
   { label: 'Declaration', icon: Lock          },
+  { label: 'Payment',    icon: CreditCard    },
 ]
 
 // ─── Generic fallback config for unsupported destinations ─────────────────────
@@ -580,6 +581,90 @@ function InlineConfirmation({ refNumber, email, destinationName }: { refNumber: 
   )
 }
 
+// ─── Payment step ─────────────────────────────────────────────────────────────
+
+function PaymentStep({
+  config, appId, onPaid,
+}: {
+  config: VisaCountryConfig
+  appId: string | null
+  onPaid: () => void
+}) {
+  const [loading, setLoading] = useState(false)
+  const [error,   setError]   = useState('')
+  const fee = config.serviceFeeUsd ?? 0
+
+  useEffect(() => {
+    if (fee === 0) onPaid()
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fee])
+
+  if (fee === 0) return null
+
+  async function handlePay() {
+    if (!appId) return
+    setLoading(true)
+    setError('')
+    try {
+      const res = await fetch('/api/visa/create-payment-intent', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ applicationId: appId }),
+      })
+      const data = await res.json()
+      if (!res.ok) { setError(data.error ?? 'Payment failed'); setLoading(false); return }
+      window.location.href = data.checkoutUrl
+    } catch {
+      setError('Network error. Please try again.')
+      setLoading(false)
+    }
+  }
+
+  return (
+    <div className="space-y-6">
+      <div className="bg-[#0B1F3A] rounded-2xl p-6 text-center">
+        <p className="text-[#C9A84C] text-xs font-bold uppercase tracking-widest mb-2">Service Fee</p>
+        <p className="text-white text-4xl font-bold mb-1">£{fee}</p>
+        <p className="text-white/50 text-sm">
+          Includes document preparation, submission support &amp; application tracking
+        </p>
+      </div>
+
+      <div className="space-y-3 text-sm text-gray-600">
+        <div className="flex items-center gap-2">
+          <CheckCircle className="w-4 h-4 text-green-500 flex-shrink-0" />
+          <span>Secure payment via Stripe</span>
+        </div>
+        <div className="flex items-center gap-2">
+          <CheckCircle className="w-4 h-4 text-green-500 flex-shrink-0" />
+          <span>Full refund if we cannot proceed with your application</span>
+        </div>
+        <div className="flex items-center gap-2">
+          <CheckCircle className="w-4 h-4 text-green-500 flex-shrink-0" />
+          <span>Government / embassy fees are separate and paid directly</span>
+        </div>
+      </div>
+
+      {error && <p className="text-red-500 text-sm text-center">{error}</p>}
+
+      <button
+        onClick={handlePay}
+        disabled={loading || !appId}
+        className="w-full flex items-center justify-center gap-2 bg-[#C9A84C] text-[#0B1F3A] font-bold py-4 rounded-2xl text-base hover:bg-[#d4b05a] transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
+        {loading
+          ? <><Loader2 className="w-5 h-5 animate-spin" /> Processing…</>
+          : <><CreditCard className="w-5 h-5" /> Pay £{fee} Securely →</>
+        }
+      </button>
+
+      <p className="text-xs text-gray-400 text-center">
+        You will be redirected to Stripe&#39;s secure checkout.
+        Your application is saved and will not be lost.
+      </p>
+    </div>
+  )
+}
+
 // ─── Main export ──────────────────────────────────────────────────────────────
 
 export interface VisaApplicationFormProps {
@@ -679,14 +764,6 @@ export function VisaApplicationForm({
       }
 
       if (authStatus === 'loading') return
-      if (authStatus === 'unauthenticated') {
-        if (!inline) {
-          router.push(`/login?callbackUrl=/visa/apply/${countrySlug}`)
-        }
-        setLoading(false)
-        setCreating(false)
-        return
-      }
 
       if (initialDraftId) {
         const res = await fetch(`/api/visa-application/${initialDraftId}`)
@@ -781,13 +858,15 @@ export function VisaApplicationForm({
     const err = validate()
     if (err) { setError(err); return }
     setError(null)
-    if (step < STEPS.length - 1) {
+    // For manual/admin flows, submit at Declaration (step before Payment)
+    const isDeclaration = step === STEPS.length - 2
+    if (step < STEPS.length - 1 && !(isDeclaration && (isAdminFlow || isManual))) {
       setStep(s => s + 1)
       window.scrollTo({ top: 0, behavior: 'smooth' })
       return
     }
 
-    // Final step: submit
+    // Submit (manual/admin at Declaration, or last step reached for any flow)
     if (isAdminFlow && appId && adminToken) {
       setSubmitting(true)
       const res = await fetch(`/api/visa-application/${appId}/submit`, {
@@ -849,27 +928,6 @@ export function VisaApplicationForm({
     )
   }
 
-  // ── Not authed (inline mode) ───────────────────────────────────────────────
-  if (!adminToken && authStatus !== 'loading' && authStatus === 'unauthenticated') {
-    if (inline) {
-      return (
-        <div className="mt-4 bg-white rounded-2xl border border-gray-100 p-8 text-center shadow-sm">
-          <div className="w-12 h-12 rounded-full bg-[#C9A84C]/10 flex items-center justify-center mx-auto mb-4">
-            <LogIn className="w-6 h-6 text-[#C9A84C]" />
-          </div>
-          <h3 className="font-bold text-[#0B1F3A] text-lg mb-2">Sign in to Continue</h3>
-          <p className="text-gray-500 text-sm mb-6">Create a free Walz Travels account or sign in to submit your application details.</p>
-          <button
-            onClick={() => signIn(undefined, { callbackUrl: window.location.href })}
-            className="inline-flex items-center gap-2 px-6 py-3 bg-[#C9A84C] text-[#0B1F3A] font-bold text-sm rounded-xl hover:bg-[#b8943d] transition-colors">
-            <LogIn className="w-4 h-4" /> Sign In / Create Account
-          </button>
-        </div>
-      )
-    }
-    return null
-  }
-
   // ── Loading ────────────────────────────────────────────────────────────────
   if (loading || creating || (!adminToken && authStatus === 'loading')) {
     return (
@@ -913,6 +971,16 @@ export function VisaApplicationForm({
           {saving && <Loader2 className="w-4 h-4 text-[#C9A84C] animate-spin ml-auto" />}
         </div>
 
+        {!session && step > 0 && (
+          <div className="flex items-center gap-2 bg-amber-50 border border-amber-200 rounded-xl px-4 py-2.5 text-xs text-amber-700 mb-4">
+            <LogIn className="w-3.5 h-3.5 flex-shrink-0" />
+            <span>
+              <button onClick={() => signIn()} className="font-bold underline">Sign in</button>
+              {' '}to save your progress and track your application.
+            </span>
+          </div>
+        )}
+
         {step === 0 && <StepPersonal form={form} update={update} />}
         {step === 1 && <StepPassport form={form} update={update} />}
         {step === 2 && <StepContact form={form} update={update} />}
@@ -929,6 +997,13 @@ export function VisaApplicationForm({
           />
         )}
         {step === 8 && <StepDeclaration form={form} update={update} config={config} isManual={isManual} />}
+        {step === 9 && (
+          <PaymentStep
+            config={config}
+            appId={appId}
+            onPaid={() => router.push(`/visa/apply/success?ref=${refNumber ?? ''}`)}
+          />
+        )}
 
         {error && (
           <div className="mt-5 flex items-center gap-2 text-red-600 bg-red-50 border border-red-200 rounded-xl px-4 py-3">
@@ -945,18 +1020,19 @@ export function VisaApplicationForm({
           <div className="text-center">
             <p className="text-xs text-gray-400">{saving ? '⏳ Saving…' : '✓ Progress saved automatically'}</p>
           </div>
-          <button onClick={goNext} disabled={saving || submitting}
-            className="flex items-center gap-2 px-6 py-2.5 bg-[#C9A84C] hover:bg-[#b8943d] text-[#0B1F3A] font-bold text-sm rounded-xl transition-colors disabled:opacity-60 disabled:cursor-not-allowed">
-            {submitting ? (
-              <><Loader2 className="w-4 h-4 animate-spin" /> Submitting…</>
-            ) : step < STEPS.length - 1 ? (
-              <>Next <ChevronRight className="w-4 h-4" /></>
-            ) : isManual || isAdminFlow ? (
-              <><CheckCircle className="w-4 h-4" /> Submit Application</>
-            ) : (
-              <><FileText className="w-4 h-4" /> Review &amp; Pay</>
-            )}
-          </button>
+          {/* Hide Next button at Payment step for standard flow — PaymentStep has its own button */}
+          {!(step === STEPS.length - 1 && !isManual && !isAdminFlow) && (
+            <button onClick={goNext} disabled={saving || submitting}
+              className="flex items-center gap-2 px-6 py-2.5 bg-[#C9A84C] hover:bg-[#b8943d] text-[#0B1F3A] font-bold text-sm rounded-xl transition-colors disabled:opacity-60 disabled:cursor-not-allowed">
+              {submitting ? (
+                <><Loader2 className="w-4 h-4 animate-spin" /> Submitting…</>
+              ) : (isManual || isAdminFlow) && step === STEPS.length - 2 ? (
+                <><CheckCircle className="w-4 h-4" /> Submit Application</>
+              ) : (
+                <>Next <ChevronRight className="w-4 h-4" /></>
+              )}
+            </button>
+          )}
         </div>
       </div>
 

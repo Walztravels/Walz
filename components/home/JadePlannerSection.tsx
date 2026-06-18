@@ -622,6 +622,22 @@ export function JadePlannerSection() {
                 </div>
               </div>
 
+              {/* Book This Trip CTA */}
+              <div className="px-5 pb-4">
+                <a
+                  href={`https://wa.me/447398753797?text=${encodeURIComponent(
+                    `Hi, I'm interested in booking a ${preview.city ?? 'trip'} with Walz Travels. Can you help me plan it?`
+                  )}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center justify-center gap-2 w-full bg-[#C9A84C] text-[#0B1F3A] font-bold text-sm py-3 rounded-xl hover:bg-[#d4b05a] transition-all hover:scale-[1.02] active:scale-100">
+                  Book This Trip with Walz →
+                </a>
+                <p className="text-white/25 text-[10px] text-center mt-2">
+                  Our team will arrange everything — flights, hotels, visa &amp; transfers
+                </p>
+              </div>
+
               {/* Progress dots */}
               <div
                 className="flex items-center justify-center gap-2 py-3"

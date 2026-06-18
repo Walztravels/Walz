@@ -40,14 +40,14 @@ export function HeroSection({ bgUrl }: { bgUrl?: string | null }) {
 
     const tl = gsap.timeline({ defaults: { ease: 'power3.out' } })
 
-    tl.from(eyebrowRef.current, { opacity: 0, y: 20, duration: 0.8 }, 0.4)
+    tl.from(eyebrowRef.current, { opacity: 0, y: 20, duration: 0.8 }, 0.1)
     tl.from(
       [line1Ref.current, line2Ref.current, line3Ref.current],
       { yPercent: 110, opacity: 0, duration: 1.2, stagger: 0.15 },
-      0.9,
+      0.3,
     )
-    tl.from(subRef.current,  { opacity: 0, y: 30, duration: 0.8 }, 1.7)
-    tl.from(ctaRef.current,  { opacity: 0, y: 24, duration: 0.7 }, 2.1)
+    tl.from(subRef.current,  { opacity: 0, y: 30, duration: 0.8 }, 0.8)
+    tl.from(ctaRef.current,  { opacity: 0, y: 24, duration: 0.7 }, 1.0)
     tl.from(searchRef.current, { opacity: 0, y: 30, duration: 0.8 }, 2.3)
 
     // Parallax background — desktop only
@@ -101,16 +101,16 @@ export function HeroSection({ bgUrl }: { bgUrl?: string | null }) {
           className="text-[#C9A84C] text-[11px] font-medium tracking-[0.22em] uppercase mb-7"
           style={{ opacity: 0 }}
         >
-          Your Trusted Global Travel Partner
+          UK · Canada · Schengen · UAE · USA Visas
         </p>
 
         {/* Headline — clip-path reveal per line */}
         <h1 className="font-display font-bold text-white leading-[0.92] mb-7 select-none">
           {(
             [
-              { ref: line1Ref, text: 'The World' },
-              { ref: line2Ref, text: 'Is Waiting' },
-              { ref: line3Ref, text: 'For You.' },
+              { ref: line1Ref, text: 'Your Visa.' },
+              { ref: line2Ref, text: 'Your Journey.' },
+              { ref: line3Ref, text: 'Handled.' },
             ] as { ref: React.RefObject<HTMLSpanElement>; text: string }[]
           ).map(({ ref, text }, i, arr) => (
             <span key={text} className="block overflow-hidden">
@@ -131,9 +131,9 @@ export function HeroSection({ bgUrl }: { bgUrl?: string | null }) {
           className="text-white/60 text-base sm:text-lg lg:text-xl max-w-lg leading-relaxed mb-9"
           style={{ opacity: 0 }}
         >
-          Flights. Visas. Hotels. Tours.
+          Expert visa processing from £120.
           <br className="hidden sm:block" />
-          All handled by experts who get it right.
+          UK, Canada, Schengen, UAE &amp; more.
         </p>
 
         {/* CTA buttons */}
@@ -142,9 +142,9 @@ export function HeroSection({ bgUrl }: { bgUrl?: string | null }) {
           className="flex flex-col sm:flex-row items-center gap-3"
           style={{ opacity: 0 }}
         >
-          <Link href="/plan/new">
+          <Link href="/visa">
             <button className="group flex items-center gap-2.5 px-8 py-3.5 bg-[#C9A84C] hover:bg-[#d4b05a] text-[#0B1F3A] font-bold text-sm rounded-full transition-all duration-300 hover:scale-105 active:scale-100 shadow-lg shadow-[#C9A84C]/25 whitespace-nowrap">
-              Start Your Journey
+              Apply for Visa
               <ArrowRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
             </button>
           </Link>
@@ -154,6 +154,9 @@ export function HeroSection({ bgUrl }: { bgUrl?: string | null }) {
             className="flex items-center gap-2.5 px-8 py-3.5 border border-white/25 hover:border-[#C9A84C] text-white hover:text-[#C9A84C] font-semibold text-sm rounded-full transition-all duration-300 hover:scale-105 active:scale-100 whitespace-nowrap backdrop-blur-sm"
           />
         </div>
+        <p className="text-white/35 text-xs mt-4">
+          90%+ approval rate · No hidden fees · Results in 3–8 weeks
+        </p>
       </div>
 
       {/* Search widget — pinned to bottom, translate-y-1/2 overlaps into next section */}
