@@ -1,7 +1,26 @@
 User-agent: *
 Allow: /
+Allow: /visa
+Allow: /flights
+Allow: /hotels
+Allow: /tours
+Allow: /activities
+Allow: /packages
+Allow: /esim
+Allow: /blog
+Allow: /about
+Allow: /contact
+Allow: /help
+Allow: /rates
+Allow: /privacy
+Allow: /terms
+
 Disallow: /admin/
 Disallow: /portal/
 Disallow: /api/
+Disallow: /api/admin/
+Disallow: /api/cron/
+Disallow: /api/webhooks/
+Disallow: /_next/
 
 Sitemap: https://www.walztravels.com/sitemap.xml

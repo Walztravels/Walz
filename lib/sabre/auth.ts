@@ -24,7 +24,7 @@ interface SabreTokenResponse {
 }
 
 export async function getSabreToken(): Promise<string> {
-  const cached = await redis.get(CACHE_KEYS.sabreToken)
+  const cached = redis ? await redis.get(CACHE_KEYS.sabreToken) : null
   if (cached) return cached
 
   const clientId = process.env.SABRE_CLIENT_ID
@@ -58,7 +58,7 @@ export async function getSabreToken(): Promise<string> {
 
   // Cache with 60s buffer before expiry
   const ttl = data.expires_in - 60
-  await redis.setex(CACHE_KEYS.sabreToken, ttl, token)
+  if (redis) await redis.setex(CACHE_KEYS.sabreToken, ttl, token)
 
   return token
 }

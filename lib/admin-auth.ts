@@ -3,9 +3,26 @@ import { cookies } from 'next/headers'
 import { prisma } from '@/lib/db'
 
 const COOKIE_NAME = 'admin_token'
-const SECRET = new TextEncoder().encode(
-  process.env.JWT_ADMIN_SECRET ?? 'walz-admin-secret-change-me-in-production'
-)
+
+function getSecret(): Uint8Array {
+  const secret = process.env.JWT_ADMIN_SECRET
+  if (!secret) {
+    if (process.env.NODE_ENV === 'production') {
+      throw new Error(
+        '[FATAL] JWT_ADMIN_SECRET environment variable is not set. ' +
+        'Set it in Vercel environment variables immediately.'
+      )
+    }
+    console.warn(
+      '\x1b[41m\x1b[37m SECURITY WARNING \x1b[0m JWT_ADMIN_SECRET is not set. ' +
+      'This is insecure. Set it in your .env file.'
+    )
+    return new TextEncoder().encode('dev-only-secret-do-not-use-in-production')
+  }
+  return new TextEncoder().encode(secret)
+}
+
+const SECRET = getSecret()
 
 /** Minimal payload stored in the JWT (kept small for cookie size) */
 interface JwtClaims {

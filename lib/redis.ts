@@ -2,18 +2,21 @@ import Redis from 'ioredis'
 
 declare global {
   // eslint-disable-next-line no-var
-  var redis: Redis | undefined
+  var redis: Redis | null | undefined
 }
 
-function createRedisClient(): Redis {
-  const redisUrl = process.env.REDIS_URL || 'redis://localhost:6379'
+function createRedisClient(): Redis | null {
+  const redisUrl = process.env.REDIS_URL
+  if (!redisUrl) {
+    // No Redis configured — return null so callers degrade gracefully.
+    // Avoids a ~9s Vercel cold-start timeout trying localhost:6379.
+    return null
+  }
 
   const client = new Redis(redisUrl, {
     maxRetriesPerRequest: 3,
     retryStrategy(times: number) {
-      if (times > 3) {
-        return null
-      }
+      if (times > 3) return null
       return Math.min(times * 100, 3000)
     },
     enableReadyCheck: false,
@@ -31,7 +34,7 @@ function createRedisClient(): Redis {
   return client
 }
 
-const redis = globalThis.redis ?? createRedisClient()
+const redis: Redis | null = globalThis.redis !== undefined ? globalThis.redis : createRedisClient()
 
 if (process.env.NODE_ENV !== 'production') {
   globalThis.redis = redis
@@ -40,6 +43,7 @@ if (process.env.NODE_ENV !== 'production') {
 export default redis
 
 export async function cacheGet<T>(key: string): Promise<T | null> {
+  if (!redis) return null
   try {
     const value = await redis.get(key)
     if (!value) return null
@@ -50,6 +54,7 @@ export async function cacheGet<T>(key: string): Promise<T | null> {
 }
 
 export async function cacheSet(key: string, value: unknown, ttlSeconds = 3600): Promise<void> {
+  if (!redis) return
   try {
     await redis.setex(key, ttlSeconds, JSON.stringify(value))
   } catch (err) {
@@ -58,6 +63,7 @@ export async function cacheSet(key: string, value: unknown, ttlSeconds = 3600): 
 }
 
 export async function cacheDel(key: string): Promise<void> {
+  if (!redis) return
   try {
     await redis.del(key)
   } catch (err) {
@@ -66,6 +72,7 @@ export async function cacheDel(key: string): Promise<void> {
 }
 
 export async function cacheExists(key: string): Promise<boolean> {
+  if (!redis) return false
   try {
     const exists = await redis.exists(key)
     return exists === 1

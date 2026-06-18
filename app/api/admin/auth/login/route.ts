@@ -4,6 +4,7 @@ import { signAdminToken, COOKIE_NAME } from '@/lib/admin-auth'
 import { z } from 'zod'
 import prisma from '@/lib/db'
 import { Resend } from 'resend'
+import { adminLoginRateLimit } from '@/lib/rate-limit'
 
 const schema = z.object({
   email: z.string().email(),
@@ -131,6 +132,28 @@ function buildLoginAlertHtml(staffName: string, staffRole: string, email: string
 const SILENT_ROLES = ['Admin', 'admin', 'ADMIN']
 
 export async function POST(req: NextRequest) {
+  // ── Rate limiting — 5 attempts per IP per 15 minutes ──────────────────────
+  const ip = req.headers.get('x-forwarded-for')?.split(',')[0]?.trim()
+          ?? req.headers.get('x-real-ip')
+          ?? '127.0.0.1'
+
+  const rl = adminLoginRateLimit(ip)
+  if (!rl.allowed) {
+    const retryAfter = Math.ceil((rl.resetAt - Date.now()) / 1000)
+    return NextResponse.json(
+      { error: `Too many login attempts. Try again in ${Math.ceil(retryAfter / 60)} minutes.` },
+      {
+        status: 429,
+        headers: {
+          'Retry-After':           String(retryAfter),
+          'X-RateLimit-Limit':     '5',
+          'X-RateLimit-Remaining': '0',
+          'X-RateLimit-Reset':     String(Math.ceil(rl.resetAt / 1000)),
+        },
+      }
+    )
+  }
+
   const body = await req.json().catch(() => null)
   const parsed = schema.safeParse(body)
   if (!parsed.success) {
@@ -142,8 +165,7 @@ export async function POST(req: NextRequest) {
 
   // Extract request metadata
   const ua        = req.headers.get('user-agent') ?? ''
-  const ipRaw     = req.headers.get('x-forwarded-for') ?? req.headers.get('x-real-ip') ?? ''
-  const ipAddress = ipRaw.split(',')[0].trim()
+  const ipAddress = ip
   const { browser, operatingSystem } = parseUserAgent(ua)
   const loginAt = new Date()
 

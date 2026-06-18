@@ -55,27 +55,52 @@ const nextConfig = {
   // ── HTTP headers ──────────────────────────────────────────────────────────
   async headers() {
     return [
-      // ── Immutable long-term cache for hashed Next.js bundles ─────────────
+      // ── Security headers (all routes) ─────────────────────────────────────
+      {
+        source: '/:path*',
+        headers: [
+          { key: 'X-Frame-Options',           value: 'SAMEORIGIN' },
+          { key: 'X-Content-Type-Options',     value: 'nosniff' },
+          { key: 'Strict-Transport-Security',  value: 'max-age=31536000; includeSubDomains; preload' },
+          { key: 'Referrer-Policy',            value: 'strict-origin-when-cross-origin' },
+          { key: 'Permissions-Policy',         value: 'camera=(), microphone=(), geolocation=(self), payment=(self)' },
+          { key: 'X-XSS-Protection',           value: '1; mode=block' },
+          {
+            key:   'Content-Security-Policy',
+            value: [
+              "default-src 'self'",
+              "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://js.stripe.com https://www.googletagmanager.com https://www.google-analytics.com https://cdn.jsdelivr.net https://cdnjs.cloudflare.com",
+              "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+              "font-src 'self' https://fonts.gstatic.com",
+              "img-src 'self' data: blob: https: http:",
+              "frame-src 'self' https://js.stripe.com https://hooks.stripe.com",
+              "connect-src 'self' https://*.walztravels.com https://api.stripe.com https://api.flutterwave.com https://*.supabase.co wss://*.supabase.co https://www.google-analytics.com",
+              "media-src 'self' https:",
+              "object-src 'none'",
+              "base-uri 'self'",
+              "form-action 'self'",
+              "upgrade-insecure-requests",
+            ].join('; '),
+          },
+        ],
+      },
+      // ── Immutable long-term cache for hashed Next.js bundles ──────────────
       {
         source:  '/_next/static/:path*',
         headers: [{ key: 'Cache-Control', value: 'public, max-age=31536000, immutable' }],
       },
-      // ── 7-day cache for public static assets (logo, favicon, etc.) ────────
+      // ── 7-day cache for public static assets (logo, favicon, etc.) ─────────
       {
         source:  '/:file(.*\\.(?:ico|png|jpg|jpeg|gif|webp|svg|woff2|woff|ttf))',
         headers: [{ key: 'Cache-Control', value: 'public, max-age=604800, stale-while-revalidate=2592000' }],
       },
-      // ── API CORS ──────────────────────────────────────────────────────────
+      // ── CORS: public API only — admin and cron routes excluded ────────────
       {
-        source: '/api/:path*',
+        source: '/api/((?!admin|cron).)*',
         headers: [
-          { key: 'Access-Control-Allow-Credentials', value: 'true' },
-          { key: 'Access-Control-Allow-Origin', value: process.env.NEXT_PUBLIC_APP_URL || '*' },
-          { key: 'Access-Control-Allow-Methods', value: 'GET,DELETE,PATCH,POST,PUT,OPTIONS' },
-          {
-            key: 'Access-Control-Allow-Headers',
-            value: 'X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version, Authorization',
-          },
+          { key: 'Access-Control-Allow-Origin',  value: 'https://www.walztravels.com' },
+          { key: 'Access-Control-Allow-Methods', value: 'GET,POST,OPTIONS' },
+          { key: 'Access-Control-Allow-Headers', value: 'Content-Type, Authorization' },
         ],
       },
     ]
@@ -84,7 +109,7 @@ const nextConfig = {
   experimental: {
     serverComponentsExternalPackages: ['@prisma/client', 'prisma', 'pdf-parse'],
     serverActions: {
-      bodySizeLimit: '50mb',
+      bodySizeLimit: '10mb',
     },
   },
 }

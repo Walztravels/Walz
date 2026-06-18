@@ -20,7 +20,12 @@ async function verifyAdminCookie(req: NextRequest): Promise<{
     if (parts.length !== 3) return null
     const [headerB64, payloadB64, sigB64] = parts
 
-    const secret = process.env.JWT_ADMIN_SECRET ?? 'walz-admin-secret-change-me-in-production'
+    const rawSecret = process.env.JWT_ADMIN_SECRET
+    if (!rawSecret && process.env.NODE_ENV === 'production') {
+      // Fail closed — reject all admin requests if secret is missing
+      return null
+    }
+    const secret  = rawSecret ?? 'dev-only-secret-do-not-use-in-production'
     const keyData = new TextEncoder().encode(secret)
     const key = await crypto.subtle.importKey(
       'raw', keyData, { name: 'HMAC', hash: 'SHA-256' }, false, ['verify']

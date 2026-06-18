@@ -129,6 +129,17 @@ export async function POST(request: NextRequest) {
 
       case 'checkout.session.completed': {
         const session = event.data.object as Stripe.Checkout.Session
+
+        // Visa application service fee
+        if (session.metadata?.applicationId) {
+          await prisma.visaApplication.update({
+            where: { id: session.metadata.applicationId },
+            data:  { serviceFeePaid: true, status: 'documents_pending' },
+          })
+          console.log('[Stripe Webhook] Visa payment confirmed:', session.metadata.applicationId)
+        }
+
+        // Activity booking
         if (session.metadata?.type === 'activity_booking') {
           await prisma.activityBooking.create({
             data: {

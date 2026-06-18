@@ -1,30 +1,20 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { constructWebhookEvent } from '@/lib/stripe'
-import prisma from '@/lib/db'
+
+// DEPRECATED — use /api/webhooks/stripe instead.
+// Update your Stripe webhook configuration to:
+// https://www.walztravels.com/api/webhooks/stripe
+// This shim forwards requests for backward compatibility.
 
 export async function POST(req: NextRequest) {
-  const body = await req.text()
-  const sig  = req.headers.get('stripe-signature') ?? ''
+  console.warn('[Deprecated] /api/visa/webhook/stripe — forwarding to /api/webhooks/stripe')
 
-  let event: import('stripe').Stripe.Event
-  try {
-    event = await constructWebhookEvent(body, sig)
-  } catch (err) {
-    console.error('[Stripe Webhook] Invalid signature:', err)
-    return NextResponse.json({ error: 'Invalid signature' }, { status: 400 })
-  }
+  const body    = await req.text()
+  const headers = new Headers()
+  req.headers.forEach((v, k) => headers.set(k, v))
 
-  if (event.type === 'checkout.session.completed') {
-    const session = event.data.object as import('stripe').Stripe.Checkout.Session
-    const appId   = session.metadata?.applicationId
-    if (appId) {
-      await prisma.visaApplication.update({
-        where: { id: appId },
-        data:  { serviceFeePaid: true, status: 'documents_pending' },
-      })
-      console.log('[Stripe] Payment confirmed for application:', appId)
-    }
-  }
-
-  return NextResponse.json({ received: true })
+  const res = await fetch(
+    new URL('/api/webhooks/stripe', req.url),
+    { method: 'POST', headers, body }
+  )
+  return new NextResponse(await res.text(), { status: res.status })
 }
