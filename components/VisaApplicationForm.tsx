@@ -10,6 +10,7 @@ import {
   Phone, Briefcase, Plane, Clock, AlertTriangle, Lock, LogIn, Upload, CreditCard,
 } from 'lucide-react'
 import { getVisaConfig, ISO2_TO_SLUG, VisaCountryConfig } from '@/lib/visa-config'
+import { PaymentStep } from '@/components/visa/PaymentStep'
 import type { BankStatementAnalysis } from '@/lib/analyzeBankStatement'
 import { cn } from '@/lib/utils'
 
@@ -581,90 +582,6 @@ function InlineConfirmation({ refNumber, email, destinationName }: { refNumber: 
   )
 }
 
-// ─── Payment step ─────────────────────────────────────────────────────────────
-
-function PaymentStep({
-  config, appId, onPaid,
-}: {
-  config: VisaCountryConfig
-  appId: string | null
-  onPaid: () => void
-}) {
-  const [loading, setLoading] = useState(false)
-  const [error,   setError]   = useState('')
-  const fee = config.serviceFeeUsd ?? 0
-
-  useEffect(() => {
-    if (fee === 0) onPaid()
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [fee])
-
-  if (fee === 0) return null
-
-  async function handlePay() {
-    if (!appId) return
-    setLoading(true)
-    setError('')
-    try {
-      const res = await fetch('/api/visa/create-payment-intent', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ applicationId: appId }),
-      })
-      const data = await res.json()
-      if (!res.ok) { setError(data.error ?? 'Payment failed'); setLoading(false); return }
-      window.location.href = data.checkoutUrl
-    } catch {
-      setError('Network error. Please try again.')
-      setLoading(false)
-    }
-  }
-
-  return (
-    <div className="space-y-6">
-      <div className="bg-[#0B1F3A] rounded-2xl p-6 text-center">
-        <p className="text-[#C9A84C] text-xs font-bold uppercase tracking-widest mb-2">Service Fee</p>
-        <p className="text-white text-4xl font-bold mb-1">£{fee}</p>
-        <p className="text-white/50 text-sm">
-          Includes document preparation, submission support &amp; application tracking
-        </p>
-      </div>
-
-      <div className="space-y-3 text-sm text-gray-600">
-        <div className="flex items-center gap-2">
-          <CheckCircle className="w-4 h-4 text-green-500 flex-shrink-0" />
-          <span>Secure payment via Stripe</span>
-        </div>
-        <div className="flex items-center gap-2">
-          <CheckCircle className="w-4 h-4 text-green-500 flex-shrink-0" />
-          <span>Full refund if we cannot proceed with your application</span>
-        </div>
-        <div className="flex items-center gap-2">
-          <CheckCircle className="w-4 h-4 text-green-500 flex-shrink-0" />
-          <span>Government / embassy fees are separate and paid directly</span>
-        </div>
-      </div>
-
-      {error && <p className="text-red-500 text-sm text-center">{error}</p>}
-
-      <button
-        onClick={handlePay}
-        disabled={loading || !appId}
-        className="w-full flex items-center justify-center gap-2 bg-[#C9A84C] text-[#0B1F3A] font-bold py-4 rounded-2xl text-base hover:bg-[#d4b05a] transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
-        {loading
-          ? <><Loader2 className="w-5 h-5 animate-spin" /> Processing…</>
-          : <><CreditCard className="w-5 h-5" /> Pay £{fee} Securely →</>
-        }
-      </button>
-
-      <p className="text-xs text-gray-400 text-center">
-        You will be redirected to Stripe&#39;s secure checkout.
-        Your application is saved and will not be lost.
-      </p>
-    </div>
-  )
-}
-
 // ─── Main export ──────────────────────────────────────────────────────────────
 
 export interface VisaApplicationFormProps {
@@ -999,9 +916,10 @@ export function VisaApplicationForm({
         {step === 8 && <StepDeclaration form={form} update={update} config={config} isManual={isManual} />}
         {step === 9 && (
           <PaymentStep
-            config={config}
-            appId={appId}
-            onPaid={() => router.push(`/visa/apply/success?ref=${refNumber ?? ''}`)}
+            applicationId={appId}
+            feeGbp={config.serviceFeeUsd ?? 150}
+            destName={destinationName}
+            onSkip={() => router.push(`/visa/payment/success?ref=${refNumber ?? ''}`)}
           />
         )}
 
