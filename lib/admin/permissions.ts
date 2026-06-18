@@ -263,6 +263,7 @@ export const NAV_ITEMS: NavSection[] = [
     section: 'FINANCE',
     items: [
       { href: '/admin/payments',    label: 'Payments',       icon: 'CreditCard',      permission: 'payments'        },
+      { href: '/admin/vouchers',    label: 'Vouchers',       icon: 'Gift',            permission: 'payments'        },
       { href: '/admin/commissions', label: 'Commissions',    icon: 'Award',           permission: 'commissions'     },
       { href: '/admin/payroll',     label: 'Payroll',        icon: 'DollarSign',      permission: 'payroll'         },
     ],

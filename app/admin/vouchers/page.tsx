@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
-import { Plus, Pencil, Trash2, X, Search, Download, Tag, Gift, ToggleLeft, ToggleRight, ChevronDown } from 'lucide-react'
+import { Plus, Pencil, Trash2, X, Search, Download, Tag, Gift, ToggleLeft, ToggleRight, ChevronDown, Send, Mail, Loader2, CheckCircle } from 'lucide-react'
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -134,6 +134,12 @@ export default function AdminVouchersPage() {
   const [tab, setTab]           = useState<'all' | 'gift' | 'credit'>('all')
   const [statusFilter, setStatusFilter] = useState('all')
   const [search, setSearch]     = useState('')
+  const [sendingVoucher, setSendingVoucher] = useState<Voucher | null>(null)
+  const [sendEmail,      setSendEmail]      = useState('')
+  const [sendName,       setSendName]       = useState('')
+  const [sendMessage,    setSendMessage]    = useState('')
+  const [isSending,      setIsSending]      = useState(false)
+  const [sendOk,         setSendOk]         = useState(false)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -215,6 +221,47 @@ export default function AdminVouchersPage() {
       body: JSON.stringify({ id: v.id, active: !v.active }),
     })
     load()
+  }
+
+  async function sendVoucher() {
+    if (!sendingVoucher || !sendEmail) return
+    setIsSending(true)
+    try {
+      const res = await fetch('/api/admin/vouchers/send', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({
+          voucherId:       sendingVoucher.id,
+          recipientEmail:  sendEmail,
+          recipientName:   sendName,
+          personalMessage: sendMessage,
+        }),
+      })
+      if (res.ok) {
+        setSendOk(true)
+        setTimeout(() => {
+          setSendOk(false)
+          setSendingVoucher(null)
+          setSendEmail('')
+          setSendName('')
+          setSendMessage('')
+          load()
+        }, 2000)
+      } else {
+        alert('Failed to send. Please try again.')
+      }
+    } catch {
+      alert('Network error. Please try again.')
+    }
+    setIsSending(false)
+  }
+
+  function openSendModal(v: Voucher) {
+    setSendingVoucher(v)
+    setSendEmail(v.recipientEmail ?? '')
+    setSendName(v.recipientName ?? '')
+    setSendMessage('')
+    setSendOk(false)
   }
 
   const set = (k: keyof FormData, val: unknown) => setModal(m => m ? { ...m, [k]: val } : m)
@@ -384,6 +431,14 @@ export default function AdminVouchersPage() {
                     </td>
                     <td className="px-5 py-4">
                       <div className="flex items-center justify-end gap-1">
+                        <button
+                          onClick={() => openSendModal(v)}
+                          title="Send voucher to client"
+                          className="flex items-center gap-1.5 text-xs font-bold px-3 py-1.5 rounded-xl bg-[#C9A84C] text-[#0B1F3A] hover:bg-[#b8973f] transition-colors"
+                        >
+                          <Send className="w-3.5 h-3.5" />
+                          Send
+                        </button>
                         <button
                           onClick={() => toggleActive(v)}
                           title={v.active ? 'Deactivate' : 'Activate'}
@@ -561,6 +616,128 @@ export default function AdminVouchersPage() {
               >
                 {saving ? 'Saving…' : modal.id ? 'Save Changes' : 'Create Voucher'}
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Send Voucher Modal ─────────────────────────────────── */}
+      {sendingVoucher && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md">
+            <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
+              <div>
+                <h2 className="text-base font-bold text-[#0B1F3A] flex items-center gap-2">
+                  <Mail className="w-4 h-4 text-[#C9A84C]" />
+                  Send Voucher to Client
+                </h2>
+                <p className="text-xs text-gray-400 mt-0.5">
+                  Client receives a branded email with the voucher code
+                </p>
+              </div>
+              <button
+                onClick={() => setSendingVoucher(null)}
+                className="p-1.5 rounded-lg hover:bg-gray-100 transition-colors">
+                <X className="w-5 h-5 text-gray-400" />
+              </button>
+            </div>
+
+            <div className="p-5 space-y-4">
+              {/* Voucher preview */}
+              <div className="bg-[#0B1F3A] rounded-xl p-4 flex items-center justify-between">
+                <div>
+                  <p className="text-[#C9A84C] text-[10px] font-bold uppercase tracking-widest">
+                    {sendingVoucher.voucherKind === 'gift' ? 'Gift Voucher' : 'Discount Code'}
+                  </p>
+                  <p className="text-white font-bold text-lg mt-0.5">
+                    {sendingVoucher.discountType === 'percentage'
+                      ? `${sendingVoucher.amount}% OFF`
+                      : sendingVoucher.discountType === 'free'
+                        ? 'FREE'
+                        : `£${sendingVoucher.amount}`
+                    }
+                  </p>
+                </div>
+                <div className="text-right">
+                  <p className="text-[#C9A84C] font-mono font-bold text-sm tracking-widest">
+                    {sendingVoucher.code}
+                  </p>
+                  <p className="text-gray-500 text-[10px] mt-0.5">
+                    Expires {new Date(sendingVoucher.expiresAt)
+                      .toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}
+                  </p>
+                </div>
+              </div>
+
+              {/* Recipient email */}
+              <div>
+                <label className="text-xs font-bold text-gray-500 uppercase tracking-wider block mb-1.5">
+                  Recipient Email <span className="text-red-400">*</span>
+                </label>
+                <input
+                  type="email"
+                  value={sendEmail}
+                  onChange={e => setSendEmail(e.target.value)}
+                  placeholder="client@example.com"
+                  className="w-full h-10 px-3 border border-gray-200 rounded-xl text-sm focus:outline-none focus:border-[#C9A84C]"
+                />
+              </div>
+
+              {/* Recipient name */}
+              <div>
+                <label className="text-xs font-bold text-gray-500 uppercase tracking-wider block mb-1.5">
+                  Recipient Name <span className="text-gray-400 font-normal">(optional)</span>
+                </label>
+                <input
+                  type="text"
+                  value={sendName}
+                  onChange={e => setSendName(e.target.value)}
+                  placeholder="e.g. Moyosore Adekunle"
+                  className="w-full h-10 px-3 border border-gray-200 rounded-xl text-sm focus:outline-none focus:border-[#C9A84C]"
+                />
+              </div>
+
+              {/* Personal message */}
+              <div>
+                <label className="text-xs font-bold text-gray-500 uppercase tracking-wider block mb-1.5">
+                  Personal Message <span className="text-gray-400 font-normal">(optional)</span>
+                </label>
+                <textarea
+                  value={sendMessage}
+                  onChange={e => setSendMessage(e.target.value)}
+                  placeholder="Add a personal note to the client…"
+                  rows={3}
+                  className="w-full px-3 py-2 border border-gray-200 rounded-xl text-sm focus:outline-none focus:border-[#C9A84C] resize-none"
+                />
+              </div>
+
+              {/* Actions */}
+              <div className="flex gap-2 pt-1">
+                <button
+                  onClick={() => setSendingVoucher(null)}
+                  className="flex-1 py-2.5 rounded-xl border border-gray-200 text-sm text-gray-500 hover:bg-gray-50 transition-colors">
+                  Cancel
+                </button>
+                <button
+                  onClick={sendVoucher}
+                  disabled={isSending || !sendEmail}
+                  className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-bold transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
+                    sendOk
+                      ? 'bg-green-500 text-white'
+                      : 'bg-[#C9A84C] text-[#0B1F3A] hover:bg-[#b8973f]'
+                  }`}>
+                  {isSending
+                    ? <><Loader2 className="w-4 h-4 animate-spin" /> Sending…</>
+                    : sendOk
+                      ? <><CheckCircle className="w-4 h-4" /> Sent!</>
+                      : <><Send className="w-4 h-4" /> Send Voucher</>
+                  }
+                </button>
+              </div>
+
+              <p className="text-[10px] text-gray-400 text-center">
+                Voucher status will update to <strong>SENT</strong> after delivery
+              </p>
             </div>
           </div>
         </div>
