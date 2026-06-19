@@ -721,17 +721,15 @@ export default function GiftPage() {
               Not sure which voucher?
             </h2>
             <p className="text-[#0B1F3A]/65 text-base mb-8 leading-relaxed">
-              WhatsApp Jade for a recommendation — she&apos;ll match the perfect gift to your budget and the lucky recipient.
+              Chat with Jade for a recommendation — she&apos;ll match the perfect gift to your budget and the lucky recipient.
             </p>
-            <a
-              href="https://wa.me/447398753797"
-              target="_blank"
-              rel="noopener noreferrer"
+            <button
+              onClick={() => window.$chatwoot ? window.$chatwoot.toggle('open') : window.open('https://wa.me/447398753797','_blank','noopener,noreferrer')}
               className="inline-flex items-center gap-3 px-8 py-4 bg-[#0B1F3A] text-white font-bold text-base rounded-2xl hover:bg-[#0d2345] transition-colors"
             >
               <MessageCircle className="w-5 h-5" />
               Chat with Jade
-            </a>
+            </button>
           </div>
         </div>
       )}
