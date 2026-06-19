@@ -1,12 +1,13 @@
 'use client'
 
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import Link from 'next/link'
 import {
   Plane, Hotel, MapIcon, Car, FileText, Package2,
   ChevronLeft, ChevronRight, Download, Send,
   CheckCircle, Loader2, History, LayoutTemplate,
   Plus, Trash2, AlertCircle, RefreshCw, Copy, Check,
+  Upload, X,
 } from 'lucide-react'
 import { TicketPreview, type TicketPreviewData } from '@/components/admin/TicketPreview'
 import type { FlightLeg as FlightLegType, Passenger as FlightPassenger, PricingBreakdown } from '@/types/flight-ticket'
@@ -54,6 +55,24 @@ interface TransferData { booking_ref: string; transfer_company: string; vehicle_
 interface VisaData     { reference_number: string; visa_type: string; passport_number: string; appointment_date: string; appointment_time: string; appointment_location: string; vfs_address: string; contact_person: string; contact_phone: string; documents_to_bring: string }
 interface PackageData  { package_reference: string; package_name: string; destination: string; travel_from: string; travel_to: string; num_travellers: string; traveller_names: string; inclusions: Record<string, InclusionItem>; total_value: string; amount_paid: string; currency: string; payment_due_date: string }
 
+interface ParsedDoc {
+  ticketType?: string
+  confidence?: string
+  notes?: string
+  client?: { name?: string; email?: string; phone?: string }
+  flight?: {
+    pnr?: string
+    tripType?: 'one-way' | 'return'
+    outbound?: Partial<FlightLegType>[]
+    inbound?: Partial<FlightLegType>[]
+    passengers?: Partial<FlightPassenger>[]
+  }
+  hotel?: Partial<HotelData>
+  tour?: Partial<TourData>
+  transfer?: Partial<TransferData>
+  visa?: Partial<VisaData>
+}
+
 // ─── Initial state ─────────────────────────────────────────────────────────────
 
 const BLANK_CLIENT: ClientInfo  = { name: '', email: '', phone: '' }
@@ -92,6 +111,98 @@ function Section({ title, children }: { title: string; children: React.ReactNode
         <span className="text-[10px] font-bold text-[#0B1F3A] uppercase tracking-wider">{title}</span>
       </div>
       {children}
+    </div>
+  )
+}
+
+// ─── Upload Banner ────────────────────────────────────────────────────────────
+
+type UploadState = 'idle' | 'parsing' | 'done' | 'error'
+
+function UploadBanner({
+  uploadState, uploadFile, uploadError,
+  onUpload, onDismiss,
+}: {
+  uploadState: UploadState
+  uploadFile: string
+  uploadError: string
+  onUpload: (f: File) => void
+  onDismiss: () => void
+}) {
+  const fileRef = useRef<HTMLInputElement>(null)
+  const [dragging, setDragging] = useState(false)
+
+  function tryFile(f: File | null | undefined) { if (f) onUpload(f) }
+
+  if (uploadState === 'done') {
+    return (
+      <div className="mb-5 p-3.5 rounded-xl bg-green-50 border border-green-200 flex items-center justify-between gap-3">
+        <div className="flex items-center gap-2.5 min-w-0">
+          <CheckCircle className="w-5 h-5 text-green-600 flex-shrink-0" />
+          <div className="min-w-0">
+            <p className="text-sm font-bold text-green-800">Auto-filled! Review &amp; edit the form below</p>
+            <p className="text-xs text-green-600 truncate">Extracted from {uploadFile} — jump to Step 3 to review</p>
+          </div>
+        </div>
+        <button type="button" onClick={onDismiss} className="text-green-400 hover:text-green-600 flex-shrink-0 transition">
+          <X className="w-4 h-4" />
+        </button>
+      </div>
+    )
+  }
+
+  if (uploadState === 'error') {
+    return (
+      <div className="mb-5 p-3.5 rounded-xl bg-red-50 border border-red-200 flex items-center justify-between gap-3">
+        <div className="flex items-center gap-2.5 min-w-0">
+          <AlertCircle className="w-5 h-5 text-red-500 flex-shrink-0" />
+          <div className="min-w-0">
+            <p className="text-sm font-bold text-red-700">Couldn't read document</p>
+            <p className="text-xs text-red-500 line-clamp-2">{uploadError}</p>
+          </div>
+        </div>
+        <button type="button" onClick={onDismiss} className="text-red-400 hover:text-red-600 flex-shrink-0 transition">
+          <X className="w-4 h-4" />
+        </button>
+      </div>
+    )
+  }
+
+  if (uploadState === 'parsing') {
+    return (
+      <div className="mb-5 p-4 rounded-xl border-2 border-dashed border-[#C9A84C]/40 bg-[#FEF9EE] flex items-center gap-3">
+        <Loader2 className="w-5 h-5 text-[#C9A84C] animate-spin flex-shrink-0" />
+        <div className="min-w-0">
+          <p className="text-sm font-bold text-[#0B1F3A]">Reading your document…</p>
+          <p className="text-xs text-gray-500 truncate">{uploadFile}</p>
+        </div>
+      </div>
+    )
+  }
+
+  // idle
+  return (
+    <div
+      className={`mb-5 rounded-xl border-2 border-dashed transition-all ${dragging ? 'border-[#C9A84C] bg-[#FEF9EE]' : 'border-gray-200 bg-gray-50 hover:border-gray-300'}`}
+      onDragOver={e => { e.preventDefault(); setDragging(true) }}
+      onDragLeave={() => setDragging(false)}
+      onDrop={e => { e.preventDefault(); setDragging(false); tryFile(e.dataTransfer.files[0]) }}
+    >
+      <div className="p-4 flex items-center gap-3">
+        <div className="p-2.5 rounded-xl bg-white border border-gray-200 flex-shrink-0">
+          <Upload className="w-5 h-5 text-[#C9A84C]" />
+        </div>
+        <div className="flex-1 min-w-0">
+          <p className="text-sm font-bold text-[#0B1F3A]">Upload a 3rd Party Ticket to Auto-Fill</p>
+          <p className="text-xs text-gray-400">PDF, JPG, PNG or WEBP · AI reads and fills all fields instantly</p>
+        </div>
+        <button type="button" onClick={() => fileRef.current?.click()}
+          className="flex-shrink-0 flex items-center gap-1.5 px-3 py-2 rounded-lg bg-[#0B1F3A] text-white text-xs font-bold hover:bg-[#0f2a4a] transition">
+          <Upload className="w-3.5 h-3.5" /> Upload
+        </button>
+        <input ref={fileRef} type="file" accept=".pdf,.jpg,.jpeg,.png,.webp" className="hidden"
+          onChange={e => { tryFile(e.target.files?.[0]); e.target.value = '' }} />
+      </div>
     </div>
   )
 }
@@ -745,7 +856,7 @@ export default function TicketsPage() {
   const [ticketType, setTicketType]         = useState('')
   const [client, setClient]                 = useState<ClientInfo>(BLANK_CLIENT)
   const [message, setMessage]               = useState('')
-  const [flight, setFlight]                 = useState<FlightData>(BLANK_FLIGHT)  // kept for legacy compat
+  const [flight, setFlight]                 = useState<FlightData>(BLANK_FLIGHT)
   const [flightTicket, setFlightTicket]     = useState<FlightTicketData>(BLANK_FLIGHT_TICKET)
   const [hotel, setHotel]                   = useState<HotelData>(BLANK_HOTEL)
   const [tour, setTour]                     = useState<TourData>(BLANK_TOUR)
@@ -757,7 +868,12 @@ export default function TicketsPage() {
   const [toast, setToast]                   = useState<{ type: 'success' | 'error'; msg: string } | null>(null)
   const [sentRef, setSentRef]               = useState<string | null>(null)
 
-  void flight; void setFlight  // used only by legacy send payload compatibility
+  // Upload banner state
+  const [uploadState, setUploadState]       = useState<UploadState>('idle')
+  const [uploadFile, setUploadFile]         = useState('')
+  const [uploadError, setUploadError]       = useState('')
+
+  void flight; void setFlight
 
   function showToast(type: 'success' | 'error', msg: string, ref?: string) {
     setToast({ type, msg }); if (ref) setSentRef(ref)
@@ -769,6 +885,62 @@ export default function TicketsPage() {
     setFlight(BLANK_FLIGHT); setHotel(BLANK_HOTEL); setTour(BLANK_TOUR)
     setTransfer(BLANK_TRANSFER); setVisa(BLANK_VISA); setPkg(BLANK_PACKAGE)
     setFlightTicket(BLANK_FLIGHT_TICKET); setToast(null); setSentRef(null)
+    setUploadState('idle'); setUploadFile(''); setUploadError('')
+  }
+
+  function dismissUpload() {
+    setUploadState('idle'); setUploadFile(''); setUploadError('')
+  }
+
+  async function handleUpload(file: File) {
+    setUploadFile(file.name)
+    setUploadState('parsing')
+    try {
+      const fd = new FormData()
+      fd.append('file', file)
+      const res = await fetch('/api/admin/ticket-generator/parse', { method: 'POST', body: fd })
+      const json = await res.json() as { ok?: boolean; error?: string; data?: ParsedDoc }
+      if (!res.ok) throw new Error(json.error ?? 'Failed to parse document')
+      const d = json.data ?? {}
+
+      if (d.ticketType) setTicketType(d.ticketType)
+      if (d.client) {
+        setClient({
+          name:  d.client.name  ?? '',
+          email: d.client.email ?? '',
+          phone: d.client.phone ?? '',
+        })
+      }
+
+      if (d.ticketType === 'flight' && d.flight) {
+        const f = d.flight
+        setFlightTicket({
+          pnr:      f.pnr ?? '',
+          tripType: f.tripType ?? 'one-way',
+          outbound: f.outbound?.length
+            ? f.outbound.map(l => ({ ...BLANK_LEG, ...l }))
+            : [{ ...BLANK_LEG }],
+          inbound: f.inbound?.length
+            ? f.inbound.map(l => ({ ...BLANK_LEG, ...l }))
+            : [],
+          passengers: f.passengers?.length
+            ? f.passengers.map(p => ({ ...BLANK_FLIGHT_PAX, ...p }))
+            : [{ ...BLANK_FLIGHT_PAX }],
+          includePricing: false,
+          pricing: BLANK_FLIGHT_TICKET.pricing,
+        })
+      }
+      if (d.ticketType === 'hotel'    && d.hotel)    setHotel({ ...BLANK_HOTEL, ...d.hotel })
+      if (d.ticketType === 'tour'     && d.tour)     setTour({ ...BLANK_TOUR, ...d.tour })
+      if (d.ticketType === 'transfer' && d.transfer) setTransfer({ ...BLANK_TRANSFER, ...d.transfer })
+      if (d.ticketType === 'visa'     && d.visa)     setVisa({ ...BLANK_VISA, ...d.visa })
+
+      setUploadState('done')
+      setStep(3)
+    } catch (err) {
+      setUploadError(err instanceof Error ? err.message : 'Failed to parse document')
+      setUploadState('error')
+    }
   }
 
   async function handleGenerate() {
@@ -843,6 +1015,13 @@ export default function TicketsPage() {
         {/* LEFT — Form */}
         <div className="w-full lg:w-[45%] bg-white border-r border-gray-200">
           <div className="p-6">
+            <UploadBanner
+              uploadState={uploadState}
+              uploadFile={uploadFile}
+              uploadError={uploadError}
+              onUpload={handleUpload}
+              onDismiss={dismissUpload}
+            />
             <Stepper step={step} />
             {step === 1 && <Step1 ticketType={ticketType} setTicketType={setTicketType} />}
             {step === 2 && <Step2 client={client} setClient={setClient} />}
