@@ -292,6 +292,22 @@ export const NAV_ITEMS: NavSection[] = [
     ],
   },
   {
+    section: 'INTELLIGENCE',
+    items: [
+      { href: '/admin/intelligence',                    label: 'Intelligence Hub',     icon: 'Brain',         permission: 'analytics'   },
+      { href: '/admin/intelligence/dna',               label: 'Financial DNA',         icon: 'Dna',           permission: 'visa'        },
+      { href: '/admin/intelligence/officer-sim',       label: 'Officer Simulation',    icon: 'UserCheck',     permission: 'visa'        },
+      { href: '/admin/intelligence/embassy-feed',      label: 'Embassy Feed',          icon: 'Radio',         permission: 'visa'        },
+      { href: '/admin/intelligence/doc-auth',          label: 'Document Authenticity', icon: 'ShieldCheck',   permission: 'visa'        },
+      { href: '/admin/intelligence/cris',              label: 'Client Risk Score',     icon: 'AlertOctagon',  permission: 'clients'     },
+      { href: '/admin/intelligence/revenue',           label: 'Revenue Opportunities', icon: 'Zap',           permission: 'analytics'   },
+      { href: '/admin/intelligence/diaspora',          label: 'Diaspora Intelligence', icon: 'Globe',         permission: 'analytics'   },
+      { href: '/admin/intelligence/staff-performance', label: 'Staff Performance',     icon: 'BarChart2',     permission: 'staff'       },
+      { href: '/admin/intelligence/conversation',      label: 'Conversation Intel',    icon: 'MessageSquare', permission: 'inbox'       },
+      { href: '/admin/intelligence/lifecycle',         label: 'Client Lifecycle',      icon: 'TrendingUp',    permission: 'analytics'   },
+    ],
+  },
+  {
     section: 'SYSTEM',
     items: [
       { href: '/admin/staff',       label: 'Staff',        icon: 'Shield',      permission: 'staff'       },

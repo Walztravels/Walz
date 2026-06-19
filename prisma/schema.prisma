@@ -47,6 +47,9 @@ model User {
   tripCollaborations  TripCollaborator[]
   savedItineraries    SavedItinerary[]
   esimOrders          EsimOrder[]
+  financialDNA        ClientFinancialDNA?
+  riskScore           ClientRiskScore?
+  lifecyclePrediction ClientLifecyclePrediction?
 }
 
 model Account {
@@ -1805,4 +1808,240 @@ model HomeStat {
   label     String
   sortOrder Int     @default(99)
   active    Boolean @default(true)
+}
+
+// ══════════════════════════════════════════════════════════
+// WORLD-FIRST INTELLIGENCE FEATURES
+// ══════════════════════════════════════════════════════════
+
+model ClientFinancialDNA {
+  id              String   @id @default(cuid())
+  userId          String   @unique
+  firstAnalysis   DateTime @default(now())
+  lastAnalysis    DateTime @updatedAt
+  analysisCount   Int      @default(0)
+  balanceTrend    String   @default("unknown")
+  averageScore    Float    @default(0)
+  peakScore       Float    @default(0)
+  lowestScore     Float    @default(0)
+  scoreHistory    Json     @default("[]")
+  latestBalance   Float    @default(0)
+  latestCurrency  String   @default("GBP")
+  latestStatus    String   @default("unknown")
+  scoreDelta      Float    @default(0)
+  balanceDelta    Float    @default(0)
+  improvementNote String?
+  provenTraveller Boolean  @default(false)
+  successCount    Int      @default(0)
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+}
+
+model OfficerSimulationSession {
+  id              String    @id @default(cuid())
+  applicationId   String
+  staffId         String
+  destination     String
+  officerType     String
+  objections      Json      @default("[]")
+  responses       Json      @default("[]")
+  resistanceScore Float     @default(0)
+  weakestDoc      String?
+  sessionNotes    String?   @db.Text
+  completedAt     DateTime?
+  createdAt       DateTime  @default(now())
+  @@index([applicationId])
+  @@index([staffId])
+}
+
+model EmbassyIntelligenceFeed {
+  id               String    @id @default(cuid())
+  destination      String
+  alertType        String
+  severity         String    @default("medium")
+  title            String
+  detail           String    @db.Text
+  previousValue    String?
+  newValue         String?
+  sourceUrl        String?
+  affectedClients  Int       @default(0)
+  notificationSent Boolean   @default(false)
+  publishedAt      DateTime  @default(now())
+  expiresAt        DateTime?
+  createdAt        DateTime  @default(now())
+  @@index([destination])
+  @@index([alertType])
+  @@index([severity])
+}
+
+model DocumentAuthenticityCheck {
+  id                String   @id @default(cuid())
+  applicationId     String
+  documentType      String
+  fileName          String
+  verdict           String
+  authenticityScore Int      @default(0)
+  metadataCheck     Json     @default("{}")
+  fontConsistency   Json     @default("{}")
+  numericalCheck    Json     @default("{}")
+  dateSanity        Json     @default("{}")
+  stampDetected     Boolean  @default(false)
+  signatureDetected Boolean  @default(false)
+  flags             Json     @default("[]")
+  evidence          String?  @db.Text
+  checkedAt         DateTime @default(now())
+  checkedBy         String   @default("system")
+  @@index([applicationId])
+  @@index([verdict])
+}
+
+model ClientRiskScore {
+  id                  String   @id @default(cuid())
+  userId              String   @unique
+  overallScore        Float    @default(50)
+  riskBand            String   @default("yellow")
+  applicationQuality  Float    @default(50)
+  documentReliability Float    @default(50)
+  paymentReliability  Float    @default(50)
+  communicationScore  Float    @default(50)
+  visaSuccessRate     Float    @default(50)
+  chargebackRisk      Float    @default(0)
+  npsPrediction       Float    @default(50)
+  churnProbability    Float    @default(0)
+  ltv                 Float    @default(0)
+  overReliant         Boolean  @default(false)
+  flaggedForReview    Boolean  @default(false)
+  notes               String?  @db.Text
+  user                User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  computedAt          DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+}
+
+model RevenueOpportunity {
+  id             String    @id @default(cuid())
+  userId         String?
+  leadId         String?
+  type           String
+  priority       String    @default("medium")
+  title          String
+  description    String    @db.Text
+  estimatedValue Float     @default(0)
+  currency       String    @default("GBP")
+  actionRequired String    @db.Text
+  deadline       DateTime?
+  status         String    @default("open")
+  assignedTo     String?
+  convertedAt    DateTime?
+  dismissedAt    DateTime?
+  dismissedBy    String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  @@index([type])
+  @@index([status])
+  @@index([priority])
+  @@index([userId])
+}
+
+model DiasporaIntelligence {
+  id                  String   @id @default(cuid())
+  passportCountry     String
+  destinationIso2     String
+  bankName            String?
+  totalApplications   Int      @default(0)
+  approvals           Int      @default(0)
+  refusals            Int      @default(0)
+  approvalRate        Float    @default(0)
+  avgApprovedBalance  Float    @default(0)
+  minApprovedBalance  Float    @default(0)
+  avgApprovedScore    Float    @default(0)
+  peakMonths          Json     @default("[]")
+  trending            Boolean  @default(false)
+  demandSignal        Int      @default(0)
+  lastUpdated         DateTime @updatedAt
+  @@unique([passportCountry, destinationIso2, bankName])
+  @@index([passportCountry])
+  @@index([destinationIso2])
+}
+
+model StaffPerformanceMetric {
+  id                  String   @id @default(cuid())
+  staffId             String
+  period              String
+  applicationsHandled Int      @default(0)
+  leadsContacted      Int      @default(0)
+  bookingsCreated     Int      @default(0)
+  avgApplicationScore Float    @default(0)
+  approvalRate        Float    @default(0)
+  docQualityScore     Float    @default(0)
+  avgResponseTimeMin  Float    @default(0)
+  avgCompletionDays   Float    @default(0)
+  totalRevenue        Float    @default(0)
+  revenuePerHour      Float    @default(0)
+  crossSellRate       Float    @default(0)
+  burnoutRisk         Float    @default(0)
+  burnoutFlag         Boolean  @default(false)
+  skillsGaps          Json     @default("[]")
+  coachingBrief       String?  @db.Text
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+  @@unique([staffId, period])
+  @@index([staffId])
+  @@index([burnoutFlag])
+}
+
+model ConversationIntelligence {
+  id                String    @id @default(cuid())
+  leadId            String?
+  userId            String?
+  staffId           String?
+  channel           String
+  intent            String
+  sentiment         String    @default("neutral")
+  sentimentScore    Float     @default(0)
+  competitorMention Boolean   @default(false)
+  competitorName    String?
+  referralMention   Boolean   @default(false)
+  referralName      String?
+  promiseMade       Boolean   @default(false)
+  promiseDetail     String?
+  promiseDueDate    DateTime?
+  promiseKept       Boolean?
+  language          String    @default("en")
+  dialect           String?
+  keyTopics         Json      @default("[]")
+  actionItems       Json      @default("[]")
+  summary           String?   @db.Text
+  messageCount      Int       @default(0)
+  processedAt       DateTime  @default(now())
+  createdAt         DateTime  @default(now())
+  @@index([leadId])
+  @@index([intent])
+  @@index([sentiment])
+  @@index([promiseMade])
+  @@index([competitorMention])
+}
+
+model ClientLifecyclePrediction {
+  id                     String    @id @default(cuid())
+  userId                 String    @unique
+  predictedLTV           Float     @default(0)
+  ltv12months            Float     @default(0)
+  ltv36months            Float     @default(0)
+  nextServiceType        String?
+  nextServiceProbability Float     @default(0)
+  nextServiceDate        DateTime?
+  churnProbability       Float     @default(0)
+  churnReason            String?
+  reEngageAfterDays      Int?
+  lastEngagementDate     DateTime?
+  familyNetworkValue     Float     @default(0)
+  referralProbability    Float     @default(0)
+  priceElasticity        String    @default("medium")
+  upgradeReadiness       Float     @default(0)
+  cohortLabel            String?
+  cohortLTVBenchmark     Float     @default(0)
+  user                   User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  computedAt             DateTime  @default(now())
+  updatedAt              DateTime  @updatedAt
 }
