@@ -185,6 +185,13 @@ export function JadeChatWidget() {
     }
   }, [hasGreeted])
 
+  // Listen for jade:open events dispatched by JadeChat buttons anywhere on the page
+  useEffect(() => {
+    const handler = () => handleOpen()
+    window.addEventListener('jade:open', handler)
+    return () => window.removeEventListener('jade:open', handler)
+  }, [handleOpen])
+
   const sendMessage = useCallback(async (text?: string) => {
     const userMessage = (text ?? input).trim()
     if (!userMessage || isLoading) return

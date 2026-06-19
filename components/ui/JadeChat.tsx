@@ -20,24 +20,23 @@ interface JadeChatProps {
 
 export function JadeChat({ context, label = 'Chat with Jade', className = '', variant = 'primary' }: JadeChatProps) {
   function openJade() {
-    function tryOpen(attempts = 0) {
-      if (window.$chatwoot) {
-        window.$chatwoot.setCustomAttributes({
-          source:       context.source,
-          page_title:   context.pageTitle  ?? '',
-          page_url:     context.pageUrl    ?? window.location.pathname,
-          price:        context.price      ?? '',
-          location:     context.location   ?? '',
-          category:     context.category   ?? '',
-          enquiry_type: context.enquiryType ?? context.source,
-        })
-        window.$chatwoot.setLabel(context.enquiryType ?? context.source)
-        window.$chatwoot.toggle('open')
-      } else if (attempts < 20) {
-        setTimeout(() => tryOpen(attempts + 1), 100)
-      }
+    // Always dispatch the custom event so JadeChatWidget can open
+    window.dispatchEvent(new CustomEvent('jade:open', { detail: context }))
+
+    // Also try Chatwoot if the SDK is loaded (graceful enhancement)
+    if (window.$chatwoot) {
+      window.$chatwoot.setCustomAttributes({
+        source:       context.source,
+        page_title:   context.pageTitle  ?? '',
+        page_url:     context.pageUrl    ?? window.location.pathname,
+        price:        context.price      ?? '',
+        location:     context.location   ?? '',
+        category:     context.category   ?? '',
+        enquiry_type: context.enquiryType ?? context.source,
+      })
+      window.$chatwoot.setLabel(context.enquiryType ?? context.source)
+      window.$chatwoot.toggle('open')
     }
-    tryOpen()
   }
 
   const styles = {
