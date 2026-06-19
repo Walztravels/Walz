@@ -6,6 +6,7 @@ import {
   CheckCircle, AlertTriangle, XCircle, Loader2,
   Copy, Check, Printer, ChevronDown, Eye,
   ShieldCheck, FileSearch, MailOpen, Plane, Hotel,
+  ArrowRight,
 } from 'lucide-react'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -34,6 +35,23 @@ interface AppSearchResult {
   lastName:        string | null
   destinationIso2: string
   status:          string
+  // Extra fields (may be present if API returns them)
+  passportNumber?: string | null
+  nationality?:    string | null
+  arrivalDate?:    string | null
+  returnDate?:     string | null
+}
+
+interface FullVisaApp {
+  id:              string
+  firstName?:      string | null
+  lastName?:       string | null
+  middleName?:     string | null
+  passportNumber?: string | null
+  nationality?:    string | null
+  destinationIso2?: string
+  arrivalDate?:    string | null
+  returnDate?:     string | null
 }
 
 interface UploadAnalysis {
@@ -64,6 +82,44 @@ interface FormCheckResult {
   embassyReadiness:     string
 }
 
+interface ErrorMeta {
+  tried?:      string[]
+  params?:     Record<string, string>
+  suggestion?: string
+}
+
+// ─── ISO2 → major IATA (for instant autofill before fetch) ───────────────────
+const COUNTRY_IATA: Record<string, string> = {
+  GB: 'LHR', US: 'JFK', FR: 'CDG', DE: 'FRA', AE: 'DXB',
+  CA: 'YYZ', AU: 'SYD', NL: 'AMS', ES: 'MAD', IT: 'FCO',
+  PT: 'LIS', IE: 'DUB', BE: 'BRU', CH: 'ZRH', AT: 'VIE',
+  SE: 'ARN', DK: 'CPH', NO: 'OSL', FI: 'HEL', PL: 'WAW',
+  GH: 'ACC', NG: 'LOS', KE: 'NBO', ZA: 'JNB', ET: 'ADD',
+  EG: 'CAI', MA: 'CMN', SN: 'DKR', TZ: 'DAR', UG: 'EBB',
+  IN: 'BOM', PK: 'KHI', BD: 'DAC', LK: 'CMB', NP: 'KTM',
+  CN: 'PEK', JP: 'NRT', KR: 'ICN', SG: 'SIN', MY: 'KUL',
+  BR: 'GRU', MX: 'MEX', AR: 'EZE', CO: 'BOG', PE: 'LIM',
+  QA: 'DOH', SA: 'RUH', TR: 'IST', RU: 'SVO', OM: 'MCT',
+  CM: 'DLA', CI: 'ABJ', SL: 'FNA', RW: 'KGL', ZW: 'HRE', ZM: 'LUN',
+}
+
+// ─── Nationality string → nearest major IATA airport ──────────────────────────
+const NATIONALITY_IATA: Record<string, string> = {
+  Nigerian: 'LOS', Ghanaian: 'ACC', Kenyan: 'NBO', 'South African': 'JNB',
+  Ethiopian: 'ADD', Egyptian: 'CAI', Moroccan: 'CMN', Senegalese: 'DKR',
+  Tanzanian: 'DAR', Ugandan: 'EBB', Rwandan: 'KGL', Zimbabwean: 'HRE',
+  Zambian: 'LUN', Cameroonian: 'DLA', Ivorian: 'ABJ', 'Sierra Leonean': 'FNA',
+  British: 'LHR', American: 'JFK', Canadian: 'YYZ', Australian: 'SYD',
+  French: 'CDG', German: 'FRA', Dutch: 'AMS', Spanish: 'MAD',
+  Italian: 'FCO', Portuguese: 'LIS', Irish: 'DUB', Belgian: 'BRU',
+  Swiss: 'ZRH', Austrian: 'VIE', Swedish: 'ARN', Norwegian: 'OSL',
+  Indian: 'BOM', Pakistani: 'KHI', Bangladeshi: 'DAC', 'Sri Lankan': 'CMB',
+  Nepali: 'KTM', Chinese: 'PEK', Japanese: 'NRT', Korean: 'ICN',
+  Singaporean: 'SIN', Malaysian: 'KUL', Brazilian: 'GRU', Mexican: 'MEX',
+  Qatari: 'DOH', 'Saudi Arabian': 'RUH', Turkish: 'IST', Lebanese: 'BEY',
+  Omani: 'MCT', Kuwaiti: 'KWI',
+}
+
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const TABS: Array<{ id: TabId; label: string; icon: React.ElementType; desc: string }> = [
@@ -75,17 +131,17 @@ const TABS: Array<{ id: TabId; label: string; icon: React.ElementType; desc: str
 ]
 
 const DOC_TYPES = [
-  { value: 'passport',            label: 'Passport' },
-  { value: 'bank_statement',      label: 'Bank Statement' },
-  { value: 'payslip',             label: 'Payslip' },
-  { value: 'employment_letter',   label: 'Employment Letter' },
-  { value: 'utility_bill',        label: 'Utility Bill' },
-  { value: 'invitation_letter',   label: 'Invitation Letter' },
-  { value: 'insurance',           label: 'Insurance Certificate' },
-  { value: 'hotel_booking',       label: 'Hotel Booking' },
-  { value: 'flight_itinerary',    label: 'Flight Itinerary' },
-  { value: 'travel_history',      label: 'Travel History' },
-  { value: 'tax_return',          label: 'Tax Return' },
+  { value: 'passport',              label: 'Passport' },
+  { value: 'bank_statement',        label: 'Bank Statement' },
+  { value: 'payslip',              label: 'Payslip' },
+  { value: 'employment_letter',    label: 'Employment Letter' },
+  { value: 'utility_bill',         label: 'Utility Bill' },
+  { value: 'invitation_letter',    label: 'Invitation Letter' },
+  { value: 'insurance',            label: 'Insurance Certificate' },
+  { value: 'hotel_booking',        label: 'Hotel Booking' },
+  { value: 'flight_itinerary',     label: 'Flight Itinerary' },
+  { value: 'travel_history',       label: 'Travel History' },
+  { value: 'tax_return',           label: 'Tax Return' },
   { value: 'business_registration', label: 'Business Registration' },
 ]
 
@@ -115,7 +171,7 @@ const FORM_TYPES = [
 
 const VERDICT_TABS: Verdict[] = ['all', 'authentic', 'suspicious', 'fraudulent']
 
-// ─── Helpers ─────────────────────────────────────────────────────────────────
+// ─── Helpers ──────────────────────────────────────────────────────────────────
 
 const INPUT = 'w-full h-9 px-3 border border-gray-200 rounded-lg text-sm outline-none focus:border-[#C9A84C] bg-white'
 
@@ -161,7 +217,13 @@ function CopyBtn({ text }: { text: string }) {
 
 // ─── Application search ───────────────────────────────────────────────────────
 
-function AppSearch({ value, onChange }: { value: string; onChange: (id: string, label: string) => void }) {
+function AppSearch({
+  value, onChange, onSelect,
+}: {
+  value:     string
+  onChange:  (id: string, label: string) => void
+  onSelect?: (app: AppSearchResult) => void
+}) {
   const [query,   setQuery]   = useState('')
   const [results, setResults] = useState<AppSearchResult[]>([])
   const [open,    setOpen]    = useState(false)
@@ -177,11 +239,16 @@ function AppSearch({ value, onChange }: { value: string; onChange: (id: string, 
     } catch { setResults([]) }
   }, [])
 
-  useEffect(() => { const t = setTimeout(() => void search(query), 300); return () => clearTimeout(t) }, [query, search])
+  useEffect(() => {
+    const t = setTimeout(() => void search(query), 300)
+    return () => clearTimeout(t)
+  }, [query, search])
 
   const select = (app: AppSearchResult) => {
     const lbl = `${app.referenceNumber} — ${app.firstName ?? ''} ${app.lastName ?? ''} (${app.destinationIso2})`
-    setLabel(lbl); setQuery(''); setOpen(false); onChange(app.id, lbl)
+    setLabel(lbl); setQuery(''); setOpen(false)
+    onChange(app.id, lbl)
+    onSelect?.(app)
   }
 
   return (
@@ -238,8 +305,8 @@ function UploadTab() {
       fd.append('applicationId', appId)
       const res  = await fetch('/api/admin/intelligence/visa-doc-upload', { method: 'POST', body: fd })
       const data = await res.json()
-      if (data.analysis)    setAnalysis(data.analysis)
-      if (data.check)       setCheckRecord(data.check)
+      if (data.analysis)  setAnalysis(data.analysis)
+      if (data.check)     setCheckRecord(data.check)
     } catch (e) { console.error(e) }
     finally { setLoading(false) }
   }
@@ -249,7 +316,6 @@ function UploadTab() {
 
   return (
     <div className="space-y-6">
-      {/* Upload area */}
       <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-6">
         <h2 className="text-sm font-bold text-[#0B1F3A] mb-4 flex items-center gap-2">
           <Upload className="w-4 h-4 text-[#C9A84C]" /> Upload Document for AI Analysis
@@ -274,8 +340,7 @@ function UploadTab() {
           onDrop={handleDrop}
           className={`border-2 border-dashed rounded-xl p-10 text-center cursor-pointer transition-all ${
             dragging ? 'border-[#C9A84C] bg-[#C9A84C]/5' : file ? 'border-green-400 bg-green-50' : 'border-gray-200 hover:border-[#C9A84C] hover:bg-gray-50'
-          }`}
-        >
+          }`}>
           <input ref={fileRef} type="file" className="hidden" accept="image/*,.pdf"
             onChange={e => { const f = e.target.files?.[0]; if (f) setFile(f) }} />
           {file ? (
@@ -295,15 +360,13 @@ function UploadTab() {
         </div>
 
         <button onClick={() => void submit()} disabled={!file || loading}
-          className="mt-4 h-10 px-6 bg-[#0B1F3A] text-white text-sm font-semibold rounded-lg
-            hover:bg-[#0d2345] disabled:opacity-40 transition-colors flex items-center gap-2">
+          className="mt-4 h-10 px-6 bg-[#0B1F3A] text-white text-sm font-semibold rounded-lg hover:bg-[#0d2345] disabled:opacity-40 transition-colors flex items-center gap-2">
           {loading ? <><Loader2 className="w-4 h-4 animate-spin" /> Analysing with AI…</> : <><ShieldCheck className="w-4 h-4" /> Run AI Analysis</>}
         </button>
       </div>
 
-      {/* Analysis result */}
       {analysis && (
-        <div className={`bg-white rounded-xl border shadow-sm overflow-hidden`}>
+        <div className="bg-white rounded-xl border shadow-sm overflow-hidden">
           <div className={`px-6 py-4 border-b ${scoreBg} border`}>
             <div className="flex items-center justify-between">
               <div>
@@ -358,9 +421,7 @@ function UploadTab() {
               {analysis.consistencyChecks && Object.entries(analysis.consistencyChecks).map(([k, v]) => (
                 <div key={k} className="flex items-center justify-between text-sm">
                   <span className="text-gray-500 capitalize">{k.replace(/([A-Z])/g, ' $1').trim()}</span>
-                  <span className={`font-semibold ${v === 'pass' ? 'text-green-600' : v === 'fail' ? 'text-red-600' : 'text-gray-400'}`}>
-                    {v}
-                  </span>
+                  <span className={`font-semibold ${v === 'pass' ? 'text-green-600' : v === 'fail' ? 'text-red-600' : 'text-gray-400'}`}>{v}</span>
                 </div>
               ))}
             </div>
@@ -444,7 +505,7 @@ function FormCheckTab() {
         <h2 className="text-sm font-bold text-[#0B1F3A] mb-1 flex items-center gap-2">
           <FileSearch className="w-4 h-4 text-[#C9A84C]" /> Embassy Form Cross-Checker
         </h2>
-        <p className="text-xs text-gray-500 mb-5">Upload a completed embassy form — AI cross-references every field against the client's database record and highlights errors.</p>
+        <p className="text-xs text-gray-500 mb-5">Upload a completed embassy form — AI cross-references every field against the client&apos;s database record and highlights errors.</p>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
           <div>
@@ -670,49 +731,96 @@ function DummyTicketTab() {
   const [pdfBase64,     setPdfBase64]     = useState('')
   const [flightDetails, setFlightDetails] = useState<FlightDetails | null>(null)
   const [error,         setError]         = useState('')
+  const [errorMeta,     setErrorMeta]     = useState<ErrorMeta | null>(null)
 
   // Live mode fields
-  const [originIata,  setOriginIata]  = useState('LOS')
-  const [destIata,    setDestIata]    = useState('')
-  const [depDate,     setDepDate]     = useState('')
-  const [retDate,     setRetDate]     = useState('')
-  const [cabin,       setCabin]       = useState('economy')
-  const [clientName,  setClientName]  = useState('')
-  const [passportNo,  setPassportNo]  = useState('')
+  const [originIata, setOriginIata] = useState('LOS')
+  const [destIata,   setDestIata]   = useState('')
+  const [depDate,    setDepDate]    = useState('')
+  const [retDate,    setRetDate]    = useState('')
+  const [cabin,      setCabin]      = useState('economy')
+  const [clientName, setClientName] = useState('')
+  const [passportNo, setPassportNo] = useState('')
 
   // Manual mode fields
-  const [mFromCode,   setMFromCode]   = useState('')
-  const [mFromCity,   setMFromCity]   = useState('')
-  const [mToCode,     setMToCode]     = useState('')
-  const [mToCity,     setMToCity]     = useState('')
-  const [mAirline,    setMAirline]    = useState('')
-  const [mFlightNo,   setMFlightNo]   = useState('')
-  const [mDepDT,      setMDepDT]      = useState('')
-  const [mArrDT,      setMArrDT]      = useState('')
-  const [mDuration,   setMDuration]   = useState('')
-  const [mCabin,      setMCabin]      = useState('ECONOMY')
-  const [mSeat,       setMSeat]       = useState('')
-  const [mBaggage,    setMBaggage]    = useState('1 × 23kg checked + 7kg cabin')
-  const [mTerminal,   setMTerminal]   = useState('')
-  const [mGate,       setMGate]       = useState('')
-  const [mPNR,        setMPNR]        = useState('')
-  const [mMessage,    setMMMessage]   = useState('')
+  const [mFromCode, setMFromCode] = useState('')
+  const [mFromCity, setMFromCity] = useState('')
+  const [mToCode,   setMToCode]   = useState('')
+  const [mToCity,   setMToCity]   = useState('')
+  const [mAirline,  setMAirline]  = useState('')
+  const [mFlightNo, setMFlightNo] = useState('')
+  const [mDepDT,    setMDepDT]    = useState('')
+  const [mArrDT,    setMArrDT]    = useState('')
+  const [mDuration, setMDuration] = useState('')
+  const [mCabin,    setMCabin]    = useState('ECONOMY')
+  const [mSeat,     setMSeat]     = useState('')
+  const [mBaggage,  setMBaggage]  = useState('1 × 23kg checked + 7kg cabin')
+  const [mTerminal, setMTerminal] = useState('')
+  const [mGate,     setMGate]     = useState('')
+  const [mPNR,      setMPNR]      = useState('')
+  const [mMessage,  setMMMessage] = useState('')
 
   // Hotel fields
-  const [hName,       setHName]       = useState('')
-  const [hAddress,    setHAddress]    = useState('')
-  const [hCheckIn,    setHCheckIn]    = useState('')
-  const [hCheckOut,   setHCheckOut]   = useState('')
-  const [hRoomType,   setHRoomType]   = useState('Standard Double Room')
-  const [hGuests,     setHGuests]     = useState('1')
+  const [hName,     setHName]     = useState('')
+  const [hAddress,  setHAddress]  = useState('')
+  const [hCheckIn,  setHCheckIn]  = useState('')
+  const [hCheckOut, setHCheckOut] = useState('')
+  const [hRoomType, setHRoomType] = useState('Standard Double Room')
+  const [hGuests,   setHGuests]   = useState('1')
+
+  // ── Autofill Bug Fix: fetch full app details when appId is set ───────────────
+  useEffect(() => {
+    if (!appId) return
+    fetch(`/api/admin/visa-applications/${appId}`)
+      .then(r => r.ok ? r.json() : null)
+      .then((data: { application?: FullVisaApp } | FullVisaApp | null) => {
+        if (!data) return
+        const app: FullVisaApp = (data as { application?: FullVisaApp }).application ?? (data as FullVisaApp)
+        if (!app) return
+
+        const name = [app.firstName, app.middleName, app.lastName].filter(Boolean).join(' ')
+        if (name)                setClientName(name)
+        if (app.passportNumber)  setPassportNo(app.passportNumber)
+
+        // Destination IATA from ISO2
+        const destCode = app.destinationIso2 ? (COUNTRY_IATA[app.destinationIso2] ?? '') : ''
+        if (destCode) { setDestIata(destCode); setMToCode(destCode) }
+
+        // Origin IATA from nationality
+        const origCode = app.nationality ? (NATIONALITY_IATA[app.nationality] ?? '') : ''
+        if (origCode) { setOriginIata(origCode); setMFromCode(origCode) }
+
+        // Dates
+        if (app.arrivalDate) {
+          const d = String(app.arrivalDate).slice(0, 10)
+          setDepDate(d)
+          setMDepDT(d + 'T08:00')
+          if (mode === 'hotel') setHCheckIn(d)
+        }
+        if (app.returnDate) {
+          const d = String(app.returnDate).slice(0, 10)
+          setRetDate(d)
+          if (mode === 'hotel') setHCheckOut(d)
+        }
+      })
+      .catch(() => {}) // Non-fatal — autofill degrades gracefully
+  }, [appId]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Immediate partial autofill from search result (before full fetch returns) ─
+  const handleAppSelect = (app: AppSearchResult) => {
+    const name = [app.firstName, app.lastName].filter(Boolean).join(' ')
+    if (name) setClientName(name)
+    const destCode = app.destinationIso2 ? (COUNTRY_IATA[app.destinationIso2] ?? '') : ''
+    if (destCode) { setDestIata(destCode); setMToCode(destCode) }
+  }
 
   const generate = async () => {
-    setLoading(true); setPdfUrl(''); setPdfBase64(''); setFlightDetails(null); setError('')
+    setLoading(true); setPdfUrl(''); setPdfBase64(''); setFlightDetails(null); setError(''); setErrorMeta(null)
     try {
       const payload: Record<string, unknown> = {
         mode,
-        applicationId: appId || undefined,
-        clientName:    clientName || undefined,
+        applicationId:  appId || undefined,
+        clientName:     clientName || undefined,
         passportNumber: passportNo || undefined,
       }
 
@@ -739,9 +847,13 @@ function DummyTicketTab() {
       })
       const data = await res.json()
 
-      if (!res.ok) { setError(data.error ?? 'Unknown error'); return }
-      if (data.pdfUrl)        setPdfUrl(data.pdfUrl)
-      if (data.pdf_base64)    setPdfBase64(data.pdf_base64)
+      if (!res.ok) {
+        setError(data.error ?? 'Unknown error')
+        setErrorMeta({ tried: data.tried, params: data.params, suggestion: data.suggestion })
+        return
+      }
+      if (data.pdfUrl)         setPdfUrl(data.pdfUrl)
+      if (data.pdf_base64)     setPdfBase64(data.pdf_base64)
       if (data.flight_details) setFlightDetails(data.flight_details as FlightDetails)
     } catch (e) { setError(String(e)) }
     finally { setLoading(false) }
@@ -755,10 +867,12 @@ function DummyTicketTab() {
     a.click()
   }
 
+  const resetOutput = () => { setPdfUrl(''); setPdfBase64(''); setFlightDetails(null); setError(''); setErrorMeta(null) }
+
   const MODES: Array<{ id: TicketMode; icon: React.ElementType; label: string; desc: string }> = [
-    { id: 'live',   icon: Plane,    label: 'Live Flight Search',  desc: 'Real Duffel data' },
-    { id: 'manual', icon: FileText, label: 'Manual Entry',        desc: 'Enter all fields' },
-    { id: 'hotel',  icon: Hotel,    label: 'Hotel Voucher',       desc: 'Accommodation' },
+    { id: 'live',   icon: Plane,    label: 'Live Flight Search', desc: 'Duffel · Amadeus' },
+    { id: 'manual', icon: FileText, label: 'Manual Entry',       desc: 'Enter all fields' },
+    { id: 'hotel',  icon: Hotel,    label: 'Hotel Voucher',      desc: 'Accommodation' },
   ]
 
   return (
@@ -768,8 +882,9 @@ function DummyTicketTab() {
           <Ticket className="w-4 h-4 text-[#C9A84C]" /> Flight Itinerary Generator
         </h2>
         <p className="text-xs text-gray-500 mb-5">
-          Live mode searches real scheduled flights via Duffel and generates a professional branded PDF.
-          Manual mode lets you enter any details. Hotel mode generates an accommodation voucher. Application link is optional — for auto-fill only.
+          Live mode searches real scheduled flights via Duffel (Amadeus fallback) and generates a branded PDF.
+          Manual mode lets you enter any details. Hotel mode generates an accommodation voucher.
+          Link an application to auto-fill passenger details.
         </p>
 
         {/* Mode selector */}
@@ -777,7 +892,7 @@ function DummyTicketTab() {
           {MODES.map(m => {
             const Icon = m.icon
             return (
-              <button key={m.id} onClick={() => { setMode(m.id); setError(''); setPdfUrl(''); setPdfBase64(''); setFlightDetails(null) }}
+              <button key={m.id} onClick={() => { setMode(m.id); resetOutput() }}
                 className={`flex items-center gap-2 px-4 py-2.5 rounded-xl border text-sm font-semibold transition-all ${
                   mode === m.id ? 'bg-[#0B1F3A] text-white border-[#0B1F3A]' : 'text-gray-600 border-gray-200 hover:border-gray-300 bg-white'
                 }`}>
@@ -789,11 +904,15 @@ function DummyTicketTab() {
           })}
         </div>
 
-        {/* Shared: optional application link + passenger */}
+        {/* Shared: application link + passenger */}
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-5 pb-5 border-b border-gray-100">
           <div className="sm:col-span-2">
-            <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1 block">Link Visa Application (optional — auto-fills data)</label>
-            <AppSearch value={appId} onChange={(id) => setAppId(id)} />
+            <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1 block">Link Visa Application (optional — auto-fills all 6 fields)</label>
+            <AppSearch
+              value={appId}
+              onChange={(id) => { setAppId(id); if (!id) { setClientName(''); setPassportNo(''); setDestIata(''); setOriginIata('LOS'); setDepDate(''); setRetDate('') } }}
+              onSelect={handleAppSelect}
+            />
           </div>
           <div>
             <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1 block">Passenger Name</label>
@@ -881,10 +1000,28 @@ function DummyTicketTab() {
           }
         </button>
 
+        {/* Error card with Switch to Manual button */}
         {error && (
           <div className="mt-4 p-4 bg-red-50 border border-red-200 rounded-xl">
-            <p className="text-sm font-semibold text-red-700 mb-1">Error</p>
+            <p className="text-sm font-semibold text-red-700 mb-1">
+              {errorMeta?.tried ? `No flights found (tried: ${errorMeta.tried.join(', ')})` : 'Error'}
+            </p>
             <p className="text-sm text-red-600">{error}</p>
+            {errorMeta?.suggestion && (
+              <p className="text-xs text-gray-500 mt-1.5">{errorMeta.suggestion}</p>
+            )}
+            {errorMeta?.params && (
+              <p className="text-xs text-gray-400 mt-1 font-mono">
+                {errorMeta.params.origin} → {errorMeta.params.destination} · {errorMeta.params.departureDate}
+              </p>
+            )}
+            {errorMeta?.tried && mode === 'live' && (
+              <button
+                onClick={() => { setMode('manual'); setError(''); setErrorMeta(null) }}
+                className="mt-3 flex items-center gap-1.5 text-xs font-semibold text-[#0B1F3A] hover:text-[#C9A84C] transition-colors">
+                <ArrowRight className="w-3.5 h-3.5" /> Switch to Manual Entry
+              </button>
+            )}
           </div>
         )}
       </div>
@@ -939,9 +1076,9 @@ function DummyTicketTab() {
 // ─── Tab: Document History ────────────────────────────────────────────────────
 
 function HistoryTab() {
-  const [checks,  setChecks]  = useState<DocCheck[]>([])
-  const [loading, setLoading] = useState(true)
-  const [verdict, setVerdict] = useState<Verdict>('all')
+  const [checks,   setChecks]   = useState<DocCheck[]>([])
+  const [loading,  setLoading]  = useState(true)
+  const [verdict,  setVerdict]  = useState<Verdict>('all')
   const [expanded, setExpanded] = useState<string | null>(null)
 
   const load = useCallback(async () => {
@@ -972,7 +1109,7 @@ function HistoryTab() {
 
       <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
         {loading ? (
-          <div className="p-12 text-center"><Loader2 className="w-6 h-6 border-0 animate-spin text-[#C9A84C] mx-auto" /></div>
+          <div className="p-12 text-center"><Loader2 className="w-6 h-6 animate-spin text-[#C9A84C] mx-auto" /></div>
         ) : filtered.length === 0 ? (
           <div className="p-12 text-center text-sm text-gray-400">No document checks found.</div>
         ) : (
@@ -1028,8 +1165,8 @@ function HistoryTab() {
                             <td colSpan={9} className="px-4 py-4 bg-blue-50 border-t border-blue-100">
                               <div className="grid grid-cols-2 gap-4 text-xs">
                                 {ev.officerNotes && <div className="col-span-2"><strong className="text-blue-700">Officer Notes:</strong> <span className="text-gray-700">{ev.officerNotes}</span></div>}
-                                {ev.holderName    && <div><strong>Holder:</strong> {ev.holderName}</div>}
-                                {ev.expiryDate    && <div><strong>Expiry:</strong> {ev.expiryDate}</div>}
+                                {ev.holderName   && <div><strong>Holder:</strong> {ev.holderName}</div>}
+                                {ev.expiryDate   && <div><strong>Expiry:</strong> {ev.expiryDate}</div>}
                                 {ev.embassyReadinessRating && <div><strong>Embassy Readiness:</strong> {ev.embassyReadinessRating}</div>}
                                 {ev.recommendedActions?.length > 0 && (
                                   <div className="col-span-2"><strong>Actions:</strong> {ev.recommendedActions.join(' · ')}</div>
@@ -1050,10 +1187,6 @@ function HistoryTab() {
     </div>
   )
 }
-
-// ─── Application search API stub (if missing) ──────────────────────────────────
-// The AppSearch component calls /api/admin/intelligence/visa-applications/search?q=
-// That may or may not exist — gracefully degrades to empty results.
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
@@ -1096,7 +1229,6 @@ export default function DocAuthPage() {
         })}
       </div>
 
-      {/* Tab content */}
       {activeTab === 'upload'       && <UploadTab />}
       {activeTab === 'form-check'   && <FormCheckTab />}
       {activeTab === 'letters'      && <LettersTab />}
