@@ -1,275 +1,402 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getAdminSession } from '@/lib/admin-auth'
+import { duffelPost } from '@/lib/duffel/client'
 import prisma from '@/lib/db'
+import { renderToBuffer } from '@react-pdf/renderer'
+import { createClient } from '@supabase/supabase-js'
+import React from 'react'
+import { TicketPDFDocument, type TicketData } from '@/components/admin/TicketPDF'
 
-export const dynamic = 'force-dynamic'
+export const dynamic     = 'force-dynamic'
+export const maxDuration = 60
 
-const AIRLINES: Record<string, { code: string; iata: string }> = {
-  GB: { code: 'BA',   iata: 'BAW' },
-  US: { code: 'UA',   iata: 'UAL' },
-  AE: { code: 'EK',   iata: 'UAE' },
-  QA: { code: 'QR',   iata: 'QTR' },
-  TR: { code: 'TK',   iata: 'THY' },
-  NG: { code: 'W3',   iata: 'AZI' },
-  GH: { code: 'GH',   iata: 'GHA' },
-  DE: { code: 'LH',   iata: 'DLH' },
-  FR: { code: 'AF',   iata: 'AFR' },
-  NL: { code: 'KL',   iata: 'KLM' },
-  CA: { code: 'AC',   iata: 'ACA' },
-  DEFAULT: { code: 'BA', iata: 'BAW' },
+const BUCKET = 'generated-tickets'
+
+const supabase = createClient(
+  process.env.NEXT_PUBLIC_SUPABASE_URL!,
+  process.env.SUPABASE_SERVICE_ROLE_KEY!,
+)
+
+// ─── Major carrier scoring (higher = more preferred) ─────────────────────────
+const PREFERRED_CARRIERS: Record<string, number> = {
+  BA: 10, EK: 10, QR: 10, LH: 9, AF: 9, KL: 9, ET: 8,
+  TK: 8, UA: 7, AA: 7, DL: 7, SQ: 10, CX: 9, VS: 8,
+  W3: 6, WT: 5, DY: 4, FR: 3, U2: 3, VY: 3,
 }
 
-const AIRPORTS: Record<string, { name: string; terminal: string }> = {
-  LOS: { name: 'Murtala Muhammed International', terminal: 'International' },
-  LHR: { name: 'London Heathrow',                terminal: 'Terminal 5'   },
-  JFK: { name: 'John F. Kennedy International',  terminal: 'Terminal 4'   },
-  DXB: { name: 'Dubai International',            terminal: 'Terminal 3'   },
-  CDG: { name: 'Charles de Gaulle',              terminal: 'Terminal 2E'  },
-  AMS: { name: 'Amsterdam Schiphol',             terminal: 'Schengen'     },
-  FRA: { name: 'Frankfurt Airport',              terminal: 'Terminal 1'   },
-  ACC: { name: 'Kotoka International',           terminal: 'Terminal 3'   },
-  YYZ: { name: 'Toronto Pearson International',  terminal: 'Terminal 1'   },
-  IST: { name: 'Istanbul Airport',               terminal: 'International' },
+function makeRef(): string {
+  return `WLZ-FLT-${Math.random().toString(36).slice(2, 8).toUpperCase()}`
 }
 
 function genPNR(): string {
   return Array.from({ length: 6 }, () => 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'[Math.floor(Math.random() * 32)]).join('')
 }
 
-function genBookingRef(prefix = 'HTL'): string {
-  return prefix + Math.floor(100000 + Math.random() * 900000)
+function genSeat(): string {
+  return `${Math.floor(10 + Math.random() * 30)}${['A','B','C','D','E','F'][Math.floor(Math.random() * 6)]}`
 }
 
-function formatDate(d: Date): string {
-  return d.toLocaleDateString('en-GB', { weekday: 'short', day: '2-digit', month: 'short', year: 'numeric' })
+function fmtDate(iso: string): string {
+  return new Date(iso).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
+}
+function fmtTime(iso: string): string {
+  return new Date(iso).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false })
+}
+function fmtDuration(iso: string): string {
+  const m = iso.match(/PT(?:(\d+)H)?(?:(\d+)M)?/)
+  if (!m) return iso
+  const h = m[1] ? `${m[1]}h ` : ''
+  const min = m[2] ? `${m[2]}m` : ''
+  return `${h}${min}`.trim()
 }
 
-function formatTime(d: Date): string {
-  return d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false })
+// ─── Score an offer for quality (prefers major carriers, direct flights) ──────
+function scoreOffer(offer: {
+  slices: Array<{ segments: Array<{ marketing_carrier: { iata_code: string } }> }>
+}): number {
+  const firstSeg = offer.slices[0]?.segments[0]
+  if (!firstSeg) return 0
+  const carrier = firstSeg.marketing_carrier.iata_code
+  const carrierScore = PREFERRED_CARRIERS[carrier] ?? 5
+  const stops = offer.slices.reduce((acc, s) => acc + Math.max(0, s.segments.length - 1), 0)
+  return carrierScore - stops * 2
 }
 
-function addHours(d: Date, h: number): Date {
-  return new Date(d.getTime() + h * 60 * 60 * 1000)
+// ─── Upload PDF to Supabase and return public URL ─────────────────────────────
+async function uploadPDF(buffer: Buffer, reference: string): Promise<string | null> {
+  try {
+    const now   = new Date()
+    const year  = now.getFullYear()
+    const month = String(now.getMonth() + 1).padStart(2, '0')
+    const path  = `tickets/${year}/${month}/${reference}.pdf`
+    const { error } = await supabase.storage
+      .from(BUCKET)
+      .upload(path, buffer, { contentType: 'application/pdf', upsert: true })
+    if (error) { console.warn('[dummy-ticket] upload:', error.message); return null }
+    const { data } = supabase.storage.from(BUCKET).getPublicUrl(path)
+    return data?.publicUrl ?? null
+  } catch (e) {
+    console.warn('[dummy-ticket] upload error:', e)
+    return null
+  }
 }
 
-function buildFlightTicketHTML(
-  fullName: string,
-  passportNumber: string,
-  nationality: string,
-  originIata: string,
-  destinationIso2: string,
-  departureDate: Date,
-  returnDate: Date | null,
-  pnr: string,
-): string {
-  const airline     = AIRLINES[destinationIso2] ?? AIRLINES.DEFAULT
-  const origin      = AIRPORTS[originIata]      ?? { name: originIata, terminal: 'International' }
-  const dest        = Object.entries(AIRPORTS).find(([k]) => k !== originIata)?.[1] ?? { name: destinationIso2, terminal: 'International' }
-  const destCode    = destinationIso2 === 'GB' ? 'LHR' : destinationIso2 === 'AE' ? 'DXB' : destinationIso2 === 'US' ? 'JFK' : destinationIso2 === 'CA' ? 'YYZ' : destinationIso2 === 'DE' ? 'FRA' : destinationIso2 === 'NL' ? 'AMS' : destinationIso2 === 'FR' ? 'CDG' : destinationIso2 === 'TR' ? 'IST' : 'LHR'
-  const destAirport = AIRPORTS[destCode] ?? { name: destinationIso2, terminal: 'International' }
-  const flight1     = `${airline.code}${Math.floor(100 + Math.random() * 899)}`
-  const dep1        = departureDate
-  const arr1        = addHours(dep1, 6 + Math.random() * 3)
-  const seat1       = `${Math.floor(10 + Math.random() * 30)}${['A','B','C','D','E','F'][Math.floor(Math.random()*6)]}`
-  const gate1       = `${['A','B','C','D','E'][Math.floor(Math.random()*5)]}${Math.floor(1 + Math.random() * 30)}`
-  const flight2     = returnDate ? `${airline.code}${Math.floor(100 + Math.random() * 899)}` : null
-  const dep2        = returnDate
-  const arr2        = returnDate ? addHours(returnDate, 6 + Math.random() * 3) : null
-  const seat2       = `${Math.floor(10 + Math.random() * 30)}${['A','B','C','D','E','F'][Math.floor(Math.random()*6)]}`
-  const gate2       = `${['A','B','C','D','E'][Math.floor(Math.random()*5)]}${Math.floor(1 + Math.random() * 30)}`
-
-  const segmentHTML = (
-    flightNo: string, fromCode: string, fromName: string, fromTerm: string,
-    toCode: string, toName: string, toTerm: string,
-    depDate: Date, arrDate: Date, seat: string, gate: string, label: string
-  ) => `
-<div style="background:#fff;border-radius:12px;box-shadow:0 2px 16px rgba(0,0,0,0.1);margin:0 0 20px;overflow:hidden;font-family:'Helvetica Neue',Arial,sans-serif;position:relative;">
-  <div style="background:linear-gradient(135deg,#003580,#0052cc);padding:16px 24px;display:flex;justify-content:space-between;align-items:center;">
-    <div style="color:#fff;">
-      <div style="font-size:11px;opacity:0.8;letter-spacing:1px;text-transform:uppercase;">${label}</div>
-      <div style="font-size:22px;font-weight:700;margin-top:2px;">Flight ${flightNo}</div>
-    </div>
-    <div style="text-align:right;color:#fff;">
-      <div style="font-size:11px;opacity:0.8;">PNR / BOOKING REF</div>
-      <div style="font-size:20px;font-weight:700;letter-spacing:3px;">${pnr}</div>
-    </div>
-  </div>
-  <div style="padding:20px 24px;background:#f8faff;">
-    <div style="display:flex;align-items:center;gap:0;">
-      <div style="flex:1;text-align:left;">
-        <div style="font-size:42px;font-weight:700;color:#003580;line-height:1;">${fromCode}</div>
-        <div style="font-size:12px;color:#555;margin-top:4px;">${fromName}</div>
-        <div style="font-size:11px;color:#888;">${fromTerm}</div>
-        <div style="font-size:20px;font-weight:600;color:#111;margin-top:8px;">${formatTime(depDate)}</div>
-        <div style="font-size:12px;color:#555;">${formatDate(depDate)}</div>
-      </div>
-      <div style="flex:0 0 80px;text-align:center;padding:0 8px;">
-        <div style="font-size:10px;color:#999;letter-spacing:0.5px;">DIRECT</div>
-        <div style="height:2px;background:linear-gradient(to right,#003580,#0052cc);margin:6px 0;position:relative;">
-          <div style="position:absolute;right:-4px;top:-5px;font-size:14px;">✈</div>
-        </div>
-      </div>
-      <div style="flex:1;text-align:right;">
-        <div style="font-size:42px;font-weight:700;color:#003580;line-height:1;">${toCode}</div>
-        <div style="font-size:12px;color:#555;margin-top:4px;">${toName}</div>
-        <div style="font-size:11px;color:#888;">${toTerm}</div>
-        <div style="font-size:20px;font-weight:600;color:#111;margin-top:8px;">${formatTime(arrDate)}</div>
-        <div style="font-size:12px;color:#555;">${formatDate(arrDate)}</div>
-      </div>
-    </div>
-  </div>
-  <div style="display:flex;border-top:1px dashed #dde4f0;padding:14px 24px;gap:0;">
-    <div style="flex:1;border-right:1px dashed #dde4f0;padding-right:16px;">
-      <div style="font-size:10px;color:#999;text-transform:uppercase;letter-spacing:0.5px;">Passenger</div>
-      <div style="font-size:14px;font-weight:600;color:#111;margin-top:2px;">${fullName.toUpperCase()}</div>
-      <div style="font-size:11px;color:#555;margin-top:2px;">Passport: ${passportNumber || 'N/A'} · ${nationality || ''}</div>
-    </div>
-    <div style="flex:1;padding:0 16px;border-right:1px dashed #dde4f0;">
-      <div style="font-size:10px;color:#999;text-transform:uppercase;letter-spacing:0.5px;">Seat</div>
-      <div style="font-size:22px;font-weight:700;color:#003580;margin-top:2px;">${seat}</div>
-      <div style="font-size:11px;color:#555;">Economy Class</div>
-    </div>
-    <div style="flex:1;padding:0 16px;border-right:1px dashed #dde4f0;">
-      <div style="font-size:10px;color:#999;text-transform:uppercase;letter-spacing:0.5px;">Gate</div>
-      <div style="font-size:22px;font-weight:700;color:#003580;margin-top:2px;">${gate}</div>
-      <div style="font-size:11px;color:#555;">Closes 45 min before</div>
-    </div>
-    <div style="flex:1;padding-left:16px;">
-      <div style="font-size:10px;color:#999;text-transform:uppercase;letter-spacing:0.5px;">Baggage</div>
-      <div style="font-size:14px;font-weight:600;color:#111;margin-top:2px;">1 × 23kg</div>
-      <div style="font-size:11px;color:#555;">+ 7kg cabin bag</div>
-    </div>
-  </div>
-  <div style="background:#003580;padding:10px 24px;text-align:center;">
-    <div style="font-family:monospace;font-size:13px;letter-spacing:6px;color:#fff;opacity:0.7;">|||||||||||||||||||||||||||||||||||||||||||||||||||||</div>
-    <div style="font-size:10px;color:#fff;opacity:0.5;margin-top:2px;">${pnr}-${flightNo}-${seat}</div>
-  </div>
-</div>`
-
-  const watermark = `<div style="background:#fff3cd;border:2px dashed #e6a817;border-radius:8px;padding:12px 20px;text-align:center;margin-bottom:20px;">
-  <div style="font-size:13px;font-weight:700;color:#7d4c00;letter-spacing:2px;">⚠ FOR VISA APPLICATION PURPOSES ONLY — NOT A REAL TICKET ⚠</div>
-  <div style="font-size:11px;color:#a06000;margin-top:4px;">This is a dummy flight itinerary generated for visa application support. Not valid for travel.</div>
-</div>`
-
-  return `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><title>Flight Itinerary — ${fullName}</title></head><body style="margin:0;padding:24px;background:#f0f4fb;">
-${watermark}
-${segmentHTML(flight1, originIata, origin.name, origin.terminal, destCode, destAirport.name, destAirport.terminal, dep1, arr1, seat1, gate1, 'OUTBOUND FLIGHT')}
-${dep2 && arr2 && flight2 ? segmentHTML(flight2, destCode, destAirport.name, destAirport.terminal, originIata, origin.name, origin.terminal, dep2, arr2, seat2, gate2, 'RETURN FLIGHT') : ''}
-${watermark}
-</body></html>`
+// ─── Render TicketPDF to buffer + base64 ─────────────────────────────────────
+async function renderTicketPDF(ticketData: TicketData): Promise<Buffer> {
+  const element = React.createElement(TicketPDFDocument, { data: ticketData })
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return renderToBuffer(element as any)
 }
 
-function buildHotelTicketHTML(
-  fullName:          string,
-  accommodationName: string,
-  accommodationAddress: string,
-  checkIn:           Date,
-  checkOut:          Date,
-  bookingRef:        string,
-): string {
-  const nights = Math.round((checkOut.getTime() - checkIn.getTime()) / (1000 * 60 * 60 * 24))
-  const roomTypes = ['Standard Double Room', 'Superior Twin Room', 'Deluxe King Room', 'Junior Suite']
-  const roomType  = roomTypes[Math.floor(Math.random() * roomTypes.length)]
-  const ratePerNight = Math.floor(80 + Math.random() * 120)
+// ─── Duffel types ─────────────────────────────────────────────────────────────
 
-  const watermark = `<div style="background:#fff3cd;border:2px dashed #e6a817;border-radius:8px;padding:12px 20px;text-align:center;margin-bottom:20px;">
-  <div style="font-size:13px;font-weight:700;color:#7d4c00;letter-spacing:2px;">⚠ FOR VISA APPLICATION PURPOSES ONLY — NOT A REAL BOOKING ⚠</div>
-  <div style="font-size:11px;color:#a06000;margin-top:4px;">This is a dummy hotel confirmation generated for visa application support. Not a real reservation.</div>
-</div>`
-
-  return `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><title>Hotel Confirmation — ${fullName}</title></head>
-<body style="margin:0;padding:24px;background:#f0f4fb;font-family:'Helvetica Neue',Arial,sans-serif;">
-${watermark}
-<div style="background:#fff;border-radius:12px;box-shadow:0 2px 16px rgba(0,0,0,0.1);overflow:hidden;max-width:640px;margin:0 auto;">
-  <div style="background:linear-gradient(135deg,#1a3a2a,#2d6a4f);padding:20px 28px;display:flex;justify-content:space-between;align-items:center;">
-    <div>
-      <div style="font-size:11px;color:rgba(255,255,255,0.7);text-transform:uppercase;letter-spacing:1px;">Hotel Booking Confirmation</div>
-      <div style="font-size:22px;font-weight:700;color:#fff;margin-top:4px;">${accommodationName || 'Hotel Accommodation'}</div>
-    </div>
-    <div style="text-align:right;">
-      <div style="font-size:10px;color:rgba(255,255,255,0.7);">BOOKING REFERENCE</div>
-      <div style="font-size:20px;font-weight:700;color:#f0d080;letter-spacing:2px;">${bookingRef}</div>
-    </div>
-  </div>
-  <div style="padding:24px 28px;">
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:20px;">
-      <div style="background:#f8fffe;border:1px solid #c8e6c9;border-radius:8px;padding:14px;">
-        <div style="font-size:10px;color:#4caf50;text-transform:uppercase;font-weight:700;letter-spacing:1px;">Check-In</div>
-        <div style="font-size:20px;font-weight:700;color:#1a3a2a;margin-top:4px;">${formatDate(checkIn)}</div>
-        <div style="font-size:12px;color:#666;margin-top:2px;">From 14:00</div>
-      </div>
-      <div style="background:#fff8f0;border:1px solid #ffcc80;border-radius:8px;padding:14px;">
-        <div style="font-size:10px;color:#ff8f00;text-transform:uppercase;font-weight:700;letter-spacing:1px;">Check-Out</div>
-        <div style="font-size:20px;font-weight:700;color:#1a3a2a;margin-top:4px;">${formatDate(checkOut)}</div>
-        <div style="font-size:12px;color:#666;margin-top:2px;">Before 12:00</div>
-      </div>
-    </div>
-    <div style="background:#f9f9f9;border-radius:8px;padding:16px;margin-bottom:16px;">
-      <table style="width:100%;font-size:13px;border-collapse:collapse;">
-        <tr><td style="padding:6px 0;color:#666;width:50%;">Guest Name</td><td style="padding:6px 0;font-weight:600;color:#111;">${fullName.toUpperCase()}</td></tr>
-        <tr><td style="padding:6px 0;color:#666;">Room Type</td><td style="padding:6px 0;font-weight:600;color:#111;">${roomType}</td></tr>
-        <tr><td style="padding:6px 0;color:#666;">Meal Plan</td><td style="padding:6px 0;font-weight:600;color:#111;">Bed & Breakfast</td></tr>
-        <tr><td style="padding:6px 0;color:#666;">Duration</td><td style="padding:6px 0;font-weight:600;color:#111;">${nights} night${nights !== 1 ? 's' : ''}</td></tr>
-        <tr><td style="padding:6px 0;color:#666;">Rate per night</td><td style="padding:6px 0;font-weight:600;color:#111;">USD ${ratePerNight}</td></tr>
-        <tr style="border-top:1px solid #ddd;"><td style="padding:8px 0;font-weight:700;color:#111;">Total Amount</td><td style="padding:8px 0;font-weight:700;color:#2d6a4f;font-size:16px;">USD ${(ratePerNight * nights).toLocaleString()}</td></tr>
-      </table>
-    </div>
-    <div style="font-size:12px;color:#555;margin-bottom:8px;"><strong>Address:</strong> ${accommodationAddress || 'Address on file'}</div>
-    <div style="font-size:11px;color:#888;margin-top:16px;padding-top:16px;border-top:1px solid #eee;">
-      Status: <span style="color:#2d6a4f;font-weight:700;">CONFIRMED</span> · Payment: <span style="color:#111;font-weight:600;">Pay at property</span>
-    </div>
-  </div>
-  <div style="background:#1a3a2a;padding:12px 28px;text-align:center;">
-    <div style="font-family:monospace;font-size:11px;letter-spacing:4px;color:rgba(255,255,255,0.4);">|||||||||||||||||||||||||||||||||||||||||||||</div>
-    <div style="font-size:10px;color:rgba(255,255,255,0.3);margin-top:2px;">${bookingRef}</div>
-  </div>
-</div>
-${watermark}
-</body></html>`
+interface DuffelPlace {
+  iata_code: string
+  name: string
+  city_name?: string
 }
+
+interface DuffelBaggage {
+  type: 'carry_on' | 'checked'
+  quantity: number
+}
+
+interface DuffelSegment {
+  origin:                          DuffelPlace
+  destination:                     DuffelPlace
+  departing_at:                    string
+  arriving_at:                     string
+  duration:                        string
+  marketing_carrier:               { iata_code: string; name: string }
+  marketing_carrier_flight_number: string
+  passengers:                      Array<{ baggages: DuffelBaggage[] }>
+}
+
+interface DuffelSlice {
+  origin:       DuffelPlace
+  destination:  DuffelPlace
+  departing_at: string
+  arriving_at:  string
+  duration:     string
+  segments:     DuffelSegment[]
+}
+
+interface DuffelOffer {
+  id:             string
+  total_amount:   string
+  total_currency: string
+  cabin_class:    string
+  slices:         DuffelSlice[]
+}
+
+interface DuffelOfferResponse {
+  data: { offers: DuffelOffer[] }
+}
+
+// ─── POST handler ─────────────────────────────────────────────────────────────
 
 export async function POST(req: NextRequest) {
   const session = await getAdminSession()
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
+  const body = await req.json() as {
+    mode:          'live' | 'manual' | 'hotel'
+    applicationId?: string
+
+    // Live mode
+    originIata?:    string
+    destIata?:      string
+    departureDate?: string
+    returnDate?:    string
+    cabinClass?:    string
+
+    // Manual mode — all optional
+    clientName?:       string
+    passportNumber?:   string
+    fromCode?:         string
+    fromCity?:         string
+    toCode?:           string
+    toCity?:           string
+    airline?:          string
+    flightNumber?:     string
+    departureDateTime?: string
+    arrivalDateTime?:   string
+    duration?:         string
+    cabin?:            string
+    seat?:             string
+    baggage?:          string
+    terminal?:         string
+    gate?:             string
+    pnr?:              string
+    message?:          string
+
+    // Hotel mode
+    hotelName?:       string
+    hotelAddress?:    string
+    checkIn?:         string
+    checkOut?:        string
+    roomType?:        string
+    numGuests?:       string
+  }
+
+  // ── Optional: auto-fill from linked visa application ─────────────────────────
+  let appName        = ''
+  let appPassport    = ''
+  let appArrivalDate: Date | null = null
+  let appReturnDate:  Date | null = null
+  let appDestIso2    = ''
+
+  if (body.applicationId) {
+    try {
+      const app = await prisma.visaApplication.findUnique({ where: { id: body.applicationId } })
+      if (app) {
+        appName        = [app.firstName, app.middleName, app.lastName].filter(Boolean).join(' ')
+        appPassport    = app.passportNumber ?? ''
+        appArrivalDate = app.arrivalDate    ?? null
+        appReturnDate  = app.returnDate     ?? null
+        appDestIso2    = app.destinationIso2 ?? ''
+      }
+    } catch { /* non-fatal */ }
+  }
+
+  const reference = makeRef()
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // HOTEL MODE
+  // ─────────────────────────────────────────────────────────────────────────
+  if (body.mode === 'hotel') {
+    const clientName = body.clientName || appName || 'PASSENGER NAME'
+    const checkIn    = body.checkIn    || (appArrivalDate ? appArrivalDate.toISOString().slice(0, 10) : '')
+    const checkOut   = body.checkOut   || (appReturnDate  ? appReturnDate.toISOString().slice(0, 10) : '')
+    const nights     = checkIn && checkOut
+      ? Math.round((new Date(checkOut).getTime() - new Date(checkIn).getTime()) / 86400000)
+      : 0
+
+    const ticketData: TicketData = {
+      ticket_type:          'hotel',
+      ticket_reference:     reference,
+      client_name:          clientName,
+      hotel_name:           body.hotelName    || 'Hotel Accommodation',
+      hotel_address:        body.hotelAddress || '',
+      checkin_date:         checkIn,
+      checkout_date:        checkOut,
+      checkin_time:         '14:00',
+      checkout_time:        '12:00',
+      num_nights:           String(nights),
+      room_type:            body.roomType  || 'Standard Double Room',
+      num_guests:           body.numGuests || '1',
+      confirmation_number:  `HTL${Math.floor(100000 + Math.random() * 900000)}`,
+    }
+
+    try {
+      const buf    = await renderTicketPDF(ticketData)
+      const pdfUrl = await uploadPDF(buf, reference)
+      return NextResponse.json({
+        mode: 'hotel', reference, pdfUrl,
+        pdf_base64: buf.toString('base64'),
+        ticketData,
+      })
+    } catch (e) {
+      return NextResponse.json({ error: `PDF error: ${String(e)}` }, { status: 500 })
+    }
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // MANUAL MODE
+  // ─────────────────────────────────────────────────────────────────────────
+  if (body.mode === 'manual') {
+    const clientName = body.clientName || appName || 'PASSENGER NAME'
+    const depIso     = body.departureDateTime || (appArrivalDate ? appArrivalDate.toISOString() : '')
+    const arrIso     = body.arrivalDateTime   || ''
+
+    const ticketData: TicketData = {
+      ticket_type:       'flight',
+      ticket_reference:  reference,
+      client_name:       clientName,
+      passport_number:   body.passportNumber || appPassport,
+      from_code:         (body.fromCode   || '').toUpperCase(),
+      from_city:         body.fromCity    || '',
+      to_code:           (body.toCode     || appDestIso2 || '').toUpperCase(),
+      to_city:           body.toCity      || '',
+      airline:           body.airline     || '',
+      flight_number:     body.flightNumber || '',
+      departure_date:    depIso  ? fmtDate(depIso)  : '',
+      departure_time:    depIso  ? fmtTime(depIso)  : '',
+      arrival_date:      arrIso  ? fmtDate(arrIso)  : '',
+      arrival_time:      arrIso  ? fmtTime(arrIso)  : '',
+      duration:          body.duration     || '',
+      cabin_class:       body.cabin        || 'ECONOMY',
+      seat_number:       body.seat         || genSeat(),
+      baggage_allowance: body.baggage      || '1 × 23kg checked + 7kg cabin',
+      terminal:          body.terminal     || '',
+      gate:              body.gate         || '',
+      booking_reference: reference,
+      pnr:               body.pnr          || genPNR(),
+      message:           body.message      || '',
+    }
+
+    try {
+      const buf    = await renderTicketPDF(ticketData)
+      const pdfUrl = await uploadPDF(buf, reference)
+      return NextResponse.json({
+        mode: 'manual', reference, pdfUrl,
+        pdf_base64: buf.toString('base64'),
+        ticketData,
+      })
+    } catch (e) {
+      return NextResponse.json({ error: `PDF error: ${String(e)}` }, { status: 500 })
+    }
+  }
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // LIVE MODE — Duffel offer_request
+  // ─────────────────────────────────────────────────────────────────────────
+  const origin      = (body.originIata    || 'LOS').toUpperCase()
+  const destination = (body.destIata      || appDestIso2 || 'LHR').toUpperCase()
+  const depDate     = body.departureDate  || (appArrivalDate ? appArrivalDate.toISOString().slice(0, 10) : '')
+  const retDate     = body.returnDate     || (appReturnDate  ? appReturnDate.toISOString().slice(0, 10)  : '')
+  const cabin       = (body.cabinClass    || 'economy').toLowerCase()
+  const clientName  = body.clientName     || appName || 'PASSENGER NAME'
+
+  if (!depDate) {
+    return NextResponse.json({ error: 'departureDate is required for live search' }, { status: 400 })
+  }
+
   try {
-    const { ticketType, applicationId, originIata = 'LOS' } = await req.json() as {
-      ticketType:    'flight' | 'hotel'
-      applicationId: string
-      originIata?:   string
+    const slices: Array<{ origin: string; destination: string; departure_date: string }> = [
+      { origin, destination, departure_date: depDate },
+    ]
+    if (retDate) slices.push({ origin: destination, destination: origin, departure_date: retDate })
+
+    const result = await duffelPost<DuffelOfferResponse>(
+      '/air/offer_requests',
+      { data: { slices, passengers: [{ type: 'adult' }], cabin_class: cabin } },
+      { return_offers: 'true', supplier_timeout: '12000' }
+    )
+
+    const offers = result.data?.offers ?? []
+    if (offers.length === 0) {
+      return NextResponse.json({
+        error:      'No flights found for this route and date.',
+        suggestion: 'Try a different date, or use Manual mode to enter details directly.',
+      }, { status: 404 })
     }
 
-    if (!ticketType || !applicationId) {
-      return NextResponse.json({ error: 'ticketType and applicationId required' }, { status: 400 })
-    }
+    // Pick best offer by scoring
+    const best = offers.slice(0, 30).reduce((a, b) => scoreOffer(a) >= scoreOffer(b) ? a : b)
 
-    const application = await prisma.visaApplication.findUnique({ where: { id: applicationId } })
-    if (!application) return NextResponse.json({ error: 'Application not found' }, { status: 404 })
+    // Extract outbound details from first segment of first slice
+    const outSlice  = best.slices[0]
+    const firstSeg  = outSlice.segments[0]
+    const lastSeg   = outSlice.segments[outSlice.segments.length - 1]
+    const checkedBag = firstSeg.passengers[0]?.baggages?.find(b => b.type === 'checked')
+    const carryOn    = firstSeg.passengers[0]?.baggages?.find(b => b.type === 'carry_on')
+    const baggageStr = [
+      checkedBag ? `${checkedBag.quantity} × 23kg checked` : null,
+      carryOn    ? `${carryOn.quantity} × carry-on`        : null,
+    ].filter(Boolean).join(' + ') || '1 × 23kg checked'
 
-    const fullName   = [application.firstName, application.middleName, application.lastName].filter(Boolean).join(' ') || 'APPLICANT NAME'
-    const passportNo = application.passportNumber ?? ''
-    const nationality = application.nationality ?? ''
+    const cabinLabel = { economy: 'ECONOMY', premium_economy: 'PREMIUM ECONOMY', business: 'BUSINESS', first: 'FIRST CLASS' }[best.cabin_class] ?? best.cabin_class.toUpperCase()
     const pnr        = genPNR()
-    const bookingRef = genBookingRef('HTL')
+    const seat       = genSeat()
 
-    const depDate    = application.arrivalDate  ? new Date(application.arrivalDate)  : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000)
-    const retDate    = application.returnDate   ? new Date(application.returnDate)   : new Date(depDate.getTime() + 14 * 24 * 60 * 60 * 1000)
-
-    let html = ''
-    if (ticketType === 'flight') {
-      html = buildFlightTicketHTML(fullName, passportNo, nationality, originIata, application.destinationIso2, depDate, retDate, pnr)
-    } else {
-      html = buildHotelTicketHTML(
-        fullName,
-        application.accommodationName  ?? 'City Centre Hotel',
-        application.accommodationAddress ?? 'Address provided at check-in',
-        depDate, retDate, bookingRef
-      )
+    const flightDetails = {
+      airline:       firstSeg.marketing_carrier.name,
+      airlineCode:   firstSeg.marketing_carrier.iata_code,
+      flightNumber:  `${firstSeg.marketing_carrier.iata_code}${firstSeg.marketing_carrier_flight_number}`,
+      fromCode:      outSlice.origin.iata_code,
+      fromCity:      outSlice.origin.city_name ?? outSlice.origin.name,
+      toCode:        lastSeg.destination.iata_code,
+      toCity:        lastSeg.destination.city_name ?? lastSeg.destination.name,
+      departureAt:   firstSeg.departing_at,
+      arrivalAt:     lastSeg.arriving_at,
+      duration:      fmtDuration(outSlice.duration),
+      stops:         outSlice.segments.length - 1,
+      cabin:         cabinLabel,
+      baggage:       baggageStr,
+      price:         `${best.total_currency} ${Number(best.total_amount).toLocaleString()}`,
+      offerId:       best.id,
+      seat,
+      pnr,
     }
 
-    return NextResponse.json({ html, pnr, bookingRef, ticketType, fullName })
+    const ticketData: TicketData = {
+      ticket_type:       'flight',
+      ticket_reference:  reference,
+      client_name:       clientName,
+      passport_number:   body.passportNumber || appPassport,
+      from_code:         flightDetails.fromCode,
+      from_city:         flightDetails.fromCity,
+      to_code:           flightDetails.toCode,
+      to_city:           flightDetails.toCity,
+      airline:           flightDetails.airline,
+      flight_number:     flightDetails.flightNumber,
+      departure_date:    fmtDate(flightDetails.departureAt),
+      departure_time:    fmtTime(flightDetails.departureAt),
+      arrival_date:      fmtDate(flightDetails.arrivalAt),
+      arrival_time:      fmtTime(flightDetails.arrivalAt),
+      duration:          flightDetails.duration,
+      cabin_class:       flightDetails.cabin,
+      seat_number:       seat,
+      baggage_allowance: baggageStr,
+      booking_reference: reference,
+      pnr,
+    }
+
+    const buf    = await renderTicketPDF(ticketData)
+    const pdfUrl = await uploadPDF(buf, reference)
+
+    return NextResponse.json({
+      mode: 'live', reference, pdfUrl,
+      pdf_base64:     buf.toString('base64'),
+      flight_details: flightDetails,
+      ticketData,
+    })
   } catch (e) {
-    console.error('[dummy-ticket]', e)
-    return NextResponse.json({ error: String(e) }, { status: 500 })
+    console.error('[dummy-ticket/live]', e)
+    return NextResponse.json({
+      error:      `Flight search failed: ${String(e)}`,
+      suggestion: 'Use Manual mode to enter flight details directly.',
+    }, { status: 500 })
   }
 }

@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react'
 import {
-  Upload, Search, FileText, Ticket, History,
+  Upload, FileText, Ticket, History,
   CheckCircle, AlertTriangle, XCircle, Loader2,
   Copy, Check, Printer, ChevronDown, Eye,
   ShieldCheck, FileSearch, MailOpen, Plane, Hotel,
@@ -642,94 +642,294 @@ function LettersTab() {
 
 // ─── Tab: Dummy Ticket Generator ──────────────────────────────────────────────
 
+interface FlightDetails {
+  airline:      string
+  airlineCode:  string
+  flightNumber: string
+  fromCode:     string
+  fromCity:     string
+  toCode:       string
+  toCity:       string
+  departureAt:  string
+  arrivalAt:    string
+  duration:     string
+  stops:        number
+  cabin:        string
+  baggage:      string
+  price:        string
+  seat:         string
+  pnr:          string
+}
+
 function DummyTicketTab() {
-  const [ticketType, setTicketType] = useState<'flight' | 'hotel'>('flight')
-  const [appId,      setAppId]      = useState('')
-  const [originIata, setOriginIata] = useState('LOS')
-  const [loading,    setLoading]    = useState(false)
-  const [html,       setHtml]       = useState('')
-  const iframeRef = useRef<HTMLIFrameElement>(null)
+  type TicketMode = 'live' | 'manual' | 'hotel'
+  const [mode,          setMode]          = useState<TicketMode>('live')
+  const [appId,         setAppId]         = useState('')
+  const [loading,       setLoading]       = useState(false)
+  const [pdfUrl,        setPdfUrl]        = useState('')
+  const [pdfBase64,     setPdfBase64]     = useState('')
+  const [flightDetails, setFlightDetails] = useState<FlightDetails | null>(null)
+  const [error,         setError]         = useState('')
+
+  // Live mode fields
+  const [originIata,  setOriginIata]  = useState('LOS')
+  const [destIata,    setDestIata]    = useState('')
+  const [depDate,     setDepDate]     = useState('')
+  const [retDate,     setRetDate]     = useState('')
+  const [cabin,       setCabin]       = useState('economy')
+  const [clientName,  setClientName]  = useState('')
+  const [passportNo,  setPassportNo]  = useState('')
+
+  // Manual mode fields
+  const [mFromCode,   setMFromCode]   = useState('')
+  const [mFromCity,   setMFromCity]   = useState('')
+  const [mToCode,     setMToCode]     = useState('')
+  const [mToCity,     setMToCity]     = useState('')
+  const [mAirline,    setMAirline]    = useState('')
+  const [mFlightNo,   setMFlightNo]   = useState('')
+  const [mDepDT,      setMDepDT]      = useState('')
+  const [mArrDT,      setMArrDT]      = useState('')
+  const [mDuration,   setMDuration]   = useState('')
+  const [mCabin,      setMCabin]      = useState('ECONOMY')
+  const [mSeat,       setMSeat]       = useState('')
+  const [mBaggage,    setMBaggage]    = useState('1 × 23kg checked + 7kg cabin')
+  const [mTerminal,   setMTerminal]   = useState('')
+  const [mGate,       setMGate]       = useState('')
+  const [mPNR,        setMPNR]        = useState('')
+  const [mMessage,    setMMMessage]   = useState('')
+
+  // Hotel fields
+  const [hName,       setHName]       = useState('')
+  const [hAddress,    setHAddress]    = useState('')
+  const [hCheckIn,    setHCheckIn]    = useState('')
+  const [hCheckOut,   setHCheckOut]   = useState('')
+  const [hRoomType,   setHRoomType]   = useState('Standard Double Room')
+  const [hGuests,     setHGuests]     = useState('1')
 
   const generate = async () => {
-    if (!appId) return
-    setLoading(true); setHtml('')
+    setLoading(true); setPdfUrl(''); setPdfBase64(''); setFlightDetails(null); setError('')
     try {
+      const payload: Record<string, unknown> = {
+        mode,
+        applicationId: appId || undefined,
+        clientName:    clientName || undefined,
+        passportNumber: passportNo || undefined,
+      }
+
+      if (mode === 'live') {
+        Object.assign(payload, { originIata, destIata, departureDate: depDate, returnDate: retDate || undefined, cabinClass: cabin })
+      } else if (mode === 'manual') {
+        Object.assign(payload, {
+          fromCode: mFromCode, fromCity: mFromCity,
+          toCode: mToCode, toCity: mToCity,
+          airline: mAirline, flightNumber: mFlightNo,
+          departureDateTime: mDepDT, arrivalDateTime: mArrDT,
+          duration: mDuration, cabin: mCabin,
+          seat: mSeat, baggage: mBaggage,
+          terminal: mTerminal, gate: mGate,
+          pnr: mPNR, message: mMessage,
+        })
+      } else {
+        Object.assign(payload, { hotelName: hName, hotelAddress: hAddress, checkIn: hCheckIn, checkOut: hCheckOut, roomType: hRoomType, numGuests: hGuests })
+      }
+
       const res  = await fetch('/api/admin/intelligence/dummy-ticket', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ticketType, applicationId: appId, originIata }),
+        body: JSON.stringify(payload),
       })
       const data = await res.json()
-      if (data.html) setHtml(data.html)
-    } catch (e) { console.error(e) }
+
+      if (!res.ok) { setError(data.error ?? 'Unknown error'); return }
+      if (data.pdfUrl)        setPdfUrl(data.pdfUrl)
+      if (data.pdf_base64)    setPdfBase64(data.pdf_base64)
+      if (data.flight_details) setFlightDetails(data.flight_details as FlightDetails)
+    } catch (e) { setError(String(e)) }
     finally { setLoading(false) }
   }
 
-  const print = () => {
-    if (iframeRef.current?.contentWindow) iframeRef.current.contentWindow.print()
+  const downloadPDF = () => {
+    if (!pdfBase64) return
+    const a = document.createElement('a')
+    a.href = `data:application/pdf;base64,${pdfBase64}`
+    a.download = `walz-ticket-${Date.now()}.pdf`
+    a.click()
   }
+
+  const MODES: Array<{ id: TicketMode; icon: React.ElementType; label: string; desc: string }> = [
+    { id: 'live',   icon: Plane,    label: 'Live Flight Search',  desc: 'Real Duffel data' },
+    { id: 'manual', icon: FileText, label: 'Manual Entry',        desc: 'Enter all fields' },
+    { id: 'hotel',  icon: Hotel,    label: 'Hotel Voucher',       desc: 'Accommodation' },
+  ]
 
   return (
     <div className="space-y-6">
       <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-6">
         <h2 className="text-sm font-bold text-[#0B1F3A] mb-1 flex items-center gap-2">
-          <Ticket className="w-4 h-4 text-[#C9A84C]" /> Dummy Ticket Generator
+          <Ticket className="w-4 h-4 text-[#C9A84C]" /> Flight Itinerary Generator
         </h2>
         <p className="text-xs text-gray-500 mb-5">
-          Generate watermarked dummy tickets for visa applications. All data auto-filled from the linked visa application.
-          <span className="text-red-600 font-semibold"> Clearly marked: FOR VISA APPLICATION PURPOSES ONLY.</span>
+          Live mode searches real scheduled flights via Duffel and generates a professional branded PDF.
+          Manual mode lets you enter any details. Hotel mode generates an accommodation voucher. Application link is optional — for auto-fill only.
         </p>
 
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-4">
-          <div>
-            <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1 block">Ticket Type</label>
-            <div className="flex gap-2">
-              {(['flight', 'hotel'] as const).map(t => (
-                <button key={t} onClick={() => setTicketType(t)}
-                  className={`flex-1 h-9 rounded-lg text-sm font-semibold border transition-all ${
-                    ticketType === t ? 'bg-[#0B1F3A] text-white border-[#0B1F3A]' : 'text-gray-600 border-gray-200 hover:border-gray-300'
-                  }`}>
-                  {t === 'flight' ? <><Plane className="inline w-3.5 h-3.5 mr-1.5" />Flight</> : <><Hotel className="inline w-3.5 h-3.5 mr-1.5" />Hotel</>}
-                </button>
-              ))}
-            </div>
-          </div>
-          {ticketType === 'flight' && (
-            <div>
-              <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1 block">Origin Airport (IATA)</label>
-              <input className={INPUT} value={originIata} onChange={e => setOriginIata(e.target.value.toUpperCase().slice(0,3))}
-                placeholder="LOS" maxLength={3} />
-            </div>
-          )}
-          <div className={ticketType === 'hotel' ? 'sm:col-span-2' : ''}>
-            <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1 block">Visa Application <span className="text-red-500">*</span></label>
-            <AppSearch value={appId} onChange={(id) => setAppId(id)} />
-          </div>
+        {/* Mode selector */}
+        <div className="flex gap-2 mb-5">
+          {MODES.map(m => {
+            const Icon = m.icon
+            return (
+              <button key={m.id} onClick={() => { setMode(m.id); setError(''); setPdfUrl(''); setPdfBase64(''); setFlightDetails(null) }}
+                className={`flex items-center gap-2 px-4 py-2.5 rounded-xl border text-sm font-semibold transition-all ${
+                  mode === m.id ? 'bg-[#0B1F3A] text-white border-[#0B1F3A]' : 'text-gray-600 border-gray-200 hover:border-gray-300 bg-white'
+                }`}>
+                <Icon className="w-3.5 h-3.5" />
+                {m.label}
+                <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${mode === m.id ? 'bg-white/20 text-white' : 'bg-gray-100 text-gray-500'}`}>{m.desc}</span>
+              </button>
+            )
+          })}
         </div>
 
-        <button onClick={() => void generate()} disabled={!appId || loading}
+        {/* Shared: optional application link + passenger */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-5 pb-5 border-b border-gray-100">
+          <div className="sm:col-span-2">
+            <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1 block">Link Visa Application (optional — auto-fills data)</label>
+            <AppSearch value={appId} onChange={(id) => setAppId(id)} />
+          </div>
+          <div>
+            <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1 block">Passenger Name</label>
+            <input className={INPUT} value={clientName} onChange={e => setClientName(e.target.value)} placeholder="Full name (or auto-filled)" />
+          </div>
+          {(mode === 'live' || mode === 'manual') && (
+            <div>
+              <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1 block">Passport Number</label>
+              <input className={INPUT} value={passportNo} onChange={e => setPassportNo(e.target.value)} placeholder="Optional" />
+            </div>
+          )}
+        </div>
+
+        {/* LIVE MODE fields */}
+        {mode === 'live' && (
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 mb-5">
+            <div>
+              <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1 block">Origin IATA <span className="text-red-500">*</span></label>
+              <input className={INPUT} value={originIata} onChange={e => setOriginIata(e.target.value.toUpperCase().slice(0,3))} placeholder="LOS" maxLength={3} />
+            </div>
+            <div>
+              <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1 block">Destination IATA <span className="text-red-500">*</span></label>
+              <input className={INPUT} value={destIata} onChange={e => setDestIata(e.target.value.toUpperCase().slice(0,3))} placeholder="LHR" maxLength={3} />
+            </div>
+            <div>
+              <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1 block">Cabin Class</label>
+              <select className={INPUT} value={cabin} onChange={e => setCabin(e.target.value)}>
+                <option value="economy">Economy</option>
+                <option value="premium_economy">Premium Economy</option>
+                <option value="business">Business</option>
+                <option value="first">First Class</option>
+              </select>
+            </div>
+            <div>
+              <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1 block">Departure Date <span className="text-red-500">*</span></label>
+              <input className={INPUT} type="date" value={depDate} onChange={e => setDepDate(e.target.value)} />
+            </div>
+            <div>
+              <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1 block">Return Date (optional)</label>
+              <input className={INPUT} type="date" value={retDate} onChange={e => setRetDate(e.target.value)} />
+            </div>
+          </div>
+        )}
+
+        {/* MANUAL MODE fields */}
+        {mode === 'manual' && (
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 mb-5">
+            <div><label className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1 block">From IATA</label><input className={INPUT} value={mFromCode} onChange={e => setMFromCode(e.target.value.toUpperCase().slice(0,3))} placeholder="LOS" maxLength={3} /></div>
+            <div><label className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1 block">From City</label><input className={INPUT} value={mFromCity} onChange={e => setMFromCity(e.target.value)} placeholder="Lagos" /></div>
+            <div><label className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1 block">To IATA</label><input className={INPUT} value={mToCode} onChange={e => setMToCode(e.target.value.toUpperCase().slice(0,3))} placeholder="LHR" maxLength={3} /></div>
+            <div><label className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1 block">To City</label><input className={INPUT} value={mToCity} onChange={e => setMToCity(e.target.value)} placeholder="London" /></div>
+            <div><label className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1 block">Airline</label><input className={INPUT} value={mAirline} onChange={e => setMAirline(e.target.value)} placeholder="British Airways" /></div>
+            <div><label className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1 block">Flight Number</label><input className={INPUT} value={mFlightNo} onChange={e => setMFlightNo(e.target.value)} placeholder="BA 076" /></div>
+            <div><label className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1 block">Departure (date + time)</label><input className={INPUT} type="datetime-local" value={mDepDT} onChange={e => setMDepDT(e.target.value)} /></div>
+            <div><label className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1 block">Arrival (date + time)</label><input className={INPUT} type="datetime-local" value={mArrDT} onChange={e => setMArrDT(e.target.value)} /></div>
+            <div><label className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1 block">Duration</label><input className={INPUT} value={mDuration} onChange={e => setMDuration(e.target.value)} placeholder="6h 30m" /></div>
+            <div><label className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1 block">Cabin</label><input className={INPUT} value={mCabin} onChange={e => setMCabin(e.target.value)} placeholder="ECONOMY" /></div>
+            <div><label className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1 block">Seat</label><input className={INPUT} value={mSeat} onChange={e => setMSeat(e.target.value)} placeholder="24A" /></div>
+            <div><label className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1 block">Baggage</label><input className={INPUT} value={mBaggage} onChange={e => setMBaggage(e.target.value)} /></div>
+            <div><label className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1 block">Terminal</label><input className={INPUT} value={mTerminal} onChange={e => setMTerminal(e.target.value)} placeholder="Terminal 5" /></div>
+            <div><label className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1 block">Gate</label><input className={INPUT} value={mGate} onChange={e => setMGate(e.target.value)} placeholder="B24" /></div>
+            <div><label className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1 block">PNR</label><input className={INPUT} value={mPNR} onChange={e => setMPNR(e.target.value)} placeholder="Auto-generated if blank" /></div>
+            <div className="sm:col-span-3"><label className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1 block">Message from Walz Travels (optional)</label><input className={INPUT} value={mMessage} onChange={e => setMMMessage(e.target.value)} placeholder="Thank you for choosing Walz Travels…" /></div>
+          </div>
+        )}
+
+        {/* HOTEL MODE fields */}
+        {mode === 'hotel' && (
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 mb-5">
+            <div className="sm:col-span-2"><label className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1 block">Hotel Name</label><input className={INPUT} value={hName} onChange={e => setHName(e.target.value)} placeholder="Hilton London Metropole" /></div>
+            <div className="sm:col-span-3"><label className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1 block">Hotel Address</label><input className={INPUT} value={hAddress} onChange={e => setHAddress(e.target.value)} placeholder="225 Edgware Road, London W2 1JU" /></div>
+            <div><label className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1 block">Check-In Date</label><input className={INPUT} type="date" value={hCheckIn} onChange={e => setHCheckIn(e.target.value)} /></div>
+            <div><label className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1 block">Check-Out Date</label><input className={INPUT} type="date" value={hCheckOut} onChange={e => setHCheckOut(e.target.value)} /></div>
+            <div><label className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1 block">Room Type</label><input className={INPUT} value={hRoomType} onChange={e => setHRoomType(e.target.value)} /></div>
+            <div><label className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1 block">Number of Guests</label><input className={INPUT} type="number" min="1" value={hGuests} onChange={e => setHGuests(e.target.value)} /></div>
+          </div>
+        )}
+
+        <button onClick={() => void generate()}
+          disabled={loading || (mode === 'live' && (!originIata || !destIata || !depDate))}
           className="h-10 px-6 bg-[#0B1F3A] text-white text-sm font-semibold rounded-lg hover:bg-[#0d2345] disabled:opacity-40 transition-colors flex items-center gap-2">
-          {loading ? <><Loader2 className="w-4 h-4 animate-spin" /> Generating…</> : <><Ticket className="w-4 h-4" /> Generate Ticket</>}
+          {loading
+            ? <><Loader2 className="w-4 h-4 animate-spin" /> {mode === 'live' ? 'Searching flights…' : 'Generating PDF…'}</>
+            : <><Ticket className="w-4 h-4" /> {mode === 'live' ? 'Search & Generate PDF' : mode === 'hotel' ? 'Generate Hotel Voucher' : 'Generate Flight Ticket'}</>
+          }
         </button>
+
+        {error && (
+          <div className="mt-4 p-4 bg-red-50 border border-red-200 rounded-xl">
+            <p className="text-sm font-semibold text-red-700 mb-1">Error</p>
+            <p className="text-sm text-red-600">{error}</p>
+          </div>
+        )}
       </div>
 
-      {html && (
+      {/* Flight details card (live mode) */}
+      {flightDetails && (
+        <div className="bg-white rounded-xl border border-[#C9A84C]/30 shadow-sm overflow-hidden">
+          <div className="px-5 py-3 bg-[#0B1F3A] flex items-center justify-between">
+            <span className="text-xs font-bold text-[#C9A84C] uppercase tracking-wider">Flight Found</span>
+            <span className="text-xs text-white/70">{flightDetails.price}</span>
+          </div>
+          <div className="p-5 grid grid-cols-2 sm:grid-cols-4 gap-4 text-sm">
+            <div><div className="text-xs text-gray-400 mb-0.5">Airline</div><div className="font-bold text-[#0B1F3A]">{flightDetails.airline}</div></div>
+            <div><div className="text-xs text-gray-400 mb-0.5">Flight</div><div className="font-bold text-[#0B1F3A]">{flightDetails.flightNumber}</div></div>
+            <div><div className="text-xs text-gray-400 mb-0.5">Route</div><div className="font-bold text-[#0B1F3A]">{flightDetails.fromCode} → {flightDetails.toCode}</div></div>
+            <div><div className="text-xs text-gray-400 mb-0.5">Duration</div><div className="font-bold text-[#0B1F3A]">{flightDetails.duration} · {flightDetails.stops === 0 ? 'Direct' : `${flightDetails.stops} stop`}</div></div>
+            <div><div className="text-xs text-gray-400 mb-0.5">Departure</div><div className="font-semibold">{new Date(flightDetails.departureAt).toLocaleString('en-GB', { day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit' })}</div></div>
+            <div><div className="text-xs text-gray-400 mb-0.5">Arrival</div><div className="font-semibold">{new Date(flightDetails.arrivalAt).toLocaleString('en-GB', { day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit' })}</div></div>
+            <div><div className="text-xs text-gray-400 mb-0.5">Cabin</div><div className="font-semibold">{flightDetails.cabin}</div></div>
+            <div><div className="text-xs text-gray-400 mb-0.5">Baggage</div><div className="font-semibold">{flightDetails.baggage}</div></div>
+            <div><div className="text-xs text-gray-400 mb-0.5">Seat</div><div className="font-bold text-[#C9A84C]">{flightDetails.seat}</div></div>
+            <div><div className="text-xs text-gray-400 mb-0.5">PNR</div><div className="font-bold font-mono tracking-wider">{flightDetails.pnr}</div></div>
+          </div>
+        </div>
+      )}
+
+      {/* PDF preview */}
+      {pdfUrl && (
         <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
           <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
             <h3 className="text-sm font-bold text-[#0B1F3A]">
-              {ticketType === 'flight' ? 'Flight Itinerary Preview' : 'Hotel Confirmation Preview'}
+              {mode === 'hotel' ? 'Hotel Voucher PDF' : 'Flight Itinerary PDF'}
             </h3>
             <div className="flex gap-2">
-              <button onClick={print}
-                className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border border-gray-200 hover:border-[#C9A84C] hover:text-[#0B1F3A] text-gray-500 transition-colors">
-                <Printer className="w-3.5 h-3.5" /> Print / Save PDF
+              <button onClick={downloadPDF}
+                className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border border-[#0B1F3A] text-[#0B1F3A] hover:bg-[#0B1F3A] hover:text-white transition-colors font-semibold">
+                <Printer className="w-3.5 h-3.5" /> Download PDF
               </button>
-              <button onClick={() => { const w = window.open(); if (w) { w.document.write(html); w.document.close() } }}
-                className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border border-gray-200 hover:border-[#C9A84C] hover:text-[#0B1F3A] text-gray-500 transition-colors">
-                <Eye className="w-3.5 h-3.5" /> Open full page
-              </button>
+              <a href={pdfUrl} target="_blank" rel="noopener noreferrer"
+                className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border border-gray-200 hover:border-[#C9A84C] text-gray-500 transition-colors">
+                <Eye className="w-3.5 h-3.5" /> Open in new tab
+              </a>
             </div>
           </div>
-          <iframe ref={iframeRef} srcDoc={html} className="w-full h-[600px] border-0" title="Ticket Preview" />
+          <iframe src={pdfUrl} className="w-full h-[700px] border-0" title="Ticket PDF Preview" />
         </div>
       )}
     </div>
