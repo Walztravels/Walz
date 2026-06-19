@@ -13,61 +13,133 @@ const INBOX_ID       = '3'
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
 const openai    = new OpenAI({    apiKey: process.env.OPENAI_API_KEY })
 
-// ─── Chatwoot REST helpers ────────────────────────────────────────────────────
+// ─── Chatwoot helpers ─────────────────────────────────────────────────────────
 
-async function cwFetch(path: string, opts: RequestInit = {}) {
-  const res = await fetch(`${CHATWOOT_BASE}/api/v1${path}`, {
-    ...opts,
-    headers: {
-      'Content-Type':     'application/json',
-      'api_access_token': CHATWOOT_TOKEN,
-      ...(opts.headers ?? {}),
-    },
-  })
-  if (!res.ok) {
-    const txt = await res.text().catch(() => '')
-    throw new Error(`Chatwoot ${path} → ${res.status}: ${txt.slice(0, 200)}`)
-  }
-  return res.json()
-}
-
-async function getOrCreateContact(identifier: string, name: string): Promise<number> {
+async function cwPost(path: string, body: unknown) {
+  const ac = new AbortController()
+  const t  = setTimeout(() => ac.abort(), 8000)
   try {
-    const search = await cwFetch(
-      `/accounts/${ACCOUNT_ID}/contacts/search?q=${encodeURIComponent(identifier)}&include_contacts=true`
+    const res = await fetch(`${CHATWOOT_BASE}/api/v1${path}`, {
+      method:  'POST',
+      signal:  ac.signal,
+      headers: {
+        'Content-Type':     'application/json',
+        'api_access_token': CHATWOOT_TOKEN,
+      },
+      body: JSON.stringify(body),
+    })
+    clearTimeout(t)
+    const txt = await res.text()
+    if (!res.ok) throw new Error(`CW ${path} ${res.status}: ${txt.slice(0, 150)}`)
+    return JSON.parse(txt)
+  } catch (e) { clearTimeout(t); throw e }
+}
+
+async function cwGet(path: string) {
+  const ac = new AbortController()
+  const t  = setTimeout(() => ac.abort(), 8000)
+  try {
+    const res = await fetch(`${CHATWOOT_BASE}/api/v1${path}`, {
+      signal:  ac.signal,
+      headers: {
+        'Content-Type':     'application/json',
+        'api_access_token': CHATWOOT_TOKEN,
+      },
+    })
+    clearTimeout(t)
+    const txt = await res.text()
+    if (!res.ok) throw new Error(`CW GET ${path} ${res.status}: ${txt.slice(0, 150)}`)
+    return JSON.parse(txt)
+  } catch (e) { clearTimeout(t); throw e }
+}
+
+async function pushToCharwoot(
+  sessionId: string,
+  customerName: string,
+  userMessage: string,
+  agentReply: string,
+  existingConvId: number | null
+): Promise<number | null> {
+
+  // 1. Find or create contact
+  let contactId: number | null = null
+
+  try {
+    const search = await cwGet(
+      `/accounts/${ACCOUNT_ID}/contacts/search?q=${encodeURIComponent(sessionId)}&include_contacts=true`
     )
-    const found = search?.payload?.contacts?.[0]
-    if (found?.id) return found.id as number
-  } catch {}
+    // Search returns { payload: [ { id, ... }, ... ] }
+    const found = Array.isArray(search?.payload) ? search.payload[0] : search?.payload?.contacts?.[0]
+    if (found?.id) contactId = found.id as number
+  } catch (e) {
+    console.error('[Jade→CW] Search failed:', String(e).slice(0, 100))
+  }
 
-  const contact = await cwFetch(`/accounts/${ACCOUNT_ID}/contacts`, {
-    method: 'POST',
-    body:   JSON.stringify({ name: name || 'Website Visitor', identifier }),
-  })
-  return (contact?.payload?.contact?.id ?? contact?.id ?? contact?.payload?.id) as number
-}
+  if (!contactId) {
+    try {
+      const created = await cwPost(`/accounts/${ACCOUNT_ID}/contacts`, {
+        name:       customerName || 'Website Visitor',
+        identifier: sessionId,
+      })
+      // Create returns { payload: { contact: { id } } }
+      contactId = created?.payload?.contact?.id
+               ?? created?.payload?.id
+               ?? created?.id
+               ?? null
+      console.log('[Jade→CW] Contact created:', contactId)
+    } catch (e) {
+      console.error('[Jade→CW] Contact create failed:', String(e).slice(0, 100))
+      return null
+    }
+  }
 
-async function getOrCreateConversation(contactId: number, conversationId?: number | null): Promise<number> {
-  if (conversationId) return conversationId
+  if (!contactId) return null
 
-  const conv = await cwFetch(`/accounts/${ACCOUNT_ID}/conversations`, {
-    method: 'POST',
-    body:   JSON.stringify({
-      inbox_id:              Number(INBOX_ID),
-      contact_id:            contactId,
-      additional_attributes: { initiated_at: { timestamp: new Date().toISOString() } },
-    }),
-  })
-  return (conv?.id ?? conv?.data?.id) as number
-}
+  // 2. Create or reuse conversation
+  let convId: number | null = existingConvId
 
-async function sendCwMessage(conversationId: number, content: string, type: 'incoming' | 'outgoing') {
-  // Chatwoot requires numeric message_type: 0 = incoming (visitor), 1 = outgoing (agent)
-  const message_type = type === 'incoming' ? 0 : 1
-  return cwFetch(`/accounts/${ACCOUNT_ID}/conversations/${conversationId}/messages`, {
-    method: 'POST',
-    body:   JSON.stringify({ content, message_type, content_type: 'text', private: false }),
-  })
+  if (!convId) {
+    try {
+      const conv = await cwPost(`/accounts/${ACCOUNT_ID}/conversations`, {
+        inbox_id:   Number(INBOX_ID),
+        contact_id: contactId,
+      })
+      // Conversation returns { id, ... } at root
+      convId = conv?.id ?? conv?.data?.id ?? null
+      console.log('[Jade→CW] Conversation created:', convId)
+    } catch (e) {
+      console.error('[Jade→CW] Conv create failed:', String(e).slice(0, 100))
+      return null
+    }
+  }
+
+  if (!convId) return null
+
+  // 3. Visitor message (message_type 0 = incoming)
+  try {
+    await cwPost(`/accounts/${ACCOUNT_ID}/conversations/${convId}/messages`, {
+      content:      userMessage,
+      message_type: 0,
+      content_type: 'text',
+      private:      false,
+    })
+  } catch (e) {
+    console.error('[Jade→CW] Incoming msg failed:', String(e).slice(0, 100))
+  }
+
+  // 4. Jade reply (message_type 1 = outgoing)
+  try {
+    await cwPost(`/accounts/${ACCOUNT_ID}/conversations/${convId}/messages`, {
+      content:      agentReply,
+      message_type: 1,
+      content_type: 'text',
+      private:      false,
+    })
+  } catch (e) {
+    console.error('[Jade→CW] Outgoing msg failed:', String(e).slice(0, 100))
+  }
+
+  return convId
 }
 
 // ─── Jade AI (Claude primary → OpenAI fallback) ───────────────────────────────
@@ -93,9 +165,8 @@ Name: Jade | Role: Senior Travel Consultant & Sales Agent | Company: Walz Travel
 5. Handoff — direct to booking page or offer to connect with the team
 
 ## SERVICES
-- ✈ Flights → /flights (400+ airlines) | 🏨 Hotels → /hotels (180,000+ properties)
-- 🎭 Activities → /activities | 🚗 Transfers → /transfers
-- 🗺 Tours → /tours | 📦 Packages → /packages
+- ✈ Flights → /flights | 🏨 Hotels → /hotels | 🎭 Activities → /activities
+- 🚗 Transfers → /transfers | 🗺 Tours → /tours | 📦 Packages → /packages
 - 🌐 Visas → /visa (15+ countries, 90%+ approval rate) | 📶 eSIM → /esim
 
 ## PRICING KNOWLEDGE
@@ -121,32 +192,28 @@ function buildSystemPrompt(msgCount: number, customerName: string, pageContext: 
 }
 
 async function jadeReply(messages: Msg[], customerName: string, pageContext: string): Promise<string> {
-  const systemPrompt = buildSystemPrompt(messages.length, customerName, pageContext)
+  const system = buildSystemPrompt(messages.length, customerName, pageContext)
 
   try {
     const res = await anthropic.messages.create({
       model:      messages.length > 10 ? 'claude-haiku-4-5-20251001' : 'claude-sonnet-4-6',
       max_tokens: 500,
-      system:     systemPrompt,
+      system,
       messages:   messages as Anthropic.MessageParam[],
     })
     return res.content[0].type === 'text' ? res.content[0].text : ''
-  } catch (e) {
-    console.error('[Jade] Claude failed:', e)
-  }
+  } catch (e) { console.error('[Jade] Claude failed:', e) }
 
   try {
     const res = await openai.chat.completions.create({
       model: 'gpt-4o-mini', max_tokens: 500, temperature: 0.75,
       messages: [
-        { role: 'system', content: systemPrompt },
+        { role: 'system', content: system },
         ...messages.map(m => ({ role: m.role, content: m.content })),
       ],
     })
     return res.choices[0]?.message?.content ?? ''
-  } catch (e) {
-    console.error('[Jade] OpenAI failed:', e)
-  }
+  } catch (e) { console.error('[Jade] OpenAI failed:', e) }
 
   return "I'm having a brief technical issue. For immediate help, WhatsApp us on +44 7398 753797 or email contact@walztravels.com ✈"
 }
@@ -161,45 +228,38 @@ export async function POST(req: NextRequest) {
     conversationId,
     customerName  = '',
     pageContext   = '',
-  } = await req.json()
+  } = await req.json() as {
+    message:             string
+    conversationHistory: Msg[]
+    sessionId?:          string
+    conversationId?:     number | null
+    customerName?:       string
+    pageContext?:        string
+  }
 
   if (!message?.trim()) {
     return NextResponse.json({ error: 'Message required' }, { status: 400 })
   }
 
   const messages: Msg[] = [
-    ...conversationHistory,
+    ...conversationHistory.filter(m => m.role === 'user' || m.role === 'assistant'),
     { role: 'user', content: message },
   ]
 
-  // Always generate the AI reply — even if Chatwoot fails, the user still gets a response
-  const replyPromise = jadeReply(messages, customerName, pageContext)
+  // AI reply first — user never waits for Chatwoot
+  const reply = await jadeReply(messages, customerName, pageContext)
 
-  let convId: number | null = null
+  // Push to Chatwoot (non-blocking on failure)
+  const sid    = sessionId ?? `web-${Date.now()}`
+  const convId = conversationId ?? null
 
-  // Attempt Chatwoot integration (non-blocking on failure)
+  let newConvId: number | null = null
   try {
-    const identifier = (sessionId as string | undefined) ?? `web-${Date.now()}`
-    const contactId  = await getOrCreateContact(identifier, customerName || 'Website Visitor')
-    convId           = await getOrCreateConversation(contactId, conversationId as number | null | undefined)
-
-    // Send visitor message to Chatwoot
-    await sendCwMessage(convId, message, 'incoming')
-
-    // Wait for AI reply then post it as outgoing
-    const reply = await replyPromise
-    await sendCwMessage(convId, reply, 'outgoing')
-
-    return NextResponse.json({
-      reply,
-      conversationId: convId,
-      chatwootUrl:    `${CHATWOOT_BASE}/app/accounts/${ACCOUNT_ID}/conversations/${convId}`,
-    })
-  } catch (cwErr) {
-    console.error('[Jade Chatwoot] Chatwoot error (replying anyway):', cwErr)
-
-    // Chatwoot failed — still send the AI reply to the user
-    const reply = await replyPromise
-    return NextResponse.json({ reply, conversationId: null })
+    newConvId = await pushToCharwoot(sid, customerName, message, reply, convId)
+    if (newConvId) console.log(`[Jade→CW] ✅ Conversation ${newConvId}`)
+  } catch (e) {
+    console.error('[Jade→CW] Push error:', String(e).slice(0, 100))
   }
+
+  return NextResponse.json({ reply, conversationId: newConvId })
 }
