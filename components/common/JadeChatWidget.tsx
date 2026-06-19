@@ -161,18 +161,41 @@ export function JadeChatWidget() {
     setIsLoading(true)
 
     try {
-      const res = await fetch('/api/jade/chat', {
+      // Session ID for Chatwoot contact continuity
+      let sessionId = ''
+      try {
+        sessionId = sessionStorage.getItem('jade_session_id') ?? ''
+        if (!sessionId) {
+          sessionId = `jade-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`
+          sessionStorage.setItem('jade_session_id', sessionId)
+        }
+      } catch {}
+
+      let storedConvId: number | null = null
+      try {
+        const stored = sessionStorage.getItem('jade_conv_id')
+        storedConvId = stored ? Number(stored) : null
+      } catch {}
+
+      const res = await fetch('/api/jade/chatwoot', {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           message:             userMessage,
           conversationHistory: historyRef.current,
+          sessionId,
+          conversationId:      storedConvId,
           customerName,
           pageContext:         pathname.replace(/^\//, '') || 'home',
         }),
       })
 
       const data = await res.json()
+
+      if (data.conversationId) {
+        try { sessionStorage.setItem('jade_conv_id', String(data.conversationId)) } catch {}
+      }
+
       const reply: string = data.reply ?? "I'm having a brief issue — WhatsApp us on +44 7398 753797 for instant help!"
 
       historyRef.current = [
