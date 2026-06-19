@@ -458,8 +458,22 @@ export async function POST(req: NextRequest) {
       ])
       const offers = result.data?.offers ?? []
       if (offers.length > 0) {
-        const best     = offers.slice(0, 30).reduce((a, b) => scoreDuffelOffer(a) >= scoreDuffelOffer(b) ? a : b)
-        const outSlice = best.slices[0]
+        const best      = offers.slice(0, 30).reduce((a, b) => scoreDuffelOffer(a) >= scoreDuffelOffer(b) ? a : b)
+        const rawSlice0 = best.slices[0]
+        const rawSlice1 = best.slices[1] ?? null
+
+        // Duffel can return slices in reversed order — detect and correct
+        const slice0OriginCode = rawSlice0.segments[0]?.origin?.iata_code ?? ''
+        const slice1OriginCode = rawSlice1?.segments[0]?.origin?.iata_code ?? ''
+        const slicesAreReversed =
+          rawSlice1 != null &&
+          slice0OriginCode !== origin &&
+          (slice1OriginCode === origin || slice0OriginCode === destination)
+        const orderedSlices = slicesAreReversed
+          ? [rawSlice1, rawSlice0] as const
+          : [rawSlice0, rawSlice1] as const
+
+        const outSlice = orderedSlices[0]
         const firstSeg = outSlice.segments[0]
         const lastSeg  = outSlice.segments[outSlice.segments.length - 1]
         const checked  = firstSeg.passengers[0]?.baggages?.find(b => b.type === 'checked')
@@ -493,9 +507,9 @@ export async function POST(req: NextRequest) {
           pnr:          genPNR(),
         }
 
-        // ── Capture return leg from Duffel slice[1] ────────────────────────
-        if (retDate && best.slices[1]) {
-          const retSlice = best.slices[1]
+        // ── Capture return leg from ordered slice[1] ───────────────────────
+        if (retDate && orderedSlices[1]) {
+          const retSlice = orderedSlices[1]
           const retFirst = retSlice.segments[0]
           const retLast  = retSlice.segments[retSlice.segments.length - 1]
           flightDetails.returnDepartureAt  = retFirst.departing_at
@@ -520,8 +534,22 @@ export async function POST(req: NextRequest) {
         const scoreOf = (o: AmadeusOffer) =>
           (PREFERRED_CARRIERS[o.itineraries[0]?.segments[0]?.carrierCode] ?? 5) -
           ((o.itineraries[0]?.segments.length ?? 1) - 1) * 2
-        const best    = amOffers.reduce((a, b) => scoreOf(a) >= scoreOf(b) ? a : b)
-        const itin    = best.itineraries[0]
+        const best      = amOffers.reduce((a, b) => scoreOf(a) >= scoreOf(b) ? a : b)
+        const amItin0   = best.itineraries[0]
+        const amItin1   = best.itineraries[1] ?? null
+
+        // Amadeus can also return itineraries reversed — detect and correct
+        const amOrigin0 = amItin0?.segments[0]?.departure?.iataCode ?? ''
+        const amOrigin1 = amItin1?.segments[0]?.departure?.iataCode ?? ''
+        const amReversed =
+          amItin1 != null &&
+          amOrigin0 !== origin &&
+          (amOrigin1 === origin || amOrigin0 === destination)
+        const amItins = amReversed
+          ? [amItin1, amItin0] as const
+          : [amItin0, amItin1] as const
+
+        const itin     = amItins[0]
         const firstSeg = itin.segments[0]
         const lastSeg  = itin.segments[itin.segments.length - 1]
         const bags     = best.travelerPricings[0]?.fareDetailsBySegment[0]?.includedCheckedBags?.quantity ?? 1
@@ -547,11 +575,11 @@ export async function POST(req: NextRequest) {
           pnr:          genPNR(),
         }
 
-        // ── Capture return leg from Amadeus itineraries[1] ─────────────────
-        if (retDate && best.itineraries[1]) {
-          const retItin   = best.itineraries[1]
-          const retFirst  = retItin.segments[0]
-          const retLast   = retItin.segments[retItin.segments.length - 1]
+        // ── Capture return leg from ordered itineraries[1] ─────────────────
+        if (retDate && amItins[1]) {
+          const retItin  = amItins[1]
+          const retFirst = retItin.segments[0]
+          const retLast  = retItin.segments[retItin.segments.length - 1]
           flightDetails.returnDepartureAt  = retFirst.departure.at
           flightDetails.returnArrivalAt    = retLast.arrival.at
           flightDetails.returnFlightNumber = `${retFirst.carrierCode}${retFirst.number}`
