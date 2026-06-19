@@ -6,7 +6,7 @@ import {
   CheckCircle, AlertTriangle, XCircle, Loader2,
   Copy, Check, Printer, ChevronDown, Eye,
   ShieldCheck, FileSearch, MailOpen, Plane, Hotel,
-  ArrowRight,
+  ArrowRight, Send,
 } from 'lucide-react'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -35,7 +35,6 @@ interface AppSearchResult {
   lastName:        string | null
   destinationIso2: string
   status:          string
-  // Extra fields (may be present if API returns them)
   passportNumber?: string | null
   nationality?:    string | null
   arrivalDate?:    string | null
@@ -43,15 +42,15 @@ interface AppSearchResult {
 }
 
 interface FullVisaApp {
-  id:              string
-  firstName?:      string | null
-  lastName?:       string | null
-  middleName?:     string | null
-  passportNumber?: string | null
-  nationality?:    string | null
+  id:               string
+  firstName?:       string | null
+  lastName?:        string | null
+  middleName?:      string | null
+  passportNumber?:  string | null
+  nationality?:     string | null
   destinationIso2?: string
-  arrivalDate?:    string | null
-  returnDate?:     string | null
+  arrivalDate?:     string | null
+  returnDate?:      string | null
 }
 
 interface UploadAnalysis {
@@ -131,18 +130,18 @@ const TABS: Array<{ id: TabId; label: string; icon: React.ElementType; desc: str
 ]
 
 const DOC_TYPES = [
-  { value: 'passport',              label: 'Passport' },
-  { value: 'bank_statement',        label: 'Bank Statement' },
-  { value: 'payslip',              label: 'Payslip' },
-  { value: 'employment_letter',    label: 'Employment Letter' },
-  { value: 'utility_bill',         label: 'Utility Bill' },
-  { value: 'invitation_letter',    label: 'Invitation Letter' },
-  { value: 'insurance',            label: 'Insurance Certificate' },
-  { value: 'hotel_booking',        label: 'Hotel Booking' },
-  { value: 'flight_itinerary',     label: 'Flight Itinerary' },
-  { value: 'travel_history',       label: 'Travel History' },
-  { value: 'tax_return',           label: 'Tax Return' },
-  { value: 'business_registration', label: 'Business Registration' },
+  { value: 'passport',               label: 'Passport' },
+  { value: 'bank_statement',         label: 'Bank Statement' },
+  { value: 'payslip',                label: 'Payslip' },
+  { value: 'employment_letter',      label: 'Employment Letter' },
+  { value: 'utility_bill',           label: 'Utility Bill' },
+  { value: 'invitation_letter',      label: 'Invitation Letter' },
+  { value: 'insurance',              label: 'Insurance Certificate' },
+  { value: 'hotel_booking',          label: 'Hotel Booking' },
+  { value: 'flight_itinerary',       label: 'Flight Itinerary' },
+  { value: 'travel_history',         label: 'Travel History' },
+  { value: 'tax_return',             label: 'Tax Return' },
+  { value: 'business_registration',  label: 'Business Registration' },
 ]
 
 const LETTER_TYPES = [
@@ -705,7 +704,7 @@ function LettersTab() {
 
 interface FlightDetails {
   airline:      string
-  airlineCode:  string
+  airlineCode?: string
   flightNumber: string
   fromCode:     string
   fromCity:     string
@@ -717,9 +716,69 @@ interface FlightDetails {
   stops:        number
   cabin:        string
   baggage:      string
-  price:        string
+  price?:       string
   seat:         string
   pnr:          string
+}
+
+// ─── Send to Client inline form ───────────────────────────────────────────────
+
+function SendToClientForm({
+  pdfBase64, mode, clientName, flightDetails, ticketData,
+}: {
+  pdfBase64:      string
+  mode:           string
+  clientName:     string
+  flightDetails?: FlightDetails | null
+  ticketData?:    Record<string, unknown> | null
+}) {
+  const [email,    setEmail]    = useState('')
+  const [sending,  setSending]  = useState(false)
+  const [sent,     setSent]     = useState(false)
+  const [sendErr,  setSendErr]  = useState('')
+
+  const send = async () => {
+    if (!email) return
+    setSending(true); setSent(false); setSendErr('')
+    try {
+      const res  = await fetch('/api/admin/intelligence/send-ticket', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email, clientName, mode, pdf_base64: pdfBase64,
+          flightDetails: flightDetails ?? undefined,
+          ticketData:    ticketData    ?? undefined,
+        }),
+      })
+      const data = await res.json()
+      if (!res.ok) { setSendErr(data.error ?? 'Failed to send'); return }
+      setSent(true)
+    } catch (e) { setSendErr(String(e)) }
+    finally { setSending(false) }
+  }
+
+  return (
+    <div className="border-t border-gray-100 pt-4 mt-3">
+      <div className="flex items-center gap-2">
+        <input
+          className="flex-1 h-9 px-3 border border-gray-200 rounded-lg text-sm outline-none focus:border-[#C9A84C] bg-white"
+          type="email"
+          placeholder="Client email address…"
+          value={email}
+          onChange={e => setEmail(e.target.value)}
+          onKeyDown={e => e.key === 'Enter' && void send()}
+        />
+        <button onClick={() => void send()} disabled={!email || sending}
+          className={`flex items-center gap-1.5 text-xs px-4 py-2 rounded-lg font-semibold transition-all disabled:opacity-50 ${
+            sent ? 'bg-green-600 text-white' : 'bg-[#0B1F3A] text-white hover:bg-[#0d2345]'
+          }`}>
+          {sending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : sent ? <Check className="w-3.5 h-3.5" /> : <Send className="w-3.5 h-3.5" />}
+          {sending ? 'Sending…' : sent ? 'Sent!' : 'Send Email'}
+        </button>
+      </div>
+      {sendErr && <p className="text-xs text-red-500 mt-1.5">{sendErr}</p>}
+      {sent    && <p className="text-xs text-green-600 mt-1.5">✓ Itinerary sent to {email}</p>}
+    </div>
+  )
 }
 
 function DummyTicketTab() {
@@ -729,9 +788,12 @@ function DummyTicketTab() {
   const [loading,       setLoading]       = useState(false)
   const [pdfUrl,        setPdfUrl]        = useState('')
   const [pdfBase64,     setPdfBase64]     = useState('')
+  const [blobUrl,       setBlobUrl]       = useState('')
   const [flightDetails, setFlightDetails] = useState<FlightDetails | null>(null)
+  const [ticketData,    setTicketData]    = useState<Record<string, unknown> | null>(null)
   const [error,         setError]         = useState('')
   const [errorMeta,     setErrorMeta]     = useState<ErrorMeta | null>(null)
+  const [showSendForm,  setShowSendForm]  = useState(false)
 
   // Live mode fields
   const [originIata, setOriginIata] = useState('LOS')
@@ -768,7 +830,12 @@ function DummyTicketTab() {
   const [hRoomType, setHRoomType] = useState('Standard Double Room')
   const [hGuests,   setHGuests]   = useState('1')
 
-  // ── Autofill Bug Fix: fetch full app details when appId is set ───────────────
+  // ── Revoke blob URL on cleanup ────────────────────────────────────────────
+  useEffect(() => {
+    return () => { if (blobUrl) URL.revokeObjectURL(blobUrl) }
+  }, [blobUrl])
+
+  // ── Autofill: fetch full app details when appId changes ───────────────────
   useEffect(() => {
     if (!appId) return
     fetch(`/api/admin/visa-applications/${appId}`)
@@ -777,24 +844,16 @@ function DummyTicketTab() {
         if (!data) return
         const app: FullVisaApp = (data as { application?: FullVisaApp }).application ?? (data as FullVisaApp)
         if (!app) return
-
         const name = [app.firstName, app.middleName, app.lastName].filter(Boolean).join(' ')
-        if (name)                setClientName(name)
-        if (app.passportNumber)  setPassportNo(app.passportNumber)
-
-        // Destination IATA from ISO2
+        if (name)               setClientName(name)
+        if (app.passportNumber) setPassportNo(app.passportNumber)
         const destCode = app.destinationIso2 ? (COUNTRY_IATA[app.destinationIso2] ?? '') : ''
         if (destCode) { setDestIata(destCode); setMToCode(destCode) }
-
-        // Origin IATA from nationality
         const origCode = app.nationality ? (NATIONALITY_IATA[app.nationality] ?? '') : ''
         if (origCode) { setOriginIata(origCode); setMFromCode(origCode) }
-
-        // Dates
         if (app.arrivalDate) {
           const d = String(app.arrivalDate).slice(0, 10)
-          setDepDate(d)
-          setMDepDT(d + 'T08:00')
+          setDepDate(d); setMDepDT(d + 'T08:00')
           if (mode === 'hotel') setHCheckIn(d)
         }
         if (app.returnDate) {
@@ -803,10 +862,10 @@ function DummyTicketTab() {
           if (mode === 'hotel') setHCheckOut(d)
         }
       })
-      .catch(() => {}) // Non-fatal — autofill degrades gracefully
+      .catch(() => {})
   }, [appId]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── Immediate partial autofill from search result (before full fetch returns) ─
+  // ── Immediate partial autofill from search result ─────────────────────────
   const handleAppSelect = (app: AppSearchResult) => {
     const name = [app.firstName, app.lastName].filter(Boolean).join(' ')
     if (name) setClientName(name)
@@ -814,8 +873,15 @@ function DummyTicketTab() {
     if (destCode) { setDestIata(destCode); setMToCode(destCode) }
   }
 
+  const resetOutput = () => {
+    if (blobUrl) URL.revokeObjectURL(blobUrl)
+    setPdfUrl(''); setPdfBase64(''); setBlobUrl(''); setFlightDetails(null)
+    setTicketData(null); setError(''); setErrorMeta(null); setShowSendForm(false)
+  }
+
   const generate = async () => {
-    setLoading(true); setPdfUrl(''); setPdfBase64(''); setFlightDetails(null); setError(''); setErrorMeta(null)
+    resetOutput()
+    setLoading(true)
     try {
       const payload: Record<string, unknown> = {
         mode,
@@ -852,28 +918,38 @@ function DummyTicketTab() {
         setErrorMeta({ tried: data.tried, params: data.params, suggestion: data.suggestion })
         return
       }
-      if (data.pdfUrl)         setPdfUrl(data.pdfUrl)
-      if (data.pdf_base64)     setPdfBase64(data.pdf_base64)
+
+      if (data.pdfUrl)   setPdfUrl(data.pdfUrl)
+      if (data.ticketData) setTicketData(data.ticketData as Record<string, unknown>)
       if (data.flight_details) setFlightDetails(data.flight_details as FlightDetails)
+
+      // Bug fix: convert base64 → Blob URL immediately so iframe always renders
+      if (data.pdf_base64) {
+        setPdfBase64(data.pdf_base64)
+        const bytes  = Uint8Array.from(atob(data.pdf_base64), c => c.charCodeAt(0))
+        const blob   = new Blob([bytes], { type: 'application/pdf' })
+        const newUrl = URL.createObjectURL(blob)
+        setBlobUrl(newUrl)
+      }
     } catch (e) { setError(String(e)) }
     finally { setLoading(false) }
   }
 
   const downloadPDF = () => {
     if (!pdfBase64) return
-    const a = document.createElement('a')
-    a.href = `data:application/pdf;base64,${pdfBase64}`
+    const a    = document.createElement('a')
+    a.href     = `data:application/pdf;base64,${pdfBase64}`
     a.download = `walz-ticket-${Date.now()}.pdf`
     a.click()
   }
-
-  const resetOutput = () => { setPdfUrl(''); setPdfBase64(''); setFlightDetails(null); setError(''); setErrorMeta(null) }
 
   const MODES: Array<{ id: TicketMode; icon: React.ElementType; label: string; desc: string }> = [
     { id: 'live',   icon: Plane,    label: 'Live Flight Search', desc: 'Duffel · Amadeus' },
     { id: 'manual', icon: FileText, label: 'Manual Entry',       desc: 'Enter all fields' },
     { id: 'hotel',  icon: Hotel,    label: 'Hotel Voucher',      desc: 'Accommodation' },
   ]
+
+  const hasPDF = !!(blobUrl || pdfUrl || pdfBase64)
 
   return (
     <div className="space-y-6">
@@ -1000,24 +1076,21 @@ function DummyTicketTab() {
           }
         </button>
 
-        {/* Error card with Switch to Manual button */}
+        {/* Error card */}
         {error && (
           <div className="mt-4 p-4 bg-red-50 border border-red-200 rounded-xl">
             <p className="text-sm font-semibold text-red-700 mb-1">
               {errorMeta?.tried ? `No flights found (tried: ${errorMeta.tried.join(', ')})` : 'Error'}
             </p>
             <p className="text-sm text-red-600">{error}</p>
-            {errorMeta?.suggestion && (
-              <p className="text-xs text-gray-500 mt-1.5">{errorMeta.suggestion}</p>
-            )}
+            {errorMeta?.suggestion && <p className="text-xs text-gray-500 mt-1.5">{errorMeta.suggestion}</p>}
             {errorMeta?.params && (
               <p className="text-xs text-gray-400 mt-1 font-mono">
                 {errorMeta.params.origin} → {errorMeta.params.destination} · {errorMeta.params.departureDate}
               </p>
             )}
             {errorMeta?.tried && mode === 'live' && (
-              <button
-                onClick={() => { setMode('manual'); setError(''); setErrorMeta(null) }}
+              <button onClick={() => { setMode('manual'); setError(''); setErrorMeta(null) }}
                 className="mt-3 flex items-center gap-1.5 text-xs font-semibold text-[#0B1F3A] hover:text-[#C9A84C] transition-colors">
                 <ArrowRight className="w-3.5 h-3.5" /> Switch to Manual Entry
               </button>
@@ -1048,25 +1121,61 @@ function DummyTicketTab() {
         </div>
       )}
 
-      {/* PDF preview */}
-      {pdfUrl && (
+      {/* PDF display — shows whenever ANY of blobUrl / pdfUrl / pdfBase64 is available */}
+      {hasPDF && (
         <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
-          <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
-            <h3 className="text-sm font-bold text-[#0B1F3A]">
-              {mode === 'hotel' ? 'Hotel Voucher PDF' : 'Flight Itinerary PDF'}
-            </h3>
-            <div className="flex gap-2">
-              <button onClick={downloadPDF}
-                className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border border-[#0B1F3A] text-[#0B1F3A] hover:bg-[#0B1F3A] hover:text-white transition-colors font-semibold">
-                <Printer className="w-3.5 h-3.5" /> Download PDF
-              </button>
-              <a href={pdfUrl} target="_blank" rel="noopener noreferrer"
-                className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border border-gray-200 hover:border-[#C9A84C] text-gray-500 transition-colors">
-                <Eye className="w-3.5 h-3.5" /> Open in new tab
-              </a>
+          <div className="px-6 py-4 border-b border-gray-100">
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-bold text-[#0B1F3A]">
+                {mode === 'hotel' ? 'Hotel Voucher PDF' : 'Flight Itinerary PDF'}
+              </h3>
+              <div className="flex items-center gap-2">
+                {/* Download — always visible, uses base64 */}
+                {pdfBase64 && (
+                  <button onClick={downloadPDF}
+                    className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border border-[#0B1F3A] text-[#0B1F3A] hover:bg-[#0B1F3A] hover:text-white transition-colors font-semibold">
+                    <Printer className="w-3.5 h-3.5" /> Download PDF
+                  </button>
+                )}
+                {/* Open in tab — only when Supabase URL available */}
+                {pdfUrl && (
+                  <a href={pdfUrl} target="_blank" rel="noopener noreferrer"
+                    className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border border-gray-200 hover:border-[#C9A84C] text-gray-500 transition-colors">
+                    <Eye className="w-3.5 h-3.5" /> Open in tab
+                  </a>
+                )}
+                {/* Send to Client — toggles inline form */}
+                {pdfBase64 && (
+                  <button onClick={() => setShowSendForm(s => !s)}
+                    className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border font-semibold transition-colors ${
+                      showSendForm
+                        ? 'bg-[#C9A84C] text-[#0B1F3A] border-[#C9A84C]'
+                        : 'border-[#C9A84C] text-[#C9A84C] hover:bg-[#C9A84C] hover:text-[#0B1F3A]'
+                    }`}>
+                    <Send className="w-3.5 h-3.5" /> Send to Client
+                  </button>
+                )}
+              </div>
             </div>
+
+            {/* Inline send form */}
+            {showSendForm && pdfBase64 && (
+              <SendToClientForm
+                pdfBase64={pdfBase64}
+                mode={mode}
+                clientName={clientName}
+                flightDetails={flightDetails}
+                ticketData={ticketData}
+              />
+            )}
           </div>
-          <iframe src={pdfUrl} className="w-full h-[700px] border-0" title="Ticket PDF Preview" />
+
+          {/* iframe — blobUrl primary (works offline), pdfUrl as fallback */}
+          <iframe
+            src={blobUrl || pdfUrl}
+            className="w-full h-[700px] border-0"
+            title="Ticket PDF Preview"
+          />
         </div>
       )}
     </div>
