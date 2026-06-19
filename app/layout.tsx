@@ -259,6 +259,65 @@ export default function RootLayout({
         />
         {/* End Google Analytics 4 */}
 
+        {/* Chatwoot / Jade chat widget */}
+        <Script
+          id="chatwoot-jade"
+          strategy="afterInteractive"
+          dangerouslySetInnerHTML={{
+            __html: `
+              (function() {
+                if (typeof window === 'undefined') return;
+                if (window.location.pathname.startsWith('/admin')) return;
+
+                var BASE_URL = (typeof process !== 'undefined' && process.env && process.env.NEXT_PUBLIC_CHATWOOT_BASE_URL)
+                  ? process.env.NEXT_PUBLIC_CHATWOOT_BASE_URL
+                  : 'https://chat.walztravels.com';
+                var TOKEN = (typeof process !== 'undefined' && process.env && process.env.NEXT_PUBLIC_CHATWOOT_WEBSITE_TOKEN)
+                  ? process.env.NEXT_PUBLIC_CHATWOOT_WEBSITE_TOKEN
+                  : 'xEmkV63FyRkBYXTjzYPxyWCx';
+
+                window.chatwootSettings = {
+                  position:      'right',
+                  type:          'standard',
+                  launcherTitle: 'Chat with Jade',
+                  locale:        'en',
+                  darkMode:      'auto',
+                };
+
+                var g = document.createElement('script');
+                var s = document.getElementsByTagName('script')[0];
+                g.src   = BASE_URL + '/packs/js/sdk.js';
+                g.defer = true;
+                g.async = true;
+                g.onload = function() {
+                  window.chatwootSDK.run({ websiteToken: TOKEN, baseUrl: BASE_URL });
+                };
+                g.onerror = function() {
+                  // Fallback: show a WhatsApp button (desktop only) if SDK fails to load
+                  if (window.innerWidth < 768) return;
+                  var btn = document.createElement('a');
+                  btn.href = 'https://wa.me/447398753797?text=Hi%20Jade%2C%20I%20need%20help%20with%20my%20travel%20plans';
+                  btn.target = '_blank';
+                  btn.rel = 'noopener noreferrer';
+                  btn.style.cssText = [
+                    'position:fixed', 'bottom:24px', 'right:24px', 'z-index:9999',
+                    'display:flex', 'align-items:center', 'gap:8px',
+                    'background:#0B1F3A', 'color:#C9A84C',
+                    'font-family:sans-serif', 'font-size:13px', 'font-weight:700',
+                    'padding:10px 18px', 'border-radius:50px',
+                    'box-shadow:0 4px 16px rgba(0,0,0,0.25)',
+                    'text-decoration:none', 'cursor:pointer',
+                  ].join(';');
+                  btn.textContent = '💬 Chat with Jade';
+                  document.body.appendChild(btn);
+                };
+                s.parentNode.insertBefore(g, s);
+              })();
+            `,
+          }}
+        />
+        {/* End Chatwoot / Jade */}
+
       </head>
       <body className="font-sans bg-walz-off-white text-walz-deep-navy antialiased min-h-screen flex flex-col">
         <SessionProvider>
