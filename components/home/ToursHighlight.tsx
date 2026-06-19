@@ -146,7 +146,7 @@ export function ToursHighlight() {
                   className={`w-10 h-10 rounded-lg overflow-hidden border-2 transition-all ${i === 0 ? 'border-[#C9A84C]' : 'border-white/40'}`}
                 >
                   {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={url} alt="" className="w-full h-full object-cover" />
+                  <img src={url} alt={`Tour photo ${i + 1}`} className="w-full h-full object-cover" />
                 </div>
               ))}
             </div>

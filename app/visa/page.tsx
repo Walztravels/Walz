@@ -446,6 +446,27 @@ export default function VisaPage() {
             <h2 className="text-xl font-bold text-white mb-1">Check Visa Requirements</h2>
             <p className="text-white/40 text-sm">Select your passport country and destination</p>
           </div>
+
+          {/* Popular route pills */}
+          <div className="flex flex-wrap gap-2 justify-center mb-6">
+            {[
+              { from: 'NG', to: 'GB', label: 'Nigeria → UK' },
+              { from: 'NG', to: 'CA', label: 'Nigeria → Canada' },
+              { from: 'NG', to: 'AE', label: 'Nigeria → UAE' },
+              { from: 'NG', to: 'AU', label: 'Nigeria → Australia' },
+              { from: 'NG', to: 'US', label: 'Nigeria → USA' },
+              { from: 'GH', to: 'AE', label: 'Ghana → UAE' },
+              { from: 'GH', to: 'GB', label: 'Ghana → UK' },
+            ].map(({ from, to, label }) => (
+              <button
+                key={label}
+                onClick={() => { setPassport(from); setDestination(to) }}
+                className="text-xs font-semibold px-3 py-1.5 rounded-full bg-white/10 hover:bg-[#C9A84C]/20 border border-white/20 hover:border-[#C9A84C]/50 text-white/70 hover:text-white transition-all"
+              >
+                {label}
+              </button>
+            ))}
+          </div>
           <div className="bg-white/5 border border-white/10 rounded-2xl p-6">
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
               <CountrySelect

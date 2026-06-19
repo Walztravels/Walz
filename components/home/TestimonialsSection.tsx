@@ -50,7 +50,7 @@ const TESTIMONIALS = [
 
 export function TestimonialsSection() {
   const [active, setActive] = useState(0)
-  const [dbTestimonials, setDbTestimonials] = useState<typeof TESTIMONIALS>([])
+  const [dbTestimonials, setDbTestimonials] = useState<typeof TESTIMONIALS>(TESTIMONIALS)
   const sectionRef = useRef<HTMLDivElement>(null)
   const quoteRef   = useRef<HTMLDivElement>(null)
   const textRef    = useRef<HTMLParagraphElement>(null)

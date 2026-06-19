@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react'
 import dynamic from 'next/dynamic'
 import Link from 'next/link'
-import { ArrowRight, Check, Mail, Gift, BookOpen, Rss } from 'lucide-react'
+import { ArrowRight, Check, Mail, Gift, Rss } from 'lucide-react'
 
 // ── Above-fold — always in the initial bundle ─────────────────────────────────
 import { HeroSection }  from '@/components/home/HeroSection'
@@ -128,27 +128,51 @@ export default function HomePage() {
             </Link>
           </div>
 
-          <ul className="divide-y divide-[#0B1F3A]/8 max-w-2xl">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
             {(articles.length > 0 ? articles.map(a => ({
-              id: a.id, title: a.title, slug: a.slug, date: a.date, isPlaceholder: false,
+              id: a.id, title: a.title, slug: a.slug, date: a.date,
+              image: (a as { imageUrl?: string }).imageUrl ?? 'https://images.unsplash.com/photo-1488085061387-422e29b40080?w=600&q=80&auto=format&fit=crop',
+              category: (a as { category?: string }).category ?? 'VISA GUIDE',
+              readTime: (a as { readTime?: string }).readTime ?? '5 min read',
             })) : [
-              { id: 'p1', title: '10 Things to Know Before Applying for a UK Visa', slug: 'uk-visa-tips', date: 'Jun 2025', isPlaceholder: true },
-              { id: 'p2', title: 'Dubai in 5 Days: The Ultimate First-Time Itinerary', slug: 'dubai-5-days', date: 'May 2025', isPlaceholder: true },
-              { id: 'p3', title: 'Canada Visitor Visa: Documents That Actually Get Approved', slug: 'canada-visitor-visa', date: 'Apr 2025', isPlaceholder: true },
+              { id: 'p1', title: 'UK Visa Guide 2026 — Everything You Need to Know', slug: 'uk-visa-tips', date: 'Jun 2026', image: 'https://images.unsplash.com/photo-1513635269975-59663e0ac1ad?w=600&q=80&auto=format&fit=crop', category: 'VISA GUIDE', readTime: '8 min read' },
+              { id: 'p2', title: 'Canada Visitor Visa & eTA Guide 2026', slug: 'canada-visitor-visa', date: 'Jun 2026', image: 'https://images.unsplash.com/photo-1503549207964-47dfe6cef5d0?w=600&q=80&auto=format&fit=crop', category: 'VISA GUIDE', readTime: '7 min read' },
+              { id: 'p3', title: 'Dubai in 5 Days — The Ultimate Itinerary', slug: 'dubai-5-days', date: 'May 2026', image: 'https://images.unsplash.com/photo-1512453979798-5ea266f8880c?w=600&q=80&auto=format&fit=crop', category: 'DESTINATION GUIDE', readTime: '10 min read' },
             ]).map(a => (
-              <li key={a.id} className="py-4 group">
-                <Link href={`/blog?post=${a.slug}`} className="flex items-start justify-between gap-4">
-                  <span className="text-[#0B1F3A] font-medium text-sm leading-snug group-hover:text-[#C9A84C] transition-colors">
+              <Link
+                key={a.id}
+                href={`/blog?post=${a.slug}`}
+                className="group block rounded-2xl overflow-hidden bg-white border border-[#E2D9CC] hover:border-[#C9A84C] hover:shadow-lg transition-all duration-300"
+              >
+                <div className="relative aspect-[3/2] overflow-hidden bg-[#0B1F3A]/10">
+                  <img
+                    src={a.image}
+                    alt={a.title}
+                    className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                    loading="lazy"
+                  />
+                  <div className="absolute top-3 left-3">
+                    <span className="text-[10px] font-bold tracking-widest uppercase bg-[#C9A84C] text-[#0B1F3A] px-2.5 py-1 rounded-full">
+                      {a.category}
+                    </span>
+                  </div>
+                </div>
+                <div className="p-4">
+                  <p className="text-xs text-[#0B1F3A]/40 mb-2 flex items-center gap-2">
+                    <span>{a.date}</span>
+                    <span>·</span>
+                    <span>{a.readTime}</span>
+                  </p>
+                  <h3 className="text-sm font-bold text-[#0B1F3A] leading-snug line-clamp-2 group-hover:text-[#C9A84C] transition-colors">
                     {a.title}
-                  </span>
-                  <span className="text-[#0B1F3A]/40 text-xs whitespace-nowrap mt-0.5 flex-shrink-0 flex items-center gap-1">
-                    <BookOpen className="w-3 h-3" />
-                    {a.date}
-                  </span>
-                </Link>
-              </li>
+                  </h3>
+                  <p className="text-xs text-[#0B1F3A]/50 mt-2 flex items-center gap-1 font-medium">
+                    Read More <ArrowRight className="w-3 h-3" />
+                  </p>
+                </div>
+              </Link>
             ))}
-          </ul>
+          </div>
 
           <div className="mt-6 md:hidden">
             <Link href="/blog" className="inline-flex items-center gap-2 text-sm font-semibold text-[#0B1F3A] border border-[#0B1F3A] px-5 py-2.5 rounded-lg hover:bg-[#0B1F3A] hover:text-white transition-colors">

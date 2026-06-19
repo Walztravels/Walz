@@ -116,7 +116,7 @@ function Lightbox({ photos, index, onClose, onNav }: LightboxProps) {
               className={`flex-shrink-0 w-14 h-10 rounded-lg overflow-hidden border-2 transition-all ${i === index ? 'border-[#C9A84C]' : 'border-white/20 hover:border-white/60'}`}
             >
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={url} alt="" className="w-full h-full object-cover" />
+              <img src={url} alt={`Tour photo ${i + 1}`} className="w-full h-full object-cover" />
             </button>
           ))}
         </div>
@@ -268,7 +268,7 @@ function TourDetailContent() {
                 className={`flex-shrink-0 w-16 h-12 rounded-lg overflow-hidden border-2 transition-all ${i === galleryIndex ? 'border-[#C9A84C]' : 'border-white/20 hover:border-white/60'}`}
               >
                 {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={url} alt="" className="w-full h-full object-cover" />
+                <img src={url} alt={`${tour.name} photo`} className="w-full h-full object-cover" />
               </button>
             ))}
             {/* View all photos */}

@@ -74,12 +74,19 @@ export function FinalCTA() {
 
         <p
           ref={subRef}
-          className="text-[#0B1F3A]/65 text-lg lg:text-xl mb-10 font-medium"
+          className="text-[#0B1F3A]/65 text-lg lg:text-xl mb-6 font-medium"
         >
           Talk to Jade. Get started in minutes.
         </p>
 
-        <div ref={btnsRef} className="flex flex-col sm:flex-row items-center justify-center gap-4">
+        <div className="flex items-center justify-center gap-1 mb-8">
+          {[1,2,3,4,5].map(i => (
+            <span key={i} className="text-[#0B1F3A] text-xl">★</span>
+          ))}
+          <span className="text-[#0B1F3A]/60 text-sm ml-2">Rated 4.9/5 by 500+ clients</span>
+        </div>
+
+        <div ref={btnsRef} className="flex flex-col sm:flex-row items-center justify-center gap-4 flex-wrap">
           <a
             href="https://wa.me/447398753797"
             target="_blank"
@@ -95,6 +102,14 @@ export function FinalCTA() {
               Start Your Application
             </button>
           </Link>
+          <a
+            href="https://calendly.com/walztravels"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="flex items-center gap-2 border-2 border-[#0B1F3A] text-[#0B1F3A] hover:bg-[#0B1F3A] hover:text-[#C9A84C] font-bold px-6 py-4 rounded-full transition-all text-sm"
+          >
+            📅 Book a Free Consultation
+          </a>
         </div>
       </div>
     </section>

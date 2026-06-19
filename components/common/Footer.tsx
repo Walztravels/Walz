@@ -303,15 +303,23 @@ export function Footer() {
       <div className="border-t border-walz-slate/50">
         <div className="container-walz py-6">
           <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
-            <div className="flex items-center gap-3 flex-wrap justify-center">
-              <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-walz-slate/30 border border-walz-slate/50">
-                <Award className="w-4 h-4 text-walz-gold" />
-                <span className="text-walz-muted text-xs font-medium">IATA Certified</span>
-              </div>
-              <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-walz-slate/30 border border-walz-slate/50">
-                <Lock className="w-4 h-4 text-walz-gold" />
-                <span className="text-walz-muted text-xs font-medium">Stripe Secured</span>
-              </div>
+            <div className="flex items-center gap-2 flex-wrap justify-center sm:justify-start">
+              {[
+                { icon: '✈', label: 'IATA Certified' },
+                { icon: '🔒', label: 'SSL Secured' },
+                { icon: '💳', label: 'Stripe Payments' },
+                { icon: '🏦', label: 'Flutterwave' },
+                { icon: '🇬🇧', label: 'Registered in England & Wales' },
+                { icon: '🇨🇦', label: 'Incorporated in Ontario, Canada' },
+              ].map(({ icon, label }) => (
+                <div
+                  key={label}
+                  className="flex items-center gap-1.5 text-[10px] text-white/40 bg-white/5 border border-white/10 rounded-lg px-2.5 py-1.5 font-medium"
+                >
+                  <span>{icon}</span>
+                  <span>{label}</span>
+                </div>
+              ))}
             </div>
 
             <div className="text-center sm:text-right">
