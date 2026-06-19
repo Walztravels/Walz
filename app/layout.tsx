@@ -3,6 +3,7 @@ import { Playfair_Display, DM_Sans } from 'next/font/google'
 import Script from 'next/script'
 import './globals.css'
 import { PublicShell } from '@/components/common/PublicShell'
+import { JadeChatWidget } from '@/components/common/JadeChatWidget'
 import { SessionProvider } from '@/components/providers/SessionProvider'
 import { LenisProvider } from '@/components/providers/LenisProvider'
 import { CurrencyProvider } from '@/lib/context/CurrencyContext'
@@ -258,68 +259,6 @@ export default function RootLayout({
         />
         {/* End Google Analytics 4 */}
 
-        {/* ── Chatwoot live chat (Walz branded) ─────────────────── */}
-        <Script
-          id="chatwoot-sdk"
-          strategy="afterInteractive"
-          dangerouslySetInnerHTML={{
-            __html: `
-(function() {
-  if (window.location.pathname.startsWith('/admin')) return;
-
-  window.chatwootSettings = {
-    hideMessageBubble: false,
-    position:          'right',
-    locale:            'en',
-    type:              'standard',
-    darkMode:          'auto',
-    launcherTitle:     'Chat with Jade',
-  };
-
-  var BASE_URL = "${process.env.NEXT_PUBLIC_CHATWOOT_BASE_URL || 'https://chat.walztravels.com'}";
-  var TOKEN    = "${process.env.NEXT_PUBLIC_CHATWOOT_WEBSITE_TOKEN || 'xEmkV63FyRkBYXTjzYPxyWCx'}";
-
-  var g = document.createElement('script');
-  g.src   = BASE_URL + '/packs/js/sdk.js';
-  g.defer = true;
-  g.async = true;
-  g.onload = function() {
-    if (window.chatwootSDK) {
-      window.chatwootSDK.run({ websiteToken: TOKEN, baseUrl: BASE_URL });
-    }
-  };
-  g.onerror = function() {
-    // Chatwoot SDK failed — inject branded Jade button (desktop only; mobile FAB handles mobile)
-    if (window.innerWidth < 1024) return;
-    var btn = document.createElement('button');
-    btn.setAttribute('aria-label', 'Chat with Jade');
-    btn.style.cssText = [
-      'position:fixed','bottom:20px','right:20px','z-index:9999',
-      'width:60px','height:60px','border-radius:50%',
-      'background:#0B1F3A','border:2px solid #C9A84C',
-      'display:flex','align-items:center','justify-content:center',
-      'box-shadow:0 8px 24px rgba(11,31,58,0.4)',
-      'cursor:pointer','transition:transform 0.2s',
-    ].join(';');
-    btn.innerHTML = '<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="#C9A84C" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/><path d="M8 10h.01" stroke-width="2.5"/><path d="M12 10h.01" stroke-width="2.5"/><path d="M16 10h.01" stroke-width="2.5"/></svg>';
-    btn.addEventListener('click', function() {
-      if (window.$chatwoot) {
-        window.$chatwoot.toggle('open');
-      } else {
-        window.open('https://chat.walztravels.com', '_blank', 'noopener,noreferrer');
-      }
-    });
-    btn.addEventListener('mouseenter', function() { btn.style.transform = 'scale(1.1)'; });
-    btn.addEventListener('mouseleave', function() { btn.style.transform = 'scale(1)'; });
-    document.body.appendChild(btn);
-  };
-
-  document.head.appendChild(g);
-})();
-            `,
-          }}
-        />
-        {/* ── End Chatwoot ──────────────────────────────────────── */}
       </head>
       <body className="font-sans bg-walz-off-white text-walz-deep-navy antialiased min-h-screen flex flex-col">
         <SessionProvider>
@@ -330,6 +269,7 @@ export default function RootLayout({
                 <PublicShell>
                   {children}
                 </PublicShell>
+                <JadeChatWidget />
               </LenisProvider>
             </CartProvider>
           </CurrencyProvider>
