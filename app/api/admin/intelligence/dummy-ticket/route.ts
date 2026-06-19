@@ -17,7 +17,7 @@ const supabase = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!,
 )
 
-// ─── Safe string helper (Bug 1 fix — prevents toUpperCase on undefined) ────────
+// ─── Safe string helper ────────────────────────────────────────────────────────
 const safeUpper = (s: unknown): string => (s != null ? String(s) : '').toUpperCase()
 
 // ─── ISO2 country → major IATA airport ───────────────────────────────────────
@@ -53,7 +53,7 @@ const NATIONALITY_IATA: Record<string, string> = {
   Omani: 'MCT', Kuwaiti: 'KWI',
 }
 
-// ─── Carrier code → full airline name (for Amadeus display) ──────────────────
+// ─── Carrier code → full airline name ────────────────────────────────────────
 const AIRLINE_NAMES: Record<string, string> = {
   BA: 'British Airways', EK: 'Emirates', QR: 'Qatar Airways',
   LH: 'Lufthansa', AF: 'Air France', KL: 'KLM Royal Dutch Airlines',
@@ -70,7 +70,7 @@ const AIRLINE_NAMES: Record<string, string> = {
   PR: 'Philippine Airlines', GA: 'Garuda Indonesia', VN: 'Vietnam Airlines',
 }
 
-// ─── Major carrier scoring (higher = more preferred) ─────────────────────────
+// ─── Major carrier scoring ────────────────────────────────────────────────────
 const PREFERRED_CARRIERS: Record<string, number> = {
   BA: 10, EK: 10, QR: 10, LH: 9, AF: 9, KL: 9, ET: 8,
   TK: 8, UA: 7, AA: 7, DL: 7, SQ: 10, CX: 9, VS: 8,
@@ -96,19 +96,19 @@ function fmtTime(iso: string): string {
 function fmtDuration(iso: string): string {
   const m = iso.match(/PT(?:(\d+)H)?(?:(\d+)M)?/)
   if (!m) return iso
-  const h = m[1] ? `${m[1]}h ` : ''
-  const min = m[2] ? `${m[2]}m` : ''
+  const h   = m[1] ? `${m[1]}h ` : ''
+  const min = m[2] ? `${m[2]}m`  : ''
   return `${h}${min}`.trim()
 }
 
-// ─── Score Duffel offer (prefers major carriers, direct) ─────────────────────
+// ─── Score Duffel offer ───────────────────────────────────────────────────────
 function scoreDuffelOffer(offer: {
   slices: Array<{ segments: Array<{ marketing_carrier: { iata_code: string } }> }>
 }): number {
   const firstSeg = offer.slices[0]?.segments[0]
   if (!firstSeg) return 0
   const carrier = firstSeg.marketing_carrier.iata_code
-  const stops   = offer.slices.reduce((acc, s) => acc + Math.max(0, s.segments.length - 1), 0)
+  const stops   = offer.slices.reduce((acc, sl) => acc + Math.max(0, sl.segments.length - 1), 0)
   return (PREFERRED_CARRIERS[carrier] ?? 5) - stops * 2
 }
 
@@ -170,8 +170,8 @@ interface DuffelOfferResponse { data: { offers: DuffelOffer[] } }
 
 // ─── Amadeus types ────────────────────────────────────────────────────────────
 interface AmadeusSegment {
-  departure: { iataCode: string; at: string }
-  arrival:   { iataCode: string; at: string }
+  departure:   { iataCode: string; at: string }
+  arrival:     { iataCode: string; at: string }
   carrierCode: string
   number:      string
   duration:    string
@@ -207,7 +207,7 @@ async function getAmadeusToken(): Promise<string> {
   return data.access_token
 }
 
-async function searchAmadeus(origin: string, dest: string, depDate: string, cabin: string): Promise<AmadeusOffer[]> {
+async function searchAmadeus(origin: string, dest: string, depDate: string, cabin: string, retDate?: string): Promise<AmadeusOffer[]> {
   const cabinMap: Record<string, string> = {
     economy: 'ECONOMY', premium_economy: 'PREMIUM_ECONOMY', business: 'BUSINESS', first: 'FIRST',
   }
@@ -221,6 +221,7 @@ async function searchAmadeus(origin: string, dest: string, depDate: string, cabi
     max:                     '30',
     travelClass:             cabinMap[cabin] ?? 'ECONOMY',
   })
+  if (retDate) params.set('returnDate', retDate)
   const res = await fetch(`https://api.amadeus.com/v2/shopping/flight-offers?${params}`, {
     headers: { Authorization: `Bearer ${token}` },
     signal:  AbortSignal.timeout(15000),
@@ -230,7 +231,7 @@ async function searchAmadeus(origin: string, dest: string, depDate: string, cabi
   return data.data ?? []
 }
 
-// ─── Shared flight details shape ──────────────────────────────────────────────
+// ─── Shared flight details shape — includes return leg fields ─────────────────
 interface FlightDetails {
   airline:      string
   airlineCode:  string
@@ -249,6 +250,13 @@ interface FlightDetails {
   offerId:      string
   seat:         string
   pnr:          string
+  // Return leg (populated when round-trip is searched)
+  returnDepartureAt?:  string
+  returnArrivalAt?:    string
+  returnFlightNumber?: string
+  returnAirline?:      string
+  returnDuration?:     string
+  returnStops?:        number
 }
 
 // ─── POST handler ─────────────────────────────────────────────────────────────
@@ -306,11 +314,11 @@ export async function POST(req: NextRequest) {
       const app = await prisma.visaApplication.findUnique({ where: { id: body.applicationId } })
       if (app) {
         appName        = [app.firstName, app.middleName, app.lastName].filter(Boolean).join(' ')
-        appPassport    = app.passportNumber ?? ''
-        appArrivalDate = app.arrivalDate    ?? null
-        appReturnDate  = app.returnDate     ?? null
+        appPassport    = app.passportNumber  ?? ''
+        appArrivalDate = app.arrivalDate     ?? null
+        appReturnDate  = app.returnDate      ?? null
         appDestIso2    = app.destinationIso2 ?? ''
-        appNationality = app.nationality    ?? ''
+        appNationality = app.nationality     ?? ''
       }
     } catch { /* non-fatal */ }
   }
@@ -322,8 +330,8 @@ export async function POST(req: NextRequest) {
   // ───────────────────────────────────────────────────────────────────────────
   if (body.mode === 'hotel') {
     const clientName = body.clientName || appName || 'PASSENGER NAME'
-    const checkIn    = body.checkIn    || (appArrivalDate ? appArrivalDate.toISOString().slice(0, 10) : '')
-    const checkOut   = body.checkOut   || (appReturnDate  ? appReturnDate.toISOString().slice(0, 10)  : '')
+    const checkIn    = body.checkIn  || (appArrivalDate ? appArrivalDate.toISOString().slice(0, 10) : '')
+    const checkOut   = body.checkOut || (appReturnDate  ? appReturnDate.toISOString().slice(0, 10)  : '')
     const nights     = checkIn && checkOut
       ? Math.round((new Date(checkOut).getTime() - new Date(checkIn).getTime()) / 86400000)
       : 0
@@ -367,24 +375,25 @@ export async function POST(req: NextRequest) {
       client_name:       clientName,
       passport_number:   safeUpper(body.passportNumber || appPassport),
       from_code:         safeUpper(body.fromCode),
-      from_city:         body.fromCity   || '',
-      to_code:           safeUpper(body.toCode || appDestIso2 ? (body.toCode || COUNTRY_IATA[appDestIso2] || appDestIso2) : ''),
-      to_city:           body.toCity     || '',
-      airline:           body.airline    || '',
+      from_city:         body.fromCity || '',
+      to_code:           safeUpper(body.toCode || (appDestIso2 ? (COUNTRY_IATA[appDestIso2] || appDestIso2) : '')),
+      to_city:           body.toCity   || '',
+      airline:           body.airline  || '',
       flight_number:     body.flightNumber || '',
       departure_date:    depIso ? fmtDate(depIso) : '',
       departure_time:    depIso ? fmtTime(depIso) : '',
       arrival_date:      arrIso ? fmtDate(arrIso) : '',
       arrival_time:      arrIso ? fmtTime(arrIso) : '',
-      duration:          body.duration   || '',
+      duration:          body.duration || '',
       cabin_class:       safeUpper(body.cabin || 'ECONOMY'),
-      seat_number:       body.seat       || genSeat(),
-      baggage_allowance: body.baggage    || '1 × 23kg checked + 7kg cabin',
-      terminal:          body.terminal   || '',
-      gate:              body.gate       || '',
+      seat_number:       body.seat    || genSeat(),
+      baggage_allowance: body.baggage || '1 × 23kg checked + 7kg cabin',
+      terminal:          body.terminal || '',
+      gate:              body.gate    || '',
       booking_reference: reference,
-      pnr:               body.pnr        || genPNR(),
-      message:           body.message    || '',
+      pnr:               body.pnr    || genPNR(),
+      message:           body.message || '',
+      stops:             '0',
     }
 
     try {
@@ -401,10 +410,10 @@ export async function POST(req: NextRequest) {
   // ───────────────────────────────────────────────────────────────────────────
   const origin      = safeUpper(body.originIata) || NATIONALITY_IATA[appNationality] || 'LOS'
   const destination = safeUpper(body.destIata)   || COUNTRY_IATA[appDestIso2] || safeUpper(appDestIso2) || 'LHR'
-  const depDate     = body.departureDate  || (appArrivalDate ? appArrivalDate.toISOString().slice(0, 10) : '')
-  const retDate     = body.returnDate     || (appReturnDate  ? appReturnDate.toISOString().slice(0, 10)  : '')
-  const cabin       = (body.cabinClass    || 'economy').toLowerCase()
-  const clientName  = body.clientName     || appName || 'PASSENGER NAME'
+  const depDate     = body.departureDate || (appArrivalDate ? appArrivalDate.toISOString().slice(0, 10) : '')
+  const retDate     = body.returnDate    || (appReturnDate  ? appReturnDate.toISOString().slice(0, 10)  : '')
+  const cabin       = (body.cabinClass   || 'economy').toLowerCase()
+  const clientName  = body.clientName    || appName || 'PASSENGER NAME'
 
   if (!depDate) {
     return NextResponse.json({ error: 'departureDate is required for live search' }, { status: 400 })
@@ -438,8 +447,15 @@ export async function POST(req: NextRequest) {
         const lastSeg  = outSlice.segments[outSlice.segments.length - 1]
         const checked  = firstSeg.passengers[0]?.baggages?.find(b => b.type === 'checked')
         const carry    = firstSeg.passengers[0]?.baggages?.find(b => b.type === 'carry_on')
-        const bagStr   = [checked ? `${checked.quantity} × 23kg checked` : null, carry ? `${carry.quantity} × carry-on` : null].filter(Boolean).join(' + ') || '1 × 23kg checked'
-        const cabinLbl = { economy: 'ECONOMY', premium_economy: 'PREMIUM ECONOMY', business: 'BUSINESS', first: 'FIRST CLASS' }[best.cabin_class] ?? safeUpper(best.cabin_class)
+        const bagStr   = [
+          checked ? `${checked.quantity} × 23kg checked` : null,
+          carry   ? `${carry.quantity} × carry-on`       : null,
+        ].filter(Boolean).join(' + ') || '1 × 23kg checked'
+        const cabinLbl = {
+          economy: 'ECONOMY', premium_economy: 'PREMIUM ECONOMY',
+          business: 'BUSINESS', first: 'FIRST CLASS',
+        }[best.cabin_class] ?? safeUpper(best.cabin_class)
+
         flightDetails = {
           airline:      firstSeg.marketing_carrier.name,
           airlineCode:  firstSeg.marketing_carrier.iata_code,
@@ -459,6 +475,19 @@ export async function POST(req: NextRequest) {
           seat:         genSeat(),
           pnr:          genPNR(),
         }
+
+        // ── Capture return leg from Duffel slice[1] ────────────────────────
+        if (retDate && best.slices[1]) {
+          const retSlice = best.slices[1]
+          const retFirst = retSlice.segments[0]
+          const retLast  = retSlice.segments[retSlice.segments.length - 1]
+          flightDetails.returnDepartureAt  = retFirst.departing_at
+          flightDetails.returnArrivalAt    = retLast.arriving_at
+          flightDetails.returnFlightNumber = `${retFirst.marketing_carrier.iata_code}${retFirst.marketing_carrier_flight_number}`
+          flightDetails.returnAirline      = retFirst.marketing_carrier.name
+          flightDetails.returnDuration     = fmtDuration(retSlice.duration)
+          flightDetails.returnStops        = retSlice.segments.length - 1
+        }
       }
     } catch (e) {
       console.warn('[dummy-ticket/duffel]', e)
@@ -469,17 +498,18 @@ export async function POST(req: NextRequest) {
   if (!flightDetails && process.env.AMADEUS_API_KEY && process.env.AMADEUS_API_SECRET) {
     tried.push('Amadeus')
     try {
-      const amOffers = await searchAmadeus(origin, destination, depDate, cabin)
+      const amOffers = await searchAmadeus(origin, destination, depDate, cabin, retDate || undefined)
       if (amOffers.length > 0) {
-        const best = amOffers.reduce((a, b) => {
-          const scoreOf = (o: AmadeusOffer) => (PREFERRED_CARRIERS[o.itineraries[0]?.segments[0]?.carrierCode] ?? 5) - ((o.itineraries[0]?.segments.length ?? 1) - 1) * 2
-          return scoreOf(a) >= scoreOf(b) ? a : b
-        })
+        const scoreOf = (o: AmadeusOffer) =>
+          (PREFERRED_CARRIERS[o.itineraries[0]?.segments[0]?.carrierCode] ?? 5) -
+          ((o.itineraries[0]?.segments.length ?? 1) - 1) * 2
+        const best    = amOffers.reduce((a, b) => scoreOf(a) >= scoreOf(b) ? a : b)
         const itin    = best.itineraries[0]
         const firstSeg = itin.segments[0]
         const lastSeg  = itin.segments[itin.segments.length - 1]
         const bags     = best.travelerPricings[0]?.fareDetailsBySegment[0]?.includedCheckedBags?.quantity ?? 1
         const cabinLbl = (best.travelerPricings[0]?.fareDetailsBySegment[0]?.cabin ?? 'ECONOMY').replace(/_/g, ' ')
+
         flightDetails = {
           airline:      AIRLINE_NAMES[firstSeg.carrierCode] ?? firstSeg.carrierCode,
           airlineCode:  firstSeg.carrierCode,
@@ -499,13 +529,26 @@ export async function POST(req: NextRequest) {
           seat:         genSeat(),
           pnr:          genPNR(),
         }
+
+        // ── Capture return leg from Amadeus itineraries[1] ─────────────────
+        if (retDate && best.itineraries[1]) {
+          const retItin   = best.itineraries[1]
+          const retFirst  = retItin.segments[0]
+          const retLast   = retItin.segments[retItin.segments.length - 1]
+          flightDetails.returnDepartureAt  = retFirst.departure.at
+          flightDetails.returnArrivalAt    = retLast.arrival.at
+          flightDetails.returnFlightNumber = `${retFirst.carrierCode}${retFirst.number}`
+          flightDetails.returnAirline      = AIRLINE_NAMES[retFirst.carrierCode] ?? retFirst.carrierCode
+          flightDetails.returnDuration     = fmtDuration(retItin.duration)
+          flightDetails.returnStops        = retItin.segments.length - 1
+        }
       }
     } catch (e) {
       console.warn('[dummy-ticket/amadeus]', e)
     }
   }
 
-  // ── No results from either source ───────────────────────────────────────────
+  // ── No results ──────────────────────────────────────────────────────────────
   if (!flightDetails) {
     return NextResponse.json({
       error:      `No flights found for ${origin} → ${destination} on ${depDate}.`,
@@ -515,8 +558,10 @@ export async function POST(req: NextRequest) {
     }, { status: 404 })
   }
 
-  // ── Build and upload PDF ────────────────────────────────────────────────────
+  // ── Build ticketData and render PDF ────────────────────────────────────────
   try {
+    const hasReturn = !!flightDetails.returnDepartureAt
+
     const ticketData: TicketData = {
       ticket_type:       'flight',
       ticket_reference:  reference,
@@ -538,6 +583,20 @@ export async function POST(req: NextRequest) {
       baggage_allowance: flightDetails.baggage,
       booking_reference: reference,
       pnr:               flightDetails.pnr,
+      stops:             String(flightDetails.stops),
+      // Return leg — populate when round-trip data is available
+      ...(hasReturn ? {
+        return_date:         fmtDate(flightDetails.returnDepartureAt!),
+        return_time:         fmtTime(flightDetails.returnDepartureAt!),
+        return_arrival_date: fmtDate(flightDetails.returnArrivalAt!),
+        return_arrival_time: fmtTime(flightDetails.returnArrivalAt!),
+        return_flight:       flightDetails.returnFlightNumber,
+        return_airline:      flightDetails.returnAirline,
+        return_duration:     flightDetails.returnDuration,
+        return_stops:        String(flightDetails.returnStops ?? 0),
+        return_pnr:          genPNR(),
+        return_seat_number:  genSeat(),
+      } : {}),
     }
 
     const buf    = await renderTicketPDF(ticketData)
@@ -545,7 +604,7 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({
       mode:           'live',
-      source:         tried[tried.length - 1], // 'Duffel' or 'Amadeus'
+      source:         tried[tried.length - 1],
       reference,
       pdfUrl,
       pdf_base64:     buf.toString('base64'),
