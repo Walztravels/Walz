@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import Anthropic from '@anthropic-ai/sdk'
+import type { DocumentBlockParam, ImageBlockParam } from '@anthropic-ai/sdk/resources'
 import { getAdminSession } from '@/lib/admin-auth'
 
 export const dynamic     = 'force-dynamic'
@@ -190,30 +191,27 @@ export async function POST(req: NextRequest) {
     const base64 = Buffer.from(bytes).toString('base64')
     const isPdf  = file.type === 'application/pdf'
 
+    const docBlock: DocumentBlockParam = {
+      type: 'document',
+      source: { type: 'base64', media_type: 'application/pdf', data: base64 },
+    }
+    const imgBlock: ImageBlockParam = {
+      type: 'image',
+      source: {
+        type: 'base64',
+        media_type: file.type as 'image/jpeg' | 'image/png' | 'image/webp' | 'image/gif',
+        data: base64,
+      },
+    }
+
     const res = await anthropic.messages.create({
       model:      'claude-sonnet-4-6',
       max_tokens: 4096,
       messages: [{
         role: 'user',
         content: isPdf
-          ? [
-              {
-                type: 'document',
-                source: { type: 'base64', media_type: 'application/pdf', data: base64 },
-              } as Parameters<typeof anthropic.messages.create>[0]['messages'][0]['content'][0],
-              { type: 'text', text: EXTRACT_PROMPT },
-            ]
-          : [
-              {
-                type: 'image',
-                source: {
-                  type: 'base64',
-                  media_type: file.type as 'image/jpeg' | 'image/png' | 'image/webp' | 'image/gif',
-                  data: base64,
-                },
-              },
-              { type: 'text', text: EXTRACT_PROMPT },
-            ],
+          ? [docBlock, { type: 'text', text: EXTRACT_PROMPT }]
+          : [imgBlock, { type: 'text', text: EXTRACT_PROMPT }],
       }],
     })
 
