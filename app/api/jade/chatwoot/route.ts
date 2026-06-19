@@ -6,7 +6,7 @@ export const maxDuration = 60
 export const dynamic     = 'force-dynamic'
 
 const CHATWOOT_BASE  = 'https://chat.walztravels.com'
-const CHATWOOT_TOKEN = process.env.CHATWOOT_API_TOKEN ?? 'xEmkV63FyRkBYXTjzYPxyWCx'
+const CHATWOOT_TOKEN = process.env.CHATWOOT_API_TOKEN ?? '1rnd6Rp9GNVKtbJ8238Vg2S1'
 const ACCOUNT_ID     = '1'
 const INBOX_ID       = '3'
 
@@ -44,7 +44,7 @@ async function getOrCreateContact(identifier: string, name: string): Promise<num
     method: 'POST',
     body:   JSON.stringify({ name: name || 'Website Visitor', identifier }),
   })
-  return (contact?.id ?? contact?.payload?.id) as number
+  return (contact?.payload?.contact?.id ?? contact?.id ?? contact?.payload?.id) as number
 }
 
 async function getOrCreateConversation(contactId: number, conversationId?: number | null): Promise<number> {
@@ -62,9 +62,11 @@ async function getOrCreateConversation(contactId: number, conversationId?: numbe
 }
 
 async function sendCwMessage(conversationId: number, content: string, type: 'incoming' | 'outgoing') {
+  // Chatwoot requires numeric message_type: 0 = incoming (visitor), 1 = outgoing (agent)
+  const message_type = type === 'incoming' ? 0 : 1
   return cwFetch(`/accounts/${ACCOUNT_ID}/conversations/${conversationId}/messages`, {
     method: 'POST',
-    body:   JSON.stringify({ content, message_type: type, content_type: 'text', private: false }),
+    body:   JSON.stringify({ content, message_type, content_type: 'text', private: false }),
   })
 }
 
