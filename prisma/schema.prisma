@@ -1194,6 +1194,7 @@ model Trip {
   collaborators TripCollaborator[]
   proposals     TripProposal[]
   messages      TripMessage[]
+  invoices      Invoice[]
 
   @@index([userId])
   @@index([status])
@@ -2044,4 +2045,48 @@ model ClientLifecyclePrediction {
   user                   User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   computedAt             DateTime  @default(now())
   updatedAt              DateTime  @updatedAt
+}
+
+model Invoice {
+  id            String    @id @default(cuid())
+  invoiceNumber String    @unique
+  tripId        String?
+  clientName    String
+  clientEmail   String
+  clientPhone   String?
+  staffId       String?
+  staffName     String?
+
+  items          Json      @default("[]")
+
+  subtotal       Float     @default(0)
+  taxRate        Float     @default(0)
+  taxAmount      Float     @default(0)
+  discountAmount Float     @default(0)
+  totalAmount    Float     @default(0)
+  currency       String    @default("GBP")
+  depositAmount  Float     @default(0)
+  balanceDue     Float     @default(0)
+
+  status        String    @default("draft")
+  dueDate       DateTime?
+  notes         String?   @db.Text
+  internalNotes String?   @db.Text
+
+  paymentLink            String?
+  stripePaymentIntentId  String?
+  paidAt                 DateTime?
+  paidAmount             Float     @default(0)
+
+  sentAt    DateTime?
+  viewedAt  DateTime?
+
+  trip      Trip?     @relation(fields: [tripId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+
+  @@index([clientEmail])
+  @@index([status])
+  @@index([tripId])
 }

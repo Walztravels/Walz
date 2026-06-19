@@ -243,6 +243,9 @@ export const NAV_ITEMS: NavSection[] = [
       { href: '/admin/flights',     label: 'Flight Deals',   icon: 'Plane',           permission: 'flights'         },
       { href: '/admin/hotels',      label: 'Hotel Promos',   icon: 'Building2',       permission: 'hotels'          },
       { href: '/admin/transfers',   label: 'Transfers',      icon: 'Car',             permission: 'transfers'       },
+      { href: '/admin/itinerary',   label: 'Itinerary Planner', icon: 'Map',          permission: 'bookings'        },
+      { href: '/admin/invoices',    label: 'Invoices',          icon: 'Receipt',       permission: 'payments'        },
+      { href: '/admin/tickets',     label: 'Ticket Generator',  icon: 'Ticket',        permission: 'bookings'        },
     ],
   },
   {

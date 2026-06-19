@@ -15,6 +15,7 @@ import {
   MapPin, Signal, Globe, Image,
   ShieldCheck, Star, Mail, AlertTriangle,
   Brain, Dna, Radio, AlertOctagon, Zap, UserCheck,
+  Ticket, Receipt,
   LogOut,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -74,6 +75,8 @@ const ICON_MAP: Record<string, React.ElementType> = {
   AlertOctagon,
   Zap,
   UserCheck,
+  Ticket,
+  Receipt,
 }
 
 const LOGO_CACHE_KEY = 'walz_logo_url'
