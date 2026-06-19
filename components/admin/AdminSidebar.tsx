@@ -14,7 +14,7 @@ import {
   Shield, Package, Wrench, Activity, Key, Settings,
   MapPin, Signal, Globe, Image,
   ShieldCheck, Star, Mail, AlertTriangle,
-  Brain, Dna, Radio, AlertOctagon, Zap, UserCheck,
+  Brain, Dna, Radio, AlertOctagon, Zap, UserCheck, Sparkles,
   Ticket, Receipt,
   LogOut,
 } from 'lucide-react'
@@ -75,6 +75,7 @@ const ICON_MAP: Record<string, React.ElementType> = {
   AlertOctagon,
   Zap,
   UserCheck,
+  Sparkles,
   Ticket,
   Receipt,
 }

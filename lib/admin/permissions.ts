@@ -297,6 +297,7 @@ export const NAV_ITEMS: NavSection[] = [
   {
     section: 'INTELLIGENCE',
     items: [
+      { href: '/admin/jade',                            label: 'Jade Staff Assistant',  icon: 'Sparkles',      permission: 'dashboard'   },
       { href: '/admin/intelligence',                    label: 'Intelligence Hub',     icon: 'Brain',         permission: 'analytics'   },
       { href: '/admin/intelligence/dna',               label: 'Financial DNA',         icon: 'Dna',           permission: 'visa'        },
       { href: '/admin/intelligence/officer-sim',       label: 'Officer Simulation',    icon: 'UserCheck',     permission: 'visa'        },
