@@ -8,7 +8,7 @@ export const maxDuration = 60
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
 
-export const LETTER_TYPES = [
+const LETTER_TYPES = [
   { id: 'cover',          label: 'Cover Letter',                desc: 'Main supporting letter from applicant' },
   { id: 'sponsor',        label: 'Sponsor Letter',              desc: 'Financial sponsor declaration' },
   { id: 'employment',     label: 'Employment Letter',           desc: 'From employer confirming position & leave' },
