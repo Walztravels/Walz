@@ -307,7 +307,7 @@ export async function POST(req: NextRequest) {
   let appArrivalDate: Date | null = null
   let appReturnDate:  Date | null = null
   let appDestIso2    = ''
-  let appNationality = ''
+  let appBranch      = ''
 
   if (body.applicationId) {
     try {
@@ -318,7 +318,7 @@ export async function POST(req: NextRequest) {
         appArrivalDate = app.arrivalDate     ?? null
         appReturnDate  = app.returnDate      ?? null
         appDestIso2    = app.destinationIso2 ?? ''
-        appNationality = app.nationality     ?? ''
+        appBranch      = (app as Record<string, unknown>).branch as string ?? ''
       }
     } catch { /* non-fatal */ }
   }
@@ -408,13 +408,30 @@ export async function POST(req: NextRequest) {
   // ───────────────────────────────────────────────────────────────────────────
   // LIVE MODE — Duffel first, Amadeus fallback
   // ───────────────────────────────────────────────────────────────────────────
-  const origin      = safeUpper(body.originIata) || NATIONALITY_IATA[appNationality] || 'LOS'
-  const destination = safeUpper(body.destIata)   || COUNTRY_IATA[appDestIso2] || safeUpper(appDestIso2) || 'LHR'
+
+  // Branch office → departure airport (reliable: branch = where Walz manages this client)
+  const BRANCH_IATA: Record<string, string> = {
+    nigeria: 'LOS', ghana: 'ACC', uk: 'LHR', uae: 'DXB', canada: 'YYZ',
+  }
+  const branchOrigin = appBranch ? (BRANCH_IATA[appBranch.toLowerCase()] ?? '') : ''
+
+  const origin      = safeUpper(body.originIata) || branchOrigin
+  const destination = safeUpper(body.destIata)   || (appDestIso2 ? (COUNTRY_IATA[appDestIso2] || safeUpper(appDestIso2)) : '')
   const depDate     = body.departureDate || (appArrivalDate ? appArrivalDate.toISOString().slice(0, 10) : '')
   const retDate     = body.returnDate    || (appReturnDate  ? appReturnDate.toISOString().slice(0, 10)  : '')
   const cabin       = (body.cabinClass   || 'economy').toLowerCase()
   const clientName  = body.clientName    || appName || 'PASSENGER NAME'
 
+  if (!origin) {
+    return NextResponse.json({
+      error: 'Origin airport (From IATA) is required. Please enter where the client is flying FROM — e.g. LHR, LOS, ACC, YYZ, DXB.',
+    }, { status: 400 })
+  }
+  if (!destination) {
+    return NextResponse.json({
+      error: 'Destination airport (To IATA) is required. Please enter where the client is flying TO — e.g. LHR, CDG, JFK, DXB.',
+    }, { status: 400 })
+  }
   if (!depDate) {
     return NextResponse.json({ error: 'departureDate is required for live search' }, { status: 400 })
   }

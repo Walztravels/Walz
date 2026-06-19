@@ -51,6 +51,7 @@ interface FullVisaApp {
   destinationIso2?: string
   arrivalDate?:     string | null
   returnDate?:      string | null
+  branch?:          string | null
 }
 
 interface UploadAnalysis {
@@ -796,7 +797,7 @@ function DummyTicketTab() {
   const [showSendForm,  setShowSendForm]  = useState(false)
 
   // Live mode fields
-  const [originIata, setOriginIata] = useState('LOS')
+  const [originIata, setOriginIata] = useState('')
   const [destIata,   setDestIata]   = useState('')
   const [depDate,    setDepDate]    = useState('')
   const [retDate,    setRetDate]    = useState('')
@@ -849,8 +850,12 @@ function DummyTicketTab() {
         if (app.passportNumber) setPassportNo(app.passportNumber)
         const destCode = app.destinationIso2 ? (COUNTRY_IATA[app.destinationIso2] ?? '') : ''
         if (destCode) { setDestIata(destCode); setMToCode(destCode) }
-        const origCode = app.nationality ? (NATIONALITY_IATA[app.nationality] ?? '') : ''
-        if (origCode) { setOriginIata(origCode); setMFromCode(origCode) }
+        // Origin IATA from Walz branch office only — branch = where client departs from
+        const BRANCH_IATA: Record<string, string> = {
+          nigeria: 'LOS', ghana: 'ACC', uk: 'LHR', uae: 'DXB', canada: 'YYZ',
+        }
+        const branchCode = app.branch ? (BRANCH_IATA[String(app.branch).toLowerCase()] ?? '') : ''
+        if (branchCode) { setOriginIata(branchCode); setMFromCode(branchCode) }
         if (app.arrivalDate) {
           const d = String(app.arrivalDate).slice(0, 10)
           setDepDate(d); setMDepDT(d + 'T08:00')
@@ -986,7 +991,7 @@ function DummyTicketTab() {
             <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1 block">Link Visa Application (optional — auto-fills all 6 fields)</label>
             <AppSearch
               value={appId}
-              onChange={(id) => { setAppId(id); if (!id) { setClientName(''); setPassportNo(''); setDestIata(''); setOriginIata('LOS'); setDepDate(''); setRetDate('') } }}
+              onChange={(id) => { setAppId(id); if (!id) { setClientName(''); setPassportNo(''); setDestIata(''); setOriginIata(''); setDepDate(''); setRetDate('') } }}
               onSelect={handleAppSelect}
             />
           </div>
@@ -1006,8 +1011,8 @@ function DummyTicketTab() {
         {mode === 'live' && (
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 mb-5">
             <div>
-              <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1 block">Origin IATA <span className="text-red-500">*</span></label>
-              <input className={INPUT} value={originIata} onChange={e => setOriginIata(e.target.value.toUpperCase().slice(0,3))} placeholder="LOS" maxLength={3} />
+              <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1 block">Origin IATA (where client flies from) <span className="text-red-500">*</span></label>
+              <input className={INPUT} value={originIata} onChange={e => setOriginIata(e.target.value.toUpperCase().slice(0,3))} placeholder="e.g. LHR" maxLength={3} />
             </div>
             <div>
               <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1 block">Destination IATA <span className="text-red-500">*</span></label>
