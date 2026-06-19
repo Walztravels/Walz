@@ -275,6 +275,46 @@ export function FlightTicketEmail({
                       </td>
                     </tr>
 
+                    {/* ── BLOCK 3B: FLIGHT TRACKER ─────────────────────────── */}
+                    {outbound.length > 0 && (
+                      <tr>
+                        <td style={{ background: '#EFF6FF', padding: '16px 32px', borderTop: '1px solid #BFDBFE', borderBottom: '1px solid #BFDBFE' }}>
+                          <div style={{ fontSize: 12, fontWeight: 700, color: '#1D4ED8', marginBottom: 12, fontFamily: 'Arial, sans-serif', letterSpacing: 1 }}>
+                            ✈ LIVE FLIGHT TRACKER
+                          </div>
+                          {[...outbound, ...inbound].map((leg, i) => {
+                            const fn = (leg.flightNumber ?? '').replace(/\s/g, '')
+                            const faUrl  = `https://www.flightaware.com/live/flight/${fn}`
+                            const fr24Url = `https://www.flightradar24.com/${fn}`
+                            return (
+                              <table key={i} width="100%" cellPadding={0} cellSpacing={0} border={0} style={{ marginBottom: i < outbound.length + inbound.length - 1 ? 10 : 0, background: '#ffffff', borderRadius: 8, border: '1px solid #BFDBFE', padding: 0 }}>
+                                <tbody>
+                                  <tr>
+                                    <td style={{ padding: '10px 14px', verticalAlign: 'middle' }}>
+                                      <div style={{ fontSize: 12, fontWeight: 700, color: '#0B1F3A', fontFamily: 'Arial, sans-serif' }}>
+                                        {leg.flightNumber} &nbsp;·&nbsp; {leg.departureCode} → {leg.arrivalCode}
+                                      </div>
+                                      <div style={{ fontSize: 11, color: '#6B7280', fontFamily: 'Arial, sans-serif', marginTop: 2 }}>
+                                        {leg.departureCity} → {leg.arrivalCity} &nbsp;·&nbsp; {leg.departureDate} {leg.departureTime}
+                                      </div>
+                                    </td>
+                                    <td style={{ padding: '10px 14px', textAlign: 'right', verticalAlign: 'middle', whiteSpace: 'nowrap' }}>
+                                      <a href={faUrl} style={{ display: 'inline-block', background: '#1D4ED8', color: '#ffffff', fontSize: 10, fontWeight: 700, padding: '5px 10px', borderRadius: 5, textDecoration: 'none', fontFamily: 'Arial, sans-serif', marginRight: 6 }}>
+                                        FlightAware
+                                      </a>
+                                      <a href={fr24Url} style={{ display: 'inline-block', background: '#F97316', color: '#ffffff', fontSize: 10, fontWeight: 700, padding: '5px 10px', borderRadius: 5, textDecoration: 'none', fontFamily: 'Arial, sans-serif' }}>
+                                        Radar24
+                                      </a>
+                                    </td>
+                                  </tr>
+                                </tbody>
+                              </table>
+                            )
+                          })}
+                        </td>
+                      </tr>
+                    )}
+
                     {/* ── BLOCK 4: SERVICES STRIP ──────────────────────────── */}
                     <tr>
                       <td style={{ background: '#0B1F3A', padding: '24px 32px' }}>

@@ -1,806 +1,909 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState } from 'react'
+import Link from 'next/link'
 import {
-  Plane, Building2, MapPin, Car, Send, Printer,
-  CheckCircle, Loader2, X, Plus,
-  Clock, RefreshCw, History,
-  ChevronDown, ChevronRight, Ticket,
+  Plane, Hotel, MapIcon, Car, FileText, Package2,
+  ChevronLeft, ChevronRight, Download, Send,
+  CheckCircle, Loader2, History, LayoutTemplate,
+  Plus, Trash2, AlertCircle, RefreshCw, Copy, Check,
 } from 'lucide-react'
+import { TicketPreview, type TicketPreviewData } from '@/components/admin/TicketPreview'
+import type { FlightLeg as FlightLegType, Passenger as FlightPassenger, PricingBreakdown } from '@/types/flight-ticket'
 
-// ─── Types ────────────────────────────────────────────────────────────────────
+// ─── Ticket type config ────────────────────────────────────────────────────────
 
-type TicketTab = 'FLIGHT' | 'HOTEL' | 'TOUR' | 'TRANSFER'
+const TICKET_TYPES = [
+  { id: 'flight',   label: 'Flight Ticket',    icon: Plane,    bg: '#EFF6FF', border: '#93C5FD', text: '#1D4ED8', desc: 'Airlines & boarding' },
+  { id: 'hotel',    label: 'Hotel Voucher',     icon: Hotel,    bg: '#F0FDF4', border: '#86EFAC', text: '#15803D', desc: 'Stays & reservations' },
+  { id: 'tour',     label: 'Tour Confirmation', icon: MapIcon,  bg: '#F5F3FF', border: '#C4B5FD', text: '#6D28D9', desc: 'Guided experiences'   },
+  { id: 'transfer', label: 'Transfer Voucher',  icon: Car,      bg: '#FFFBEB', border: '#FCD34D', text: '#B45309', desc: 'Pickups & chauffeur'  },
+  { id: 'visa',     label: 'Visa Appointment',  icon: FileText, bg: '#FEF2F2', border: '#FCA5A5', text: '#B91C1C', desc: 'Embassy appointments' },
+  { id: 'package',  label: 'Holiday Package',   icon: Package2, bg: '#FFF7ED', border: '#C9A84C', text: '#92400E', desc: 'Full package docs'    },
+] as const
 
-interface DBBooking {
-  id: string
-  bookingReference: string
-  pnr: string | null
-  type: string
-  status: string
-  totalAmount: number
-  currency: string
-  contactEmail: string
-  contactPhone: string | null
-  flightDetails: {
-    outbound?: Array<{
-      departureAirport: string; arrivalAirport: string
-      departureTime: string; arrivalTime?: string
-      airline: string; airlineCode?: string; flightNumber: string
-      cabinClass?: string; duration?: number; aircraft?: string; bookingCode?: string
-    }>
-    inbound?: Array<{
-      departureAirport: string; arrivalAirport: string
-      departureTime: string; arrivalTime?: string
-      airline: string; airlineCode?: string; flightNumber: string
-    }>
-  } | null
-  hotelDetails: {
-    name?: string
-    address?: { lines?: string[]; city?: string; country?: string }
-    stars?: number; roomType?: string; mealPlan?: string
-    checkIn?: string; checkOut?: string
-    totalPrice?: { amount: number; currency: string }
-  } | null
-  passengers: Array<{
-    firstName: string; lastName: string
-    passportNumber?: string; nationality?: string; dateOfBirth?: string
-  }> | null
-  createdAt: string
-  notes: string | null
+const INCLUSION_LABELS: Record<string, string> = {
+  flights: 'Return Flights', visa: 'Visa Processing', hotel: 'Hotel Accommodation',
+  transfers: 'Airport Transfers', tours: 'Tour Experiences',
+  insurance: 'Travel Insurance', esim: 'eSIM Connectivity',
 }
+const INCLUSION_KEYS = ['flights', 'visa', 'hotel', 'transfers', 'tours', 'insurance', 'esim'] as const
 
-interface SavedTicket {
-  id: string; ticketNumber: string; ticketType: string
-  clientName: string; clientEmail: string
-  sentAt: string | null; createdAt: string
-  booking: { bookingReference: string; type: string } | null
+const STEPS = ['Ticket Type', 'Client Info', 'Booking Details', 'Message & Send']
+
+// ─── State types ───────────────────────────────────────────────────────────────
+
+interface Passenger { name: string; passport: string; seat: string }
+
+interface FlightTicketData {
+  pnr: string
+  tripType: 'one-way' | 'return'
+  outbound: FlightLegType[]
+  inbound: FlightLegType[]
+  passengers: FlightPassenger[]
+  includePricing: boolean
+  pricing: PricingBreakdown
 }
+interface InclusionItem { included: boolean; note: string }
 
-interface Passenger {
-  name: string; seat: string; eTicket: string
-  passportNumber: string; nationality: string; dob: string
-}
+interface ClientInfo   { name: string; email: string; phone: string }
+interface FlightData   { booking_ref: string; pnr: string; airline: string; flight_number: string; from_city: string; from_code: string; to_city: string; to_code: string; departure_date: string; departure_time: string; arrival_date: string; arrival_time: string; duration: string; cabin_class: string; seat_number: string; baggage_allowance: string; passport_number: string; additional_passengers: Passenger[] }
+interface HotelData    { booking_ref: string; hotel_name: string; hotel_address: string; hotel_phone: string; hotel_email: string; checkin_date: string; checkin_time: string; checkout_date: string; checkout_time: string; num_nights: string; room_type: string; num_guests: string; guest_names: string; confirmation_number: string; special_requests: string }
+interface TourData     { booking_ref: string; tour_name: string; tour_operator: string; guide_name: string; tour_date: string; tour_time: string; duration: string; meeting_point: string; num_guests: string; guest_names: string; pickup_included: boolean; pickup_address: string; pickup_time: string; what_included: string; what_to_bring: string; emergency_contact: string }
+interface TransferData { booking_ref: string; transfer_company: string; vehicle_type: string; driver_name: string; driver_phone: string; pickup_location: string; pickup_date: string; pickup_time: string; dropoff_location: string; flight_number: string; num_passengers: string; passenger_names: string; special_instructions: string }
+interface VisaData     { reference_number: string; visa_type: string; passport_number: string; appointment_date: string; appointment_time: string; appointment_location: string; vfs_address: string; contact_person: string; contact_phone: string; documents_to_bring: string }
+interface PackageData  { package_reference: string; package_name: string; destination: string; travel_from: string; travel_to: string; num_travellers: string; traveller_names: string; inclusions: Record<string, InclusionItem>; total_value: string; amount_paid: string; currency: string; payment_due_date: string }
 
-interface FlightSegment {
-  airline: string; airlineCode: string; flightNumber: string; aircraft: string
-  fromCode: string; fromCity: string; fromAirport: string; fromTerminal: string
-  toCode: string; toCity: string; toAirport: string; toTerminal: string
-  departureDate: string; departureTime: string; arrivalDate: string; arrivalTime: string
-  duration: string; cabinClass: string; bookingCode: string
-  baggageChecked: string; baggageCarryOn: string; mealService: string
-}
+// ─── Initial state ─────────────────────────────────────────────────────────────
 
-interface FlightData {
-  isThirdParty: boolean; originalAirline: string
-  pnr: string; ticketIssueDate: string
-  passengers: Passenger[]; segments: FlightSegment[]
-  checkInOpens: string; checkInDeadline: string
-  gateClosesMins: number; arriveAirportBy: string; loungeAccess: string
-  clientEmail: string; clientPhone: string; notes: string
-}
+const BLANK_CLIENT: ClientInfo  = { name: '', email: '', phone: '' }
+const BLANK_LEG: FlightLegType  = { flightNumber: '', airline: '', aircraft: '', operatedBy: '', departureCode: '', departureCity: '', departureAirport: '', departureCountry: '', departureTerminal: '', departureDate: '', departureTime: '', arrivalCode: '', arrivalCity: '', arrivalAirport: '', arrivalCountry: '', arrivalTerminal: '', arrivalDate: '', arrivalTime: '', arrivalNextDay: false, duration: '', cabinClass: 'Economy', baggage: '23kg', seat: '', mealPreference: '', connectionTime: '' }
+const BLANK_FLIGHT_PAX: FlightPassenger = { title: 'Mr', firstName: '', lastName: '', eTicketNumber: '', cabinClass: 'Economy', seat: '', meal: '' }
+const BLANK_FLIGHT_TICKET: FlightTicketData = { pnr: '', tripType: 'one-way', outbound: [{ ...BLANK_LEG }], inbound: [], passengers: [{ ...BLANK_FLIGHT_PAX }], includePricing: false, pricing: { currency: 'USD', currencySymbol: '$', baseFare: 0, taxes: 0, total: 0, passengerCount: 1, grandTotal: 0, lineItems: [] } }
+const BLANK_FLIGHT: FlightData  = { booking_ref: '', pnr: '', airline: '', flight_number: '', from_city: '', from_code: '', to_city: '', to_code: '', departure_date: '', departure_time: '', arrival_date: '', arrival_time: '', duration: '', cabin_class: 'Economy', seat_number: '', baggage_allowance: '23kg', passport_number: '', additional_passengers: [] }
+const BLANK_HOTEL: HotelData    = { booking_ref: '', hotel_name: '', hotel_address: '', hotel_phone: '', hotel_email: '', checkin_date: '', checkin_time: '14:00', checkout_date: '', checkout_time: '12:00', num_nights: '', room_type: '', num_guests: '1', guest_names: '', confirmation_number: '', special_requests: '' }
+const BLANK_TOUR: TourData      = { booking_ref: '', tour_name: '', tour_operator: '', guide_name: '', tour_date: '', tour_time: '', duration: '', meeting_point: '', num_guests: '1', guest_names: '', pickup_included: false, pickup_address: '', pickup_time: '', what_included: '', what_to_bring: '', emergency_contact: '' }
+const BLANK_TRANSFER: TransferData = { booking_ref: '', transfer_company: '', vehicle_type: 'Sedan', driver_name: '', driver_phone: '', pickup_location: '', pickup_date: '', pickup_time: '', dropoff_location: '', flight_number: '', num_passengers: '1', passenger_names: '', special_instructions: '' }
+const BLANK_VISA: VisaData      = { reference_number: '', visa_type: 'Tourist', passport_number: '', appointment_date: '', appointment_time: '', appointment_location: '', vfs_address: '', contact_person: '', contact_phone: '', documents_to_bring: '' }
+const BLANK_PACKAGE: PackageData = { package_reference: '', package_name: '', destination: '', travel_from: '', travel_to: '', num_travellers: '1', traveller_names: '', inclusions: Object.fromEntries(INCLUSION_KEYS.map(k => [k, { included: ['flights','hotel','transfers'].includes(k), note: '' }])), total_value: '', amount_paid: '', currency: 'USD', payment_due_date: '' }
 
-interface HotelData {
-  confirmationNumber: string
-  guestName: string; guestEmail: string; guestPhone: string
-  hotelName: string; hotelAddress: string; hotelCity: string; hotelCountry: string
-  hotelPhone: string; hotelWebsite: string; hotelStars: string
-  checkInDate: string; checkInTime: string; checkOutDate: string; checkOutTime: string
-  roomType: string; roomNumber: string; guests: string; rooms: string; mealPlan: string
-  ratePerNight: string; totalCost: string; currency: string
-  specialRequests: string; googleMapsUrl: string; notes: string
-}
+// ─── Shared helpers ───────────────────────────────────────────────────────────
 
-interface TourData {
-  confirmationNumber: string
-  guestName: string; guestEmail: string; guestPhone: string
-  tourName: string; operator: string; destination: string; meetingPoint: string
-  tourDate: string; startTime: string; endTime: string; duration: string; guests: string
-  guideName: string; guidePhone: string
-  inclusions: string; exclusions: string
-  pickupIncluded: boolean; pickupLocation: string
-  totalCost: string; currency: string; notes: string
-}
+const base = 'w-full px-3 py-2.5 text-sm bg-white border border-gray-200 rounded-lg text-gray-800 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-[#C9A84C]/50 focus:border-[#C9A84C] transition'
 
-interface TransferData {
-  confirmationNumber: string
-  passengerName: string; passengerEmail: string; passengerPhone: string
-  pickupLocation: string; pickupAddress: string
-  dropoffLocation: string; dropoffAddress: string
-  pickupDate: string; pickupTime: string; flightRef: string
-  vehicleType: string; vehicleReg: string; driverName: string; driverPhone: string
-  pax: string; luggage: string; provider: string
-  totalCost: string; currency: string; notes: string
-}
-
-// ─── Defaults ─────────────────────────────────────────────────────────────────
-
-const defSeg = (): FlightSegment => ({
-  airline: '', airlineCode: '', flightNumber: '', aircraft: '',
-  fromCode: '', fromCity: '', fromAirport: '', fromTerminal: '',
-  toCode: '', toCity: '', toAirport: '', toTerminal: '',
-  departureDate: '', departureTime: '', arrivalDate: '', arrivalTime: '',
-  duration: '', cabinClass: 'Economy', bookingCode: '',
-  baggageChecked: '23kg', baggageCarryOn: '7kg', mealService: 'Standard',
-})
-const defPax = (): Passenger => ({ name: '', seat: '', eTicket: '', passportNumber: '', nationality: '', dob: '' })
-const defFlight = (): FlightData => ({
-  isThirdParty: false, originalAirline: '',
-  pnr: '', ticketIssueDate: new Date().toISOString().split('T')[0],
-  passengers: [defPax()], segments: [defSeg()],
-  checkInOpens: '24 hours before departure',
-  checkInDeadline: '3 hours before departure (international)',
-  gateClosesMins: 20, arriveAirportBy: '3 hours before departure', loungeAccess: 'None',
-  clientEmail: '', clientPhone: '', notes: '',
-})
-const defHotel = (): HotelData => ({
-  confirmationNumber: '', guestName: '', guestEmail: '', guestPhone: '',
-  hotelName: '', hotelAddress: '', hotelCity: '', hotelCountry: '',
-  hotelPhone: '', hotelWebsite: '', hotelStars: '4',
-  checkInDate: '', checkInTime: '15:00', checkOutDate: '', checkOutTime: '12:00',
-  roomType: '', roomNumber: '', guests: '2', rooms: '1', mealPlan: 'Room Only',
-  ratePerNight: '', totalCost: '', currency: 'GBP',
-  specialRequests: '', googleMapsUrl: '', notes: '',
-})
-const defTour = (): TourData => ({
-  confirmationNumber: '', guestName: '', guestEmail: '', guestPhone: '',
-  tourName: '', operator: '', destination: '', meetingPoint: '',
-  tourDate: '', startTime: '', endTime: '', duration: '', guests: '2',
-  guideName: '', guidePhone: '', inclusions: '', exclusions: '',
-  pickupIncluded: false, pickupLocation: '', totalCost: '', currency: 'GBP', notes: '',
-})
-const defTransfer = (): TransferData => ({
-  confirmationNumber: '', passengerName: '', passengerEmail: '', passengerPhone: '',
-  pickupLocation: '', pickupAddress: '', dropoffLocation: '', dropoffAddress: '',
-  pickupDate: '', pickupTime: '', flightRef: '',
-  vehicleType: 'Saloon Car', vehicleReg: '', driverName: '', driverPhone: '',
-  pax: '2', luggage: '2', provider: 'Walz Travels', totalCost: '', currency: 'GBP', notes: '',
-})
-
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-
-function fmtDate(iso: string) {
-  if (!iso) return '—'
-  try { return new Date(iso).toLocaleDateString('en-GB', { weekday: 'short', day: '2-digit', month: 'short', year: 'numeric' }) }
-  catch { return iso }
-}
-function gateClose(t: string, mins: number) {
-  if (!t?.includes(':')) return '—'
-  const [h, m] = t.split(':').map(Number)
-  const tot = h * 60 + m - mins
-  return `${String(((Math.floor(tot / 60)) % 24 + 24) % 24).padStart(2,'0')}:${String(((tot % 60) + 60) % 60).padStart(2,'0')}`
-}
-function nights(ci: string, co: string) {
-  if (!ci || !co) return 0
-  return Math.round((new Date(co).getTime() - new Date(ci).getTime()) / 86400000)
-}
-
-// ─── Form primitives ──────────────────────────────────────────────────────────
-
-const inp = 'w-full h-9 px-3 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-[#C9A84C] bg-white'
-const sel = 'w-full h-9 px-3 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-[#C9A84C] bg-white'
-
-function Lbl({ c }: { c: string }) {
-  return <label className="block text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">{c}</label>
-}
-function Hr({ c }: { c: string }) {
+function F({ label, req, children }: { label: string; req?: boolean; children: React.ReactNode }) {
   return (
-    <div className="col-span-full flex items-center gap-2 pt-3 pb-1">
-      <span className="text-[10px] font-bold text-[#0B1F3A] tracking-widest uppercase whitespace-nowrap">{c}</span>
-      <div className="flex-1 h-px bg-gray-100" />
+    <div>
+      <label className="block text-[10px] font-bold text-[#0B1F3A] uppercase tracking-wider mb-1.5">
+        {label}{req && <span className="text-red-400 ml-0.5">*</span>}
+      </label>
+      {children}
     </div>
   )
 }
-function F({ label, value, onChange, type = 'text', options, textarea, rows = 3, span = 1, placeholder = '' }: {
-  label: string; value: string; onChange: (v: string) => void
-  type?: string; options?: string[]; textarea?: boolean; rows?: number
-  span?: 1 | 2 | 3; placeholder?: string
-}) {
-  const wrap = span === 3 ? 'col-span-3' : span === 2 ? 'col-span-2' : ''
+function Row({ children }: { children: React.ReactNode }) {
+  return <div className="grid grid-cols-2 gap-3">{children}</div>
+}
+function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <div className={wrap}>
-      <Lbl c={label} />
-      {options
-        ? <select value={value} onChange={e => onChange(e.target.value)} className={sel}>
-            {options.map(o => <option key={o}>{o}</option>)}
-          </select>
-        : textarea
-        ? <textarea value={value} onChange={e => onChange(e.target.value)} rows={rows}
-            placeholder={placeholder} className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:border-[#C9A84C] bg-white resize-none" />
-        : <input type={type} value={value} onChange={e => onChange(e.target.value)}
-            placeholder={placeholder} className={inp} />}
+    <div className="space-y-3 pt-1">
+      <div className="flex items-center gap-2">
+        <div className="w-0.5 h-4 rounded-full bg-[#C9A84C] flex-shrink-0" />
+        <span className="text-[10px] font-bold text-[#0B1F3A] uppercase tracking-wider">{title}</span>
+      </div>
+      {children}
     </div>
   )
 }
 
-// ─── Brand HTML constants ─────────────────────────────────────────────────────
+// ─── Step 1: Ticket Type ──────────────────────────────────────────────────────
 
-const HDR = `<table width="100%" cellpadding="0" cellspacing="0" style="background:#0B1F3A"><tr><td style="padding:22px 32px"><table width="100%" cellpadding="0" cellspacing="0"><tr><td><div style="color:#C9A84C;font-family:Arial,sans-serif;font-size:22px;font-weight:900;letter-spacing:4px">WALZ TRAVELS</div><div style="color:rgba(255,255,255,0.4);font-family:Arial,sans-serif;font-size:10px;letter-spacing:2px;margin-top:3px">FLIGHTS · HOTELS · TOURS · TRANSFERS · VISAS</div></td><td align="right" style="font-family:Arial,sans-serif;font-size:10px;color:rgba(255,255,255,0.4);line-height:1.8">bookings@walztravels.com<br>+44 7398 753797<br>walztravels.com</td></tr></table></td></tr></table>`
-const FTR = `<table width="100%" cellpadding="0" cellspacing="0" style="background:#0B1F3A"><tr><td style="padding:14px 32px"><table width="100%" cellpadding="0" cellspacing="0"><tr><td style="font-family:Arial,sans-serif;font-size:10px;color:rgba(255,255,255,0.4)">24/7 Emergency: +44 7398 753797 · contact@walztravels.com</td><td align="right" style="font-family:Arial,sans-serif;font-size:10px;color:rgba(255,255,255,0.3)">Walz Travels Ltd</td></tr></table></td></tr></table>`
-
-// ─── HTML renderers ───────────────────────────────────────────────────────────
-
-function buildFlightHtml(d: FlightData, ref: string): string {
-  const isRT = d.segments.length > 1
-  const segs = d.segments.map((s, i) => {
-    const gc = gateClose(s.departureTime, d.gateClosesMins)
-    const fn = (s.airlineCode + s.flightNumber).replace(/\s/g, '')
-    return `${i > 0 ? '<div style="height:12px;background:#F1F5F9;border-top:1px solid #E2E8F0;border-bottom:1px solid #E2E8F0"></div>' : ''}
-<table width="100%" cellpadding="0" cellspacing="0" style="background:#EFF6FF;border-bottom:1px solid #BFDBFE"><tr><td style="padding:8px 32px;font-family:Arial,sans-serif;font-size:11px;font-weight:700;color:#1D4ED8;letter-spacing:2px">✈ &nbsp;${isRT ? (i===0?'OUTBOUND':'RETURN') : 'FLIGHT'} &nbsp;·&nbsp; ${s.airline} ${s.flightNumber} &nbsp;·&nbsp; ${s.cabinClass.toUpperCase()}</td></tr></table>
-<table width="100%" cellpadding="0" cellspacing="0" style="background:#F8FAFF"><tr><td style="padding:24px 32px 0">
-<table width="100%" cellpadding="0" cellspacing="0"><tr valign="middle">
-<td align="center" width="30%"><div style="font-family:Arial,sans-serif;font-size:52px;font-weight:900;color:#0B1F3A;line-height:1">${s.fromCode||'DEP'}</div><div style="font-family:Arial,sans-serif;font-size:13px;color:#475569;margin-top:4px">${s.fromCity}</div><div style="font-family:Arial,sans-serif;font-size:10px;color:#94A3B8">${s.fromAirport}</div>${s.fromTerminal?`<div style="font-family:Arial,sans-serif;font-size:10px;color:#94A3B8">Terminal ${s.fromTerminal}</div>`:''}</td>
-<td align="center" width="40%"><div style="font-family:Arial,sans-serif;font-size:11px;font-weight:700;color:#C9A84C;letter-spacing:1px;margin-bottom:8px">${s.airline} ${s.flightNumber}</div><table width="100%" cellpadding="0" cellspacing="0"><tr><td width="10"><div style="width:10px;height:10px;background:#C9A84C;border-radius:50%"></div></td><td><div style="height:2px;background:linear-gradient(to right,#C9A84C,#0B1F3A)"></div></td><td style="padding:0 4px;font-size:18px;color:#0B1F3A">✈</td><td><div style="height:2px;background:linear-gradient(to right,#0B1F3A,#C9A84C)"></div></td><td width="10"><div style="width:10px;height:10px;background:#C9A84C;border-radius:50%"></div></td></tr></table><div style="font-family:Arial,sans-serif;font-size:11px;color:#94A3B8;margin-top:6px">${s.duration}</div></td>
-<td align="center" width="30%"><div style="font-family:Arial,sans-serif;font-size:52px;font-weight:900;color:#0B1F3A;line-height:1">${s.toCode||'ARR'}</div><div style="font-family:Arial,sans-serif;font-size:13px;color:#475569;margin-top:4px">${s.toCity}</div><div style="font-family:Arial,sans-serif;font-size:10px;color:#94A3B8">${s.toAirport}</div>${s.toTerminal?`<div style="font-family:Arial,sans-serif;font-size:10px;color:#94A3B8">Terminal ${s.toTerminal}</div>`:''}</td>
-</tr></table></td></tr>
-<tr><td style="padding:16px 32px 20px"><table width="100%" cellpadding="0" cellspacing="0" style="border-top:1px dashed #CBD5E1;padding-top:16px"><tr>
-<td><div style="font-family:Arial,sans-serif;font-size:32px;font-weight:900;color:#0B1F3A">${s.departureTime||'—'}</div><div style="font-family:Arial,sans-serif;font-size:12px;color:#475569">${fmtDate(s.departureDate)}</div></td>
-<td align="right"><div style="font-family:Arial,sans-serif;font-size:32px;font-weight:900;color:#0B1F3A">${s.arrivalTime||'—'}</div><div style="font-family:Arial,sans-serif;font-size:12px;color:#475569">${fmtDate(s.arrivalDate)}</div></td>
-</tr></table></td></tr></table>
-<!-- AIRPORT TIMING -->
-<table width="100%" cellpadding="0" cellspacing="0" style="background:#FFF9E6;border-top:2px solid #C9A84C;border-bottom:2px solid #C9A84C"><tr><td style="padding:18px 32px">
-<div style="font-family:Arial,sans-serif;font-size:10px;font-weight:900;color:#92400E;letter-spacing:2px;margin-bottom:14px">⏱ &nbsp; IMPORTANT — AIRPORT TIMING FOR YOUR FLIGHT</div>
-<table width="100%" cellpadding="0" cellspacing="0"><tr valign="top">
-<td width="25%" style="padding:0 12px 0 0;border-right:1px solid #FDE68A"><div style="font-size:22px">🕐</div><div style="font-family:Arial,sans-serif;font-size:9px;font-weight:700;color:#92400E;letter-spacing:1.5px;text-transform:uppercase;margin-top:4px">Arrive at Airport</div><div style="font-family:Arial,sans-serif;font-size:13px;font-weight:700;color:#0B1F3A;margin-top:4px">${d.arriveAirportBy}</div><div style="font-family:Arial,sans-serif;font-size:10px;color:#78716C;margin-top:3px">Allow time for security</div></td>
-<td width="25%" style="padding:0 12px;border-right:1px solid #FDE68A"><div style="font-size:22px">🖨</div><div style="font-family:Arial,sans-serif;font-size:9px;font-weight:700;color:#92400E;letter-spacing:1.5px;text-transform:uppercase;margin-top:4px">Check-in Opens</div><div style="font-family:Arial,sans-serif;font-size:13px;font-weight:700;color:#0B1F3A;margin-top:4px">${d.checkInOpens}</div><div style="font-family:Arial,sans-serif;font-size:10px;color:#78716C;margin-top:3px">Online check-in available</div></td>
-<td width="25%" style="padding:0 12px;border-right:1px solid #FDE68A"><div style="font-size:22px">⚠️</div><div style="font-family:Arial,sans-serif;font-size:9px;font-weight:700;color:#DC2626;letter-spacing:1.5px;text-transform:uppercase;margin-top:4px">Check-in Deadline</div><div style="font-family:Arial,sans-serif;font-size:13px;font-weight:700;color:#DC2626;margin-top:4px">${d.checkInDeadline}</div><div style="font-family:Arial,sans-serif;font-size:10px;color:#78716C;margin-top:3px">After this, check-in closes</div></td>
-<td width="25%" style="padding:0 0 0 12px"><div style="font-size:22px">🚪</div><div style="font-family:Arial,sans-serif;font-size:9px;font-weight:700;color:#DC2626;letter-spacing:1.5px;text-transform:uppercase;margin-top:4px">Gate Closes</div><div style="font-family:Arial,sans-serif;font-size:28px;font-weight:900;color:#DC2626;margin-top:2px">${s.departureTime?gc:'—'}</div><div style="font-family:Arial,sans-serif;font-size:10px;color:#78716C;margin-top:3px">${d.gateClosesMins} min before departure</div></td>
-</tr></table>
-<div style="margin-top:14px;padding:10px 14px;background:#FEF3C7;border-radius:8px;border-left:3px solid #C9A84C"><span style="font-family:Arial,sans-serif;font-size:12px;color:#92400E"><strong>📢 Please be at the gate by ${s.departureTime?gc:'—'} on ${fmtDate(s.departureDate)}.</strong> Gates close ${d.gateClosesMins} minutes before departure. Late passengers will not be accommodated.</span></div>
-${d.loungeAccess&&d.loungeAccess!=='None'?`<div style="margin-top:8px;padding:8px 14px;background:#EFF6FF;border-radius:6px;border-left:3px solid #3B82F6"><span style="font-family:Arial,sans-serif;font-size:11px;color:#1E40AF">✨ <strong>Lounge Access:</strong> ${d.loungeAccess}</span></div>`:''}
-</td></tr></table>
-<table width="100%" cellpadding="0" cellspacing="0" style="border-bottom:1px solid #E2E8F0"><tr><td style="padding:18px 32px">
-<table width="100%" cellpadding="0" cellspacing="0"><tr>
-${[['PNR / Ref',d.pnr||'—'],['Checked Bag',s.baggageChecked],['Cabin Bag',s.baggageCarryOn],['Meal',s.mealService],['Aircraft',s.aircraft||'—'],['Class',s.bookingCode||s.cabinClass]].map(([l,v])=>`<td align="center" style="padding:0 6px;border-right:1px solid #F1F5F9"><div style="font-family:Arial,sans-serif;font-size:9px;color:#94A3B8;letter-spacing:1px;margin-bottom:4px">${l}</div><div style="font-family:Arial,sans-serif;font-size:13px;font-weight:700;color:#0B1F3A">${v}</div></td>`).join('')}
-</tr></table></td></tr></table>
-${fn.length>2?`<table width="100%" cellpadding="0" cellspacing="0" style="background:#F0FDF4;border-bottom:1px solid #BBF7D0"><tr><td style="padding:10px 32px;font-family:Arial,sans-serif;font-size:11px;color:#166534">📡 <strong>Track live:</strong> &nbsp;<a href="https://www.flightaware.com/live/flight/${fn}" style="color:#1D4ED8">FlightAware</a> &nbsp;·&nbsp; <a href="https://www.flightradar24.com/${fn}" style="color:#1D4ED8">FlightRadar24</a></td></tr></table>`:''}`
-  }).join('')
-
-  const paxRows = d.passengers.filter(p=>p.name).map(p=>`<tr><td style="padding:9px 12px;font-family:Arial,sans-serif;font-size:14px;font-weight:700;color:#0B1F3A;border-bottom:1px solid #F1F5F9">${p.name}</td><td style="padding:9px 12px;font-family:Arial,sans-serif;font-size:12px;color:#475569;border-bottom:1px solid #F1F5F9">${p.seat||'—'}</td><td style="padding:9px 12px;font-family:Arial,sans-serif;font-size:12px;color:#475569;border-bottom:1px solid #F1F5F9">${p.eTicket||'—'}</td><td style="padding:9px 12px;font-family:Arial,sans-serif;font-size:12px;color:#475569;border-bottom:1px solid #F1F5F9">${p.passportNumber||'—'}</td><td style="padding:9px 12px;font-family:Arial,sans-serif;font-size:12px;color:#475569;border-bottom:1px solid #F1F5F9">${p.nationality||'—'}</td></tr>`).join('')
-
-  return `<div style="font-family:Arial,sans-serif;background:#fff;max-width:800px;margin:0 auto;border:1px solid #E2E8F0;border-radius:12px;overflow:hidden">
-${HDR}${segs}
-${paxRows?`<table width="100%" cellpadding="0" cellspacing="0" style="border-bottom:1px solid #E2E8F0"><tr><td style="padding:20px 32px"><div style="font-family:Arial,sans-serif;font-size:10px;font-weight:700;color:#94A3B8;letter-spacing:2px;margin-bottom:10px">PASSENGERS</div><table width="100%" cellpadding="0" cellspacing="0" style="border:1px solid #E2E8F0;border-radius:8px;overflow:hidden"><tr style="background:#F8FAFF">${['Name','Seat','e-Ticket','Passport','Nationality'].map(h=>`<th style="padding:8px 12px;text-align:left;font-family:Arial,sans-serif;font-size:10px;font-weight:700;color:#94A3B8;letter-spacing:1px">${h}</th>`).join('')}</tr>${paxRows}</table></td></tr></table>`:''}
-<table width="100%" cellpadding="0" cellspacing="0" style="background:#F8FAFC;border-bottom:1px solid #E2E8F0"><tr><td style="padding:12px 32px"><table cellpadding="0" cellspacing="0"><tr><td style="padding:0 20px 0 0;font-family:Arial,sans-serif;font-size:10px"><span style="color:#94A3B8">Ticket Ref: </span><strong style="color:#0B1F3A">${ref}</strong></td><td style="padding:0 20px;font-family:Arial,sans-serif;font-size:10px;border-left:1px solid #E2E8F0"><span style="color:#94A3B8">Issued: </span><strong style="color:#0B1F3A">${fmtDate(d.ticketIssueDate)}</strong></td>${d.isThirdParty?`<td style="padding:0 0 0 20px;font-family:Arial,sans-serif;font-size:10px;border-left:1px solid #E2E8F0"><span style="color:#94A3B8">Operated by: </span><strong style="color:#0B1F3A">${d.originalAirline}</strong></td>`:''}</tr></table></td></tr></table>
-${d.notes?`<table width="100%" cellpadding="0" cellspacing="0" style="border-bottom:1px solid #E2E8F0"><tr><td style="padding:14px 32px;font-family:Arial,sans-serif;font-size:12px;color:#475569;white-space:pre-wrap">${d.notes}</td></tr></table>`:''}
-${FTR}</div>`
-}
-
-function buildHotelHtml(d: HotelData, ref: string): string {
-  const n = nights(d.checkInDate, d.checkOutDate)
-  const stars = parseInt(d.hotelStars)||0
-  const mapsUrl = d.googleMapsUrl || (d.hotelName?`https://maps.google.com/?q=${encodeURIComponent(`${d.hotelName} ${d.hotelAddress} ${d.hotelCity}`)}` : '')
-  const grid = (items: [string,string][]) => `<table width="100%" cellpadding="0" cellspacing="0"><tr>${items.map(([l,v])=>`<td align="center" style="padding:0 8px;border-right:1px solid #F1F5F9"><div style="font-family:Arial,sans-serif;font-size:9px;color:#94A3B8;letter-spacing:1px;margin-bottom:4px">${l}</div><div style="font-family:Arial,sans-serif;font-size:13px;font-weight:700;color:#0B1F3A">${v}</div></td>`).join('')}</tr></table>`
-  return `<div style="font-family:Arial,sans-serif;background:#fff;max-width:800px;margin:0 auto;border:1px solid #E2E8F0;border-radius:12px;overflow:hidden">
-${HDR}
-<table width="100%" cellpadding="0" cellspacing="0" style="background:#F5F3FF;border-bottom:1px solid #DDD6FE"><tr><td style="padding:8px 32px;font-family:Arial,sans-serif;font-size:11px;font-weight:700;color:#6D28D9;letter-spacing:2px">🏨 &nbsp; HOTEL BOOKING CONFIRMATION</td></tr></table>
-<table width="100%" cellpadding="0" cellspacing="0" style="border-bottom:1px solid #E2E8F0"><tr><td style="padding:24px 32px"><table width="100%" cellpadding="0" cellspacing="0"><tr valign="top"><td><div style="font-family:Arial,sans-serif;font-size:28px;font-weight:900;color:#0B1F3A">${d.hotelName||'Hotel Name'}</div>${stars>0?`<div style="color:#C9A84C;font-size:16px;margin-top:3px">${'★'.repeat(stars)}</div>`:''} ${d.hotelAddress?`<div style="font-family:Arial,sans-serif;font-size:12px;color:#475569;margin-top:8px">📍 ${d.hotelAddress}${d.hotelCity?', '+d.hotelCity:''}${d.hotelCountry?', '+d.hotelCountry:''}</div>`:''} ${d.hotelPhone?`<div style="font-family:Arial,sans-serif;font-size:12px;color:#475569;margin-top:3px">📞 ${d.hotelPhone}</div>`:''} ${d.hotelWebsite?`<div style="font-family:Arial,sans-serif;font-size:12px;color:#3B82F6;margin-top:3px">🌐 ${d.hotelWebsite}</div>`:''}</td>${d.confirmationNumber?`<td align="right"><div style="display:inline-block;background:#F0FDF4;border:1px solid #BBF7D0;border-radius:10px;padding:12px 20px;text-align:center"><div style="font-family:Arial,sans-serif;font-size:9px;font-weight:700;color:#16A34A;letter-spacing:2px">CONFIRMATION NO.</div><div style="font-family:Arial,sans-serif;font-size:20px;font-weight:900;color:#0B1F3A;margin-top:4px">${d.confirmationNumber}</div><div style="font-family:Arial,sans-serif;font-size:9px;color:#94A3B8;margin-top:4px">Ref: ${ref}</div></div></td>`:''}</tr></table></td></tr></table>
-${mapsUrl?`<table width="100%" cellpadding="0" cellspacing="0" style="background:#F1F5F9;border-bottom:1px solid #E2E8F0"><tr><td style="padding:12px 32px"><table cellpadding="0" cellspacing="0"><tr valign="middle"><td style="font-size:22px;padding-right:10px">🗺</td><td><div style="font-family:Arial,sans-serif;font-size:12px;font-weight:700;color:#0B1F3A">View hotel on Google Maps</div><a href="${mapsUrl}" style="font-family:Arial,sans-serif;font-size:11px;color:#3B82F6">${mapsUrl}</a></td></tr></table></td></tr></table>`:''}
-<table width="100%" cellpadding="0" cellspacing="0" style="border-bottom:1px solid #E2E8F0"><tr><td width="42%" style="padding:20px 32px;background:#F0FDF4;border-right:1px solid #E2E8F0"><div style="font-family:Arial,sans-serif;font-size:10px;font-weight:700;color:#16A34A;letter-spacing:2px;margin-bottom:6px">CHECK-IN</div><div style="font-family:Arial,sans-serif;font-size:22px;font-weight:900;color:#0B1F3A">${fmtDate(d.checkInDate)}</div><div style="font-family:Arial,sans-serif;font-size:12px;color:#475569;margin-top:4px">From ${d.checkInTime||'15:00'}</div></td><td width="16%" align="center" style="padding:20px 0;background:#F8FAFF"><div style="font-family:Arial,sans-serif;font-size:36px;font-weight:900;color:#C9A84C">${n||'—'}</div><div style="font-family:Arial,sans-serif;font-size:10px;color:#94A3B8;letter-spacing:1px">NIGHT${n!==1?'S':''}</div></td><td width="42%" style="padding:20px 32px;background:#FEF2F2;border-left:1px solid #E2E8F0"><div style="font-family:Arial,sans-serif;font-size:10px;font-weight:700;color:#DC2626;letter-spacing:2px;margin-bottom:6px">CHECK-OUT</div><div style="font-family:Arial,sans-serif;font-size:22px;font-weight:900;color:#0B1F3A">${fmtDate(d.checkOutDate)}</div><div style="font-family:Arial,sans-serif;font-size:12px;color:#475569;margin-top:4px">By ${d.checkOutTime||'12:00'}</div></td></tr></table>
-<table width="100%" cellpadding="0" cellspacing="0" style="border-bottom:1px solid #E2E8F0"><tr><td style="padding:18px 32px">${grid([['GUEST',d.guestName||'—'],['ROOM TYPE',d.roomType||'—'],['ROOM NO.',d.roomNumber||'—'],['GUESTS',d.guests||'—'],['ROOMS',d.rooms||'—'],['MEAL PLAN',d.mealPlan||'—']])}</td></tr></table>
-${(d.ratePerNight||d.totalCost)?`<table width="100%" cellpadding="0" cellspacing="0" style="background:#FFFBEB;border-bottom:1px solid #FDE68A"><tr><td style="padding:12px 32px;font-family:Arial,sans-serif;font-size:12px;color:#92400E">${d.ratePerNight?`Rate/night: <strong>${d.currency} ${d.ratePerNight}</strong>`:''}${d.ratePerNight&&d.totalCost?' &nbsp;·&nbsp; ':''}${d.totalCost?`Total: <strong style="font-size:18px;color:#0B1F3A">${d.currency} ${d.totalCost}</strong>`:''}</td></tr></table>`:''}
-${d.specialRequests?`<table width="100%" cellpadding="0" cellspacing="0" style="border-bottom:1px solid #E2E8F0"><tr><td style="padding:14px 32px"><div style="font-family:Arial,sans-serif;font-size:10px;font-weight:700;color:#94A3B8;letter-spacing:1.5px;margin-bottom:6px">SPECIAL REQUESTS</div><div style="font-family:Arial,sans-serif;font-size:12px;color:#475569">${d.specialRequests}</div></td></tr></table>`:''}
-${d.notes?`<table width="100%" cellpadding="0" cellspacing="0" style="border-bottom:1px solid #E2E8F0"><tr><td style="padding:14px 32px;font-family:Arial,sans-serif;font-size:12px;color:#475569;white-space:pre-wrap">${d.notes}</td></tr></table>`:''}
-${FTR}</div>`
-}
-
-function buildTourHtml(d: TourData, ref: string): string {
-  const grid = (items: [string,string][]) => `<table width="100%" cellpadding="0" cellspacing="0"><tr>${items.map(([l,v])=>`<td align="center" style="padding:0 8px;border-right:1px solid #F1F5F9"><div style="font-family:Arial,sans-serif;font-size:9px;color:#94A3B8;letter-spacing:1px;margin-bottom:4px">${l}</div><div style="font-family:Arial,sans-serif;font-size:13px;font-weight:700;color:#0B1F3A">${v}</div></td>`).join('')}</tr></table>`
-  return `<div style="font-family:Arial,sans-serif;background:#fff;max-width:800px;margin:0 auto;border:1px solid #E2E8F0;border-radius:12px;overflow:hidden">
-${HDR}
-<table width="100%" cellpadding="0" cellspacing="0" style="background:#F0FDF4;border-bottom:1px solid #BBF7D0"><tr><td style="padding:8px 32px;font-family:Arial,sans-serif;font-size:11px;font-weight:700;color:#16A34A;letter-spacing:2px">🌴 &nbsp; TOUR BOOKING VOUCHER</td></tr></table>
-<table width="100%" cellpadding="0" cellspacing="0" style="border-bottom:1px solid #E2E8F0"><tr><td style="padding:24px 32px"><table width="100%" cellpadding="0" cellspacing="0"><tr valign="top"><td><div style="font-family:Arial,sans-serif;font-size:26px;font-weight:900;color:#0B1F3A">${d.tourName||'Tour Name'}</div>${d.operator?`<div style="font-family:Arial,sans-serif;font-size:13px;color:#475569;margin-top:4px">Operated by: <strong>${d.operator}</strong></div>`:''} ${d.destination?`<div style="font-family:Arial,sans-serif;font-size:12px;color:#475569;margin-top:4px">📍 ${d.destination}</div>`:''}</td>${d.confirmationNumber?`<td align="right"><div style="display:inline-block;background:#F0FDF4;border:1px solid #BBF7D0;border-radius:10px;padding:12px 20px;text-align:center"><div style="font-family:Arial,sans-serif;font-size:9px;font-weight:700;color:#16A34A;letter-spacing:2px">VOUCHER NO.</div><div style="font-family:Arial,sans-serif;font-size:20px;font-weight:900;color:#0B1F3A;margin-top:4px">${d.confirmationNumber}</div><div style="font-family:Arial,sans-serif;font-size:9px;color:#94A3B8;margin-top:3px">Ref: ${ref}</div></div></td>`:''}</tr></table></td></tr></table>
-<table width="100%" cellpadding="0" cellspacing="0" style="border-bottom:1px solid #E2E8F0"><tr><td style="padding:18px 32px">${grid([['GUEST',d.guestName||'—'],['DATE',fmtDate(d.tourDate)],['START',d.startTime||'—'],['END',d.endTime||'—'],['DURATION',d.duration||'—'],['GUESTS',d.guests||'—']])}</td></tr></table>
-${d.meetingPoint?`<table width="100%" cellpadding="0" cellspacing="0" style="background:#FFFBEB;border-bottom:1px solid #FDE68A"><tr><td style="padding:12px 32px;font-family:Arial,sans-serif;font-size:12px;color:#92400E"><strong>📍 Meeting Point:</strong> ${d.meetingPoint}</td></tr></table>`:''}
-${(d.guideName||d.guidePhone)?`<table width="100%" cellpadding="0" cellspacing="0" style="border-bottom:1px solid #E2E8F0"><tr><td style="padding:12px 32px;font-family:Arial,sans-serif;font-size:12px;color:#475569">👤 <strong>Guide:</strong> ${d.guideName||'—'}${d.guidePhone?` &nbsp;·&nbsp; 📞 ${d.guidePhone}`:''}</td></tr></table>`:''}
-${d.pickupIncluded&&d.pickupLocation?`<table width="100%" cellpadding="0" cellspacing="0" style="background:#EFF6FF;border-bottom:1px solid #BFDBFE"><tr><td style="padding:10px 32px;font-family:Arial,sans-serif;font-size:12px;color:#1E40AF">🚗 <strong>Pickup included from:</strong> ${d.pickupLocation}</td></tr></table>`:''}
-${(d.inclusions||d.exclusions)?`<table width="100%" cellpadding="0" cellspacing="0" style="border-bottom:1px solid #E2E8F0"><tr>${d.inclusions?`<td valign="top" style="padding:14px 32px;border-right:1px solid #E2E8F0"><div style="font-family:Arial,sans-serif;font-size:10px;font-weight:700;color:#16A34A;letter-spacing:1.5px;margin-bottom:6px">✅ INCLUSIONS</div><div style="font-family:Arial,sans-serif;font-size:12px;color:#475569;white-space:pre-wrap">${d.inclusions}</div></td>`:''}${d.exclusions?`<td valign="top" style="padding:14px 32px"><div style="font-family:Arial,sans-serif;font-size:10px;font-weight:700;color:#DC2626;letter-spacing:1.5px;margin-bottom:6px">❌ EXCLUSIONS</div><div style="font-family:Arial,sans-serif;font-size:12px;color:#475569;white-space:pre-wrap">${d.exclusions}</div></td>`:''}</tr></table>`:''}
-${d.totalCost?`<table width="100%" cellpadding="0" cellspacing="0" style="background:#FFFBEB;border-bottom:1px solid #FDE68A"><tr><td style="padding:12px 32px;font-family:Arial,sans-serif;font-size:12px;color:#92400E">Total: <strong style="font-size:18px;color:#0B1F3A">${d.currency} ${d.totalCost}</strong></td></tr></table>`:''}
-${d.notes?`<table width="100%" cellpadding="0" cellspacing="0" style="border-bottom:1px solid #E2E8F0"><tr><td style="padding:14px 32px;font-family:Arial,sans-serif;font-size:12px;color:#475569;white-space:pre-wrap">${d.notes}</td></tr></table>`:''}
-${FTR}</div>`
-}
-
-function buildTransferHtml(d: TransferData, ref: string): string {
-  const grid = (items: [string,string][]) => `<table width="100%" cellpadding="0" cellspacing="0"><tr>${items.map(([l,v])=>`<td align="center" style="padding:0 8px;border-right:1px solid #F1F5F9"><div style="font-family:Arial,sans-serif;font-size:9px;color:#94A3B8;letter-spacing:1px;margin-bottom:4px">${l}</div><div style="font-family:Arial,sans-serif;font-size:13px;font-weight:700;color:#0B1F3A">${v}</div></td>`).join('')}</tr></table>`
-  return `<div style="font-family:Arial,sans-serif;background:#fff;max-width:800px;margin:0 auto;border:1px solid #E2E8F0;border-radius:12px;overflow:hidden">
-${HDR}
-<table width="100%" cellpadding="0" cellspacing="0" style="background:#FFF7ED;border-bottom:1px solid #FED7AA"><tr><td style="padding:8px 32px;font-family:Arial,sans-serif;font-size:11px;font-weight:700;color:#C2410C;letter-spacing:2px">🚗 &nbsp; TRANSFER BOOKING CONFIRMATION</td></tr></table>
-<table width="100%" cellpadding="0" cellspacing="0" style="background:#FFF7ED;border-bottom:1px solid #E2E8F0"><tr><td style="padding:24px 32px"><table width="100%" cellpadding="0" cellspacing="0"><tr valign="middle"><td width="45%"><div style="font-family:Arial,sans-serif;font-size:9px;font-weight:700;color:#94A3B8;letter-spacing:2px;margin-bottom:4px">PICKUP FROM</div><div style="font-family:Arial,sans-serif;font-size:20px;font-weight:900;color:#0B1F3A">${d.pickupLocation||'—'}</div>${d.pickupAddress?`<div style="font-family:Arial,sans-serif;font-size:11px;color:#475569;margin-top:3px">${d.pickupAddress}</div>`:''}</td><td width="10%" align="center"><div style="font-size:28px;color:#C9A84C">→</div></td><td width="45%" align="right"><div style="font-family:Arial,sans-serif;font-size:9px;font-weight:700;color:#94A3B8;letter-spacing:2px;margin-bottom:4px;text-align:right">DROP-OFF AT</div><div style="font-family:Arial,sans-serif;font-size:20px;font-weight:900;color:#0B1F3A;text-align:right">${d.dropoffLocation||'—'}</div>${d.dropoffAddress?`<div style="font-family:Arial,sans-serif;font-size:11px;color:#475569;margin-top:3px;text-align:right">${d.dropoffAddress}</div>`:''}</td></tr></table></td></tr></table>
-<table width="100%" cellpadding="0" cellspacing="0" style="border-bottom:1px solid #E2E8F0"><tr><td style="padding:18px 32px">${grid([['PASSENGER',d.passengerName||'—'],['PICKUP DATE',fmtDate(d.pickupDate)],['PICKUP TIME',d.pickupTime||'—'],['VEHICLE',d.vehicleType||'—'],['PAX',d.pax||'—'],['LUGGAGE',`${d.luggage||'0'} pcs`]])}</td></tr></table>
-${(d.driverName||d.driverPhone||d.vehicleReg)?`<table width="100%" cellpadding="0" cellspacing="0" style="background:#F1F5F9;border-bottom:1px solid #E2E8F0"><tr><td style="padding:12px 32px;font-family:Arial,sans-serif;font-size:12px;color:#475569">🧑‍✈️ <strong>Driver:</strong> ${d.driverName||'TBC'}${d.driverPhone?` &nbsp;·&nbsp; 📞 ${d.driverPhone}`:''}${d.vehicleReg?` &nbsp;·&nbsp; 🚗 ${d.vehicleReg}`:''}</td></tr></table>`:''}
-${(d.confirmationNumber||d.provider||d.flightRef)?`<table width="100%" cellpadding="0" cellspacing="0" style="border-bottom:1px solid #E2E8F0"><tr><td style="padding:12px 32px"><table cellpadding="0" cellspacing="0"><tr>${d.confirmationNumber?`<td style="padding:0 20px 0 0;font-family:Arial,sans-serif;font-size:10px"><span style="color:#94A3B8">Confirmation: </span><strong style="color:#0B1F3A">${d.confirmationNumber}</strong></td>`:''}${d.provider?`<td style="${d.confirmationNumber?'border-left:1px solid #E2E8F0;padding:0 20px;':''}font-family:Arial,sans-serif;font-size:10px"><span style="color:#94A3B8">Provider: </span><strong style="color:#0B1F3A">${d.provider}</strong></td>`:''}${d.flightRef?`<td style="border-left:1px solid #E2E8F0;padding:0 0 0 20px;font-family:Arial,sans-serif;font-size:10px"><span style="color:#94A3B8">Flight Ref: </span><strong style="color:#0B1F3A">${d.flightRef}</strong></td>`:''}<td style="border-left:1px solid #E2E8F0;padding:0 0 0 20px;font-family:Arial,sans-serif;font-size:10px"><span style="color:#94A3B8">Ticket Ref: </span><strong style="color:#0B1F3A">${ref}</strong></td></tr></table></td></tr></table>`:''}
-${d.totalCost?`<table width="100%" cellpadding="0" cellspacing="0" style="background:#FFFBEB;border-bottom:1px solid #FDE68A"><tr><td style="padding:12px 32px;font-family:Arial,sans-serif;font-size:12px;color:#92400E">Total: <strong style="font-size:18px;color:#0B1F3A">${d.currency} ${d.totalCost}</strong></td></tr></table>`:''}
-${d.notes?`<table width="100%" cellpadding="0" cellspacing="0" style="border-bottom:1px solid #E2E8F0"><tr><td style="padding:14px 32px;font-family:Arial,sans-serif;font-size:12px;color:#475569;white-space:pre-wrap">${d.notes}</td></tr></table>`:''}
-${FTR}</div>`
-}
-
-// ─── History Panel ────────────────────────────────────────────────────────────
-
-function HistoryPanel({ visible, onClose, onResend }: {
-  visible: boolean; onClose: () => void
-  onResend: (html: string, email: string) => void
-}) {
-  const [tickets, setTickets] = useState<SavedTicket[]>([])
-  const [loading, setLoading] = useState(false)
-  const [expanded, setExpanded] = useState<string | null>(null)
-
-  const load = useCallback(async () => {
-    setLoading(true)
-    const r = await fetch('/api/admin/tickets/save')
-    const d = await r.json()
-    setTickets(d.tickets ?? [])
-    setLoading(false)
-  }, [])
-
-  useEffect(() => { if (visible) load() }, [visible, load])
-
-  if (!visible) return null
-
-  const TYPE_COLOR: Record<string,string> = {
-    FLIGHT: 'bg-blue-100 text-blue-700', HOTEL: 'bg-purple-100 text-purple-700',
-    TOUR: 'bg-green-100 text-green-700', TRANSFER: 'bg-orange-100 text-orange-700',
-  }
-
+function Step1({ ticketType, setTicketType }: { ticketType: string; setTicketType: (t: string) => void }) {
   return (
-    <div className="fixed inset-0 z-50 flex">
-      <div className="absolute inset-0 bg-black/40" onClick={onClose} />
-      <div className="relative ml-auto w-full max-w-lg bg-white flex flex-col h-full shadow-2xl">
-        <div className="flex items-center justify-between p-4 border-b border-gray-100">
-          <h2 className="font-bold text-[#0B1F3A] text-sm flex items-center gap-2">
-            <History className="w-4 h-4 text-[#C9A84C]" /> Ticket History
-          </h2>
-          <div className="flex gap-1">
-            <button onClick={load} className="p-1.5 rounded-lg text-gray-400 hover:bg-gray-100"><RefreshCw className="w-4 h-4" /></button>
-            <button onClick={onClose} className="p-1.5 rounded-lg text-gray-400 hover:bg-gray-100"><X className="w-4 h-4" /></button>
-          </div>
-        </div>
-        <div className="flex-1 overflow-y-auto p-4 space-y-2">
-          {loading && <div className="flex items-center justify-center py-12"><Loader2 className="w-6 h-6 animate-spin text-gray-300" /></div>}
-          {!loading && tickets.length === 0 && <p className="text-center text-gray-400 text-sm py-12">No tickets saved yet.</p>}
-          {tickets.map(t => (
-            <div key={t.id} className="border border-gray-100 rounded-xl overflow-hidden">
-              <button onClick={() => setExpanded(expanded === t.id ? null : t.id)}
-                className="w-full text-left p-3 hover:bg-gray-50 flex items-center justify-between gap-2">
-                <div className="flex items-center gap-2 min-w-0">
-                  <span className={`shrink-0 px-2 py-0.5 rounded-full text-[10px] font-bold ${TYPE_COLOR[t.ticketType] || 'bg-gray-100 text-gray-600'}`}>{t.ticketType}</span>
-                  <div className="min-w-0">
-                    <div className="text-sm font-semibold text-[#0B1F3A] truncate">{t.ticketNumber}</div>
-                    <div className="text-[11px] text-gray-400 truncate">{t.clientName} · {t.clientEmail}</div>
-                  </div>
-                </div>
-                <div className="text-right shrink-0">
-                  {t.sentAt ? <span className="text-[10px] text-green-600 font-semibold">Sent</span>
-                    : <span className="text-[10px] text-gray-400">Unsent</span>}
-                  {expanded === t.id
-                    ? <ChevronDown className="w-3 h-3 text-gray-400 ml-1 inline" />
-                    : <ChevronRight className="w-3 h-3 text-gray-400 ml-1 inline" />}
-                </div>
-              </button>
-              {expanded === t.id && (
-                <div className="border-t border-gray-100 p-3 bg-gray-50 flex gap-2">
-                  <button onClick={() => onResend('', t.clientEmail)}
-                    className="flex items-center gap-1 px-3 py-1.5 bg-[#C9A84C] text-[#0B1F3A] text-xs font-bold rounded-lg">
-                    <Send className="w-3 h-3" /> Resend to {t.clientEmail}
-                  </button>
+    <div className="space-y-3">
+      <p className="text-xs text-gray-500">Choose the type of travel document to generate.</p>
+      <div className="grid grid-cols-2 gap-3">
+        {TICKET_TYPES.map(({ id, label, icon: Icon, bg, border, text, desc }) => {
+          const active = ticketType === id
+          return (
+            <button key={id} type="button" onClick={() => setTicketType(id)}
+              className="relative flex flex-col items-start gap-2 p-3 rounded-xl border-2 text-left transition-all hover:shadow-sm"
+              style={{ backgroundColor: active ? bg : '#FAFAFA', borderColor: active ? border : '#E5E7EB' }}>
+              {active && (
+                <div className="absolute top-2 right-2 w-4 h-4 rounded-full flex items-center justify-center" style={{ backgroundColor: text }}>
+                  <Check className="w-2.5 h-2.5 text-white" />
                 </div>
               )}
-            </div>
-          ))}
+              <div className="p-1.5 rounded-lg" style={{ backgroundColor: active ? text + '20' : '#F3F4F6' }}>
+                <Icon className="w-4 h-4" style={{ color: active ? text : '#9CA3AF' }} />
+              </div>
+              <div>
+                <div className="text-xs font-bold" style={{ color: active ? text : '#374151' }}>{label}</div>
+                <div className="text-[10px] text-gray-400">{desc}</div>
+              </div>
+            </button>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
+// ─── Step 2: Client Info ──────────────────────────────────────────────────────
+
+function Step2({ client, setClient }: { client: ClientInfo; setClient: (c: ClientInfo) => void }) {
+  return (
+    <div className="space-y-3">
+      <p className="text-xs text-gray-500">Client information that will appear on the document.</p>
+      <F label="Full Name" req>
+        <input className={base} type="text" placeholder="e.g. John Doe" value={client.name}
+          onChange={e => setClient({ ...client, name: e.target.value })} />
+      </F>
+      <F label="Email Address" req>
+        <input className={base} type="email" placeholder="john@example.com" value={client.email}
+          onChange={e => setClient({ ...client, email: e.target.value })} />
+      </F>
+      <F label="Phone / WhatsApp">
+        <input className={base} type="tel" placeholder="+44 7000 000000" value={client.phone}
+          onChange={e => setClient({ ...client, phone: e.target.value })} />
+      </F>
+    </div>
+  )
+}
+
+// ─── Flight leg form ──────────────────────────────────────────────────────────
+
+function LegForm({ leg, index, total, direction, onChange, onRemove }: {
+  leg: FlightLegType; index: number; total: number; direction: 'outbound' | 'inbound'
+  onChange: (l: FlightLegType) => void; onRemove: () => void
+}) {
+  const s = (k: keyof FlightLegType, v: unknown) => onChange({ ...leg, [k]: v })
+  const isLast = index === total - 1
+  return (
+    <div className="rounded-xl border border-gray-200 bg-gray-50 overflow-hidden">
+      <div className="flex items-center justify-between px-4 py-2.5 bg-[#0B1F3A]">
+        <span className="text-[10px] font-bold text-[#C9A84C] uppercase tracking-wider">
+          {direction === 'outbound' ? 'Outbound' : 'Inbound'} Leg {index + 1}
+        </span>
+        {total > 1 && (
+          <button type="button" onClick={onRemove} className="text-red-400 hover:text-red-300 transition">
+            <Trash2 className="w-3.5 h-3.5" />
+          </button>
+        )}
+      </div>
+      <div className="p-4 space-y-3">
+        <Row>
+          <F label="Flight Number" req><input className={base} placeholder="BA 0076" value={leg.flightNumber} onChange={e => s('flightNumber', e.target.value)} /></F>
+          <F label="Airline" req><input className={base} placeholder="British Airways" value={leg.airline} onChange={e => s('airline', e.target.value)} /></F>
+        </Row>
+        <Row>
+          <F label="Aircraft (optional)"><input className={base} placeholder="Boeing 777-300ER" value={leg.aircraft ?? ''} onChange={e => s('aircraft', e.target.value)} /></F>
+          <F label="Operated By (optional)"><input className={base} placeholder="Operated by name" value={leg.operatedBy ?? ''} onChange={e => s('operatedBy', e.target.value)} /></F>
+        </Row>
+
+        <div className="border-t border-gray-200 pt-3">
+          <div className="text-[9px] font-bold text-[#0B1F3A] uppercase tracking-wider mb-2 flex items-center gap-1.5">
+            <span className="w-0.5 h-3 bg-blue-400 rounded-full" />Departure
+          </div>
+          <div className="grid grid-cols-3 gap-2">
+            <F label="IATA Code" req><input className={base} placeholder="LOS" maxLength={3} value={leg.departureCode} onChange={e => s('departureCode', e.target.value.toUpperCase())} /></F>
+            <F label="City" req><input className={base} placeholder="Lagos" value={leg.departureCity} onChange={e => s('departureCity', e.target.value)} /></F>
+            <F label="Terminal"><input className={base} placeholder="T1" value={leg.departureTerminal ?? ''} onChange={e => s('departureTerminal', e.target.value)} /></F>
+          </div>
+          <Row>
+            <F label="Airport Name"><input className={base} placeholder="Murtala Muhammed International" value={leg.departureAirport} onChange={e => s('departureAirport', e.target.value)} /></F>
+            <F label="Country"><input className={base} placeholder="Nigeria" value={leg.departureCountry} onChange={e => s('departureCountry', e.target.value)} /></F>
+          </Row>
+          <Row>
+            <F label="Date" req><input className={base} type="date" value={leg.departureDate} onChange={e => s('departureDate', e.target.value)} /></F>
+            <F label="Time" req><input className={base} type="time" value={leg.departureTime} onChange={e => s('departureTime', e.target.value)} /></F>
+          </Row>
+        </div>
+
+        <div className="border-t border-gray-200 pt-3">
+          <div className="text-[9px] font-bold text-[#0B1F3A] uppercase tracking-wider mb-2 flex items-center gap-1.5">
+            <span className="w-0.5 h-3 bg-green-400 rounded-full" />Arrival
+          </div>
+          <div className="grid grid-cols-3 gap-2">
+            <F label="IATA Code" req><input className={base} placeholder="LHR" maxLength={3} value={leg.arrivalCode} onChange={e => s('arrivalCode', e.target.value.toUpperCase())} /></F>
+            <F label="City" req><input className={base} placeholder="London" value={leg.arrivalCity} onChange={e => s('arrivalCity', e.target.value)} /></F>
+            <F label="Terminal"><input className={base} placeholder="T5" value={leg.arrivalTerminal ?? ''} onChange={e => s('arrivalTerminal', e.target.value)} /></F>
+          </div>
+          <Row>
+            <F label="Airport Name"><input className={base} placeholder="Heathrow Airport" value={leg.arrivalAirport} onChange={e => s('arrivalAirport', e.target.value)} /></F>
+            <F label="Country"><input className={base} placeholder="United Kingdom" value={leg.arrivalCountry} onChange={e => s('arrivalCountry', e.target.value)} /></F>
+          </Row>
+          <Row>
+            <F label="Date" req><input className={base} type="date" value={leg.arrivalDate} onChange={e => s('arrivalDate', e.target.value)} /></F>
+            <F label="Time" req><input className={base} type="time" value={leg.arrivalTime} onChange={e => s('arrivalTime', e.target.value)} /></F>
+          </Row>
+          <div className="flex items-center gap-2 mt-1">
+            <input type="checkbox" id={`nextday-${direction}-${index}`} checked={!!leg.arrivalNextDay}
+              onChange={e => s('arrivalNextDay', e.target.checked)} className="rounded accent-[#C9A84C]" />
+            <label htmlFor={`nextday-${direction}-${index}`} className="text-[10px] text-gray-500">Arrives next day (+1)</label>
+          </div>
+        </div>
+
+        <div className="border-t border-gray-200 pt-3">
+          <div className="text-[9px] font-bold text-[#0B1F3A] uppercase tracking-wider mb-2 flex items-center gap-1.5">
+            <span className="w-0.5 h-3 bg-[#C9A84C] rounded-full" />Flight Details
+          </div>
+          <Row>
+            <F label="Duration" req><input className={base} placeholder="6h 30m" value={leg.duration} onChange={e => s('duration', e.target.value)} /></F>
+            <F label="Cabin Class">
+              <select className={base} value={leg.cabinClass} onChange={e => s('cabinClass', e.target.value)}>
+                {['Economy','Premium Economy','Business','First Class'].map(o => <option key={o}>{o}</option>)}
+              </select>
+            </F>
+          </Row>
+          <Row>
+            <F label="Baggage Allowance" req><input className={base} placeholder="23kg" value={leg.baggage} onChange={e => s('baggage', e.target.value)} /></F>
+            <F label="Seat Number (optional)"><input className={base} placeholder="24A" value={leg.seat ?? ''} onChange={e => s('seat', e.target.value)} /></F>
+          </Row>
+          <F label="Meal Preference (optional)"><input className={base} placeholder="Standard / Vegetarian / Halal / Kosher..." value={leg.mealPreference ?? ''} onChange={e => s('mealPreference', e.target.value)} /></F>
+          {!isLast && (
+            <F label="Connection Time (optional)"><input className={base} placeholder="2h 15m" value={leg.connectionTime ?? ''} onChange={e => s('connectionTime', e.target.value)} /></F>
+          )}
         </div>
       </div>
     </div>
   )
+}
+
+function FlightTicketStep({ d, set }: { d: FlightTicketData; set: (v: FlightTicketData) => void }) {
+  const addLeg = (dir: 'outbound' | 'inbound') => set({ ...d, [dir]: [...d[dir], { ...BLANK_LEG }] })
+  const removeLeg = (dir: 'outbound' | 'inbound', i: number) => set({ ...d, [dir]: d[dir].filter((_, j) => j !== i) })
+  const updateLeg = (dir: 'outbound' | 'inbound', i: number, leg: FlightLegType) => { const arr = [...d[dir]]; arr[i] = leg; set({ ...d, [dir]: arr }) }
+  const addPax = () => set({ ...d, passengers: [...d.passengers, { ...BLANK_FLIGHT_PAX }] })
+  const removePax = (i: number) => set({ ...d, passengers: d.passengers.filter((_, j) => j !== i) })
+  const updatePax = (i: number, pax: FlightPassenger) => { const arr = [...d.passengers]; arr[i] = pax; set({ ...d, passengers: arr }) }
+  const setPricing = (k: keyof PricingBreakdown, v: unknown) => {
+    const p = { ...d.pricing, [k]: v }
+    p.total = Number(p.baseFare) + Number(p.taxes) + Number(p.carrierFees ?? 0)
+    p.grandTotal = p.total * Number(p.passengerCount)
+    set({ ...d, pricing: p })
+  }
+
+  return (
+    <div className="space-y-4">
+      <Section title="Booking">
+        <Row>
+          <F label="Airline PNR" req><input className={base} placeholder="ABCXYZ" maxLength={8} value={d.pnr} onChange={e => set({ ...d, pnr: e.target.value.toUpperCase() })} /></F>
+          <F label="Trip Type" req>
+            <select className={base} value={d.tripType} onChange={e => {
+              const t = e.target.value as 'one-way' | 'return'
+              set({ ...d, tripType: t, inbound: t === 'one-way' ? [] : (d.inbound.length ? d.inbound : [{ ...BLANK_LEG }]) })
+            }}>
+              <option value="one-way">One Way</option>
+              <option value="return">Return</option>
+            </select>
+          </F>
+        </Row>
+      </Section>
+
+      <Section title="Outbound Flights">
+        {d.outbound.map((leg, i) => (
+          <LegForm key={i} leg={leg} index={i} total={d.outbound.length} direction="outbound"
+            onChange={l => updateLeg('outbound', i, l)} onRemove={() => removeLeg('outbound', i)} />
+        ))}
+        {d.outbound.length < 4 && (
+          <button type="button" onClick={() => addLeg('outbound')}
+            className="flex items-center gap-2 text-xs text-[#C9A84C] font-semibold hover:text-[#B8973B] transition">
+            <Plus className="w-3.5 h-3.5" /> Add Outbound Leg
+          </button>
+        )}
+      </Section>
+
+      {d.tripType === 'return' && (
+        <Section title="Inbound Flights">
+          {d.inbound.map((leg, i) => (
+            <LegForm key={i} leg={leg} index={i} total={d.inbound.length} direction="inbound"
+              onChange={l => updateLeg('inbound', i, l)} onRemove={() => removeLeg('inbound', i)} />
+          ))}
+          {d.inbound.length < 4 && (
+            <button type="button" onClick={() => addLeg('inbound')}
+              className="flex items-center gap-2 text-xs text-[#C9A84C] font-semibold hover:text-[#B8973B] transition">
+              <Plus className="w-3.5 h-3.5" /> Add Inbound Leg
+            </button>
+          )}
+        </Section>
+      )}
+
+      <Section title="Passengers">
+        {d.passengers.map((p, i) => (
+          <div key={i} className="rounded-xl border border-gray-200 bg-gray-50 overflow-hidden">
+            <div className="flex items-center justify-between px-4 py-2 bg-[#F3F4F6]">
+              <span className="text-[10px] font-bold text-[#0B1F3A] uppercase tracking-wider">Passenger {i + 1}</span>
+              {d.passengers.length > 1 && (
+                <button type="button" onClick={() => removePax(i)} className="text-gray-400 hover:text-red-500 transition"><Trash2 className="w-3.5 h-3.5" /></button>
+              )}
+            </div>
+            <div className="p-3 space-y-2">
+              <div className="grid grid-cols-3 gap-2">
+                <F label="Title">
+                  <select className={base} value={p.title} onChange={e => updatePax(i, { ...p, title: e.target.value })}>
+                    {['Mr','Mrs','Ms','Miss','Dr','Prof'].map(t => <option key={t}>{t}</option>)}
+                  </select>
+                </F>
+                <F label="First Name" req><input className={base} placeholder="John" value={p.firstName} onChange={e => updatePax(i, { ...p, firstName: e.target.value })} /></F>
+                <F label="Last Name" req><input className={base} placeholder="Doe" value={p.lastName} onChange={e => updatePax(i, { ...p, lastName: e.target.value })} /></F>
+              </div>
+              <Row>
+                <F label="E-Ticket Number"><input className={base} placeholder="180-1234567890" value={p.eTicketNumber ?? ''} onChange={e => updatePax(i, { ...p, eTicketNumber: e.target.value })} /></F>
+                <F label="Cabin Class">
+                  <select className={base} value={p.cabinClass} onChange={e => updatePax(i, { ...p, cabinClass: e.target.value })}>
+                    {['Economy','Premium Economy','Business','First Class'].map(o => <option key={o}>{o}</option>)}
+                  </select>
+                </F>
+              </Row>
+              <Row>
+                <F label="Seat"><input className={base} placeholder="24A" value={p.seat ?? ''} onChange={e => updatePax(i, { ...p, seat: e.target.value })} /></F>
+                <F label="Meal Preference"><input className={base} placeholder="Standard" value={p.meal ?? ''} onChange={e => updatePax(i, { ...p, meal: e.target.value })} /></F>
+              </Row>
+            </div>
+          </div>
+        ))}
+        {d.passengers.length < 9 && (
+          <button type="button" onClick={addPax}
+            className="flex items-center gap-2 text-xs text-[#C9A84C] font-semibold hover:text-[#B8973B] transition">
+            <Plus className="w-3.5 h-3.5" /> Add Passenger
+          </button>
+        )}
+      </Section>
+
+      <Section title="Pricing">
+        <div className="flex items-center gap-3">
+          <input type="checkbox" id="include-pricing" checked={d.includePricing}
+            onChange={e => set({ ...d, includePricing: e.target.checked })} className="rounded accent-[#C9A84C]" />
+          <label htmlFor="include-pricing" className="text-xs text-gray-600">Include pricing breakdown in email</label>
+        </div>
+        {d.includePricing && (
+          <div className="space-y-3 pt-2">
+            <Row>
+              <F label="Currency">
+                <select className={base} value={d.pricing.currency} onChange={e => {
+                  const sym: Record<string, string> = { USD:'$', GBP:'£', EUR:'€', CAD:'CA$', AED:'د.إ', NGN:'₦', GHS:'GH₵' }
+                  set({ ...d, pricing: { ...d.pricing, currency: e.target.value, currencySymbol: sym[e.target.value] ?? e.target.value } })
+                }}>
+                  {['USD','GBP','EUR','CAD','AED','NGN','GHS'].map(c => <option key={c}>{c}</option>)}
+                </select>
+              </F>
+              <F label="Passengers"><input className={base} type="number" min="1" value={d.pricing.passengerCount} onChange={e => setPricing('passengerCount', parseInt(e.target.value) || 1)} /></F>
+            </Row>
+            <Row>
+              <F label="Base Fare (per pax)"><input className={base} type="number" step="0.01" min="0" value={d.pricing.baseFare} onChange={e => setPricing('baseFare', parseFloat(e.target.value) || 0)} /></F>
+              <F label="Taxes & Fees (per pax)"><input className={base} type="number" step="0.01" min="0" value={d.pricing.taxes} onChange={e => setPricing('taxes', parseFloat(e.target.value) || 0)} /></F>
+            </Row>
+            <F label="Carrier Fees (optional)"><input className={base} type="number" step="0.01" min="0" value={d.pricing.carrierFees ?? ''} onChange={e => setPricing('carrierFees', parseFloat(e.target.value) || undefined)} /></F>
+            <div className="p-3 bg-[#F7F4EF] rounded-lg border border-[#E8D98B]">
+              <div className="text-[10px] text-gray-500 mb-1">Auto-calculated</div>
+              <div className="flex justify-between text-xs"><span>Total per pax</span><span className="font-bold">{d.pricing.currency} {d.pricing.total.toFixed(2)}</span></div>
+              <div className="flex justify-between text-sm font-bold text-[#C9A84C] mt-1"><span>Grand Total ({d.pricing.passengerCount} pax)</span><span>{d.pricing.currencySymbol}{d.pricing.grandTotal.toFixed(2)}</span></div>
+            </div>
+          </div>
+        )}
+      </Section>
+    </div>
+  )
+}
+
+// ─── Step 3 variants (Hotel, Tour, Transfer, Visa, Package) ───────────────────
+
+function HotelStep({ d, set }: { d: HotelData; set: (v: HotelData) => void }) {
+  return (
+    <div className="space-y-4">
+      <Section title="Guest">
+        <Row>
+          <F label="Number of Guests"><input className={base} type="number" min="1" value={d.num_guests} onChange={e => set({ ...d, num_guests: e.target.value })} /></F>
+          <F label="Confirmation No."><input className={base} placeholder="RES-123456" value={d.confirmation_number} onChange={e => set({ ...d, confirmation_number: e.target.value })} /></F>
+        </Row>
+        <F label="Guest Names"><input className={base} placeholder="John Doe, Jane Doe" value={d.guest_names} onChange={e => set({ ...d, guest_names: e.target.value })} /></F>
+      </Section>
+      <Section title="Hotel">
+        <F label="Hotel Name" req><input className={base} placeholder="The Ritz London" value={d.hotel_name} onChange={e => set({ ...d, hotel_name: e.target.value })} /></F>
+        <F label="Address"><input className={base} placeholder="150 Piccadilly, London W1J 9BR" value={d.hotel_address} onChange={e => set({ ...d, hotel_address: e.target.value })} /></F>
+        <Row>
+          <F label="Phone"><input className={base} placeholder="+44 20 7493 8181" value={d.hotel_phone} onChange={e => set({ ...d, hotel_phone: e.target.value })} /></F>
+          <F label="Email"><input className={base} type="email" placeholder="reservations@hotel.com" value={d.hotel_email} onChange={e => set({ ...d, hotel_email: e.target.value })} /></F>
+        </Row>
+      </Section>
+      <Section title="Stay">
+        <Row>
+          <F label="Check-in Date" req><input className={base} type="date" value={d.checkin_date} onChange={e => set({ ...d, checkin_date: e.target.value })} /></F>
+          <F label="Check-in Time"><input className={base} type="time" value={d.checkin_time} onChange={e => set({ ...d, checkin_time: e.target.value })} /></F>
+        </Row>
+        <Row>
+          <F label="Check-out Date" req><input className={base} type="date" value={d.checkout_date} onChange={e => set({ ...d, checkout_date: e.target.value })} /></F>
+          <F label="Check-out Time"><input className={base} type="time" value={d.checkout_time} onChange={e => set({ ...d, checkout_time: e.target.value })} /></F>
+        </Row>
+        <Row>
+          <F label="Number of Nights"><input className={base} placeholder="7" value={d.num_nights} onChange={e => set({ ...d, num_nights: e.target.value })} /></F>
+          <F label="Room Type"><input className={base} placeholder="Deluxe Double" value={d.room_type} onChange={e => set({ ...d, room_type: e.target.value })} /></F>
+        </Row>
+        <F label="Special Requests"><textarea className={base + ' resize-none'} rows={2} placeholder="High floor, sea view..." value={d.special_requests} onChange={e => set({ ...d, special_requests: e.target.value })} /></F>
+      </Section>
+    </div>
+  )
+}
+
+function TourStep({ d, set }: { d: TourData; set: (v: TourData) => void }) {
+  return (
+    <div className="space-y-4">
+      <Section title="Guests">
+        <Row>
+          <F label="Number of Guests"><input className={base} type="number" min="1" value={d.num_guests} onChange={e => set({ ...d, num_guests: e.target.value })} /></F>
+          <F label="Booking Ref"><input className={base} placeholder="TUR-ABC123" value={d.booking_ref} onChange={e => set({ ...d, booking_ref: e.target.value })} /></F>
+        </Row>
+        <F label="Guest Names"><input className={base} placeholder="John Doe, Jane Doe" value={d.guest_names} onChange={e => set({ ...d, guest_names: e.target.value })} /></F>
+      </Section>
+      <Section title="Tour">
+        <F label="Tour Name" req><input className={base} placeholder="Pyramids of Giza Full-Day Tour" value={d.tour_name} onChange={e => set({ ...d, tour_name: e.target.value })} /></F>
+        <Row>
+          <F label="Tour Operator"><input className={base} placeholder="Egypt Tours Plus" value={d.tour_operator} onChange={e => set({ ...d, tour_operator: e.target.value })} /></F>
+          <F label="Guide Name"><input className={base} placeholder="Ahmed Hassan" value={d.guide_name} onChange={e => set({ ...d, guide_name: e.target.value })} /></F>
+        </Row>
+        <Row>
+          <F label="Tour Date" req><input className={base} type="date" value={d.tour_date} onChange={e => set({ ...d, tour_date: e.target.value })} /></F>
+          <F label="Tour Time"><input className={base} type="time" value={d.tour_time} onChange={e => set({ ...d, tour_time: e.target.value })} /></F>
+        </Row>
+        <Row>
+          <F label="Duration"><input className={base} placeholder="8 hours" value={d.duration} onChange={e => set({ ...d, duration: e.target.value })} /></F>
+          <div />
+        </Row>
+        <F label="Meeting Point" req><input className={base} placeholder="Hotel lobby / Main entrance" value={d.meeting_point} onChange={e => set({ ...d, meeting_point: e.target.value })} /></F>
+      </Section>
+      <Section title="Pickup (optional)">
+        <label className="flex items-center gap-2 cursor-pointer">
+          <input type="checkbox" checked={d.pickup_included} onChange={e => set({ ...d, pickup_included: e.target.checked })} className="w-4 h-4 rounded accent-[#C9A84C]" />
+          <span className="text-xs font-semibold text-[#0B1F3A]">Pickup Included</span>
+        </label>
+        {d.pickup_included && (
+          <Row>
+            <F label="Pickup Address"><input className={base} placeholder="Hotel name / address" value={d.pickup_address} onChange={e => set({ ...d, pickup_address: e.target.value })} /></F>
+            <F label="Pickup Time"><input className={base} type="time" value={d.pickup_time} onChange={e => set({ ...d, pickup_time: e.target.value })} /></F>
+          </Row>
+        )}
+      </Section>
+      <Section title="Details">
+        <F label="What's Included">
+          <textarea className={base + ' resize-none'} rows={4} placeholder={"Entrance tickets\nLunch\nGuided tour"} value={d.what_included} onChange={e => set({ ...d, what_included: e.target.value })} />
+          <p className="text-[10px] text-gray-400 mt-1">One item per line</p>
+        </F>
+        <F label="What to Bring">
+          <textarea className={base + ' resize-none'} rows={3} placeholder={"Comfortable shoes\nSunscreen\nWater bottle"} value={d.what_to_bring} onChange={e => set({ ...d, what_to_bring: e.target.value })} />
+          <p className="text-[10px] text-gray-400 mt-1">One item per line</p>
+        </F>
+        <F label="Emergency Contact"><input className={base} placeholder="+20 1234 567890 (Ahmed)" value={d.emergency_contact} onChange={e => set({ ...d, emergency_contact: e.target.value })} /></F>
+      </Section>
+    </div>
+  )
+}
+
+function TransferStep({ d, set }: { d: TransferData; set: (v: TransferData) => void }) {
+  return (
+    <div className="space-y-4">
+      <Section title="Passengers">
+        <Row>
+          <F label="Number of Passengers"><input className={base} type="number" min="1" value={d.num_passengers} onChange={e => set({ ...d, num_passengers: e.target.value })} /></F>
+          <F label="Booking Ref"><input className={base} placeholder="TRF-ABC123" value={d.booking_ref} onChange={e => set({ ...d, booking_ref: e.target.value })} /></F>
+        </Row>
+        <F label="Passenger Names"><input className={base} placeholder="John Doe, Jane Doe" value={d.passenger_names} onChange={e => set({ ...d, passenger_names: e.target.value })} /></F>
+      </Section>
+      <Section title="Vehicle">
+        <Row>
+          <F label="Transfer Company"><input className={base} placeholder="Walz Executive Cars" value={d.transfer_company} onChange={e => set({ ...d, transfer_company: e.target.value })} /></F>
+          <F label="Vehicle Type">
+            <select className={base} value={d.vehicle_type} onChange={e => set({ ...d, vehicle_type: e.target.value })}>
+              {['Sedan','SUV','MPV','Minivan','Minibus','Coach'].map(o => <option key={o}>{o}</option>)}
+            </select>
+          </F>
+        </Row>
+        <Row>
+          <F label="Driver Name"><input className={base} placeholder="James Miller" value={d.driver_name} onChange={e => set({ ...d, driver_name: e.target.value })} /></F>
+          <F label="Driver Phone"><input className={base} placeholder="+44 7000 000000" value={d.driver_phone} onChange={e => set({ ...d, driver_phone: e.target.value })} /></F>
+        </Row>
+      </Section>
+      <Section title="Journey">
+        <F label="Pickup Location" req><input className={base} placeholder="Heathrow Terminal 5" value={d.pickup_location} onChange={e => set({ ...d, pickup_location: e.target.value })} /></F>
+        <Row>
+          <F label="Pickup Date" req><input className={base} type="date" value={d.pickup_date} onChange={e => set({ ...d, pickup_date: e.target.value })} /></F>
+          <F label="Pickup Time"><input className={base} type="time" value={d.pickup_time} onChange={e => set({ ...d, pickup_time: e.target.value })} /></F>
+        </Row>
+        <F label="Drop-off Location" req><input className={base} placeholder="24 Baker Street, London" value={d.dropoff_location} onChange={e => set({ ...d, dropoff_location: e.target.value })} /></F>
+        <F label="Associated Flight Number"><input className={base} placeholder="BA 0076" value={d.flight_number} onChange={e => set({ ...d, flight_number: e.target.value })} /></F>
+        <F label="Special Instructions">
+          <textarea className={base + ' resize-none'} rows={2} placeholder="Child seat required. Ring upon arrival." value={d.special_instructions} onChange={e => set({ ...d, special_instructions: e.target.value })} />
+        </F>
+      </Section>
+    </div>
+  )
+}
+
+function VisaStep({ d, set }: { d: VisaData; set: (v: VisaData) => void }) {
+  return (
+    <div className="space-y-4">
+      <Section title="Applicant">
+        <Row>
+          <F label="Visa Type">
+            <select className={base} value={d.visa_type} onChange={e => set({ ...d, visa_type: e.target.value })}>
+              {['Tourist','Business','Student','Work','Transit','Family','Medical'].map(o => <option key={o}>{o}</option>)}
+            </select>
+          </F>
+          <F label="Reference Number"><input className={base} placeholder="VFS-2024-001234" value={d.reference_number} onChange={e => set({ ...d, reference_number: e.target.value })} /></F>
+        </Row>
+        <F label="Passport Number"><input className={base} placeholder="A12345678" value={d.passport_number} onChange={e => set({ ...d, passport_number: e.target.value })} /></F>
+      </Section>
+      <Section title="Appointment">
+        <Row>
+          <F label="Date" req><input className={base} type="date" value={d.appointment_date} onChange={e => set({ ...d, appointment_date: e.target.value })} /></F>
+          <F label="Time"><input className={base} type="time" value={d.appointment_time} onChange={e => set({ ...d, appointment_time: e.target.value })} /></F>
+        </Row>
+        <F label="Appointment Location"><input className={base} placeholder="VFS Global London" value={d.appointment_location} onChange={e => set({ ...d, appointment_location: e.target.value })} /></F>
+        <F label="VFS / Embassy Address"><input className={base} placeholder="66-68 Hammersmith Rd, London W14 8UD" value={d.vfs_address} onChange={e => set({ ...d, vfs_address: e.target.value })} /></F>
+        <Row>
+          <F label="Contact Person"><input className={base} placeholder="Walz Travels" value={d.contact_person} onChange={e => set({ ...d, contact_person: e.target.value })} /></F>
+          <F label="Contact Phone"><input className={base} placeholder="+44 7398 753797" value={d.contact_phone} onChange={e => set({ ...d, contact_phone: e.target.value })} /></F>
+        </Row>
+      </Section>
+      <Section title="Documents to Bring">
+        <F label="List (one per line)">
+          <textarea className={base + ' resize-none'} rows={5}
+            placeholder={"Valid passport\nCompleted application form\n2 passport photos\nBank statement (3 months)\nHotel booking confirmation"}
+            value={d.documents_to_bring} onChange={e => set({ ...d, documents_to_bring: e.target.value })} />
+        </F>
+      </Section>
+    </div>
+  )
+}
+
+function PackageStep({ d, set }: { d: PackageData; set: (v: PackageData) => void }) {
+  function toggleInc(key: string) {
+    set({ ...d, inclusions: { ...d.inclusions, [key]: { ...d.inclusions[key], included: !d.inclusions[key].included } } })
+  }
+  function setNote(key: string, note: string) {
+    set({ ...d, inclusions: { ...d.inclusions, [key]: { ...d.inclusions[key], note } } })
+  }
+  return (
+    <div className="space-y-4">
+      <Section title="Travellers">
+        <Row>
+          <F label="Number of Travellers"><input className={base} type="number" min="1" value={d.num_travellers} onChange={e => set({ ...d, num_travellers: e.target.value })} /></F>
+          <F label="Package Reference"><input className={base} placeholder="PKG-DXB-001" value={d.package_reference} onChange={e => set({ ...d, package_reference: e.target.value })} /></F>
+        </Row>
+        <F label="Traveller Names"><input className={base} placeholder="John Doe, Jane Doe" value={d.traveller_names} onChange={e => set({ ...d, traveller_names: e.target.value })} /></F>
+      </Section>
+      <Section title="Package">
+        <F label="Package Name" req><input className={base} placeholder="Dubai Luxury Escape 7 Nights" value={d.package_name} onChange={e => set({ ...d, package_name: e.target.value })} /></F>
+        <F label="Destination"><input className={base} placeholder="Dubai, UAE" value={d.destination} onChange={e => set({ ...d, destination: e.target.value })} /></F>
+        <Row>
+          <F label="Travel From" req><input className={base} type="date" value={d.travel_from} onChange={e => set({ ...d, travel_from: e.target.value })} /></F>
+          <F label="Travel To" req><input className={base} type="date" value={d.travel_to} onChange={e => set({ ...d, travel_to: e.target.value })} /></F>
+        </Row>
+      </Section>
+      <Section title="What's Included">
+        <div className="space-y-2">
+          {INCLUSION_KEYS.map(key => (
+            <div key={key} className="border border-gray-200 rounded-lg p-2.5 space-y-2">
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input type="checkbox" checked={d.inclusions[key]?.included ?? false} onChange={() => toggleInc(key)} className="w-4 h-4 rounded accent-[#C9A84C]" />
+                <span className="text-xs font-semibold text-[#0B1F3A]">{INCLUSION_LABELS[key]}</span>
+              </label>
+              {d.inclusions[key]?.included && (
+                <input className={base} placeholder="e.g. Return flights from Heathrow" value={d.inclusions[key].note}
+                  onChange={e => setNote(key, e.target.value)} />
+              )}
+            </div>
+          ))}
+        </div>
+      </Section>
+      <Section title="Payment">
+        <Row>
+          <F label="Total Value"><input className={base} type="number" min="0" placeholder="3500" value={d.total_value} onChange={e => set({ ...d, total_value: e.target.value })} /></F>
+          <F label="Amount Paid"><input className={base} type="number" min="0" placeholder="1000" value={d.amount_paid} onChange={e => set({ ...d, amount_paid: e.target.value })} /></F>
+        </Row>
+        <Row>
+          <F label="Currency">
+            <select className={base} value={d.currency} onChange={e => set({ ...d, currency: e.target.value })}>
+              {['USD','GBP','EUR','AED','NGN','CAD'].map(o => <option key={o}>{o}</option>)}
+            </select>
+          </F>
+          <F label="Payment Due Date"><input className={base} type="date" value={d.payment_due_date} onChange={e => set({ ...d, payment_due_date: e.target.value })} /></F>
+        </Row>
+      </Section>
+    </div>
+  )
+}
+
+// ─── Step 3 wrapper ───────────────────────────────────────────────────────────
+
+function Step3({ ticketType, flightTicket, hotel, tour, transfer, visa, pkg, setFlightTicket, setHotel, setTour, setTransfer, setVisa, setPkg }: {
+  ticketType: string
+  flightTicket: FlightTicketData; hotel: HotelData; tour: TourData
+  transfer: TransferData; visa: VisaData; pkg: PackageData
+  setFlightTicket: (v: FlightTicketData) => void; setHotel: (v: HotelData) => void
+  setTour: (v: TourData) => void; setTransfer: (v: TransferData) => void
+  setVisa: (v: VisaData) => void; setPkg: (v: PackageData) => void
+}) {
+  if (!ticketType) return <p className="text-xs text-gray-400 text-center py-6">Please select a ticket type in Step 1 first.</p>
+  if (ticketType === 'flight')   return <FlightTicketStep d={flightTicket} set={setFlightTicket} />
+  if (ticketType === 'hotel')    return <HotelStep    d={hotel}    set={setHotel} />
+  if (ticketType === 'tour')     return <TourStep     d={tour}     set={setTour} />
+  if (ticketType === 'transfer') return <TransferStep d={transfer} set={setTransfer} />
+  if (ticketType === 'visa')     return <VisaStep     d={visa}     set={setVisa} />
+  if (ticketType === 'package')  return <PackageStep  d={pkg}      set={setPkg} />
+  return null
+}
+
+// ─── Step 4: Message & Send ───────────────────────────────────────────────────
+
+function Step4({ message, setMessage, clientName, clientEmail, ticketType, isGenerating, isSending, onGenerate, onSend, toast, sentRef }: {
+  message: string; setMessage: (v: string) => void
+  clientName: string; clientEmail: string; ticketType: string
+  isGenerating: boolean; isSending: boolean
+  onGenerate: () => void; onSend: () => void
+  toast: { type: 'success' | 'error'; msg: string } | null
+  sentRef: string | null
+}) {
+  return (
+    <div className="space-y-4">
+      <Section title="Custom Message">
+        <F label="Message to Client (optional)">
+          <textarea className={base + ' resize-none'} rows={4} value={message}
+            onChange={e => setMessage(e.target.value)}
+            placeholder={`Dear ${clientName || 'Valued Client'}, please find your travel document attached. Contact us anytime if you need assistance.`} />
+          <p className="text-[10px] text-gray-400 mt-1">Leave blank to use the default message.</p>
+        </F>
+      </Section>
+
+      {toast && (
+        <div className={`flex items-start gap-3 p-3 rounded-xl border text-sm ${toast.type === 'success' ? 'bg-green-50 border-green-200 text-green-800' : 'bg-red-50 border-red-200 text-red-800'}`}>
+          {toast.type === 'success' ? <CheckCircle className="w-4 h-4 mt-0.5 flex-shrink-0" /> : <AlertCircle className="w-4 h-4 mt-0.5 flex-shrink-0" />}
+          <div>
+            <p className="font-semibold text-xs">{toast.type === 'success' ? 'Success' : 'Error'}</p>
+            <p className="text-xs mt-0.5">{toast.msg}</p>
+            {sentRef && (
+              <div className="flex items-center gap-1.5 mt-2">
+                <span className="text-xs font-mono font-bold">{sentRef}</span>
+                <button type="button" onClick={() => navigator.clipboard.writeText(sentRef)} className="text-green-600 hover:text-green-700"><Copy className="w-3 h-3" /></button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      <Section title="Actions">
+        <div className="space-y-2.5">
+          <button type="button" onClick={onGenerate} disabled={isGenerating || isSending || !ticketType}
+            className="w-full flex items-center justify-center gap-2 py-3 px-4 rounded-xl border-2 border-[#0B1F3A] text-[#0B1F3A] text-sm font-bold transition hover:bg-[#0B1F3A] hover:text-white disabled:opacity-40 disabled:cursor-not-allowed">
+            {isGenerating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
+            {isGenerating ? 'Generating PDF…' : 'Generate & Download PDF'}
+          </button>
+          <button type="button" onClick={onSend} disabled={isSending || isGenerating || !ticketType || !clientEmail}
+            className="w-full flex items-center justify-center gap-2 py-3 px-4 rounded-xl bg-[#C9A84C] text-[#0B1F3A] text-sm font-bold transition hover:bg-[#B8973B] disabled:opacity-40 disabled:cursor-not-allowed">
+            {isSending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+            {isSending ? 'Sending…' : 'Generate PDF & Send to Client'}
+          </button>
+          <p className="text-[10px] text-gray-400 text-center">
+            Client receives: branded email + PDF attachment + ICS calendar {ticketType === 'flight' ? '+ live flight tracker links' : ''}
+          </p>
+          {!clientEmail && (
+            <p className="text-[10px] text-amber-600 flex items-center gap-1"><AlertCircle className="w-3 h-3" /> Add client email in Step 2 to send</p>
+          )}
+        </div>
+      </Section>
+    </div>
+  )
+}
+
+// ─── Stepper ──────────────────────────────────────────────────────────────────
+
+function Stepper({ step }: { step: number }) {
+  return (
+    <div className="flex items-center mb-6">
+      {STEPS.map((label, i) => {
+        const num = i + 1; const done = step > num; const active = step === num
+        return (
+          <div key={label} className="flex items-center flex-1 last:flex-none">
+            <div className="flex flex-col items-center gap-1 flex-shrink-0">
+              <div className={`w-7 h-7 rounded-full flex items-center justify-center text-xs font-bold transition-all ${done ? 'bg-[#C9A84C] text-[#0B1F3A]' : active ? 'bg-[#0B1F3A] text-white' : 'bg-gray-100 text-gray-400'}`}>
+                {done ? <Check className="w-3.5 h-3.5" /> : num}
+              </div>
+              <span className={`text-[9px] font-semibold whitespace-nowrap ${active ? 'text-[#0B1F3A]' : done ? 'text-[#C9A84C]' : 'text-gray-400'}`}>{label}</span>
+            </div>
+            {i < STEPS.length - 1 && <div className={`flex-1 h-px mx-2 mt-[-10px] ${done ? 'bg-[#C9A84C]' : 'bg-gray-200'}`} />}
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
+// ─── Payload builders ─────────────────────────────────────────────────────────
+
+function buildPayload(ticketType: string, client: ClientInfo, message: string, flightTicket: FlightTicketData, hotel: HotelData, tour: TourData, transfer: TransferData, visa: VisaData, pkg: PackageData): Record<string, unknown> {
+  const b = { ticket_type: ticketType, client_name: client.name, client_email: client.email, client_phone: client.phone, message }
+  if (ticketType === 'flight') {
+    const lastOut = flightTicket.outbound[flightTicket.outbound.length - 1]
+    return { ...b, pnr: flightTicket.pnr, tripType: flightTicket.tripType, outbound: flightTicket.outbound, inbound: flightTicket.inbound, passengers: flightTicket.passengers, firstName: client.name.split(' ')[0] ?? '', lastName: client.name.split(' ').slice(1).join(' ') ?? '', title: '', email: client.email, phone: client.phone, from_city: flightTicket.outbound[0]?.departureCity ?? '', from_code: flightTicket.outbound[0]?.departureCode ?? '', to_city: lastOut?.arrivalCity ?? '', to_code: lastOut?.arrivalCode ?? '', airline: flightTicket.outbound[0]?.airline ?? '', flight_number: flightTicket.outbound[0]?.flightNumber ?? '', cabin_class: flightTicket.outbound[0]?.cabinClass ?? '', departure_date: flightTicket.outbound[0]?.departureDate ?? '', departure_time: flightTicket.outbound[0]?.departureTime ?? '', ...(flightTicket.includePricing ? { pricing: flightTicket.pricing } : {}) }
+  }
+  if (ticketType === 'hotel')    return { ...b, num_guests: hotel.num_guests, guest_names: hotel.guest_names, hotel_name: hotel.hotel_name, hotel_address: hotel.hotel_address, hotel_phone: hotel.hotel_phone, hotel_email: hotel.hotel_email, checkin_date: hotel.checkin_date, checkin_time: hotel.checkin_time, checkout_date: hotel.checkout_date, checkout_time: hotel.checkout_time, num_nights: hotel.num_nights, room_type: hotel.room_type, confirmation_number: hotel.confirmation_number, special_requests: hotel.special_requests }
+  if (ticketType === 'tour')     return { ...b, num_guests: tour.num_guests, guest_names: tour.guest_names, tour_name: tour.tour_name, tour_operator: tour.tour_operator, guide_name: tour.guide_name, tour_date: tour.tour_date, tour_time: tour.tour_time, duration: tour.duration, meeting_point: tour.meeting_point, pickup_included: tour.pickup_included ? 'yes' : 'no', pickup_address: tour.pickup_address, pickup_time: tour.pickup_time, what_included: tour.what_included, what_to_bring: tour.what_to_bring, emergency_contact: tour.emergency_contact, booking_reference: tour.booking_ref }
+  if (ticketType === 'transfer') return { ...b, num_passengers: transfer.num_passengers, passenger_names: transfer.passenger_names, transfer_company: transfer.transfer_company, vehicle_type: transfer.vehicle_type, driver_name: transfer.driver_name, driver_phone: transfer.driver_phone, pickup_location: transfer.pickup_location, pickup_date: transfer.pickup_date, pickup_time: transfer.pickup_time, dropoff_location: transfer.dropoff_location, flight_number: transfer.flight_number, booking_reference: transfer.booking_ref, special_instructions: transfer.special_instructions }
+  if (ticketType === 'visa')     return { ...b, visa_type: visa.visa_type, reference_number: visa.reference_number, passport_number: visa.passport_number, appointment_date: visa.appointment_date, appointment_time: visa.appointment_time, appointment_location: visa.appointment_location, vfs_address: visa.vfs_address, contact_person: visa.contact_person, contact_phone: visa.contact_phone, documents_to_bring: visa.documents_to_bring }
+  if (ticketType === 'package')  return { ...b, num_travellers: pkg.num_travellers, traveller_names: pkg.traveller_names, package_name: pkg.package_name, destination: pkg.destination, package_reference: pkg.package_reference, travel_from: pkg.travel_from, travel_to: pkg.travel_to, inclusions: pkg.inclusions, total_value: pkg.total_value, amount_paid: pkg.amount_paid, currency: pkg.currency, payment_due_date: pkg.payment_due_date }
+  return b
+}
+
+function buildPreview(ticketType: string, client: ClientInfo, message: string, flightTicket: FlightTicketData, hotel: HotelData, tour: TourData, transfer: TransferData, visa: VisaData, pkg: PackageData): Record<string, unknown> {
+  return { ...buildPayload(ticketType, client, message, flightTicket, hotel, tour, transfer, visa, pkg), ticket_reference: 'WLZ-PREVIEW' }
 }
 
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 export default function TicketsPage() {
-  const [tab,      setTab]      = useState<TicketTab>('FLIGHT')
-  const [flight,   setFlight]   = useState<FlightData>(defFlight())
-  const [hotel,    setHotel]    = useState<HotelData>(defHotel())
-  const [tour,     setTour]     = useState<TourData>(defTour())
-  const [transfer, setTransfer] = useState<TransferData>(defTransfer())
+  const [step, setStep]                     = useState(1)
+  const [ticketType, setTicketType]         = useState('')
+  const [client, setClient]                 = useState<ClientInfo>(BLANK_CLIENT)
+  const [message, setMessage]               = useState('')
+  const [flight, setFlight]                 = useState<FlightData>(BLANK_FLIGHT)  // kept for legacy compat
+  const [flightTicket, setFlightTicket]     = useState<FlightTicketData>(BLANK_FLIGHT_TICKET)
+  const [hotel, setHotel]                   = useState<HotelData>(BLANK_HOTEL)
+  const [tour, setTour]                     = useState<TourData>(BLANK_TOUR)
+  const [transfer, setTransfer]             = useState<TransferData>(BLANK_TRANSFER)
+  const [visa, setVisa]                     = useState<VisaData>(BLANK_VISA)
+  const [pkg, setPkg]                       = useState<PackageData>(BLANK_PACKAGE)
+  const [isGenerating, setIsGenerating]     = useState(false)
+  const [isSending, setIsSending]           = useState(false)
+  const [toast, setToast]                   = useState<{ type: 'success' | 'error'; msg: string } | null>(null)
+  const [sentRef, setSentRef]               = useState<string | null>(null)
 
-  const [bookings,   setBookings]   = useState<DBBooking[]>([])
-  const [selBooking, setSelBooking] = useState('')
+  void flight; void setFlight  // used only by legacy send payload compatibility
 
-  const [emailTo,   setEmailTo]   = useState('')
-  const [ticketRef, setTicketRef] = useState('WALZ-TKT-DRAFT')
-  const [savedId,   setSavedId]   = useState<string | null>(null)
-  const [saving,    setSaving]    = useState(false)
-  const [sending,   setSending]   = useState(false)
-  const [sent,      setSent]      = useState(false)
-  const [history,   setHistory]   = useState(false)
-
-  useEffect(() => {
-    fetch('/api/admin/tickets/bookings').then(r => r.json()).then(d => setBookings(d.bookings ?? [])).catch(() => {})
-  }, [])
-
-  // Pull from booking
-  useEffect(() => {
-    if (!selBooking) return
-    const bk = bookings.find(b => b.id === selBooking)
-    if (!bk) return
-
-    if (bk.type === 'FLIGHT' && bk.flightDetails) {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const segs = [...(bk.flightDetails.outbound ?? []), ...(bk.flightDetails.inbound ?? [])].map((s: any) => ({
-        ...defSeg(),
-        airline:       s.airline || '',
-        airlineCode:   s.airlineCode || '',
-        flightNumber:  s.flightNumber || '',
-        aircraft:      s.aircraft || '',
-        fromCode:      s.departureAirport?.slice(-3) || '',
-        fromAirport:   s.departureAirport || '',
-        toCode:        s.arrivalAirport?.slice(-3) || '',
-        toAirport:     s.arrivalAirport || '',
-        departureDate: s.departureTime?.split('T')[0] || '',
-        departureTime: s.departureTime?.split('T')[1]?.slice(0,5) || '',
-        arrivalDate:   s.arrivalTime?.split('T')[0] || '',
-        arrivalTime:   s.arrivalTime?.split('T')[1]?.slice(0,5) || '',
-        duration:      s.duration ? `${Math.floor(s.duration/60)}h ${s.duration%60}m` : '',
-        cabinClass:    s.cabinClass || 'Economy',
-        bookingCode:   s.bookingCode || '',
-      }))
-      const pax = (bk.passengers ?? []).map(p => ({ ...defPax(), name: `${p.firstName} ${p.lastName}`.trim(), passportNumber: p.passportNumber || '', nationality: p.nationality || '', dob: p.dateOfBirth || '' }))
-      setFlight(f => ({ ...f, pnr: bk.pnr || bk.bookingReference, segments: segs.length ? segs : [defSeg()], passengers: pax.length ? pax : [defPax()], clientEmail: bk.contactEmail, clientPhone: bk.contactPhone || '', notes: bk.notes || '' }))
-      setEmailTo(bk.contactEmail); setTab('FLIGHT')
-    }
-    if (bk.type === 'HOTEL' && bk.hotelDetails) {
-      const hd = bk.hotelDetails
-      const p0 = bk.passengers?.[0]
-      setHotel(h => ({ ...h, confirmationNumber: bk.bookingReference, guestName: p0 ? `${p0.firstName} ${p0.lastName}`.trim() : h.guestName, guestEmail: bk.contactEmail, guestPhone: bk.contactPhone || '', hotelName: hd.name || '', hotelAddress: hd.address?.lines?.join(', ') || '', hotelCity: hd.address?.city || '', hotelCountry: hd.address?.country || '', hotelStars: String(hd.stars || 4), roomType: hd.roomType || '', mealPlan: hd.mealPlan || 'Room Only', checkInDate: hd.checkIn?.split('T')[0] || '', checkOutDate: hd.checkOut?.split('T')[0] || '', totalCost: hd.totalPrice ? String(hd.totalPrice.amount) : '', currency: hd.totalPrice?.currency || bk.currency }))
-      setEmailTo(bk.contactEmail); setTab('HOTEL')
-    }
-    if (bk.type === 'TRANSFER') {
-      const p0 = bk.passengers?.[0]
-      setTransfer(t => ({ ...t, confirmationNumber: bk.bookingReference, passengerName: p0 ? `${p0.firstName} ${p0.lastName}`.trim() : t.passengerName, passengerEmail: bk.contactEmail, passengerPhone: bk.contactPhone || '', totalCost: String(bk.totalAmount), currency: bk.currency }))
-      setEmailTo(bk.contactEmail); setTab('TRANSFER')
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selBooking])
-
-  function getHtml() {
-    if (tab === 'FLIGHT')   return buildFlightHtml(flight, ticketRef)
-    if (tab === 'HOTEL')    return buildHotelHtml(hotel, ticketRef)
-    if (tab === 'TOUR')     return buildTourHtml(tour, ticketRef)
-    return buildTransferHtml(transfer, ticketRef)
-  }
-  function getClient() {
-    if (tab === 'FLIGHT')   return { name: flight.passengers[0]?.name || 'Client', email: flight.clientEmail }
-    if (tab === 'HOTEL')    return { name: hotel.guestName || 'Client', email: hotel.guestEmail }
-    if (tab === 'TOUR')     return { name: tour.guestName || 'Client', email: tour.guestEmail }
-    return { name: transfer.passengerName || 'Client', email: transfer.passengerEmail }
+  function showToast(type: 'success' | 'error', msg: string, ref?: string) {
+    setToast({ type, msg }); if (ref) setSentRef(ref)
+    setTimeout(() => setToast(null), 8000)
   }
 
-  async function handleSave() {
-    setSaving(true)
-    const { name, email } = getClient()
-    const data = tab==='FLIGHT' ? flight : tab==='HOTEL' ? hotel : tab==='TOUR' ? tour : transfer
-    const r = await fetch('/api/admin/tickets/save', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ bookingId: selBooking||null, ticketType: tab, clientName: name, clientEmail: email||emailTo, data, htmlSnapshot: getHtml() }),
-    })
-    const d = await r.json()
-    if (d.ticket) { setSavedId(d.ticket.id); setTicketRef(d.ticket.ticketNumber) }
-    setSaving(false)
+  function reset() {
+    setStep(1); setTicketType(''); setClient(BLANK_CLIENT); setMessage('')
+    setFlight(BLANK_FLIGHT); setHotel(BLANK_HOTEL); setTour(BLANK_TOUR)
+    setTransfer(BLANK_TRANSFER); setVisa(BLANK_VISA); setPkg(BLANK_PACKAGE)
+    setFlightTicket(BLANK_FLIGHT_TICKET); setToast(null); setSentRef(null)
   }
 
-  async function handleSend(emailOverride?: string) {
-    const to = emailOverride || emailTo
-    if (!to) return
-    setSending(true)
-    const { name } = getClient()
-    const labels: Record<TicketTab,string> = { FLIGHT:'Flight', HOTEL:'Hotel', TOUR:'Tour', TRANSFER:'Transfer' }
-    await fetch('/api/admin/tickets/send', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ticketId: savedId, to, subject: `Your ${labels[tab]} Confirmation — ${name} — Walz Travels`, html: getHtml(), type: tab }),
-    })
-    setSending(false); setSent(true)
-    setTimeout(() => setSent(false), 4000)
+  async function handleGenerate() {
+    if (!ticketType) return
+    setIsGenerating(true)
+    try {
+      const res = await fetch('/api/admin/ticket-generator/generate', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(buildPayload(ticketType, client, message, flightTicket, hotel, tour, transfer, visa, pkg)),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Failed to generate PDF')
+      if (data.pdf_base64) {
+        const link = document.createElement('a')
+        link.href = `data:application/pdf;base64,${data.pdf_base64}`
+        link.download = `WALZ-${ticketType.toUpperCase()}-${data.ticket_reference}-${(client.name || 'Client').replace(/\s+/g,'-')}.pdf`
+        link.click()
+      }
+      showToast('success', `PDF generated — Ref: ${data.ticket_reference}`, data.ticket_reference)
+    } catch (err) {
+      showToast('error', err instanceof Error ? err.message : 'Failed to generate PDF')
+    } finally { setIsGenerating(false) }
   }
 
-  function handlePrint() {
-    const w = window.open('', '_blank')
-    if (!w) return
-    w.document.write(`<!DOCTYPE html><html><head><meta charset="utf-8"><title>Ticket</title><style>body{margin:0;padding:20px;background:#f1f5f9}@media print{body{background:#fff;padding:0}}</style></head><body>${getHtml()}</body></html>`)
-    w.document.close(); w.print()
+  async function handleSend() {
+    if (!ticketType || !client.email) return
+    setIsSending(true)
+    try {
+      const res = await fetch('/api/admin/ticket-generator/send', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(buildPayload(ticketType, client, message, flightTicket, hotel, tour, transfer, visa, pkg)),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Failed to send ticket')
+      showToast('success', `Sent to ${data.sent_to} — Ref: ${data.ticket_reference}`, data.ticket_reference)
+    } catch (err) {
+      showToast('error', err instanceof Error ? err.message : 'Failed to send ticket')
+    } finally { setIsSending(false) }
   }
 
-  function handleReset() {
-    if (tab==='FLIGHT') setFlight(defFlight())
-    else if (tab==='HOTEL') setHotel(defHotel())
-    else if (tab==='TOUR') setTour(defTour())
-    else setTransfer(defTransfer())
-    setSavedId(null); setTicketRef('WALZ-TKT-DRAFT')
-  }
-
-  const TABS = [
-    { type: 'FLIGHT',   icon: Plane,     label: 'Flight Ticket',         color: 'text-blue-600'   },
-    { type: 'HOTEL',    icon: Building2, label: 'Hotel Confirmation',    color: 'text-purple-600' },
-    { type: 'TOUR',     icon: MapPin,    label: 'Tour Voucher',          color: 'text-green-600'  },
-    { type: 'TRANSFER', icon: Car,       label: 'Transfer Confirmation', color: 'text-orange-600' },
-  ] as const
-
-  const previewHtml = getHtml()
+  const canNext = step === 1 ? !!ticketType : step === 2 ? !!client.name && !!client.email : true
+  const previewData = buildPreview(ticketType, client, message, flightTicket, hotel, tour, transfer, visa, pkg)
 
   return (
-    <>
-      <HistoryPanel visible={history} onClose={() => setHistory(false)}
-        onResend={(_, email) => { setHistory(false); handleSend(email) }} />
+    <div className="-mx-6 -my-6 lg:-mx-8 lg:-my-8 bg-[#F8F7F4]">
 
-      <div className="space-y-5 max-w-[1400px]">
-        {/* Header */}
-        <div className="flex items-center justify-between flex-wrap gap-3">
-          <div>
-            <h1 className="text-2xl font-bold text-[#0B1F3A] flex items-center gap-2">
-              <Ticket className="w-6 h-6 text-[#C9A84C]" /> Ticket Generator
-            </h1>
-            <p className="text-gray-400 text-sm mt-0.5">Emirates-style travel documents with full airport timing guidance</p>
-          </div>
-          <div className="flex items-center gap-2 flex-wrap">
-            <button onClick={() => setHistory(true)}
-              className="flex items-center gap-1.5 px-3 py-2 border border-gray-200 rounded-xl text-xs font-semibold text-gray-600 hover:bg-gray-50">
-              <History className="w-3.5 h-3.5" /> Ticket History
-            </button>
-            <select value={selBooking} onChange={e => setSelBooking(e.target.value)}
-              className="pl-3 pr-8 py-2 text-sm border border-gray-200 rounded-xl bg-white focus:outline-none focus:border-[#C9A84C] text-gray-600 min-w-[240px]">
-              <option value="">Pull from confirmed booking…</option>
-              {bookings.map(b => <option key={b.id} value={b.id}>{b.bookingReference} — {b.type} — {b.contactEmail}</option>)}
-            </select>
-          </div>
+      {/* Header */}
+      <div className="bg-white border-b border-gray-200 px-6 py-4 flex items-center justify-between">
+        <div>
+          <h1 className="text-lg font-black text-[#0B1F3A]">Ticket Generator</h1>
+          <p className="text-xs text-gray-500 mt-0.5">Generate branded Walz Travels documents — PDF + calendar invite + flight tracker sent to client</p>
         </div>
-
-        {/* Tabs */}
-        <div className="flex gap-2 flex-wrap">
-          {TABS.map(t => {
-            const Icon = t.icon
-            return (
-              <button key={t.type} onClick={() => setTab(t.type as TicketTab)}
-                className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold transition-all ${tab===t.type ? 'bg-[#0B1F3A] text-white shadow-lg' : 'bg-white border border-gray-200 text-gray-500 hover:bg-gray-50'}`}>
-                <Icon className={`w-4 h-4 ${tab===t.type ? 'text-[#C9A84C]' : t.color}`} />
-                {t.label}
-              </button>
-            )
-          })}
-        </div>
-
-        <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-
-          {/* ── FORM ── */}
-          <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
-            <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
-              <h2 className="font-bold text-[#0B1F3A] text-sm">Enter Details</h2>
-              <button onClick={handleReset} className="flex items-center gap-1 text-xs text-gray-400 hover:text-gray-600"><RefreshCw className="w-3 h-3" /> Reset</button>
-            </div>
-            <div className="p-5 max-h-[calc(100vh-260px)] overflow-y-auto">
-
-              {/* FLIGHT */}
-              {tab === 'FLIGHT' && (
-                <div className="grid grid-cols-3 gap-3">
-                  <Hr c="Booking" />
-                  <F label="PNR / Ref" value={flight.pnr} onChange={v => setFlight(f=>({...f,pnr:v}))} placeholder="ABC123" />
-                  <F label="Issue Date" value={flight.ticketIssueDate} onChange={v => setFlight(f=>({...f,ticketIssueDate:v}))} type="date" />
-                  <div><Lbl c="Third-party?" /><label className="flex items-center gap-2 h-9 text-sm cursor-pointer"><input type="checkbox" checked={flight.isThirdParty} onChange={e=>setFlight(f=>({...f,isThirdParty:e.target.checked}))} className="rounded" /> Show operated-by</label></div>
-                  {flight.isThirdParty && <F label="Operated by" value={flight.originalAirline} onChange={v=>setFlight(f=>({...f,originalAirline:v}))} span={2} />}
-
-                  <Hr c="Airport Timing Guidance" />
-                  <F label="Arrive airport by" value={flight.arriveAirportBy} onChange={v=>setFlight(f=>({...f,arriveAirportBy:v}))} options={['3 hours before departure','2.5 hours before departure','2 hours before departure','1 hour before departure']} span={2} />
-                  <F label="Check-in opens" value={flight.checkInOpens} onChange={v=>setFlight(f=>({...f,checkInOpens:v}))} options={['24 hours before departure','48 hours before departure','3 hours before departure']} />
-                  <F label="Check-in deadline" value={flight.checkInDeadline} onChange={v=>setFlight(f=>({...f,checkInDeadline:v}))} options={['3 hours before departure (international)','2 hours before departure (international)','45 minutes before departure (domestic)','60 minutes before departure']} span={2} />
-                  <div><Lbl c="Gate closes (mins)" /><input type="number" value={flight.gateClosesMins} onChange={e=>setFlight(f=>({...f,gateClosesMins:parseInt(e.target.value)||20}))} className={inp} min={5} max={60} /></div>
-                  <F label="Lounge access" value={flight.loungeAccess} onChange={v=>setFlight(f=>({...f,loungeAccess:v}))} options={['None','Business Class Lounge','Marhaba Lounge','Skywards Lounge','Airport Lounge Access']} span={2} />
-
-                  {flight.segments.map((seg, si) => (
-                    <div key={si} className="col-span-3 bg-gray-50 rounded-xl p-4 relative">
-                      <div className="flex items-center justify-between mb-3">
-                        <span className="text-[11px] font-bold text-[#0B1F3A] tracking-wider uppercase">✈ {flight.segments.length>1 ? `Segment ${si+1}` : 'Flight Segment'}</span>
-                        {flight.segments.length > 1 && <button onClick={()=>setFlight(f=>({...f,segments:f.segments.filter((_,i)=>i!==si)}))} className="w-5 h-5 rounded-full bg-red-100 text-red-400 flex items-center justify-center"><X className="w-3 h-3" /></button>}
-                      </div>
-                      <div className="grid grid-cols-3 gap-2">
-                        {(['airline','airlineCode','flightNumber','aircraft'] as const).map((k,j) => (
-                          <div key={k}><Lbl c={['Airline','Code (e.g. BA)','Flight No.','Aircraft'][j]} />
-                          <input value={seg[k]} onChange={e=>setFlight(f=>({...f,segments:f.segments.map((s,i)=>i===si?{...s,[k]:e.target.value}:s)}))} placeholder={['British Airways','BA','BA001','Boeing 777'][j]} className={inp} /></div>
-                        ))}
-                        <div className="col-span-3 pt-1 text-[10px] font-bold text-gray-400 uppercase tracking-widest">Departure</div>
-                        {(['fromAirport','fromCode','fromCity','fromTerminal','departureDate','departureTime'] as const).map((k2,i2) => (
-                          <div key={k2}><Lbl c={['Departure Airport','IATA','City','Terminal','Date','Time'][i2]} />
-                          <input type={k2.includes('Date')?'date':k2.includes('Time')?'time':'text'}
-                            value={seg[k2] as string}
-                            onChange={e=>setFlight(f=>({...f,segments:f.segments.map((s,i)=>i===si?{...s,[k2]:e.target.value}:s)}))}
-                            className={inp} /></div>
-                        ))}
-                        <div className="col-span-3 pt-1 text-[10px] font-bold text-gray-400 uppercase tracking-widest">Arrival</div>
-                        {(['toAirport','toCode','toCity','toTerminal','arrivalDate','arrivalTime'] as const).map((k2,i2) => (
-                          <div key={k2}><Lbl c={['Arrival Airport','IATA','City','Terminal','Date','Time'][i2]} />
-                          <input type={k2.includes('Date')?'date':k2.includes('Time')?'time':'text'}
-                            value={seg[k2] as string}
-                            onChange={e=>setFlight(f=>({...f,segments:f.segments.map((s,i)=>i===si?{...s,[k2]:e.target.value}:s)}))}
-                            className={inp} /></div>
-                        ))}
-                        <div className="col-span-3 pt-1 text-[10px] font-bold text-gray-400 uppercase tracking-widest">Class & Extras</div>
-                        <div><Lbl c="Cabin Class" /><select value={seg.cabinClass} onChange={e=>setFlight(f=>({...f,segments:f.segments.map((s,i)=>i===si?{...s,cabinClass:e.target.value}:s)}))} className={sel}>{['Economy','Premium Economy','Business','First Class'].map(o=><option key={o}>{o}</option>)}</select></div>
-                        {(['duration','bookingCode','baggageChecked','baggageCarryOn','mealService'] as const).map((k2,i2) => (
-                          <div key={k2}><Lbl c={['Duration','Booking Class','Checked Bag','Cabin Bag','Meal'][i2]} />
-                          <input value={seg[k2]} onChange={e=>setFlight(f=>({...f,segments:f.segments.map((s,i)=>i===si?{...s,[k2]:e.target.value}:s)}))} placeholder={['5h 35m','V','23kg','7kg','Standard'][i2]} className={inp} /></div>
-                        ))}
-                      </div>
-                    </div>
-                  ))}
-                  <div className="col-span-3"><button onClick={()=>setFlight(f=>({...f,segments:[...f.segments,defSeg()]}))} className="flex items-center gap-1 text-xs text-[#C9A84C] font-bold hover:underline"><Plus className="w-3 h-3" /> Add Return / Connecting Segment</button></div>
-
-                  <Hr c="Passengers" />
-                  {flight.passengers.map((p, pi) => (
-                    <div key={pi} className="col-span-3 bg-gray-50 rounded-xl p-3 relative">
-                      <div className="grid grid-cols-3 gap-2">
-                        {(['name','seat','eTicket','passportNumber','nationality','dob'] as const).map((k,j) => (
-                          <div key={k}><Lbl c={['Full Name','Seat No.','e-Ticket No.','Passport No.','Nationality','Date of Birth'][j]} />
-                          <input type={k==='dob'?'date':'text'} value={p[k]}
-                            onChange={e=>setFlight(f=>({...f,passengers:f.passengers.map((px,j2)=>j2===pi?{...px,[k]:e.target.value}:px)}))}
-                            placeholder={['JOHN ADEYEMI','14A','125-123456789','','British',''][j]} className={inp} /></div>
-                        ))}
-                      </div>
-                      {flight.passengers.length > 1 && <button onClick={()=>setFlight(f=>({...f,passengers:f.passengers.filter((_,j)=>j!==pi)}))} className="absolute top-2 right-2 w-5 h-5 rounded-full bg-red-100 text-red-400 flex items-center justify-center"><X className="w-3 h-3" /></button>}
-                    </div>
-                  ))}
-                  <div className="col-span-3"><button onClick={()=>setFlight(f=>({...f,passengers:[...f.passengers,defPax()]}))} className="flex items-center gap-1 text-xs text-[#C9A84C] font-bold hover:underline"><Plus className="w-3 h-3" /> Add Passenger</button></div>
-
-                  <Hr c="Client Contact" />
-                  <F label="Client Email" value={flight.clientEmail} onChange={v=>{setFlight(f=>({...f,clientEmail:v}));setEmailTo(v)}} type="email" placeholder="client@email.com" span={2} />
-                  <F label="Phone" value={flight.clientPhone} onChange={v=>setFlight(f=>({...f,clientPhone:v}))} placeholder="+44 7…" />
-                  <F label="Additional Notes" value={flight.notes} onChange={v=>setFlight(f=>({...f,notes:v}))} textarea span={3} />
-                </div>
-              )}
-
-              {/* HOTEL */}
-              {tab === 'HOTEL' && (
-                <div className="grid grid-cols-3 gap-3">
-                  <Hr c="Guest" />
-                  <F label="Guest Name" value={hotel.guestName} onChange={v=>setHotel(h=>({...h,guestName:v}))} placeholder="John Adeyemi" />
-                  <F label="Email" value={hotel.guestEmail} onChange={v=>{setHotel(h=>({...h,guestEmail:v}));setEmailTo(v)}} type="email" />
-                  <F label="Phone" value={hotel.guestPhone} onChange={v=>setHotel(h=>({...h,guestPhone:v}))} />
-                  <Hr c="Hotel" />
-                  <F label="Hotel Name" value={hotel.hotelName} onChange={v=>setHotel(h=>({...h,hotelName:v}))} placeholder="The Savoy" span={2} />
-                  <F label="Stars" value={hotel.hotelStars} onChange={v=>setHotel(h=>({...h,hotelStars:v}))} options={['3','4','5']} />
-                  <F label="Address" value={hotel.hotelAddress} onChange={v=>setHotel(h=>({...h,hotelAddress:v}))} span={2} />
-                  <F label="City" value={hotel.hotelCity} onChange={v=>setHotel(h=>({...h,hotelCity:v}))} />
-                  <F label="Country" value={hotel.hotelCountry} onChange={v=>setHotel(h=>({...h,hotelCountry:v}))} />
-                  <F label="Hotel Phone" value={hotel.hotelPhone} onChange={v=>setHotel(h=>({...h,hotelPhone:v}))} />
-                  <F label="Website" value={hotel.hotelWebsite} onChange={v=>setHotel(h=>({...h,hotelWebsite:v}))} />
-                  <F label="Confirmation No." value={hotel.confirmationNumber} onChange={v=>setHotel(h=>({...h,confirmationNumber:v}))} span={2} />
-                  <F label="Google Maps URL (optional)" value={hotel.googleMapsUrl} onChange={v=>setHotel(h=>({...h,googleMapsUrl:v}))} span={3} />
-                  <Hr c="Stay" />
-                  <F label="Check-in Date" value={hotel.checkInDate} onChange={v=>setHotel(h=>({...h,checkInDate:v}))} type="date" />
-                  <F label="Check-in Time" value={hotel.checkInTime} onChange={v=>setHotel(h=>({...h,checkInTime:v}))} type="time" />
-                  <F label="Room Type" value={hotel.roomType} onChange={v=>setHotel(h=>({...h,roomType:v}))} />
-                  <F label="Check-out Date" value={hotel.checkOutDate} onChange={v=>setHotel(h=>({...h,checkOutDate:v}))} type="date" />
-                  <F label="Check-out Time" value={hotel.checkOutTime} onChange={v=>setHotel(h=>({...h,checkOutTime:v}))} type="time" />
-                  <F label="Room Number" value={hotel.roomNumber} onChange={v=>setHotel(h=>({...h,roomNumber:v}))} placeholder="412" />
-                  <F label="Guests" value={hotel.guests} onChange={v=>setHotel(h=>({...h,guests:v}))} placeholder="2" />
-                  <F label="Rooms" value={hotel.rooms} onChange={v=>setHotel(h=>({...h,rooms:v}))} placeholder="1" />
-                  <F label="Meal Plan" value={hotel.mealPlan} onChange={v=>setHotel(h=>({...h,mealPlan:v}))} options={['Room Only','Bed & Breakfast','Half Board','Full Board','All Inclusive']} />
-                  <Hr c="Cost" />
-                  <F label="Currency" value={hotel.currency} onChange={v=>setHotel(h=>({...h,currency:v}))} options={['GBP','USD','EUR','AED','NGN','GHS','CAD']} />
-                  <F label="Rate / Night" value={hotel.ratePerNight} onChange={v=>setHotel(h=>({...h,ratePerNight:v}))} placeholder="450" />
-                  <F label="Total Cost" value={hotel.totalCost} onChange={v=>setHotel(h=>({...h,totalCost:v}))} placeholder="1350" />
-                  <F label="Special Requests" value={hotel.specialRequests} onChange={v=>setHotel(h=>({...h,specialRequests:v}))} span={3} textarea />
-                  <F label="Notes" value={hotel.notes} onChange={v=>setHotel(h=>({...h,notes:v}))} span={3} textarea />
-                </div>
-              )}
-
-              {/* TOUR */}
-              {tab === 'TOUR' && (
-                <div className="grid grid-cols-3 gap-3">
-                  <Hr c="Guest" />
-                  <F label="Guest Name" value={tour.guestName} onChange={v=>setTour(t=>({...t,guestName:v}))} />
-                  <F label="Email" value={tour.guestEmail} onChange={v=>{setTour(t=>({...t,guestEmail:v}));setEmailTo(v)}} type="email" />
-                  <F label="Phone" value={tour.guestPhone} onChange={v=>setTour(t=>({...t,guestPhone:v}))} />
-                  <Hr c="Tour Details" />
-                  <F label="Tour Name" value={tour.tourName} onChange={v=>setTour(t=>({...t,tourName:v}))} span={2} />
-                  <F label="Voucher No." value={tour.confirmationNumber} onChange={v=>setTour(t=>({...t,confirmationNumber:v}))} />
-                  <F label="Operator" value={tour.operator} onChange={v=>setTour(t=>({...t,operator:v}))} span={2} />
-                  <F label="Destination" value={tour.destination} onChange={v=>setTour(t=>({...t,destination:v}))} />
-                  <Hr c="Schedule" />
-                  <F label="Tour Date" value={tour.tourDate} onChange={v=>setTour(t=>({...t,tourDate:v}))} type="date" />
-                  <F label="Start Time" value={tour.startTime} onChange={v=>setTour(t=>({...t,startTime:v}))} type="time" />
-                  <F label="End Time" value={tour.endTime} onChange={v=>setTour(t=>({...t,endTime:v}))} type="time" />
-                  <F label="Duration" value={tour.duration} onChange={v=>setTour(t=>({...t,duration:v}))} placeholder="6 hours" />
-                  <F label="Guests" value={tour.guests} onChange={v=>setTour(t=>({...t,guests:v}))} placeholder="2" />
-                  <F label="Meeting Point" value={tour.meetingPoint} onChange={v=>setTour(t=>({...t,meetingPoint:v}))} />
-                  <Hr c="Guide & Pickup" />
-                  <F label="Guide Name" value={tour.guideName} onChange={v=>setTour(t=>({...t,guideName:v}))} />
-                  <F label="Guide Phone" value={tour.guidePhone} onChange={v=>setTour(t=>({...t,guidePhone:v}))} />
-                  <div><Lbl c="Pickup included?" /><label className="flex items-center gap-2 h-9 text-sm cursor-pointer"><input type="checkbox" checked={tour.pickupIncluded} onChange={e=>setTour(t=>({...t,pickupIncluded:e.target.checked}))} className="rounded" /> Yes</label></div>
-                  {tour.pickupIncluded && <F label="Pickup Location" value={tour.pickupLocation} onChange={v=>setTour(t=>({...t,pickupLocation:v}))} span={3} />}
-                  <Hr c="Cost & Notes" />
-                  <F label="Currency" value={tour.currency} onChange={v=>setTour(t=>({...t,currency:v}))} options={['GBP','USD','EUR','AED','NGN','GHS','CAD']} />
-                  <F label="Total Cost" value={tour.totalCost} onChange={v=>setTour(t=>({...t,totalCost:v}))} span={2} />
-                  <F label="Inclusions" value={tour.inclusions} onChange={v=>setTour(t=>({...t,inclusions:v}))} textarea span={3} />
-                  <F label="Exclusions" value={tour.exclusions} onChange={v=>setTour(t=>({...t,exclusions:v}))} textarea span={3} />
-                  <F label="Notes" value={tour.notes} onChange={v=>setTour(t=>({...t,notes:v}))} textarea span={3} />
-                </div>
-              )}
-
-              {/* TRANSFER */}
-              {tab === 'TRANSFER' && (
-                <div className="grid grid-cols-3 gap-3">
-                  <Hr c="Passenger" />
-                  <F label="Passenger Name" value={transfer.passengerName} onChange={v=>setTransfer(t=>({...t,passengerName:v}))} />
-                  <F label="Email" value={transfer.passengerEmail} onChange={v=>{setTransfer(t=>({...t,passengerEmail:v}));setEmailTo(v)}} type="email" />
-                  <F label="Phone" value={transfer.passengerPhone} onChange={v=>setTransfer(t=>({...t,passengerPhone:v}))} />
-                  <Hr c="Route" />
-                  <F label="Pickup Location" value={transfer.pickupLocation} onChange={v=>setTransfer(t=>({...t,pickupLocation:v}))} span={2} />
-                  <F label="Pickup Date" value={transfer.pickupDate} onChange={v=>setTransfer(t=>({...t,pickupDate:v}))} type="date" />
-                  <F label="Pickup Address" value={transfer.pickupAddress} onChange={v=>setTransfer(t=>({...t,pickupAddress:v}))} span={2} />
-                  <F label="Pickup Time" value={transfer.pickupTime} onChange={v=>setTransfer(t=>({...t,pickupTime:v}))} type="time" />
-                  <F label="Drop-off Location" value={transfer.dropoffLocation} onChange={v=>setTransfer(t=>({...t,dropoffLocation:v}))} span={2} />
-                  <F label="Flight Ref" value={transfer.flightRef} onChange={v=>setTransfer(t=>({...t,flightRef:v}))} />
-                  <F label="Drop-off Address" value={transfer.dropoffAddress} onChange={v=>setTransfer(t=>({...t,dropoffAddress:v}))} span={3} />
-                  <Hr c="Vehicle & Driver" />
-                  <F label="Vehicle Type" value={transfer.vehicleType} onChange={v=>setTransfer(t=>({...t,vehicleType:v}))} options={['Saloon Car','Estate Car','MPV (7-Seat)','Minibus (8-16)','Executive Saloon','Luxury Mercedes']} />
-                  <F label="Passengers" value={transfer.pax} onChange={v=>setTransfer(t=>({...t,pax:v}))} placeholder="2" />
-                  <F label="Luggage" value={transfer.luggage} onChange={v=>setTransfer(t=>({...t,luggage:v}))} placeholder="2" />
-                  <F label="Driver Name" value={transfer.driverName} onChange={v=>setTransfer(t=>({...t,driverName:v}))} />
-                  <F label="Driver Phone" value={transfer.driverPhone} onChange={v=>setTransfer(t=>({...t,driverPhone:v}))} />
-                  <F label="Vehicle Reg" value={transfer.vehicleReg} onChange={v=>setTransfer(t=>({...t,vehicleReg:v}))} placeholder="AB12 CDE" />
-                  <Hr c="Confirmation" />
-                  <F label="Confirmation No." value={transfer.confirmationNumber} onChange={v=>setTransfer(t=>({...t,confirmationNumber:v}))} span={2} />
-                  <F label="Provider" value={transfer.provider} onChange={v=>setTransfer(t=>({...t,provider:v}))} />
-                  <F label="Currency" value={transfer.currency} onChange={v=>setTransfer(t=>({...t,currency:v}))} options={['GBP','USD','EUR','AED','NGN','GHS','CAD']} />
-                  <F label="Total Cost" value={transfer.totalCost} onChange={v=>setTransfer(t=>({...t,totalCost:v}))} span={2} />
-                  <F label="Notes / Instructions" value={transfer.notes} onChange={v=>setTransfer(t=>({...t,notes:v}))} placeholder="Meet at arrivals…" textarea span={3} />
-                </div>
-              )}
-            </div>
-          </div>
-
-          {/* ── PREVIEW ── */}
-          <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden flex flex-col">
-            <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <h2 className="font-bold text-[#0B1F3A] text-sm">Live Preview</h2>
-                {ticketRef !== 'WALZ-TKT-DRAFT' && <span className="px-2 py-0.5 bg-green-100 text-green-700 rounded-full text-[10px] font-bold">{ticketRef}</span>}
-              </div>
-              <div className="flex items-center gap-2">
-                <button onClick={handlePrint} className="flex items-center gap-1.5 px-3 py-1.5 border border-gray-200 rounded-lg text-xs font-semibold text-gray-600 hover:bg-gray-50">
-                  <Printer className="w-3.5 h-3.5" /> Print / PDF
-                </button>
-                <button onClick={handleSave} disabled={saving}
-                  className="flex items-center gap-1.5 px-3 py-1.5 bg-[#0B1F3A] text-white rounded-lg text-xs font-semibold disabled:opacity-50">
-                  {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Ticket className="w-3.5 h-3.5 text-[#C9A84C]" />}
-                  {savedId ? 'Saved ✓' : 'Save Record'}
-                </button>
-              </div>
-            </div>
-
-            <div className="flex-1 overflow-y-auto p-4 max-h-[calc(100vh-320px)] bg-slate-50">
-              <div className="rounded-xl overflow-hidden border border-gray-200 bg-white"
-                dangerouslySetInnerHTML={{ __html: previewHtml }} />
-            </div>
-
-            <div className="p-4 border-t border-gray-100 bg-gray-50/50 space-y-2">
-              {tab === 'FLIGHT' && flight.segments[0]?.departureTime && (
-                <div className="flex items-center gap-2 px-3 py-2 bg-amber-50 rounded-lg border border-amber-100">
-                  <Clock className="w-3.5 h-3.5 text-amber-600 shrink-0" />
-                  <span className="text-xs text-amber-700">
-                    Gate closes at <strong>{gateClose(flight.segments[0].departureTime, flight.gateClosesMins)}</strong> on {fmtDate(flight.segments[0].departureDate)} · {flight.gateClosesMins} min before departure
-                  </span>
-                </div>
-              )}
-              <div className="flex gap-2">
-                <input value={emailTo} onChange={e => setEmailTo(e.target.value)} placeholder="client@email.com" type="email"
-                  className="flex-1 h-9 px-3 border border-gray-200 rounded-xl text-sm focus:outline-none focus:border-[#C9A84C] bg-white" />
-                <button onClick={() => handleSend()} disabled={sending || !emailTo || sent}
-                  className="flex items-center gap-1.5 px-4 h-9 bg-[#C9A84C] text-[#0B1F3A] font-bold rounded-xl text-sm disabled:opacity-50">
-                  {sent ? <><CheckCircle className="w-3.5 h-3.5" /> Sent!</>
-                    : sending ? <><Loader2 className="w-3.5 h-3.5 animate-spin" /> Sending…</>
-                    : <><Send className="w-3.5 h-3.5" /> Email Client</>}
-                </button>
-              </div>
-            </div>
-          </div>
+        <div className="flex items-center gap-2">
+          <Link href="/admin/ticket-generator/history"
+            className="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50 transition">
+            <History className="w-3.5 h-3.5" /> History
+          </Link>
+          <Link href="/admin/ticket-generator/templates"
+            className="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50 transition">
+            <LayoutTemplate className="w-3.5 h-3.5" /> Templates
+          </Link>
+          <button type="button" onClick={reset}
+            className="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-[#0B1F3A] border border-[#0B1F3A] rounded-lg hover:bg-[#0B1F3A] hover:text-white transition">
+            <RefreshCw className="w-3.5 h-3.5" /> New Ticket
+          </button>
         </div>
       </div>
-    </>
+
+      {/* Two-column body */}
+      <div className="flex">
+
+        {/* LEFT — Form */}
+        <div className="w-full lg:w-[45%] bg-white border-r border-gray-200">
+          <div className="p-6">
+            <Stepper step={step} />
+            {step === 1 && <Step1 ticketType={ticketType} setTicketType={setTicketType} />}
+            {step === 2 && <Step2 client={client} setClient={setClient} />}
+            {step === 3 && (
+              <Step3 ticketType={ticketType}
+                flightTicket={flightTicket} hotel={hotel} tour={tour} transfer={transfer} visa={visa} pkg={pkg}
+                setFlightTicket={setFlightTicket} setHotel={setHotel} setTour={setTour} setTransfer={setTransfer} setVisa={setVisa} setPkg={setPkg}
+              />
+            )}
+            {step === 4 && (
+              <Step4 message={message} setMessage={setMessage}
+                clientName={client.name} clientEmail={client.email} ticketType={ticketType}
+                isGenerating={isGenerating} isSending={isSending}
+                onGenerate={handleGenerate} onSend={handleSend}
+                toast={toast} sentRef={sentRef}
+              />
+            )}
+
+            {/* Nav buttons */}
+            <div className="flex items-center justify-between gap-3 mt-8 pt-5 border-t border-gray-100">
+              <button type="button" onClick={() => setStep(s => Math.max(1, s - 1))} disabled={step === 1}
+                className="flex items-center gap-1.5 px-4 py-2.5 text-xs font-bold text-gray-600 border border-gray-200 rounded-xl hover:bg-gray-50 transition disabled:opacity-30 disabled:cursor-not-allowed">
+                <ChevronLeft className="w-3.5 h-3.5" /> Back
+              </button>
+              <span className="text-[11px] text-gray-400 font-medium">Step {step} of {STEPS.length}</span>
+              {step < STEPS.length ? (
+                <button type="button" onClick={() => setStep(s => Math.min(STEPS.length, s + 1))} disabled={!canNext}
+                  className="flex items-center gap-1.5 px-4 py-2.5 text-xs font-bold bg-[#0B1F3A] text-white rounded-xl hover:bg-[#0f2a4a] transition disabled:opacity-30 disabled:cursor-not-allowed">
+                  Next <ChevronRight className="w-3.5 h-3.5" />
+                </button>
+              ) : (
+                <button type="button" onClick={handleSend} disabled={isSending || isGenerating || !ticketType || !client.email}
+                  className="flex items-center gap-1.5 px-4 py-2.5 text-xs font-bold bg-[#C9A84C] text-[#0B1F3A] rounded-xl hover:bg-[#B8973B] transition disabled:opacity-30 disabled:cursor-not-allowed">
+                  {isSending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
+                  Send to Client
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* RIGHT — Live Preview */}
+        <div className="hidden lg:block lg:w-[55%] bg-gray-100">
+          <div className="sticky top-0 p-6 max-h-screen overflow-y-auto">
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <h2 className="text-sm font-black text-[#0B1F3A]">Live Preview</h2>
+                <p className="text-[10px] text-gray-400">Updates as you fill in the form</p>
+              </div>
+              {ticketType && (
+                <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-[#C9A84C]/15 border border-[#C9A84C]/30">
+                  <div className="w-1.5 h-1.5 rounded-full bg-[#C9A84C] animate-pulse" />
+                  <span className="text-[10px] font-bold text-[#92400E] uppercase tracking-wide">Live</span>
+                </div>
+              )}
+            </div>
+            <TicketPreview data={previewData as TicketPreviewData} />
+          </div>
+        </div>
+
+      </div>
+    </div>
   )
 }
