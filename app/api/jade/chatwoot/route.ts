@@ -5,6 +5,7 @@ import { getResend } from '@/lib/email-internal'
 import { getSupabaseAdmin } from '@/lib/supabase'
 import { fetchClientMemory } from '@/lib/jade-memory'
 import type { ClientProfile } from '@/lib/jade-memory'
+import { isB2BInquiry, JADE_B2B_PROMPT } from '@/lib/jade-messaging'
 
 export const maxDuration = 60
 export const dynamic     = 'force-dynamic'
@@ -303,6 +304,44 @@ async function pushToCharwoot(
   }
 
   return convId
+}
+
+// ─── B2B notification email ────────────────────────────────────────────────────
+
+async function sendB2BEmail(company: string, originalMessage: string, convId: number | null) {
+  const subject = `🤝 B2B Partnership Inquiry — ${company} via Website`
+  const html = `
+    <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto;background:#f8f9fa;padding:20px">
+      <div style="background:#0B1F3A;padding:20px 24px;border-radius:12px 12px 0 0">
+        <h1 style="color:#C9A84C;margin:0;font-size:20px">🤝 B2B Partnership Inquiry</h1>
+        <p style="color:#ffffff80;margin:4px 0 0;font-size:13px">Received via Walz Travels website chat</p>
+      </div>
+      <div style="background:#ffffff;padding:24px;border-radius:0 0 12px 12px">
+        <table style="width:100%;border-collapse:collapse;font-size:13px;margin-bottom:16px">
+          <tr><td style="padding:6px 0;color:#6B7280;width:140px">Company</td><td style="color:#0B1F3A;font-weight:600">${company}</td></tr>
+          <tr><td style="padding:6px 0;color:#6B7280">Channel</td><td style="color:#0B1F3A">Website chat (Jade)</td></tr>
+        </table>
+        <div style="background:#F0FDF4;border:1px solid #86EFAC;border-radius:8px;padding:12px 16px;margin-bottom:20px">
+          <strong style="color:#166534">Their message:</strong>
+          <p style="color:#15803D;margin:4px 0 0;font-style:italic">"${originalMessage}"</p>
+        </div>
+        <p style="font-size:13px;color:#374151">Jade has responded professionally and applied the <strong>b2b-inquiry</strong> label in Chatwoot.</p>
+        ${convId ? `
+        <div style="margin-top:16px">
+          <a href="${CHATWOOT_BASE}/app/accounts/${ACCOUNT_ID}/conversations/${convId}"
+            style="background:#C9A84C;color:#0B1F3A;padding:10px 20px;border-radius:8px;text-decoration:none;font-weight:700;font-size:13px">
+            Open in Chatwoot →
+          </a>
+        </div>` : ''}
+      </div>
+    </div>`
+
+  try {
+    const resend = getResend()
+    await resend.emails.send({ from: 'Jade AI <contact@walztravels.com>', to: 'contact@walztravels.com', subject, html })
+  } catch (e) {
+    console.error('[Jade] B2B email failed:', e)
+  }
 }
 
 // ─── Handover email ───────────────────────────────────────────────────────────
@@ -609,13 +648,14 @@ function buildSystemPrompt(
 // ─── AI reply ─────────────────────────────────────────────────────────────────
 
 async function jadeReply(
-  messages:    Msg[],
-  pageContext: string,
-  dna:         TravelDNA,
-  isResuming:  boolean,
-  profile:     ClientProfile | null
+  messages:        Msg[],
+  pageContext:     string,
+  dna:             TravelDNA,
+  isResuming:      boolean,
+  profile:         ClientProfile | null,
+  systemOverride?: string,
 ): Promise<string> {
-  const system = buildSystemPrompt(messages.length, pageContext, dna, isResuming, profile)
+  const system = systemOverride ?? buildSystemPrompt(messages.length, pageContext, dna, isResuming, profile)
   // Sonnet for early relationship-building (messages 1–10), Haiku for speed+cost on long chats
   const model  = messages.length > 10 ? 'claude-haiku-4-5-20251001' : 'claude-sonnet-4-6'
 
@@ -693,8 +733,17 @@ export async function POST(req: NextRequest) {
 
   const messages: Msg[] = [...history, { role: 'user', content: message }]
   const dna      = buildDNA(history, message)
-  const handover = detectHandover(message, history, dna)
-  const reply    = await jadeReply(messages, pageContext, dna, shouldResume, profile)
+  const b2b      = isB2BInquiry(message)
+
+  // B2B overrides normal handover detection — always triggers medium-urgency handover
+  const handover = b2b
+    ? { needed: true, reason: 'B2B partnership inquiry — business development team notified', urgency: 'medium' as const, routeTo: 'admin' as const }
+    : detectHandover(message, history, dna)
+
+  const reply = await jadeReply(
+    messages, pageContext, dna, shouldResume, profile,
+    b2b ? JADE_B2B_PROMPT : undefined,
+  )
 
   // ── Push to Chatwoot ────────────────────────────────────────────────────────
   const sid = sessionId ?? `web-${Date.now()}`
@@ -708,8 +757,19 @@ export async function POST(req: NextRequest) {
     console.error('[Jade→CW] Push error:', String(e).slice(0, 100))
   }
 
+  // ── B2B: extra label + notification email ───────────────────────────────────
+  if (b2b) {
+    if (newConvId) {
+      void addCwLabel(newConvId, 'b2b-inquiry')
+    }
+    const companyMatch =
+      message.match(/([A-Z][a-zA-Z ]+(?:Tourism|Travel|Agency|Tours|Corp|Ltd|Inc|LLC|Group))/)?.[1]
+      ?? (customerName || 'Business Inquiry')
+    void sendB2BEmail(companyMatch, message, newConvId)
+  }
+
   // ── Send handover email ─────────────────────────────────────────────────────
-  if (handover.needed) {
+  if (handover.needed && !b2b) {
     void sendHandoverEmail(customerName, customerEmail, handover, dna, profile, newConvId, message)
   }
 

@@ -49,6 +49,35 @@ Contact details:
 
 Never sound scripted. Always sound like a real person who loves helping people travel. End every response with a natural follow-up offer or question.`
 
+// ── B2B detection ──────────────────────────────────────────────────────────────
+
+export function isB2BInquiry(message: string): boolean {
+  const m = message.toLowerCase()
+  return (
+    /partnership|collaborate|joint venture|affiliate|white.?label/.test(m) ||
+    /\b(our company|i represent|on behalf of|our agency|our organisation|our organization)\b/.test(m) ||
+    /tourism board|tour operator|\bdmc\b|wholesaler|travel agent|\bb2b\b/.test(m) ||
+    /mutual growth|work together|explore opportunities|strategic alliance/.test(m) ||
+    (/(would like to learn more|delighted to)/.test(m) &&
+      /\b(company|business|organisation|organization|agency|partnership)\b/.test(m))
+  )
+}
+
+export const JADE_B2B_PROMPT = `You are Jade, the senior representative at Walz Travels responding to a business partnership or B2B inquiry.
+
+Walz Travels is a full-service travel and visa consultancy with operations across the UK, Canada, UAE, Nigeria, and Ghana. We handle flights, hotels, visa processing, group travel, corporate bookings, and bespoke holiday packages.
+
+When responding:
+1. Acknowledge the company by name if mentioned — show you read their message carefully
+2. Position Walz Travels briefly: what we do, where we operate, our core strengths
+3. Express genuine interest in exploring what we could build together
+4. Route to the right contact: "Our business development team — contact@walztravels.com or WhatsApp +44 7398 753797"
+
+NEVER ask about travel dates, passenger counts, or treat this as a holiday booking.
+Keep your response to 3 short paragraphs. Be warm but professional. End with the contact details for our business team. Add a 🤝 emoji naturally once.`
+
+// ── Types ──────────────────────────────────────────────────────────────────────
+
 export interface ConversationMessage {
   role: 'client' | 'jade'
   message: string
@@ -57,14 +86,17 @@ export interface ConversationMessage {
 
 /**
  * Get a non-streaming Jade response for use in server-side webhook handlers.
+ * Returns { response, isB2B } — callers use isB2B to tag leads / send alerts.
  */
 export async function getJadeResponse(
   userMessage:  string,
   history:      ConversationMessage[],
   platform:     string,
   clientName:   string,
-): Promise<{ response: string }> {
+): Promise<{ response: string; isB2B: boolean }> {
   const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
+
+  const b2b = isB2BInquiry(userMessage)
 
   // Build message history (max last 10 turns to keep context tight)
   const recentHistory = (history ?? []).slice(-10)
@@ -76,15 +108,17 @@ export async function getJadeResponse(
   // Append the new user message
   messages.push({ role: 'user', content: userMessage })
 
-  const systemWithContext = [
-    JADE_SYSTEM_PROMPT,
-    `Platform: ${platform}. Client name: ${clientName || 'unknown'}.`,
-    `Remember to keep replies very short on ${platform} — 1 to 2 sentences max.`,
-  ].join('\n\n')
+  const systemWithContext = b2b
+    ? JADE_B2B_PROMPT
+    : [
+        JADE_SYSTEM_PROMPT,
+        `Platform: ${platform}. Client name: ${clientName || 'unknown'}.`,
+        `Remember to keep replies very short on ${platform} — 1 to 2 sentences max.`,
+      ].join('\n\n')
 
   const result = await client.messages.create({
     model:      'claude-haiku-4-5-20251001',   // fast + cheap for social replies
-    max_tokens: 300,
+    max_tokens: b2b ? 400 : 300,
     system:     systemWithContext,
     messages,
   })
@@ -94,5 +128,5 @@ export async function getJadeResponse(
     .map(b => (b as Anthropic.TextBlock).text)
     .join('')
 
-  return { response: text.trim() }
+  return { response: text.trim(), isB2B: b2b }
 }

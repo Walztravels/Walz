@@ -14,6 +14,7 @@
 
 import { NextResponse } from 'next/server'
 import prisma from '@/lib/db'
+import { getResend } from '@/lib/email-internal'
 
 export const dynamic = 'force-dynamic'
 
@@ -246,12 +247,39 @@ async function sendJadeReply(lead: Lead, userMessage: string, source: string) {
   try {
     const { getJadeResponse } = await import('@/lib/jade-messaging')
 
-    const { response } = await getJadeResponse(
+    const { response, isB2B } = await getJadeResponse(
       userMessage,
       (lead.conversation as ConversationMessage[]) ?? [],
       source === 'instagram' ? 'Instagram' : 'Facebook Messenger',
       lead.name,
     )
+
+    // B2B: tag lead + notify the business development team
+    if (isB2B) {
+      const platform = source === 'instagram' ? 'Instagram' : 'Facebook'
+      const companyMatch =
+        userMessage.match(/([A-Z][a-zA-Z ]+(?:Tourism|Travel|Agency|Tours|Corp|Ltd|Inc|LLC|Group))/)?.[1]
+        ?? lead.name
+
+      await prisma.lead.update({
+        where: { id: lead.id },
+        data:  { service: 'Corporate Travel' },
+      }).catch(e => console.error('[meta-webhook] B2B tag error:', e))
+
+      getResend().emails.send({
+        from:    'Jade AI <contact@walztravels.com>',
+        to:      'contact@walztravels.com',
+        subject: `🤝 B2B Partnership Inquiry — ${companyMatch} via ${platform}`,
+        html: `<div style="font-family:Arial,sans-serif;max-width:600px">
+          <h2 style="color:#0B1F3A">🤝 B2B Partnership Inquiry</h2>
+          <p><strong>Company:</strong> ${companyMatch}</p>
+          <p><strong>Platform:</strong> ${platform}</p>
+          <p><strong>Message:</strong><br><em>${userMessage}</em></p>
+          <p>Jade has responded professionally. Log in to Chatwoot or the admin panel to follow up.</p>
+          <p style="color:#6B7280;font-size:12px">Lead tagged as: Corporate Travel</p>
+        </div>`,
+      }).catch(e => console.error('[meta-webhook] B2B email error:', e))
+    }
 
     // Send reply via Graph API
     const accessToken = source === 'instagram'
