@@ -6,7 +6,7 @@ import { Plane, SortAsc, AlertCircle } from 'lucide-react'
 import { FlightSearchForm } from '@/components/search/FlightSearchForm'
 import { FlightPromos } from '@/components/promos/FlightPromos'
 import { FlightCard } from '@/components/flights/FlightCard'
-import { FlightFilters } from '@/components/flights/FlightFilters'
+// FlightFilters removed — FlightsPageContent is superseded by /flights/search/page.tsx
 import { Skeleton } from '@/components/ui/skeleton'
 import { formatDate } from '@/lib/utils'
 import type { FlightResult, SearchFilters, SortOption } from '@/types/booking'
@@ -277,11 +277,7 @@ export function FlightsPageContent() {
         {!isLoading && !error && hasSearched && (
           <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
             <div className="lg:col-span-1">
-              <FlightFilters
-                filters={filters} onChange={setFilters}
-                airlines={airlines} priceRange={priceRange}
-                totalResults={filteredFlights.length}
-              />
+              {/* Filters removed — use /flights/search route */}
             </div>
             <div className="lg:col-span-3">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-5">

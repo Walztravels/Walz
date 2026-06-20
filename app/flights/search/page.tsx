@@ -1,0 +1,174 @@
+'use client'
+
+import { useState, useEffect, Suspense } from 'react'
+import { useSearchParams } from 'next/navigation'
+import { FlightSummaryBanner } from '@/components/flights/FlightSummaryBanner'
+import { FlightResults }       from '@/components/flights/FlightResults'
+import { FlightFilters }       from '@/components/flights/FlightFilters'
+import { FlightSearchWidget }  from '@/components/flights/FlightSearchWidget'
+import { generateMockResults } from '@/lib/flights/mockData'
+import type { FlightItinerary } from '@/lib/flights/types'
+
+const LOADING_STEPS = [
+  { ms: 0,    text: 'Checking Air Canada...'        },
+  { ms: 500,  text: 'Checking British Airways...'   },
+  { ms: 1000, text: 'Checking Emirates...'          },
+  { ms: 1500, text: 'Checking Qatar Airways...'     },
+  { ms: 2000, text: 'Checking Turkish Airlines...'  },
+  { ms: 2400, text: 'Checking KLM...'               },
+  { ms: 2800, text: 'Checking Ethiopian Airlines...' },
+  { ms: 3200, text: 'Comparing 3,200 fares...'      },
+  { ms: 3700, text: 'Finding lowest prices...'      },
+  { ms: 4100, text: 'Analysing best routes...'      },
+]
+
+type Phase = 'loading' | 'summary' | 'results'
+
+function SearchContent() {
+  const sp = useSearchParams()
+  const from     = sp.get('from')     ?? 'LHR'
+  const to       = sp.get('to')       ?? 'LOS'
+  const cabin    = sp.get('cabin')    ?? 'ECONOMY'
+  const adults   = Number(sp.get('adults')   ?? 1)
+  const children = Number(sp.get('children') ?? 0)
+
+  const [phase,       setPhase]   = useState<Phase>('loading')
+  const [doneSteps,   setDone]    = useState<number[]>([])
+  const [results,     setResults] = useState<FlightItinerary[]>([])
+  const [showWidget,  setShowWidget] = useState(false)
+
+  useEffect(() => {
+    // Reveal steps one by one
+    const timers = LOADING_STEPS.map(({ ms }, i) =>
+      setTimeout(() => setDone(d => [...d, i]), ms)
+    )
+    // After all steps: generate results, move to summary
+    const resultTimer = setTimeout(() => {
+      setResults(generateMockResults(from, to, cabin, adults + children))
+      setPhase('summary')
+    }, 5000)
+
+    return () => { timers.forEach(clearTimeout); clearTimeout(resultTimer) }
+  }, [from, to, cabin, adults, children])
+
+  // ── LOADING ──────────────────────────────────────────────────────────────
+  if (phase === 'loading') {
+    return (
+      <div className="min-h-screen bg-[#0B1F3A] flex flex-col items-center justify-center px-4 py-16">
+        {/* Route animation */}
+        <div className="flex items-center justify-center gap-6 mb-8 w-full max-w-lg">
+          <span className="text-5xl font-display font-bold text-white">{from}</span>
+          <div className="flex-1 relative h-12 overflow-hidden">
+            <div className="absolute inset-y-0 left-0 right-0 flex items-center">
+              <div className="w-full h-px bg-white/10" />
+            </div>
+            <div className="absolute inset-y-0 left-0 right-0 flex items-center overflow-hidden">
+              <div className="h-px w-2/5 bg-gradient-to-r from-transparent via-[#C9A84C] to-transparent"
+                style={{ animation: 'planeSlide 2.5s ease-in-out infinite' }} />
+            </div>
+            <div className="absolute top-1/2 -translate-y-1/2 text-xl"
+              style={{ animation: 'planeMove 2.5s ease-in-out infinite', left: '5%' }}>
+              ✈️
+            </div>
+          </div>
+          <span className="text-5xl font-display font-bold text-white">{to}</span>
+        </div>
+
+        <p className="text-[#C9A84C] text-sm font-semibold mb-1">Walz Travels · Searching 900+ airlines...</p>
+        <p className="text-white/30 text-xs mb-8">Comparing prices in real time</p>
+
+        {/* Steps */}
+        <div className="bg-white/5 rounded-2xl p-6 space-y-3 w-full max-w-lg mb-6">
+          {LOADING_STEPS.map((step, i) => (
+            <div key={i} className={`flex items-center gap-3 transition-all duration-500 ${doneSteps.includes(i) ? 'opacity-100' : 'opacity-0'}`}>
+              <span className="text-[#C9A84C] font-bold text-sm w-4">✓</span>
+              <p className="text-white/80 text-sm">{step.text}</p>
+            </div>
+          ))}
+        </div>
+
+        {/* AI message */}
+        <div className="bg-[#C9A84C]/10 border border-[#C9A84C]/20 rounded-xl p-4 w-full max-w-lg">
+          <p className="text-[#C9A84C] text-xs font-semibold mb-1">🤖 Walz AI</p>
+          <p className="text-white/60 text-sm leading-relaxed">
+            Analysing the best routes for your trip. Considering: price, travel time, layovers, baggage included, airline rating, refundability.
+          </p>
+        </div>
+
+        <style>{`
+          @keyframes planeSlide { 0%{transform:translateX(-100%)} 100%{transform:translateX(400%)} }
+          @keyframes planeMove  { 0%{left:5%} 100%{left:90%} }
+        `}</style>
+      </div>
+    )
+  }
+
+  // ── SUMMARY ───────────────────────────────────────────────────────────────
+  if (phase === 'summary') {
+    return (
+      <div className="min-h-screen bg-[#0B1F3A] flex items-center justify-center px-4 py-16">
+        <FlightSummaryBanner
+          from={from} to={to}
+          results={results}
+          totalCount={results.length}
+          onViewAll={() => setPhase('results')}
+        />
+      </div>
+    )
+  }
+
+  // ── RESULTS ───────────────────────────────────────────────────────────────
+  return (
+    <div className="min-h-screen bg-[#FAF7F2]">
+      {/* Sticky search bar */}
+      <div className="sticky top-0 z-40 bg-[#0B1F3A] border-b border-white/10">
+        <div className="container-walz py-3 flex items-center gap-4">
+          <button onClick={() => setShowWidget(!showWidget)}
+            className="flex items-center gap-3 flex-1 text-left">
+            <span className="text-white font-semibold text-sm">{from}</span>
+            <svg className="w-4 h-4 text-[#C9A84C]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.5 4.5 21 12m0 0-7.5 7.5M21 12H3" />
+            </svg>
+            <span className="text-white font-semibold text-sm">{to}</span>
+            <span className="text-white/30 text-xs ml-2">· {cabin} · {adults + children} pax</span>
+            <svg className="w-4 h-4 text-white/40 ml-auto" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="m15.232 5.232 3.536 3.536m-2.036-5.036a2.5 2.5 0 1 1 3.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+            </svg>
+          </button>
+          <span className="text-white/40 text-sm flex-shrink-0">{results.length} results</span>
+        </div>
+        {showWidget && (
+          <div className="container-walz pb-4">
+            <FlightSearchWidget />
+          </div>
+        )}
+      </div>
+
+      {/* Body */}
+      <div className="container-walz py-8">
+        <div className="flex gap-6">
+          {/* Sidebar */}
+          <aside className="hidden lg:block w-64 flex-shrink-0">
+            <FlightFilters results={results} />
+          </aside>
+          {/* Results */}
+          <div className="flex-1 min-w-0">
+            <FlightResults results={results} from={from} to={to} />
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+export default function SearchPage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen bg-[#0B1F3A] flex items-center justify-center">
+        <div className="w-10 h-10 rounded-full border-4 border-[#C9A84C]/30 border-t-[#C9A84C] animate-spin" />
+      </div>
+    }>
+      <SearchContent />
+    </Suspense>
+  )
+}
