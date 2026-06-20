@@ -131,6 +131,43 @@ function detectHandover(message: string, history: Msg[], dna: TravelDNA): Handov
 
 // ─── Jade silence / resume ─────────────────────────────────────────────────────
 
+interface CwMessage {
+  message_type: number
+  private:      boolean
+  created_at:   number
+  sender:       { type: string } | null
+}
+
+// Checks Chatwoot conversation messages for a recent human agent reply.
+// Human agents post with sender.type === 'user'; Jade posts via API token
+// which Chatwoot attributes as sender.type === 'agent_bot' (or null).
+// This is the authoritative detection — no webhook config required.
+async function detectHumanAgentReply(convId: number): Promise<Date | null> {
+  try {
+    const data = await cwGet(`/accounts/${ACCOUNT_ID}/conversations/${convId}/messages`)
+    const raw  = data?.payload?.messages ?? data?.payload ?? []
+    const msgs = Array.isArray(raw) ? (raw as CwMessage[]) : []
+    const cutoff = Date.now() - RESUME_AFTER_MINUTES * 60 * 1000
+
+    for (const msg of msgs) {
+      const msgTime    = (msg.created_at ?? 0) * 1000
+      const senderType = (msg.sender?.type ?? '').toLowerCase()
+      if (
+        msg.message_type === 1 &&          // outgoing (agent/bot direction)
+        !msg.private &&                    // not a private note
+        msgTime > cutoff &&                // within the silence window
+        senderType === 'user' &&           // human agent — NOT 'agent_bot' or null (Jade/API)
+        !senderType.includes('bot')        // extra safety guard
+      ) {
+        return new Date(msgTime)
+      }
+    }
+    return null
+  } catch {
+    return null
+  }
+}
+
 async function checkJadeSilence(convId: number | null): Promise<{
   silenced:     boolean
   shouldResume: boolean
@@ -145,9 +182,29 @@ async function checkJadeSilence(convId: number | null): Promise<{
       .eq('chatwoot_conversation_id', convId)
       .maybeSingle()
 
-    if (!lead?.jade_silenced_at) return { silenced: false, shouldResume: false }
+    // Primary: Supabase silence flag (fast — set by previous detection)
+    let silencedAt: Date | null = lead?.jade_silenced_at
+      ? new Date(lead.jade_silenced_at as string)
+      : null
 
-    const silencedAt   = new Date(lead.jade_silenced_at as string)
+    // Fallback: inspect Chatwoot messages directly for human agent replies.
+    // This catches cases where no webhook is configured, or the flag was never set.
+    if (!silencedAt) {
+      const humanAt = await detectHumanAgentReply(convId)
+      if (humanAt) {
+        silencedAt = humanAt
+        // Write back so future requests skip the extra API call
+        if (lead?.id) {
+          await supabase
+            .from('leads')
+            .update({ jade_silenced_at: humanAt.toISOString() })
+            .eq('id', lead.id)
+        }
+      }
+    }
+
+    if (!silencedAt) return { silenced: false, shouldResume: false }
+
     const minutesSince = (Date.now() - silencedAt.getTime()) / 60000
 
     if (minutesSince < RESUME_AFTER_MINUTES) {
@@ -155,14 +212,16 @@ async function checkJadeSilence(convId: number | null): Promise<{
     }
 
     const alreadyResumed =
-      lead.jade_resumed_at &&
+      lead?.jade_resumed_at &&
       new Date(lead.jade_resumed_at as string) > silencedAt
 
     if (!alreadyResumed) {
-      await supabase
-        .from('leads')
-        .update({ jade_resumed_at: new Date().toISOString() })
-        .eq('id', lead.id)
+      if (lead?.id) {
+        await supabase
+          .from('leads')
+          .update({ jade_resumed_at: new Date().toISOString() })
+          .eq('id', lead.id)
+      }
       return { silenced: false, shouldResume: true }
     }
 
