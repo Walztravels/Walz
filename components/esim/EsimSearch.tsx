@@ -43,9 +43,10 @@ function ToastContainer({ toasts, dismiss }: { toasts: Toast[]; dismiss: (id: st
 
 // ── Country card ──────────────────────────────────────────────────────────────
 function CountryCard({
-  group, expanded, onToggle, onBuy,
+  group, currency, expanded, onToggle, onBuy,
 }: {
   group:    CountryGroup
+  currency: Currency
   expanded: boolean
   onToggle: () => void
   onBuy:    (pkg: EsimPackage, country: CountryGroup) => void
@@ -64,7 +65,7 @@ function CountryCard({
           <p className="text-white/40 text-xs mt-0.5">{group.packages.length} plan{group.packages.length !== 1 ? 's' : ''}</p>
         </div>
         <div className="text-right flex-shrink-0">
-          <p className="text-[#C9A84C] font-bold text-base">from ${group.minPrice.toFixed(2).replace(/\.00$/, '')}</p>
+          <p className="text-[#C9A84C] font-bold text-base">from {displayPrice(group.minPrice, currency)}</p>
           <ChevronDown className={`w-4 h-4 text-white/30 ml-auto mt-1 transition-transform duration-300 ${expanded ? 'rotate-180 !text-[#C9A84C]' : ''}`} />
         </div>
       </button>
@@ -73,7 +74,7 @@ function CountryCard({
       {expanded && (
         <div className="border-t border-white/06 p-4 pt-3 grid grid-cols-1 sm:grid-cols-2 gap-3">
           {group.packages.map(pkg => (
-            <PkgTile key={pkg.packageCode} pkg={pkg} country={group} onBuy={onBuy} />
+            <PkgTile key={pkg.packageCode} pkg={pkg} country={group} currency={currency} onBuy={onBuy} />
           ))}
         </div>
       )}
@@ -83,11 +84,12 @@ function CountryCard({
 
 // ── Package tile (inside expanded country) ────────────────────────────────────
 function PkgTile({
-  pkg, country, onBuy,
+  pkg, country, currency, onBuy,
 }: {
-  pkg:     EsimPackage
-  country: CountryGroup
-  onBuy:   (pkg: EsimPackage, country: CountryGroup) => void
+  pkg:      EsimPackage
+  country:  CountryGroup
+  currency: Currency
+  onBuy:    (pkg: EsimPackage, country: CountryGroup) => void
 }) {
   return (
     <div className="rounded-xl p-4 transition-all duration-200 group/tile"
@@ -110,9 +112,9 @@ function PkgTile({
       {/* Stats row */}
       <div className="flex items-center gap-3 mb-4 flex-wrap">
         {[
-          { Icon: Clock, val: `${pkg.durationDays}d` },
-          { Icon: Wifi,  val: pkg.speed              },
-          { Icon: Globe, val: country.code           },
+          { Icon: Clock, val: `${pkg.durationDays} days` },
+          { Icon: Wifi,  val: pkg.speed                  },
+          { Icon: Globe, val: country.code               },
         ].map(({ Icon, val }) => (
           <span key={val} className="flex items-center gap-1 text-white/40 text-[11px]">
             <Icon className="w-3 h-3 text-[#C9A84C]" /> {val}
@@ -122,7 +124,10 @@ function PkgTile({
 
       {/* Buy row */}
       <div className="flex items-center justify-between gap-2">
-        <p className="text-white font-bold text-lg">${pkg.retailUsd.toFixed(2).replace(/\.00$/, '')} <span className="text-white/30 text-xs font-normal">USD</span></p>
+        <p className="text-white font-bold text-lg">
+          {displayPrice(pkg.retailUsd, currency)}
+          <span className="text-white/30 text-xs font-normal ml-1">{currency}</span>
+        </p>
         <button onClick={() => onBuy(pkg, country)}
           className="flex items-center gap-1.5 px-4 py-2 rounded-full text-xs font-bold transition-all duration-200"
           style={{ background: 'rgba(201,168,76,0.15)', border: '1px solid rgba(201,168,76,0.4)', color: '#C9A84C' }}
@@ -181,7 +186,7 @@ function CheckoutForm({
             </div>
           </div>
           <div className="text-right flex-shrink-0">
-            <p className="text-2xl font-bold text-[#0B1F3A]">${pkg.retailUsd}</p>
+            <p className="text-2xl font-bold text-[#0B1F3A]">${pkg.retailUsd.toFixed(2)}</p>
             <p className="text-xs text-[#0B1F3A]/40">USD</p>
           </div>
         </div>
@@ -204,7 +209,7 @@ function CheckoutForm({
         style={{ background: '#C9A84C', color: '#0B1F3A' }}>
         {paying
           ? <><RefreshCw className="w-4 h-4 animate-spin" /> Processing…</>
-          : <><Lock className="w-3.5 h-3.5" /> Pay USD ${pkg.retailUsd} — Secure Checkout</>
+          : <><Lock className="w-3.5 h-3.5" /> Pay USD ${pkg.retailUsd.toFixed(2)} — Secure Checkout</>
         }
       </button>
       <p className="text-[#9CA3AF] text-[11px] text-center mt-3">Secured by Stripe · No card details stored by Walz Travels</p>
@@ -334,10 +339,23 @@ function SuccessOverlay({ onClose }: { onClose: () => void }) {
   )
 }
 
+// ── Currency helpers ──────────────────────────────────────────────────────────
+type Currency = 'USD' | 'GBP' | 'EUR' | 'CAD'
+
+const RATES:   Record<Currency, number> = { USD: 1, GBP: 0.79, EUR: 0.92, CAD: 1.37 }
+const SYMBOLS: Record<Currency, string> = { USD: '$', GBP: '£', EUR: '€', CAD: 'C$' }
+
+function displayPrice(usd: number, currency: Currency): string {
+  const amount = usd * RATES[currency]
+  const sym    = SYMBOLS[currency]
+  return sym + (amount % 1 === 0 ? amount.toFixed(0) : amount.toFixed(2))
+}
+
 // ── MAIN ESIM SEARCH ──────────────────────────────────────────────────────────
 export function EsimSearch({ packages }: { packages: EsimPackage[] }) {
   const [query,    setQuery]    = useState('')
   const [region,   setRegion]   = useState('All')
+  const [currency, setCurrency] = useState<Currency>('USD')
   const [expanded, setExpanded] = useState<string | null>(null)
   const [checkoutPkg,     setCheckoutPkg]     = useState<EsimPackage | null>(null)
   const [checkoutCountry, setCheckoutCountry] = useState<CountryGroup | null>(null)
@@ -453,7 +471,7 @@ export function EsimSearch({ packages }: { packages: EsimPackage[] }) {
           </div>
 
           {/* Region pills */}
-          <div className="flex flex-wrap gap-2 justify-center">
+          <div className="flex flex-wrap gap-2 justify-center mb-4">
             {REGION_ORDER.map(r => (
               <button key={r} onClick={() => { setRegion(r); setExpanded(null) }}
                 className="px-4 py-2 rounded-full text-xs font-bold whitespace-nowrap transition-all duration-200"
@@ -463,6 +481,22 @@ export function EsimSearch({ packages }: { packages: EsimPackage[] }) {
                   border:     region === r ? '1px solid #C9A84C' : '1px solid rgba(255,255,255,0.08)',
                 }}>
                 {r}
+              </button>
+            ))}
+          </div>
+
+          {/* Currency toggle */}
+          <div className="flex items-center justify-center gap-2">
+            <span className="text-white/30 text-xs mr-1">Currency:</span>
+            {(['USD', 'GBP', 'EUR', 'CAD'] as Currency[]).map(c => (
+              <button key={c} onClick={() => setCurrency(c)}
+                className="px-3 py-1 rounded-full text-xs font-bold transition-all duration-200"
+                style={{
+                  background: currency === c ? 'rgba(201,168,76,0.2)'  : 'transparent',
+                  color:      currency === c ? '#C9A84C'                : 'rgba(255,255,255,0.35)',
+                  border:     currency === c ? '1px solid rgba(201,168,76,0.5)' : '1px solid rgba(255,255,255,0.08)',
+                }}>
+                {SYMBOLS[c]}{c}
               </button>
             ))}
           </div>
@@ -502,6 +536,7 @@ export function EsimSearch({ packages }: { packages: EsimPackage[] }) {
                   <CountryCard
                     key={group.code}
                     group={group}
+                    currency={currency}
                     expanded={expanded === group.code}
                     onToggle={() => setExpanded(expanded === group.code ? null : group.code)}
                     onBuy={handleBuy}
