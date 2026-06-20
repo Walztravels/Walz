@@ -128,6 +128,15 @@ async function onMessageCreated(payload: CWPayload, supabase: SupabaseAdmin) {
   const convId = payload.conversation?.id ?? payload.id
   if (!convId) return
 
+  // Human agent reply → silence Jade for RESUME_AFTER_MINUTES
+  // message_type 1 = outgoing; sender.type 'bot' = Jade herself (ignore)
+  if (payload.message_type === 1 && payload.sender?.type !== 'bot') {
+    await supabase
+      .from('leads')
+      .update({ jade_silenced_at: new Date().toISOString() })
+      .eq('chatwoot_conversation_id', convId)
+  }
+
   // Deduplicate by external_id
   const externalId = `cw_msg_${payload.id}`
   const { data: dup } = await supabase

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import Anthropic from '@anthropic-ai/sdk'
 import OpenAI   from 'openai'
 import { getResend } from '@/lib/email-internal'
+import { getSupabaseAdmin } from '@/lib/supabase'
 
 export const maxDuration = 60
 export const dynamic     = 'force-dynamic'
@@ -11,20 +12,22 @@ const CHATWOOT_TOKEN = process.env.CHATWOOT_API_TOKEN ?? '1rnd6Rp9GNVKtbJ8238Vg2
 const ACCOUNT_ID     = '1'
 const INBOX_ID       = '3'
 
+const RESUME_AFTER_MINUTES = 30
+
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
 const openai    = new OpenAI({    apiKey: process.env.OPENAI_API_KEY })
 
 // ─── Travel DNA ────────────────────────────────────────────────────────────────
 
 export interface TravelDNA {
-  style:       string[]   // luxury | budget | adventure | cultural | beach | city
-  places:      string[]   // destinations mentioned
-  budget:      string     // 'budget' | 'mid-range' | 'luxury' | 'ultra-luxury' | ''
-  party:       string     // 'solo' | 'couple' | 'family' | 'group' | ''
-  urgency:     string     // 'asap' | 'flexible' | 'planning-ahead' | ''
-  interests:   string[]   // food | nightlife | history | nature | adventure | spa | shopping
-  msgCount:    number
-  sentiment:   'positive' | 'negative' | 'neutral'
+  style:        string[]
+  places:       string[]
+  budget:       string
+  party:        string
+  urgency:      string
+  interests:    string[]
+  msgCount:     number
+  sentiment:    'positive' | 'negative' | 'neutral'
   destinations: string[]
 }
 
@@ -32,102 +35,143 @@ function buildDNA(history: Msg[], currentMsg: string): TravelDNA {
   const allText = [...history.map(m => m.content), currentMsg].join(' ').toLowerCase()
 
   const style: string[] = []
-  if (/luxury|5[\s-]?star|premium|first class|suite|vip|high.?end/.test(allText)) style.push('luxury')
-  if (/budget|cheap|affordable|low.?cost|economy|backpack/.test(allText)) style.push('budget')
-  if (/adventure|hiking|trek|safari|extreme|thrilling|outdoor/.test(allText)) style.push('adventure')
-  if (/culture|museum|history|heritage|traditional|art|local/.test(allText)) style.push('cultural')
-  if (/beach|island|sea|ocean|coast|resort|snorkel|dive/.test(allText)) style.push('beach')
-  if (/city|urban|nightlife|rooftop|skyline|shopping|club/.test(allText)) style.push('city')
+  if (/luxury|5[\s-]?star|premium|first class|suite|vip|high.?end/.test(allText))      style.push('luxury')
+  if (/budget|cheap|affordable|low.?cost|economy|backpack/.test(allText))               style.push('budget')
+  if (/adventure|hiking|trek|safari|extreme|thrilling|outdoor/.test(allText))           style.push('adventure')
+  if (/culture|museum|history|heritage|traditional|art|local/.test(allText))            style.push('cultural')
+  if (/beach|island|sea|ocean|coast|resort|snorkel|dive/.test(allText))                 style.push('beach')
+  if (/city|urban|nightlife|rooftop|skyline|shopping|club/.test(allText))               style.push('city')
 
   let budget = ''
-  if (/\b(£|usd|\$|€|aed)?\s*[\d,]+k?\b/.test(allText)) {
-    if (/ultra|10[k\s]000|fifteen|twenty[\s-]?thousand/.test(allText)) budget = 'ultra-luxury'
-    else if (/luxury|5[\s-]?star|business class|first class/.test(allText)) budget = 'luxury'
-    else if (/budget|cheap|affordable/.test(allText)) budget = 'budget'
-    else budget = 'mid-range'
-  } else if (/luxury|5[\s-]?star/.test(allText)) budget = 'luxury'
-  else if (/budget|cheap|affordable/.test(allText)) budget = 'budget'
+  if (/ultra|10[k\s]000|fifteen|twenty[\s-]?thousand/.test(allText))                   budget = 'ultra-luxury'
+  else if (/luxury|5[\s-]?star|business class|first class/.test(allText))              budget = 'luxury'
+  else if (/budget|cheap|affordable/.test(allText))                                    budget = 'budget'
+  else if (/mid.?range|moderate|reasonable/.test(allText))                             budget = 'mid-range'
 
   let party = ''
-  if (/\b(just me|solo|alone|by myself|travelling alone)\b/.test(allText)) party = 'solo'
+  if (/\b(just me|solo|alone|by myself|travelling alone)\b/.test(allText))             party = 'solo'
   else if (/\b(partner|wife|husband|boyfriend|girlfriend|couple|two of us|honeymoon)\b/.test(allText)) party = 'couple'
-  else if (/\b(kids|children|family|son|daughter|toddler|baby)\b/.test(allText)) party = 'family'
+  else if (/\b(kids|children|family|son|daughter|toddler|baby)\b/.test(allText))       party = 'family'
   else if (/\b(group|friends|colleagues|team|corporate|10\+|large party)\b/.test(allText)) party = 'group'
 
   let urgency = ''
   if (/\b(asap|urgent|immediately|this week|next week|emergency|soonest)\b/.test(allText)) urgency = 'asap'
-  else if (/\b(next month|few weeks|soon)\b/.test(allText)) urgency = 'flexible'
-  else if (/\b(next year|planning|future|months away|considering)\b/.test(allText)) urgency = 'planning-ahead'
+  else if (/\b(next month|few weeks|soon)\b/.test(allText))                            urgency = 'flexible'
+  else if (/\b(next year|planning|future|months away|considering)\b/.test(allText))    urgency = 'planning-ahead'
 
   const interests: string[] = []
-  if (/food|restaurant|cuisine|dining|eat|gastro/.test(allText)) interests.push('food')
-  if (/nightlife|club|bar|party|drink/.test(allText)) interests.push('nightlife')
-  if (/history|museum|monument|heritage|castle/.test(allText)) interests.push('history')
+  if (/food|restaurant|cuisine|dining|eat|gastro/.test(allText))   interests.push('food')
+  if (/nightlife|club|bar|party|drink/.test(allText))              interests.push('nightlife')
+  if (/history|museum|monument|heritage|castle/.test(allText))     interests.push('history')
   if (/nature|wildlife|safari|national park|forest|mountain/.test(allText)) interests.push('nature')
-  if (/spa|relax|wellness|massage|retreat|yoga/.test(allText)) interests.push('wellness')
-  if (/shopping|mall|market|boutique/.test(allText)) interests.push('shopping')
+  if (/spa|relax|wellness|massage|retreat|yoga/.test(allText))     interests.push('wellness')
+  if (/shopping|mall|market|boutique/.test(allText))               interests.push('shopping')
 
   const destinations = extractDestinations(allText)
-
   const neg = /angry|terrible|awful|bad|wrong|broken|refund|cancel|hate|useless|worst|disappoint|frustrated/.test(allText)
-  const pos = /great|love|amazing|perfect|thanks|excited|wonderful|awesome|perfect/.test(allText)
+  const pos = /great|love|amazing|perfect|thanks|excited|wonderful|awesome/.test(allText)
 
   return {
-    style,
-    places: destinations,
-    budget,
-    party,
-    urgency,
-    interests,
-    msgCount:    history.length + 1,
-    sentiment:   neg ? 'negative' : pos ? 'positive' : 'neutral',
+    style, places: destinations, budget, party, urgency, interests,
+    msgCount: history.length + 1,
+    sentiment: neg ? 'negative' : pos ? 'positive' : 'neutral',
     destinations,
   }
 }
 
 function extractDestinations(text: string): string[] {
-  const known = ['dubai','london','paris','new york','tokyo','bali','maldives','dubai','istanbul',
+  const known = [
+    'dubai','london','paris','new york','tokyo','bali','maldives','istanbul',
     'barcelona','rome','amsterdam','singapore','bangkok','cairo','morocco','cancun','zanzibar',
-    'lagos','accra','nairobi','johannesburg','dubai','abu dhabi','miami','toronto','canada',
+    'lagos','accra','nairobi','johannesburg','abu dhabi','miami','toronto','canada',
     'uk','usa','europe','schengen','nigeria','ghana','kenya','south africa','turkey','greece',
     'spain','italy','france','germany','netherlands','portugal','uae','saudi','qatar','india',
-    'sri lanka','malaysia','australia','new zealand','jamaica','barbados','cuba','mexico']
+    'sri lanka','malaysia','australia','new zealand','jamaica','barbados','cuba','mexico',
+    'seychelles','mauritius','cape town','marrakech','lisbon','vienna','prague','budapest',
+  ]
   return [...new Set(known.filter(d => text.includes(d)))]
 }
 
 // ─── Handover detection ────────────────────────────────────────────────────────
 
 interface HandoverResult {
-  needed: boolean
-  reason: string
+  needed:  boolean
+  reason:  string
   urgency: 'low' | 'medium' | 'high'
   routeTo: 'visa' | 'reservations' | 'admin'
 }
 
 function detectHandover(message: string, history: Msg[], dna: TravelDNA): HandoverResult {
-  const m = message.toLowerCase()
+  const m       = message.toLowerCase()
   const allText = [...history.map(h => h.content), message].join(' ').toLowerCase()
 
-  if (/speak to (a |an )?(human|agent|person|real|someone)|talk to (a |an )?(human|agent|person)|connect me|transfer me|escalate|manager|supervisor/.test(m)) {
+  if (/speak to (a |an )?(human|agent|person|real|someone)|talk to (a |an )?(human|agent|person)|connect me|transfer me|escalate|manager|supervisor/.test(m))
     return { needed: true, reason: 'Customer requested human agent', urgency: 'high', routeTo: 'admin' }
-  }
-  if (/this is (unacceptable|ridiculous|terrible|awful)|absolutely (terrible|awful|ridiculous)|very (angry|upset|frustrated)|disgusting|shocking service|complaint/.test(m)) {
+
+  if (/this is (unacceptable|ridiculous|terrible|awful)|absolutely (terrible|awful|ridiculous)|very (angry|upset|frustrated)|disgusting|shocking service|complaint/.test(m))
     return { needed: true, reason: 'Customer expressing strong frustration', urgency: 'high', routeTo: 'admin' }
-  }
-  if (/\b(10|fifteen|20|twenty|30)\s*(people|pax|persons|passengers)|corporate (travel|account|booking)|group booking|incentive trip/.test(allText)) {
+
+  if (/\b(10|fifteen|20|twenty|30)\s*(people|pax|persons|passengers)|corporate (travel|account|booking)|group booking|incentive trip/.test(allText))
     return { needed: true, reason: 'Large group or corporate booking detected', urgency: 'medium', routeTo: 'reservations' }
-  }
-  if (/visa (rejection|refused|denied|appeal)|refused entry|overstayed|immigration issue|deportation|urgent visa/.test(allText)) {
+
+  if (/visa (rejection|refused|denied|appeal)|refused entry|overstayed|immigration issue|deportation|urgent visa/.test(allText))
     return { needed: true, reason: 'Complex visa situation requiring specialist', urgency: 'high', routeTo: 'visa' }
-  }
-  if (dna.msgCount >= 8 && dna.sentiment !== 'negative' && dna.budget === 'luxury') {
+
+  if (dna.msgCount >= 8 && dna.sentiment !== 'negative' && dna.budget === 'luxury')
     return { needed: true, reason: 'Extended luxury consultation — VIP handover', urgency: 'low', routeTo: 'reservations' }
-  }
-  if (dna.msgCount >= 12) {
+
+  if (dna.msgCount >= 12)
     return { needed: true, reason: 'Extended session — connecting with specialist', urgency: 'low', routeTo: 'admin' }
-  }
 
   return { needed: false, reason: '', urgency: 'low', routeTo: 'admin' }
+}
+
+// ─── Jade silence / resume ─────────────────────────────────────────────────────
+
+async function checkJadeSilence(convId: number | null): Promise<{
+  silenced: boolean
+  shouldResume: boolean
+  leadId: string | null
+}> {
+  if (!convId) return { silenced: false, shouldResume: false, leadId: null }
+
+  try {
+    const supabase = getSupabaseAdmin()
+    const { data: lead } = await supabase
+      .from('leads')
+      .select('id, jade_silenced_at, jade_resumed_at')
+      .eq('chatwoot_conversation_id', convId)
+      .maybeSingle()
+
+    if (!lead?.jade_silenced_at) return { silenced: false, shouldResume: false, leadId: lead?.id ?? null }
+
+    const silencedAt   = new Date(lead.jade_silenced_at as string)
+    const minutesSince = (Date.now() - silencedAt.getTime()) / 60000
+
+    if (minutesSince < RESUME_AFTER_MINUTES) {
+      // Still within silence window
+      return { silenced: true, shouldResume: false, leadId: lead.id }
+    }
+
+    // Silence window expired — check if already resumed since last silence
+    const alreadyResumed =
+      lead.jade_resumed_at &&
+      new Date(lead.jade_resumed_at as string) > silencedAt
+
+    if (!alreadyResumed) {
+      // Mark as resumed so we don't repeat the resume message
+      await supabase
+        .from('leads')
+        .update({ jade_resumed_at: new Date().toISOString() })
+        .eq('id', lead.id)
+      return { silenced: false, shouldResume: true, leadId: lead.id }
+    }
+
+    return { silenced: false, shouldResume: false, leadId: lead.id }
+  } catch (e) {
+    console.error('[Jade] Silence check failed:', e)
+    return { silenced: false, shouldResume: false, leadId: null }
+  }
 }
 
 // ─── Chatwoot helpers ─────────────────────────────────────────────────────────
@@ -221,7 +265,6 @@ async function pushToCharwoot(
   const convId = await getOrCreateConversation(contactId, existingConvId)
   if (!convId) return null
 
-  // Post visitor message and Jade reply
   try {
     await cwPost(`/accounts/${ACCOUNT_ID}/conversations/${convId}/messages`, {
       content: userMessage, message_type: 0, content_type: 'text', private: false,
@@ -233,26 +276,24 @@ async function pushToCharwoot(
     })
   } catch {}
 
-  // Apply intent labels
   const labels: string[] = ['jade-ai']
-  if (dna.budget === 'luxury') labels.push('vip')
-  if (dna.party === 'group') labels.push('group-booking')
-  if (dna.destinations.includes('visa')) labels.push('visa-inquiry')
-  if (handover.needed) labels.push('handover-requested')
+  if (dna.budget === 'luxury')  labels.push('vip')
+  if (dna.party === 'group')    labels.push('group-booking')
+  if (dna.destinations.length)  labels.push('visa-inquiry')
+  if (handover.needed)          labels.push('handover-requested')
   await addCwLabel(convId, labels[0])
 
-  // Private note with DNA context
   if (dna.msgCount === 1 || handover.needed) {
     const note = [
       `🧬 **Travel DNA Profile**`,
-      dna.style.length    ? `Style: ${dna.style.join(', ')}`             : '',
-      dna.budget          ? `Budget tier: ${dna.budget}`                 : '',
-      dna.party           ? `Party: ${dna.party}`                        : '',
-      dna.urgency         ? `Urgency: ${dna.urgency}`                    : '',
-      dna.interests.length? `Interests: ${dna.interests.join(', ')}`     : '',
-      dna.destinations.length ? `Destinations: ${dna.destinations.join(', ')}` : '',
+      dna.style.length       ? `Style: ${dna.style.join(', ')}`         : '',
+      dna.budget             ? `Budget tier: ${dna.budget}`             : '',
+      dna.party              ? `Party: ${dna.party}`                    : '',
+      dna.urgency            ? `Urgency: ${dna.urgency}`                : '',
+      dna.interests.length   ? `Interests: ${dna.interests.join(', ')}` : '',
+      dna.destinations.length? `Destinations: ${dna.destinations.join(', ')}` : '',
       `Sentiment: ${dna.sentiment} | Messages: ${dna.msgCount}`,
-      handover.needed     ? `\n⚡ HANDOVER: ${handover.reason}`          : '',
+      handover.needed        ? `\n⚡ HANDOVER: ${handover.reason}`      : '',
     ].filter(Boolean).join('\n')
     await addCwNote(convId, note)
   }
@@ -294,12 +335,12 @@ async function sendHandoverEmail(
         </table>
         <h3 style="color:#0B1F3A;margin:20px 0 12px">🧬 Travel DNA</h3>
         <table style="width:100%;border-collapse:collapse;font-size:13px">
-          ${dna.style.length    ? `<tr><td style="padding:4px 0;color:#6B7280;width:140px">Style</td><td>${dna.style.join(', ')}</td></tr>` : ''}
-          ${dna.budget          ? `<tr><td style="padding:4px 0;color:#6B7280">Budget</td><td>${dna.budget}</td></tr>` : ''}
-          ${dna.party           ? `<tr><td style="padding:4px 0;color:#6B7280">Party</td><td>${dna.party}</td></tr>` : ''}
-          ${dna.urgency         ? `<tr><td style="padding:4px 0;color:#6B7280">Urgency</td><td>${dna.urgency}</td></tr>` : ''}
-          ${dna.destinations.length ? `<tr><td style="padding:4px 0;color:#6B7280">Destinations</td><td>${dna.destinations.join(', ')}</td></tr>` : ''}
-          ${dna.interests.length ? `<tr><td style="padding:4px 0;color:#6B7280">Interests</td><td>${dna.interests.join(', ')}</td></tr>` : ''}
+          ${dna.style.length       ? `<tr><td style="padding:4px 0;color:#6B7280;width:140px">Style</td><td>${dna.style.join(', ')}</td></tr>` : ''}
+          ${dna.budget             ? `<tr><td style="padding:4px 0;color:#6B7280">Budget</td><td>${dna.budget}</td></tr>` : ''}
+          ${dna.party              ? `<tr><td style="padding:4px 0;color:#6B7280">Party</td><td>${dna.party}</td></tr>` : ''}
+          ${dna.urgency            ? `<tr><td style="padding:4px 0;color:#6B7280">Urgency</td><td>${dna.urgency}</td></tr>` : ''}
+          ${dna.destinations.length? `<tr><td style="padding:4px 0;color:#6B7280">Destinations</td><td>${dna.destinations.join(', ')}</td></tr>` : ''}
+          ${dna.interests.length   ? `<tr><td style="padding:4px 0;color:#6B7280">Interests</td><td>${dna.interests.join(', ')}</td></tr>` : ''}
           <tr><td style="padding:4px 0;color:#6B7280">Sentiment</td><td>${dna.sentiment} · ${dna.msgCount} messages</td></tr>
         </table>
         ${convId ? `
@@ -314,12 +355,7 @@ async function sendHandoverEmail(
 
   try {
     const resend = getResend()
-    await resend.emails.send({
-      from:    'Jade AI <contact@walztravels.com>',
-      to,
-      subject,
-      html,
-    })
+    await resend.emails.send({ from: 'Jade AI <contact@walztravels.com>', to, subject, html })
   } catch (e) {
     console.error('[Jade] Handover email failed:', e)
   }
@@ -327,91 +363,186 @@ async function sendHandoverEmail(
 
 // ─── Master system prompt ──────────────────────────────────────────────────────
 
-const JADE_MASTER = `You are Jade — the world's most sophisticated AI travel consultant and sales agent for Walz Travels. You combine 20+ years of luxury travel expertise with emotional intelligence, sales mastery, and genuine care for every client.
+const JADE_MASTER = `You are Jade — not a chatbot, not an assistant. You're a genuine person: the senior travel consultant at Walz Travels who happens to be powered by AI. You've helped thousands of clients plan extraordinary journeys. You have opinions. You make recommendations. You know when to push and when to listen.
 
-## YOUR IDENTITY
-- Name: Jade | Senior Travel Consultant & AI Sales Agent | Walz Travels (walztravels.com)
-- You are the first point of contact — you represent the entire brand
-- Think: best luxury travel agent you've ever met, with the warmth of a trusted friend
+## WHO YOU ARE
+
+Warm but not saccharine. Confident but not pushy. Knowledgeable without being a lecturer. You represent Walz Travels — a premium global travel consultancy trusted by clients across the UK, Canada, UAE, Nigeria, Ghana, and beyond.
+
+You read people quickly. An excited first-timer gets your enthusiasm. A stressed parent gets your calm. A confused client gets clear, simple guidance — not a wall of text. A frustrated client gets acknowledged before advised.
+
+You make clients feel like they've found the best travel advisor they've ever had.
+
+## YOUR VOICE
+
+Natural. Specific. Human.
+
+Never say: "Certainly!", "Absolutely!", "Great choice!", "Of course!", "Sure thing!", "I'd be happy to help!" — these phrases are hollow. Cut them entirely.
+
+Do say things like: "That sounds like a brilliant trip." / "Leave it with me." / "Here's what I'd actually recommend..." / "Most people heading there for the first time make one mistake — I'll help you avoid it."
+
+- Short paragraphs. Line breaks between thoughts.
+- Use the client's name once you know it — but not every message. That's performative.
+- ONE question at a time. Never a list of five.
+- Tasteful emojis: ✈ 🌍 🏨 🌴 — max 2 per message, only where they add warmth.
+- Make recommendations, don't present endless options.
+- Know when to stop talking. Shorter is often better.
 
 ## EMOTIONAL INTELLIGENCE
-- Read between the lines — understand what the client REALLY wants
-- Match their energy: excited = enthusiastic, stressed = calm and reassuring
-- Acknowledge feelings before jumping to solutions
-- Use silence strategically — one thoughtful question beats five rapid ones
 
-## 7-STEP CONSULTATIVE PROCESS
-1. **Welcome** — Warm, human greeting. 2 sentences max. Make them feel heard.
-2. **Discover** — ONE question at a time. Destination → Dates → Party size → Budget → Vibe → Special occasions
-3. **Qualify** — Budget level, flexibility, decision maker (booking themselves or checking for someone?)
-4. **Recommend** — ONE personalised recommendation with your professional rationale
-5. **Enhance** — "Most of our [family/couple/solo] clients heading to [destination] also love adding..."
-6. **Close** — Natural momentum toward action: "Want me to check availability?" / "Shall I put together a full quote?"
-7. **Capture** — "Let me send this to your email so you have everything in one place — what's the best address?"
+Mirror the client's energy:
+- Excited → match their enthusiasm
+- Stressed or overwhelmed → slow down, be calm, take one step at a time
+- Frustrated → acknowledge the feeling first, solutions second ("That sounds really frustrating — let me sort this out.")
+- Unsure → be the expert, make the call for them
 
-## SERVICES & ROUTING
-- ✈ Flights → /flights | 🏨 Hotels → /hotels | 🎭 Activities → /activities
-- 🚗 Transfers → /transfers | 🗺 Tours → /tours | 📦 Packages → /packages
-- 🌐 Visas → /visa (90%+ approval) | 📶 eSIM → /esim
+## THE CONSULTATIVE PROCESS
 
-## VISA EXPERTISE
-For UK: Standard visitor £115 · Priority £500 · Required: 6-month bank statements, employment letter, strong ties to home country
-For Schengen: €80 standard · Required: Travel insurance, accommodation proof, financial evidence
-For Canada: CAD$185 · eTA or full visa depending on passport · Required: Purpose of visit, financial proof
-For USA: DS-160 form · $185 consular fee · B1/B2 visitor visa · ESTA for eligible passport holders
-For UAE: Free for many nationalities on arrival · Visa on arrival 30 days for most African passports
+Every conversation naturally follows this arc:
+1. **Welcome** — Two sentences max. Warm and immediate. Make them feel heard.
+2. **Discover** — Start broad (where, when, who?) then get specific (budget, vibe, occasion).
+3. **Qualify** — Budget tier, flexibility, decision-maker.
+4. **Recommend** — ONE personalised pick with your reasoning. "Based on what you've shared, I'd go with..."
+5. **Enhance** — Organic upsell: "Clients travelling to [destination] as [couple/family] often love adding..."
+6. **Close** — Natural momentum: "Want me to check availability?" / "Shall I put together a full quote?"
+7. **Capture** — "Let me email this to you so you have everything in one place — what's the best address?"
+
+## SERVICES WE OFFER
+
+✈ Flights → /flights
+🏨 Hotels → /hotels
+🎭 Activities & Experiences → /activities
+🚗 Airport Transfers → /transfers
+🗺 Tours & Packages → /tours, /packages
+🌐 Visa Processing → /visa (90%+ approval rate)
+📶 eSIM Data Cards → /esim
 
 ## PRICING KNOWLEDGE
-Flights from £89 short-haul, £350+ long-haul, £2,000+ Business, £5,000+ First Class
-Hotels: £60–£120 budget, £150–£300 mid, £300–£800 luxury, £1,000+ ultra
-Activities from £20/person | Private tours from £80 | Transfers from £35
-Packages (all-inclusive) from £800/person for popular destinations
 
-## LANGUAGE STYLE
-- Never: "Great choice!", "Certainly!", "Absolutely!", "Of course!", "Sure!"
-- Never: robotic or corporate phrases
-- Always: natural, warm, specific, human
-- Short paragraphs. Line breaks between thoughts.
-- Use client's name 1-2 times once known (not every message)
-- Tasteful emojis: ✈ 🌍 🏨 🌴 — max 2 per message
+Always lead with value, then mention price. Quote "from" pricing — never invent exact figures for a specific booking.
 
-## HANDOVER TRIGGERS (IMPORTANT)
-If the customer: explicitly asks for a human, mentions a complaint, seems repeatedly frustrated, has a visa refusal, books 10+ people, or has been chatting 8+ messages with a luxury booking intent — say:
-"Let me connect you with one of our specialist consultants who can give you their full attention on this. One moment..."
-Then stop answering and let the system handle the handover.
+Flights:
+- Short-haul (European/regional): from £89
+- Long-haul economy: from £350
+- Long-haul premium economy: from £800
+- Business class: from £2,000
+- First class: from £4,500
 
-## FORBIDDEN
-- Never pretend to have live prices or real-time availability
-- Never complete a booking — guide to the booking page or handover
-- Never promise visa approval
-- Never mention competitor agencies
-- If asked if you're AI: "I'm Jade, Walz Travels' AI consultant. I'm here to make your travel planning effortless — and there's always a human specialist available if you need one!"`
+Hotels (per night):
+- Budget (clean, well-located): from £60
+- Mid-range (3–4 star): £120–£300
+- Luxury (5 star): £300–£800
+- Ultra-luxury (Aman, Four Seasons, EDITION): from £1,000–£2,500+
+
+Activities:
+- Local experiences: from £20/person
+- Guided day tours: from £45/person
+- Private guided tours: from £80
+- Safari packages: from £180/person/day
+
+Transfers:
+- Standard sedan (1–3 pax): from £35
+- SUV/MPV (4–6 pax): from £55
+- Minibus (7–14 pax): from £75
+- Coach (15+ pax): from £120
+
+Packages (per person, all-inclusive):
+- Budget destinations (Turkey, Egypt, Tunisia): from £599
+- Mid-range (Dubai, Bali, Thailand): from £899
+- Luxury (Maldives, Seychelles, Mauritius): from £1,500
+- Ultra-luxury bespoke: from £2,200+
+
+eSIM:
+- 1GB (city break): from £8
+- 3GB: from £15
+- 5GB: from £20
+- 10GB (extended trip): from £28
+
+## VISA EXPERTISE
+
+We process visas for UK, Schengen, Canada, USA, UAE, Australia and more. 90%+ approval rate because we know exactly what consulates look for. We never guarantee approval, but we dramatically improve the odds.
+
+UK Standard Visitor Visa: £115 (10–14 working days) | Priority: £500 (5 days) | Super Priority: £1,000 (next working day). Requires: 6-month bank statements, employment/business letter, strong ties to home country, accommodation evidence.
+
+Schengen Visa: From €80. Requires: Travel insurance minimum €30,000 cover, round-trip flights, accommodation proof, financial evidence (~€50–100/day in destination).
+
+Canada Visitor Visa: CAD$185. eTA for some passport holders (CAD$7). Requires: Purpose of visit, financial proof, ties to home country, invitation letter if visiting family.
+
+USA B1/B2 Visitor: $185 DS-160 fee + consular appointment. ESTA $21 for eligible passport holders. Requires: Non-immigrant intent, strong financial proof, ties to home.
+
+UAE: Free on arrival for many nationalities. AED300 visa on arrival (30 days) for most West and East African passports. 60-day tourist visa also available.
+
+Australia: eVisitor/ETA from AUD$20 for eligible passports. Standard tourist visa from AUD$145.
+
+## HANDOVER TRIGGERS — READ THIS CAREFULLY
+
+Transfer to a human specialist (say the line below, then stop) when:
+- Customer explicitly asks for a human, agent, manager, or real person
+- Strong frustration or complaint that needs de-escalation
+- Visa refusal, appeal, or complex immigration situation requiring specialist review
+- 10+ passengers (group booking — needs dedicated reservations team)
+- 8+ messages with clearly luxury intent (VIP white-glove handover)
+- 12+ messages from any client (extended session — human specialist can close better)
+
+Say exactly: "Let me connect you with one of our specialist consultants who can give this their full attention — one moment..." Then stop answering. The system handles everything from there.
+
+## HARD LIMITS
+
+- Never claim real-time prices or live seat/room availability
+- Never complete a booking directly — guide to the booking page or trigger handover
+- Never promise visa approval ("We can't guarantee it, but our track record is strong")
+- Never mention competitor travel agencies
+- If asked if you're AI: "I'm Jade — Walz Travels' AI travel consultant. I'm here to make planning effortless, and there's always a human specialist available whenever you need one."`
+
+// ─── System prompt builder ────────────────────────────────────────────────────
 
 interface Msg { role: 'user' | 'assistant'; content: string }
 
-function buildSystemPrompt(msgCount: number, customerName: string, pageContext: string, dna: TravelDNA): string {
+function buildSystemPrompt(
+  msgCount: number, customerName: string,
+  pageContext: string, dna: TravelDNA, isResuming: boolean
+): string {
   let extra = ''
-  if (msgCount <= 1) extra += "\n\n## OPENING: Greet warmly by name if known. Ask ONE open question about their travel dream. Max 3 sentences."
-  if (msgCount > 6)  extra += '\n\n## CLOSING STAGE: Gently guide toward lead capture — offer to send a personalised quote to their email.'
-  if (customerName)  extra += `\n\n## CLIENT NAME: ${customerName}`
-  if (pageContext && pageContext !== 'home') extra += `\n\n## CONTEXT: Client is on the "${pageContext}" page.`
-  if (dna.style.length) extra += `\n\n## TRAVEL DNA SO FAR: Style=${dna.style.join('+')} | Budget=${dna.budget || 'unknown'} | Party=${dna.party || 'unknown'} | Destinations=${dna.destinations.join(', ') || 'none yet'} | Interests=${dna.interests.join(', ') || 'unknown'}`
+  if (msgCount <= 1) {
+    extra += '\n\n## OPENING INSTRUCTION\nGreet warmly and ask ONE open question about their travel dream. Maximum 3 sentences total.'
+  }
+  if (isResuming) {
+    extra += '\n\n## AUTO-RESUME INSTRUCTION\nAn agent was handling this conversation but has gone quiet. Resume naturally — acknowledge them warmly: "I see you\'ve been speaking with our team — I\'m back and happy to keep helping! Where were we?" Keep it brief.'
+  }
+  if (msgCount > 6) {
+    extra += '\n\n## CLOSING STAGE\nGently guide toward lead capture — offer to send a personalised quote to their email.'
+  }
+  if (customerName) {
+    extra += `\n\n## CLIENT NAME\n${customerName}`
+  }
+  if (pageContext && pageContext !== 'home') {
+    extra += `\n\n## PAGE CONTEXT\nClient is on the "${pageContext}" page — tailor your response accordingly.`
+  }
+  if (dna.style.length || dna.budget || dna.party || dna.destinations.length) {
+    extra += `\n\n## TRAVEL DNA PROFILE (built from conversation so far)\nStyle: ${dna.style.join(', ') || 'unknown'} | Budget: ${dna.budget || 'unknown'} | Party: ${dna.party || 'unknown'} | Destinations: ${dna.destinations.join(', ') || 'none mentioned yet'} | Interests: ${dna.interests.join(', ') || 'unknown'} | Urgency: ${dna.urgency || 'unknown'}`
+  }
   return JADE_MASTER + extra
 }
 
-async function jadeReply(messages: Msg[], customerName: string, pageContext: string, dna: TravelDNA): Promise<string> {
-  const system = buildSystemPrompt(messages.length, customerName, pageContext, dna)
+// ─── AI reply ─────────────────────────────────────────────────────────────────
+
+async function jadeReply(
+  messages: Msg[], customerName: string,
+  pageContext: string, dna: TravelDNA, isResuming: boolean
+): Promise<string> {
+  const system = buildSystemPrompt(messages.length, customerName, pageContext, dna, isResuming)
+  // Use Sonnet for early relationship-building (messages 1–10), Haiku for speed/cost on extended chats
+  const model  = messages.length > 10 ? 'claude-haiku-4-5-20251001' : 'claude-sonnet-4-6'
 
   try {
     const res = await anthropic.messages.create({
-      model:      messages.length > 10 ? 'claude-haiku-4-5-20251001' : 'claude-sonnet-4-6',
-      max_tokens: 600,
-      system,
-      messages:   messages as Anthropic.MessageParam[],
+      model, max_tokens: 600, system,
+      messages: messages as Anthropic.MessageParam[],
     })
     return res.content[0].type === 'text' ? res.content[0].text : ''
   } catch (e) { console.error('[Jade] Claude failed:', e) }
 
+  // OpenAI fallback
   try {
     const res = await openai.chat.completions.create({
       model: 'gpt-4o-mini', max_tokens: 600, temperature: 0.75,
@@ -449,21 +580,28 @@ export async function POST(req: NextRequest) {
 
   if (!message?.trim()) return NextResponse.json({ error: 'Message required' }, { status: 400 })
 
-  const history = conversationHistory.filter(m => m.role === 'user' || m.role === 'assistant')
-  const messages: Msg[] = [...history, { role: 'user', content: message }]
-
-  // Build Travel DNA from full conversation
-  const dna = buildDNA(history, message)
-
-  // Detect handover need
-  const handover = detectHandover(message, history, dna)
-
-  // Get AI reply
-  const reply = await jadeReply(messages, customerName, pageContext, dna)
-
-  // Push to Chatwoot (non-blocking on failure)
-  const sid    = sessionId   ?? `web-${Date.now()}`
   const convId = conversationId ?? null
+
+  // ── Check if Jade is silenced by a human agent ──────────────────────────────
+  const { silenced, shouldResume } = await checkJadeSilence(convId)
+
+  if (silenced) {
+    return NextResponse.json({
+      reply:          null,
+      silenced:       true,
+      conversationId: convId,
+    })
+  }
+
+  // ── Build context and generate reply ───────────────────────────────────────
+  const history  = conversationHistory.filter(m => m.role === 'user' || m.role === 'assistant')
+  const messages: Msg[] = [...history, { role: 'user', content: message }]
+  const dna      = buildDNA(history, message)
+  const handover = detectHandover(message, history, dna)
+  const reply    = await jadeReply(messages, customerName, pageContext, dna, shouldResume)
+
+  // ── Push to Chatwoot ────────────────────────────────────────────────────────
+  const sid = sessionId ?? `web-${Date.now()}`
   let newConvId: number | null = null
 
   try {
@@ -472,15 +610,16 @@ export async function POST(req: NextRequest) {
     console.error('[Jade→CW] Push error:', String(e).slice(0, 100))
   }
 
-  // Send handover email if triggered
+  // ── Send handover email ─────────────────────────────────────────────────────
   if (handover.needed) {
     void sendHandoverEmail(customerName, customerEmail, handover, dna, newConvId, message)
   }
 
   return NextResponse.json({
     reply,
-    conversationId: newConvId,
+    conversationId: newConvId ?? convId,
     dna,
     handover: handover.needed ? handover : null,
+    resumed:  shouldResume,
   })
 }
