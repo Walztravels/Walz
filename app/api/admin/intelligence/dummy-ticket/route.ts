@@ -166,7 +166,12 @@ interface DuffelOffer {
   cabin_class:    string
   slices:         DuffelSlice[]
 }
-interface DuffelOfferResponse { data: { offers: DuffelOffer[] } }
+interface DuffelOfferResponse {
+  data: {
+    offers:     DuffelOffer[]
+    passengers: Array<{ id: string; type: string }>
+  }
+}
 
 // ─── Amadeus types ────────────────────────────────────────────────────────────
 interface AmadeusSegment {
@@ -273,6 +278,7 @@ export async function POST(req: NextRequest) {
     departureDate?: string
     returnDate?:    string
     cabinClass?:    string
+    holdPnr?:       boolean   // create a real hold order via Duffel
     // Manual
     clientName?:        string
     passportNumber?:    string
@@ -303,22 +309,35 @@ export async function POST(req: NextRequest) {
 
   // ── Optional: auto-fill from linked visa application ──────────────────────
   let appName        = ''
+  let appFirstName   = ''
+  let appLastName    = ''
   let appPassport    = ''
   let appArrivalDate: Date | null = null
   let appReturnDate:  Date | null = null
   let appDestIso2    = ''
   let appBranch      = ''
+  let appDateOfBirth = ''
+  let appGender      = 'm'
+  let appEmail       = ''
+  let appPhone       = ''
 
   if (body.applicationId) {
     try {
       const app = await prisma.visaApplication.findUnique({ where: { id: body.applicationId } })
       if (app) {
+        appFirstName   = app.firstName       ?? ''
+        appLastName    = app.lastName        ?? ''
         appName        = [app.firstName, app.middleName, app.lastName].filter(Boolean).join(' ')
         appPassport    = app.passportNumber  ?? ''
         appArrivalDate = app.arrivalDate     ?? null
         appReturnDate  = app.returnDate      ?? null
         appDestIso2    = app.destinationIso2 ?? ''
         appBranch      = (app as Record<string, unknown>).branch as string ?? ''
+        appDateOfBirth = String((app as Record<string, unknown>).dateOfBirth ?? '').slice(0, 10)
+        const rawSex   = String((app as Record<string, unknown>).sex ?? '')
+        appGender      = rawSex.toLowerCase().startsWith('f') ? 'f' : 'm'
+        appEmail       = String((app as Record<string, unknown>).email ?? '')
+        appPhone       = String((app as Record<string, unknown>).phone ?? '')
       }
     } catch { /* non-fatal */ }
   }
@@ -442,7 +461,9 @@ export async function POST(req: NextRequest) {
   if (retDate) slices.push({ origin: destination, destination: origin, departure_date: retDate })
 
   const tried: string[] = []
-  let flightDetails: FlightDetails | null = null
+  let flightDetails:      FlightDetails | null = null
+  let duffelPassengerId:  string | null        = null
+  let duffelBestOfferId:  string | null        = null
 
   // ── Try Duffel ──────────────────────────────────────────────────────────────
   if (process.env.DUFFEL_ACCESS_TOKEN) {
@@ -456,6 +477,8 @@ export async function POST(req: NextRequest) {
         ),
         new Promise<never>((_, reject) => setTimeout(() => reject(new Error('Duffel timeout')), 20000)),
       ])
+      // Capture passenger ID for later hold order
+      duffelPassengerId = result.data?.passengers?.[0]?.id ?? null
       const offers = result.data?.offers ?? []
       if (offers.length > 0) {
         const best      = offers.slice(0, 30).reduce((a, b) => scoreDuffelOffer(a) >= scoreDuffelOffer(b) ? a : b)
@@ -506,6 +529,7 @@ export async function POST(req: NextRequest) {
           seat:         genSeat(),
           pnr:          genPNR(),
         }
+        duffelBestOfferId = best.id
 
         // ── Capture return leg from ordered slice[1] ───────────────────────
         if (retDate && orderedSlices[1]) {
@@ -593,6 +617,84 @@ export async function POST(req: NextRequest) {
     }
   }
 
+  // ── Duffel Hold order — real airline PNR (optional) ────────────────────────
+  let holdPNR:     string | null = null
+  let holdExpires: string | null = null
+  let holdOrderId: string | null = null
+  let holdFailed                 = false
+
+  if (body.holdPnr && flightDetails && duffelPassengerId && duffelBestOfferId && process.env.DUFFEL_ACCESS_TOKEN) {
+    const givenName  = appFirstName || clientName.split(' ')[0]            || 'Given'
+    const familyName = appLastName  || clientName.split(' ').slice(1).join(' ') || 'Family'
+    const dob        = appDateOfBirth  // required — hold fails without it
+
+    if (dob && givenName && familyName) {
+      try {
+        interface DuffelHoldPassenger {
+          id:                   string
+          given_name:           string
+          family_name:          string
+          born_on:              string
+          gender:               string
+          email:                string
+          phone_number:         string
+          title:                string
+          identity_documents?:  Array<{ unique_identifier: string; type: string; issuing_country_code: string; expires_on: string }>
+        }
+        interface DuffelHoldResponse {
+          data: {
+            id:                string
+            booking_reference: string
+            payment_status?:   { payment_required_by?: string }
+          }
+        }
+
+        const passenger: DuffelHoldPassenger = {
+          id:           duffelPassengerId,
+          given_name:   givenName,
+          family_name:  familyName,
+          born_on:      dob,
+          gender:       appGender,
+          email:        (appEmail && appEmail !== 'undefined') ? appEmail : 'booking@walztravels.com',
+          phone_number: (appPhone && appPhone !== 'undefined') ? appPhone : '+447398753797',
+          title:        appGender === 'f' ? 'ms' : 'mr',
+        }
+        if (appPassport) {
+          passenger.identity_documents = [{
+            unique_identifier:    appPassport,
+            type:                 'passport',
+            issuing_country_code: 'GB',
+            expires_on:           '2030-01-01',
+          }]
+        }
+
+        const holdResp = await Promise.race([
+          duffelPost<DuffelHoldResponse>(
+            '/air/orders',
+            { data: { type: 'hold', selected_offers: [duffelBestOfferId], passengers: [passenger] } },
+          ),
+          new Promise<never>((_, reject) => setTimeout(() => reject(new Error('Hold timeout')), 15000)),
+        ])
+
+        if (holdResp?.data?.booking_reference) {
+          holdPNR     = holdResp.data.booking_reference
+          holdOrderId = holdResp.data.id
+          holdExpires = holdResp.data.payment_status?.payment_required_by ?? null
+          flightDetails.pnr = holdPNR  // overwrite generated PNR with real one
+        } else {
+          holdFailed = true
+        }
+      } catch (e) {
+        console.error('[dummy-ticket/hold]', e)
+        holdFailed = true
+      }
+    } else {
+      // Missing passenger DOB — can't create hold
+      holdFailed = true
+      console.warn('[dummy-ticket/hold] Missing DOB — cannot create hold order')
+    }
+  }
+
   // ── No results ──────────────────────────────────────────────────────────────
   if (!flightDetails) {
     return NextResponse.json({
@@ -655,6 +757,9 @@ export async function POST(req: NextRequest) {
       pdf_base64:     buf.toString('base64'),
       flight_details: flightDetails,
       ticketData,
+      // Hold PNR result
+      ...(holdPNR    ? { hold_pnr: holdPNR, hold_expires: holdExpires, hold_order_id: holdOrderId } : {}),
+      ...(holdFailed ? { hold_failed: true } : {}),
     })
   } catch (e) {
     console.error('[dummy-ticket/pdf]', e)

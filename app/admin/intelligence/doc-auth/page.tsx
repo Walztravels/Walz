@@ -797,13 +797,16 @@ function DummyTicketTab() {
   const [showSendForm,  setShowSendForm]  = useState(false)
 
   // Live mode fields
-  const [originIata, setOriginIata] = useState('')
-  const [destIata,   setDestIata]   = useState('')
-  const [depDate,    setDepDate]    = useState('')
-  const [retDate,    setRetDate]    = useState('')
-  const [cabin,      setCabin]      = useState('economy')
-  const [clientName, setClientName] = useState('')
-  const [passportNo, setPassportNo] = useState('')
+  const [originIata,  setOriginIata]  = useState('')
+  const [destIata,    setDestIata]    = useState('')
+  const [depDate,     setDepDate]     = useState('')
+  const [retDate,     setRetDate]     = useState('')
+  const [cabin,       setCabin]       = useState('economy')
+  const [clientName,  setClientName]  = useState('')
+  const [passportNo,  setPassportNo]  = useState('')
+  const [useHoldPnr,  setUseHoldPnr]  = useState(false)
+  const [holdResult,  setHoldResult]  = useState<{ pnr: string; expires: string | null; orderId: string | null } | null>(null)
+  const [holdFailed,  setHoldFailed]  = useState(false)
 
   // Manual mode fields
   const [mFromCode, setMFromCode] = useState('')
@@ -882,6 +885,7 @@ function DummyTicketTab() {
     if (blobUrl) URL.revokeObjectURL(blobUrl)
     setPdfUrl(''); setPdfBase64(''); setBlobUrl(''); setFlightDetails(null)
     setTicketData(null); setError(''); setErrorMeta(null); setShowSendForm(false)
+    setHoldResult(null); setHoldFailed(false)
   }
 
   const generate = async () => {
@@ -896,7 +900,7 @@ function DummyTicketTab() {
       }
 
       if (mode === 'live') {
-        Object.assign(payload, { originIata, destIata, departureDate: depDate, returnDate: retDate || undefined, cabinClass: cabin })
+        Object.assign(payload, { originIata, destIata, departureDate: depDate, returnDate: retDate || undefined, cabinClass: cabin, holdPnr: useHoldPnr || undefined })
       } else if (mode === 'manual') {
         Object.assign(payload, {
           fromCode: mFromCode, fromCity: mFromCity,
@@ -924,9 +928,11 @@ function DummyTicketTab() {
         return
       }
 
-      if (data.pdfUrl)   setPdfUrl(data.pdfUrl)
-      if (data.ticketData) setTicketData(data.ticketData as Record<string, unknown>)
+      if (data.pdfUrl)         setPdfUrl(data.pdfUrl)
+      if (data.ticketData)     setTicketData(data.ticketData as Record<string, unknown>)
       if (data.flight_details) setFlightDetails(data.flight_details as FlightDetails)
+      if (data.hold_pnr)       setHoldResult({ pnr: data.hold_pnr as string, expires: (data.hold_expires as string | null) ?? null, orderId: (data.hold_order_id as string | null) ?? null })
+      if (data.hold_failed)    setHoldFailed(true)
 
       // Bug fix: convert base64 → Blob URL immediately so iframe always renders
       if (data.pdf_base64) {
@@ -1072,6 +1078,24 @@ function DummyTicketTab() {
           </div>
         )}
 
+        {/* Hold PNR checkbox — live mode only */}
+        {mode === 'live' && (
+          <div className="mb-5 p-4 rounded-xl bg-amber-50 border border-amber-200">
+            <label className="flex items-start gap-3 cursor-pointer">
+              <input type="checkbox" className="mt-0.5 h-4 w-4 flex-shrink-0 rounded border-amber-300 accent-amber-600"
+                checked={useHoldPnr} onChange={e => { setUseHoldPnr(e.target.checked); resetOutput() }} />
+              <div>
+                <div className="text-sm font-bold text-amber-800">✈ Get Real Airline PNR (Duffel Hold)</div>
+                <div className="text-xs text-amber-700 mt-0.5 leading-relaxed">
+                  Creates a genuine airline reservation. PNR is verifiable on the airline&apos;s own website for 24–72h.
+                  A hold fee (~£5–15) applies to your Duffel balance. Use when client needs a verifiable ticket for
+                  visa application. Requires a visa application with date of birth on file.
+                </div>
+              </div>
+            </label>
+          </div>
+        )}
+
         <button onClick={() => void generate()}
           disabled={loading || (mode === 'live' && (!originIata || !destIata || !depDate))}
           className="h-10 px-6 bg-[#0B1F3A] text-white text-sm font-semibold rounded-lg hover:bg-[#0d2345] disabled:opacity-40 transition-colors flex items-center gap-2">
@@ -1122,6 +1146,61 @@ function DummyTicketTab() {
             <div><div className="text-xs text-gray-400 mb-0.5">Baggage</div><div className="font-semibold">{flightDetails.baggage}</div></div>
             <div><div className="text-xs text-gray-400 mb-0.5">Seat</div><div className="font-bold text-[#C9A84C]">{flightDetails.seat}</div></div>
             <div><div className="text-xs text-gray-400 mb-0.5">PNR</div><div className="font-bold font-mono tracking-wider">{flightDetails.pnr}</div></div>
+          </div>
+        </div>
+      )}
+
+      {/* Real PNR success card */}
+      {holdResult && (
+        <div className="bg-white rounded-xl border border-green-200 shadow-sm overflow-hidden">
+          <div className="px-5 py-3 bg-green-600 flex items-center gap-2">
+            <CheckCircle className="w-4 h-4 text-white" />
+            <span className="text-xs font-bold text-white uppercase tracking-wider">Real Airline PNR Created</span>
+          </div>
+          <div className="p-5 space-y-4">
+            <div className="text-center">
+              <div className="text-[10px] font-bold text-gray-400 uppercase tracking-[0.2em] mb-2">Airline Booking Reference (PNR)</div>
+              <div className="text-5xl font-black font-mono tracking-[0.35em] text-green-700">{holdResult.pnr}</div>
+            </div>
+            <div className="grid grid-cols-2 gap-4 text-xs">
+              {holdResult.expires && (
+                <div>
+                  <div className="text-gray-400 mb-0.5">Hold expires</div>
+                  <div className="font-semibold text-red-600">
+                    {new Date(holdResult.expires).toLocaleString('en-GB', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                  </div>
+                </div>
+              )}
+              {holdResult.orderId && (
+                <div>
+                  <div className="text-gray-400 mb-0.5">Duffel Order ID</div>
+                  <div className="font-mono text-gray-600 text-[10px] break-all">{holdResult.orderId}</div>
+                </div>
+              )}
+            </div>
+            <div className="bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-xs text-amber-800 leading-relaxed">
+              ⚠️ Share this PNR with the client immediately. The hold expires within 24–72 hours depending on the airline.
+              If the visa is approved and the client wishes to fly, confirm the booking from the Duffel dashboard.
+              If not needed, the hold simply expires — no cancellation required.
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Hold failed warning */}
+      {holdFailed && (
+        <div className="bg-white rounded-xl border border-orange-200 shadow-sm overflow-hidden">
+          <div className="px-5 py-3 bg-orange-100 border-b border-orange-200 flex items-center gap-2">
+            <AlertTriangle className="w-4 h-4 text-orange-600" />
+            <span className="text-xs font-bold text-orange-700">Hold order failed — generated PNR used as fallback</span>
+          </div>
+          <div className="px-5 py-4">
+            <p className="text-xs text-gray-600 leading-relaxed">
+              The Duffel Hold order could not be created. Possible reasons: offer expired, airline doesn&apos;t
+              support holds, passenger date of birth missing from visa application, or insufficient Duffel
+              balance. The ticket has been generated with a reference-only PNR. Switch to Manual mode if you
+              need to enter a PNR from another source.
+            </p>
           </div>
         </div>
       )}
