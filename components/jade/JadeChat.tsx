@@ -107,8 +107,20 @@ function DNABadge({ dna }: { dna: TravelDNA }) {
 }
 
 function HandoverCard({ handover }: { handover: HandoverInfo }) {
-  const urgencyColor = handover.urgency === 'high' ? '#EF4444' : handover.urgency === 'medium' ? '#F59E0B' : '#10B981'
-  const teamLabel    = handover.routeTo === 'visa' ? 'Visa Team' : handover.routeTo === 'reservations' ? 'Reservations Team' : 'Walz Travels Team'
+  const teamLabel = handover.routeTo === 'visa' ? 'Visa Team' : handover.routeTo === 'reservations' ? 'Reservations Team' : 'Walz Travels Team'
+
+  // LOW urgency — soft inline badge only; conversation continues
+  if (handover.urgency === 'low') {
+    return (
+      <div className="mx-4 my-1 px-3 py-2 rounded-lg bg-gray-50 border border-gray-200 flex items-center gap-2">
+        <UserCheck className="w-3.5 h-3.5 text-gray-400 flex-shrink-0" />
+        <p className="text-xs text-gray-500">👤 Our {teamLabel} has been notified and may join shortly.</p>
+      </div>
+    )
+  }
+
+  // MEDIUM / HIGH — full card with contact links
+  const urgencyColor = handover.urgency === 'high' ? '#EF4444' : '#F59E0B'
   return (
     <div className="mx-4 my-2 rounded-xl overflow-hidden border border-[#C9A84C]/30">
       <div className="bg-[#0B1F3A] px-4 py-2.5 flex items-center gap-2">
@@ -459,8 +471,8 @@ export function JadeChat() {
                 <div ref={messagesEndRef} />
               </div>
 
-              {/* Quick starters */}
-              {showStarters && messages.length > 0 && !handover && !agentActive && (
+              {/* Quick starters — hidden only for high-urgency handover or active agent */}
+              {showStarters && messages.length > 0 && !(handover?.urgency === 'high') && !agentActive && (
                 <div className="px-4 pb-2 pt-1 flex flex-wrap gap-1.5 bg-white border-t border-gray-50">
                   {QUICK_STARTERS.map(s => (
                     <button key={s} onClick={() => void sendMessage(s)}
@@ -473,8 +485,8 @@ export function JadeChat() {
                 </div>
               )}
 
-              {/* Input */}
-              {!handover && !agentActive && (
+              {/* Input — hidden only for HIGH urgency handover or active agent */}
+              {!(handover?.urgency === 'high') && !agentActive && (
                 <div className="px-3 pb-3 pt-2 bg-white border-t border-gray-100 flex-shrink-0">
                   <div className="flex items-end gap-2 bg-gray-50 rounded-xl px-3 py-2
                     border border-gray-200 focus-within:border-[#C9A84C] transition-colors">
@@ -511,8 +523,8 @@ export function JadeChat() {
                 </div>
               )}
 
-              {/* Post-handover contact options */}
-              {handover && (
+              {/* Post-handover contact options — only for HIGH urgency genuine handovers */}
+              {handover?.urgency === 'high' && (
                 <div className="px-4 pb-4 pt-2 bg-white border-t border-gray-100 flex-shrink-0 space-y-2">
                   <a href="https://wa.me/447398753797?text=Hi%2C%20Jade%20connected%20me%20for%20travel%20help"
                     target="_blank" rel="noopener noreferrer"

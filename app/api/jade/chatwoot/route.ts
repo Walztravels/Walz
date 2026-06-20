@@ -75,7 +75,7 @@ function buildDNA(messages: Msg[], currentMsg: string): TravelDNA {
 
   return {
     style, places: destinations, budget, party, urgency, interests,
-    msgCount: messages.length + 1,
+    msgCount: messages.filter(m => m.role === 'user').length + 1,
     sentiment: neg ? 'negative' : pos ? 'positive' : 'neutral',
     destinations,
   }
@@ -119,10 +119,10 @@ function detectHandover(message: string, history: Msg[], dna: TravelDNA): Handov
   if (/visa (rejection|refused|denied|appeal)|refused entry|overstayed|immigration issue|deportation|urgent visa/.test(allText))
     return { needed: true, reason: 'Complex visa situation requiring specialist', urgency: 'high', routeTo: 'visa' }
 
-  if (dna.msgCount >= 8 && dna.sentiment !== 'negative' && dna.budget === 'luxury')
+  if (dna.msgCount >= 20 && dna.sentiment !== 'negative' && dna.budget === 'luxury')
     return { needed: true, reason: 'Extended luxury consultation — VIP handover', urgency: 'low', routeTo: 'reservations' }
 
-  if (dna.msgCount >= 12)
+  if (dna.msgCount >= 30)
     return { needed: true, reason: 'Extended session — connecting with specialist', urgency: 'low', routeTo: 'admin' }
 
   return { needed: false, reason: '', urgency: 'low', routeTo: 'admin' }
