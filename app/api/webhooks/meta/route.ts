@@ -58,9 +58,13 @@ export async function POST(req: Request) {
       // ── Instagram DM messages ─────────────────────────────────────────────
       for (const change of entry.changes ?? []) {
         if (change.field === 'messages' && change.value?.messages) {
+          // entry.id is the Walz IG Business Account ID — always reliable.
+          // change.value.id is the same value but typed optional; fall back to entry.id.
+          const walzIgId: string | undefined =
+            change.value.id ?? entry.id ?? process.env.INSTAGRAM_ACCOUNT_ID
           for (const msg of change.value.messages) {
-            if (msg.from?.id === change.value.id) {
-              // Echo: Walz's own IG account sent a DM — agent replied from IG app
+            if (walzIgId && msg.from?.id === walzIgId) {
+              // Echo: Walz's own IG account sent a DM — human agent replied from IG app
               await silenceJadeOnIgAgent(msg, change.value)
             } else {
               await handleInstagramMessage(msg, change.value)
@@ -208,11 +212,14 @@ async function upsertLead(params: {
 
 // ── Silence Jade when agent replies from IG app ────────────────────────────────
 async function silenceJadeOnIgAgent(msg: IGMessage, value: IGValue) {
-  // When Walz sends from IG app, recipient is the customer
-  const customerId: string | undefined =
-    msg.to?.data?.[0]?.id ?? value.recipient_id
+  // When Walz sends from IG app, msg.to.data[0].id is the customer's IG ID.
+  // value.recipient_id would be Walz's own ID — wrong fallback, so we don't use it.
+  const customerId: string | undefined = msg.to?.data?.[0]?.id
 
-  if (!customerId) return
+  if (!customerId) {
+    console.warn('[meta-webhook] silenceJadeOnIgAgent: could not determine customer ID', JSON.stringify(msg))
+    return
+  }
 
   try {
     await prisma.lead.updateMany({
