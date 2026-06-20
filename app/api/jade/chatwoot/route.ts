@@ -92,6 +92,19 @@ function extractDestinations(text: string): string[] {
   return [...new Set(known.filter(d => text.includes(d)))]
 }
 
+// ─── Currency detection ────────────────────────────────────────────────────────
+
+type Currency = 'NGN' | 'GHS' | 'AED' | 'CAD' | 'GBP'
+
+function detectCurrency(history: Msg[], currentMsg: string): Currency {
+  const t = [...history.map(m => m.content), currentMsg].join(' ').toLowerCase()
+  if (/₦|ngn|\bnigeria\b|\bnigerian\b|\blagos\b|\babuja\b|\bport harcourt\b|\benugu\b|\bkano\b|\bibe\b/.test(t)) return 'NGN'
+  if (/gh[₵¢]|ghs|\bghana\b|\bghanaian\b|\baccra\b|\bkumasi\b|\btamale\b/.test(t))                              return 'GHS'
+  if (/\baed\b|\bdirham\b|\bdubai\b|\bsharjah\b|\babu dhabi\b/.test(t))                                          return 'AED'
+  if (/\bcad\b|\bcanadian\b|\btoronto\b|\bvancouver\b|\bcalgary\b|\bottawa\b/.test(t))                           return 'CAD'
+  return 'GBP'
+}
+
 // ─── Handover detection ────────────────────────────────────────────────────────
 
 interface HandoverResult {
@@ -460,19 +473,43 @@ eSIM:
 
 ## VISA EXPERTISE
 
-We process visas for UK, Schengen, Canada, USA, UAE, Australia and more. 90%+ approval rate because we know exactly what consulates look for. We never guarantee approval, but we dramatically improve the odds.
+We process visas for UK, Schengen, Canada, USA, UAE, UAE, Australia and more. 90%+ approval rate. We never guarantee approval, but we dramatically improve the odds.
 
-UK Standard Visitor Visa: £115 (10–14 working days) | Priority: £500 (5 days) | Super Priority: £1,000 (next working day). Requires: 6-month bank statements, employment/business letter, strong ties to home country, accommodation evidence.
+Exchange rates used for conversions (approximate): £1 ≈ $1.35 ≈ ₦1,836 ≈ GH₵15.66
 
-Schengen Visa: From €80. Requires: Travel insurance minimum €30,000 cover, round-trip flights, accommodation proof, financial evidence (~€50–100/day in destination).
+**UK Standard Visitor Visa**: £115 fee (10–14 working days) | Priority: £500 (5 days) | Super Priority: £1,000 (next day). Total cost with our service: approx ₦555,680 (adult) / ₦455,680 (child). Requires: 6-month bank statements, employment/business letter, strong ties to home country, accommodation evidence.
 
-Canada Visitor Visa: CAD$185. eTA for some passport holders (CAD$7). Requires: Purpose of visit, financial proof, ties to home country, invitation letter if visiting family.
+**Schengen Visa**: From €80 / £77 / ₦140,000+ embassy fee. Total with service: approx ₦511,440 (adult) / ₦431,440 (child). Requires: Travel insurance min €30k cover, round-trip flights, accommodation proof, financial evidence (~€50–100/day in destination).
 
-USA B1/B2 Visitor: $185 DS-160 fee + consular appointment. ESTA $21 for eligible passport holders. Requires: Non-immigrant intent, strong financial proof, ties to home.
+**Canada Visitor Visa (TRV)**: CAD$185 / ~£133 / GH₵2,088 / ₦244,800. Total with service: approx ₦694,800. eTA (CAD$7) for some passport holders. Requires: Purpose of visit, financial proof, ties to home country.
 
-UAE: Free on arrival for many nationalities. AED300 visa on arrival (30 days) for most West and East African passports. 60-day tourist visa also available.
+**USA B1/B2 Visitor**: $185 DS-160 fee + consular appointment. ESTA $21 for eligible passport holders. Requires: Non-immigrant intent, strong financial proof, ties to home.
 
-Australia: eVisitor/ETA from AUD$20 for eligible passports. Standard tourist visa from AUD$145.
+**UAE Visas**:
+- Security clearance only: ₦93,840 / $69 / £51
+- 96-hour transit: ₦639,200 / $470 / £348 / GH₵5,452
+- 1-month tourist: ₦1,564,000 / $1,150 / £852 / GH₵13,340
+- Free on arrival for many nationalities (varies by passport)
+
+**Africa Destinations (from Nigeria)**:
+- Uganda Tourist: from ₦200,000 (~£109)
+- East Africa Multi-Country: from ₦280,000 (~£153)
+- Tanzania Standard: ₦299,200 ($220 / £163) | Express: ₦394,400 ($290 / £215)
+- Egypt: from ₦340,000 ($250 / £185)
+- Morocco: from ₦590,000 (~£322)
+
+**Asia Destinations (from Nigeria)**:
+- Philippines E-Visa: from ₦550,000 (~£299)
+- Thailand E-Visa: from ₦250,000 (~£136)
+- Malaysia: ₦571,200 ($420 / £311) / GH₵4,872
+- Indonesia: from ₦950,000 (~£518)
+
+**Americas**:
+- Mexico: from ₦3,000,000 (~$2,206 / £1,634) — full consular process
+
+**Australia**: eVisitor/ETA from AUD$20 for eligible passports. Standard tourist visa from AUD$145.
+
+When quoting visa prices, always lead with the client's local currency, then show GBP equivalent in brackets.
 
 ## HANDOVER TRIGGERS — READ THIS CAREFULLY
 
@@ -498,9 +535,17 @@ Say exactly: "Let me connect you with one of our specialist consultants who can 
 
 interface Msg { role: 'user' | 'assistant'; content: string }
 
+const CURRENCY_LABELS: Record<Currency, string> = {
+  NGN: 'Nigerian Naira (₦)',
+  GHS: 'Ghanaian Cedi (GH₵)',
+  AED: 'UAE Dirham (AED)',
+  CAD: 'Canadian Dollar (CAD$)',
+  GBP: 'British Pound (£)',
+}
+
 function buildSystemPrompt(
   msgCount: number, customerName: string,
-  pageContext: string, dna: TravelDNA, isResuming: boolean
+  pageContext: string, dna: TravelDNA, isResuming: boolean, currency: Currency
 ): string {
   let extra = ''
   if (msgCount <= 1) {
@@ -521,6 +566,7 @@ function buildSystemPrompt(
   if (dna.style.length || dna.budget || dna.party || dna.destinations.length) {
     extra += `\n\n## TRAVEL DNA PROFILE (built from conversation so far)\nStyle: ${dna.style.join(', ') || 'unknown'} | Budget: ${dna.budget || 'unknown'} | Party: ${dna.party || 'unknown'} | Destinations: ${dna.destinations.join(', ') || 'none mentioned yet'} | Interests: ${dna.interests.join(', ') || 'unknown'} | Urgency: ${dna.urgency || 'unknown'}`
   }
+  extra += `\n\n## CLIENT CURRENCY CONTEXT\nThis client's currency is ${CURRENCY_LABELS[currency]}. Always quote prices in ${CURRENCY_LABELS[currency]} first, with the GBP equivalent in brackets. Example: "₦639,200 (about £348)". Never quote GBP-only to a Nigerian or Ghanaian client — it feels distant and unhelpful.`
   return JADE_MASTER + extra
 }
 
@@ -528,9 +574,9 @@ function buildSystemPrompt(
 
 async function jadeReply(
   messages: Msg[], customerName: string,
-  pageContext: string, dna: TravelDNA, isResuming: boolean
+  pageContext: string, dna: TravelDNA, isResuming: boolean, currency: Currency
 ): Promise<string> {
-  const system = buildSystemPrompt(messages.length, customerName, pageContext, dna, isResuming)
+  const system = buildSystemPrompt(messages.length, customerName, pageContext, dna, isResuming, currency)
   // Use Sonnet for early relationship-building (messages 1–10), Haiku for speed/cost on extended chats
   const model  = messages.length > 10 ? 'claude-haiku-4-5-20251001' : 'claude-sonnet-4-6'
 
@@ -598,7 +644,8 @@ export async function POST(req: NextRequest) {
   const messages: Msg[] = [...history, { role: 'user', content: message }]
   const dna      = buildDNA(history, message)
   const handover = detectHandover(message, history, dna)
-  const reply    = await jadeReply(messages, customerName, pageContext, dna, shouldResume)
+  const currency = detectCurrency(history, message)
+  const reply    = await jadeReply(messages, customerName, pageContext, dna, shouldResume, currency)
 
   // ── Push to Chatwoot ────────────────────────────────────────────────────────
   const sid = sessionId ?? `web-${Date.now()}`
