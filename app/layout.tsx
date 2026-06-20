@@ -55,6 +55,20 @@ export const metadata: Metadata = {
     'Canada visa',
     'UK visa',
     'UAE visa',
+    'Nigeria to UK visa',
+    'Ghana to Canada visa',
+    'Lagos to London flights',
+    'Accra to London flights',
+    'travel agent Nigeria',
+    'visa processing Nigeria',
+    'dummy ticket visa',
+    'onward ticket',
+    'cheap flights Lagos',
+    'cheap flights Accra',
+    'flight booking Nigeria',
+    'UK visa Nigeria',
+    'Canada visa Nigeria',
+    'Schengen visa Nigeria',
   ],
   authors: [{ name: 'Walz Travels Ltd' }],
   creator: 'Walz Travels Ltd',
@@ -207,6 +221,77 @@ export default function RootLayout({
                     closes: '23:59',
                   },
                   priceRange: '$$',
+                },
+                // FAQPage — triggers Google FAQ rich results in SERP
+                {
+                  '@type': 'FAQPage',
+                  '@id': 'https://www.walztravels.com/#faq',
+                  mainEntity: [
+                    {
+                      '@type': 'Question',
+                      name: 'How much does a UK visa cost from Nigeria?',
+                      acceptedAnswer: {
+                        '@type': 'Answer',
+                        text: 'The UK Standard Visitor Visa fee is £115 (approx ₦150,000–₦180,000). Walz Travels charges a service fee from £75 for full UK visa processing — document review, form completion and application submission included. Contact us for a personalised quote.',
+                      },
+                    },
+                    {
+                      '@type': 'Question',
+                      name: 'How long does UK visa processing take from Nigeria?',
+                      acceptedAnswer: {
+                        '@type': 'Answer',
+                        text: 'Standard UK visa processing from Nigeria takes 3–8 weeks. Priority and super-priority services are available through the UK Visa Application Centre in Lagos, reducing processing to 5 business days or 24 hours respectively. Walz Travels monitors your application throughout and advises on the fastest option for your situation.',
+                      },
+                    },
+                    {
+                      '@type': 'Question',
+                      name: 'What are the cheapest flights from Lagos to London?',
+                      acceptedAnswer: {
+                        '@type': 'Answer',
+                        text: 'The cheapest flights from Lagos (LOS) to London (LHR) typically route via Addis Ababa on Ethiopian Airlines, Dubai on Emirates, or Doha on Qatar Airways. Return economy fares start from approximately £400–£600. Walz Travels compares 400+ airlines to find the best available fare — search our flights page for live prices.',
+                      },
+                    },
+                    {
+                      '@type': 'Question',
+                      name: 'Does Walz Travels offer both visa processing and flight booking?',
+                      acceptedAnswer: {
+                        '@type': 'Answer',
+                        text: 'Yes. Walz Travels is a full-service travel consultancy handling UK, Canada, Schengen, USA, and UAE visa applications alongside international flight bookings, hotel reservations, private tour packages, and travel insurance. Our visa + flight bundle is popular with clients from Nigeria, Ghana, and the African diaspora in Canada and the UK.',
+                      },
+                    },
+                    {
+                      '@type': 'Question',
+                      name: 'What documents are required for a Canada visa from Nigeria?',
+                      acceptedAnswer: {
+                        '@type': 'Answer',
+                        text: 'Canada Temporary Resident Visa requirements from Nigeria include: valid passport (6+ months), 6-month bank statements, proof of employment or business, travel itinerary, hotel bookings, travel insurance, and a cover letter explaining the purpose of visit. Walz Travels reviews and prepares your complete application package.',
+                      },
+                    },
+                    {
+                      '@type': 'Question',
+                      name: 'Can I get an onward ticket or dummy ticket for my visa application?',
+                      acceptedAnswer: {
+                        '@type': 'Answer',
+                        text: 'Yes. Walz Travels generates verifiable flight itineraries (onward/dummy tickets) for visa applications. These are real airline booking references verifiable on the airline\'s website, valid 24–72 hours — sufficient for a visa appointment. We also offer Duffel-verified real airline holds for embassies requiring confirmed reservations.',
+                      },
+                    },
+                  ],
+                },
+                // WebSite with SearchAction — enables Google Sitelinks searchbox in SERP
+                {
+                  '@type': 'WebSite',
+                  '@id': 'https://www.walztravels.com/#website',
+                  url: 'https://www.walztravels.com',
+                  name: 'Walz Travels',
+                  description: 'Premium travel agency for visa processing, international flights, hotels and tours for the African diaspora and global travellers.',
+                  potentialAction: {
+                    '@type': 'SearchAction',
+                    target: {
+                      '@type': 'EntryPoint',
+                      urlTemplate: 'https://www.walztravels.com/flights?from={from}&to={to}&depart={depart}',
+                    },
+                    'query-input': 'required name=from required name=to required name=depart',
+                  },
                 },
               ],
             }),
