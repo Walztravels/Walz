@@ -250,12 +250,16 @@ export function JadePlannerSection() {
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     if (!dest.trim()) return
-    window.location.href = `/plan/new?destination=${encodeURIComponent(dest.trim())}`
+    window.dispatchEvent(
+      new CustomEvent('jade:open', { detail: { prefill: `I want to plan a trip to ${dest.trim()}` } })
+    )
   }
 
   function handleQuick(value: string) {
     setDest(value)
-    window.location.href = `/plan/new?destination=${encodeURIComponent(value)}`
+    window.dispatchEvent(
+      new CustomEvent('jade:open', { detail: { prefill: `I want to plan a trip to ${value}` } })
+    )
   }
 
   const preview = PREVIEWS[previewIdx]

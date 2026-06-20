@@ -583,7 +583,8 @@ function buildSystemPrompt(
   pageContext: string,
   dna:         TravelDNA,
   isResuming:  boolean,
-  profile:     ClientProfile | null
+  profile:     ClientProfile | null,
+  lang =       'en',
 ): string {
   let extra = ''
   const currency = profile?.currency ?? 'GBP'
@@ -642,6 +643,16 @@ function buildSystemPrompt(
   const currencyLabel = CURRENCY_LABELS[currency] ?? CURRENCY_LABELS['GBP']
   extra += `\n\n## CLIENT CURRENCY\nAlways quote prices in ${currencyLabel} first, with GBP in brackets if different. Example: "₦639,200 (about £348)". If client is GBP: normal quoting.`
 
+  // Language rule — injected when client writes in a non-English language
+  if (lang !== 'en') {
+    const LANG_NAMES: Record<string, string> = {
+      fr: 'French', es: 'Spanish', pt: 'Portuguese', ar: 'Arabic',
+      yo: 'Yoruba', ha: 'Hausa', ig: 'Igbo', zh: 'Chinese', de: 'German',
+    }
+    const langName = LANG_NAMES[lang] ?? lang
+    extra += `\n\n## LANGUAGE RULE\nRespond ENTIRELY in ${langName}. The client is writing in ${langName}. Use ${langName} for every sentence. English is only permitted for: prices, IATA airport codes, and the brand names "Walz Travels" and "Jade".`
+  }
+
   return JADE_MASTER + extra
 }
 
@@ -654,8 +665,9 @@ async function jadeReply(
   isResuming:      boolean,
   profile:         ClientProfile | null,
   systemOverride?: string,
+  lang =           'en',
 ): Promise<string> {
-  const system = systemOverride ?? buildSystemPrompt(messages.length, pageContext, dna, isResuming, profile)
+  const system = systemOverride ?? buildSystemPrompt(messages.length, pageContext, dna, isResuming, profile, lang)
   // Sonnet for early relationship-building (messages 1–10), Haiku for speed+cost on long chats
   const model  = messages.length > 10 ? 'claude-haiku-4-5-20251001' : 'claude-sonnet-4-6'
 
@@ -689,9 +701,10 @@ export async function POST(req: NextRequest) {
     conversationHistory = [],
     sessionId,
     conversationId,
-    customerName  = '',
-    customerEmail = '',
-    pageContext   = '',
+    customerName   = '',
+    customerEmail  = '',
+    pageContext    = '',
+    clientLanguage = 'en',
   } = await req.json() as {
     message:             string
     conversationHistory: Msg[]
@@ -700,6 +713,7 @@ export async function POST(req: NextRequest) {
     customerName?:       string
     customerEmail?:      string
     pageContext?:        string
+    clientLanguage?:     string
   }
 
   if (!message?.trim()) return NextResponse.json({ error: 'Message required' }, { status: 400 })
@@ -743,6 +757,7 @@ export async function POST(req: NextRequest) {
   const reply = await jadeReply(
     messages, pageContext, dna, shouldResume, profile,
     b2b ? JADE_B2B_PROMPT : undefined,
+    clientLanguage,
   )
 
   // ── Push to Chatwoot ────────────────────────────────────────────────────────
