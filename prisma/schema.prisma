@@ -160,7 +160,8 @@ model Booking {
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
 
-  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+  user    User?           @relation(fields: [userId], references: [id], onDelete: SetNull)
+  tickets TicketRecord[]
 
   @@index([userId])
   @@index([bookingReference])
@@ -406,6 +407,8 @@ model Lead {
   lastMessageAt     DateTime?
   isRead            Boolean   @default(true)
   jadeActive        Boolean   @default(true)
+  jadeSilencedAt    DateTime?  // set when human agent sends — Jade stays silent
+  jadeResumedAt     DateTime?  // set when 30-min window expires and Jade auto-resumes
   assignedTo        String?   // legacy string assignment
   assignedToId      String?   // FK to Staff (row-level security)
   branch            String    @default("nigeria")
@@ -2089,4 +2092,26 @@ model Invoice {
   @@index([clientEmail])
   @@index([status])
   @@index([tripId])
+}
+
+model TicketRecord {
+  id               String    @id @default(cuid())
+  bookingId        String?
+  ticketType       String                        // FLIGHT | HOTEL | TOUR | TRANSFER
+  ticketNumber     String    @unique             // WALZ-TKT-2026-0001
+  generatedByStaff String?
+  clientName       String
+  clientEmail      String
+  data             Json      @default("{}")      // full structured ticket data
+  htmlSnapshot     String    @db.Text            // rendered HTML at generation time
+  sentAt           DateTime?
+  printedAt        DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+
+  booking Booking? @relation(fields: [bookingId], references: [id], onDelete: SetNull)
+
+  @@index([bookingId])
+  @@index([clientEmail])
+  @@index([ticketType])
 }

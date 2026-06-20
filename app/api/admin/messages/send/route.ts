@@ -127,7 +127,20 @@ export async function POST(req: Request) {
     last_message_at:      new Date().toISOString(),
     last_message_preview: `You: ${messageBody.trim().substring(0, 80)}`,
     last_staff_reply_at:  new Date().toISOString(),
+    jade_silenced_at:     new Date().toISOString(),
   }).eq('id', lead_id)
+
+  // Silence Jade on Prisma Lead (IG/FB) — match by Instagram username
+  const igHandle = (lead as typeof lead & { instagram_handle?: string | null }).instagram_handle
+  if (igHandle) {
+    const igUsername = igHandle.replace(/^@/, '')
+    try {
+      await prisma.lead.updateMany({
+        where: { instagramUsername: igUsername, source: 'instagram' },
+        data:  { jadeSilencedAt: new Date(), jadeResumedAt: null },
+      })
+    } catch { /* non-fatal — Prisma lead may not exist */ }
+  }
 
   return NextResponse.json({ success: true, message: savedMsg })
 }

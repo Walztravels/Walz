@@ -22,6 +22,7 @@
 import { NextResponse } from 'next/server'
 import { createHmac, timingSafeEqual } from 'crypto'
 import { getSupabaseAdmin } from '@/lib/supabase'
+import { prisma } from '@/lib/db'
 
 export const dynamic = 'force-dynamic'
 
@@ -131,10 +132,24 @@ async function onMessageCreated(payload: CWPayload, supabase: SupabaseAdmin) {
   // Human agent reply → silence Jade for RESUME_AFTER_MINUTES
   // message_type 1 = outgoing; sender.type 'bot' = Jade herself (ignore)
   if (payload.message_type === 1 && payload.sender?.type !== 'bot') {
+    // Silence website Jade (Supabase)
     await supabase
       .from('leads')
       .update({ jade_silenced_at: new Date().toISOString() })
       .eq('chatwoot_conversation_id', convId)
+
+    // Silence IG/FB Jade (Prisma) — match by Instagram PSID from Chatwoot contact_inbox
+    const igSourceId = payload.conversation?.contact_inbox?.source_id
+    if (igSourceId) {
+      try {
+        await prisma.lead.updateMany({
+          where: { sourceId: igSourceId },
+          data:  { jadeSilencedAt: new Date(), jadeResumedAt: null },
+        })
+      } catch (e) {
+        console.error('[chatwoot-webhook] Prisma silence error:', e)
+      }
+    }
   }
 
   // Deduplicate by external_id

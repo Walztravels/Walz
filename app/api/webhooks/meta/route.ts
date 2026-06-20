@@ -58,7 +58,10 @@ export async function POST(req: Request) {
       for (const change of entry.changes ?? []) {
         if (change.field === 'messages' && change.value?.messages) {
           for (const msg of change.value.messages) {
-            if (msg.from?.id !== change.value.id) {
+            if (msg.from?.id === change.value.id) {
+              // Echo: Walz's own IG account sent a DM — agent replied from IG app
+              await silenceJadeOnIgAgent(msg, change.value)
+            } else {
               await handleInstagramMessage(msg, change.value)
             }
           }
@@ -202,9 +205,44 @@ async function upsertLead(params: {
     .catch(err => console.error('[meta-webhook] Notification create error:', err))
 }
 
+// ── Silence Jade when agent replies from IG app ────────────────────────────────
+async function silenceJadeOnIgAgent(msg: IGMessage, value: IGValue) {
+  // When Walz sends from IG app, recipient is the customer
+  const customerId: string | undefined =
+    (msg.to as { data?: Array<{ id: string }> } | undefined)?.data?.[0]?.id
+    ?? value.recipient_id
+
+  if (!customerId) return
+
+  try {
+    await prisma.lead.updateMany({
+      where: { source: 'instagram', sourceId: customerId },
+      data:  { jadeSilencedAt: new Date(), jadeResumedAt: null },
+    })
+    console.log(`[meta-webhook] Jade silenced — agent replied from IG app to ${customerId}`)
+  } catch (e) {
+    console.error('[meta-webhook] silenceJadeOnIgAgent error:', e)
+  }
+}
+
 // ── Jade auto-reply ───────────────────────────────────────────────────────────
 async function sendJadeReply(lead: Lead, userMessage: string, source: string) {
   if (lead.jadeActive === false) return
+
+  // Silence check: human agent took over within last 30 minutes
+  if (lead.jadeSilencedAt) {
+    const minutesSince = (Date.now() - new Date(lead.jadeSilencedAt).getTime()) / 60000
+    if (minutesSince < 30) {
+      console.log(`[meta-webhook] Jade silenced on lead ${lead.id} — agent active`)
+      return
+    }
+    // Auto-resume: silence window expired
+    await prisma.lead.update({
+      where: { id: lead.id },
+      data:  { jadeResumedAt: new Date() },
+    })
+    console.log(`[meta-webhook] Jade auto-resumed on lead ${lead.id}`)
+  }
 
   try {
     const { getJadeResponse } = await import('@/lib/jade-messaging')
@@ -275,8 +313,9 @@ interface IGMessage {
 }
 
 interface IGValue {
-  id?:      string
-  messages?: IGMessage[]
+  id?:           string
+  recipient_id?: string
+  messages?:     IGMessage[]
 }
 
 interface ConversationMessage {
@@ -287,9 +326,11 @@ interface ConversationMessage {
 
 // Minimal Lead type matching Prisma output
 interface Lead {
-  id:           string
-  name:         string
-  sourceId:     string | null
-  jadeActive:   boolean
-  conversation: unknown
+  id:              string
+  name:            string
+  sourceId:        string | null
+  jadeActive:      boolean
+  jadeSilencedAt:  Date | null
+  jadeResumedAt:   Date | null
+  conversation:    unknown
 }
