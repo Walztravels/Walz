@@ -209,8 +209,7 @@ async function upsertLead(params: {
 async function silenceJadeOnIgAgent(msg: IGMessage, value: IGValue) {
   // When Walz sends from IG app, recipient is the customer
   const customerId: string | undefined =
-    (msg.to as { data?: Array<{ id: string }> } | undefined)?.data?.[0]?.id
-    ?? value.recipient_id
+    msg.to?.data?.[0]?.id ?? value.recipient_id
 
   if (!customerId) return
 
@@ -308,6 +307,7 @@ interface MessagePayload {
 
 interface IGMessage {
   from?:      { id?: string; username?: string }
+  to?:        { data?: Array<{ id: string }> }
   text?:      string
   timestamp?: string
 }
