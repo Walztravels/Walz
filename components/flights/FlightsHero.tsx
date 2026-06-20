@@ -105,14 +105,16 @@ export function FlightsHero() {
           and 24/7 travel concierge support from the Walz team.
         </p>
         <div className="flex flex-wrap items-center justify-center gap-3 mb-8">
-          <a href="#search-widget"
+          <button type="button"
+            onClick={() => document.getElementById('search-widget')?.scrollIntoView({ behavior: 'smooth', block: 'center' })}
             className="px-7 py-3.5 rounded-xl bg-[#C9A84C] text-[#0B1F3A] font-bold text-sm hover:bg-[#E8C87A] active:scale-[0.97] transition-all shadow-lg shadow-[#C9A84C]/25">
             Search Flights
-          </a>
-          <a href="#popular-routes"
+          </button>
+          <button type="button"
+            onClick={() => document.getElementById('popular-routes')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
             className="px-7 py-3.5 rounded-xl border border-white/20 text-white/70 text-sm font-medium hover:border-white/40 hover:text-white transition-all">
             Explore Deals
-          </a>
+          </button>
         </div>
         <div className="flex flex-wrap items-center justify-center gap-5">
           {['IATA Certified', 'SSL Secured', '4G/5G eSIM', '24/7 Support'].map(t => (

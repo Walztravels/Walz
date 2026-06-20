@@ -32,10 +32,11 @@ function SearchContent() {
   const adults   = Number(sp.get('adults')   ?? 1)
   const children = Number(sp.get('children') ?? 0)
 
-  const [phase,       setPhase]   = useState<Phase>('loading')
-  const [doneSteps,   setDone]    = useState<number[]>([])
-  const [results,     setResults] = useState<FlightItinerary[]>([])
-  const [showWidget,  setShowWidget] = useState(false)
+  const [phase,             setPhase]   = useState<Phase>('loading')
+  const [doneSteps,         setDone]    = useState<number[]>([])
+  const [results,           setResults] = useState<FlightItinerary[]>([])
+  const [showWidget,        setShowWidget]        = useState(false)
+  const [showMobileFilters, setShowMobileFilters] = useState(false)
 
   useEffect(() => {
     // Reveal steps one by one
@@ -144,15 +145,50 @@ function SearchContent() {
         )}
       </div>
 
+      {/* Mobile filter sheet */}
+      {showMobileFilters && (
+        <div className="lg:hidden fixed inset-0 z-50 bg-black/50" onClick={() => setShowMobileFilters(false)}>
+          <div className="absolute bottom-0 left-0 right-0 bg-white rounded-t-2xl max-h-[80vh] overflow-y-auto"
+            onClick={e => e.stopPropagation()}>
+            <div className="sticky top-0 bg-white px-5 pt-4 pb-3 border-b border-black/5 flex items-center justify-between">
+              <p className="font-semibold text-[#0B1F3A]">Filters</p>
+              <button type="button" onClick={() => setShowMobileFilters(false)}
+                className="text-[#0B1F3A]/40 hover:text-[#0B1F3A] transition-colors text-xl leading-none">✕</button>
+            </div>
+            <div className="p-5">
+              <FlightFilters results={results} />
+            </div>
+            <div className="sticky bottom-0 bg-white p-4 border-t border-black/5">
+              <button type="button" onClick={() => setShowMobileFilters(false)}
+                className="w-full py-3 rounded-xl bg-[#0B1F3A] text-white font-semibold text-sm">
+                Show {results.length} results
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Body */}
       <div className="container-walz py-8">
         <div className="flex gap-6">
-          {/* Sidebar */}
+          {/* Sidebar — desktop only */}
           <aside className="hidden lg:block w-64 flex-shrink-0">
             <FlightFilters results={results} />
           </aside>
           {/* Results */}
           <div className="flex-1 min-w-0">
+            {/* Mobile filter trigger */}
+            <div className="lg:hidden mb-4">
+              <button
+                type="button"
+                onClick={() => setShowMobileFilters(true)}
+                className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-white border border-[#0B1F3A]/10 text-sm font-medium text-[#0B1F3A] hover:border-[#0B1F3A]/20 transition-all">
+                <svg className="w-4 h-4 text-[#0B1F3A]/40" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 4a1 1 0 0 1 1-1h16a1 1 0 0 1 1 1v2a1 1 0 0 1-.293.707L13 13.414V19a1 1 0 0 1-.553.894l-4 2A1 1 0 0 1 7 21v-7.586L3.293 6.707A1 1 0 0 1 3 6V4z" />
+                </svg>
+                Filters &amp; Sort
+              </button>
+            </div>
             <FlightResults results={results} from={from} to={to} />
           </div>
         </div>

@@ -20,6 +20,9 @@ export default function CheckoutPage() {
   const router = useRouter()
   const [step,    setStep]    = useState<StepIdx>(0)
   const [payMeth, setPayMeth] = useState('card')
+  const [passenger, setPassenger] = useState({
+    title: 'Mr', firstName: '', lastName: '', nationality: 'British',
+  })
 
   const it  = MOCK_ITINERARY
   const seg = it.segments[0]
@@ -88,17 +91,23 @@ export default function CheckoutPage() {
                         <div className="sm:col-span-2 grid grid-cols-3 gap-3">
                           <div>
                             <label className="label-walz">Title</label>
-                            <select className="input-walz w-full">
+                            <select className="input-walz w-full"
+                              value={passenger.title}
+                              onChange={e => setPassenger(p => ({ ...p, title: e.target.value }))}>
                               {['Mr', 'Mrs', 'Ms', 'Dr', 'Prof'].map(t => <option key={t}>{t}</option>)}
                             </select>
                           </div>
                           <div>
                             <label className="label-walz">First Name</label>
-                            <input type="text" className="input-walz w-full" placeholder="As on passport" />
+                            <input type="text" className="input-walz w-full" placeholder="As on passport"
+                              value={passenger.firstName}
+                              onChange={e => setPassenger(p => ({ ...p, firstName: e.target.value }))} />
                           </div>
                           <div>
                             <label className="label-walz">Last Name</label>
-                            <input type="text" className="input-walz w-full" placeholder="As on passport" />
+                            <input type="text" className="input-walz w-full" placeholder="As on passport"
+                              value={passenger.lastName}
+                              onChange={e => setPassenger(p => ({ ...p, lastName: e.target.value }))} />
                           </div>
                         </div>
                         <div>
@@ -107,7 +116,9 @@ export default function CheckoutPage() {
                         </div>
                         <div>
                           <label className="label-walz">Nationality</label>
-                          <select className="input-walz w-full">
+                          <select className="input-walz w-full"
+                            value={passenger.nationality}
+                            onChange={e => setPassenger(p => ({ ...p, nationality: e.target.value }))}>
                             {['British', 'Nigerian', 'Ghanaian', 'Canadian', 'American', 'Other'].map(n => <option key={n}>{n}</option>)}
                           </select>
                         </div>
@@ -289,8 +300,10 @@ export default function CheckoutPage() {
                   {/* Passenger summary */}
                   <div className="bg-[#F5F2EE] rounded-xl p-4">
                     <p className="text-xs font-semibold text-[#0B1F3A]/50 uppercase tracking-wider mb-2">Passenger</p>
-                    <p className="font-semibold text-[#0B1F3A]">Mr. Walz Traveller</p>
-                    <p className="text-sm text-[#0B1F3A]/50">British passport · 1× 23kg hold bag</p>
+                    <p className="font-semibold text-[#0B1F3A]">
+                      {passenger.title}. {passenger.firstName || '—'} {passenger.lastName || '—'}
+                    </p>
+                    <p className="text-sm text-[#0B1F3A]/50">{passenger.nationality} passport · 1× 23kg hold bag</p>
                   </div>
 
                   {/* T&Cs */}

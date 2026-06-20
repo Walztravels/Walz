@@ -116,11 +116,12 @@ export function FlightSearchWidget() {
   const [depart,   setDepart]   = useState('')
   const [ret,      setRet]      = useState('')
 
-  const [fromSug,  setFromSug]  = useState<Airport[]>([])
-  const [toSug,    setToSug]    = useState<Airport[]>([])
-  const [showPax,  setShowPax]  = useState(false)
-  const [showCabin, setShowCabin] = useState(false)
-  const [errors,   setErrors]   = useState<Record<string, string>>({})
+  const [fromSug,     setFromSug]     = useState<Airport[]>([])
+  const [toSug,       setToSug]       = useState<Airport[]>([])
+  const [showPax,     setShowPax]     = useState(false)
+  const [showCabin,   setShowCabin]   = useState(false)
+  const [errors,      setErrors]      = useState<Record<string, string>>({})
+  const [hasSubmitted, setHasSubmitted] = useState(false)
 
   const paxRef   = useRef<HTMLDivElement>(null)
   const cabinRef = useRef<HTMLDivElement>(null)
@@ -145,6 +146,7 @@ export function FlightSearchWidget() {
   }
 
   function validate() {
+    setHasSubmitted(true)
     const e: Record<string, string> = {}
     if (!fromCode) e.from   = 'Enter departure airport'
     if (!toCode)   e.to     = 'Enter destination airport'
@@ -169,7 +171,7 @@ export function FlightSearchWidget() {
     `flex items-center gap-2 h-14 px-4 rounded-xl border bg-white transition-all ${err ? 'border-red-400' : 'border-[#0B1F3A]/10 focus-within:border-[#C9A84C] focus-within:ring-2 focus-within:ring-[#C9A84C]/10'}`
 
   return (
-    <div id="search-widget" className="w-full bg-white/95 backdrop-blur-xl rounded-2xl lg:rounded-3xl shadow-2xl shadow-black/20 border border-white/60 overflow-hidden">
+    <div id="search-widget" className="w-full bg-white/95 backdrop-blur-xl rounded-2xl lg:rounded-3xl shadow-2xl shadow-black/20 border border-white/60">
       {/* Top row */}
       <div className="px-5 lg:px-8 pt-5 pb-0 flex flex-wrap items-center justify-between gap-3">
         {/* Trip type */}
@@ -210,9 +212,15 @@ export function FlightSearchWidget() {
         <div className="lg:col-span-3 relative">
           <label className="block text-xs font-semibold text-[#0B1F3A]/50 uppercase tracking-wider mb-1.5">From</label>
           <div className={fieldCls(errors.from)}>
-            <svg className="w-4 h-4 text-[#C9A84C] flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
-            </svg>
+            {hasSubmitted && errors.from ? (
+              <svg className="w-4 h-4 text-red-400 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v4m0 4h.01M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
+              </svg>
+            ) : (
+              <svg className="w-4 h-4 text-[#C9A84C] flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 19l14-7L5 5v5l9 2-9 2v5z" />
+              </svg>
+            )}
             <div className="flex-1 min-w-0">
               {fromCode && <div className="text-[10px] text-[#0B1F3A]/40 leading-none mb-0.5">{fromCode}</div>}
               <input type="text" placeholder="City or airport" value={from}
