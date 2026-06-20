@@ -3,8 +3,8 @@ import Anthropic from '@anthropic-ai/sdk'
 import OpenAI   from 'openai'
 import { getResend } from '@/lib/email-internal'
 import { getSupabaseAdmin } from '@/lib/supabase'
-import { fetchClientMemory } from '@/app/api/jade/memory/route'
-import type { ClientProfile } from '@/app/api/jade/memory/route'
+import { fetchClientMemory } from '@/lib/jade-memory'
+import type { ClientProfile } from '@/lib/jade-memory'
 
 export const maxDuration = 60
 export const dynamic     = 'force-dynamic'
