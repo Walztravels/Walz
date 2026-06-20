@@ -187,6 +187,8 @@ export default function RootLayout({
                   sameAs: [
                     'https://instagram.com/walz_travels',
                     'https://facebook.com/walztravels',
+                    'https://tiktok.com/@walztravels',
+                    'https://snapchat.com/add/walztravels',
                     'https://linkedin.com/company/walztravels',
                     'https://youtube.com/@walztravels',
                     'https://x.com/walztravels',
