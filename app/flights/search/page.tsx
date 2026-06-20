@@ -1,25 +1,25 @@
 'use client'
 
-import { useState, useEffect, Suspense } from 'react'
+import { useState, useEffect, useRef, Suspense } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { FlightSummaryBanner } from '@/components/flights/FlightSummaryBanner'
 import { FlightResults }       from '@/components/flights/FlightResults'
 import { FlightFilters }       from '@/components/flights/FlightFilters'
 import { FlightSearchWidget }  from '@/components/flights/FlightSearchWidget'
-import { generateMockResults } from '@/lib/flights/mockData'
+import { useFlightStore }      from '@/store/flightStore'
 import type { FlightItinerary } from '@/lib/flights/types'
 
 const LOADING_STEPS = [
-  { ms: 0,    text: 'Checking Air Canada...'        },
-  { ms: 500,  text: 'Checking British Airways...'   },
-  { ms: 1000, text: 'Checking Emirates...'          },
-  { ms: 1500, text: 'Checking Qatar Airways...'     },
-  { ms: 2000, text: 'Checking Turkish Airlines...'  },
-  { ms: 2400, text: 'Checking KLM...'               },
+  { ms: 0,    text: 'Checking Air Canada...'         },
+  { ms: 500,  text: 'Checking British Airways...'    },
+  { ms: 1000, text: 'Checking Emirates...'           },
+  { ms: 1500, text: 'Checking Qatar Airways...'      },
+  { ms: 2000, text: 'Checking Turkish Airlines...'   },
+  { ms: 2400, text: 'Checking KLM...'                },
   { ms: 2800, text: 'Checking Ethiopian Airlines...' },
-  { ms: 3200, text: 'Comparing 3,200 fares...'      },
-  { ms: 3700, text: 'Finding lowest prices...'      },
-  { ms: 4100, text: 'Analysing best routes...'      },
+  { ms: 3200, text: 'Comparing 3,200 fares...'       },
+  { ms: 3700, text: 'Finding lowest prices...'       },
+  { ms: 4100, text: 'Analysing best routes...'       },
 ]
 
 type Phase = 'loading' | 'summary' | 'results'
@@ -31,26 +31,77 @@ function SearchContent() {
   const cabin    = sp.get('cabin')    ?? 'ECONOMY'
   const adults   = Number(sp.get('adults')   ?? 1)
   const children = Number(sp.get('children') ?? 0)
+  const infants  = Number(sp.get('infants')  ?? 0)
+  const depart   = sp.get('depart')   ?? ''
+  const returnD  = sp.get('return')   ?? ''
+  const trip     = sp.get('trip')     ?? 'one-way'
 
-  const [phase,             setPhase]   = useState<Phase>('loading')
-  const [doneSteps,         setDone]    = useState<number[]>([])
-  const [results,           setResults] = useState<FlightItinerary[]>([])
-  const [showWidget,        setShowWidget]        = useState(false)
-  const [showMobileFilters, setShowMobileFilters] = useState(false)
+  const {
+    results: storeResults, setResults, isSearching, setSearching,
+    searchError, setSearchError, resultsSource,
+  } = useFlightStore()
+
+  const [phase,             setPhase]             = useState<Phase>('loading')
+  const [doneSteps,         setDone]              = useState<number[]>([])
+  const [displayResults,    setDisplayResults]     = useState<FlightItinerary[]>([])
+  const [showWidget,        setShowWidget]         = useState(false)
+  const [showMobileFilters, setShowMobileFilters]  = useState(false)
+  const hasFetched = useRef(false)
 
   useEffect(() => {
+    if (hasFetched.current) return
+    hasFetched.current = true
+
     // Reveal steps one by one
-    const timers = LOADING_STEPS.map(({ ms }, i) =>
+    const stepTimers = LOADING_STEPS.map(({ ms }, i) =>
       setTimeout(() => setDone(d => [...d, i]), ms)
     )
-    // After all steps: generate results, move to summary
-    const resultTimer = setTimeout(() => {
-      setResults(generateMockResults(from, to, cabin, adults + children))
-      setPhase('summary')
-    }, 5000)
 
-    return () => { timers.forEach(clearTimeout); clearTimeout(resultTimer) }
-  }, [from, to, cabin, adults, children])
+    // Minimum 3.5s brand loading experience
+    const MIN_LOADING_MS = 3500
+    const start = Date.now()
+
+    setSearching(true)
+    setSearchError(null)
+
+    fetch('/api/flights/search', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ from, to, cabin, adults, children, infants, depart, return: returnD, trip }),
+    })
+      .then(r => r.json())
+      .then(data => {
+        const elapsed   = Date.now() - start
+        const remaining = Math.max(0, MIN_LOADING_MS - elapsed)
+        setTimeout(() => {
+          setResults(data.results ?? [], data.source ?? 'mock')
+          setDisplayResults(data.results ?? [])
+          setSearching(false)
+          setPhase('summary')
+        }, remaining)
+      })
+      .catch(err => {
+        const elapsed   = Date.now() - start
+        const remaining = Math.max(0, MIN_LOADING_MS - elapsed)
+        setTimeout(() => {
+          setSearchError('Search failed — showing example results')
+          setSearching(false)
+          setPhase('summary')
+        }, remaining)
+        console.error('[search] fetch error:', err)
+      })
+
+    return () => { stepTimers.forEach(clearTimeout) }
+  }, [from, to, cabin, adults, children, infants, depart, returnD, trip]) // eslint-disable-line
+
+  // Also show stored results if available
+  useEffect(() => {
+    if (storeResults.length > 0 && displayResults.length === 0) {
+      setDisplayResults(storeResults)
+    }
+  }, [storeResults]) // eslint-disable-line
+
+  const results = displayResults.length > 0 ? displayResults : storeResults
 
   // ── LOADING ──────────────────────────────────────────────────────────────
   if (phase === 'loading') {
@@ -78,7 +129,6 @@ function SearchContent() {
         <p className="text-[#C9A84C] text-sm font-semibold mb-1">Walz Travels · Searching 900+ airlines...</p>
         <p className="text-white/30 text-xs mb-8">Comparing prices in real time</p>
 
-        {/* Steps */}
         <div className="bg-white/5 rounded-2xl p-6 space-y-3 w-full max-w-lg mb-6">
           {LOADING_STEPS.map((step, i) => (
             <div key={i} className={`flex items-center gap-3 transition-all duration-500 ${doneSteps.includes(i) ? 'opacity-100' : 'opacity-0'}`}>
@@ -88,7 +138,6 @@ function SearchContent() {
           ))}
         </div>
 
-        {/* AI message */}
         <div className="bg-[#C9A84C]/10 border border-[#C9A84C]/20 rounded-xl p-4 w-full max-w-lg">
           <p className="text-[#C9A84C] text-xs font-semibold mb-1">🤖 Walz AI</p>
           <p className="text-white/60 text-sm leading-relaxed">
@@ -108,6 +157,13 @@ function SearchContent() {
   if (phase === 'summary') {
     return (
       <div className="min-h-screen bg-[#0B1F3A] flex items-center justify-center px-4 py-16">
+        {resultsSource === 'mock' && (
+          <div className="absolute top-4 left-0 right-0 flex justify-center">
+            <div className="bg-amber-500/20 border border-amber-500/30 rounded-lg px-4 py-1.5 text-amber-200 text-xs font-medium">
+              Demo mode — showing example results (add DUFFEL_API_KEY for live prices)
+            </div>
+          </div>
+        )}
         <FlightSummaryBanner
           from={from} to={to}
           results={results}
@@ -136,6 +192,9 @@ function SearchContent() {
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="m15.232 5.232 3.536 3.536m-2.036-5.036a2.5 2.5 0 1 1 3.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
             </svg>
           </button>
+          {resultsSource === 'duffel' && (
+            <span className="text-green-400 text-[10px] font-semibold flex-shrink-0">● LIVE</span>
+          )}
           <span className="text-white/40 text-sm flex-shrink-0">{results.length} results</span>
         </div>
         {showWidget && (
@@ -171,17 +230,12 @@ function SearchContent() {
       {/* Body */}
       <div className="container-walz py-8">
         <div className="flex gap-6">
-          {/* Sidebar — desktop only */}
           <aside className="hidden lg:block w-64 flex-shrink-0">
             <FlightFilters results={results} />
           </aside>
-          {/* Results */}
           <div className="flex-1 min-w-0">
-            {/* Mobile filter trigger */}
             <div className="lg:hidden mb-4">
-              <button
-                type="button"
-                onClick={() => setShowMobileFilters(true)}
+              <button type="button" onClick={() => setShowMobileFilters(true)}
                 className="flex items-center gap-2 px-4 py-2.5 rounded-xl bg-white border border-[#0B1F3A]/10 text-sm font-medium text-[#0B1F3A] hover:border-[#0B1F3A]/20 transition-all">
                 <svg className="w-4 h-4 text-[#0B1F3A]/40" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 4a1 1 0 0 1 1-1h16a1 1 0 0 1 1 1v2a1 1 0 0 1-.293.707L13 13.414V19a1 1 0 0 1-.553.894l-4 2A1 1 0 0 1 7 21v-7.586L3.293 6.707A1 1 0 0 1 3 6V4z" />

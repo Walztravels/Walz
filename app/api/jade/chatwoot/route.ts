@@ -17,8 +17,8 @@ const INBOX_ID       = '3'
 
 const RESUME_AFTER_MINUTES = 30
 
-const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
-const openai    = new OpenAI({    apiKey: process.env.OPENAI_API_KEY })
+function getAnthropic() { return new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY ?? '' }) }
+function getOpenAI()    { return new OpenAI({ apiKey: process.env.OPENAI_API_KEY ?? 'sk-placeholder' }) }
 
 // ─── Travel DNA (kept for Chatwoot labels / handover trigger compatibility) ───
 
@@ -748,7 +748,7 @@ async function jadeReply(
   const model  = messages.length > 10 ? 'claude-haiku-4-5-20251001' : 'claude-sonnet-4-6'
 
   try {
-    const res = await anthropic.messages.create({
+    const res = await getAnthropic().messages.create({
       model, max_tokens: 600, system,
       messages: messages as Anthropic.MessageParam[],
     })
@@ -756,7 +756,7 @@ async function jadeReply(
   } catch (e) { console.error('[Jade] Claude failed:', e) }
 
   try {
-    const res = await openai.chat.completions.create({
+    const res = await getOpenAI().chat.completions.create({
       model: 'gpt-4o-mini', max_tokens: 600, temperature: 0.75,
       messages: [
         { role: 'system', content: system },

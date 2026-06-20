@@ -6,8 +6,8 @@ import { getAdminSession } from '@/lib/admin-auth'
 export const maxDuration = 60
 export const dynamic     = 'force-dynamic'
 
-const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
-const openai    = new OpenAI({    apiKey: process.env.OPENAI_API_KEY })
+function getAnthropic() { return new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY ?? '' }) }
+function getOpenAI()    { return new OpenAI({ apiKey: process.env.OPENAI_API_KEY ?? 'sk-placeholder' }) }
 
 // ─── Staff system prompt (role-aware) ─────────────────────────────────────────
 
@@ -69,7 +69,7 @@ async function staffJadeReply(
   const system = buildStaffPrompt(role, department, staffName)
 
   try {
-    const res = await anthropic.messages.create({
+    const res = await getAnthropic().messages.create({
       model:      'claude-sonnet-4-6',
       max_tokens: 1000,
       system,
@@ -81,7 +81,7 @@ async function staffJadeReply(
   }
 
   try {
-    const res = await openai.chat.completions.create({
+    const res = await getOpenAI().chat.completions.create({
       model: 'gpt-4o-mini', max_tokens: 1000, temperature: 0.7,
       messages: [
         { role: 'system', content: system },

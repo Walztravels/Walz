@@ -5,8 +5,8 @@ import OpenAI from 'openai'
 export const maxDuration = 60
 export const dynamic     = 'force-dynamic'
 
-const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
-const openai    = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
+function getAnthropic() { return new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY ?? '' }) }
+function getOpenAI()    { return new OpenAI({ apiKey: process.env.OPENAI_API_KEY ?? 'sk-placeholder' }) }
 
 // ─── JADE MASTER SYSTEM PROMPT ────────────────────────────────────────────────
 const JADE_SYSTEM = `You are Jade — the professional AI travel consultant and sales agent for Walz Travels.
@@ -135,7 +135,7 @@ interface JadeChatRequest {
 // ─── PRIMARY: CLAUDE ──────────────────────────────────────────────────────────
 async function callClaude(messages: Message[], systemPrompt: string, msgCount: number): Promise<string> {
   const model = msgCount > 10 ? 'claude-haiku-4-5-20251001' : 'claude-sonnet-4-6'
-  const response = await anthropic.messages.create({
+  const response = await getAnthropic().messages.create({
     model,
     max_tokens: 600,
     system:     systemPrompt,
@@ -146,7 +146,7 @@ async function callClaude(messages: Message[], systemPrompt: string, msgCount: n
 
 // ─── FALLBACK: OPENAI ─────────────────────────────────────────────────────────
 async function callOpenAI(messages: Message[], systemPrompt: string): Promise<string> {
-  const response = await openai.chat.completions.create({
+  const response = await getOpenAI().chat.completions.create({
     model:       'gpt-4o-mini',
     max_tokens:  600,
     temperature: 0.75,

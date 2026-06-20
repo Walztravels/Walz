@@ -2,9 +2,12 @@
 
 import { useState, Suspense } from 'react'
 import { useRouter } from 'next/navigation'
-import { MOCK_ITINERARY } from '@/lib/flights/mockData'
+import { MOCK_ITINERARY }    from '@/lib/flights/mockData'
 import { formatDuration, formatPrice, formatTime } from '@/lib/flights/utils'
-import type { FareOption } from '@/lib/flights/types'
+import { useFlightStore }    from '@/store/flightStore'
+import { FarePredictor }     from '@/components/flights/ai/FarePredictor'
+import { LoyaltyDashboard }  from '@/components/flights/loyalty/LoyaltyDashboard'
+import type { FareOption }   from '@/lib/flights/types'
 
 const FARE_OPTIONS: FareOption[] = [
   { name: 'Economy Light', price: 820,  currency: 'GBP', baggage: '1 × 7kg cabin only',  refundable: false, changeable: false, seatSelection: 'paid', lounge: false, meals: false },
@@ -13,43 +16,59 @@ const FARE_OPTIONS: FareOption[] = [
 ]
 
 const ANCILLARIES = [
-  { id: 'transfer',   icon: '🚗', name: 'Airport Transfer',      desc: 'Private car to/from airport',       price: 45,  popular: true,  link: ''       },
-  { id: 'hotel',      icon: '🏨', name: 'Hotel',                 desc: '1,000+ hotels at destination',      price: 0,   popular: false, link: '/hotels' },
-  { id: 'insurance',  icon: '🛡️', name: 'Travel Insurance',      desc: 'Comprehensive cover from £12/day',  price: 24,  popular: false, link: ''       },
-  { id: 'esim',       icon: '📡', name: 'Jade Connect eSIM',     desc: 'Data in 150+ countries from $9.99', price: 9,   popular: false, link: '/esim'  },
-  { id: 'visa',       icon: '📄', name: 'Visa Service',          desc: 'We handle your visa application',   price: 99,  popular: false, link: ''       },
-  { id: 'lounge',     icon: '🛋️', name: 'Airport Lounge',        desc: 'Access 1,300+ lounges worldwide',   price: 35,  popular: true,  link: ''       },
-  { id: 'fasttrack',  icon: '⚡', name: 'Fast Track Security',   desc: 'Skip the queues at security',       price: 18,  popular: false, link: ''       },
+  { id: 'transfer',   icon: '🚗', name: 'Airport Transfer',     desc: 'Private car to/from airport',       price: 45,  popular: true,  link: ''       },
+  { id: 'hotel',      icon: '🏨', name: 'Hotel',                desc: '1,000+ hotels at destination',      price: 0,   popular: false, link: '/hotels' },
+  { id: 'insurance',  icon: '🛡️', name: 'Travel Insurance',     desc: 'Comprehensive cover from £12/day',  price: 24,  popular: false, link: ''       },
+  { id: 'esim',       icon: '📡', name: 'Jade Connect eSIM',    desc: 'Data in 150+ countries from $9.99', price: 9,   popular: false, link: '/esim'  },
+  { id: 'visa',       icon: '📄', name: 'Visa Service',         desc: 'We handle your visa application',   price: 99,  popular: false, link: ''       },
+  { id: 'lounge',     icon: '🛋️', name: 'Airport Lounge',       desc: 'Access 1,300+ lounges worldwide',   price: 35,  popular: true,  link: ''       },
+  { id: 'fasttrack',  icon: '⚡', name: 'Fast Track Security',  desc: 'Skip the queues at security',       price: 18,  popular: false, link: ''       },
+]
+
+const TABLE_ROWS: { label: string; getValue: (f: FareOption) => string | boolean }[] = [
+  { label: 'Price',          getValue: f => formatPrice(f.price, f.currency)                                                   },
+  { label: 'Baggage',        getValue: f => f.baggage                                                                          },
+  { label: 'Refundable',     getValue: f => f.refundable                                                                       },
+  { label: 'Changeable',     getValue: f => f.changeable                                                                       },
+  { label: 'Seat selection', getValue: f => f.seatSelection === 'none' ? false : f.seatSelection === 'free' ? 'Free' : 'Paid' },
+  { label: 'Lounge access',  getValue: f => f.lounge                                                                           },
+  { label: 'Meals',          getValue: f => f.meals                                                                            },
 ]
 
 function DetailContent() {
   const router = useRouter()
+  const { selected, setSelected, setStep } = useFlightStore()
+  const it = selected ?? MOCK_ITINERARY
+
   const [selectedFare, setFare] = useState<FareOption>(FARE_OPTIONS[1])
   const [addedAnc,     setAdded] = useState<string[]>([])
 
-  const it  = MOCK_ITINERARY
-  const seg = it.segments[0]
+  // Ensure store has this itinerary selected
+  if (!selected) setSelected(it)
+
+  const seg     = it.segments[0]
+  const segLast = it.segments[it.segments.length - 1]
 
   const included = [
-    { ok: true,                      label: selectedFare.baggage,                              icon: '🧳' },
-    { ok: selectedFare.meals,        label: 'In-flight dining',                               icon: '🍽️' },
-    { ok: selectedFare.lounge,       label: 'Airport lounge access',                          icon: '🛋️' },
+    { ok: true,                              label: selectedFare.baggage,                                                                              icon: '🧳' },
+    { ok: selectedFare.meals,               label: 'In-flight dining',                                                                               icon: '🍽️' },
+    { ok: selectedFare.lounge,              label: 'Airport lounge access',                                                                          icon: '🛋️' },
     { ok: selectedFare.seatSelection !== 'none', label: `Seat selection${selectedFare.seatSelection === 'paid' ? ' (paid)' : ' (free)'}`, icon: '💺' },
-    { ok: selectedFare.changeable,   label: 'Date changes',                                   icon: '📅' },
-    { ok: selectedFare.refundable,   label: 'Refundable ticket',                              icon: '💰' },
-    { ok: true,                      label: 'Priority check-in',                              icon: '✅' },
-    { ok: selectedFare.lounge,       label: 'Priority boarding',                              icon: '🏃' },
+    { ok: selectedFare.changeable,          label: 'Date changes',                                                                                   icon: '📅' },
+    { ok: selectedFare.refundable,          label: 'Refundable ticket',                                                                              icon: '💰' },
+    { ok: true,                              label: 'Priority check-in',                                                                              icon: '✅' },
+    { ok: selectedFare.lounge,              label: 'Priority boarding',                                                                              icon: '🏃' },
   ]
 
-  const TABLE_ROWS: { label: string; getValue: (f: FareOption) => string | boolean }[] = [
-    { label: 'Price',           getValue: f => formatPrice(f.price, f.currency) },
-    { label: 'Baggage',         getValue: f => f.baggage                         },
-    { label: 'Refundable',      getValue: f => f.refundable                      },
-    { label: 'Changeable',      getValue: f => f.changeable                      },
-    { label: 'Seat selection',  getValue: f => f.seatSelection === 'none' ? false : f.seatSelection === 'free' ? 'Free' : 'Paid' },
-    { label: 'Lounge access',   getValue: f => f.lounge                          },
-    { label: 'Meals',           getValue: f => f.meals                           },
-  ]
+  function goToSeats() {
+    setStep('seats')
+    router.push(`/flights/seat-select?offer_id=${it.id}`)
+  }
+
+  function skipSeats() {
+    setStep('travellers')
+    router.push('/flights/traveller')
+  }
 
   return (
     <div className="min-h-screen bg-[#FAF7F2]">
@@ -68,23 +87,27 @@ function DetailContent() {
               <div className="w-16 h-16 rounded-2xl bg-white/10 flex items-center justify-center text-3xl mb-4">✈️</div>
               <p className="text-[#C9A84C] text-xs font-semibold tracking-[0.2em] uppercase mb-2">{seg.airlineName}</p>
               <h1 className="font-display text-3xl lg:text-4xl font-bold mb-3">
-                {seg.departureCity} → {it.segments[it.segments.length - 1].arrivalCity}
+                {seg.departureCity} → {segLast.arrivalCity}
               </h1>
               <div className="flex flex-wrap items-center gap-3 text-white/50 text-sm">
                 <span>{seg.aircraft}</span><span>·</span>
                 <span>{formatDuration(it.totalDuration)}</span><span>·</span>
-                <span>{seg.cabinClass.replace('_',' ')}</span><span>·</span>
+                <span>{seg.cabinClass.replace('_', ' ')}</span><span>·</span>
                 <span>{it.stops === 0 ? 'Direct' : `${it.stops} stop${it.stops > 1 ? 's' : ''}`}</span>
               </div>
             </div>
-            {/* Fare sidebar */}
+            {/* Fare summary */}
             <div className="bg-white/10 rounded-2xl p-5 min-w-[240px]">
               <p className="text-white/50 text-xs mb-1">Selected fare</p>
               <p className="text-3xl font-bold text-white mb-0.5">{formatPrice(selectedFare.price, selectedFare.currency)}</p>
               <p className="text-white/30 text-xs mb-4">per person · taxes included</p>
-              <button onClick={() => router.push('/flights/checkout')}
+              <button onClick={goToSeats}
                 className="w-full py-3 rounded-xl bg-[#C9A84C] text-[#0B1F3A] font-bold text-sm hover:bg-[#E8C87A] active:scale-[0.97] transition-all">
-                Continue →
+                Choose seats →
+              </button>
+              <button onClick={skipSeats}
+                className="w-full py-2.5 mt-2 rounded-xl bg-white/10 text-white/70 font-medium text-sm hover:bg-white/20 transition-all">
+                Skip seats
               </button>
             </div>
           </div>
@@ -98,13 +121,12 @@ function DetailContent() {
             </div>
             <div className="flex-1 relative">
               <div className="h-px bg-white/20" />
-              <div className="absolute inset-0 bg-gradient-to-r from-transparent via-[#C9A84C]/30 to-transparent h-px top-0" />
               <p className="text-white/40 text-xs text-center mt-1">{formatDuration(it.totalDuration)}</p>
             </div>
             <div className="text-right">
-              <p className="text-2xl font-bold">{formatTime(it.segments[it.segments.length - 1].arrivalTime)}</p>
-              <p className="text-[#C9A84C] font-semibold text-sm">{it.segments[it.segments.length - 1].arrivalIata}</p>
-              <p className="text-white/40 text-xs">{it.segments[it.segments.length - 1].arrivalCity}</p>
+              <p className="text-2xl font-bold">{formatTime(segLast.arrivalTime)}</p>
+              <p className="text-[#C9A84C] font-semibold text-sm">{segLast.arrivalIata}</p>
+              <p className="text-white/40 text-xs">{segLast.arrivalCity}</p>
             </div>
           </div>
         </div>
@@ -122,12 +144,12 @@ function DetailContent() {
               </div>
               <div className="p-4 grid grid-cols-2 gap-2">
                 {[
-                  { emoji: '🛋️', label: 'Business Suite',   span2: true  },
-                  { emoji: '🏛️', label: 'Lounge',           span2: false },
-                  { emoji: '🍽️', label: 'Fine Dining',      span2: false },
-                  { emoji: '🎬', label: 'Entertainment',    span2: false },
-                  { emoji: '🛁', label: 'Amenity Kit',      span2: false },
-                ].filter((_, i) => i < 5).map(({ emoji, label, span2 }, i) => (
+                  { emoji: '🛋️', label: 'Business Suite', span2: true  },
+                  { emoji: '🏛️', label: 'Lounge',         span2: false },
+                  { emoji: '🍽️', label: 'Fine Dining',    span2: false },
+                  { emoji: '🎬', label: 'Entertainment',  span2: false },
+                  { emoji: '🛁', label: 'Amenity Kit',    span2: false },
+                ].map(({ emoji, label, span2 }) => (
                   <div key={label}
                     className={`bg-[#F5F2EE] rounded-xl flex flex-col items-center justify-center py-8 ${span2 ? 'col-span-2 py-16' : ''}`}>
                     <span className="text-4xl mb-2">{emoji}</span>
@@ -144,16 +166,14 @@ function DetailContent() {
                 {included.map(({ ok, label, icon }) => (
                   <div key={label} className={`flex items-center gap-3 p-3 rounded-xl ${ok ? 'bg-green-50' : 'bg-[#F5F2EE]'}`}>
                     <span className="text-xl">{icon}</span>
-                    <div className="flex-1 min-w-0">
-                      <p className={`text-sm font-medium truncate ${ok ? 'text-green-800' : 'text-[#0B1F3A]/30'}`}>{label}</p>
-                    </div>
+                    <p className={`text-sm font-medium flex-1 min-w-0 truncate ${ok ? 'text-green-800' : 'text-[#0B1F3A]/30'}`}>{label}</p>
                     <span className={ok ? 'text-green-600' : 'text-[#0B1F3A]/20'}>{ok ? '✓' : '✗'}</span>
                   </div>
                 ))}
               </div>
             </div>
 
-            {/* Fare comparison table */}
+            {/* Fare comparison */}
             <div className="bg-white rounded-2xl overflow-hidden border border-black/5">
               <div className="p-5 border-b border-black/5">
                 <h2 className="font-display font-bold text-[#0B1F3A]">Compare Fare Types</h2>
@@ -177,9 +197,9 @@ function DetailContent() {
                         <td className="px-5 py-3 text-[#0B1F3A]/60 text-xs">{label}</td>
                         {FARE_OPTIONS.map(f => {
                           const v = getValue(f)
-                          const isSelected = selectedFare.name === f.name
+                          const isSel = selectedFare.name === f.name
                           return (
-                            <td key={f.name} className={`px-4 py-3 text-center ${isSelected ? 'bg-[#C9A84C]/5 font-semibold' : ''}`}>
+                            <td key={f.name} className={`px-4 py-3 text-center ${isSel ? 'bg-[#C9A84C]/5 font-semibold' : ''}`}>
                               {typeof v === 'boolean'
                                 ? <span className={v ? 'text-green-600' : 'text-[#0B1F3A]/20'}>{v ? '✓' : '✗'}</span>
                                 : <span className="text-[#0B1F3A] text-xs">{v}</span>}
@@ -208,7 +228,7 @@ function DetailContent() {
             <div className="bg-white rounded-2xl overflow-hidden border border-black/5">
               <div className="p-5 border-b border-black/5">
                 <h2 className="font-display font-bold text-[#0B1F3A]">Complete Your Trip</h2>
-                <p className="text-[#0B1F3A]/50 text-sm">Add extras and save up to 30% vs booking separately</p>
+                <p className="text-[#0B1F3A]/50 text-sm">Save up to 30% vs booking separately</p>
               </div>
               <div className="divide-y divide-black/5">
                 {ANCILLARIES.map(item => (
@@ -241,7 +261,7 @@ function DetailContent() {
           </div>
 
           {/* Sticky sidebar */}
-          <aside>
+          <aside className="space-y-4">
             <div className="bg-white rounded-2xl p-5 border border-black/5 sticky top-24 space-y-4">
               <h3 className="font-display font-bold text-[#0B1F3A]">Price Summary</h3>
               <div className="space-y-2 text-sm">
@@ -253,30 +273,31 @@ function DetailContent() {
                   <span className="text-[#0B1F3A]/60">Taxes & fees</span>
                   <span className="font-medium text-[#0B1F3A]">{formatPrice(Math.round(selectedFare.price * 0.25))}</span>
                 </div>
-                <div className="flex justify-between">
-                  <span className="text-[#0B1F3A]/60">Baggage</span>
-                  <span className="font-medium text-green-600">Included</span>
-                </div>
                 <div className="border-t border-black/5 pt-2 flex justify-between">
                   <span className="font-bold text-[#0B1F3A]">Total</span>
                   <span className="font-bold text-xl text-[#0B1F3A]">{formatPrice(selectedFare.price)}</span>
                 </div>
-                <p className="text-[#0B1F3A]/30 text-xs">All taxes included</p>
               </div>
-              <button onClick={() => router.push('/flights/checkout')}
-                className="w-full py-3.5 rounded-xl bg-[#C9A84C] text-[#0B1F3A] font-bold text-sm hover:bg-[#E8C87A] active:scale-[0.97] transition-all flex items-center justify-center gap-2">
-                Continue to checkout
-                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.5 4.5 21 12m0 0-7.5 7.5M21 12H3" />
-                </svg>
+              <button onClick={goToSeats}
+                className="w-full py-3.5 rounded-xl bg-[#C9A84C] text-[#0B1F3A] font-bold text-sm hover:bg-[#E8C87A] active:scale-[0.97] transition-all">
+                Choose seats →
               </button>
-              {/* Trust */}
+              <button onClick={skipSeats}
+                className="w-full py-2.5 rounded-xl bg-[#0B1F3A]/5 text-[#0B1F3A]/60 font-medium text-sm hover:bg-[#0B1F3A]/10 transition-all">
+                Skip seat selection
+              </button>
               <div className="grid grid-cols-2 gap-2">
                 {['🔒 SSL Secured', '✈️ IATA Partner', '💬 24/7 Support', '💰 Price Match'].map(t => (
-                  <div key={t} className="text-xs text-[#0B1F3A]/40 flex items-center gap-1">{t}</div>
+                  <div key={t} className="text-xs text-[#0B1F3A]/40">{t}</div>
                 ))}
               </div>
             </div>
+
+            {/* AI Fare Predictor */}
+            <FarePredictor itinerary={it} departDate={it.segments[0]?.departureTime?.slice(0, 10) ?? ''} />
+
+            {/* Loyalty earn preview */}
+            <LoyaltyDashboard variant="earn-preview" bookingValueGBP={selectedFare.price} />
           </aside>
         </div>
       </div>
