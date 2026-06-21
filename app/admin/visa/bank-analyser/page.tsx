@@ -1,144 +1,163 @@
 'use client'
 
-import { useState, useEffect, Component, type ReactNode } from 'react'
-import type {
-  BankStatementAnalysis, FinancialCredibilityScore, RiskFlag,
-  BehavioralAnomaly, MultiAgentConsensus,
-  AgentProgress, EnhancedBankAnalysis,
-} from '@/lib/analyzeBankStatement'
-import { ClientReportView } from '@/components/ClientReportView'
+import { useState, useEffect, useRef, useCallback } from 'react'
 
-// ─── Error boundary ───────────────────────────────────────────────────────────
+// ─── Types ─────────────────────────────────────────────────────────────────────
 
-class AnalysisErrorBoundary extends Component<
-  { children: ReactNode },
-  { hasError: boolean; error: string }
-> {
-  constructor(props: { children: ReactNode }) {
-    super(props)
-    this.state = { hasError: false, error: '' }
-  }
-  static getDerivedStateFromError(err: Error) {
-    return { hasError: true, error: err.message }
-  }
-  render() {
-    if (this.state.hasError) {
-      return (
-        <div className="bg-red-50 border border-red-200 rounded-xl p-5 text-red-700 mx-4 my-4">
-          <p className="font-bold mb-1">Could not display analysis results</p>
-          <p className="text-sm">{this.state.error}</p>
-          <p className="text-xs text-red-500 mt-2">
-            The analysis may have completed — check Supabase bank_statement_analyses table.
-            Try refreshing and running the analysis again.
-          </p>
-        </div>
-      )
-    }
-    return this.props.children
-  }
+interface VFSummary {
+  accountHolder: string | null
+  bank: string | null
+  currency: string
+  period: string
+  months: number
+  openingBalance: number
+  closingBalance: number
+  averageBalance: number
+  lowestBalance: number
+  highestBalance: number
+  totalCredits: number
+  totalDebits: number
+  transactionCount: number
+  regularIncomeDetected: boolean
+  averageMonthlySalary: number
 }
 
-// ─── Sanitize raw AI output before setting state ──────────────────────────────
-
-function safeArr<T>(x: unknown): T[] { return Array.isArray(x) ? x as T[] : [] }
-function safeStr(x: unknown, fallback = ''): string { return typeof x === 'string' ? x : fallback }
-function safeNum(x: unknown, fallback = 0): number   { const n = Number(x); return isNaN(n) ? fallback : n }
-function safeObj(x: unknown): Record<string, unknown> | null {
-  return x && typeof x === 'object' && !Array.isArray(x) ? x as Record<string, unknown> : null
+interface VFTransaction {
+  date: string
+  description: string
+  credit: number | null
+  debit: number | null
+  balance: number | null
+  flagged: boolean
+  flagReason: string | null
 }
 
-function sanitizeAnalysis(raw: unknown): BankStatementAnalysis {
-  const r = (raw ?? {}) as Record<string, unknown>
+interface VFRedFlag {
+  id: string
+  type: string
+  title: string
+  description: string
+  severity: 'HIGH' | 'MEDIUM' | 'LOW'
+  transaction: string | null
+  embassyInterpretation: string
+}
 
-  // Deep-sanitize nested objects so their array fields are never non-arrays
-  const sf  = safeObj(r.spendingForensics)
-  const soff = safeObj(r.sourceOfFundsForensics)
-  const sv  = safeObj(r.salaryVerification)
-  const os  = safeObj(r.officerSimulation)
-  const sofc = safeObj(r.sourceOfFundsClassification)
-  const ea  = safeArr<Record<string, unknown>>(r.embassyAssessments)
+interface VFAnalysis {
+  summary: VFSummary
+  approvalScore: number
+  scoreGrade: 'A' | 'B' | 'C' | 'D' | 'F'
+  approvalLikelihood: 'HIGH' | 'MEDIUM' | 'LOW' | 'VERY_LOW'
+  embassyEye: {
+    visaType: string
+    passport: string
+    officerVerdict: string
+    keyStrengths: string[]
+    keyWeaknesses: string[]
+    similarCasesApprovalRate: number
+  }
+  redFlags: VFRedFlag[]
+  positives: { title: string; description: string }[]
+  cashFlowAnalysis: {
+    incomeConsistency: string
+    spendingPattern: string
+    savingsRate: number
+    financialStability: string
+    balanceTrend: string
+  }
+  recommendation: string
+  suggestedActions: { priority: 'URGENT' | 'HIGH' | 'MEDIUM' | 'LOW'; action: string; reason: string }[]
+  documentsToAdd: string[]
+  transactions: VFTransaction[]
+}
 
-  // Sanitize each monthlyBreakdown item so .transactions is always an array
-  const monthlyBreakdown = safeArr<Record<string, unknown>>(r.monthlyBreakdown).map(m => {
-    const mo = (m ?? {}) as Record<string, unknown>
-    return { ...mo, transactions: safeArr(mo.transactions) }
-  }) as unknown as BankStatementAnalysis['monthlyBreakdown']
+type Tab = 'overview' | 'redflags' | 'embassy' | 'actions' | 'transactions'
+
+// ─── Safe coercers ─────────────────────────────────────────────────────────────
+
+function safeArr<T>(x: unknown): T[] { return Array.isArray(x) ? (x as T[]) : [] }
+function safeStr(x: unknown, fb = ''): string { return typeof x === 'string' ? x : fb }
+function safeNum(x: unknown, fb = 0): number { const n = Number(x); return isNaN(n) ? fb : n }
+
+function sanitizeVF(raw: unknown): VFAnalysis {
+  const r   = (raw ?? {}) as Record<string, unknown>
+  const sum = ((r.summary ?? {}) as Record<string, unknown>)
+  const ee  = ((r.embassyEye ?? {}) as Record<string, unknown>)
+  const cf  = ((r.cashFlowAnalysis ?? {}) as Record<string, unknown>)
+
+  const grades   = ['A', 'B', 'C', 'D', 'F'] as const
+  const likes    = ['HIGH', 'MEDIUM', 'LOW', 'VERY_LOW'] as const
+  const sevs     = ['HIGH', 'MEDIUM', 'LOW'] as const
+  const pris     = ['URGENT', 'HIGH', 'MEDIUM', 'LOW'] as const
 
   return {
-    ...(r as unknown as BankStatementAnalysis),
-    // ── Scalar fields ────────────────────────────────────────────────────────
-    status:                 (['PASS','REVIEW','FLAG'] as string[]).includes(r.status as string) ? r.status as 'PASS'|'REVIEW'|'FLAG' : 'REVIEW',
-    summary:                safeStr(r.summary),
-    agentNotes:             safeStr(r.agentNotes),
-    currency:               safeStr(r.currency),
-    statementPeriod:        safeStr(r.statementPeriod),
-    confidence:             (['high','medium','low'] as string[]).includes(r.confidence as string) ? r.confidence as 'high'|'medium'|'low' : 'medium',
-    averageMonthlyBalance:  safeNum(r.averageMonthlyBalance),
-    lowestBalance:          safeNum(r.lowestBalance),
-    highestBalance:         safeNum(r.highestBalance),
-    closingBalance:         safeNum(r.closingBalance),
-    totalCredits:           safeNum(r.totalCredits),
-    totalDebits:            safeNum(r.totalDebits),
-    estimatedMonthlyIncome: safeNum(r.estimatedMonthlyIncome),
-    embassyMinimumRequired: safeNum(r.embassyMinimumRequired),
-    overdraftCount:         safeNum(r.overdraftCount),
-    // ── Top-level array fields ───────────────────────────────────────────────
-    recommendations: safeArr<string>(r.recommendations).map(x => typeof x === 'string' ? x : JSON.stringify(x)),
-    warnings:        safeArr<string>(r.warnings).map(x => typeof x === 'string' ? x : JSON.stringify(x)),
-    suspiciousTransactions: safeArr<unknown>(r.suspiciousTransactions).map((t) => {
-      const tx = (safeObj(t) ?? {}) as Record<string, unknown>
-      return {
-        date: safeStr(tx.date), description: safeStr(tx.description),
-        amount: safeNum(tx.amount),
-        type: (tx.type === 'credit' ? 'credit' : 'debit') as 'credit'|'debit',
-        reason: safeStr(tx.reason),
-        severity: (['high','medium','low'] as string[]).includes(tx.severity as string) ? tx.severity as 'high'|'medium'|'low' : 'low',
-      }
-    }),
-    largeUnexplainedWithdrawals: safeArr<unknown>(r.largeUnexplainedWithdrawals).map((w) => {
-      const wx = (safeObj(w) ?? {}) as Record<string, unknown>
-      return { date: safeStr(wx.date), amount: safeNum(wx.amount), description: safeStr(wx.description) }
-    }),
-    monthlyBreakdown,
-    spendingCategories:  safeArr(r.spendingCategories),
-    sourceOfFunds:       safeArr(r.sourceOfFunds),
-    largeTransactions:   safeArr(r.largeTransactions),
-    balanceDipsBelow:    safeArr(r.balanceDipsBelow),
-    riskFlags:           safeArr(r.riskFlags),
-    embassyAssessments:  ea.map(a => ({ ...a, concerns: safeArr<string>(a.concerns) })) as unknown as BankStatementAnalysis['embassyAssessments'],
-    behavioralAnomalies: safeArr(r.behavioralAnomalies),
-    otherIncomeSources:  safeArr(r.otherIncomeSources),
-    // ── Nested objects — sanitize their inner arrays ─────────────────────────
-    spendingForensics: (sf ? {
-      ...sf,
-      dormantPeriods:    safeArr(sf.dormantPeriods),
-      recurringExpenses: safeArr<string>(sf.recurringExpenses),
-    } : r.spendingForensics) as unknown as BankStatementAnalysis['spendingForensics'],
-    sourceOfFundsForensics: (soff ? {
-      ...soff,
-      unexplainedCredits:  safeArr(soff.unexplainedCredits),
-      roundNumberDeposits: safeArr(soff.roundNumberDeposits),
-    } : r.sourceOfFundsForensics) as unknown as BankStatementAnalysis['sourceOfFundsForensics'],
-    salaryVerification: (sv ? {
-      ...sv,
-      depositDates:  safeArr<string>(sv.depositDates),
-      missingMonths: safeArr<string>(sv.missingMonths),
-    } : r.salaryVerification) as unknown as BankStatementAnalysis['salaryVerification'],
-    officerSimulation: (os ? {
-      ...os,
-      reasonsToApprove:  safeArr<string>(os.reasonsToApprove),
-      reasonsForConcern: safeArr<string>(os.reasonsForConcern),
-    } : r.officerSimulation) as unknown as BankStatementAnalysis['officerSimulation'],
-    sourceOfFundsClassification: (sofc ? {
-      ...sofc,
-      categories: safeArr(sofc.categories),
-    } : r.sourceOfFundsClassification) as unknown as BankStatementAnalysis['sourceOfFundsClassification'],
+    summary: {
+      accountHolder:        sum.accountHolder != null ? safeStr(sum.accountHolder) : null,
+      bank:                 sum.bank          != null ? safeStr(sum.bank)          : null,
+      currency:             safeStr(sum.currency, 'USD'),
+      period:               safeStr(sum.period,   'Unknown'),
+      months:               safeNum(sum.months,   0),
+      openingBalance:       safeNum(sum.openingBalance),
+      closingBalance:       safeNum(sum.closingBalance),
+      averageBalance:       safeNum(sum.averageBalance),
+      lowestBalance:        safeNum(sum.lowestBalance),
+      highestBalance:       safeNum(sum.highestBalance),
+      totalCredits:         safeNum(sum.totalCredits),
+      totalDebits:          safeNum(sum.totalDebits),
+      transactionCount:     safeNum(sum.transactionCount),
+      regularIncomeDetected: Boolean(sum.regularIncomeDetected),
+      averageMonthlySalary: safeNum(sum.averageMonthlySalary),
+    },
+    approvalScore:      Math.min(100, Math.max(0, safeNum(r.approvalScore))),
+    scoreGrade:         grades.includes(r.scoreGrade as never)         ? r.scoreGrade         as 'A'|'B'|'C'|'D'|'F'            : 'C',
+    approvalLikelihood: likes.includes(r.approvalLikelihood as never)  ? r.approvalLikelihood as 'HIGH'|'MEDIUM'|'LOW'|'VERY_LOW' : 'LOW',
+    embassyEye: {
+      visaType:                safeStr(ee.visaType,   'Unknown'),
+      passport:                safeStr(ee.passport,   'Unknown'),
+      officerVerdict:          safeStr(ee.officerVerdict),
+      keyStrengths:            safeArr<string>(ee.keyStrengths),
+      keyWeaknesses:           safeArr<string>(ee.keyWeaknesses),
+      similarCasesApprovalRate: safeNum(ee.similarCasesApprovalRate, 50),
+    },
+    redFlags: safeArr<Record<string, unknown>>(r.redFlags).map(f => ({
+      id:                   safeStr(f.id, Math.random().toString(36).slice(2)),
+      type:                 safeStr(f.type),
+      title:                safeStr(f.title),
+      description:          safeStr(f.description),
+      severity:             sevs.includes(f.severity as never) ? f.severity as 'HIGH'|'MEDIUM'|'LOW' : 'LOW',
+      transaction:          f.transaction != null ? safeStr(f.transaction) : null,
+      embassyInterpretation: safeStr(f.embassyInterpretation),
+    })),
+    positives: safeArr<Record<string, unknown>>(r.positives).map(p => ({
+      title:       safeStr(p.title),
+      description: safeStr(p.description),
+    })),
+    cashFlowAnalysis: {
+      incomeConsistency:  safeStr(cf.incomeConsistency),
+      spendingPattern:    safeStr(cf.spendingPattern),
+      savingsRate:        safeNum(cf.savingsRate),
+      financialStability: safeStr(cf.financialStability),
+      balanceTrend:       safeStr(cf.balanceTrend),
+    },
+    recommendation:   safeStr(r.recommendation),
+    suggestedActions: safeArr<Record<string, unknown>>(r.suggestedActions).map(a => ({
+      priority: pris.includes(a.priority as never) ? a.priority as 'URGENT'|'HIGH'|'MEDIUM'|'LOW' : 'LOW',
+      action:   safeStr(a.action),
+      reason:   safeStr(a.reason),
+    })),
+    documentsToAdd: safeArr<string>(r.documentsToAdd),
+    transactions:   safeArr<Record<string, unknown>>(r.transactions).map(t => ({
+      date:        safeStr(t.date),
+      description: safeStr(t.description),
+      credit:      t.credit  != null ? safeNum(t.credit)  : null,
+      debit:       t.debit   != null ? safeNum(t.debit)   : null,
+      balance:     t.balance != null ? safeNum(t.balance) : null,
+      flagged:     Boolean(t.flagged),
+      flagReason:  t.flagReason != null ? safeStr(t.flagReason) : null,
+    })),
   }
 }
 
-const MAX_MB = 50
-
-// ─── Helpers ──────────────────────────────────────────────────────────────────
+// ─── Helpers ───────────────────────────────────────────────────────────────────
 
 function fmt(n: number | null | undefined, currency = ''): string {
   if (n == null || isNaN(n)) return '—'
@@ -146,405 +165,169 @@ function fmt(n: number | null | undefined, currency = ''): string {
   const str = abs >= 1_000_000
     ? (abs / 1_000_000).toFixed(1) + 'M'
     : abs.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-  return currency ? `${currency} ${str}` : str
+  const prefix = n < 0 ? '-' : ''
+  return `${prefix}${currency ? currency + ' ' : ''}${str}`
 }
 
-function scoreColor(s: number): string {
-  if (s >= 80) return '#22c55e'
-  if (s >= 60) return '#eab308'
-  if (s >= 40) return '#f97316'
+function scoreColor(score: number): string {
+  if (score >= 75) return '#22c55e'
+  if (score >= 55) return '#f59e0b'
+  if (score >= 35) return '#f97316'
   return '#ef4444'
 }
 
-function scoreLabel(s: number): string {
-  if (s >= 80) return 'Excellent'
-  if (s >= 60) return 'Good'
-  if (s >= 40) return 'Fair'
-  return 'Poor'
-}
-
-function riskBadge(risk: 'low' | 'medium' | 'high') {
-  const m = { low: 'bg-green-100 text-green-700', medium: 'bg-yellow-100 text-yellow-700', high: 'bg-red-100 text-red-700' }
-  return `inline-block px-2 py-0.5 rounded-full text-xs font-semibold ${m[risk]}`
-}
-
-function flagColor(s: RiskFlag['status']) {
-  return { ok: 'bg-green-50 border-green-200 text-green-800', warning: 'bg-yellow-50 border-yellow-300 text-yellow-800', danger: 'bg-red-50 border-red-300 text-red-800' }[s]
-}
-function flagIcon(s: RiskFlag['status'])   { return s === 'ok' ? '✓' : s === 'warning' ? '!' : '✗' }
-function flagIconBg(s: RiskFlag['status']) { return s === 'ok' ? 'bg-green-500' : s === 'warning' ? 'bg-yellow-400' : 'bg-red-500' }
-
-function probColor(n: number) {
-  if (n >= 80) return '#22c55e'
-  if (n >= 60) return '#eab308'
-  if (n >= 40) return '#f97316'
+function gradeColor(grade: string): string {
+  if (grade === 'A') return '#22c55e'
+  if (grade === 'B') return '#84cc16'
+  if (grade === 'C') return '#f59e0b'
+  if (grade === 'D') return '#f97316'
   return '#ef4444'
 }
 
-// ─── Sub-components ───────────────────────────────────────────────────────────
-
-function ScoreCircle({ score, size = 100 }: { score: number; size?: number }) {
-  const r    = (size - 16) / 2
-  const circ = 2 * Math.PI * r
-  const dash = (score / 100) * circ
-  return (
-    <svg width={size} height={size} className="-rotate-90">
-      <circle cx={size/2} cy={size/2} r={r} fill="none" stroke="#e5e7eb" strokeWidth={8} />
-      <circle cx={size/2} cy={size/2} r={r} fill="none" stroke={scoreColor(score)} strokeWidth={8}
-        strokeDasharray={`${dash} ${circ}`} strokeLinecap="round" />
-    </svg>
-  )
-}
-
-function ProbCircle({ score, size = 80 }: { score: number; size?: number }) {
-  const r    = (size - 12) / 2
-  const circ = 2 * Math.PI * r
-  const dash = (score / 100) * circ
-  return (
-    <svg width={size} height={size} className="-rotate-90">
-      <circle cx={size/2} cy={size/2} r={r} fill="none" stroke="rgba(255,255,255,.1)" strokeWidth={6} />
-      <circle cx={size/2} cy={size/2} r={r} fill="none" stroke={probColor(score)} strokeWidth={6}
-        strokeDasharray={`${dash} ${circ}`} strokeLinecap="round" />
-    </svg>
-  )
-}
-
-function ScoreBar({ label, score }: { label: string; score: number }) {
-  return (
-    <div>
-      <div className="flex justify-between items-center mb-1">
-        <span className="text-xs font-medium text-gray-600">{label}</span>
-        <span className="text-xs font-bold" style={{ color: scoreColor(score) }}>{score}/100</span>
-      </div>
-      <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
-        <div className="h-full rounded-full" style={{ width: `${score}%`, backgroundColor: scoreColor(score) }} />
-      </div>
-    </div>
-  )
-}
-
-function ProbBar({ label, score }: { label: string; score: number }) {
-  return (
-    <div>
-      <div className="flex justify-between items-center mb-1">
-        <span className="text-xs text-white/70">{label}</span>
-        <span className="text-xs font-bold" style={{ color: probColor(score) }}>{score}%</span>
-      </div>
-      <div className="h-1.5 bg-white/10 rounded-full overflow-hidden">
-        <div className="h-full rounded-full" style={{ width: `${score}%`, backgroundColor: probColor(score) }} />
-      </div>
-    </div>
-  )
-}
-
-function StatusBadge({ status }: { status: 'PASS' | 'REVIEW' | 'FLAG' }) {
-  const m = { PASS: 'bg-green-100 text-green-800 border-green-300', REVIEW: 'bg-yellow-100 text-yellow-800 border-yellow-300', FLAG: 'bg-red-100 text-red-800 border-red-300' }
-  const i = { PASS: '✓', REVIEW: '◐', FLAG: '✗' }
-  return <span className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-sm font-bold border ${m[status]}`}>{i[status]} {status}</span>
-}
-
-function Section({ title, icon, children }: { title: string; icon: string; children: React.ReactNode }) {
-  return (
-    <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-      <div className="px-5 py-3.5 bg-gray-50 border-b border-gray-100 flex items-center gap-2">
-        <span className="text-base">{icon}</span>
-        <h3 className="text-sm font-bold text-gray-800 uppercase tracking-wide">{title}</h3>
-      </div>
-      <div className="p-5">{children}</div>
-    </div>
-  )
-}
-
-// ─── Multi-Agent Consensus Card ───────────────────────────────────────────────
-
-function ConsensusCard({ c }: { c: MultiAgentConsensus }) {
-  const colorMap: Record<string, { bg: string; text: string; icon: string }> = {
-    strong_approve:      { bg: 'bg-green-500',   text: 'STRONG APPROVAL',     icon: '✓✓' },
-    approve:             { bg: 'bg-green-400',   text: 'APPROVE',             icon: '✓'  },
-    approve_with_caution:{ bg: 'bg-yellow-500', text: 'APPROVE WITH CAUTION', icon: '◐'  },
-    conditional:         { bg: 'bg-orange-500', text: 'CONDITIONAL',          icon: '◐'  },
-    decline:             { bg: 'bg-red-500',    text: 'DECLINE',              icon: '✗'  },
+function likelihoodBadge(l: string) {
+  const map: Record<string, { bg: string; text: string }> = {
+    HIGH:     { bg: '#dcfce7', text: '#15803d' },
+    MEDIUM:   { bg: '#fef9c3', text: '#a16207' },
+    LOW:      { bg: '#ffedd5', text: '#c2410c' },
+    VERY_LOW: { bg: '#fee2e2', text: '#991b1b' },
   }
-  const cfg = colorMap[c.consensus] ?? colorMap.conditional
-  const agreeColor = c.agreementLevel === 'unanimous' ? 'text-green-400' : c.agreementLevel === 'majority' ? 'text-yellow-400' : 'text-orange-400'
+  return map[l] ?? { bg: '#f1f5f9', text: '#475569' }
+}
+
+function sevBadge(s: string) {
+  if (s === 'HIGH')   return 'bg-red-100 text-red-700 border border-red-200'
+  if (s === 'MEDIUM') return 'bg-amber-100 text-amber-700 border border-amber-200'
+  return 'bg-blue-100 text-blue-700 border border-blue-200'
+}
+
+function priDot(p: string) {
+  if (p === 'URGENT') return 'bg-red-500'
+  if (p === 'HIGH')   return 'bg-orange-500'
+  if (p === 'MEDIUM') return 'bg-amber-400'
+  return 'bg-blue-400'
+}
+
+// ─── Score Dial ────────────────────────────────────────────────────────────────
+
+function ScoreDial({ score, grade }: { score: number; grade: string }) {
+  const r   = 44
+  const c   = 2 * Math.PI * r
+  const arc = c * 0.75
+  const fill = arc * (score / 100)
+  const color = scoreColor(score)
 
   return (
-    <div className="rounded-2xl overflow-hidden border border-gray-200 shadow-sm">
-      <div className="bg-[#0f2040] px-5 py-3 flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <span className="text-[#c9a84c] text-xs font-bold uppercase tracking-widest">Multi-Agent Consensus</span>
-          <span className="text-[10px] text-white/40 bg-white/10 px-2 py-0.5 rounded-full">Level 11</span>
-        </div>
-        <span className={`text-xs font-bold ${agreeColor}`}>
-          {c.agreementLevel === 'unanimous' ? '● Unanimous' : c.agreementLevel === 'majority' ? '● Majority' : '◐ Split Decision'}
-        </span>
-      </div>
-
-      <div className="bg-[#0a1628] p-5 grid grid-cols-1 md:grid-cols-3 gap-4 items-center">
-        {/* Primary */}
-        <div className="text-center">
-          <p className="text-xs text-white/40 mb-1 uppercase tracking-wide">Primary</p>
-          <p className="text-[10px] text-white/50 mb-2">{c.primaryAgent}</p>
-          <p className={`text-sm font-bold uppercase ${c.primaryVerdict === 'recommend' ? 'text-green-400' : c.primaryVerdict === 'conditional' ? 'text-yellow-400' : 'text-red-400'}`}>
-            {c.primaryVerdict}
-          </p>
-          <p className="text-lg font-black mt-0.5" style={{ color: scoreColor(c.primaryScore) }}>{c.primaryScore}<span className="text-xs text-white/40">/100</span></p>
-        </div>
-
-        {/* Consensus */}
-        <div className="text-center">
-          <div className={`inline-flex items-center justify-center w-16 h-16 rounded-full ${cfg.bg} text-white text-2xl font-black mb-2`}>
-            {cfg.icon}
-          </div>
-          <p className="text-white font-bold text-sm">{cfg.text}</p>
-          <p className="text-white/50 text-xs mt-1 leading-relaxed">{c.consensusNote}</p>
-        </div>
-
-        {/* Secondary */}
-        <div className="text-center">
-          <p className="text-xs text-white/40 mb-1 uppercase tracking-wide">Validator</p>
-          <p className="text-[10px] text-white/50 mb-2">{c.secondaryAgent}</p>
-          <p className={`text-sm font-bold uppercase ${c.secondaryVerdict === 'recommend' ? 'text-green-400' : c.secondaryVerdict === 'conditional' ? 'text-yellow-400' : 'text-red-400'}`}>
-            {c.secondaryVerdict}
-          </p>
-          <p className="text-lg font-black mt-0.5" style={{ color: probColor(c.secondaryScore) }}>{c.secondaryScore}<span className="text-xs text-white/40">/100</span></p>
-        </div>
+    <div className="relative w-32 h-32 flex items-center justify-center flex-shrink-0">
+      <svg viewBox="0 0 100 100" className="absolute inset-0 w-full h-full -rotate-[135deg]">
+        <circle cx="50" cy="50" r={r} fill="none" stroke="rgba(255,255,255,0.1)" strokeWidth="8"
+          strokeDasharray={`${arc} ${c}`} strokeLinecap="round" />
+        <circle cx="50" cy="50" r={r} fill="none" stroke={color} strokeWidth="8"
+          strokeDasharray={`${fill} ${c}`} strokeLinecap="round"
+          style={{ transition: 'stroke-dasharray 1s ease' }} />
+      </svg>
+      <div className="relative flex flex-col items-center">
+        <span className="text-3xl font-black text-white leading-none">{score}</span>
+        <span className="text-xs font-bold mt-0.5" style={{ color }}>{grade}</span>
       </div>
     </div>
   )
 }
 
-// ─── Approval Probability Card ─────────────────────────────────────────────────
+// ─── Generated Letter Panel ────────────────────────────────────────────────────
 
-function ApprovalProbabilityCard({ a }: { a: BankStatementAnalysis }) {
-  const prob = a.approvalProbability
-  if (!prob) return null
-
-  return (
-    <div className="bg-[#0a1628] rounded-2xl overflow-hidden">
-      <div className="px-5 py-3 border-b border-white/10 flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <span className="text-[#c9a84c] text-xs font-bold uppercase tracking-widest">Approval Probability Engine</span>
-          <span className="text-[10px] text-white/40 bg-white/10 px-2 py-0.5 rounded-full">Level 12</span>
-        </div>
-        <span className={`text-xs font-bold px-2 py-0.5 rounded-full uppercase ${prob.riskFactors === 'none' ? 'bg-green-900 text-green-400' : prob.riskFactors === 'low' ? 'bg-yellow-900 text-yellow-400' : prob.riskFactors === 'medium' ? 'bg-orange-900 text-orange-400' : 'bg-red-900 text-red-400'}`}>
-          {prob.riskFactors} risk
-        </span>
-      </div>
-
-      <div className="p-5 grid grid-cols-1 md:grid-cols-3 gap-6">
-        <div className="flex flex-col items-center justify-center">
-          <div className="relative w-[120px] h-[120px]">
-            <ProbCircle score={prob.overall} size={120} />
-            <div className="absolute inset-0 flex flex-col items-center justify-center">
-              <span className="text-3xl font-black" style={{ color: probColor(prob.overall) }}>{prob.overall}</span>
-              <span className="text-[10px] text-white/40">% probability</span>
-            </div>
-          </div>
-          <p className="text-white/60 text-xs mt-2 text-center">Financial evidence<br/>supports approval</p>
-        </div>
-
-        <div className="md:col-span-2 space-y-3">
-          <ProbBar label="Financial Strength"        score={prob.financial} />
-          <ProbBar label="Source of Funds Clarity"  score={prob.sourceOfFunds} />
-          <ProbBar label="Transaction Authenticity" score={prob.transactionAuthenticity} />
-          <ProbBar label="Travel Affordability"     score={prob.travelAffordability} />
-          {prob.note && (
-            <p className="text-xs text-white/50 pt-1 leading-relaxed italic">"{prob.note}"</p>
-          )}
-        </div>
-      </div>
-    </div>
-  )
-}
-
-// ─── Immigration Officer Simulation ───────────────────────────────────────────
-
-function OfficerSimulationCard({ a }: { a: BankStatementAnalysis }) {
-  const sim = a.officerSimulation
-  if (!sim) return null
-
-  const recMap = {
-    approve:                  { color: 'bg-green-500', label: 'APPROVE', icon: '✓' },
-    approve_with_conditions:  { color: 'bg-yellow-500', label: 'APPROVE WITH CONDITIONS', icon: '◐' },
-    request_more_info:        { color: 'bg-orange-500', label: 'REQUEST MORE INFORMATION', icon: '?' },
-    refuse:                   { color: 'bg-red-500', label: 'REFUSE', icon: '✗' },
-  }
-  const rec = recMap[sim.approvalRecommendation] ?? recMap.request_more_info
-
-  return (
-    <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-      <div className="bg-[#0f2040] px-5 py-3.5 flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <span className="text-[#c9a84c] text-sm font-bold uppercase tracking-widest">Immigration Officer Simulation</span>
-          <span className="text-[10px] text-white/40 bg-white/10 px-2 py-0.5 rounded-full">Level 9</span>
-        </div>
-        <span className={`text-xs font-bold text-white px-3 py-1 rounded-full ${rec.color}`}>
-          {rec.icon} {rec.label}
-        </span>
-      </div>
-
-      <div className="p-5 space-y-5">
-        {/* Officer view prose */}
-        {sim.immigrationOfficerView && (
-          <div className="bg-[#0a1628] rounded-xl p-5">
-            <p className="text-[#c9a84c] text-[10px] uppercase tracking-widest font-bold mb-3">
-              First-Person Officer Assessment
-            </p>
-            <p className="text-blue-100 text-sm leading-relaxed whitespace-pre-line">
-              {sim.immigrationOfficerView}
-            </p>
-          </div>
-        )}
-
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {/* Reasons to approve */}
-          {(sim.reasonsToApprove?.length ?? 0) > 0 && (
-            <div className="bg-green-50 border border-green-200 rounded-xl p-4">
-              <p className="text-xs font-bold text-green-700 uppercase tracking-wide mb-3">Reasons to Approve</p>
-              <ul className="space-y-2">
-                {(sim.reasonsToApprove ?? []).map((r, i) => (
-                  <li key={i} className="flex items-start gap-2 text-xs text-green-800">
-                    <span className="flex-shrink-0 w-4 h-4 bg-green-500 text-white rounded-full flex items-center justify-center text-[9px] font-bold mt-0.5">{i+1}</span>
-                    {r}
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
-
-          {/* Reasons for concern */}
-          <div className={`rounded-xl p-4 border ${(sim.reasonsForConcern?.length ?? 0) > 0 ? 'bg-red-50 border-red-200' : 'bg-gray-50 border-gray-200'}`}>
-            <p className={`text-xs font-bold uppercase tracking-wide mb-3 ${(sim.reasonsForConcern?.length ?? 0) > 0 ? 'text-red-700' : 'text-gray-500'}`}>Reasons for Concern</p>
-            {(sim.reasonsForConcern?.length ?? 0) > 0 ? (
-              <ul className="space-y-2">
-                {(sim.reasonsForConcern ?? []).map((r, i) => (
-                  <li key={i} className="flex items-start gap-2 text-xs text-red-800">
-                    <span className="flex-shrink-0 text-red-500 mt-0.5">⚠</span>
-                    {r}
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              <p className="text-xs text-gray-500 italic">No significant concerns identified</p>
-            )}
-          </div>
-        </div>
-
-        {/* Officer conclusion */}
-        {sim.officerConclusion && (
-          <div className="bg-gray-50 border-l-4 border-[#0a1628] rounded-r-xl px-4 py-3">
-            <p className="text-xs font-bold text-gray-500 uppercase tracking-wide mb-1">Officer File Conclusion</p>
-            <p className="text-sm text-gray-800 leading-relaxed">{sim.officerConclusion}</p>
-          </div>
-        )}
-      </div>
-    </div>
-  )
-}
-
-// ─── Source of Funds Classification ───────────────────────────────────────────
-
-function SourceOfFundsClassificationCard({ a }: { a: BankStatementAnalysis }) {
-  const sof = a.sourceOfFundsClassification
-  if (!sof || !Array.isArray(sof.categories) || sof.categories.length === 0) return null
-
-  const typeColors: Record<string, string> = {
-    salary: '#22c55e', business_income: '#3b82f6', client_payments: '#6366f1',
-    investment: '#8b5cf6', rental: '#ec4899', foreign_transfer: '#f59e0b',
-    family_support: '#14b8a6', cash_deposit: '#f97316', unknown: '#9ca3af',
+function LetterPanel({ letter, letterType, onClose }: { letter: string; letterType: string; onClose: () => void }) {
+  function download() {
+    const blob = new Blob([letter], { type: 'text/plain' })
+    const a = document.createElement('a')
+    a.href = URL.createObjectURL(blob)
+    a.download = `${letterType.replace(/_/g, '-')}.txt`
+    a.click()
   }
 
   return (
-    <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-      <div className="px-5 py-3.5 bg-gray-50 border-b border-gray-100 flex items-center justify-between">
+    <div className="mt-4 bg-white border border-[#0B1F3A]/10 rounded-2xl overflow-hidden">
+      <div className="flex items-center justify-between px-5 py-3 bg-[#0B1F3A]">
+        <span className="text-sm font-bold text-white capitalize">
+          {letterType.replace(/_/g, ' ')}
+        </span>
         <div className="flex items-center gap-2">
-          <span className="text-base">💰</span>
-          <h3 className="text-sm font-bold text-gray-800 uppercase tracking-wide">Source of Funds Classification</h3>
-          <span className="text-[10px] text-gray-400 bg-gray-200 px-2 py-0.5 rounded-full">Level 3</span>
-        </div>
-        <span className="text-xs font-bold text-gray-500">Confidence: {sof.confidence}%</span>
-      </div>
-
-      <div className="p-5">
-        {/* Verified breakdown bar */}
-        <div className="mb-5">
-          <div className="flex gap-1 h-4 rounded-full overflow-hidden mb-2">
-            <div style={{ width: `${sof.verifiedPercentage}%`, backgroundColor: '#22c55e' }} title={`Verified: ${sof.verifiedPercentage}%`} />
-            <div style={{ width: `${sof.partiallyVerifiedPercentage}%`, backgroundColor: '#eab308' }} title={`Partial: ${sof.partiallyVerifiedPercentage}%`} />
-            <div style={{ width: `${sof.unverifiedPercentage}%`, backgroundColor: '#ef4444' }} title={`Unverified: ${sof.unverifiedPercentage}%`} />
-          </div>
-          <div className="flex gap-4 text-xs">
-            <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-green-500 inline-block" />Verified <span className="font-bold text-green-700">{sof.verifiedPercentage}%</span></span>
-            <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-yellow-400 inline-block" />Partial <span className="font-bold text-yellow-700">{sof.partiallyVerifiedPercentage}%</span></span>
-            <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-red-500 inline-block" />Unverified <span className="font-bold text-red-700">{sof.unverifiedPercentage}%</span></span>
-          </div>
-        </div>
-
-        {/* Category breakdown */}
-        <div className="space-y-3 mb-4">
-          {sof.categories.map((cat, i) => (
-            <div key={i}>
-              <div className="flex justify-between items-center mb-1">
-                <div className="flex items-center gap-2">
-                  <span className="font-medium text-xs text-gray-700">{cat.label}</span>
-                  <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${cat.verified === 'verified' ? 'bg-green-100 text-green-700' : cat.verified === 'partial' ? 'bg-yellow-100 text-yellow-700' : 'bg-red-100 text-red-700'}`}>
-                    {cat.verified}
-                  </span>
-                </div>
-                <span className="text-xs text-gray-500">{cat.percentage}%</span>
-              </div>
-              <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
-                <div className="h-full rounded-full" style={{ width: `${cat.percentage}%`, backgroundColor: typeColors[cat.type] ?? '#9ca3af' }} />
-              </div>
-              {cat.verificationNote && (
-                <p className="text-[10px] text-gray-400 mt-0.5">{cat.verificationNote}</p>
-              )}
-            </div>
-          ))}
-        </div>
-
-        <div className="bg-blue-50 border-l-4 border-blue-400 rounded-r-xl px-4 py-3">
-          <p className="text-sm text-gray-700">{sof.conclusion}</p>
+          <button onClick={() => navigator.clipboard.writeText(letter)}
+            className="text-xs px-3 py-1.5 rounded-lg bg-white/10 text-white hover:bg-white/20 transition-colors font-medium">
+            Copy
+          </button>
+          <button onClick={download}
+            className="text-xs px-3 py-1.5 rounded-lg bg-[#C9A84C] text-[#0B1F3A] hover:bg-[#E8C87A] transition-colors font-bold">
+            Download .txt
+          </button>
+          <button onClick={onClose} className="text-white/50 hover:text-white ml-1 transition-colors text-lg leading-none">
+            ×
+          </button>
         </div>
       </div>
+      <pre className="p-5 text-xs font-mono text-[#0B1F3A]/80 whitespace-pre-wrap leading-relaxed max-h-80 overflow-y-auto">
+        {letter}
+      </pre>
     </div>
   )
 }
 
-// ─── Main Page ────────────────────────────────────────────────────────────────
+// ─── Main page ─────────────────────────────────────────────────────────────────
+
+const VISA_TYPES = [
+  'UK Visitor', 'UK Student', 'UK Work', 'UK Family',
+  'Schengen Tourist', 'Schengen Business',
+  'Canada Visitor', 'Canada Student',
+  'USA B1/B2', 'UAE Visit', 'Australia Tourist',
+]
+
+const PASSPORT_TYPES = [
+  'Nigerian', 'Ghanaian', 'Kenyan', 'South African', 'Zimbabwean',
+  'Ethiopian', 'British', 'Canadian', 'Indian',
+]
+
+const STEPS = [
+  'Uploading document…',
+  'Running Claude forensic analysis…',
+  'Detecting red flags…',
+  'Scoring financial credibility…',
+  'Simulating visa officer review…',
+  'Compiling VisaFortress AI report…',
+]
+
+type AppEntry = { id: string; label: string; email: string; name: string }
 
 export default function BankAnalyserPage() {
-  const [file,        setFile]        = useState<File | null>(null)
-  const [destination, setDestination] = useState('')
-  const [clientName,  setClientName]  = useState('')
-  const [country,     setCountry]     = useState('Nigeria')
-  const [clientEmail, setClientEmail] = useState('')
+  // ── Form state ──────────────────────────────────────────────────────────────
+  const [file,         setFile]         = useState<File | null>(null)
+  const [visaType,     setVisaType]     = useState('UK Visitor')
+  const [passport,     setPassport]     = useState('Nigerian')
+  const [clientName,   setClientName]   = useState('')
+  const [clientEmail,  setClientEmail]  = useState('')
 
-  const [loading,     setLoading]     = useState(false)
-  const [progress,    setProgress]    = useState('')
-  const [analysis,    setAnalysis]    = useState<BankStatementAnalysis | null>(null)
-  const [appId,       setAppId]       = useState('')
-  const [error,       setError]       = useState('')
+  // ── App linking ─────────────────────────────────────────────────────────────
+  const [appList,       setAppList]       = useState<AppEntry[]>([])
+  const [linkedAppId,   setLinkedAppId]   = useState('')
+  const [bankStmtUrl,   setBankStmtUrl]   = useState<string | null>(null)
+  const [bankStmtFetch, setBankStmtFetch] = useState(false)
 
-  const [activeTab,    setActiveTab]    = useState<'internal' | 'client'>('internal')
-  const [reportUrl,    setReportUrl]    = useState('')
-  const [publishBusy,  setPublishBusy]  = useState(false)
-  const [emailBusy,    setEmailBusy]    = useState(false)
-  const [emailSent,    setEmailSent]    = useState(false)
-  const [workflowMsg,  setWorkflowMsg]  = useState('')
-  const [pdfBusy,      setPdfBusy]      = useState(false)
-  const [pdfEmailBusy, setPdfEmailBusy] = useState(false)
-  const [pdfEmailSent, setPdfEmailSent] = useState(false)
+  // ── Analysis state ──────────────────────────────────────────────────────────
+  const [loading,   setLoading]   = useState(false)
+  const [progress,  setProgress]  = useState('')
+  const [error,     setError]     = useState('')
+  const [analysis,  setAnalysis]  = useState<VFAnalysis | null>(null)
 
-  // Link to submitted application
-  const [appList,        setAppList]        = useState<{ id: string; label: string; email: string; name: string }[]>([])
-  const [linkedAppId,    setLinkedAppId]    = useState('')
-  const [bankStmtUrl,    setBankStmtUrl]    = useState<string | null>(null)
-  const [bankStmtFetch,  setBankStmtFetch]  = useState(false)
+  // ── Results UI ──────────────────────────────────────────────────────────────
+  const [activeTab,    setActiveTab]    = useState<Tab>('overview')
+  const [letterLoading, setLetterLoading] = useState<string | null>(null)
+  const [letter,       setLetter]       = useState<{ text: string; type: string } | null>(null)
 
+  // ── Drag and drop ───────────────────────────────────────────────────────────
+  const dropRef   = useRef<HTMLLabelElement>(null)
+  const [dragging, setDragging] = useState(false)
+
+  // ── Load application list ───────────────────────────────────────────────────
   useEffect(() => {
-    fetch('/api/admin/visa-applications?status=documents_pending&status=under_review&status=ready_to_submit&limit=100')
+    fetch('/api/admin/visa-applications?limit=100')
       .then(r => r.ok ? r.json() : null)
       .then((d: { applications?: { id: string; firstName: string; lastName: string; email: string; referenceNumber?: string }[] } | null) => {
         if (!d?.applications) return
@@ -563,10 +346,10 @@ export default function BankAnalyserPage() {
     setBankStmtUrl(null)
     if (!id) return
     const app = appList.find(a => a.id === id)
-    if (!app) return
-    if (!clientName)  setClientName(app.name)
-    if (!clientEmail) setClientEmail(app.email)
-    // Fetch application details to get uploaded bank statement URL
+    if (app) {
+      if (!clientName)  setClientName(app.name)
+      if (!clientEmail) setClientEmail(app.email)
+    }
     fetch(`/api/admin/visa-applications/${id}`)
       .then(r => r.ok ? r.json() : null)
       .then((d: { application?: { bank_statement_url?: string; bank_statement_admin_url?: string } } | null) => {
@@ -576,7 +359,6 @@ export default function BankAnalyserPage() {
       .catch(() => {})
   }
 
-  // Fetch an existing application's bank statement and set it as the current file
   async function handleScanExistingDoc() {
     if (!bankStmtUrl) return
     setBankStmtFetch(true)
@@ -586,11 +368,9 @@ export default function BankAnalyserPage() {
       if (!res.ok) throw new Error(`Could not fetch document (${res.status})`)
       const blob = await res.blob()
       const name = bankStmtUrl.split('/').pop()?.split('?')[0] ?? 'bank-statement.pdf'
-      const f    = new File([blob], name, { type: blob.type || 'application/pdf' })
-      setFile(f)
+      setFile(new File([blob], name, { type: blob.type || 'application/pdf' }))
       setAnalysis(null)
-      setReportUrl('')
-      setEmailSent(false)
+      setLetter(null)
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to load document')
     } finally {
@@ -598,65 +378,57 @@ export default function BankAnalyserPage() {
     }
   }
 
-  // ── Direct-upload analyse handler (calls /api/admin/visa/analyse with FormData) ──
-  async function handleDirectAnalyse() {
-    if (!file) { setError('Please upload a bank statement file.'); return }
-    if (!destination.trim()) { setError('Please select the destination country.'); return }
-    if (!clientName.trim())  { setError('Please enter the client name.'); return }
+  // ── Drag handlers ───────────────────────────────────────────────────────────
+  const onDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault()
+    setDragging(false)
+    const f = e.dataTransfer.files[0]
+    if (f) { setFile(f); setAnalysis(null); setLetter(null); setError('') }
+  }, [])
 
-    const sizeMB = file.size / 1024 / 1024
-    if (sizeMB > MAX_MB) {
-      setError(`File too large (${sizeMB.toFixed(1)} MB). Maximum is ${MAX_MB} MB.`)
-      return
-    }
+  // ── Analyse ─────────────────────────────────────────────────────────────────
+  async function handleAnalyse() {
+    if (!file) { setError('Please upload a bank statement.'); return }
+    if (!clientName.trim()) { setError('Please enter the client name.'); return }
+    if (file.size > 50 * 1024 * 1024) { setError('File too large — maximum 50 MB.'); return }
 
     setLoading(true)
     setError('')
     setAnalysis(null)
-    setReportUrl('')
-    setEmailSent(false)
-    setAgentPipeline([])
+    setLetter(null)
+    setProgress(STEPS[0])
 
-    const STEPS_TEXT = [
-      'Reading bank statement…',
-      'Running Claude forensic analysis…',
-      'Cross-validating with OpenAI GPT-4o…',
-      'Scoring financial credibility…',
-      'Simulating visa officer review…',
-      'Compiling VisaFortress AI report…',
-    ]
     let stepIdx = 0
-    setProgress(STEPS_TEXT[0])
-    const stepTimer = setInterval(() => {
-      stepIdx = Math.min(stepIdx + 1, STEPS_TEXT.length - 1)
-      setProgress(STEPS_TEXT[stepIdx])
-    }, 8000)
+    const timer = setInterval(() => {
+      stepIdx = Math.min(stepIdx + 1, STEPS.length - 1)
+      setProgress(STEPS[stepIdx])
+    }, 9000)
 
     try {
       const fd = new FormData()
       fd.append('file', file)
-      fd.append('destination', destination)
+      fd.append('visaType', visaType)
+      fd.append('passportCountry', passport)
       fd.append('applicantName', clientName)
-      fd.append('passportCountry', country)
       if (linkedAppId) fd.append('applicationId', linkedAppId)
+      // DO NOT set Content-Type — browser sets multipart boundary automatically
 
-      // DO NOT set Content-Type — browser sets it automatically with multipart boundary
       const res = await fetch('/api/admin/visa/analyse', { method: 'POST', body: fd })
-      clearInterval(stepTimer)
+      clearInterval(timer)
 
       if (!res.ok) {
         const err = await res.json().catch(() => ({ error: `HTTP ${res.status}` }))
         throw new Error(err.error ?? `Analysis failed (${res.status})`)
       }
+
       const data = await res.json()
-      if (!data.success || !data.result) throw new Error('No analysis returned from VisaFortress AI')
+      if (!data.success || !data.analysis) throw new Error('No analysis returned from VisaFortress AI')
 
-      setAnalysis(sanitizeAnalysis(data.result))
-      setAppId(linkedAppId || `standalone-${Date.now()}`)
+      setAnalysis(sanitizeVF(data.analysis))
+      setActiveTab('overview')
       setProgress('')
-      setActiveTab('internal')
     } catch (e: unknown) {
-      clearInterval(stepTimer)
+      clearInterval(timer)
       setError(e instanceof Error ? e.message : String(e))
       setProgress('')
     } finally {
@@ -664,1472 +436,569 @@ export default function BankAnalyserPage() {
     }
   }
 
-  // V2 — 6-agent pipeline
-  const [useV2,         setUseV2]         = useState(true)
-  const [agentPipeline, setAgentPipeline] = useState<AgentProgress[]>([])
-
-  const fileSizeMB = file ? file.size / 1024 / 1024 : 0
-
-  async function handleAnalyse() {
-    if (!file || !destination.trim() || !clientName.trim()) {
-      setError('Please fill in all fields and select a PDF file.')
-      return
-    }
-    if (fileSizeMB > MAX_MB) {
-      setError(`File too large (${fileSizeMB.toFixed(1)} MB). Maximum is ${MAX_MB} MB.`)
-      return
-    }
-
-    setLoading(true); setError(''); setAnalysis(null); setReportUrl(''); setEmailSent(false)
-
-    try {
-      setProgress('Preparing secure upload…')
-      const presignRes = await fetch('/api/admin/bank-analyser/presign', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ fileSize: file.size }),
-      })
-      if (!presignRes.ok) {
-        const j = await presignRes.json().catch(() => ({ error: presignRes.statusText }))
-        throw new Error(j?.error ?? `Presign failed (${presignRes.status})`)
-      }
-      const { uploadUrl, storagePath } = await presignRes.json()
-
-      setProgress(`Uploading ${fileSizeMB.toFixed(1)} MB…`)
-      const putRes = await fetch(uploadUrl, { method: 'PUT', headers: { 'Content-Type': 'application/pdf' }, body: file })
-      if (!putRes.ok) throw new Error(`Upload failed (${putRes.status})`)
-
-      setProgress('Running multi-agent forensic analysis — may take 45–120 seconds…')
-      const id = linkedAppId || `standalone-${Date.now()}`
-      const res = await fetch('/api/analyze-bank-statement', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-target-table': 'bank_statement_analyses' },
-        body: JSON.stringify({ applicationId: id, storagePath, destination, applicantName: clientName, passportCountry: country, uploadedBy: 'admin' }),
-      })
-      if (!res.ok) {
-        const j = await res.json().catch(() => ({ error: `HTTP ${res.status}` }))
-        throw new Error(j?.error ?? `Analysis failed (${res.status})`)
-      }
-      const data = await res.json()
-      if (!data.success || !data.analysis) throw new Error('No analysis returned')
-
-      setAnalysis(sanitizeAnalysis(data.analysis))
-      setAppId(id)
-      setProgress('')
-      setActiveTab('internal')
-    } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : String(e))
-      setProgress('')
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  async function handleAnalyseV2() {
-    if (!file || !destination.trim() || !clientName.trim()) {
-      setError('Please fill in all fields and select a PDF file.')
-      return
-    }
-    if (fileSizeMB > MAX_MB) {
-      setError(`File too large (${fileSizeMB.toFixed(1)} MB). Maximum is ${MAX_MB} MB.`)
-      return
-    }
-
-    setLoading(true); setError(''); setAnalysis(null); setReportUrl('')
-    setEmailSent(false); setAgentPipeline([])
-
-    try {
-      // Step 1: Upload via presign (same as v1)
-      setProgress('Preparing secure upload…')
-      const presignRes = await fetch('/api/admin/bank-analyser/presign', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ fileSize: file.size }),
-      })
-      if (!presignRes.ok) {
-        const j = await presignRes.json().catch(() => ({ error: presignRes.statusText }))
-        throw new Error(j?.error ?? `Presign failed (${presignRes.status})`)
-      }
-      const { uploadUrl, storagePath } = await presignRes.json()
-
-      setProgress(`Uploading ${fileSizeMB.toFixed(1)} MB…`)
-      const putRes = await fetch(uploadUrl, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/pdf' },
-        body: file,
-      })
-      if (!putRes.ok) throw new Error(`Upload failed (${putRes.status})`)
-
-      // Step 2: SSE stream from 6-agent pipeline
-      setProgress('Launching 6-agent forensic pipeline…')
-      const id = linkedAppId || `standalone-${Date.now()}`
-
-      const sseRes = await fetch('/api/admin/bank-analyser/analyse-v2', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          storagePath, destination,
-          applicantName: clientName,
-          passportCountry: country,
-          applicationId: id,
-        }),
-      })
-
-      if (!sseRes.ok || !sseRes.body) {
-        const j = await sseRes.json().catch(() => ({ error: `HTTP ${sseRes.status}` }))
-        throw new Error(j?.error ?? `Analysis failed (${sseRes.status})`)
-      }
-
-      // Read SSE stream
-      const reader  = sseRes.body.getReader()
-      const decoder = new TextDecoder()
-      let buffer    = ''
-
-      while (true) {
-        const { done, value } = await reader.read()
-        if (done) break
-        buffer += decoder.decode(value, { stream: true })
-
-        const lines = buffer.split('\n\n')
-        buffer = lines.pop() ?? ''
-
-        for (const chunk of lines) {
-          const dataLine = chunk.split('\n').find(l => l.startsWith('data: '))
-          if (!dataLine) continue
-          const json = dataLine.slice(6)
-          try {
-            const msg = JSON.parse(json) as { type: string; payload: unknown }
-
-            if (msg.type === 'progress') {
-              const p = msg.payload as AgentProgress
-              setAgentPipeline(prev => {
-                const next = prev.filter(a => a.agent !== p.agent)
-                return [...next, p].sort((a, b) => a.agent - b.agent)
-              })
-              setProgress(`Agent ${p.agent}: ${p.name} — ${p.status}`)
-            }
-
-            if (msg.type === 'result') {
-              const raw = msg.payload as EnhancedBankAnalysis
-              setAnalysis(sanitizeAnalysis(raw))
-              setAppId(id)
-              setProgress('')
-              setActiveTab('internal')
-            }
-
-            if (msg.type === 'error') {
-              const e = msg.payload as { message: string }
-              throw new Error(e.message)
-            }
-          } catch (parseErr) {
-            if (parseErr instanceof Error && parseErr.message !== 'Unexpected end of JSON input') {
-              throw parseErr
-            }
-          }
-        }
-      }
-    } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : String(e))
-      setProgress('')
-    } finally {
-      setLoading(false)
-    }
-  }
-
-  async function handlePublish() {
+  // ── Generate letter ─────────────────────────────────────────────────────────
+  async function generateLetter(letterType: string) {
     if (!analysis) return
-    setPublishBusy(true); setWorkflowMsg('')
+    setLetterLoading(letterType)
+    setLetter(null)
     try {
-      const res = await fetch('/api/admin/bank-analyser/publish-report', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ analysis, clientName, clientEmail, destination, passportCountry: country, applicationId: appId }),
-      })
-      const data = await res.json()
-      if (!res.ok) throw new Error(data.error ?? 'Could not publish report')
-      setReportUrl(data.reportUrl)
-      setWorkflowMsg('Report link generated.')
-    } catch (e: unknown) {
-      setWorkflowMsg(e instanceof Error ? e.message : String(e))
-    } finally {
-      setPublishBusy(false)
-    }
-  }
-
-  async function handleSendEmail() {
-    if (!analysis || !clientEmail) { setWorkflowMsg('Enter client email first.'); return }
-    setEmailBusy(true); setWorkflowMsg('')
-    try {
-      const res = await fetch('/api/admin/bank-analyser/send-email', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ clientEmail, clientName, destination, analysis, refId: appId, reportUrl }),
-      })
-      const data = await res.json()
-      if (!res.ok) throw new Error(data.error ?? 'Could not send email')
-      setEmailSent(true)
-      setWorkflowMsg(`Email sent to ${clientEmail}`)
-    } catch (e: unknown) {
-      setWorkflowMsg(e instanceof Error ? e.message : String(e))
-    } finally {
-      setEmailBusy(false)
-    }
-  }
-
-  async function handleDownloadPdf() {
-    if (!analysis) return
-    setPdfBusy(true); setWorkflowMsg('')
-    try {
-      const res = await fetch('/api/admin/visa/report', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          analysis, applicantName: clientName, destination, passportCountry: country,
-          applicationId: appId, action: 'download',
-        }),
-      })
-      if (!res.ok) {
-        const j = await res.json().catch(() => ({}))
-        throw new Error(j.error ?? `PDF generation failed (${res.status})`)
-      }
-      const blob = await res.blob()
-      const url  = URL.createObjectURL(blob)
-      const a    = document.createElement('a')
-      a.href     = url
-      a.download = `Walz-Visa-Report-${clientName.replace(/\s+/g, '-')}.pdf`
-      document.body.appendChild(a)
-      a.click()
-      document.body.removeChild(a)
-      URL.revokeObjectURL(url)
-      setWorkflowMsg('PDF downloaded.')
-    } catch (e) {
-      setWorkflowMsg(e instanceof Error ? e.message : 'PDF download failed')
-    } finally {
-      setPdfBusy(false)
-    }
-  }
-
-  async function handleEmailPdfReport() {
-    if (!analysis || !clientEmail) { setWorkflowMsg('Enter client email first.'); return }
-    setPdfEmailBusy(true); setWorkflowMsg('')
-    try {
-      const res = await fetch('/api/admin/visa/report', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          analysis, applicantName: clientName, destination, passportCountry: country,
-          email: clientEmail, applicationId: appId, action: 'email',
+      const res = await fetch('/api/admin/visa/generate-letter', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({
+          letterType,
+          clientName: clientName || analysis.summary.accountHolder || 'Applicant',
+          visaType,
+          passport,
+          analysis,
         }),
       })
       const data = await res.json()
-      if (!res.ok) throw new Error(data.error ?? 'Could not send PDF report')
-      setPdfEmailSent(true)
-      setWorkflowMsg(`PDF report emailed to ${clientEmail}`)
+      if (!res.ok || !data.success) throw new Error(data.error ?? 'Letter generation failed')
+      setLetter({ text: data.letter, type: letterType })
     } catch (e) {
-      setWorkflowMsg(e instanceof Error ? e.message : 'Email failed')
+      setError(e instanceof Error ? e.message : 'Letter generation failed')
     } finally {
-      setPdfEmailBusy(false)
+      setLetterLoading(null)
     }
   }
 
-  const fcs: FinancialCredibilityScore | undefined = analysis?.financialCredibilityScore ?? analysis?.visaScore
+  // ── Render helpers ──────────────────────────────────────────────────────────
 
-  // ─────────────────────────────────────────────────────────────────────────
+  const highFlags = analysis?.redFlags.filter(f => f.severity === 'HIGH').length ?? 0
+  const currency  = analysis?.summary.currency ?? ''
 
-  return (
-    <div className="min-h-screen bg-[#f7f8fc]">
+  // ─── Upload state ───────────────────────────────────────────────────────────
+  const uploadPanel = (
+    <div className="max-w-2xl mx-auto px-4 py-10 space-y-6">
+      {/* App linking */}
+      {appList.length > 0 && (
+        <div className="bg-white rounded-2xl border border-[#0B1F3A]/8 p-5">
+          <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">
+            Link to Submitted Application <span className="font-normal text-gray-400">(optional)</span>
+          </label>
+          <select value={linkedAppId} onChange={e => handleLinkApp(e.target.value)}
+            className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#C9A84C]">
+            <option value="">— standalone analysis —</option>
+            {appList.map(a => <option key={a.id} value={a.id}>{a.label}</option>)}
+          </select>
 
-      {/* Top bar */}
-      <div className="bg-[#0a1628] text-white px-6 py-4 flex items-center justify-between sticky top-0 z-20 print:hidden">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-[#C9A84C] flex items-center justify-center flex-shrink-0">
-            <span className="text-[#0a1628] font-black text-sm">VF</span>
+          {linkedAppId && bankStmtUrl && (
+            <div className="mt-3 flex items-center gap-3 p-3 bg-emerald-50 border border-emerald-200 rounded-xl">
+              <span className="text-emerald-600 text-lg flex-shrink-0">📄</span>
+              <div className="flex-1 min-w-0">
+                <p className="text-xs font-semibold text-emerald-800">Bank statement found on this application</p>
+                <p className="text-[10px] text-emerald-600 truncate">{bankStmtUrl.split('/').pop()?.split('?')[0]}</p>
+              </div>
+              <button onClick={handleScanExistingDoc} disabled={bankStmtFetch}
+                className="flex-shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 text-white text-xs font-bold hover:bg-emerald-700 disabled:opacity-40 transition-colors">
+                {bankStmtFetch
+                  ? <><span className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin" /> Loading…</>
+                  : '⚡ Scan This Doc'}
+              </button>
+            </div>
+          )}
+          {linkedAppId && bankStmtUrl === null && (
+            <p className="mt-2 text-xs text-amber-600">⚠ No bank statement uploaded to this application yet.</p>
+          )}
+        </div>
+      )}
+
+      {/* Analysis config */}
+      <div className="bg-white rounded-2xl border border-[#0B1F3A]/8 p-5 space-y-4">
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Visa Type</label>
+            <select value={visaType} onChange={e => setVisaType(e.target.value)}
+              className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#C9A84C]">
+              {VISA_TYPES.map(v => <option key={v}>{v}</option>)}
+            </select>
           </div>
           <div>
-            <h1 className="text-lg font-bold tracking-tight">VisaFortress <span className="text-[#C9A84C]">AI</span></h1>
-            <p className="text-xs text-white/40">Claude + GPT-4o Dual-AI · Walz Travels Admin</p>
+            <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Passport Nationality</label>
+            <select value={passport} onChange={e => setPassport(e.target.value)}
+              className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#C9A84C]">
+              {PASSPORT_TYPES.map(p => <option key={p}>{p}</option>)}
+            </select>
           </div>
         </div>
-        {analysis && (
-          <div className="flex items-center gap-2">
-            <button onClick={() => setActiveTab('internal')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${activeTab === 'internal' ? 'bg-white text-[#0a1628]' : 'text-white/70 hover:text-white'}`}>
-              🔒 Internal View
-            </button>
-            <button onClick={() => setActiveTab('client')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${activeTab === 'client' ? 'bg-[#c9a84c] text-[#0a1628]' : 'text-white/70 hover:text-white'}`}>
-              📄 Client Report
-            </button>
+
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Client Name</label>
+            <input value={clientName} onChange={e => setClientName(e.target.value)}
+              placeholder="Full name"
+              className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#C9A84C]" />
+          </div>
+          <div>
+            <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Client Email <span className="font-normal text-gray-400">(optional)</span></label>
+            <input value={clientEmail} onChange={e => setClientEmail(e.target.value)}
+              type="email" placeholder="email@example.com"
+              className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#C9A84C]" />
+          </div>
+        </div>
+
+        {/* File drop zone */}
+        <div>
+          <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Bank Statement</label>
+          <label
+            ref={dropRef}
+            onDragOver={e => { e.preventDefault(); setDragging(true) }}
+            onDragLeave={() => setDragging(false)}
+            onDrop={onDrop}
+            className={`flex flex-col items-center justify-center gap-2 cursor-pointer border-2 border-dashed rounded-2xl px-4 py-8 transition-all ${
+              dragging ? 'border-[#C9A84C] bg-amber-50' : file ? 'border-emerald-400 bg-emerald-50' : 'border-gray-200 hover:border-[#C9A84C] hover:bg-amber-50/30'
+            }`}>
+            <span className="text-3xl">{file ? '✅' : '📄'}</span>
+            <div className="text-center">
+              <p className="text-sm font-semibold text-[#0B1F3A]">
+                {file ? file.name : 'Drag & drop or click to upload'}
+              </p>
+              <p className="text-xs text-gray-400 mt-0.5">
+                {file
+                  ? `${(file.size / 1024 / 1024).toFixed(1)} MB`
+                  : 'PDF, PNG, JPG, WEBP · Max 50 MB'}
+              </p>
+            </div>
+            <input type="file" accept=".pdf,.png,.jpg,.jpeg,.webp" className="hidden"
+              onChange={e => {
+                const f = e.target.files?.[0]
+                if (f) { setFile(f); setAnalysis(null); setLetter(null); setError('') }
+              }} />
+          </label>
+        </div>
+
+        {error && (
+          <div className="bg-red-50 border border-red-200 rounded-xl px-4 py-3 text-sm text-red-700 font-medium">
+            {error}
+          </div>
+        )}
+
+        <button onClick={handleAnalyse}
+          disabled={loading || !file || !clientName.trim()}
+          className="w-full py-3.5 rounded-xl font-bold text-sm transition-all disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2 bg-[#0B1F3A] hover:bg-[#132038] text-white">
+          {loading
+            ? <><span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" /> {progress || 'Running VisaFortress AI…'}</>
+            : <><span className="text-[#C9A84C] font-black">VF</span> Analyse with VisaFortress AI</>}
+        </button>
+
+        {!analysis && !loading && (
+          <div className="grid grid-cols-3 gap-3">
+            {[
+              { icon: '🎯', title: 'Approval Score', desc: '0-100 credibility rating' },
+              { icon: '🚩', title: 'Red Flag Detector', desc: 'Parking, NSFs, circular transfers' },
+              { icon: '📝', title: 'Auto Letters', desc: '5 letter types generated by Claude' },
+            ].map(f => (
+              <div key={f.title} className="text-center p-3 bg-[#F5F7FA] rounded-xl">
+                <div className="text-xl mb-1">{f.icon}</div>
+                <p className="text-xs font-bold text-[#0B1F3A]">{f.title}</p>
+                <p className="text-[10px] text-gray-400 mt-0.5">{f.desc}</p>
+              </div>
+            ))}
           </div>
         )}
       </div>
+    </div>
+  )
 
-      {/* Client Report Tab */}
-      <AnalysisErrorBoundary>
-      {analysis && activeTab === 'client' && (
-        <ClientReportView
-          analysis={analysis}
-          clientName={clientName}
-          destination={destination}
-          onPrint={() => {
-            if (reportUrl) {
-              window.open(reportUrl, '_blank')
-            } else {
-              window.print()
-            }
-          }}
-        />
-      )}
-      </AnalysisErrorBoundary>
+  // ─── Results state ──────────────────────────────────────────────────────────
+  const resultsPanel = analysis && (
+    <div className="flex-1 overflow-auto">
+      {/* Score banner */}
+      <div className="bg-[#0B1F3A] px-6 py-5">
+        <div className="max-w-5xl mx-auto flex items-center gap-6">
+          <ScoreDial score={analysis.approvalScore} grade={analysis.scoreGrade} />
 
-      {/* Internal View + Upload */}
-      {(activeTab === 'internal' || !analysis) && (
-        <div className="max-w-6xl mx-auto px-4 py-8 space-y-6">
-
-          {/* Upload card */}
-          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 print:hidden">
-            <div className="flex items-center justify-between mb-5">
-              <div>
-                <h2 className="text-base font-bold text-gray-800">VisaFortress Analysis</h2>
-                <p className="text-xs text-gray-400 mt-0.5">Upload a bank statement or scan one from an existing application</p>
-              </div>
-              <span className="text-[10px] font-bold bg-[#0a1628] text-[#C9A84C] px-2.5 py-1 rounded-full uppercase tracking-widest">Dual AI</span>
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-3 flex-wrap mb-1">
+              <h2 className="text-white font-bold text-lg leading-tight truncate">
+                {analysis.summary.accountHolder || clientName || 'Analysis Complete'}
+              </h2>
+              {(() => {
+                const lb = likelihoodBadge(analysis.approvalLikelihood)
+                return (
+                  <span className="text-[10px] font-bold px-2.5 py-1 rounded-full whitespace-nowrap"
+                    style={{ backgroundColor: lb.bg, color: lb.text }}>
+                    {analysis.approvalLikelihood.replace('_', ' ')} LIKELIHOOD
+                  </span>
+                )
+              })()}
             </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
-              <div>
-                <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Client Name</label>
-                <input type="text" value={clientName} onChange={e => setClientName(e.target.value)}
-                  placeholder="Full name as on passport"
-                  className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
-              </div>
-              <div>
-                <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Client Email</label>
-                <input type="email" value={clientEmail} onChange={e => setClientEmail(e.target.value)}
-                  placeholder="client@email.com"
-                  className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
-              </div>
-              <div>
-                <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Passport Country</label>
-                <select value={country} onChange={e => setCountry(e.target.value)}
-                  className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
-                  {['Nigeria','Ghana','Kenya','South Africa','India','Pakistan','Bangladesh','Philippines','Egypt','Morocco','Other'].map(c => (
-                    <option key={c}>{c}</option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Destination</label>
-                <select value={destination} onChange={e => setDestination(e.target.value)}
-                  className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
-                  <option value="">Select destination…</option>
-                  {[
-                    { value: 'uk',        label: '🇬🇧 United Kingdom' },
-                    { value: 'canada',    label: '🇨🇦 Canada' },
-                    { value: 'schengen',  label: '🇪🇺 Schengen / Europe' },
-                    { value: 'uae',       label: '🇦🇪 UAE' },
-                    { value: 'usa',       label: '🇺🇸 United States' },
-                    { value: 'australia', label: '🇦🇺 Australia' },
-                  ].map(d => <option key={d.value} value={d.value}>{d.label}</option>)}
-                </select>
-              </div>
-              {appList.length > 0 && (
-                <div className="md:col-span-2">
-                  <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">
-                    Link to Submitted Application <span className="font-normal text-gray-400">(optional)</span>
-                  </label>
-                  <select value={linkedAppId} onChange={e => handleLinkApp(e.target.value)}
-                    className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
-                    <option value="">— standalone analysis —</option>
-                    {appList.map(a => (
-                      <option key={a.id} value={a.id}>{a.label}</option>
-                    ))}
-                  </select>
-                  {linkedAppId && !bankStmtUrl && (
-                    <p className="text-xs text-green-700 mt-1">✓ Analysis will be saved to this application</p>
-                  )}
-                  {linkedAppId && bankStmtUrl && (
-                    <div className="mt-2 flex items-center gap-2 p-3 bg-emerald-50 border border-emerald-200 rounded-lg">
-                      <span className="text-emerald-600 text-base flex-shrink-0">📄</span>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-xs font-semibold text-emerald-800">Bank statement found on this application</p>
-                        <p className="text-[10px] text-emerald-600 truncate">{bankStmtUrl.split('/').pop()?.split('?')[0] ?? 'document'}</p>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={handleScanExistingDoc}
-                        disabled={bankStmtFetch}
-                        className="flex-shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 text-white text-xs font-bold hover:bg-emerald-700 disabled:opacity-40 transition-colors">
-                        {bankStmtFetch
-                          ? <><span className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin" /> Loading…</>
-                          : '⚡ Scan This Document'}
-                      </button>
-                    </div>
-                  )}
-                  {linkedAppId && bankStmtUrl === null && (
-                    <p className="text-xs text-amber-600 mt-1">⚠ No bank statement uploaded to this application yet. Upload a file below.</p>
-                  )}
-                </div>
-              )}
-              <div className="md:col-span-2">
-                <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">
-                  Bank Statement PDF <span className="font-normal text-gray-400">(max {MAX_MB} MB)</span>
-                </label>
-                <label className="flex items-center gap-3 cursor-pointer border-2 border-dashed border-gray-200 rounded-lg px-3 py-3 hover:border-[#C9A84C] hover:bg-amber-50/50 transition-all group">
-                  <span className="text-2xl group-hover:scale-110 transition-transform">{file ? '✅' : '📄'}</span>
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm text-gray-700 font-medium truncate">
-                      {file ? file.name : 'Click to upload PDF, PNG, JPG or WEBP'}
-                    </p>
-                    <p className="text-[11px] text-gray-400">
-                      {file ? `${(file.size / 1024 / 1024).toFixed(1)} MB` : `Max ${MAX_MB} MB · Bank statement in any format`}
-                    </p>
-                  </div>
-                  <input type="file" accept=".pdf,.png,.jpg,.jpeg,.webp" className="hidden"
-                    onChange={e => { setFile(e.target.files?.[0] ?? null); setError(''); setAnalysis(null); setReportUrl(''); setEmailSent(false) }} />
-                </label>
-              </div>
-            </div>
-
-            {error && (
-              <div className="mb-4 bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg text-sm">{error}</div>
-            )}
-            {progress && (
-              <div className="mb-4 flex items-center gap-3 text-sm text-blue-700 bg-blue-50 border border-blue-100 px-4 py-3 rounded-lg">
-                <div className="w-4 h-4 border-2 border-blue-500 border-t-transparent rounded-full animate-spin flex-shrink-0" />
-                {progress}
-              </div>
-            )}
-
-            {/* V2 Agent Pipeline Progress */}
-            {loading && useV2 && agentPipeline.length > 0 && (
-              <div className="mb-4 bg-[#0a1628] rounded-xl p-4">
-                <p className="text-[10px] text-[#c9a84c] font-bold uppercase tracking-widest mb-3">
-                  6-Agent Forensic Pipeline
-                </p>
-                <div className="space-y-2">
-                  {agentPipeline.map(a => (
-                    <div key={a.agent} className="flex items-center gap-3">
-                      <span className={`flex-shrink-0 w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold ${
-                        a.status === 'done'    ? 'bg-green-500 text-white' :
-                        a.status === 'running' ? 'bg-[#c9a84c] text-[#0a1628]' :
-                        a.status === 'error'   ? 'bg-red-500 text-white' :
-                        'bg-white/10 text-white/40'
-                      }`}>
-                        {a.status === 'running' ? (
-                          <span className="w-3 h-3 border border-current border-t-transparent rounded-full animate-spin" />
-                        ) : a.status === 'done' ? '✓' : a.status === 'error' ? '✗' : a.agent}
-                      </span>
-                      <div className="flex-1 min-w-0">
-                        <span className={`text-xs font-semibold ${
-                          a.status === 'done' ? 'text-green-400' :
-                          a.status === 'running' ? 'text-[#c9a84c]' :
-                          a.status === 'error' ? 'text-red-400' : 'text-white/30'
-                        }`}>
-                          Agent {a.agent}: {a.name}
-                        </span>
-                        {a.finding && (
-                          <p className="text-[10px] text-white/50 truncate">{a.finding}</p>
-                        )}
-                      </div>
-                      {a.ms && (
-                        <span className="text-[10px] text-white/30 flex-shrink-0">
-                          {(a.ms / 1000).toFixed(1)}s
-                        </span>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            <button onClick={handleDirectAnalyse}
-              disabled={loading || !file || !destination || !clientName}
-              className="w-full bg-[#0a1628] hover:bg-[#132038] disabled:opacity-40 disabled:cursor-not-allowed text-white font-bold py-3.5 rounded-xl text-sm transition-colors flex items-center justify-center gap-2">
-              {loading ? (
-                <><span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" /> {progress || 'Running VisaFortress AI…'}</>
-              ) : (
-                <><span className="text-[#C9A84C]">VF</span> Analyse with VisaFortress AI</>
-              )}
-            </button>
+            <p className="text-white/50 text-xs mb-2">
+              {visaType} · {passport} · {analysis.summary.period} · {currency}
+            </p>
+            <p className="text-white/70 text-sm leading-relaxed line-clamp-2">{analysis.recommendation}</p>
           </div>
 
-          {/* Workflow actions */}
-          {analysis && (
-            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5 print:hidden">
-              <h3 className="text-sm font-bold text-gray-700 uppercase tracking-wide mb-4">Report Workflow</h3>
-              <div className="flex flex-wrap gap-3 items-center">
-
-                {/* Step 1 — generate shareable link */}
-                <button onClick={handlePublish} disabled={publishBusy}
-                  className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold transition-colors ${reportUrl ? 'bg-green-100 text-green-700' : 'bg-[#0a1628] text-white hover:bg-[#132038]'} disabled:opacity-40`}>
-                  {publishBusy ? <><div className="w-3 h-3 border-2 border-current border-t-transparent rounded-full animate-spin" /> Generating…</> : reportUrl ? '✓ Link Generated' : '🔗 Generate Client Link'}
-                </button>
-
-                {/* Step 2 — copy + preview (only after link exists) */}
-                {reportUrl && (
-                  <button onClick={() => { navigator.clipboard.writeText(reportUrl); setWorkflowMsg('Link copied!') }}
-                    className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold bg-gray-100 text-gray-700 hover:bg-gray-200">
-                    📋 Copy Link
-                  </button>
-                )}
-                {reportUrl && (
-                  <a href={reportUrl} target="_blank" rel="noopener noreferrer"
-                    className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold bg-blue-50 text-blue-700 hover:bg-blue-100">
-                    👁 Preview Report
-                  </a>
-                )}
-
-                {/* Step 3 — send email (always available once analysis exists + email entered) */}
-                <button onClick={handleSendEmail} disabled={emailBusy || emailSent || !clientEmail}
-                  title={!clientEmail ? 'Add client email in the form above' : ''}
-                  className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold transition-colors ${emailSent ? 'bg-green-100 text-green-700' : 'bg-[#c9a84c] text-[#0a1628] hover:bg-[#b8973b]'} disabled:opacity-40 disabled:cursor-not-allowed`}>
-                  {emailBusy ? <><div className="w-3 h-3 border-2 border-current border-t-transparent rounded-full animate-spin" /> Sending…</> : emailSent ? '✓ Email Sent' : '📧 Send to Client'}
-                </button>
-
-                {/* Step 3b — view & print */}
-                <button onClick={() => { setActiveTab('client') }}
-                  className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold bg-gray-100 text-gray-700 hover:bg-gray-200">
-                  🖨 View & Print PDF
-                </button>
-
-                {/* Step 4 — download proper PDF via react-pdf */}
-                <button onClick={handleDownloadPdf} disabled={pdfBusy}
-                  className="flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold bg-[#0a1628] text-white hover:bg-[#132038] disabled:opacity-40 disabled:cursor-not-allowed">
-                  {pdfBusy
-                    ? <><div className="w-3 h-3 border-2 border-current border-t-transparent rounded-full animate-spin" /> Generating…</>
-                    : '⬇ Download PDF Report'}
-                </button>
-
-                {/* Step 5 — email PDF as attachment */}
-                <button onClick={handleEmailPdfReport} disabled={pdfEmailBusy || pdfEmailSent || !clientEmail}
-                  title={!clientEmail ? 'Add client email in the form above' : ''}
-                  className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold transition-colors ${pdfEmailSent ? 'bg-green-100 text-green-700' : 'bg-purple-600 text-white hover:bg-purple-700'} disabled:opacity-40 disabled:cursor-not-allowed`}>
-                  {pdfEmailBusy
-                    ? <><div className="w-3 h-3 border-2 border-current border-t-transparent rounded-full animate-spin" /> Sending PDF…</>
-                    : pdfEmailSent ? '✓ PDF Report Sent'
-                    : '📨 Email PDF Report'}
-                </button>
-              </div>
-
-              {/* Report URL display */}
-              {reportUrl && (
-                <div className="mt-3 flex items-center gap-2 bg-gray-50 border border-gray-200 rounded-lg px-3 py-2">
-                  <span className="text-xs text-gray-500 flex-shrink-0">Report URL:</span>
-                  <span className="text-xs text-blue-600 truncate font-mono">{reportUrl}</span>
-                </div>
-              )}
-
-              {!clientEmail && (
-                <p className="text-xs text-amber-600 mt-2">Add client email in the form above to enable email sending</p>
-              )}
-
-              {workflowMsg && (
-                <p className={`text-xs mt-2 font-medium whitespace-pre-wrap ${workflowMsg.toLowerCase().includes('sent') || workflowMsg.includes('copied') || workflowMsg.includes('generated') ? 'text-green-600' : 'text-red-600'}`}>
-                  {workflowMsg}
-                </p>
-              )}
+          <div className="flex-shrink-0 flex flex-col items-end gap-3">
+            <div className="text-right">
+              <p className="text-white/40 text-[10px] uppercase tracking-widest">Avg Balance</p>
+              <p className="text-white font-bold text-lg">{fmt(analysis.summary.averageBalance, currency)}</p>
             </div>
-          )}
+            <div className="text-right">
+              <p className="text-white/40 text-[10px] uppercase tracking-widest">Red Flags</p>
+              <p className={`font-bold text-lg ${analysis.redFlags.length > 0 ? 'text-red-400' : 'text-emerald-400'}`}>
+                {analysis.redFlags.length}
+                {highFlags > 0 && <span className="text-xs font-normal text-red-300 ml-1">({highFlags} HIGH)</span>}
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
 
-          {/* ══ INTERNAL ANALYST REPORT ════════════════════════════════ */}
-          <AnalysisErrorBoundary>
-          {analysis && (
-            <div className="space-y-5">
+      {/* Tab bar */}
+      <div className="border-b border-[#0B1F3A]/10 bg-white sticky top-0 z-10">
+        <div className="max-w-5xl mx-auto flex">
+          {([
+            { id: 'overview',      label: 'Overview' },
+            { id: 'redflags',     label: `Red Flags${analysis.redFlags.length > 0 ? ` (${analysis.redFlags.length})` : ''}` },
+            { id: 'embassy',      label: 'Embassy Eye' },
+            { id: 'actions',      label: 'Actions' },
+            { id: 'transactions', label: `Transactions${analysis.transactions.length > 0 ? ` (${analysis.transactions.length})` : ''}` },
+          ] as { id: Tab; label: string }[]).map(t => (
+            <button key={t.id} onClick={() => setActiveTab(t.id)}
+              className={`px-5 py-3.5 text-sm font-semibold whitespace-nowrap border-b-2 transition-colors ${
+                activeTab === t.id
+                  ? 'border-[#C9A84C] text-[#0B1F3A]'
+                  : 'border-transparent text-[#0B1F3A]/40 hover:text-[#0B1F3A]/70'
+              }`}>
+              {t.label}
+            </button>
+          ))}
+        </div>
+      </div>
 
-              <div className="flex items-center gap-3 bg-amber-50 border border-amber-200 rounded-xl px-4 py-2.5">
-                <span className="text-amber-600">🔒</span>
-                <p className="text-xs text-amber-800 font-semibold">Internal Analyst View — risk scores, officer simulation, and forensic findings are not shown to clients</p>
-              </div>
+      {/* Tab content */}
+      <div className="max-w-5xl mx-auto px-4 py-6 space-y-5">
 
-              {/* No-name warning */}
-              {!(analysis as EnhancedBankAnalysis).extractedStatement?.accountHolder && (
-                <div className="flex items-center gap-3 bg-red-50 border border-red-300 rounded-xl px-4 py-3">
-                  <span className="text-red-500 text-lg">⚠️</span>
-                  <div>
-                    <p className="text-sm font-bold text-red-700">Account holder name not detected</p>
-                    <p className="text-xs text-red-600 mt-0.5">The AI could not extract the account holder name from this statement. Verify the name manually and ensure the PDF is not a screenshot or scanned image without OCR.</p>
-                  </div>
-                </div>
-              )}
-
-              {/* Report header */}
-              <div className="bg-[#0a1628] text-white rounded-2xl p-6">
-                <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-                  <div>
-                    <div className="flex items-center gap-3 mb-2">
-                      <StatusBadge status={analysis.status} />
-                      <span className="text-sm text-blue-300">{analysis.analysisEngine}</span>
-                      {analysis.multiAgentConsensus && (
-                        <span className="text-xs bg-[#c9a84c]/20 text-[#c9a84c] px-2 py-0.5 rounded-full font-semibold">
-                          Multi-Agent ✓
-                        </span>
-                      )}
-                    </div>
-                    <h2 className="text-xl font-bold">{clientName || 'Applicant'}</h2>
-                    <p className="text-blue-300 text-sm mt-1">
-                      {analysis.statementPeriod} · {analysis.monthsAnalyzed} months · {analysis.currency}
-                    </p>
-                    <p className="text-blue-200 text-xs mt-0.5">{destination.toUpperCase()} visa · {country}</p>
-                  </div>
-                  {fcs && (
-                    <div className="flex items-center gap-4 bg-white/10 rounded-xl px-5 py-4 flex-shrink-0">
-                      <div className="relative w-[100px] h-[100px]">
-                        <ScoreCircle score={fcs.overall} size={100} />
-                        <div className="absolute inset-0 flex flex-col items-center justify-center">
-                          <span className="text-2xl font-black" style={{ color: scoreColor(fcs.overall) }}>{fcs.overall}</span>
-                          <span className="text-[10px] text-white/60">/ 100</span>
-                        </div>
-                      </div>
-                      <div>
-                        <p className="text-xs text-white/60 uppercase tracking-wider mb-0.5">Credibility Score</p>
-                        <p className="text-lg font-bold" style={{ color: scoreColor(fcs.overall) }}>{fcs.label ?? scoreLabel(fcs.overall)}</p>
-                        <p className="text-xs text-white/50 mt-1">Confidence: <span className="text-white/80 capitalize">{analysis.confidence}</span></p>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              {/* ── Forensic Verdict ─────────────────────────────────── */}
-              {analysis.finalVerdict && (
-                <div className={`rounded-2xl border-2 p-5 ${
-                  analysis.finalVerdict === 'recommend' ? 'bg-green-50 border-green-300' :
-                  analysis.finalVerdict === 'conditional' ? 'bg-yellow-50 border-yellow-300' :
-                  'bg-red-50 border-red-300'
-                }`}>
-                  <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-                    <div>
-                      <p className="text-xs font-bold uppercase tracking-wider text-gray-500 mb-1">Forensic Verdict</p>
-                      <p className={`text-2xl font-black ${
-                        analysis.finalVerdict === 'recommend' ? 'text-green-700' :
-                        analysis.finalVerdict === 'conditional' ? 'text-yellow-700' : 'text-red-700'
-                      }`}>
-                        {analysis.finalVerdict === 'recommend' ? '✓ RECOMMEND' :
-                         analysis.finalVerdict === 'conditional' ? '◐ CONDITIONAL' : '✗ DECLINE'}
-                      </p>
-                      <p className="text-sm text-gray-700 mt-1">{analysis.verdictReason}</p>
-                    </div>
-                    <div className="flex gap-4">
-                      {[
-                        { label: 'Fraud Indicators', value: analysis.fraudIndicators ?? 'none', map: { none: 'bg-green-100 text-green-700', low: 'bg-yellow-100 text-yellow-700', medium: 'bg-orange-100 text-orange-700', high: 'bg-red-100 text-red-700' } },
-                        { label: 'Embassy Risk', value: analysis.embassyRiskLevel ?? 'medium', map: { low: 'bg-green-100 text-green-700', medium: 'bg-yellow-100 text-yellow-700', high: 'bg-red-100 text-red-700' } },
-                      ].map(item => (
-                        <div key={item.label} className="text-center">
-                          <p className="text-xs text-gray-500 mb-1">{item.label}</p>
-                          <span className={`text-xs font-bold px-3 py-1 rounded-full uppercase ${(item.map as Record<string,string>)[item.value] ?? 'bg-gray-100 text-gray-600'}`}>
-                            {item.value}
-                          </span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {/* ── V2 Agent Pipeline Summary (post-analysis) ──────────── */}
-              {(analysis as EnhancedBankAnalysis).analysisVersion === 'v2.0-multi-agent' && (
-                <div className="bg-[#0a1628] rounded-2xl p-5">
-                  <div className="flex items-center justify-between mb-4">
-                    <div>
-                      <p className="text-[#c9a84c] text-xs font-bold uppercase tracking-widest">6-Agent Forensic Pipeline</p>
-                      <p className="text-white/40 text-[10px] mt-0.5">v2.0-multi-agent · Claude claude-sonnet-4-6 + GPT-4o</p>
-                    </div>
-                    <span className="text-xs text-white/40">
-                      {((analysis as EnhancedBankAnalysis).totalAnalysisMs / 1000).toFixed(1)}s total
-                    </span>
-                  </div>
-                  <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-                    {((analysis as EnhancedBankAnalysis).agentPipeline ?? []).map(a => (
-                      <div key={a.agent} className={`rounded-xl p-3 border ${
-                        a.status === 'done'  ? 'bg-green-900/20 border-green-700/30' :
-                        a.status === 'error' ? 'bg-red-900/20 border-red-700/30' :
-                        'bg-white/5 border-white/10'
-                      }`}>
-                        <div className="flex items-center gap-2 mb-1">
-                          <span className={`w-5 h-5 rounded-full flex items-center justify-center text-[9px] font-bold flex-shrink-0 ${
-                            a.status === 'done'  ? 'bg-green-500 text-white' :
-                            a.status === 'error' ? 'bg-red-500 text-white' :
-                            'bg-white/20 text-white/60'
-                          }`}>
-                            {a.status === 'done' ? '✓' : a.status === 'error' ? '✗' : a.agent}
-                          </span>
-                          <span className="text-[10px] font-bold text-white/70">Agent {a.agent}</span>
-                        </div>
-                        <p className="text-xs text-white/50">{a.name}</p>
-                        {a.finding && <p className="text-[10px] text-white/30 mt-1 line-clamp-2">{a.finding}</p>}
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* ── Mathematical Scores (V2) ────────────────────────────── */}
-              {(analysis as EnhancedBankAnalysis).mathematicalScore && (() => {
-                const ms = (analysis as EnhancedBankAnalysis).mathematicalScore
-                return (
-                  <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-                    <div className="px-5 py-3.5 bg-gray-50 border-b border-gray-100 flex items-center gap-2">
-                      <span>📐</span>
-                      <h3 className="text-sm font-bold text-gray-800 uppercase tracking-wide">Mathematical Scoring Engine</h3>
-                      <span className="text-[10px] text-gray-400 bg-gray-200 px-2 py-0.5 rounded-full">Deterministic</span>
-                    </div>
-                    <div className="p-5 grid grid-cols-1 md:grid-cols-3 gap-6">
-                      {[
-                        {
-                          label: 'Income Stability',
-                          score: ms.incomeStabilityFormula.computedScore,
-                          detail: `${ms.incomeStabilityFormula.monthsWithSalary}/${ms.incomeStabilityFormula.totalMonths} months with salary · Mean: ${Math.round(ms.incomeStabilityFormula.salaryMean).toLocaleString()}`,
-                          formula: `(${ms.incomeStabilityFormula.monthsWithSalary}/${ms.incomeStabilityFormula.totalMonths}×50) + (variance×30) + (clarity×20)`,
-                        },
-                        {
-                          label: 'Source of Funds',
-                          score: ms.sourceOfFundsFormula.computedScore,
-                          detail: `${Math.round(ms.sourceOfFundsFormula.namedSourceRatio * 100)}% verified · ${Math.round(ms.sourceOfFundsFormula.cashDepositRatio * 100)}% cash`,
-                          formula: `(verified/total×60) + (no_cash×20) + (named_sources×20)`,
-                        },
-                        {
-                          label: 'Balance Sustainability',
-                          score: ms.balanceSustainabilityFormula.computedScore,
-                          detail: `Min: ${Math.round(ms.balanceSustainabilityFormula.minBalance).toLocaleString()} vs threshold: ${Math.round(ms.balanceSustainabilityFormula.embassyThreshold).toLocaleString()}${ms.balanceSustainabilityFormula.parkingPenalty > 0 ? ' · ⚠ Parking penalty' : ''}`,
-                          formula: `(min/threshold×40) + (trend×30) - ${ms.balanceSustainabilityFormula.parkingPenalty} parking`,
-                        },
-                      ].map(item => (
-                        <div key={item.label} className="space-y-2">
-                          <div className="flex justify-between items-center">
-                            <span className="text-xs font-bold text-gray-700">{item.label}</span>
-                            <span className="text-sm font-black" style={{ color: scoreColor(item.score) }}>{item.score}/100</span>
-                          </div>
-                          <div className="h-2.5 bg-gray-100 rounded-full overflow-hidden">
-                            <div className="h-full rounded-full transition-all" style={{ width: `${item.score}%`, backgroundColor: scoreColor(item.score) }} />
-                          </div>
-                          <p className="text-[10px] text-gray-500">{item.detail}</p>
-                          <p className="text-[9px] text-gray-400 font-mono bg-gray-50 px-2 py-1 rounded">{item.formula}</p>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                )
-              })()}
-
-              {/* ── Predictive Assessment (V2) ──────────────────────────── */}
-              {(analysis as EnhancedBankAnalysis).predictiveAssessment && (() => {
-                const pred = (analysis as EnhancedBankAnalysis).predictiveAssessment
-                const trajColor = pred.financialTrajectory === 'improving' ? '#22c55e' : pred.financialTrajectory === 'declining' ? '#ef4444' : '#eab308'
-                return (
-                  <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-                    <div className="px-5 py-3.5 bg-gray-50 border-b border-gray-100 flex items-center gap-2">
-                      <span>📈</span>
-                      <h3 className="text-sm font-bold text-gray-800 uppercase tracking-wide">Predictive Financial Engine</h3>
-                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
-                        pred.financialTrajectory === 'improving' ? 'bg-green-100 text-green-700' :
-                        pred.financialTrajectory === 'declining' ? 'bg-red-100 text-red-700' :
-                        'bg-yellow-100 text-yellow-700'
-                      }`}>
-                        {pred.financialTrajectory === 'improving' ? '↗' : pred.financialTrajectory === 'declining' ? '↘' : '→'} {pred.financialTrajectory}
-                      </span>
-                    </div>
-                    <div className="p-5">
-                      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-5">
-                        {[
-                          { label: 'Now', score: pred.currentReadiness,     bal: analysis.closingBalance },
-                          { label: '30 days', score: pred.predictedReadiness30, bal: pred.projectedBalanceAt30 },
-                          { label: '60 days', score: pred.predictedReadiness60, bal: pred.projectedBalanceAt60 },
-                          { label: '90 days', score: pred.predictedReadiness90, bal: pred.projectedBalanceAt90 },
-                        ].map(item => (
-                          <div key={item.label} className="text-center bg-gray-50 rounded-xl p-3">
-                            <p className="text-[10px] text-gray-500 uppercase tracking-wide mb-1">{item.label}</p>
-                            <p className="text-xl font-black" style={{ color: scoreColor(item.score) }}>{item.score}%</p>
-                            <p className="text-xs text-gray-500 mt-0.5">{Math.round(item.bal ?? 0).toLocaleString()}</p>
-                          </div>
-                        ))}
-                      </div>
-                      <div className="flex flex-col md:flex-row gap-4 items-start">
-                        <div className="flex-1 bg-blue-50 border border-blue-200 rounded-xl p-4">
-                          <p className="text-xs font-bold text-blue-700 mb-1">Recommended Apply Date</p>
-                          <p className="text-sm font-bold text-blue-900">{pred.recommendedApplyDate}</p>
-                          {pred.monthsToQualify !== null && pred.monthsToQualify > 0 && (
-                            <p className="text-xs text-blue-600 mt-1">~{pred.monthsToQualify} months at current trajectory</p>
-                          )}
-                        </div>
-                        <div className="flex-1 bg-gray-50 border border-gray-200 rounded-xl p-4">
-                          <p className="text-xs font-bold text-gray-600 mb-1">Monthly Net Flow</p>
-                          <p className="text-sm font-bold" style={{ color: trajColor }}>
-                            {pred.monthlyNetFlow >= 0 ? '+' : ''}{Math.round(pred.monthlyNetFlow).toLocaleString()}
-                          </p>
-                          <p className="text-xs text-gray-500 mt-1">{pred.trajectoryNote}</p>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                )
-              })()}
-
-              {/* ── Bank Validation (V2) ────────────────────────────────── */}
-              {(analysis as EnhancedBankAnalysis).bankValidation && (() => {
-                const bv = (analysis as EnhancedBankAnalysis).bankValidation
-                return (
-                  <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-                    <div className="px-5 py-3.5 bg-gray-50 border-b border-gray-100 flex items-center gap-2">
-                      <span>🏦</span>
-                      <h3 className="text-sm font-bold text-gray-800 uppercase tracking-wide">Bank Validation</h3>
-                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
-                        bv.tier === 'tier1' ? 'bg-green-100 text-green-700' :
-                        bv.tier === 'tier2' ? 'bg-yellow-100 text-yellow-700' :
-                        'bg-red-100 text-red-700'
-                      }`}>
-                        {bv.tier.toUpperCase()}
-                      </span>
-                    </div>
-                    <div className="p-5">
-                      <div className="grid grid-cols-2 md:grid-cols-3 gap-4 mb-4">
-                        {[
-                          { label: 'Bank',       value: bv.bankName,  ok: true },
-                          { label: 'Tier',       value: bv.tier.toUpperCase(), ok: bv.tier === 'tier1' },
-                          { label: 'UK Accept',  value: bv.acceptedByUK ? 'Yes' : 'No',       ok: bv.acceptedByUK },
-                          { label: 'USA Accept', value: bv.acceptedByUSA ? 'Yes' : 'No',      ok: bv.acceptedByUSA },
-                          { label: 'Schengen',   value: bv.acceptedBySchengen ? 'Yes' : 'No', ok: bv.acceptedBySchengen },
-                          { label: 'Bank Stamp', value: bv.stampDetected ? 'Detected ✓' : 'Not found ✗', ok: bv.stampDetected },
-                        ].map(item => (
-                          <div key={item.label} className={`rounded-xl p-3 text-center border ${item.ok ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'}`}>
-                            <p className="text-[10px] text-gray-500 uppercase tracking-wide mb-0.5">{item.label}</p>
-                            <p className={`text-xs font-bold ${item.ok ? 'text-green-700' : 'text-red-700'}`}>{item.value}</p>
-                          </div>
-                        ))}
-                      </div>
-                      <p className={`text-xs p-3 rounded-lg ${bv.stampDetected ? 'bg-green-50 text-green-700' : 'bg-amber-50 text-amber-700'}`}>
-                        {bv.validationNote}
-                      </p>
-                    </div>
-                  </div>
-                )
-              })()}
-
-              {/* ── Improvement Roadmap (V2) ────────────────────────────── */}
-              {(analysis as EnhancedBankAnalysis).improvementRoadmap && (() => {
-                const rm = (analysis as EnhancedBankAnalysis).improvementRoadmap
-                return (
-                  <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-                    <div className="px-5 py-3.5 bg-gray-50 border-b border-gray-100 flex items-center justify-between">
-                      <div className="flex items-center gap-2">
-                        <span>🗺</span>
-                        <h3 className="text-sm font-bold text-gray-800 uppercase tracking-wide">Improvement Roadmap</h3>
-                      </div>
-                      <span className={`text-xs font-bold px-3 py-1 rounded-full ${rm.canApplyNow ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>
-                        {rm.canApplyNow ? '✓ Can Apply Now' : '✗ Not Ready Yet'}
-                      </span>
-                    </div>
-                    <div className="p-5 space-y-5">
-                      {/* Critical blockers */}
-                      {rm.blockers?.length > 0 && (
-                        <div>
-                          <p className="text-xs font-bold text-gray-600 uppercase tracking-wide mb-3">Blockers</p>
-                          <div className="space-y-3">
-                            {rm.blockers.map((b, i) => (
-                              <div key={i} className={`rounded-xl p-4 border-l-4 ${
-                                b.priority === 'critical' ? 'bg-red-50 border-red-500' :
-                                b.priority === 'high'     ? 'bg-orange-50 border-orange-400' :
-                                b.priority === 'medium'   ? 'bg-yellow-50 border-yellow-400' :
-                                'bg-gray-50 border-gray-300'
-                              }`}>
-                                <div className="flex items-start justify-between gap-2 mb-1">
-                                  <p className="text-sm font-bold text-gray-800">{b.issue}</p>
-                                  <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full flex-shrink-0 uppercase ${
-                                    b.priority === 'critical' ? 'bg-red-200 text-red-700' :
-                                    b.priority === 'high'     ? 'bg-orange-200 text-orange-700' :
-                                    'bg-yellow-200 text-yellow-700'
-                                  }`}>{b.priority}</span>
-                                </div>
-                                <p className="text-xs text-gray-500 mb-2">{b.impact}</p>
-                                <p className="text-xs text-gray-700 bg-white/80 rounded-lg px-3 py-2 border">{b.fix}</p>
-                                <p className="text-[10px] text-gray-400 mt-1">⏱ {b.timeToResolve}</p>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-
-                      {/* Quick wins */}
-                      {rm.quickWins?.length > 0 && (
-                        <div>
-                          <p className="text-xs font-bold text-gray-600 uppercase tracking-wide mb-3">Quick Wins</p>
-                          <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                            {rm.quickWins.map((w, i) => (
-                              <div key={i} className="bg-green-50 border border-green-200 rounded-xl p-3">
-                                <p className="text-xs font-bold text-green-800">{w.action}</p>
-                                <div className="flex items-center gap-2 mt-1">
-                                  <span className="text-[10px] font-bold text-green-600 bg-green-100 px-2 py-0.5 rounded-full">{w.scoreImpact}</span>
-                                  <span className="text-[10px] text-green-500">⏱ {w.timeframe}</span>
-                                </div>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-
-                      {/* Ready checklist */}
-                      {rm.readyChecklist?.length > 0 && (
-                        <div>
-                          <p className="text-xs font-bold text-gray-600 uppercase tracking-wide mb-3">Readiness Checklist</p>
-                          <div className="space-y-2">
-                            {rm.readyChecklist.map((item, i) => (
-                              <div key={i} className="flex items-start gap-3">
-                                <span className={`flex-shrink-0 w-5 h-5 rounded-full flex items-center justify-center text-[10px] font-bold mt-0.5 ${item.met ? 'bg-green-500 text-white' : 'bg-red-500 text-white'}`}>
-                                  {item.met ? '✓' : '✗'}
-                                </span>
-                                <div>
-                                  <p className="text-xs font-semibold text-gray-700">{item.item}</p>
-                                  <p className="text-[10px] text-gray-400">{item.detail}</p>
-                                </div>
-                              </div>
-                            ))}
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                )
-              })()}
-
-              {/* ── Multi-Agent Consensus ─────────────────────────────── */}
-              {analysis.multiAgentConsensus && (
-                <ConsensusCard c={analysis.multiAgentConsensus} />
-              )}
-
-              {/* ── Approval Probability Engine ───────────────────────── */}
-              {analysis.approvalProbability && (
-                <ApprovalProbabilityCard a={analysis} />
-              )}
-
-              {/* ── Immigration Officer Simulation ────────────────────── */}
-              {analysis.officerSimulation && (
-                <OfficerSimulationCard a={analysis} />
-              )}
-
-              {/* ── Embassy Officer Narrative ─────────────────────────── */}
-              {analysis.embassyOfficerNarrative && (
-                <Section title="Embassy Officer Narrative" icon="🏛">
-                  <div className="bg-[#0a1628] rounded-xl p-5">
-                    <p className="text-xs text-[#c9a84c] uppercase tracking-wider font-semibold mb-3">Case File Notes — Senior Visa Officer Grade</p>
-                    <p className="text-blue-100 text-sm leading-relaxed">{analysis.embassyOfficerNarrative}</p>
-                  </div>
-                </Section>
-              )}
-
-              {/* ── Financial Credibility Score ───────────────────────── */}
-              {fcs && (
-                <Section title="Financial Credibility Score" icon="🎯">
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    <div className="space-y-4">
-                      <ScoreBar label="Income Stability"          score={fcs.incomeStability ?? 0} />
-                      <ScoreBar label="Source of Funds Clarity"   score={fcs.sourceOfFunds ?? 0} />
-                      <ScoreBar label="Balance Sustainability"     score={fcs.balanceSustainability ?? 0} />
-                      <ScoreBar label="Transaction Authenticity"  score={fcs.transactionAuthenticity ?? 0} />
-                      <ScoreBar label="Travel Affordability"      score={fcs.travelAffordability ?? 0} />
-                      <ScoreBar label="Immigration Risk Index"    score={fcs.immigrationRisk ?? 0} />
-                    </div>
-                    <div className="bg-gray-50 rounded-xl p-4 text-xs space-y-2.5">
-                      <p className="font-semibold text-gray-500 uppercase tracking-wide mb-3">Scale</p>
-                      {[['80–100','Exceptional / Strong','#22c55e'],['60–79','Good / Adequate','#eab308'],['40–59','Fair — Improvement Needed','#f97316'],['0–39','Weak / Insufficient','#ef4444']].map(([r,l,c]) => (
-                        <div key={r} className="flex items-start gap-2">
-                          <span className="flex-shrink-0 w-14 font-bold mt-0.5" style={{ color: c }}>{r}</span>
-                          <span className="text-gray-600">{l}</span>
-                        </div>
-                      ))}
-                      <div className="pt-3 border-t border-gray-200">
-                        <p className="text-gray-500 text-[11px]">Immigration Risk Index: 100 = no flags. Deductions per finding (income inflation, parking, circular transfers, etc.)</p>
-                      </div>
-                    </div>
-                  </div>
-                </Section>
-              )}
-
-              {/* ── Source of Funds Classification ────────────────────── */}
-              {analysis.sourceOfFundsClassification && (
-                <SourceOfFundsClassificationCard a={analysis} />
-              )}
-
-              {/* ── Forensic Investigation ────────────────────────────── */}
-              {(analysis.incomeForensics || analysis.balanceForensics || analysis.spendingForensics || analysis.sourceOfFundsForensics) && (
-                <Section title="Forensic Investigation" icon="🔬">
-                  <div className="space-y-5">
-
-                    {analysis.incomeForensics && (
-                      <div className={`rounded-xl border p-4 ${analysis.incomeForensics.verified ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'}`}>
-                        <div className="flex items-start justify-between gap-3 mb-3">
-                          <div className="flex items-center gap-2">
-                            <span className={`w-6 h-6 rounded-full flex items-center justify-center text-white text-xs font-bold flex-shrink-0 ${analysis.incomeForensics.verified ? 'bg-green-500' : 'bg-red-500'}`}>
-                              {analysis.incomeForensics.verified ? '✓' : '✗'}
-                            </span>
-                            <span className="font-bold text-gray-800 text-sm">Income Authenticity</span>
-                          </div>
-                          <span className="text-xs font-bold text-gray-500">Confidence: {analysis.incomeForensics.confidence}%</span>
-                        </div>
-                        <p className="text-sm text-gray-700 mb-2">{analysis.incomeForensics.conclusion}</p>
-                        {analysis.incomeForensics.amountVariance && (
-                          <p className="text-xs text-gray-600 bg-white/60 rounded-lg px-3 py-2 mb-1">
-                            <span className="font-semibold">Amount variance:</span> {analysis.incomeForensics.amountVariance}
-                          </p>
-                        )}
-                        {analysis.incomeForensics.timingPattern && (
-                          <p className="text-xs text-gray-600 bg-white/60 rounded-lg px-3 py-2 mb-1">
-                            <span className="font-semibold">Timing pattern:</span> {analysis.incomeForensics.timingPattern}
-                          </p>
-                        )}
-                        {analysis.incomeForensics.inflationDetected && analysis.incomeForensics.inflationNote && (
-                          <p className="text-xs text-red-700 bg-red-100 rounded-lg px-3 py-2 font-semibold">⚠ Salary inflation: {analysis.incomeForensics.inflationNote}</p>
-                        )}
-                      </div>
-                    )}
-
-                    {analysis.balanceForensics && (
-                      <div className={`rounded-xl border p-4 ${analysis.balanceForensics.parkingDetected || analysis.balanceForensics.endOfStatementBoostDetected ? 'bg-red-50 border-red-200' : 'bg-green-50 border-green-200'}`}>
-                        <div className="flex items-center gap-2 mb-3">
-                          <span className={`w-6 h-6 rounded-full flex items-center justify-center text-white text-xs font-bold flex-shrink-0 ${analysis.balanceForensics.parkingDetected || analysis.balanceForensics.endOfStatementBoostDetected ? 'bg-red-500' : 'bg-green-500'}`}>
-                            {analysis.balanceForensics.parkingDetected || analysis.balanceForensics.endOfStatementBoostDetected ? '✗' : '✓'}
-                          </span>
-                          <span className="font-bold text-gray-800 text-sm">Balance Manipulation Check</span>
-                        </div>
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-2 text-xs">
-                          {[
-                            { label: 'Funds Parking', val: analysis.balanceForensics.parkingDetected, note: analysis.balanceForensics.parkingEvidence },
-                            { label: 'End-of-Statement Boost', val: analysis.balanceForensics.endOfStatementBoostDetected, note: analysis.balanceForensics.boostNote ?? 'Not detected' },
-                            { label: 'Rapid Salary Withdrawal', val: analysis.balanceForensics.rapidWithdrawalAfterSalary, note: analysis.balanceForensics.rapidWithdrawalDetail ?? 'Within normal range' },
-                          ].map(c => (
-                            <div key={c.label} className={`rounded-lg p-2 ${c.val ? 'bg-red-100' : 'bg-white/60'}`}>
-                              <p className="font-semibold text-gray-700 mb-0.5">{c.label}: <span className={c.val ? 'text-red-600' : 'text-green-600'}>{c.val ? 'DETECTED' : 'Clear'}</span></p>
-                              <p className="text-gray-600">{c.note}</p>
-                            </div>
-                          ))}
-                        </div>
-                        <p className="text-xs text-gray-600 bg-white/60 rounded-lg px-3 py-2 mt-2">
-                          <span className="font-semibold">Sustainability ({analysis.balanceForensics.sustainabilityTrend}):</span> {analysis.balanceForensics.sustainabilityNote}
-                        </p>
-                      </div>
-                    )}
-
-                    {analysis.spendingForensics && (
-                      <div className={`rounded-xl border p-4 ${analysis.spendingForensics.accountCharacter === 'genuine' ? 'bg-green-50 border-green-200' : analysis.spendingForensics.accountCharacter === 'engineered' ? 'bg-red-50 border-red-200' : 'bg-yellow-50 border-yellow-200'}`}>
-                        <div className="flex items-start justify-between gap-3 mb-3">
-                          <div className="flex items-center gap-2">
-                            <span className={`w-6 h-6 rounded-full flex items-center justify-center text-white text-xs font-bold flex-shrink-0 ${analysis.spendingForensics.accountCharacter === 'genuine' ? 'bg-green-500' : analysis.spendingForensics.accountCharacter === 'engineered' ? 'bg-red-500' : 'bg-yellow-500'}`}>
-                              {analysis.spendingForensics.accountCharacter === 'genuine' ? '✓' : analysis.spendingForensics.accountCharacter === 'engineered' ? '✗' : '!'}
-                            </span>
-                            <span className="font-bold text-gray-800 text-sm">Account Activity Analysis</span>
-                          </div>
-                          <div className="text-right">
-                            <p className="text-xs font-bold text-gray-500">Avg transactions/month</p>
-                            <p className="text-lg font-black text-gray-800">{analysis.spendingForensics.avgTransactionsPerMonth}</p>
-                          </div>
-                        </div>
-                        <p className="text-sm text-gray-700 mb-3">{analysis.spendingForensics.characterConclusion}</p>
-                        {(analysis.spendingForensics.dormantPeriods ?? []).length > 0 && (
-                          <div className="mb-2">
-                            {(analysis.spendingForensics.dormantPeriods ?? []).map((d, i) => (
-                              <p key={i} className="text-xs text-red-700 bg-red-100 rounded px-2 py-1 mb-1">⚠ Dormant: {d.from} – {d.to} ({d.days} days) — {d.note}</p>
-                            ))}
-                          </div>
-                        )}
-                        {(analysis.spendingForensics.recurringExpenses ?? []).length > 0 && (
-                          <div>
-                            <p className="text-xs font-semibold text-gray-500 mb-1">Recurring patterns:</p>
-                            {(analysis.spendingForensics.recurringExpenses ?? []).map((e, i) => (
-                              <p key={i} className="text-xs text-gray-600 bg-white/60 rounded px-2 py-1 mb-1">✓ {e}</p>
-                            ))}
-                          </div>
-                        )}
-                        {analysis.spendingForensics.circularTransfersDetected && (
-                          <p className="text-xs text-red-700 bg-red-100 rounded-lg px-3 py-2 mt-2 font-semibold">⚠ Circular transfers: {analysis.spendingForensics.circularTransferNote}</p>
-                        )}
-                      </div>
-                    )}
-
-                    {analysis.sourceOfFundsForensics && (
-                      <div className="rounded-xl border border-gray-200 bg-gray-50 p-4">
-                        <div className="flex items-center justify-between mb-3">
-                          <div className="flex items-center gap-2">
-                            <span className="w-6 h-6 rounded-full bg-blue-500 flex items-center justify-center text-white text-xs font-bold flex-shrink-0">$</span>
-                            <span className="font-bold text-gray-800 text-sm">Source of Funds — Forensic Trace</span>
-                          </div>
-                          <span className="text-xs font-bold text-gray-500">Confidence: {analysis.sourceOfFundsForensics.confidence}%</span>
-                        </div>
-                        <p className="text-sm text-gray-700 mb-3">{analysis.sourceOfFundsForensics.conclusion}</p>
-                        {(analysis.sourceOfFundsForensics.unexplainedCredits ?? []).length > 0 && (
-                          <div className="mb-2">
-                            <p className="text-xs font-semibold text-red-600 mb-1">Unexplained credits:</p>
-                            {(analysis.sourceOfFundsForensics.unexplainedCredits ?? []).map((c, i) => (
-                              <p key={i} className="text-xs text-red-700 bg-red-50 border border-red-200 rounded px-2 py-1 mb-1">
-                                {c.date} — {c.description}: {analysis.currency} {c.amount.toLocaleString()} <span className={riskBadge(c.risk)}>{c.risk}</span>
-                              </p>
-                            ))}
-                          </div>
-                        )}
-                        {(analysis.sourceOfFundsForensics.roundNumberDeposits ?? []).length > 0 && (
-                          <div className="mb-2">
-                            <p className="text-xs font-semibold text-yellow-600 mb-1">Round-number deposits:</p>
-                            {(analysis.sourceOfFundsForensics.roundNumberDeposits ?? []).map((d, i) => (
-                              <p key={i} className="text-xs text-yellow-700 bg-yellow-50 border border-yellow-200 rounded px-2 py-1 mb-1">
-                                {d.date}: {analysis.currency} {d.amount.toLocaleString()} — {d.note}
-                              </p>
-                            ))}
-                          </div>
-                        )}
-                        {analysis.sourceOfFundsForensics.finalMonthInjection && (
-                          <p className="text-xs text-red-700 bg-red-100 rounded-lg px-3 py-2 font-semibold">⚠ Final-month injection: {analysis.sourceOfFundsForensics.finalMonthNote}</p>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                </Section>
-              )}
-
-              {/* ── Behavioral Anomaly Detection ──────────────────────── */}
-              {(analysis.behavioralAnomalies?.length ?? 0) > 0 && (
-                <Section title="Behavioral Anomaly Detection" icon="🧠">
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-                    {analysis.behavioralAnomalies!.map((a: BehavioralAnomaly, i: number) => (
-                      <div key={i} className={`rounded-xl border p-3 ${a.detected ? (a.risk === 'high' ? 'bg-red-50 border-red-200' : 'bg-yellow-50 border-yellow-200') : 'bg-green-50 border-green-200'}`}>
-                        <div className="flex items-start gap-2">
-                          <span className={`flex-shrink-0 w-5 h-5 rounded-full flex items-center justify-center text-white text-[10px] font-bold mt-0.5 ${a.detected ? (a.risk === 'high' ? 'bg-red-500' : 'bg-yellow-500') : 'bg-green-500'}`}>
-                            {a.detected ? '!' : '✓'}
-                          </span>
-                          <div>
-                            <div className="flex items-center gap-2 mb-0.5">
-                              <p className="text-xs font-bold text-gray-800">
-                                {a.type.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())}
-                              </p>
-                              {a.detected && <span className={riskBadge(a.risk)}>{a.risk}</span>}
-                            </div>
-                            <p className="text-xs text-gray-600">{a.evidence}</p>
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </Section>
-              )}
-
-              {/* ── Trip Affordability ────────────────────────────────── */}
-              {analysis.tripAffordability && (
-                <Section title="Trip Affordability" icon="✈️">
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
-                    {[
-                      { label: 'Disposable Income/mo', value: fmt(analysis.tripAffordability.estimatedDisposableIncome, analysis.tripAffordability.currency) },
-                      { label: 'Est. Trip Cost', value: fmt(analysis.tripAffordability.estimatedTripCost, analysis.tripAffordability.currency) },
-                      { label: 'Months to Accumulate', value: String(analysis.tripAffordability.monthsToAccumulate) },
-                      { label: 'Affordability', value: analysis.tripAffordability.rating },
-                    ].map(m => (
-                      <div key={m.label} className="bg-gray-50 rounded-xl p-3 border border-gray-100">
-                        <p className="text-xs text-gray-500 mb-1">{m.label}</p>
-                        <p className="text-sm font-bold text-gray-900 capitalize">{m.value}</p>
-                      </div>
-                    ))}
-                  </div>
-                  <p className="text-sm text-gray-700">{analysis.tripAffordability.conclusion}</p>
-                </Section>
-              )}
-
-              {/* Key metrics */}
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        {/* ── OVERVIEW ── */}
+        {activeTab === 'overview' && (
+          <>
+            {/* Financial summary */}
+            <div className="bg-white rounded-2xl border border-[#0B1F3A]/8 p-5">
+              <h3 className="font-bold text-[#0B1F3A] mb-4">Financial Summary</h3>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
                 {[
-                  { label: 'Avg Balance',     value: fmt(analysis.averageMonthlyBalance, analysis.currency), icon: '💳' },
-                  { label: 'Monthly Income',  value: fmt(analysis.estimatedMonthlyIncome, analysis.currency), icon: '💰' },
-                  { label: 'Savings Rate',    value: `${analysis.savingsRate ?? 0}%`, icon: '📈' },
-                  { label: 'Closing Balance', value: fmt(analysis.closingBalance, analysis.currency), icon: '🏁' },
-                ].map(m => (
-                  <div key={m.label} className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4">
-                    <p className="text-xl mb-1">{m.icon}</p>
-                    <p className="text-lg font-black text-gray-900">{m.value}</p>
-                    <p className="text-xs font-semibold text-gray-600 mt-0.5">{m.label}</p>
+                  { label: 'Opening Balance', value: fmt(analysis.summary.openingBalance, currency) },
+                  { label: 'Closing Balance',  value: fmt(analysis.summary.closingBalance, currency) },
+                  { label: 'Average Balance',  value: fmt(analysis.summary.averageBalance, currency) },
+                  { label: 'Lowest Balance',   value: fmt(analysis.summary.lowestBalance, currency) },
+                  { label: 'Total Credits',    value: fmt(analysis.summary.totalCredits, currency) },
+                  { label: 'Total Debits',     value: fmt(analysis.summary.totalDebits, currency) },
+                  { label: 'Transactions',     value: analysis.summary.transactionCount.toString() },
+                  { label: 'Period',           value: `${analysis.summary.months}mo` },
+                ].map(row => (
+                  <div key={row.label} className="bg-[#F5F7FA] rounded-xl p-3">
+                    <p className="text-[10px] text-gray-400 uppercase tracking-wide mb-0.5">{row.label}</p>
+                    <p className="font-bold text-[#0B1F3A] text-sm">{row.value}</p>
                   </div>
                 ))}
               </div>
-
-              {/* Salary Verification */}
-              {analysis.salaryVerification && (
-                <Section title="Salary Verification" icon="💼">
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
-                    <div className="md:col-span-2 space-y-4">
-                      <div className="grid grid-cols-3 gap-3">
-                        <div>
-                          <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Employer</p>
-                          <p className="text-sm font-bold text-gray-900">{analysis.salaryVerification.employer ?? 'Not detected'}</p>
-                        </div>
-                        <div>
-                          <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Amount</p>
-                          <p className="text-sm font-bold text-gray-900">{fmt(analysis.salaryAmount, analysis.currency)}</p>
-                        </div>
-                        <div>
-                          <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1">Consistency</p>
-                          <p className="text-sm font-black" style={{ color: scoreColor(analysis.salaryVerification.consistencyScore) }}>
-                            {analysis.salaryVerification.consistencyScore}%
-                          </p>
-                        </div>
-                      </div>
-                      {(analysis.salaryVerification.depositDates ?? []).length > 0 && (
-                        <div className="flex flex-wrap gap-2">
-                          {(analysis.salaryVerification.depositDates ?? []).map((d, i) => (
-                            <span key={i} className="bg-green-50 text-green-700 border border-green-200 text-xs px-2.5 py-1 rounded-full font-medium">{d} ✓</span>
-                          ))}
-                          {(analysis.salaryVerification.missingMonths ?? []).map((m, i) => (
-                            <span key={i} className="bg-red-50 text-red-700 border border-red-200 text-xs px-2.5 py-1 rounded-full font-medium">{m} ✗</span>
-                          ))}
-                        </div>
-                      )}
-                      {analysis.salaryVerification.notes && (
-                        <p className="text-xs text-gray-500 italic border-l-2 border-gray-200 pl-3">{analysis.salaryVerification.notes}</p>
-                      )}
-                    </div>
-                    <div className="flex flex-col items-center justify-center bg-gray-50 rounded-xl p-4">
-                      <div className="relative w-[80px] h-[80px]">
-                        <ScoreCircle score={analysis.salaryVerification.consistencyScore} size={80} />
-                        <div className="absolute inset-0 flex flex-col items-center justify-center">
-                          <span className="text-lg font-black" style={{ color: scoreColor(analysis.salaryVerification.consistencyScore) }}>{analysis.salaryVerification.consistencyScore}</span>
-                        </div>
-                      </div>
-                      <p className="text-xs text-gray-500 mt-2">Consistency</p>
-                      <p className="text-xs font-bold mt-0.5" style={{ color: scoreColor(analysis.salaryVerification.consistencyScore) }}>{scoreLabel(analysis.salaryVerification.consistencyScore)}</p>
-                    </div>
-                  </div>
-                </Section>
-              )}
-
-              {/* Monthly Cash Flow */}
-              {(analysis.monthlyBreakdown?.length ?? 0) > 0 && (
-                <Section title="Cash Flow" icon="📊">
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-sm">
-                      <thead>
-                        <tr className="border-b border-gray-100">
-                          <th className="text-left py-2 pr-4 text-xs font-semibold text-gray-500 uppercase">Month</th>
-                          <th className="text-right py-2 px-3 text-xs font-semibold text-gray-500 uppercase">Opening</th>
-                          <th className="text-right py-2 px-3 text-xs font-semibold text-green-600 uppercase">Credits</th>
-                          <th className="text-right py-2 px-3 text-xs font-semibold text-red-500 uppercase">Debits</th>
-                          <th className="text-right py-2 px-3 text-xs font-semibold text-gray-500 uppercase">Net</th>
-                          <th className="text-right py-2 text-xs font-semibold text-gray-500 uppercase">Closing</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {analysis.monthlyBreakdown!.map((m, i) => {
-                          const net = m.netFlow ?? (m.totalCredits - m.totalDebits)
-                          return (
-                            <tr key={i} className="border-b border-gray-50 hover:bg-gray-50">
-                              <td className="py-2.5 pr-4 font-semibold text-gray-800">{m.month}</td>
-                              <td className="py-2.5 px-3 text-right text-gray-600">{fmt(m.openingBalance)}</td>
-                              <td className="py-2.5 px-3 text-right text-green-600 font-medium">+{fmt(m.totalCredits)}</td>
-                              <td className="py-2.5 px-3 text-right text-red-500 font-medium">-{fmt(m.totalDebits)}</td>
-                              <td className="py-2.5 px-3 text-right font-semibold" style={{ color: net >= 0 ? '#22c55e' : '#ef4444' }}>{net >= 0 ? '+' : ''}{fmt(net)}</td>
-                              <td className="py-2.5 text-right font-bold text-gray-900">{fmt(m.closingBalance)}</td>
-                            </tr>
-                          )
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
-                  {analysis.monthlyBreakdown!.some(m => (m.transactions?.length ?? 0) > 0) && (
-                    <div className="mt-5 space-y-4">
-                      <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Notable Transactions</p>
-                      {analysis.monthlyBreakdown!.map((m, mi) => (
-                        (m.transactions?.length ?? 0) > 0 && (
-                          <div key={mi} className="border border-gray-100 rounded-xl overflow-hidden">
-                            <div className="bg-gray-50 px-4 py-2"><span className="text-xs font-bold text-gray-700">{m.month}</span></div>
-                            <table className="w-full text-xs">
-                              <thead>
-                                <tr className="border-b border-gray-100">
-                                  <th className="text-left py-1.5 px-3 text-gray-400 font-medium">Date</th>
-                                  <th className="text-left py-1.5 px-3 text-gray-400 font-medium">Description</th>
-                                  <th className="text-right py-1.5 px-3 text-green-600 font-medium">Credit</th>
-                                  <th className="text-right py-1.5 px-3 text-red-500 font-medium">Debit</th>
-                                  <th className="text-right py-1.5 px-3 text-gray-400 font-medium">Balance</th>
-                                  <th className="text-left py-1.5 px-3 text-gray-400 font-medium">Flag</th>
-                                </tr>
-                              </thead>
-                              <tbody>
-                                {m.transactions!.map((tx, ti) => (
-                                  <tr key={ti} className={`border-b border-gray-50 ${tx.flag ? 'bg-yellow-50' : ''}`}>
-                                    <td className="py-1.5 px-3 text-gray-500 whitespace-nowrap">{tx.date}</td>
-                                    <td className="py-1.5 px-3 text-gray-700 max-w-[180px] truncate">{tx.description}</td>
-                                    <td className="py-1.5 px-3 text-right text-green-600 font-medium whitespace-nowrap">{tx.type === 'credit' ? fmt(tx.amount) : ''}</td>
-                                    <td className="py-1.5 px-3 text-right text-red-500 font-medium whitespace-nowrap">{tx.type === 'debit' ? fmt(tx.amount) : ''}</td>
-                                    <td className="py-1.5 px-3 text-right text-gray-600 whitespace-nowrap">{tx.runningBalance != null ? fmt(tx.runningBalance) : '—'}</td>
-                                    <td className="py-1.5 px-3">{tx.flag && <span className="text-yellow-700 bg-yellow-100 px-1.5 py-0.5 rounded text-[10px]">{tx.flag}</span>}</td>
-                                  </tr>
-                                ))}
-                              </tbody>
-                            </table>
-                          </div>
-                        )
-                      ))}
-                    </div>
-                  )}
-                </Section>
-              )}
-
-              {/* Spending + Source */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
-                {(analysis.spendingCategories?.length ?? 0) > 0 && (
-                  <Section title="Spending Categories" icon="🏷">
-                    <div className="space-y-3.5">
-                      {analysis.spendingCategories!.map((cat, i) => (
-                        <div key={i}>
-                          <div className="flex justify-between text-xs mb-1">
-                            <span className="font-medium text-gray-700">{cat.category}</span>
-                            <span className="text-gray-500">{analysis.currency} {fmt(cat.amount)} · {cat.percentage}%</span>
-                          </div>
-                          <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
-                            <div className="h-full rounded-full" style={{ width: `${cat.percentage}%`, backgroundColor: ['#3b82f6','#8b5cf6','#ec4899','#f59e0b','#10b981','#6b7280'][i % 6] }} />
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </Section>
-                )}
-                {(analysis.sourceOfFunds?.length ?? 0) > 0 && (
-                  <Section title="Income Sources" icon="🔍">
-                    <div className="space-y-4">
-                      {analysis.sourceOfFunds!.map((s, i) => (
-                        <div key={i}>
-                          <div className="flex justify-between items-center mb-1">
-                            <span className="text-xs font-semibold text-gray-700">{s.source}</span>
-                            <span className={riskBadge(s.risk)}>{s.risk} risk</span>
-                          </div>
-                          <div className="h-2 bg-gray-100 rounded-full overflow-hidden mb-1">
-                            <div className="h-full rounded-full" style={{ width: `${s.percentage}%`, backgroundColor: s.risk === 'low' ? '#22c55e' : s.risk === 'medium' ? '#eab308' : '#ef4444' }} />
-                          </div>
-                          <div className="flex justify-between text-xs text-gray-500">
-                            <span>{s.note}</span>
-                            <span>{analysis.currency} {fmt(s.amount)} ({s.percentage}%)</span>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </Section>
-                )}
-              </div>
-
-              {/* Large Transactions */}
-              {(analysis.largeTransactions?.length ?? 0) > 0 && (
-                <Section title="Large Transactions" icon="🔎">
-                  <div className="space-y-3">
-                    {analysis.largeTransactions!.map((tx, i) => (
-                      <div key={i} className={`border rounded-xl p-4 ${tx.risk === 'high' ? 'border-red-200 bg-red-50' : tx.risk === 'medium' ? 'border-yellow-200 bg-yellow-50' : 'border-green-200 bg-green-50'}`}>
-                        <div className="flex items-start justify-between gap-3">
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-2 flex-wrap mb-0.5">
-                              <span className="text-xs text-gray-500">{tx.date}</span>
-                              <span className={`text-xs font-bold ${tx.type === 'credit' ? 'text-green-700' : 'text-red-700'}`}>{tx.type === 'credit' ? '↑ Credit' : '↓ Debit'}</span>
-                              <span className={riskBadge(tx.risk)}>{tx.risk} risk</span>
-                            </div>
-                            <p className="text-sm font-semibold text-gray-800 truncate">{tx.description}</p>
-                            <p className="text-xs text-gray-600 mt-1">{tx.aiExplanation}</p>
-                          </div>
-                          <p className={`text-base font-black flex-shrink-0 ${tx.type === 'credit' ? 'text-green-700' : 'text-red-700'}`}>
-                            {tx.type === 'credit' ? '+' : '-'}{analysis.currency} {fmt(tx.amount)}
-                          </p>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </Section>
-              )}
-
-              {/* Risk Flags */}
-              {(analysis.riskFlags?.length ?? 0) > 0 && (
-                <Section title="Risk Engine" icon="🚦">
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                    {analysis.riskFlags!.map((f, i) => (
-                      <div key={i} className={`flex items-start gap-3 border rounded-xl p-3 ${flagColor(f.status)}`}>
-                        <span className={`flex-shrink-0 w-5 h-5 rounded-full flex items-center justify-center text-white text-xs font-bold mt-0.5 ${flagIconBg(f.status)}`}>{flagIcon(f.status)}</span>
-                        <div>
-                          <p className="text-xs font-bold">{f.category}</p>
-                          <p className="text-xs mt-0.5 opacity-80">{f.detail}</p>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </Section>
-              )}
-
-              {/* Embassy Assessment */}
-              {(analysis.embassyAssessments?.length ?? 0) > 0 && (
-                <Section title="Embassy Assessment" icon="🏛">
-                  <div className="space-y-4">
-                    {analysis.embassyAssessments!.map((ea, i) => (
-                      <div key={i} className={`rounded-xl border p-4 ${ea.met ? 'bg-green-50 border-green-200' : 'bg-red-50 border-red-200'}`}>
-                        <div className="flex items-center gap-2 flex-wrap mb-2">
-                          <span className="font-bold text-gray-900">{ea.destination}</span>
-                          <span className={`text-xs font-bold px-2 py-0.5 rounded-full text-white ${ea.met ? 'bg-green-500' : 'bg-red-500'}`}>{ea.met ? '✓ Threshold Met' : '✗ Below Threshold'}</span>
-                        </div>
-                        <div className="grid grid-cols-3 gap-3 text-xs mb-2">
-                          <div><span className="text-gray-500">Required:</span><span className="font-semibold ml-1">{ea.currency} {fmt(ea.requiredAmount)}</span></div>
-                          <div><span className="text-gray-500">Applicant:</span><span className="font-semibold ml-1">{ea.currency} {fmt(ea.applicantEquivalent)}</span></div>
-                          <div><span className="text-gray-500">Confidence:</span><span className="font-semibold ml-1" style={{ color: scoreColor(ea.confidence) }}>{ea.confidence}%</span></div>
-                        </div>
-                        {ea.recommendation && <p className={`text-xs font-medium px-3 py-2 rounded-lg ${ea.met ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'}`}>📋 {ea.recommendation}</p>}
-                        {(ea.concerns ?? []).filter(Boolean).map((c, ci) => (
-                          <p key={ci} className="text-xs text-gray-700 flex items-start gap-1.5 mt-1"><span className="text-yellow-500">⚠</span> {c}</p>
-                        ))}
-                      </div>
-                    ))}
-                  </div>
-                </Section>
-              )}
-
-              {/* Suspicious Transactions */}
-              {(analysis.suspiciousTransactions?.length ?? 0) > 0 && (
-                <Section title="Suspicious Transactions" icon="⚠️">
-                  <div className="space-y-2">
-                    {analysis.suspiciousTransactions!.map((tx, i) => (
-                      <div key={i} className={`flex items-start gap-3 border rounded-xl p-3 ${tx.severity === 'high' ? 'bg-red-50 border-red-200' : tx.severity === 'medium' ? 'bg-yellow-50 border-yellow-200' : 'bg-gray-50 border-gray-200'}`}>
-                        <span className={`flex-shrink-0 text-xs font-bold px-2 py-0.5 rounded-full mt-0.5 ${tx.severity === 'high' ? 'bg-red-100 text-red-700' : tx.severity === 'medium' ? 'bg-yellow-100 text-yellow-700' : 'bg-gray-100 text-gray-600'}`}>{tx.severity}</span>
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2 text-xs text-gray-500">
-                            <span>{tx.date}</span>
-                            <span className={tx.type === 'credit' ? 'text-green-600' : 'text-red-500'}>{tx.type === 'credit' ? '↑' : '↓'} {analysis.currency} {fmt(tx.amount)}</span>
-                          </div>
-                          <p className="text-xs font-semibold text-gray-800 truncate">{tx.description}</p>
-                          <p className="text-xs text-gray-600">{tx.reason}</p>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </Section>
-              )}
-
-              {/* Agent Notes */}
-              {analysis.agentNotes && (
-                <div className="bg-[#0a1628] rounded-2xl p-5">
-                  <div className="flex items-center gap-2 mb-3">
-                    <span>🔒</span>
-                    <h3 className="text-sm font-bold text-white uppercase tracking-wide">Agent Notes — Internal Only</h3>
-                  </div>
-                  <p className="text-blue-200 text-sm leading-relaxed whitespace-pre-line">{analysis.agentNotes}</p>
-                  {(analysis.warnings?.length ?? 0) > 0 && (
-                    <div className="mt-4 space-y-1.5">
-                      {analysis.warnings!.map((w, i) => (
-                        <div key={i} className="flex items-start gap-2 bg-yellow-900/30 border border-yellow-700/50 rounded-lg px-3 py-2">
-                          <span className="text-yellow-400 flex-shrink-0 mt-0.5">⚠</span>
-                          <span className="text-yellow-200 text-xs">{w}</span>
-                        </div>
-                      ))}
-                    </div>
-                  )}
+              {analysis.summary.regularIncomeDetected && (
+                <div className="mt-3 flex items-center gap-2 text-emerald-700 bg-emerald-50 rounded-xl px-3 py-2">
+                  <span className="text-base">✓</span>
+                  <span className="text-xs font-semibold">
+                    Regular income detected · avg {fmt(analysis.summary.averageMonthlySalary, currency)}/month
+                  </span>
                 </div>
               )}
+            </div>
 
-              {/* Recommendations */}
-              {(analysis.recommendations?.length ?? 0) > 0 && (
-                <Section title="Recommendations" icon="💡">
-                  <ul className="space-y-2.5">
-                    {analysis.recommendations!.map((r, i) => (
-                      <li key={i} className="flex items-start gap-2.5">
-                        <span className="flex-shrink-0 w-5 h-5 bg-blue-100 text-blue-700 rounded-full text-xs font-bold flex items-center justify-center mt-0.5">{i + 1}</span>
-                        <span className="text-sm text-gray-700">{r}</span>
+            {/* Cash flow */}
+            <div className="bg-white rounded-2xl border border-[#0B1F3A]/8 p-5">
+              <h3 className="font-bold text-[#0B1F3A] mb-4">Cash Flow Analysis</h3>
+              <div className="space-y-3">
+                {[
+                  { label: 'Income Consistency',   value: analysis.cashFlowAnalysis.incomeConsistency },
+                  { label: 'Spending Pattern',      value: analysis.cashFlowAnalysis.spendingPattern },
+                  { label: 'Financial Stability',   value: analysis.cashFlowAnalysis.financialStability },
+                  { label: 'Balance Trend',         value: analysis.cashFlowAnalysis.balanceTrend },
+                  { label: 'Savings Rate',          value: `${analysis.cashFlowAnalysis.savingsRate}%` },
+                ].map(row => (
+                  <div key={row.label} className="flex items-start justify-between gap-4 py-2 border-b border-[#0B1F3A]/5 last:border-0">
+                    <span className="text-xs text-gray-400 font-medium flex-shrink-0 w-36">{row.label}</span>
+                    <span className="text-sm text-[#0B1F3A] font-medium text-right">{row.value}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Strengths */}
+            {analysis.positives.length > 0 && (
+              <div className="bg-white rounded-2xl border border-[#0B1F3A]/8 p-5">
+                <h3 className="font-bold text-[#0B1F3A] mb-4 flex items-center gap-2">
+                  <span className="text-emerald-600">✓</span> Key Strengths
+                </h3>
+                <div className="space-y-3">
+                  {analysis.positives.map((p, i) => (
+                    <div key={i} className="flex items-start gap-3 bg-emerald-50 rounded-xl p-3">
+                      <span className="text-emerald-500 flex-shrink-0 mt-0.5">●</span>
+                      <div>
+                        <p className="text-sm font-semibold text-emerald-800">{p.title}</p>
+                        <p className="text-xs text-emerald-700 mt-0.5">{p.description}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Generate Documents */}
+            <div className="bg-white rounded-2xl border border-[#0B1F3A]/8 p-5">
+              <h3 className="font-bold text-[#0B1F3A] mb-1">Generate Documents</h3>
+              <p className="text-xs text-gray-400 mb-4">Claude writes professional letters tailored to this analysis</p>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                {[
+                  { type: 'bank_explanation',  label: 'Bank Explanation',   icon: '🏦' },
+                  { type: 'financial_narrative', label: 'Financial Narrative', icon: '📊' },
+                  { type: 'cover_letter',      label: 'Cover Letter',        icon: '✉️' },
+                  { type: 'funds_declaration', label: 'Funds Declaration',   icon: '📋' },
+                  { type: 'employment_letter', label: 'Employment Letter',   icon: '💼' },
+                ].map(btn => (
+                  <button key={btn.type}
+                    onClick={() => generateLetter(btn.type)}
+                    disabled={letterLoading === btn.type}
+                    className="flex flex-col items-center gap-2 p-3 rounded-xl border border-[#0B1F3A]/10 hover:border-[#C9A84C] hover:bg-amber-50/40 transition-all disabled:opacity-40 text-center">
+                    <span className="text-2xl">{letterLoading === btn.type ? '⏳' : btn.icon}</span>
+                    <span className="text-[11px] font-semibold text-[#0B1F3A]">{btn.label}</span>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Letter panel */}
+            {letter && (
+              <LetterPanel letter={letter.text} letterType={letter.type} onClose={() => setLetter(null)} />
+            )}
+          </>
+        )}
+
+        {/* ── RED FLAGS ── */}
+        {activeTab === 'redflags' && (
+          <div className="space-y-4">
+            {analysis.redFlags.length === 0 ? (
+              <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-8 text-center">
+                <div className="text-4xl mb-3">✅</div>
+                <p className="font-bold text-emerald-800">No Red Flags Detected</p>
+                <p className="text-sm text-emerald-600 mt-1">Clean statement with no suspicious financial activity</p>
+              </div>
+            ) : (
+              [...analysis.redFlags]
+                .sort((a, b) => ({ HIGH: 0, MEDIUM: 1, LOW: 2 }[a.severity] ?? 3) - ({ HIGH: 0, MEDIUM: 1, LOW: 2 }[b.severity] ?? 3))
+                .map(flag => (
+                  <div key={flag.id} className="bg-white rounded-2xl border border-[#0B1F3A]/8 p-5">
+                    <div className="flex items-start gap-3 mb-3">
+                      <span className={`text-[10px] font-bold px-2.5 py-1 rounded-full flex-shrink-0 mt-0.5 ${sevBadge(flag.severity)}`}>
+                        {flag.severity}
+                      </span>
+                      <div className="flex-1">
+                        <p className="font-bold text-[#0B1F3A] text-sm">{flag.title}</p>
+                        <p className="text-xs text-gray-400 mt-0.5 uppercase tracking-wide">{flag.type}</p>
+                      </div>
+                    </div>
+                    <p className="text-sm text-[#0B1F3A]/70 mb-3">{flag.description}</p>
+                    {flag.transaction && (
+                      <div className="bg-red-50 rounded-lg px-3 py-2 text-xs text-red-700 font-mono mb-3">
+                        {flag.transaction}
+                      </div>
+                    )}
+                    {flag.embassyInterpretation && (
+                      <div className="bg-[#F5F7FA] rounded-xl px-4 py-3">
+                        <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-1">Embassy Interpretation</p>
+                        <p className="text-xs text-[#0B1F3A]/70">{flag.embassyInterpretation}</p>
+                      </div>
+                    )}
+                  </div>
+                ))
+            )}
+          </div>
+        )}
+
+        {/* ── EMBASSY EYE ── */}
+        {activeTab === 'embassy' && (
+          <div className="space-y-4">
+            <div className="bg-[#0B1F3A] rounded-2xl p-6">
+              <p className="text-[#C9A84C] text-xs font-bold uppercase tracking-widest mb-2">Officer Verdict</p>
+              <p className="text-white text-sm leading-relaxed">{analysis.embassyEye.officerVerdict}</p>
+
+              <div className="mt-5">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-white/50 text-xs">Similar Cases Approval Rate</span>
+                  <span className="text-[#C9A84C] font-bold">{analysis.embassyEye.similarCasesApprovalRate}%</span>
+                </div>
+                <div className="h-2 bg-white/10 rounded-full overflow-hidden">
+                  <div className="h-2 bg-[#C9A84C] rounded-full transition-all"
+                    style={{ width: `${analysis.embassyEye.similarCasesApprovalRate}%` }} />
+                </div>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="bg-white rounded-2xl border border-[#0B1F3A]/8 p-5">
+                <h3 className="font-bold text-emerald-700 mb-3 flex items-center gap-2">
+                  <span>✓</span> Key Strengths
+                </h3>
+                {analysis.embassyEye.keyStrengths.length === 0 ? (
+                  <p className="text-xs text-gray-400">None identified</p>
+                ) : (
+                  <ul className="space-y-2">
+                    {analysis.embassyEye.keyStrengths.map((s, i) => (
+                      <li key={i} className="flex items-start gap-2 text-sm text-emerald-800">
+                        <span className="text-emerald-500 flex-shrink-0 mt-0.5">●</span>
+                        {s}
                       </li>
                     ))}
                   </ul>
-                </Section>
-              )}
+                )}
+              </div>
 
+              <div className="bg-white rounded-2xl border border-[#0B1F3A]/8 p-5">
+                <h3 className="font-bold text-red-700 mb-3 flex items-center gap-2">
+                  <span>✗</span> Key Weaknesses
+                </h3>
+                {analysis.embassyEye.keyWeaknesses.length === 0 ? (
+                  <p className="text-xs text-gray-400">None identified</p>
+                ) : (
+                  <ul className="space-y-2">
+                    {analysis.embassyEye.keyWeaknesses.map((w, i) => (
+                      <li key={i} className="flex items-start gap-2 text-sm text-red-800">
+                        <span className="text-red-500 flex-shrink-0 mt-0.5">●</span>
+                        {w}
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
             </div>
+          </div>
+        )}
+
+        {/* ── ACTIONS ── */}
+        {activeTab === 'actions' && (
+          <div className="space-y-5">
+            {analysis.documentsToAdd.length > 0 && (
+              <div className="bg-white rounded-2xl border border-[#0B1F3A]/8 p-5">
+                <h3 className="font-bold text-[#0B1F3A] mb-3">Additional Documents Required</h3>
+                <div className="flex flex-wrap gap-2">
+                  {analysis.documentsToAdd.map((doc, i) => (
+                    <span key={i} className="text-xs font-semibold px-3 py-1.5 rounded-full bg-[#0B1F3A]/5 text-[#0B1F3A]">
+                      {doc}
+                    </span>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {analysis.suggestedActions.length > 0 && (
+              <div className="bg-white rounded-2xl border border-[#0B1F3A]/8 p-5">
+                <h3 className="font-bold text-[#0B1F3A] mb-4">Suggested Actions</h3>
+                <div className="space-y-3">
+                  {analysis.suggestedActions.map((a, i) => (
+                    <div key={i} className="flex items-start gap-3 p-3 bg-[#F5F7FA] rounded-xl">
+                      <div className={`w-2.5 h-2.5 rounded-full flex-shrink-0 mt-1.5 ${priDot(a.priority)}`} />
+                      <div>
+                        <div className="flex items-center gap-2 mb-0.5">
+                          <p className="text-sm font-semibold text-[#0B1F3A]">{a.action}</p>
+                          <span className="text-[9px] font-bold text-gray-400 uppercase tracking-wider">{a.priority}</span>
+                        </div>
+                        <p className="text-xs text-gray-500">{a.reason}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ── TRANSACTIONS ── */}
+        {activeTab === 'transactions' && (
+          <div className="bg-white rounded-2xl border border-[#0B1F3A]/8 overflow-hidden">
+            {analysis.transactions.length === 0 ? (
+              <div className="p-8 text-center text-gray-400 text-sm">No transactions extracted</div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-xs">
+                  <thead>
+                    <tr className="bg-[#F5F7FA] border-b border-[#0B1F3A]/8">
+                      <th className="text-left px-4 py-3 font-semibold text-[#0B1F3A]/50 uppercase tracking-wider">Date</th>
+                      <th className="text-left px-4 py-3 font-semibold text-[#0B1F3A]/50 uppercase tracking-wider">Description</th>
+                      <th className="text-right px-4 py-3 font-semibold text-emerald-600 uppercase tracking-wider">Credit</th>
+                      <th className="text-right px-4 py-3 font-semibold text-red-600 uppercase tracking-wider">Debit</th>
+                      <th className="text-right px-4 py-3 font-semibold text-[#0B1F3A]/50 uppercase tracking-wider">Balance</th>
+                      <th className="px-4 py-3"></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {analysis.transactions.map((t, i) => (
+                      <tr key={i} className={`border-b border-[#0B1F3A]/5 last:border-0 ${t.flagged ? 'bg-red-50' : 'hover:bg-[#F5F7FA]'}`}>
+                        <td className="px-4 py-2.5 text-[#0B1F3A]/50 whitespace-nowrap font-mono">{t.date}</td>
+                        <td className="px-4 py-2.5 text-[#0B1F3A] max-w-xs">
+                          <p className="truncate">{t.description}</p>
+                          {t.flagged && t.flagReason && (
+                            <p className="text-red-500 text-[10px] mt-0.5 truncate">{t.flagReason}</p>
+                          )}
+                        </td>
+                        <td className="px-4 py-2.5 text-right text-emerald-600 font-mono font-medium whitespace-nowrap">
+                          {t.credit != null ? fmt(t.credit) : ''}
+                        </td>
+                        <td className="px-4 py-2.5 text-right text-red-600 font-mono font-medium whitespace-nowrap">
+                          {t.debit != null ? fmt(t.debit) : ''}
+                        </td>
+                        <td className="px-4 py-2.5 text-right text-[#0B1F3A] font-mono whitespace-nowrap">
+                          {t.balance != null ? fmt(t.balance) : ''}
+                        </td>
+                        <td className="px-4 py-2.5 text-center">
+                          {t.flagged && <span title={t.flagReason ?? ''} className="text-red-500 text-sm">🚨</span>}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Letter panel below tabs for non-overview tabs */}
+        {activeTab !== 'overview' && letter && (
+          <LetterPanel letter={letter.text} letterType={letter.type} onClose={() => setLetter(null)} />
+        )}
+
+      </div>
+    </div>
+  )
+
+  // ─── Root ────────────────────────────────────────────────────────────────────
+
+  return (
+    <div className="flex flex-col min-h-screen bg-[#F5F7FA]">
+      {/* Header */}
+      <div className="bg-[#0B1F3A] border-b border-white/5">
+        <div className="max-w-5xl mx-auto px-4 py-4 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-xl bg-[#C9A84C] flex items-center justify-center flex-shrink-0">
+              <span className="text-[#0B1F3A] font-black text-xs">VF</span>
+            </div>
+            <div>
+              <h1 className="text-white font-bold text-base tracking-tight">
+                VisaFortress <span className="text-[#C9A84C]">AI</span>
+              </h1>
+              <p className="text-white/30 text-[10px]">Claude Forensic Analysis · Walz Travels Admin</p>
+            </div>
+          </div>
+          {analysis && (
+            <button
+              onClick={() => { setAnalysis(null); setFile(null); setLetter(null); setError('') }}
+              className="text-xs font-semibold px-4 py-2 rounded-lg bg-white/10 text-white hover:bg-white/20 transition-colors">
+              + New Analysis
+            </button>
           )}
-          </AnalysisErrorBoundary>
         </div>
-      )}
+      </div>
+
+      {/* Body */}
+      {analysis ? resultsPanel : uploadPanel}
     </div>
   )
 }
