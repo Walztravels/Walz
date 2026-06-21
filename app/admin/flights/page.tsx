@@ -10,6 +10,31 @@ interface Deal {
 
 const EMPTY: Omit<Deal, 'id'> = { origin: '', destination: '', price: 0, currency: 'GBP', airline: '', imageUrl: '', active: true, order: 0 }
 
+interface PopularRoute {
+  from: string; fromCity: string
+  to: string;   toCity: string
+  price: number; currency: string
+  badge: string; badgeColor: string
+  daysOut: number; duration: number
+  image: string; desc: string
+}
+
+const EMPTY_ROUTE: PopularRoute = {
+  from: '', fromCity: '', to: '', toCity: '',
+  price: 0, currency: 'GBP',
+  badge: 'Popular', badgeColor: '#3B82F6',
+  daysOut: 30, duration: 7,
+  image: '', desc: '',
+}
+
+const BADGE_COLORS = [
+  { label: 'Gold',   value: '#C9A84C' },
+  { label: 'Red',    value: '#EF4444' },
+  { label: 'Blue',   value: '#3B82F6' },
+  { label: 'Green',  value: '#10B981' },
+  { label: 'Purple', value: '#8B5CF6' },
+]
+
 export default function FlightsPage() {
   const [deals, setDeals] = useState<Deal[]>([])
   const [loading, setLoading] = useState(true)
@@ -22,6 +47,11 @@ export default function FlightsPage() {
   const [dragOver, setDragOver] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
+  const [popularRoutes,  setPopularRoutes]  = useState<PopularRoute[]>([])
+  const [prLoading,      setPrLoading]      = useState(false)
+  const [prSaving,       setPrSaving]       = useState(false)
+  const [prModal,        setPrModal]        = useState<(PopularRoute & { _idx?: number }) | null>(null)
+
   async function load() {
     setLoading(true)
     const res = await fetch('/api/admin/flights')
@@ -29,7 +59,55 @@ export default function FlightsPage() {
     setLoading(false)
   }
 
-  useEffect(() => { load() }, [])
+  async function loadPopularRoutes() {
+    setPrLoading(true)
+    try {
+      const res  = await fetch('/api/admin/popular-routes')
+      const data = await res.json() as { routes?: PopularRoute[] }
+      if (data.routes) setPopularRoutes(data.routes)
+    } finally {
+      setPrLoading(false)
+    }
+  }
+
+  async function savePopularRoutes(routes: PopularRoute[]) {
+    setPrSaving(true)
+    try {
+      await fetch('/api/admin/popular-routes', {
+        method:  'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ routes }),
+      })
+      setPopularRoutes(routes)
+    } finally {
+      setPrSaving(false)
+    }
+  }
+
+  function openPrModal(route?: PopularRoute, idx?: number) {
+    setPrModal(route ? { ...route, _idx: idx } : { ...EMPTY_ROUTE, _idx: undefined })
+  }
+
+  function savePrModal() {
+    if (!prModal) return
+    const { _idx, ...route } = prModal
+    const updated = [...popularRoutes]
+    if (_idx !== undefined) {
+      updated[_idx] = route
+    } else {
+      updated.push(route)
+    }
+    savePopularRoutes(updated)
+    setPrModal(null)
+  }
+
+  function deletePr(idx: number) {
+    if (!confirm('Remove this popular route?')) return
+    const updated = popularRoutes.filter((_, i) => i !== idx)
+    savePopularRoutes(updated)
+  }
+
+  useEffect(() => { load(); loadPopularRoutes() }, [])
 
   function openModal(deal?: Deal) {
     setModal(deal ? { ...deal } : { ...EMPTY })
@@ -311,6 +389,172 @@ export default function FlightsPage() {
               >
                 {(saving || uploading) && <Loader2 className="w-4 h-4 animate-spin" />}
                 {uploading ? 'Uploading photo…' : saving ? 'Saving…' : 'Save Deal'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Popular Routes section ─────────────────────────────────────────────── */}
+      <div className="mt-12">
+        <div className="mb-5 flex items-start justify-between">
+          <div>
+            <h2 className="text-xl font-bold text-[#0B1F3A]">Popular Routes</h2>
+            <p className="text-gray-500 text-sm mt-1">Editable route cards shown on the public flights page</p>
+          </div>
+          <button
+            onClick={() => openPrModal()}
+            className="flex items-center gap-2 bg-[#0B1F3A] text-white font-bold px-4 py-2 rounded-xl text-sm hover:bg-[#0B1F3A]/90 transition-colors"
+          >
+            <Plus className="w-4 h-4" /> Add Route
+          </button>
+        </div>
+
+        {prLoading ? (
+          <div className="text-gray-400 text-sm">Loading…</div>
+        ) : popularRoutes.length === 0 ? (
+          <div className="text-center py-12 text-gray-400 border-2 border-dashed border-gray-200 rounded-2xl">
+            <p className="text-sm">No custom routes saved — the hardcoded defaults are showing on the site.</p>
+            <p className="text-xs mt-1 text-gray-300">Add a route above to override them.</p>
+          </div>
+        ) : (
+          <div className="space-y-2">
+            {popularRoutes.map((r, i) => (
+              <div key={i} className="bg-white border border-gray-100 rounded-2xl px-4 py-3 flex items-center gap-4">
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="font-bold text-sm text-[#0B1F3A]">{r.fromCity} ({r.from}) → {r.toCity} ({r.to})</span>
+                    <span
+                      className="text-[10px] font-bold px-2 py-0.5 rounded-full"
+                      style={{ backgroundColor: `${r.badgeColor}20`, color: r.badgeColor, border: `1px solid ${r.badgeColor}40` }}
+                    >
+                      {r.badge}
+                    </span>
+                  </div>
+                  <p className="text-xs text-gray-400 mt-0.5">
+                    {r.currency === 'CAD' ? 'CA$' : '£'}{r.price} · {r.desc} · {r.daysOut}d out, {r.duration}d trip
+                  </p>
+                </div>
+                <div className="flex gap-1 flex-shrink-0">
+                  <button onClick={() => openPrModal(r, i)} className="p-1.5 text-gray-400 hover:text-[#0B1F3A] transition-colors">
+                    <Pencil className="w-4 h-4" />
+                  </button>
+                  <button onClick={() => deletePr(i)} className="p-1.5 text-gray-400 hover:text-red-500 transition-colors">
+                    <Trash2 className="w-4 h-4" />
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {prSaving && (
+          <p className="text-xs text-gray-400 mt-2 flex items-center gap-1.5">
+            <Loader2 className="w-3 h-3 animate-spin" /> Saving…
+          </p>
+        )}
+      </div>
+
+      {/* Popular route modal */}
+      {prModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" onClick={() => setPrModal(null)} />
+          <div className="relative bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
+            <div className="sticky top-0 bg-[#0B1F3A] px-5 py-4 rounded-t-2xl flex items-center justify-between">
+              <h3 className="text-white font-bold">{prModal._idx !== undefined ? 'Edit Route' : 'Add Route'}</h3>
+              <button onClick={() => setPrModal(null)} className="text-white/60 hover:text-white">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="p-5 space-y-4">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-medium text-gray-500 mb-1">From IATA</label>
+                  <input value={prModal.from} onChange={e => setPrModal({ ...prModal, from: e.target.value })}
+                    placeholder="LHR" className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm outline-none focus:border-[#C9A84C]" />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-500 mb-1">From City</label>
+                  <input value={prModal.fromCity} onChange={e => setPrModal({ ...prModal, fromCity: e.target.value })}
+                    placeholder="London" className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm outline-none focus:border-[#C9A84C]" />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-500 mb-1">To IATA</label>
+                  <input value={prModal.to} onChange={e => setPrModal({ ...prModal, to: e.target.value })}
+                    placeholder="LOS" className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm outline-none focus:border-[#C9A84C]" />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-500 mb-1">To City</label>
+                  <input value={prModal.toCity} onChange={e => setPrModal({ ...prModal, toCity: e.target.value })}
+                    placeholder="Lagos" className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm outline-none focus:border-[#C9A84C]" />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-medium text-gray-500 mb-1">Price</label>
+                  <input type="number" value={prModal.price} onChange={e => setPrModal({ ...prModal, price: Number(e.target.value) })}
+                    className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm outline-none focus:border-[#C9A84C]" />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-500 mb-1">Currency</label>
+                  <select value={prModal.currency} onChange={e => setPrModal({ ...prModal, currency: e.target.value })}
+                    className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm outline-none focus:border-[#C9A84C]">
+                    {['GBP', 'USD', 'EUR', 'CAD', 'NGN', 'AED', 'GHS'].map(c => <option key={c} value={c}>{c}</option>)}
+                  </select>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-medium text-gray-500 mb-1">Badge Label</label>
+                  <input value={prModal.badge} onChange={e => setPrModal({ ...prModal, badge: e.target.value })}
+                    placeholder="Best Seller" className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm outline-none focus:border-[#C9A84C]" />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-500 mb-1">Badge Colour</label>
+                  <select value={prModal.badgeColor} onChange={e => setPrModal({ ...prModal, badgeColor: e.target.value })}
+                    className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm outline-none focus:border-[#C9A84C]">
+                    {BADGE_COLORS.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
+                  </select>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-medium text-gray-500 mb-1">Days Out</label>
+                  <input type="number" value={prModal.daysOut} onChange={e => setPrModal({ ...prModal, daysOut: Number(e.target.value) })}
+                    className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm outline-none focus:border-[#C9A84C]" />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-gray-500 mb-1">Trip Duration (days)</label>
+                  <input type="number" value={prModal.duration} onChange={e => setPrModal({ ...prModal, duration: Number(e.target.value) })}
+                    className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm outline-none focus:border-[#C9A84C]" />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-gray-500 mb-1">Description</label>
+                <input value={prModal.desc} onChange={e => setPrModal({ ...prModal, desc: e.target.value })}
+                  placeholder="Multiple airlines daily" className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm outline-none focus:border-[#C9A84C]" />
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-gray-500 mb-1">Image URL</label>
+                <input value={prModal.image} onChange={e => setPrModal({ ...prModal, image: e.target.value })}
+                  placeholder="https://images.unsplash.com/…" className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm outline-none focus:border-[#C9A84C]" />
+                {prModal.image && (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img src={prModal.image} alt="Preview" className="mt-2 w-full h-24 object-cover rounded-xl" />
+                )}
+              </div>
+
+              <button
+                onClick={savePrModal}
+                disabled={prSaving}
+                className="w-full bg-[#C9A84C] text-[#0B1F3A] font-bold py-3 rounded-xl hover:bg-[#d4b45f] disabled:opacity-50 transition-colors"
+              >
+                {prSaving ? 'Saving…' : prModal._idx !== undefined ? 'Update Route' : 'Add Route'}
               </button>
             </div>
           </div>
