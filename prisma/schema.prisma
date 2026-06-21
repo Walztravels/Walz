@@ -51,6 +51,7 @@ model User {
   financialDNA        ClientFinancialDNA?
   riskScore           ClientRiskScore?
   lifecyclePrediction ClientLifecyclePrediction?
+  groupSessionsCreated GroupSession[]
 }
 
 model Account {
@@ -2115,4 +2116,82 @@ model TicketRecord {
   @@index([bookingId])
   @@index([clientEmail])
   @@index([ticketType])
+}
+
+// ===========================
+// Group Itinerary Planner
+// ===========================
+
+model GroupSession {
+  id               String   @id @default(cuid())
+  name             String
+  creatorId        String
+  status           String   @default("collecting") // collecting | voting | locked
+  destination      String?
+  shortlistJson    Json?    // Claude synthesis: 3 destination options
+  itineraryJson    Json?    // Full day-by-day itinerary
+  groupNotes       String?  @db.Text
+  // ── Group Visa Risk ──────────────────────────────────
+  visaDestination  String?
+  visaAnalysisJson Json?
+  visaStatus       String   @default("pending")    // pending | in_progress | complete
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  creator            User                @relation(fields: [creatorId], references: [id], onDelete: Cascade)
+  members            SessionMember[]
+  votes              SessionVote[]
+  memberVisaProfiles MemberVisaProfile[]
+
+  @@index([creatorId])
+  @@index([status])
+}
+
+model SessionMember {
+  id              String    @id @default(cuid())
+  sessionId       String
+  inviteToken     String    @unique @default(cuid())
+  name            String
+  submittedAt     DateTime?
+  preferencesJson Json?
+
+  session     GroupSession       @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  votes       SessionVote[]
+  visaProfile MemberVisaProfile?
+
+  @@index([sessionId])
+  @@index([inviteToken])
+}
+
+model SessionVote {
+  id          String   @id @default(cuid())
+  sessionId   String
+  memberId    String
+  destination String
+  createdAt   DateTime @default(now())
+
+  session GroupSession  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  member  SessionMember @relation(fields: [memberId], references: [id], onDelete: Cascade)
+
+  @@unique([sessionId, memberId])
+  @@index([sessionId])
+}
+
+model MemberVisaProfile {
+  id                     String   @id @default(cuid())
+  sessionId              String
+  memberId               String   @unique
+  nationality            String
+  travelHistoryJson      Json     @default("[]")
+  documentUrls           Json     @default("[]")
+  individualScore        Int?
+  individualAnalysisJson Json?
+  coverLetterText        String?  @db.Text
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
+
+  session GroupSession  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  member  SessionMember @relation(fields: [memberId], references: [id], onDelete: Cascade)
+
+  @@index([sessionId])
 }
