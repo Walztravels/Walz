@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import type { FlightItinerary, SortOption } from '@/lib/flights/types'
 import { formatDuration, formatPrice, formatTime } from '@/lib/flights/utils'
+import { useFlightStore } from '@/store/flightStore'
 
 interface Props {
   results: FlightItinerary[]
@@ -23,6 +24,7 @@ const BADGE_ORDER = ['recommended', 'luxury', 'cheapest', 'fastest', 'best-value
 
 export function FlightResults({ results, from, to }: Props) {
   const router = useRouter()
+  const { setSelected } = useFlightStore()
   const [sortBy,   setSort]    = useState<SortOption>('recommended')
   const [expanded, setExpanded] = useState<string | null>(null)
 
@@ -55,7 +57,7 @@ export function FlightResults({ results, from, to }: Props) {
           <FlightCard key={it.id} itinerary={it}
             expanded={expanded === it.id}
             onToggle={() => setExpanded(expanded === it.id ? null : it.id)}
-            onSelect={() => router.push(`/flights/detail?id=${it.id}`)} />
+            onSelect={() => { setSelected(it); router.push(`/flights/detail?id=${it.id}`) }} />
         ))}
       </div>
     </div>

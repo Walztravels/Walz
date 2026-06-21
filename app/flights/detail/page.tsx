@@ -9,11 +9,14 @@ import { FarePredictor }     from '@/components/flights/ai/FarePredictor'
 import { LoyaltyDashboard }  from '@/components/flights/loyalty/LoyaltyDashboard'
 import type { FareOption }   from '@/lib/flights/types'
 
-const FARE_OPTIONS: FareOption[] = [
-  { name: 'Economy Light', price: 820,  currency: 'GBP', baggage: '1 × 7kg cabin only',  refundable: false, changeable: false, seatSelection: 'paid', lounge: false, meals: false },
-  { name: 'Economy Flex',  price: 1050, currency: 'GBP', baggage: '1 × 23kg checked',     refundable: true,  changeable: true,  seatSelection: 'free', lounge: false, meals: true, highlight: true },
-  { name: 'Business Class',price: 2840, currency: 'GBP', baggage: '2 × 32kg checked',     refundable: true,  changeable: true,  seatSelection: 'free', lounge: true,  meals: true },
-]
+// Base fares built dynamically from the actual itinerary price
+function buildFareOptions(basePrice: number): FareOption[] {
+  return [
+    { name: 'Economy Light', price: Math.round(basePrice * 0.85), currency: 'GBP', baggage: '1 × 7kg cabin only',  refundable: false, changeable: false, seatSelection: 'paid', lounge: false, meals: false },
+    { name: 'Economy Flex',  price: basePrice,                     currency: 'GBP', baggage: '1 × 23kg checked',    refundable: true,  changeable: true,  seatSelection: 'free', lounge: false, meals: true, highlight: true },
+    { name: 'Business Class',price: Math.round(basePrice * 2.8),  currency: 'GBP', baggage: '2 × 32kg checked',    refundable: true,  changeable: true,  seatSelection: 'free', lounge: true,  meals: true },
+  ]
+}
 
 const ANCILLARIES = [
   { id: 'transfer',   icon: '🚗', name: 'Airport Transfer',     desc: 'Private car to/from airport',       price: 45,  popular: true,  link: ''       },
@@ -40,6 +43,7 @@ function DetailContent() {
   const { selected, setSelected, setStep } = useFlightStore()
   const it = selected ?? MOCK_ITINERARY
 
+  const FARE_OPTIONS = buildFareOptions(it.price.total)
   const [selectedFare, setFare] = useState<FareOption>(FARE_OPTIONS[1])
   const [addedAnc,     setAdded] = useState<string[]>([])
 
@@ -84,17 +88,38 @@ function DetailContent() {
 
           <div className="flex flex-col lg:flex-row lg:items-start gap-8">
             <div className="flex-1">
-              <div className="w-16 h-16 rounded-2xl bg-white/10 flex items-center justify-center text-3xl mb-4">✈️</div>
-              <p className="text-[#C9A84C] text-xs font-semibold tracking-[0.2em] uppercase mb-2">{seg.airlineName}</p>
-              <h1 className="font-display text-3xl lg:text-4xl font-bold mb-3">
-                {seg.departureCity} → {segLast.arrivalCity}
+              {/* Airline badge */}
+              <div className="flex items-center gap-3 mb-5">
+                <div className="w-14 h-14 rounded-2xl bg-white/10 border border-white/10 flex items-center justify-center flex-shrink-0">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={seg.airlineLogo}
+                    alt={seg.airlineName}
+                    className="w-9 h-9 object-contain"
+                    onError={e => {
+                      (e.currentTarget as HTMLImageElement).style.display = 'none';
+                      (e.currentTarget.parentElement as HTMLElement).innerHTML = `<span class="text-white font-bold text-lg">${seg.airline}</span>`
+                    }}
+                  />
+                </div>
+                <div>
+                  <p className="text-[#C9A84C] text-xs font-bold tracking-[0.2em] uppercase">{seg.airlineName}</p>
+                  <p className="text-white/40 text-xs">{seg.flightNumber} · {seg.aircraft}</p>
+                </div>
+              </div>
+              <h1 className="font-display text-3xl lg:text-5xl font-bold mb-3 leading-tight">
+                {seg.departureCity} <span className="text-[#C9A84C]">→</span> {segLast.arrivalCity}
               </h1>
               <div className="flex flex-wrap items-center gap-3 text-white/50 text-sm">
-                <span>{seg.aircraft}</span><span>·</span>
                 <span>{formatDuration(it.totalDuration)}</span><span>·</span>
                 <span>{seg.cabinClass.replace('_', ' ')}</span><span>·</span>
-                <span>{it.stops === 0 ? 'Direct' : `${it.stops} stop${it.stops > 1 ? 's' : ''}`}</span>
+                <span>{it.stops === 0 ? 'Non-stop' : `${it.stops} stop${it.stops > 1 ? 's' : ''}`}</span>
               </div>
+              {it.badge && (
+                <span className="inline-block mt-3 text-[11px] font-bold uppercase tracking-wider px-3 py-1 rounded-full bg-[#C9A84C] text-[#0B1F3A]">
+                  {it.badgeLabel ?? it.badge}
+                </span>
+              )}
             </div>
             {/* Fare summary */}
             <div className="bg-white/10 rounded-2xl p-5 min-w-[240px]">
@@ -302,16 +327,17 @@ function DetailContent() {
               <div className="space-y-2 text-sm">
                 <div className="flex justify-between">
                   <span className="text-[#0B1F3A]/60">Airfare</span>
-                  <span className="font-medium text-[#0B1F3A]">{formatPrice(Math.round(selectedFare.price * 0.75))}</span>
+                  <span className="font-medium text-[#0B1F3A]">{formatPrice(Math.round(selectedFare.price - selectedFare.price * 0.22))}</span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-[#0B1F3A]/60">Taxes & fees</span>
-                  <span className="font-medium text-[#0B1F3A]">{formatPrice(Math.round(selectedFare.price * 0.25))}</span>
+                  <span className="font-medium text-[#0B1F3A]">{formatPrice(Math.round(selectedFare.price * 0.22))}</span>
                 </div>
                 <div className="border-t border-black/5 pt-2 flex justify-between">
                   <span className="font-bold text-[#0B1F3A]">Total</span>
                   <span className="font-bold text-xl text-[#0B1F3A]">{formatPrice(selectedFare.price)}</span>
                 </div>
+                <p className="text-[10px] text-[#0B1F3A]/30 text-center pt-1">Per person · {it.price.currency}</p>
               </div>
               <button onClick={goToSeats}
                 className="w-full py-3.5 rounded-xl bg-[#C9A84C] text-[#0B1F3A] font-bold text-sm hover:bg-[#E8C87A] active:scale-[0.97] transition-all">
