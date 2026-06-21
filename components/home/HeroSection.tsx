@@ -5,8 +5,7 @@ import Image from 'next/image'
 import Link from 'next/link'
 import gsap from 'gsap'
 import ScrollTrigger from 'gsap/ScrollTrigger'
-import { SearchTabs } from '@/components/search/SearchTabs'
-import { ArrowRight, Search } from 'lucide-react'
+import { ArrowRight } from 'lucide-react'
 import { JadeChatButton } from '@/components/ui/JadeChatButton'
 
 const FALLBACK_BG = 'https://images.unsplash.com/photo-1436491865332-7a61a109cc05?w=1920&q=80'
@@ -47,8 +46,6 @@ export function HeroSection({ bgUrl }: { bgUrl?: string | null }) {
   const line3Ref   = useRef<HTMLSpanElement>(null)
   const subRef     = useRef<HTMLParagraphElement>(null)
   const ctaRef     = useRef<HTMLDivElement>(null)
-  const searchRef  = useRef<HTMLDivElement>(null)
-  const [searchExpanded, setSearchExpanded] = useState(false)
 
   useEffect(() => {
     const textRefs = [eyebrowRef, line1Ref, line2Ref, line3Ref, subRef, ctaRef]
@@ -60,7 +57,6 @@ export function HeroSection({ bgUrl }: { bgUrl?: string | null }) {
           ref.current.style.transform = 'none'
         }
       })
-      if (searchRef.current) searchRef.current.style.opacity = '1'
     }
 
     // Safety net: if GSAP hasn't shown content within 800 ms, reveal everything
@@ -84,7 +80,6 @@ export function HeroSection({ bgUrl }: { bgUrl?: string | null }) {
       )
       gsap.set(subRef.current,    { opacity: 0, y: 30 })
       gsap.set(ctaRef.current,    { opacity: 0, y: 24 })
-      gsap.set(searchRef.current, { opacity: 0 })
 
       // GSAP is running — cancel the fallback
       clearTimeout(fallbackTimer)
@@ -99,7 +94,6 @@ export function HeroSection({ bgUrl }: { bgUrl?: string | null }) {
       )
       tl.to(subRef.current,      { opacity: 1, y: 0, duration: 0.8 }, 0.8)
       tl.to(ctaRef.current,      { opacity: 1, y: 0, duration: 0.7 }, 1.0)
-      tl.to(searchRef.current,   { opacity: 1, duration: 0.8 },        2.3)
 
       // Parallax background — desktop only
       if (window.innerWidth >= 768 && bgRef.current) {
@@ -211,34 +205,6 @@ export function HeroSection({ bgUrl }: { bgUrl?: string | null }) {
         </p>
       </div>
 
-      {/* Search widget */}
-      <div
-        ref={searchRef}
-        className="absolute bottom-0 left-0 right-0 z-20 translate-y-1/2 px-4 sm:px-6 lg:px-8"
-        style={{ transition: 'opacity 0.3s ease' }}
-      >
-        <div className="max-w-5xl mx-auto drop-shadow-2xl">
-          {!searchExpanded && (
-            <div
-              className="lg:hidden flex items-center gap-3 bg-[#0B1F3A] border border-white/15 rounded-2xl px-4 py-3.5 cursor-pointer shadow-luxury"
-              onClick={() => setSearchExpanded(true)}
-            >
-              <Search className="w-5 h-5 text-[#C9A84C] flex-shrink-0" />
-              <span className="text-white/70 text-sm">Where do you want to go?</span>
-              <span className="ml-auto text-[#C9A84C] text-sm font-semibold whitespace-nowrap">Search →</span>
-            </div>
-          )}
-          <div className={searchExpanded ? 'block' : 'hidden lg:block'}>
-            <SearchTabs />
-            <button
-              className="lg:hidden mt-2 text-white/50 text-sm w-full text-center py-2 hover:text-white/80 transition-colors"
-              onClick={() => setSearchExpanded(false)}
-            >
-              Cancel
-            </button>
-          </div>
-        </div>
-      </div>
     </section>
   )
 }

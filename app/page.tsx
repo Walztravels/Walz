@@ -73,12 +73,8 @@ export default function HomePage() {
       {/* 1 — Fullscreen cinematic hero */}
       <HeroSection bgUrl={heroBg} />
 
-      {/* Spacer — accommodates the search widget's translate-y-1/2 overflow */}
-      {/* Mobile: ~28px (collapsed bar ½); desktop: ~148px (full SearchTabs ½) */}
-      <div className="bg-[#0B1F3A] pt-8 lg:pt-40">
-        {/* 2 — Scrolling marquee strip */}
-        <MarqueeStrip />
-      </div>
+      {/* 2 — Scrolling marquee strip */}
+      <MarqueeStrip />
 
       {/* 4 — Animated statistics */}
       <StatsStrip />
