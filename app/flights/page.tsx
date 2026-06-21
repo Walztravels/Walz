@@ -4,19 +4,21 @@ import { FlightSearchWidget } from '@/components/flights/FlightSearchWidget'
 import { TrustStrip }         from '@/components/flights/TrustStrip'
 import { PopularRoutes }      from '@/components/flights/PopularRoutes'
 import { WhyWalz }            from '@/components/flights/WhyWalz'
+import { JadeMilesSection }   from '@/components/flights/JadeMilesSection'
 import { AiAssistantTeaser }  from '@/components/flights/AiAssistantTeaser'
 
 export const metadata: Metadata = {
   title:       'Book Flights Worldwide | Walz Travels',
-  description: 'Search and book flights on 900+ airlines. Business class, first class and economy fares with 24/7 expert support. IATA partner. Price guarantee.',
+  description: 'Search and book flights on 900+ airlines. Business class, first class and economy fares with 24/7 expert support and Jade AI concierge. IATA partner.',
   keywords: [
     'cheap flights Lagos London', 'flights Accra London', 'Nigeria UK flights',
     'Ghana UK flights', 'book flights Nigeria', 'book flights Ghana',
     'Lagos Dubai flights', 'Walz Travels flights', 'business class Africa',
+    'Jade Miles loyalty', 'AI flight booking',
   ],
   openGraph: {
-    title:       'Fly Better. Travel Smarter. Book Worldwide — Walz Travels',
-    description: 'Premium flight booking on 900+ airlines with 24/7 expert concierge support.',
+    title:       'Fly Higher. Further. Better. — Walz Travels',
+    description: 'Premium flight booking on 900+ airlines with Jade AI concierge and 24/7 expert support.',
     images: [{ url: 'https://images.unsplash.com/photo-1436491865332-7a61a109cc05?w=1200&h=630&fit=crop', width: 1200, height: 630, alt: 'Book flights with Walz Travels' }],
   },
   alternates: { canonical: 'https://www.walztravels.com/flights' },
@@ -25,8 +27,8 @@ export const metadata: Metadata = {
 export default function FlightsPage() {
   return (
     <main className="min-h-screen bg-[#FAF7F2]">
-      {/* Hero + search widget */}
-      <section className="relative min-h-[92vh] flex flex-col">
+      {/* Cinematic hero + search widget */}
+      <section className="relative min-h-[95vh] flex flex-col">
         <FlightsHero />
         <div className="relative z-20 w-full max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 mt-auto -mb-20 pb-0">
           <FlightSearchWidget />
@@ -34,11 +36,12 @@ export default function FlightsPage() {
       </section>
 
       {/* Spacer for overlapping widget */}
-      <div className="h-24 bg-[#FAF7F2]" />
+      <div className="h-24 bg-white" />
 
       <TrustStrip />
       <PopularRoutes />
       <WhyWalz />
+      <JadeMilesSection />
       <AiAssistantTeaser />
     </main>
   )
