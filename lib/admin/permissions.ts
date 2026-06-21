@@ -351,7 +351,9 @@ export const NAV_ITEMS: NavSection[] = [
     items: [
       { href: '/admin/bookings',    label: 'All Bookings',      icon: 'Calendar',   permission: 'bookings'        },
       { href: '/admin/book',        label: 'New Booking',       icon: 'Plus',       permission: 'bookings.create' },
-      { href: '/admin/flights',     label: 'Flight Deals',      icon: 'Plane',      permission: 'flights'         },
+      { href: '/admin/flights',      label: 'Flight Deals',      icon: 'Plane',      permission: 'flights'         },
+      { href: '/admin/flight-extras', label: 'Flight Extras',   icon: 'Sliders',    permission: 'flights'         },
+      { href: '/admin/jade-miles',   label: 'Jade Miles',        icon: 'Star',       permission: 'flights'         },
       { href: '/admin/hotels',      label: 'Hotel Promos',      icon: 'Building2',  permission: 'hotels'          },
       { href: '/admin/transfers',   label: 'Transfers',         icon: 'Car',        permission: 'transfers'       },
       { href: '/admin/itinerary',   label: 'Itinerary Planner', icon: 'Map',        permission: 'bookings'        },
