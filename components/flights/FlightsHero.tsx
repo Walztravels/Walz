@@ -111,8 +111,14 @@ export function FlightsHero() {
             Search Flights
           </button>
           <button type="button"
+            onClick={() => window.dispatchEvent(new CustomEvent('jade:open'))}
+            className="px-7 py-3.5 rounded-xl bg-white/10 border border-white/20 text-white text-sm font-semibold hover:bg-white/20 active:scale-[0.97] transition-all backdrop-blur-sm flex items-center gap-2">
+            <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
+            Chat with Jade AI
+          </button>
+          <button type="button"
             onClick={() => document.getElementById('popular-routes')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
-            className="px-7 py-3.5 rounded-xl border border-white/20 text-white/70 text-sm font-medium hover:border-white/40 hover:text-white transition-all">
+            className="px-7 py-3.5 rounded-xl border border-white/10 text-white/50 text-sm font-medium hover:border-white/30 hover:text-white/80 transition-all">
             Explore Deals
           </button>
         </div>

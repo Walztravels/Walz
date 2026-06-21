@@ -319,13 +319,21 @@ export function FlightSearchWidget() {
       </div>
 
       {/* Quick options strip */}
-      <div className="px-5 lg:px-8 pb-4 flex flex-wrap gap-4">
+      <div className="px-5 lg:px-8 pb-4 flex flex-wrap items-center gap-4">
         {['🗓 Flexible dates', '✈️ Direct flights only', '🗺️ Nearby airports', '🧳 Baggage included'].map(opt => (
           <label key={opt} className="flex items-center gap-1.5 cursor-pointer group">
             <input type="checkbox" className="rounded border-[#0B1F3A]/20 accent-[#C9A84C]" />
             <span className="text-xs text-[#0B1F3A]/50 group-hover:text-[#0B1F3A] transition-colors">{opt}</span>
           </label>
         ))}
+        <button
+          type="button"
+          onClick={() => window.dispatchEvent(new CustomEvent('jade:open'))}
+          className="ml-auto flex items-center gap-1.5 text-xs font-semibold text-[#C9A84C] hover:text-[#0B1F3A] transition-colors group"
+        >
+          <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
+          Ask Jade AI ✈️
+        </button>
       </div>
     </div>
   )
