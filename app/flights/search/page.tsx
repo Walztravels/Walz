@@ -2,13 +2,16 @@
 
 import { useState, useEffect, useRef, Suspense } from 'react'
 import { useSearchParams } from 'next/navigation'
-import { FlightSummaryBanner } from '@/components/flights/FlightSummaryBanner'
-import { FlightResults }       from '@/components/flights/FlightResults'
-import { FlightFilters, applyFilters } from '@/components/flights/FlightFilters'
-import type { FilterState } from '@/components/flights/FlightFilters'
-import { FlightSearchWidget }  from '@/components/flights/FlightSearchWidget'
-import { useFlightStore }      from '@/store/flightStore'
-import type { FlightItinerary } from '@/lib/flights/types'
+import { FlightSummaryBanner }                    from '@/components/flights/FlightSummaryBanner'
+import { FlightResults }                          from '@/components/flights/FlightResults'
+import { FlightFilters, applyFilters }            from '@/components/flights/FlightFilters'
+import type { FilterState }                       from '@/components/flights/FlightFilters'
+import { FlightSearchWidget }                     from '@/components/flights/FlightSearchWidget'
+import { AiRecommendationBanner }                 from '@/components/flights/AiRecommendationBanner'
+import { OneTapModal }                            from '@/components/flights/OneTapModal'
+import { useFlightStore }                         from '@/store/flightStore'
+import type { FlightItinerary }                   from '@/lib/flights/types'
+import type { AiRecommendation, SavedPaymentMethod } from '@/store/flightStore'
 
 const LOADING_STEPS = [
   { ms: 0,    text: 'Checking Air Canada...'         },
@@ -38,8 +41,10 @@ function SearchContent() {
   const trip     = sp.get('trip')     ?? 'one-way'
 
   const {
-    results: storeResults, setResults, isSearching, setSearching,
-    searchError, setSearchError, resultsSource,
+    results: storeResults, setResults, setSearching, setSearchError,
+    resultsSource, loyalty, passengers: storedPassengers,
+    aiRecommendation, setAiRecommendation,
+    savedPaymentMethod, setSavedPaymentMethod,
   } = useFlightStore()
 
   const [phase,             setPhase]             = useState<Phase>('loading')
@@ -48,18 +53,33 @@ function SearchContent() {
   const [showWidget,        setShowWidget]         = useState(false)
   const [showMobileFilters, setShowMobileFilters]  = useState(false)
   const [filters,           setFilters]            = useState<FilterState>({ stops: [], maxPrice: 5000, refundable: false, airlines: [] })
-  const hasFetched = useRef(false)
+  const [oneTapOffer,       setOneTapOffer]        = useState<FlightItinerary | null>(null)
+  const [recDismissed,      setRecDismissed]       = useState(false)
+  const hasFetched    = useRef(false)
+  const aiReqFired    = useRef(false)
+  const savedCardLoaded = useRef(false)
 
+  // ── Load saved card once ───────────────────────────────────────────────────
+  useEffect(() => {
+    if (savedCardLoaded.current) return
+    savedCardLoaded.current = true
+    fetch('/api/payments/saved-method')
+      .then(r => r.json())
+      .then(data => {
+        if (data.saved) setSavedPaymentMethod(data.saved as SavedPaymentMethod)
+      })
+      .catch(() => {})
+  }, []) // eslint-disable-line
+
+  // ── Search ─────────────────────────────────────────────────────────────────
   useEffect(() => {
     if (hasFetched.current) return
     hasFetched.current = true
 
-    // Reveal steps one by one
     const stepTimers = LOADING_STEPS.map(({ ms }, i) =>
       setTimeout(() => setDone(d => [...d, i]), ms)
     )
 
-    // Minimum 3.5s brand loading experience
     const MIN_LOADING_MS = 3500
     const start = Date.now()
 
@@ -67,9 +87,9 @@ function SearchContent() {
     setSearchError(null)
 
     fetch('/api/flights/search', {
-      method: 'POST',
+      method:  'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ from, to, cabin, adults, children, infants, depart, return: returnD, trip }),
+      body:    JSON.stringify({ from, to, cabin, adults, children, infants, depart, return: returnD, trip }),
     })
       .then(r => r.json())
       .then(data => {
@@ -96,17 +116,56 @@ function SearchContent() {
     return () => { stepTimers.forEach(clearTimeout) }
   }, [from, to, cabin, adults, children, infants, depart, returnD, trip]) // eslint-disable-line
 
-  // Also show stored results if available
+  // ── Sync stored results ────────────────────────────────────────────────────
   useEffect(() => {
     if (storeResults.length > 0 && displayResults.length === 0) {
       setDisplayResults(storeResults)
     }
   }, [storeResults]) // eslint-disable-line
 
-  const allResults = displayResults.length > 0 ? displayResults : storeResults
-  const results = applyFilters(allResults, filters)
+  // ── Fire AI recommendation once results arrive ─────────────────────────────
+  useEffect(() => {
+    if (aiReqFired.current || storeResults.length === 0) return
+    aiReqFired.current = true
 
-  // ── LOADING ──────────────────────────────────────────────────────────────
+    const preferences = {
+      cabin,
+      budget:      undefined,
+      preferDirect: false,
+      flexible:    false,
+    }
+
+    fetch('/api/flights/ai-recommend', {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({
+        offers:      storeResults,
+        preferences,
+        miles:       loyalty?.miles ?? 0,
+      }),
+    })
+      .then(r => r.json())
+      .then((data: { offerId: string | null; reason?: string; confidence?: number }) => {
+        if (data.offerId) {
+          setAiRecommendation({
+            offerId:    data.offerId,
+            reason:     data.reason ?? '',
+            confidence: data.confidence ?? 0.7,
+          })
+        }
+      })
+      .catch(() => {})
+  }, [storeResults]) // eslint-disable-line
+
+  const allResults    = displayResults.length > 0 ? displayResults : storeResults
+  const results       = applyFilters(allResults, filters)
+  const recOffer      = aiRecommendation
+    ? results.find(r => r.id === aiRecommendation.offerId) ?? null
+    : null
+  const showRecBanner = !!recOffer && !recDismissed
+  const passengerCount = adults + children + infants
+
+  // ── LOADING ───────────────────────────────────────────────────────────────
   if (phase === 'loading') {
     return (
       <div className="min-h-screen bg-[#0B1F3A] flex flex-col items-center justify-center px-4 py-16">
@@ -236,6 +295,7 @@ function SearchContent() {
           <aside className="hidden lg:block w-64 flex-shrink-0">
             <FlightFilters results={allResults} onChange={setFilters} />
           </aside>
+
           <div className="flex-1 min-w-0">
             <div className="lg:hidden mb-4">
               <button type="button" onClick={() => setShowMobileFilters(true)}
@@ -246,10 +306,33 @@ function SearchContent() {
                 Filters &amp; Sort
               </button>
             </div>
+
+            {/* ── AI Recommendation Banner ─────────────────────────────────── */}
+            {showRecBanner && recOffer && aiRecommendation && (
+              <AiRecommendationBanner
+                recommendation={aiRecommendation}
+                offer={recOffer}
+                hasSavedCard={!!savedPaymentMethod}
+                onBookNow={(offer) => setOneTapOffer(offer)}
+                onDismiss={() => setRecDismissed(true)}
+              />
+            )}
+
             <FlightResults results={results} from={from} to={to} />
           </div>
         </div>
       </div>
+
+      {/* ── One-tap confirm modal ──────────────────────────────────────────── */}
+      {oneTapOffer && (
+        <OneTapModal
+          offer={oneTapOffer}
+          aiRec={aiRecommendation}
+          savedCard={savedPaymentMethod}
+          passengerCount={passengerCount}
+          onClose={() => setOneTapOffer(null)}
+        />
+      )}
     </div>
   )
 }
