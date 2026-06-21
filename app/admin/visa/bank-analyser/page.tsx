@@ -538,11 +538,13 @@ export default function BankAnalyserPage() {
   const [pdfEmailSent, setPdfEmailSent] = useState(false)
 
   // Link to submitted application
-  const [appList,     setAppList]     = useState<{ id: string; label: string; email: string; name: string }[]>([])
-  const [linkedAppId, setLinkedAppId] = useState('')
+  const [appList,        setAppList]        = useState<{ id: string; label: string; email: string; name: string }[]>([])
+  const [linkedAppId,    setLinkedAppId]    = useState('')
+  const [bankStmtUrl,    setBankStmtUrl]    = useState<string | null>(null)
+  const [bankStmtFetch,  setBankStmtFetch]  = useState(false)
 
   useEffect(() => {
-    fetch('/api/admin/visa-applications?status=documents_pending&status=under_review&status=ready_to_submit')
+    fetch('/api/admin/visa-applications?status=documents_pending&status=under_review&status=ready_to_submit&limit=100')
       .then(r => r.ok ? r.json() : null)
       .then((d: { applications?: { id: string; firstName: string; lastName: string; email: string; referenceNumber?: string }[] } | null) => {
         if (!d?.applications) return
@@ -558,11 +560,108 @@ export default function BankAnalyserPage() {
 
   function handleLinkApp(id: string) {
     setLinkedAppId(id)
+    setBankStmtUrl(null)
     if (!id) return
     const app = appList.find(a => a.id === id)
     if (!app) return
     if (!clientName)  setClientName(app.name)
     if (!clientEmail) setClientEmail(app.email)
+    // Fetch application details to get uploaded bank statement URL
+    fetch(`/api/admin/visa-applications/${id}`)
+      .then(r => r.ok ? r.json() : null)
+      .then((d: { application?: { bank_statement_url?: string; bank_statement_admin_url?: string } } | null) => {
+        const url = d?.application?.bank_statement_admin_url ?? d?.application?.bank_statement_url ?? null
+        setBankStmtUrl(url)
+      })
+      .catch(() => {})
+  }
+
+  // Fetch an existing application's bank statement and set it as the current file
+  async function handleScanExistingDoc() {
+    if (!bankStmtUrl) return
+    setBankStmtFetch(true)
+    setError('')
+    try {
+      const res  = await fetch(bankStmtUrl)
+      if (!res.ok) throw new Error(`Could not fetch document (${res.status})`)
+      const blob = await res.blob()
+      const name = bankStmtUrl.split('/').pop()?.split('?')[0] ?? 'bank-statement.pdf'
+      const f    = new File([blob], name, { type: blob.type || 'application/pdf' })
+      setFile(f)
+      setAnalysis(null)
+      setReportUrl('')
+      setEmailSent(false)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to load document')
+    } finally {
+      setBankStmtFetch(false)
+    }
+  }
+
+  // ── Direct-upload analyse handler (calls /api/admin/visa/analyse with FormData) ──
+  async function handleDirectAnalyse() {
+    if (!file) { setError('Please upload a bank statement file.'); return }
+    if (!destination.trim()) { setError('Please select the destination country.'); return }
+    if (!clientName.trim())  { setError('Please enter the client name.'); return }
+
+    const sizeMB = file.size / 1024 / 1024
+    if (sizeMB > MAX_MB) {
+      setError(`File too large (${sizeMB.toFixed(1)} MB). Maximum is ${MAX_MB} MB.`)
+      return
+    }
+
+    setLoading(true)
+    setError('')
+    setAnalysis(null)
+    setReportUrl('')
+    setEmailSent(false)
+    setAgentPipeline([])
+
+    const STEPS_TEXT = [
+      'Reading bank statement…',
+      'Running Claude forensic analysis…',
+      'Cross-validating with OpenAI GPT-4o…',
+      'Scoring financial credibility…',
+      'Simulating visa officer review…',
+      'Compiling VisaFortress AI report…',
+    ]
+    let stepIdx = 0
+    setProgress(STEPS_TEXT[0])
+    const stepTimer = setInterval(() => {
+      stepIdx = Math.min(stepIdx + 1, STEPS_TEXT.length - 1)
+      setProgress(STEPS_TEXT[stepIdx])
+    }, 8000)
+
+    try {
+      const fd = new FormData()
+      fd.append('file', file)
+      fd.append('destination', destination)
+      fd.append('applicantName', clientName)
+      fd.append('passportCountry', country)
+      if (linkedAppId) fd.append('applicationId', linkedAppId)
+
+      // DO NOT set Content-Type — browser sets it automatically with multipart boundary
+      const res = await fetch('/api/admin/visa/analyse', { method: 'POST', body: fd })
+      clearInterval(stepTimer)
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: `HTTP ${res.status}` }))
+        throw new Error(err.error ?? `Analysis failed (${res.status})`)
+      }
+      const data = await res.json()
+      if (!data.success || !data.result) throw new Error('No analysis returned from VisaFortress AI')
+
+      setAnalysis(sanitizeAnalysis(data.result))
+      setAppId(linkedAppId || `standalone-${Date.now()}`)
+      setProgress('')
+      setActiveTab('internal')
+    } catch (e: unknown) {
+      clearInterval(stepTimer)
+      setError(e instanceof Error ? e.message : String(e))
+      setProgress('')
+    } finally {
+      setLoading(false)
+    }
   }
 
   // V2 — 6-agent pipeline
@@ -838,10 +937,12 @@ export default function BankAnalyserPage() {
       {/* Top bar */}
       <div className="bg-[#0a1628] text-white px-6 py-4 flex items-center justify-between sticky top-0 z-20 print:hidden">
         <div className="flex items-center gap-3">
-          <span className="text-2xl">🏦</span>
+          <div className="w-10 h-10 rounded-xl bg-[#C9A84C] flex items-center justify-center flex-shrink-0">
+            <span className="text-[#0a1628] font-black text-sm">VF</span>
+          </div>
           <div>
-            <h1 className="text-lg font-bold">Visa Financial Intelligence Platform</h1>
-            <p className="text-xs text-blue-300">Multi-Agent Forensic Analysis · Walz Travels</p>
+            <h1 className="text-lg font-bold tracking-tight">VisaFortress <span className="text-[#C9A84C]">AI</span></h1>
+            <p className="text-xs text-white/40">Claude + GPT-4o Dual-AI · Walz Travels Admin</p>
           </div>
         </div>
         {analysis && (
@@ -882,7 +983,13 @@ export default function BankAnalyserPage() {
 
           {/* Upload card */}
           <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 print:hidden">
-            <h2 className="text-base font-bold text-gray-800 mb-5">Upload Bank Statement</h2>
+            <div className="flex items-center justify-between mb-5">
+              <div>
+                <h2 className="text-base font-bold text-gray-800">VisaFortress Analysis</h2>
+                <p className="text-xs text-gray-400 mt-0.5">Upload a bank statement or scan one from an existing application</p>
+              </div>
+              <span className="text-[10px] font-bold bg-[#0a1628] text-[#C9A84C] px-2.5 py-1 rounded-full uppercase tracking-widest">Dual AI</span>
+            </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
               <div>
                 <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Client Name</label>
@@ -932,8 +1039,29 @@ export default function BankAnalyserPage() {
                       <option key={a.id} value={a.id}>{a.label}</option>
                     ))}
                   </select>
-                  {linkedAppId && (
+                  {linkedAppId && !bankStmtUrl && (
                     <p className="text-xs text-green-700 mt-1">✓ Analysis will be saved to this application</p>
+                  )}
+                  {linkedAppId && bankStmtUrl && (
+                    <div className="mt-2 flex items-center gap-2 p-3 bg-emerald-50 border border-emerald-200 rounded-lg">
+                      <span className="text-emerald-600 text-base flex-shrink-0">📄</span>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-xs font-semibold text-emerald-800">Bank statement found on this application</p>
+                        <p className="text-[10px] text-emerald-600 truncate">{bankStmtUrl.split('/').pop()?.split('?')[0] ?? 'document'}</p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={handleScanExistingDoc}
+                        disabled={bankStmtFetch}
+                        className="flex-shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 text-white text-xs font-bold hover:bg-emerald-700 disabled:opacity-40 transition-colors">
+                        {bankStmtFetch
+                          ? <><span className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin" /> Loading…</>
+                          : '⚡ Scan This Document'}
+                      </button>
+                    </div>
+                  )}
+                  {linkedAppId && bankStmtUrl === null && (
+                    <p className="text-xs text-amber-600 mt-1">⚠ No bank statement uploaded to this application yet. Upload a file below.</p>
                   )}
                 </div>
               )}
@@ -941,12 +1069,17 @@ export default function BankAnalyserPage() {
                 <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">
                   Bank Statement PDF <span className="font-normal text-gray-400">(max {MAX_MB} MB)</span>
                 </label>
-                <label className="flex items-center gap-3 cursor-pointer border-2 border-dashed border-gray-200 rounded-lg px-3 py-2 hover:border-blue-400 transition-colors">
-                  <span className="text-lg">📄</span>
-                  <span className="text-sm text-gray-500 flex-1 truncate">
-                    {file ? `${file.name} (${fileSizeMB.toFixed(1)} MB)` : 'Click to choose PDF…'}
-                  </span>
-                  <input type="file" accept=".pdf" className="hidden"
+                <label className="flex items-center gap-3 cursor-pointer border-2 border-dashed border-gray-200 rounded-lg px-3 py-3 hover:border-[#C9A84C] hover:bg-amber-50/50 transition-all group">
+                  <span className="text-2xl group-hover:scale-110 transition-transform">{file ? '✅' : '📄'}</span>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm text-gray-700 font-medium truncate">
+                      {file ? file.name : 'Click to upload PDF, PNG, JPG or WEBP'}
+                    </p>
+                    <p className="text-[11px] text-gray-400">
+                      {file ? `${(file.size / 1024 / 1024).toFixed(1)} MB` : `Max ${MAX_MB} MB · Bank statement in any format`}
+                    </p>
+                  </div>
+                  <input type="file" accept=".pdf,.png,.jpg,.jpeg,.webp" className="hidden"
                     onChange={e => { setFile(e.target.files?.[0] ?? null); setError(''); setAnalysis(null); setReportUrl(''); setEmailSent(false) }} />
                 </label>
               </div>
@@ -1004,36 +1137,14 @@ export default function BankAnalyserPage() {
               </div>
             )}
 
-            {/* V1 / V2 toggle */}
-            <div className="flex items-center gap-3 mb-3">
-              <span className="text-xs text-gray-500 font-semibold uppercase tracking-wide">Engine:</span>
-              <div className="flex rounded-lg border border-gray-200 overflow-hidden">
-                <button
-                  onClick={() => setUseV2(false)}
-                  className={`px-3 py-1.5 text-xs font-semibold transition-colors ${!useV2 ? 'bg-[#0a1628] text-white' : 'text-gray-500 hover:bg-gray-50'}`}>
-                  V1 Standard
-                </button>
-                <button
-                  onClick={() => setUseV2(true)}
-                  className={`px-3 py-1.5 text-xs font-semibold transition-colors ${useV2 ? 'bg-[#c9a84c] text-[#0a1628]' : 'text-gray-500 hover:bg-gray-50'}`}>
-                  ⚡ V2 6-Agent Pipeline
-                </button>
-              </div>
-              {useV2 && (
-                <span className="text-[10px] text-[#c9a84c] bg-[#c9a84c]/10 px-2 py-0.5 rounded-full font-semibold">
-                  Claude + GPT-4o · True Parallel
-                </span>
-              )}
-            </div>
-
-            <button onClick={useV2 ? handleAnalyseV2 : handleAnalyse}
+            <button onClick={handleDirectAnalyse}
               disabled={loading || !file || !destination || !clientName}
-              className="w-full bg-[#0a1628] hover:bg-[#132038] disabled:opacity-40 disabled:cursor-not-allowed text-white font-bold py-3 rounded-xl text-sm transition-colors">
-              {loading
-                ? (useV2 ? '⚡ 6-Agent Pipeline Running…' : 'Running Analysis…')
-                : useV2
-                ? '⚡ Run 6-Agent Forensic Pipeline'
-                : '🔍 Run Forensic Intelligence Analysis'}
+              className="w-full bg-[#0a1628] hover:bg-[#132038] disabled:opacity-40 disabled:cursor-not-allowed text-white font-bold py-3.5 rounded-xl text-sm transition-colors flex items-center justify-center gap-2">
+              {loading ? (
+                <><span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" /> {progress || 'Running VisaFortress AI…'}</>
+              ) : (
+                <><span className="text-[#C9A84C]">VF</span> Analyse with VisaFortress AI</>
+              )}
             </button>
           </div>
 
