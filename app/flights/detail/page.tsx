@@ -137,27 +137,62 @@ function DetailContent() {
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
           <div className="lg:col-span-2 space-y-8">
             {/* Cabin gallery */}
-            <div className="bg-white rounded-2xl overflow-hidden border border-black/5">
-              <div className="p-5 border-b border-black/5">
-                <h2 className="font-display font-bold text-[#0B1F3A]">Cabin Experience</h2>
-                <p className="text-[#0B1F3A]/50 text-sm">{seg.airlineName} · {selectedFare.name}</p>
-              </div>
-              <div className="p-4 grid grid-cols-2 gap-2">
-                {[
-                  { emoji: '🛋️', label: 'Business Suite', span2: true  },
-                  { emoji: '🏛️', label: 'Lounge',         span2: false },
-                  { emoji: '🍽️', label: 'Fine Dining',    span2: false },
-                  { emoji: '🎬', label: 'Entertainment',  span2: false },
-                  { emoji: '🛁', label: 'Amenity Kit',    span2: false },
-                ].map(({ emoji, label, span2 }) => (
-                  <div key={label}
-                    className={`bg-[#F5F2EE] rounded-xl flex flex-col items-center justify-center py-8 ${span2 ? 'col-span-2 py-16' : ''}`}>
-                    <span className="text-4xl mb-2">{emoji}</span>
-                    <p className="text-xs text-[#0B1F3A]/50 font-medium">{label}</p>
+            {(() => {
+              const isBC = selectedFare.name.toLowerCase().includes('business')
+              const cabinPhotos = isBC ? [
+                { src: 'https://images.unsplash.com/photo-1540962351504-03099e0a754b?w=1200&h=700&fit=crop&q=85', label: 'Business Suite',  span2: true  },
+                { src: 'https://images.unsplash.com/photo-1436491865332-7a61a109cc05?w=600&h=380&fit=crop&q=85',  label: 'Business Lounge', span2: false },
+                { src: 'https://images.unsplash.com/photo-1607344645866-009c320b63e0?w=600&h=380&fit=crop&q=85',  label: 'Fine Dining',     span2: false },
+                { src: 'https://images.unsplash.com/photo-1559117207-f5157de3c88e?w=600&h=380&fit=crop&q=85',     label: 'Entertainment',   span2: false },
+                { src: 'https://images.unsplash.com/photo-1566073771259-6a8506099945?w=600&h=380&fit=crop&q=85',  label: 'Amenity Kit',     span2: false },
+              ] : [
+                { src: 'https://images.unsplash.com/photo-1542296332-2e4473faf563?w=1200&h=700&fit=crop&q=85',   label: 'Economy Cabin',   span2: true  },
+                { src: 'https://images.unsplash.com/photo-1502877338535-766e1452684a?w=600&h=380&fit=crop&q=85',  label: 'Window View',     span2: false },
+                { src: 'https://images.unsplash.com/photo-1474302770737-173ee21bab63?w=600&h=380&fit=crop&q=85',  label: 'In-Flight Meal',  span2: false },
+                { src: 'https://images.unsplash.com/photo-1559117207-f5157de3c88e?w=600&h=380&fit=crop&q=85',     label: 'Entertainment',   span2: false },
+                { src: 'https://images.unsplash.com/photo-1436491865332-7a61a109cc05?w=600&h=380&fit=crop&q=85',  label: 'Terminal Lounge', span2: false },
+              ]
+              return (
+                <div className="bg-white rounded-2xl overflow-hidden border border-black/5">
+                  <div className="p-5 border-b border-black/5 flex items-center justify-between">
+                    <div>
+                      <h2 className="font-display font-bold text-[#0B1F3A]">Cabin Experience</h2>
+                      <p className="text-[#0B1F3A]/50 text-sm">{seg.airlineName} · {selectedFare.name}</p>
+                    </div>
+                    <span className={`text-[10px] font-bold uppercase tracking-wider px-3 py-1 rounded-full ${isBC ? 'bg-[#C9A84C]/15 text-[#8B6914]' : 'bg-[#0B1F3A]/5 text-[#0B1F3A]/60'}`}>
+                      {isBC ? '★ Premium' : 'Economy'}
+                    </span>
                   </div>
-                ))}
-              </div>
-            </div>
+                  <div className="p-4 grid grid-cols-2 gap-2">
+                    {cabinPhotos.map(({ src, label, span2 }) => (
+                      <div key={label} className={`relative rounded-xl overflow-hidden group ${span2 ? 'col-span-2 h-56' : 'h-36'}`}>
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img src={src} alt={label}
+                          className="absolute inset-0 w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
+                          loading="lazy" />
+                        <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent" />
+                        <p className="absolute bottom-3 left-3 text-white text-xs font-semibold">{label}</p>
+                      </div>
+                    ))}
+                  </div>
+                  {isBC && (
+                    <div className="px-5 pb-5 grid grid-cols-3 gap-3">
+                      {[
+                        { icon: '↔', label: 'Lie-flat bed',   sub: 'Up to 78"'       },
+                        { icon: '⟳', label: 'Aisle access',   sub: 'All seats'        },
+                        { icon: '⌁', label: 'Privacy suite',  sub: 'Door included'    },
+                      ].map(f => (
+                        <div key={f.label} className="bg-[#FAF7F2] rounded-xl p-3 text-center">
+                          <p className="text-lg text-[#C9A84C] font-bold mb-0.5">{f.icon}</p>
+                          <p className="text-xs font-semibold text-[#0B1F3A]">{f.label}</p>
+                          <p className="text-[10px] text-[#0B1F3A]/40">{f.sub}</p>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )
+            })()}
 
             {/* What's included */}
             <div className="bg-white rounded-2xl p-5 border border-black/5">

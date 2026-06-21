@@ -1,8 +1,8 @@
 'use client'
 
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect, useCallback } from 'react'
 
-const EXTRAS_DATA = [
+const DEFAULT_EXTRAS = [
   { id: 'transfer',  name: 'Airport Transfer',     category: 'Transport',   price: 45,  bookings: 312, revenue: 14040, enabled: true,  photo: 'https://images.unsplash.com/photo-1544620347-c4fd4a3d5957?w=400&h=300&fit=crop&q=80' },
   { id: 'lounge',    name: 'Airport Lounge',       category: 'Comfort',     price: 35,  bookings: 248, revenue: 8680,  enabled: true,  photo: 'https://images.unsplash.com/photo-1436491865332-7a61a109cc05?w=400&h=300&fit=crop&q=80' },
   { id: 'insurance', name: 'Travel Insurance',     category: 'Protection',  price: 24,  bookings: 193, revenue: 4632,  enabled: true,  photo: 'https://images.unsplash.com/photo-1559827260-dc66d52bef19?w=400&h=300&fit=crop&q=80' },
@@ -15,7 +15,7 @@ const EXTRAS_DATA = [
 
 const CATEGORIES = ['All', 'Transport', 'Comfort', 'Protection', 'Convenience', 'Baggage', 'Technology', 'Documents']
 
-type Extra = typeof EXTRAS_DATA[number]
+type Extra = typeof DEFAULT_EXTRAS[number]
 
 interface EditModal {
   extra: Extra
@@ -25,8 +25,42 @@ interface EditModal {
 }
 
 export default function FlightExtrasAdminPage() {
-  const [extras, setExtras]     = useState(EXTRAS_DATA)
+  const [extras, setExtras]     = useState(DEFAULT_EXTRAS)
   const [filter, setFilter]     = useState('All')
+  const [saving, setSaving]     = useState(false)
+  const [saved,  setSaved]      = useState(false)
+
+  // Load from API on mount
+  useEffect(() => {
+    fetch('/api/admin/extras')
+      .then(r => r.json())
+      .then(data => {
+        if (Array.isArray(data.extras)) {
+          // Merge API data with local bookings/revenue (API doesn't store those)
+          setExtras(prev => prev.map(p => {
+            const api = data.extras.find((e: Extra) => e.id === p.id)
+            return api ? { ...p, ...api } : p
+          }))
+        }
+      })
+      .catch(() => {})
+  }, [])
+
+  const persistToApi = useCallback(async (updated: Extra[]) => {
+    setSaving(true)
+    setSaved(false)
+    try {
+      await fetch('/api/admin/extras', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updated),
+      })
+      setSaved(true)
+      setTimeout(() => setSaved(false), 3000)
+    } catch { /* silent */ } finally {
+      setSaving(false)
+    }
+  }, [])
   const [modal, setModal]       = useState<EditModal | null>(null)
   const [photoMode, setPhotoMode] = useState<'url' | 'upload'>('url')
   const [photoError, setPhotoError] = useState(false)
@@ -48,15 +82,19 @@ export default function FlightExtrasAdminPage() {
     if (!modal) return
     const price = Number(modal.price)
     if (isNaN(price) || price <= 0) return
-    setExtras(es => es.map(e => e.id === modal.extra.id
+    const updated = extras.map(e => e.id === modal.extra.id
       ? { ...e, name: modal.name.trim() || e.name, price, photo: modal.photo || e.photo }
       : e
-    ))
+    )
+    setExtras(updated)
+    persistToApi(updated)
     setModal(null)
   }
 
   function toggleEnabled(id: string) {
-    setExtras(es => es.map(e => e.id === id ? { ...e, enabled: !e.enabled } : e))
+    const updated = extras.map(e => e.id === id ? { ...e, enabled: !e.enabled } : e)
+    setExtras(updated)
+    persistToApi(updated)
   }
 
   function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
@@ -74,9 +112,31 @@ export default function FlightExtrasAdminPage() {
 
   return (
     <div className="p-6 space-y-6">
-      <div>
-        <h1 className="text-xl font-bold text-[#0B1F3A]">Flight Extras</h1>
-        <p className="text-sm text-gray-500 mt-0.5">Manage ancillary services shown on the checkout extras page.</p>
+      <div className="flex items-start justify-between">
+        <div>
+          <h1 className="text-xl font-bold text-[#0B1F3A]">Flight Extras</h1>
+          <p className="text-sm text-gray-500 mt-0.5">Manage ancillary services shown on the checkout extras page.</p>
+        </div>
+        {(saving || saved) && (
+          <div className={`flex items-center gap-2 text-xs font-semibold px-3 py-1.5 rounded-lg ${saved ? 'bg-green-50 text-green-600' : 'bg-[#C9A84C]/10 text-[#8B6914]'}`}>
+            {saving ? (
+              <>
+                <svg className="w-3.5 h-3.5 animate-spin" fill="none" viewBox="0 0 24 24">
+                  <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                  <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                </svg>
+                Saving…
+              </>
+            ) : (
+              <>
+                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
+                </svg>
+                Live — visible to customers
+              </>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Stats */}

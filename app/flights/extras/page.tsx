@@ -1,31 +1,47 @@
 'use client'
 
 import { useRouter } from 'next/navigation'
+import { useEffect, useState } from 'react'
 import { useFlightStore } from '@/store/flightStore'
 import type { Ancillary } from '@/lib/flights/types'
+import type { FlightExtra } from '@/app/api/admin/extras/route'
 
 const STEPS = ['Search', 'Seats', 'Travellers', 'Extras', 'Review', 'Pay']
-
-const ANCILLARY_LIST: Ancillary[] = [
-  { id: 'transfer',   type: 'transfer',       icon: '🚗', name: 'Airport Transfer',    description: 'Private car to/from airport',        price: 45,  currency: 'GBP', popular: true  },
-  { id: 'insurance',  type: 'insurance',      icon: '🛡️', name: 'Travel Insurance',    description: 'Comprehensive cover for your trip',   price: 24,  currency: 'GBP', popular: false },
-  { id: 'esim',       type: 'esim',           icon: '📡', name: 'Jade Connect eSIM',   description: 'Data in 150+ countries from $9.99',   price: 9,   currency: 'GBP', popular: false },
-  { id: 'lounge',     type: 'lounge',         icon: '🛋️', name: 'Airport Lounge',      description: 'Access 1,300+ lounges worldwide',     price: 35,  currency: 'GBP', popular: true  },
-  { id: 'fasttrack',  type: 'fast-track',     icon: '⚡', name: 'Fast Track Security', description: 'Skip the queues, save time',          price: 18,  currency: 'GBP', popular: false },
-  { id: 'baggage',    type: 'extra-baggage',  icon: '🧳', name: 'Extra Baggage',       description: '23kg checked bag — pre-paid',         price: 55,  currency: 'GBP', popular: false },
-  { id: 'visa',       type: 'visa',           icon: '📄', name: 'Visa Service',        description: 'We handle your visa application',     price: 99,  currency: 'GBP', popular: false },
-  { id: 'upgrade',    type: 'transfer',       icon: '💺', name: 'Cabin Upgrade',       description: 'Upgrade to next cabin class',         price: 189, currency: 'GBP', popular: false },
-]
 
 export default function ExtrasPage() {
   const router = useRouter()
   const { extras, addExtra, removeExtra, setStep, extrasTotal } = useFlightStore()
+  const [extrasData, setExtrasData] = useState<FlightExtra[]>([])
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    fetch('/api/admin/extras')
+      .then(r => r.json())
+      .then(data => setExtrasData(data.extras ?? []))
+      .catch(() => setExtrasData([]))
+      .finally(() => setLoading(false))
+  }, [])
+
+  const enabled = extrasData.filter(e => e.enabled)
 
   const isAdded = (id: string) => extras.some(e => e.id === id)
 
-  function toggle(anc: Ancillary) {
-    if (isAdded(anc.id)) removeExtra(anc.id)
-    else addExtra(anc)
+  function toggle(extra: FlightExtra) {
+    if (isAdded(extra.id)) {
+      removeExtra(extra.id)
+    } else {
+      const anc: Ancillary = {
+        id:          extra.id,
+        type:        extra.id as Ancillary['type'],
+        icon:        '',
+        name:        extra.name,
+        description: extra.description,
+        price:       extra.price,
+        currency:    'GBP',
+        popular:     extra.popular,
+      }
+      addExtra(anc)
+    }
   }
 
   function handleContinue() {
@@ -60,37 +76,73 @@ export default function ExtrasPage() {
         <h1 className="font-display text-2xl font-bold text-[#0B1F3A] mb-1">Enhance your trip</h1>
         <p className="text-[#0B1F3A]/50 text-sm mb-6">Add services to make your journey smoother.</p>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 mb-8">
-          {ANCILLARY_LIST.map(anc => {
-            const added = isAdded(anc.id)
-            return (
-              <div key={anc.id}
-                className={`bg-white rounded-2xl border p-5 transition-all ${
-                  added ? 'border-[#C9A84C] shadow-sm' : 'border-black/5 hover:border-black/10'
-                }`}>
-                {anc.popular && (
-                  <span className="inline-block text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full mb-3 bg-[#C9A84C]/15 text-[#8B6914]">
-                    Popular
-                  </span>
-                )}
-                <div className="text-3xl mb-3">{anc.icon}</div>
-                <p className="font-semibold text-[#0B1F3A] mb-1">{anc.name}</p>
-                <p className="text-xs text-[#0B1F3A]/50 mb-4 leading-relaxed">{anc.description}</p>
-                <div className="flex items-center justify-between">
-                  <p className="font-bold text-[#0B1F3A]">+£{anc.price}</p>
-                  <button type="button" onClick={() => toggle(anc)}
-                    className={`px-4 py-1.5 rounded-lg text-sm font-semibold transition-all ${
-                      added
-                        ? 'bg-[#C9A84C] text-[#0B1F3A]'
-                        : 'bg-[#0B1F3A] text-white hover:bg-[#081629]'
-                    }`}>
-                    {added ? '✓ Added' : '+ Add'}
-                  </button>
+        {loading ? (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 mb-8">
+            {Array.from({ length: 6 }).map((_, i) => (
+              <div key={i} className="bg-white rounded-2xl border border-black/5 overflow-hidden animate-pulse">
+                <div className="h-40 bg-gray-100" />
+                <div className="p-4 space-y-2">
+                  <div className="h-3 bg-gray-100 rounded w-3/4" />
+                  <div className="h-2 bg-gray-100 rounded w-full" />
+                  <div className="h-2 bg-gray-100 rounded w-2/3" />
                 </div>
               </div>
-            )
-          })}
-        </div>
+            ))}
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 mb-8">
+            {enabled.map(extra => {
+              const added = isAdded(extra.id)
+              return (
+                <div key={extra.id}
+                  className={`bg-white rounded-2xl border overflow-hidden transition-all ${
+                    added ? 'border-[#C9A84C] shadow-md shadow-[#C9A84C]/10' : 'border-black/5 hover:border-black/10 hover:shadow-sm'
+                  }`}>
+                  {/* Photo */}
+                  <div className="relative h-40 overflow-hidden">
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={extra.photo}
+                      alt={extra.name}
+                      className="w-full h-full object-cover transition-transform duration-500 hover:scale-105"
+                      loading="lazy"
+                    />
+                    <div className="absolute inset-0 bg-gradient-to-t from-black/50 via-transparent to-transparent" />
+                    {added && (
+                      <div className="absolute top-2 right-2 w-6 h-6 bg-[#C9A84C] rounded-full flex items-center justify-center shadow-md">
+                        <svg className="w-3.5 h-3.5 text-[#0B1F3A]" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
+                        </svg>
+                      </div>
+                    )}
+                    {extra.popular && (
+                      <span className="absolute top-2 left-2 text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full bg-[#C9A84C] text-[#0B1F3A]">
+                        Popular
+                      </span>
+                    )}
+                  </div>
+
+                  {/* Content */}
+                  <div className="p-4">
+                    <p className="font-semibold text-[#0B1F3A] mb-1 text-sm">{extra.name}</p>
+                    <p className="text-xs text-[#0B1F3A]/50 mb-4 leading-relaxed">{extra.description}</p>
+                    <div className="flex items-center justify-between">
+                      <p className="font-bold text-[#0B1F3A]">+£{extra.price}</p>
+                      <button type="button" onClick={() => toggle(extra)}
+                        className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all ${
+                          added
+                            ? 'bg-[#C9A84C] text-[#0B1F3A]'
+                            : 'bg-[#0B1F3A] text-white hover:bg-[#152D52]'
+                        }`}>
+                        {added ? '✓ Added' : '+ Add'}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        )}
 
         {/* Footer bar */}
         <div className="flex items-center justify-between bg-white rounded-2xl border border-black/5 p-5">

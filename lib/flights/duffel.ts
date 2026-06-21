@@ -4,11 +4,11 @@ import type {
 } from './types'
 
 const BASE = 'https://api.duffel.com'
-const VER  = process.env.DUFFEL_API_VERSION ?? 'beta'
+const VER  = process.env.DUFFEL_API_VERSION ?? 'v2'
 
 function headers() {
   return {
-    'Authorization': `Bearer ${process.env.DUFFEL_API_KEY ?? ''}`,
+    'Authorization': `Bearer ${process.env.DUFFEL_ACCESS_TOKEN ?? ''}`,
     'Duffel-Version': VER,
     'Content-Type': 'application/json',
     'Accept': 'application/json',

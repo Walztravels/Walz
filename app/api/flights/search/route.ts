@@ -26,7 +26,7 @@ export async function POST(req: NextRequest) {
       legs,
     }
 
-    if (process.env.DUFFEL_API_KEY) {
+    if (process.env.DUFFEL_ACCESS_TOKEN) {
       try {
         const results = await searchFlights(params)
         return NextResponse.json({ results, source: 'duffel' })
