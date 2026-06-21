@@ -3,7 +3,8 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useFlightStore } from '@/store/flightStore'
-import { formatDuration, formatPrice, formatTime } from '@/lib/flights/utils'
+import { formatDuration, formatTime } from '@/lib/flights/utils'
+import { useFlightPrice } from '@/lib/hooks/useFlightPrice'
 import type { FlightSegment } from '@/lib/flights/types'
 
 const STEPS = ['Search', 'Seats', 'Travellers', 'Extras', 'Review', 'Pay']
@@ -182,6 +183,7 @@ export default function ReviewPage() {
     milesRedeemed, discountGBP, setMilesRedeemed, setStep, seatsTotal, extrasTotal } = store
 
   const [agreedTc, setAgreedTc] = useState(false)
+  const fp = useFlightPrice()
 
   const airfare   = selected?.price.total ?? 0
   const seatCost  = seatsTotal()
@@ -279,7 +281,7 @@ export default function ReviewPage() {
             {/* Grand total chip */}
             <div className="flex-shrink-0 bg-[#C9A84C] rounded-2xl px-5 py-3 text-center">
               <p className="text-[#0B1F3A]/50 text-[10px] font-bold uppercase tracking-wider">Total</p>
-              <p className="text-[#0B1F3A] text-2xl font-bold tabular-nums">{formatPrice(grand)}</p>
+              <p className="text-[#0B1F3A] text-2xl font-bold tabular-nums">{fp(grand)}</p>
               <p className="text-[#0B1F3A]/50 text-[10px]">incl. taxes</p>
             </div>
           </div>
@@ -410,7 +412,7 @@ export default function ReviewPage() {
             {/* Section: Extras */}
             {extras.length > 0 && (
               <div className="bg-white rounded-2xl border border-black/5 overflow-hidden">
-                <SectionHead icon="✨" title="Added Extras" sub={`${extras.length} service${extras.length > 1 ? 's' : ''} · +${formatPrice(extraCost)}`} />
+                <SectionHead icon="✨" title="Added Extras" sub={`${extras.length} service${extras.length > 1 ? 's' : ''} · +${fp(extraCost)}`} />
                 <div className="divide-y divide-[#0B1F3A]/5">
                   {extras.map(e => (
                     <div key={e.id} className="px-5 py-3.5 flex items-center gap-3">
@@ -421,7 +423,7 @@ export default function ReviewPage() {
                         <p className="font-semibold text-[#0B1F3A] text-sm">{e.name}</p>
                         <p className="text-[10px] text-[#0B1F3A]/40 truncate">{e.description}</p>
                       </div>
-                      <span className="font-bold text-[#0B1F3A] text-sm flex-shrink-0">+{formatPrice(e.price)}</span>
+                      <span className="font-bold text-[#0B1F3A] text-sm flex-shrink-0">+{fp(e.price)}</span>
                     </div>
                   ))}
                 </div>
@@ -450,7 +452,7 @@ export default function ReviewPage() {
                           className="accent-[#C9A84C]" />
                         <span className="text-sm font-bold text-[#0B1F3A]">{opt.miles.toLocaleString()} miles</span>
                       </div>
-                      <span className="text-lg font-bold text-emerald-600 ml-5">-{formatPrice(opt.discount)}</span>
+                      <span className="text-lg font-bold text-emerald-600 ml-5">-{fp(opt.discount)}</span>
                       <span className="text-[10px] text-[#0B1F3A]/30 ml-5">off your total</span>
                     </label>
                   ))}
@@ -504,7 +506,7 @@ export default function ReviewPage() {
             <div className="bg-white rounded-2xl border border-black/5 overflow-hidden">
               <div className="bg-[#0B1F3A] px-5 py-5">
                 <p className="text-white/35 text-[10px] uppercase tracking-wider mb-1">Price breakdown</p>
-                <p className="text-white text-3xl font-bold tabular-nums">{formatPrice(grand)}</p>
+                <p className="text-white text-3xl font-bold tabular-nums">{fp(grand)}</p>
                 <p className="text-white/25 text-xs mt-0.5">All taxes &amp; fees included</p>
               </div>
               <div className="p-5 space-y-3">
@@ -512,7 +514,7 @@ export default function ReviewPage() {
                   <span className="text-[#0B1F3A]/50">
                     Airfare{isRT ? ' (return)' : ''}
                   </span>
-                  <span className="font-semibold text-[#0B1F3A] tabular-nums">{formatPrice(airfare)}</span>
+                  <span className="font-semibold text-[#0B1F3A] tabular-nums">{fp(airfare)}</span>
                 </div>
                 {(() => {
                   const base  = Math.round(airfare * 0.78)
@@ -521,11 +523,11 @@ export default function ReviewPage() {
                     <>
                       <div className="flex justify-between text-sm pl-3 border-l-2 border-[#0B1F3A]/6">
                         <span className="text-[#0B1F3A]/35">Base fare</span>
-                        <span className="text-[#0B1F3A]/50 tabular-nums">{formatPrice(base)}</span>
+                        <span className="text-[#0B1F3A]/50 tabular-nums">{fp(base)}</span>
                       </div>
                       <div className="flex justify-between text-sm pl-3 border-l-2 border-[#0B1F3A]/6">
                         <span className="text-[#0B1F3A]/35">Taxes &amp; fees</span>
-                        <span className="text-[#0B1F3A]/50 tabular-nums">{formatPrice(taxes)}</span>
+                        <span className="text-[#0B1F3A]/50 tabular-nums">{fp(taxes)}</span>
                       </div>
                     </>
                   )
@@ -533,28 +535,28 @@ export default function ReviewPage() {
                 {seatCost > 0 && (
                   <div className="flex justify-between text-sm">
                     <span className="text-[#0B1F3A]/50">Seat selection ({seats.length})</span>
-                    <span className="font-semibold text-[#0B1F3A] tabular-nums">+{formatPrice(seatCost)}</span>
+                    <span className="font-semibold text-[#0B1F3A] tabular-nums">+{fp(seatCost)}</span>
                   </div>
                 )}
                 {extraCost > 0 && (
                   <div className="flex justify-between text-sm">
                     <span className="text-[#0B1F3A]/50">Extras ({extras.length})</span>
-                    <span className="font-semibold text-[#0B1F3A] tabular-nums">+{formatPrice(extraCost)}</span>
+                    <span className="font-semibold text-[#0B1F3A] tabular-nums">+{fp(extraCost)}</span>
                   </div>
                 )}
                 {discountGBP > 0 && (
                   <div className="flex justify-between text-sm">
                     <span className="text-emerald-600">Miles discount</span>
-                    <span className="font-semibold text-emerald-600 tabular-nums">-{formatPrice(discountGBP)}</span>
+                    <span className="font-semibold text-emerald-600 tabular-nums">-{fp(discountGBP)}</span>
                   </div>
                 )}
                 <div className="border-t border-[#0B1F3A]/5 pt-3 flex justify-between items-baseline">
                   <span className="font-bold text-[#0B1F3A]">Grand total</span>
-                  <span className="text-xl font-bold text-[#0B1F3A] tabular-nums">{formatPrice(grand)}</span>
+                  <span className="text-xl font-bold text-[#0B1F3A] tabular-nums">{fp(grand)}</span>
                 </div>
                 {passengers.length > 1 && (
                   <p className="text-[10px] text-[#0B1F3A]/25 text-right">
-                    {formatPrice(Math.round(grand / passengers.length))} per person
+                    {fp(Math.round(grand / passengers.length))} per person
                   </p>
                 )}
               </div>
@@ -563,7 +565,7 @@ export default function ReviewPage() {
               <div className="px-5 pb-5 space-y-2">
                 <button type="button" onClick={handleProceed} disabled={!agreedTc}
                   className="w-full py-4 rounded-xl bg-[#C9A84C] text-[#0B1F3A] font-bold text-sm hover:bg-[#E8C87A] active:scale-[0.98] transition-all disabled:opacity-30 disabled:cursor-not-allowed shadow-lg shadow-[#C9A84C]/20">
-                  Confirm &amp; Pay — {formatPrice(grand)}
+                  Confirm &amp; Pay — {fp(grand)}
                 </button>
                 {!agreedTc && (
                   <p className="text-[10px] text-center text-[#0B1F3A]/30">Please accept the T&amp;C above to continue</p>
@@ -600,11 +602,11 @@ export default function ReviewPage() {
         <div className="lg:hidden mt-6 bg-white rounded-2xl border border-black/5 p-5 space-y-3">
           <div className="flex justify-between items-baseline">
             <span className="text-sm text-[#0B1F3A]/50">Total incl. taxes</span>
-            <span className="text-2xl font-bold text-[#0B1F3A] tabular-nums">{formatPrice(grand)}</span>
+            <span className="text-2xl font-bold text-[#0B1F3A] tabular-nums">{fp(grand)}</span>
           </div>
           <button type="button" onClick={handleProceed} disabled={!agreedTc}
             className="w-full py-4 rounded-xl bg-[#C9A84C] text-[#0B1F3A] font-bold text-base hover:bg-[#E8C87A] active:scale-[0.98] transition-all disabled:opacity-30 shadow-lg shadow-[#C9A84C]/20">
-            Confirm &amp; Pay — {formatPrice(grand)}
+            Confirm &amp; Pay — {fp(grand)}
           </button>
           <div className="flex items-center justify-center gap-1.5">
             <svg className="w-3.5 h-3.5 text-[#0B1F3A]/20" fill="none" viewBox="0 0 24 24" stroke="currentColor">

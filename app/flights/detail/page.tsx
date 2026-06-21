@@ -3,8 +3,9 @@
 import { useState, Suspense } from 'react'
 import { useRouter } from 'next/navigation'
 import { MOCK_ITINERARY }    from '@/lib/flights/mockData'
-import { formatDuration, formatPrice, formatTime } from '@/lib/flights/utils'
+import { formatDuration, formatTime } from '@/lib/flights/utils'
 import { useFlightStore }    from '@/store/flightStore'
+import { useFlightPrice }   from '@/lib/hooks/useFlightPrice'
 import { FarePredictor }     from '@/components/flights/ai/FarePredictor'
 import { LoyaltyDashboard }  from '@/components/flights/loyalty/LoyaltyDashboard'
 import type { FareOption }   from '@/lib/flights/types'
@@ -28,23 +29,24 @@ const ANCILLARIES = [
   { id: 'fasttrack',  icon: '⚡', name: 'Fast Track Security',  desc: 'Skip the queues at security',       price: 18,  popular: false, link: ''       },
 ]
 
-const TABLE_ROWS: { label: string; getValue: (f: FareOption) => string | boolean }[] = [
-  { label: 'Price',          getValue: f => formatPrice(f.price, f.currency)                                                   },
-  { label: 'Baggage',        getValue: f => f.baggage                                                                          },
-  { label: 'Refundable',     getValue: f => f.refundable                                                                       },
-  { label: 'Changeable',     getValue: f => f.changeable                                                                       },
-  { label: 'Seat selection', getValue: f => f.seatSelection === 'none' ? false : f.seatSelection === 'free' ? 'Free' : 'Paid' },
-  { label: 'Lounge access',  getValue: f => f.lounge                                                                           },
-  { label: 'Meals',          getValue: f => f.meals                                                                            },
-]
-
 function DetailContent() {
   const router = useRouter()
   const { selected, setSelected, setStep } = useFlightStore()
+  const fp = useFlightPrice()
   const it = selected ?? MOCK_ITINERARY
 
   const FARE_OPTIONS = buildFareOptions(it.price.total)
   const [selectedFare, setFare] = useState<FareOption>(FARE_OPTIONS[1])
+
+  const TABLE_ROWS: { label: string; getValue: (f: FareOption) => string | boolean }[] = [
+    { label: 'Price',          getValue: f => fp(f.price, f.currency)                                                          },
+    { label: 'Baggage',        getValue: f => f.baggage                                                                        },
+    { label: 'Refundable',     getValue: f => f.refundable                                                                     },
+    { label: 'Changeable',     getValue: f => f.changeable                                                                     },
+    { label: 'Seat selection', getValue: f => f.seatSelection === 'none' ? false : f.seatSelection === 'free' ? 'Free' : 'Paid'},
+    { label: 'Lounge access',  getValue: f => f.lounge                                                                         },
+    { label: 'Meals',          getValue: f => f.meals                                                                          },
+  ]
   const [addedAnc,     setAdded] = useState<string[]>([])
 
   // Ensure store has this itinerary selected
@@ -124,7 +126,7 @@ function DetailContent() {
             {/* Fare summary */}
             <div className="bg-white/10 rounded-2xl p-5 min-w-[240px]">
               <p className="text-white/50 text-xs mb-1">Selected fare</p>
-              <p className="text-3xl font-bold text-white mb-0.5">{formatPrice(selectedFare.price, selectedFare.currency)}</p>
+              <p className="text-3xl font-bold text-white mb-0.5">{fp(selectedFare.price, selectedFare.currency)}</p>
               <p className="text-white/30 text-xs mb-4">per person · taxes included</p>
               <button onClick={goToSeats}
                 className="w-full py-3 rounded-xl bg-[#C9A84C] text-[#0B1F3A] font-bold text-sm hover:bg-[#E8C87A] active:scale-[0.97] transition-all">
@@ -461,15 +463,15 @@ function DetailContent() {
               <div className="space-y-2 text-sm">
                 <div className="flex justify-between">
                   <span className="text-[#0B1F3A]/60">Airfare</span>
-                  <span className="font-medium text-[#0B1F3A]">{formatPrice(Math.round(selectedFare.price - selectedFare.price * 0.22))}</span>
+                  <span className="font-medium text-[#0B1F3A]">{fp(Math.round(selectedFare.price - selectedFare.price * 0.22), selectedFare.currency)}</span>
                 </div>
                 <div className="flex justify-between">
                   <span className="text-[#0B1F3A]/60">Taxes & fees</span>
-                  <span className="font-medium text-[#0B1F3A]">{formatPrice(Math.round(selectedFare.price * 0.22))}</span>
+                  <span className="font-medium text-[#0B1F3A]">{fp(Math.round(selectedFare.price * 0.22), selectedFare.currency)}</span>
                 </div>
                 <div className="border-t border-black/5 pt-2 flex justify-between">
                   <span className="font-bold text-[#0B1F3A]">Total</span>
-                  <span className="font-bold text-xl text-[#0B1F3A]">{formatPrice(selectedFare.price)}</span>
+                  <span className="font-bold text-xl text-[#0B1F3A]">{fp(selectedFare.price, selectedFare.currency)}</span>
                 </div>
                 <p className="text-[10px] text-[#0B1F3A]/30 text-center pt-1">Per person · {it.price.currency}</p>
               </div>

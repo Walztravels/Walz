@@ -3,8 +3,9 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import type { FlightItinerary, FlightSegment, SortOption } from '@/lib/flights/types'
-import { formatDuration, formatPrice, formatTime } from '@/lib/flights/utils'
+import { formatDuration, formatTime } from '@/lib/flights/utils'
 import { useFlightStore } from '@/store/flightStore'
+import { useFlightPrice } from '@/lib/hooks/useFlightPrice'
 
 interface Props {
   results: FlightItinerary[]
@@ -153,6 +154,7 @@ function FlightCard({ itinerary: it, expanded, onToggle, onSelect }: {
   onToggle:  () => void
   onSelect:  () => void
 }) {
+  const fp   = useFlightPrice()
   const seg  = it.segments[0]
   const isRT = !!(it.returnSegments?.length)
 
@@ -225,7 +227,7 @@ function FlightCard({ itinerary: it, expanded, onToggle, onSelect }: {
           <div className="flex-shrink-0 border-l border-[#0B1F3A]/6 pl-5 ml-4 flex flex-col justify-center py-4 min-w-[128px]">
             <p className="text-[9px] text-[#0B1F3A]/30 uppercase tracking-widest mb-1">From</p>
             <p className="text-2xl font-bold text-[#0B1F3A] leading-none tabular-nums">
-              {formatPrice(it.price.perPerson, it.price.currency)}
+              {fp(it.price.perPerson, it.price.currency)}
             </p>
             <p className="text-[9px] text-[#0B1F3A]/30 mt-1 mb-4">
               {isRT ? 'per person · return' : 'per person'}

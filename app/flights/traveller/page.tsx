@@ -3,7 +3,8 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useFlightStore } from '@/store/flightStore'
-import { formatTime, formatDuration, formatPrice } from '@/lib/flights/utils'
+import { formatTime, formatDuration } from '@/lib/flights/utils'
+import { useFlightPrice } from '@/lib/hooks/useFlightPrice'
 import type { Passenger } from '@/lib/flights/types'
 
 const STEPS        = ['Search', 'Seats', 'Travellers', 'Extras', 'Review', 'Pay']
@@ -37,6 +38,7 @@ function paxProgress(p: Passenger, isLead: boolean): number {
 export default function TravellerPage() {
   const router = useRouter()
   const { passengers: storedPax, setPassengers, setStep, passengerCount, selected, seats } = useFlightStore()
+  const fp    = useFlightPrice()
   const count = passengerCount()
 
   const initPax = storedPax.length === count
@@ -188,7 +190,7 @@ export default function TravellerPage() {
                 </div>
               </div>
               <div className="flex-shrink-0 bg-white/8 rounded-xl px-3 py-2 text-center">
-                <p className="text-[#C9A84C] font-bold text-sm">{formatPrice(selected.price.total, selected.price.currency)}</p>
+                <p className="text-[#C9A84C] font-bold text-sm">{fp(selected.price.total, selected.price.currency)}</p>
                 <p className="text-white/25 text-[9px]">Total fare</p>
               </div>
             </div>
@@ -515,17 +517,17 @@ export default function TravellerPage() {
                     <div className="space-y-2 text-xs">
                       <div className="flex justify-between">
                         <span className="text-[#0B1F3A]/50">Flight fare</span>
-                        <span className="font-semibold text-[#0B1F3A]">{formatPrice(selected.price.total, selected.price.currency)}</span>
+                        <span className="font-semibold text-[#0B1F3A]">{fp(selected.price.total, selected.price.currency)}</span>
                       </div>
                       {seatTotal > 0 && (
                         <div className="flex justify-between">
                           <span className="text-[#0B1F3A]/50">Seat selection</span>
-                          <span className="font-semibold text-[#0B1F3A]">+{formatPrice(seatTotal)}</span>
+                          <span className="font-semibold text-[#0B1F3A]">+{fp(seatTotal)}</span>
                         </div>
                       )}
                       <div className="border-t border-[#0B1F3A]/5 pt-2 flex justify-between">
                         <span className="font-bold text-[#0B1F3A]">Total so far</span>
-                        <span className="font-bold text-[#0B1F3A]">{formatPrice(selected.price.total + seatTotal)}</span>
+                        <span className="font-bold text-[#0B1F3A]">{fp(selected.price.total + seatTotal)}</span>
                       </div>
                     </div>
                   </div>

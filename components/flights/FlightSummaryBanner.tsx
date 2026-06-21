@@ -1,7 +1,8 @@
 'use client'
 
 import type { FlightItinerary } from '@/lib/flights/types'
-import { formatDuration, formatPrice } from '@/lib/flights/utils'
+import { formatDuration } from '@/lib/flights/utils'
+import { useFlightPrice } from '@/lib/hooks/useFlightPrice'
 
 interface Props {
   from:       string
@@ -20,6 +21,7 @@ const BADGE_CFG = {
 } as const
 
 export function FlightSummaryBanner({ from, to, results, totalCount, onViewAll }: Props) {
+  const fp = useFlightPrice()
   const highlights = results.filter(r => r.badge).slice(0, 4)
 
   return (
@@ -78,7 +80,7 @@ export function FlightSummaryBanner({ from, to, results, totalCount, onViewAll }
               <div className="flex items-end justify-between">
                 <div>
                   <p className="text-xs text-[#0B1F3A]/40">Per person</p>
-                  <p className="text-2xl font-bold text-[#0B1F3A]">{formatPrice(itinerary.price.perPerson, itinerary.price.currency)}</p>
+                  <p className="text-2xl font-bold text-[#0B1F3A]">{fp(itinerary.price.perPerson, itinerary.price.currency)}</p>
                 </div>
                 <span className={`text-[10px] font-semibold px-2 py-1 rounded-lg ${cfg.bg} ${cfg.text}`}>{cfg.sub}</span>
               </div>
