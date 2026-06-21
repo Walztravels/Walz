@@ -135,16 +135,34 @@ interface CwMessage {
   message_type: number
   private:      boolean
   created_at:   number
-  sender:       { type: string } | null
+  content?:     string
+  sender:       { id?: number; type: string; name?: string } | null
 }
 
-// Checks Chatwoot conversation messages for a recent human agent reply.
-// Human agents post with sender.type === 'user'; Jade posts via API token
-// which Chatwoot attributes as sender.type === 'agent_bot' (or null).
-// This is the authoritative detection — no webhook config required.
+// Cache Jade's own Chatwoot user ID to exclude it from human-agent detection.
+// Because Jade uses a user API token, its messages show sender.type === 'user' —
+// same as a human agent — so we need to filter by sender ID, not just type.
+let _jadeCwSenderId: number | null | undefined = undefined
+
+async function getJadeCwSenderId(): Promise<number | null> {
+  if (_jadeCwSenderId !== undefined) return _jadeCwSenderId
+  try {
+    const profile   = await cwGet('/profile')
+    _jadeCwSenderId = profile?.id ?? null
+  } catch {
+    _jadeCwSenderId = null
+  }
+  return _jadeCwSenderId as number | null
+}
+
+// Checks Chatwoot conversation messages for a recent HUMAN agent reply.
+// Excludes Jade's own messages by comparing sender ID against Jade's profile ID.
 async function detectHumanAgentReply(convId: number): Promise<Date | null> {
   try {
-    const data = await cwGet(`/accounts/${ACCOUNT_ID}/conversations/${convId}/messages`)
+    const [data, jadeSenderId] = await Promise.all([
+      cwGet(`/accounts/${ACCOUNT_ID}/conversations/${convId}/messages`),
+      getJadeCwSenderId(),
+    ])
     const raw  = data?.payload?.messages ?? data?.payload ?? []
     const msgs = Array.isArray(raw) ? (raw as CwMessage[]) : []
     const cutoff = Date.now() - RESUME_AFTER_MINUTES * 60 * 1000
@@ -152,12 +170,15 @@ async function detectHumanAgentReply(convId: number): Promise<Date | null> {
     for (const msg of msgs) {
       const msgTime    = (msg.created_at ?? 0) * 1000
       const senderType = (msg.sender?.type ?? '').toLowerCase()
+      const senderId   = msg.sender?.id
+      // Skip Jade's own messages (same sender ID), bot messages, and private notes
+      if (jadeSenderId && senderId === jadeSenderId) continue
       if (
-        msg.message_type === 1 &&          // outgoing (agent/bot direction)
-        !msg.private &&                    // not a private note
-        msgTime > cutoff &&                // within the silence window
-        senderType === 'user' &&           // human agent — NOT 'agent_bot' or null (Jade/API)
-        !senderType.includes('bot')        // extra safety guard
+        msg.message_type === 1 &&      // outgoing (agent direction)
+        !msg.private &&                // not a private note
+        msgTime > cutoff &&            // within the silence window
+        senderType === 'user' &&       // must be a user (human agent)
+        !senderType.includes('bot')    // extra safety guard
       ) {
         return new Date(msgTime)
       }
@@ -211,17 +232,20 @@ async function checkJadeSilence(convId: number | null): Promise<{
       return { silenced: true, shouldResume: false }
     }
 
+    // 30+ minutes of no human response — Jade resumes
     const alreadyResumed =
       lead?.jade_resumed_at &&
       new Date(lead.jade_resumed_at as string) > silencedAt
 
-    if (!alreadyResumed) {
-      if (lead?.id) {
-        await supabase
-          .from('leads')
-          .update({ jade_resumed_at: new Date().toISOString() })
-          .eq('id', lead.id)
-      }
+    if (!alreadyResumed && lead?.id) {
+      // Clear silence flag so future requests don't re-run this check
+      await supabase
+        .from('leads')
+        .update({
+          jade_resumed_at: new Date().toISOString(),
+          jade_silenced_at: null,
+        })
+        .eq('id', lead.id)
       return { silenced: false, shouldResume: true }
     }
 
@@ -769,9 +793,99 @@ async function jadeReply(
   return "I'm having a brief technical issue. For immediate help, WhatsApp us on +44 7398 753797 or email contact@walztravels.com ✈"
 }
 
+// ─── Intent classifier ────────────────────────────────────────────────────────
+
+function classifyIntent(message: string, dna: TravelDNA): string {
+  const m = message.toLowerCase()
+  if (/\b(visa|passport|embassy|schengen|uk visa|canada visa|us visa|application|approval|rejection|refusal|immigration)\b/.test(m)) return 'visa'
+  if (/\b(flight|fly|flying|airline|airport|airfare|ticket|book.*flight|search.*flight)\b/.test(m)) return 'flights'
+  if (/\b(hotel|accommodation|stay|resort|bnb|check[\s-]?in|check[\s-]?out|room|suite|lodge)\b/.test(m)) return 'hotels'
+  if (/\b(tour|trip|experience|activity|excursion|safari|cruise|adventure|explore|sightseeing|attraction)\b/.test(m)) return 'experiences'
+  if (dna.style.includes('beach') || dna.style.includes('adventure')) return 'experiences'
+  return 'general'
+}
+
+// ─── Claude-based profile extraction (Haiku, runs parallel to main reply) ────
+
+async function extractProfileWithClaude(messages: Msg[]): Promise<Record<string, unknown>> {
+  const recent = messages.slice(-8)
+  const conv   = recent.map(m => `${m.role === 'user' ? 'Client' : 'Jade'}: ${m.content}`).join('\n')
+
+  const prompt = `Extract ONLY what the CLIENT has explicitly revealed in this conversation. Return valid JSON only:
+{
+  "name": string|null,
+  "nationality": string|null,
+  "destinations": string[],
+  "visaInterests": string[],
+  "budgetTier": "budget"|"mid-range"|"luxury"|null,
+  "partyType": "solo"|"couple"|"family"|"group"|null,
+  "travelStyle": string[],
+  "bookingIntent": "browsing"|"planning"|"ready-to-book"|null,
+  "currency": "NGN"|"GHS"|"AED"|"CAD"|"GBP"|null
+}
+Omit or null any field you are not confident about. No extra text.
+CONVERSATION:
+${conv}`
+
+  try {
+    const res  = await getAnthropic().messages.create({
+      model: 'claude-haiku-4-5-20251001', max_tokens: 300,
+      messages: [{ role: 'user', content: prompt }],
+    })
+    const text = res.content[0].type === 'text' ? res.content[0].text.trim() : ''
+    return JSON.parse(text.replace(/^```json\s*/i, '').replace(/\s*```$/i, '')) as Record<string, unknown>
+  } catch {
+    return {}
+  }
+}
+
+// ─── Convert widget profile (from localStorage) to ClientProfile shape ────────
+
+function widgetProfileToClientProfile(raw: Record<string, unknown>, returning: boolean): ClientProfile {
+  const arr = (key: string): string[] =>
+    Array.isArray(raw[key]) ? (raw[key] as string[]) : []
+  return {
+    name:          (raw.name          as string) ?? '',
+    email:         '',
+    phone:         '',
+    nationality:   (raw.nationality   as string) ?? '',
+    location:      '',
+    travelStyle:   arr('travelStyle'),
+    budgetTier:    (raw.budgetTier    as string) ?? '',
+    partyType:     (raw.partyType     as string) ?? '',
+    destinations:  arr('destinations'),
+    visaInterests: arr('visaInterests'),
+    openQuestions: [],
+    bookingIntent: (raw.bookingIntent as ClientProfile['bookingIntent']) ?? 'browsing',
+    currency:      (raw.currency      as ClientProfile['currency'])      ?? 'GBP',
+    isReturning:   returning,
+    pastTopics:    arr('destinations'),
+    msgCount:      0,
+  }
+}
+
 // ─── Main handler ─────────────────────────────────────────────────────────────
 
 export async function POST(req: NextRequest) {
+  let body: {
+    message:             string
+    conversationHistory: Msg[]
+    sessionId?:          string
+    conversationId?:     number | null
+    customerName?:       string
+    customerEmail?:      string
+    pageContext?:        string
+    clientLanguage?:     string
+    isReturning?:        boolean
+    userProfile?:        Record<string, unknown>
+  }
+
+  try {
+    body = await req.json()
+  } catch {
+    return NextResponse.json({ reply: "Sorry, I couldn't read your message. Please try again.", conversationId: null }, { status: 200 })
+  }
+
   const {
     message,
     conversationHistory = [],
@@ -781,42 +895,79 @@ export async function POST(req: NextRequest) {
     customerEmail  = '',
     pageContext    = '',
     clientLanguage = 'en',
-  } = await req.json() as {
-    message:             string
-    conversationHistory: Msg[]
-    sessionId?:          string
-    conversationId?:     number | null
-    customerName?:       string
-    customerEmail?:      string
-    pageContext?:        string
-    clientLanguage?:     string
-  }
+    isReturning    = false,
+    userProfile,
+  } = body
 
   if (!message?.trim()) return NextResponse.json({ error: 'Message required' }, { status: 400 })
 
   const convId = conversationId ?? null
+  const sid    = sessionId ?? `web-${Date.now()}`
 
-  // ── Check if Jade is silenced by a human agent ──────────────────────────────
-  const { silenced, shouldResume } = await checkJadeSilence(convId)
-  if (silenced) {
-    return NextResponse.json({ reply: null, silenced: true, conversationId: convId })
+  // ── Silence check — non-blocking with short timeout ─────────────────────────
+  let silenced     = false
+  let shouldResume = false
+  try {
+    const silenceResult = await Promise.race([
+      checkJadeSilence(convId),
+      new Promise<{ silenced: boolean; shouldResume: boolean }>(resolve =>
+        setTimeout(() => resolve({ silenced: false, shouldResume: false }), 4000)
+      ),
+    ])
+    silenced     = silenceResult.silenced
+    shouldResume = silenceResult.shouldResume
+  } catch {
+    // Chatwoot unreachable — don't block Jade
   }
 
-  // ── Fetch full conversation memory from Chatwoot ────────────────────────────
+  // When silenced by a human agent — return handoff signal (no AI reply)
+  if (silenced) {
+    // Try to get the agent's name from the Chatwoot conversation meta
+    let agentName: string | null = null
+    if (convId) {
+      try {
+        const conv    = await cwGet(`/accounts/${ACCOUNT_ID}/conversations/${convId}`)
+        const assignee = conv?.meta?.assignee ?? conv?.assignee
+        if (assignee?.name) agentName = assignee.name as string
+      } catch {}
+    }
+    return NextResponse.json({
+      reply:          null,
+      handedOff:      true,
+      agentName,
+      silenced:       true,
+      conversationId: convId,
+    })
+  }
+
+  // ── Fetch memory — non-blocking with short timeout ──────────────────────────
   let profile: ClientProfile | null = null
   let fullHistory: Msg[] = []
 
   if (convId) {
     try {
-      const memory = await fetchClientMemory(convId)
-      profile      = memory.profile
-      fullHistory  = memory.messages // full Chatwoot history (last 30)
-    } catch (e) {
-      console.error('[Jade] Memory fetch failed:', e)
-    }
+      const memResult = await Promise.race([
+        fetchClientMemory(convId),
+        new Promise<{ profile: null; messages: Msg[] }>(resolve =>
+          setTimeout(() => resolve({ profile: null, messages: [] }), 4000)
+        ),
+      ])
+      profile     = memResult.profile
+      fullHistory = memResult.messages
+    } catch {}
   }
 
-  // Use Chatwoot history when available, otherwise fall back to browser-sent history
+  // Fall back to widget-provided profile when Chatwoot memory is sparse
+  if (userProfile && typeof userProfile === 'object' && Object.keys(userProfile).length > 0) {
+    const isEmpty = !profile || (!profile.name && !profile.destinations.length && !profile.travelStyle.length)
+    if (isEmpty) profile = widgetProfileToClientProfile(userProfile, isReturning)
+  }
+  // Ensure isReturning flag is reflected in profile (widget knows before Chatwoot does)
+  if (isReturning && profile && !profile.isReturning) {
+    profile = { ...profile, isReturning: true }
+  }
+
+  // Use Chatwoot history when available, otherwise use browser-sent history
   const history  = fullHistory.length > 0
     ? fullHistory
     : conversationHistory.filter(m => m.role === 'user' || m.role === 'assistant')
@@ -825,50 +976,51 @@ export async function POST(req: NextRequest) {
   const dna      = buildDNA(history, message)
   const b2b      = isB2BInquiry(message)
 
-  // B2B overrides normal handover detection — always triggers medium-urgency handover
   const handover = b2b
     ? { needed: true, reason: 'B2B partnership inquiry — business development team notified', urgency: 'medium' as const, routeTo: 'admin' as const }
     : detectHandover(message, history, dna)
 
-  const reply = await jadeReply(
-    messages, pageContext, dna, shouldResume, profile,
-    b2b ? JADE_B2B_PROMPT : undefined,
-    clientLanguage,
-  )
+  // ── AI reply + profile extraction run in parallel (no added latency) ─────────
+  const [reply, extractedProfile] = await Promise.all([
+    jadeReply(
+      messages, pageContext, dna, shouldResume, profile,
+      b2b ? JADE_B2B_PROMPT : undefined,
+      clientLanguage,
+    ),
+    extractProfileWithClaude(messages).catch(() => ({})),
+  ])
 
-  // ── Push to Chatwoot ────────────────────────────────────────────────────────
-  const sid = sessionId ?? `web-${Date.now()}`
+  const intent = classifyIntent(message, dna)
+
+  // ── Push to Chatwoot asynchronously — never blocks the response ──────────────
   let newConvId: number | null = null
-
-  try {
-    newConvId = await pushToCharwoot(
-      sid, customerName, message, reply, convId, dna, handover, profile
-    )
-  } catch (e) {
-    console.error('[Jade→CW] Push error:', String(e).slice(0, 100))
-  }
-
-  // ── B2B: extra label + notification email ───────────────────────────────────
-  if (b2b) {
-    if (newConvId) {
-      void addCwLabel(newConvId, 'b2b-inquiry')
+  void (async () => {
+    try {
+      newConvId = await pushToCharwoot(
+        sid, customerName, message, reply, convId, dna, handover, profile
+      )
+      if (b2b) {
+        if (newConvId) void addCwLabel(newConvId, 'b2b-inquiry')
+        const companyMatch =
+          message.match(/([A-Z][a-zA-Z ]+(?:Tourism|Travel|Agency|Tours|Corp|Ltd|Inc|LLC|Group))/)?.[1]
+          ?? (customerName || 'Business Inquiry')
+        void sendB2BEmail(companyMatch, message, newConvId)
+      }
+      if (handover.needed && !b2b) {
+        void sendHandoverEmail(customerName, customerEmail, handover, dna, profile, newConvId, message)
+      }
+    } catch (e) {
+      console.error('[Jade→CW] Background push failed:', String(e).slice(0, 100))
     }
-    const companyMatch =
-      message.match(/([A-Z][a-zA-Z ]+(?:Tourism|Travel|Agency|Tours|Corp|Ltd|Inc|LLC|Group))/)?.[1]
-      ?? (customerName || 'Business Inquiry')
-    void sendB2BEmail(companyMatch, message, newConvId)
-  }
-
-  // ── Send handover email ─────────────────────────────────────────────────────
-  if (handover.needed && !b2b) {
-    void sendHandoverEmail(customerName, customerEmail, handover, dna, profile, newConvId, message)
-  }
+  })()
 
   return NextResponse.json({
     reply,
-    conversationId: newConvId ?? convId,
+    conversationId:  convId,
     dna,
-    handover: handover.needed ? handover : null,
-    resumed:  shouldResume,
+    intent,
+    extractedProfile: Object.keys(extractedProfile).length > 0 ? extractedProfile : undefined,
+    handover:         handover.needed ? handover : null,
+    resumed:          shouldResume,
   })
 }

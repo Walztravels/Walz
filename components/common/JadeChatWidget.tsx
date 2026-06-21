@@ -9,11 +9,53 @@ import {
 } from 'lucide-react'
 import type { TravelDNA } from '@/app/api/jade/chatwoot/route'
 
+// ─── Session persistence ───────────────────────────────────────────────────────
+const SESSION_KEY      = 'walz_jade_session'
+const SESSION_TTL      = 2 * 60 * 60 * 1000   // 2 hours
+const IDLE_WARNING_MS  = 15 * 60 * 1000        // 15 minutes
+const IDLE_CLOSE_MS    = 60 * 60 * 1000        // 60 minutes
+
+function generateSessionId() {
+  return `jade-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`
+}
+
+interface PersistedSession {
+  sessionId:      string
+  conversationId: number | null
+  messages:       Message[]
+  isHandedOff:    boolean
+  agentName:      string | null
+  customerName:   string
+  lastActiveAt:   number
+  userProfile:    Record<string, unknown>
+}
+
+// ─── Types ─────────────────────────────────────────────────────────────────────
 interface Message {
-  id:        string
-  role:      'user' | 'assistant'
-  content:   string
-  timestamp: Date
+  id:              string
+  role:            'user' | 'assistant' | 'system'
+  content:         string
+  timestamp:       Date
+  isSystemMessage?: boolean
+  isIdleCheckIn?:  boolean
+  intent?:         string
+}
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+function mergeProfile(
+  existing: Record<string, unknown>,
+  updates: Record<string, unknown>,
+): Record<string, unknown> {
+  const merged: Record<string, unknown> = { ...existing }
+  for (const [key, value] of Object.entries(updates)) {
+    if (value === null || value === undefined || value === '') continue
+    if (Array.isArray(value) && Array.isArray(merged[key])) {
+      merged[key] = [...new Set([...(merged[key] as unknown[]), ...value])]
+    } else {
+      merged[key] = value
+    }
+  }
+  return merged
 }
 
 interface HandoverInfo {
@@ -43,6 +85,7 @@ const DNA_BADGE_LABELS: Partial<Record<keyof TravelDNA, string>> = {
   party:   'Travelling as',
   urgency: 'Timing',
 }
+void DNA_BADGE_LABELS
 
 function parseMarkdown(text: string) {
   const parts: Array<{ type: 'text' | 'bold' | 'link'; content: string; href?: string }> = []
@@ -78,7 +121,6 @@ function DNABadge({ dna }: { dna: TravelDNA }) {
   if (dna.budget)               tags.push(dna.budget)
   if (dna.party)                tags.push(dna.party)
   if (dna.destinations.length)  tags.push(dna.destinations[0])
-
   if (!tags.length) return null
 
   return (
@@ -91,6 +133,36 @@ function DNABadge({ dna }: { dna: TravelDNA }) {
       ))}
     </div>
   )
+}
+
+function IntentCTAs({ intent, onClose }: { intent: string; onClose: () => void }) {
+  const pill = 'text-xs font-semibold bg-[#C9A84C]/10 border border-[#C9A84C]/30 text-[#C9A84C] rounded-full px-3 py-1.5 hover:bg-[#C9A84C]/20 transition-colors cursor-pointer'
+  const go = (url: string) => { window.location.href = url; onClose() }
+
+  if (intent === 'visa') return (
+    <div className="flex flex-wrap gap-1.5 mt-1.5">
+      <button onClick={() => go('/visa')} className={pill}>📋 Start Visa Application →</button>
+      <button onClick={() => go('/visa#rates')} className={pill}>💰 View Visa Fees</button>
+    </div>
+  )
+  if (intent === 'flights') return (
+    <div className="flex flex-wrap gap-1.5 mt-1.5">
+      <button onClick={() => go('/flights')} className={pill}>✈ Search Flights →</button>
+      <a href="https://wa.me/447398753797" target="_blank" rel="noopener noreferrer" className={pill}>📞 Speak to an Agent</a>
+    </div>
+  )
+  if (intent === 'hotels') return (
+    <div className="flex flex-wrap gap-1.5 mt-1.5">
+      <button onClick={() => go('/hotels')} className={pill}>🏨 Browse Hotels →</button>
+    </div>
+  )
+  if (intent === 'experiences') return (
+    <div className="flex flex-wrap gap-1.5 mt-1.5">
+      <button onClick={() => go('/tours')} className={pill}>🌍 View Tours →</button>
+      <button onClick={() => go('/activities')} className={pill}>🎭 Experiences</button>
+    </div>
+  )
+  return null
 }
 
 function HandoverCard({ handover }: { handover: HandoverInfo }) {
@@ -121,31 +193,135 @@ function HandoverCard({ handover }: { handover: HandoverInfo }) {
   )
 }
 
+// ─── Main widget ───────────────────────────────────────────────────────────────
 export function JadeChatWidget() {
   const pathname = usePathname() ?? ''
   const isAdmin  = pathname.startsWith('/admin')
 
-  const [isOpen,        setIsOpen]        = useState(false)
-  const [isMinimized,   setIsMinimized]   = useState(false)
-  const [messages,      setMessages]      = useState<Message[]>([])
-  const [input,         setInput]         = useState('')
-  const [isLoading,     setIsLoading]     = useState(false)
-  const [showStarters,  setShowStarters]  = useState(true)
-  const [typingPhrase,  setTypingPhrase]  = useState(TYPING_PHRASES[0])
-  const [unreadCount,   setUnreadCount]   = useState(0)
-  const [customerName,  setCustomerName]  = useState('')
-  const [hasGreeted,    setHasGreeted]    = useState(false)
-  const [hasMounted,    setHasMounted]    = useState(false)
-  const [dna,           setDna]           = useState<TravelDNA | null>(null)
-  const [handover,      setHandover]      = useState<HandoverInfo | null>(null)
+  const [isOpen,         setIsOpen]         = useState(false)
+  const [isMinimized,    setIsMinimized]     = useState(false)
+  const [messages,       setMessages]        = useState<Message[]>([])
+  const [input,          setInput]           = useState('')
+  const [isLoading,      setIsLoading]       = useState(false)
+  const [showStarters,   setShowStarters]    = useState(true)
+  const [typingPhrase,   setTypingPhrase]    = useState(TYPING_PHRASES[0])
+  const [unreadCount,    setUnreadCount]     = useState(0)
+  const [customerName,   setCustomerName]    = useState('')
+  const [hasGreeted,     setHasGreeted]      = useState(false)
+  const [hasMounted,     setHasMounted]      = useState(false)
+  const [dna,            setDna]             = useState<TravelDNA | null>(null)
+  const [handover,       setHandover]        = useState<HandoverInfo | null>(null)
+  const [isHandedOff,    setIsHandedOff]     = useState(false)
+  const [agentName,      setAgentName]       = useState<string | null>(null)
+  // Session — managed as state so persistence effects react to changes
+  const [sessionId,      setSessionId]       = useState<string>('')
+  const [conversationId, setConversationId]  = useState<number | null>(null)
+  const [isReturning,    setIsReturning]     = useState(false)
+  const [userProfile,    setUserProfile]     = useState<Record<string, unknown>>({})
 
-  const messagesEndRef = useRef<HTMLDivElement>(null)
-  const inputRef       = useRef<HTMLTextAreaElement>(null)
-  const historyRef     = useRef<Array<{ role: 'user' | 'assistant'; content: string }>>([])
-  const typingInterval = useRef<ReturnType<typeof setInterval> | null>(null)
+  const messagesEndRef      = useRef<HTMLDivElement>(null)
+  const inputRef            = useRef<HTMLTextAreaElement>(null)
+  const historyRef          = useRef<Array<{ role: 'user' | 'assistant'; content: string }>>([])
+  const typingInterval      = useRef<ReturnType<typeof setInterval> | null>(null)
+  const lastActivityRef     = useRef<number>(Date.now())
+  const idleCheckSentRef    = useRef(false)
+  const hasLoadedProfileRef = useRef(false)
 
-  useEffect(() => { setHasMounted(true) }, [])
+  // ── Mount: hydrate or create session ──────────────────────────────────────
+  useEffect(() => {
+    setHasMounted(true)
+    try {
+      const raw = localStorage.getItem(SESSION_KEY)
+      if (raw) {
+        const session: PersistedSession = JSON.parse(raw)
+        const age = Date.now() - session.lastActiveAt
 
+        if (age < SESSION_TTL) {
+          // Restore messages with correct Date objects
+          const restored = session.messages.map(m => ({
+            ...m,
+            timestamp: new Date(m.timestamp),
+          }))
+          setSessionId(session.sessionId)
+          setConversationId(session.conversationId)
+          setMessages(restored)
+          setIsHandedOff(session.isHandedOff)
+          setAgentName(session.agentName)
+          setCustomerName(session.customerName ?? '')
+          setUserProfile(session.userProfile ?? {})
+          historyRef.current = restored
+            .filter(m => m.role === 'user' || m.role === 'assistant')
+            .map(m => ({ role: m.role as 'user' | 'assistant', content: m.content }))
+            .slice(-20)
+          setIsReturning(true)
+          setHasGreeted(true)  // don't re-run welcome sequence
+        } else {
+          // Expired — clear and start fresh
+          localStorage.removeItem(SESSION_KEY)
+          setSessionId(generateSessionId())
+        }
+      } else {
+        setSessionId(generateSessionId())
+      }
+    } catch {
+      setSessionId(generateSessionId())
+    }
+  }, [])
+
+  // ── Persist session whenever key state changes ─────────────────────────────
+  useEffect(() => {
+    if (!sessionId || !hasMounted) return
+    try {
+      const session: PersistedSession = {
+        sessionId,
+        conversationId,
+        messages: messages.slice(-30),
+        isHandedOff,
+        agentName,
+        customerName,
+        lastActiveAt: Date.now(),
+        userProfile,
+      }
+      localStorage.setItem(SESSION_KEY, JSON.stringify(session))
+    } catch {}
+  }, [messages, isHandedOff, conversationId, agentName, customerName, sessionId, hasMounted, userProfile])
+
+  // ── Load saved profile from Redis when sessionId is available ──────────────
+  useEffect(() => {
+    if (!sessionId || !hasMounted || hasLoadedProfileRef.current) return
+    hasLoadedProfileRef.current = true
+    fetch(`/api/jade/memory?sessionId=${encodeURIComponent(sessionId)}`)
+      .then(r => r.json())
+      .then((data: { profile?: Record<string, unknown> }) => {
+        if (data.profile && Object.keys(data.profile).length > 0) {
+          setUserProfile(prev => mergeProfile(prev, data.profile!))
+        }
+      })
+      .catch(() => {})
+  }, [sessionId, hasMounted])
+
+  // ── Idle detection ─────────────────────────────────────────────────────────
+  useEffect(() => {
+    if (!isOpen) return
+    const interval = setInterval(() => {
+      const idle = Date.now() - lastActivityRef.current
+      if (idle >= IDLE_CLOSE_MS) {
+        setIsMinimized(true)
+      } else if (idle >= IDLE_WARNING_MS && !isHandedOff && !idleCheckSentRef.current) {
+        idleCheckSentRef.current = true
+        setMessages(prev => [...prev, {
+          id:            String(Date.now()),
+          role:          'assistant',
+          content:       'Still there? 😊 No rush — I\'m here whenever you\'re ready.',
+          timestamp:     new Date(),
+          isIdleCheckIn: true,
+        }])
+      }
+    }, 60_000)
+    return () => clearInterval(interval)
+  }, [isOpen, isHandedOff])
+
+  // ── Typing indicator rotation ──────────────────────────────────────────────
   useEffect(() => {
     if (isLoading) {
       let i = 0
@@ -169,32 +345,93 @@ export function JadeChatWidget() {
     }
   }, [isOpen, isMinimized])
 
-  const handleOpen = useCallback(() => {
+  // ── Open handler ───────────────────────────────────────────────────────────
+  const handleOpen = useCallback((context?: { service?: string; detail?: string; page?: string; message?: string }) => {
     setIsOpen(true); setIsMinimized(false); setUnreadCount(0)
-    if (!hasGreeted) {
-      setHasGreeted(true)
-      setTimeout(() => {
-        setMessages([{
-          id:        'welcome',
-          role:      'assistant',
-          content:   `Hi there! 👋 I'm **Jade**, your personal travel consultant at Walz Travels.\n\nWhether you're dreaming of a beach escape, planning a business trip, or need visa support — I've got you. What are you planning?`,
-          timestamp: new Date(),
-        }])
-        setShowStarters(true)
-      }, 300)
-    }
-  }, [hasGreeted])
+    lastActivityRef.current = Date.now()
+    idleCheckSentRef.current = false
 
-  // Listen for jade:open events dispatched by JadeChat buttons anywhere on the page
+    if (hasGreeted) return  // already greeted (including restored sessions)
+
+    setHasGreeted(true)
+    const isFlight = context?.service === 'Flight' || context?.page?.startsWith('/flights')
+
+    if (isReturning) {
+      // Returning within TTL — add appropriate context message
+      setTimeout(() => {
+        const contextMsg: Message = isHandedOff
+          ? {
+              id:              `return-${Date.now()}`,
+              role:            'system',
+              content:         `Welcome back. Your conversation with ${agentName ?? 'a Walz agent'} is still open. They will reply as soon as they are available. Office hours: 8am–10pm GMT.`,
+              timestamp:       new Date(),
+              isSystemMessage: true,
+            }
+          : (() => {
+              const pName       = typeof userProfile.name === 'string' && userProfile.name ? ` ${userProfile.name}` : ''
+              const pdests      = Array.isArray(userProfile.destinations) ? userProfile.destinations as string[] : []
+              const lastTopic   = pdests[0] ?? null
+              return {
+                id:              `return-${Date.now()}`,
+                role:            'system' as const,
+                content:         lastTopic
+                  ? `Welcome back${pName}! Last time we were looking at **${lastTopic}** — still on your mind?`
+                  : `Welcome back${pName}! Here is your previous conversation with Jade.`,
+                timestamp:       new Date(),
+                isSystemMessage: true,
+              }
+            })()
+
+        setMessages(prev => {
+          // Prepend the context note before the restored messages if needed
+          const alreadyHasNote = prev.some(m => m.id.startsWith('return-'))
+          return alreadyHasNote ? prev : [contextMsg, ...prev]
+        })
+        setShowStarters(false)
+      }, 300)
+      return
+    }
+
+    // Fresh session welcome
+    setTimeout(() => {
+      const msgs: Message[] = [{
+        id:        'welcome',
+        role:      'assistant',
+        content:   `Hi there! 👋 I'm **Jade**, your personal travel consultant at Walz Travels.\n\nWhether you're dreaming of a beach escape, planning a business trip, or need visa support — I've got you. What are you planning?`,
+        timestamp: new Date(),
+      }]
+
+      if (isFlight) {
+        msgs.push({
+          id:        'flight-context',
+          role:      'assistant',
+          content:   `✈️ I can see you're coming from our **Flight Concierge**. I'm ready to help you search 900+ airlines, compare fares, check visa requirements, and find the best route for your budget. Where would you like to fly?`,
+          timestamp: new Date(),
+        })
+      }
+
+      setMessages(msgs)
+      setShowStarters(true)
+    }, 300)
+  }, [hasGreeted, isReturning, isHandedOff, agentName])
+
+  // ── Event listener for jade:open ───────────────────────────────────────────
   useEffect(() => {
-    const handler = () => handleOpen()
+    const handler = (e: Event) => {
+      const ctx = (e as CustomEvent<{ service?: string; detail?: string; page?: string; message?: string }>).detail
+      handleOpen(ctx)
+    }
     window.addEventListener('jade:open', handler)
     return () => window.removeEventListener('jade:open', handler)
   }, [handleOpen])
 
+  // ── Send message ───────────────────────────────────────────────────────────
   const sendMessage = useCallback(async (text?: string) => {
     const userMessage = (text ?? input).trim()
-    if (!userMessage || isLoading) return
+    if (!userMessage || isLoading || isHandedOff) return
+
+    lastActivityRef.current = Date.now()
+    idleCheckSentRef.current = false
 
     setInput('')
     setShowStarters(false)
@@ -209,43 +446,69 @@ export function JadeChatWidget() {
     setIsLoading(true)
 
     try {
-      let sessionId = ''
-      try {
-        sessionId = sessionStorage.getItem('jade_session_id') ?? ''
-        if (!sessionId) {
-          sessionId = `jade-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`
-          sessionStorage.setItem('jade_session_id', sessionId)
-        }
-      } catch {}
-
-      let storedConvId: number | null = null
-      try {
-        const stored = sessionStorage.getItem('jade_conv_id')
-        storedConvId = stored ? Number(stored) : null
-      } catch {}
-
       const res = await fetch('/api/jade/chatwoot', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           message:             userMessage,
           conversationHistory: historyRef.current,
           sessionId,
-          conversationId:      storedConvId,
+          conversationId,
           customerName,
           pageContext:         pathname.replace(/^\//, '') || 'home',
+          isReturning,
+          userProfile:         Object.keys(userProfile).length > 0 ? userProfile : undefined,
         }),
       })
 
       const data = await res.json()
 
       if (data.conversationId) {
-        try { sessionStorage.setItem('jade_conv_id', String(data.conversationId)) } catch {}
+        setConversationId(Number(data.conversationId))
       }
 
-      if (data.dna) setDna(data.dna)
+      if (data.dna)      setDna(data.dna)
       if (data.handover) setHandover(data.handover as HandoverInfo)
 
-      const reply: string = data.reply ?? "I'm having a brief issue — WhatsApp us on +44 7398 753797 for instant help!"
+      // Save extracted profile — update state and persist to Redis
+      if (data.extractedProfile) {
+        const ep = data.extractedProfile as Record<string, unknown>
+        setUserProfile(prev => mergeProfile(prev, ep))
+        void fetch('/api/jade/memory', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            sessionId,
+            profileUpdates: {
+              ...ep,
+              ...(data.conversationId ? { chatwootConvId: data.conversationId } : {}),
+            },
+          }),
+        }).catch(() => {})
+      }
+
+      if (!res.ok && !data.reply && !data.handedOff) {
+        throw new Error(`API ${res.status}`)
+      }
+
+      // Human agent took over — lock Jade and show system message
+      if (data.handedOff) {
+        const name = (data.agentName as string | null) ?? 'a Walz travel expert'
+        if (!isHandedOff) {
+          setIsHandedOff(true)
+          setAgentName(name)
+          setMessages(prev => [...prev, {
+            id:              (Date.now() + 1).toString(),
+            role:            'system',
+            content:         `👤 You're now chatting with ${name}. Jade has stepped aside — your agent will respond shortly.`,
+            timestamp:       new Date(),
+            isSystemMessage: true,
+          }])
+        }
+        if (isMinimized || !isOpen) setUnreadCount(prev => prev + 1)
+        return
+      }
+
+      const reply: string = data.reply ?? "I'm just a moment away — if you need immediate help, WhatsApp us on **+44 7398 753797** ✈"
 
       historyRef.current = [
         ...historyRef.current,
@@ -254,7 +517,11 @@ export function JadeChatWidget() {
       ].slice(-20)
 
       setMessages(prev => [...prev, {
-        id: (Date.now() + 1).toString(), role: 'assistant', content: reply, timestamp: new Date(),
+        id:        (Date.now() + 1).toString(),
+        role:      'assistant',
+        content:   reply,
+        timestamp: new Date(),
+        intent:    (data.intent as string | undefined) ?? undefined,
       }])
 
       if (isMinimized || !isOpen) setUnreadCount(prev => prev + 1)
@@ -268,16 +535,24 @@ export function JadeChatWidget() {
     } finally {
       setIsLoading(false)
     }
-  }, [input, isLoading, customerName, pathname, isMinimized, isOpen])
+  }, [input, isLoading, isHandedOff, sessionId, conversationId, customerName, pathname, isMinimized, isOpen, isReturning, userProfile])
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void sendMessage() }
   }
 
+  const updateActivity = () => {
+    lastActivityRef.current = Date.now()
+    idleCheckSentRef.current = false
+  }
+
   const handleReset = () => {
     setMessages([]); historyRef.current = []; setShowStarters(true)
     setHasGreeted(false); setCustomerName(''); setDna(null); setHandover(null)
-    try { sessionStorage.removeItem('jade_session_id'); sessionStorage.removeItem('jade_conv_id') } catch {}
+    setIsHandedOff(false); setAgentName(null); setIsReturning(false)
+    setConversationId(null); setSessionId(generateSessionId()); setUserProfile({})
+    idleCheckSentRef.current = false; hasLoadedProfileRef.current = false
+    try { localStorage.removeItem(SESSION_KEY) } catch {}
     handleOpen()
   }
 
@@ -285,11 +560,16 @@ export function JadeChatWidget() {
 
   if (!hasMounted || isAdmin) return null
 
+  const lastAiMsgIdx = messages.reduce(
+    (last, m, i) => (m.role === 'assistant' && !m.isSystemMessage ? i : last),
+    -1,
+  )
+
   return (
     <>
       {/* Launcher */}
       {!isOpen && (
-        <button onClick={handleOpen} aria-label="Chat with Jade"
+        <button onClick={() => handleOpen()} aria-label="Chat with Jade"
           className="fixed bottom-6 right-6 z-[9999] group"
           style={{ background: 'none', border: 'none', padding: 0 }}>
           <span className="absolute inset-0 rounded-full bg-[#C9A84C] animate-ping opacity-30 group-hover:opacity-0" />
@@ -326,12 +606,14 @@ export function JadeChatWidget() {
           <div className="flex items-center gap-3 px-4 py-3 bg-[#0B1F3A] flex-shrink-0">
             <div className="relative w-10 h-10 rounded-full overflow-hidden flex-shrink-0 ring-2 ring-[#C9A84C]">
               <Image src="/jade-avatar.jpg" alt="Jade" fill className="object-cover" sizes="40px" />
-              <span className="absolute bottom-0 right-0 w-3 h-3 bg-green-400 rounded-full border-2 border-[#0B1F3A]" />
+              <span className={`absolute bottom-0 right-0 w-3 h-3 rounded-full border-2 border-[#0B1F3A] ${isHandedOff ? 'bg-amber-400' : 'bg-green-400'}`} />
             </div>
             <div className="flex-1 min-w-0">
-              <p className="text-white font-bold text-sm leading-none">Jade</p>
+              <p className="text-white font-bold text-sm leading-none">
+                {isHandedOff ? (agentName ?? 'Walz Agent') : 'Jade'}
+              </p>
               <p className="text-[#C9A84C] text-xs mt-0.5">
-                {isLoading ? 'Typing…' : 'Walz Travels · Online now'}
+                {isHandedOff ? 'Live agent · Connected' : isLoading ? 'Typing…' : 'Walz Travels · Online now'}
               </p>
             </div>
             <div className="flex items-center gap-1">
@@ -367,27 +649,48 @@ export function JadeChatWidget() {
             <>
               <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3 scroll-smooth
                 bg-gradient-to-b from-[#F5F0E8]/30 to-white">
-                {messages.map(msg => (
-                  <div key={msg.id} className={`flex gap-2.5 ${msg.role === 'user' ? 'flex-row-reverse' : 'flex-row'}`}>
-                    {msg.role === 'assistant' && (
-                      <div className="w-7 h-7 rounded-full overflow-hidden flex-shrink-0 mt-0.5 ring-1 ring-[#C9A84C]/30">
-                        <Image src="/jade-avatar.jpg" alt="Jade" width={28} height={28} className="object-cover" />
+                {messages.map((msg, i) => {
+                  // System / handoff notification — centred pill, not a chat bubble
+                  if (msg.isSystemMessage) return (
+                    <div key={msg.id} className="flex justify-center my-3">
+                      <div className="flex items-center gap-1.5 text-xs text-[#92400E] py-1.5 px-4
+                        bg-[#C9A84C]/15 border border-[#C9A84C]/30 rounded-full max-w-[90%] text-center">
+                        <UserCheck className="w-3 h-3 flex-shrink-0 text-[#C9A84C]" />
+                        <span>{parseMarkdown(msg.content)}</span>
                       </div>
-                    )}
-                    <div className={`max-w-[80%] flex flex-col gap-1 ${msg.role === 'user' ? 'items-end' : 'items-start'}`}>
-                      <div className={`px-3.5 py-2.5 rounded-2xl text-sm leading-relaxed ${
-                        msg.role === 'user'
-                          ? 'bg-[#0B1F3A] text-white rounded-tr-sm'
-                          : 'bg-white text-[#0B1F3A] rounded-tl-sm border border-gray-100 shadow-sm'
-                      }`}>
-                        {msg.role === 'assistant' ? parseMarkdown(msg.content) : msg.content}
-                      </div>
-                      <span className="text-[10px] text-gray-400 px-1">{formatTime(msg.timestamp)}</span>
                     </div>
-                  </div>
-                ))}
+                  )
 
-                {/* Handover card */}
+                  return (
+                    <div key={msg.id} className={`flex gap-2.5 ${msg.role === 'user' ? 'flex-row-reverse' : 'flex-row'}`}>
+                      {msg.role === 'assistant' && (
+                        <div className="w-7 h-7 rounded-full overflow-hidden flex-shrink-0 mt-0.5 ring-1 ring-[#C9A84C]/30">
+                          <Image src="/jade-avatar.jpg" alt="Jade" width={28} height={28} className="object-cover" />
+                        </div>
+                      )}
+                      <div className={`max-w-[80%] flex flex-col gap-1 ${msg.role === 'user' ? 'items-end' : 'items-start'}`}>
+                        <div className={`px-3.5 py-2.5 rounded-2xl text-sm leading-relaxed ${
+                          msg.role === 'user'
+                            ? 'bg-[#0B1F3A] text-white rounded-tr-sm'
+                            : 'bg-white text-[#0B1F3A] rounded-tl-sm border border-gray-100 shadow-sm'
+                        }`}>
+                          {msg.role === 'assistant' ? parseMarkdown(msg.content) : msg.content}
+                        </div>
+                        <span className="text-[10px] text-gray-400 px-1">{formatTime(msg.timestamp)}</span>
+                        {/* Intent CTAs — shown only below the last Jade message */}
+                        {msg.role === 'assistant' && i === lastAiMsgIdx &&
+                          msg.intent && msg.intent !== 'general' && !isLoading && (
+                          <IntentCTAs
+                            intent={msg.intent}
+                            onClose={() => { setIsOpen(false); setUnreadCount(0) }}
+                          />
+                        )}
+                      </div>
+                    </div>
+                  )
+                })}
+
+                {/* Handover card (Jade-triggered escalation) */}
                 {handover && <HandoverCard handover={handover} />}
 
                 {/* Typing indicator */}
@@ -410,7 +713,7 @@ export function JadeChatWidget() {
               </div>
 
               {/* Quick starters */}
-              {showStarters && messages.length > 0 && !handover && (
+              {showStarters && messages.length > 0 && !handover && !isHandedOff && (
                 <div className="px-4 pb-2 pt-1 flex flex-wrap gap-1.5 bg-white border-t border-gray-50">
                   {QUICK_STARTERS.map(s => (
                     <button key={s} onClick={() => void sendMessage(s)}
@@ -423,45 +726,81 @@ export function JadeChatWidget() {
                 </div>
               )}
 
-              {/* Input */}
+              {/* Input area */}
               {!handover && (
                 <div className="px-3 pb-3 pt-2 bg-white border-t border-gray-100 flex-shrink-0">
-                  <div className="flex items-end gap-2 bg-gray-50 rounded-xl px-3 py-2
-                    border border-gray-200 focus-within:border-[#C9A84C] transition-colors">
-                    <textarea
-                      ref={inputRef}
-                      value={input}
-                      onChange={e => setInput(e.target.value)}
-                      onKeyDown={handleKeyDown}
-                      placeholder="Ask Jade anything about travel…"
-                      rows={1}
-                      disabled={isLoading}
-                      className="flex-1 bg-transparent text-sm text-[#0B1F3A] placeholder-gray-400
-                        resize-none outline-none min-h-[20px] max-h-[80px] disabled:opacity-50 leading-relaxed"
-                      onInput={e => {
-                        const t = e.currentTarget
-                        t.style.height = 'auto'
-                        t.style.height = `${Math.min(t.scrollHeight, 80)}px`
-                      }}
-                    />
-                    <button
-                      onClick={() => void sendMessage()}
-                      disabled={isLoading || !input.trim()}
-                      className="w-8 h-8 rounded-lg bg-[#0B1F3A] flex items-center justify-center
-                        disabled:opacity-40 hover:bg-[#162d52] active:scale-95 transition-all flex-shrink-0">
-                      {isLoading
-                        ? <Loader2 className="w-4 h-4 text-white animate-spin" />
-                        : <Send className="w-4 h-4 text-[#C9A84C]" />
-                      }
-                    </button>
-                  </div>
-                  <p className="text-center text-[10px] text-gray-300 mt-2">
-                    Powered by Jade AI · Walz Travels
-                  </p>
+                  {isHandedOff ? (
+                    /* Handed-off: locked input + "Chat with Jade again" */
+                    <div className="space-y-2">
+                      <div className="flex items-center gap-2 bg-gray-50 rounded-xl px-3 py-2.5
+                        border border-gray-200 opacity-60 cursor-not-allowed">
+                        <textarea
+                          disabled
+                          placeholder="Your agent will reply shortly…"
+                          rows={1}
+                          className="flex-1 bg-transparent text-sm text-gray-400 placeholder-gray-400
+                            resize-none outline-none min-h-[20px] cursor-not-allowed"
+                        />
+                        <div className="w-8 h-8 rounded-lg bg-gray-300 flex items-center justify-center flex-shrink-0">
+                          <Send className="w-4 h-4 text-white" />
+                        </div>
+                      </div>
+                      <div className="flex items-center justify-between px-1">
+                        <div className="flex items-center gap-1.5">
+                          <span className="w-2 h-2 rounded-full bg-amber-400 animate-pulse" />
+                          <span className="text-[10px] text-gray-400">
+                            {agentName ?? 'Your agent'} is live
+                          </span>
+                        </div>
+                        <button onClick={handleReset}
+                          className="text-[10px] text-[#C9A84C] hover:underline font-medium">
+                          Chat with Jade again
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    /* Normal Jade input */
+                    <>
+                      <div className="flex items-end gap-2 bg-gray-50 rounded-xl px-3 py-2
+                        border border-gray-200 focus-within:border-[#C9A84C] transition-colors">
+                        <textarea
+                          ref={inputRef}
+                          value={input}
+                          onChange={e => setInput(e.target.value)}
+                          onKeyDown={handleKeyDown}
+                          onInput={e => {
+                            updateActivity()
+                            const t = e.currentTarget
+                            t.style.height = 'auto'
+                            t.style.height = `${Math.min(t.scrollHeight, 80)}px`
+                          }}
+                          onFocus={updateActivity}
+                          placeholder="Ask Jade anything about travel…"
+                          rows={1}
+                          disabled={isLoading}
+                          className="flex-1 bg-transparent text-sm text-[#0B1F3A] placeholder-gray-400
+                            resize-none outline-none min-h-[20px] max-h-[80px] disabled:opacity-50 leading-relaxed"
+                        />
+                        <button
+                          onClick={() => void sendMessage()}
+                          disabled={isLoading || !input.trim()}
+                          className="w-8 h-8 rounded-lg bg-[#0B1F3A] flex items-center justify-center
+                            disabled:opacity-40 hover:bg-[#162d52] active:scale-95 transition-all flex-shrink-0">
+                          {isLoading
+                            ? <Loader2 className="w-4 h-4 text-white animate-spin" />
+                            : <Send className="w-4 h-4 text-[#C9A84C]" />
+                          }
+                        </button>
+                      </div>
+                      <p className="text-center text-[10px] text-gray-300 mt-2">
+                        Powered by Jade AI · Walz Travels
+                      </p>
+                    </>
+                  )}
                 </div>
               )}
 
-              {/* Post-handover contact options */}
+              {/* Post-handover contact options (Jade-triggered escalation) */}
               {handover && (
                 <div className="px-4 pb-4 pt-2 bg-white border-t border-gray-100 flex-shrink-0 space-y-2">
                   <a href="https://wa.me/447398753797?text=Hi%2C%20Jade%20connected%20me%20for%20travel%20help"

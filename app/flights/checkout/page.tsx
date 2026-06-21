@@ -4,12 +4,15 @@ import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { loadStripe } from '@stripe/stripe-js'
 import { Elements, PaymentElement, useStripe, useElements } from '@stripe/react-stripe-js'
+import { useFlutterwave, closePaymentModal } from 'flutterwave-react-v3'
 import { useFlightStore } from '@/store/flightStore'
 import { formatDuration, formatTime } from '@/lib/flights/utils'
 
 const stripePromise = process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY
   ? loadStripe(process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY)
   : null
+
+type PaymentMethod = 'stripe' | 'flutterwave'
 
 // ── Inner payment form ──────────────────────────────────────────────────────
 function PaymentForm({ grand, intentId }: { grand: number; intentId: string }) {
@@ -119,6 +122,137 @@ function PaymentForm({ grand, intentId }: { grand: number; intentId: string }) {
   )
 }
 
+// ── Flutterwave checkout ─────────────────────────────────────────────────────
+function FlutterwaveCheckout({ grand }: { grand: number }) {
+  const router   = useRouter()
+  const { setConfirmed, selected, passengers } = useFlightStore()
+  const [processing, setProcessing] = useState(false)
+
+  const lead = passengers[0]
+  const config = {
+    public_key: process.env.NEXT_PUBLIC_FLUTTERWAVE_PUBLIC_KEY ?? 'FLWPUBK_TEST-xxx',
+    tx_ref:     `WLZ-${Date.now()}`,
+    amount:     grand,
+    currency:   'GBP',
+    payment_options: 'card,banktransfer,ussd',
+    customer: {
+      email:        lead?.email ?? 'customer@walztravels.com',
+      name:         `${lead?.firstName ?? ''} ${lead?.lastName ?? ''}`.trim(),
+      phone_number: lead?.phone ?? '',
+    },
+    customizations: {
+      title:       'Walz Travels',
+      description: `Flight booking${selected ? ` — ${selected.segments[0]?.departureIata} → ${selected.segments[selected.segments.length - 1]?.arrivalIata}` : ''}`,
+      logo:        'https://walztravels.com/walz-logo.png',
+    },
+  }
+
+  const handleFlw = useFlutterwave(config)
+
+  async function handlePayment() {
+    handleFlw({
+      callback: async (response: { transaction_id: number; tx_ref: string; status: string }) => {
+        closePaymentModal()
+        if (response.status === 'successful' || response.status === 'completed') {
+          setProcessing(true)
+          try {
+            const res = await fetch('/api/flights/book', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                offerId:          selected?.id ?? 'mock_offer',
+                passengers:       passengers.map((p, i) => ({
+                  id:          `pax_${i + 1}`,
+                  given_name:  p.firstName,
+                  family_name: p.lastName,
+                  born_on:     p.dob,
+                  gender:      'm',
+                  title:       p.title.toLowerCase(),
+                  email:       p.email ?? '',
+                  phone_number: p.phone ?? '',
+                })),
+                services:         [],
+                flwTransactionId: String(response.transaction_id),
+                passengerEmail:   lead?.email ?? '',
+                passengerName:    `${lead?.firstName ?? ''} ${lead?.lastName ?? ''}`.trim(),
+              }),
+            })
+            const data = await res.json()
+            if (data.bookingRef) {
+              setConfirmed(data.bookingRef, data.orderId ?? '')
+              router.push(`/flights/confirmation?ref=${data.bookingRef}`)
+            }
+          } catch {
+            console.error('Booking call failed')
+          } finally {
+            setProcessing(false)
+          }
+        }
+      },
+      onClose: () => {},
+    })
+  }
+
+  return (
+    <div className="space-y-5">
+      {/* Payment info */}
+      <div className="bg-white rounded-2xl border border-black/5 p-5 space-y-4">
+        <h2 className="font-display font-bold text-[#0B1F3A]">Pay with Flutterwave</h2>
+        <p className="text-sm text-[#0B1F3A]/60 leading-relaxed">
+          Secure payment powered by Flutterwave. Pay with debit/credit card, bank transfer, or mobile money.
+          Your payment is processed in GBP.
+        </p>
+
+        {/* Amount display */}
+        <div className="bg-[#FAF7F2] rounded-xl p-4 flex items-center justify-between">
+          <div>
+            <p className="text-xs text-[#0B1F3A]/40 uppercase tracking-wider mb-0.5">Amount Due</p>
+            <p className="font-display text-2xl font-bold text-[#0B1F3A]">£{grand.toFixed(0)}</p>
+          </div>
+          <div className="flex gap-2">
+            {['💳', '🏦', '📱'].map((icon, i) => (
+              <div key={i} className="w-9 h-9 rounded-lg bg-white border border-black/10 flex items-center justify-center text-base">{icon}</div>
+            ))}
+          </div>
+        </div>
+
+        {/* Accepted methods */}
+        <div>
+          <p className="text-xs text-[#0B1F3A]/40 mb-2">Accepted payment methods</p>
+          <div className="flex flex-wrap gap-2">
+            {['Visa', 'Mastercard', 'Bank Transfer', 'USSD', 'Mobile Money'].map(m => (
+              <span key={m} className="text-xs px-2.5 py-1 rounded-lg bg-[#0B1F3A]/5 text-[#0B1F3A]/60 font-medium">{m}</span>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      <button type="button" disabled={processing}
+        className="w-full py-4 rounded-xl font-bold text-base transition-all disabled:opacity-50 flex items-center justify-center gap-3"
+        onClick={handlePayment}
+        style={{ background: 'linear-gradient(135deg, #F5A623 0%, #F7630C 100%)', color: '#fff' }}>
+        {processing ? (
+          <>
+            <div className="w-5 h-5 rounded-full border-2 border-white/30 border-t-white animate-spin" />
+            Processing booking…
+          </>
+        ) : (
+          <>
+            <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+            </svg>
+            Pay £{grand.toFixed(0)} with Flutterwave
+          </>
+        )}
+      </button>
+
+      <p className="text-center text-[10px] text-[#0B1F3A]/30">
+        Secured by Flutterwave · PCI DSS Compliant · Your data is encrypted
+      </p>
+    </div>
+  )
+}
+
 // ── Mock checkout (no Stripe key) ────────────────────────────────────────────
 function MockCheckout({ grand }: { grand: number }) {
   const router  = useRouter()
@@ -175,9 +309,10 @@ export default function CheckoutPage() {
   const store   = useFlightStore()
   const { selected, totalPrice, extrasTotal, seatsTotal, discountGBP } = store
 
-  const [clientSecret, setClientSecret] = useState<string | null>(null)
-  const [intentId,     setIntentId]     = useState<string>('')
+  const [clientSecret,  setClientSecret]  = useState<string | null>(null)
+  const [intentId,      setIntentId]      = useState<string>('')
   const [loadingIntent, setLoadingIntent] = useState(true)
+  const [payMethod,     setPayMethod]     = useState<PaymentMethod>('stripe')
 
   const grand = totalPrice()
 
@@ -254,8 +389,36 @@ export default function CheckoutPage() {
       <div className="container-walz py-8">
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
           {/* Left: payment form */}
-          <div className="lg:col-span-2">
-            {loadingIntent ? (
+          <div className="lg:col-span-2 space-y-5">
+            {/* Payment method selector */}
+            <div className="bg-white rounded-2xl border border-black/5 p-4">
+              <p className="text-xs font-semibold text-[#0B1F3A]/50 uppercase tracking-wider mb-3">Choose payment method</p>
+              <div className="grid grid-cols-2 gap-3">
+                {([
+                  { id: 'stripe' as PaymentMethod, label: 'Card / Digital Wallet', sub: 'Visa, Mastercard, Apple Pay, Google Pay', badge: 'Most popular' },
+                  { id: 'flutterwave' as PaymentMethod, label: 'Flutterwave', sub: 'Card, Bank Transfer, USSD, Mobile Money', badge: 'Africa & Global' },
+                ] as { id: PaymentMethod; label: string; sub: string; badge: string }[]).map(m => (
+                  <button key={m.id} type="button" onClick={() => setPayMethod(m.id)}
+                    className={`text-left p-4 rounded-xl border-2 transition-all ${payMethod === m.id ? 'border-[#C9A84C] bg-[#C9A84C]/5' : 'border-[#0B1F3A]/8 hover:border-[#0B1F3A]/20'}`}>
+                    <div className="flex items-start justify-between gap-2 mb-1">
+                      <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center mt-0.5 flex-shrink-0 ${payMethod === m.id ? 'border-[#C9A84C]' : 'border-[#0B1F3A]/20'}`}>
+                        {payMethod === m.id && <div className="w-2 h-2 rounded-full bg-[#C9A84C]" />}
+                      </div>
+                      <span className={`text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-full flex-shrink-0 ${m.id === 'stripe' ? 'bg-blue-50 text-blue-600' : 'bg-orange-50 text-orange-600'}`}>
+                        {m.badge}
+                      </span>
+                    </div>
+                    <p className="font-semibold text-sm text-[#0B1F3A] mt-1">{m.label}</p>
+                    <p className="text-[11px] text-[#0B1F3A]/40 mt-0.5 leading-relaxed">{m.sub}</p>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {/* Payment form */}
+            {payMethod === 'flutterwave' ? (
+              <FlutterwaveCheckout grand={grand} />
+            ) : loadingIntent ? (
               <div className="bg-white rounded-2xl border border-black/5 p-8 flex items-center justify-center">
                 <div className="text-center">
                   <div className="w-8 h-8 rounded-full border-4 border-[#C9A84C]/30 border-t-[#C9A84C] animate-spin mx-auto mb-3" />

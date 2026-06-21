@@ -172,7 +172,7 @@ export function FlightSearchWidget() {
 
   return (
     <div id="search-widget" className="w-full bg-white/95 backdrop-blur-xl rounded-2xl lg:rounded-3xl shadow-2xl shadow-black/20 border border-white/60">
-      {/* Top row */}
+      {/* Top row — trip type + cabin + passengers */}
       <div className="px-5 lg:px-8 pt-5 pb-0 flex flex-wrap items-center justify-between gap-3">
         {/* Trip type */}
         <div className="flex gap-1 bg-[#F5F2EE] rounded-xl p-1">
@@ -184,25 +184,42 @@ export function FlightSearchWidget() {
           ))}
         </div>
 
-        {/* Cabin */}
-        <div className="relative" ref={cabinRef}>
-          <button type="button" onClick={() => setShowCabin(!showCabin)}
-            className="flex items-center gap-2 px-4 py-2 rounded-xl border border-[#0B1F3A]/10 text-sm font-medium text-[#0B1F3A] hover:bg-[#F5F2EE] transition-all">
-            ✈️ {CABIN_LABELS[cabin]}
-            <svg className="w-3 h-3 text-[#0B1F3A]/40" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="m19 9-7 7-7-7" />
-            </svg>
-          </button>
-          {showCabin && (
-            <div className="absolute right-0 top-full mt-2 w-52 bg-white rounded-xl shadow-xl border border-black/5 z-50 overflow-hidden">
-              {(Object.entries(CABIN_LABELS) as [CabinClass, string][]).map(([val, label]) => (
-                <button key={val} type="button" onClick={() => { setCabin(val); setShowCabin(false) }}
-                  className={`w-full text-left px-4 py-3 text-sm transition-colors ${cabin === val ? 'bg-[#C9A84C]/10 text-[#C9A84C] font-semibold' : 'text-[#0B1F3A] hover:bg-[#F5F2EE]'}`}>
-                  {label}
-                </button>
-              ))}
-            </div>
-          )}
+        <div className="flex items-center gap-2 flex-wrap">
+          {/* Passengers — top row so it never gets squished */}
+          <div className="relative" ref={paxRef}>
+            <button type="button" onClick={() => { setShowPax(!showPax); setShowCabin(false) }}
+              className="flex items-center gap-2 px-4 py-2 rounded-xl border border-[#0B1F3A]/10 text-sm font-medium text-[#0B1F3A] hover:bg-[#F5F2EE] transition-all">
+              <svg className="w-4 h-4 text-[#0B1F3A]/40" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 0 0-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 0 1 5.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 0 1 9.288 0M15 7a3 3 0 1 1-6 0 3 3 0 0 1 6 0z" />
+              </svg>
+              {paxLabel}
+              <svg className="w-3 h-3 text-[#0B1F3A]/40" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="m19 9-7 7-7-7" />
+              </svg>
+            </button>
+            {showPax && <PassengerDropdown value={pax} onChange={setPax} onClose={() => setShowPax(false)} />}
+          </div>
+
+          {/* Cabin */}
+          <div className="relative" ref={cabinRef}>
+            <button type="button" onClick={() => { setShowCabin(!showCabin); setShowPax(false) }}
+              className="flex items-center gap-2 px-4 py-2 rounded-xl border border-[#0B1F3A]/10 text-sm font-medium text-[#0B1F3A] hover:bg-[#F5F2EE] transition-all">
+              ✈️ {CABIN_LABELS[cabin]}
+              <svg className="w-3 h-3 text-[#0B1F3A]/40" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="m19 9-7 7-7-7" />
+              </svg>
+            </button>
+            {showCabin && (
+              <div className="absolute right-0 top-full mt-2 w-52 bg-white rounded-xl shadow-xl border border-black/5 z-50 overflow-hidden">
+                {(Object.entries(CABIN_LABELS) as [CabinClass, string][]).map(([val, label]) => (
+                  <button key={val} type="button" onClick={() => { setCabin(val); setShowCabin(false) }}
+                    className={`w-full text-left px-4 py-3 text-sm transition-colors ${cabin === val ? 'bg-[#C9A84C]/10 text-[#C9A84C] font-semibold' : 'text-[#0B1F3A] hover:bg-[#F5F2EE]'}`}>
+                    {label}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
       </div>
 
@@ -290,24 +307,8 @@ export function FlightSearchWidget() {
           </div>
         )}
 
-        {/* PASSENGERS */}
-        <div className={`${tripType === 'round-trip' ? 'lg:col-span-1' : 'lg:col-span-2'} relative`} ref={paxRef}>
-          <label className="block text-xs font-semibold text-[#0B1F3A]/50 uppercase tracking-wider mb-1.5">Passengers</label>
-          <button type="button" onClick={() => setShowPax(!showPax)}
-            className="w-full h-14 px-4 rounded-xl border border-[#0B1F3A]/10 bg-white flex items-center gap-2 text-left hover:border-[#C9A84C] transition-all">
-            <svg className="w-4 h-4 text-[#0B1F3A]/30 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 0 0-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 0 1 5.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 0 1 9.288 0M15 7a3 3 0 1 1-6 0 3 3 0 0 1 6 0z" />
-            </svg>
-            <span className="flex-1 text-sm font-medium text-[#0B1F3A] truncate">{paxLabel}</span>
-            <svg className="w-3 h-3 text-[#0B1F3A]/30 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="m19 9-7 7-7-7" />
-            </svg>
-          </button>
-          {showPax && <PassengerDropdown value={pax} onChange={setPax} onClose={() => setShowPax(false)} />}
-        </div>
-
         {/* SEARCH */}
-        <div className="lg:col-span-1 flex items-end">
+        <div className={`${tripType === 'round-trip' ? 'lg:col-span-1' : 'lg:col-span-3'} flex items-end`}>
           <button type="button" onClick={handleSearch}
             className="w-full h-14 rounded-xl bg-[#C9A84C] text-[#0B1F3A] font-bold text-sm flex items-center justify-center gap-2 hover:bg-[#E8C87A] active:scale-[0.97] transition-all shadow-lg shadow-[#C9A84C]/25">
             <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -326,11 +327,9 @@ export function FlightSearchWidget() {
             <span className="text-xs text-[#0B1F3A]/50 group-hover:text-[#0B1F3A] transition-colors">{opt}</span>
           </label>
         ))}
-        <button
-          type="button"
-          onClick={() => window.dispatchEvent(new CustomEvent('jade:open'))}
-          className="ml-auto flex items-center gap-1.5 text-xs font-semibold text-[#C9A84C] hover:text-[#0B1F3A] transition-colors group"
-        >
+        <button type="button"
+          onClick={() => window.dispatchEvent(new CustomEvent('jade:open', { detail: { service: 'Flight', page: '/flights' } }))}
+          className="ml-auto flex items-center gap-1.5 text-xs font-semibold text-[#C9A84C] hover:text-[#0B1F3A] transition-colors group">
           <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
           Ask Jade AI ✈️
         </button>

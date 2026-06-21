@@ -111,7 +111,7 @@ export function FlightsHero() {
             Search Flights
           </button>
           <button type="button"
-            onClick={() => window.dispatchEvent(new CustomEvent('jade:open'))}
+            onClick={() => window.dispatchEvent(new CustomEvent('jade:open', { detail: { service: 'Flight', page: '/flights' } }))}
             className="px-7 py-3.5 rounded-xl bg-white/10 border border-white/20 text-white text-sm font-semibold hover:bg-white/20 active:scale-[0.97] transition-all backdrop-blur-sm flex items-center gap-2">
             <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse" />
             Chat with Jade AI

@@ -49,7 +49,7 @@ export function AiAssistantTeaser() {
               ))}
             </div>
             <button
-              onClick={() => window.dispatchEvent(new CustomEvent('jade:open'))}
+              onClick={() => window.dispatchEvent(new CustomEvent('jade:open', { detail: { service: 'Flight', page: '/flights' } }))}
               className="inline-flex items-center gap-2 px-6 py-3 rounded-xl bg-[#0B1F3A] text-white font-semibold text-sm hover:bg-[#081629] transition-colors">
               Chat with Jade ✈️
             </button>
