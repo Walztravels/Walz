@@ -234,7 +234,7 @@ function SearchContent() {
       <div className="container-walz py-8">
         <div className="flex gap-6">
           <aside className="hidden lg:block w-64 flex-shrink-0">
-            <FlightFilters results={results} />
+            <FlightFilters results={allResults} onChange={setFilters} />
           </aside>
           <div className="flex-1 min-w-0">
             <div className="lg:hidden mb-4">

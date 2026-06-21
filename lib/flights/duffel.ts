@@ -71,36 +71,33 @@ function inferAmenities(cabin: CabinClass): FlightAmenity[] {
   ]
 }
 
-// ── Transform a Duffel offer → our FlightItinerary ────────────────────────
+// ── Map a single Duffel slice → segments + layovers ──────────────────────
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-export function duffelOfferToItinerary(offer: any, paxCount: number): FlightItinerary {
+function mapSlice(slice: any, prefix = ''): { segments: FlightSegment[]; layovers: LayoverInfo[]; duration: number } {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const slice = offer.slices[0] as any
-  const segments: FlightSegment[] = (slice.segments ?? []).map(
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (seg: any, i: number) => {
-      const carrier = seg.marketing_carrier ?? seg.operating_carrier ?? {}
-      const cabin   = mapCabin(seg.passengers?.[0]?.cabin_class ?? 'economy')
-      return {
-        id:            seg.id ?? `seg_${i}`,
-        airline:       carrier.iata_code ?? 'XX',
-        airlineName:   carrier.name ?? 'Unknown',
-        airlineLogo:   carrier.logo_symbol_url ?? `/images/airlines/${(carrier.iata_code ?? 'xx').toLowerCase()}.png`,
-        flightNumber:  `${carrier.iata_code ?? 'XX'}${seg.marketing_carrier_flight_number ?? '???'}`,
-        aircraft:      seg.aircraft?.name ?? 'Aircraft',
-        departureIata: seg.origin?.iata_code ?? '',
-        departureCity: seg.origin?.city?.name ?? seg.origin?.name ?? '',
-        departureTime: seg.departing_at ?? '',
-        arrivalIata:   seg.destination?.iata_code ?? '',
-        arrivalCity:   seg.destination?.city?.name ?? seg.destination?.name ?? '',
-        arrivalTime:   seg.arriving_at ?? '',
-        durationMins:  parseDuration(seg.duration ?? 'PT0M'),
-        cabinClass:    cabin,
-        seatsRemaining: typeof seg.passengers?.[0]?.cabin_class_marketing_name === 'string' ? 9 : 9,
-        amenities:     inferAmenities(cabin),
-      }
+  const segments: FlightSegment[] = (slice.segments ?? []).map((seg: any, i: number) => {
+    const carrier = seg.marketing_carrier ?? seg.operating_carrier ?? {}
+    const cabin   = mapCabin(seg.passengers?.[0]?.cabin_class ?? 'economy')
+    const iata    = carrier.iata_code ?? 'XX'
+    return {
+      id:             seg.id ?? `${prefix}seg_${i}`,
+      airline:        iata,
+      airlineName:    carrier.name ?? 'Unknown',
+      airlineLogo:    carrier.logo_symbol_url ?? `https://pics.avs.io/200/200/${iata}.png`,
+      flightNumber:   `${iata}${seg.marketing_carrier_flight_number ?? '???'}`,
+      aircraft:       seg.aircraft?.name ?? 'Aircraft',
+      departureIata:  seg.origin?.iata_code ?? '',
+      departureCity:  seg.origin?.city?.name ?? seg.origin?.name ?? '',
+      departureTime:  seg.departing_at ?? '',
+      arrivalIata:    seg.destination?.iata_code ?? '',
+      arrivalCity:    seg.destination?.city?.name ?? seg.destination?.name ?? '',
+      arrivalTime:    seg.arriving_at ?? '',
+      durationMins:   parseDuration(seg.duration ?? 'PT0M'),
+      cabinClass:     cabin,
+      seatsRemaining: 9,
+      amenities:      inferAmenities(cabin),
     }
-  )
+  })
 
   const layovers: LayoverInfo[] = []
   for (let i = 0; i < segments.length - 1; i++) {
@@ -115,20 +112,34 @@ export function duffelOfferToItinerary(offer: any, paxCount: number): FlightItin
     })
   }
 
-  const totalDuration = segments.reduce((s, seg) => s + seg.durationMins, 0)
-  const totalAmount   = parseFloat(offer.total_amount ?? offer.base_amount ?? '0')
-  const baseAmount    = parseFloat(offer.base_amount ?? '0')
-  const taxes         = totalAmount - baseAmount
+  const duration = segments.reduce((s, seg) => s + seg.durationMins, 0)
+  return { segments, layovers, duration }
+}
+
+// ── Transform a Duffel offer → our FlightItinerary ────────────────────────
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export function duffelOfferToItinerary(offer: any, paxCount: number): FlightItinerary {
+  const outbound = mapSlice(offer.slices[0], 'out_')
+  const { segments, layovers, duration: totalDuration } = outbound
+
+  // Return slice (round-trip)
+  const hasReturn     = offer.slices.length > 1
+  const returnSlice   = hasReturn ? mapSlice(offer.slices[1], 'ret_') : null
+
+  const totalAmount = parseFloat(offer.total_amount ?? offer.base_amount ?? '0')
+  const baseAmount  = parseFloat(offer.base_amount ?? '0')
+  const taxes       = totalAmount - baseAmount
 
   // Baggage from first segment first passenger
-  const paxBag = offer.slices?.[0]?.segments?.[0]?.passengers?.[0]?.baggages ?? []
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const paxBag  = offer.slices?.[0]?.segments?.[0]?.passengers?.[0]?.baggages ?? []
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const checked = paxBag.find((b: any) => b.type === 'checked')
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const cabin   = paxBag.find((b: any) => b.type === 'carry_on')
+  const cabinBag = paxBag.find((b: any) => b.type === 'carry_on')
   const baggageInfo: BaggageInfo = {
-    cabin:    cabin ? `${cabin.quantity}× carry-on` : '1× carry-on',
-    checked:  checked ? `${checked.quantity}× 23kg` : 'Not included',
+    cabin:    cabinBag ? `${cabinBag.quantity}× carry-on` : '1× carry-on',
+    checked:  checked  ? `${checked.quantity}× 23kg`      : 'Not included',
     included: !!checked,
   }
 
@@ -140,6 +151,11 @@ export function duffelOfferToItinerary(offer: any, paxCount: number): FlightItin
     stops:         segments.length - 1,
     totalDuration,
     layovers,
+    ...(returnSlice ? {
+      returnSegments: returnSlice.segments,
+      returnDuration: returnSlice.duration,
+      returnLayovers: returnSlice.layovers,
+    } : {}),
     price: {
       total:     totalAmount,
       base:      baseAmount,
@@ -147,12 +163,10 @@ export function duffelOfferToItinerary(offer: any, paxCount: number): FlightItin
       currency:  offer.total_currency ?? offer.base_currency ?? 'GBP',
       perPerson: paxCount > 0 ? Math.round(totalAmount / paxCount * 100) / 100 : totalAmount,
     },
-    fareType:    firstCabin === 'ECONOMY' ? 'standard' : firstCabin === 'BUSINESS' ? 'business' : firstCabin === 'FIRST' ? 'first' : 'standard',
-    refundable:  false,
-    changeable:  false,
+    fareType:   firstCabin === 'ECONOMY' ? 'standard' : firstCabin === 'BUSINESS' ? 'business' : firstCabin === 'FIRST' ? 'first' : 'standard',
+    refundable: false,
+    changeable: false,
     baggageInfo,
-    seatsLeft:   offer.available_services?.length ? undefined : undefined,
-    co2Kg:       offer.conditions?.change_before_departure ? undefined : undefined,
   }
 }
 

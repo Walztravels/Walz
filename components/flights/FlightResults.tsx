@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
-import type { FlightItinerary, SortOption } from '@/lib/flights/types'
+import type { FlightItinerary, FlightSegment, SortOption } from '@/lib/flights/types'
 import { formatDuration, formatPrice, formatTime } from '@/lib/flights/utils'
 import { useFlightStore } from '@/store/flightStore'
 
@@ -13,11 +13,11 @@ interface Props {
 }
 
 const BADGE_STYLES: Record<string, string> = {
-  recommended: 'bg-blue-600 text-white',
-  cheapest:    'bg-green-600 text-white',
-  fastest:     'bg-amber-500 text-white',
-  luxury:      'bg-purple-700 text-white',
-  'best-value':'bg-[#C9A84C] text-[#0B1F3A]',
+  recommended: 'bg-[#0B3D91] text-white',
+  cheapest:    'bg-emerald-600 text-white',
+  fastest:     'bg-amber-500 text-[#0B1F3A]',
+  luxury:      'bg-[#C9A84C] text-[#0B1F3A]',
+  'best-value':'bg-[#0B1F3A] text-white',
 }
 
 const BADGE_ORDER = ['recommended', 'luxury', 'cheapest', 'fastest', 'best-value']
@@ -32,7 +32,6 @@ export function FlightResults({ results, from, to }: Props) {
     if (sortBy === 'cheapest') return a.price.total - b.price.total
     if (sortBy === 'fastest')  return a.totalDuration - b.totalDuration
     if (sortBy === 'premium')  return b.price.total - a.price.total
-    // recommended: badged first in badge order, then price
     const ai = a.badge ? BADGE_ORDER.indexOf(a.badge) : 99
     const bi = b.badge ? BADGE_ORDER.indexOf(b.badge) : 99
     if (ai !== bi) return ai - bi
@@ -42,17 +41,18 @@ export function FlightResults({ results, from, to }: Props) {
   return (
     <div>
       {/* Sort bar */}
-      <div className="flex flex-wrap items-center gap-2 mb-6">
-        <p className="text-sm text-[#0B1F3A]/50 mr-1">Sort by:</p>
-        {([['recommended','⭐ Recommended'],['cheapest','💰 Cheapest'],['fastest','⚡ Fastest'],['premium','👑 Premium']] as [SortOption, string][]).map(([val, label]) => (
+      <div className="flex flex-wrap items-center gap-2 mb-5">
+        <p className="text-xs font-semibold text-[#0B1F3A]/40 uppercase tracking-wider mr-1">Sort</p>
+        {([['recommended','Recommended'],['cheapest','Cheapest'],['fastest','Fastest'],['premium','Premium']] as [SortOption, string][]).map(([val, label]) => (
           <button key={val} onClick={() => setSort(val)}
-            className={`px-4 py-2 rounded-xl text-sm font-medium transition-all ${sortBy === val ? 'bg-[#0B1F3A] text-white' : 'bg-white border border-[#0B1F3A]/10 text-[#0B1F3A]/60 hover:border-[#0B1F3A]/30'}`}>
+            className={`px-4 py-1.5 rounded-full text-xs font-semibold transition-all ${sortBy === val ? 'bg-[#0B1F3A] text-white' : 'bg-white border border-[#0B1F3A]/10 text-[#0B1F3A]/60 hover:border-[#0B1F3A]/30'}`}>
             {label}
           </button>
         ))}
+        <span className="ml-auto text-xs text-[#0B1F3A]/30">{results.length} flight{results.length !== 1 ? 's' : ''}</span>
       </div>
 
-      <div className="space-y-4">
+      <div className="space-y-3">
         {sorted.map(it => (
           <FlightCard key={it.id} itinerary={it}
             expanded={expanded === it.id}
@@ -64,157 +64,313 @@ export function FlightResults({ results, from, to }: Props) {
   )
 }
 
-// ── Card ─────────────────────────────────────────────────────────────────────
-function FlightCard({ itinerary, expanded, onToggle, onSelect }: {
-  itinerary: FlightItinerary; expanded: boolean; onToggle: () => void; onSelect: () => void
+// ── Airline logo pill ─────────────────────────────────────────────────────────
+function AirlineLogo({ seg, size = 'sm' }: { seg: FlightSegment; size?: 'sm' | 'lg' }) {
+  const dim = size === 'lg' ? 'w-12 h-12' : 'w-10 h-10'
+  const img = size === 'lg' ? 'w-8 h-8' : 'w-6 h-6'
+  return (
+    <div className={`${dim} rounded-xl bg-white border border-[#0B1F3A]/8 flex items-center justify-center flex-shrink-0 shadow-sm overflow-hidden`}>
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        src={seg.airlineLogo}
+        alt={seg.airline}
+        className={`${img} object-contain`}
+        onError={e => {
+          const img = e.currentTarget as HTMLImageElement
+          img.style.display = 'none'
+          const parent = img.parentElement as HTMLElement
+          parent.innerHTML = `<span class="text-[#0B1F3A] font-bold text-xs">${seg.airline}</span>`
+        }}
+      />
+    </div>
+  )
+}
+
+// ── One leg row ───────────────────────────────────────────────────────────────
+function LegRow({ segments, layovers, duration, label }: {
+  segments: FlightSegment[]
+  layovers: { airport: string; city: string; durationMins: number; overnight: boolean }[]
+  duration: number
+  label?:   string
 }) {
-  const seg   = itinerary.segments[0]
-  const last  = itinerary.segments[itinerary.segments.length - 1]
-  const price = itinerary.price
+  const first = segments[0]
+  const last  = segments[segments.length - 1]
+  const stops = segments.length - 1
 
   return (
-    <div className={`bg-white rounded-2xl border overflow-hidden transition-all duration-200 ${expanded ? 'border-[#C9A84C]/40 shadow-lg shadow-[#C9A84C]/5' : 'border-black/5 hover:border-[#0B1F3A]/15 hover:shadow-md'}`}>
-      <div className="p-5">
-        {/* Top badges */}
-        <div className="flex flex-wrap items-center gap-2 mb-4">
-          {itinerary.badge && (
-            <span className={`text-xs font-bold px-2.5 py-1 rounded-full ${BADGE_STYLES[itinerary.badge]}`}>
-              {itinerary.badgeLabel ?? itinerary.badge}
-            </span>
-          )}
-          {(itinerary.seatsLeft ?? 99) <= 5 && (
-            <span className="text-xs font-semibold text-red-600 bg-red-50 px-2.5 py-1 rounded-full">
-              🔴 Only {itinerary.seatsLeft} seats left
-            </span>
-          )}
-          {itinerary.refundable && (
-            <span className="text-xs font-semibold text-green-700 bg-green-50 px-2.5 py-1 rounded-full">✔ Refundable</span>
+    <div className="flex items-center gap-3 py-3.5">
+      <AirlineLogo seg={first} />
+
+      {label && (
+        <span className="text-[9px] font-bold uppercase tracking-widest text-[#0B1F3A]/25 w-6 flex-shrink-0">{label}</span>
+      )}
+
+      {/* Departure */}
+      <div className="text-left flex-shrink-0 w-[70px]">
+        <p className="text-xl font-bold text-[#0B1F3A] leading-none tabular-nums">{formatTime(first.departureTime)}</p>
+        <p className="text-[11px] font-bold text-[#0B1F3A]/50 mt-0.5">{first.departureIata}</p>
+        <p className="text-[10px] text-[#0B1F3A]/30 truncate">{first.departureCity}</p>
+      </div>
+
+      {/* Timeline */}
+      <div className="flex-1 flex flex-col items-center min-w-0 px-1">
+        <p className="text-[10px] text-[#0B1F3A]/35 mb-1 tabular-nums">{formatDuration(duration)}</p>
+        <div className="relative w-full flex items-center">
+          <div className="flex-1 h-px bg-[#0B1F3A]/10" />
+          {stops > 0 ? (
+            <div className="absolute left-1/2 -translate-x-1/2 flex gap-1.5">
+              {Array.from({ length: stops }).map((_, i) => (
+                <div key={i} className="w-2 h-2 rounded-full bg-white border-2 border-[#C9A84C]" />
+              ))}
+            </div>
+          ) : (
+            <span className="absolute right-0 text-[#C9A84C] text-base leading-none">›</span>
           )}
         </div>
+        <p className="text-[10px] text-[#0B1F3A]/30 mt-1">
+          {stops === 0
+            ? 'Non-stop'
+            : stops === 1
+              ? `via ${layovers[0]?.city ?? ''}`
+              : `${stops} stops`}
+        </p>
+      </div>
 
-        <div className="flex items-center gap-4">
-          {/* Airline */}
-          <div className="w-12 h-12 rounded-xl bg-[#F5F2EE] flex items-center justify-center text-xl flex-shrink-0">✈️</div>
+      {/* Arrival */}
+      <div className="text-right flex-shrink-0 w-[70px]">
+        <p className="text-xl font-bold text-[#0B1F3A] leading-none tabular-nums">{formatTime(last.arrivalTime)}</p>
+        <p className="text-[11px] font-bold text-[#0B1F3A]/50 mt-0.5">{last.arrivalIata}</p>
+        <p className="text-[10px] text-[#0B1F3A]/30 truncate text-right">{last.arrivalCity}</p>
+      </div>
+    </div>
+  )
+}
 
-          {/* Route */}
-          <div className="flex-1 grid grid-cols-3 gap-4 items-center min-w-0">
-            <div>
-              <p className="text-2xl font-bold text-[#0B1F3A] leading-none">{formatTime(seg.departureTime)}</p>
-              <p className="text-sm font-semibold text-[#0B1F3A] mt-0.5">{seg.departureIata}</p>
-              <p className="text-xs text-[#0B1F3A]/40 truncate">{seg.departureCity}</p>
-            </div>
-            <div className="text-center">
-              <p className="text-xs text-[#0B1F3A]/40 mb-1">{formatDuration(itinerary.totalDuration)}</p>
-              <div className="relative flex items-center">
-                <div className="flex-1 h-px bg-[#0B1F3A]/15" />
-                {itinerary.stops > 0
-                  ? <div className="absolute left-1/2 -translate-x-1/2 w-2.5 h-2.5 rounded-full border-2 border-[#0B1F3A]/20 bg-white" />
-                  : <span className="absolute right-0 text-[#0B1F3A]/30 text-xs leading-none">›</span>}
-              </div>
-              <p className="text-xs text-[#0B1F3A]/40 mt-1">
-                {itinerary.stops === 0 ? 'Direct' : `${itinerary.stops} stop · ${itinerary.layovers[0]?.city ?? ''}`}
-              </p>
-            </div>
-            <div className="text-right">
-              <p className="text-2xl font-bold text-[#0B1F3A] leading-none">{formatTime(last.arrivalTime)}</p>
-              <p className="text-sm font-semibold text-[#0B1F3A] mt-0.5">{last.arrivalIata}</p>
-              <p className="text-xs text-[#0B1F3A]/40 truncate">{last.arrivalCity}</p>
-            </div>
+// ── Card ──────────────────────────────────────────────────────────────────────
+function FlightCard({ itinerary: it, expanded, onToggle, onSelect }: {
+  itinerary: FlightItinerary
+  expanded:  boolean
+  onToggle:  () => void
+  onSelect:  () => void
+}) {
+  const seg  = it.segments[0]
+  const isRT = !!(it.returnSegments?.length)
+
+  return (
+    <div className={`bg-white rounded-2xl border overflow-hidden transition-all duration-200 ${expanded ? 'border-[#C9A84C]/50 shadow-xl shadow-[#C9A84C]/8' : 'border-black/5 hover:border-[#0B1F3A]/12 hover:shadow-md'}`}>
+
+      {/* ── Header strip ── */}
+      <div className="bg-[#0B1F3A] px-5 py-2.5 flex items-center gap-3">
+        <div className="w-7 h-7 rounded-lg bg-white/10 border border-white/10 flex items-center justify-center flex-shrink-0 overflow-hidden">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={seg.airlineLogo}
+            alt={seg.airline}
+            className="w-5 h-5 object-contain"
+            onError={e => {
+              const img = e.currentTarget as HTMLImageElement
+              img.style.display = 'none'
+              const p = img.parentElement as HTMLElement
+              p.innerHTML = `<span class="text-white font-bold text-[9px]">${seg.airline}</span>`
+            }}
+          />
+        </div>
+        <div className="flex-1 min-w-0">
+          <p className="text-white text-xs font-semibold leading-tight">{seg.airlineName}</p>
+          <p className="text-white/35 text-[10px]">{seg.flightNumber} · {seg.aircraft}</p>
+        </div>
+        <div className="flex items-center gap-2 flex-shrink-0">
+          {it.badge && (
+            <span className={`text-[10px] font-bold uppercase tracking-wider px-2.5 py-0.5 rounded-full ${BADGE_STYLES[it.badge]}`}>
+              {it.badgeLabel ?? it.badge}
+            </span>
+          )}
+          {(it.seatsLeft ?? 99) <= 5 && (
+            <span className="text-[10px] font-semibold text-red-400 bg-red-400/10 px-2.5 py-0.5 rounded-full">
+              {it.seatsLeft} left
+            </span>
+          )}
+          {it.refundable && (
+            <span className="text-[10px] font-semibold text-emerald-400 bg-emerald-400/10 px-2.5 py-0.5 rounded-full">Refundable</span>
+          )}
+        </div>
+      </div>
+
+      {/* ── Body ── */}
+      <div className="px-5">
+        <div className="flex items-stretch">
+
+          {/* Legs column */}
+          <div className="flex-1 min-w-0">
+            <LegRow
+              segments={it.segments}
+              layovers={it.layovers}
+              duration={it.totalDuration}
+              label={isRT ? 'OUT' : undefined}
+            />
+            {isRT && it.returnSegments && (
+              <>
+                <div className="border-t border-dashed border-[#0B1F3A]/8" />
+                <LegRow
+                  segments={it.returnSegments}
+                  layovers={it.returnLayovers ?? []}
+                  duration={it.returnDuration ?? 0}
+                  label="RET"
+                />
+              </>
+            )}
           </div>
 
-          {/* Price */}
-          <div className="flex-shrink-0 text-right border-l border-black/5 pl-5 min-w-[130px]">
-            <p className="text-xs text-[#0B1F3A]/40 mb-1">Per person</p>
-            <p className="text-2xl font-bold text-[#0B1F3A]">{formatPrice(price.perPerson, price.currency)}</p>
-            <p className="text-xs text-[#0B1F3A]/40 mb-3">Total {formatPrice(price.total, price.currency)}</p>
-            <button onClick={onSelect}
-              className="w-full px-5 py-2.5 rounded-xl bg-[#C9A84C] text-[#0B1F3A] font-bold text-sm hover:bg-[#E8C87A] active:scale-[0.97] transition-all">
-              Select
+          {/* Price column */}
+          <div className="flex-shrink-0 border-l border-[#0B1F3A]/6 pl-5 ml-4 flex flex-col justify-center py-4 min-w-[128px]">
+            <p className="text-[9px] text-[#0B1F3A]/30 uppercase tracking-widest mb-1">From</p>
+            <p className="text-2xl font-bold text-[#0B1F3A] leading-none tabular-nums">
+              {formatPrice(it.price.perPerson, it.price.currency)}
+            </p>
+            <p className="text-[9px] text-[#0B1F3A]/30 mt-1 mb-4">
+              {isRT ? 'per person · return' : 'per person'}
+            </p>
+            <button
+              onClick={onSelect}
+              className="w-full px-4 py-2.5 rounded-xl bg-[#C9A84C] text-[#0B1F3A] font-bold text-sm hover:bg-[#E8C87A] active:scale-[0.97] transition-all shadow-sm shadow-[#C9A84C]/25">
+              Select →
             </button>
           </div>
         </div>
 
-        {/* Amenities strip */}
-        <div className="mt-4 pt-4 border-t border-black/5 flex flex-wrap items-center gap-x-4 gap-y-1">
-          <span className="text-xs text-[#0B1F3A]/50">{seg.airlineName} · {seg.flightNumber}</span>
-          <span className="text-[#0B1F3A]/20">·</span>
-          <span className="text-xs text-[#0B1F3A]/50">{seg.aircraft}</span>
-          <span className="text-[#0B1F3A]/20">·</span>
-          <span className="text-xs text-[#0B1F3A]/50">{seg.cabinClass.replace('_',' ')}</span>
-          <span className="ml-auto flex items-center gap-3">
-            {itinerary.baggageInfo.included && <span className="text-xs text-green-700">🧳 {itinerary.baggageInfo.checked}</span>}
-            {seg.amenities.find(a => a.type === 'wifi'  && a.available) && <span className="text-xs text-[#0B1F3A]/50">📶 Wi-Fi</span>}
-            {seg.amenities.find(a => a.type === 'meals' && a.available) && <span className="text-xs text-[#0B1F3A]/50">🍽️ Meals</span>}
-            {seg.amenities.find(a => a.type === 'lounge'&& a.available) && <span className="text-xs text-[#0B1F3A]/50">🛋️ Lounge</span>}
-          </span>
-          <button onClick={onToggle} className="text-xs text-[#C9A84C] hover:underline ml-4 flex-shrink-0">
-            {expanded ? 'Hide details ▲' : 'Flight details ▼'}
+        {/* ── Amenities bar ── */}
+        <div className="py-2.5 border-t border-[#0B1F3A]/5 flex flex-wrap items-center gap-x-3 gap-y-1">
+          {it.baggageInfo.included && (
+            <span className="text-[11px] text-emerald-700">🧳 {it.baggageInfo.checked}</span>
+          )}
+          {seg.amenities.find(a => a.type === 'wifi'   && a.available) && <span className="text-[11px] text-[#0B1F3A]/45">📶 Wi-Fi</span>}
+          {seg.amenities.find(a => a.type === 'meals'  && a.available) && <span className="text-[11px] text-[#0B1F3A]/45">🍽 Meals</span>}
+          {seg.amenities.find(a => a.type === 'lounge' && a.available) && <span className="text-[11px] text-[#0B1F3A]/45">🛋 Lounge</span>}
+          {it.co2Kg && <span className="text-[11px] text-[#0B1F3A]/25">🌱 {it.co2Kg}kg CO₂</span>}
+          <button onClick={onToggle}
+            className="ml-auto text-[11px] font-semibold text-[#C9A84C] hover:underline flex-shrink-0">
+            {expanded ? 'Hide ▲' : 'Details ▼'}
           </button>
         </div>
       </div>
 
-      {/* Expanded */}
+      {/* ── Expanded ── */}
       {expanded && (
-        <div className="border-t border-black/5 bg-[#FAF7F2] p-5">
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
-            {/* Segments timeline */}
-            <div className="lg:col-span-2">
-              <p className="text-xs font-semibold text-[#0B1F3A]/50 uppercase tracking-wider mb-3">Flight segments</p>
-              {itinerary.segments.map((s, i) => (
-                <div key={s.id} className="flex gap-4 mb-2 last:mb-0">
-                  <div className="flex flex-col items-center pt-1">
-                    <div className="w-2 h-2 rounded-full bg-[#C9A84C] flex-shrink-0" />
-                    {i < itinerary.segments.length - 1 && <div className="flex-1 w-px bg-[#0B1F3A]/10 my-1" />}
-                  </div>
-                  <div className="flex-1 pb-3">
-                    <div className="flex items-baseline gap-2">
-                      <span className="text-base font-bold text-[#0B1F3A]">{formatTime(s.departureTime)}</span>
-                      <span className="text-sm text-[#0B1F3A]">{s.departureIata} — {s.departureCity}</span>
-                    </div>
-                    <p className="text-xs text-[#0B1F3A]/40 my-0.5">{s.airlineName} {s.flightNumber} · {s.aircraft} · {formatDuration(s.durationMins)}</p>
-                    <div className="flex items-baseline gap-2">
-                      <span className="text-base font-bold text-[#0B1F3A]">{formatTime(s.arrivalTime)}</span>
-                      <span className="text-sm text-[#0B1F3A]">{s.arrivalIata} — {s.arrivalCity}</span>
-                    </div>
-                    {i < itinerary.segments.length - 1 && itinerary.layovers[i] && (
-                      <div className="mt-2 text-xs text-amber-700 bg-amber-50 px-3 py-1.5 rounded-lg inline-block">
-                        ⏱ {formatDuration(itinerary.layovers[i].durationMins)} layover in {itinerary.layovers[i].city}
-                        {itinerary.layovers[i].overnight && ' · Overnight'}
-                      </div>
-                    )}
-                  </div>
-                </div>
-              ))}
+        <div className="border-t border-[#0B1F3A]/5 bg-[#FAF7F2] p-5">
+          <div className={`grid gap-5 ${isRT ? 'grid-cols-1 lg:grid-cols-2' : 'grid-cols-1 lg:grid-cols-3'}`}>
+
+            {/* Outbound */}
+            <div className={isRT ? '' : 'lg:col-span-2'}>
+              <p className="text-[10px] font-bold text-[#0B1F3A]/40 uppercase tracking-widest mb-3">
+                {isRT ? '↗ Outbound' : 'Flight segments'}{isRT ? ` · ${it.segments[0].departureIata} → ${it.segments[it.segments.length-1].arrivalIata}` : ''}
+              </p>
+              <SegmentTimeline segments={it.segments} layovers={it.layovers} />
             </div>
 
-            {/* What's included */}
-            <div>
-              <p className="text-xs font-semibold text-[#0B1F3A]/50 uppercase tracking-wider mb-3">What&apos;s included</p>
-              <div className="space-y-2">
-                {[
-                  { ok: itinerary.baggageInfo.included,                                      label: `${itinerary.baggageInfo.checked} checked baggage` },
-                  { ok: itinerary.baggageInfo.included,                                      label: `${itinerary.baggageInfo.cabin} cabin bag`          },
-                  { ok: !!seg.amenities.find(a => a.type === 'meals'  && a.available),       label: 'In-flight meals'                                    },
-                  { ok: !!seg.amenities.find(a => a.type === 'wifi'   && a.available),       label: 'Wi-Fi on board'                                     },
-                  { ok: !!seg.amenities.find(a => a.type === 'lounge' && a.available),       label: 'Lounge access'                                      },
-                  { ok: itinerary.refundable,                                                label: 'Refundable ticket'                                  },
-                  { ok: itinerary.changeable,                                                label: 'Date changes allowed'                               },
-                ].map(({ ok, label }) => (
-                  <div key={label} className={`flex items-center gap-2 text-sm ${ok ? 'text-[#0B1F3A]' : 'text-[#0B1F3A]/30'}`}>
-                    <span className={ok ? 'text-green-600' : 'text-[#0B1F3A]/20'}>{ok ? '✓' : '✗'}</span>
-                    {label}
-                  </div>
-                ))}
+            {/* Return (round-trip) */}
+            {isRT && it.returnSegments ? (
+              <div>
+                <p className="text-[10px] font-bold text-[#0B1F3A]/40 uppercase tracking-widest mb-3">
+                  ↙ Return · {it.returnSegments[0].departureIata} → {it.returnSegments[it.returnSegments.length-1].arrivalIata}
+                </p>
+                <SegmentTimeline segments={it.returnSegments} layovers={it.returnLayovers ?? []} />
               </div>
-              {itinerary.co2Kg && (
-                <div className="mt-4 p-3 rounded-xl bg-green-50 text-xs text-green-700">
-                  🌱 Est. {itinerary.co2Kg}kg CO₂ per passenger
-                </div>
-              )}
-            </div>
+            ) : (
+              <div>
+                <p className="text-[10px] font-bold text-[#0B1F3A]/40 uppercase tracking-widest mb-3">What&apos;s included</p>
+                <IncludedList it={it} seg={seg} />
+              </div>
+            )}
           </div>
+
+          {/* Included strip for round-trip */}
+          {isRT && (
+            <div className="mt-5 pt-5 border-t border-[#0B1F3A]/5">
+              <p className="text-[10px] font-bold text-[#0B1F3A]/40 uppercase tracking-widest mb-3">What&apos;s included</p>
+              <div className="flex flex-wrap gap-2">
+                <IncludedList it={it} seg={seg} inline />
+              </div>
+            </div>
+          )}
         </div>
       )}
+    </div>
+  )
+}
+
+// ── Segment timeline ───────────────────────────────────────────────────────────
+function SegmentTimeline({ segments, layovers }: {
+  segments: FlightSegment[]
+  layovers: { airport: string; city: string; durationMins: number; overnight: boolean }[]
+}) {
+  return (
+    <div>
+      {segments.map((s, i) => (
+        <div key={s.id}>
+          <div className="flex gap-3">
+            <div className="flex flex-col items-center pt-1.5 w-4 flex-shrink-0">
+              <div className="w-2 h-2 rounded-full bg-[#C9A84C] flex-shrink-0" />
+              {i < segments.length - 1 && <div className="flex-1 w-px bg-[#0B1F3A]/10 my-1" />}
+            </div>
+            <div className="flex-1 pb-3">
+              <div className="flex items-baseline gap-2">
+                <span className="text-sm font-bold text-[#0B1F3A] tabular-nums">{formatTime(s.departureTime)}</span>
+                <span className="text-xs text-[#0B1F3A]/60">{s.departureIata} — {s.departureCity}</span>
+              </div>
+              <p className="text-[10px] text-[#0B1F3A]/30 my-0.5">
+                {s.airlineName} {s.flightNumber} · {s.aircraft} · {formatDuration(s.durationMins)}
+              </p>
+              <div className="flex items-baseline gap-2">
+                <span className="text-sm font-bold text-[#0B1F3A] tabular-nums">{formatTime(s.arrivalTime)}</span>
+                <span className="text-xs text-[#0B1F3A]/60">{s.arrivalIata} — {s.arrivalCity}</span>
+              </div>
+            </div>
+          </div>
+          {i < segments.length - 1 && layovers[i] && (
+            <div className="ml-7 mb-2 text-[10px] text-amber-700 bg-amber-50 border border-amber-100 px-3 py-1.5 rounded-lg inline-flex items-center gap-1.5">
+              <span>⏱</span>
+              <span>{formatDuration(layovers[i].durationMins)} layover · {layovers[i].city}{layovers[i].overnight ? ' · Overnight' : ''}</span>
+            </div>
+          )}
+        </div>
+      ))}
+    </div>
+  )
+}
+
+// ── What's included ────────────────────────────────────────────────────────────
+function IncludedList({ it, seg, inline }: { it: FlightItinerary; seg: FlightSegment; inline?: boolean }) {
+  const items = [
+    { ok: it.baggageInfo.included, label: `${it.baggageInfo.checked} checked` },
+    { ok: it.baggageInfo.included, label: `${it.baggageInfo.cabin} cabin bag`  },
+    { ok: !!seg.amenities.find(a => a.type === 'meals'  && a.available), label: 'In-flight meals'    },
+    { ok: !!seg.amenities.find(a => a.type === 'wifi'   && a.available), label: 'Wi-Fi on board'     },
+    { ok: !!seg.amenities.find(a => a.type === 'lounge' && a.available), label: 'Lounge access'      },
+    { ok: it.refundable, label: 'Refundable ticket'     },
+    { ok: it.changeable, label: 'Date changes allowed'  },
+  ]
+
+  if (inline) {
+    return (
+      <>
+        {items.map(({ ok, label }) => (
+          <div key={label} className={`flex items-center gap-1.5 text-xs px-2.5 py-1.5 rounded-lg border ${ok ? 'text-[#0B1F3A] bg-white border-[#0B1F3A]/8' : 'text-[#0B1F3A]/25 bg-transparent border-transparent'}`}>
+            <span className={ok ? 'text-emerald-500' : 'text-[#0B1F3A]/15'}>{ok ? '✓' : '✗'}</span>
+            {label}
+          </div>
+        ))}
+      </>
+    )
+  }
+
+  return (
+    <div className="space-y-2">
+      {items.map(({ ok, label }) => (
+        <div key={label} className={`flex items-center gap-2 text-sm ${ok ? 'text-[#0B1F3A]' : 'text-[#0B1F3A]/30'}`}>
+          <span className={ok ? 'text-emerald-500 font-bold' : 'text-[#0B1F3A]/20'}>{ok ? '✓' : '✗'}</span>
+          {label}
+        </div>
+      ))}
     </div>
   )
 }

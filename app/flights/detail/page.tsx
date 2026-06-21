@@ -137,22 +137,64 @@ function DetailContent() {
             </div>
           </div>
 
-          {/* Timeline */}
-          <div className="bg-white/5 rounded-2xl p-5 mt-6 flex items-center gap-6">
-            <div>
-              <p className="text-2xl font-bold">{formatTime(seg.departureTime)}</p>
-              <p className="text-[#C9A84C] font-semibold text-sm">{seg.departureIata}</p>
-              <p className="text-white/40 text-xs">{seg.departureCity}</p>
+          {/* Timeline(s) */}
+          <div className="mt-6 space-y-3">
+            {/* Outbound */}
+            <div className="bg-white/5 rounded-2xl p-5">
+              {it.returnSegments?.length ? (
+                <p className="text-[10px] font-bold text-[#C9A84C]/70 uppercase tracking-widest mb-3">↗ Outbound</p>
+              ) : null}
+              <div className="flex items-center gap-6">
+                <div>
+                  <p className="text-2xl font-bold tabular-nums">{formatTime(seg.departureTime)}</p>
+                  <p className="text-[#C9A84C] font-semibold text-sm">{seg.departureIata}</p>
+                  <p className="text-white/40 text-xs">{seg.departureCity}</p>
+                </div>
+                <div className="flex-1 relative">
+                  <div className="h-px bg-white/20" />
+                  <p className="text-white/40 text-xs text-center mt-1">{formatDuration(it.totalDuration)}</p>
+                  {it.stops > 0 && (
+                    <p className="text-white/25 text-[10px] text-center">{it.stops} stop{it.stops > 1 ? 's' : ''}</p>
+                  )}
+                </div>
+                <div className="text-right">
+                  <p className="text-2xl font-bold tabular-nums">{formatTime(segLast.arrivalTime)}</p>
+                  <p className="text-[#C9A84C] font-semibold text-sm">{segLast.arrivalIata}</p>
+                  <p className="text-white/40 text-xs">{segLast.arrivalCity}</p>
+                </div>
+              </div>
             </div>
-            <div className="flex-1 relative">
-              <div className="h-px bg-white/20" />
-              <p className="text-white/40 text-xs text-center mt-1">{formatDuration(it.totalDuration)}</p>
-            </div>
-            <div className="text-right">
-              <p className="text-2xl font-bold">{formatTime(segLast.arrivalTime)}</p>
-              <p className="text-[#C9A84C] font-semibold text-sm">{segLast.arrivalIata}</p>
-              <p className="text-white/40 text-xs">{segLast.arrivalCity}</p>
-            </div>
+
+            {/* Return leg */}
+            {it.returnSegments && it.returnSegments.length > 0 && (() => {
+              const retFirst = it.returnSegments[0]
+              const retLast  = it.returnSegments[it.returnSegments.length - 1]
+              const retStops = it.returnSegments.length - 1
+              return (
+                <div className="bg-white/5 rounded-2xl p-5">
+                  <p className="text-[10px] font-bold text-[#C9A84C]/70 uppercase tracking-widest mb-3">↙ Return</p>
+                  <div className="flex items-center gap-6">
+                    <div>
+                      <p className="text-2xl font-bold tabular-nums">{formatTime(retFirst.departureTime)}</p>
+                      <p className="text-[#C9A84C] font-semibold text-sm">{retFirst.departureIata}</p>
+                      <p className="text-white/40 text-xs">{retFirst.departureCity}</p>
+                    </div>
+                    <div className="flex-1 relative">
+                      <div className="h-px bg-white/20" />
+                      <p className="text-white/40 text-xs text-center mt-1">{formatDuration(it.returnDuration ?? 0)}</p>
+                      {retStops > 0 && (
+                        <p className="text-white/25 text-[10px] text-center">{retStops} stop{retStops > 1 ? 's' : ''}</p>
+                      )}
+                    </div>
+                    <div className="text-right">
+                      <p className="text-2xl font-bold tabular-nums">{formatTime(retLast.arrivalTime)}</p>
+                      <p className="text-[#C9A84C] font-semibold text-sm">{retLast.arrivalIata}</p>
+                      <p className="text-white/40 text-xs">{retLast.arrivalCity}</p>
+                    </div>
+                  </div>
+                </div>
+              )
+            })()}
           </div>
         </div>
       </div>
@@ -161,6 +203,98 @@ function DetailContent() {
       <div className="container-walz py-10">
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
           <div className="lg:col-span-2 space-y-8">
+            {/* Flight itinerary — outbound + return */}
+            <div className="bg-white rounded-2xl overflow-hidden border border-black/5">
+              <div className="p-5 border-b border-black/5">
+                <h2 className="font-display font-bold text-[#0B1F3A]">Flight Itinerary</h2>
+                <p className="text-[#0B1F3A]/50 text-sm">
+                  {it.returnSegments?.length ? 'Outbound & return' : 'Outbound'} · {it.segments[0]?.departureCity} → {it.segments[it.segments.length - 1]?.arrivalCity}
+                </p>
+              </div>
+              <div className={`p-5 ${it.returnSegments?.length ? 'grid grid-cols-1 lg:grid-cols-2 gap-6' : ''}`}>
+                {/* Outbound segments */}
+                <div>
+                  {it.returnSegments?.length ? (
+                    <p className="text-[10px] font-bold text-[#0B1F3A]/40 uppercase tracking-widest mb-3">
+                      ↗ Outbound · {it.segments[0].departureIata} → {it.segments[it.segments.length - 1].arrivalIata}
+                    </p>
+                  ) : null}
+                  {it.segments.map((s, i) => (
+                    <div key={s.id}>
+                      <div className="flex gap-3">
+                        <div className="flex flex-col items-center pt-1.5 w-5 flex-shrink-0">
+                          <div className="w-2.5 h-2.5 rounded-full bg-[#C9A84C] flex-shrink-0 ring-4 ring-[#C9A84C]/15" />
+                          {i < it.segments.length - 1 && <div className="flex-1 w-px bg-[#0B1F3A]/10 my-1 min-h-[24px]" />}
+                        </div>
+                        <div className="flex-1 pb-4">
+                          <div className="flex items-baseline gap-2 flex-wrap">
+                            <span className="text-base font-bold text-[#0B1F3A] tabular-nums">{formatTime(s.departureTime)}</span>
+                            <span className="text-sm text-[#0B1F3A]">{s.departureIata} — {s.departureCity}</span>
+                          </div>
+                          <p className="text-xs text-[#0B1F3A]/40 my-1">
+                            {s.airlineName} · {s.flightNumber} · {s.aircraft} · {formatDuration(s.durationMins)}
+                          </p>
+                          <div className="flex items-baseline gap-2 flex-wrap">
+                            <span className="text-base font-bold text-[#0B1F3A] tabular-nums">{formatTime(s.arrivalTime)}</span>
+                            <span className="text-sm text-[#0B1F3A]">{s.arrivalIata} — {s.arrivalCity}</span>
+                          </div>
+                          {i < it.segments.length - 1 && it.layovers[i] && (
+                            <div className="mt-2 text-xs text-amber-700 bg-amber-50 border border-amber-100 px-3 py-1.5 rounded-lg inline-flex items-center gap-1.5">
+                              <span>⏱</span>
+                              <span>{formatDuration(it.layovers[i].durationMins)} layover · {it.layovers[i].city}{it.layovers[i].overnight ? ' · Overnight' : ''}</span>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Return segments */}
+                {(() => {
+                  const retSegs = it.returnSegments
+                  const retLays = it.returnLayovers ?? []
+                  if (!retSegs?.length) return null
+                  return (
+                    <div className="border-t lg:border-t-0 lg:border-l border-[#0B1F3A]/5 pt-5 lg:pt-0 lg:pl-6">
+                      <p className="text-[10px] font-bold text-[#0B1F3A]/40 uppercase tracking-widest mb-3">
+                        ↙ Return · {retSegs[0].departureIata} → {retSegs[retSegs.length - 1].arrivalIata}
+                      </p>
+                      {retSegs.map((s, i) => (
+                        <div key={s.id}>
+                          <div className="flex gap-3">
+                            <div className="flex flex-col items-center pt-1.5 w-5 flex-shrink-0">
+                              <div className="w-2.5 h-2.5 rounded-full bg-[#C9A84C]/60 flex-shrink-0 ring-4 ring-[#C9A84C]/10" />
+                              {i < retSegs.length - 1 && <div className="flex-1 w-px bg-[#0B1F3A]/10 my-1 min-h-[24px]" />}
+                            </div>
+                            <div className="flex-1 pb-4">
+                              <div className="flex items-baseline gap-2 flex-wrap">
+                                <span className="text-base font-bold text-[#0B1F3A] tabular-nums">{formatTime(s.departureTime)}</span>
+                                <span className="text-sm text-[#0B1F3A]">{s.departureIata} — {s.departureCity}</span>
+                              </div>
+                              <p className="text-xs text-[#0B1F3A]/40 my-1">
+                                {s.airlineName} · {s.flightNumber} · {s.aircraft} · {formatDuration(s.durationMins)}
+                              </p>
+                              <div className="flex items-baseline gap-2 flex-wrap">
+                                <span className="text-base font-bold text-[#0B1F3A] tabular-nums">{formatTime(s.arrivalTime)}</span>
+                                <span className="text-sm text-[#0B1F3A]">{s.arrivalIata} — {s.arrivalCity}</span>
+                              </div>
+                              {i < retSegs.length - 1 && retLays[i] && (
+                                <div className="mt-2 text-xs text-amber-700 bg-amber-50 border border-amber-100 px-3 py-1.5 rounded-lg inline-flex items-center gap-1.5">
+                                  <span>⏱</span>
+                                  <span>{formatDuration(retLays[i].durationMins)} layover · {retLays[i].city}</span>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )
+                })()}
+              </div>
+            </div>
+
             {/* Cabin gallery */}
             {(() => {
               const isBC = selectedFare.name.toLowerCase().includes('business')

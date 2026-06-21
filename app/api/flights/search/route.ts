@@ -36,7 +36,7 @@ export async function POST(req: NextRequest) {
     }
 
     const paxCount = params.passengers.adults + params.passengers.children + params.passengers.infants
-    const results  = assignBadges(generateMockResults(from, to, cabin, paxCount))
+    const results  = assignBadges(generateMockResults(from, to, cabin, paxCount, params.tripType))
     return NextResponse.json({ results, source: 'mock' })
   } catch (err) {
     console.error('[flights/search] Error:', err)

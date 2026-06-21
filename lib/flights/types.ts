@@ -81,20 +81,23 @@ export interface BaggageInfo {
 }
 
 export interface FlightItinerary {
-  id:            string
-  segments:      FlightSegment[]
-  stops:         number
-  totalDuration: number
-  layovers:      LayoverInfo[]
-  price:         FarePrice
-  fareType:      FareType
-  refundable:    boolean
-  changeable:    boolean
-  baggageInfo:   BaggageInfo
-  seatsLeft?:    number
-  co2Kg?:        number
-  badge?:        'recommended' | 'cheapest' | 'fastest' | 'luxury' | 'best-value'
-  badgeLabel?:   string
+  id:              string
+  segments:        FlightSegment[]     // outbound segments
+  stops:           number
+  totalDuration:   number
+  layovers:        LayoverInfo[]
+  returnSegments?: FlightSegment[]     // return leg segments (round-trip only)
+  returnDuration?: number
+  returnLayovers?: LayoverInfo[]
+  price:           FarePrice
+  fareType:        FareType
+  refundable:      boolean
+  changeable:      boolean
+  baggageInfo:     BaggageInfo
+  seatsLeft?:      number
+  co2Kg?:          number
+  badge?:          'recommended' | 'cheapest' | 'fastest' | 'luxury' | 'best-value'
+  badgeLabel?:     string
 }
 
 export interface FareOption {
