@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, Component, type ReactNode } from 'react'
+import { useState, useEffect, Component, type ReactNode } from 'react'
 import type {
   BankStatementAnalysis, FinancialCredibilityScore, RiskFlag,
   BehavioralAnomaly, MultiAgentConsensus,
@@ -537,6 +537,34 @@ export default function BankAnalyserPage() {
   const [pdfEmailBusy, setPdfEmailBusy] = useState(false)
   const [pdfEmailSent, setPdfEmailSent] = useState(false)
 
+  // Link to submitted application
+  const [appList,     setAppList]     = useState<{ id: string; label: string; email: string; name: string }[]>([])
+  const [linkedAppId, setLinkedAppId] = useState('')
+
+  useEffect(() => {
+    fetch('/api/admin/visa-applications?status=documents_pending&status=under_review&status=ready_to_submit')
+      .then(r => r.ok ? r.json() : null)
+      .then((d: { applications?: { id: string; firstName: string; lastName: string; email: string; referenceNumber?: string }[] } | null) => {
+        if (!d?.applications) return
+        setAppList(d.applications.map(a => ({
+          id:    a.id,
+          label: `${a.referenceNumber ?? a.id.slice(0, 8)} — ${a.firstName} ${a.lastName}`,
+          email: a.email ?? '',
+          name:  `${a.firstName} ${a.lastName}`,
+        })))
+      })
+      .catch(() => {})
+  }, [])
+
+  function handleLinkApp(id: string) {
+    setLinkedAppId(id)
+    if (!id) return
+    const app = appList.find(a => a.id === id)
+    if (!app) return
+    if (!clientName)  setClientName(app.name)
+    if (!clientEmail) setClientEmail(app.email)
+  }
+
   // V2 — 6-agent pipeline
   const [useV2,         setUseV2]         = useState(true)
   const [agentPipeline, setAgentPipeline] = useState<AgentProgress[]>([])
@@ -572,7 +600,7 @@ export default function BankAnalyserPage() {
       if (!putRes.ok) throw new Error(`Upload failed (${putRes.status})`)
 
       setProgress('Running multi-agent forensic analysis — may take 45–120 seconds…')
-      const id = `standalone-${Date.now()}`
+      const id = linkedAppId || `standalone-${Date.now()}`
       const res = await fetch('/api/analyze-bank-statement', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'x-target-table': 'bank_statement_analyses' },
@@ -634,7 +662,7 @@ export default function BankAnalyserPage() {
 
       // Step 2: SSE stream from 6-agent pipeline
       setProgress('Launching 6-agent forensic pipeline…')
-      const id = `standalone-${Date.now()}`
+      const id = linkedAppId || `standalone-${Date.now()}`
 
       const sseRes = await fetch('/api/admin/bank-analyser/analyse-v2', {
         method: 'POST',
@@ -892,6 +920,23 @@ export default function BankAnalyserPage() {
                   ].map(d => <option key={d.value} value={d.value}>{d.label}</option>)}
                 </select>
               </div>
+              {appList.length > 0 && (
+                <div className="md:col-span-2">
+                  <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">
+                    Link to Submitted Application <span className="font-normal text-gray-400">(optional)</span>
+                  </label>
+                  <select value={linkedAppId} onChange={e => handleLinkApp(e.target.value)}
+                    className="w-full border border-gray-200 rounded-lg px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                    <option value="">— standalone analysis —</option>
+                    {appList.map(a => (
+                      <option key={a.id} value={a.id}>{a.label}</option>
+                    ))}
+                  </select>
+                  {linkedAppId && (
+                    <p className="text-xs text-green-700 mt-1">✓ Analysis will be saved to this application</p>
+                  )}
+                </div>
+              )}
               <div className="md:col-span-2">
                 <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">
                   Bank Statement PDF <span className="font-normal text-gray-400">(max {MAX_MB} MB)</span>
@@ -1079,6 +1124,17 @@ export default function BankAnalyserPage() {
                 <span className="text-amber-600">🔒</span>
                 <p className="text-xs text-amber-800 font-semibold">Internal Analyst View — risk scores, officer simulation, and forensic findings are not shown to clients</p>
               </div>
+
+              {/* No-name warning */}
+              {!(analysis as EnhancedBankAnalysis).extractedStatement?.accountHolder && (
+                <div className="flex items-center gap-3 bg-red-50 border border-red-300 rounded-xl px-4 py-3">
+                  <span className="text-red-500 text-lg">⚠️</span>
+                  <div>
+                    <p className="text-sm font-bold text-red-700">Account holder name not detected</p>
+                    <p className="text-xs text-red-600 mt-0.5">The AI could not extract the account holder name from this statement. Verify the name manually and ensure the PDF is not a screenshot or scanned image without OCR.</p>
+                  </div>
+                </div>
+              )}
 
               {/* Report header */}
               <div className="bg-[#0a1628] text-white rounded-2xl p-6">

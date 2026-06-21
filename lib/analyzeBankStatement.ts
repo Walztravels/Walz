@@ -842,7 +842,7 @@ async function claudeDocumentAnalysis(
 
   const response = await client.messages.create({
     model:      'claude-sonnet-4-6',
-    max_tokens: 7000,
+    max_tokens: 4000,
     system,
     messages: [
       { role: 'user',      content: [docBlock, { type: 'text', text: user }] },
@@ -890,7 +890,7 @@ async function claudeTextAnalysis(
 
   const response = await client.messages.create({
     model:      'claude-sonnet-4-6',
-    max_tokens: 7000,
+    max_tokens: 4000,
     system,
     messages: [
       { role: 'user',      content: user },
@@ -1515,7 +1515,7 @@ export async function analyzeBankStatementV2(
     // AGENT 2 — Claude: full BankStatementAnalysis
     anthropic.messages.create({
       model:      'claude-sonnet-4-6',
-      max_tokens: 6000,
+      max_tokens: 4000,
       system:     `You are a Senior Immigration Financial Intelligence Analyst with 15 years at UKBA and IRCC. Forensic accountant specializing in AML and source-of-funds investigation. You have been given pre-extracted transaction data AND the original PDF. Your job is ANALYSIS ONLY. Every score must cite specific transactions by date and amount. Return ONLY valid JSON starting with {.`,
       messages: [
         {
