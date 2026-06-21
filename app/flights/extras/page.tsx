@@ -4,7 +4,7 @@ import { useRouter } from 'next/navigation'
 import { useEffect, useState } from 'react'
 import { useFlightStore } from '@/store/flightStore'
 import type { Ancillary } from '@/lib/flights/types'
-import type { FlightExtra } from '@/app/api/admin/extras/route'
+import type { FlightExtra } from '@/lib/flights/extras'
 
 const STEPS = ['Search', 'Seats', 'Travellers', 'Extras', 'Review', 'Pay']
 
