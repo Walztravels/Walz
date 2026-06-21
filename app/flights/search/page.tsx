@@ -4,7 +4,8 @@ import { useState, useEffect, useRef, Suspense } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { FlightSummaryBanner } from '@/components/flights/FlightSummaryBanner'
 import { FlightResults }       from '@/components/flights/FlightResults'
-import { FlightFilters }       from '@/components/flights/FlightFilters'
+import { FlightFilters, applyFilters } from '@/components/flights/FlightFilters'
+import type { FilterState } from '@/components/flights/FlightFilters'
 import { FlightSearchWidget }  from '@/components/flights/FlightSearchWidget'
 import { useFlightStore }      from '@/store/flightStore'
 import type { FlightItinerary } from '@/lib/flights/types'
@@ -46,6 +47,7 @@ function SearchContent() {
   const [displayResults,    setDisplayResults]     = useState<FlightItinerary[]>([])
   const [showWidget,        setShowWidget]         = useState(false)
   const [showMobileFilters, setShowMobileFilters]  = useState(false)
+  const [filters,           setFilters]            = useState<FilterState>({ stops: [], maxPrice: 5000, refundable: false, airlines: [] })
   const hasFetched = useRef(false)
 
   useEffect(() => {
@@ -101,7 +103,8 @@ function SearchContent() {
     }
   }, [storeResults]) // eslint-disable-line
 
-  const results = displayResults.length > 0 ? displayResults : storeResults
+  const allResults = displayResults.length > 0 ? displayResults : storeResults
+  const results = applyFilters(allResults, filters)
 
   // ── LOADING ──────────────────────────────────────────────────────────────
   if (phase === 'loading') {
@@ -215,7 +218,7 @@ function SearchContent() {
                 className="text-[#0B1F3A]/40 hover:text-[#0B1F3A] transition-colors text-xl leading-none">✕</button>
             </div>
             <div className="p-5">
-              <FlightFilters results={results} />
+              <FlightFilters results={allResults} onChange={setFilters} />
             </div>
             <div className="sticky bottom-0 bg-white p-4 border-t border-black/5">
               <button type="button" onClick={() => setShowMobileFilters(false)}
