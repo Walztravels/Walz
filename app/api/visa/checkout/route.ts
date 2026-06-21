@@ -66,7 +66,7 @@ export async function POST(req: NextRequest) {
 
   // ── FLUTTERWAVE ───────────────────────────────────────────────────────────
   if (gateway === 'flutterwave') {
-    const FLW_SECRET = process.env.FLUTTERWAVE_SECRET_KEY
+    const FLW_SECRET = process.env.FLW_SECRET_KEY
     if (!FLW_SECRET) {
       return NextResponse.json({ error: 'Flutterwave not configured' }, { status: 500 })
     }

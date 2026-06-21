@@ -43,7 +43,7 @@ export default function FlutterwavePaymentStep({
   const [error, setError] = useState('')
 
   const config = {
-    public_key: process.env.NEXT_PUBLIC_FLUTTERWAVE_PUBLIC_KEY!,
+    public_key: process.env.NEXT_PUBLIC_FLW_PUBLIC_KEY ?? '',
     tx_ref: bookingRef,
     amount: depositAmount,
     currency,

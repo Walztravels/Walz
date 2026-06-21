@@ -130,11 +130,11 @@ function FlutterwaveCheckout({ grand }: { grand: number }) {
 
   const lead = passengers[0]
   const config = {
-    public_key: process.env.NEXT_PUBLIC_FLUTTERWAVE_PUBLIC_KEY ?? 'FLWPUBK_TEST-xxx',
+    public_key: process.env.NEXT_PUBLIC_FLW_PUBLIC_KEY ?? '',
     tx_ref:     `WLZ-${Date.now()}`,
     amount:     grand,
     currency:   'GBP',
-    payment_options: 'card,banktransfer,ussd',
+    payment_options: 'card,banktransfer,ussd,mobilemoney',
     customer: {
       email:        lead?.email ?? 'customer@walztravels.com',
       name:         `${lead?.firstName ?? ''} ${lead?.lastName ?? ''}`.trim(),
@@ -312,7 +312,7 @@ export default function CheckoutPage() {
   const [clientSecret,  setClientSecret]  = useState<string | null>(null)
   const [intentId,      setIntentId]      = useState<string>('')
   const [loadingIntent, setLoadingIntent] = useState(true)
-  const [payMethod,     setPayMethod]     = useState<PaymentMethod>('stripe')
+  const [payMethod,     setPayMethod]     = useState<PaymentMethod>('flutterwave')
 
   const grand = totalPrice()
 
