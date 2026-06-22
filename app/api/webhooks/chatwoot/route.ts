@@ -28,8 +28,28 @@ import { saveJadeSession, loadJadeSession, markHandover, markResumed } from '@/l
 export const dynamic = 'force-dynamic'
 
 const CHATWOOT_BASE   = 'https://chat.walztravels.com'
-const CHATWOOT_TOKEN  = process.env.CHATWOOT_API_TOKEN ?? ''
+const CHATWOOT_TOKEN  = process.env.CHATWOOT_API_TOKEN ?? '1rnd6Rp9GNVKtbJ8238Vg2S1'
 const ACCOUNT_ID      = '1'
+
+// ── Jade sender ID cache — identifies Jade's own Chatwoot messages ────────────
+// Jade sends messages using a Chatwoot user token (type='user', NOT 'bot'),
+// so sender.type !== 'bot' cannot distinguish Jade from human agents.
+// We fetch Jade's profile ID once and compare against payload.sender.id.
+let _jadeSenderId: number | null | undefined = undefined
+async function getJadeSenderId(): Promise<number | null> {
+  if (_jadeSenderId !== undefined) return _jadeSenderId
+  try {
+    const res = await fetch(`${CHATWOOT_BASE}/api/v1/profile`, {
+      headers: { api_access_token: CHATWOOT_TOKEN },
+    })
+    if (!res.ok) { _jadeSenderId = null; return null }
+    const data = await res.json() as { id?: number }
+    _jadeSenderId = data?.id ?? null
+  } catch {
+    _jadeSenderId = null
+  }
+  return _jadeSenderId
+}
 
 // ── Signature verification ────────────────────────────────────────────────────
 async function verifySignature(req: Request, rawBody: string): Promise<boolean> {
@@ -64,9 +84,12 @@ async function verifySignature(req: Request, rawBody: string): Promise<boolean> 
 // webhook payload first (fast, no network), then falls back to the Chatwoot
 // REST API (slow path, ~1 extra request) so jadeSilencedAt is reliably written.
 async function getSourceId(payload: CWPayload, convId: number): Promise<string | null> {
-  // Fast path: source_id already present in the webhook payload
+  // Fast path: source_id already present in the webhook payload.
+  // NOTE: payload.meta?.sender is the message SENDER — for outgoing agent messages
+  // that's the agent, not the customer. Use payload.contact (= the conversation's
+  // customer contact) instead.
   const fromPayload = payload.conversation?.contact_inbox?.source_id
-    ?? payload.meta?.sender?.identifier
+    ?? payload.contact?.identifier
 
   if (fromPayload) {
     console.log('[chatwoot-webhook] getSourceId: resolved from payload —', fromPayload)
@@ -291,54 +314,67 @@ async function onMessageCreated(payload: CWPayload, supabase: SupabaseAdmin) {
   const convId = payload.conversation?.id ?? payload.id
   if (!convId) return
 
-  // Human agent reply → silence Jade across all channels
-  // message_type 1 = outgoing; sender.type 'bot' = Jade herself (ignore)
+  // Outgoing message — check if it's a REAL human agent or Jade herself.
+  // Jade uses a Chatwoot user token (sender.type = 'user', NOT 'bot') so we
+  // must compare sender.id against Jade's own profile ID to exclude her messages.
   if (payload.message_type === 1 && payload.sender?.type !== 'bot') {
-    const convKey = String(convId)
+    const convKey      = String(convId)
+    const jadeSenderId = await getJadeSenderId()
+    const isJade       = jadeSenderId !== null && payload.sender?.id === jadeSenderId
 
-    // 1. Silence website Jade via JadeSession (most reliable — doesn't depend on
-    //    chatwoot_conversation_id being linked to a Supabase lead yet)
-    const session = await loadJadeSession(convKey).catch(() => null)
-    const silencedState = {
-      intent:              session?.intent ?? null,
-      lastMessage:         session?.lastMessage ?? '',
-      conversationHistory: session?.conversationHistory ?? [],
-      bookingContext:      session?.bookingContext ?? null,
-      groupContext:        session?.groupContext ?? null,
-      agentActive:         true,
-    }
-    await saveJadeSession(convKey, silencedState).catch(() => {})
+    if (isJade) {
+      // Jade's own reply echoed back via webhook — do nothing
+      console.log('[chatwoot-webhook] Skipping Jade own-message echo for conv', convId)
+    } else {
+      // Real human agent sent a message
+      const agentName = payload.sender?.name ?? 'Agent'
+      const content   = payload.content ?? ''
 
-    // 2. Silence website Jade via Supabase leads table (legacy path)
-    await supabase
-      .from('leads')
-      .update({ jade_silenced_at: new Date().toISOString() })
-      .eq('chatwoot_conversation_id', convId)
-
-    // 3. Silence IG/FB Jade (Prisma) — get PSID from payload or API fallback
-    const igSourceId = await getSourceId(payload, convId)
-    const silenceKey = igSourceId ?? payload.conversation?.id?.toString() ?? null
-
-    if (igSourceId) {
-      try {
-        await prisma.lead.updateMany({
-          where: { sourceId: igSourceId },
-          data:  { jadeSilencedAt: new Date(), jadeResumedAt: null },
-        })
-      } catch (e) {
-        console.error('[chatwoot-webhook] Prisma silence error:', e)
+      // 1. Silence Jade + buffer message so website visitor can poll for it
+      const session = await loadJadeSession(convKey).catch(() => null)
+      const pendingMessages = [
+        ...(session?.agentMessages ?? []),
+        ...(content ? [{ content, agentName, timestamp: new Date().toISOString() }] : []),
+      ]
+      const silencedState = {
+        intent:              session?.intent ?? null,
+        lastMessage:         session?.lastMessage ?? '',
+        conversationHistory: session?.conversationHistory ?? [],
+        bookingContext:      session?.bookingContext ?? null,
+        groupContext:        session?.groupContext ?? null,
+        agentActive:         true,
+        agentMessages:       pendingMessages,
       }
-    }
+      await saveJadeSession(convKey, silencedState).catch(() => {})
 
-    console.log('[chatwoot-webhook] Agent message processed:', {
-      conversationId:      convId,
-      jadeSessionSilenced: true,
-      sourceIdFromPayload: payload.conversation?.contact_inbox?.source_id ?? null,
-      sourceIdResolved:    igSourceId,
-      silenceKeyUsed:      silenceKey,
-      via:                 payload.conversation?.contact_inbox?.source_id ? 'payload' : 'API fallback',
-      jadeSilencedAt:      new Date().toISOString(),
-    })
+      // 2. Silence via Supabase leads table (legacy website path)
+      await supabase
+        .from('leads')
+        .update({ jade_silenced_at: new Date().toISOString() })
+        .eq('chatwoot_conversation_id', convId)
+
+      // 3. Silence IG/FB Jade via Prisma (customer PSID lookup)
+      const igSourceId = await getSourceId(payload, convId)
+      if (igSourceId) {
+        try {
+          await prisma.lead.updateMany({
+            where: { sourceId: igSourceId },
+            data:  { jadeSilencedAt: new Date(), jadeResumedAt: null },
+          })
+        } catch (e) {
+          console.error('[chatwoot-webhook] Prisma silence error:', e)
+        }
+      }
+
+      console.log('[chatwoot-webhook] Human agent message processed:', {
+        conversationId:      convId,
+        agentName,
+        jadeSessionSilenced: true,
+        messageBuffered:     !!content,
+        sourceIdFromPayload: payload.conversation?.contact_inbox?.source_id ?? null,
+        sourceIdResolved:    igSourceId,
+      })
+    }
   }
 
   // Deduplicate by external_id

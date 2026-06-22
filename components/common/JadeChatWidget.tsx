@@ -218,6 +218,8 @@ export function JadeChatWidget() {
   const [conversationId, setConversationId]  = useState<number | null>(null)
   const [isReturning,    setIsReturning]     = useState(false)
   const [userProfile,    setUserProfile]     = useState<Record<string, unknown>>({})
+  const [quickReplies,   setQuickReplies]    = useState<Array<{ label: string; value: string; type: 'message' | 'link' }>>([])
+
 
   const messagesEndRef      = useRef<HTMLDivElement>(null)
   const inputRef            = useRef<HTMLTextAreaElement>(null)
@@ -320,6 +322,48 @@ export function JadeChatWidget() {
     }, 60_000)
     return () => clearInterval(interval)
   }, [isOpen, isHandedOff])
+
+  // ── Poll for agent messages when handed off ────────────────────────────────
+  // Agent replies are sent via Chatwoot (admin panel) and buffered in JadeSession
+  // by the Chatwoot webhook. We poll every 3 s to deliver them to the visitor.
+  useEffect(() => {
+    if (!isHandedOff || !conversationId) return
+    let cancelled = false
+
+    const poll = async () => {
+      try {
+        const res = await fetch(`/api/jade/poll?conversationId=${conversationId}`)
+        if (!res.ok || cancelled) return
+        const data = await res.json() as {
+          messages:    Array<{ content: string; agentName: string; timestamp: string }>
+          agentActive: boolean
+        }
+        if (data.messages.length > 0) {
+          setMessages(prev => [
+            ...prev,
+            ...data.messages.map(m => ({
+              id:        `agent-${m.timestamp}`,
+              role:      'assistant' as const,
+              content:   m.content,
+              timestamp: new Date(m.timestamp),
+            })),
+          ])
+          setUnreadCount(prev => prev + data.messages.length)
+          const name = data.messages.find(m => m.agentName && m.agentName !== 'Agent')?.agentName
+          if (name) setAgentName(name)
+        }
+        // Jade resumed → unlock widget
+        if (!data.agentActive && !cancelled) {
+          setIsHandedOff(false)
+          setAgentName(null)
+        }
+      } catch {}
+    }
+
+    void poll()
+    const interval = setInterval(() => { void poll() }, 3000)
+    return () => { cancelled = true; clearInterval(interval) }
+  }, [isHandedOff, conversationId])
 
   // ── Typing indicator rotation ──────────────────────────────────────────────
   useEffect(() => {
@@ -436,6 +480,7 @@ export function JadeChatWidget() {
     setInput('')
     setShowStarters(false)
     setHandover(null)
+    setQuickReplies([])
 
     const nameMatch = userMessage.match(/(?:i'm|i am|my name is|call me)\s+([A-Z][a-z]+)/i)
     if (nameMatch) setCustomerName(nameMatch[1])
@@ -468,6 +513,11 @@ export function JadeChatWidget() {
 
       if (data.dna)      setDna(data.dna)
       if (data.handover) setHandover(data.handover as HandoverInfo)
+      if (Array.isArray(data.quickReplies)) {
+        setQuickReplies(data.quickReplies as Array<{ label: string; value: string; type: 'message' | 'link' }>)
+      } else {
+        setQuickReplies([])
+      }
 
       // Save extracted profile — update state and persist to Redis
       if (data.extractedProfile) {
@@ -684,6 +734,36 @@ export function JadeChatWidget() {
                             intent={msg.intent}
                             onClose={() => { setIsOpen(false); setUnreadCount(0) }}
                           />
+                        )}
+                        {/* Quick replies — flow-specific action buttons */}
+                        {msg.role === 'assistant' && i === lastAiMsgIdx &&
+                          quickReplies.length > 0 && !isLoading && (
+                          <div className="flex flex-wrap gap-1.5 mt-1">
+                            {quickReplies.map(qr => qr.type === 'link' ? (
+                              <a
+                                key={qr.label}
+                                href={qr.value}
+                                target="_self"
+                                rel="noopener noreferrer"
+                                className="text-xs px-3 py-1.5 rounded-full border border-[#C9A84C]
+                                  bg-[#C9A84C]/10 text-[#0B1F3A] hover:bg-[#C9A84C]/20
+                                  transition-all duration-150 font-medium no-underline"
+                                onClick={() => setQuickReplies([])}
+                              >
+                                {qr.label}
+                              </a>
+                            ) : (
+                              <button
+                                key={qr.label}
+                                onClick={() => void sendMessage(qr.value)}
+                                className="text-xs px-3 py-1.5 rounded-full border border-[#C9A84C]
+                                  bg-[#C9A84C]/10 text-[#0B1F3A] hover:bg-[#C9A84C]/20
+                                  transition-all duration-150 font-medium"
+                              >
+                                {qr.label}
+                              </button>
+                            ))}
+                          </div>
                         )}
                       </div>
                     </div>

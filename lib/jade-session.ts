@@ -11,6 +11,11 @@ export interface JadeSessionState {
     timestamp: string
   }>
   agentActive?: boolean   // true = human agent has taken over; Jade must stay silent
+  agentMessages?: Array<{  // buffered agent replies waiting for the website visitor to poll
+    content:   string
+    agentName: string
+    timestamp: string
+  }>
   bookingContext: {
     searchParams: {
       origin:        string
