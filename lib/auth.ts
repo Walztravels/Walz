@@ -68,6 +68,24 @@ export const authOptions: NextAuthOptions = {
     error:  '/login',
   },
   secret: process.env.NEXTAUTH_SECRET,
+  // Cookies must use .walztravels.com domain so they are shared between
+  // walztravels.com and www.walztravels.com (both serve the same app).
+  // Without this, the CSRF cookie set on walztravels.com is not sent on
+  // www.walztravels.com requests, causing ?csrf=true redirect loops.
+  cookies: {
+    sessionToken: {
+      name:    'next-auth.session-token',
+      options: { httpOnly: true, sameSite: 'lax', path: '/', secure: true, domain: '.walztravels.com' },
+    },
+    callbackUrl: {
+      name:    'next-auth.callback-url',
+      options: { sameSite: 'lax', path: '/', secure: true, domain: '.walztravels.com' },
+    },
+    csrfToken: {
+      name:    'next-auth.csrf-token',
+      options: { httpOnly: true, sameSite: 'lax', path: '/', secure: true, domain: '.walztravels.com' },
+    },
+  },
 }
 
 declare module 'next-auth' {

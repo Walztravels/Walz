@@ -5,10 +5,10 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { useSession, signOut } from 'next-auth/react'
 import {
-  Menu, X, Plane, Hotel, Map, FileText, ChevronDown,
+  Menu, X, Plane, Building2, Map, FileText, ChevronDown,
   User, LogOut, LayoutDashboard, Gift, MessageCircle,
   Upload, CreditCard, Users, UserCircle, Globe, Compass,
-  Signal, Check, MapPin, Sparkles, Car, Package, ShoppingCart,
+  Signal, Wifi, Check, MapPin, Car, Package, ShoppingCart,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
@@ -20,18 +20,19 @@ const LOGO_CACHE_KEY = 'walz_logo_url'
 const LOGO_CACHE_TTL = 60 * 60 * 1000 // 1 hour
 
 const navLinks = [
-  { href: '/flights', label: 'Flights',       icon: Plane  },
-  { href: '/hotels',  label: 'Hotels',        icon: Hotel  },
-  { href: '/esim',    label: 'Jade Connect',  icon: Signal },
-  { href: '/about',   label: 'About',         icon: Users  },
-  { href: '/gift',    label: 'Gift Vouchers', icon: Gift   },
+  { href: '/flights',  label: 'Flights',       icon: Plane     },
+  { href: '/hotels',   label: 'Hotels',        icon: Building2 },
+  { href: '/esim',     label: 'Jade Connect',  icon: Wifi      },
+  { href: '/about',    label: 'About',         icon: Users     },
+  { href: '/gift',     label: 'Gift Vouchers', icon: Gift      },
 ]
 
 const experienceLinks = [
-  { href: '/activities', label: 'Activities', sub: 'Things to do in 100+ destinations',       icon: MapPin  },
-  { href: '/transfers',  label: 'Transfers',  sub: 'Airport & hotel transfers worldwide',     icon: Car     },
-  { href: '/tours',      label: 'Tours',      sub: 'Private guided tours with local experts', icon: Map     },
-  { href: '/packages',   label: 'Packages',   sub: 'All-inclusive group packages & bundles',  icon: Package },
+  { href: '/group/create', label: 'Group Trips', sub: 'Plan together with Jade',                   icon: Users   },
+  { href: '/activities',   label: 'Activities',  sub: 'Things to do in 100+ destinations',         icon: MapPin  },
+  { href: '/transfers',    label: 'Transfers',   sub: 'Airport & hotel transfers worldwide',        icon: Car     },
+  { href: '/tours',        label: 'Tours',       sub: 'Private guided tours with local experts',   icon: Map     },
+  { href: '/packages',     label: 'Packages',    sub: 'All-inclusive group packages & bundles',    icon: Package },
 ]
 
 const visaDropdownLinks = [
@@ -214,8 +215,8 @@ export function Navbar() {
             <nav className="hidden lg:flex items-center gap-1">
               {navLinks.map(({ href, label, icon: Icon }) => (
                 <Link key={href} href={href}
-                  className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-walz-muted hover:text-walz-gold hover:bg-walz-slate/50 transition-all text-sm font-medium">
-                  <Icon className="w-4 h-4" />
+                  className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-walz-muted hover:text-walz-gold hover:bg-walz-slate/50 transition-all text-sm font-medium tracking-wide">
+                  <Icon className="w-[15px] h-[15px] flex-shrink-0" strokeWidth={1.5} />
                   {label}
                 </Link>
               ))}
@@ -231,8 +232,8 @@ export function Navbar() {
                       : 'text-walz-muted hover:text-walz-gold hover:bg-walz-slate/50',
                   )}
                 >
-                  <Sparkles className="w-4 h-4" />
-                  Experiences
+                  <Compass className="w-[15px] h-[15px] flex-shrink-0" strokeWidth={1.5} />
+                  <span className="tracking-wide">Experiences</span>
                   <ChevronDown className={cn('w-3.5 h-3.5 transition-transform duration-200', isExperiencesOpen && 'rotate-180')} />
                 </button>
 
@@ -245,9 +246,7 @@ export function Navbar() {
                         onClick={() => setIsExperiencesOpen(false)}
                         className="flex items-start gap-3 px-4 py-3 hover:bg-gray-50 transition-colors group"
                       >
-                        <div className="w-8 h-8 rounded-lg bg-[#C9A84C]/10 flex items-center justify-center flex-shrink-0 mt-0.5 group-hover:bg-[#C9A84C]/20">
-                          <Icon className="w-4 h-4 text-[#C9A84C]" />
-                        </div>
+                        <Icon className="w-[14px] h-[14px] flex-shrink-0 mt-1 text-walz-deep-navy" strokeWidth={1.5} />
                         <div>
                           <p className="text-sm font-semibold text-walz-deep-navy">{label}</p>
                           <p className="text-xs text-gray-400 mt-0.5">{sub}</p>
@@ -269,8 +268,8 @@ export function Navbar() {
                       : 'text-walz-muted hover:text-walz-gold hover:bg-walz-slate/50',
                   )}
                 >
-                  <Globe className="w-4 h-4" />
-                  Visa
+                  <Globe className="w-[15px] h-[15px] flex-shrink-0" strokeWidth={1.5} />
+                  <span className="tracking-wide">Visa</span>
                   <ChevronDown className={cn('w-3.5 h-3.5 transition-transform', isVisaOpen && 'rotate-180')} />
                 </button>
 
@@ -444,8 +443,8 @@ export function Navbar() {
             {navLinks.map(({ href, label, icon: Icon }) => (
               <Link key={href} href={href} onClick={() => setIsMobileOpen(false)}
                 className="flex items-center gap-3 px-6 py-3 text-walz-muted hover:text-walz-gold hover:bg-walz-slate/30 transition-colors">
-                <Icon className="w-5 h-5" />
-                <span className="font-medium text-sm">{label}</span>
+                <Icon className="w-5 h-5 flex-shrink-0" strokeWidth={1.5} />
+                <span className="font-medium text-sm tracking-wide">{label}</span>
               </Link>
             ))}
 
@@ -455,8 +454,8 @@ export function Navbar() {
               className="w-full flex items-center justify-between px-6 py-3 text-walz-muted hover:text-walz-gold hover:bg-walz-slate/30 transition-colors"
             >
               <span className="flex items-center gap-3">
-                <Sparkles className="w-5 h-5" />
-                <span className="font-medium text-sm">Experiences</span>
+                <Compass className="w-5 h-5 flex-shrink-0" strokeWidth={1.5} />
+                <span className="font-medium text-sm tracking-wide">Experiences</span>
               </span>
               <ChevronDown className={cn('w-4 h-4 transition-transform', isMobileExpOpen && 'rotate-180')} />
             </button>
@@ -469,7 +468,7 @@ export function Navbar() {
                     onClick={() => { setIsMobileOpen(false); setIsMobileExpOpen(false) }}
                     className="flex items-center gap-2 px-4 py-2.5 text-walz-muted hover:text-walz-gold transition-colors text-sm"
                   >
-                    <Icon className="w-4 h-4 text-[#C9A84C]" />
+                    <Icon className="w-4 h-4 flex-shrink-0" strokeWidth={1.5} />
                     {label}
                   </Link>
                 ))}
@@ -499,8 +498,8 @@ export function Navbar() {
               className="w-full flex items-center justify-between px-6 py-3 text-walz-muted hover:text-walz-gold hover:bg-walz-slate/30 transition-colors"
             >
               <span className="flex items-center gap-3">
-                <Globe className="w-5 h-5" />
-                <span className="font-medium text-sm">Visa</span>
+                <Globe className="w-5 h-5 flex-shrink-0" strokeWidth={1.5} />
+                <span className="font-medium text-sm tracking-wide">Visa</span>
               </span>
               <ChevronDown className={cn('w-4 h-4 transition-transform', isMobileVisaOpen && 'rotate-180')} />
             </button>

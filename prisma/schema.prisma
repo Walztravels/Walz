@@ -2195,3 +2195,20 @@ model MemberVisaProfile {
 
   @@index([sessionId])
 }
+
+// JadeSession — pre-created in Supabase SQL editor with RLS enabled.
+// NEVER run prisma db push or prisma migrate for this model.
+// Schema changes → ALTER TABLE in Supabase SQL editor, then npx prisma generate only.
+model JadeSession {
+  id                     String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  chatwootConversationId String    @unique
+  contactId              String?
+  intent                 String?
+  state                  Json      @default("{}")
+  handoverAt             DateTime?
+  resumedAt              DateTime?
+  createdAt              DateTime  @default(now())
+  updatedAt              DateTime  @updatedAt
+
+  @@index([chatwootConversationId])
+}

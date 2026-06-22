@@ -30,7 +30,14 @@ export async function POST(req: NextRequest) {
     const normalised = email.toLowerCase().trim()
     const displayName = name?.trim() || null
 
-    const existing = await prisma.user.findUnique({ where: { email: normalised } })
+    let existing
+    try {
+      existing = await prisma.user.findUnique({ where: { email: normalised } })
+    } catch (dbErr) {
+      console.error('Signup DB lookup error:', dbErr)
+      return NextResponse.json({ error: 'Database connection failed. Please try again shortly.' }, { status: 503 })
+    }
+
     if (existing) {
       return NextResponse.json(
         { error: 'An account with this email already exists. Please sign in instead.' },
@@ -44,15 +51,29 @@ export async function POST(req: NextRequest) {
     const verificationToken        = crypto.randomBytes(32).toString('hex')
     const verificationTokenExpires = new Date(Date.now() + 24 * 60 * 60 * 1000)
 
-    const user = await prisma.user.create({
-      data: {
-        name:                    displayName,
-        email:                   normalised,
-        password:                hashed,
-        verificationToken,
-        verificationTokenExpires,
-      },
-    })
+    let user
+    try {
+      user = await prisma.user.create({
+        data: {
+          name:                    displayName,
+          email:                   normalised,
+          password:                hashed,
+          verificationToken,
+          verificationTokenExpires,
+        },
+      })
+    } catch (createErr) {
+      console.error('Signup create error:', createErr)
+      const msg = createErr instanceof Error ? createErr.message : String(createErr)
+      // Surface a safe version of the error (don't expose raw SQL)
+      if (msg.includes('Unique constraint') || msg.includes('unique constraint')) {
+        return NextResponse.json({ error: 'An account with this email already exists. Please sign in instead.' }, { status: 409 })
+      }
+      if (msg.includes('connect') || msg.includes('pool') || msg.includes('timeout')) {
+        return NextResponse.json({ error: 'Database connection failed. Please try again shortly.' }, { status: 503 })
+      }
+      return NextResponse.json({ error: 'Could not create account. Please try again.' }, { status: 500 })
+    }
 
     const baseUrl    = process.env.NEXTAUTH_URL ?? 'https://walztravels.com'
     const verifyUrl  = `${baseUrl}/api/auth/verify-email?token=${verificationToken}`

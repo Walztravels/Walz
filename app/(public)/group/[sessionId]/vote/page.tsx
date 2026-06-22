@@ -34,7 +34,7 @@ function VoteContent() {
   const [error,      setError]      = useState<string | null>(null)
 
   useEffect(() => {
-    fetch(`/api/group/${sessionId}/result`)
+    fetch(`/api/public/group/${sessionId}/result`)
       .then(r => r.json())
       .then(d => {
         if (d.error) { setError(d.error); setLoading(false); return }
@@ -54,7 +54,7 @@ function VoteContent() {
   async function handleVote(destination: string) {
     if (!memberId) { setError('Your member link is missing from the URL. Use the link sent to you.'); return }
     setSubmitting(true)
-    const res  = await fetch(`/api/group/${sessionId}/vote`, {
+    const res  = await fetch(`/api/public/group/${sessionId}/vote`, {
       method:  'POST',
       headers: { 'Content-Type': 'application/json' },
       body:    JSON.stringify({ memberId, destination }),

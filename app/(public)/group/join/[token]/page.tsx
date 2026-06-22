@@ -50,7 +50,7 @@ export default function JoinPage() {
   const [visitedList,     setVisitedList]     = useState<string[]>([])
 
   useEffect(() => {
-    fetch(`/api/group/${token}`)
+    fetch(`/api/public/group/${token}`)
       .then(r => r.json())
       .then(d => {
         if (d.error) setError(d.error)
@@ -84,7 +84,7 @@ export default function JoinPage() {
       visitedCountries: visitedList,
     }
 
-    const res  = await fetch(`/api/group/${token}/submit`, {
+    const res  = await fetch(`/api/public/group/${token}/submit`, {
       method:  'POST',
       headers: { 'Content-Type': 'application/json' },
       body:    JSON.stringify(preferences),

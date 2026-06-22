@@ -2,9 +2,10 @@
 
 import { useEffect, useRef, useState } from 'react'
 import Image from 'next/image'
+import { useRouter } from 'next/navigation'
 import gsap from 'gsap'
 import ScrollTrigger from 'gsap/ScrollTrigger'
-import { ArrowRight } from 'lucide-react'
+import { ArrowRight, Users } from 'lucide-react'
 import { useSettings, waLink } from '@/hooks/useSettings'
 import { cn } from '@/lib/utils'
 
@@ -104,6 +105,7 @@ const HEADLINE_LINES = [
 
 export function JadePlannerSection() {
   const settings    = useSettings()
+  const router      = useRouter()
   const sectionRef  = useRef<HTMLDivElement>(null)
   const accentRef   = useRef<HTMLDivElement>(null)
   const mapRef      = useRef<HTMLDivElement>(null)
@@ -120,6 +122,9 @@ export function JadePlannerSection() {
   const [dest,       setDest]       = useState('')
   const [previewIdx, setPreviewIdx] = useState(0)
   const [fading,     setFading]     = useState(false)
+  const [planMode,   setPlanMode]   = useState<'solo' | 'group'>('solo')
+  const [groupName,  setGroupName]  = useState('')
+  const [groupCount, setGroupCount] = useState(4)
 
   // ── Itinerary cycling (CSS crossfade) ────────────────────────────────────────
   useEffect(() => {
@@ -260,6 +265,13 @@ export function JadePlannerSection() {
     window.dispatchEvent(
       new CustomEvent('jade:open', { detail: { prefill: `I want to plan a trip to ${value}` } })
     )
+  }
+
+  function handleGroupPlan(e: React.FormEvent) {
+    e.preventDefault()
+    if (!groupName.trim()) return
+    const url = `/group/create?name=${encodeURIComponent(groupName.trim())}&count=${groupCount}`
+    router.push(url)
   }
 
   const preview = PREVIEWS[previewIdx]
@@ -443,66 +455,166 @@ export function JadePlannerSection() {
               ))}
             </div>
 
-            {/* Destination input */}
+            {/* Planning mode selector + inputs */}
             <div ref={inputRef}>
-              <form onSubmit={handleSubmit}>
-                <div
-                  className="rounded-xl p-5 mb-4"
-                  style={{
-                    background:     'rgba(255,255,255,0.05)',
-                    backdropFilter: 'blur(10px)',
-                    border:         '1px solid rgba(201,168,76,0.3)',
-                  }}
+
+              {/* Mode tabs */}
+              <div className="flex gap-2 mb-4">
+                <button
+                  type="button"
+                  onClick={() => setPlanMode('solo')}
+                  className={cn(
+                    'flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-xs font-semibold transition-all duration-200',
+                    planMode === 'solo'
+                      ? 'bg-[#C9A84C] text-[#0B1F3A]'
+                      : 'border border-white/15 text-white/45 hover:border-[#C9A84C]/50 hover:text-white/65',
+                  )}
                 >
-                  <label className="block text-[9px] font-bold tracking-[0.26em] uppercase mb-3"
-                    style={{ color: '#C9A84C' }}>
-                    Where do you want to go?
-                  </label>
-                  <div className="flex gap-3 items-center">
+                  ✈ Plan for myself
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPlanMode('group')}
+                  className={cn(
+                    'flex items-center gap-1.5 px-3.5 py-1.5 rounded-full text-xs font-semibold transition-all duration-200',
+                    planMode === 'group'
+                      ? 'bg-[#C9A84C] text-[#0B1F3A]'
+                      : 'border border-white/15 text-white/45 hover:border-[#C9A84C]/50 hover:text-white/65',
+                  )}
+                >
+                  <Users className="w-3 h-3" />
+                  Plan as a group
+                </button>
+              </div>
+
+              {planMode === 'solo' ? (
+                <>
+                  {/* Individual: destination input */}
+                  <form onSubmit={handleSubmit}>
+                    <div
+                      className="rounded-xl p-5 mb-4"
+                      style={{
+                        background:     'rgba(255,255,255,0.05)',
+                        backdropFilter: 'blur(10px)',
+                        border:         '1px solid rgba(201,168,76,0.3)',
+                      }}
+                    >
+                      <label className="block text-[9px] font-bold tracking-[0.26em] uppercase mb-3"
+                        style={{ color: '#C9A84C' }}>
+                        Where do you want to go?
+                      </label>
+                      <div className="flex gap-3 items-center">
+                        <input
+                          type="text"
+                          value={dest}
+                          onChange={e => setDest(e.target.value)}
+                          placeholder="London, Dubai, Toronto…"
+                          className="flex-1 bg-transparent text-white placeholder-white/25 text-sm outline-none py-1.5 min-w-0 transition-colors"
+                          style={{ borderBottom: '1px solid rgba(255,255,255,0.15)' }}
+                          onFocus={e => {
+                            e.currentTarget.style.borderBottomColor = 'rgba(201,168,76,0.65)'
+                          }}
+                          onBlur={e => {
+                            e.currentTarget.style.borderBottomColor = 'rgba(255,255,255,0.15)'
+                          }}
+                        />
+                        <button
+                          type="submit"
+                          className={cn(
+                            'group flex items-center gap-2 font-bold text-sm px-5 py-2.5 rounded-lg transition-all flex-shrink-0',
+                            'bg-[#C9A84C] text-[#0B1F3A] hover:brightness-110 hover:scale-[1.03]',
+                          )}
+                        >
+                          Start Planning
+                          <ArrowRight className="w-4 h-4 transition-transform duration-200 group-hover:translate-x-1" />
+                        </button>
+                      </div>
+                    </div>
+                  </form>
+
+                  {/* Quick destination pills */}
+                  <div className="flex flex-wrap gap-2.5">
+                    {QUICK.map(({ label, value }) => (
+                      <button
+                        key={value}
+                        onClick={() => handleQuick(value)}
+                        className={cn(
+                          'text-sm px-4 py-1.5 rounded-full font-medium transition-all duration-200',
+                          'border border-[#C9A84C]/40 text-white/55',
+                          'hover:bg-[#C9A84C] hover:text-[#0B1F3A] hover:border-[#C9A84C]',
+                        )}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                </>
+              ) : (
+                /* Group: trip name + count */
+                <form onSubmit={handleGroupPlan}>
+                  <div
+                    className="rounded-xl p-5 mb-4"
+                    style={{
+                      background:     'rgba(255,255,255,0.05)',
+                      backdropFilter: 'blur(10px)',
+                      border:         '1px solid rgba(201,168,76,0.3)',
+                    }}
+                  >
+                    {/* Trip name */}
+                    <label className="block text-[9px] font-bold tracking-[0.26em] uppercase mb-3"
+                      style={{ color: '#C9A84C' }}>
+                      Give your trip a name
+                    </label>
                     <input
                       type="text"
-                      value={dest}
-                      onChange={e => setDest(e.target.value)}
-                      placeholder="London, Dubai, Toronto…"
-                      className="flex-1 bg-transparent text-white placeholder-white/25 text-sm outline-none py-1.5 min-w-0 transition-colors"
+                      value={groupName}
+                      onChange={e => setGroupName(e.target.value)}
+                      placeholder="Lads Trip 2026, Family Summer…"
+                      maxLength={60}
+                      required
+                      className="w-full bg-transparent text-white placeholder-white/25 text-sm outline-none py-1.5 mb-5 transition-colors"
                       style={{ borderBottom: '1px solid rgba(255,255,255,0.15)' }}
-                      onFocus={e => {
-                        e.currentTarget.style.borderBottomColor = 'rgba(201,168,76,0.65)'
-                      }}
-                      onBlur={e => {
-                        e.currentTarget.style.borderBottomColor = 'rgba(255,255,255,0.15)'
-                      }}
+                      onFocus={e => { e.currentTarget.style.borderBottomColor = 'rgba(201,168,76,0.65)' }}
+                      onBlur={e  => { e.currentTarget.style.borderBottomColor = 'rgba(255,255,255,0.15)' }}
                     />
-                    <button
-                      type="submit"
-                      className={cn(
-                        'group flex items-center gap-2 font-bold text-sm px-5 py-2.5 rounded-lg transition-all flex-shrink-0',
-                        'bg-[#C9A84C] text-[#0B1F3A] hover:brightness-110 hover:scale-[1.03]',
-                      )}
-                    >
-                      Start Planning
-                      <ArrowRight className="w-4 h-4 transition-transform duration-200 group-hover:translate-x-1" />
-                    </button>
-                  </div>
-                </div>
-              </form>
 
-              {/* Quick destination pills */}
-              <div className="flex flex-wrap gap-2.5">
-                {QUICK.map(({ label, value }) => (
-                  <button
-                    key={value}
-                    onClick={() => handleQuick(value)}
-                    className={cn(
-                      'text-sm px-4 py-1.5 rounded-full font-medium transition-all duration-200',
-                      'border border-[#C9A84C]/40 text-white/55',
-                      'hover:bg-[#C9A84C] hover:text-[#0B1F3A] hover:border-[#C9A84C]',
-                    )}
-                  >
-                    {label}
-                  </button>
-                ))}
-              </div>
+                    {/* Traveller count */}
+                    <label className="block text-[9px] font-bold tracking-[0.26em] uppercase mb-3"
+                      style={{ color: '#C9A84C' }}>
+                      How many people?
+                    </label>
+                    <div className="flex items-center gap-3">
+                      <button
+                        type="button"
+                        onClick={() => setGroupCount(n => Math.max(2, n - 1))}
+                        className="w-8 h-8 rounded-full flex items-center justify-center text-base font-bold transition-all"
+                        style={{ border: '1px solid rgba(255,255,255,0.15)', color: 'rgba(255,255,255,0.45)' }}
+                      >
+                        −
+                      </button>
+                      <span className="flex-1 text-center text-white font-bold text-xl">{groupCount}</span>
+                      <button
+                        type="button"
+                        onClick={() => setGroupCount(n => Math.min(20, n + 1))}
+                        className="w-8 h-8 rounded-full flex items-center justify-center text-base font-bold transition-all"
+                        style={{ border: '1px solid rgba(255,255,255,0.15)', color: 'rgba(255,255,255,0.45)' }}
+                      >
+                        +
+                      </button>
+                      <button
+                        type="submit"
+                        className={cn(
+                          'group flex items-center gap-2 font-bold text-sm px-5 py-2.5 rounded-lg transition-all flex-shrink-0',
+                          'bg-[#C9A84C] text-[#0B1F3A] hover:brightness-110 hover:scale-[1.03]',
+                        )}
+                      >
+                        Create Group Plan
+                        <ArrowRight className="w-4 h-4 transition-transform duration-200 group-hover:translate-x-1" />
+                      </button>
+                    </div>
+                  </div>
+                </form>
+              )}
             </div>
           </div>
 

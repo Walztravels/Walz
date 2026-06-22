@@ -59,7 +59,7 @@ function CoverLetterModal({ sessionId, memberId, memberName, onClose }: {
   const [error,     setError]     = useState<string | null>(null)
 
   useEffect(() => {
-    fetch(`/api/group/${sessionId}/visa/cover-letter/${memberId}`, { method: 'POST' })
+    fetch(`/api/public/visa/${sessionId}/cover-letter/${memberId}`, { method: 'POST' })
       .then(r => r.json())
       .then(d => { setLetter(d.letter ?? null); if (d.error) setError(d.error); setLoading(false) })
       .catch(() => { setError('Failed to generate letter'); setLoading(false) })
@@ -125,7 +125,7 @@ function CoverLetterModal({ sessionId, memberId, memberName, onClose }: {
 }
 
 export default function VisaResultsPage() {
-  const { sessionId } = useParams<{ sessionId: string }>()
+  const { country: sessionId } = useParams<{ country: string }>()
 
   const [analysis,     setAnalysis]     = useState<GroupVisaAnalysis | null>(null)
   const [sessionInfo,  setSessionInfo]  = useState<{ sessionName: string; visaDestination: string } | null>(null)
@@ -135,7 +135,7 @@ export default function VisaResultsPage() {
   const [error,        setError]        = useState<string | null>(null)
 
   useEffect(() => {
-    fetch(`/api/group/${sessionId}/result`)
+    fetch(`/api/public/group/${sessionId}/result`)
       .then(r => r.json())
       .then(d => {
         if (d.error) { setError(d.error); setLoading(false); return }
@@ -149,7 +149,7 @@ export default function VisaResultsPage() {
   async function runAnalysis() {
     setRunning(true)
     setError(null)
-    const res  = await fetch(`/api/group/${sessionId}/visa/analyse`, { method: 'POST' })
+    const res  = await fetch(`/api/public/visa/${sessionId}/analyse`, { method: 'POST' })
     const data = await res.json()
     if (!res.ok) { setError(data.error ?? 'Analysis failed'); setRunning(false); return }
     setAnalysis(data.analysis as GroupVisaAnalysis)

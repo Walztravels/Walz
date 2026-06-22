@@ -10,7 +10,7 @@ export default function WaitingPage() {
   const intervalRef = useRef<NodeJS.Timeout | null>(null)
 
   function poll() {
-    fetch(`/api/group/${token}`)
+    fetch(`/api/public/group/${token}`)
       .then(r => r.json())
       .then(d => {
         if (!d.error) {

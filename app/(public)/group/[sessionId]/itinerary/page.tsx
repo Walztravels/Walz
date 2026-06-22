@@ -40,7 +40,7 @@ export default function ItineraryPage() {
   const [copied,      setCopied]      = useState(false)
 
   useEffect(() => {
-    fetch(`/api/group/${sessionId}/result`)
+    fetch(`/api/public/group/${sessionId}/result`)
       .then(r => r.json())
       .then(d => {
         if (d.error) { setError(d.error); setLoading(false); return }
@@ -56,7 +56,7 @@ export default function ItineraryPage() {
   async function generateItinerary() {
     setGenerating(true)
     setError(null)
-    const res  = await fetch(`/api/group/${sessionId}/itinerary`, { method: 'POST' })
+    const res  = await fetch(`/api/public/group/${sessionId}/itinerary`, { method: 'POST' })
     const data = await res.json()
     if (!res.ok) { setError(data.error ?? 'Generation failed'); setGenerating(false); return }
     setItinerary(data.itinerary as Itinerary)

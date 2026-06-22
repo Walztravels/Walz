@@ -27,7 +27,7 @@ const NATIONALITIES = [
 ]
 
 export default function VisaProfilePage() {
-  const { sessionId, token } = useParams<{ sessionId: string; token: string }>()
+  const { country: sessionId, token } = useParams<{ country: string; token: string }>()
 
   const [info,        setInfo]        = useState<MemberInfo | null>(null)
   const [loading,     setLoading]     = useState(true)
@@ -44,7 +44,7 @@ export default function VisaProfilePage() {
   const fileRefs = useRef<Record<string, HTMLInputElement | null>>({})
 
   useEffect(() => {
-    fetch(`/api/group/${token}`)
+    fetch(`/api/public/group/${token}`)
       .then(r => r.json())
       .then(d => {
         if (!d.error) {
@@ -87,7 +87,7 @@ export default function VisaProfilePage() {
 
     const documentUrls = Object.values(uploadedDocs)
 
-    const res  = await fetch(`/api/group/${sessionId}/visa/profile/${info?.memberId}`, {
+    const res  = await fetch(`/api/public/visa/${sessionId}/profile/${info?.memberId}`, {
       method:  'POST',
       headers: { 'Content-Type': 'application/json' },
       body:    JSON.stringify({
