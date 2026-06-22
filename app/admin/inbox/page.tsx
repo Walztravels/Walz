@@ -52,13 +52,16 @@ export default function InboxPage() {
       try {
         const res  = await fetch('/api/admin/me')
         if (!res.ok) { router.push('/admin/login'); return }
-        const data = await res.json() as { email?: string; name?: string }
+        const data = await res.json() as { email?: string; name?: string; role?: string }
         if (!data.email) { router.push('/admin/login'); return }
         const mapped = EMAIL_TO_AGENT[data.email]
+        // Staff DB role wins over EMAIL_TO_AGENT for super_admin detection
+        const effectiveRole: AdminProfile['role'] =
+          data.role === 'super_admin' ? 'super_admin' : (mapped?.role ?? 'agent')
         setProfile({
           email:           data.email,
           name:            data.name ?? data.email,
-          role:            mapped?.role ?? 'agent',
+          role:            effectiveRole,
           chatwootAgentId: mapped?.id ?? 0,
         })
       } catch {
@@ -234,6 +237,18 @@ export default function InboxPage() {
     await fetchConvs()
   }
 
+  async function handleDeleteConv(convId: number) {
+    const res = await fetch(`/api/admin/conversations/${convId}`, { method: 'DELETE' })
+    if (!res.ok) {
+      const d = await res.json().catch(() => ({}))
+      addToast(d.error ?? 'Failed to delete conversation')
+      return
+    }
+    if (selected?.id === convId) setSelected(null)
+    setConvs(prev => prev.filter(c => c.id !== convId))
+    addToast('Conversation deleted')
+  }
+
   async function handleAddAgent(name: string, email: string, role: string) {
     const res = await fetch('/api/admin/agents', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -272,6 +287,7 @@ export default function InboxPage() {
         onSelect={doSelectConv}
         onTabChange={setTab}
         onOpenSettings={() => setShowStaff(true)}
+        onDelete={profile?.role === 'super_admin' ? handleDeleteConv : undefined}
       />
 
       {selected ? (

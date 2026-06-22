@@ -20,3 +20,27 @@ export async function GET(
   const data = await res.json()
   return NextResponse.json(data)
 }
+
+export async function DELETE(
+  _req: Request,
+  { params }: { params: { id: string } }
+) {
+  const session = await getAdminSession()
+  if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  if (session.staffRole !== 'super_admin') {
+    return NextResponse.json({ error: 'Only Super Admins can delete conversations' }, { status: 403 })
+  }
+
+  const res = await fetch(`${CW_BASE}/api/v1/accounts/${CW_ACCOUNT}/conversations/${params.id}`, {
+    method:  'DELETE',
+    headers: { api_access_token: CW_TOKEN },
+  })
+
+  if (res.status === 404) return NextResponse.json({ error: 'Conversation not found' }, { status: 404 })
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}))
+    return NextResponse.json({ error: body?.message ?? `Chatwoot error (${res.status})` }, { status: res.status })
+  }
+
+  return NextResponse.json({ success: true })
+}

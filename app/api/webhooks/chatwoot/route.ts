@@ -23,26 +23,120 @@ import { NextResponse } from 'next/server'
 import { createHmac, timingSafeEqual } from 'crypto'
 import { getSupabaseAdmin } from '@/lib/supabase'
 import { prisma } from '@/lib/db'
+import { saveJadeSession, loadJadeSession, markHandover, markResumed } from '@/lib/jade-session'
 
 export const dynamic = 'force-dynamic'
 
+const CHATWOOT_BASE   = 'https://chat.walztravels.com'
+const CHATWOOT_TOKEN  = process.env.CHATWOOT_API_TOKEN ?? ''
+const ACCOUNT_ID      = '1'
+
 // ── Signature verification ────────────────────────────────────────────────────
 async function verifySignature(req: Request, rawBody: string): Promise<boolean> {
-  const secret = process.env.CHATWOOT_WEBHOOK_SECRET
-  if (!secret) return true // no secret configured → allow (dev / first setup)
-
-  const sig = req.headers.get('x-chatwoot-signature') // format: sha256=<hex>
-  if (!sig) return false
-
-  const [algo, hex] = sig.split('=')
-  if (algo !== 'sha256' || !hex) return false
-
-  const expected = createHmac('sha256', secret).update(rawBody).digest('hex')
-  try {
-    return timingSafeEqual(Buffer.from(hex), Buffer.from(expected))
-  } catch {
-    return false
+  // Simple token check (X-Chatwoot-Token header)
+  const tokenSecret = process.env.CHATWOOT_WEBHOOK_TOKEN
+  if (tokenSecret) {
+    const provided = req.headers.get('x-chatwoot-token')
+    if (provided === tokenSecret) return true
   }
+
+  // HMAC fallback (x-chatwoot-signature)
+  const hmacSecret = process.env.CHATWOOT_WEBHOOK_SECRET
+  if (hmacSecret) {
+    const sig = req.headers.get('x-chatwoot-signature')
+    if (!sig) return false
+    const [algo, hex] = sig.split('=')
+    if (algo !== 'sha256' || !hex) return false
+    const expected = createHmac('sha256', hmacSecret).update(rawBody).digest('hex')
+    try {
+      return timingSafeEqual(Buffer.from(hex), Buffer.from(expected))
+    } catch {
+      return false
+    }
+  }
+
+  return true // no secret configured → allow (dev)
+}
+
+// ── Resolve Instagram/Facebook PSID for a Chatwoot conversation ─────────────
+// Chatwoot's message_created payload frequently omits contact_inbox.source_id
+// when the agent replies via the custom admin inbox. This function tries the
+// webhook payload first (fast, no network), then falls back to the Chatwoot
+// REST API (slow path, ~1 extra request) so jadeSilencedAt is reliably written.
+async function getSourceId(payload: CWPayload, convId: number): Promise<string | null> {
+  // Fast path: source_id already present in the webhook payload
+  const fromPayload = payload.conversation?.contact_inbox?.source_id
+    ?? payload.meta?.sender?.identifier
+
+  if (fromPayload) {
+    console.log('[chatwoot-webhook] getSourceId: resolved from payload —', fromPayload)
+    return fromPayload
+  }
+
+  // Slow path: fetch full conversation object from Chatwoot API
+  if (!CHATWOOT_TOKEN) {
+    console.warn('[chatwoot-webhook] getSourceId: CHATWOOT_API_TOKEN missing — API fallback disabled')
+    return null
+  }
+
+  const ac = new AbortController()
+  const t  = setTimeout(() => ac.abort(), 5000)
+
+  try {
+    const res = await fetch(
+      `${CHATWOOT_BASE}/api/v1/accounts/${ACCOUNT_ID}/conversations/${convId}`,
+      { headers: { 'Content-Type': 'application/json', api_access_token: CHATWOOT_TOKEN }, signal: ac.signal },
+    )
+    clearTimeout(t)
+
+    if (!res.ok) {
+      console.warn('[chatwoot-webhook] getSourceId: Chatwoot API fallback failed —', res.status)
+      return null
+    }
+
+    const data = await res.json() as {
+      channel?:       string
+      contact_inbox?: { source_id?: string }
+      meta?: {
+        channel?: string
+        sender?:  { identifier?: string }
+      }
+    }
+
+    const channel = (data?.meta?.channel ?? data?.channel ?? '').toLowerCase()
+    if (!channel.includes('instagram') && !channel.includes('facebook')) {
+      // Not an IG/FB conversation — no Prisma Lead to silence
+      return null
+    }
+
+    const resolved = data?.contact_inbox?.source_id
+      ?? data?.meta?.sender?.identifier
+      ?? null
+
+    if (resolved) {
+      console.log('[chatwoot-webhook] getSourceId: resolved via API fallback —', resolved)
+    } else {
+      console.warn('[chatwoot-webhook] getSourceId: API fallback returned no source_id for conv', convId)
+    }
+
+    return resolved
+  } catch (err) {
+    clearTimeout(t)
+    console.error('[chatwoot-webhook] getSourceId fallback error:', err)
+    return null
+  }
+}
+
+// ── Send a message to a Chatwoot conversation ─────────────────────────────────
+async function cwSendMessage(conversationId: number, content: string): Promise<void> {
+  if (!CHATWOOT_TOKEN) return
+  try {
+    await fetch(`${CHATWOOT_BASE}/api/v1/accounts/${ACCOUNT_ID}/conversations/${conversationId}/messages`, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json', api_access_token: CHATWOOT_TOKEN },
+      body:    JSON.stringify({ content, message_type: 'outgoing', private: false }),
+    })
+  } catch {}
 }
 
 // ── POST — receive Chatwoot events ───────────────────────────────────────────
@@ -60,6 +154,9 @@ export async function POST(req: Request) {
     switch (payload.event) {
       case 'conversation_created':
         await onConversationCreated(payload, supabase)
+        break
+      case 'conversation_status_changed':
+        await onConversationStatusChanged(payload)
         break
       case 'conversation_updated':
         await onConversationUpdated(payload, supabase)
@@ -80,6 +177,71 @@ export async function POST(req: Request) {
 }
 
 // ── Event handlers ────────────────────────────────────────────────────────────
+
+async function onConversationStatusChanged(payload: CWPayload) {
+  const convId = payload.id
+  if (!convId) return
+  const convKey = String(convId)
+
+  // 'pending' = human agent taking over — silence Jade immediately
+  if (payload.status === 'pending') {
+    const session = await loadJadeSession(convKey)
+    const silencedState = {
+      intent:              session?.intent ?? null,
+      lastMessage:         session?.lastMessage ?? '',
+      conversationHistory: session?.conversationHistory ?? [],
+      bookingContext:      session?.bookingContext ?? null,
+      groupContext:        session?.groupContext ?? null,
+      agentActive:         true,
+    }
+    await saveJadeSession(convKey, silencedState)
+    await markHandover(convKey)
+
+    // Also silence IG/FB Jade via Prisma (catches agent takeovers before first reply)
+    const igSourceId = await getSourceId(payload, convId)
+    const silenceKey = igSourceId ?? payload.conversation?.id?.toString() ?? null
+    if (igSourceId) {
+      await prisma.lead.updateMany({
+        where: { sourceId: igSourceId },
+        data:  { jadeSilencedAt: new Date(), jadeResumedAt: null },
+      }).catch(() => {})
+    }
+    console.log('[chatwoot-webhook] status→pending — agent takeover logged:', {
+      conversationId:        convId,
+      sourceIdFromPayload:   payload.conversation?.contact_inbox?.source_id ?? null,
+      sourceIdResolved:      igSourceId,
+      silenceKeyUsed:        silenceKey,
+      jadeSilencedAt:        new Date().toISOString(),
+    })
+    return
+  }
+
+  // 'open' = agent handing back to Jade — clear the silence flag
+  if (payload.status === 'open') {
+    const session = await loadJadeSession(convKey)
+    await markResumed(convKey)
+
+    if (!session) return
+
+    const intent = session.intent
+    let context = 'your enquiry'
+    if (intent === 'booking' && session.bookingContext?.searchParams) {
+      const sp = session.bookingContext.searchParams
+      context  = `finding a flight from **${sp.origin}** to **${sp.destination}**`
+    } else if (intent === 'group_trip' && session.groupContext?.sessionName) {
+      context = `planning your group trip **${session.groupContext.sessionName}**`
+    }
+
+    await cwSendMessage(
+      convId,
+      `Welcome back — I'm Jade 👋 I can see we were discussing ${context}. Shall we continue from where we left off?`,
+    )
+
+    // Save session with agentActive cleared so Jade can respond again
+    await saveJadeSession(convKey, { ...session, agentActive: false })
+  }
+}
+
 async function onConversationCreated(payload: CWPayload, supabase: SupabaseAdmin) {
   const contact = payload.contact ?? payload.meta?.sender
   if (!contact) return
@@ -138,8 +300,10 @@ async function onMessageCreated(payload: CWPayload, supabase: SupabaseAdmin) {
       .update({ jade_silenced_at: new Date().toISOString() })
       .eq('chatwoot_conversation_id', convId)
 
-    // Silence IG/FB Jade (Prisma) — match by Instagram PSID from Chatwoot contact_inbox
-    const igSourceId = payload.conversation?.contact_inbox?.source_id
+    // Silence IG/FB Jade (Prisma) — get PSID from payload or API fallback
+    const igSourceId  = await getSourceId(payload, convId)
+    const silenceKey  = igSourceId ?? payload.conversation?.id?.toString() ?? null
+
     if (igSourceId) {
       try {
         await prisma.lead.updateMany({
@@ -150,6 +314,15 @@ async function onMessageCreated(payload: CWPayload, supabase: SupabaseAdmin) {
         console.error('[chatwoot-webhook] Prisma silence error:', e)
       }
     }
+
+    console.log('[chatwoot-webhook] Agent message processed:', {
+      conversationId:      convId,
+      sourceIdFromPayload: payload.conversation?.contact_inbox?.source_id ?? null,
+      sourceIdResolved:    igSourceId,
+      silenceKeyUsed:      silenceKey,
+      via:                 payload.conversation?.contact_inbox?.source_id ? 'payload' : 'API fallback',
+      jadeSilencedAt:      igSourceId ? new Date().toISOString() : 'not written — sourceId null',
+    })
   }
 
   // Deduplicate by external_id
@@ -335,6 +508,7 @@ type SupabaseAdmin = ReturnType<typeof getSupabaseAdmin>
 interface CWContact {
   id?:           number
   name?:         string
+  identifier?:   string | null  // Instagram/Facebook PSID stored here
   email?:        string | null
   phone_number?: string | null
 }

@@ -6,6 +6,10 @@ import { getSupabaseAdmin } from '@/lib/supabase'
 import { fetchClientMemory } from '@/lib/jade-memory'
 import type { ClientProfile } from '@/lib/jade-memory'
 import { isB2BInquiry, JADE_B2B_PROMPT } from '@/lib/jade-messaging'
+import { saveJadeSession, loadJadeSession } from '@/lib/jade-session'
+import type { JadeSessionState } from '@/lib/jade-session'
+import { searchFlights, assignBadges } from '@/lib/flights/duffel'
+import type { FlightSearchParams, FlightItinerary } from '@/lib/flights/types'
 
 export const maxDuration = 60
 export const dynamic     = 'force-dynamic'
@@ -646,6 +650,35 @@ Exchange rates used for conversions (approximate): £1 ≈ $1.35 ≈ ₦1,836 �
 
 When quoting visa prices, always lead with the client's local currency, then show GBP equivalent in brackets.
 
+## CONTEXT RETENTION — NON-NEGOTIABLE
+
+Before every response, mentally re-read the ENTIRE conversation history. Never ask for information the client has already given.
+
+- If they mentioned a destination, do not ask where they want to go.
+- If they gave their name, use it — don't ask for it again.
+- If they mentioned travel dates, party size, or budget, use those. Don't ask again.
+- When in doubt: "Let me make sure I have this right — [summary of what you know so far]. Is that correct?" — then proceed, don't stall.
+
+## VISA ENQUIRIES
+
+When a client asks about visas, respond immediately with:
+1. Confirmation that Walz Travels handles this visa type
+2. Key requirements for their nationality (from your knowledge base above)
+3. Approximate processing time and cost
+4. A direct call to action: "You can start your application at walztravels.com/visa"
+5. Reassurance: "A visa officer will follow up with you within 24 hours."
+
+Never loop back and ask where they're going if they've already told you. Pull the destination from the conversation history.
+
+## PROFESSIONALISM
+
+Never joke about being an AI, about the chat system, or about limitations. If you're uncertain about something, acknowledge it briefly and pivot to what you CAN do.
+
+If the client seems frustrated or the conversation has gone off-track, say:
+"Let me make sure I have this right — [accurate summary of what they've shared]. Is that correct?"
+
+Then address their need directly from that summary.
+
 ## HANDOVER TRIGGERS — READ THIS CAREFULLY
 
 Transfer to a human specialist (say the line below, then stop) when:
@@ -686,7 +719,8 @@ function buildSystemPrompt(
   profile:     ClientProfile | null,
   lang =       'en',
 ): string {
-  let extra = ''
+  const today = new Date().toLocaleDateString('en-GB', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })
+  let extra = `\n\nToday's date is ${today}. When a user says 'next Friday', 'this weekend', 'tomorrow' etc, calculate the exact date yourself and confirm it back to the user. Never ask the user what today's date is.`
   const currency = profile?.currency ?? 'GBP'
 
   // Opening instructions
@@ -791,6 +825,535 @@ async function jadeReply(
   } catch (e) { console.error('[Jade] OpenAI failed:', e) }
 
   return "I'm having a brief technical issue. For immediate help, WhatsApp us on +44 7398 753797 or email contact@walztravels.com ✈"
+}
+
+// ─── Flow types ────────────────────────────────────────────────────────────────
+
+export interface QuickReply {
+  label: string
+  value: string
+  type:  'message' | 'link'
+}
+
+interface FlowResult {
+  reply:          string
+  quickReplies:   QuickReply[]
+  updatedSession: JadeSessionState
+}
+
+// ─── Flow intent detector (regex, no Claude — fast path) ──────────────────────
+
+function detectFlowIntent(message: string): 'booking' | 'group_trip' | null {
+  const m = message.toLowerCase()
+  if (/\b(book (a |the )?flight|search (for )?flights?|fly (to|from)|i want to fly|find (me )?(a )?flight|one.?way|round.?trip|depart|cheapest flight|business class|economy class|first class ticket)\b/.test(m))
+    return 'booking'
+  if (/\b(group trip|group travel|group (holiday|vacation)|plan.*together|planning (a )?trip (with|for)|friends trip|family trip|group of \d|we (are|'re) (going|traveling)|everyone|trip for \d|hive|can't agree|of us (are )?going)\b/.test(m))
+    return 'group_trip'
+  return null
+}
+
+// ─── Booking param extractor (regex) ─────────────────────────────────────────
+
+interface ExtractedBooking {
+  origin:      string | null
+  destination: string | null
+  date:        string | null
+  passengers:  number | null
+  cabinClass:  string | null
+}
+
+function extractBookingParams(message: string): ExtractedBooking {
+  const m    = message.toLowerCase()
+  const orig = message // preserved for capital-letter signals
+
+  // City names can be 1–3 words; lazy quantifier + lookahead stops before
+  // temporal/direction words so "Lagos next Friday" → "Lagos" not "Lagos next Friday".
+  const CITY_STOP = `(?=\\s+(?:from|next|this|on|at|in|by|for|via|with|tomorrow|today|,|\\.)|\\s*$)`
+  const CITY_PAT  = `([a-z][a-z'\\-]*(?:\\s+[a-z][a-z'\\-]+){0,2}?)${CITY_STOP}`
+
+  // ── Destination ──────────────────────────────────────────────────────────────
+
+  let destination: string | null = null
+
+  // Pattern A: "[travel verb] to [city]" — fly to, flight to, going to, travel to, trip to, heading to
+  const destVerbMatch = m.match(
+    new RegExp(
+      `(?:fly(?:ing)?|flight|travel(?:l?ing)?|go(?:ing)?|head(?:ing)?|trip|journey|visit(?:ing)?|depart(?:ing)?)\\s+to\\s+${CITY_PAT}`,
+    ),
+  )
+  if (destVerbMatch) destination = destVerbMatch[1].trim()
+
+  // Pattern B: "to [Capitalised City]" — catches "from London to Dubai", "ticket to Lagos"
+  if (!destination) {
+    const CITY_CAP = `([A-Z][a-zA-Z'\\-]*(?:\\s+[A-Z][a-zA-Z'\\-]+){0,2}?)(?=\\s+(?:from|next|this|[Oo]n|[Aa]t|[Ii]n|[Bb]y|,|\\.)|\\s*$)`
+    const destCapMatch = orig.match(new RegExp(`\\bto\\s+${CITY_CAP}`))
+    if (destCapMatch) destination = destCapMatch[1].trim().toLowerCase()
+  }
+
+  // ── Origin ───────────────────────────────────────────────────────────────────
+
+  let origin: string | null = null
+
+  const ORIG_STOP = `(?=\\s+(?:to|next|this|on|at|in|by|,|\\.)|\\s*$)`
+  const ORIG_PAT  = `([a-z][a-z'\\-]*(?:\\s+[a-z][a-z'\\-]+){0,2}?)${ORIG_STOP}`
+
+  const originMatch = m.match(
+    new RegExp(
+      `(?:departing\\s+from|flying\\s+from|depart\\s+from|leav(?:ing)?\\s+from|out\\s+of|depart(?:ing)?\\s+|from)\\s*${ORIG_PAT}`,
+    ),
+  )
+  if (originMatch) origin = originMatch[1].trim()
+
+  // ── IATA codes as fallback ────────────────────────────────────────────────────
+
+  const iata = orig.match(/\b([A-Z]{3})\b/g) ?? []
+  const resolvedOrigin      = origin      ?? (iata[0] ?? null)
+  const resolvedDestination = destination ?? (iata[iata.length > 1 ? 1 : 0] ?? null)
+
+  // ── Date ─────────────────────────────────────────────────────────────────────
+
+  const days        = 'monday|tuesday|wednesday|thursday|friday|saturday|sunday'
+  const months      = 'january|february|march|april|may|june|july|august|september|october|november|december'
+  const monthsShort = 'jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec'
+
+  let date: string | null = null
+
+  // 1. ISO: 2026-07-15
+  const isoMatch = m.match(/\b(\d{4}-\d{2}-\d{2})\b/)
+  if (isoMatch) date = isoMatch[1]
+
+  // 2. "next/this [weekday|weekend|week]"
+  if (!date) {
+    const relMatch = m.match(new RegExp(`\\b(next|this)\\s+(${days}|weekend|week)\\b`, 'i'))
+    if (relMatch) date = relMatch[0]
+  }
+
+  // 3. "tomorrow"
+  if (!date && /\btomorrow\b/i.test(m)) date = 'tomorrow'
+
+  // 4. "in [n] days/weeks"
+  if (!date) {
+    const inNMatch = m.match(/\bin\s+(\d+)\s+(days?|weeks?)\b/i)
+    if (inNMatch) date = inNMatch[0]
+  }
+
+  // 5. Standalone day of week: "friday", "on saturday"
+  if (!date) {
+    const dowMatch = m.match(new RegExp(`\\b(?:on\\s+)?(${days})\\b`, 'i'))
+    if (dowMatch) date = dowMatch[1] ?? dowMatch[0]
+  }
+
+  // 6. "[n] [month]" or "[month] [n]", optional year
+  if (!date) {
+    const specificDate = m.match(
+      new RegExp(
+        `(\\d{1,2})(?:st|nd|rd|th)?\\s+(?:of\\s+)?(${months}|${monthsShort})(?:\\s+\\d{4})?|(${months}|${monthsShort})\\s+(\\d{1,2})(?:st|nd|rd|th)?(?:\\s+\\d{4})?`,
+        'i',
+      ),
+    )
+    if (specificDate) date = specificDate[0]
+  }
+
+  // ── Passengers ───────────────────────────────────────────────────────────────
+
+  const paxMatch = m.match(/(\d+)\s*(?:passenger|adult|pax|person|people|of us)|family\s+of\s+(\d+)/i)
+  const passengers = paxMatch ? Number(paxMatch[1] ?? paxMatch[2]) || null : null
+
+  // ── Cabin class ───────────────────────────────────────────────────────────────
+
+  let cabinClass: string | null = null
+  if (/first\s+class/i.test(m))             cabinClass = 'FIRST'
+  else if (/business(?:\s+class)?/i.test(m)) cabinClass = 'BUSINESS'
+  else if (/premium\s+economy/i.test(m))    cabinClass = 'PREMIUM_ECONOMY'
+  else if (/economy(?:\s+class)?/i.test(m)) cabinClass = 'ECONOMY'
+
+  return { origin: resolvedOrigin, destination: resolvedDestination, date, passengers, cabinClass }
+}
+
+// ─── Booking flow handler ──────────────────────────────────────────────────────
+
+async function handleBookingFlow(
+  message: string,
+  session: JadeSessionState | null,
+): Promise<FlowResult> {
+  const existing = session?.bookingContext ?? null
+  const ctx = existing ?? {
+    searchParams:     null,
+    offersReturned:   false,
+    selectedOfferId:  null,
+    awaitingConfirm:  false,
+    confirmedOrderId: null,
+    topOfferSummary:  null,
+  }
+
+  const baseSession = (): Omit<JadeSessionState, 'bookingContext'> => ({
+    intent:              'booking',
+    lastMessage:         message,
+    conversationHistory: session?.conversationHistory ?? [],
+    groupContext:        null,
+  })
+
+  // ── Awaiting confirm: user said yes or no ──────────────────────────────────
+  if (ctx.awaitingConfirm && ctx.selectedOfferId) {
+    const isYes = /\b(yes|yeah|yep|book|confirm|go ahead|do it|book it|proceed|sounds good|let'?s do it|perfect)\b/i.test(message)
+    const isNo  = /\b(no|nope|cancel|stop|don'?t|show (all|others?|more)|see all|other (flights?|options?))\b/i.test(message)
+
+    if (isYes) {
+      const sp  = ctx.searchParams!
+      const url = `/flights/search?from=${encodeURIComponent(sp.origin)}&to=${encodeURIComponent(sp.destination)}&depart=${encodeURIComponent(sp.departureDate)}&cabin=${sp.cabinClass}&adults=${sp.passengers}`
+      return {
+        reply: `Let's get you booked! Head to our secure checkout to complete your booking:\n\n[Complete booking →](${url})\n\nYour search is pre-filled — just pick your seat and pay. Any questions before you go?`,
+        quickReplies: [
+          { label: '✈ Complete booking', value: url, type: 'link' },
+          { label: '🔍 See all flights',  value: `/flights/search?from=${encodeURIComponent(sp.origin)}&to=${encodeURIComponent(sp.destination)}&depart=${encodeURIComponent(sp.departureDate)}`, type: 'link' },
+        ],
+        updatedSession: {
+          ...baseSession(),
+          bookingContext: { ...ctx, awaitingConfirm: false },
+        },
+      }
+    }
+
+    if (isNo) {
+      const sp  = ctx.searchParams!
+      const url = `/flights/search?from=${encodeURIComponent(sp.origin)}&to=${encodeURIComponent(sp.destination)}&depart=${encodeURIComponent(sp.departureDate)}&cabin=${sp.cabinClass}&adults=${sp.passengers}`
+      return {
+        reply: `No problem! Here are all available flights for your search:\n\n[View all flights →](${url})\n\nYou can compare times, airlines, and prices in full.`,
+        quickReplies: [{ label: '🔍 See all flights', value: url, type: 'link' }],
+        updatedSession: {
+          ...baseSession(),
+          bookingContext: { ...ctx, awaitingConfirm: false },
+        },
+      }
+    }
+
+    // Ambiguous follow-up while awaiting confirm
+    return {
+      reply: `${ctx.topOfferSummary ?? 'I have a flight recommendation for you.'}\n\nShall I book this one, or would you like to see all options?`,
+      quickReplies: [
+        { label: '✅ Book this',        value: 'Yes, book it', type: 'message' },
+        { label: '🔍 See all flights',  value: 'Show me all flights', type: 'message' },
+      ],
+      updatedSession: { ...baseSession(), bookingContext: ctx },
+    }
+  }
+
+  // ── Collect search params ─────────────────────────────────────────────────
+  const ex      = extractBookingParams(message)
+  const current = ctx.searchParams ?? { origin: '', destination: '', departureDate: '', returnDate: null, passengers: 1, cabinClass: 'ECONOMY' }
+  const merged  = {
+    origin:        ex.origin        ?? current.origin,
+    destination:   ex.destination   ?? current.destination,
+    departureDate: ex.date          ?? current.departureDate,
+    returnDate:    current.returnDate,
+    passengers:    ex.passengers    ?? current.passengers,
+    cabinClass:    ex.cabinClass    ?? current.cabinClass,
+  }
+
+  if (!merged.destination) {
+    return {
+      reply: `Where would you like to fly to? Tell me the destination city or country.`,
+      quickReplies: [],
+      updatedSession: { ...baseSession(), bookingContext: { ...ctx, searchParams: merged.origin ? merged : null } },
+    }
+  }
+
+  if (!merged.origin) {
+    return {
+      reply: `Great — flying to **${merged.destination}**! Which city are you departing from?`,
+      quickReplies: [],
+      updatedSession: { ...baseSession(), bookingContext: { ...ctx, searchParams: merged } },
+    }
+  }
+
+  if (!merged.departureDate) {
+    return {
+      reply: `**${merged.origin}** → **${merged.destination}** — when would you like to depart? (e.g. "15 July" or "next Monday")`,
+      quickReplies: [],
+      updatedSession: { ...baseSession(), bookingContext: { ...ctx, searchParams: merged } },
+    }
+  }
+
+  // Ask pax/cabin exactly once — only on the turn when the date was just provided
+  // (date not yet saved in ctx) and this isn't the very first turn of the flow.
+  // If the user already specified pax or cabin in their message, skip the question.
+  const dateAlreadySaved = !!ctx.searchParams?.departureDate
+  const isFirstBookingTurn = !session?.bookingContext
+  if (!ctx.offersReturned && !ex.passengers && !ex.cabinClass && !dateAlreadySaved && !isFirstBookingTurn) {
+    return {
+      reply: `Almost there! How many passengers, and which cabin class?`,
+      quickReplies: [
+        { label: '1 · Economy',  value: '1 passenger, economy class',  type: 'message' },
+        { label: '2 · Economy',  value: '2 passengers, economy class',  type: 'message' },
+        { label: '1 · Business', value: '1 passenger, business class',  type: 'message' },
+      ],
+      updatedSession: { ...baseSession(), bookingContext: { ...ctx, searchParams: merged } },
+    }
+  }
+
+  // ── All params present — search flights ────────────────────────────────────
+  const isoDate = merged.departureDate
+  const params: FlightSearchParams = {
+    tripType:   'one-way',
+    cabin:      merged.cabinClass as FlightSearchParams['cabin'],
+    passengers: { adults: merged.passengers, children: 0, infants: 0 },
+    legs: [{ from: merged.origin.toUpperCase().slice(0, 3), to: merged.destination.toUpperCase().slice(0, 3), date: isoDate }],
+  }
+
+  let offers: FlightItinerary[] = []
+  try {
+    if (process.env.DUFFEL_ACCESS_TOKEN) {
+      const raw = await searchFlights(params)
+      offers    = assignBadges(raw)
+    }
+  } catch {}
+
+  if (offers.length === 0) {
+    const url = `/flights/search?from=${encodeURIComponent(merged.origin)}&to=${encodeURIComponent(merged.destination)}&depart=${encodeURIComponent(merged.departureDate)}&cabin=${merged.cabinClass}&adults=${merged.passengers}`
+    return {
+      reply: `I wasn't able to pull live fares right now, but your search is ready on our flights page:\n\n[Search ${merged.origin} → ${merged.destination}](${url})\n\nYou'll see all available airlines and real-time prices there.`,
+      quickReplies: [{ label: '🔍 View flights', value: url, type: 'link' }],
+      updatedSession: {
+        ...baseSession(),
+        bookingContext: { ...ctx, searchParams: merged, offersReturned: false },
+      },
+    }
+  }
+
+  // Pick best offer: prefer lowest price
+  const best = offers.reduce((a, b) => (a.price.total < b.price.total ? a : b))
+  const seg  = best.segments[0]
+
+  const airline = seg?.airlineName ?? seg?.airline ?? 'Airlines'
+  const origin  = seg?.departureIata ?? merged.origin.toUpperCase().slice(0, 3)
+  const dest    = seg?.arrivalIata   ?? merged.destination.toUpperCase().slice(0, 3)
+  const depTime = seg?.departureTime ? new Date(seg.departureTime).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }) : ''
+  const arrTime = seg?.arrivalTime   ? new Date(seg.arrivalTime).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }) : ''
+  const stops   = best.stops
+  const price   = `${best.price.currency} ${best.price.total.toLocaleString()}`
+  const cabin   = merged.cabinClass.charAt(0) + merged.cabinClass.slice(1).toLowerCase()
+
+  const summary = `✈ **${airline}** · ${origin} → ${dest}\n🕐 ${depTime} → ${arrTime} · ${stops === 0 ? 'Direct' : `${stops} stop${stops > 1 ? 's' : ''}`}\n💺 ${cabin} · ${merged.passengers} pax\n💷 **${price}**`
+
+  return {
+    reply: `I found **${offers.length} flights**. My top pick:\n\n${summary}\n\nShall I book this one, or would you like to see all options?`,
+    quickReplies: [
+      { label: '✅ Book this',       value: 'Yes, book it',        type: 'message' },
+      { label: '🔍 See all flights', value: 'Show me all flights', type: 'message' },
+    ],
+    updatedSession: {
+      ...baseSession(),
+      bookingContext: {
+        searchParams:     merged,
+        offersReturned:   true,
+        selectedOfferId:  best.id,
+        awaitingConfirm:  true,
+        confirmedOrderId: null,
+        topOfferSummary:  summary,
+      },
+    },
+  }
+}
+
+// ─── Group trip flow handler ───────────────────────────────────────────────────
+
+async function handleGroupFlow(
+  message:      string,
+  session:      JadeSessionState | null,
+  cookieHeader: string,
+): Promise<FlowResult> {
+  const existing = session?.groupContext ?? null
+  const ctx = existing ?? {
+    sessionId:   null,
+    sessionName: null,
+    role:        null,
+    currentStep: null,
+    memberCount: null,
+    inviteLinks: null,
+  }
+
+  const mkSession = (): Omit<JadeSessionState, 'groupContext'> => ({
+    intent:              'group_trip',
+    lastMessage:         message,
+    conversationHistory: session?.conversationHistory ?? [],
+    bookingContext:      null,
+  })
+
+  // ── Bug 2: Carry-over from a prior booking flow ───────────────────────────
+  const bookingSearchParams = session?.bookingContext?.searchParams
+  const carryOverCount      = bookingSearchParams?.passengers  ?? null
+  const carryOverOrigin     = bookingSearchParams?.origin      ?? null
+  const carryOverDest       = bookingSearchParams?.destination ?? null
+
+  // ── Bug 4: Extract group size — also accept a bare number reply like "5" ──
+  const sizeMatch     = message.match(/\b(\d+)\s*(?:people|person|pax|of us|members?|friends?|family members?)\b/i)
+  const plainNumMatch = !sizeMatch ? message.trim().match(/^(\d{1,2})[.!?]?\s*$/) : null
+  const extractedCount = sizeMatch
+    ? Number(sizeMatch[1])
+    : plainNumMatch ? Number(plainNumMatch[1]) : null
+
+  // Final count: current message → saved session → booking carry-over
+  const memberCount = extractedCount ?? ctx.memberCount ?? carryOverCount ?? null
+
+  // True only on the first group-turn after switching from booking (no prior group state, no explicit count now)
+  const isSwitchingFromBooking = !!carryOverCount && !ctx.memberCount && !extractedCount
+
+  // ── Extract trip name — explicit phrase or plain reply ─────────────────────
+  const nameExplicit = message.match(
+    /(?:call(?:ed)?|name(?:d)?|trip name|name it|call the trip)\s+["']?([A-Za-z0-9 '&\-]{3,40})["']?/i,
+  )
+  // Treat a short plain reply as the trip name when we've already collected the count.
+  // Must start with a letter so bare numbers ("5", "10") are never mistaken for a name.
+  const namePlain = !nameExplicit && ctx.memberCount && !ctx.sessionName
+    ? message.trim().match(/^([A-Za-z][A-Za-z0-9 '&\-]{2,49})[.!?]?\s*$/)
+    : null
+  const sessionName = nameExplicit?.[1]?.trim() ?? namePlain?.[1]?.trim() ?? ctx.sessionName ?? null
+
+  // ── Already created — show status ─────────────────────────────────────────
+  if (ctx.sessionId) {
+    const step  = ctx.currentStep
+    const count = ctx.memberCount ?? memberCount ?? 0
+
+    if (step === 'collecting') {
+      const links = (ctx.inviteLinks ?? []).map((url, i) => `**Person ${i + 1}:** ${url}`).join('\n')
+      return {
+        reply: `Your group trip **${ctx.sessionName}** is live!\n\nSend each person their private link:\n\n${links}\n\nI'll let you know when everyone has submitted.`,
+        quickReplies: [
+          { label: '📊 Check status', value: 'What is the group status?', type: 'message' },
+        ],
+        updatedSession: { ...mkSession(), groupContext: ctx },
+      }
+    }
+
+    if (step === 'voting') {
+      return {
+        reply: `Voting is open for **${ctx.sessionName}**! Share the vote link and I'll announce the winner once everyone has picked.`,
+        quickReplies: [
+          { label: '🗳 Vote link', value: `/group/${ctx.sessionId}/vote`, type: 'link' },
+        ],
+        updatedSession: { ...mkSession(), groupContext: ctx },
+      }
+    }
+
+    if (step === 'complete') {
+      return {
+        reply: `Your group itinerary for **${ctx.sessionName}** is ready!`,
+        quickReplies: [
+          { label: '🗺 View itinerary',    value: `/group/${ctx.sessionId}/itinerary`,  type: 'link' },
+          { label: '🛂 Check group visas', value: `/visa/${ctx.sessionId}/results`,     type: 'link' },
+        ],
+        updatedSession: { ...mkSession(), groupContext: ctx },
+      }
+    }
+
+    void count // used above
+    return { reply: `Your group trip is being set up — I'll update you shortly.`, quickReplies: [], updatedSession: { ...mkSession(), groupContext: ctx } }
+  }
+
+  // ── Bug 2: Switching from booking — show carry-over, ask only for name ───
+  if (isSwitchingFromBooking && !sessionName) {
+    const parts: string[] = []
+    if (carryOverOrigin) parts.push(`flying from **${carryOverOrigin}**`)
+    if (carryOverDest)   parts.push(`to **${carryOverDest}**`)
+    const detailStr = parts.length > 0 ? `, ${parts.join(' ')}` : ''
+    return {
+      reply: `Got it — let's plan this as a group trip instead.\n\nI already have: **${memberCount}** ${memberCount === 1 ? 'person' : 'people'}${detailStr}. Give your trip a name and I'll create private invite links for everyone.`,
+      quickReplies: [],
+      updatedSession: { ...mkSession(), groupContext: { ...ctx, memberCount: memberCount! } },
+    }
+  }
+
+  // ── Collect group size ────────────────────────────────────────────────────
+  if (!memberCount) {
+    return {
+      reply: `I'd love to help plan your group trip! How many people are in the group (including yourself)?`,
+      quickReplies: [
+        { label: '3 people',  value: '3 people',  type: 'message' },
+        { label: '5 people',  value: '5 people',  type: 'message' },
+        { label: '8+ people', value: '10 people', type: 'message' },
+      ],
+      updatedSession: { ...mkSession(), groupContext: ctx },
+    }
+  }
+
+  // ── Collect trip name ─────────────────────────────────────────────────────
+  if (!sessionName) {
+    return {
+      reply: `A group of **${memberCount}** — love it! What's the trip name? Something like "Lagos Squad 2026" or "Summer Escape".`,
+      quickReplies: [],
+      updatedSession: { ...mkSession(), groupContext: { ...ctx, memberCount } },
+    }
+  }
+
+  // ── Both collected — create the group session ────────────────────────────
+  const BASE_URL = process.env.NEXTAUTH_URL
+    ?? process.env.NEXT_PUBLIC_BASE_URL
+    ?? 'https://walztravels.com'
+
+  const members = Array.from({ length: memberCount }, (_, i) => ({ name: `Person ${i + 1}` }))
+
+  let createRes: Response
+  try {
+    createRes = await fetch(`${BASE_URL}/api/public/group/create`, {
+      method:  'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        cookie:          cookieHeader,
+      },
+      body: JSON.stringify({ name: sessionName, members }),
+    })
+  } catch {
+    // Network error — fall back to manual link
+    const url = `/group/create?name=${encodeURIComponent(sessionName)}`
+    return {
+      reply: `I hit a snag creating the session automatically. You can set it up here:\n\n[Create group trip →](${url})`,
+      quickReplies: [{ label: '🔗 Create trip', value: url, type: 'link' }],
+      updatedSession: { ...mkSession(), groupContext: { ...ctx, sessionName, memberCount } },
+    }
+  }
+
+  // Auth required — user must sign in
+  if (createRes.status === 401) {
+    return {
+      reply: `To create the group session I'll need you to be signed in to your Walz account.\n\n[Sign in →](/login?callbackUrl=/)\n\nOnce you're in, just say "start the group trip" and I'll set it up straight away!`,
+      quickReplies: [{ label: '🔑 Sign in', value: '/login', type: 'link' }],
+      updatedSession: { ...mkSession(), groupContext: { ...ctx, sessionName, memberCount } },
+    }
+  }
+
+  if (!createRes.ok) {
+    return {
+      reply: `Something went wrong creating your trip (${createRes.status}). Please try again or let me know if you need help.`,
+      quickReplies: [],
+      updatedSession: { ...mkSession(), groupContext: { ...ctx, sessionName, memberCount } },
+    }
+  }
+
+  const { sessionId, inviteLinks } = await createRes.json() as {
+    sessionId:   string
+    sessionName: string
+    inviteLinks: Array<{ name: string; token: string; url: string }>
+  }
+
+  const linkLines = inviteLinks.map((l, i) => `**Person ${i + 1}:** ${l.url}`).join('\n')
+
+  return {
+    reply: `**${sessionName}** is ready 🎉\n\nSend each person their private link — they share their preferences privately without seeing each other's answers:\n\n${linkLines}\n\nI'll let you know when everyone has submitted.`,
+    quickReplies: [
+      { label: '📋 View trip', value: `/group/${sessionId}/itinerary`, type: 'link' },
+    ],
+    updatedSession: {
+      ...mkSession(),
+      groupContext: {
+        sessionId,
+        sessionName,
+        role:        'creator',
+        currentStep: 'collecting',
+        memberCount,
+        inviteLinks: inviteLinks.map(l => l.url),
+      },
+    },
+  }
 }
 
 // ─── Intent classifier ────────────────────────────────────────────────────────
@@ -980,7 +1543,62 @@ export async function POST(req: NextRequest) {
     ? { needed: true, reason: 'B2B partnership inquiry — business development team notified', urgency: 'medium' as const, routeTo: 'admin' as const }
     : detectHandover(message, history, dna)
 
-  // ── AI reply + profile extraction run in parallel (no added latency) ─────────
+  // ── Load Jade session (flow state for booking / group) ────────────────────────
+  const convKey     = convId ? String(convId) : sid
+  const jadeSession = await loadJadeSession(convKey).catch(() => null)
+
+  // Human agent has taken over this conversation — stay completely silent
+  if (jadeSession?.agentActive === true) {
+    return NextResponse.json({
+      reply:          null,
+      handedOff:      true,
+      agentName:      null,
+      silenced:       true,
+      conversationId: convId,
+    })
+  }
+
+  // ── Fast-path: route to flow handler if in an active flow ─────────────────────
+  const sessionIntent  = jadeSession?.intent ?? null
+  const newFlowIntent  = !sessionIntent ? detectFlowIntent(message) : null
+  const activeIntent   = sessionIntent ?? newFlowIntent
+  const cookieHeader   = req.headers.get('cookie') ?? ''
+
+  if (activeIntent === 'booking' || activeIntent === 'group_trip') {
+    const flowResult = activeIntent === 'booking'
+      ? await handleBookingFlow(message, jadeSession)
+      : await handleGroupFlow(message, jadeSession, cookieHeader)
+
+    // Persist updated session (fire-and-forget)
+    if (convKey) {
+      void saveJadeSession(convKey, flowResult.updatedSession)
+    }
+
+    // Push to Chatwoot async (same pattern as standard path)
+    let newConvId: number | null = null
+    void (async () => {
+      try {
+        newConvId = await pushToCharwoot(
+          sid, customerName, message, flowResult.reply, convId, dna, handover, profile
+        )
+      } catch (e) {
+        console.error('[Jade→CW] Flow push failed:', String(e).slice(0, 100))
+      }
+    })()
+
+    return NextResponse.json({
+      reply:           flowResult.reply,
+      conversationId:  convId,
+      dna,
+      intent:          activeIntent,
+      quickReplies:    flowResult.quickReplies,
+      extractedProfile: undefined,
+      handover:        null,
+      resumed:         shouldResume,
+    })
+  }
+
+  // ── Standard path: full AI reply + profile extraction ─────────────────────────
   const [reply, extractedProfile] = await Promise.all([
     jadeReply(
       messages, pageContext, dna, shouldResume, profile,
@@ -1019,6 +1637,7 @@ export async function POST(req: NextRequest) {
     conversationId:  convId,
     dna,
     intent,
+    quickReplies:    [],
     extractedProfile: Object.keys(extractedProfile).length > 0 ? extractedProfile : undefined,
     handover:         handover.needed ? handover : null,
     resumed:          shouldResume,

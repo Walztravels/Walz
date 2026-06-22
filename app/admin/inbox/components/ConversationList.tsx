@@ -1,6 +1,6 @@
 'use client'
 import { useState } from 'react'
-import { Search, Settings } from 'lucide-react'
+import { Search, Settings, Trash2 } from 'lucide-react'
 import { CWConversation, AdminProfile } from '../types'
 import { ConversationItem } from './ConversationItem'
 
@@ -14,12 +14,14 @@ interface Props {
   onSelect: (conv: CWConversation) => void
   onTabChange: (tab: Tab) => void
   onOpenSettings: () => void
+  onDelete?: (convId: number) => void
   counts: { all: number; mine: number; unassigned: number; resolved: number }
 }
 
 export function ConversationList({
-  conversations, selected, tab, profile, onSelect, onTabChange, onOpenSettings, counts,
+  conversations, selected, tab, profile, onSelect, onTabChange, onOpenSettings, onDelete, counts,
 }: Props) {
+  const [confirmDelete, setConfirmDelete] = useState<number | null>(null)
   const [search, setSearch] = useState('')
 
   const displayed = (conversations || []).filter(c => {
@@ -99,12 +101,34 @@ export function ConversationList({
           </div>
         ) : (
           (displayed || []).map(conv => (
-            <ConversationItem
-              key={conv.id}
-              conv={conv}
-              selected={selected?.id === conv.id}
-              onClick={() => onSelect(conv)}
-            />
+            <div key={conv.id} className="relative group">
+              <ConversationItem
+                conv={conv}
+                selected={selected?.id === conv.id}
+                onClick={() => { setConfirmDelete(null); onSelect(conv) }}
+              />
+              {onDelete && confirmDelete === conv.id ? (
+                <div className="absolute inset-0 bg-red-900/90 flex items-center justify-center gap-2 z-10">
+                  <span className="text-xs text-white">Delete?</span>
+                  <button
+                    onClick={() => { onDelete(conv.id); setConfirmDelete(null) }}
+                    className="text-xs bg-red-500 text-white px-2 py-0.5 rounded hover:bg-red-600"
+                  >Yes</button>
+                  <button
+                    onClick={() => setConfirmDelete(null)}
+                    className="text-xs bg-white/20 text-white px-2 py-0.5 rounded hover:bg-white/30"
+                  >No</button>
+                </div>
+              ) : onDelete && (
+                <button
+                  onClick={e => { e.stopPropagation(); setConfirmDelete(conv.id) }}
+                  className="absolute top-2 right-2 p-1 rounded opacity-0 group-hover:opacity-100 transition-opacity text-white/40 hover:text-red-400 hover:bg-red-400/10"
+                  title="Delete conversation"
+                >
+                  <Trash2 className="w-3.5 h-3.5" />
+                </button>
+              )}
+            </div>
           ))
         )}
       </div>

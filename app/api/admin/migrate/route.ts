@@ -1,11 +1,16 @@
-import { NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
 import { getAdminSession } from '@/lib/admin-auth'
 import prisma from '@/lib/db'
 
 // One-time migration endpoint — runs the schema SQL via Prisma's $executeRawUnsafe.
 // Protected by admin session. Call once, then the tables exist forever.
-export async function POST() {
-  if (!(await getAdminSession())) {
+export async function POST(req: NextRequest) {
+  // Allow admin session OR CRON_SECRET header (for CLI-triggered runs)
+  const cronSecret = process.env.CRON_SECRET
+  const authHeader = req.headers.get('authorization')
+  const cronOk     = cronSecret && authHeader === `Bearer ${cronSecret}`
+
+  if (!cronOk && !(await getAdminSession())) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
@@ -80,6 +85,12 @@ export async function POST() {
     `DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='User' AND column_name='passwordResetExpires') THEN ALTER TABLE "User" ADD COLUMN "passwordResetExpires" TIMESTAMP(3); END IF; END $$`,
     `DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='User' AND column_name='verificationToken') THEN ALTER TABLE "User" ADD COLUMN "verificationToken" TEXT; END IF; END $$`,
     `DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='User' AND column_name='verificationTokenExpires') THEN ALTER TABLE "User" ADD COLUMN "verificationTokenExpires" TIMESTAMP(3); END IF; END $$`,
+    `DO $$ BEGIN IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='User' AND column_name='stripePaymentMethodId') THEN ALTER TABLE "User" ADD COLUMN "stripePaymentMethodId" TEXT; END IF; END $$`,
+
+    // Upsert super_admin RolePermission — grants all permissions including trips_view and inbox_delete
+    `INSERT INTO "RolePermission" (id, role, label, color, permissions, "createdAt", "updatedAt")
+     VALUES (gen_random_uuid()::text, 'super_admin', 'Super Admin', '#7C3AED', '{"dashboard_view":true,"dashboard_stats_all":true,"staff_view":true,"staff_create":true,"staff_edit":true,"staff_delete":true,"staff_manage_roles":true,"applications_view":true,"applications_view_all":true,"applications_create":true,"applications_edit":true,"applications_delete":true,"applications_assign":true,"applications_approve":true,"visa_view":true,"visa_view_all":true,"visa_create":true,"visa_edit":true,"visa_delete":true,"visa_approve":true,"trips_view":true,"trips_view_all":true,"trips_create":true,"trips_edit":true,"trips_delete":true,"trips_assign":true,"trips_proposals":true,"bookings_view":true,"bookings_view_all":true,"bookings_create":true,"bookings_edit":true,"bookings_delete":true,"payments_view":true,"payments_view_all":true,"payments_create":true,"payments_edit":true,"payments_delete":true,"payments_refund":true,"reports_view":true,"reports_all":true,"reports_revenue":true,"reports_staff":true,"reports_export":true,"settings_view":true,"settings_edit":true,"settings_roles":true,"settings_integrations":true,"cms_view":true,"cms_edit":true,"cms_publish":true,"inbox_delete":true,"notifications_view":true,"notifications_send":true,"notifications_broadcast":true}'::jsonb, NOW(), NOW())
+     ON CONFLICT (role) DO UPDATE SET permissions = EXCLUDED.permissions, "updatedAt" = NOW()`,
 
     // Foreign keys (ADD IF NOT EXISTS not supported, so we catch errors)
     `ALTER TABLE "Account" ADD CONSTRAINT "Account_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE`,

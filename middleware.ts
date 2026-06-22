@@ -73,7 +73,7 @@ function isAtLeast(userRole: string, minRole: string): boolean {
  */
 const ROUTE_MIN_ROLES: Array<{ prefix: string; minRole: string }> = [
   { prefix: '/admin/settings',   minRole: 'super_admin'     },
-  { prefix: '/admin/staff',      minRole: 'super_admin'     },
+  { prefix: '/admin/staff',      minRole: 'general_manager' },
   { prefix: '/admin/reports',    minRole: 'coordinator'     },
   { prefix: '/admin/payments',   minRole: 'coordinator'     },
 ]
@@ -113,6 +113,25 @@ export async function middleware(req: NextRequest) {
     return NextResponse.next()
   }
 
+  // ── API admin routes ─────────────────────────────────────────────────────────
+  if (pathname.startsWith('/api/admin')) {
+    // Auth endpoints must be reachable without a cookie
+    if (pathname === '/api/admin/auth/login' || pathname === '/api/admin/auth/logout') {
+      return NextResponse.next()
+    }
+    // Allow CRON_SECRET bearer token (used by CLI migration triggers)
+    const cronSecret = process.env.CRON_SECRET
+    const authHeader = req.headers.get('authorization')
+    if (cronSecret && authHeader === `Bearer ${cronSecret}`) {
+      return NextResponse.next()
+    }
+    const session = await verifyAdminCookie(req)
+    if (!session) {
+      return NextResponse.json({ error: 'Unauthorised' }, { status: 401 })
+    }
+    return NextResponse.next()
+  }
+
   // ── User-facing protected routes (next-auth) ──────────────────────────────────
   const protectedRoutes = ['/dashboard', '/portal']
   if (protectedRoutes.some((route) => pathname.startsWith(route))) {
@@ -139,6 +158,7 @@ export async function middleware(req: NextRequest) {
 export const config = {
   matcher: [
     '/admin/:path*',
+    '/api/admin/:path*',
     '/dashboard/:path*',
     '/portal',
     '/portal/((?!login$).*)',

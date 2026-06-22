@@ -146,9 +146,10 @@ export async function GET() {
 
 // ── POST — create staff member ────────────────────────────────────────────────
 export async function POST(req: NextRequest) {
-  if (!(await getAdminSession())) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  }
+  const session = await getAdminSession()
+  if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
+  const isSuperAdmin = session.staffRole === 'super_admin'
 
   const body = await req.json().catch(() => null)
   if (!body) return NextResponse.json({ error: 'Invalid body' }, { status: 400 })
@@ -161,8 +162,11 @@ export async function POST(req: NextRequest) {
   }
 
   const roleStr = String(role)
-  if (!VALID_ROLES.includes(roleStr) || roleStr === 'super_admin') {
+  if (!VALID_ROLES.includes(roleStr)) {
     return NextResponse.json({ error: 'Invalid role' }, { status: 400 })
+  }
+  if (!isSuperAdmin && roleStr === 'super_admin') {
+    return NextResponse.json({ error: 'Only Super Admins can assign the Super Admin role' }, { status: 403 })
   }
 
   if (String(password).length < 8) {

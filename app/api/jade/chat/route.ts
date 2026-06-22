@@ -96,7 +96,8 @@ function detectSentiment(message: string): 'positive' | 'negative' | 'neutral' {
 
 // ─── CONTEXT-AWARE SYSTEM PROMPT ──────────────────────────────────────────────
 function buildSystemPrompt(intent: string, sentiment: string, msgCount: number, customerName: string, pageContext: string): string {
-  let additions = ''
+  const today = new Date().toLocaleDateString('en-GB', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })
+  let additions = `\n\nToday's date is ${today}. When a user says 'next Friday', 'this weekend', 'tomorrow' etc, calculate the exact date yourself and confirm it back to the user. Never ask the user what today's date is.`
 
   if (sentiment === 'negative') {
     additions += '\n\n## PRIORITY: Customer seems upset. Lead with empathy. Acknowledge their concern before anything else. Offer to escalate to human agent.'

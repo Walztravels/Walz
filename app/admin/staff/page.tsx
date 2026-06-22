@@ -189,13 +189,14 @@ function StaffModal({
   onSaved:   () => void
 }) {
   const isEdit = !!initial
+  const { role: callerRole } = useStaffPermissions()
+  const isSuperAdmin = callerRole === 'super_admin'
 
   const [name,         setName]         = useState(initial?.name         ?? '')
   const [email,        setEmail]        = useState(initial?.email        ?? '')
   const [roleTitle,    setRoleTitle]    = useState(initial?.roleTitle    ?? '')
   const [role,         setRole]         = useState<RbacRole>(
-    // super_admin can't be set via UI — default edit to operations_manager for display
-    (initial?.role === 'super_admin' ? 'operations_manager' : initial?.role) ?? 'sales_rep'
+    (initial?.role as RbacRole) ?? 'sales_rep'
   )
   const [portalAccess, setPortalAccess] = useState(initial?.portalAccess ?? false)
   const [password,     setPassword]     = useState('')
@@ -203,7 +204,16 @@ function StaffModal({
   const [saving,       setSaving]       = useState(false)
   const [error,        setError]        = useState('')
 
-  const selectedRole = STAFF_ROLES.find(r => r.value === role)!
+  const superAdminEntry = {
+    value:           'super_admin' as RbacRole,
+    label:           'Super Admin',
+    description:     'Full system access — all features, settings and staff management',
+    fullDescription: 'Unrestricted access to all features, system settings, API credentials, audit logs and staff management.',
+    badge:           SUPER_ADMIN_BADGE,
+    dot:             'bg-violet-500',
+  }
+  const availableRoles = isSuperAdmin ? [superAdminEntry, ...STAFF_ROLES] : STAFF_ROLES
+  const selectedRole = availableRoles.find(r => r.value === role) ?? availableRoles[0]
 
   async function submit(e: React.FormEvent) {
     e.preventDefault()
@@ -308,7 +318,7 @@ function StaffModal({
                 className="w-full px-3 py-2.5 bg-white border border-gray-200 rounded-xl text-sm text-gray-800 appearance-none focus:outline-none focus:border-[#C9A84C] focus:ring-1 focus:ring-[#C9A84C] pr-9"
               >
                 <option value="" disabled>Select a role…</option>
-                {STAFF_ROLES.map(r => (
+                {availableRoles.map(r => (
                   <option key={r.value} value={r.value}>{r.label}</option>
                 ))}
               </select>

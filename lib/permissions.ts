@@ -78,6 +78,8 @@ export type PermissionKey =
   | 'cms_view'
   | 'cms_edit'
   | 'cms_publish'
+  // Inbox
+  | 'inbox_delete'
   // Notifications
   | 'notifications_view'
   | 'notifications_send'
@@ -137,6 +139,7 @@ export const EMPTY_PERMISSIONS: Permissions = {
   cms_view: false,
   cms_edit: false,
   cms_publish: false,
+  inbox_delete: false,
   notifications_view: false,
   notifications_send: false,
   notifications_broadcast: false,

@@ -3,6 +3,60 @@ import OpenAI from 'openai'
 import type { Message } from '@anthropic-ai/sdk/resources/messages'
 import type { DocumentBlockParam } from '@anthropic-ai/sdk/resources/messages'
 
+// ─── JSON enforcement ─────────────────────────────────────────────────────────
+
+const JSON_ONLY = '\n\nCRITICAL: Your entire response must be valid JSON only. No preamble, no explanation, no markdown code fences, no prose before or after. Start your response with { and end with }. If you cannot analyse the document, return: {"error": "reason here", "analysable": false}'
+
+async function callClaudeWithRetry<T>(
+  fn: () => Promise<T>,
+  maxRetries = 3,
+): Promise<T> {
+  const delays = [1000, 2000, 4000]
+  for (let attempt = 0; attempt <= maxRetries; attempt++) {
+    try {
+      return await fn()
+    } catch (err) {
+      const isOverloaded = (err as { status?: number })?.status === 529
+      if (isOverloaded && attempt < maxRetries) {
+        await new Promise<void>(r => setTimeout(r, delays[attempt] ?? 4000))
+        continue
+      }
+      throw err
+    }
+  }
+  throw new Error('Max retries exceeded')
+}
+
+function parseClaudePrefillJSON<T>(text: string): T {
+  // T1: direct parse
+  try { return JSON.parse(text) as T } catch {}
+  // T2: strip markdown fences
+  const stripped = text
+    .replace(/^```json\s*/i, '')
+    .replace(/^```\s*/i, '')
+    .replace(/```\s*$/i, '')
+    .trim()
+  try { return JSON.parse(stripped) as T } catch {}
+  // T3: bracket-counting — find outermost {...} without greedy regex truncation
+  const start = stripped.indexOf('{')
+  if (start !== -1) {
+    let depth = 0; let inStr = false; let esc = false
+    for (let i = start; i < stripped.length; i++) {
+      const ch = stripped[i]
+      if (esc)                    { esc = false; continue }
+      if (ch === '\\' && inStr)   { esc = true;  continue }
+      if (ch === '"')             { inStr = !inStr; continue }
+      if (inStr)                  continue
+      if (ch === '{')             depth++
+      else if (ch === '}')        { depth--; if (depth === 0) { try { return JSON.parse(stripped.slice(start, i + 1)) as T } catch {} ; break } }
+    }
+  }
+  // T4: legacy bare-tail fallback
+  try { return JSON.parse('{' + text) as T } catch {}
+  console.error('VisaFortress parse error — raw (first 400):', text.slice(0, 400))
+  throw new Error('VisaFortress: Could not extract valid JSON from Claude response')
+}
+
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 export interface FinancialCredibilityScore {
@@ -531,13 +585,15 @@ THRESHOLD: ${req.min} ${req.currency}${textSection}
 Provide a concise independent assessment. Return ONLY valid JSON starting with {.
 
 {
-  "verdict": "recommend|conditional|decline",
+  "verdict": "recommend",
   "overallScore": 0,
-  "fraudIndicators": "none|low|medium|high",
+  "fraudIndicators": "low",
   "keyApprovals": ["Evidence-based reason 1","Reason 2","Reason 3"],
   "keyConcerns": ["Concern with date/amount if any"],
   "note": "1-2 sentence independent assessment"
-}`,
+}
+
+Rules: verdict must be one of: recommend conditional decline. fraudIndicators must be one of: none low medium high.`,
     }
   }
 
@@ -601,7 +657,7 @@ Write formal case file notes as a senior immigration officer. Cite specific figu
 Return ONLY valid JSON starting with {. Keep monthlyBreakdown.transactions SHORT (salary, cash events, flagged items only).
 
 {
-  "status": "PASS|REVIEW|FLAG",
+  "status": "PASS",
   "currency": "exact code from statement",
   "statementPeriod": "Mon YYYY – Mon YYYY",
   "monthsAnalyzed": 3,
@@ -816,7 +872,15 @@ Return ONLY valid JSON starting with {. Keep monthlyBreakdown.transactions SHORT
   "agentNotes": "INTERNAL: (1) Forensic verdict (2) Specific concerns with dates/amounts (3) Proceed or wait",
   "confidence": "high",
   "warnings": []
-}`
+}
+
+Rules:
+- status must be one of: PASS REVIEW FLAG
+- finalVerdict must be one of: recommend conditional decline
+- approvalRecommendation must be one of: approve approve_with_conditions request_more_info refuse
+- fraudIndicators must be one of: none low medium high
+- riskFactors must be one of: none low medium high
+- confidence must be one of: high medium low`
 
   return { system, user, req }
 }
@@ -840,36 +904,22 @@ async function claudeDocumentAnalysis(
     source: { type: 'base64', media_type: 'application/pdf', data: base64Pdf },
   }
 
-  const response = await client.messages.create({
-    model:      'claude-sonnet-4-6',
-    max_tokens: 4000,
-    system,
+  const response = await callClaudeWithRetry(() => client.messages.create({
+    model:       'claude-sonnet-4-6',
+    max_tokens:  4000,
+    temperature: 0,
+    system:      system + JSON_ONLY,
     messages: [
       { role: 'user',      content: [docBlock, { type: 'text', text: user }] },
-      { role: 'assistant', content: '{' },
     ],
-  }) as Message
+  }) as Promise<Message>)
 
   const tail = response.content
     .filter((b: { type: string }) => b.type === 'text')
     .map((b: { type: string; text?: string }) => (b as { type: string; text: string }).text)
     .join('')
 
-  // Prefill trick prepends '{', so reconstruct the full JSON object
-  const jsonStr = ('{' + tail)
-    .replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/\s*```$/i, '').trim()
-
-  let parsed: BankStatementAnalysis
-  try {
-    parsed = JSON.parse(jsonStr) as BankStatementAnalysis
-  } catch {
-    const match = jsonStr.match(/\{[\s\S]*\}/)
-    if (match) {
-      parsed = JSON.parse(match[0]) as BankStatementAnalysis
-    } else {
-      throw new Error('Could not parse Claude (doc) response as JSON')
-    }
-  }
+  const parsed = parseClaudePrefillJSON<BankStatementAnalysis>(tail)
   normalise(parsed)
   return { ...parsed, analysisEngine: 'Claude claude-sonnet-4-6' }
 }
@@ -888,35 +938,22 @@ async function claudeTextAnalysis(
   const client = new Anthropic({ apiKey })
   const { system, user } = buildPrompt(destination, applicantName, passportCountry, text)
 
-  const response = await client.messages.create({
-    model:      'claude-sonnet-4-6',
-    max_tokens: 4000,
-    system,
+  const response = await callClaudeWithRetry(() => client.messages.create({
+    model:       'claude-sonnet-4-6',
+    max_tokens:  4000,
+    temperature: 0,
+    system:      system + JSON_ONLY,
     messages: [
       { role: 'user',      content: user },
-      { role: 'assistant', content: '{' },
     ],
-  }) as Message
+  }) as Promise<Message>)
 
   const tail = response.content
     .filter((b: { type: string }) => b.type === 'text')
     .map((b: { type: string; text?: string }) => (b as { type: string; text: string }).text)
     .join('')
 
-  const jsonStr = ('{' + tail)
-    .replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/\s*```$/i, '').trim()
-
-  let parsed: BankStatementAnalysis
-  try {
-    parsed = JSON.parse(jsonStr) as BankStatementAnalysis
-  } catch {
-    const match = jsonStr.match(/\{[\s\S]*\}/)
-    if (match) {
-      parsed = JSON.parse(match[0]) as BankStatementAnalysis
-    } else {
-      throw new Error('Could not parse Claude (text) response as JSON')
-    }
-  }
+  const parsed = parseClaudePrefillJSON<BankStatementAnalysis>(tail)
   normalise(parsed)
   return { ...parsed, analysisEngine: 'Claude claude-sonnet-4-6' }
 }
@@ -1381,7 +1418,7 @@ Produce the definitive final verdict. Resolve any agent conflicts.
 
 Return ONLY valid JSON:
 {
-  "finalVerdict": "recommend|conditional|decline",
+  "finalVerdict": "recommend",
   "finalScore": 0,
   "consensusNote": "1-2 sentence explanation of how agents were reconciled",
   "resolvedConflicts": ["specific conflict and how it was resolved"],
@@ -1389,7 +1426,9 @@ Return ONLY valid JSON:
   "agentNotes": "INTERNAL: forensic verdict + fraud verdict + embassy likelihood + recommendation",
   "recommendations": ["specific actionable recommendation"],
   "warnings": ["specific warning with evidence"]
-}`
+}
+
+Rules: finalVerdict must be one of: recommend conditional decline`
 }
 
 // ─── V2: 6-Agent Orchestrated Pipeline ───────────────────────────────────────
@@ -1432,10 +1471,11 @@ export async function analyzeBankStatementV2(
       type:   'document',
       source: { type: 'base64', media_type: 'application/pdf', data: base64Pdf },
     }
-    const extractResponse = await anthropic.messages.create({
-      model:      'claude-sonnet-4-6',
-      max_tokens: 4000,
-      system:     'You are a document data extraction specialist. Extract structured financial data from bank statements with 100% accuracy. Return ONLY valid JSON. Never interpret — only extract exactly what is in the document.',
+    const extractResponse = await callClaudeWithRetry(() => anthropic.messages.create({
+      model:       'claude-sonnet-4-6',
+      max_tokens:  4000,
+      temperature: 0,
+      system:      'You are a document data extraction specialist. Extract structured financial data from bank statements with 100% accuracy. Return ONLY valid JSON. Never interpret — only extract exactly what is in the document.' + JSON_ONLY,
       messages: [
         { role: 'user', content: [docBlock, { type: 'text', text: `Extract ALL transaction data from this bank statement. Return JSON only, starting with { and nothing else:
 {
@@ -1455,15 +1495,14 @@ export async function analyzeBankStatementV2(
   "bankTier": "tier1|tier2|tier3|unknown",
   "extractionConfidence": 0
 }` }] },
-        { role: 'assistant', content: '{' },
-      ],
-    })
+        ],
+    }))
 
-    const raw = '{' + extractResponse.content
+    const extractTail = extractResponse.content
       .filter(b => b.type === 'text')
       .map(b => (b as { type: 'text'; text: string }).text)
       .join('')
-    extracted = JSON.parse(raw.match(/\{[\s\S]*\}/)?.[0] ?? '{}') as ExtractedStatement
+    extracted = parseClaudePrefillJSON<ExtractedStatement>(extractTail)
     if (!extracted.transactions) extracted.transactions = []
     report(1, 'Document Intelligence', 'done',
       `Extracted ${extracted.transactions.length} transactions from ${extracted.bankName}`)
@@ -1513,10 +1552,11 @@ export async function analyzeBankStatementV2(
 
   const [forensicResult, fraudResult] = await Promise.allSettled([
     // AGENT 2 — Claude: full BankStatementAnalysis
-    anthropic.messages.create({
-      model:      'claude-sonnet-4-6',
-      max_tokens: 4000,
-      system:     `You are a Senior Immigration Financial Intelligence Analyst with 15 years at UKBA and IRCC. Forensic accountant specializing in AML and source-of-funds investigation. You have been given pre-extracted transaction data AND the original PDF. Your job is ANALYSIS ONLY. Every score must cite specific transactions by date and amount. Return ONLY valid JSON starting with {.`,
+    callClaudeWithRetry(() => anthropic.messages.create({
+      model:       'claude-sonnet-4-6',
+      max_tokens:  4000,
+      temperature: 0,
+      system:      `You are a Senior Immigration Financial Intelligence Analyst with 15 years at UKBA and IRCC. Forensic accountant specializing in AML and source-of-funds investigation. You have been given pre-extracted transaction data AND the original PDF. Your job is ANALYSIS ONLY. Every score must cite specific transactions by date and amount. Return ONLY valid JSON starting with {.` + JSON_ONLY,
       messages: [
         {
           role: 'user',
@@ -1525,11 +1565,10 @@ export async function analyzeBankStatementV2(
             { type: 'text', text: buildForensicPrompt(extracted, txnSummary, destination, applicantName, passportCountry, embassy, mathScore) },
           ],
         },
-        { role: 'assistant', content: '{' },
-      ],
-    }).then(res => {
-      const raw = '{' + res.content.filter(b => b.type === 'text').map(b => (b as { type: 'text'; text: string }).text).join('')
-      return JSON.parse(raw.match(/\{[\s\S]*\}/)?.[0] ?? '{}') as BankStatementAnalysis
+        ],
+    })).then(res => {
+      const forensicTail = res.content.filter(b => b.type === 'text').map(b => (b as { type: 'text'; text: string }).text).join('')
+      return parseClaudePrefillJSON<BankStatementAnalysis>(forensicTail)
     }),
 
     // AGENT 3 — GPT-4o: specialized fraud & behavioral detection
@@ -1558,12 +1597,26 @@ export async function analyzeBankStatementV2(
     }),
   ])
 
-  const forensicAnalysis = forensicResult.status === 'fulfilled' ? forensicResult.value : null
-  const fraudAnalysis    = fraudResult.status    === 'fulfilled' ? fraudResult.value    : null
+  let forensicAnalysis = forensicResult.status === 'fulfilled' ? forensicResult.value : null
+  const fraudAnalysis  = fraudResult.status    === 'fulfilled' ? fraudResult.value    : null
 
-  report(2, 'Forensic Analysis', forensicResult.status === 'fulfilled' ? 'done' : 'error',
-    forensicResult.status === 'fulfilled'
-      ? `Verdict: ${forensicAnalysis?.finalVerdict} | Score: ${forensicAnalysis?.financialCredibilityScore?.overall ?? 0}/100`
+  // If Claude forensic failed, fall back to OpenAI full analysis
+  if (!forensicAnalysis && process.env.OPENAI_API_KEY) {
+    report(2, 'Forensic Analysis', 'running', 'Claude failed — retrying with OpenAI GPT-4o')
+    try {
+      const pdfText = await extractPdfText(pdfBuffer)
+      forensicAnalysis = await openAIFullAnalysis(
+        pdfText.length > 100 ? pdfText : txnSummary,
+        destination, applicantName, passportCountry,
+      )
+    } catch (fallbackErr) {
+      console.error('[Agent2-OpenAI-fallback] failed:', fallbackErr instanceof Error ? fallbackErr.message : fallbackErr)
+    }
+  }
+
+  report(2, 'Forensic Analysis', forensicAnalysis ? 'done' : 'error',
+    forensicAnalysis
+      ? `Verdict: ${forensicAnalysis.finalVerdict} | Score: ${forensicAnalysis.financialCredibilityScore?.overall ?? 0}/100`
       : 'Forensic analysis failed')
 
   report(3, 'Fraud Detection', fraudResult.status === 'fulfilled' ? 'done' : 'error',
@@ -1588,17 +1641,17 @@ export async function analyzeBankStatementV2(
   }
 
   try {
-    const embassyRes = await anthropic.messages.create({
-      model:      'claude-sonnet-4-6',
-      max_tokens: 2500,
-      system:     `You are a senior ${destination.toUpperCase()} immigration officer. Assess this application specifically against ${destination.toUpperCase()} visa policy. Another agent has done forensic analysis. Return ONLY valid JSON.`,
+    const embassyRes = await callClaudeWithRetry(() => anthropic.messages.create({
+      model:       'claude-sonnet-4-6',
+      max_tokens:  2500,
+      temperature: 0,
+      system:      `You are a senior ${destination.toUpperCase()} immigration officer. Assess this application specifically against ${destination.toUpperCase()} visa policy. Another agent has done forensic analysis. Return ONLY valid JSON.` + JSON_ONLY,
       messages: [
         { role: 'user', content: buildEmbassyPrompt(forensicAnalysis, fraudAnalysis, destination, applicantName, passportCountry, embassy, extracted, mathScore) },
-        { role: 'assistant', content: '{' },
-      ],
-    })
-    const raw = '{' + embassyRes.content.filter(b => b.type === 'text').map(b => (b as { type: 'text'; text: string }).text).join('')
-    embassyAssessment = JSON.parse(raw.match(/\{[\s\S]*\}/)?.[0] ?? '{}')
+        ],
+    }))
+    const embassyTail = embassyRes.content.filter(b => b.type === 'text').map(b => (b as { type: 'text'; text: string }).text).join('')
+    embassyAssessment = parseClaudePrefillJSON(embassyTail)
     report(4, 'Embassy Intelligence', 'done',
       `${destination.toUpperCase()} approval likelihood: ${embassyAssessment.officerLikelihood}%`)
   } catch {
@@ -1679,10 +1732,11 @@ export async function analyzeBankStatementV2(
   } | null = null
 
   try {
-    const consensusRes = await anthropic.messages.create({
-      model:      'claude-sonnet-4-6',
-      max_tokens: 2000,
-      system:     'You are the Chief Immigration Intelligence Analyst. You receive reports from 5 specialist agents and produce the definitive final verdict. Resolve conflicts based on evidence weight. Return ONLY valid JSON.',
+    const consensusRes = await callClaudeWithRetry(() => anthropic.messages.create({
+      model:       'claude-sonnet-4-6',
+      max_tokens:  2000,
+      temperature: 0,
+      system:      'You are the Chief Immigration Intelligence Analyst. You receive reports from 5 specialist agents and produce the definitive final verdict. Resolve conflicts based on evidence weight. Return ONLY valid JSON.' + JSON_ONLY,
       messages: [
         {
           role: 'user',
@@ -1691,11 +1745,10 @@ export async function analyzeBankStatementV2(
             predictive, improvementRoadmap, applicantName, destination,
           ),
         },
-        { role: 'assistant', content: '{' },
-      ],
-    })
-    const raw = '{' + consensusRes.content.filter(b => b.type === 'text').map(b => (b as { type: 'text'; text: string }).text).join('')
-    consensusEnhancements = JSON.parse(raw.match(/\{[\s\S]*\}/)?.[0] ?? '{}')
+        ],
+    }))
+    const consensusTail = consensusRes.content.filter(b => b.type === 'text').map(b => (b as { type: 'text'; text: string }).text).join('')
+    consensusEnhancements = parseClaudePrefillJSON(consensusTail)
     report(6, 'Consensus & Reconciliation', 'done',
       `Final: ${consensusEnhancements?.finalVerdict} | Score: ${consensusEnhancements?.finalScore}/100`)
   } catch {

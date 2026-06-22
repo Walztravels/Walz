@@ -213,7 +213,7 @@ export const ROLE_PERMISSIONS: Record<AdminRole, Permission[]> = {
     'flights', 'hotels', 'visa', 'visa.approve', 'visa.documents',
     'tours', 'tours.manage', 'transfers',
     'payments', 'reports', 'reports.financial', 'reports.all',
-    'staff', 'suppliers', 'commissions', 'approvals', 'approvals.resolve',
+    'staff', 'staff.create', 'staff.edit', 'suppliers', 'commissions', 'approvals', 'approvals.resolve',
     'blog', 'blog.publish', 'documents', 'content', 'tools', 'settings',
     'audit_logs', 'api_keys', 'payroll',
     'intelligence',
@@ -367,6 +367,7 @@ export const NAV_ITEMS: NavSection[] = [
       { href: '/admin/visa-applications',  label: 'Visa Applications',   icon: 'FileText',   permission: 'visa'      },
       { href: '/admin/visa-pricing',       label: 'Visa Pricing',        icon: 'Tag',        permission: 'visa'      },
       { href: '/admin/visa/bank-analyser', label: 'Bank Analyser',       icon: 'ScanSearch', permission: 'visa'      },
+      { href: '/admin/group-visa',         label: 'Group Visa Analysis', icon: 'ShieldCheck', permission: 'visa'      },
       { href: '/admin/tours',              label: 'Tours',               icon: 'Map',        permission: 'tours'     },
       { href: '/admin/documents',          label: 'Documents',           icon: 'FolderOpen', permission: 'documents' },
       { href: '/admin/activities',         label: 'Activities',          icon: 'MapPin',     permission: 'tours'     },
@@ -422,6 +423,13 @@ export const NAV_ITEMS: NavSection[] = [
       { href: '/admin/intelligence/staff-performance', label: 'Staff Performance',      icon: 'BarChart2',     permission: 'intelligence.staff_perf'     },
       { href: '/admin/intelligence/conversation',      label: 'Conversation Intel',     icon: 'MessageSquare', permission: 'intelligence.conversation'   },
       { href: '/admin/intelligence/lifecycle',         label: 'Client Lifecycle',       icon: 'TrendingUp',    permission: 'intelligence.lifecycle'      },
+    ],
+  },
+  {
+    section: 'GROUP & AI FEATURES',
+    items: [
+      { href: '/admin/jade-oversight',   label: 'Jade Oversight',  icon: 'MessageSquare', permission: 'jade.staff' },
+      { href: '/admin/group-sessions',   label: 'Group Sessions',  icon: 'Users',         permission: 'jade.staff' },
     ],
   },
   {

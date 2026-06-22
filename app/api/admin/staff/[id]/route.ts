@@ -53,15 +53,21 @@ export async function PUT(
   req: NextRequest,
   { params }: { params: { id: string } }
 ) {
-  if (!(await getAdminSession())) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  }
+  const session = await getAdminSession()
+  if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
+  const isSuperAdmin = session.staffRole === 'super_admin'
 
   const body = await req.json().catch(() => null)
   if (!body) return NextResponse.json({ error: 'Invalid body' }, { status: 400 })
 
   const existing = await prisma.staff.findUnique({ where: { id: params.id } })
   if (!existing) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+
+  // Non-super-admins cannot edit super_admin accounts
+  if (!isSuperAdmin && existing.role === 'super_admin') {
+    return NextResponse.json({ error: 'Cannot edit a Super Admin account' }, { status: 403 })
+  }
 
   const { name, roleTitle, role, portalAccess, isActive } =
     body as Record<string, string | boolean>
@@ -70,6 +76,10 @@ export async function PUT(
     const roleStr = String(role)
     if (!VALID_ROLES.includes(roleStr)) {
       return NextResponse.json({ error: 'Invalid role' }, { status: 400 })
+    }
+    // Non-super-admins cannot promote anyone to super_admin
+    if (!isSuperAdmin && roleStr === 'super_admin') {
+      return NextResponse.json({ error: 'Only Super Admins can assign the Super Admin role' }, { status: 403 })
     }
   }
 
@@ -110,8 +120,11 @@ export async function DELETE(
   _req: NextRequest,
   { params }: { params: { id: string } }
 ) {
-  if (!(await getAdminSession())) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const session = await getAdminSession()
+  if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  // Only super_admin can delete staff accounts
+  if (session.staffRole !== 'super_admin') {
+    return NextResponse.json({ error: 'Only Super Admins can delete staff accounts' }, { status: 403 })
   }
 
   const existing = await prisma.staff.findUnique({ where: { id: params.id } })
