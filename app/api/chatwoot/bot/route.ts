@@ -158,10 +158,6 @@ export async function POST(request: NextRequest) {
 
     const msgType = body.message_type ?? body.message?.message_type;
     const isIncoming = msgType === 'incoming' || msgType === 0;
-    if (!isIncoming) {
-      return NextResponse.json({ status: 'ignored_outgoing' });
-    }
-
     const senderType = body.sender?.type ?? body.message?.sender?.type;
     const content      = body.content ?? body.message?.content;
     const conversationId = body.conversation?.id;
@@ -172,14 +168,13 @@ export async function POST(request: NextRequest) {
 
     const convKey = String(conversationId);
 
-    // Human agent replied — silence Jade for this conversation
     const isJadeMessage =
       senderType === 'agent_bot'
       || body.content_attributes?.jade_ai === true;
 
-    if (senderType && senderType !== 'contact') {
-      if (!isJadeMessage) {
-        // Real human agent sent a message → silence Jade
+    // Outgoing message — detect human agent replies to silence Jade BEFORE returning
+    if (!isIncoming) {
+      if (senderType && senderType !== 'contact' && !isJadeMessage) {
         const session = await loadJadeSession(convKey).catch(() => null);
         const silenced = {
           intent:              session?.intent ?? null,
@@ -194,8 +189,13 @@ export async function POST(request: NextRequest) {
           ],
         };
         await saveJadeSession(convKey, silenced).catch(() => {});
-        console.log('[jade-bot] Human agent message — Jade silenced for conv', conversationId, 'sender:', senderType);
+        console.log('[jade-bot] Human agent outgoing — Jade silenced for conv', conversationId, 'sender:', senderType);
       }
+      return NextResponse.json({ status: 'ignored_outgoing' });
+    }
+
+    // Incoming customer message — ignore if it's from a non-contact (shouldn't happen but guard it)
+    if (senderType && senderType !== 'contact') {
       return NextResponse.json({ status: 'ignored_agent' });
     }
 
