@@ -359,7 +359,11 @@ async function pushToCharwoot(
   } catch {}
   try {
     await cwPost(`/accounts/${ACCOUNT_ID}/conversations/${convId}/messages`, {
-      content: agentReply, message_type: 1, content_type: 'text', private: false,
+      content:            agentReply,
+      message_type:       1,
+      content_type:       'text',
+      private:            false,
+      content_attributes: { jade_ai: true },   // marks this as Jade's message so the webhook can skip it
     })
   } catch {}
 

@@ -31,25 +31,12 @@ const CHATWOOT_BASE   = 'https://chat.walztravels.com'
 const CHATWOOT_TOKEN  = process.env.CHATWOOT_API_TOKEN ?? '1rnd6Rp9GNVKtbJ8238Vg2S1'
 const ACCOUNT_ID      = '1'
 
-// ── Jade sender ID cache — identifies Jade's own Chatwoot messages ────────────
-// Jade sends messages using a Chatwoot user token (type='user', NOT 'bot'),
-// so sender.type !== 'bot' cannot distinguish Jade from human agents.
-// We fetch Jade's profile ID once and compare against payload.sender.id.
-let _jadeSenderId: number | null | undefined = undefined
-async function getJadeSenderId(): Promise<number | null> {
-  if (_jadeSenderId !== undefined) return _jadeSenderId
-  try {
-    const res = await fetch(`${CHATWOOT_BASE}/api/v1/profile`, {
-      headers: { api_access_token: CHATWOOT_TOKEN },
-    })
-    if (!res.ok) { _jadeSenderId = null; return null }
-    const data = await res.json() as { id?: number }
-    _jadeSenderId = data?.id ?? null
-  } catch {
-    _jadeSenderId = null
-  }
-  return _jadeSenderId
-}
+// Optional: numeric Chatwoot agent ID for the dedicated Jade account.
+// Set JADE_CHATWOOT_AGENT_ID in Vercel env vars once you create a separate
+// "Jade AI" agent in Chatwoot (Settings → Agents). Leave unset until then.
+const JADE_AGENT_ID = process.env.JADE_CHATWOOT_AGENT_ID
+  ? Number(process.env.JADE_CHATWOOT_AGENT_ID)
+  : null
 
 // ── Signature verification ────────────────────────────────────────────────────
 async function verifySignature(req: Request, rawBody: string): Promise<boolean> {
@@ -157,7 +144,7 @@ async function cwSendMessage(conversationId: number, content: string): Promise<v
     await fetch(`${CHATWOOT_BASE}/api/v1/accounts/${ACCOUNT_ID}/conversations/${conversationId}/messages`, {
       method:  'POST',
       headers: { 'Content-Type': 'application/json', api_access_token: CHATWOOT_TOKEN },
-      body:    JSON.stringify({ content, message_type: 'outgoing', private: false }),
+      body:    JSON.stringify({ content, message_type: 'outgoing', private: false, content_attributes: { jade_ai: true } }),
     })
   } catch {}
 }
@@ -318,12 +305,17 @@ async function onMessageCreated(payload: CWPayload, supabase: SupabaseAdmin) {
   // Jade uses a Chatwoot user token (sender.type = 'user', NOT 'bot') so we
   // must compare sender.id against Jade's own profile ID to exclude her messages.
   if (payload.message_type === 1 && payload.sender?.type !== 'bot') {
-    const convKey      = String(convId)
-    const jadeSenderId = await getJadeSenderId()
-    const isJade       = jadeSenderId !== null && payload.sender?.id === jadeSenderId
+    const convKey = String(convId)
+
+    // Detect Jade's own echoed messages so we don't silence ourselves.
+    // Primary signal: jade handler stamps content_attributes.jade_ai on every AI reply.
+    // Secondary: JADE_CHATWOOT_AGENT_ID env var (set this once you create a
+    //            dedicated "Jade AI" agent account in Chatwoot → Settings → Agents).
+    const isJade =
+      payload.content_attributes?.jade_ai === true
+      || (JADE_AGENT_ID !== null && payload.sender?.id === JADE_AGENT_ID)
 
     if (isJade) {
-      // Jade's own reply echoed back via webhook — do nothing
       console.log('[chatwoot-webhook] Skipping Jade own-message echo for conv', convId)
     } else {
       // Real human agent sent a message
@@ -576,19 +568,20 @@ interface CWConversation {
 }
 
 interface CWPayload {
-  event:        string
-  id?:          number
-  status?:      string
-  channel?:     string
-  content?:     string
-  message_type?: number // 0=incoming, 1=outgoing, 2=activity
-  private?:     boolean
-  attachments?: Array<{ type: string; data_url?: string; file_name?: string }>
-  contact?:     CWContact
-  sender?:      CWContact & { type?: string }
-  conversation?: CWConversation
+  event:              string
+  id?:                number
+  status?:            string
+  channel?:           string
+  content?:           string
+  message_type?:      number // 0=incoming, 1=outgoing, 2=activity
+  private?:           boolean
+  content_attributes?: Record<string, unknown>  // jade_ai:true marks Jade's own messages
+  attachments?:       Array<{ type: string; data_url?: string; file_name?: string }>
+  contact?:           CWContact
+  sender?:            CWContact & { type?: string }
+  conversation?:      CWConversation
   meta?: {
-    sender?: CWContact
+    sender?:  CWContact
     channel?: string
   }
 }
