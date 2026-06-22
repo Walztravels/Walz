@@ -1,0 +1,38 @@
+{
+  "name": "Walz Staff Admin",
+  "short_name": "WalzStaff",
+  "description": "Walz Travels Admin Panel for Staff",
+  "start_url": "/admin/dashboard",
+  "display": "standalone",
+  "background_color": "#0b1f3a",
+  "theme_color": "#0b1f3a",
+  "orientation": "portrait-primary",
+  "scope": "/admin/",
+  "lang": "en-GB",
+  "categories": ["productivity", "business"],
+  "icons": [
+    {
+      "src": "/icons/walz-staff-192.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/walz-staff-512.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "maskable"
+    },
+    {
+      "src": "/icon-192x192.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "/icon-512x512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}

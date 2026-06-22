@@ -174,6 +174,10 @@ export default async function DashboardPage() {
   const isSeniorPlus = staffRole === 'super_admin' || staffRole === 'general_manager' || staffRole === 'senior_manager'
   const isSuperOrGM  = staffRole === 'super_admin' || staffRole === 'general_manager'
 
+  const hour = new Date().getHours()
+  const mobileTimeGreeting = hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening'
+  const firstName = session.name?.split(' ')[0] ?? 'there'
+
   const greetings: Record<string, string> = {
     super_admin:     'Full system overview — all data visible.',
     general_manager: 'Operations overview — manage your team.',
@@ -190,8 +194,15 @@ export default async function DashboardPage() {
         </div>
       )}
 
-      {/* Header */}
-      <div className="mb-8">
+      {/* Mobile greeting */}
+      <div className="md:hidden mb-6 px-1">
+        <p className="text-[11px] text-[#C9A84C] font-semibold uppercase tracking-widest">{mobileTimeGreeting}</p>
+        <h1 className="text-2xl font-bold text-[#0B1F3A] mt-0.5">{firstName}</h1>
+        <p className="text-gray-500 text-sm mt-1">{greetings[staffRole] ?? 'Welcome back.'}</p>
+      </div>
+
+      {/* Desktop header */}
+      <div className="hidden md:block mb-8">
         <h1 className="text-2xl font-bold text-[#0B1F3A]">Dashboard</h1>
         <p className="text-gray-500 text-sm mt-1">{greetings[staffRole] ?? 'Welcome back.'}</p>
       </div>

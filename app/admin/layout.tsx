@@ -1,8 +1,28 @@
+import type { Metadata, Viewport } from 'next'
 import { getAdminSession } from '@/lib/admin-auth'
 import { AdminSidebar } from '@/components/admin/AdminSidebar'
 import { AdminHeader } from '@/components/admin/AdminHeader'
+import { AdminMobilePWA } from '@/components/admin/AdminMobilePWA'
 
 export const dynamic = 'force-dynamic'
+
+export const viewport: Viewport = {
+  themeColor: '#0b1f3a',
+  width: 'device-width',
+  initialScale: 1,
+}
+
+export const metadata: Metadata = {
+  manifest: '/staff-manifest.json',
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: 'black-translucent',
+    title: 'Walz Staff',
+  },
+  other: {
+    'mobile-web-app-capable': 'yes',
+  },
+}
 
 export default async function AdminLayout({ children }: { children: React.ReactNode }) {
   const session = await getAdminSession()
@@ -15,8 +35,10 @@ export default async function AdminLayout({ children }: { children: React.ReactN
   return (
     <div className="flex h-screen bg-[#F8F9FA] overflow-hidden">
 
-      {/* Sidebar — always visible */}
-      <AdminSidebar />
+      {/* Sidebar — desktop only */}
+      <div className="hidden md:flex flex-shrink-0">
+        <AdminSidebar />
+      </div>
 
       {/* Main column */}
       <div className="flex-1 flex flex-col overflow-hidden">
@@ -24,13 +46,13 @@ export default async function AdminLayout({ children }: { children: React.ReactN
         {/* Top header */}
         <AdminHeader adminEmail={session.email} />
 
-        {/* Scrollable page content */}
-        <main className="flex-1 overflow-y-auto p-6 lg:p-8">
+        {/* Scrollable page content — extra bottom padding on mobile for nav bar */}
+        <main className="flex-1 overflow-y-auto p-4 md:p-6 lg:p-8 pb-24 md:pb-6 lg:pb-8">
           {children}
         </main>
 
-        {/* Minimal admin footer */}
-        <footer className="flex-shrink-0 border-t border-gray-200 bg-white px-6 py-2 flex items-center justify-between">
+        {/* Footer — desktop only */}
+        <footer className="hidden md:flex flex-shrink-0 border-t border-gray-200 bg-white px-6 py-2 items-center justify-between">
           <span className="text-xs text-gray-400 font-medium">
             Walz Travels Admin — Internal Use Only
           </span>
@@ -38,6 +60,10 @@ export default async function AdminLayout({ children }: { children: React.ReactN
         </footer>
 
       </div>
+
+      {/* Mobile PWA: bottom nav + drawer + SW + install prompt */}
+      <AdminMobilePWA />
+
     </div>
   )
 }
