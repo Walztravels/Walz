@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import Anthropic from '@anthropic-ai/sdk';
+import { loadJadeSession, saveJadeSession } from '@/lib/jade-session';
 
 const anthropic = new Anthropic({
   apiKey: process.env.ANTHROPIC_API_KEY,
@@ -162,15 +163,51 @@ export async function POST(request: NextRequest) {
     }
 
     const senderType = body.sender?.type ?? body.message?.sender?.type;
+    const content      = body.content ?? body.message?.content;
+    const conversationId = body.conversation?.id;
+
+    if (!conversationId) {
+      return NextResponse.json({ status: 'no_content' });
+    }
+
+    const convKey = String(conversationId);
+
+    // Human agent replied — silence Jade for this conversation
+    const isJadeMessage =
+      senderType === 'agent_bot'
+      || body.content_attributes?.jade_ai === true;
+
     if (senderType && senderType !== 'contact') {
+      if (!isJadeMessage) {
+        // Real human agent sent a message → silence Jade
+        const session = await loadJadeSession(convKey).catch(() => null);
+        const silenced = {
+          intent:              session?.intent ?? null,
+          lastMessage:         session?.lastMessage ?? '',
+          conversationHistory: session?.conversationHistory ?? [],
+          bookingContext:      session?.bookingContext ?? null,
+          groupContext:        session?.groupContext ?? null,
+          agentActive:         true,
+          agentMessages:       [
+            ...(session?.agentMessages ?? []),
+            ...(content ? [{ content: content as string, agentName: body.sender?.name ?? 'Agent', timestamp: new Date().toISOString() }] : []),
+          ],
+        };
+        await saveJadeSession(convKey, silenced).catch(() => {});
+        console.log('[jade-bot] Human agent message — Jade silenced for conv', conversationId, 'sender:', senderType);
+      }
       return NextResponse.json({ status: 'ignored_agent' });
     }
 
-    const content = body.content ?? body.message?.content;
-    const conversationId = body.conversation?.id;
-
-    if (!content || !conversationId) {
+    if (!content) {
       return NextResponse.json({ status: 'no_content' });
+    }
+
+    // Check if a human agent is currently handling this conversation
+    const session = await loadJadeSession(convKey).catch(() => null);
+    if (session?.agentActive === true) {
+      console.log('[jade-bot] agentActive=true — staying silent for conv', conversationId);
+      return NextResponse.json({ status: 'agent_active_silenced' });
     }
 
     // Move to open so staff can see in admin
@@ -181,15 +218,15 @@ export async function POST(request: NextRequest) {
     await assignAgent(conversationId, assignedAgent.id);
 
     // Handle transfer request
-    if (wantsLiveAgent(content)) {
+    if (wantsLiveAgent(content as string)) {
       await sendMessage(
         conversationId,
         `Of course! Let me get ${assignedAgent.name} on this for you right now. They'll be with you shortly.`
       );
       await sendMessage(
         conversationId,
-        `🔔 Client requested live agent. Message: "${content}"`,
-        true // private note for staff only
+        `🔔 Client requested live agent. Message: "${content as string}"`,
+        true
       );
       return NextResponse.json({
         status: 'transferred',
@@ -202,7 +239,7 @@ export async function POST(request: NextRequest) {
       model: 'claude-sonnet-4-6',
       max_tokens: 300,
       system: JADE_SYSTEM_PROMPT,
-      messages: [{ role: 'user', content }],
+      messages: [{ role: 'user', content: content as string }],
     });
 
     const reply = claude.content[0].type === 'text'
