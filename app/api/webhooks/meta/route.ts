@@ -15,6 +15,7 @@
 import { NextResponse } from 'next/server'
 import prisma from '@/lib/db'
 import { getResend } from '@/lib/email-internal'
+import { loadJadeSession, saveJadeSession } from '@/lib/jade-session'
 
 export const dynamic = 'force-dynamic'
 
@@ -230,17 +231,47 @@ async function silenceJadeOnIgAgent(msg: IGMessage, value: IGValue) {
   } catch (e) {
     console.error('[meta-webhook] silenceJadeOnIgAgent error:', e)
   }
+
+  // Write a shared JadeSession signal (keyed by ig_<PSID>) so the bot route
+  // and Chatwoot webhook can also detect agent-active state without querying Prisma.
+  const content = msg.text
+  try {
+    const existing = await loadJadeSession(`ig_${customerId}`)
+    await saveJadeSession(`ig_${customerId}`, {
+      intent:              existing?.intent ?? null,
+      lastMessage:         existing?.lastMessage ?? '',
+      conversationHistory: existing?.conversationHistory ?? [],
+      bookingContext:      existing?.bookingContext ?? null,
+      groupContext:        existing?.groupContext ?? null,
+      agentActive:         true,
+      agentMessages: [
+        ...(existing?.agentMessages ?? []),
+        ...(content ? [{ content, agentName: 'Agent', timestamp: new Date().toISOString() }] : []),
+      ],
+    })
+  } catch (e) {
+    console.error('[meta-webhook] silenceJadeOnIgAgent JadeSession error:', e)
+  }
 }
 
 // ── Jade auto-reply ───────────────────────────────────────────────────────────
 async function sendJadeReply(lead: Lead, userMessage: string, source: string) {
   if (lead.jadeActive === false) return
 
+  // Check shared JadeSession signal (set by bot route, Chatwoot webhook, or silenceJadeOnIgAgent)
+  if (lead.sourceId) {
+    const igSession = await loadJadeSession(`ig_${lead.sourceId}`).catch(() => null)
+    if (igSession?.agentActive === true) {
+      console.log(`[meta-webhook] JadeSession agentActive=true for ig_${lead.sourceId} — silenced`)
+      return
+    }
+  }
+
   // Silence check: human agent took over within last 30 minutes
   if (lead.jadeSilencedAt) {
     const minutesSince = (Date.now() - new Date(lead.jadeSilencedAt).getTime()) / 60000
     if (minutesSince < 30) {
-      console.log(`[meta-webhook] Jade silenced on lead ${lead.id} — agent active`)
+      console.log(`[meta-webhook] Jade silenced on lead ${lead.id} — agent active (jadeSilencedAt)`)
       return
     }
     // Auto-resume: silence window expired

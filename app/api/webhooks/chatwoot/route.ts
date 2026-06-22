@@ -361,6 +361,25 @@ async function onMessageCreated(payload: CWPayload, supabase: SupabaseAdmin) {
         } catch (e) {
           console.error('[chatwoot-webhook] Prisma silence error:', e)
         }
+
+        // Write shared JadeSession signal so the Meta webhook also detects agent-active
+        try {
+          const igSession = await loadJadeSession(`ig_${igSourceId}`)
+          await saveJadeSession(`ig_${igSourceId}`, {
+            intent:              igSession?.intent ?? null,
+            lastMessage:         igSession?.lastMessage ?? '',
+            conversationHistory: igSession?.conversationHistory ?? [],
+            bookingContext:      igSession?.bookingContext ?? null,
+            groupContext:        igSession?.groupContext ?? null,
+            agentActive:         true,
+            agentMessages: [
+              ...(igSession?.agentMessages ?? []),
+              ...(content ? [{ content, agentName, timestamp: new Date().toISOString() }] : []),
+            ],
+          })
+        } catch (e) {
+          console.error('[chatwoot-webhook] IG JadeSession silence error:', e)
+        }
       }
 
       console.log('[chatwoot-webhook] Human agent message processed:', {
