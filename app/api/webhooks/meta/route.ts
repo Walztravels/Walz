@@ -16,6 +16,11 @@ import { NextResponse } from 'next/server'
 import prisma from '@/lib/db'
 import { getResend } from '@/lib/email-internal'
 import { loadJadeSession, saveJadeSession } from '@/lib/jade-session'
+import { getSupabaseAdmin } from '@/lib/supabase'
+
+const CHATWOOT_BASE  = 'https://chat.walztravels.com'
+const CHATWOOT_TOKEN = process.env.CHATWOOT_API_TOKEN ?? '1rnd6Rp9GNVKtbJ8238Vg2S1'
+const ACCOUNT_ID     = '1'
 
 export const dynamic = 'force-dynamic'
 
@@ -254,6 +259,64 @@ async function silenceJadeOnIgAgent(msg: IGMessage, value: IGValue) {
   }
 }
 
+// ── Check Chatwoot API for human agent activity in this lead's conversation ────
+async function hasAgentRepliedInChatwoot(sourceId: string): Promise<boolean> {
+  try {
+    // Path 1: look up Chatwoot conversation ID from Supabase leads table.
+    // The Chatwoot general webhook stores the PSID in whatsapp_number when
+    // it processes Instagram inbox messages (no phone/email → uses source_id as phone).
+    const supabase = getSupabaseAdmin()
+    const { data: supaLead } = await supabase
+      .from('leads')
+      .select('chatwoot_conversation_id')
+      .eq('whatsapp_number', sourceId)
+      .not('chatwoot_conversation_id', 'is', null)
+      .maybeSingle()
+
+    const convId = supaLead?.chatwoot_conversation_id
+    if (convId) {
+      const res = await fetch(
+        `${CHATWOOT_BASE}/api/v1/accounts/${ACCOUNT_ID}/conversations/${convId}/messages`,
+        { headers: { api_access_token: CHATWOOT_TOKEN }, signal: AbortSignal.timeout(3000) },
+      )
+      if (res.ok) {
+        const data = await res.json() as { payload?: Array<{ message_type?: number; content_attributes?: { jade_ai?: boolean }; sender?: { type?: string } }> }
+        const msgs = data.payload ?? []
+        if (msgs.some(m => m.message_type === 1 && !m.content_attributes?.jade_ai && m.sender?.type !== 'agent_bot')) {
+          return true
+        }
+      }
+    }
+
+    // Path 2: search Chatwoot contacts by identifier (PSID) directly
+    const searchRes = await fetch(
+      `${CHATWOOT_BASE}/api/v1/accounts/${ACCOUNT_ID}/contacts/search?q=${encodeURIComponent(sourceId)}&page=1`,
+      { headers: { api_access_token: CHATWOOT_TOKEN }, signal: AbortSignal.timeout(3000) },
+    )
+    if (!searchRes.ok) return false
+
+    const searchData = await searchRes.json() as { payload?: { contacts?: Array<{ id: number; identifier?: string }> } }
+    const contact = (searchData.payload?.contacts ?? []).find(c => c.identifier === sourceId)
+    if (!contact?.id) return false
+
+    const convsRes = await fetch(
+      `${CHATWOOT_BASE}/api/v1/accounts/${ACCOUNT_ID}/contacts/${contact.id}/conversations`,
+      { headers: { api_access_token: CHATWOOT_TOKEN }, signal: AbortSignal.timeout(3000) },
+    )
+    if (!convsRes.ok) return false
+
+    const convsData = await convsRes.json() as { payload?: Array<{ id: number; messages?: Array<{ message_type?: number; content_attributes?: { jade_ai?: boolean }; sender?: { type?: string } }> }> }
+    const convs = (convsData.payload ?? []).sort((a, b) => b.id - a.id)
+    return convs.slice(0, 1).some(conv =>
+      (conv.messages ?? []).some(m =>
+        m.message_type === 1 && !m.content_attributes?.jade_ai && m.sender?.type !== 'agent_bot'
+      )
+    )
+  } catch {
+    return false
+  }
+}
+
 // ── Jade auto-reply ───────────────────────────────────────────────────────────
 async function sendJadeReply(lead: Lead, userMessage: string, source: string) {
   if (lead.jadeActive === false) return
@@ -263,6 +326,24 @@ async function sendJadeReply(lead: Lead, userMessage: string, source: string) {
     const igSession = await loadJadeSession(`ig_${lead.sourceId}`).catch(() => null)
     if (igSession?.agentActive === true) {
       console.log(`[meta-webhook] JadeSession agentActive=true for ig_${lead.sourceId} — silenced`)
+      return
+    }
+
+    // API fallback: check Chatwoot conversation for human agent messages
+    const agentActive = await hasAgentRepliedInChatwoot(lead.sourceId)
+    if (agentActive) {
+      // Cache result in JadeSession so we don't re-check every message
+      const igSession2 = await loadJadeSession(`ig_${lead.sourceId}`).catch(() => null)
+      await saveJadeSession(`ig_${lead.sourceId}`, {
+        intent:              igSession2?.intent ?? null,
+        lastMessage:         igSession2?.lastMessage ?? '',
+        conversationHistory: igSession2?.conversationHistory ?? [],
+        bookingContext:      igSession2?.bookingContext ?? null,
+        groupContext:        igSession2?.groupContext ?? null,
+        agentActive:         true,
+        agentMessages:       igSession2?.agentMessages ?? [],
+      }).catch(() => {})
+      console.log(`[meta-webhook] Agent detected via Chatwoot API for ig_${lead.sourceId} — silenced`)
       return
     }
   }

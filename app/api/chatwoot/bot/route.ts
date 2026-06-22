@@ -203,11 +203,48 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ status: 'no_content' });
     }
 
-    // Check if a human agent is currently handling this conversation
+    // Check if a human agent is currently handling this conversation.
+    // Primary: JadeSession agentActive flag (set when we detect an agent message).
+    // Fallback: query Chatwoot messages API directly — works even when the bot
+    //           webhook doesn't receive outgoing agent messages.
     const session = await loadJadeSession(convKey).catch(() => null);
     if (session?.agentActive === true) {
-      console.log('[jade-bot] agentActive=true — staying silent for conv', conversationId);
+      console.log('[jade-bot] agentActive=true (session) — staying silent for conv', conversationId);
       return NextResponse.json({ status: 'agent_active_silenced' });
+    }
+
+    // API fallback: look for any human agent outgoing message in this conversation
+    try {
+      const msgsRes = await fetch(
+        `${CHATWOOT_BASE}/api/v1/accounts/${ACCOUNT_ID}/conversations/${conversationId}/messages`,
+        { headers: { api_access_token: BOT_TOKEN }, signal: AbortSignal.timeout(4000) },
+      )
+      if (msgsRes.ok) {
+        const msgsData = await msgsRes.json() as { payload?: Array<{ message_type?: number; content_attributes?: { jade_ai?: boolean }; sender?: { type?: string } }> }
+        const msgs = msgsData.payload ?? []
+        const hasHumanAgent = msgs.some(m =>
+          m.message_type === 1
+          && !m.content_attributes?.jade_ai
+          && m.sender?.type !== 'agent_bot'
+        )
+        if (hasHumanAgent) {
+          // Cache the result so we don't re-check on every subsequent message
+          const existing = await loadJadeSession(convKey).catch(() => null)
+          await saveJadeSession(convKey, {
+            intent:              existing?.intent ?? null,
+            lastMessage:         existing?.lastMessage ?? '',
+            conversationHistory: existing?.conversationHistory ?? [],
+            bookingContext:      existing?.bookingContext ?? null,
+            groupContext:        existing?.groupContext ?? null,
+            agentActive:         true,
+            agentMessages:       existing?.agentMessages ?? [],
+          }).catch(() => {})
+          console.log('[jade-bot] Human agent detected via API — staying silent for conv', conversationId)
+          return NextResponse.json({ status: 'agent_active_silenced' })
+        }
+      }
+    } catch (e) {
+      console.error('[jade-bot] API agent check failed:', e)
     }
 
     // Move to open so staff can see in admin
