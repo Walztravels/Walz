@@ -11,7 +11,7 @@
     },
     {
       "path": "/api/cron/routing-escalation",
-      "schedule": "*/15 * * * *"
+      "schedule": "0 8 * * *"
     }
   ]
 }
