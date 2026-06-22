@@ -2231,3 +2231,25 @@ model ConversationRoute {
   @@index([chatwootConversationId])
   @@index([assignedTo])
 }
+
+// RoutingAgent — managed via Supabase SQL editor + admin UI.
+// NEVER run prisma db push or prisma migrate for this model.
+// Schema changes → ALTER TABLE in Supabase SQL editor, then npx prisma generate only.
+model RoutingAgent {
+  id                 String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name               String
+  email              String   @unique
+  chatwootAgentId    Int?
+  aircallUserId      Int?
+  role               String?
+  specialisms        String[]
+  active             Boolean  @default(true)
+  isEscalation       Boolean  @default(false)
+  maxConversations   Int      @default(15)
+  roundRobinPosition Int      @default(0)
+  createdAt          DateTime @default(now()) @db.Timestamptz
+  updatedAt          DateTime @default(now()) @db.Timestamptz
+
+  @@index([active])
+  @@index([email])
+}

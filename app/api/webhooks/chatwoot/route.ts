@@ -318,12 +318,14 @@ async function onMessageCreated(payload: CWPayload, supabase: SupabaseAdmin) {
           payload.content ?? '',
           payload.conversation?.channel ?? '',
         )
-        await applyRouting(
-          conversationId,
-          decision,
-          payload.content ?? '',
-          payload.conversation?.channel ?? '',
-        )
+        if (decision) {
+          await applyRouting(
+            conversationId,
+            decision,
+            payload.content ?? '',
+            payload.conversation?.channel ?? '',
+          )
+        }
       } catch (e) {
         console.error('[router] Routing error (non-fatal):', e)
       }

@@ -3,6 +3,7 @@ import { getAdminSession } from '@/lib/admin-auth'
 import { AdminSidebar } from '@/components/admin/AdminSidebar'
 import { AdminHeader } from '@/components/admin/AdminHeader'
 import { AdminMobilePWA } from '@/components/admin/AdminMobilePWA'
+import { AircallWidget } from '@/components/admin/AircallWidget'
 
 export const dynamic = 'force-dynamic'
 
@@ -63,6 +64,9 @@ export default async function AdminLayout({ children }: { children: React.ReactN
 
       {/* Mobile PWA: bottom nav + drawer + SW + install prompt */}
       <AdminMobilePWA />
+
+      {/* Aircall phone widget — floating FAB + slide-up panel */}
+      <AircallWidget />
 
     </div>
   )

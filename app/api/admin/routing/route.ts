@@ -1,7 +1,6 @@
 import { NextResponse } from 'next/server'
 import { getAdminSession } from '@/lib/admin-auth'
 import { getSupabaseAdmin } from '@/lib/supabase'
-import { AGENTS, isAgentActive, getRoundRobinIndex } from '@/lib/agent-roster'
 
 export const dynamic = 'force-dynamic'
 
@@ -11,51 +10,34 @@ export async function GET() {
 
   const supabase = getSupabaseAdmin()
 
-  // Active conversation counts per agent
-  const { data: counts } = await supabase
-    .from('ConversationRoute')
-    .select('assignedTo')
-    .eq('status', 'active')
+  const [{ data: agents }, { data: activeCounts }, { data: todayCalls }, { data: recentRoutes }] =
+    await Promise.all([
+      supabase.from('RoutingAgent').select('*').order('isEscalation').order('createdAt'),
+      supabase.from('ConversationRoute').select('assignedTo').eq('status', 'active'),
+      supabase
+        .from('ConversationRoute')
+        .select('assignedTo')
+        .eq('channel', 'voice')
+        .gte('createdAt', new Date(new Date().setHours(0, 0, 0, 0)).toISOString()),
+      supabase
+        .from('ConversationRoute')
+        .select('*')
+        .order('createdAt', { ascending: false })
+        .limit(20),
+    ])
 
-  const countMap: Record<string, number> = {}
-  for (const row of counts ?? []) {
-    countMap[row.assignedTo] = (countMap[row.assignedTo] ?? 0) + 1
-  }
+  const openMap: Record<string, number>  = {}
+  const callMap: Record<string, number>  = {}
 
-  // Recent assignment counts (last 7 days)
-  const since = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString()
-  const { data: recent } = await supabase
-    .from('ConversationRoute')
-    .select('assignedTo')
-    .gte('createdAt', since)
-
-  const recentMap: Record<string, number> = {}
-  for (const row of recent ?? []) {
-    recentMap[row.assignedTo] = (recentMap[row.assignedTo] ?? 0) + 1
-  }
-
-  // Recent routes log
-  const { data: recentRoutes } = await supabase
-    .from('ConversationRoute')
-    .select('*')
-    .order('createdAt', { ascending: false })
-    .limit(20)
-
-  const agents = AGENTS.map((a) => ({
-    id:               a.id,
-    name:             a.name,
-    email:            a.email,
-    role:             a.role,
-    active:           isAgentActive(a.id),
-    maxConversations: a.maxConversations,
-    openCount:        countMap[a.id] ?? 0,
-    recentCount:      recentMap[a.id] ?? 0,
-    specialisms:      a.specialisms,
-  }))
+  for (const r of activeCounts ?? []) openMap[r.assignedTo] = (openMap[r.assignedTo] ?? 0) + 1
+  for (const r of todayCalls  ?? []) callMap[r.assignedTo]  = (callMap[r.assignedTo]  ?? 0) + 1
 
   return NextResponse.json({
-    agents,
+    agents: (agents ?? []).map((a: Record<string, unknown>) => ({
+      ...a,
+      openCount:  openMap[a.id as string] ?? 0,
+      callsToday: callMap[a.id as string] ?? 0,
+    })),
     recentRoutes: recentRoutes ?? [],
-    roundRobinPosition: getRoundRobinIndex(),
   })
 }

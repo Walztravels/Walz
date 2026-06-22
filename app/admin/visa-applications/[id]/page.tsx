@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
+import { CallButton } from '@/components/admin/CallButton'
 import {
   ArrowLeft, Save, RefreshCw, Loader2, CheckCircle, AlertTriangle,
   FileText, User, Globe, Briefcase, Plane, Shield, MessageCircle,
@@ -1425,6 +1426,12 @@ export default function AdminVisaDetailPage() {
               <span className="text-sm text-[#0B1F3A] font-semibold">WhatsApp Client</span>
               <MessageCircle className="w-4 h-4 text-green-500" />
             </a>
+            {app.phone && (
+              <div className="flex items-center justify-between p-2.5 rounded-xl hover:bg-gray-50 border border-gray-100">
+                <span className="text-sm text-[#0B1F3A] font-semibold">Call Client</span>
+                <CallButton phoneNumber={app.phone} />
+              </div>
+            )}
             <a href={`mailto:${app.email}`}
               className="flex items-center justify-between p-2.5 rounded-xl hover:bg-gray-50 border border-gray-100 transition-colors">
               <span className="text-sm text-[#0B1F3A] font-semibold">Email Client</span>

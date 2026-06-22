@@ -41,6 +41,7 @@
     "@supabase/supabase-js": "^2.106.2",
     "@types/bcryptjs": "^2.4.6",
     "@types/pdf-parse": "^1.1.5",
+    "aircall-everywhere": "^2.0.6",
     "bcryptjs": "^3.0.3",
     "canvas-confetti": "^1.9.4",
     "class-variance-authority": "^0.7.0",

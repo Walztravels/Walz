@@ -374,6 +374,7 @@ export const NAV_ITEMS: NavSection[] = [
       { href: '/admin/packages',           label: 'Packages',            icon: 'Package',    permission: 'tours'     },
       { href: '/admin/esim',               label: 'Jade Connect / eSIM', icon: 'Signal',     permission: 'bookings'  },
       { href: '/admin/portal',             label: 'Client Portal',       icon: 'Globe',      permission: 'clients'   },
+      { href: '/admin/calls',              label: 'Calls',               icon: 'Phone',      permission: 'settings'  },
     ],
   },
   {

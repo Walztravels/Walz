@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { format } from 'date-fns'
 import { MessageSquare, RefreshCw, Inbox } from 'lucide-react'
+import { CallButton } from '@/components/admin/CallButton'
 import Link from 'next/link'
 
 type LeadStatus = 'New' | 'Contacted' | 'Deposit Paid' | 'In Progress' | 'Closed'
@@ -145,14 +146,17 @@ export default function LeadsPage() {
                         {lead.email && <div className="text-xs text-gray-400">{lead.email}</div>}
                       </td>
                       <td className="px-4 py-3">
-                        <a
-                          href={`https://wa.me/${lead.whatsapp.replace(/\D/g, '')}`}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="text-green-600 hover:underline font-medium"
-                        >
-                          {lead.whatsapp}
-                        </a>
+                        <div className="flex items-center gap-2">
+                          <a
+                            href={`https://wa.me/${lead.whatsapp.replace(/\D/g, '')}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-green-600 hover:underline font-medium"
+                          >
+                            {lead.whatsapp}
+                          </a>
+                          <CallButton phoneNumber={lead.whatsapp} />
+                        </div>
                       </td>
                       <td className="px-4 py-3">
                         <span className="px-2.5 py-1 rounded-full text-xs font-semibold bg-[#C9A84C]/10 text-[#8B6914]">

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getAdminSession } from '@/lib/admin-auth'
-import { setAgentActive, getAgentById } from '@/lib/agent-roster'
+import { getSupabaseAdmin } from '@/lib/supabase'
 
 export const dynamic = 'force-dynamic'
 
@@ -11,23 +11,47 @@ export async function PATCH(
   const session = await getAdminSession()
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
+  const { id }  = await params
+  const body    = await req.json() as Partial<{
+    name:             string
+    email:            string
+    chatwootAgentId:  number | null
+    aircallUserId:    number | null
+    role:             string | null
+    specialisms:      string[]
+    active:           boolean
+    isEscalation:     boolean
+    maxConversations: number
+  }>
+
+  const supabase = getSupabaseAdmin()
+  const { data, error } = await supabase
+    .from('RoutingAgent')
+    .update({ ...body, updatedAt: new Date().toISOString() })
+    .eq('id', id)
+    .select()
+    .single()
+
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+  return NextResponse.json({ agent: data })
+}
+
+export async function DELETE(
+  _req: NextRequest,
+  { params }: { params: Promise<{ id: string }> },
+) {
+  const session = await getAdminSession()
+  if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
   const { id } = await params
-  const body    = await req.json() as { active?: boolean }
+  const supabase = getSupabaseAdmin()
 
-  if (typeof body.active !== 'boolean') {
-    return NextResponse.json({ error: 'active must be boolean' }, { status: 400 })
-  }
+  // Soft delete — set active: false
+  const { error } = await supabase
+    .from('RoutingAgent')
+    .update({ active: false, updatedAt: new Date().toISOString() })
+    .eq('id', id)
 
-  const agent = getAgentById(id)
-  if (!agent) {
-    return NextResponse.json({ error: 'Agent not found' }, { status: 404 })
-  }
-
-  setAgentActive(id, body.active)
-
-  console.log(
-    `[routing] ${session.email} set ${agent.name} → ${body.active ? 'active' : 'away'}`,
-  )
-
-  return NextResponse.json({ id, name: agent.name, active: body.active })
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+  return NextResponse.json({ ok: true })
 }

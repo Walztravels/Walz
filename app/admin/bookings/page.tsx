@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import { Search, ChevronDown, ChevronUp, CheckCircle, XCircle, Send, RefreshCw, Ticket } from 'lucide-react'
+import { CallButton } from '@/components/admin/CallButton'
 import { format } from 'date-fns'
 
 type BookingStatus = 'PENDING' | 'CONFIRMED' | 'CANCELLED' | 'COMPLETED' | 'FAILED'
@@ -271,7 +272,11 @@ export default function BookingsPage() {
                               <td className="py-2 pr-4 text-gray-600 whitespace-nowrap">{p.passportExpiry}</td>
                               <td className="py-2 pr-4 text-gray-600">{p.nationality}</td>
                               <td className="py-2 pr-4 text-gray-600 text-xs">{p.email ?? '—'}</td>
-                              <td className="py-2 pr-4 text-gray-600 text-xs">{p.phone ?? '—'}</td>
+                              <td className="py-2 pr-4 text-gray-600 text-xs">
+                                {p.phone
+                                  ? <span className="flex items-center gap-1.5">{p.phone} <CallButton phoneNumber={p.phone} /></span>
+                                  : '—'}
+                              </td>
                             </tr>
                           ))}
                         </tbody>
