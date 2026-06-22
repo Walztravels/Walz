@@ -6,8 +6,10 @@ const anthropic = new Anthropic({
 });
 
 const CHATWOOT_BASE = process.env.CHATWOOT_BASE_URL ||
-  'https://chatwoot-production-d486.up.railway.app';
-const BOT_TOKEN = process.env.CHATWOOT_API_TOKEN!;
+  'https://chat.walztravels.com';
+// CHATWOOT_BOT_TOKEN = the Jade Agent Bot's access token from Chatwoot → Settings → Bots → edit Jade
+// This makes Jade post as sender.type='agent_bot' (not as a human agent user)
+const BOT_TOKEN = process.env.CHATWOOT_BOT_TOKEN ?? process.env.CHATWOOT_API_TOKEN!;
 const ADMIN_TOKEN = process.env.CHATWOOT_ADMIN_TOKEN ||
   '1rnd6Rp9GNVKtbJ8238Vg2S1';
 const ACCOUNT_ID = 1;
@@ -83,8 +85,9 @@ async function sendMessage(
         },
         body: JSON.stringify({
           content,
-          message_type: 'outgoing',
-          private: isPrivate,
+          message_type:       'outgoing',
+          private:            isPrivate,
+          content_attributes: { jade_ai: true },
         }),
       }
     );

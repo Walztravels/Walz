@@ -27,13 +27,13 @@ import { saveJadeSession, loadJadeSession, markHandover, markResumed } from '@/l
 
 export const dynamic = 'force-dynamic'
 
-const CHATWOOT_BASE   = 'https://chat.walztravels.com'
-const CHATWOOT_TOKEN  = process.env.CHATWOOT_API_TOKEN ?? '1rnd6Rp9GNVKtbJ8238Vg2S1'
-const ACCOUNT_ID      = '1'
+const CHATWOOT_BASE      = 'https://chat.walztravels.com'
+const CHATWOOT_TOKEN     = process.env.CHATWOOT_API_TOKEN ?? '1rnd6Rp9GNVKtbJ8238Vg2S1'
+// Bot token (Chatwoot → Settings → Bots → edit Jade) — makes Jade post as agent_bot, not as a human agent
+const CHATWOOT_BOT_TOKEN = process.env.CHATWOOT_BOT_TOKEN ?? CHATWOOT_TOKEN
+const ACCOUNT_ID         = '1'
 
-// Optional: numeric Chatwoot agent ID for the dedicated Jade account.
-// Set JADE_CHATWOOT_AGENT_ID in Vercel env vars once you create a separate
-// "Jade AI" agent in Chatwoot (Settings → Agents). Leave unset until then.
+// Fallback: explicit Jade agent ID in case CHATWOOT_BOT_TOKEN is not yet set
 const JADE_AGENT_ID = process.env.JADE_CHATWOOT_AGENT_ID
   ? Number(process.env.JADE_CHATWOOT_AGENT_ID)
   : null
@@ -139,12 +139,16 @@ async function getSourceId(payload: CWPayload, convId: number): Promise<string |
 
 // ── Send a message to a Chatwoot conversation ─────────────────────────────────
 async function cwSendMessage(conversationId: number, content: string): Promise<void> {
-  if (!CHATWOOT_TOKEN) return
   try {
     await fetch(`${CHATWOOT_BASE}/api/v1/accounts/${ACCOUNT_ID}/conversations/${conversationId}/messages`, {
       method:  'POST',
-      headers: { 'Content-Type': 'application/json', api_access_token: CHATWOOT_TOKEN },
-      body:    JSON.stringify({ content, message_type: 'outgoing', private: false, content_attributes: { jade_ai: true } }),
+      headers: { 'Content-Type': 'application/json', api_access_token: CHATWOOT_BOT_TOKEN },
+      body:    JSON.stringify({
+        content,
+        message_type:       'outgoing',
+        private:            false,
+        content_attributes: { jade_ai: true },
+      }),
     })
   } catch {}
 }
@@ -308,11 +312,12 @@ async function onMessageCreated(payload: CWPayload, supabase: SupabaseAdmin) {
     const convKey = String(convId)
 
     // Detect Jade's own echoed messages so we don't silence ourselves.
-    // Primary signal: jade handler stamps content_attributes.jade_ai on every AI reply.
-    // Secondary: JADE_CHATWOOT_AGENT_ID env var (set this once you create a
-    //            dedicated "Jade AI" agent account in Chatwoot → Settings → Agents).
+    // When CHATWOOT_BOT_TOKEN is set, Jade posts as sender.type='agent_bot' — definitive.
+    // Fallback 1: content_attributes.jade_ai tag stamped on every Jade message.
+    // Fallback 2: JADE_CHATWOOT_AGENT_ID env var (explicit numeric ID).
     const isJade =
-      payload.content_attributes?.jade_ai === true
+      payload.sender?.type === 'agent_bot'
+      || payload.content_attributes?.jade_ai === true
       || (JADE_AGENT_ID !== null && payload.sender?.id === JADE_AGENT_ID)
 
     if (isJade) {
