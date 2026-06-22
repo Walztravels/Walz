@@ -435,6 +435,7 @@ export const NAV_ITEMS: NavSection[] = [
   {
     section: 'SYSTEM',
     items: [
+      { href: '/admin/routing',     label: 'Routing',      icon: 'GitBranch',   permission: 'settings'     },
       { href: '/admin/staff',       label: 'Staff',        icon: 'Shield',      permission: 'staff'        },
       { href: '/admin/staff/new',   label: 'Add Staff',    icon: 'UserPlus',    permission: 'staff.create' },
       { href: '/admin/roles',       label: 'Role Manager', icon: 'ShieldCheck', permission: 'staff'        },

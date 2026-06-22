@@ -2212,3 +2212,22 @@ model JadeSession {
 
   @@index([chatwootConversationId])
 }
+
+// ConversationRoute — pre-created in Supabase SQL editor with RLS enabled.
+// NEVER run prisma db push or prisma migrate for this model.
+// Schema changes → ALTER TABLE in Supabase SQL editor, then npx prisma generate only.
+model ConversationRoute {
+  id                     String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  chatwootConversationId String   @unique
+  assignedTo             String
+  assignedToName         String
+  assignedAt             DateTime @default(now()) @db.Timestamptz
+  channel                String?
+  routingReason          String?
+  messagePreview         String?
+  status                 String   @default("active")
+  createdAt              DateTime @default(now()) @db.Timestamptz
+
+  @@index([chatwootConversationId])
+  @@index([assignedTo])
+}

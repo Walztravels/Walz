@@ -24,6 +24,7 @@ import { createHmac, timingSafeEqual } from 'crypto'
 import { getSupabaseAdmin } from '@/lib/supabase'
 import { prisma } from '@/lib/db'
 import { saveJadeSession, loadJadeSession, markHandover, markResumed } from '@/lib/jade-session'
+import { routeConversation, applyRouting } from '@/lib/conversation-router'
 
 export const dynamic = 'force-dynamic'
 
@@ -305,6 +306,31 @@ async function onMessageCreated(payload: CWPayload, supabase: SupabaseAdmin) {
   const convId = payload.conversation?.id ?? payload.id
   if (!convId) return
 
+  // ── Auto-routing: assign new inbound conversations to the right agent ──────
+  if (payload.message_type === 0 && payload.sender?.type === 'contact') {
+    const conversationId  = convId.toString()
+    const alreadyAssigned = payload.conversation?.meta?.assignee
+
+    if (!alreadyAssigned) {
+      try {
+        const decision = await routeConversation(
+          conversationId,
+          payload.content ?? '',
+          payload.conversation?.channel ?? '',
+        )
+        await applyRouting(
+          conversationId,
+          decision,
+          payload.content ?? '',
+          payload.conversation?.channel ?? '',
+        )
+      } catch (e) {
+        console.error('[router] Routing error (non-fatal):', e)
+      }
+    }
+  }
+  // ── End routing ─────────────────────────────────────────────────────────────
+
   // Outgoing message — check if it's a REAL human agent or Jade herself.
   // Jade uses a Chatwoot user token (sender.type = 'user', NOT 'bot') so we
   // must compare sender.id against Jade's own profile ID to exclude her messages.
@@ -582,12 +608,18 @@ interface CWContact {
 }
 
 interface CWConversation {
-  id?:      number
-  status?:  string
-  channel?: string
+  id?:             number
+  status?:         string
+  channel?:        string
+  messages_count?: number
   contact_inbox?: {
-    source_id?: string
+    source_id?:  string
     contact_id?: number
+  }
+  meta?: {
+    sender?:   CWContact
+    channel?:  string
+    assignee?: { id?: number; name?: string } | null
   }
 }
 

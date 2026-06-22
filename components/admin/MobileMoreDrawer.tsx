@@ -3,7 +3,7 @@
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import {
-  X, LogOut,
+  X, LogOut, GitBranch,
   LayoutDashboard, TrendingUp, MessageSquare,
   Users, UserPlus, Calendar, Plus, Plane, Building2, Car,
   FileText, Map, FolderOpen, ClipboardList, ScanSearch, Tag,
@@ -26,7 +26,7 @@ const ICON_MAP: Record<string, React.ElementType> = {
   CreditCard, Award, DollarSign, Gift, BarChart2, CheckCircle, BookOpen, Edit,
   Sliders, Shield, Package, Wrench, Activity, Key, Settings, MapPin, Signal,
   Globe, Image, ShieldCheck, Tag, Star, Mail, AlertTriangle, Brain, Dna, Radio,
-  AlertOctagon, Zap, UserCheck, Sparkles, Ticket, Receipt,
+  AlertOctagon, Zap, UserCheck, Sparkles, Ticket, Receipt, GitBranch,
 }
 
 interface MobileMoreDrawerProps {
