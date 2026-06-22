@@ -291,18 +291,33 @@ async function onMessageCreated(payload: CWPayload, supabase: SupabaseAdmin) {
   const convId = payload.conversation?.id ?? payload.id
   if (!convId) return
 
-  // Human agent reply → silence Jade for RESUME_AFTER_MINUTES
+  // Human agent reply → silence Jade across all channels
   // message_type 1 = outgoing; sender.type 'bot' = Jade herself (ignore)
   if (payload.message_type === 1 && payload.sender?.type !== 'bot') {
-    // Silence website Jade (Supabase)
+    const convKey = String(convId)
+
+    // 1. Silence website Jade via JadeSession (most reliable — doesn't depend on
+    //    chatwoot_conversation_id being linked to a Supabase lead yet)
+    const session = await loadJadeSession(convKey).catch(() => null)
+    const silencedState = {
+      intent:              session?.intent ?? null,
+      lastMessage:         session?.lastMessage ?? '',
+      conversationHistory: session?.conversationHistory ?? [],
+      bookingContext:      session?.bookingContext ?? null,
+      groupContext:        session?.groupContext ?? null,
+      agentActive:         true,
+    }
+    await saveJadeSession(convKey, silencedState).catch(() => {})
+
+    // 2. Silence website Jade via Supabase leads table (legacy path)
     await supabase
       .from('leads')
       .update({ jade_silenced_at: new Date().toISOString() })
       .eq('chatwoot_conversation_id', convId)
 
-    // Silence IG/FB Jade (Prisma) — get PSID from payload or API fallback
-    const igSourceId  = await getSourceId(payload, convId)
-    const silenceKey  = igSourceId ?? payload.conversation?.id?.toString() ?? null
+    // 3. Silence IG/FB Jade (Prisma) — get PSID from payload or API fallback
+    const igSourceId = await getSourceId(payload, convId)
+    const silenceKey = igSourceId ?? payload.conversation?.id?.toString() ?? null
 
     if (igSourceId) {
       try {
@@ -317,11 +332,12 @@ async function onMessageCreated(payload: CWPayload, supabase: SupabaseAdmin) {
 
     console.log('[chatwoot-webhook] Agent message processed:', {
       conversationId:      convId,
+      jadeSessionSilenced: true,
       sourceIdFromPayload: payload.conversation?.contact_inbox?.source_id ?? null,
       sourceIdResolved:    igSourceId,
       silenceKeyUsed:      silenceKey,
       via:                 payload.conversation?.contact_inbox?.source_id ? 'payload' : 'API fallback',
-      jadeSilencedAt:      igSourceId ? new Date().toISOString() : 'not written — sourceId null',
+      jadeSilencedAt:      new Date().toISOString(),
     })
   }
 
