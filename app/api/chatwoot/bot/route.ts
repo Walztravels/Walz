@@ -213,22 +213,23 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ status: 'agent_active_silenced' });
     }
 
-    // API fallback: look for any human agent outgoing message in this conversation
+    // API fallback: look for any human agent outgoing message in this conversation.
+    // Uses ADMIN_TOKEN (human agent token) — bot token lacks read permissions.
     try {
       const msgsRes = await fetch(
         `${CHATWOOT_BASE}/api/v1/accounts/${ACCOUNT_ID}/conversations/${conversationId}/messages`,
-        { headers: { api_access_token: BOT_TOKEN }, signal: AbortSignal.timeout(4000) },
+        { headers: { api_access_token: ADMIN_TOKEN }, signal: AbortSignal.timeout(4000) },
       )
+      console.log('[jade-bot] messages API status:', msgsRes.status, 'conv:', conversationId)
       if (msgsRes.ok) {
         const msgsData = await msgsRes.json() as { payload?: Array<{ message_type?: number; content_attributes?: { jade_ai?: boolean }; sender?: { type?: string } }> }
         const msgs = msgsData.payload ?? []
+        console.log('[jade-bot] total messages:', msgs.length, 'outgoing:', msgs.filter(m => m.message_type === 1).length)
         const hasHumanAgent = msgs.some(m =>
           m.message_type === 1
-          && !m.content_attributes?.jade_ai
-          && m.sender?.type !== 'agent_bot'
+          && m.sender?.type === 'user'  // strictly human agent (not agent_bot, not contact)
         )
         if (hasHumanAgent) {
-          // Cache the result so we don't re-check on every subsequent message
           const existing = await loadJadeSession(convKey).catch(() => null)
           await saveJadeSession(convKey, {
             intent:              existing?.intent ?? null,
@@ -239,9 +240,12 @@ export async function POST(request: NextRequest) {
             agentActive:         true,
             agentMessages:       existing?.agentMessages ?? [],
           }).catch(() => {})
-          console.log('[jade-bot] Human agent detected via API — staying silent for conv', conversationId)
+          console.log('[jade-bot] Human agent (sender.type=user) detected via API — staying silent for conv', conversationId)
           return NextResponse.json({ status: 'agent_active_silenced' })
         }
+      } else {
+        const errText = await msgsRes.text().catch(() => '')
+        console.error('[jade-bot] messages API error:', msgsRes.status, errText.substring(0, 200))
       }
     } catch (e) {
       console.error('[jade-bot] API agent check failed:', e)

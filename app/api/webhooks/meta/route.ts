@@ -282,7 +282,7 @@ async function hasAgentRepliedInChatwoot(sourceId: string): Promise<boolean> {
       if (res.ok) {
         const data = await res.json() as { payload?: Array<{ message_type?: number; content_attributes?: { jade_ai?: boolean }; sender?: { type?: string } }> }
         const msgs = data.payload ?? []
-        if (msgs.some(m => m.message_type === 1 && !m.content_attributes?.jade_ai && m.sender?.type !== 'agent_bot')) {
+        if (msgs.some(m => m.message_type === 1 && m.sender?.type === 'user')) {
           return true
         }
       }
@@ -309,7 +309,7 @@ async function hasAgentRepliedInChatwoot(sourceId: string): Promise<boolean> {
     const convs = (convsData.payload ?? []).sort((a, b) => b.id - a.id)
     return convs.slice(0, 1).some(conv =>
       (conv.messages ?? []).some(m =>
-        m.message_type === 1 && !m.content_attributes?.jade_ai && m.sender?.type !== 'agent_bot'
+        m.message_type === 1 && m.sender?.type === 'user'
       )
     )
   } catch {
