@@ -315,6 +315,13 @@ async function getOrCreateContact(sessionId: string, name: string): Promise<numb
 
 async function getOrCreateConversation(contactId: number, existingConvId: number | null): Promise<number | null> {
   if (existingConvId) return existingConvId
+  // Reuse existing open conversation for this contact rather than creating a duplicate
+  try {
+    const data  = await cwGet(`/accounts/${ACCOUNT_ID}/contacts/${contactId}/conversations`)
+    const convs = Array.isArray(data?.payload) ? data.payload as Array<{ status: string; id: number }> : []
+    const open  = convs.find(c => c.status === 'open')
+    if (open?.id) return open.id
+  } catch {}
   try {
     const conv = await cwPost(`/accounts/${ACCOUNT_ID}/conversations`, {
       inbox_id: Number(INBOX_ID), contact_id: contactId,
@@ -322,6 +329,23 @@ async function getOrCreateConversation(contactId: number, existingConvId: number
     return conv?.id ?? conv?.data?.id ?? null
   } catch (e) {
     console.error('[Jade→CW] Conv create failed:', String(e).slice(0, 100))
+    return null
+  }
+}
+
+// Sync: ensure contact + conversation exist and return the conversation ID.
+// Called BEFORE the AI reply so the real ID can be returned to the client.
+async function ensureConversation(
+  sessionId: string,
+  customerName: string,
+  existingConvId: number | null,
+  profile: ClientProfile | null,
+): Promise<number | null> {
+  try {
+    const contactId = await getOrCreateContact(sessionId, customerName || profile?.name || '')
+    if (!contactId) return null
+    return await getOrCreateConversation(contactId, existingConvId)
+  } catch {
     return null
   }
 }
@@ -1507,14 +1531,24 @@ export async function POST(req: NextRequest) {
     })
   }
 
+  // ── Ensure Chatwoot conversation (sync) — resolve the real conversation ID ──
+  // Runs BEFORE the AI reply so actualConvId can be returned to the client.
+  // Without this, every request arrives with conversationId: null and
+  // fetchClientMemory is skipped, breaking cross-message context retention.
+  let actualConvId = convId
+  try {
+    const resolved = await ensureConversation(sid, customerName, convId, null)
+    if (resolved) actualConvId = resolved
+  } catch {}
+
   // ── Fetch memory — non-blocking with short timeout ──────────────────────────
   let profile: ClientProfile | null = null
   let fullHistory: Msg[] = []
 
-  if (convId) {
+  if (actualConvId) {
     try {
       const memResult = await Promise.race([
-        fetchClientMemory(convId),
+        fetchClientMemory(actualConvId),
         new Promise<{ profile: null; messages: Msg[] }>(resolve =>
           setTimeout(() => resolve({ profile: null, messages: [] }), 4000)
         ),
@@ -1548,7 +1582,7 @@ export async function POST(req: NextRequest) {
     : detectHandover(message, history, dna)
 
   // ── Load Jade session (flow state for booking / group) ────────────────────────
-  const convKey     = convId ? String(convId) : sid
+  const convKey     = actualConvId ? String(actualConvId) : sid
   const jadeSession = await loadJadeSession(convKey).catch(() => null)
 
   // Human agent has taken over this conversation — stay completely silent
@@ -1558,7 +1592,7 @@ export async function POST(req: NextRequest) {
       handedOff:      true,
       agentName:      null,
       silenced:       true,
-      conversationId: convId,
+      conversationId: actualConvId,
     })
   }
 
@@ -1578,12 +1612,11 @@ export async function POST(req: NextRequest) {
       void saveJadeSession(convKey, flowResult.updatedSession)
     }
 
-    // Push to Chatwoot async (same pattern as standard path)
-    let newConvId: number | null = null
+    // Push messages to Chatwoot async — conversation already ensured above
     void (async () => {
       try {
-        newConvId = await pushToCharwoot(
-          sid, customerName, message, flowResult.reply, convId, dna, handover, profile
+        await pushToCharwoot(
+          sid, customerName, message, flowResult.reply, actualConvId, dna, handover, profile
         )
       } catch (e) {
         console.error('[Jade→CW] Flow push failed:', String(e).slice(0, 100))
@@ -1592,7 +1625,7 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({
       reply:           flowResult.reply,
-      conversationId:  convId,
+      conversationId:  actualConvId,
       dna,
       intent:          activeIntent,
       quickReplies:    flowResult.quickReplies,
@@ -1614,22 +1647,21 @@ export async function POST(req: NextRequest) {
 
   const intent = classifyIntent(message, dna)
 
-  // ── Push to Chatwoot asynchronously — never blocks the response ──────────────
-  let newConvId: number | null = null
+  // ── Push messages to Chatwoot async — conversation already ensured above ──────
   void (async () => {
     try {
-      newConvId = await pushToCharwoot(
-        sid, customerName, message, reply, convId, dna, handover, profile
+      await pushToCharwoot(
+        sid, customerName, message, reply, actualConvId, dna, handover, profile
       )
       if (b2b) {
-        if (newConvId) void addCwLabel(newConvId, 'b2b-inquiry')
+        if (actualConvId) void addCwLabel(actualConvId, 'b2b-inquiry')
         const companyMatch =
           message.match(/([A-Z][a-zA-Z ]+(?:Tourism|Travel|Agency|Tours|Corp|Ltd|Inc|LLC|Group))/)?.[1]
           ?? (customerName || 'Business Inquiry')
-        void sendB2BEmail(companyMatch, message, newConvId)
+        void sendB2BEmail(companyMatch, message, actualConvId)
       }
       if (handover.needed && !b2b) {
-        void sendHandoverEmail(customerName, customerEmail, handover, dna, profile, newConvId, message)
+        void sendHandoverEmail(customerName, customerEmail, handover, dna, profile, actualConvId, message)
       }
     } catch (e) {
       console.error('[Jade→CW] Background push failed:', String(e).slice(0, 100))
@@ -1638,7 +1670,7 @@ export async function POST(req: NextRequest) {
 
   return NextResponse.json({
     reply,
-    conversationId:  convId,
+    conversationId:  actualConvId,
     dna,
     intent,
     quickReplies:    [],
