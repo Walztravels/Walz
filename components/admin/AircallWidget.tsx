@@ -1,10 +1,9 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
-import { Phone, PhoneIncoming, ChevronDown, X } from 'lucide-react'
+import { Phone, PhoneIncoming, X } from 'lucide-react'
 
-type WidgetState = 'hidden' | 'minimised' | 'open'
-type CallState   = 'idle' | 'incoming' | 'connecting' | 'active' | 'ended'
+type CallState = 'idle' | 'incoming' | 'connecting' | 'active' | 'ended'
 
 interface CallInfo {
   from?: string
@@ -12,14 +11,15 @@ interface CallInfo {
 }
 
 export function AircallWidget() {
-  const workspaceRef                  = useRef<import('aircall-everywhere').default | null>(null)
-  const timerRef                      = useRef<ReturnType<typeof setInterval> | null>(null)
-  const [widgetState, setWidgetState] = useState<WidgetState>('hidden')
-  const [callState,   setCallState]   = useState<CallState>('idle')
-  const [callInfo,    setCallInfo]    = useState<CallInfo | null>(null)
-  const [isLoaded,    setIsLoaded]    = useState(false)
-  const [timer,       setTimer]       = useState(0)
+  const workspaceRef              = useRef<import('aircall-everywhere').default | null>(null)
+  const timerRef                  = useRef<ReturnType<typeof setInterval> | null>(null)
+  const [isOpen,     setIsOpen]   = useState(false)
+  const [callState,  setCallState]  = useState<CallState>('idle')
+  const [callInfo,   setCallInfo]   = useState<CallInfo | null>(null)
+  const [isLoaded,   setIsLoaded]   = useState(false)
+  const [timer,      setTimer]      = useState(0)
 
+  // Initialise Aircall SDK
   useEffect(() => {
     let mounted = true
 
@@ -31,8 +31,8 @@ export function AircallWidget() {
         integrationToLoad:  'generic',
         onLogin:  (settings: Record<string, unknown>) => {
           if (!mounted) return
-          const user = (settings?.user as { email?: string } | undefined)?.email
-          console.log('[Aircall] Logged in:', user)
+          const email = (settings?.user as { email?: string } | undefined)?.email
+          console.log('[Aircall] Logged in:', email)
           setIsLoaded(true)
         },
         onLogout: () => { if (mounted) setIsLoaded(false) },
@@ -44,7 +44,7 @@ export function AircallWidget() {
         if (!mounted) return
         setCallInfo({ from: info.from })
         setCallState('incoming')
-        setWidgetState('open')
+        setIsOpen(true)
       })
 
       workspace.on('outgoing_call', (info) => {
@@ -76,17 +76,26 @@ export function AircallWidget() {
     }
   }, [])
 
-  // Listen for openAircallWidget event dispatched by the desktop header button
+  // Listen for openAircallWidget event from the desktop header button
   useEffect(() => {
-    const handler = () => setWidgetState('open')
+    const handler = () => setIsOpen(true)
     window.addEventListener('openAircallWidget', handler)
     return () => window.removeEventListener('openAircallWidget', handler)
   }, [])
 
-  // Expose click-to-call globally
+  // Request mic permission when widget opens — required on mobile Chrome / PWA
+  // so the Aircall iframe can access the microphone without a secondary prompt
+  useEffect(() => {
+    if (!isOpen) return
+    navigator.mediaDevices?.getUserMedia({ audio: true })
+      .then(stream => stream.getTracks().forEach(t => t.stop()))
+      .catch(() => console.log('[Aircall] Mic permission denied'))
+  }, [isOpen])
+
+  // Expose click-to-call globally for CallButton components
   useEffect(() => {
     const dialNumber = (phone: string) => {
-      setWidgetState('open')
+      setIsOpen(true)
       setCallState('connecting')
       setCallInfo({ to: phone })
       setTimeout(() => {
@@ -98,11 +107,17 @@ export function AircallWidget() {
     ;(window as unknown as Record<string, unknown>).walzDialNumber = dialNumber
   }, [isLoaded])
 
-  function formatTime(secs: number) {
+  function fmt(secs: number) {
     const m = Math.floor(secs / 60).toString().padStart(2, '0')
     const s = (secs % 60).toString().padStart(2, '0')
     return `${m}:${s}`
   }
+
+  const headerLabel =
+    callState === 'active'     ? `On call · ${fmt(timer)}` :
+    callState === 'connecting' ? 'Connecting…' :
+    callState === 'incoming'   ? `Incoming · ${callInfo?.from ?? ''}` :
+    'Aircall Phone'
 
   return (
     <>
@@ -117,7 +132,7 @@ export function AircallWidget() {
             <p className="text-white font-semibold text-xl mb-1">{callInfo?.from ?? 'Unknown'}</p>
             <p className="text-white/40 text-xs mb-6">Walz Travels</p>
             <button
-              onClick={() => setWidgetState('open')}
+              onClick={() => setIsOpen(true)}
               className="w-full py-3 rounded-xl bg-amber-500 text-black font-semibold text-sm"
             >
               Open Phone to Answer
@@ -126,77 +141,53 @@ export function AircallWidget() {
         </div>
       )}
 
-      {/* Floating FAB — mobile only; desktop uses the header Phone button */}
-      {widgetState !== 'open' && (
+      {/* Mobile FAB — shown when widget is closed; desktop uses the header Phone button */}
+      {!isOpen && (
         <button
-          id="aircall-open-btn"
-          onClick={() => setWidgetState('open')}
-          className="md:hidden fixed bottom-20 right-4 z-50 w-12 h-12 rounded-full bg-amber-500 shadow-xl flex items-center justify-center active:scale-95 transition-transform"
+          onClick={() => setIsOpen(true)}
+          className="md:hidden fixed bottom-20 right-4 z-40 w-12 h-12 rounded-full bg-amber-500 shadow-lg flex items-center justify-center active:scale-95 transition-transform"
           aria-label="Open Aircall phone"
         >
           {callState === 'active'
-            ? <span className="text-black text-[10px] font-bold">{formatTime(timer)}</span>
+            ? <span className="text-black text-[10px] font-bold">{fmt(timer)}</span>
             : <Phone className="w-5 h-5 text-black" strokeWidth={1.5} />
           }
         </button>
       )}
 
-      {/* Minimised pill */}
-      {widgetState === 'minimised' && (
-        <button
-          onClick={() => setWidgetState('open')}
-          className="fixed bottom-20 md:bottom-6 right-4 md:right-6 z-50 bg-[#0a1628] border border-white/10 rounded-full px-4 py-2 flex items-center gap-2 shadow-lg"
-        >
-          <Phone className="w-3.5 h-3.5 text-amber-400" strokeWidth={1.5} />
-          <span className="text-white text-xs font-medium">
-            {callState === 'active' ? formatTime(timer) : 'Phone'}
-          </span>
-        </button>
-      )}
-
       {/* Aircall workspace panel */}
-      <div className={[
-        'fixed z-50 transition-all duration-300 ease-out',
-        'bottom-16 left-0 right-0',
-        'md:bottom-6 md:right-6 md:left-auto md:w-80',
-        widgetState === 'open' ? 'translate-y-0 opacity-100' : 'translate-y-full opacity-0 pointer-events-none',
-      ].join(' ')}>
-        <div className="bg-[#0a1628] border border-white/10 rounded-t-2xl md:rounded-2xl shadow-2xl overflow-hidden w-full">
+      {isOpen && (
+        <div className="fixed z-50 bottom-16 left-0 right-0 md:bottom-6 md:right-6 md:left-auto md:w-80 bg-[#0a1628] border border-white/10 rounded-t-2xl md:rounded-2xl shadow-2xl overflow-hidden flex flex-col">
 
           {/* Header */}
-          <div className="flex items-center justify-between px-4 py-3 border-b border-white/10 bg-[#0d1e35]">
+          <div className="flex items-center justify-between px-4 py-3 border-b border-white/10 bg-[#0d1e35] flex-shrink-0">
             <div className="flex items-center gap-2">
               <Phone
                 className={callState === 'active' ? 'w-4 h-4 text-green-400' : 'w-4 h-4 text-amber-400'}
                 strokeWidth={1.5}
               />
-              <span className="text-white text-sm font-medium">
-                {callState === 'active'     ? `On call · ${formatTime(timer)}` :
-                 callState === 'connecting' ? 'Connecting…' :
-                 callState === 'incoming'   ? 'Incoming call' : 'Aircall Phone'}
-              </span>
+              <span className="text-white text-sm font-medium">{headerLabel}</span>
               {callState === 'active' && <span className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />}
             </div>
-            <div className="flex items-center gap-1">
-              <button
-                onClick={() => setWidgetState('minimised')}
-                className="text-white/40 hover:text-white/70 transition-colors p-1.5"
-              >
-                <ChevronDown className="w-4 h-4" />
-              </button>
-              <button
-                onClick={() => setWidgetState('hidden')}
-                className="text-white/40 hover:text-white/70 transition-colors p-1.5"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
+            <button
+              onClick={() => setIsOpen(false)}
+              className="text-white/40 hover:text-white/70 p-1.5 transition-colors"
+            >
+              <X className="w-4 h-4" />
+            </button>
           </div>
 
-          {/* Aircall iframe — SDK injects here; shows login page or workspace directly */}
-          <div id="aircall-workspace" style={{ height: 580, width: '100%' }} />
+          {/* Aircall iframe — no spinner, no overlay, always visible */}
+          <div
+            id="aircall-workspace"
+            style={{
+              height: 'min(540px, calc(100vh - 120px))',
+              width: '100%',
+              flexShrink: 0,
+            }}
+          />
         </div>
-      </div>
+      )}
     </>
   )
 }
