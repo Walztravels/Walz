@@ -478,7 +478,7 @@ function PageHeader({ pnr, reference }: { pnr: string; reference: string }) {
       <View style={s.pageHeader} fixed>
         {/* Logo */}
         <View style={s.logoBlock}>
-          <Image src={LOGO_SRC} style={{ width: 40, height: 40 }} />
+          <Image src={LOGO_SRC} style={{ width: 64, height: 64 }} />
           <Text style={s.logoTag}>YOUR JOURNEY. OUR EXPERTISE.</Text>
         </View>
 
