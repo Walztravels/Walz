@@ -96,6 +96,7 @@ export default function CinematicPackageCard({
           alt={title}
           sizes="(max-width: 768px) 100vw, (max-width: 1200px) 50vw, 33vw"
           className="object-cover transition-transform duration-700 ease-out group-hover:scale-110"
+          onError={e => { (e.target as HTMLImageElement).src = 'https://images.unsplash.com/photo-1469854523086-cc02fe5d8800?w=800&auto=format&fit=crop' }}
         />
 
         {/* Permanent bottom gradient */}

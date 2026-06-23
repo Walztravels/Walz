@@ -42,13 +42,20 @@ interface FeaturedDestination {
 }
 
 const FALLBACK_DESTINATIONS: FeaturedDestination[] = [
-  { city: 'London',   country: 'UK',       tag: 'MOST VISITED', image: 'https://images.unsplash.com/photo-1513635269975-59663e0ac1ad?w=800', flightFrom: '£89',  hotelFrom: '£120/night', visaFrom: '£120' },
-  { city: 'Dubai',    country: 'UAE',      tag: 'HOT DEAL',     image: 'https://images.unsplash.com/photo-1512453979798-5ea266f8880c?w=800', flightFrom: '£280', hotelFrom: '£89/night',  visaFrom: '£80'  },
-  { city: 'Toronto',  country: 'Canada',   tag: 'POPULAR',      image: 'https://images.unsplash.com/photo-1517090504586-fde19ea6066f?w=800', flightFrom: '£380', hotelFrom: '£95/night',  visaFrom: '£150' },
-  { city: 'New York', country: 'USA',      tag: 'POPULAR',      image: 'https://images.unsplash.com/photo-1522083165195-3424ed129620?w=800', flightFrom: '£420', hotelFrom: '£180/night', visaFrom: '£160' },
-  { city: 'Lagos',    country: 'Nigeria',  tag: 'BEST VALUE',   image: 'https://images.unsplash.com/photo-1555507036-ab1f4038808a?w=800', flightFrom: '£580', hotelFrom: '£65/night',  visaFrom: '£60'  },
-  { city: 'Accra',    country: 'Ghana',    tag: 'NEW ROUTE',    image: 'https://images.unsplash.com/photo-1596422846543-75c6fc197f07?w=800', flightFrom: '£620', hotelFrom: '£55/night',  visaFrom: '£60'  },
+  { city: 'London',   country: 'UK',       tag: 'MOST VISITED', image: 'https://images.unsplash.com/photo-1513635269975-59663e0ac1ad?w=800&auto=format&fit=crop', flightFrom: '£89',  hotelFrom: '£120/night', visaFrom: '£120' },
+  { city: 'Dubai',    country: 'UAE',      tag: 'HOT DEAL',     image: 'https://images.unsplash.com/photo-1512453979798-5ea266f8880c?w=800&auto=format&fit=crop', flightFrom: '£280', hotelFrom: '£89/night',  visaFrom: '£80'  },
+  { city: 'Toronto',  country: 'Canada',   tag: 'POPULAR',      image: 'https://images.unsplash.com/photo-1517090504586-fde19ea6066f?w=800&auto=format&fit=crop', flightFrom: '£380', hotelFrom: '£95/night',  visaFrom: '£150' },
+  { city: 'New York', country: 'USA',      tag: 'POPULAR',      image: 'https://images.unsplash.com/photo-1522083165195-3424ed129620?w=800&auto=format&fit=crop', flightFrom: '£420', hotelFrom: '£180/night', visaFrom: '£160' },
+  { city: 'Lagos',    country: 'Nigeria',  tag: 'BEST VALUE',   image: 'https://images.unsplash.com/photo-1555507036-ab1f4038808a?w=800&auto=format&fit=crop', flightFrom: '£580', hotelFrom: '£65/night',  visaFrom: '£60'  },
+  { city: 'Accra',    country: 'Ghana',    tag: 'NEW ROUTE',    image: 'https://images.unsplash.com/photo-1597149374936-796cb7d85a06?w=800&auto=format&fit=crop', flightFrom: '£620', hotelFrom: '£55/night',  visaFrom: '£60'  },
 ]
+
+const BLOG_FALLBACKS: Record<string, string> = {
+  'VISA GUIDE':        'https://images.unsplash.com/photo-1529400971008-f566de0e6dfc?w=800&auto=format&fit=crop',
+  'DESTINATION GUIDE': 'https://images.unsplash.com/photo-1436491865332-7a61a109cc05?w=800&auto=format&fit=crop',
+  'TOUR GUIDE':        'https://images.unsplash.com/photo-1469854523086-cc02fe5d8800?w=800&auto=format&fit=crop',
+  default:             'https://images.unsplash.com/photo-1436491865332-7a61a109cc05?w=800&auto=format&fit=crop',
+}
 
 export default function HomePage() {
   const [articles,     setArticles]     = useState<SoroArticle[]>([])
@@ -133,7 +140,8 @@ export default function HomePage() {
                 <img
                   src={dest.image}
                   alt={dest.city}
-                  className="absolute inset-0 w-full h-full object-cover group-hover:scale-105 transition-transform duration-700 ease-out"
+                  onError={e => { e.currentTarget.src = 'https://images.unsplash.com/photo-1436491865332-7a61a109cc05?w=800&auto=format&fit=crop' }}
+                  className="absolute inset-0 w-full h-full object-cover group-hover:scale-110 transition-transform duration-700 ease-out"
                   loading="lazy"
                 />
                 <div
@@ -262,9 +270,11 @@ export default function HomePage() {
               >
                 <div className="relative aspect-[3/2] overflow-hidden">
                   {/* eslint-disable-next-line @next/next/no-img-element */}
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img
                     src={a.image}
                     alt={a.title}
+                    onError={e => { e.currentTarget.src = BLOG_FALLBACKS[a.category] ?? BLOG_FALLBACKS.default }}
                     className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
                     loading="lazy"
                   />

@@ -129,6 +129,7 @@ export function ToursHighlight() {
                 key={kenKey}
                 src={cover}
                 alt={tour.name}
+                onError={e => { e.currentTarget.src = 'https://images.unsplash.com/photo-1469854523086-cc02fe5d8800?w=800&auto=format&fit=crop' }}
                 className="w-full h-full object-cover ken-burns slide-fade-in"
               />
             </div>
