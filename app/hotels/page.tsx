@@ -5,20 +5,83 @@ import { useSearchParams, useRouter } from 'next/navigation'
 import {
   Star, MapPin, ChevronLeft, ChevronRight, Shield, Coffee,
   AlertCircle, SlidersHorizontal, X, Search, Loader2, Utensils,
+  RefreshCw, CreditCard, Headphones,
 } from 'lucide-react'
-import { HotelSearchForm, type HotelSearchMeta } from '@/components/search/HotelSearchForm'
+import { DatePickerField } from '@/components/ui/DatePicker'
 import { cn, formatPrice } from '@/lib/utils'
+import { format } from 'date-fns'
 import type { HotelResult } from '@/types/booking'
 
 export const dynamic = 'force-dynamic'
 
+// ─── destination data ────────────────────────────────────────────────────────
+
+const DESTINATIONS = [
+  { code: 'LOS', city: 'Lagos',          country: 'Nigeria'     },
+  { code: 'ABV', city: 'Abuja',          country: 'Nigeria'     },
+  { code: 'PHC', city: 'Port Harcourt',  country: 'Nigeria'     },
+  { code: 'ACC', city: 'Accra',          country: 'Ghana'       },
+  { code: 'KMS', city: 'Kumasi',         country: 'Ghana'       },
+  { code: 'NBO', city: 'Nairobi',        country: 'Kenya'       },
+  { code: 'MBA', city: 'Mombasa',        country: 'Kenya'       },
+  { code: 'DAR', city: 'Dar es Salaam',  country: 'Tanzania'    },
+  { code: 'ZNZ', city: 'Zanzibar',       country: 'Tanzania'    },
+  { code: 'ADD', city: 'Addis Ababa',    country: 'Ethiopia'    },
+  { code: 'KGL', city: 'Kigali',         country: 'Rwanda'      },
+  { code: 'JNB', city: 'Johannesburg',   country: 'South Africa'},
+  { code: 'CPT', city: 'Cape Town',      country: 'South Africa'},
+  { code: 'DKR', city: 'Dakar',          country: 'Senegal'     },
+  { code: 'CMN', city: 'Casablanca',     country: 'Morocco'     },
+  { code: 'CAI', city: 'Cairo',          country: 'Egypt'       },
+  { code: 'LON', city: 'London',         country: 'UK'          },
+  { code: 'MAN', city: 'Manchester',     country: 'UK'          },
+  { code: 'BHX', city: 'Birmingham',     country: 'UK'          },
+  { code: 'EDI', city: 'Edinburgh',      country: 'UK'          },
+  { code: 'YTO', city: 'Toronto',        country: 'Canada'      },
+  { code: 'YVR', city: 'Vancouver',      country: 'Canada'      },
+  { code: 'YMQ', city: 'Montreal',       country: 'Canada'      },
+  { code: 'DXB', city: 'Dubai',          country: 'UAE'         },
+  { code: 'AUH', city: 'Abu Dhabi',      country: 'UAE'         },
+  { code: 'DOH', city: 'Doha',           country: 'Qatar'       },
+  { code: 'RUH', city: 'Riyadh',         country: 'Saudi Arabia'},
+  { code: 'NYC', city: 'New York',       country: 'USA'         },
+  { code: 'LAX', city: 'Los Angeles',    country: 'USA'         },
+  { code: 'MIA', city: 'Miami',          country: 'USA'         },
+  { code: 'LAS', city: 'Las Vegas',      country: 'USA'         },
+  { code: 'PAR', city: 'Paris',          country: 'France'      },
+  { code: 'AMS', city: 'Amsterdam',      country: 'Netherlands' },
+  { code: 'BCN', city: 'Barcelona',      country: 'Spain'       },
+  { code: 'ROM', city: 'Rome',           country: 'Italy'       },
+  { code: 'IST', city: 'Istanbul',       country: 'Turkey'      },
+  { code: 'ATH', city: 'Athens',         country: 'Greece'      },
+  { code: 'LIS', city: 'Lisbon',         country: 'Portugal'    },
+  { code: 'SIN', city: 'Singapore',      country: 'Singapore'   },
+  { code: 'BKK', city: 'Bangkok',        country: 'Thailand'    },
+  { code: 'KUL', city: 'Kuala Lumpur',   country: 'Malaysia'    },
+  { code: 'NRT', city: 'Tokyo',          country: 'Japan'       },
+  { code: 'SYD', city: 'Sydney',         country: 'Australia'   },
+  { code: 'MLE', city: 'Maldives',       country: 'Maldives'    },
+  { code: 'BOM', city: 'Mumbai',         country: 'India'       },
+  { code: 'CUN', city: 'Cancun',         country: 'Mexico'      },
+  { code: 'GIG', city: 'Rio de Janeiro', country: 'Brazil'      },
+]
+
+const FEATURED = [
+  { code: 'DXB', city: 'Dubai',    country: 'UAE',     from: '£89',  tag: 'MOST BOOKED', img: 'https://images.unsplash.com/photo-1512453979798-5ea266f8880c?w=600&q=80' },
+  { code: 'LON', city: 'London',   country: 'UK',      from: '£120', tag: 'HOT DEAL',    img: 'https://images.unsplash.com/photo-1513635269975-59663e0ac1ad?w=600&q=80' },
+  { code: 'MLE', city: 'Maldives', country: 'Maldives',from: '£250', tag: 'LUXURY',      img: 'https://images.unsplash.com/photo-1544550285-f813152fb2fd?w=600&q=80' },
+  { code: 'YTO', city: 'Toronto',  country: 'Canada',  from: '£95',  tag: 'POPULAR',     img: 'https://images.unsplash.com/photo-1517090504586-fde19ea6066f?w=600&q=80' },
+  { code: 'NYC', city: 'New York', country: 'USA',     from: '£180', tag: 'POPULAR',     img: 'https://images.unsplash.com/photo-1496442226666-8d4d0e62e6e9?w=600&q=80' },
+  { code: 'LOS', city: 'Lagos',    country: 'Nigeria', from: '£65',  tag: 'BEST VALUE',  img: 'https://images.unsplash.com/photo-1555990793-da11153b2473?w=600&q=80' },
+]
+
 // ─── helpers ────────────────────────────────────────────────────────────────
 
 function ratingLabel(r: number) {
-  if (r >= 9)  return 'Exceptional'
-  if (r >= 8)  return 'Superb'
-  if (r >= 7)  return 'Very Good'
-  if (r >= 6)  return 'Good'
+  if (r >= 9) return 'Exceptional'
+  if (r >= 8) return 'Superb'
+  if (r >= 7) return 'Very Good'
+  if (r >= 6) return 'Good'
   return 'Pleasant'
 }
 function ratingBg(r: number) {
@@ -29,17 +92,17 @@ function ratingBg(r: number) {
 function mealLabel(plan?: string) {
   if (!plan) return 'Room Only'
   const p = plan.toLowerCase()
-  if (p.includes('all inclusive'))              return 'All Inclusive'
-  if (p.includes('full board'))                 return 'Full Board'
-  if (p.includes('half board'))                 return 'Half Board'
-  if (p.includes('breakfast') || p.includes('bb')) return 'Breakfast included'
+  if (p.includes('all inclusive'))                   return 'All Inclusive'
+  if (p.includes('full board'))                      return 'Full Board'
+  if (p.includes('half board'))                      return 'Half Board'
+  if (p.includes('breakfast') || p.includes('bb'))   return 'Breakfast included'
   return plan
 }
 function mealIcon(plan?: string) {
   if (!plan) return null
   const p = plan.toLowerCase()
-  if (p.includes('breakfast') || p.includes('bb')) return <Coffee className="w-3 h-3" />
-  if (p.includes('board') || p.includes('all'))    return <Utensils className="w-3 h-3" />
+  if (p.includes('breakfast') || p.includes('bb'))  return <Coffee className="w-3 h-3" />
+  if (p.includes('board')     || p.includes('all')) return <Utensils className="w-3 h-3" />
   return null
 }
 
@@ -80,14 +143,9 @@ function HotelImage({ images, name }: { images: string[]; name: string }) {
   return (
     <div className="relative w-60 flex-shrink-0 overflow-hidden group bg-walz-off-white">
       {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img
-        key={src}
-        src={src}
-        alt={name}
-        onError={() => setOk(false)}
-        onLoad={() => setOk(true)}
-        className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
-      />
+      <img key={src} src={src} alt={name}
+        onError={() => setOk(false)} onLoad={() => setOk(true)}
+        className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105" />
       {images.length > 1 && (
         <>
           <button onClick={e => { e.stopPropagation(); setIdx(i => (i - 1 + images.length) % images.length); setOk(true) }}
@@ -119,9 +177,7 @@ function HotelCard({ hotel, nights, onBook }: { hotel: HotelResult; nights: numb
     <div className="bg-white rounded-2xl border border-walz-border overflow-hidden flex flex-col sm:flex-row hover:shadow-card hover:border-walz-gold/30 transition-all group"
       style={{ minHeight: 210 }}>
       <HotelImage images={hotel.images} name={hotel.name} />
-
       <div className="flex-1 p-5 flex flex-col gap-2 min-w-0">
-        {/* Name + rating */}
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
             <h3 className="font-display font-bold text-walz-deep-navy text-lg leading-snug line-clamp-2 group-hover:text-walz-gold transition-colors">
@@ -146,36 +202,21 @@ function HotelCard({ hotel, nights, onBook }: { hotel: HotelResult; nights: numb
             </div>
           )}
         </div>
-
-        {/* Location */}
         <div className="flex items-center gap-1.5 text-xs text-walz-muted">
           <MapPin className="w-3.5 h-3.5 flex-shrink-0 text-walz-gold" />
           <span className="truncate">{[hotel.address.lines[0], hotel.address.city, hotel.address.country].filter(Boolean).join(', ')}</span>
         </div>
-
-        {/* Tags */}
         <div className="flex flex-wrap gap-1.5">
           {hotel.roomType && (
-            <span className="text-[11px] text-walz-deep-navy bg-walz-off-white border border-walz-border px-2.5 py-0.5 rounded-full">
-              {hotel.roomType}
-            </span>
+            <span className="text-[11px] text-walz-deep-navy bg-walz-off-white border border-walz-border px-2.5 py-0.5 rounded-full">{hotel.roomType}</span>
           )}
           <span className="text-[11px] text-walz-deep-navy bg-walz-off-white border border-walz-border px-2.5 py-0.5 rounded-full flex items-center gap-1">
-            {mealIcon(hotel.mealPlan)}
-            {mealLabel(hotel.mealPlan)}
+            {mealIcon(hotel.mealPlan)}{mealLabel(hotel.mealPlan)}
           </span>
         </div>
-
-        {/* Cancellation */}
-        {hotel.isRefundable ? (
-          <div className="flex items-center gap-1 text-[11px] text-walz-success font-semibold">
-            <Shield className="w-3 h-3" /> Free cancellation
-          </div>
-        ) : (
-          <div className="text-[11px] text-walz-muted">{hotel.cancellationPolicy ?? 'Non-refundable rate'}</div>
-        )}
-
-        {/* Price + CTA */}
+        {hotel.isRefundable
+          ? <div className="flex items-center gap-1 text-[11px] text-walz-success font-semibold"><Shield className="w-3 h-3" /> Free cancellation</div>
+          : <div className="text-[11px] text-walz-muted">{hotel.cancellationPolicy ?? 'Non-refundable rate'}</div>}
         <div className="flex items-end justify-between mt-auto pt-3 border-t border-walz-border">
           <div>
             <p className="text-[10px] text-walz-muted uppercase tracking-wider">{nights} night{nights !== 1 ? 's' : ''}</p>
@@ -185,10 +226,8 @@ function HotelCard({ hotel, nights, onBook }: { hotel: HotelResult; nights: numb
             </p>
             <p className="text-xs text-walz-muted">{formatPrice(hotel.totalPrice.amount, hotel.totalPrice.currency)} total</p>
           </div>
-          <button
-            onClick={() => onBook(hotel)}
-            className="bg-walz-gold hover:bg-walz-gold-light text-walz-deep-navy font-bold text-sm px-6 py-2.5 rounded-xl transition-colors shadow-sm"
-          >
+          <button onClick={() => onBook(hotel)}
+            className="bg-walz-gold hover:bg-walz-gold-light text-walz-deep-navy font-bold text-sm px-6 py-2.5 rounded-xl transition-colors shadow-sm">
             See details →
           </button>
         </div>
@@ -219,8 +258,6 @@ function FilterPanel({ filters, setFilters, priceMax, onClose }: {
           <button onClick={onClose}><X className="w-5 h-5 text-walz-muted" /></button>
         </div>
       )}
-
-      {/* Stars */}
       <div className="mb-5">
         <p className="text-[11px] font-semibold text-walz-muted uppercase tracking-widest mb-2.5">Star Rating</p>
         <div className="space-y-2">
@@ -238,12 +275,9 @@ function FilterPanel({ filters, setFilters, priceMax, onClose }: {
           ))}
         </div>
       </div>
-
-      {/* Price */}
       <div className="mb-5">
         <p className="text-[11px] font-semibold text-walz-muted uppercase tracking-widest mb-2.5">Max Price / Night</p>
-        <input type="range" min={0} max={priceMax} step={10}
-          value={filters.maxPrice}
+        <input type="range" min={0} max={priceMax} step={10} value={filters.maxPrice}
           onChange={e => setFilters(f => ({ ...f, maxPrice: +e.target.value }))}
           className="w-full accent-walz-gold" />
         <div className="flex justify-between text-xs text-walz-muted mt-1">
@@ -252,8 +286,6 @@ function FilterPanel({ filters, setFilters, priceMax, onClose }: {
           <span>£{priceMax}</span>
         </div>
       </div>
-
-      {/* Free cancel */}
       <div className="mb-5">
         <p className="text-[11px] font-semibold text-walz-muted uppercase tracking-widest mb-2.5">Cancellation</p>
         <label className="flex items-center gap-2 cursor-pointer">
@@ -265,8 +297,6 @@ function FilterPanel({ filters, setFilters, priceMax, onClose }: {
           </span>
         </label>
       </div>
-
-      {/* Meal plan */}
       <div className="mb-2">
         <p className="text-[11px] font-semibold text-walz-muted uppercase tracking-widest mb-2.5">Meal Plan</p>
         <div className="space-y-2">
@@ -279,7 +309,6 @@ function FilterPanel({ filters, setFilters, priceMax, onClose }: {
           ))}
         </div>
       </div>
-
       <button onClick={() => setFilters({ stars: [], maxPrice: priceMax, freeCancel: false, mealPlans: [] })}
         className="mt-4 text-xs text-walz-gold hover:underline">
         Reset all filters
@@ -294,15 +323,27 @@ type Sort = 'price_asc' | 'price_desc' | 'rating_desc' | 'stars_desc'
 
 function HotelsPageContent() {
   const searchParams = useSearchParams()
-  const router = useRouter()
+  const router       = useRouter()
 
+  // ── Search form state ──────────────────────────────────────────────────────
+  const [destInput,    setDestInput]    = useState('')
+  const [destSugs,     setDestSugs]     = useState<typeof DESTINATIONS>([])
+  const [showDestDrop, setShowDestDrop] = useState(false)
+  const [resolvedCode, setResolvedCode] = useState('')
+  const [checkIn,      setCheckIn]      = useState<Date | undefined>()
+  const [checkOut,     setCheckOut]     = useState<Date | undefined>()
+  const [guests,       setGuests]       = useState(2)
+  const [rooms,        setRooms]        = useState(1)
+  const [formError,    setFormError]    = useState<string | null>(null)
+
+  // ── Results state ──────────────────────────────────────────────────────────
   const [hotels,      setHotels]      = useState<HotelResult[]>([])
   const [loading,     setLoading]     = useState(false)
   const [error,       setError]       = useState<string | null>(null)
   const [hasSearched, setHasSearched] = useState(false)
   const [sort,        setSort]        = useState<Sort>('price_asc')
   const [showFilters, setShowFilters] = useState(false)
-  const [meta, setMeta] = useState<HotelSearchMeta>({ checkIn: '', checkOut: '', adults: 2, rooms: 1 })
+  const [meta,        setMeta]        = useState({ checkIn: '', checkOut: '', adults: 2, rooms: 1 })
 
   const priceMax = useMemo(() => {
     const mx = Math.max(0, ...hotels.map(h => h.pricePerNight.amount))
@@ -319,10 +360,10 @@ function HotelsPageContent() {
 
   const displayed = useMemo(() => {
     let list = [...hotels]
-    if (filters.stars.length)      list = list.filter(h => filters.stars.includes(h.stars))
-    if (filters.freeCancel)         list = list.filter(h => h.isRefundable)
+    if (filters.stars.length)       list = list.filter(h => filters.stars.includes(h.stars))
+    if (filters.freeCancel)          list = list.filter(h => h.isRefundable)
     if (filters.maxPrice < priceMax) list = list.filter(h => h.pricePerNight.amount <= filters.maxPrice)
-    if (filters.mealPlans.length)  list = list.filter(h => filters.mealPlans.includes(mealLabel(h.mealPlan)))
+    if (filters.mealPlans.length)   list = list.filter(h => filters.mealPlans.includes(mealLabel(h.mealPlan)))
     switch (sort) {
       case 'price_asc':   list.sort((a, b) => a.pricePerNight.amount - b.pricePerNight.amount); break
       case 'price_desc':  list.sort((a, b) => b.pricePerNight.amount - a.pricePerNight.amount); break
@@ -332,165 +373,436 @@ function HotelsPageContent() {
     return list
   }, [hotels, filters, sort, priceMax])
 
+  // ── URL param auto-search on mount ─────────────────────────────────────────
   useEffect(() => {
-    const dest    = searchParams.get('destination')
-    const checkIn  = searchParams.get('checkIn')
-    const checkOut = searchParams.get('checkOut')
-    if (dest && checkIn && checkOut) {
-      const adults   = parseInt(searchParams.get('adults')   ?? '2', 10)
-      const rooms    = parseInt(searchParams.get('rooms')    ?? '1', 10)
-      const children = parseInt(searchParams.get('children') ?? '0', 10)
-      setMeta({ checkIn, checkOut, adults, rooms })
-      doSearch({ destination: dest, checkIn, checkOut, rooms, adults, children })
+    const dest = searchParams.get('destination')
+    const cin  = searchParams.get('checkIn')
+    const cout = searchParams.get('checkOut')
+    if (dest && cin && cout) {
+      const adl = parseInt(searchParams.get('adults')   ?? '2', 10)
+      const rms = parseInt(searchParams.get('rooms')    ?? '1', 10)
+      const chl = parseInt(searchParams.get('children') ?? '0', 10)
+      const info = DESTINATIONS.find(d => d.code === dest)
+      setDestInput(info?.city ?? dest)
+      setResolvedCode(dest)
+      setCheckIn(new Date(cin  + 'T00:00:00'))
+      setCheckOut(new Date(cout + 'T00:00:00'))
+      setGuests(adl)
+      setRooms(rms)
+      setMeta({ checkIn: cin, checkOut: cout, adults: adl, rooms: rms })
+      doSearch({ destination: dest, checkIn: cin, checkOut: cout, rooms: rms, adults: adl, children: chl })
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  // ── Search functions ───────────────────────────────────────────────────────
   async function doSearch(params: { destination: string; checkIn: string; checkOut: string; rooms: number; adults: number; children: number }) {
     setLoading(true); setError(null); setHasSearched(true)
     try {
       const res = await fetch('/api/search/hotels', {
-        method: 'POST',
+        method:  'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ ...params, maxResults: 50 }),
+        body:    JSON.stringify({ ...params, maxResults: 50 }),
       })
-      if (!res.ok) { const d = await res.json(); throw new Error(d.error ?? 'Search failed') }
-      const data: HotelResult[] = await res.json()
+      if (!res.ok) { const d = await res.json() as { error?: string }; throw new Error(d.error ?? 'Search failed') }
+      const data: HotelResult[] = await res.json() as HotelResult[]
       setHotels(data)
       setFilters(f => ({ ...f, stars: [], freeCancel: false, mealPlans: [] }))
-    } catch (e: any) {
-      setError(e.message)
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Search failed')
     } finally {
       setLoading(false)
     }
   }
 
+  function handleDestInput(val: string) {
+    setDestInput(val)
+    setResolvedCode('')
+    if (val.length >= 1) {
+      const q = val.toLowerCase()
+      setDestSugs(DESTINATIONS.filter(d =>
+        d.city.toLowerCase().includes(q) ||
+        d.country.toLowerCase().includes(q) ||
+        d.code.toLowerCase().startsWith(q)
+      ).slice(0, 8))
+      setShowDestDrop(true)
+    } else {
+      setDestSugs([])
+      setShowDestDrop(false)
+    }
+  }
+
+  function selectDest(d: typeof DESTINATIONS[0]) {
+    setDestInput(d.city)
+    setResolvedCode(d.code)
+    setShowDestDrop(false)
+    setDestSugs([])
+  }
+
+  async function handleSearch() {
+    setFormError(null)
+    if (!destInput.trim()) { setFormError('Please enter a destination'); return }
+    let code = resolvedCode
+    if (!code) {
+      const match = DESTINATIONS.find(d => d.city.toLowerCase() === destInput.toLowerCase())
+      if (match) { code = match.code; setResolvedCode(match.code) }
+      else { setFormError('Please select a destination from the list'); return }
+    }
+    if (!checkIn)  { setFormError('Please select a check-in date');  return }
+    if (!checkOut) { setFormError('Please select a check-out date'); return }
+    const cin  = format(checkIn,  'yyyy-MM-dd')
+    const cout = format(checkOut, 'yyyy-MM-dd')
+    setMeta({ checkIn: cin, checkOut: cout, adults: guests, rooms })
+    await doSearch({ destination: code, checkIn: cin, checkOut: cout, rooms, adults: guests, children: 0 })
+    setTimeout(() => document.getElementById('hotel-results')?.scrollIntoView({ behavior: 'smooth' }), 100)
+  }
+
+  function handleFeaturedClick(code: string, city: string) {
+    setDestInput(city)
+    setResolvedCode(code)
+    document.getElementById('hotel-search')?.scrollIntoView({ behavior: 'smooth' })
+  }
+
   function openDetail(hotel: HotelResult) {
-    try {
-      sessionStorage.setItem('walz_hotel_booking', JSON.stringify({ hotel, meta }))
-    } catch { /* storage unavailable */ }
+    try { sessionStorage.setItem('walz_hotel_booking', JSON.stringify({ hotel, meta })) } catch { /* storage unavailable */ }
     router.push('/hotels/book')
   }
 
-  const fmtDate = (d: string) => d ? new Date(d).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) : ''
+  const fmtDate          = (d: string) => d ? new Date(d).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) : ''
   const activeFilterCount = filters.stars.length + (filters.freeCancel ? 1 : 0) + filters.mealPlans.length
 
+  // ── Render ─────────────────────────────────────────────────────────────────
   return (
-    <div className="min-h-screen bg-walz-off-white">
+    <div className="min-h-screen bg-[#060f1e]">
 
-      {/* Search bar */}
-      <div className="bg-walz-deep-navy shadow-luxury">
-        <div className="container-walz py-4">
-          <h1 className="font-display text-walz-white font-bold text-2xl mb-1">Hotel Search</h1>
-          <p className="text-walz-muted text-sm mb-4">Live rates · global inventory · free cancellation options</p>
-          <HotelSearchForm onResults={(results, m) => {
-            setHotels(results); setHasSearched(true)
-            setMeta(m)
-            setFilters(f => ({ ...f, stars: [], freeCancel: false, mealPlans: [] }))
-          }} />
+      {/* ═══════════════════════════════════════════════════════════════════════
+          SECTION 1 — HERO + SEARCH FORM
+      ═══════════════════════════════════════════════════════════════════════ */}
+      <section id="hotel-search" className="relative overflow-hidden flex flex-col">
+        {/* Background image */}
+        <div className="absolute inset-0">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src="https://images.unsplash.com/photo-1571896349842-33c89424de2d?w=1920&q=80"
+            alt=""
+            className="w-full h-full object-cover"
+          />
+          <div className="absolute inset-0 bg-gradient-to-b from-[#0B1F3A]/75 via-[#0B1F3A]/65 to-[#060f1e]" />
         </div>
-      </div>
 
-      <div className="container-walz py-8">
+        {/* Content */}
+        <div className="relative z-10 flex flex-col items-center text-center px-4 pt-28 md:pt-36 pb-16">
 
-        {/* Empty state */}
-        {!hasSearched && !loading && (
-          <div className="flex flex-col items-center justify-center py-24 text-center">
-            <Search className="w-14 h-14 text-walz-muted/30 mb-4" />
-            <h2 className="font-display text-xl font-bold text-walz-deep-navy mb-1">Search for Hotels</h2>
-            <p className="text-walz-muted text-sm max-w-xs">Enter a destination and dates above to browse live Hotelbeds availability.</p>
+          {/* Brand pill */}
+          <div className="inline-flex items-center gap-2 mb-6 px-4 py-2 rounded-full border border-white/15 bg-white/5 backdrop-blur-sm">
+            <span className="w-1.5 h-1.5 rounded-full bg-[#C9A84C] animate-pulse" />
+            <span className="text-white/60 text-[11px] font-medium tracking-[0.18em] uppercase">
+              Hilton · Marriott · Hyatt · IHG
+            </span>
           </div>
-        )}
 
-        {/* Error */}
-        {!loading && error && (
-          <div className="flex items-center gap-3 bg-red-50 border border-red-200 text-walz-error rounded-xl px-5 py-4 mb-6">
-            <AlertCircle className="w-5 h-5 flex-shrink-0" />
-            <div>
-              <p className="font-semibold">Search failed</p>
-              <p className="text-sm mt-0.5">{error}</p>
-            </div>
-          </div>
-        )}
+          {/* Headline */}
+          <h1 className="text-5xl sm:text-6xl md:text-7xl font-bold leading-[1.05] mb-4">
+            <span className="block text-white">Every Hotel.</span>
+            <span className="block text-[#C9A84C]">Every City.</span>
+            <span className="block text-white/50">Every Budget.</span>
+          </h1>
 
-        {/* Results layout */}
-        {(loading || (hasSearched && !error)) && (
-          <div className="flex gap-6 items-start">
+          <p className="text-white/50 text-sm md:text-base mb-10 max-w-sm">
+            500,000+ hotels worldwide. Best rate guarantee. Free cancellation.
+          </p>
 
-            {/* Desktop sidebar */}
-            <aside className="hidden lg:block w-64 flex-shrink-0 bg-white rounded-2xl border border-walz-border p-5 sticky top-4">
-              <h2 className="font-display font-bold text-walz-deep-navy mb-4">Filter results</h2>
-              <FilterPanel filters={filters} setFilters={setFilters} priceMax={priceMax} />
-            </aside>
+          {/* ── Search card ─────────────────────────────────────────────────── */}
+          <div className="w-full max-w-2xl bg-[#0d1e35] rounded-2xl border border-white/10 shadow-2xl p-5 text-left">
 
-            <div className="flex-1 min-w-0">
-
-              {/* Sort + count bar */}
-              {!loading && (
-                <div className="flex flex-wrap items-center justify-between gap-3 mb-5">
-                  <div>
-                    <p className="font-bold text-walz-deep-navy text-lg">
-                      {displayed.length} propert{displayed.length !== 1 ? 'ies' : 'y'} found
-                    </p>
-                    {meta.checkIn && (
-                      <p className="text-xs text-walz-muted">
-                        {fmtDate(meta.checkIn)} – {fmtDate(meta.checkOut)} · {meta.adults} guest{meta.adults !== 1 ? 's' : ''} · {meta.rooms} room{meta.rooms !== 1 ? 's' : ''}
-                      </p>
-                    )}
+            {/* Destination */}
+            <div className="relative mb-3">
+              <p className="text-white/40 text-xs uppercase tracking-wider font-medium mb-1.5">Destination</p>
+              <input
+                value={destInput}
+                onChange={e => handleDestInput(e.target.value)}
+                onFocus={() => destInput.length > 0 && setShowDestDrop(true)}
+                placeholder="City, hotel or destination"
+                className="w-full bg-white/5 rounded-xl px-4 py-3.5 text-white text-sm placeholder-white/25 border border-white/[0.08] focus:border-amber-500/40 focus:outline-none transition-colors"
+              />
+              {showDestDrop && destSugs.length > 0 && (
+                <>
+                  <div className="fixed inset-0 z-10" onClick={() => setShowDestDrop(false)} />
+                  <div className="absolute top-full left-0 right-0 mt-1 bg-[#112240] border border-white/10 rounded-xl shadow-2xl z-20 overflow-hidden max-h-56 overflow-y-auto">
+                    {destSugs.map(d => (
+                      <button key={d.code} type="button" onClick={() => selectDest(d)}
+                        className="w-full flex items-center gap-3 px-4 py-3 hover:bg-white/5 transition-colors text-left">
+                        <span className="text-lg">🏨</span>
+                        <div>
+                          <div className="text-white text-sm font-medium">{d.city}</div>
+                          <div className="text-white/40 text-xs">{d.country}</div>
+                        </div>
+                      </button>
+                    ))}
                   </div>
+                </>
+              )}
+            </div>
+
+            {/* Dates */}
+            <div className="grid grid-cols-2 gap-3 mb-3">
+              <div>
+                <p className="text-white/40 text-xs uppercase tracking-wider font-medium mb-1.5">Check-in</p>
+                <DatePickerField label="" value={checkIn} onChange={setCheckIn} minDate={new Date()} placeholder="Select date" />
+              </div>
+              <div>
+                <p className="text-white/40 text-xs uppercase tracking-wider font-medium mb-1.5">Check-out</p>
+                <DatePickerField label="" value={checkOut} onChange={setCheckOut} minDate={checkIn ?? new Date()} placeholder="Select date" />
+              </div>
+            </div>
+
+            {/* Guests + Rooms */}
+            <div className="grid grid-cols-2 gap-3 mb-4">
+              <div>
+                <p className="text-white/40 text-xs uppercase tracking-wider font-medium mb-1.5">Guests</p>
+                <div className="flex items-center justify-between bg-white/5 rounded-xl px-4 py-3 border border-white/[0.08]">
+                  <span className="text-white text-sm">{guests} Adult{guests > 1 ? 's' : ''}</span>
                   <div className="flex items-center gap-2">
-                    <button onClick={() => setShowFilters(true)}
-                      className="lg:hidden flex items-center gap-1.5 text-sm border border-walz-border rounded-xl px-3 py-2 bg-white text-walz-deep-navy">
-                      <SlidersHorizontal className="w-4 h-4 text-walz-gold" /> Filters
-                      {activeFilterCount > 0 && (
-                        <span className="bg-walz-gold text-walz-deep-navy text-[10px] rounded-full w-4 h-4 flex items-center justify-center font-bold">
-                          {activeFilterCount}
-                        </span>
-                      )}
+                    <button type="button" onClick={() => setGuests(g => Math.max(1, g - 1))}
+                      className="w-7 h-7 rounded-lg bg-white/10 text-white flex items-center justify-center hover:bg-white/20 transition-all text-base leading-none select-none">
+                      −
                     </button>
-                    <select value={sort} onChange={e => setSort(e.target.value as Sort)}
-                      className="text-sm border border-walz-border rounded-xl px-3 py-2 bg-white text-walz-deep-navy focus:outline-none focus:ring-2 focus:ring-walz-gold">
-                      <option value="price_asc">Price: Low → High</option>
-                      <option value="price_desc">Price: High → Low</option>
-                      <option value="rating_desc">Top rated first</option>
-                      <option value="stars_desc">Stars: 5 → 1</option>
-                    </select>
+                    <button type="button" onClick={() => setGuests(g => Math.min(10, g + 1))}
+                      className="w-7 h-7 rounded-lg bg-white/10 text-white flex items-center justify-center hover:bg-white/20 transition-all text-base leading-none select-none">
+                      +
+                    </button>
                   </div>
                 </div>
-              )}
-
-              {/* Skeletons */}
-              {loading && <div className="space-y-4">{Array.from({ length: 5 }).map((_, i) => <CardSkeleton key={i} />)}</div>}
-
-              {/* Cards */}
-              {!loading && displayed.length > 0 && (
-                <div className="space-y-4">
-                  {displayed.map(h => <HotelCard key={h.id} hotel={h} nights={nights} onBook={openDetail} />)}
+              </div>
+              <div>
+                <p className="text-white/40 text-xs uppercase tracking-wider font-medium mb-1.5">Rooms</p>
+                <div className="flex items-center justify-between bg-white/5 rounded-xl px-4 py-3 border border-white/[0.08]">
+                  <span className="text-white text-sm">{rooms} Room{rooms > 1 ? 's' : ''}</span>
+                  <div className="flex items-center gap-2">
+                    <button type="button" onClick={() => setRooms(r => Math.max(1, r - 1))}
+                      className="w-7 h-7 rounded-lg bg-white/10 text-white flex items-center justify-center hover:bg-white/20 transition-all text-base leading-none select-none">
+                      −
+                    </button>
+                    <button type="button" onClick={() => setRooms(r => Math.min(10, r + 1))}
+                      className="w-7 h-7 rounded-lg bg-white/10 text-white flex items-center justify-center hover:bg-white/20 transition-all text-base leading-none select-none">
+                      +
+                    </button>
+                  </div>
                 </div>
-              )}
+              </div>
+            </div>
 
-              {/* No match after filter */}
-              {!loading && hasSearched && hotels.length > 0 && displayed.length === 0 && (
-                <div className="bg-white rounded-2xl border border-walz-border text-center py-16">
-                  <SlidersHorizontal className="w-10 h-10 text-walz-muted/30 mx-auto mb-3" />
-                  <p className="font-bold text-walz-deep-navy">No properties match your filters</p>
-                  <button onClick={() => setFilters({ stars: [], maxPrice: priceMax, freeCancel: false, mealPlans: [] })}
-                    className="mt-3 text-sm text-walz-gold hover:underline">Clear all filters</button>
-                </div>
-              )}
+            {/* Form error */}
+            {formError && <p className="text-red-400 text-xs mb-3">{formError}</p>}
 
-              {/* No results from API */}
-              {!loading && hasSearched && !error && hotels.length === 0 && (
-                <div className="bg-white rounded-2xl border border-walz-border text-center py-16">
-                  <span className="text-5xl block mb-4">🏨</span>
-                  <p className="font-display font-bold text-walz-deep-navy text-xl mb-1">No hotels available</p>
-                  <p className="text-sm text-walz-muted">Try different dates or a nearby destination.</p>
+            {/* Search button */}
+            <button onClick={handleSearch} disabled={loading}
+              className="w-full bg-amber-500 hover:bg-amber-400 disabled:opacity-50 text-black font-semibold text-sm rounded-xl py-4 transition-all active:scale-[0.98] flex items-center justify-center gap-2 mb-4">
+              {loading
+                ? <><Loader2 size={16} className="animate-spin" />Searching...</>
+                : <><Search size={16} strokeWidth={2} />Search Hotels</>}
+            </button>
+
+            {/* Trust badges */}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+              {[
+                { icon: Shield,     text: 'Best Rate Guarantee' },
+                { icon: RefreshCw,  text: 'Free Cancellation'   },
+                { icon: CreditCard, text: 'Secure Payment'      },
+                { icon: Headphones, text: '24/7 Support'        },
+              ].map(({ icon: Icon, text }) => (
+                <div key={text} className="flex items-center gap-2 bg-white/5 rounded-xl px-3 py-2.5 border border-white/[0.08]">
+                  <Icon size={14} className="text-amber-400 flex-shrink-0" strokeWidth={1.5} />
+                  <span className="text-white/60 text-xs">{text}</span>
                 </div>
-              )}
+              ))}
             </div>
           </div>
-        )}
-      </div>
+        </div>
+      </section>
+
+      {/* ═══════════════════════════════════════════════════════════════════════
+          SECTIONS 3–5 — Landing content (hidden once user searches)
+      ═══════════════════════════════════════════════════════════════════════ */}
+      {!hasSearched && !loading && (
+        <>
+          {/* Popular Destinations */}
+          <section className="py-16 px-4 max-w-6xl mx-auto">
+            <div className="mb-8">
+              <p className="text-[#C9A84C] text-xs uppercase tracking-widest font-medium mb-2">TOP DESTINATIONS</p>
+              <h2 className="text-white text-3xl font-bold">Where to next?</h2>
+            </div>
+            <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+              {FEATURED.map(dest => (
+                <button key={dest.code} onClick={() => handleFeaturedClick(dest.code, dest.city)}
+                  className="relative rounded-2xl overflow-hidden aspect-[4/3] group cursor-pointer text-left">
+                  <div className="absolute inset-0 bg-gradient-to-br from-[#112240] to-[#0a1628]" />
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={dest.img} alt={dest.city}
+                    className="absolute inset-0 w-full h-full object-cover opacity-60 group-hover:opacity-75 group-hover:scale-105 transition-all duration-500" />
+                  <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent" />
+                  <div className="absolute top-3 left-3 bg-amber-500 text-black text-[10px] font-bold uppercase tracking-wider px-2 py-1 rounded-full">
+                    {dest.tag}
+                  </div>
+                  <div className="absolute bottom-3 left-3 right-3">
+                    <p className="text-white font-bold text-lg leading-tight">{dest.city}</p>
+                    <p className="text-white/60 text-xs">{dest.country}</p>
+                    <p className="text-amber-400 text-xs font-medium mt-1">From {dest.from}/night</p>
+                  </div>
+                </button>
+              ))}
+            </div>
+          </section>
+
+          {/* Why Walz Hotels */}
+          <section className="py-16 bg-[#060f1e]">
+            <div className="max-w-6xl mx-auto px-4">
+              <div className="text-center mb-12">
+                <p className="text-[#C9A84C] text-xs uppercase tracking-widest mb-2">WHY WALZ HOTELS</p>
+                <h2 className="text-white text-3xl font-bold">Book smarter</h2>
+              </div>
+              <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+                {[
+                  { icon: '🏨', title: 'Global Inventory',    desc: '500,000+ hotels in 190+ countries via Hotelbeds' },
+                  { icon: '💰', title: 'Best Rate Guarantee', desc: 'Find it cheaper elsewhere? We match it' },
+                  { icon: '✈️', title: 'Visa + Hotel Bundle', desc: 'Book your hotel and visa together — one team, zero stress' },
+                  { icon: '🔄', title: 'Free Cancellation',   desc: 'Most hotels offer free cancellation up to 24 hours' },
+                  { icon: '⭐', title: 'Jade Miles Rewards',  desc: 'Earn 10 Jade Miles for every £1 spent on hotels' },
+                  { icon: '💬', title: 'Expert Support',      desc: 'Named travel expert assigned to every booking' },
+                ].map(f => (
+                  <div key={f.title} className="bg-[#0d1e35] rounded-2xl p-5 border border-white/5">
+                    <span className="text-2xl block mb-3">{f.icon}</span>
+                    <h3 className="text-white font-semibold text-sm mb-1.5">{f.title}</h3>
+                    <p className="text-white/40 text-xs leading-relaxed">{f.desc}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </section>
+
+          {/* Jade Miles */}
+          <section className="py-16 px-4 max-w-2xl mx-auto text-center">
+            <div className="flex items-center justify-center gap-2 mb-4">
+              <div className="w-8 h-8 rounded-full bg-[#C9A84C] flex items-center justify-center">
+                <Star size={14} className="text-[#0B1F3A]" fill="#0B1F3A" />
+              </div>
+              <div className="text-left">
+                <p className="text-amber-400 text-xs font-semibold">Jade Miles</p>
+                <p className="text-white/30 text-xs">LOYALTY PROGRAMME</p>
+              </div>
+            </div>
+            <h2 className="text-white text-2xl font-bold mb-2">
+              Every stay<br />
+              <span className="text-amber-400">earns rewards</span>
+            </h2>
+            <p className="text-white/50 text-sm leading-relaxed">
+              Earn 10 Jade Miles for every £1 spent on hotels. Redeem for flights, visa services and more.
+            </p>
+          </section>
+        </>
+      )}
+
+      {/* ═══════════════════════════════════════════════════════════════════════
+          RESULTS SECTION
+      ═══════════════════════════════════════════════════════════════════════ */}
+      {(loading || hasSearched) && (
+        <div id="hotel-results" className="bg-walz-off-white min-h-[60vh]">
+          <div className="container-walz py-8">
+
+            {/* Error */}
+            {!loading && error && (
+              <div className="flex items-center gap-3 bg-red-50 border border-red-200 text-red-700 rounded-xl px-5 py-4 mb-6">
+                <AlertCircle className="w-5 h-5 flex-shrink-0" />
+                <div>
+                  <p className="font-semibold">Search failed</p>
+                  <p className="text-sm mt-0.5">{error}</p>
+                </div>
+              </div>
+            )}
+
+            {(loading || (hasSearched && !error)) && (
+              <div className="flex gap-6 items-start">
+
+                {/* Desktop filter sidebar */}
+                <aside className="hidden lg:block w-64 flex-shrink-0 bg-white rounded-2xl border border-walz-border p-5 sticky top-4">
+                  <h2 className="font-display font-bold text-walz-deep-navy mb-4">Filter results</h2>
+                  <FilterPanel filters={filters} setFilters={setFilters} priceMax={priceMax} />
+                </aside>
+
+                <div className="flex-1 min-w-0">
+
+                  {/* Sort + count bar */}
+                  {!loading && (
+                    <div className="flex flex-wrap items-center justify-between gap-3 mb-5">
+                      <div>
+                        <p className="font-bold text-walz-deep-navy text-lg">
+                          {displayed.length} propert{displayed.length !== 1 ? 'ies' : 'y'} found
+                        </p>
+                        {meta.checkIn && (
+                          <p className="text-xs text-walz-muted">
+                            {fmtDate(meta.checkIn)} – {fmtDate(meta.checkOut)} · {meta.adults} guest{meta.adults !== 1 ? 's' : ''} · {meta.rooms} room{meta.rooms !== 1 ? 's' : ''}
+                          </p>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <button onClick={() => setShowFilters(true)}
+                          className="lg:hidden flex items-center gap-1.5 text-sm border border-walz-border rounded-xl px-3 py-2 bg-white text-walz-deep-navy">
+                          <SlidersHorizontal className="w-4 h-4 text-walz-gold" /> Filters
+                          {activeFilterCount > 0 && (
+                            <span className="bg-walz-gold text-walz-deep-navy text-[10px] rounded-full w-4 h-4 flex items-center justify-center font-bold">
+                              {activeFilterCount}
+                            </span>
+                          )}
+                        </button>
+                        <select value={sort} onChange={e => setSort(e.target.value as Sort)}
+                          className="text-sm border border-walz-border rounded-xl px-3 py-2 bg-white text-walz-deep-navy focus:outline-none focus:ring-2 focus:ring-walz-gold">
+                          <option value="price_asc">Price: Low → High</option>
+                          <option value="price_desc">Price: High → Low</option>
+                          <option value="rating_desc">Top rated first</option>
+                          <option value="stars_desc">Stars: 5 → 1</option>
+                        </select>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Skeletons */}
+                  {loading && (
+                    <div className="space-y-4">
+                      {Array.from({ length: 5 }).map((_, i) => <CardSkeleton key={i} />)}
+                    </div>
+                  )}
+
+                  {/* Hotel cards */}
+                  {!loading && displayed.length > 0 && (
+                    <div className="space-y-4">
+                      {displayed.map(h => <HotelCard key={h.id} hotel={h} nights={nights} onBook={openDetail} />)}
+                    </div>
+                  )}
+
+                  {/* No match after filter */}
+                  {!loading && hasSearched && hotels.length > 0 && displayed.length === 0 && (
+                    <div className="bg-white rounded-2xl border border-walz-border text-center py-16">
+                      <SlidersHorizontal className="w-10 h-10 text-walz-muted/30 mx-auto mb-3" />
+                      <p className="font-bold text-walz-deep-navy">No properties match your filters</p>
+                      <button onClick={() => setFilters({ stars: [], maxPrice: priceMax, freeCancel: false, mealPlans: [] })}
+                        className="mt-3 text-sm text-walz-gold hover:underline">Clear all filters</button>
+                    </div>
+                  )}
+
+                  {/* No results from API */}
+                  {!loading && hasSearched && !error && hotels.length === 0 && (
+                    <div className="bg-white rounded-2xl border border-walz-border text-center py-16">
+                      <span className="text-5xl block mb-4">🏨</span>
+                      <p className="font-display font-bold text-walz-deep-navy text-xl mb-1">No hotels available</p>
+                      <p className="text-sm text-walz-muted">Try different dates or a nearby destination.</p>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* Mobile filter drawer */}
       {showFilters && (
@@ -511,7 +823,11 @@ function HotelsPageContent() {
 
 export default function HotelsPage() {
   return (
-    <Suspense fallback={<div className="min-h-screen bg-walz-off-white flex items-center justify-center"><Loader2 className="w-8 h-8 animate-spin text-walz-gold" /></div>}>
+    <Suspense fallback={
+      <div className="min-h-screen bg-[#060f1e] flex items-center justify-center">
+        <Loader2 className="w-8 h-8 animate-spin text-amber-400" />
+      </div>
+    }>
       <HotelsPageContent />
     </Suspense>
   )
