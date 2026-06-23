@@ -647,12 +647,12 @@ function HotelsPageContent() {
               <p className="text-[#C9A84C] text-xs uppercase tracking-widest font-medium mb-2">TOP DESTINATIONS</p>
               <h2 className="text-white text-3xl font-bold">Where to next?</h2>
             </div>
-            <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+            <div className="grid grid-cols-3 gap-4">
               {(featuredDests.length > 0 ? featuredDests : FALLBACK_FEATURED).map(dest => {
                 const code = DESTINATIONS.find(d => d.city.toLowerCase() === dest.city.toLowerCase())?.code ?? ''
                 return (
                   <button key={dest.city} onClick={() => handleFeaturedClick(code, dest.city)}
-                    className="relative rounded-2xl overflow-hidden aspect-[4/3] group cursor-pointer text-left">
+                    className="relative rounded-2xl overflow-hidden aspect-square group cursor-pointer text-left">
                     <div className="absolute inset-0 bg-gradient-to-br from-[#112240] to-[#0a1628]" />
                     {dest.imageUrl && (
                       // eslint-disable-next-line @next/next/no-img-element

@@ -5,7 +5,6 @@ import dynamic from 'next/dynamic'
 import Link from 'next/link'
 import { ArrowRight, Check, Mail, Gift, Rss } from 'lucide-react'
 import { FlightPriceAlert } from '@/components/FlightPriceAlert'
-import { cn } from '@/lib/utils'
 
 // ── Above-fold — always in the initial bundle ─────────────────────────────────
 import { MultiSlideHero } from '@/components/home/MultiSlideHero'
@@ -47,17 +46,8 @@ const FALLBACK_DESTINATIONS: FeaturedDestination[] = [
   { city: 'Dubai',    country: 'UAE',      tag: 'HOT DEAL',     image: 'https://images.unsplash.com/photo-1512453979798-5ea266f8880c?w=800', flightFrom: '£280', hotelFrom: '£89/night',  visaFrom: '£80'  },
   { city: 'Toronto',  country: 'Canada',   tag: 'POPULAR',      image: 'https://images.unsplash.com/photo-1517090504586-fde19ea6066f?w=800', flightFrom: '£380', hotelFrom: '£95/night',  visaFrom: '£150' },
   { city: 'New York', country: 'USA',      tag: 'POPULAR',      image: 'https://images.unsplash.com/photo-1522083165195-3424ed129620?w=800', flightFrom: '£420', hotelFrom: '£180/night', visaFrom: '£160' },
-  { city: 'Lagos',    country: 'Nigeria',  tag: 'BEST VALUE',   image: 'https://images.unsplash.com/photo-1618477461853-cf6ed80faba5?w=800', flightFrom: '£580', hotelFrom: '£65/night',  visaFrom: '£60'  },
-  { city: 'Accra',    country: 'Ghana',    tag: 'NEW ROUTE',    image: 'https://images.unsplash.com/photo-1569930784967-359c1a5ae0dc?w=800', flightFrom: '£620', hotelFrom: '£55/night',  visaFrom: '£60'  },
-]
-
-const SERVICE_PILLS = [
-  { label: '✈ Flights',       sub: '900+ airlines',   href: '/flights'  },
-  { label: '📋 Visas',        sub: '199 countries',   href: '/visa'     },
-  { label: '🏨 Hotels',       sub: '500K+ hotels',    href: '/hotels'   },
-  { label: '🗺 Experiences',  sub: 'Private & group', href: '/tours'    },
-  { label: '📱 eSIM',         sub: '150+ countries',  href: '/esim'     },
-  { label: '🎁 Gift Vouchers', sub: 'For loved ones', href: '/gift'     },
+  { city: 'Lagos',    country: 'Nigeria',  tag: 'BEST VALUE',   image: 'https://images.unsplash.com/photo-1555507036-ab1f4038808a?w=800', flightFrom: '£580', hotelFrom: '£65/night',  visaFrom: '£60'  },
+  { city: 'Accra',    country: 'Ghana',    tag: 'NEW ROUTE',    image: 'https://images.unsplash.com/photo-1596422846543-75c6fc197f07?w=800', flightFrom: '£620', hotelFrom: '£55/night',  visaFrom: '£60'  },
 ]
 
 export default function HomePage() {
@@ -106,35 +96,7 @@ export default function HomePage() {
       {/* 1 — Fullscreen 3-scene rotating hero */}
       <MultiSlideHero />
 
-      {/* 2 — Service pills */}
-      <section className="py-8 bg-[#060f1e] border-b border-white/5">
-        <div className="max-w-5xl mx-auto px-4">
-          <div className="flex flex-wrap gap-3 justify-center">
-            {SERVICE_PILLS.map(s => (
-              <Link
-                key={s.href}
-                href={s.href}
-                className="group flex items-center gap-3
-                  bg-[#0d1e35] hover:bg-[#112240]
-                  border border-white/6 hover:border-amber-500/25
-                  rounded-2xl px-5 py-3.5 transition-all duration-200"
-              >
-                <div>
-                  <p className="text-white text-sm font-medium leading-tight group-hover:text-amber-400 transition-colors">
-                    {s.label}
-                  </p>
-                  <p className="text-white/35 text-xs mt-0.5">{s.sub}</p>
-                </div>
-                <span className="text-white/15 group-hover:text-amber-400/40 group-hover:translate-x-0.5 transition-all text-sm ml-1">
-                  →
-                </span>
-              </Link>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      {/* 3 — Scrolling marquee strip */}
+      {/* 2 — Scrolling marquee strip */}
       <MarqueeStrip />
 
       {/* 4 — Animated statistics */}
@@ -161,15 +123,11 @@ export default function HomePage() {
             </Link>
           </div>
 
-          {/* 3-column grid — first card taller on desktop */}
-          <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-            {destinations.map((dest, i) => (
+          <div className="grid grid-cols-3 gap-4">
+            {destinations.map((dest) => (
               <div
                 key={dest.city}
-                className={cn(
-                  'group relative rounded-3xl overflow-hidden cursor-pointer',
-                  i === 0 ? 'aspect-[3/4] md:row-span-2 md:aspect-auto' : 'aspect-[3/4]',
-                )}
+                className="relative rounded-2xl overflow-hidden aspect-square group cursor-pointer"
               >
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img
