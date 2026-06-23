@@ -14,6 +14,12 @@ self.addEventListener('fetch', (e) => {
   const { request } = e;
   const url = new URL(request.url);
 
+  // Never intercept navigation requests (page loads, iframe src navigations).
+  // On Chrome Android, returning without respondWith() on a navigate fetch
+  // can cause the browser to show "This content is blocked" for cross-origin
+  // iframes instead of falling through to the network correctly.
+  if (request.mode === 'navigate') return;
+
   // Never intercept Aircall requests — let the iframe handle its own network
   if (request.url.includes('aircall.io')) return;
   if (url.origin !== location.origin) return;
