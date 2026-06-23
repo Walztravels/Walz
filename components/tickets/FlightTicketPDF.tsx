@@ -706,6 +706,38 @@ export function FlightTicketPDF(props: FlightTicketEmailProps) {
           </Text>
         </View>
 
+        {/* ── Terms & Conditions ────────────────────────────────────── */}
+        <View style={{
+          marginHorizontal: 32, marginTop: 10,
+          borderTopColor: '#E5E7EB', borderTopWidth: 1, paddingTop: 8,
+        }}>
+          <Text style={{ fontSize: 7, fontFamily: 'Helvetica-Bold', color: GREY, letterSpacing: 1.2, textTransform: 'uppercase', marginBottom: 5 }}>
+            Terms {'&'} Conditions
+          </Text>
+          <View style={{ flexDirection: 'row', gap: 12 }}>
+            <View style={{ flex: 1 }}>
+              {[
+                "1. Check in 2 hrs before domestic and 3 hrs before international flights. Late check-in is at the passenger's own risk.",
+                "2. Baggage allowances are subject to airline policy. Excess charges are the passenger's responsibility.",
+                "3. This ticket is non-transferable. The name on the ticket must match the passport at check-in.",
+                "4. Cancellation and amendment fees apply. Contact Walz Travels at least 48 hrs before departure for changes.",
+              ].map((t, i) => (
+                <Text key={i} style={{ fontSize: 6.5, color: '#9CA3AF', lineHeight: 1.6, marginBottom: 2 }}>{t}</Text>
+              ))}
+            </View>
+            <View style={{ flex: 1 }}>
+              {[
+                "5. Walz Travels acts as an agent. We are not liable for delays, cancellations or service failures by airlines or third parties.",
+                "6. Travel insurance is strongly recommended. Walz Travels is not responsible for medical emergencies or property loss.",
+                "7. Passengers requiring special assistance must notify the airline at least 48 hrs before travel.",
+                "8. By accepting this ticket, the passenger confirms acceptance of these terms. Full policy: walztravels.com/terms",
+              ].map((t, i) => (
+                <Text key={i} style={{ fontSize: 6.5, color: '#9CA3AF', lineHeight: 1.6, marginBottom: 2 }}>{t}</Text>
+              ))}
+            </View>
+          </View>
+        </View>
+
         <Footer reference={reference} />
       </Page>
     </Document>

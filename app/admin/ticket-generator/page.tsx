@@ -6,9 +6,10 @@ import {
   Plane, Hotel, MapIcon, Car, FileText, Package2,
   ChevronLeft, ChevronRight, Download, Send,
   CheckCircle, Loader2, History, LayoutTemplate,
-  Plus, Trash2, AlertCircle, RefreshCw, Copy, Check,
+  Plus, Trash2, AlertCircle, RefreshCw, Copy, Check, Printer,
 } from 'lucide-react'
 import { TicketPreview } from '@/components/admin/TicketPreview'
+import { FlightTicketTemplate } from '@/components/ticket-generator/FlightTicketTemplate'
 import type { FlightLeg as FlightLegType, Passenger as FlightPassenger, PricingBreakdown } from '@/types/flight-ticket'
 
 // ─── Ticket type config ────────────────────────────────────────────────────────
@@ -40,6 +41,7 @@ interface Passenger { name: string; passport: string; seat: string }
 interface FlightTicketData {
   pnr:          string
   tripType:     'one-way' | 'return'
+  bookingDate:  string
   outbound:     FlightLegType[]
   inbound:      FlightLegType[]
   passengers:   FlightPassenger[]
@@ -69,10 +71,11 @@ const BLANK_LEG: FlightLegType = {
   duration: '', cabinClass: 'Economy', baggage: '23kg', seat: '', mealPreference: '', connectionTime: '',
 }
 const BLANK_FLIGHT_PASSENGER: FlightPassenger = {
-  title: 'Mr', firstName: '', lastName: '', eTicketNumber: '', cabinClass: 'Economy', seat: '', meal: '',
+  title: 'Mr', firstName: '', lastName: '', eTicketNumber: '', cabinClass: 'Economy',
+  seat: '', meal: '', passport: '', nationality: '', dob: '', frequentFlyer: '',
 }
 const BLANK_FLIGHT_TICKET: FlightTicketData = {
-  pnr: '', tripType: 'one-way',
+  pnr: '', tripType: 'one-way', bookingDate: new Date().toISOString().split('T')[0],
   outbound: [{ ...BLANK_LEG }],
   inbound:  [],
   passengers: [{ ...BLANK_FLIGHT_PASSENGER }],
@@ -388,7 +391,7 @@ function FlightTicketStep({ d, set }: { d: FlightTicketData; set: (v: FlightTick
 
   return (
     <div className="space-y-4">
-      {/* PNR + Trip Type */}
+      {/* PNR + Trip Type + Booking Date */}
       <Section title="Booking">
         <Row>
           <F label="Airline PNR" req>
@@ -406,6 +409,10 @@ function FlightTicketStep({ d, set }: { d: FlightTicketData; set: (v: FlightTick
             </select>
           </F>
         </Row>
+        <F label="Booking Date">
+          <input className={base} type="date" value={d.bookingDate}
+            onChange={e => set({ ...d, bookingDate: e.target.value })} />
+        </F>
       </Section>
 
       {/* Outbound legs */}
@@ -487,8 +494,28 @@ function FlightTicketStep({ d, set }: { d: FlightTicketData; set: (v: FlightTick
                     onChange={e => updatePax(i, { ...p, seat: e.target.value })} />
                 </F>
                 <F label="Meal Preference">
-                  <input className={base} placeholder="Standard" value={p.meal ?? ''}
+                  <input className={base} placeholder="Standard / Halal / Vegetarian" value={p.meal ?? ''}
                     onChange={e => updatePax(i, { ...p, meal: e.target.value })} />
+                </F>
+              </Row>
+              <Row>
+                <F label="Passport Number">
+                  <input className={base} placeholder="A12345678" value={p.passport ?? ''}
+                    onChange={e => updatePax(i, { ...p, passport: e.target.value })} />
+                </F>
+                <F label="Nationality">
+                  <input className={base} placeholder="British" value={p.nationality ?? ''}
+                    onChange={e => updatePax(i, { ...p, nationality: e.target.value })} />
+                </F>
+              </Row>
+              <Row>
+                <F label="Date of Birth">
+                  <input className={base} type="date" value={p.dob ?? ''}
+                    onChange={e => updatePax(i, { ...p, dob: e.target.value })} />
+                </F>
+                <F label="Frequent Flyer No. (optional)">
+                  <input className={base} placeholder="BA12345678" value={p.frequentFlyer ?? ''}
+                    onChange={e => updatePax(i, { ...p, frequentFlyer: e.target.value })} />
                 </F>
               </Row>
             </div>
@@ -855,6 +882,12 @@ function Step4({
             {isGenerating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
             {isGenerating ? 'Generating PDF…' : 'Generate & Download PDF'}
           </button>
+          {ticketType === 'flight' && (
+            <button type="button" onClick={() => window.print()} disabled={isGenerating || isSending}
+              className="w-full flex items-center justify-center gap-2 py-3 px-4 rounded-xl border-2 border-[#6B7280] text-[#6B7280] text-sm font-bold transition hover:bg-[#6B7280] hover:text-white disabled:opacity-40 disabled:cursor-not-allowed">
+              <Printer className="w-4 h-4" /> Print Ticket (A4)
+            </button>
+          )}
           <button type="button" onClick={onSend} disabled={isSending || isGenerating || !ticketType || !clientEmail}
             className="w-full flex items-center justify-center gap-2 py-3 px-4 rounded-xl bg-[#C9A84C] text-[#0B1F3A] text-sm font-bold transition hover:bg-[#B8973B] disabled:opacity-40 disabled:cursor-not-allowed">
             {isSending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
@@ -902,6 +935,7 @@ function buildPayload(ticketType: string, client: ClientInfo, message: string, f
       ...base,
       pnr: flightTicket.pnr,
       tripType: flightTicket.tripType,
+      bookingDate: flightTicket.bookingDate,
       outbound: flightTicket.outbound,
       inbound: flightTicket.inbound,
       passengers: flightTicket.passengers,
@@ -1095,14 +1129,55 @@ export default function TicketGeneratorPage() {
                 <h2 className="text-sm font-black text-[#0B1F3A]">Live Preview</h2>
                 <p className="text-[10px] text-gray-400">Updates as you fill in the form</p>
               </div>
-              {ticketType && (
-                <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-[#C9A84C]/15 border border-[#C9A84C]/30">
-                  <div className="w-1.5 h-1.5 rounded-full bg-[#C9A84C] animate-pulse" />
-                  <span className="text-[10px] font-bold text-[#92400E] uppercase tracking-wide">Live</span>
-                </div>
-              )}
+              <div className="flex items-center gap-2">
+                {ticketType === 'flight' && (
+                  <button
+                    type="button"
+                    onClick={() => window.print()}
+                    className="flex items-center gap-1.5 px-2.5 py-1.5 text-[10px] font-bold text-[#0B1F3A] border border-[#0B1F3A] rounded-lg hover:bg-[#0B1F3A] hover:text-white transition"
+                  >
+                    <Printer className="w-3 h-3" /> Print
+                  </button>
+                )}
+                {ticketType && (
+                  <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-[#C9A84C]/15 border border-[#C9A84C]/30">
+                    <div className="w-1.5 h-1.5 rounded-full bg-[#C9A84C] animate-pulse" />
+                    <span className="text-[10px] font-bold text-[#92400E] uppercase tracking-wide">Live</span>
+                  </div>
+                )}
+              </div>
             </div>
-            <TicketPreview data={previewData as Parameters<typeof TicketPreview>[0]['data']} />
+
+            {ticketType === 'flight' ? (
+              <>
+                {/* Print CSS — only injected when flight type selected */}
+                <style>{`
+                  @media print {
+                    body * { visibility: hidden !important; }
+                    #ticket-print-area, #ticket-print-area * { visibility: visible !important; }
+                    #ticket-print-area {
+                      position: fixed !important;
+                      left: 0 !important; top: 0 !important;
+                      width: 100% !important;
+                      margin: 0 !important; padding: 0 !important;
+                    }
+                    @page { size: A4; margin: 8mm; }
+                  }
+                `}</style>
+                <div className="rounded-xl border border-gray-200 shadow-xl bg-white overflow-hidden">
+                  <FlightTicketTemplate
+                    flightTicket={flightTicket}
+                    client={client}
+                    reference="WLZ-PREVIEW"
+                    bookingDate={flightTicket.bookingDate || new Date().toISOString().split('T')[0]}
+                    agentMessage={message || undefined}
+                    mode="preview"
+                  />
+                </div>
+              </>
+            ) : (
+              <TicketPreview data={previewData as Parameters<typeof TicketPreview>[0]['data']} />
+            )}
           </div>
         </div>
 

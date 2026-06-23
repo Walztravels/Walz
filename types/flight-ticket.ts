@@ -34,6 +34,10 @@ export interface Passenger {
   cabinClass: string
   seat?: string
   meal?: string
+  passport?: string
+  nationality?: string
+  dob?: string
+  frequentFlyer?: string
 }
 
 export interface PricingBreakdown {

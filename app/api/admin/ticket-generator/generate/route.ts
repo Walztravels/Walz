@@ -4,7 +4,9 @@ import prisma from '@/lib/db'
 import { renderToBuffer } from '@react-pdf/renderer'
 import React from 'react'
 import { TicketPDFDocument } from '@/components/admin/TicketPDF'
+import { FlightTicketPDF } from '@/components/tickets/FlightTicketPDF'
 import { createClient } from '@supabase/supabase-js'
+import type { FlightTicketEmailProps, FlightLeg } from '@/types/flight-ticket'
 
 export const dynamic = 'force-dynamic'
 
@@ -50,7 +52,34 @@ export async function POST(req: NextRequest) {
   // ── Render PDF ────────────────────────────────────────────────────────────
   let pdfBuffer: Buffer
   try {
-    const element = React.createElement(TicketPDFDocument, { data: ticketData })
+    let element: React.ReactElement
+
+    if (body.ticket_type === 'flight' && Array.isArray(body.outbound) && (body.outbound as FlightLeg[]).length > 0) {
+      // Emirates-grade PDF for flight tickets
+      const name      = (body.client_name  as string | undefined) ?? ''
+      const emailProps: FlightTicketEmailProps = {
+        reference,
+        pnr:          (body.pnr           as string | undefined) ?? reference,
+        issueDate:    new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' }),
+        issuedBy:     session.email ?? 'Walz Travels',
+        title:        (body.title         as string | undefined) ?? '',
+        firstName:    (body.firstName     as string | undefined) ?? name.split(' ')[0] ?? '',
+        lastName:     (body.lastName      as string | undefined) ?? name.split(' ').slice(1).join(' ') ?? '',
+        email:        (body.client_email  as string | undefined) ?? '',
+        phone:        (body.client_phone  as string | undefined) ?? '',
+        outbound:     body.outbound as FlightLeg[],
+        inbound:      (body.inbound       as FlightLeg[] | undefined) ?? [],
+        tripType:     (body.tripType as 'one-way' | 'return' | undefined) ?? 'one-way',
+        passengers:   (body.passengers    as FlightTicketEmailProps['passengers'] | undefined) ?? [],
+        pricing:      body.pricing        as FlightTicketEmailProps['pricing'] | undefined,
+        agentMessage: body.message        as string | undefined,
+      }
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      element = React.createElement(FlightTicketPDF, emailProps) as any
+    } else {
+      element = React.createElement(TicketPDFDocument, { data: ticketData })
+    }
+
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     pdfBuffer = await renderToBuffer(element as any)
   } catch (err) {
