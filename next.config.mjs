@@ -103,6 +103,34 @@ const nextConfig = {
           { key: 'Access-Control-Allow-Headers', value: 'Content-Type, Authorization' },
         ],
       },
+      // ── Admin panel: relax permissions + allow Aircall iframe ─────────────
+      // These headers override the global block above for /admin/* only.
+      {
+        source: '/admin/:path*',
+        headers: [
+          {
+            key:   'Permissions-Policy',
+            value: 'microphone=*, camera=*, clipboard-read=*, clipboard-write=*, hid=*',
+          },
+          {
+            key:   'Content-Security-Policy',
+            value: [
+              "default-src 'self'",
+              "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://js.stripe.com https://www.googletagmanager.com https://www.google-analytics.com https://cdn.jsdelivr.net https://cdnjs.cloudflare.com",
+              "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+              "font-src 'self' https://fonts.gstatic.com",
+              "img-src 'self' data: blob: https: http:",
+              "frame-src 'self' https://js.stripe.com https://hooks.stripe.com https://workspace.aircall.io",
+              "connect-src 'self' https://*.walztravels.com https://api.stripe.com https://api.flutterwave.com https://*.supabase.co wss://*.supabase.co https://www.google-analytics.com https://*.aircall.io wss://*.aircall.io",
+              "media-src 'self' https:",
+              "object-src 'none'",
+              "base-uri 'self'",
+              "form-action 'self'",
+              "upgrade-insecure-requests",
+            ].join('; '),
+          },
+        ],
+      },
     ]
   },
 

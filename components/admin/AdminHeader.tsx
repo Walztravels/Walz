@@ -1,7 +1,7 @@
 'use client'
 
 import { usePathname, useRouter } from 'next/navigation'
-import { Bell, LogOut, ChevronRight } from 'lucide-react'
+import { Bell, LogOut, ChevronRight, Phone } from 'lucide-react'
 import { useStaffPermissions } from '@/hooks/useStaffPermissions'
 import { cn } from '@/lib/utils'
 
@@ -91,6 +91,16 @@ export function AdminHeader({ adminEmail }: Props) {
 
       {/* Right — user + actions */}
       <div className="flex items-center gap-3 flex-shrink-0">
+
+        {/* Phone — desktop only; opens AircallWidget via custom event */}
+        <button
+          onClick={() => window.dispatchEvent(new CustomEvent('openAircallWidget'))}
+          className="hidden md:flex items-center gap-1.5 px-3 py-1.5 rounded-lg hover:bg-gray-100 transition-colors text-gray-500 hover:text-gray-700 text-sm"
+          title="Open phone"
+        >
+          <Phone className="w-4 h-4" strokeWidth={1.5} />
+          Phone
+        </button>
 
         {/* Notifications */}
         <button className="relative p-2 rounded-lg hover:bg-gray-100 transition-colors text-gray-500 hover:text-gray-700">

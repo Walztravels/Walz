@@ -71,6 +71,13 @@ export function AircallWidget() {
     }
   }, [])
 
+  // Listen for openAircallWidget event dispatched by the desktop header button
+  useEffect(() => {
+    const handler = () => setWidgetState('open')
+    window.addEventListener('openAircallWidget', handler)
+    return () => window.removeEventListener('openAircallWidget', handler)
+  }, [])
+
   // Expose click-to-call globally
   useEffect(() => {
     const dialNumber = (phone: string) => {
@@ -114,12 +121,12 @@ export function AircallWidget() {
         </div>
       )}
 
-      {/* Floating FAB — shown when widget is hidden/minimised */}
+      {/* Floating FAB — mobile only; desktop uses the header Phone button */}
       {widgetState !== 'open' && (
         <button
           id="aircall-open-btn"
           onClick={() => setWidgetState('open')}
-          className="fixed bottom-20 md:bottom-6 right-4 md:right-6 z-50 w-12 h-12 rounded-full bg-amber-500 shadow-xl flex items-center justify-center active:scale-95 transition-transform"
+          className="md:hidden fixed bottom-20 right-4 z-50 w-12 h-12 rounded-full bg-amber-500 shadow-xl flex items-center justify-center active:scale-95 transition-transform"
           aria-label="Open Aircall phone"
         >
           {callState === 'active'
@@ -149,7 +156,7 @@ export function AircallWidget() {
         'md:bottom-6 md:right-6 md:left-auto md:w-80',
         widgetState === 'open' ? 'translate-y-0 opacity-100' : 'translate-y-full opacity-0 pointer-events-none',
       ].join(' ')}>
-        <div className="bg-[#0a1628] border border-white/10 rounded-t-2xl md:rounded-2xl shadow-2xl overflow-hidden w-full">
+        <div className="bg-[#0a1628] border border-white/10 rounded-t-2xl md:rounded-2xl shadow-2xl overflow-hidden w-full relative">
 
           {/* Header */}
           <div className="flex items-center justify-between px-4 py-3 border-b border-white/10 bg-[#0d1e35]">
@@ -180,6 +187,24 @@ export function AircallWidget() {
               </button>
             </div>
           </div>
+
+          {/* Login hint shown until Aircall workspace confirms sign-in */}
+          {!isLoaded && (
+            <div className="absolute inset-x-0 bottom-0 flex items-end justify-center pb-4 pointer-events-none" style={{ height: 480 }}>
+              <p className="text-[11px] text-white/40 text-center px-4">
+                Not seeing the phone?{' '}
+                <a
+                  href="https://workspace.aircall.io"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-amber-400 underline pointer-events-auto"
+                >
+                  Log in to Aircall
+                </a>{' '}
+                first, then return here.
+              </p>
+            </div>
+          )}
 
           {/* Iframe mount point — Aircall SDK targets this */}
           <div id="aircall-workspace" style={{ height: 480, width: '100%' }} />
