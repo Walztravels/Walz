@@ -52,7 +52,7 @@ async function RoutingContent() {
 
   const [{ data: agents }, { data: activeCounts }, { data: todayCalls }, { data: recentRoutes }] =
     await Promise.all([
-      supabase.from('RoutingAgent').select('*').order('isEscalation').order('createdAt'),
+      supabase.from('RoutingAgent').select('*').order('roundRobinPosition', { ascending: true }),
       supabase.from('ConversationRoute').select('assignedTo').eq('status', 'active'),
       supabase.from('ConversationRoute').select('assignedTo').eq('channel', 'voice')
         .gte('assignedAt', new Date(new Date().setHours(0, 0, 0, 0)).toISOString()),

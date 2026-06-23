@@ -345,9 +345,17 @@ export function RoutingPageClient({ initialAgents }: { initialAgents: RoutingAge
   const [modalAgent, setModalAgent]    = useState<Partial<RoutingAgent> | null>(null)
   const [showModal, setShowModal]      = useState(false)
 
+  // Fetch from API on mount — guards against empty server-side pre-render
+  useEffect(() => {
+    fetch('/api/admin/routing/agents')
+      .then(r => r.json())
+      .then((d: { agents?: RoutingAgent[] }) => { if (d.agents?.length) setAgents(d.agents) })
+      .catch(() => {})
+  }, [])
+
   function refresh() {
     startTransition(() => router.refresh())
-    fetch('/api/admin/routing').then(r => r.json())
+    fetch('/api/admin/routing/agents').then(r => r.json())
       .then((d: { agents?: RoutingAgent[] }) => { if (d.agents) setAgents(d.agents) })
       .catch(() => {})
   }

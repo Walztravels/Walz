@@ -12,11 +12,14 @@ export async function GET() {
   const { data, error } = await supabase
     .from('RoutingAgent')
     .select('*')
-    .order('isEscalation', { ascending: true })
-    .order('createdAt', { ascending: true })
+    .order('roundRobinPosition', { ascending: true })
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-  return NextResponse.json({ agents: data ?? [] })
+  if (error) {
+    console.error('[routing] DB error:', error)
+    return NextResponse.json({ agents: [] }, { status: 500 })
+  }
+
+  return NextResponse.json({ agents: data || [] })
 }
 
 export async function POST(req: NextRequest) {
