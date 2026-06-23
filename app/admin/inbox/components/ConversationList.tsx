@@ -38,7 +38,7 @@ export function ConversationList({
   ]
 
   return (
-    <div className="w-60 flex-shrink-0 flex flex-col bg-[#0d2444] border-r border-white/8 h-full">
+    <div className="w-full flex flex-col bg-[#0d2444] border-r border-white/8 h-full">
       {/* Header */}
       <div className="px-4 py-3 border-b border-white/8 flex items-center justify-between">
         <div>

@@ -1,21 +1,23 @@
 'use client'
 import { useEffect, useRef } from 'react'
+import { ArrowLeft } from 'lucide-react'
 import { CWConversation, CWMessage, CWAgent, initials, channelIcon } from '../types'
 import { MessageBubble } from './MessageBubble'
 import { ReplyBox } from './ReplyBox'
 import { AssignDropdown } from './AssignDropdown'
 
 interface Props {
-  conv:     CWConversation
-  messages: CWMessage[]
-  agents:   CWAgent[]
-  onSend:   (content: string, isPrivate: boolean) => Promise<void>
-  onAssign: (agentId: number) => Promise<void>
+  conv:      CWConversation
+  messages:  CWMessage[]
+  agents:    CWAgent[]
+  onSend:    (content: string, isPrivate: boolean) => Promise<void>
+  onAssign:  (agentId: number) => Promise<void>
   onResolve: () => Promise<void>
   onReopen:  () => Promise<void>
+  onBack?:   () => void
 }
 
-export function ChatWindow({ conv, messages, agents, onSend, onAssign, onResolve, onReopen }: Props) {
+export function ChatWindow({ conv, messages, agents, onSend, onAssign, onResolve, onReopen, onBack }: Props) {
   const bottomRef = useRef<HTMLDivElement>(null)
   const sender = conv.meta?.sender
   const isResolved = conv.status === 'resolved'
@@ -27,8 +29,17 @@ export function ChatWindow({ conv, messages, agents, onSend, onAssign, onResolve
   return (
     <div className="flex-1 flex flex-col min-w-0 h-full">
       {/* Header */}
-      <div className="flex-shrink-0 flex items-center justify-between px-4 py-3 border-b border-white/8 bg-[#0B1F3A]">
-        <div className="flex items-center gap-3 min-w-0">
+      <div className="flex-shrink-0 flex items-center justify-between px-3 py-3 border-b border-white/8 bg-[#0B1F3A] gap-2">
+        <div className="flex items-center gap-2 min-w-0">
+          {/* Back button — mobile only */}
+          {onBack && (
+            <button
+              onClick={onBack}
+              className="md:hidden flex-shrink-0 p-1.5 -ml-1 rounded-lg text-white/60 hover:text-white hover:bg-white/8 transition-colors"
+            >
+              <ArrowLeft className="w-5 h-5" />
+            </button>
+          )}
           <div className="w-8 h-8 rounded-full bg-[#1e3a5f] flex items-center justify-center text-xs font-bold text-[#C9A84C] flex-shrink-0">
             {initials(sender?.name ?? '?')}
           </div>

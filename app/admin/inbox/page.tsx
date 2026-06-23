@@ -41,6 +41,7 @@ export default function InboxPage() {
   const [loading,    setLoading]    = useState(true)
   const [showStaff,  setShowStaff]  = useState(false)
   const [toasts,     setToasts]     = useState<Toast[]>([])
+  const [mobileView, setMobileView] = useState<'list' | 'chat'>('list')
 
   const prevConvIdsRef = useRef<Set<number>>(new Set())
   const selectedRef    = useRef<CWConversation | null>(null)
@@ -196,6 +197,7 @@ export default function InboxPage() {
     setSelected(conv)
     setMessages([])
     fetchMessages(conv.id)
+    setMobileView('chat')
   }
 
   // ── Actions ─────────────────────────────────────────────────────────────────
@@ -278,43 +280,59 @@ export default function InboxPage() {
   return (
     <div className="flex h-[100dvh] bg-[#0B1F3A] overflow-hidden">
 
-      <ConversationList
-        conversations={convs}
-        selected={selected}
-        tab={tab}
-        profile={profile}
-        counts={counts}
-        onSelect={doSelectConv}
-        onTabChange={setTab}
-        onOpenSettings={() => setShowStaff(true)}
-        onDelete={profile?.role === 'super_admin' ? handleDeleteConv : undefined}
-      />
-
-      {selected ? (
-        <ChatWindow
-          conv={selected}
-          messages={messages}
-          agents={agents}
-          onSend={handleSend}
-          onAssign={handleAssign}
-          onResolve={handleResolve}
-          onReopen={handleReopen}
+      {/* Conversation list — full screen on mobile (list view), left panel on desktop */}
+      <div className={`
+        flex-shrink-0 flex flex-col w-full md:w-64
+        ${mobileView === 'list' ? 'flex' : 'hidden'} md:flex
+      `}>
+        <ConversationList
+          conversations={convs}
+          selected={selected}
+          tab={tab}
+          profile={profile}
+          counts={counts}
+          onSelect={doSelectConv}
+          onTabChange={setTab}
+          onOpenSettings={() => setShowStaff(true)}
+          onDelete={profile?.role === 'super_admin' ? handleDeleteConv : undefined}
         />
-      ) : (
-        <div className="flex-1 flex flex-col items-center justify-center text-white/20">
-          <div className="text-5xl mb-4">💬</div>
-          <p className="text-sm">Select a conversation to start</p>
-        </div>
-      )}
+      </div>
 
+      {/* Chat window — full screen on mobile (chat view), flex-1 on desktop */}
+      <div className={`
+        flex-1 flex flex-col min-w-0
+        ${mobileView === 'chat' ? 'flex' : 'hidden'} md:flex
+      `}>
+        {selected ? (
+          <ChatWindow
+            conv={selected}
+            messages={messages}
+            agents={agents}
+            onSend={handleSend}
+            onAssign={handleAssign}
+            onResolve={handleResolve}
+            onReopen={handleReopen}
+            onBack={() => setMobileView('list')}
+          />
+        ) : (
+          <div className="flex-1 flex flex-col items-center justify-center text-white/20">
+            <div className="text-5xl mb-4">💬</div>
+            <p className="text-sm">Select a conversation to start</p>
+          </div>
+        )}
+      </div>
+
+      {/* Client info — hidden on mobile, visible on large screens only */}
       {selected && (
-        <ClientInfo
-          conv={selected}
-          agents={agents}
-          onAssign={handleAssign}
-          onResolve={handleResolve}
-          onReopen={handleReopen}
-        />
+        <div className="hidden lg:flex">
+          <ClientInfo
+            conv={selected}
+            agents={agents}
+            onAssign={handleAssign}
+            onResolve={handleResolve}
+            onReopen={handleReopen}
+          />
+        </div>
       )}
 
       {showStaff && (
