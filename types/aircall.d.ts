@@ -1,6 +1,6 @@
 declare module 'aircall-everywhere' {
   interface WorkspaceSettings {
-    domToLoadWorkspace: string
+    domToLoadWorkspace?: string
     integrationToLoad?: 'zendesk' | 'hubspot' | 'generic'
     onLogin?:  (settings: Record<string, unknown>) => void
     onLogout?: () => void
