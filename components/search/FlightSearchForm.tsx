@@ -8,7 +8,9 @@ import { z } from 'zod'
 import { Search, ArrowLeftRight, Plus, Minus, Loader2, X, ArrowRight } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { DatePickerField } from '@/components/ui/DatePicker'
 import { cn } from '@/lib/utils'
+import { format } from 'date-fns'
 import type { FlightResult, CabinClass } from '@/types/booking'
 
 // ─── Static airport list ──────────────────────────────────────────────────────
@@ -270,6 +272,10 @@ export function FlightSearchForm({ onResults, initialValues }: FlightSearchFormP
   ])
   const [mcError, setMcError] = useState<string | null>(null)
 
+  // Date picker state (Date objects → formatted to string for react-hook-form)
+  const [departDate, setDepartDate] = useState<Date | undefined>()
+  const [retDate,    setRetDate]    = useState<Date | undefined>()
+
   const {
     register,
     handleSubmit,
@@ -490,13 +496,12 @@ export function FlightSearchForm({ onResults, initialValues }: FlightSearchFormP
 
               {/* Departure date */}
               <div>
-                {i === 0 && <label className="label-walz">Depart</label>}
-                <Input
-                  type="date"
-                  min={i === 0 ? today : (mcLegs[i - 1].departureDate || today)}
-                  value={leg.departureDate}
-                  onChange={(e) => updateMcLeg(i, 'departureDate', e.target.value)}
-                  className="h-12"
+                <DatePickerField
+                  label={i === 0 ? 'Depart' : ''}
+                  value={leg.departureDate ? new Date(leg.departureDate + 'T00:00:00') : undefined}
+                  onChange={(date) => updateMcLeg(i, 'departureDate', date ? format(date, 'yyyy-MM-dd') : '')}
+                  minDate={i === 0 ? new Date() : (mcLegs[i - 1].departureDate ? new Date(mcLegs[i - 1].departureDate + 'T00:00:00') : new Date())}
+                  placeholder="Select date"
                 />
               </div>
 
@@ -589,8 +594,16 @@ export function FlightSearchForm({ onResults, initialValues }: FlightSearchFormP
 
           {/* Departure Date */}
           <div className="lg:col-span-2">
-            <label className="label-walz">Depart</label>
-            <Input type="date" min={today} className="h-12" {...register('departureDate')} />
+            <DatePickerField
+              label="Depart"
+              value={departDate}
+              onChange={(date) => {
+                setDepartDate(date)
+                setValue('departureDate', date ? format(date, 'yyyy-MM-dd') : '', { shouldValidate: true })
+              }}
+              minDate={new Date()}
+              placeholder="Select date"
+            />
             {errors.departureDate && (
               <p className="text-walz-error text-xs mt-1">{errors.departureDate.message}</p>
             )}
@@ -599,8 +612,16 @@ export function FlightSearchForm({ onResults, initialValues }: FlightSearchFormP
           {/* Return Date */}
           {tripType === 'roundtrip' && (
             <div className="lg:col-span-2">
-              <label className="label-walz">Return</label>
-              <Input type="date" min={watch('departureDate') || today} className="h-12" {...register('returnDate')} />
+              <DatePickerField
+                label="Return"
+                value={retDate}
+                onChange={(date) => {
+                  setRetDate(date)
+                  setValue('returnDate', date ? format(date, 'yyyy-MM-dd') : '', { shouldValidate: true })
+                }}
+                minDate={departDate ?? new Date()}
+                placeholder="Select date"
+              />
             </div>
           )}
 
