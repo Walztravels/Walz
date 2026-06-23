@@ -547,7 +547,7 @@ export function TicketPreview({ data }: { data: TicketPreviewData }) {
       <div className="px-7 py-5 flex items-center justify-between" style={{ backgroundColor: NAVY }}>
         <div>
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="https://www.walztravels.com/walz-logo-white.png" alt="Walz Travels" className="h-8 w-auto object-contain" />
+          <img src="https://www.walztravels.com/walz-logo.png" alt="Walz Travels" className="h-8 w-auto object-contain" style={{ filter: 'brightness(0) invert(1)' }} />
           <div className="text-[9px] tracking-[0.25em] uppercase mt-1" style={{ color: GOLD }}>YOUR JOURNEY. OUR EXPERTISE.</div>
         </div>
         <div className="flex flex-col items-end gap-1.5">
