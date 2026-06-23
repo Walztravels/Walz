@@ -203,8 +203,9 @@ export function AircallWidget() {
 
           {/* Workspace + loading overlay */}
           <div className="relative" style={{ height: 600 }}>
+            {/* Spinner sits on top — pointer-events-none so clicks reach the iframe */}
             {isInitialising && (
-              <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 z-10">
+              <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 z-10 bg-[#0a1628] pointer-events-none">
                 <div className="w-8 h-8 rounded-full border-2 border-amber-500 border-t-transparent animate-spin" />
                 <p className="text-white/50 text-sm">Loading Aircall…</p>
                 <p className="text-white/30 text-xs text-center px-4">
@@ -212,10 +213,10 @@ export function AircallWidget() {
                 </p>
               </div>
             )}
+            {/* iframe mount — never hidden; Aircall SDK injects into this div */}
             <div
               id="aircall-workspace"
-              className={isInitialising ? 'opacity-0' : 'opacity-100'}
-              style={{ height: 600, width: '100%', transition: 'opacity 0.3s ease' }}
+              style={{ height: 600, width: '100%' }}
             />
           </div>
         </div>
