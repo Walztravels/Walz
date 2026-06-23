@@ -374,7 +374,7 @@ export default function VisaPage() {
         destination: destinationCountry?.name ?? destination ?? undefined,
         passportCountry: passportCountryObj?.name ?? passport ?? undefined,
       },
-      skip: !destination, // only trigger if they've started interacting
+      skip: false,
     })
 
   const regions = ['All', ...Array.from(new Set(portals.map(p => p.region).filter((r): r is string => Boolean(r))))]
