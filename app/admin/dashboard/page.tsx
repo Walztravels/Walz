@@ -106,17 +106,23 @@ export default async function DashboardPage() {
 
   let dbError = false
 
-  try {
-    const isSuperOrGM   = staffRole === 'super_admin' || staffRole === 'general_manager'
-    const isSeniorPlus  = isSuperOrGM || staffRole === 'senior_manager'
+  const isSuperOrGM   = staffRole === 'super_admin' || staffRole === 'general_manager'
+  const isSeniorPlus  = isSuperOrGM || staffRole === 'senior_manager'
 
-    // Booking stats
+  // Booking counts — core stats, visible to all roles
+  try {
     ;[totalBookings, pendingBookings, confirmedBookings] = await Promise.all([
       prisma.booking.count(),
       prisma.booking.count({ where: { status: 'PENDING' } }),
       prisma.booking.count({ where: { status: 'CONFIRMED' } }),
     ])
+  } catch (err) {
+    console.error('[dashboard] booking.count failed:', err)
+    dbError = true
+  }
 
+  // Recent bookings list
+  try {
     recentBookings = await prisma.booking.findMany({
       orderBy: { createdAt: 'desc' },
       take: 8,
@@ -126,37 +132,53 @@ export default async function DashboardPage() {
         currency: true, contactEmail: true, createdAt: true, passengers: true,
       },
     })
+  } catch (err) {
+    console.error('[dashboard] booking.findMany failed:', err)
+  }
 
-    // Revenue — only senior+ can see
-    if (isSeniorPlus) {
+  // Revenue — only senior+ can see
+  if (isSeniorPlus) {
+    try {
       const [wr, mr] = await Promise.all([
         prisma.booking.aggregate({ where: { createdAt: { gte: startOfWeek }, paymentStatus: 'SUCCEEDED' }, _sum: { totalAmount: true } }),
         prisma.booking.aggregate({ where: { createdAt: { gte: startOfMonth }, paymentStatus: 'SUCCEEDED' }, _sum: { totalAmount: true } }),
       ])
       weekRev  = wr._sum.totalAmount ?? 0
       monthRev = mr._sum.totalAmount ?? 0
+    } catch (err) {
+      console.error('[dashboard] booking.aggregate (revenue) failed:', err)
     }
+  }
 
-    // Visa + trips stats — senior+
-    if (isSeniorPlus) {
+  // Visa + trips stats — senior+
+  if (isSeniorPlus) {
+    try {
       ;[visaTotal, visaPending, tripsActive, tripsTotal] = await Promise.all([
         prisma.visaApplication.count(),
         prisma.visaApplication.count({ where: { status: 'submitted' } }),
         prisma.trip.count({ where: { status: 'PLANNING' } }),
         prisma.trip.count(),
       ])
+    } catch (err) {
+      console.error('[dashboard] visaApplication/trip counts failed:', err)
     }
+  }
 
-    // Staff count + client accounts — super_admin / general_manager only
-    if (isSuperOrGM) {
+  // Staff count + client accounts — super_admin / general_manager only
+  if (isSuperOrGM) {
+    try {
       ;[staffCount, clientAccountCount] = await Promise.all([
         prisma.staff.count({ where: { isActive: true } }),
         prisma.clientAccount.count(),
       ])
+    } catch (err) {
+      console.error('[dashboard] staff/clientAccount counts failed:', err)
     }
+  }
 
-    // Coordinator / sales_rep: their own assigned visa apps + trips
-    if (!isSeniorPlus && session.email) {
+  // Coordinator / sales_rep: their own assigned visa apps + trips
+  if (!isSeniorPlus && session.email) {
+    try {
       ;[myVisaApps, myTrips] = await Promise.all([
         prisma.visaApplication.findMany({
           where:   { assignedTo: session.email },
@@ -171,13 +193,10 @@ export default async function DashboardPage() {
           select:  { id: true, title: true, destination: true, status: true, updatedAt: true, user: { select: { name: true } } },
         }),
       ])
+    } catch (err) {
+      console.error('[dashboard] myVisaApps/myTrips failed:', err)
     }
-  } catch {
-    dbError = true
   }
-
-  const isSeniorPlus = staffRole === 'super_admin' || staffRole === 'general_manager' || staffRole === 'senior_manager'
-  const isSuperOrGM  = staffRole === 'super_admin' || staffRole === 'general_manager'
 
   const hour = new Date().getHours()
   const mobileTimeGreeting = hour < 12 ? 'Good morning' : hour < 18 ? 'Good afternoon' : 'Good evening'
