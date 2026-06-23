@@ -157,7 +157,10 @@ export function AircallWidget() {
 
       {/* Aircall workspace panel */}
       {isOpen && (
-        <div className="fixed z-50 bottom-16 left-0 right-0 md:bottom-6 md:right-6 md:left-auto md:w-80 bg-[#0a1628] border border-white/10 rounded-t-2xl md:rounded-2xl shadow-2xl overflow-hidden flex flex-col">
+        <div
+          className="fixed z-50 bottom-16 left-0 right-0 md:bottom-6 md:right-6 md:left-auto md:w-80 bg-[#0a1628] border border-white/10 rounded-t-2xl md:rounded-2xl shadow-2xl overflow-hidden flex flex-col"
+          style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
+        >
 
           {/* Header */}
           <div className="flex items-center justify-between px-4 py-3 border-b border-white/10 bg-[#0d1e35] flex-shrink-0">

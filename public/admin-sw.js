@@ -14,6 +14,8 @@ self.addEventListener('fetch', (e) => {
   const { request } = e;
   const url = new URL(request.url);
 
+  // Never intercept Aircall requests — let the iframe handle its own network
+  if (request.url.includes('aircall.io')) return;
   if (url.origin !== location.origin) return;
   if (url.pathname.startsWith('/api/')) return;
 
