@@ -66,13 +66,17 @@ const DESTINATIONS = [
   { code: 'GIG', city: 'Rio de Janeiro', country: 'Brazil'      },
 ]
 
-const FEATURED = [
-  { code: 'DXB', city: 'Dubai',    country: 'UAE',     from: '£89',  tag: 'MOST BOOKED', img: 'https://images.unsplash.com/photo-1512453979798-5ea266f8880c?w=600&q=80' },
-  { code: 'LON', city: 'London',   country: 'UK',      from: '£120', tag: 'HOT DEAL',    img: 'https://images.unsplash.com/photo-1513635269975-59663e0ac1ad?w=600&q=80' },
-  { code: 'MLE', city: 'Maldives', country: 'Maldives',from: '£250', tag: 'LUXURY',      img: 'https://images.unsplash.com/photo-1544550285-f813152fb2fd?w=600&q=80' },
-  { code: 'YTO', city: 'Toronto',  country: 'Canada',  from: '£95',  tag: 'POPULAR',     img: 'https://images.unsplash.com/photo-1517090504586-fde19ea6066f?w=600&q=80' },
-  { code: 'NYC', city: 'New York', country: 'USA',     from: '£180', tag: 'POPULAR',     img: 'https://images.unsplash.com/photo-1496442226666-8d4d0e62e6e9?w=600&q=80' },
-  { code: 'LOS', city: 'Lagos',    country: 'Nigeria', from: '£65',  tag: 'BEST VALUE',  img: 'https://images.unsplash.com/photo-1555990793-da11153b2473?w=600&q=80' },
+interface FeaturedDest {
+  city: string; country: string; fromPrice: string; tag: string; imageUrl: string | null
+}
+
+const FALLBACK_FEATURED: FeaturedDest[] = [
+  { city: 'Dubai',    country: 'UAE',     fromPrice: '£89/night',  tag: 'MOST BOOKED', imageUrl: 'https://images.unsplash.com/photo-1512453979798-5ea266f8880c?w=600&q=80' },
+  { city: 'London',   country: 'UK',      fromPrice: '£120/night', tag: 'HOT DEAL',    imageUrl: 'https://images.unsplash.com/photo-1513635269975-59663e0ac1ad?w=600&q=80' },
+  { city: 'Maldives', country: 'Maldives',fromPrice: '£250/night', tag: 'LUXURY',      imageUrl: 'https://images.unsplash.com/photo-1544550285-f813152fb2fd?w=600&q=80' },
+  { city: 'Toronto',  country: 'Canada',  fromPrice: '£95/night',  tag: 'POPULAR',     imageUrl: 'https://images.unsplash.com/photo-1517090504586-fde19ea6066f?w=600&q=80' },
+  { city: 'New York', country: 'USA',     fromPrice: '£180/night', tag: 'POPULAR',     imageUrl: 'https://images.unsplash.com/photo-1496442226666-8d4d0e62e6e9?w=600&q=80' },
+  { city: 'Lagos',    country: 'Nigeria', fromPrice: '£65/night',  tag: 'BEST VALUE',  imageUrl: 'https://images.unsplash.com/photo-1555990793-da11153b2473?w=600&q=80' },
 ]
 
 // ─── helpers ────────────────────────────────────────────────────────────────
@@ -324,6 +328,17 @@ type Sort = 'price_asc' | 'price_desc' | 'rating_desc' | 'stars_desc'
 function HotelsPageContent() {
   const searchParams = useSearchParams()
   const router       = useRouter()
+
+  // ── Featured destinations (DB-driven, falls back to hardcoded) ────────────
+  const [featuredDests, setFeaturedDests] = useState<FeaturedDest[]>([])
+  useEffect(() => {
+    fetch('/api/public/hotel-destinations')
+      .then(r => r.json())
+      .then((d: { destinations?: FeaturedDest[] }) => {
+        if (d.destinations && d.destinations.length > 0) setFeaturedDests(d.destinations)
+      })
+      .catch(() => { /* silently fall back to FALLBACK_FEATURED */ })
+  }, [])
 
   // ── Search form state ──────────────────────────────────────────────────────
   const [destInput,    setDestInput]    = useState('')
@@ -633,24 +648,29 @@ function HotelsPageContent() {
               <h2 className="text-white text-3xl font-bold">Where to next?</h2>
             </div>
             <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-              {FEATURED.map(dest => (
-                <button key={dest.code} onClick={() => handleFeaturedClick(dest.code, dest.city)}
-                  className="relative rounded-2xl overflow-hidden aspect-[4/3] group cursor-pointer text-left">
-                  <div className="absolute inset-0 bg-gradient-to-br from-[#112240] to-[#0a1628]" />
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={dest.img} alt={dest.city}
-                    className="absolute inset-0 w-full h-full object-cover opacity-60 group-hover:opacity-75 group-hover:scale-105 transition-all duration-500" />
-                  <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent" />
-                  <div className="absolute top-3 left-3 bg-amber-500 text-black text-[10px] font-bold uppercase tracking-wider px-2 py-1 rounded-full">
-                    {dest.tag}
-                  </div>
-                  <div className="absolute bottom-3 left-3 right-3">
-                    <p className="text-white font-bold text-lg leading-tight">{dest.city}</p>
-                    <p className="text-white/60 text-xs">{dest.country}</p>
-                    <p className="text-amber-400 text-xs font-medium mt-1">From {dest.from}/night</p>
-                  </div>
-                </button>
-              ))}
+              {(featuredDests.length > 0 ? featuredDests : FALLBACK_FEATURED).map(dest => {
+                const code = DESTINATIONS.find(d => d.city.toLowerCase() === dest.city.toLowerCase())?.code ?? ''
+                return (
+                  <button key={dest.city} onClick={() => handleFeaturedClick(code, dest.city)}
+                    className="relative rounded-2xl overflow-hidden aspect-[4/3] group cursor-pointer text-left">
+                    <div className="absolute inset-0 bg-gradient-to-br from-[#112240] to-[#0a1628]" />
+                    {dest.imageUrl && (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img src={dest.imageUrl} alt={dest.city}
+                        className="absolute inset-0 w-full h-full object-cover opacity-60 group-hover:opacity-75 group-hover:scale-105 transition-all duration-500" />
+                    )}
+                    <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent" />
+                    <div className="absolute top-3 left-3 bg-amber-500 text-black text-[10px] font-bold uppercase tracking-wider px-2 py-1 rounded-full">
+                      {dest.tag}
+                    </div>
+                    <div className="absolute bottom-3 left-3 right-3">
+                      <p className="text-white font-bold text-lg leading-tight">{dest.city}</p>
+                      <p className="text-white/60 text-xs">{dest.country}</p>
+                      <p className="text-amber-400 text-xs font-medium mt-1">From {dest.fromPrice}</p>
+                    </div>
+                  </button>
+                )
+              })}
             </div>
           </section>
 

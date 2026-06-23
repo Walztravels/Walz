@@ -2317,3 +2317,20 @@ model AbandonedSession {
   @@index([email])
   @@index([type, createdAt])
 }
+
+// Created via Supabase SQL editor + managed by npx prisma generate.
+// NEVER run prisma db push for this model.
+model HotelDestination {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  city      String
+  country   String
+  fromPrice String
+  tag       String   @default("POPULAR")
+  imageUrl  String?
+  active    Boolean  @default(true)
+  sortOrder Int      @default(0)
+  createdAt DateTime @default(now()) @db.Timestamptz
+  updatedAt DateTime @default(now()) @db.Timestamptz
+
+  @@index([active, sortOrder])
+}
