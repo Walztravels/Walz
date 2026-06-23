@@ -18,7 +18,6 @@ export function AircallWidget() {
   const [callState,   setCallState]   = useState<CallState>('idle')
   const [callInfo,    setCallInfo]    = useState<CallInfo | null>(null)
   const [isLoaded,    setIsLoaded]    = useState(false)
-  const [isInitialising, setIsInitialising] = useState(true)
   const [timer,       setTimer]       = useState(0)
 
   useEffect(() => {
@@ -35,15 +34,8 @@ export function AircallWidget() {
           const user = (settings?.user as { email?: string } | undefined)?.email
           console.log('[Aircall] Logged in:', user)
           setIsLoaded(true)
-          setIsInitialising(false)
-          setWidgetState('open')
         },
-        onLogout: () => {
-          if (mounted) {
-            setIsLoaded(false)
-            setIsInitialising(true)
-          }
-        },
+        onLogout: () => { if (mounted) setIsLoaded(false) },
       })
 
       workspaceRef.current = workspace
@@ -169,7 +161,7 @@ export function AircallWidget() {
         'md:bottom-6 md:right-6 md:left-auto md:w-80',
         widgetState === 'open' ? 'translate-y-0 opacity-100' : 'translate-y-full opacity-0 pointer-events-none',
       ].join(' ')}>
-        <div className="bg-[#0a1628] border border-white/10 rounded-t-2xl md:rounded-2xl shadow-2xl overflow-hidden w-full relative max-h-[700px]">
+        <div className="bg-[#0a1628] border border-white/10 rounded-t-2xl md:rounded-2xl shadow-2xl overflow-hidden w-full">
 
           {/* Header */}
           <div className="flex items-center justify-between px-4 py-3 border-b border-white/10 bg-[#0d1e35]">
@@ -201,24 +193,8 @@ export function AircallWidget() {
             </div>
           </div>
 
-          {/* Workspace + loading overlay */}
-          <div className="relative" style={{ height: 600 }}>
-            {/* Spinner sits on top — pointer-events-none so clicks reach the iframe */}
-            {isInitialising && (
-              <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 z-10 bg-[#0a1628] pointer-events-none">
-                <div className="w-8 h-8 rounded-full border-2 border-amber-500 border-t-transparent animate-spin" />
-                <p className="text-white/50 text-sm">Loading Aircall…</p>
-                <p className="text-white/30 text-xs text-center px-4">
-                  Log in with your Aircall credentials
-                </p>
-              </div>
-            )}
-            {/* iframe mount — never hidden; Aircall SDK injects into this div */}
-            <div
-              id="aircall-workspace"
-              style={{ height: 600, width: '100%' }}
-            />
-          </div>
+          {/* Aircall iframe — SDK injects here; shows login page or workspace directly */}
+          <div id="aircall-workspace" style={{ height: 580, width: '100%' }} />
         </div>
       </div>
     </>
