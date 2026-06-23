@@ -132,119 +132,119 @@ export default function AdminClientsPage() {
   return (
     <div>
       {toast && (
-        <div className="fixed top-4 right-4 z-50 bg-[#0B1F3A] text-white px-4 py-3 rounded-xl shadow-xl text-sm">
+        <div className="fixed top-4 right-4 z-50 bg-[#112240] text-white px-4 py-3 rounded-xl shadow-xl text-sm border border-white/10">
           {toast}
         </div>
       )}
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-2xl font-bold text-[#0B1F3A]">Clients</h1>
-          <p className="text-gray-500 text-sm mt-1">{total} client{total !== 1 ? 's' : ''}</p>
+          <h1 className="text-2xl font-bold text-white">Clients</h1>
+          <p className="text-white/40 text-sm mt-1">{total} client{total !== 1 ? 's' : ''}</p>
         </div>
-        <button onClick={load} className="flex items-center gap-2 px-4 py-2 border border-gray-200 rounded-xl text-sm text-gray-500 hover:bg-gray-50 transition-colors">
+        <button onClick={load} className="flex items-center gap-2 px-4 py-2 border border-white/10 rounded-xl text-sm text-white/50 hover:bg-white/5 transition-colors">
           <RefreshCw className="w-4 h-4" /> Refresh
         </button>
       </div>
 
-      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm mb-4 px-4 py-3 flex items-center gap-3">
-        <Search className="w-4 h-4 text-gray-400 flex-shrink-0" />
+      <div className="bg-white/5 rounded-2xl border border-white/8 mb-4 px-4 py-3 flex items-center gap-3">
+        <Search className="w-4 h-4 text-white/30 flex-shrink-0" />
         <input
           type="text"
           placeholder="Search by name or email…"
           value={search}
           onChange={e => setSearch(e.target.value)}
-          className="flex-1 text-sm outline-none text-gray-700 placeholder-gray-400"
+          className="flex-1 text-sm outline-none bg-transparent text-white placeholder-white/25"
         />
       </div>
 
       <div className="space-y-3">
         {loading && !clients.length ? (
-          <div className="bg-white rounded-2xl p-12 text-center text-gray-400">Loading…</div>
+          <div className="bg-[#112240] rounded-2xl p-12 text-center text-white/30 ring-1 ring-white/5">Loading…</div>
         ) : clients.length === 0 ? (
-          <div className="bg-white rounded-2xl p-12 text-center text-gray-400">No clients found.</div>
+          <div className="bg-[#112240] rounded-2xl p-12 text-center text-white/30 ring-1 ring-white/5">No clients found.</div>
         ) : clients.map(c => {
           const isOpen = expanded === c.id
           const apps   = c.portalApplications ?? []
 
           return (
-            <div key={c.id} className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+            <div key={c.id} className="bg-[#112240] rounded-2xl ring-1 ring-white/5 overflow-hidden">
               {/* Client row */}
               <button
-                className="w-full flex items-center gap-4 px-5 py-4 hover:bg-gray-50 transition-colors text-left"
+                className="w-full flex items-center gap-4 px-5 py-4 hover:bg-white/3 transition-colors text-left"
                 onClick={() => setExpanded(isOpen ? null : c.id)}
               >
-                <div className="w-10 h-10 rounded-full bg-[#0B1F3A] flex items-center justify-center flex-shrink-0">
-                  <span className="text-[#C9A84C] font-bold text-sm">
+                <div className="w-10 h-10 rounded-full bg-gradient-to-br from-amber-500/30 to-amber-600/10 border border-amber-500/20 flex items-center justify-center flex-shrink-0">
+                  <span className="text-amber-400 font-bold text-sm">
                     {(c.name ?? c.email)[0].toUpperCase()}
                   </span>
                 </div>
                 <div className="flex-1 min-w-0">
-                  <div className="font-semibold text-[#0B1F3A] truncate">{c.name ?? c.email}</div>
-                  <div className="flex items-center gap-3 text-xs text-gray-400 mt-0.5 flex-wrap">
+                  <div className="font-semibold text-white truncate">{c.name ?? c.email}</div>
+                  <div className="flex items-center gap-3 text-xs text-white/35 mt-0.5 flex-wrap">
                     {c.name && <span>{c.email}</span>}
                     <span>{c._count?.bookings ?? 0} booking{(c._count?.bookings ?? 0) !== 1 ? 's' : ''}</span>
-                    <span className="font-medium text-[#0B1F3A]">{apps.length} portal app{apps.length !== 1 ? 's' : ''}</span>
+                    <span className="font-medium text-amber-400/70">{apps.length} portal app{apps.length !== 1 ? 's' : ''}</span>
                     <span>since {format(new Date(c.createdAt), 'MMM yyyy')}</span>
                   </div>
                 </div>
                 <div className="flex items-center gap-1 flex-shrink-0" onClick={e => e.stopPropagation()}>
                   <a href={`mailto:${c.email}`}
-                    className="p-2 text-gray-400 hover:text-[#C9A84C] hover:bg-amber-50 rounded-lg transition-colors">
+                    className="p-2 text-white/30 hover:text-amber-400 hover:bg-amber-500/10 rounded-lg transition-colors">
                     <Mail className="w-4 h-4" />
                   </a>
                   <a href={`https://wa.me/447398753797?text=${encodeURIComponent(`Hi, I'm contacting you about client ${c.name ?? c.email}`)}`}
                     target="_blank" rel="noreferrer"
-                    className="p-2 text-gray-400 hover:text-green-600 hover:bg-green-50 rounded-lg transition-colors">
+                    className="p-2 text-white/30 hover:text-green-400 hover:bg-green-500/10 rounded-lg transition-colors">
                     <MessageCircle className="w-4 h-4" />
                   </a>
                   <button onClick={() => convertToLead(c)} disabled={converting === c.id}
                     title="Convert to Lead"
-                    className="p-2 text-gray-400 hover:text-[#C9A84C] hover:bg-amber-50 rounded-lg transition-colors disabled:opacity-50">
+                    className="p-2 text-white/30 hover:text-amber-400 hover:bg-amber-500/10 rounded-lg transition-colors disabled:opacity-50">
                     {converting === c.id
                       ? <Loader2 className="w-4 h-4 animate-spin" />
                       : <UserPlus className="w-4 h-4" />}
                   </button>
                 </div>
                 {isOpen
-                  ? <ChevronUp className="w-4 h-4 text-gray-400 flex-shrink-0" />
-                  : <ChevronDown className="w-4 h-4 text-gray-400 flex-shrink-0" />}
+                  ? <ChevronUp className="w-4 h-4 text-white/30 flex-shrink-0" />
+                  : <ChevronDown className="w-4 h-4 text-white/30 flex-shrink-0" />}
               </button>
 
               {/* Expanded: portal applications */}
               {isOpen && (
-                <div className="border-t border-gray-100 px-5 py-4 bg-gray-50/50 space-y-3">
+                <div className="border-t border-white/5 px-5 py-4 bg-black/10 space-y-3">
                   {apps.length === 0 ? (
-                    <p className="text-sm text-gray-400 py-2">No portal applications for this client yet.</p>
+                    <p className="text-sm text-white/30 py-2">No portal applications for this client yet.</p>
                   ) : apps.map(app => {
                     const approvedDocs = app.documents.filter(d => d.status === 'APPROVED').length
                     const totalPaid    = app.payments.filter(p => p.status === 'PAID').reduce((s, p) => s + p.amount, 0)
                     const doneCl       = app.checklist.filter(ci => ci.completedAt).length
 
                     return (
-                      <div key={app.id} className="bg-white rounded-xl border border-gray-200 p-4">
+                      <div key={app.id} className="bg-white/5 rounded-xl border border-white/8 p-4">
                         <div className="flex items-start justify-between gap-3 mb-3">
                           <div className="flex-1 min-w-0">
                             <div className="flex items-center gap-2 flex-wrap mb-1">
                               <span className={`text-xs font-semibold px-2.5 py-0.5 rounded-full ${STAGE_COLOR[app.stage]}`}>
                                 {STAGE_LABEL[app.stage]}
                               </span>
-                              <span className="text-xs font-mono text-gray-400">{app.refNumber}</span>
-                              <span className="text-xs text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full">{app.type}</span>
+                              <span className="text-xs font-mono text-white/30">{app.refNumber}</span>
+                              <span className="text-xs text-white/30 bg-white/5 px-2 py-0.5 rounded-full">{app.type}</span>
                             </div>
-                            <h3 className="font-bold text-[#0B1F3A] text-sm">{app.title}</h3>
+                            <h3 className="font-bold text-white text-sm">{app.title}</h3>
                             {app.destination && (
-                              <p className="text-xs text-gray-500 mt-0.5">
+                              <p className="text-xs text-white/40 mt-0.5">
                                 {app.destination}{app.travelDate ? ` · ${app.travelDate}` : ''}
                               </p>
                             )}
                           </div>
-                          <span className="text-xs text-gray-400 flex-shrink-0">
+                          <span className="text-xs text-white/30 flex-shrink-0">
                             {format(new Date(app.createdAt), 'd MMM yyyy')}
                           </span>
                         </div>
 
                         {/* Stats */}
-                        <div className="flex items-center gap-4 mb-3 flex-wrap text-xs text-gray-500">
+                        <div className="flex items-center gap-4 mb-3 flex-wrap text-xs text-white/40">
                           <span className="flex items-center gap-1">
                             <FileText className="w-3.5 h-3.5" />
                             {approvedDocs}/{app.documents.length} docs approved
@@ -264,12 +264,12 @@ export default function AdminClientsPage() {
                         {/* Controls */}
                         <div className="flex items-end gap-3 flex-wrap">
                           <div>
-                            <label className="text-xs text-gray-400 block mb-1">Stage</label>
+                            <label className="text-xs text-white/30 block mb-1">Stage</label>
                             <select
                               value={app.stage}
                               disabled={saving === app.id}
                               onChange={e => updateStage(app.id, e.target.value as Stage)}
-                              className="text-xs border border-gray-200 rounded-lg px-3 py-2 bg-white text-gray-700 focus:outline-none focus:border-[#C9A84C] disabled:opacity-50"
+                              className="text-xs border border-white/10 rounded-lg px-3 py-2 bg-white/5 text-white focus:outline-none focus:border-amber-500/40 disabled:opacity-50"
                             >
                               {STAGES.map(s => (
                                 <option key={s} value={s}>{STAGE_LABEL[s]}</option>
@@ -277,19 +277,19 @@ export default function AdminClientsPage() {
                             </select>
                           </div>
                           <div className="flex-1 min-w-[160px]">
-                            <label className="text-xs text-gray-400 block mb-1">Note to client</label>
+                            <label className="text-xs text-white/30 block mb-1">Note to client</label>
                             <div className="flex gap-2">
                               <input
                                 type="text"
                                 value={editNotes[app.id] ?? app.adminNotes ?? ''}
                                 onChange={e => setEditNotes(p => ({ ...p, [app.id]: e.target.value }))}
                                 placeholder="e.g. Please upload passport"
-                                className="flex-1 text-xs border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:border-[#C9A84C]"
+                                className="flex-1 text-xs border border-white/10 rounded-lg px-3 py-2 bg-white/5 text-white placeholder-white/25 focus:outline-none focus:border-amber-500/40"
                               />
                               <button
                                 onClick={() => saveNotes(app.id)}
                                 disabled={saving === app.id}
-                                className="px-3 py-2 bg-[#0B1F3A] text-white text-xs font-semibold rounded-lg hover:bg-[#0d2040] disabled:opacity-50"
+                                className="px-3 py-2 bg-amber-500 text-black text-xs font-semibold rounded-lg hover:bg-amber-400 disabled:opacity-50"
                               >
                                 {saving === app.id ? '…' : 'Save'}
                               </button>
@@ -297,7 +297,7 @@ export default function AdminClientsPage() {
                           </div>
                           <a
                             href={`mailto:${c.email}?subject=Re: ${encodeURIComponent(app.title)}`}
-                            className="text-xs text-[#C9A84C] hover:underline whitespace-nowrap pb-2"
+                            className="text-xs text-amber-400 hover:text-amber-300 hover:underline whitespace-nowrap pb-2"
                           >
                             Email client
                           </a>

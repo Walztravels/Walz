@@ -242,7 +242,7 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    const token = await signAdminToken(normalizedEmail, staffMember.role, staffMember.id)
+    const token = await signAdminToken(normalizedEmail, staffMember.role ?? staffMember.accessLevel ?? 'sales_rep', staffMember.id)
     const response = NextResponse.json({
       success:     true,
       email:       normalizedEmail,

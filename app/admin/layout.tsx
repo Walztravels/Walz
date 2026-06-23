@@ -34,7 +34,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
   }
 
   return (
-    <div className="flex h-screen bg-[#F8F9FA] overflow-hidden">
+    <div className="flex h-screen bg-[#0a1628] overflow-hidden">
 
       {/* Sidebar — desktop only */}
       <div className="hidden md:flex flex-shrink-0">
@@ -53,11 +53,11 @@ export default async function AdminLayout({ children }: { children: React.ReactN
         </main>
 
         {/* Footer — desktop only */}
-        <footer className="hidden md:flex flex-shrink-0 border-t border-gray-200 bg-white px-6 py-2 items-center justify-between">
-          <span className="text-xs text-gray-400 font-medium">
+        <footer className="hidden md:flex flex-shrink-0 border-t border-white/8 bg-[#0d1e35] px-6 py-2 items-center justify-between">
+          <span className="text-xs text-white/30 font-medium">
             Walz Travels Admin — Internal Use Only
           </span>
-          <span className="text-xs text-gray-300">v1.0</span>
+          <span className="text-xs text-white/15">v1.0</span>
         </footer>
 
       </div>
