@@ -74,7 +74,7 @@ const nextConfig = {
               "font-src 'self' https://fonts.gstatic.com",
               "img-src 'self' data: blob: https: http:",
               "frame-src 'self' https://workspace.aircall.io https://*.aircall.io https://js.stripe.com https://hooks.stripe.com",
-              "connect-src 'self' https: wss:",
+              "connect-src 'self' https://*.walztravels.com https://api.stripe.com https://api.flutterwave.com https://*.supabase.co wss://*.supabase.co https://www.google-analytics.com https://*.aircall.io wss://*.aircall.io",
               "media-src 'self' https:",
               "object-src 'none'",
               "base-uri 'self'",

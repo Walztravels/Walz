@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Phone, PhoneIncoming, X } from 'lucide-react'
 
 type CallState = 'idle' | 'incoming' | 'connecting' | 'active' | 'ended'
@@ -11,80 +11,96 @@ interface CallInfo {
 }
 
 export function AircallWidget() {
-  const workspaceRef              = useRef<import('aircall-everywhere').default | null>(null)
-  const timerRef                  = useRef<ReturnType<typeof setInterval> | null>(null)
-  const [isOpen,     setIsOpen]   = useState(false)
-  const [callState,  setCallState]  = useState<CallState>('idle')
-  const [callInfo,   setCallInfo]   = useState<CallInfo | null>(null)
-  const [isLoaded,   setIsLoaded]   = useState(false)
-  const [timer,      setTimer]      = useState(0)
+  const sdkRef                        = useRef<import('aircall-everywhere').default | null>(null)
+  const timerRef                      = useRef<ReturnType<typeof setInterval> | null>(null)
+  const [isOpen,           setIsOpen]           = useState(false)
+  const [workspaceMounted, setWorkspaceMounted] = useState(false)
+  const [callState,        setCallState]        = useState<CallState>('idle')
+  const [callInfo,         setCallInfo]         = useState<CallInfo | null>(null)
+  const [isLoaded,         setIsLoaded]         = useState(false)
+  const [timer,            setTimer]            = useState(0)
 
-  // Initialise Aircall SDK
+  // Fires when #aircall-workspace mounts — SDK cannot init before this
+  const workspaceCallbackRef = useCallback((node: HTMLDivElement | null) => {
+    if (node) setWorkspaceMounted(true)
+  }, [])
+
+  // Clean up SDK state when widget closes so re-open gets a fresh init
   useEffect(() => {
-    let mounted = true
+    if (!isOpen) {
+      setWorkspaceMounted(false)
+      sdkRef.current = null
+    }
+  }, [isOpen])
+
+  // Init SDK — guarded by both isOpen and workspaceMounted so the DOM element
+  // is guaranteed to exist before new AircallWorkspace() is called
+  useEffect(() => {
+    if (!isOpen || !workspaceMounted || sdkRef.current) return
+
+    let active = true
 
     import('aircall-everywhere').then(({ default: AircallWorkspace }) => {
-      if (!mounted) return
+      if (!active || sdkRef.current) return
 
       const workspace = new AircallWorkspace({
         domToLoadWorkspace: '#aircall-workspace',
         integrationToLoad:  'generic',
         onLogin:  (settings: Record<string, unknown>) => {
-          if (!mounted) return
+          if (!active) return
           const email = (settings?.user as { email?: string } | undefined)?.email
           console.log('[Aircall] Logged in:', email)
           setIsLoaded(true)
         },
-        onLogout: () => { if (mounted) setIsLoaded(false) },
+        onLogout: () => { if (active) setIsLoaded(false) },
       })
 
-      workspaceRef.current = workspace
+      sdkRef.current = workspace
 
       workspace.on('incoming_call', (info) => {
-        if (!mounted) return
+        if (!active) return
         setCallInfo({ from: info.from })
         setCallState('incoming')
         setIsOpen(true)
       })
 
       workspace.on('outgoing_call', (info) => {
-        if (!mounted) return
+        if (!active) return
         setCallInfo({ to: info.to })
         setCallState('connecting')
       })
 
       workspace.on('outgoing_answered', () => {
-        if (!mounted) return
+        if (!active) return
         setCallState('active')
         setTimer(0)
         timerRef.current = setInterval(() => setTimer(t => t + 1), 1000)
       })
 
       workspace.on('call_ended', () => {
-        if (!mounted) return
+        if (!active) return
         if (timerRef.current) clearInterval(timerRef.current)
         setCallState('ended')
         setTimeout(() => {
-          if (mounted) { setCallState('idle'); setCallInfo(null); setTimer(0) }
+          if (active) { setCallState('idle'); setCallInfo(null); setTimer(0) }
         }, 3_000)
       })
     }).catch(e => console.error('[Aircall] Init failed:', e))
 
     return () => {
-      mounted = false
+      active = false
       if (timerRef.current) clearInterval(timerRef.current)
     }
-  }, [])
+  }, [isOpen, workspaceMounted])
 
-  // Listen for openAircallWidget event from the desktop header button
+  // Listen for openAircallWidget event from desktop header button
   useEffect(() => {
     const handler = () => setIsOpen(true)
     window.addEventListener('openAircallWidget', handler)
     return () => window.removeEventListener('openAircallWidget', handler)
   }, [])
 
-  // Request mic permission when widget opens — required on mobile Chrome / PWA
-  // so the Aircall iframe can access the microphone without a secondary prompt
+  // Request mic permission on widget open (mobile Chrome / PWA requirement)
   useEffect(() => {
     if (!isOpen) return
     navigator.mediaDevices?.getUserMedia({ audio: true })
@@ -99,7 +115,7 @@ export function AircallWidget() {
       setCallState('connecting')
       setCallInfo({ to: phone })
       setTimeout(() => {
-        workspaceRef.current?.send('dial_number', { phone_number: phone }, (success: boolean) => {
+        sdkRef.current?.send('dial_number', { phone_number: phone }, (success: boolean) => {
           if (!success) { setCallState('idle'); setCallInfo(null) }
         })
       }, 600)
@@ -141,7 +157,7 @@ export function AircallWidget() {
         </div>
       )}
 
-      {/* Mobile FAB — shown when widget is closed; desktop uses the header Phone button */}
+      {/* Mobile FAB — desktop uses the header Phone button */}
       {!isOpen && (
         <button
           onClick={() => setIsOpen(true)}
@@ -161,7 +177,6 @@ export function AircallWidget() {
           className="fixed z-50 bottom-16 left-0 right-0 md:bottom-6 md:right-6 md:left-auto md:w-80 bg-[#0a1628] border border-white/10 rounded-t-2xl md:rounded-2xl shadow-2xl overflow-hidden flex flex-col"
           style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
         >
-
           {/* Header */}
           <div className="flex items-center justify-between px-4 py-3 border-b border-white/10 bg-[#0d1e35] flex-shrink-0">
             <div className="flex items-center gap-2">
@@ -180,9 +195,10 @@ export function AircallWidget() {
             </button>
           </div>
 
-          {/* Aircall iframe — no spinner, no overlay, always visible */}
+          {/* Aircall iframe mount — SDK injects here once workspaceMounted fires */}
           <div
             id="aircall-workspace"
+            ref={workspaceCallbackRef}
             style={{
               height: 'min(540px, calc(100vh - 120px))',
               width: '100%',
