@@ -5,6 +5,7 @@ import React from 'react'
 import {
   Document, Page, Text, View, StyleSheet, Svg, Rect, Image,
 } from '@react-pdf/renderer'
+import type { FlightLeg, Passenger, PricingBreakdown } from '@/types/flight-ticket'
 
 // ── Brand colours ─────────────────────────────────────────────────────────────
 const NAVY  = '#0B1F3A'
@@ -617,92 +618,194 @@ function TicketHeader({ type, reference }: { type: string; reference: string }) 
 // TICKET BODY VARIANTS
 // ─────────────────────────────────────────────────────────────────────────────
 
-// ── Flight body — dual-leg boarding pass ──────────────────────────────────────
+// ── Terms & Conditions PDF section ───────────────────────────────────────────
+
+function TermsPDFSection() {
+  return (
+    <View style={{ marginTop: 20, paddingTop: 10, borderTopWidth: 1, borderTopColor: '#E5E7EB' }}>
+      <Text style={{ fontSize: 8, fontFamily: 'Helvetica-Bold', color: GREY, textTransform: 'uppercase', letterSpacing: 1, marginBottom: 6 }}>
+        Terms {'&'} Conditions
+      </Text>
+      <Text style={{ fontSize: 7, color: '#9CA3AF', lineHeight: 1.6 }}>
+        {'1. This document is issued by Walz Travels Ltd and serves as confirmation of your travel arrangements. Please carry this document with your valid passport and any required visas.\n'}
+        {'2. Passengers must check in at least 2 hours before departure for domestic flights and 3 hours for international flights. Walz Travels is not liable for missed flights due to late check-in.\n'}
+        {'3. Baggage allowances are subject to airline policy. Excess baggage charges are the passenger\'s responsibility. Please verify allowances with the operating airline before travel.\n'}
+        {'4. Cancellation and amendment policies vary by ticket type. Please contact Walz Travels at least 48 hours before departure to discuss changes. Change fees may apply.\n'}
+        {'5. Walz Travels acts as an agent for airlines, hotels and other travel suppliers. We are not liable for delays, cancellations, overbooking, or service failures by third-party suppliers.\n'}
+        {'6. Travel insurance is strongly recommended. Walz Travels is not responsible for losses from medical emergencies, trip interruptions or personal property loss.\n'}
+        {'7. By proceeding with this booking, the passenger confirms acceptance of these terms. Full terms at walztravels.com/terms · support@walztravels.com'}
+      </Text>
+    </View>
+  )
+}
+
+// ── Flight body — multi-leg boarding pass ─────────────────────────────────────
 function FlightBody({ d }: { d: Record<string, unknown> }) {
-  const str  = (v: unknown) => String(v || '')
-  const num  = (v: unknown) => Number(v ?? 0)
-  const pax  = (d.additional_passengers as unknown[]) ?? []
+  const str      = (v: unknown) => String(v || '')
+  const outbound = (d.outbound   as FlightLeg[]) ?? []
+  const inbound  = (d.inbound    as FlightLeg[]) ?? []
+  const passengers = (d.passengers as Passenger[]) ?? []
+  const tripType = d.tripType as string
+  const pnr      = str(d.pnr)
+  const pricing  = d.pricing as PricingBreakdown | undefined
 
-  const hasReturn = !!(d.return_date || d.return_flight)
+  const hasLegs = outbound.length > 0
 
+  // ── Legacy single-leg fallback ───────────────────────────────────────────
+  if (!hasLegs) {
+    const hasReturn = !!(d.return_date || d.return_flight)
+    return (
+      <View style={s.body}>
+        <PassengerStrip name={str(d.client_name)} passport={str(d.passport_number)} bookingRef={str(d.booking_reference || d.pnr)} />
+        <LegCard direction="OUTBOUND" shade={NAVY} airline={str(d.airline)} flightNumber={str(d.flight_number)} fromCode={str(d.from_code)} fromCity={str(d.from_city)} toCode={str(d.to_code)} toCity={str(d.to_city)} departureDate={str(d.departure_date)} departureTime={str(d.departure_time)} arrivalDate={str(d.arrival_date)} arrivalTime={str(d.arrival_time)} duration={str(d.duration)} stops={0} cabin={str(d.cabin_class)} seat={str(d.seat_number)} baggage={str(d.baggage_allowance)} pnr={pnr} />
+        {hasReturn && (
+          <>
+            <TearoffDivider />
+            <LegCard direction="RETURN" shade={NAVY2} airline={str(d.return_airline || d.airline)} flightNumber={str(d.return_flight)} fromCode={str(d.to_code)} fromCity={str(d.to_city)} toCode={str(d.from_code)} toCity={str(d.from_city)} departureDate={str(d.return_date)} departureTime={str(d.return_time)} arrivalDate={str(d.return_arrival_date)} arrivalTime={str(d.return_arrival_time)} duration={str(d.return_duration)} stops={0} cabin={str(d.cabin_class)} seat={str(d.return_seat_number || d.seat_number)} baggage={str(d.baggage_allowance)} pnr={pnr} />
+          </>
+        )}
+        {d.message && <GoldBox title="Message from Walz Travels" text={str(d.message)} />}
+        <TermsPDFSection />
+      </View>
+    )
+  }
+
+  // ── Multi-leg rendering ──────────────────────────────────────────────────
   return (
     <View style={s.body}>
-      {/* Passenger strip */}
-      <PassengerStrip
-        name={str(d.client_name)}
-        passport={str(d.passport_number)}
-        bookingRef={str(d.booking_reference || d.pnr)}
-      />
+      {/* Primary passenger strip */}
+      {passengers.length > 0 ? (
+        <PassengerStrip
+          name={`${passengers[0].title} ${passengers[0].firstName} ${passengers[0].lastName}`}
+          passport={passengers[0].eTicketNumber ?? ''}
+          bookingRef={pnr}
+        />
+      ) : (
+        <PassengerStrip name={str(d.client_name)} passport={str(d.passport_number)} bookingRef={pnr} />
+      )}
 
-      {/* Outbound leg */}
-      <LegCard
-        direction="OUTBOUND"
-        shade={NAVY}
-        airline={str(d.airline)}
-        flightNumber={str(d.flight_number)}
-        fromCode={str(d.from_code)}
-        fromCity={str(d.from_city)}
-        toCode={str(d.to_code)}
-        toCity={str(d.to_city)}
-        departureDate={str(d.departure_date)}
-        departureTime={str(d.departure_time)}
-        arrivalDate={str(d.arrival_date)}
-        arrivalTime={str(d.arrival_time)}
-        duration={str(d.duration)}
-        stops={num(d.stops)}
-        cabin={str(d.cabin_class)}
-        seat={str(d.seat_number)}
-        baggage={str(d.baggage_allowance)}
-        pnr={str(d.pnr)}
-      />
+      {/* Outbound legs */}
+      {outbound.map((leg: FlightLeg, i: number) => (
+        <React.Fragment key={i}>
+          {i > 0 && <TearoffDivider />}
+          <LegCard
+            direction={outbound.length > 1 ? `OUT ${i + 1}/${outbound.length}` : 'OUTBOUND'}
+            shade={NAVY}
+            airline={leg.airline}
+            flightNumber={leg.flightNumber}
+            fromCode={leg.departureCode}
+            fromCity={leg.departureCity}
+            toCode={leg.arrivalCode}
+            toCity={leg.arrivalCity}
+            departureDate={leg.departureDate}
+            departureTime={leg.departureTime}
+            arrivalDate={leg.arrivalDate}
+            arrivalTime={leg.arrivalTime}
+            duration={leg.duration}
+            stops={0}
+            cabin={leg.cabinClass}
+            seat={leg.seat ?? ''}
+            baggage={leg.baggage}
+            pnr={pnr}
+          />
+          {(leg.baggage || leg.mealPreference || leg.operatedBy) && (
+            <View style={{ flexDirection: 'row', marginTop: 2, marginBottom: 8, paddingHorizontal: 4, gap: 16 }}>
+              {leg.baggage && <Text style={{ fontSize: 8, color: GREY }}>Baggage: {leg.baggage}</Text>}
+              {leg.mealPreference && <Text style={{ fontSize: 8, color: GREY }}>Meal: {leg.mealPreference}</Text>}
+              {leg.operatedBy && <Text style={{ fontSize: 8, color: GREY }}>Operated by: {leg.operatedBy}</Text>}
+            </View>
+          )}
+        </React.Fragment>
+      ))}
 
-      {/* Return leg */}
-      {hasReturn && (
+      {/* Inbound / return legs */}
+      {tripType === 'return' && inbound.length > 0 && (
         <>
           <TearoffDivider />
-          <LegCard
-            direction="RETURN"
-            shade={NAVY2}
-            airline={str(d.return_airline || d.airline)}
-            flightNumber={str(d.return_flight)}
-            fromCode={str(d.to_code)}
-            fromCity={str(d.to_city)}
-            toCode={str(d.from_code)}
-            toCity={str(d.from_city)}
-            departureDate={str(d.return_date)}
-            departureTime={str(d.return_time)}
-            arrivalDate={str(d.return_arrival_date)}
-            arrivalTime={str(d.return_arrival_time)}
-            duration={str(d.return_duration)}
-            stops={num(d.return_stops)}
-            cabin={str(d.cabin_class)}
-            seat={str(d.return_seat_number || d.seat_number)}
-            baggage={str(d.baggage_allowance)}
-            pnr={str(d.return_pnr || d.pnr)}
-          />
+          {inbound.map((leg: FlightLeg, i: number) => (
+            <React.Fragment key={i}>
+              {i > 0 && <TearoffDivider />}
+              <LegCard
+                direction={inbound.length > 1 ? `RET ${i + 1}/${inbound.length}` : 'RETURN'}
+                shade={NAVY2}
+                airline={leg.airline}
+                flightNumber={leg.flightNumber}
+                fromCode={leg.departureCode}
+                fromCity={leg.departureCity}
+                toCode={leg.arrivalCode}
+                toCity={leg.arrivalCity}
+                departureDate={leg.departureDate}
+                departureTime={leg.departureTime}
+                arrivalDate={leg.arrivalDate}
+                arrivalTime={leg.arrivalTime}
+                duration={leg.duration}
+                stops={0}
+                cabin={leg.cabinClass}
+                seat={leg.seat ?? ''}
+                baggage={leg.baggage}
+                pnr={pnr}
+              />
+              {(leg.baggage || leg.mealPreference) && (
+                <View style={{ flexDirection: 'row', marginTop: 2, marginBottom: 8, paddingHorizontal: 4, gap: 16 }}>
+                  {leg.baggage && <Text style={{ fontSize: 8, color: GREY }}>Baggage: {leg.baggage}</Text>}
+                  {leg.mealPreference && <Text style={{ fontSize: 8, color: GREY }}>Meal: {leg.mealPreference}</Text>}
+                </View>
+              )}
+            </React.Fragment>
+          ))}
         </>
       )}
 
-      {/* Additional passengers */}
-      {pax.length > 0 && (
+      {/* All passengers */}
+      {passengers.length > 0 && (
         <>
           <SectionTitle>All Passengers</SectionTitle>
-          {pax.map((p: unknown, i: number) => {
-            const px = p as Record<string, string>
-            return (
-              <View key={i} style={s.passengerBox}>
-                <Text style={s.passengerNum}>{i + 1}</Text>
-                <View>
-                  <Text style={s.fieldValue}>{px.name}</Text>
-                  <Text style={s.fieldLabel}>Passport: {px.passport}  ·  Seat: {px.seat}</Text>
-                </View>
+          {passengers.map((pax: Passenger, i: number) => (
+            <View key={i} style={[s.passengerBox, { alignItems: 'center' }]}>
+              <Text style={s.passengerNum}>{i + 1}</Text>
+              <View style={{ flex: 1 }}>
+                <Text style={s.fieldValue}>{pax.title} {pax.firstName} {pax.lastName}</Text>
+                <Text style={s.fieldLabel}>
+                  {pax.cabinClass}{pax.seat ? ` · Seat ${pax.seat}` : ''}{pax.meal ? ` · ${pax.meal}` : ''}
+                </Text>
               </View>
-            )
-          })}
+              {pax.eTicketNumber && (
+                <Text style={{ fontSize: 8, color: GREY, letterSpacing: 0.5 }}>E-Ticket: {pax.eTicketNumber}</Text>
+              )}
+            </View>
+          ))}
+        </>
+      )}
+
+      {/* Pricing breakdown */}
+      {pricing && pricing.grandTotal > 0 && (
+        <>
+          <SectionTitle>Pricing</SectionTitle>
+          <View style={s.goldBox}>
+            <View style={[s.row, { marginBottom: 3 }]}>
+              <Text style={[s.fieldLabel, { flex: 1 }]}>Base fare (per pax)</Text>
+              <Text style={s.fieldValue}>{pricing.currencySymbol}{pricing.baseFare.toFixed(2)}</Text>
+            </View>
+            <View style={[s.row, { marginBottom: 3 }]}>
+              <Text style={[s.fieldLabel, { flex: 1 }]}>Taxes {'&'} fees</Text>
+              <Text style={s.fieldValue}>{pricing.currencySymbol}{pricing.taxes.toFixed(2)}</Text>
+            </View>
+            {pricing.carrierFees ? (
+              <View style={[s.row, { marginBottom: 3 }]}>
+                <Text style={[s.fieldLabel, { flex: 1 }]}>Carrier fees</Text>
+                <Text style={s.fieldValue}>{pricing.currencySymbol}{pricing.carrierFees.toFixed(2)}</Text>
+              </View>
+            ) : null}
+            <View style={[s.row, { borderTopWidth: 1, borderTopColor: GOLD, paddingTop: 6, marginTop: 3 }]}>
+              <Text style={[s.fieldValue, { flex: 1 }]}>Grand Total ({pricing.passengerCount} pax)</Text>
+              <Text style={[s.fieldValue, { color: GOLD }]}>{pricing.currencySymbol}{pricing.grandTotal.toFixed(2)}</Text>
+            </View>
+          </View>
         </>
       )}
 
       {d.message && <GoldBox title="Message from Walz Travels" text={str(d.message)} />}
+      <TermsPDFSection />
     </View>
   )
 }
@@ -737,6 +840,7 @@ function HotelBody({ d }: { d: Record<string, unknown> }) {
       <GoldBox title="Confirmation Number" text={d.confirmation_number as string ?? '—'} />
       {d.special_requests && <GoldBox title="Special Requests"       text={d.special_requests as string} />}
       {d.message           && <GoldBox title="Message from Walz Travels" text={d.message as string} />}
+      <TermsPDFSection />
     </View>
   )
 }
@@ -774,6 +878,7 @@ function TourBody({ d }: { d: Record<string, unknown> }) {
       )}
       {d.emergency_contact && <GoldBox title="Emergency Contact" text={d.emergency_contact as string} />}
       {d.message           && <GoldBox title="Message from Walz Travels" text={d.message as string} />}
+      <TermsPDFSection />
     </View>
   )
 }
@@ -796,6 +901,7 @@ function TransferBody({ d }: { d: Record<string, unknown> }) {
       <FieldRow pairs={[['Flight Number', d.flight_number as string], ['Booking Ref', d.booking_reference as string]]} />
       {d.special_instructions && <GoldBox title="Special Instructions" text={d.special_instructions as string} />}
       {d.message              && <GoldBox title="Message from Walz Travels" text={d.message as string} />}
+      <TermsPDFSection />
     </View>
   )
 }
@@ -834,6 +940,7 @@ function VisaBody({ d }: { d: Record<string, unknown> }) {
         </>
       )}
       {d.message && <GoldBox title="Message from Walz Travels" text={d.message as string} />}
+      <TermsPDFSection />
     </View>
   )
 }
@@ -897,6 +1004,7 @@ function PackageBody({ d }: { d: Record<string, unknown> }) {
         />
       )}
       {d.message && <GoldBox title="Message from Walz Travels" text={d.message as string} />}
+      <TermsPDFSection />
     </View>
   )
 }
