@@ -276,7 +276,7 @@ export default function InboxPage() {
   }
 
   return (
-    <div className="flex h-screen bg-[#0B1F3A] overflow-hidden">
+    <div className="flex h-[100dvh] bg-[#0B1F3A] overflow-hidden">
 
       <ConversationList
         conversations={convs}

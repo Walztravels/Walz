@@ -11,6 +11,7 @@ export const viewport: Viewport = {
   themeColor: '#0b1f3a',
   width: 'device-width',
   initialScale: 1,
+  interactiveWidget: 'resizes-content',
 }
 
 export const metadata: Metadata = {
@@ -34,7 +35,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
   }
 
   return (
-    <div className="flex h-screen bg-[#0a1628] overflow-hidden">
+    <div className="flex h-[100dvh] bg-[#0a1628] overflow-hidden">
 
       {/* Sidebar — desktop only */}
       <div className="hidden md:flex flex-shrink-0">
