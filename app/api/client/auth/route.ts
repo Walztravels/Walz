@@ -70,7 +70,7 @@ export async function GET(req: NextRequest) {
 }
 
 // Helper: verify token from cookie in server components
-export async function verifyClientToken(req: NextRequest): Promise<{ sub: string; email: string; name: string } | null> {
+async function verifyClientToken(req: NextRequest): Promise<{ sub: string; email: string; name: string } | null> {
   const token = req.cookies.get(COOKIE_NAME)?.value
   if (!token) return null
   try {
