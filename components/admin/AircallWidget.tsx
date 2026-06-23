@@ -12,12 +12,13 @@ interface CallInfo {
 }
 
 export function AircallWidget() {
-  const workspaceRef              = useRef<import('aircall-everywhere').default | null>(null)
-  const timerRef                  = useRef<ReturnType<typeof setInterval> | null>(null)
+  const workspaceRef                  = useRef<import('aircall-everywhere').default | null>(null)
+  const timerRef                      = useRef<ReturnType<typeof setInterval> | null>(null)
   const [widgetState, setWidgetState] = useState<WidgetState>('hidden')
   const [callState,   setCallState]   = useState<CallState>('idle')
   const [callInfo,    setCallInfo]    = useState<CallInfo | null>(null)
   const [isLoaded,    setIsLoaded]    = useState(false)
+  const [isInitialising, setIsInitialising] = useState(true)
   const [timer,       setTimer]       = useState(0)
 
   useEffect(() => {
@@ -28,9 +29,21 @@ export function AircallWidget() {
 
       const workspace = new AircallWorkspace({
         domToLoadWorkspace: '#aircall-workspace',
-        integrationToLoad:  'zendesk',
-        onLogin:  () => { if (mounted) setIsLoaded(true) },
-        onLogout: () => { if (mounted) setIsLoaded(false) },
+        integrationToLoad:  'generic',
+        onLogin:  (settings: Record<string, unknown>) => {
+          if (!mounted) return
+          const user = (settings?.user as { email?: string } | undefined)?.email
+          console.log('[Aircall] Logged in:', user)
+          setIsLoaded(true)
+          setIsInitialising(false)
+          setWidgetState('open')
+        },
+        onLogout: () => {
+          if (mounted) {
+            setIsLoaded(false)
+            setIsInitialising(true)
+          }
+        },
       })
 
       workspaceRef.current = workspace
@@ -156,7 +169,7 @@ export function AircallWidget() {
         'md:bottom-6 md:right-6 md:left-auto md:w-80',
         widgetState === 'open' ? 'translate-y-0 opacity-100' : 'translate-y-full opacity-0 pointer-events-none',
       ].join(' ')}>
-        <div className="bg-[#0a1628] border border-white/10 rounded-t-2xl md:rounded-2xl shadow-2xl overflow-hidden w-full relative">
+        <div className="bg-[#0a1628] border border-white/10 rounded-t-2xl md:rounded-2xl shadow-2xl overflow-hidden w-full relative max-h-[700px]">
 
           {/* Header */}
           <div className="flex items-center justify-between px-4 py-3 border-b border-white/10 bg-[#0d1e35]">
@@ -188,26 +201,23 @@ export function AircallWidget() {
             </div>
           </div>
 
-          {/* Login hint shown until Aircall workspace confirms sign-in */}
-          {!isLoaded && (
-            <div className="absolute inset-x-0 bottom-0 flex items-end justify-center pb-4 pointer-events-none" style={{ height: 480 }}>
-              <p className="text-[11px] text-white/40 text-center px-4">
-                Not seeing the phone?{' '}
-                <a
-                  href="https://workspace.aircall.io"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-amber-400 underline pointer-events-auto"
-                >
-                  Log in to Aircall
-                </a>{' '}
-                first, then return here.
-              </p>
-            </div>
-          )}
-
-          {/* Iframe mount point — Aircall SDK targets this */}
-          <div id="aircall-workspace" style={{ height: 480, width: '100%' }} />
+          {/* Workspace + loading overlay */}
+          <div className="relative" style={{ height: 600 }}>
+            {isInitialising && (
+              <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 z-10">
+                <div className="w-8 h-8 rounded-full border-2 border-amber-500 border-t-transparent animate-spin" />
+                <p className="text-white/50 text-sm">Loading Aircall…</p>
+                <p className="text-white/30 text-xs text-center px-4">
+                  Log in with your Aircall credentials
+                </p>
+              </div>
+            )}
+            <div
+              id="aircall-workspace"
+              className={isInitialising ? 'opacity-0' : 'opacity-100'}
+              style={{ height: 600, width: '100%', transition: 'opacity 0.3s ease' }}
+            />
+          </div>
         </div>
       </div>
     </>

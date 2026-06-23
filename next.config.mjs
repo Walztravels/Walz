@@ -63,7 +63,7 @@ const nextConfig = {
           { key: 'X-Content-Type-Options',     value: 'nosniff' },
           { key: 'Strict-Transport-Security',  value: 'max-age=31536000; includeSubDomains; preload' },
           { key: 'Referrer-Policy',            value: 'strict-origin-when-cross-origin' },
-          { key: 'Permissions-Policy',         value: 'camera=(), microphone=(), geolocation=(self), payment=(self)' },
+          { key: 'Permissions-Policy',         value: 'camera=*, microphone=*, clipboard-read=*, clipboard-write=*, hid=*, geolocation=(self), payment=(self)' },
           { key: 'X-XSS-Protection',           value: '1; mode=block' },
           {
             key:   'Content-Security-Policy',
@@ -73,8 +73,8 @@ const nextConfig = {
               "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
               "font-src 'self' https://fonts.gstatic.com",
               "img-src 'self' data: blob: https: http:",
-              "frame-src 'self' https://js.stripe.com https://hooks.stripe.com",
-              "connect-src 'self' https://*.walztravels.com https://api.stripe.com https://api.flutterwave.com https://*.supabase.co wss://*.supabase.co https://www.google-analytics.com",
+              "frame-src 'self' https://js.stripe.com https://hooks.stripe.com https://workspace.aircall.io",
+              "connect-src 'self' https://*.walztravels.com https://api.stripe.com https://api.flutterwave.com https://*.supabase.co wss://*.supabase.co https://www.google-analytics.com https://*.aircall.io wss://*.aircall.io",
               "media-src 'self' https:",
               "object-src 'none'",
               "base-uri 'self'",
@@ -101,34 +101,6 @@ const nextConfig = {
           { key: 'Access-Control-Allow-Origin',  value: 'https://www.walztravels.com' },
           { key: 'Access-Control-Allow-Methods', value: 'GET,POST,OPTIONS' },
           { key: 'Access-Control-Allow-Headers', value: 'Content-Type, Authorization' },
-        ],
-      },
-      // ── Admin panel: relax permissions + allow Aircall iframe ─────────────
-      // These headers override the global block above for /admin/* only.
-      {
-        source: '/admin/:path*',
-        headers: [
-          {
-            key:   'Permissions-Policy',
-            value: 'microphone=*, camera=*, clipboard-read=*, clipboard-write=*, hid=*',
-          },
-          {
-            key:   'Content-Security-Policy',
-            value: [
-              "default-src 'self'",
-              "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://js.stripe.com https://www.googletagmanager.com https://www.google-analytics.com https://cdn.jsdelivr.net https://cdnjs.cloudflare.com",
-              "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
-              "font-src 'self' https://fonts.gstatic.com",
-              "img-src 'self' data: blob: https: http:",
-              "frame-src 'self' https://js.stripe.com https://hooks.stripe.com https://workspace.aircall.io",
-              "connect-src 'self' https://*.walztravels.com https://api.stripe.com https://api.flutterwave.com https://*.supabase.co wss://*.supabase.co https://www.google-analytics.com https://*.aircall.io wss://*.aircall.io",
-              "media-src 'self' https:",
-              "object-src 'none'",
-              "base-uri 'self'",
-              "form-action 'self'",
-              "upgrade-insecure-requests",
-            ].join('; '),
-          },
         ],
       },
     ]
