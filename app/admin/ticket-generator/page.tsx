@@ -883,8 +883,18 @@ function Step4({
             {isGenerating ? 'Generating PDF…' : 'Generate & Download PDF'}
           </button>
           {ticketType === 'flight' && (
-            <button type="button" onClick={() => window.print()} disabled={isGenerating || isSending}
-              className="w-full flex items-center justify-center gap-2 py-3 px-4 rounded-xl border-2 border-[#6B7280] text-[#6B7280] text-sm font-bold transition hover:bg-[#6B7280] hover:text-white disabled:opacity-40 disabled:cursor-not-allowed">
+            <button
+              type="button"
+              disabled={isGenerating || isSending}
+              onClick={async () => {
+                const imgs = document.querySelectorAll<HTMLImageElement>('#ticket-print-area img')
+                await Promise.all(Array.from(imgs).map(img =>
+                  img.complete ? Promise.resolve() : new Promise<void>(r => { img.onload = () => r(); img.onerror = () => r() })
+                ))
+                window.print()
+              }}
+              className="w-full flex items-center justify-center gap-2 py-3 px-4 rounded-xl border-2 border-[#6B7280] text-[#6B7280] text-sm font-bold transition hover:bg-[#6B7280] hover:text-white disabled:opacity-40 disabled:cursor-not-allowed"
+            >
               <Printer className="w-4 h-4" /> Print Ticket (A4)
             </button>
           )}
@@ -1133,7 +1143,13 @@ export default function TicketGeneratorPage() {
                 {ticketType === 'flight' && (
                   <button
                     type="button"
-                    onClick={() => window.print()}
+                    onClick={async () => {
+                      const imgs = document.querySelectorAll<HTMLImageElement>('#ticket-print-area img')
+                      await Promise.all(Array.from(imgs).map(img =>
+                        img.complete ? Promise.resolve() : new Promise<void>(r => { img.onload = () => r(); img.onerror = () => r() })
+                      ))
+                      window.print()
+                    }}
                     className="flex items-center gap-1.5 px-2.5 py-1.5 text-[10px] font-bold text-[#0B1F3A] border border-[#0B1F3A] rounded-lg hover:bg-[#0B1F3A] hover:text-white transition"
                   >
                     <Printer className="w-3 h-3" /> Print
@@ -1162,6 +1178,15 @@ export default function TicketGeneratorPage() {
                       margin: 0 !important; padding: 0 !important;
                     }
                     @page { size: A4; margin: 8mm; }
+                    * {
+                      -webkit-print-color-adjust: exact !important;
+                      print-color-adjust: exact !important;
+                      color-adjust: exact !important;
+                    }
+                    #ticket-print-area img {
+                      display: block !important;
+                      max-width: 100% !important;
+                    }
                   }
                 `}</style>
                 <div className="rounded-xl border border-gray-200 shadow-xl bg-white overflow-hidden">

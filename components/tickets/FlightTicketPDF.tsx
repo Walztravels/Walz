@@ -11,6 +11,18 @@ import {
 } from '@react-pdf/renderer'
 import type { FlightTicketEmailProps, FlightLeg, Passenger, PricingBreakdown } from '@/types/flight-ticket'
 
+// Read logo from disk at server startup — avoids network fetch during PDF render.
+// Falls back to production URL if filesystem is unavailable.
+let LOGO_SRC = 'https://www.walztravels.com/walz-logo.png'
+try {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const fs = require('fs') as typeof import('fs')
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const path = require('path') as typeof import('path')
+  const buf = fs.readFileSync(path.join(process.cwd(), 'public', 'walz-logo.png'))
+  LOGO_SRC = `data:image/png;base64,${buf.toString('base64')}`
+} catch { /* use URL fallback */ }
+
 // ── Brand ─────────────────────────────────────────────────────────────────────
 const NAVY   = '#0B1F3A'
 const GOLD   = '#C9A84C'
@@ -474,7 +486,7 @@ function PageHeader({ pnr, reference }: { pnr: string; reference: string }) {
       <View style={s.pageHeader} fixed>
         {/* Logo */}
         <View style={s.logoBlock}>
-          <Image src="https://www.walztravels.com/walz-logo.png" style={{ height: 28, objectFit: 'contain' }} />
+          <Image src={LOGO_SRC} style={{ height: 28, objectFit: 'contain' }} />
           <Text style={s.logoTag}>YOUR JOURNEY. OUR EXPERTISE.</Text>
         </View>
 
