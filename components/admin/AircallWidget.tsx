@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { Phone, PhoneIncoming, X } from 'lucide-react'
 
 type CallState = 'idle' | 'incoming' | 'connecting' | 'active' | 'ended'
@@ -10,43 +10,30 @@ interface CallInfo {
   to?:   string
 }
 
+// The Aircall workspace URL — must match frame-src in next.config.mjs
+const WORKSPACE_URL = 'https://workspace.aircall.io?integration=generic'
+
 export function AircallWidget() {
-  const sdkRef                        = useRef<import('aircall-everywhere').default | null>(null)
-  const timerRef                      = useRef<ReturnType<typeof setInterval> | null>(null)
-  const [isOpen,           setIsOpen]           = useState(false)
-  const [workspaceMounted, setWorkspaceMounted] = useState(false)
-  const [callState,        setCallState]        = useState<CallState>('idle')
-  const [callInfo,         setCallInfo]         = useState<CallInfo | null>(null)
-  const [isLoaded,         setIsLoaded]         = useState(false)
-  const [timer,            setTimer]            = useState(0)
+  const sdkRef    = useRef<import('aircall-everywhere').default | null>(null)
+  const timerRef  = useRef<ReturnType<typeof setInterval> | null>(null)
+  const [isOpen,     setIsOpen]     = useState(false)
+  const [callState,  setCallState]  = useState<CallState>('idle')
+  const [callInfo,   setCallInfo]   = useState<CallInfo | null>(null)
+  const [isLoaded,   setIsLoaded]   = useState(false)
+  const [timer,      setTimer]      = useState(0)
 
-  // Fires when #aircall-workspace mounts — SDK cannot init before this
-  const workspaceCallbackRef = useCallback((node: HTMLDivElement | null) => {
-    if (node) setWorkspaceMounted(true)
-  }, [])
-
-  // Clean up SDK state when widget closes so re-open gets a fresh init
+  // Init SDK on mount WITHOUT domToLoadWorkspace — we render the iframe in JSX
+  // and the SDK handles all postMessage events independently of who created the DOM.
+  // This avoids the SDK's innerHTML injection which Chrome mobile blocks.
   useEffect(() => {
-    if (!isOpen) {
-      setWorkspaceMounted(false)
-      sdkRef.current = null
-    }
-  }, [isOpen])
-
-  // Init SDK — guarded by both isOpen and workspaceMounted so the DOM element
-  // is guaranteed to exist before new AircallWorkspace() is called
-  useEffect(() => {
-    if (!isOpen || !workspaceMounted || sdkRef.current) return
-
     let active = true
 
     import('aircall-everywhere').then(({ default: AircallWorkspace }) => {
       if (!active || sdkRef.current) return
 
       const workspace = new AircallWorkspace({
-        domToLoadWorkspace: '#aircall-workspace',
-        integrationToLoad:  'generic',
-        onLogin:  (settings: Record<string, unknown>) => {
+        integrationToLoad: 'generic',
+        onLogin: (settings: Record<string, unknown>) => {
           if (!active) return
           const email = (settings?.user as { email?: string } | undefined)?.email
           console.log('[Aircall] Logged in:', email)
@@ -91,7 +78,7 @@ export function AircallWidget() {
       active = false
       if (timerRef.current) clearInterval(timerRef.current)
     }
-  }, [isOpen, workspaceMounted])
+  }, [])
 
   // Listen for openAircallWidget event from desktop header button
   useEffect(() => {
@@ -195,15 +182,19 @@ export function AircallWidget() {
             </button>
           </div>
 
-          {/* Aircall iframe mount — SDK injects here once workspaceMounted fires */}
-          <div
-            id="aircall-workspace"
-            ref={workspaceCallbackRef}
+          {/* Direct JSX iframe — avoids SDK's innerHTML injection which Chrome mobile blocks */}
+          <iframe
+            src={WORKSPACE_URL}
+            allow="microphone; autoplay; clipboard-read; clipboard-write; hid"
+            referrerPolicy="no-referrer-when-downgrade"
             style={{
               height: 'min(540px, calc(100vh - 120px))',
               width: '100%',
+              border: 'none',
               flexShrink: 0,
+              display: 'block',
             }}
+            title="Aircall Phone"
           />
         </div>
       )}
