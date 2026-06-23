@@ -17,7 +17,12 @@ export function getSupabaseAdmin(): SupabaseClient {
     )
   }
 
-  return createClient(url, key)
+  return createClient(url, key, {
+    auth: {
+      autoRefreshToken: false,
+      persistSession: false,
+    },
+  })
 }
 
 /** Browser-safe anon client (returns null when not configured) */
