@@ -103,10 +103,10 @@ function WhyItem({
           {item.number}
         </span>
         <div className="w-10 h-0.5 bg-[#C9A84C] mb-5" />
-        <h3 className="font-display text-[#0B1F3A] font-bold text-[clamp(1.6rem,3vw,2.5rem)] leading-tight mb-4">
+        <h3 className="font-display text-white font-bold text-[clamp(1.6rem,3vw,2.5rem)] leading-tight mb-4">
           {item.title}
         </h3>
-        <p className="text-[#0B1F3A]/55 text-base lg:text-lg leading-relaxed max-w-md">
+        <p className="text-white/50 text-base lg:text-lg leading-relaxed max-w-md">
           {item.body}
         </p>
       </div>
@@ -116,21 +116,21 @@ function WhyItem({
 
 export function WhyWalzSection() {
   return (
-    <section className="bg-[#F5F2EE] py-16 lg:py-24 px-5 sm:px-8">
+    <section className="bg-[#060f1e] py-16 lg:py-24 px-5 sm:px-8 border-t border-white/5">
       <div className="max-w-6xl mx-auto">
 
         {/* Header */}
         <div className="mb-16 lg:mb-20">
-          <p className="text-[#C9A84C] text-[11px] font-medium tracking-[0.22em] uppercase mb-3">
+          <p className="text-amber-400 text-[11px] font-medium tracking-[0.22em] uppercase mb-3">
             Why Choose Us
           </p>
-          <h2 className="font-display text-[#0B1F3A] font-bold text-[clamp(2rem,4vw,3.2rem)] leading-tight max-w-lg">
+          <h2 className="font-display text-white font-bold text-[clamp(2rem,4vw,3.2rem)] leading-tight max-w-lg">
             Walz Travels Difference
           </h2>
         </div>
 
         {/* Alternating rows */}
-        <div className="space-y-0 divide-y divide-[#0B1F3A]/8">
+        <div className="space-y-0 divide-y divide-white/8">
           {PROPOSITIONS.map((item) => (
             <WhyItem key={item.number} item={item} />
           ))}

@@ -2320,6 +2320,15 @@ model AbandonedSession {
 
 // Created via Supabase SQL editor + managed by npx prisma generate.
 // NEVER run prisma db push for this model.
+model HomepageContent {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  section   String   @unique
+  data      Json     @default("{}")
+  updatedAt DateTime @default(now()) @db.Timestamptz
+}
+
+// Created via Supabase SQL editor + managed by npx prisma generate.
+// NEVER run prisma db push for this model.
 model HotelDestination {
   id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   city      String

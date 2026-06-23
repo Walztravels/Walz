@@ -397,6 +397,7 @@ export const NAV_ITEMS: NavSection[] = [
   {
     section: 'WEBSITE',
     items: [
+      { href: '/admin/homepage',        label: 'Homepage',          icon: 'Home',          permission: 'content'      },
       { href: '/admin/hero-slides',     label: 'Hero Slides',       icon: 'Image',         permission: 'content'      },
       { href: '/admin/blog',            label: 'Blog',              icon: 'BookOpen',      permission: 'blog'         },
       { href: '/admin/blog/new',        label: 'New Post',          icon: 'Plus',          permission: 'blog.publish' },

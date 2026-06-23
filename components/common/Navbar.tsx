@@ -78,6 +78,7 @@ export function Navbar() {
   const { selectedCurrency, setSelectedCurrency } = useCurrency()
   const activeCurrency = CURRENCIES.find(c => c.code === selectedCurrency) ?? CURRENCIES[0]
   const pathname = usePathname()
+  const isHome   = pathname === '/'
   const { itemCount } = useCart()
 
   useEffect(() => {
@@ -183,14 +184,21 @@ export function Navbar() {
               || session?.user?.email?.[0]?.toUpperCase()
               || 'W'
 
+  const navDark = isScrolled || !isHome || isMobileOpen
+
   return (
     <>
       <header className={cn(
-        'fixed top-0 left-0 right-0 z-50 transition-all duration-300',
-        isScrolled ? 'bg-walz-deep-navy/95 backdrop-blur-md shadow-luxury' : 'bg-walz-deep-navy',
+        'fixed top-0 left-0 right-0 z-50 transition-all duration-500',
+        navDark
+          ? 'bg-walz-deep-navy/97 backdrop-blur-md shadow-luxury'
+          : 'bg-transparent',
       )}>
-        {/* Utility bar */}
-        <div className="hidden lg:block border-b border-walz-slate/50 bg-walz-navy/60">
+        {/* Utility bar — hidden on homepage when hero is showing */}
+        <div className={cn(
+          'hidden lg:block border-b border-walz-slate/50 bg-walz-navy/60',
+          !navDark && 'hidden',
+        )}>
           <div className="container-walz flex items-center justify-between py-1.5 text-xs text-walz-muted">
             <span>Visa support, flights, hotels, tours and group travel — expert help from Walz Travels.</span>
             <a href="https://wa.me/447398753797" target="_blank" rel="noopener noreferrer"
@@ -575,8 +583,8 @@ export function Navbar() {
         </div>
       </div>
 
-      {/* Spacer */}
-      <div className="h-16 lg:h-28" />
+      {/* Spacer — collapses on homepage so hero overlaps the transparent nav */}
+      <div className={cn('h-16', !isHome && 'lg:h-28')} />
     </>
   )
 }
