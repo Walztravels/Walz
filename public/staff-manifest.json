@@ -1,27 +1,27 @@
 {
-  "name": "Walz Staff Admin",
-  "short_name": "WalzStaff",
-  "description": "Walz Travels Admin Panel for Staff",
+  "name": "Walz Staff",
+  "short_name": "Walz Staff",
+  "description": "Walz Travels staff portal — inbox, clients, calls and bookings",
   "start_url": "/admin/dashboard",
-  "display": "standalone",
-  "background_color": "#0b1f3a",
-  "theme_color": "#0b1f3a",
-  "orientation": "portrait-primary",
   "scope": "/admin/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "theme_color": "#0a1628",
+  "background_color": "#0a1628",
   "lang": "en-GB",
   "categories": ["productivity", "business"],
   "icons": [
     {
-      "src": "/icons/walz-staff-192.svg",
-      "sizes": "any",
-      "type": "image/svg+xml",
-      "purpose": "any"
+      "src": "/icons/walz-staff-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
     },
     {
-      "src": "/icons/walz-staff-512.svg",
-      "sizes": "any",
-      "type": "image/svg+xml",
-      "purpose": "maskable"
+      "src": "/icons/walz-staff-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
     },
     {
       "src": "/icon-192x192.png",
@@ -33,6 +33,20 @@
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "any maskable"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Inbox",
+      "short_name": "Inbox",
+      "url": "/admin/inbox",
+      "icons": [{ "src": "/icons/walz-staff-192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Clients",
+      "short_name": "Clients",
+      "url": "/admin/clients",
+      "icons": [{ "src": "/icons/walz-staff-192.png", "sizes": "192x192" }]
     }
   ]
 }

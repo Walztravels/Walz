@@ -39,3 +39,29 @@ self.addEventListener('fetch', (e) => {
     );
   }
 });
+
+self.addEventListener('push', (event) => {
+  const data = event.data?.json() || {};
+  event.waitUntil(
+    self.registration.showNotification(data.title || 'Walz Staff', {
+      body:                data.body || 'New notification',
+      icon:                '/icons/walz-staff-192.png',
+      badge:               '/icons/walz-staff-192.png',
+      tag:                 data.tag || 'walz-notification',
+      data:                { url: data.url || '/admin' },
+      requireInteraction:  data.requireInteraction || false,
+    })
+  );
+});
+
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  event.waitUntil(
+    clients.matchAll({ type: 'window', includeUncontrolled: true }).then((windowClients) => {
+      const target = event.notification.data?.url || '/admin';
+      const existing = windowClients.find((c) => c.url.includes('/admin') && 'focus' in c);
+      if (existing) return existing.focus().then((c) => c.navigate(target));
+      return clients.openWindow(target);
+    })
+  );
+});

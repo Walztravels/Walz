@@ -123,6 +123,15 @@ const nextConfig = {
           },
         ],
       },
+      // ── Digital Asset Links for TWA (Play Store) ─────────────────────────
+      {
+        source: '/.well-known/assetlinks.json',
+        headers: [
+          { key: 'Content-Type',                value: 'application/json' },
+          { key: 'Access-Control-Allow-Origin', value: '*' },
+          { key: 'Cache-Control',               value: 'public, max-age=3600' },
+        ],
+      },
       // ── CORS: public API only — admin and cron routes excluded ────────────
       {
         source: '/api/((?!admin|cron).)*',
