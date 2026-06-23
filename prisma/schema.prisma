@@ -248,10 +248,16 @@ model VisaApplication {
   declarationAuthorise Boolean @default(false)
   declarationFeePolicy Boolean @default(false)
 
+  // ── Client portal link ──────────────────────────
+  clientAccountId String? @db.Uuid
+  clientAccount   ClientAccount? @relation(fields: [clientAccountId], references: [id], onDelete: SetNull)
+
   // ── Status ──────────────────────────────────────
-  status      String @default("draft")
-  isDraft     Boolean @default(true)
-  initiatedBy String @default("client") // "admin" | "client"
+  status        String  @default("draft")
+  statusMessage String?
+  timeline      Json    @default("[]")
+  isDraft       Boolean @default(true)
+  initiatedBy   String  @default("client") // "admin" | "client"
 
   // ── Admin ───────────────────────────────────────
   assignedTo        String?
@@ -2252,4 +2258,62 @@ model RoutingAgent {
 
   @@index([active])
   @@index([email])
+}
+
+// ClientAccount — client portal accounts created when admin sends visa form.
+// Created via Supabase SQL editor + managed by npx prisma generate.
+// NEVER run prisma db push for this model.
+model ClientAccount {
+  id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  email        String   @unique
+  name         String
+  phone        String?
+  passwordHash String?
+  isVerified   Boolean  @default(false)
+  createdAt    DateTime @default(now()) @db.Timestamptz
+  updatedAt    DateTime @default(now()) @db.Timestamptz
+
+  visaApplications VisaApplication[]
+
+  @@index([email])
+}
+
+// FlightAlert — price drop alerts for flights.
+// Created via Supabase SQL editor + managed by npx prisma generate.
+// NEVER run prisma db push for this model.
+model FlightAlert {
+  id           String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  email        String
+  name         String?
+  origin       String
+  destination  String
+  targetPrice  Decimal?
+  currency     String    @default("GBP")
+  cabinClass   String    @default("economy")
+  currentPrice Decimal?
+  lastChecked  DateTime? @db.Timestamptz
+  active       Boolean   @default(true)
+  alertSent    Boolean   @default(false)
+  createdAt    DateTime  @default(now()) @db.Timestamptz
+
+  @@index([email])
+  @@index([active, alertSent])
+}
+
+// Created via Supabase SQL editor + managed by npx prisma generate.
+// NEVER run prisma db push for this model.
+model AbandonedSession {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  email     String?
+  name      String?
+  type      String
+  data      Json     @default("{}")
+  step      String?
+  emailSent Boolean  @default(false)
+  converted Boolean  @default(false)
+  source    String   @default("web")
+  createdAt DateTime @default(now()) @db.Timestamptz
+
+  @@index([email])
+  @@index([type, createdAt])
 }

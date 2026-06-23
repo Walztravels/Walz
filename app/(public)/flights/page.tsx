@@ -1,6 +1,7 @@
 import type { Metadata } from 'next'
 import { FlightsHero }        from '@/components/flights/FlightsHero'
 import { FlightSearchWidget } from '@/components/flights/FlightSearchWidget'
+import { FlightPriceAlert }   from '@/components/FlightPriceAlert'
 import { TrustStrip }         from '@/components/flights/TrustStrip'
 import { PopularRoutes }      from '@/components/flights/PopularRoutes'
 import { WhyWalz }            from '@/components/flights/WhyWalz'
@@ -37,6 +38,11 @@ export default function FlightsPage() {
 
       {/* Spacer for overlapping widget */}
       <div className="h-24 bg-white" />
+
+      {/* Price alert widget — below search form */}
+      <div className="mt-8 max-w-2xl mx-auto px-4">
+        <FlightPriceAlert />
+      </div>
 
       <TrustStrip />
       <PopularRoutes />

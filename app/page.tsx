@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react'
 import dynamic from 'next/dynamic'
 import Link from 'next/link'
 import { ArrowRight, Check, Mail, Gift, Rss } from 'lucide-react'
+import { FlightPriceAlert } from '@/components/FlightPriceAlert'
 
 // ── Above-fold — always in the initial bundle ─────────────────────────────────
 import { HeroSection }  from '@/components/home/HeroSection'
@@ -102,6 +103,11 @@ export default function HomePage() {
 
       {/* 10 — Top selling packages */}
       <TopSellers />
+
+      {/* 10.5 — Flight price alerts */}
+      <section className="py-12 px-4 max-w-2xl mx-auto">
+        <FlightPriceAlert />
+      </section>
 
       {/* 11 — Blog preview */}
       <section className="py-16 lg:py-20 bg-[#F5F2EE]">

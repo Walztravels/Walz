@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
 import { sendVisaAdminNotification } from '@/lib/email-visa'
+import { ensureClientAccount } from '@/lib/create-client-account'
 
 // POST /api/visa-application/[id]/submit
 // Token-based submission — no payment (admin-initiated flow)
@@ -37,6 +38,12 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     await sendVisaAdminNotification(application, 'admin')
   } catch (e) {
     console.error('Admin notification failed:', e)
+  }
+
+  // Auto-create client portal account (never breaks submission if it fails)
+  if (application.email) {
+    const fullName = [application.firstName, application.lastName].filter(Boolean).join(' ') || 'Client'
+    await ensureClientAccount({ email: application.email, name: fullName, phone: application.phone ?? null, applicationId: application.id })
   }
 
   return NextResponse.json({ application, referenceNumber: application.referenceNumber })

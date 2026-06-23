@@ -8,6 +8,8 @@ import { FlightPromos } from '@/components/promos/FlightPromos'
 import { FlightCard } from '@/components/flights/FlightCard'
 // FlightFilters removed — FlightsPageContent is superseded by /flights/search/page.tsx
 import { Skeleton } from '@/components/ui/skeleton'
+import { DatePickerField } from '@/components/ui/DatePicker'
+import { format } from 'date-fns'
 import { formatDate } from '@/lib/utils'
 import type { FlightResult, SearchFilters, SortOption } from '@/types/booking'
 
@@ -73,9 +75,9 @@ function applySorting(flights: FlightResult[], sort: SortOption): FlightResult[]
 function WhatsAppFallback() {
   const [from, setFrom] = useState('')
   const [to, setTo] = useState('')
-  const [date, setDate] = useState('')
+  const [date, setDate] = useState<Date | undefined>()
   const [passengers, setPassengers] = useState('1')
-  const msg = `Hi, I need to book a flight. From: ${from || '?'} To: ${to || '?'} Date: ${date || '?'} Passengers: ${passengers}`
+  const msg = `Hi, I need to book a flight. From: ${from || '?'} To: ${to || '?'} Date: ${date ? format(date, 'dd MMM yyyy') : '?'} Passengers: ${passengers}`
   return (
     <div className="text-center py-16 max-w-lg mx-auto">
       <div className="w-14 h-14 rounded-full walz-gold-gradient flex items-center justify-center mx-auto mb-4 shadow-gold-glow">
@@ -100,9 +102,13 @@ function WhatsAppFallback() {
         </div>
         <div className="grid grid-cols-2 gap-3">
           <div>
-            <label className="block text-xs font-semibold text-walz-deep-navy mb-1">Date</label>
-            <input type="date" value={date} onChange={e => setDate(e.target.value)}
-              className="w-full border border-walz-border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-walz-gold" />
+            <DatePickerField
+              label="Date"
+              value={date}
+              onChange={setDate}
+              minDate={new Date()}
+              placeholder="Select date"
+            />
           </div>
           <div>
             <label className="block text-xs font-semibold text-walz-deep-navy mb-1">Passengers</label>

@@ -3,6 +3,7 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/db'
 import { sendVisaAdminNotification, sendVisaApplicationConfirmation } from '@/lib/email-visa'
+import { ensureClientAccount } from '@/lib/create-client-account'
 
 // POST /api/visa-application/[id]/client-submit
 // Client-initiated manual submission (no payment required — e.g. unsupported destination)
@@ -35,6 +36,13 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
 
   try { await sendVisaAdminNotification(application, 'client') } catch { /* non-fatal */ }
   try { await sendVisaApplicationConfirmation(application) } catch { /* non-fatal */ }
+
+  // Auto-create client portal account (never breaks submission if it fails)
+  const email = application.email ?? session.user.email
+  if (email) {
+    const fullName = [application.firstName, application.lastName].filter(Boolean).join(' ') || session.user.name || 'Client'
+    await ensureClientAccount({ email, name: fullName, phone: application.phone ?? null, applicationId: application.id })
+  }
 
   return NextResponse.json({ referenceNumber: application.referenceNumber })
 }

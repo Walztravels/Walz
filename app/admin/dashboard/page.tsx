@@ -3,7 +3,7 @@ import { redirect } from 'next/navigation'
 import prisma from '@/lib/db'
 import {
   DollarSign, BookOpen, CheckCircle, Clock, TrendingUp, Users,
-  Globe, Compass, FileText, AlertCircle,
+  Globe, Compass, FileText, AlertCircle, UserCheck,
 } from 'lucide-react'
 import { format } from 'date-fns'
 import Link from 'next/link'
@@ -13,12 +13,12 @@ export const dynamic = 'force-dynamic'
 
 // ── Shared UI pieces ──────────────────────────────────────────────────────────
 
-function StatCard({ label, value, sub, icon: Icon }: {
+function StatCard({ label, value, sub, icon: Icon, href }: {
   label: string; value: string | number; sub?: string
-  icon: React.ElementType; color?: string
+  icon: React.ElementType; color?: string; href?: string
 }) {
-  return (
-    <div className="bg-[#112240] rounded-2xl p-4 ring-1 ring-white/5 flex items-start gap-3">
+  const inner = (
+    <div className={`bg-[#112240] rounded-2xl p-4 ring-1 ring-white/5 flex items-start gap-3 ${href ? 'hover:ring-amber-400/30 transition-all' : ''}`}>
       <div className="w-10 h-10 rounded-xl bg-amber-500/10 flex items-center justify-center flex-shrink-0">
         <Icon size={18} className="text-amber-400" strokeWidth={1.5} />
       </div>
@@ -29,6 +29,7 @@ function StatCard({ label, value, sub, icon: Icon }: {
       </div>
     </div>
   )
+  return href ? <Link href={href}>{inner}</Link> : inner
 }
 
 function SectionCard({ title, href, hrefLabel, children }: {
@@ -95,6 +96,7 @@ export default async function DashboardPage() {
   let visaTotal = 0, visaPending = 0
   let tripsActive = 0, tripsTotal = 0
   let staffCount = 0
+  let clientAccountCount = 0
 
   // My assigned items (coordinator / sales_rep)
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -145,9 +147,12 @@ export default async function DashboardPage() {
       ])
     }
 
-    // Staff count — super_admin / general_manager only
+    // Staff count + client accounts — super_admin / general_manager only
     if (isSuperOrGM) {
-      staffCount = await prisma.staff.count({ where: { isActive: true } })
+      ;[staffCount, clientAccountCount] = await Promise.all([
+        prisma.staff.count({ where: { isActive: true } }),
+        prisma.clientAccount.count(),
+      ])
     }
 
     // Coordinator / sales_rep: their own assigned visa apps + trips
@@ -225,8 +230,9 @@ export default async function DashboardPage() {
 
         {isSuperOrGM && (
           <>
-            <StatCard label="Total Trips"  value={tripsTotal}  icon={Compass} />
-            <StatCard label="Active Staff" value={staffCount}  icon={Users}   />
+            <StatCard label="Total Trips"      value={tripsTotal}          icon={Compass}    />
+            <StatCard label="Active Staff"     value={staffCount}          icon={Users}      />
+            <StatCard label="Client Accounts"  value={clientAccountCount}  icon={UserCheck}  href="/admin/client-accounts" />
           </>
         )}
       </div>

@@ -1,4 +1,5 @@
 import type { Metadata } from 'next'
+import { StructuredData } from '@/components/StructuredData'
 
 export const metadata: Metadata = {
   title: 'Book Flights',
@@ -31,5 +32,13 @@ export const metadata: Metadata = {
 }
 
 export default function FlightsLayout({ children }: { children: React.ReactNode }) {
-  return <>{children}</>
+  return (
+    <>
+      <StructuredData type="flights" breadcrumbs={[
+        { name: 'Home',    url: 'https://www.walztravels.com' },
+        { name: 'Flights', url: 'https://www.walztravels.com/flights' },
+      ]} />
+      {children}
+    </>
+  )
 }

@@ -13,6 +13,8 @@ import { JadeChatButton } from '@/components/ui/JadeChatButton'
 import { ADVISORY_CONFIG, RULE_TYPE_CONFIG, getCountryByIso2 } from '@/lib/countries'
 import { ISO2_TO_SLUG } from '@/lib/visa-config'
 import { VisaApplicationForm } from '@/components/VisaApplicationForm'
+import { useAbandonmentCapture } from '@/hooks/useAbandonmentCapture'
+import { AbandonmentModal } from '@/components/AbandonmentModal'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -361,6 +363,20 @@ export default function VisaPage() {
     setTimeout(() => document.getElementById('visa-result')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 100)
   }
 
+  const destinationCountry = getCountryByIso2(destination)
+  const passportCountryObj = getCountryByIso2(passport)
+
+  const { showCapture: showAbandon, setShowCapture: setShowAbandon, captureEmail: captureAbandon } =
+    useAbandonmentCapture({
+      type: 'visa_application',
+      step: 'visa_checker',
+      data: {
+        destination: destinationCountry?.name ?? destination ?? undefined,
+        passportCountry: passportCountryObj?.name ?? passport ?? undefined,
+      },
+      skip: !destination, // only trigger if they've started interacting
+    })
+
   const regions = ['All', ...Array.from(new Set(portals.map(p => p.region).filter((r): r is string => Boolean(r))))]
   const filteredPortals = portals.filter(p =>
     (regionFilter === 'All' || p.region === regionFilter) &&
@@ -580,6 +596,15 @@ export default function VisaPage() {
           </div>
         </div>
       </div>
+
+      {showAbandon && (
+        <AbandonmentModal
+          type="visa_application"
+          data={{ destination: destinationCountry?.name ?? destination ?? undefined }}
+          onCapture={captureAbandon}
+          onClose={() => setShowAbandon(false)}
+        />
+      )}
 
       {/* ── Disclaimer ────────────────────────────────────────────────── */}
       <div className="bg-gray-50 border-t border-gray-100 py-6 px-4 text-center">

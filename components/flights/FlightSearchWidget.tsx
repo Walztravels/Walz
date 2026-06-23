@@ -2,7 +2,11 @@
 
 import { useState, useRef, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
+import { format } from 'date-fns'
 import type { TripType, CabinClass, PassengerCount } from '@/lib/flights/types'
+import { DatePickerField } from '@/components/ui/DatePicker'
+import { useAbandonmentCapture } from '@/hooks/useAbandonmentCapture'
+import { AbandonmentModal } from '@/components/AbandonmentModal'
 
 const AIRPORTS = [
   { iata: 'LHR', name: 'Heathrow',               city: 'London',       country: 'United Kingdom' },
@@ -113,8 +117,8 @@ export function FlightSearchWidget() {
   const [fromCode, setFromCode] = useState('')
   const [to,       setTo]       = useState('')
   const [toCode,   setToCode]   = useState('')
-  const [depart,   setDepart]   = useState('')
-  const [ret,      setRet]      = useState('')
+  const [depart,   setDepart]   = useState<Date | undefined>()
+  const [ret,      setRet]      = useState<Date | undefined>()
 
   const [fromSug,     setFromSug]     = useState<Airport[]>([])
   const [toSug,       setToSug]       = useState<Airport[]>([])
@@ -125,6 +129,16 @@ export function FlightSearchWidget() {
 
   const paxRef   = useRef<HTMLDivElement>(null)
   const cabinRef = useRef<HTMLDivElement>(null)
+
+  const { showCapture, setShowCapture, captureEmail } = useAbandonmentCapture({
+    type: 'flight_search',
+    step: 'search_form',
+    data: {
+      origin:      fromCode || undefined,
+      destination: toCode   || undefined,
+      date:        depart ? format(depart, 'dd MMM yyyy') : undefined,
+    },
+  })
 
   useEffect(() => {
     const handler = (e: MouseEvent) => {
@@ -159,8 +173,8 @@ export function FlightSearchWidget() {
   function handleSearch() {
     if (!validate()) return
     const params = new URLSearchParams({
-      from: fromCode, to: toCode, depart,
-      ...(tripType === 'round-trip' ? { return: ret } : {}),
+      from: fromCode, to: toCode, depart: format(depart!, 'yyyy-MM-dd'),
+      ...(tripType === 'round-trip' && ret ? { return: format(ret, 'yyyy-MM-dd') } : {}),
       trip: tripType, cabin,
       adults: String(pax.adults), children: String(pax.children), infants: String(pax.infants),
     })
@@ -281,29 +295,27 @@ export function FlightSearchWidget() {
 
         {/* DEPART */}
         <div className="lg:col-span-2">
-          <label className="block text-xs font-semibold text-[#0B1F3A]/50 uppercase tracking-wider mb-1.5">Depart</label>
-          <div className={fieldCls(errors.depart)}>
-            <svg className="w-4 h-4 text-[#0B1F3A]/30 mr-1 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2z" />
-            </svg>
-            <input type="date" value={depart} min={new Date().toISOString().split('T')[0]} onChange={e => setDepart(e.target.value)}
-              className="flex-1 bg-transparent outline-none text-sm font-medium text-[#0B1F3A]" />
-          </div>
-          {errors.depart && <p className="text-red-500 text-xs mt-1">{errors.depart}</p>}
+          <DatePickerField
+            label="Depart"
+            value={depart}
+            onChange={setDepart}
+            minDate={new Date()}
+            placeholder="Select date"
+            error={errors.depart}
+          />
         </div>
 
         {/* RETURN (round-trip only) */}
         {tripType === 'round-trip' && (
           <div className="lg:col-span-2">
-            <label className="block text-xs font-semibold text-[#0B1F3A]/50 uppercase tracking-wider mb-1.5">Return</label>
-            <div className={fieldCls(errors.return)}>
-              <svg className="w-4 h-4 text-[#0B1F3A]/30 mr-1 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2z" />
-              </svg>
-              <input type="date" value={ret} min={depart || new Date().toISOString().split('T')[0]} onChange={e => setRet(e.target.value)}
-                className="flex-1 bg-transparent outline-none text-sm font-medium text-[#0B1F3A]" />
-            </div>
-            {errors.return && <p className="text-red-500 text-xs mt-1">{errors.return}</p>}
+            <DatePickerField
+              label="Return"
+              value={ret}
+              onChange={setRet}
+              minDate={depart ?? new Date()}
+              placeholder="Select date"
+              error={errors.return}
+            />
           </div>
         )}
 
@@ -334,6 +346,19 @@ export function FlightSearchWidget() {
           Ask Jade AI ✈️
         </button>
       </div>
+
+      {showCapture && (
+        <AbandonmentModal
+          type="flight_search"
+          data={{
+            origin:      fromCode   || undefined,
+            destination: toCode     || undefined,
+            date:        depart ? format(depart, 'dd MMM yyyy') : undefined,
+          }}
+          onCapture={captureEmail}
+          onClose={() => setShowCapture(false)}
+        />
+      )}
     </div>
   )
 }

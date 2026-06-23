@@ -1,4 +1,5 @@
 import type { Metadata } from 'next'
+import { StructuredData } from '@/components/StructuredData'
 
 export const metadata: Metadata = {
   title: 'Visa Intelligence',
@@ -31,5 +32,13 @@ export const metadata: Metadata = {
 }
 
 export default function VisaLayout({ children }: { children: React.ReactNode }) {
-  return <>{children}</>
+  return (
+    <>
+      <StructuredData type="visa" breadcrumbs={[
+        { name: 'Home',          url: 'https://www.walztravels.com' },
+        { name: 'Visa Services', url: 'https://www.walztravels.com/visa' },
+      ]} />
+      {children}
+    </>
+  )
 }

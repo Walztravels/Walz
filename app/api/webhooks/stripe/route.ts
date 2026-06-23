@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import type Stripe from 'stripe'
 import { constructWebhookEvent } from '@/lib/stripe'
 import { prisma } from '@/lib/db'
+import { ensureClientAccount } from '@/lib/create-client-account'
 
 
 export async function POST(request: NextRequest) {
@@ -132,11 +133,18 @@ export async function POST(request: NextRequest) {
 
         // Visa application service fee
         if (session.metadata?.applicationId) {
-          await prisma.visaApplication.update({
+          const app = await prisma.visaApplication.update({
             where: { id: session.metadata.applicationId },
             data:  { serviceFeePaid: true, status: 'documents_pending' },
           })
           console.log('[Stripe Webhook] Visa payment confirmed:', session.metadata.applicationId)
+
+          // Auto-create client portal account after payment
+          const email = app.email ?? session.customer_email
+          if (email) {
+            const fullName = [app.firstName, app.lastName].filter(Boolean).join(' ') || 'Client'
+            await ensureClientAccount({ email, name: fullName, phone: app.phone ?? null, applicationId: app.id })
+          }
         }
 
         // Activity booking

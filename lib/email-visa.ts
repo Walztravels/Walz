@@ -282,3 +282,159 @@ export async function sendApplicationFormLink(
     `,
   })
 }
+
+// ── Welcome email: sent when admin creates a client account automatically ──────
+
+export async function sendClientWelcomeEmail({
+  to, name, tempPassword, loginUrl,
+}: {
+  to: string
+  name: string
+  tempPassword: string
+  loginUrl: string
+}) {
+  const resend = getResend()
+  await resend.emails.send({
+    from: FROM,
+    to,
+    subject: 'Welcome to Walz Travels — Your account is ready',
+    html: `
+      ${header()}
+      <div style="padding:32px 40px;">
+        <h2 style="margin:0 0 8px;color:#0B1F3A;font-size:22px;">Your account has been created ✅</h2>
+        <p style="color:#475569;margin:0 0 20px;">Hi ${name},</p>
+        <p style="color:#475569;font-size:14px;margin:0 0 20px;">
+          Walz Travels has created a personal account for you so you can track your visa application
+          and manage all your travel documents in one place.
+        </p>
+        <div style="background:#F4F6F9;border-radius:12px;padding:20px 24px;margin:0 0 24px;">
+          <p style="color:#64748b;font-size:12px;text-transform:uppercase;letter-spacing:1px;margin:0 0 8px;">Your login details</p>
+          <p style="color:#0B1F3A;font-size:14px;margin:0 0 4px;"><strong>Email:</strong> ${to}</p>
+          <p style="color:#0B1F3A;font-size:14px;margin:0;"><strong>Temporary password:</strong> <code style="background:#e2e8f0;padding:2px 6px;border-radius:4px;">${tempPassword}</code></p>
+        </div>
+        <p style="color:#475569;font-size:13px;margin:0 0 24px;">
+          Please change your password after your first login.
+        </p>
+        <a href="${loginUrl}" style="display:block;text-align:center;background:#C9A84C;color:#0B1F3A;font-weight:700;font-size:15px;padding:14px 28px;border-radius:10px;text-decoration:none;margin:0 0 24px;">
+          Log in to My Account →
+        </a>
+        <div style="background:#0B1F3A;border-radius:10px;padding:16px 20px;">
+          <p style="margin:0;color:#C9A84C;font-size:12px;text-transform:uppercase;letter-spacing:1px;margin:0 0 4px;">Need help?</p>
+          <p style="margin:0;color:#ffffff;font-size:14px;">WhatsApp us on <strong>+44 7398 753797</strong> or email <a href="mailto:contact@walztravels.com" style="color:#C9A84C;">contact@walztravels.com</a></p>
+        </div>
+      </div>
+      ${footer()}
+    `,
+  })
+}
+
+// ── Tracking email: sent after visa application is created ─────────────────────
+
+export async function sendVisaTrackingEmail({
+  to, name, reference, destination, trackingUrl,
+}: {
+  to: string
+  name: string
+  reference: string
+  destination: string
+  trackingUrl: string
+}) {
+  const resend = getResend()
+  await resend.emails.send({
+    from: FROM,
+    to,
+    subject: `Your visa application reference: ${reference}`,
+    html: `
+      ${header()}
+      <div style="padding:32px 40px;">
+        <h2 style="margin:0 0 8px;color:#0B1F3A;font-size:22px;">Application Received 📋</h2>
+        <p style="color:#475569;margin:0 0 20px;">Hi ${name},</p>
+        <p style="color:#475569;font-size:14px;margin:0 0 20px;">
+          We've received your <strong>${destination}</strong> visa application and our team will begin reviewing it shortly.
+        </p>
+        <div style="background:#0B1F3A;border-radius:12px;padding:24px;text-align:center;margin:0 0 24px;">
+          <p style="color:#C9A84C;font-size:11px;text-transform:uppercase;letter-spacing:2px;margin:0 0 8px;">Your Reference</p>
+          <p style="color:#ffffff;font-size:32px;font-weight:700;letter-spacing:4px;margin:0;">${reference}</p>
+        </div>
+        <p style="color:#475569;font-size:14px;margin:0 0 24px;">
+          Use the button below to track your application status in real time. You'll also receive an email each time your status is updated.
+        </p>
+        <a href="${trackingUrl}" style="display:block;text-align:center;background:#C9A84C;color:#0B1F3A;font-weight:700;font-size:15px;padding:14px 28px;border-radius:10px;text-decoration:none;margin:0 0 24px;">
+          Track My Application →
+        </a>
+        <div style="background:#F4F6F9;border-radius:10px;padding:16px 20px;margin:0 0 20px;">
+          <p style="color:#0B1F3A;font-size:13px;font-weight:600;margin:0 0 8px;">What happens next?</p>
+          <ol style="color:#475569;font-size:13px;margin:0;padding-left:16px;line-height:2;">
+            <li>We review your application and documents</li>
+            <li>We submit to the embassy on your behalf</li>
+            <li>You receive real-time updates until a decision</li>
+          </ol>
+        </div>
+      </div>
+      ${footer()}
+    `,
+  })
+}
+
+// ── Status update email: sent when admin changes application status ─────────────
+
+export async function sendVisaStatusUpdateEmail({
+  to, name, reference, destination, newStatus, message, trackingUrl,
+}: {
+  to: string
+  name: string
+  reference: string
+  destination: string
+  newStatus: string
+  message: string
+  trackingUrl: string
+}) {
+  const resend = getResend()
+
+  const statusLabels: Record<string, string> = {
+    received:             '📋 Application Received',
+    documents_pending:    '📎 Documents Required',
+    under_review:         '🔍 Under Review',
+    ready_to_submit:      '✅ Ready to Submit',
+    submitted_to_embassy: '🏛️ Submitted to Embassy',
+    decision_pending:     '⏳ Decision Pending',
+    approved:             '✅ APPROVED',
+    refused:              '❌ Refused',
+  }
+
+  const label = statusLabels[newStatus] ?? newStatus
+  const isApproved = newStatus === 'approved'
+  const isRefused  = newStatus === 'refused'
+
+  await resend.emails.send({
+    from: FROM,
+    to,
+    subject: isApproved
+      ? `🎉 Your ${destination} visa has been APPROVED! — ${reference}`
+      : `Update on your ${destination} visa application — ${reference}`,
+    html: `
+      ${header()}
+      <div style="padding:32px 40px;">
+        <h2 style="margin:0 0 8px;color:${isApproved ? '#16a34a' : isRefused ? '#dc2626' : '#0B1F3A'};font-size:22px;">
+          ${isApproved ? '🎉 Congratulations!' : isRefused ? 'Application Update' : 'Application Update'}
+        </h2>
+        <p style="color:#475569;margin:0 0 20px;">Hi ${name},</p>
+        <p style="color:#475569;font-size:14px;margin:0 0 20px;">
+          There's an update on your <strong>${destination}</strong> visa application (<strong>${reference}</strong>).
+        </p>
+        <div style="background:${isApproved ? '#f0fdf4' : isRefused ? '#fef2f2' : '#F4F6F9'};border:1px solid ${isApproved ? '#86efac' : isRefused ? '#fca5a5' : '#e2e8f0'};border-radius:12px;padding:20px 24px;margin:0 0 24px;">
+          <p style="font-size:16px;font-weight:700;color:${isApproved ? '#15803d' : isRefused ? '#b91c1c' : '#0B1F3A'};margin:0 0 8px;">${label}</p>
+          <p style="color:#475569;font-size:14px;margin:0;">${message}</p>
+        </div>
+        <a href="${trackingUrl}" style="display:block;text-align:center;background:#C9A84C;color:#0B1F3A;font-weight:700;font-size:15px;padding:14px 28px;border-radius:10px;text-decoration:none;margin:0 0 24px;">
+          View Full Timeline →
+        </a>
+        <div style="background:#0B1F3A;border-radius:10px;padding:16px 20px;">
+          <p style="margin:0;color:#C9A84C;font-size:12px;text-transform:uppercase;letter-spacing:1px;margin:0 0 4px;">Questions?</p>
+          <p style="margin:0;color:#ffffff;font-size:14px;">WhatsApp <strong>+44 7398 753797</strong> or <a href="mailto:contact@walztravels.com" style="color:#C9A84C;">contact@walztravels.com</a></p>
+        </div>
+      </div>
+      ${footer()}
+    `,
+  })
+}
