@@ -1,16 +1,13 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { NextRequest, NextResponse }    from 'next/server'
 import { createHmac, timingSafeEqual } from 'crypto'
-import { createClient } from '@supabase/supabase-js'
+import { getSupabaseAdmin }            from '@/lib/supabase'
+import { getResend }                   from '@/lib/resend'
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!
-)
+const ADMIN_EMAIL = 'contact@walztravels.com'
 
 export async function POST(req: NextRequest) {
   try {
-    const body = await req.text()
-
+    const body      = await req.text()
     const signature = req.headers.get('x-duffel-signature')
 
     if (!signature) {
@@ -24,19 +21,11 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Misconfigured' }, { status: 500 })
     }
 
-    // Verify HMAC-SHA256 signature
-    const hmac = createHmac('sha256', secret)
-    hmac.update(body)
-    const expectedSig = hmac.digest('base64')
+    const expected   = createHmac('sha256', secret).update(body).digest('base64')
+    const sigBuf     = Buffer.from(signature)
+    const expectedBuf = Buffer.from(expected)
 
-    // Timing-safe comparison prevents timing attacks
-    const sigBuffer      = Buffer.from(signature)
-    const expectedBuffer = Buffer.from(expectedSig)
-
-    if (
-      sigBuffer.length !== expectedBuffer.length ||
-      !timingSafeEqual(sigBuffer, expectedBuffer)
-    ) {
+    if (sigBuf.length !== expectedBuf.length || !timingSafeEqual(sigBuf, expectedBuf)) {
       console.error('[duffel-webhook] Invalid signature')
       return NextResponse.json({ error: 'Invalid signature' }, { status: 401 })
     }
@@ -45,7 +34,9 @@ export async function POST(req: NextRequest) {
     const event: { type: string; data: { object: any } } = JSON.parse(body)
     const { type, data } = event
 
-    console.log('[duffel-webhook] Event:', type)
+    console.log('[duffel-webhook]', type, data?.object?.id ?? '')
+
+    const supabase = getSupabaseAdmin()
 
     switch (type) {
 
@@ -53,18 +44,22 @@ export async function POST(req: NextRequest) {
         const order = data.object
         await supabase
           .from('FlightBooking')
-          .update({
-            duffelOrderId: order.id,
-            status: 'confirmed',
-            updatedAt: new Date().toISOString(),
-          })
+          .update({ status: 'booking_placed', updatedAt: new Date().toISOString() })
           .eq('duffelOrderId', order.id)
         break
       }
 
       case 'order.airline_initiated_change': {
         const order = data.object
-        await notifyChange(order, 'airline_change')
+        await supabase
+          .from('FlightBooking')
+          .update({ status: 'change_pending', updatedAt: new Date().toISOString() })
+          .eq('duffelOrderId', order.id)
+        await notifyAdmin(order, 'Airline change proposed', `
+          <p>The airline has proposed a change to this booking.</p>
+          <p><strong>Booking:</strong> ${order.booking_reference ?? order.id}</p>
+          <p>Login to the Duffel dashboard to accept or reject it.</p>
+        `)
         break
       }
 
@@ -72,17 +67,20 @@ export async function POST(req: NextRequest) {
         const order = data.object
         await supabase
           .from('FlightBooking')
-          .update({
-            status: 'change_accepted',
-            updatedAt: new Date().toISOString(),
-          })
+          .update({ status: 'booking_placed', updatedAt: new Date().toISOString() })
           .eq('duffelOrderId', order.id)
         break
       }
 
       case 'order.airline_initiated_change.rejected': {
         const order = data.object
-        await notifyChange(order, 'change_rejected')
+        await supabase
+          .from('FlightBooking')
+          .update({ status: 'booking_placed', updatedAt: new Date().toISOString() })
+          .eq('duffelOrderId', order.id)
+        await notifyAdmin(order, 'Airline change rejected', `
+          <p>The airline change for booking ${order.booking_reference ?? order.id} has been rejected.</p>
+        `)
         break
       }
 
@@ -90,12 +88,12 @@ export async function POST(req: NextRequest) {
         const order = data.object
         await supabase
           .from('FlightBooking')
-          .update({
-            status: 'cancelled',
-            updatedAt: new Date().toISOString(),
-          })
+          .update({ status: 'cancelled', updatedAt: new Date().toISOString() })
           .eq('duffelOrderId', order.id)
-        await notifyChange(order, 'cancelled')
+        await notifyAdmin(order, 'Order cancelled by airline', `
+          <p>Booking ${order.booking_reference ?? order.id} has been cancelled by the airline.</p>
+          <p>Contact the client and arrange a refund if necessary.</p>
+        `)
         break
       }
 
@@ -104,7 +102,7 @@ export async function POST(req: NextRequest) {
         break
 
       default:
-        console.log('[duffel-webhook] Unhandled event type:', type)
+        console.log('[duffel-webhook] Unhandled:', type)
     }
 
     // Always 200 — Duffel retries on non-2xx
@@ -112,30 +110,40 @@ export async function POST(req: NextRequest) {
 
   } catch (err) {
     console.error('[duffel-webhook] Error:', err)
-    // Return 200 to prevent Duffel retry loop on malformed payloads
     return NextResponse.json({ received: true })
   }
 }
 
 export async function GET() {
-  return NextResponse.json({
-    status: 'Duffel webhook active',
-    endpoint: '/api/webhooks/duffel',
-  })
+  return NextResponse.json({ status: 'Duffel webhook active', endpoint: '/api/webhooks/duffel' })
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-async function notifyChange(order: any, changeType: string) {
-  console.log(`[duffel-webhook] ${changeType}:`, {
-    orderId: order.id,
-    bookingRef: order.booking_reference,
-  })
-
-  await supabase
-    .from('FlightBooking')
-    .update({
-      status: changeType,
-      updatedAt: new Date().toISOString(),
+async function notifyAdmin(order: any, subject: string, body: string) {
+  try {
+    const resend = getResend()
+    await resend.emails.send({
+      from:    'Walz System <system@walztravels.com>',
+      to:      ADMIN_EMAIL,
+      subject: `⚠ Duffel: ${subject} — ${order.booking_reference ?? order.id}`,
+      html: `
+        <div style="font-family:Arial,sans-serif;max-width:500px;">
+          <div style="background:#0B1F3A;padding:16px 20px;border-radius:8px 8px 0 0;">
+            <h2 style="color:#C9A84C;margin:0;">Duffel Alert</h2>
+          </div>
+          <div style="padding:20px;border:1px solid #e5e7eb;border-top:none;">
+            ${body}
+            <p style="margin-top:20px;">
+              <a href="https://walztravels.com/admin/flight-bookings"
+                 style="background:#C9A84C;color:#0B1F3A;padding:10px 20px;border-radius:8px;text-decoration:none;font-weight:bold;">
+                Open Flight Bookings →
+              </a>
+            </p>
+          </div>
+        </div>
+      `,
     })
-    .eq('duffelOrderId', order.id)
+  } catch (e) {
+    console.warn('[duffel-webhook] Admin notify failed:', e)
+  }
 }

@@ -1,130 +1,191 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { z } from 'zod'
-import { duffelPost } from '@/lib/duffel/client'
+import { getSupabaseAdmin }          from '@/lib/supabase'
+import { getResend }                 from '@/lib/resend'
 
-// ─── Passenger schema ─────────────────────────────────────────────────────────
+export const dynamic = 'force-dynamic'
+export const runtime = 'nodejs'
 
-const passengerSchema = z.object({
-  id: z.string(),
-  given_name: z.string().min(1),
-  family_name: z.string().min(1),
-  born_on: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Expected YYYY-MM-DD'),
-  gender: z.enum(['m', 'f']),
-  title: z.enum(['mr', 'ms', 'mrs', 'miss', 'dr']),
-  email: z.string().email(),
-  phone_number: z.string().min(5),
-  /** Links an adult passenger to their lap infant */
-  infant_passenger_id: z.string().optional(),
-  loyalty_programme_accounts: z
-    .array(z.object({ airline_iata_code: z.string(), account_number: z.string() }))
-    .optional(),
-})
+const FROM       = 'Walz Travels <bookings@walztravels.com>'
+const ADMIN_FROM = 'Walz System <system@walztravels.com>'
+const ADMIN_TO   = 'contact@walztravels.com'
 
-const serviceSchema = z.object({ id: z.string(), quantity: z.number().int().min(1) })
+function generateRef(): string {
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
+  const rand  = Array.from({ length: 6 }, () =>
+    chars[Math.floor(Math.random() * chars.length)]
+  ).join('')
+  return `WLZ-${rand}`
+}
 
-// ─── Request schemas — discriminated by order type ────────────────────────────
+export async function POST(req: NextRequest) {
+  try {
+    const body = await req.json()
+    const {
+      offerId, offerExpiresAt,
+      clientName, clientEmail, clientPhone,
+      passengers,
+      paymentRef, paymentMethod, paidAmount, quotedAmount, currency,
+      searchedOrigin, searchedDest, departDate, returnDate,
+      cabinClass, tripType,
+    } = body
 
-const holdSchema = z.object({
-  type: z.literal('hold'),
-  offer_id: z.string().min(1),
-  passengers: z.array(passengerSchema).min(1),
-  services: z.array(serviceSchema).optional(),
-})
-
-const instantSchema = z.object({
-  type: z.literal('instant'),
-  offer_id: z.string().min(1),
-  passengers: z.array(passengerSchema).min(1),
-  services: z.array(serviceSchema).optional(),
-  payment: z.object({
-    type: z.enum(['card', 'balance', 'arc_bsp_cash']),
-    currency: z.string().length(3),
-    amount: z.string().regex(/^\d+(\.\d{1,2})?$/),
-    /** 3DS session ID from createThreeDSecureSession() (3ds_...) */
-    three_d_secure_session_id: z.string().optional(),
-    /** Tokenised card ID from DuffelCardForm (tcd_...) — alternative to 3DS */
-    card_id: z.string().optional(),
-  }),
-})
-
-const bookSchema = z.discriminatedUnion('type', [holdSchema, instantSchema])
-
-// ─── Duffel response type ─────────────────────────────────────────────────────
-
-interface DuffelOrderResponse {
-  data: {
-    id: string
-    booking_reference: string
-    total_amount: string
-    total_currency: string
-    payment_status: {
-      awaiting_payment: boolean
-      price_guarantee_expires_at?: string | null
-      payment_required_by?: string | null
+    if (!clientEmail || !offerId) {
+      return NextResponse.json({ error: 'Missing required fields: clientEmail, offerId' }, { status: 400 })
     }
-    payment_requirements?: {
-      requires_instant_payment: boolean
-      price_guarantee_expires_at?: string | null
-      payment_required_by?: string | null
+
+    const reference = generateRef()
+    const supabase  = getSupabaseAdmin()
+
+    const { data: booking, error } = await supabase
+      .from('FlightBooking')
+      .insert({
+        reference,
+        status:         'pending_review',
+        clientName:     clientName     ?? null,
+        clientEmail,
+        clientPhone:    clientPhone    ?? null,
+        offerId,
+        offerExpiresAt: offerExpiresAt ?? null,
+        passengers:     passengers     ?? [],
+        quotedAmount:   quotedAmount   ?? paidAmount ?? null,
+        paidAmount:     paidAmount     ?? null,
+        currency:       currency       ?? 'GBP',
+        paymentMethod:  paymentMethod  ?? null,
+        paymentRef:     paymentRef     ?? null,
+        paidAt:         new Date().toISOString(),
+        searchedOrigin: searchedOrigin ?? null,
+        searchedDest:   searchedDest   ?? null,
+        departDate:     departDate     ?? null,
+        returnDate:     returnDate     ?? null,
+        cabinClass:     cabinClass     ?? 'economy',
+        tripType:       tripType       ?? 'one_way',
+      })
+      .select('id, reference, status')
+      .single()
+
+    if (error) {
+      console.error('[flights/book] Supabase insert error:', error)
+      return NextResponse.json({ error: 'Failed to save booking. Please try again.' }, { status: 500 })
     }
-    documents?: { unique_identifier: string; type: string }[]
-    slices: unknown[]
-    passengers: unknown[]
+
+    // Non-blocking notifications — failure doesn't affect the customer response
+    void sendAdminEmail(booking, {
+      clientName, clientEmail, clientPhone,
+      searchedOrigin, searchedDest, departDate,
+      cabinClass, paidAmount, currency, paymentRef, paymentMethod, offerExpiresAt,
+    }).catch(e => console.warn('[flights/book] Admin email failed:', e))
+
+    void sendClientHoldingEmail(booking, {
+      clientName, clientEmail, searchedOrigin, searchedDest, departDate,
+    }).catch(e => console.warn('[flights/book] Client email failed:', e))
+
+    return NextResponse.json({
+      success:   true,
+      reference: booking.reference,
+      bookingId: booking.id,
+      status:    'pending_review',
+      message:   'Booking received. Your ticket will be confirmed within 2 hours.',
+    })
+
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err)
+    console.error('[flights/book]', msg)
+    return NextResponse.json({ error: 'Booking failed. Please try again.' }, { status: 500 })
   }
 }
 
-// ─── Handler ──────────────────────────────────────────────────────────────────
+async function sendAdminEmail(
+  booking: { id: string; reference: string },
+  data: Record<string, string | null | undefined>,
+) {
+  const resend = getResend()
+  const {
+    clientName, clientEmail, clientPhone,
+    searchedOrigin, searchedDest, departDate,
+    cabinClass, paidAmount, currency, paymentRef, paymentMethod, offerExpiresAt,
+  } = data
 
-export async function POST(request: NextRequest) {
-  const body = await request.json().catch(() => null)
-  if (!body) return NextResponse.json({ error: 'Invalid request body' }, { status: 400 })
+  const expiryText = offerExpiresAt
+    ? new Date(offerExpiresAt).toLocaleString('en-GB', { timeZone: 'Europe/London' })
+    : 'No expiry info'
 
-  const parsed = bookSchema.safeParse(body)
-  if (!parsed.success) {
-    return NextResponse.json(
-      { error: 'Invalid parameters', details: parsed.error.flatten().fieldErrors },
-      { status: 400 }
-    )
-  }
+  await resend.emails.send({
+    from:    ADMIN_FROM,
+    to:      ADMIN_TO,
+    subject: `🔔 New Flight Booking — ${booking.reference} — ${currency ?? 'GBP'} ${paidAmount ?? '?'}`,
+    html: `
+      <div style="font-family:Arial,sans-serif;max-width:600px;">
+        <div style="background:#0B1F3A;padding:20px;border-radius:8px 8px 0 0;">
+          <h2 style="color:#C9A84C;margin:0;">New Flight Booking</h2>
+          <p style="color:white;margin:4px 0 0;font-size:14px;">${booking.reference}</p>
+        </div>
+        <div style="background:#FFF9E6;border:1px solid #F59E0B;padding:12px 20px;font-size:14px;color:#92400E;">
+          ⏱ Offer expires: ${expiryText} — place on Duffel before this expires!
+        </div>
+        <div style="padding:20px;border:1px solid #e5e7eb;border-top:none;">
+          <table style="width:100%;font-size:14px;border-collapse:collapse;">
+            <tr><td style="padding:6px 0;color:#6b7280;width:150px;">Client</td><td style="font-weight:bold;">${clientName ?? 'Not provided'}</td></tr>
+            <tr><td style="padding:6px 0;color:#6b7280;">Email</td><td>${clientEmail}</td></tr>
+            <tr><td style="padding:6px 0;color:#6b7280;">Phone</td><td>${clientPhone ?? 'Not provided'}</td></tr>
+            <tr><td style="padding:6px 0;color:#6b7280;">Route</td><td style="font-weight:bold;">${searchedOrigin ?? '?'} → ${searchedDest ?? '?'}</td></tr>
+            <tr><td style="padding:6px 0;color:#6b7280;">Depart</td><td>${departDate ?? '?'}</td></tr>
+            <tr><td style="padding:6px 0;color:#6b7280;">Cabin</td><td style="text-transform:capitalize;">${cabinClass ?? 'Economy'}</td></tr>
+            <tr><td style="padding:6px 0;color:#6b7280;">Paid</td><td style="font-size:18px;font-weight:bold;color:#0B1F3A;">${currency ?? 'GBP'} ${paidAmount ?? '?'}</td></tr>
+            <tr><td style="padding:6px 0;color:#6b7280;">Method</td><td>${paymentMethod ?? 'Unknown'}</td></tr>
+            <tr><td style="padding:6px 0;color:#6b7280;">Payment ref</td><td style="font-family:monospace;font-size:12px;">${paymentRef ?? 'None'}</td></tr>
+          </table>
+          <div style="margin-top:20px;">
+            <a href="https://walztravels.com/admin/flight-bookings/${booking.id}"
+               style="background:#C9A84C;color:#0B1F3A;padding:12px 24px;border-radius:8px;text-decoration:none;font-weight:bold;display:inline-block;">
+              Review &amp; Place Booking →
+            </a>
+          </div>
+        </div>
+      </div>
+    `,
+  })
+}
 
-  const d = parsed.data
+async function sendClientHoldingEmail(
+  booking: { reference: string },
+  data: Record<string, string | null | undefined>,
+) {
+  const resend    = getResend()
+  const { clientName, clientEmail, searchedOrigin, searchedDest, departDate } = data
+  const firstName = (clientName ?? 'Traveller').split(' ')[0]
 
-  try {
-    const orderData: Record<string, unknown> = {
-      type: d.type,
-      selected_offers: [d.offer_id],
-      passengers: d.passengers,
-      ...(d.services?.length ? { services: d.services } : {}),
-    }
+  await resend.emails.send({
+    from:    FROM,
+    to:      clientEmail!,
+    subject: `✈ Booking Request Received — ${booking.reference}`,
+    html: `
+      <div style="font-family:Arial,sans-serif;max-width:560px;margin:0 auto;">
+        <div style="background:#0B1F3A;padding:24px;border-radius:8px 8px 0 0;text-align:center;">
+          <h1 style="color:#C9A84C;margin:0;font-size:22px;">WALZ TRAVELS</h1>
+        </div>
+        <div style="padding:28px;background:#f9fafb;border:1px solid #e5e7eb;border-top:none;border-radius:0 0 8px 8px;">
+          <h2 style="color:#0B1F3A;font-size:20px;margin:0 0 16px;">Hi ${firstName},</h2>
+          <p style="color:#4b5563;line-height:1.6;">We've received your flight booking request for
+            <strong>${searchedOrigin ?? 'Origin'} → ${searchedDest ?? 'Destination'}</strong>
+            on <strong>${departDate ?? 'your selected date'}</strong>.</p>
 
-    if (d.type === 'instant') {
-      orderData.payments = [d.payment]
-    }
+          <div style="background:white;border:2px solid #C9A84C;border-radius:8px;padding:16px;margin:20px 0;text-align:center;">
+            <p style="margin:0;font-size:12px;color:#6b7280;text-transform:uppercase;letter-spacing:1px;">Your Booking Reference</p>
+            <p style="margin:6px 0;font-size:30px;font-weight:bold;color:#0B1F3A;letter-spacing:4px;font-family:monospace;">${booking.reference}</p>
+          </div>
 
-    const result = await duffelPost<DuffelOrderResponse>('/air/orders', { data: orderData })
-    const order = result.data
+          <p style="color:#4b5563;line-height:1.6;">
+            Our team is verifying your payment and will confirm your ticket within <strong>2 business hours</strong>.
+            You'll receive your e-ticket by email as soon as it's issued.
+          </p>
 
-    return NextResponse.json({
-      order_id: order.id,
-      booking_reference: order.booking_reference,
-      total_amount: order.total_amount,
-      total_currency: order.total_currency,
-      awaiting_payment: order.payment_status.awaiting_payment,
-      documents: order.documents ?? [],
-      payment_required_by:
-        order.payment_status.payment_required_by ??
-        order.payment_requirements?.payment_required_by ??
-        null,
-      price_guarantee_expires_at:
-        order.payment_status.price_guarantee_expires_at ??
-        order.payment_requirements?.price_guarantee_expires_at ??
-        null,
-    })
-  } catch (err) {
-    console.error('[Book] Duffel order error:', err)
-    return NextResponse.json(
-      { error: err instanceof Error ? err.message : 'Failed to create booking' },
-      { status: 502 }
-    )
-  }
+          <a href="https://wa.me/447398753797" style="display:inline-block;background:#25D366;color:white;padding:10px 20px;border-radius:8px;text-decoration:none;font-weight:bold;margin-top:8px;">
+            WhatsApp +44 7398 753797
+          </a>
+
+          <p style="color:#9ca3af;font-size:13px;margin-top:28px;">The Walz Travels Team<br>bookings@walztravels.com</p>
+        </div>
+      </div>
+    `,
+  })
 }
