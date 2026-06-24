@@ -60,11 +60,13 @@ const footerLinks = {
   ],
   support: [
     { label: 'Help Centre', href: '/help' },
+    { label: 'Contact Us', href: '/contact' },
     { label: 'Manage Booking', href: '/portal/dashboard' },
     { label: 'Cancellations', href: '/help/cancellations' },
-    { label: 'Baggage Policy', href: '/help/baggage' },
     { label: 'Privacy Policy', href: '/privacy' },
     { label: 'Terms of Service', href: '/terms' },
+    { label: 'Cookie Policy', href: '/cookie-policy' },
+    { label: 'Accessibility', href: '/accessibility' },
   ],
 }
 

@@ -1,9 +1,8 @@
 import type { Metadata } from 'next'
 
 export const metadata: Metadata = {
-  title: 'About Us',
-  description:
-    'Walz Travels — connecting the African diaspora to every destination on earth. Our story, our mission, and why thousands of clients trust us.',
+  title: 'About Walz Travels | Your Trusted Travel Agency',
+  description: 'Walz Travels is a premium travel agency. Flights, hotels, visas and private tours across six global markets.',
   openGraph: {
     type: 'website',
     url: 'https://walztravels.com/about',

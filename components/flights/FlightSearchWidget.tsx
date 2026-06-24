@@ -254,7 +254,7 @@ export function FlightSearchWidget() {
             )}
             <div className="flex-1 min-w-0">
               {fromCode && <div className="text-[10px] text-[#0B1F3A]/40 leading-none mb-0.5">{fromCode}</div>}
-              <input type="text" placeholder="City or airport" value={from}
+              <input type="text" placeholder="City or airport" value={from} aria-label="Departure city or airport"
                 onChange={e => { setFrom(e.target.value); setFromCode(''); setFromSug(e.target.value ? filterAirports(e.target.value) : []) }}
                 className="w-full bg-transparent outline-none text-sm font-medium text-[#0B1F3A] placeholder:text-[#0B1F3A]/30" />
             </div>
@@ -284,7 +284,7 @@ export function FlightSearchWidget() {
             </svg>
             <div className="flex-1 min-w-0">
               {toCode && <div className="text-[10px] text-[#0B1F3A]/40 leading-none mb-0.5">{toCode}</div>}
-              <input type="text" placeholder="City or airport" value={to}
+              <input type="text" placeholder="City or airport" value={to} aria-label="Destination city or airport"
                 onChange={e => { setTo(e.target.value); setToCode(''); setToSug(e.target.value ? filterAirports(e.target.value) : []) }}
                 className="w-full bg-transparent outline-none text-sm font-medium text-[#0B1F3A] placeholder:text-[#0B1F3A]/30" />
             </div>

@@ -393,6 +393,24 @@ export default function AboutPage() {
         </div>
       </section>
 
+      {/* ─── Credentials strip (below hero) ─────────────────────────────── */}
+      <section className="bg-[#060f1e] py-12 px-5 border-b border-white/5">
+        <div className="max-w-5xl mx-auto grid grid-cols-2 md:grid-cols-4 gap-4">
+          {[
+            { icon: '✈', title: 'IATA Accredited', desc: 'International Air Transport Association member agency' },
+            { icon: '🛡', title: 'ATOL Protected', desc: 'Your money is protected under UK Civil Aviation Authority' },
+            { icon: '⭐', title: '5+ Years', desc: 'Serving clients across six global markets since 2019' },
+            { icon: '💬', title: '24/7 Support', desc: 'Expert help via WhatsApp and email around the clock' },
+          ].map((item) => (
+            <div key={item.title} className="bg-[#0B1F3A] rounded-2xl p-6 text-center border border-white/8">
+              <div className="text-3xl mb-3">{item.icon}</div>
+              <h3 className="text-white font-bold text-sm mb-2">{item.title}</h3>
+              <p className="text-white/50 text-xs leading-relaxed">{item.desc}</p>
+            </div>
+          ))}
+        </div>
+      </section>
+
       {/* ═══════════════════════════════════════════════════════════════════
           SECTION 2 — BRAND STATEMENT
       ══════════════════════════════════════════════════════════════════════ */}

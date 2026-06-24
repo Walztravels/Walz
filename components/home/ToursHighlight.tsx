@@ -73,7 +73,7 @@ export function ToursHighlight() {
 
   if (loading) {
     return (
-      <section className="py-16 lg:py-24 bg-walz-off-white">
+      <section className="py-16 lg:py-24 bg-[#0B1F3A]">
         <div className="container-walz">
           <div className="h-[500px] lg:h-[500px] rounded-3xl bg-gray-200 animate-pulse" />
         </div>
@@ -87,7 +87,7 @@ export function ToursHighlight() {
   const cover = getCover(tour)
 
   return (
-    <section className="py-16 lg:py-24 bg-walz-off-white">
+    <section className="py-16 lg:py-24 bg-[#0B1F3A]">
       <div className="container-walz">
         {/* Section header */}
         <div className="flex flex-col sm:flex-row sm:items-end justify-between mb-10 gap-4">
@@ -98,14 +98,14 @@ export function ToursHighlight() {
                 Private Tours
               </span>
             </div>
-            <h2 className="font-display text-3xl lg:text-4xl font-bold text-walz-deep-navy">
+            <h2 className="font-display text-3xl lg:text-4xl font-bold text-white">
               Exclusive Experiences
             </h2>
             <div className="divider-gold mt-3" />
           </div>
           <Link
             href="/tours"
-            className="text-sm font-medium text-walz-gold hover:text-walz-gold-light transition-colors flex items-center gap-1 self-start sm:self-auto"
+            className="text-sm font-medium text-amber-400 hover:text-amber-300 transition-colors flex items-center gap-1 self-start sm:self-auto"
           >
             All tours
             <ArrowRight className="w-4 h-4 ml-1" />
@@ -245,14 +245,14 @@ export function ToursHighlight() {
           <div className="flex items-center justify-center gap-3 mt-4 sm:hidden">
             <button
               onClick={() => advance(-1)}
-              className="w-10 h-10 rounded-full border border-walz-border flex items-center justify-center text-walz-deep-navy hover:bg-walz-deep-navy hover:text-white transition-colors"
+              className="w-10 h-10 rounded-full border border-white/20 flex items-center justify-center text-white hover:bg-white/10 transition-colors"
             >
               <ChevronLeft className="w-4 h-4" />
             </button>
-            <span className="text-sm text-walz-muted">{activeIndex + 1} / {tours.length}</span>
+            <span className="text-sm text-white/60">{activeIndex + 1} / {tours.length}</span>
             <button
               onClick={() => advance(1)}
-              className="w-10 h-10 rounded-full border border-walz-border flex items-center justify-center text-walz-deep-navy hover:bg-walz-deep-navy hover:text-white transition-colors"
+              className="w-10 h-10 rounded-full border border-white/20 flex items-center justify-center text-white hover:bg-white/10 transition-colors"
             >
               <ChevronRight className="w-4 h-4" />
             </button>

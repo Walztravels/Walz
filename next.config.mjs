@@ -21,6 +21,8 @@ const nextConfig = {
       // Supabase Storage — for media-managed images via the admin panel
       { protocol: 'https', hostname: 'bxacijnrgqgmyqyfgumg.supabase.co', pathname: '/storage/**' },
       // Hotelbeds activity & hotel images
+      { protocol: 'https', hostname: 'source.unsplash.com',              pathname: '/**' },
+      { protocol: 'https', hostname: 'pics.avs.io',                     pathname: '/**' },
       { protocol: 'https', hostname: 'photos.hotelbeds.com',             pathname: '/**' },
       { protocol: 'https', hostname: '**.hotelbeds.com',                 pathname: '/**' },
       { protocol: 'https', hostname: 'cdn.hotelbeds.com',                pathname: '/**' },

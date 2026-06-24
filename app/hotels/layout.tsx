@@ -1,9 +1,8 @@
 import type { Metadata } from 'next'
 
 export const metadata: Metadata = {
-  title: 'Book Hotels',
-  description:
-    'Find and book hotels worldwide with Walz Travels. Compare rates, read reviews, and book luxury stays with expert guidance and 24/7 support.',
+  title: 'Book Hotels Worldwide | 500,000+ Properties | Walz Travels',
+  description: 'Find and book hotels worldwide. Best rate guarantee and free cancellation available.',
   openGraph: {
     type: 'website',
     url: 'https://walztravels.com/hotels',

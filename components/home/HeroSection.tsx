@@ -176,7 +176,7 @@ export function HeroSection({ bgUrl }: { bgUrl?: string | null }) {
         {/* Subheadline */}
         <p
           ref={subRef}
-          className="text-white/60 text-base sm:text-lg lg:text-xl max-w-lg leading-relaxed mb-9"
+          className="text-white/80 text-base sm:text-lg lg:text-xl max-w-lg leading-relaxed mb-9"
         >
           {content.sub.split('\n').map((line, i) => (
             <span key={i}>{line}{i < content.sub.split('\n').length - 1 && <br className="hidden sm:block" />}</span>
@@ -200,7 +200,7 @@ export function HeroSection({ bgUrl }: { bgUrl?: string | null }) {
             className="flex items-center gap-2.5 px-8 py-3.5 border border-white/25 hover:border-[#C9A84C] text-white hover:text-[#C9A84C] font-semibold text-sm rounded-full transition-all duration-300 hover:scale-105 active:scale-100 whitespace-nowrap backdrop-blur-sm"
           />
         </div>
-        <p className="text-white/35 text-xs mt-4">
+        <p className="text-white/65 text-xs mt-4">
           90%+ approval rate · No hidden fees · Results in 3–8 weeks
         </p>
       </div>

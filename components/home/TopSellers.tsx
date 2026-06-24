@@ -138,7 +138,7 @@ export default function TopSellers() {
   }, [])
 
   return (
-    <section className="py-24 lg:py-32 bg-[#FAF7F2]">
+    <section className="py-24 lg:py-32 bg-[#0B1F3A]">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
 
         {/* Header row */}
@@ -147,16 +147,16 @@ export default function TopSellers() {
             <p className="text-[#C9A84C] text-xs font-bold uppercase tracking-[0.3em] mb-3">
               Top Selling Packages
             </p>
-            <h2 className="font-display text-4xl lg:text-5xl text-[#0B1F3A] font-bold leading-tight mb-3">
+            <h2 className="font-display text-4xl lg:text-5xl text-white font-bold leading-tight mb-3">
               Popular Destinations
             </h2>
-            <p className="text-gray-500 text-base max-w-md">
+            <p className="text-white/60 text-base max-w-md">
               Our best-selling escapes — visa, flights and hotel handled.
             </p>
           </div>
           <Link
             href="/packages"
-            className="hidden md:inline-flex items-center gap-2 font-semibold text-[#0B1F3A] border-b-2 border-[#C9A84C] pb-1 hover:text-[#C9A84C] transition-colors whitespace-nowrap self-end text-sm"
+            className="hidden md:inline-flex items-center gap-2 font-semibold text-white/70 border-b-2 border-[#C9A84C] pb-1 hover:text-[#C9A84C] transition-colors whitespace-nowrap self-end text-sm"
           >
             View All Packages →
           </Link>
@@ -183,7 +183,7 @@ export default function TopSellers() {
         <div className="mt-10 md:hidden text-center">
           <Link
             href="/packages"
-            className="inline-block w-full max-w-sm px-8 py-4 rounded-2xl border-2 border-[#0B1F3A] text-[#0B1F3A] font-bold text-sm hover:bg-[#0B1F3A] hover:text-white transition-colors"
+            className="inline-block w-full max-w-sm px-8 py-4 rounded-2xl border-2 border-white/30 text-white font-bold text-sm hover:bg-white hover:text-[#0B1F3A] transition-colors"
           >
             View All Packages
           </Link>

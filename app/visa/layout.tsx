@@ -2,9 +2,8 @@ import type { Metadata } from 'next'
 import { StructuredData } from '@/components/StructuredData'
 
 export const metadata: Metadata = {
-  title: 'Visa Intelligence',
-  description:
-    'Check visa requirements for any passport and destination instantly. Walz Travels visa specialists achieve a 90%+ approval rate — expert preparation, document coaching and embassy follow-up.',
+  title: 'Visa Assistance | UK, Canada, UAE & Schengen | Walz Travels',
+  description: '90%+ visa approval rate. Expert visa processing for UK, Canada, UAE, USA and Schengen visas.',
   openGraph: {
     type: 'website',
     url: 'https://walztravels.com/visa',
