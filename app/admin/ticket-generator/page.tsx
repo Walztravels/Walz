@@ -10,6 +10,8 @@ import {
 } from 'lucide-react'
 import { TicketPreview } from '@/components/admin/TicketPreview'
 import { FlightTicketTemplate } from '@/components/ticket-generator/FlightTicketTemplate'
+import { HotelVoucherTemplate } from '@/components/ticket-generator/HotelVoucherTemplate'
+import type { HotelVoucher } from '@/components/ticket-generator/HotelVoucherTemplate'
 import type { FlightLeg as FlightLegType, Passenger as FlightPassenger, PricingBreakdown } from '@/types/flight-ticket'
 
 // ─── Ticket type config ────────────────────────────────────────────────────────
@@ -52,7 +54,17 @@ interface InclusionItem { included: boolean; note: string }
 
 interface ClientInfo  { name: string; email: string; phone: string }
 interface FlightData  { booking_ref: string; pnr: string; airline: string; flight_number: string; from_city: string; from_code: string; to_city: string; to_code: string; departure_date: string; departure_time: string; arrival_date: string; arrival_time: string; duration: string; cabin_class: string; seat_number: string; baggage_allowance: string; passport_number: string; additional_passengers: Passenger[] }
-interface HotelData   { booking_ref: string; hotel_name: string; hotel_address: string; hotel_phone: string; hotel_email: string; checkin_date: string; checkin_time: string; checkout_date: string; checkout_time: string; num_nights: string; room_type: string; num_guests: string; guest_names: string; confirmation_number: string; special_requests: string }
+interface HotelData {
+  booking_ref: string; hotel_name: string; hotel_address: string; hotel_phone: string; hotel_email: string
+  hotel_website: string; city: string; country: string; postcode: string; star_rating: string
+  checkin_date: string; checkin_time: string; checkout_date: string; checkout_time: string
+  num_nights: string; num_rooms: string; room_type: string; bed_type: string
+  board_basis: string; meal_plan: string
+  num_guests: string; guest_names: string; confirmation_number: string
+  total_price: string; currency: string; rate_description: string
+  cancellation_policy: string; cancellation_deadline: string
+  amenities: string[]; loyalty_number: string; special_requests: string; internal_notes: string
+}
 interface TourData    { booking_ref: string; tour_name: string; tour_operator: string; guide_name: string; tour_date: string; tour_time: string; duration: string; meeting_point: string; num_guests: string; guest_names: string; pickup_included: boolean; pickup_address: string; pickup_time: string; what_included: string; what_to_bring: string; emergency_contact: string }
 interface TransferData{ booking_ref: string; transfer_company: string; vehicle_type: string; driver_name: string; driver_phone: string; pickup_location: string; pickup_date: string; pickup_time: string; dropoff_location: string; flight_number: string; num_passengers: string; passenger_names: string; special_instructions: string }
 interface VisaData    { reference_number: string; visa_type: string; passport_number: string; appointment_date: string; appointment_time: string; appointment_location: string; vfs_address: string; contact_person: string; contact_phone: string; documents_to_bring: string }
@@ -82,7 +94,17 @@ const BLANK_FLIGHT_TICKET: FlightTicketData = {
   includePricing: false,
   pricing: { currency: 'USD', currencySymbol: '$', baseFare: 0, taxes: 0, total: 0, passengerCount: 1, grandTotal: 0, lineItems: [] },
 }
-const BLANK_HOTEL: HotelData = { booking_ref: '', hotel_name: '', hotel_address: '', hotel_phone: '', hotel_email: '', checkin_date: '', checkin_time: '14:00', checkout_date: '', checkout_time: '12:00', num_nights: '', room_type: '', num_guests: '1', guest_names: '', confirmation_number: '', special_requests: '' }
+const BLANK_HOTEL: HotelData = {
+  booking_ref: '', hotel_name: '', hotel_address: '', hotel_phone: '', hotel_email: '',
+  hotel_website: '', city: '', country: '', postcode: '', star_rating: '',
+  checkin_date: '', checkin_time: '14:00', checkout_date: '', checkout_time: '12:00',
+  num_nights: '', num_rooms: '1', room_type: '', bed_type: '',
+  board_basis: '', meal_plan: '',
+  num_guests: '1', guest_names: '', confirmation_number: '',
+  total_price: '', currency: 'GBP', rate_description: '',
+  cancellation_policy: '', cancellation_deadline: '',
+  amenities: [], loyalty_number: '', special_requests: '', internal_notes: '',
+}
 const BLANK_TOUR: TourData = { booking_ref: '', tour_name: '', tour_operator: '', guide_name: '', tour_date: '', tour_time: '', duration: '', meeting_point: '', num_guests: '1', guest_names: '', pickup_included: false, pickup_address: '', pickup_time: '', what_included: '', what_to_bring: '', emergency_contact: '' }
 const BLANK_TRANSFER: TransferData = { booking_ref: '', transfer_company: '', vehicle_type: 'Sedan', driver_name: '', driver_phone: '', pickup_location: '', pickup_date: '', pickup_time: '', dropoff_location: '', flight_number: '', num_passengers: '1', passenger_names: '', special_instructions: '' }
 const BLANK_VISA: VisaData = { reference_number: '', visa_type: 'Tourist', passport_number: '', appointment_date: '', appointment_time: '', appointment_location: '', vfs_address: '', contact_person: '', contact_phone: '', documents_to_bring: '' }
@@ -580,25 +602,58 @@ function FlightTicketStep({ d, set }: { d: FlightTicketData; set: (v: FlightTick
   )
 }
 
+const AMENITY_LIST = ['Free WiFi','Swimming Pool','Parking','Gym/Fitness','Spa','Restaurant','Bar','Airport Shuttle','Room Service','Air Conditioning'] as const
+const BOARD_BASIS_OPTIONS = ['Room Only','Bed & Breakfast','Half Board','Full Board','All Inclusive'] as const
+const BED_TYPE_OPTIONS    = ['King','Queen','Twin','Double','Single','Suite'] as const
+const CANCELLATION_OPTIONS = ['Free cancellation','Non-refundable','Partially refundable','Custom'] as const
+const CURRENCY_OPTIONS    = ['GBP','USD','EUR','NGN'] as const
+
 function HotelStep({ d, set }: { d: HotelData; set: (v: HotelData) => void }) {
+  function toggleAmenity(a: string) {
+    const cur = d.amenities ?? []
+    set({ ...d, amenities: cur.includes(a) ? cur.filter(x => x !== a) : [...cur, a] })
+  }
   return (
     <div className="space-y-4">
-      <Section title="Guest">
+
+      {/* ── Hotel Details ── */}
+      <Section title="Hotel Details">
+        <F label="Hotel Name" req><input className={base} placeholder="The Ritz London" value={d.hotel_name} onChange={e => set({ ...d, hotel_name: e.target.value })} /></F>
         <Row>
-          <F label="Number of Guests"><input className={base} type="number" min="1" value={d.num_guests} onChange={e => set({ ...d, num_guests: e.target.value })} /></F>
+          <F label="Star Rating">
+            <select className={base} value={d.star_rating} onChange={e => set({ ...d, star_rating: e.target.value })}>
+              <option value="">— select —</option>
+              {[1,2,3,4,5].map(n => <option key={n} value={String(n)}>{n} Star{'s'.repeat(+(n>1))}</option>)}
+            </select>
+          </F>
+          <F label="Hotel Website"><input className={base} placeholder="www.theritzlondon.com" value={d.hotel_website} onChange={e => set({ ...d, hotel_website: e.target.value })} /></F>
+        </Row>
+        <F label="Address"><input className={base} placeholder="150 Piccadilly" value={d.hotel_address} onChange={e => set({ ...d, hotel_address: e.target.value })} /></F>
+        <Row>
+          <F label="City"><input className={base} placeholder="London" value={d.city} onChange={e => set({ ...d, city: e.target.value })} /></F>
+          <F label="Country"><input className={base} placeholder="United Kingdom" value={d.country} onChange={e => set({ ...d, country: e.target.value })} /></F>
+        </Row>
+        <Row>
+          <F label="Postcode"><input className={base} placeholder="W1J 9BR" value={d.postcode} onChange={e => set({ ...d, postcode: e.target.value })} /></F>
           <F label="Confirmation No."><input className={base} placeholder="RES-123456" value={d.confirmation_number} onChange={e => set({ ...d, confirmation_number: e.target.value })} /></F>
         </Row>
-        <F label="Guest Names"><input className={base} placeholder="John Doe, Jane Doe" value={d.guest_names} onChange={e => set({ ...d, guest_names: e.target.value })} /></F>
-      </Section>
-      <Section title="Hotel">
-        <F label="Hotel Name" req><input className={base} placeholder="The Ritz London" value={d.hotel_name} onChange={e => set({ ...d, hotel_name: e.target.value })} /></F>
-        <F label="Address"><input className={base} placeholder="150 Piccadilly, London W1J 9BR" value={d.hotel_address} onChange={e => set({ ...d, hotel_address: e.target.value })} /></F>
         <Row>
           <F label="Phone"><input className={base} placeholder="+44 20 7493 8181" value={d.hotel_phone} onChange={e => set({ ...d, hotel_phone: e.target.value })} /></F>
           <F label="Email"><input className={base} type="email" placeholder="reservations@hotel.com" value={d.hotel_email} onChange={e => set({ ...d, hotel_email: e.target.value })} /></F>
         </Row>
       </Section>
-      <Section title="Stay">
+
+      {/* ── Guest Details ── */}
+      <Section title="Guest Details">
+        <Row>
+          <F label="Number of Guests"><input className={base} type="number" min="1" value={d.num_guests} onChange={e => set({ ...d, num_guests: e.target.value })} /></F>
+          <F label="Loyalty / Rewards No."><input className={base} placeholder="123456789" value={d.loyalty_number} onChange={e => set({ ...d, loyalty_number: e.target.value })} /></F>
+        </Row>
+        <F label="Guest Names"><input className={base} placeholder="John Doe, Jane Doe" value={d.guest_names} onChange={e => set({ ...d, guest_names: e.target.value })} /></F>
+      </Section>
+
+      {/* ── Stay Details ── */}
+      <Section title="Stay Details">
         <Row>
           <F label="Check-in Date" req><input className={base} type="date" value={d.checkin_date} onChange={e => set({ ...d, checkin_date: e.target.value })} /></F>
           <F label="Check-in Time"><input className={base} type="time" value={d.checkin_time} onChange={e => set({ ...d, checkin_time: e.target.value })} /></F>
@@ -609,12 +664,70 @@ function HotelStep({ d, set }: { d: HotelData; set: (v: HotelData) => void }) {
         </Row>
         <Row>
           <F label="Number of Nights"><input className={base} placeholder="7" value={d.num_nights} onChange={e => set({ ...d, num_nights: e.target.value })} /></F>
-          <F label="Room Type"><input className={base} placeholder="Deluxe Double" value={d.room_type} onChange={e => set({ ...d, room_type: e.target.value })} /></F>
+          <F label="Number of Rooms"><input className={base} type="number" min="1" placeholder="1" value={d.num_rooms} onChange={e => set({ ...d, num_rooms: e.target.value })} /></F>
         </Row>
+        <Row>
+          <F label="Board Basis">
+            <select className={base} value={d.board_basis} onChange={e => set({ ...d, board_basis: e.target.value })}>
+              <option value="">— select —</option>
+              {BOARD_BASIS_OPTIONS.map(o => <option key={o}>{o}</option>)}
+            </select>
+          </F>
+          <F label="Bed Type">
+            <select className={base} value={d.bed_type} onChange={e => set({ ...d, bed_type: e.target.value })}>
+              <option value="">— select —</option>
+              {BED_TYPE_OPTIONS.map(o => <option key={o}>{o}</option>)}
+            </select>
+          </F>
+        </Row>
+        <F label="Room Type"><input className={base} placeholder="Deluxe Junior Suite" value={d.room_type} onChange={e => set({ ...d, room_type: e.target.value })} /></F>
+        <F label="Meal Plan"><input className={base} placeholder="Continental breakfast daily" value={d.meal_plan} onChange={e => set({ ...d, meal_plan: e.target.value })} /></F>
+      </Section>
+
+      {/* ── Rate & Cancellation ── */}
+      <Section title="Rate & Cancellation">
+        <Row>
+          <F label="Total Price"><input className={base} placeholder="1500.00" value={d.total_price} onChange={e => set({ ...d, total_price: e.target.value })} /></F>
+          <F label="Currency">
+            <select className={base} value={d.currency} onChange={e => set({ ...d, currency: e.target.value })}>
+              {CURRENCY_OPTIONS.map(c => <option key={c}>{c}</option>)}
+            </select>
+          </F>
+        </Row>
+        <F label="Rate Description"><input className={base} placeholder="Non-refundable advance purchase rate" value={d.rate_description} onChange={e => set({ ...d, rate_description: e.target.value })} /></F>
+        <Row>
+          <F label="Cancellation Policy">
+            <select className={base} value={d.cancellation_policy} onChange={e => set({ ...d, cancellation_policy: e.target.value })}>
+              <option value="">— select —</option>
+              {CANCELLATION_OPTIONS.map(o => <option key={o}>{o}</option>)}
+            </select>
+          </F>
+          <F label="Cancellation Deadline"><input className={base} type="date" value={d.cancellation_deadline} onChange={e => set({ ...d, cancellation_deadline: e.target.value })} /></F>
+        </Row>
+      </Section>
+
+      {/* ── Amenities ── */}
+      <Section title="Amenities">
+        <div className="grid grid-cols-2 gap-2">
+          {AMENITY_LIST.map(a => (
+            <label key={a} className="flex items-center gap-2 text-xs text-gray-700 cursor-pointer select-none">
+              <input type="checkbox" className="rounded" checked={(d.amenities ?? []).includes(a)} onChange={() => toggleAmenity(a)} />
+              {a}
+            </label>
+          ))}
+        </div>
+      </Section>
+
+      {/* ── Special Requests & Internal Notes ── */}
+      <Section title="Additional">
         <F label="Special Requests">
-          <textarea className={base + ' resize-none'} rows={2} placeholder="High floor, sea view..." value={d.special_requests} onChange={e => set({ ...d, special_requests: e.target.value })} />
+          <textarea className={base + ' resize-none'} rows={2} placeholder="High floor, sea view, anniversary setup..." value={d.special_requests} onChange={e => set({ ...d, special_requests: e.target.value })} />
+        </F>
+        <F label="Internal Notes (not printed)">
+          <textarea className={base + ' resize-none'} rows={2} placeholder="Agent notes — NOT included in the voucher..." value={d.internal_notes} onChange={e => set({ ...d, internal_notes: e.target.value })} />
         </F>
       </Section>
+
     </div>
   )
 }
@@ -967,12 +1080,78 @@ function buildPayload(ticketType: string, client: ClientInfo, message: string, f
       ...(flightTicket.includePricing ? { pricing: flightTicket.pricing } : {}),
     }
   }
-  if (ticketType === 'hotel')    return { ...base, num_guests: hotel.num_guests, guest_names: hotel.guest_names, hotel_name: hotel.hotel_name, hotel_address: hotel.hotel_address, hotel_phone: hotel.hotel_phone, hotel_email: hotel.hotel_email, checkin_date: hotel.checkin_date, checkin_time: hotel.checkin_time, checkout_date: hotel.checkout_date, checkout_time: hotel.checkout_time, num_nights: hotel.num_nights, room_type: hotel.room_type, confirmation_number: hotel.confirmation_number, special_requests: hotel.special_requests }
+  if (ticketType === 'hotel') return {
+    ...base,
+    // Hotel
+    hotel_name: hotel.hotel_name, hotel_address: hotel.hotel_address,
+    hotel_phone: hotel.hotel_phone, hotel_email: hotel.hotel_email,
+    hotel_website: hotel.hotel_website, city: hotel.city, country: hotel.country,
+    postcode: hotel.postcode, star_rating: hotel.star_rating,
+    // Stay
+    checkin_date: hotel.checkin_date, checkin_time: hotel.checkin_time,
+    checkout_date: hotel.checkout_date, checkout_time: hotel.checkout_time,
+    num_nights: hotel.num_nights, num_rooms: hotel.num_rooms,
+    room_type: hotel.room_type, bed_type: hotel.bed_type,
+    board_basis: hotel.board_basis, meal_plan: hotel.meal_plan,
+    // Guest
+    num_guests: hotel.num_guests, guest_names: hotel.guest_names,
+    confirmation_number: hotel.confirmation_number, loyalty_number: hotel.loyalty_number,
+    // Rate
+    total_price: hotel.total_price, currency: hotel.currency,
+    rate_description: hotel.rate_description, cancellation_policy: hotel.cancellation_policy,
+    cancellation_deadline: hotel.cancellation_deadline,
+    // Additional
+    amenities: hotel.amenities, special_requests: hotel.special_requests,
+    // internal_notes intentionally omitted from payload
+  }
   if (ticketType === 'tour')     return { ...base, num_guests: tour.num_guests, guest_names: tour.guest_names, tour_name: tour.tour_name, tour_operator: tour.tour_operator, guide_name: tour.guide_name, tour_date: tour.tour_date, tour_time: tour.tour_time, duration: tour.duration, meeting_point: tour.meeting_point, pickup_included: tour.pickup_included ? 'yes' : 'no', pickup_address: tour.pickup_address, pickup_time: tour.pickup_time, what_included: tour.what_included, what_to_bring: tour.what_to_bring, emergency_contact: tour.emergency_contact, booking_reference: tour.booking_ref }
   if (ticketType === 'transfer') return { ...base, num_passengers: transfer.num_passengers, passenger_names: transfer.passenger_names, transfer_company: transfer.transfer_company, vehicle_type: transfer.vehicle_type, driver_name: transfer.driver_name, driver_phone: transfer.driver_phone, pickup_location: transfer.pickup_location, pickup_date: transfer.pickup_date, pickup_time: transfer.pickup_time, dropoff_location: transfer.dropoff_location, flight_number: transfer.flight_number, booking_reference: transfer.booking_ref, special_instructions: transfer.special_instructions }
   if (ticketType === 'visa')     return { ...base, visa_type: visa.visa_type, reference_number: visa.reference_number, passport_number: visa.passport_number, appointment_date: visa.appointment_date, appointment_time: visa.appointment_time, appointment_location: visa.appointment_location, vfs_address: visa.vfs_address, contact_person: visa.contact_person, contact_phone: visa.contact_phone, documents_to_bring: visa.documents_to_bring }
   if (ticketType === 'package')  return { ...base, num_travellers: pkg.num_travellers, traveller_names: pkg.traveller_names, package_name: pkg.package_name, destination: pkg.destination, package_reference: pkg.package_reference, travel_from: pkg.travel_from, travel_to: pkg.travel_to, inclusions: pkg.inclusions, total_value: pkg.total_value, amount_paid: pkg.amount_paid, currency: pkg.currency, payment_due_date: pkg.payment_due_date }
   return base
+}
+
+// ─── Build hotel voucher for HotelVoucherTemplate ─────────────────────────────
+
+function buildVoucherFromState(hotel: HotelData, client: ClientInfo, message: string): HotelVoucher {
+  return {
+    ticket_reference:    'WLZ-PREVIEW',
+    issue_date:          new Date().toISOString().split('T')[0],
+    client_name:         client.name  || 'Guest Name',
+    client_email:        client.email || undefined,
+    client_phone:        client.phone || undefined,
+    num_guests:          hotel.num_guests   || undefined,
+    guest_names:         hotel.guest_names  || undefined,
+    hotel_name:          hotel.hotel_name   || 'Hotel Name',
+    hotel_address:       hotel.hotel_address || undefined,
+    hotel_phone:         hotel.hotel_phone   || undefined,
+    hotel_email:         hotel.hotel_email   || undefined,
+    hotel_website:       hotel.hotel_website || undefined,
+    star_rating:         hotel.star_rating ? parseInt(hotel.star_rating) : undefined,
+    city:                hotel.city     || undefined,
+    country:             hotel.country  || undefined,
+    postcode:            hotel.postcode || undefined,
+    checkin_date:        hotel.checkin_date  || '',
+    checkin_time:        hotel.checkin_time  || '14:00',
+    checkout_date:       hotel.checkout_date || '',
+    checkout_time:       hotel.checkout_time || '12:00',
+    num_nights:          hotel.num_nights || undefined,
+    num_rooms:           hotel.num_rooms  || undefined,
+    room_type:           hotel.room_type  || undefined,
+    bed_type:            hotel.bed_type   || undefined,
+    board_basis:         hotel.board_basis || undefined,
+    meal_plan:           hotel.meal_plan   || undefined,
+    total_price:         hotel.total_price || undefined,
+    currency:            hotel.currency    || 'GBP',
+    rate_description:    hotel.rate_description  || undefined,
+    cancellation_policy: hotel.cancellation_policy || undefined,
+    cancellation_deadline: hotel.cancellation_deadline || undefined,
+    amenities:           hotel.amenities?.length ? hotel.amenities : undefined,
+    loyalty_number:      hotel.loyalty_number || undefined,
+    special_requests:    hotel.special_requests || undefined,
+    confirmation_number: hotel.confirmation_number || undefined,
+    agent_message:       message || undefined,
+  }
 }
 
 // ─── Build preview data ────────────────────────────────────────────────────────
@@ -1155,6 +1334,15 @@ export default function TicketGeneratorPage() {
                     <Printer className="w-3 h-3" /> Print
                   </button>
                 )}
+                {ticketType === 'hotel' && (
+                  <button
+                    type="button"
+                    onClick={() => window.print()}
+                    className="flex items-center gap-1.5 px-2.5 py-1.5 text-[10px] font-bold text-[#15803D] border border-[#15803D] rounded-lg hover:bg-[#15803D] hover:text-white transition"
+                  >
+                    <Download className="w-3 h-3" /> Download Voucher PDF
+                  </button>
+                )}
                 {ticketType && (
                   <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-[#C9A84C]/15 border border-[#C9A84C]/30">
                     <div className="w-1.5 h-1.5 rounded-full bg-[#C9A84C] animate-pulse" />
@@ -1196,6 +1384,38 @@ export default function TicketGeneratorPage() {
                     reference="WLZ-PREVIEW"
                     bookingDate={flightTicket.bookingDate || new Date().toISOString().split('T')[0]}
                     agentMessage={message || undefined}
+                    mode="preview"
+                  />
+                </div>
+              </>
+            ) : ticketType === 'hotel' ? (
+              <>
+                {/* Print CSS for hotel voucher */}
+                <style>{`
+                  @media print {
+                    body * { visibility: hidden !important; }
+                    #hotel-voucher-print-area, #hotel-voucher-print-area * { visibility: visible !important; }
+                    #hotel-voucher-print-area {
+                      position: fixed !important;
+                      left: 0 !important; top: 0 !important;
+                      width: 100% !important;
+                      margin: 0 !important; padding: 0 !important;
+                    }
+                    @page { size: A4 portrait; margin: 8mm; }
+                    * {
+                      -webkit-print-color-adjust: exact !important;
+                      print-color-adjust: exact !important;
+                      color-adjust: exact !important;
+                    }
+                    #hotel-voucher-print-area img {
+                      display: block !important;
+                      max-width: 100% !important;
+                    }
+                  }
+                `}</style>
+                <div className="rounded-xl border border-gray-200 shadow-xl bg-white overflow-hidden">
+                  <HotelVoucherTemplate
+                    voucher={buildVoucherFromState(hotel, client, message)}
                     mode="preview"
                   />
                 </div>

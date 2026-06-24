@@ -812,17 +812,36 @@ function FlightBody({ d }: { d: Record<string, unknown> }) {
 
 // ── Hotel body ────────────────────────────────────────────────────────────────
 function HotelBody({ d }: { d: Record<string, unknown> }) {
+  const stars      = d.star_rating ? Number(d.star_rating) : 0
+  const amenities  = (d.amenities as string[] | undefined) ?? []
+  const fullAddr   = [d.hotel_address, d.city, d.postcode, d.country].filter(Boolean).join(', ')
+  const cancPolicy = d.cancellation_policy as string | undefined
+  const cancColor  = cancPolicy === 'Free cancellation' ? '#16A34A' : cancPolicy === 'Non-refundable' ? '#DC2626' : cancPolicy === 'Partially refundable' ? '#D97706' : NAVY
+  const cancBg     = cancPolicy === 'Free cancellation' ? '#F0FDF4' : cancPolicy === 'Non-refundable' ? '#FEF2F2' : cancPolicy === 'Partially refundable' ? '#FFFBEB' : LGREY
+
   return (
     <View style={s.body}>
-      <SectionTitle>Guest Details</SectionTitle>
-      <FieldRow pairs={[['Guest Name', d.client_name as string], ['Number of Guests', d.num_guests as string]]} />
-      {d.guest_names && <Field label="Guest Names" value={d.guest_names as string} />}
 
-      <SectionTitle>Hotel Information</SectionTitle>
-      <Field label="Hotel Name"  value={d.hotel_name    as string} />
-      <Field label="Address"     value={d.hotel_address as string} />
-      <FieldRow pairs={[['Hotel Phone', d.hotel_phone as string], ['Hotel Email', d.hotel_email as string]]} />
+      {/* Confirmed banner */}
+      <View style={{ backgroundColor: '#F0FDF4', borderRadius: 6, padding: 10, marginBottom: 14, alignItems: 'center' }}>
+        <Text style={{ fontSize: 11, fontFamily: 'Helvetica-Bold', color: '#16A34A', letterSpacing: 1 }}>
+          BOOKING CONFIRMED{d.confirmation_number ? `  ·  Conf: ${d.confirmation_number}` : ''}
+        </Text>
+      </View>
 
+      {/* Hotel identity */}
+      <SectionTitle>Hotel</SectionTitle>
+      <Field label="Hotel Name" value={d.hotel_name as string} />
+      {stars > 0 && (
+        <Text style={[s.fieldValue, { color: '#C9A84C', marginBottom: 6 }]}>
+          {'★'.repeat(stars)}{'☆'.repeat(5 - stars)}
+        </Text>
+      )}
+      {fullAddr && <Field label="Address" value={fullAddr} />}
+      <FieldRow pairs={[['Phone', d.hotel_phone as string], ['Email', d.hotel_email as string]]} />
+      {d.hotel_website && <Field label="Website" value={d.hotel_website as string} />}
+
+      {/* Stay */}
       <SectionTitle>Stay Details</SectionTitle>
       <View style={s.row}>
         <View style={[s.bigHighlight, { flex: 1 }]}>
@@ -830,15 +849,53 @@ function HotelBody({ d }: { d: Record<string, unknown> }) {
           <Text style={s.bigValue}>{d.checkin_date as string}</Text>
           <Text style={[s.fieldLabel, { marginTop: 4 }]}>From {d.checkin_time ?? '14:00'}</Text>
         </View>
-        <View style={[s.bigHighlight, { flex: 1, marginLeft: 16 }]}>
+        <View style={{ width: 40, alignItems: 'center', justifyContent: 'center' }}>
+          <Text style={{ fontSize: 10, fontFamily: 'Helvetica-Bold', color: WHITE, backgroundColor: NAVY, borderRadius: 20, padding: 4 }}>
+            {d.num_nights ? `${d.num_nights}N` : '—'}
+          </Text>
+        </View>
+        <View style={[s.bigHighlight, { flex: 1 }]}>
           <Text style={s.bigLabel}>CHECK OUT</Text>
           <Text style={s.bigValue}>{d.checkout_date as string}</Text>
           <Text style={[s.fieldLabel, { marginTop: 4 }]}>By {d.checkout_time ?? '12:00'}</Text>
         </View>
       </View>
-      <FieldRow pairs={[['Nights', d.num_nights as string], ['Room Type', d.room_type as string], ['Rooms', d.num_rooms as string]]} />
-      <GoldBox title="Confirmation Number" text={d.confirmation_number as string ?? '—'} />
-      {d.special_requests && <GoldBox title="Special Requests"       text={d.special_requests as string} />}
+      <FieldRow pairs={[['Rooms', d.num_rooms as string], ['Room Type', d.room_type as string], ['Bed Type', d.bed_type as string]]} />
+      <FieldRow pairs={[['Board Basis', d.board_basis as string], ['Meal Plan', d.meal_plan as string]]} />
+
+      {/* Guest */}
+      <SectionTitle>Guest Details</SectionTitle>
+      <FieldRow pairs={[['Lead Guest', d.client_name as string], ['Guests', d.num_guests as string]]} />
+      {d.guest_names    && <Field label="Guest Names"          value={d.guest_names as string} />}
+      {d.loyalty_number && <Field label="Loyalty / Rewards No." value={d.loyalty_number as string} />}
+
+      {/* Rate */}
+      {(d.total_price || d.cancellation_policy) && (
+        <>
+          <SectionTitle>Rate &amp; Cancellation</SectionTitle>
+          {d.total_price && (
+            <FieldRow pairs={[['Total Price', `${d.currency ?? 'GBP'} ${d.total_price}`], ['Rate', d.rate_description as string]]} />
+          )}
+          {cancPolicy && (
+            <View style={{ backgroundColor: cancBg, borderRadius: 6, padding: 10, marginVertical: 6, borderColor: cancColor, borderWidth: 1 }}>
+              <Text style={{ fontSize: 10, fontFamily: 'Helvetica-Bold', color: cancColor }}>{cancPolicy}</Text>
+              {d.cancellation_deadline && (
+                <Text style={{ fontSize: 9, color: GREY, marginTop: 2 }}>Deadline: {d.cancellation_deadline as string}</Text>
+              )}
+            </View>
+          )}
+        </>
+      )}
+
+      {/* Amenities */}
+      {amenities.length > 0 && (
+        <>
+          <SectionTitle>Amenities</SectionTitle>
+          <Text style={{ fontSize: 9, color: NAVY, lineHeight: 1.6 }}>{amenities.join('  ·  ')}</Text>
+        </>
+      )}
+
+      {d.special_requests && <GoldBox title="Special Requests"        text={d.special_requests as string} />}
       {d.message           && <GoldBox title="Message from Walz Travels" text={d.message as string} />}
       <TermsPDFSection />
     </View>
