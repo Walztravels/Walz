@@ -88,12 +88,12 @@ function PassengerDropdown({ value, onChange, onClose }: { value: PassengerCount
           <div className="flex items-center gap-3">
             <button type="button" onClick={() => adjust(key, -1)}
               disabled={value[key] <= (key === 'adults' ? 1 : 0)}
-              className="w-8 h-8 rounded-full border border-[#0B1F3A]/10 flex items-center justify-center text-[#0B1F3A]/60 hover:border-[#C9A84C] hover:text-[#C9A84C] transition-all disabled:opacity-30 disabled:cursor-not-allowed">
+              className="w-11 h-11 rounded-full border border-[#0B1F3A]/10 flex items-center justify-center text-[#0B1F3A]/60 hover:border-[#C9A84C] hover:text-[#C9A84C] transition-all disabled:opacity-30 disabled:cursor-not-allowed">
               −
             </button>
             <span className="w-5 text-center text-sm font-semibold text-[#0B1F3A]">{value[key]}</span>
             <button type="button" onClick={() => adjust(key, 1)}
-              className="w-8 h-8 rounded-full border border-[#0B1F3A]/10 flex items-center justify-center text-[#0B1F3A]/60 hover:border-[#C9A84C] hover:text-[#C9A84C] transition-all">
+              className="w-11 h-11 rounded-full border border-[#0B1F3A]/10 flex items-center justify-center text-[#0B1F3A]/60 hover:border-[#C9A84C] hover:text-[#C9A84C] transition-all">
               +
             </button>
           </div>
@@ -202,7 +202,7 @@ export function FlightSearchWidget() {
           {/* Passengers — top row so it never gets squished */}
           <div className="relative" ref={paxRef}>
             <button type="button" onClick={() => { setShowPax(!showPax); setShowCabin(false) }}
-              className="flex items-center gap-2 px-4 py-2 rounded-xl border border-[#0B1F3A]/10 text-sm font-medium text-[#0B1F3A] hover:bg-[#F5F2EE] transition-all">
+              className="flex items-center gap-2 px-4 py-2.5 min-h-[44px] rounded-xl border border-[#0B1F3A]/10 text-sm font-medium text-[#0B1F3A] hover:bg-[#F5F2EE] transition-all">
               <svg className="w-4 h-4 text-[#0B1F3A]/40" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 20h5v-2a3 3 0 0 0-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 0 1 5.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 0 1 9.288 0M15 7a3 3 0 1 1-6 0 3 3 0 0 1 6 0z" />
               </svg>
@@ -217,7 +217,7 @@ export function FlightSearchWidget() {
           {/* Cabin */}
           <div className="relative" ref={cabinRef}>
             <button type="button" onClick={() => { setShowCabin(!showCabin); setShowPax(false) }}
-              className="flex items-center gap-2 px-4 py-2 rounded-xl border border-[#0B1F3A]/10 text-sm font-medium text-[#0B1F3A] hover:bg-[#F5F2EE] transition-all">
+              className="flex items-center gap-2 px-4 py-2.5 min-h-[44px] rounded-xl border border-[#0B1F3A]/10 text-sm font-medium text-[#0B1F3A] hover:bg-[#F5F2EE] transition-all">
               ✈️ {CABIN_LABELS[cabin]}
               <svg className="w-3 h-3 text-[#0B1F3A]/40" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="m19 9-7 7-7-7" />
@@ -266,7 +266,7 @@ export function FlightSearchWidget() {
         {/* SWAP */}
         <div className="lg:col-span-1 flex items-end justify-center pb-1">
           <button type="button" onClick={swapRoute}
-            className="w-10 h-10 rounded-full border border-[#0B1F3A]/10 bg-white flex items-center justify-center hover:border-[#C9A84C] hover:text-[#C9A84C] transition-all group"
+            className="w-11 h-11 rounded-full border border-[#0B1F3A]/10 bg-white flex items-center justify-center hover:border-[#C9A84C] hover:text-[#C9A84C] transition-all group"
             aria-label="Swap airports">
             <svg className="w-4 h-4 text-[#0B1F3A]/40 group-hover:text-[#C9A84C] transition-colors" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 16V4m0 0L3 8m4-4 4 4M17 8v12m0 0 4-4m-4 4-4-4" />

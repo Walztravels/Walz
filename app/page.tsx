@@ -117,7 +117,7 @@ export default function HomePage() {
               <p className="text-amber-400 text-xs uppercase tracking-[0.2em] font-medium mb-3">
                 FEATURED DESTINATIONS
               </p>
-              <h2 className="text-white text-4xl md:text-5xl font-bold leading-tight">
+              <h2 className="text-white text-3xl md:text-4xl lg:text-5xl font-bold leading-tight">
                 Where will<br />you go next?
               </h2>
             </div>
@@ -130,7 +130,7 @@ export default function HomePage() {
             </Link>
           </div>
 
-          <div className="grid grid-cols-3 gap-4">
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
             {destinations.map((dest) => (
               <div
                 key={dest.city}
@@ -497,7 +497,7 @@ export default function HomePage() {
       <section className="py-24 px-4 bg-gradient-to-br from-[#0d1e35] to-[#0a1628] border-t border-white/5">
         <div className="max-w-2xl mx-auto text-center">
           <p className="text-amber-400 text-xs uppercase tracking-[0.2em] mb-4">READY TO TRAVEL?</p>
-          <h2 className="text-white text-4xl md:text-5xl font-bold mb-5 leading-tight">
+          <h2 className="text-white text-3xl md:text-4xl lg:text-5xl font-bold mb-5 leading-tight">
             Let&apos;s plan your<br />
             <span className="text-amber-400">perfect trip.</span>
           </h2>

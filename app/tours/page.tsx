@@ -434,9 +434,11 @@ export default function ToursPage() {
             <p className="text-sm">Check back shortly or contact us to discuss a private tour.</p>
           </div>
         ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+          <div className="flex sm:grid sm:grid-cols-2 lg:grid-cols-3 gap-6 overflow-x-auto sm:overflow-x-visible pb-4 sm:pb-0 -mx-4 sm:mx-0 px-4 sm:px-0 snap-x snap-mandatory">
             {tours.map((tour, index) => (
-              <TourCard key={tour.id} tour={tour} index={index} />
+              <div key={tour.id} className="flex-none w-[78vw] max-w-[300px] sm:w-auto sm:max-w-none snap-start">
+                <TourCard tour={tour} index={index} />
+              </div>
             ))}
           </div>
         )}

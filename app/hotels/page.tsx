@@ -517,7 +517,7 @@ function HotelsPageContent() {
           </div>
 
           {/* Headline */}
-          <h1 className="text-5xl sm:text-6xl md:text-7xl font-bold leading-[1.05] mb-4">
+          <h1 className="text-4xl sm:text-5xl md:text-6xl lg:text-7xl font-bold leading-[1.05] mb-4">
             <span className="block text-white">Every Hotel.</span>
             <span className="block text-[#C9A84C]">Every City.</span>
             <span className="block text-white/50">Every Budget.</span>
@@ -579,11 +579,11 @@ function HotelsPageContent() {
                   <span className="text-white text-sm">{guests} Adult{guests > 1 ? 's' : ''}</span>
                   <div className="flex items-center gap-2">
                     <button type="button" onClick={() => setGuests(g => Math.max(1, g - 1))}
-                      className="w-7 h-7 rounded-lg bg-white/10 text-white flex items-center justify-center hover:bg-white/20 transition-all text-base leading-none select-none">
+                      className="w-11 h-11 rounded-lg bg-white/10 text-white flex items-center justify-center hover:bg-white/20 transition-all text-base leading-none select-none">
                       −
                     </button>
                     <button type="button" onClick={() => setGuests(g => Math.min(10, g + 1))}
-                      className="w-7 h-7 rounded-lg bg-white/10 text-white flex items-center justify-center hover:bg-white/20 transition-all text-base leading-none select-none">
+                      className="w-11 h-11 rounded-lg bg-white/10 text-white flex items-center justify-center hover:bg-white/20 transition-all text-base leading-none select-none">
                       +
                     </button>
                   </div>
@@ -595,11 +595,11 @@ function HotelsPageContent() {
                   <span className="text-white text-sm">{rooms} Room{rooms > 1 ? 's' : ''}</span>
                   <div className="flex items-center gap-2">
                     <button type="button" onClick={() => setRooms(r => Math.max(1, r - 1))}
-                      className="w-7 h-7 rounded-lg bg-white/10 text-white flex items-center justify-center hover:bg-white/20 transition-all text-base leading-none select-none">
+                      className="w-11 h-11 rounded-lg bg-white/10 text-white flex items-center justify-center hover:bg-white/20 transition-all text-base leading-none select-none">
                       −
                     </button>
                     <button type="button" onClick={() => setRooms(r => Math.min(10, r + 1))}
-                      className="w-7 h-7 rounded-lg bg-white/10 text-white flex items-center justify-center hover:bg-white/20 transition-all text-base leading-none select-none">
+                      className="w-11 h-11 rounded-lg bg-white/10 text-white flex items-center justify-center hover:bg-white/20 transition-all text-base leading-none select-none">
                       +
                     </button>
                   </div>
@@ -647,7 +647,7 @@ function HotelsPageContent() {
               <p className="text-[#C9A84C] text-xs uppercase tracking-widest font-medium mb-2">TOP DESTINATIONS</p>
               <h2 className="text-white text-3xl font-bold">Where to next?</h2>
             </div>
-            <div className="grid grid-cols-3 gap-4">
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
               {(featuredDests.length > 0 ? featuredDests : FALLBACK_FEATURED).map(dest => {
                 const code = DESTINATIONS.find(d => d.city.toLowerCase() === dest.city.toLowerCase())?.code ?? ''
                 return (

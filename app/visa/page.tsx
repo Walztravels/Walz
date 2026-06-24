@@ -442,7 +442,7 @@ export default function VisaPage() {
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-6 sm:gap-4">
             {TRUST.map(({ icon: Icon, value, label }) => (
               <div key={label} className="flex items-center gap-3">
-                <div className="w-9 h-9 rounded-lg bg-[#C9A84C]/15 flex items-center justify-center flex-shrink-0">
+                <div className="w-11 h-11 rounded-lg bg-[#C9A84C]/15 flex items-center justify-center flex-shrink-0">
                   <Icon className="w-4 h-4 text-[#C9A84C]" />
                 </div>
                 <div>
@@ -477,7 +477,7 @@ export default function VisaPage() {
               <button
                 key={label}
                 onClick={() => { setPassport(from); setDestination(to) }}
-                className="text-xs font-semibold px-3 py-1.5 rounded-full bg-white/10 hover:bg-[#C9A84C]/20 border border-white/20 hover:border-[#C9A84C]/50 text-white/70 hover:text-white transition-all"
+                className="text-xs font-semibold px-3 py-2.5 min-h-[44px] rounded-full bg-white/10 hover:bg-[#C9A84C]/20 border border-white/20 hover:border-[#C9A84C]/50 text-white/70 hover:text-white transition-all"
               >
                 {label}
               </button>

@@ -223,7 +223,7 @@ export function Navbar() {
             <nav className="hidden lg:flex items-center gap-1">
               {navLinks.map(({ href, label, icon: Icon }) => (
                 <Link key={href} href={href}
-                  className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-walz-muted hover:text-walz-gold hover:bg-walz-slate/50 transition-all text-sm font-medium tracking-wide">
+                  className="flex items-center gap-1.5 px-4 py-2.5 rounded-lg text-walz-muted hover:text-walz-gold hover:bg-walz-slate/50 transition-all text-sm font-medium tracking-wide">
                   <Icon className="w-[15px] h-[15px] flex-shrink-0" strokeWidth={1.5} />
                   {label}
                 </Link>
@@ -414,7 +414,7 @@ export function Navbar() {
             </div>
 
             {/* Mobile Menu Button */}
-            <button className="lg:hidden p-2 rounded-lg text-walz-muted hover:text-walz-white hover:bg-walz-slate/50 transition-colors"
+            <button className="lg:hidden w-11 h-11 flex items-center justify-center rounded-lg text-walz-muted hover:text-walz-white hover:bg-walz-slate/50 transition-colors"
               onClick={() => setIsMobileOpen(v => !v)} aria-label="Toggle menu">
               {isMobileOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
             </button>
@@ -440,7 +440,7 @@ export function Navbar() {
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img src={logoUrl} alt="Walz Travels" className="h-9 w-auto min-w-[90px] max-w-[140px] object-contain brightness-0 invert" />
             </Link>
-            <button onClick={() => setIsMobileOpen(false)} className="p-1 rounded text-walz-muted hover:text-walz-white">
+            <button onClick={() => setIsMobileOpen(false)} className="w-11 h-11 flex items-center justify-center rounded text-walz-muted hover:text-walz-white">
               <X className="w-5 h-5" />
             </button>
           </div>
