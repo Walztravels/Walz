@@ -45,33 +45,42 @@ function PaymentForm({ grand, intentId }: { grand: number; intentId: string }) {
 
     if (paymentIntent?.status === 'succeeded' || intentId === 'pi_dev_mock') {
       try {
-        const leadPax = passengers[0]
+        const lead = passengers[0]
+        const segs = selected?.segments ?? []
         const res = await fetch('/api/flights/book', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
-            offerId:               selected?.id ?? 'mock_offer',
-            passengers:            passengers.map((p, i) => ({
-              id:          `pax_${i + 1}`,
-              given_name:  p.firstName,
-              family_name: p.lastName,
-              born_on:     p.dob,
-              gender:      'm',
-              title:       p.title.toLowerCase(),
-              email:       p.email ?? '',
+            offerId:       selected?.id ?? '',
+            clientName:    `${lead?.firstName ?? ''} ${lead?.lastName ?? ''}`.trim(),
+            clientEmail:   lead?.email ?? '',
+            clientPhone:   lead?.phone ?? '',
+            passengers:    passengers.map((p, i) => ({
+              id:           `pax_${i + 1}`,
+              given_name:   p.firstName,
+              family_name:  p.lastName,
+              born_on:      p.dob,
+              gender:       'm',
+              title:        p.title.toLowerCase(),
+              email:        p.email ?? '',
               phone_number: p.phone ?? '',
             })),
-            services:              seats.map(s => s.seatNumber),
-            stripePaymentIntentId: paymentIntent?.id ?? intentId,
-            passengerEmail:        leadPax?.email ?? '',
-            passengerName:         `${leadPax?.firstName ?? ''} ${leadPax?.lastName ?? ''}`.trim(),
+            paidAmount:    String(grand),
+            currency:      'GBP',
+            paymentMethod: 'stripe',
+            paymentRef:    paymentIntent?.id ?? intentId,
+            searchedOrigin: segs[0]?.departureIata ?? '',
+            searchedDest:   segs[segs.length - 1]?.arrivalIata ?? '',
+            departDate:     segs[0]?.departureTime?.split('T')[0] ?? '',
+            cabinClass:     selected?.segments[0]?.cabinClass?.toLowerCase() ?? 'economy',
+            tripType:       selected?.returnSegments?.length ? 'round_trip' : 'one_way',
           }),
         })
 
         const data = await res.json()
-        if (data.bookingRef) {
-          setConfirmed(data.bookingRef, data.orderId ?? '')
-          router.push(`/flights/confirmation?ref=${data.bookingRef}`)
+        if (data.reference) {
+          setConfirmed(data.reference, data.bookingId ?? '')
+          router.push(`/flights/confirmation?ref=${data.reference}`)
         } else {
           setError(data.error ?? 'Booking failed')
         }
@@ -156,34 +165,43 @@ function FlutterwaveCheckout({ grand }: { grand: number }) {
         if (response.status === 'successful' || response.status === 'completed') {
           setProcessing(true)
           try {
+            const segs = selected?.segments ?? []
             const res = await fetch('/api/flights/book', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({
-                offerId:          selected?.id ?? 'mock_offer',
-                passengers:       passengers.map((p, i) => ({
-                  id:          `pax_${i + 1}`,
-                  given_name:  p.firstName,
-                  family_name: p.lastName,
-                  born_on:     p.dob,
-                  gender:      'm',
-                  title:       p.title.toLowerCase(),
-                  email:       p.email ?? '',
+                offerId:       selected?.id ?? '',
+                clientName:    `${lead?.firstName ?? ''} ${lead?.lastName ?? ''}`.trim(),
+                clientEmail:   lead?.email ?? '',
+                clientPhone:   lead?.phone ?? '',
+                passengers:    passengers.map((p, i) => ({
+                  id:           `pax_${i + 1}`,
+                  given_name:   p.firstName,
+                  family_name:  p.lastName,
+                  born_on:      p.dob,
+                  gender:       'm',
+                  title:        p.title.toLowerCase(),
+                  email:        p.email ?? '',
                   phone_number: p.phone ?? '',
                 })),
-                services:         [],
-                flwTransactionId: String(response.transaction_id),
-                passengerEmail:   lead?.email ?? '',
-                passengerName:    `${lead?.firstName ?? ''} ${lead?.lastName ?? ''}`.trim(),
+                paidAmount:    String(grand),
+                currency:      'GBP',
+                paymentMethod: 'flutterwave',
+                paymentRef:    String(response.transaction_id),
+                searchedOrigin: segs[0]?.departureIata ?? '',
+                searchedDest:   segs[segs.length - 1]?.arrivalIata ?? '',
+                departDate:     segs[0]?.departureTime?.split('T')[0] ?? '',
+                cabinClass:     segs[0]?.cabinClass?.toLowerCase() ?? 'economy',
+                tripType:       selected?.returnSegments?.length ? 'round_trip' : 'one_way',
               }),
             })
             const data = await res.json()
-            if (data.bookingRef) {
-              setConfirmed(data.bookingRef, data.orderId ?? '')
-              router.push(`/flights/confirmation?ref=${data.bookingRef}`)
+            if (data.reference) {
+              setConfirmed(data.reference, data.bookingId ?? '')
+              router.push(`/flights/confirmation?ref=${data.reference}`)
             }
           } catch {
-            console.error('Booking call failed')
+            console.error('[flw] Booking call failed')
           } finally {
             setProcessing(false)
           }
@@ -261,10 +279,10 @@ function MockCheckout({ grand }: { grand: number }) {
 
   async function handlePay() {
     setProcessing(true)
-    await new Promise(r => setTimeout(r, 1500))
-    const ref    = 'WLZ' + Math.random().toString(36).slice(2, 7).toUpperCase()
-    const order  = 'ord_' + Math.random().toString(36).slice(2, 12)
-    setConfirmed(ref, order)
+    const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
+    const rand  = Array.from({ length: 6 }, () => chars[Math.floor(Math.random() * chars.length)]).join('')
+    const ref   = `WLZ-${rand}`
+    setConfirmed(ref, '')
     router.push(`/flights/confirmation?ref=${ref}`)
   }
 
