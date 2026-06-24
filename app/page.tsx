@@ -46,7 +46,7 @@ const FALLBACK_DESTINATIONS: FeaturedDestination[] = [
   { city: 'Dubai',    country: 'UAE',      tag: 'HOT DEAL',     image: 'https://images.unsplash.com/photo-1512453979798-5ea266f8880c?w=800&auto=format&fit=crop', flightFrom: '£280', hotelFrom: '£89/night',  visaFrom: '£80'  },
   { city: 'Toronto',  country: 'Canada',   tag: 'POPULAR',      image: 'https://images.unsplash.com/photo-1517090504586-fde19ea6066f?w=800&auto=format&fit=crop', flightFrom: '£380', hotelFrom: '£95/night',  visaFrom: '£150' },
   { city: 'New York', country: 'USA',      tag: 'POPULAR',      image: 'https://images.unsplash.com/photo-1522083165195-3424ed129620?w=800&auto=format&fit=crop', flightFrom: '£420', hotelFrom: '£180/night', visaFrom: '£160' },
-  { city: 'Lagos',    country: 'Nigeria',  tag: 'BEST VALUE',   image: 'https://images.unsplash.com/photo-1555507036-ab1f4038808a?w=800&auto=format&fit=crop', flightFrom: '£580', hotelFrom: '£65/night',  visaFrom: '£60'  },
+  { city: 'Lagos',    country: 'Nigeria',  tag: 'BEST VALUE',   image: 'https://images.unsplash.com/photo-1555990793-da11153b2473?w=800&auto=format&fit=crop', flightFrom: '£580', hotelFrom: '£65/night',  visaFrom: '£60'  },
   { city: 'Accra',    country: 'Ghana',    tag: 'NEW ROUTE',    image: 'https://images.unsplash.com/photo-1597149374936-796cb7d85a06?w=800&auto=format&fit=crop', flightFrom: '£620', hotelFrom: '£55/night',  visaFrom: '£60'  },
 ]
 
@@ -110,14 +110,14 @@ export default function HomePage() {
       <StatsStrip />
 
       {/* 5 — Featured destination showcase */}
-      <section className="py-20 bg-[#060f1e]">
-        <div className="max-w-7xl mx-auto px-4">
-          <div className="flex items-end justify-between mb-10">
+      <section className="py-16 md:py-20 px-4 md:px-6 bg-[#060f1e]">
+        <div className="max-w-7xl mx-auto">
+          <div className="flex items-end justify-between mb-8 md:mb-10">
             <div>
               <p className="text-amber-400 text-xs uppercase tracking-[0.2em] font-medium mb-3">
                 FEATURED DESTINATIONS
               </p>
-              <h2 className="text-white text-3xl md:text-4xl lg:text-5xl font-bold leading-tight">
+              <h2 className="text-white text-2xl sm:text-3xl md:text-4xl lg:text-5xl font-bold leading-tight">
                 Where will<br />you go next?
               </h2>
             </div>
@@ -130,11 +130,11 @@ export default function HomePage() {
             </Link>
           </div>
 
-          <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 md:gap-4">
             {destinations.map((dest) => (
               <div
                 key={dest.city}
-                className="relative rounded-2xl overflow-hidden aspect-square group cursor-pointer"
+                className="relative rounded-2xl overflow-hidden aspect-[3/4] sm:aspect-square group cursor-pointer"
               >
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img
@@ -158,9 +158,9 @@ export default function HomePage() {
                 </div>
 
                 {/* Content */}
-                <div className="absolute bottom-0 left-0 right-0 p-5">
+                <div className="absolute bottom-0 left-0 right-0 p-3 sm:p-5">
                   <p className="text-white/50 text-xs uppercase tracking-widest mb-1">{dest.country}</p>
-                  <h3 className="text-white font-bold text-2xl mb-3 leading-tight">{dest.city}</h3>
+                  <h3 className="text-white font-bold text-lg sm:text-2xl mb-2 sm:mb-3 leading-tight">{dest.city}</h3>
                   <div className="flex gap-3 mb-3">
                     <span className="text-amber-400 text-xs font-medium">✈ from {dest.flightFrom}</span>
                     <span className="text-white/40 text-xs">🏨 {dest.hotelFrom}</span>
