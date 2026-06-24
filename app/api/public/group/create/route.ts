@@ -36,31 +36,40 @@ export async function POST(req: NextRequest) {
   const user = await prisma.user.findUnique({ where: { email: session.user.email } })
   if (!user) return NextResponse.json({ error: 'User not found' }, { status: 404 })
 
-  const groupSession = await prisma.groupSession.create({
-    data: {
-      name:      body.name,
-      creatorId: user.id,
-      status:    'collecting',
-      members: {
-        create: (body.members as { name: string }[]).map(m => ({
-          name: m.name,
-        })),
+  try {
+    const groupSession = await prisma.groupSession.create({
+      data: {
+        name:      body.name,
+        creatorId: user.id,
+        status:    'collecting',
+        members: {
+          create: (body.members as { name: string }[]).map(m => ({
+            name: m.name,
+          })),
+        },
       },
-    },
-    include: { members: true },
-  })
+      include: { members: true },
+    })
 
-  const baseUrl = process.env.NEXT_PUBLIC_BASE_URL ?? 'https://walztravels.com'
+    const baseUrl = process.env.NEXT_PUBLIC_BASE_URL ?? 'https://walztravels.com'
 
-  const inviteLinks = groupSession.members.map(m => ({
-    name:  m.name,
-    token: m.inviteToken,
-    url:   `${baseUrl}/group/join/${m.inviteToken}`,
-  }))
+    const inviteLinks = groupSession.members.map(m => ({
+      name:  m.name,
+      token: m.inviteToken,
+      url:   `${baseUrl}/group/join/${m.inviteToken}`,
+    }))
 
-  return NextResponse.json({
-    sessionId:   groupSession.id,
-    sessionName: groupSession.name,
-    inviteLinks,
-  })
+    return NextResponse.json({
+      sessionId:   groupSession.id,
+      sessionName: groupSession.name,
+      inviteLinks,
+    })
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err)
+    console.error('[group/create]', msg)
+    return NextResponse.json(
+      { error: `Database error: ${msg.slice(0, 200)}` },
+      { status: 500 },
+    )
+  }
 }
