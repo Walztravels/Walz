@@ -65,6 +65,14 @@ export function formatDuration(days: number): string {
   return `${days} days`
 }
 
+export function formatData(amount: number | null, unit: string): string {
+  if (!amount) return 'Unlimited'
+  const u = unit.toLowerCase()
+  if (u === 'gb') return `${amount} GB`
+  if (u === 'mb') return amount >= 1024 ? `${Math.round(amount / 1024)} GB` : `${amount} MB`
+  return `${amount} ${unit.toUpperCase()}`
+}
+
 export function formatPrice(usd: number): string {
   if (Number.isInteger(usd)) return `$${usd}`
   return `$${usd.toFixed(2)}`

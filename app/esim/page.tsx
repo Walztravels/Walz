@@ -9,7 +9,7 @@ import { EsimTicker, EsimHowItWorks, EsimCompatibility, EsimFAQ, EsimCTA } from 
 export const revalidate = 21600
 
 export const metadata: Metadata = {
-  title:       'Jade Connect eSIM | Walz Travels',
+  title:       { absolute: 'Jade Connect eSIM | Stay Connected in 150+ Countries | Walz Travels' },
   description: 'Instant eSIM for 150+ countries from USD 9.99. No roaming charges, no physical SIM. Activate before you land.',
   keywords: [
     'eSIM', 'travel eSIM', 'international eSIM', 'no roaming', 'Jade Connect',

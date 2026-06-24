@@ -8,7 +8,7 @@ import { loadStripe }  from '@stripe/stripe-js'
 import { Elements, PaymentElement, useStripe, useElements } from '@stripe/react-stripe-js'
 import { Search, X, Clock, Wifi, Globe, Lock, Check, ArrowRight, RefreshCw, MessageCircle, ChevronDown } from 'lucide-react'
 import type { EsimPackage, CountryGroup, Toast } from '@/lib/esim/types'
-import { groupByCountry, REGIONS } from '@/lib/esim/utils'
+import { groupByCountry, REGIONS, formatData } from '@/lib/esim/utils'
 
 const stripePromise = loadStripe(process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY!)
 
@@ -106,7 +106,7 @@ function PkgTile({
       }}>
 
       {/* Data — prominent */}
-      <p className="text-[#C9A84C] font-bold text-3xl leading-none mb-1">{pkg.dataLabel}</p>
+      <p className="text-[#C9A84C] font-bold text-3xl leading-none mb-1">{pkg.dataLabel || formatData(pkg.dataAmount, pkg.dataUnit)}</p>
       <p className="text-white/30 text-[10px] mb-3">data included</p>
 
       {/* Stats row */}
@@ -126,7 +126,6 @@ function PkgTile({
       <div className="flex items-center justify-between gap-2">
         <p className="text-white font-bold text-lg">
           {displayPrice(pkg.retailUsd, currency)}
-          <span className="text-white/30 text-xs font-normal ml-1">{currency}</span>
         </p>
         <button onClick={() => onBuy(pkg, country)}
           className="flex items-center gap-1.5 px-4 py-2 rounded-full text-xs font-bold transition-all duration-200"
