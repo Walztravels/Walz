@@ -1653,6 +1653,9 @@ model Payslip {
   paidAt          DateTime?
   status          String      @default("PENDING")
 
+  adviceSent      Boolean     @default(false)
+  adviceSentAt    DateTime?
+
   missedCheckIns  Int         @default(0)
 
   @@unique([staffMemberId, month, year])

@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
-import { DollarSign, Plus, Send, CheckCircle, Loader2, X } from 'lucide-react'
+import { DollarSign, Plus, Send, CheckCircle, Loader2, X, Mail } from 'lucide-react'
 
 const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December']
 const CURRENCIES = ['NGN','GHS','GBP','USD','EUR','CAD','KES','ZAR']
@@ -20,6 +20,7 @@ interface Payslip {
   attendanceDeduction: number; otherDeduction: number; deductionNote: string | null
   grossPay: number; netPay: number; currency: string; status: string
   emailSentAt: string | null; paidAt: string | null; missedCheckIns: number
+  adviceSent: boolean; adviceSentAt: string | null
   staffMember?: StaffMember
 }
 
@@ -30,7 +31,7 @@ function fmtCurrency(amount: number, currency: string) {
   }).format(amount)
 }
 
-function StatusBadge({ status }: { status: string }) {
+function StatusBadge({ status, adviceSent }: { status: string; adviceSent?: boolean }) {
   const map: Record<string, string> = {
     PENDING:   'bg-yellow-100 text-yellow-700',
     EMAILED:   'bg-blue-100 text-blue-700',
@@ -38,8 +39,15 @@ function StatusBadge({ status }: { status: string }) {
     CANCELLED: 'bg-red-100 text-red-600',
   }
   return (
-    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] font-semibold uppercase tracking-wide ${map[status] ?? 'bg-gray-100 text-gray-500'}`}>
-      {status}
+    <span className="flex items-center gap-1.5">
+      <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-[10px] font-semibold uppercase tracking-wide ${map[status] ?? 'bg-gray-100 text-gray-500'}`}>
+        {status}
+      </span>
+      {adviceSent && (
+        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-semibold bg-blue-50 text-blue-600 border border-blue-200">
+          ✉ Advice Sent
+        </span>
+      )}
     </span>
   )
 }
@@ -111,7 +119,6 @@ function AddStaffModal({ onClose, onSaved }: { onClose: () => void; onSaved: () 
               {loadingStaff && <span className="text-xs text-gray-400">Loading…</span>}
             </div>
 
-            {/* Selected preview */}
             {selectedStaff && (
               <div className="flex items-center gap-3 bg-amber-50 border border-amber-200 rounded-xl p-3 mb-2">
                 <div className="w-8 h-8 rounded-full bg-[#C9A84C] flex items-center justify-center text-[#0B1F3A] text-sm font-bold flex-shrink-0">
@@ -125,7 +132,6 @@ function AddStaffModal({ onClose, onSaved }: { onClose: () => void; onSaved: () 
               </div>
             )}
 
-            {/* Picker dropdown */}
             {showPicker && (
               <div className="border border-gray-200 rounded-xl overflow-hidden max-h-52 overflow-y-auto">
                 {staff.map(member => (
@@ -294,7 +300,6 @@ function GenerateModal({ staff, onClose, onSaved }: { staff: StaffMember; onClos
                 className="w-full border border-gray-200 text-[#0B1F3A] rounded-xl px-3 py-2.5 text-sm outline-none focus:border-[#C9A84C]" />
             </div>
           </div>
-          {/* Summary */}
           <div className="bg-[#0B1F3A] rounded-xl p-4 flex items-center justify-between">
             <div>
               <p className="text-xs text-white/40">Gross</p>
@@ -318,11 +323,11 @@ function GenerateModal({ staff, onClose, onSaved }: { staff: StaffMember; onClos
 }
 
 export default function PayrollPage() {
-  const now     = new Date()
-  const [tab,   setTab]     = useState<'staff' | 'payslips'>('staff')
-  const [staff, setStaff]   = useState<StaffMember[]>([])
-  const [payslips, setPayslips] = useState<Payslip[]>([])
-  const [loading, setLoading] = useState(true)
+  const now = new Date()
+  const [tab,        setTab]       = useState<'staff' | 'payslips'>('staff')
+  const [staff,      setStaff]     = useState<StaffMember[]>([])
+  const [payslips,   setPayslips]  = useState<Payslip[]>([])
+  const [loading,    setLoading]   = useState(true)
   const [filterMonth, setFilterMonth] = useState(now.getMonth() + 1)
   const [filterYear,  setFilterYear]  = useState(now.getFullYear())
   const [showAdd,     setShowAdd]     = useState(false)
@@ -331,7 +336,18 @@ export default function PayrollPage() {
   const [sendingAll,  setSendingAll]  = useState(false)
   const [toast,       setToast]       = useState<string | null>(null)
 
-  function showToast(msg: string) { setToast(msg); setTimeout(() => setToast(null), 3000) }
+  // Edit salary state
+  const [editingStaff, setEditingStaff] = useState<StaffMember | null>(null)
+  const [editForm, setEditForm] = useState({
+    baseSalary: 0, currency: 'NGN', payDay: 28,
+    bankName: '', accountNumber: '',
+    allowances: 0, deductions: 0,
+    location: '', department: '',
+  })
+  const [editSaving, setEditSaving] = useState(false)
+  const [adviceSending, setAdviceSending] = useState<string | null>(null)
+
+  function showToast(msg: string) { setToast(msg); setTimeout(() => setToast(null), 3500) }
 
   const loadStaff = useCallback(async () => {
     setLoading(true)
@@ -353,6 +369,55 @@ export default function PayrollPage() {
 
   useEffect(() => { if (tab === 'staff') loadStaff(); else loadPayslips() }, [tab, loadStaff, loadPayslips])
 
+  function openEdit(s: StaffMember) {
+    setEditingStaff(s)
+    setEditForm({
+      baseSalary:    s.baseSalary,
+      currency:      s.currency,
+      payDay:        s.payDay,
+      bankName:      s.bankName || '',
+      accountNumber: s.accountNumber || '',
+      allowances:    s.payslips[0]?.allowance      ?? 0,
+      deductions:    s.payslips[0]?.otherDeduction ?? 0,
+      location:      s.location || '',
+      department:    s.department || '',
+    })
+  }
+
+  async function handleSaveSalary() {
+    if (!editingStaff) return
+    setEditSaving(true)
+    try {
+      const res = await fetch(`/api/admin/payroll/staff/${editingStaff.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(editForm),
+      })
+      if (res.ok) {
+        setEditingStaff(null)
+        loadStaff()
+        showToast('Salary updated!')
+      } else {
+        const d = await res.json()
+        showToast(`Error: ${d.error}`)
+      }
+    } finally { setEditSaving(false) }
+  }
+
+  async function sendAdvice(staffId: string, name: string) {
+    setAdviceSending(staffId)
+    try {
+      const res = await fetch('/api/admin/payroll/advice', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ staffId }),
+      })
+      const d = await res.json()
+      if (res.ok) showToast(`Salary advice sent to ${name}`)
+      else showToast(`Error: ${d.error}`)
+    } finally { setAdviceSending(null) }
+  }
+
   async function sendPaystub(payslipId: string) {
     setSending(payslipId)
     try {
@@ -362,6 +427,18 @@ export default function PayrollPage() {
       })
       if (!res.ok) { const d = await res.json(); throw new Error(d.error) }
       showToast('Paystub sent!'); loadPayslips()
+    } catch (e: any) { showToast(`Error: ${e.message}`) } finally { setSending(null) }
+  }
+
+  async function sendPayslip(payslipId: string) {
+    setSending(payslipId)
+    try {
+      const res = await fetch('/api/admin/payroll/send-payslip', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ payslipId }),
+      })
+      if (!res.ok) { const d = await res.json(); throw new Error(d.error) }
+      showToast('Payslip sent & marked PAID!'); loadPayslips()
     } catch (e: any) { showToast(`Error: ${e.message}`) } finally { setSending(null) }
   }
 
@@ -385,6 +462,8 @@ export default function PayrollPage() {
     } finally { setSendingAll(false) }
   }
 
+  const netPreview = editForm.baseSalary + editForm.allowances - editForm.deductions
+
   return (
     <div className="p-6 max-w-4xl mx-auto">
       {/* Toast */}
@@ -403,7 +482,7 @@ export default function PayrollPage() {
           </div>
           <div>
             <h1 className="font-bold text-[#0B1F3A] text-2xl">Payroll</h1>
-            <p className="text-gray-400 text-sm">Manage staff salaries and paystubs</p>
+            <p className="text-gray-400 text-sm">Manage staff salaries and payslips</p>
           </div>
         </div>
         {tab === 'staff' && (
@@ -459,7 +538,10 @@ export default function PayrollPage() {
               </div>
             )}
             {staff.map(s => (
-              <div key={s.id} className="bg-white border border-gray-100 rounded-2xl px-5 py-4 flex items-center gap-4 shadow-sm">
+              <div
+                key={s.id}
+                onClick={() => openEdit(s)}
+                className="bg-white border border-gray-100 rounded-2xl px-5 py-4 flex items-center gap-4 shadow-sm cursor-pointer hover:border-amber-300 hover:shadow-md transition-all">
                 <div className="w-10 h-10 rounded-full bg-[#0B1F3A] flex items-center justify-center flex-shrink-0 font-bold text-[#C9A84C]">
                   {s.name[0]}
                 </div>
@@ -474,12 +556,22 @@ export default function PayrollPage() {
                   <p className="font-bold text-[#C9A84C]">{fmtCurrency(s.baseSalary, s.currency)}</p>
                   <p className="text-gray-400 text-xs">Pay day: {s.payDay}</p>
                 </div>
-                <button onClick={() => setGenerateFor(s)}
-                  className="ml-2 flex items-center gap-1.5 bg-amber-50 hover:bg-amber-100 border border-amber-200 text-[#C9A84C] text-xs font-semibold px-3 py-2 rounded-xl transition-colors flex-shrink-0">
-                  <DollarSign className="w-3.5 h-3.5" /> Payslip
-                </button>
+                <div className="flex items-center gap-2 flex-shrink-0" onClick={e => e.stopPropagation()}>
+                  <button
+                    onClick={() => sendAdvice(s.id, s.name)}
+                    disabled={adviceSending === s.id}
+                    className="flex items-center gap-1.5 bg-blue-50 hover:bg-blue-100 border border-blue-200 text-blue-600 text-xs font-semibold px-3 py-2 rounded-xl transition-colors disabled:opacity-50">
+                    {adviceSending === s.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Mail className="w-3.5 h-3.5" />}
+                    Advice
+                  </button>
+                  <button onClick={() => setGenerateFor(s)}
+                    className="flex items-center gap-1.5 bg-amber-50 hover:bg-amber-100 border border-amber-200 text-[#C9A84C] text-xs font-semibold px-3 py-2 rounded-xl transition-colors flex-shrink-0">
+                    <DollarSign className="w-3.5 h-3.5" /> Payslip
+                  </button>
+                </div>
               </div>
             ))}
+            <p className="text-center text-xs text-gray-400 pt-1">Click a card to edit salary details</p>
           </div>
         ) : (
           <div className="space-y-3">
@@ -489,37 +581,61 @@ export default function PayrollPage() {
               </div>
             )}
             {payslips.map(p => (
-              <div key={p.id} className="bg-white border border-gray-100 rounded-2xl px-5 py-4 flex items-center gap-4 shadow-sm">
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span className="font-semibold text-[#0B1F3A]">{p.staffMember?.name}</span>
-                    <StatusBadge status={p.status} />
+              <div key={p.id} className="bg-white border border-gray-100 rounded-2xl px-5 py-4 shadow-sm">
+                <div className="flex items-start gap-4">
+                  <div className="w-9 h-9 rounded-full bg-[#0B1F3A] flex items-center justify-center flex-shrink-0 font-bold text-[#C9A84C] text-sm">
+                    {(p.staffMember?.name ?? '?')[0]}
                   </div>
-                  <p className="text-gray-400 text-xs mt-0.5">
-                    Base {fmtCurrency(p.baseSalary, p.currency)}
-                    {p.bonus > 0 ? ` · +Bonus ${fmtCurrency(p.bonus, p.currency)}` : ''}
-                    {p.allowance > 0 ? ` · +Allow ${fmtCurrency(p.allowance, p.currency)}` : ''}
-                    {p.attendanceDeduction > 0 ? ` · −Att ${fmtCurrency(p.attendanceDeduction, p.currency)}` : ''}
-                    {p.otherDeduction > 0 ? ` · −${p.deductionNote ?? 'Other'} ${fmtCurrency(p.otherDeduction, p.currency)}` : ''}
-                  </p>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap mb-1">
+                      <span className="font-semibold text-[#0B1F3A]">{p.staffMember?.name}</span>
+                      <StatusBadge status={p.status} adviceSent={p.adviceSent} />
+                    </div>
+                    <p className="text-gray-400 text-xs">
+                      {MONTHS[p.month-1]} {p.year}
+                      {' · '}Base {fmtCurrency(p.baseSalary, p.currency)}
+                      {p.allowance > 0 ? ` · +Allow ${fmtCurrency(p.allowance, p.currency)}` : ''}
+                      {p.attendanceDeduction > 0 ? ` · −Att ${fmtCurrency(p.attendanceDeduction, p.currency)}` : ''}
+                      {p.otherDeduction > 0 ? ` · −${p.deductionNote ?? 'Ded'} ${fmtCurrency(p.otherDeduction, p.currency)}` : ''}
+                    </p>
+                  </div>
+                  <div className="text-right flex-shrink-0">
+                    <p className="font-extrabold text-[#C9A84C] text-lg">{fmtCurrency(p.netPay, p.currency)}</p>
+                    <p className="text-gray-400 text-[10px]">Net Pay</p>
+                  </div>
                 </div>
-                <div className="text-right flex-shrink-0">
-                  <p className="font-extrabold text-[#C9A84C] text-lg">{fmtCurrency(p.netPay, p.currency)}</p>
-                  <p className="text-gray-400 text-[10px]">Net Pay</p>
-                </div>
-                <div className="flex items-center gap-2 flex-shrink-0">
+                <div className="flex items-center gap-2 mt-3 flex-wrap">
+                  <button
+                    onClick={() => sendAdvice(p.staffMemberId, p.staffMember?.name ?? '')}
+                    disabled={adviceSending === p.staffMemberId}
+                    className="flex items-center gap-1.5 bg-blue-50 hover:bg-blue-100 border border-blue-200 text-blue-600 text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors disabled:opacity-50">
+                    {adviceSending === p.staffMemberId ? <Loader2 className="w-3 h-3 animate-spin" /> : <Mail className="w-3 h-3" />}
+                    Salary Advice
+                  </button>
                   {p.status !== 'PAID' && (
                     <button onClick={() => sendPaystub(p.id)} disabled={sending === p.id}
-                      className="flex items-center gap-1.5 bg-blue-50 hover:bg-blue-100 border border-blue-200 text-blue-600 text-xs font-semibold px-3 py-2 rounded-xl transition-colors disabled:opacity-50">
-                      {sending === p.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
-                      Email
+                      className="flex items-center gap-1.5 bg-amber-50 hover:bg-amber-100 border border-amber-200 text-amber-700 text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors disabled:opacity-50">
+                      {sending === p.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <Send className="w-3 h-3" />}
+                      Email Paystub
+                    </button>
+                  )}
+                  {p.status !== 'PAID' && (
+                    <button onClick={() => sendPayslip(p.id)} disabled={sending === p.id}
+                      className="flex items-center gap-1.5 bg-green-50 hover:bg-green-100 border border-green-200 text-green-700 text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors disabled:opacity-50">
+                      {sending === p.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <DollarSign className="w-3 h-3" />}
+                      Send Payslip (Paid)
                     </button>
                   )}
                   {p.status === 'EMAILED' && (
                     <button onClick={() => markPaid(p.id)}
-                      className="flex items-center gap-1.5 bg-green-50 hover:bg-green-100 border border-green-200 text-green-600 text-xs font-semibold px-3 py-2 rounded-xl transition-colors">
-                      <CheckCircle className="w-3.5 h-3.5" /> Paid
+                      className="flex items-center gap-1.5 bg-gray-50 hover:bg-gray-100 border border-gray-200 text-gray-600 text-xs font-semibold px-3 py-1.5 rounded-lg transition-colors">
+                      <CheckCircle className="w-3 h-3" /> Mark Paid
                     </button>
+                  )}
+                  {p.paidAt && (
+                    <span className="text-[10px] text-gray-400 ml-auto">
+                      Paid {new Date(p.paidAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}
+                    </span>
                   )}
                 </div>
               </div>
@@ -531,6 +647,146 @@ export default function PayrollPage() {
       {showAdd     && <AddStaffModal onClose={() => setShowAdd(false)} onSaved={loadStaff} />}
       {generateFor && <GenerateModal staff={generateFor} onClose={() => setGenerateFor(null)}
         onSaved={() => { loadStaff(); setTab('payslips'); loadPayslips() }} />}
+
+      {/* Edit Salary Modal */}
+      {editingStaff && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl w-full max-w-lg shadow-2xl max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 sticky top-0 bg-white z-10">
+              <div>
+                <h3 className="font-bold text-gray-800 text-lg">Edit Staff Salary</h3>
+                <p className="text-gray-500 text-sm mt-0.5">{editingStaff.name}</p>
+              </div>
+              <button onClick={() => setEditingStaff(null)} className="text-gray-400 hover:text-gray-600">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-6 space-y-4">
+              {/* Base Salary + Currency */}
+              <div className="grid grid-cols-3 gap-3">
+                <div className="col-span-2">
+                  <label className="text-gray-600 text-xs font-semibold uppercase tracking-wider block mb-1.5">Base Salary</label>
+                  <input
+                    type="number"
+                    value={editForm.baseSalary}
+                    onChange={e => setEditForm(p => ({ ...p, baseSalary: Number(e.target.value) }))}
+                    className="w-full border border-gray-200 rounded-xl px-4 py-3 text-gray-800 focus:outline-none focus:border-amber-400 focus:ring-2 focus:ring-amber-100"
+                    placeholder="0"
+                  />
+                </div>
+                <div>
+                  <label className="text-gray-600 text-xs font-semibold uppercase tracking-wider block mb-1.5">Currency</label>
+                  <select
+                    value={editForm.currency}
+                    onChange={e => setEditForm(p => ({ ...p, currency: e.target.value }))}
+                    className="w-full border border-gray-200 rounded-xl px-3 py-3 text-gray-800 focus:outline-none focus:border-amber-400 bg-white">
+                    {CURRENCIES.map(c => <option key={c} value={c}>{c}</option>)}
+                  </select>
+                </div>
+              </div>
+
+              {/* Allowances + Deductions */}
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-gray-600 text-xs font-semibold uppercase tracking-wider block mb-1.5">Allowances</label>
+                  <input
+                    type="number"
+                    value={editForm.allowances}
+                    onChange={e => setEditForm(p => ({ ...p, allowances: Number(e.target.value) }))}
+                    className="w-full border border-gray-200 rounded-xl px-4 py-3 text-gray-800 focus:outline-none focus:border-amber-400"
+                    placeholder="0"
+                  />
+                </div>
+                <div>
+                  <label className="text-gray-600 text-xs font-semibold uppercase tracking-wider block mb-1.5">Deductions</label>
+                  <input
+                    type="number"
+                    value={editForm.deductions}
+                    onChange={e => setEditForm(p => ({ ...p, deductions: Number(e.target.value) }))}
+                    className="w-full border border-gray-200 rounded-xl px-4 py-3 text-gray-800 focus:outline-none focus:border-amber-400"
+                    placeholder="0"
+                  />
+                </div>
+              </div>
+
+              {/* Net pay preview */}
+              <div className="bg-amber-50 border border-amber-200 rounded-xl p-4">
+                <p className="text-amber-700 text-xs font-semibold uppercase tracking-wider mb-1">Net Pay (Preview)</p>
+                <p className="text-amber-800 text-2xl font-bold">
+                  {editForm.currency} {netPreview.toLocaleString()}
+                </p>
+              </div>
+
+              {/* Bank Details */}
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-gray-600 text-xs font-semibold uppercase tracking-wider block mb-1.5">Bank Name</label>
+                  <input
+                    type="text"
+                    value={editForm.bankName}
+                    onChange={e => setEditForm(p => ({ ...p, bankName: e.target.value }))}
+                    className="w-full border border-gray-200 rounded-xl px-4 py-3 text-gray-800 focus:outline-none focus:border-amber-400"
+                    placeholder="Access Bank"
+                  />
+                </div>
+                <div>
+                  <label className="text-gray-600 text-xs font-semibold uppercase tracking-wider block mb-1.5">Account Number</label>
+                  <input
+                    type="text"
+                    value={editForm.accountNumber}
+                    onChange={e => setEditForm(p => ({ ...p, accountNumber: e.target.value }))}
+                    className="w-full border border-gray-200 rounded-xl px-4 py-3 text-gray-800 focus:outline-none focus:border-amber-400"
+                    placeholder="0000000000"
+                  />
+                </div>
+              </div>
+
+              {/* Location + Department */}
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-gray-600 text-xs font-semibold uppercase tracking-wider block mb-1.5">Location</label>
+                  <input
+                    type="text"
+                    value={editForm.location}
+                    onChange={e => setEditForm(p => ({ ...p, location: e.target.value }))}
+                    className="w-full border border-gray-200 rounded-xl px-4 py-3 text-gray-800 focus:outline-none focus:border-amber-400"
+                  />
+                </div>
+                <div>
+                  <label className="text-gray-600 text-xs font-semibold uppercase tracking-wider block mb-1.5">Department</label>
+                  <input
+                    type="text"
+                    value={editForm.department}
+                    onChange={e => setEditForm(p => ({ ...p, department: e.target.value }))}
+                    className="w-full border border-gray-200 rounded-xl px-4 py-3 text-gray-800 focus:outline-none focus:border-amber-400"
+                  />
+                </div>
+              </div>
+
+              {/* Pay Day */}
+              <div>
+                <label className="text-gray-600 text-xs font-semibold uppercase tracking-wider block mb-1.5">Pay Day (day of month)</label>
+                <input
+                  type="number"
+                  min="1"
+                  max="31"
+                  value={editForm.payDay}
+                  onChange={e => setEditForm(p => ({ ...p, payDay: Number(e.target.value) }))}
+                  className="w-full border border-gray-200 rounded-xl px-4 py-3 text-gray-800 focus:outline-none focus:border-amber-400"
+                />
+              </div>
+
+              <button
+                onClick={handleSaveSalary}
+                disabled={editSaving}
+                className="w-full bg-amber-500 hover:bg-amber-400 disabled:opacity-50 text-black font-bold py-3.5 rounded-xl transition">
+                {editSaving ? 'Saving...' : 'Save Changes'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
