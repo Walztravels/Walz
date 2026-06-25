@@ -147,7 +147,7 @@ export async function middleware(req: NextRequest) {
   if (pathname === '/login') {
     const token = await getToken({ req })
     if (token) {
-      const callbackUrl = req.nextUrl.searchParams.get('callbackUrl') || '/portal/dashboard'
+      const callbackUrl = req.nextUrl.searchParams.get('callbackUrl') || '/dashboard'
       return NextResponse.redirect(new URL(callbackUrl, req.url))
     }
   }

@@ -6,7 +6,7 @@ import { LayoutDashboard, FileText, Compass, Shield, UserCircle } from 'lucide-r
 import { cn } from '@/lib/utils'
 
 const ITEMS = [
-  { href: '/portal/dashboard',   label: 'Home',         icon: LayoutDashboard },
+  { href: '/dashboard',           label: 'Home',         icon: LayoutDashboard },
   { href: '/plan/library',       label: 'My Trips',     icon: Compass         },
   { href: '/portal/application', label: 'Applications', icon: FileText        },
   { href: '/insurance',          label: 'Insurance',    icon: Shield          },
@@ -21,7 +21,7 @@ export function PortalBottomNav() {
       <div className="flex items-stretch h-16">
         {ITEMS.map(({ href, label, icon: Icon }) => {
           const base   = href.split('#')[0]
-          const active = pathname === base || (base !== '/portal/dashboard' && pathname.startsWith(base + '/'))
+          const active = pathname === base || (base !== '/dashboard' && pathname.startsWith(base + '/'))
           return (
             <Link key={label} href={href}
               className={cn(

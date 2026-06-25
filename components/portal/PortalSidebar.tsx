@@ -15,7 +15,7 @@ const LOGO_CACHE_KEY = 'walz_logo_url'
 const LOGO_CACHE_TTL  = 60 * 60 * 1000
 
 const NAV = [
-  { href: '/portal/dashboard',        label: 'Dashboard',        icon: LayoutDashboard },
+  { href: '/dashboard',                label: 'Dashboard',        icon: LayoutDashboard },
   { href: '/plan/library',            label: 'My Trips',         icon: Compass         },
   { href: '/portal/application',      label: 'Applications',     icon: FileText        },
   { href: '/insurance',               label: 'Insurance',        icon: Shield          },

@@ -47,11 +47,11 @@ const visaDropdownLinks = [
 ]
 
 const portalMenu = [
-  { href: '/portal/dashboard',   label: 'My Dashboard',    icon: LayoutDashboard },
+  { href: '/dashboard',          label: 'My Dashboard',    icon: LayoutDashboard },
   { href: '/plan/library',       label: 'My Trips',        icon: Compass         },
   { href: '/portal/application', label: 'My Applications', icon: FileText        },
-  { href: '/portal/dashboard',   label: 'My Bookings',     icon: Plane           },
-  { href: '/portal/dashboard',   label: 'My Vouchers',     icon: Gift            },
+  { href: '/dashboard',          label: 'My Bookings',     icon: Plane           },
+  { href: '/dashboard',          label: 'My Vouchers',     icon: Gift            },
   { href: '/portal/documents',   label: 'My Documents',    icon: Upload          },
   { href: '/portal/esims',       label: 'My eSIMs',        icon: Signal          },
   { href: '/portal/payments',    label: 'My Payments',     icon: CreditCard      },
@@ -554,7 +554,7 @@ export function Navbar() {
                     <p className="text-walz-muted text-xs truncate">{session.user?.email}</p>
                   </div>
                 </div>
-                <Link href="/portal/dashboard" onClick={() => setIsMobileOpen(false)}>
+                <Link href="/dashboard" onClick={() => setIsMobileOpen(false)}>
                   <Button variant="navy" className="w-full border border-walz-slate" size="sm">
                     <LayoutDashboard className="w-4 h-4 mr-2" />
                     My Account
