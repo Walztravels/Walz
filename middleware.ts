@@ -133,9 +133,17 @@ export async function middleware(req: NextRequest) {
   }
 
   // ── User-facing protected routes (next-auth) ──────────────────────────────────
+  // cookieName must match authOptions.cookies.sessionToken.name exactly —
+  // getToken() defaults to __Secure-* on HTTPS which mismatches our explicit name
+  const jwtOpts = {
+    req,
+    secret: process.env.NEXTAUTH_SECRET,
+    cookieName: 'next-auth.session-token',
+  } as const
+
   const protectedRoutes = ['/dashboard', '/portal']
   if (protectedRoutes.some((route) => pathname.startsWith(route))) {
-    const token = await getToken({ req })
+    const token = await getToken(jwtOpts)
     if (!token) {
       return NextResponse.redirect(
         new URL(`/login?callbackUrl=${encodeURIComponent(pathname)}`, req.url)
@@ -145,7 +153,7 @@ export async function middleware(req: NextRequest) {
 
   // Redirect already-authenticated users away from /login
   if (pathname === '/login') {
-    const token = await getToken({ req })
+    const token = await getToken(jwtOpts)
     if (token) {
       const callbackUrl = req.nextUrl.searchParams.get('callbackUrl') || '/dashboard'
       return NextResponse.redirect(new URL(callbackUrl, req.url))
