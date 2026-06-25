@@ -14,7 +14,10 @@ function LoginContent() {
   const searchParams = useSearchParams()
   const { status }   = useSession()
 
-  const callbackUrl = '/portal/dashboard'
+  const rawCallback = searchParams.get('callbackUrl') ?? ''
+  const callbackUrl = /^\/group\/create(\?.*)?$/.test(rawCallback)
+    ? rawCallback
+    : '/portal/dashboard'
   const errorParam  = searchParams.get('error')
   const modeParam     = searchParams.get('signup')
   const verifiedParam = searchParams.get('verified')

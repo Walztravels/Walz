@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { randomUUID }                from 'crypto'
 import { getServerSession }          from 'next-auth'
 import { authOptions }               from '@/lib/auth'
 import prisma                        from '@/lib/db'
@@ -39,12 +40,15 @@ export async function POST(req: NextRequest) {
   try {
     const groupSession = await prisma.groupSession.create({
       data: {
+        id:        randomUUID(),
         name:      body.name,
         creatorId: user.id,
         status:    'collecting',
         members: {
           create: (body.members as { name: string }[]).map(m => ({
-            name: m.name,
+            id:          randomUUID(),
+            inviteToken: randomUUID(),
+            name:        m.name,
           })),
         },
       },

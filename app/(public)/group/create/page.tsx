@@ -1,7 +1,8 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useSearchParams } from 'next/navigation'
+import { useSession } from 'next-auth/react'
 import Link from 'next/link'
 import { ArrowRight, Copy, Check, Users, Loader2 } from 'lucide-react'
 
@@ -19,6 +20,8 @@ interface CreateResult {
 
 export default function GroupCreatePage() {
   const searchParams = useSearchParams()
+  const { status }   = useSession()
+  const autoSubmitted = useRef(false)
 
   const [tripName,   setTripName]   = useState(searchParams.get('name') ?? '')
   const [travellers, setTravellers] = useState<number>(
@@ -28,6 +31,23 @@ export default function GroupCreatePage() {
   const [error,      setError]      = useState<string | null>(null)
   const [result,     setResult]     = useState<CreateResult | null>(null)
   const [copied,     setCopied]     = useState<string | null>(null)
+
+  // Auto-submit when user returns from login with pre-filled name+count in URL
+  useEffect(() => {
+    if (
+      status === 'authenticated' &&
+      !autoSubmitted.current &&
+      tripName.trim() &&
+      travellers >= 2 &&
+      !result &&
+      !loading &&
+      searchParams.get('name')
+    ) {
+      autoSubmitted.current = true
+      handleSubmit({ preventDefault: () => {} } as React.FormEvent)
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [status])
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
