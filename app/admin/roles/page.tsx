@@ -125,13 +125,99 @@ interface StaffMember {
 
 // ─── Role Defaults Tab ────────────────────────────────────────────────────────
 
-function RoleDefaultsTab() {
-  const [selectedRole, setSelectedRole] = useState<AdminRole>('visa_officer')
-  const [expanded,     setExpanded]     = useState<Record<string, boolean>>({})
-  const roles    = Object.keys(ROLE_META) as AdminRole[]
-  const rolePerms = ROLE_PERMISSIONS[selectedRole] ?? []
+// ─── DB-backed permission groups (underscore notation, matches RolePermission table) ──
+const DB_PERM_GROUPS: Array<{ label: string; keys: string[] }> = [
+  { label: 'Dashboard',    keys: ['dashboard_view', 'dashboard_stats_all'] },
+  { label: 'Reports',      keys: ['reports_view', 'reports_submit', 'reports_all', 'reports_staff', 'reports_revenue', 'reports_export'] },
+  { label: 'Applications', keys: ['applications_view', 'applications_view_all', 'applications_create', 'applications_edit', 'applications_delete', 'applications_assign', 'applications_approve'] },
+  { label: 'Visa',         keys: ['visa_view', 'visa_view_all', 'visa_create', 'visa_edit', 'visa_delete', 'visa_approve'] },
+  { label: 'Trips',        keys: ['trips_view', 'trips_view_all', 'trips_create', 'trips_edit', 'trips_delete', 'trips_assign', 'trips_proposals'] },
+  { label: 'Bookings',     keys: ['bookings_view', 'bookings_view_all', 'bookings_create', 'bookings_edit', 'bookings_delete'] },
+  { label: 'Payments',     keys: ['payments_view', 'payments_view_all', 'payments_create', 'payments_edit', 'payments_delete', 'payments_refund'] },
+  { label: 'Staff',        keys: ['staff_view', 'staff_create', 'staff_edit', 'staff_delete', 'staff_manage_roles'] },
+  { label: 'Settings',     keys: ['settings_view', 'settings_edit', 'settings_roles', 'settings_integrations'] },
+  { label: 'CMS',          keys: ['cms_view', 'cms_edit', 'cms_publish'] },
+  { label: 'Inbox & Notifications', keys: ['inbox_delete', 'notifications_view', 'notifications_send', 'notifications_broadcast'] },
+]
 
-  const toggle = (label: string) => setExpanded(p => ({ ...p, [label]: !p[label] }))
+const DB_PERM_LABELS: Record<string, string> = {
+  dashboard_view: 'View Dashboard', dashboard_stats_all: 'All Dashboard Stats',
+  reports_view: 'View Own Reports', reports_submit: 'Submit Reports', reports_all: 'View All Staff Reports',
+  reports_staff: 'View Staff Reports', reports_revenue: 'View Revenue Reports', reports_export: 'Export Reports',
+  applications_view: 'View Own Applications', applications_view_all: 'View All Applications',
+  applications_create: 'Create Applications', applications_edit: 'Edit Applications',
+  applications_delete: 'Delete Applications', applications_assign: 'Assign Applications', applications_approve: 'Approve Applications',
+  visa_view: 'View Visa Applications', visa_view_all: 'View All Visa Apps',
+  visa_create: 'Create Visa Applications', visa_edit: 'Edit Visa Applications',
+  visa_delete: 'Delete Visa Applications', visa_approve: 'Approve Visa Applications',
+  trips_view: 'View Trips', trips_view_all: 'View All Trips', trips_create: 'Create Trips',
+  trips_edit: 'Edit Trips', trips_delete: 'Delete Trips', trips_assign: 'Assign Trips', trips_proposals: 'Trip Proposals',
+  bookings_view: 'View Bookings', bookings_view_all: 'View All Bookings',
+  bookings_create: 'Create Bookings', bookings_edit: 'Edit Bookings', bookings_delete: 'Delete Bookings',
+  payments_view: 'View Payments', payments_view_all: 'View All Payments',
+  payments_create: 'Create Payments', payments_edit: 'Edit Payments',
+  payments_delete: 'Delete Payments', payments_refund: 'Process Refunds',
+  staff_view: 'View Staff', staff_create: 'Create Staff', staff_edit: 'Edit Staff',
+  staff_delete: 'Delete Staff', staff_manage_roles: 'Manage Roles',
+  settings_view: 'View Settings', settings_edit: 'Edit Settings',
+  settings_roles: 'Manage Role Permissions', settings_integrations: 'Manage Integrations',
+  cms_view: 'View CMS', cms_edit: 'Edit CMS Content', cms_publish: 'Publish CMS',
+  inbox_delete: 'Delete Inbox Messages', notifications_view: 'View Notifications',
+  notifications_send: 'Send Notifications', notifications_broadcast: 'Broadcast Notifications',
+}
+
+function RoleDefaultsTab({ isSuperAdmin }: { isSuperAdmin: boolean }) {
+  const roles = Object.keys(ROLE_META) as AdminRole[]
+  const [selectedRole, setSelectedRole] = useState<AdminRole>('coordinator')
+  const [dbRoles,      setDbRoles]      = useState<Record<string, Record<string, boolean>>>({})
+  const [editPerms,    setEditPerms]    = useState<Record<string, boolean>>({})
+  const [editMode,     setEditMode]     = useState(false)
+  const [saving,       setSaving]       = useState(false)
+  const [saved,        setSaved]        = useState(false)
+  const [expanded,     setExpanded]     = useState<Record<string, boolean>>({})
+  const [loadingDB,    setLoadingDB]    = useState(true)
+
+  useEffect(() => {
+    fetch('/api/admin/roles')
+      .then(r => r.json())
+      .then((records: Array<{ role: string; permissions: Record<string, boolean> }>) => {
+        const map: Record<string, Record<string, boolean>> = {}
+        if (Array.isArray(records)) {
+          records.forEach(r => { map[r.role] = (r.permissions as Record<string, boolean>) || {} })
+        }
+        setDbRoles(map)
+        setLoadingDB(false)
+      })
+      .catch(() => setLoadingDB(false))
+  }, [])
+
+  function selectRole(role: AdminRole) {
+    setSelectedRole(role)
+    setEditPerms({ ...(dbRoles[role] || {}) })
+    setEditMode(false)
+    setSaved(false)
+  }
+
+  async function saveRole() {
+    setSaving(true)
+    try {
+      const res = await fetch(`/api/admin/roles/${selectedRole}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ permissions: editPerms }),
+      })
+      if (res.ok) {
+        setDbRoles(prev => ({ ...prev, [selectedRole]: { ...editPerms } }))
+        setEditMode(false)
+        setSaved(true)
+        setTimeout(() => setSaved(false), 3000)
+      }
+    } finally { setSaving(false) }
+  }
+
+  const currentPerms = editMode ? editPerms : (dbRoles[selectedRole] || {})
+  const grantedCount = DB_PERM_GROUPS.reduce((acc, g) => acc + g.keys.filter(k => currentPerms[k]).length, 0)
+  const totalCount   = DB_PERM_GROUPS.reduce((acc, g) => acc + g.keys.length, 0)
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
@@ -140,9 +226,10 @@ function RoleDefaultsTab() {
         <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-3">Select Role</p>
         {roles.map(role => {
           const meta  = ROLE_META[role]
-          const count = ROLE_PERMISSIONS[role]?.length ?? 0
+          const perms = dbRoles[role] || {}
+          const count = Object.values(perms).filter(Boolean).length
           return (
-            <button key={role} onClick={() => setSelectedRole(role)}
+            <button key={role} onClick={() => selectRole(role)}
               className={`w-full text-left px-3 py-2.5 rounded-xl border transition-all ${
                 selectedRole === role
                   ? 'bg-[#0B1F3A] text-white border-[#0B1F3A]'
@@ -151,78 +238,114 @@ function RoleDefaultsTab() {
               <div className="flex items-center gap-2">
                 <span className={`w-2 h-2 rounded-full flex-shrink-0 ${meta.color}`} />
                 <span className="text-xs font-semibold truncate">{meta.label}</span>
-                <span className={`ml-auto text-[10px] font-bold px-1.5 py-0.5 rounded-full ${
-                  selectedRole === role ? 'bg-white/20 text-white' : 'bg-gray-100 text-gray-500'
-                }`}>{count}</span>
+                {!loadingDB && (
+                  <span className={`ml-auto text-[10px] font-bold px-1.5 py-0.5 rounded-full ${
+                    selectedRole === role ? 'bg-white/20 text-white' : 'bg-gray-100 text-gray-500'
+                  }`}>{count}</span>
+                )}
               </div>
             </button>
           )
         })}
       </div>
 
-      {/* Permission grid */}
+      {/* Permission panel */}
       <div className="lg:col-span-3 space-y-3">
-        <div className="flex items-start gap-4">
+        <div className="flex items-start gap-3 flex-wrap">
           <div className="flex-1">
             <div className="flex items-center gap-2 mb-1">
               <span className={`w-3 h-3 rounded-full ${ROLE_META[selectedRole].color}`} />
               <h2 className="text-base font-bold text-[#0B1F3A]">{ROLE_META[selectedRole].label}</h2>
-              <span className="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-500 font-medium">
-                {rolePerms.length} of {ALL_PERMISSIONS.length} permissions
-              </span>
+              {!loadingDB && (
+                <span className="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-500 font-medium">
+                  {grantedCount} / {totalCount} enabled
+                </span>
+              )}
             </div>
             <p className="text-xs text-gray-500">{ROLE_META[selectedRole].desc}</p>
           </div>
-          <div className="flex items-center gap-1.5 px-3 py-1.5 bg-gray-50 rounded-lg border border-gray-200">
-            <Lock className="w-3.5 h-3.5 text-gray-400" />
-            <span className="text-xs text-gray-500 font-medium">Read-only — edit via Staff Overrides</span>
-          </div>
+          {isSuperAdmin && selectedRole !== 'super_admin' && !loadingDB && (
+            editMode ? (
+              <div className="flex items-center gap-2">
+                <button onClick={saveRole} disabled={saving}
+                  className="flex items-center gap-1.5 text-xs px-4 py-1.5 rounded-lg font-semibold bg-green-600 hover:bg-green-700 text-white transition-all disabled:opacity-50">
+                  {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
+                  {saving ? 'Saving…' : 'Save Changes'}
+                </button>
+                <button onClick={() => { setEditMode(false); setEditPerms({ ...(dbRoles[selectedRole] || {}) }) }}
+                  className="text-xs px-4 py-1.5 rounded-lg border border-gray-200 text-gray-500 hover:border-gray-300 transition-colors">
+                  Cancel
+                </button>
+              </div>
+            ) : (
+              <button onClick={() => { setEditPerms({ ...(dbRoles[selectedRole] || {}) }); setEditMode(true) }}
+                className="flex items-center gap-1.5 text-xs px-4 py-1.5 rounded-lg font-semibold bg-[#C9A84C] hover:bg-[#b8943d] text-[#0B1F3A] transition-colors">
+                <Unlock className="w-3.5 h-3.5" />
+                {saved ? 'Saved! ✓' : 'Edit Permissions'}
+              </button>
+            )
+          )}
+          {selectedRole === 'super_admin' && (
+            <div className="flex items-center gap-1.5 px-3 py-1.5 bg-violet-50 border border-violet-200 rounded-lg">
+              <Lock className="w-3.5 h-3.5 text-violet-500" />
+              <span className="text-xs text-violet-600 font-medium">Super Admin always has full access</span>
+            </div>
+          )}
         </div>
 
-        {PERM_GROUPS.map(group => {
-          const isOpen  = expanded[group.label] !== false
-          const granted = group.perms.filter(p => rolePerms.includes(p)).length
-          return (
-            <div key={group.label} className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
-              <button onClick={() => toggle(group.label)}
-                className="w-full flex items-center justify-between px-5 py-3.5 hover:bg-gray-50 transition-colors">
-                <div className="flex items-center gap-3">
-                  {isOpen ? <ChevronDown className="w-4 h-4 text-gray-400" /> : <ChevronRight className="w-4 h-4 text-gray-400" />}
-                  <span className="text-sm font-bold text-[#0B1F3A]">{group.label}</span>
-                </div>
-                <span className="text-xs text-gray-500">
-                  <span className={`font-bold ${granted > 0 ? 'text-green-600' : 'text-gray-400'}`}>{granted}</span>
-                  <span className="text-gray-400"> / {group.perms.length}</span>
-                </span>
-              </button>
-              {isOpen && (
-                <div className="border-t border-gray-50 divide-y divide-gray-50">
-                  {group.perms.map(perm => {
-                    const has  = rolePerms.includes(perm)
-                    const meta = PERM_META[perm]
-                    return (
-                      <div key={perm} className="flex items-center gap-4 px-5 py-3">
-                        <div className={`w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0 ${
-                          has ? 'bg-green-100' : 'bg-gray-100'
-                        }`}>
-                          {has
-                            ? <Check className="w-3 h-3 text-green-600" />
-                            : <X className="w-3 h-3 text-gray-400" />
-                          }
+        {editMode && (
+          <div className="flex items-center gap-2 px-4 py-2.5 bg-amber-50 border border-amber-200 rounded-xl text-amber-800 text-xs">
+            <AlertCircle className="w-4 h-4 flex-shrink-0" />
+            Click any permission to toggle it. Changes affect all {ROLE_META[selectedRole].label}s immediately after saving.
+          </div>
+        )}
+
+        {loadingDB ? (
+          <div className="flex items-center justify-center py-12">
+            <Loader2 className="w-5 h-5 text-[#C9A84C] animate-spin" />
+          </div>
+        ) : (
+          DB_PERM_GROUPS.map(group => {
+            const isOpen  = expanded[group.label] !== false
+            const granted = group.keys.filter(k => currentPerms[k]).length
+            return (
+              <div key={group.label} className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
+                <button onClick={() => setExpanded(p => ({ ...p, [group.label]: !isOpen }))}
+                  className="w-full flex items-center justify-between px-5 py-3.5 hover:bg-gray-50 transition-colors">
+                  <div className="flex items-center gap-3">
+                    {isOpen ? <ChevronDown className="w-4 h-4 text-gray-400" /> : <ChevronRight className="w-4 h-4 text-gray-400" />}
+                    <span className="text-sm font-bold text-[#0B1F3A]">{group.label}</span>
+                  </div>
+                  <span className="text-xs text-gray-500">
+                    <span className={`font-bold ${granted > 0 ? 'text-green-600' : 'text-gray-400'}`}>{granted}</span>
+                    <span className="text-gray-400"> / {group.keys.length}</span>
+                  </span>
+                </button>
+                {isOpen && (
+                  <div className="border-t border-gray-50 divide-y divide-gray-50">
+                    {group.keys.map(key => {
+                      const has = currentPerms[key] === true
+                      return (
+                        <div key={key}
+                          onClick={() => editMode && setEditPerms(p => ({ ...p, [key]: !p[key] }))}
+                          className={`flex items-center gap-4 px-5 py-3 ${editMode ? 'cursor-pointer hover:bg-gray-50' : ''}`}>
+                          <div className={`w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0 ${has ? 'bg-green-100' : 'bg-gray-100'}`}>
+                            {has ? <Check className="w-3 h-3 text-green-600" /> : <X className="w-3 h-3 text-gray-400" />}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="text-sm font-semibold text-[#0B1F3A]">{DB_PERM_LABELS[key] ?? key}</div>
+                          </div>
+                          <code className="text-[10px] text-gray-300 font-mono hidden sm:block">{key}</code>
+                          {editMode && <span className="text-[10px] text-gray-400">{has ? 'click to revoke' : 'click to grant'}</span>}
                         </div>
-                        <div className="flex-1 min-w-0">
-                          <div className="text-sm font-semibold text-[#0B1F3A]">{meta.label}</div>
-                          <div className="text-xs text-gray-400 truncate">{meta.desc}</div>
-                        </div>
-                        <code className="text-[10px] text-gray-300 font-mono hidden sm:block">{perm}</code>
-                      </div>
-                    )
-                  })}
-                </div>
-              )}
-            </div>
-          )
-        })}
+                      )
+                    })}
+                  </div>
+                )}
+              </div>
+            )
+          })
+        )}
       </div>
     </div>
   )
@@ -540,7 +663,7 @@ export default function RoleManagerPage() {
         ))}
       </div>
 
-      {activeTab === 'defaults'  && <RoleDefaultsTab />}
+      {activeTab === 'defaults'  && <RoleDefaultsTab isSuperAdmin={isSuperAdmin} />}
       {activeTab === 'overrides' && <StaffOverridesTab isSuperAdmin={isSuperAdmin} />}
     </div>
   )

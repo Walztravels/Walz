@@ -65,6 +65,7 @@ export type PermissionKey =
   | 'payments_refund'
   // Reports
   | 'reports_view'
+  | 'reports_submit'
   | 'reports_all'
   | 'reports_revenue'
   | 'reports_staff'
@@ -128,6 +129,7 @@ export const EMPTY_PERMISSIONS: Permissions = {
   payments_delete: false,
   payments_refund: false,
   reports_view: false,
+  reports_submit: false,
   reports_all: false,
   reports_revenue: false,
   reports_staff: false,

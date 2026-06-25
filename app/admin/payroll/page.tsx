@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { DollarSign, Plus, Send, CheckCircle, Loader2, X } from 'lucide-react'
 
 const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December']
-const CURRENCIES = ['NGN','GBP','USD','EUR','CAD']
+const CURRENCIES = ['NGN','GHS','GBP','USD','EUR','CAD','KES','ZAR']
 
 interface StaffMember {
   id: string; name: string; email: string; role: string

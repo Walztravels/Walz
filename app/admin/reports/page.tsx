@@ -155,18 +155,30 @@ export default function MyReportsPage() {
   const router = useRouter()
   const { can, loading: permLoading } = useStaffPermissions()
 
-  const [form, setForm]       = useState({ ...EMPTY_FORM })
-  const [submitting, setSub]  = useState(false)
-  const [toast, setToast]     = useState<{ type: 'success' | 'error'; msg: string } | null>(null)
-  const [reports, setReports] = useState<StaffReport[]>([])
-  const [loading, setLoading] = useState(true)
-  const [viewing, setViewing] = useState<StaffReport | null>(null)
+  const [form, setForm]         = useState({ ...EMPTY_FORM })
+  const [submitting, setSub]    = useState(false)
+  const [toast, setToast]       = useState<{ type: 'success' | 'error'; msg: string } | null>(null)
+  const [reports, setReports]   = useState<StaffReport[]>([])
+  const [loading, setLoading]   = useState(true)
+  const [viewing, setViewing]   = useState<StaffReport | null>(null)
   const [formOpen, setFormOpen] = useState(true)
 
-  useEffect(() => {
-    if (!permLoading && !can('reports_view')) router.replace('/admin/unauthorized')
-  }, [permLoading, can, router])
+  // All-staff reports (managers/super admins)
+  const [allReports,  setAllReports]  = useState<StaffReport[]>([])
+  const [loadingAll,  setLoadingAll]  = useState(false)
+  const [filterStaff, setFilterStaff] = useState('')
+  const [expandedId,  setExpandedId]  = useState<string | null>(null)
 
+  // Derived permissions
+  const canViewAll    = !permLoading && (can('reports_all') || can('reports_staff'))
+  const canSubmitRpt  = !permLoading && (can('reports_submit') || can('reports_all'))
+  const canViewOwn    = !permLoading && (can('reports_view') || can('reports_submit') || can('reports_all'))
+
+  useEffect(() => {
+    if (!permLoading && !canViewOwn) router.replace('/admin/unauthorized')
+  }, [permLoading, canViewOwn, router])
+
+  // Own reports history
   const loadReports = useCallback(async () => {
     setLoading(true)
     const res = await fetch('/api/admin/reports?ownOnly=true&limit=50')
@@ -176,6 +188,17 @@ export default function MyReportsPage() {
   }, [])
 
   useEffect(() => { loadReports() }, [loadReports])
+
+  // All staff reports (admins only)
+  useEffect(() => {
+    if (canViewAll) {
+      setLoadingAll(true)
+      fetch('/api/admin/reports?limit=100')
+        .then(r => r.json())
+        .then(d => { setAllReports(d.reports ?? []); setLoadingAll(false) })
+        .catch(() => setLoadingAll(false))
+    }
+  }, [canViewAll])
 
   function setField(name: string, value: string | number) {
     setForm(f => ({ ...f, [name]: value }))
@@ -199,16 +222,26 @@ export default function MyReportsPage() {
       setForm({ ...EMPTY_FORM })
       setFormOpen(false)
       loadReports()
+      if (canViewAll) {
+        fetch('/api/admin/reports?limit=100').then(r => r.json())
+          .then(d => setAllReports(d.reports ?? [])).catch(() => {})
+      }
     } finally {
       setSub(false)
       setTimeout(() => setToast(null), 5000)
     }
   }
 
-  const canSubmit = form.summary.trim().length >= 20
+  const formReady = form.summary.trim().length >= 20
+
+  // Unique staff names for filter
+  const staffNames = [...new Set(allReports.map(r => r.staffName))].sort()
+  const filteredAll = filterStaff
+    ? allReports.filter(r => r.staffName === filterStaff)
+    : allReports
 
   return (
-    <div className="max-w-3xl mx-auto space-y-6">
+    <div className="max-w-4xl mx-auto space-y-6">
 
       {/* Toast */}
       {toast && (
@@ -221,7 +254,129 @@ export default function MyReportsPage() {
         </div>
       )}
 
+      {/* ── All Staff Reports (managers / super admin) ──────────────────────── */}
+      {canViewAll && (
+        <div className="bg-[#0B1F3A] rounded-2xl border border-white/8 overflow-hidden">
+          <div className="px-6 py-4 border-b border-white/8 flex items-center justify-between flex-wrap gap-3">
+            <div>
+              <h2 className="text-white font-bold text-base">All Staff Reports</h2>
+              <p className="text-white/40 text-xs mt-0.5">
+                {loadingAll ? 'Loading…' : `${filteredAll.length} of ${allReports.length} report${allReports.length !== 1 ? 's' : ''}`}
+              </p>
+            </div>
+            <select
+              value={filterStaff}
+              onChange={e => setFilterStaff(e.target.value)}
+              className="bg-white/8 border border-white/10 rounded-xl px-3 py-2 text-white text-xs outline-none focus:border-[#C9A84C] min-w-[160px]">
+              <option value="">All Staff</option>
+              {staffNames.map(name => <option key={name} value={name}>{name}</option>)}
+            </select>
+          </div>
+
+          {loadingAll ? (
+            <div className="flex items-center justify-center py-12">
+              <div className="w-6 h-6 border-2 border-[#C9A84C] border-t-transparent rounded-full animate-spin" />
+            </div>
+          ) : filteredAll.length === 0 ? (
+            <div className="text-center py-12">
+              <ClipboardList className="w-8 h-8 text-white/15 mx-auto mb-2" />
+              <p className="text-white/30 text-sm">No reports submitted yet</p>
+            </div>
+          ) : (
+            <div className="divide-y divide-white/5">
+              {filteredAll.map(report => (
+                <div key={report.id}>
+                  <button
+                    type="button"
+                    onClick={() => setExpandedId(expandedId === report.id ? null : report.id)}
+                    className="w-full flex items-center gap-4 px-6 py-4 hover:bg-white/3 transition-colors text-left">
+                    <div className="w-9 h-9 rounded-full bg-[#C9A84C] flex items-center justify-center text-[#0B1F3A] text-sm font-bold flex-shrink-0">
+                      {report.staffName?.charAt(0).toUpperCase()}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-white font-semibold text-sm truncate">{report.staffName}</p>
+                      <p className="text-white/40 text-xs truncate">{report.staffRole} · {report.reportType}</p>
+                    </div>
+                    <div className="text-right flex-shrink-0 hidden sm:block">
+                      <p className="text-white/50 text-xs">{fmtDate(report.periodFrom)} → {fmtDate(report.periodTo)}</p>
+                      <p className="text-white/25 text-xs mt-0.5">Submitted {fmtDate(report.createdAt)}</p>
+                    </div>
+                    {report.reviewedByAdmin
+                      ? <span className="text-[10px] text-green-400 font-bold flex-shrink-0 hidden md:block">Reviewed</span>
+                      : <span className="text-[10px] text-amber-400 font-bold flex-shrink-0 hidden md:block">Pending</span>}
+                    <ChevronDown className={`w-4 h-4 text-white/30 flex-shrink-0 transition-transform ${expandedId === report.id ? 'rotate-180' : ''}`} />
+                  </button>
+
+                  {expandedId === report.id && (
+                    <div className="px-6 pb-5 pt-2 bg-white/3 space-y-4">
+                      {report.summary && (
+                        <div>
+                          <p className="text-white/40 text-[10px] uppercase tracking-wider font-bold mb-1">Summary</p>
+                          <p className="text-white/75 text-sm leading-relaxed">{report.summary}</p>
+                        </div>
+                      )}
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                        {[
+                          { label: 'New Clients', val: report.clientsContacted },
+                          { label: 'Follow Ups',  val: report.followUps },
+                          { label: 'Applications', val: report.applicationsSubmitted },
+                          { label: 'Revenue',      val: `${report.revenueCurrency} ${report.totalRevenue.toLocaleString()}` },
+                        ].map(s => (
+                          <div key={s.label} className="bg-white/5 rounded-xl p-3 text-center">
+                            <p className="text-white font-bold text-base">{s.val}</p>
+                            <p className="text-white/40 text-xs">{s.label}</p>
+                          </div>
+                        ))}
+                      </div>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        {report.issuesChallenges && (
+                          <div>
+                            <p className="text-white/40 text-[10px] uppercase tracking-wider font-bold mb-1">Issues</p>
+                            <p className="text-white/60 text-sm">{report.issuesChallenges}</p>
+                          </div>
+                        )}
+                        {report.nextPeriodGoals && (
+                          <div>
+                            <p className="text-white/40 text-[10px] uppercase tracking-wider font-bold mb-1">Goals</p>
+                            <p className="text-white/60 text-sm">{report.nextPeriodGoals}</p>
+                          </div>
+                        )}
+                      </div>
+                      <button
+                        type="button"
+                        onClick={e => { e.stopPropagation(); setViewing(report) }}
+                        className="text-xs text-[#C9A84C] font-semibold hover:underline">
+                        View full report →
+                      </button>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Divider between all-reports and submit form */}
+      {canViewAll && canSubmitRpt && (
+        <div className="flex items-center gap-4">
+          <div className="flex-1 h-px bg-white/8" />
+          <p className="text-white/30 text-xs uppercase tracking-wider">Submit Your Report</p>
+          <div className="flex-1 h-px bg-white/8" />
+        </div>
+      )}
+
+      {/* No access fallback */}
+      {!permLoading && !canViewOwn && (
+        <div className="text-center py-20">
+          <p className="text-4xl mb-4">🔒</p>
+          <p className="text-white font-semibold text-lg mb-2">No Access to Reports</p>
+          <p className="text-white/40 text-sm">Contact your administrator to enable report submission.</p>
+        </div>
+      )}
+
       {/* ── Submit Form ─────────────────────────────────────────────────────── */}
+      {canSubmitRpt && (
       <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
         <button
           onClick={() => setFormOpen(f => !f)}
@@ -345,15 +500,17 @@ export default function MyReportsPage() {
                 className={TA} />
             </div>
 
-            <button onClick={submit} disabled={submitting || !canSubmit}
+            <button onClick={submit} disabled={submitting || !formReady}
               className="w-full flex items-center justify-center gap-2 py-3 bg-[#C9A84C] hover:bg-[#b8943d] text-[#0B1F3A] font-bold text-sm rounded-xl transition-colors disabled:opacity-60 disabled:cursor-not-allowed">
               {submitting ? <><Loader2 className="w-4 h-4 animate-spin" /> Submitting…</> : <><Send className="w-4 h-4" /> Submit Report</>}
             </button>
           </div>
         )}
       </div>
+      )}
 
-      {/* ── History ────────────────────────────────────────────────────────── */}
+      {/* ── History (own reports) ───────────────────────────────────────────── */}
+      {canViewOwn && (
       <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
         <div className="px-6 py-4 border-b border-gray-100 flex items-center gap-3">
           <div className="w-8 h-8 rounded-lg bg-[#0B1F3A] flex items-center justify-center">
@@ -417,6 +574,7 @@ export default function MyReportsPage() {
           </div>
         )}
       </div>
+      )}
 
       {viewing && <ViewModal report={viewing} onClose={() => setViewing(null)} />}
     </div>

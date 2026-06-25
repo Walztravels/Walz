@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getAdminSession } from '@/lib/admin-auth'
+import { getStaffPermissionsByEmail } from '@/lib/getStaffPermissions'
 import prisma from '@/lib/db'
 import { Resend } from 'resend'
 
@@ -190,6 +191,15 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   const session = await getAdminSession()
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
+  // Check reports_submit or reports_all permission (merges role defaults + staff overrides)
+  const perms = await getStaffPermissionsByEmail(session.email)
+  if (!perms.reports_submit && !perms.reports_all) {
+    return NextResponse.json(
+      { error: 'You do not have permission to submit reports. Contact your administrator.' },
+      { status: 403 }
+    )
+  }
 
   const body = await req.json()
   const { reportType, periodFrom, periodTo, summary } = body

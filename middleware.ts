@@ -74,7 +74,7 @@ function isAtLeast(userRole: string, minRole: string): boolean {
 const ROUTE_MIN_ROLES: Array<{ prefix: string; minRole: string }> = [
   { prefix: '/admin/settings',   minRole: 'super_admin'     },
   { prefix: '/admin/staff',      minRole: 'general_manager' },
-  { prefix: '/admin/reports',    minRole: 'coordinator'     },
+  { prefix: '/admin/reports',    minRole: 'sales_rep'       },
   { prefix: '/admin/payments',   minRole: 'coordinator'     },
 ]
 
