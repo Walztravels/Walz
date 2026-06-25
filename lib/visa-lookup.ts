@@ -247,19 +247,30 @@ export interface VisaMemberResult {
   flyingFrom:          string
   destination:         string
   rule:                VisaRule
+  missingNationality?: boolean
 }
 
 export function buildVisaMatrix(
   members: Array<{ name: string; passportNationality?: string | null; flyingFrom?: string | null }>,
   destination: string,
 ): VisaMemberResult[] {
-  return members
-    .filter(m => m.passportNationality)
-    .map(m => ({
+  return members.map(m => {
+    if (!m.passportNationality) {
+      return {
+        memberName:         m.name,
+        passport:           '',
+        flyingFrom:         m.flyingFrom ?? 'Unknown',
+        destination,
+        rule:               { status: 'required' as VisaStatus, notes: 'Nationality not provided', canWalzHelp: false },
+        missingNationality: true,
+      }
+    }
+    return {
       memberName:  m.name,
-      passport:    m.passportNationality!,
+      passport:    m.passportNationality,
       flyingFrom:  m.flyingFrom ?? 'Unknown',
       destination,
-      rule:        getVisaRule(m.passportNationality!, destination),
-    }))
+      rule:        getVisaRule(m.passportNationality, destination),
+    }
+  })
 }
