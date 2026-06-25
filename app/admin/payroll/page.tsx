@@ -94,7 +94,8 @@ function AddStaffModal({ onClose, onSaved }: { onClose: () => void; onSaved: () 
       })
       const text = await res.text()
       if (!res.ok) {
-        const msg = text ? (JSON.parse(text).error ?? `Error ${res.status}`) : `Error ${res.status}`
+        let msg = `Error ${res.status}`
+        try { msg = JSON.parse(text).error ?? msg } catch {}
         throw new Error(msg)
       }
       // Close modal first so the unmount is clean, then reload the list
@@ -167,8 +168,11 @@ function AddStaffModal({ onClose, onSaved }: { onClose: () => void; onSaved: () 
           <div className="grid grid-cols-2 gap-3">
             {(['name','email','role','location'] as const).map(k => (
               <div key={k}>
-                <label className="block text-xs text-gray-500 mb-1 capitalize">{k}</label>
-                <input value={form[k]} onChange={f(k)} required={k !== 'location'}
+                <label className="block text-xs text-gray-500 mb-1 capitalize">
+                  {k}{k === 'name' ? ' *' : ''}
+                </label>
+                <input value={form[k]} onChange={f(k)} required={k === 'name'}
+                  placeholder={k === 'email' ? 'staff@walztravels.com' : undefined}
                   className="w-full border border-gray-200 text-[#0B1F3A] rounded-xl px-3 py-2.5 text-sm outline-none focus:border-[#C9A84C]" />
               </div>
             ))}
