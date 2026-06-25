@@ -21,6 +21,8 @@ interface Payslip {
   grossPay: number; netPay: number; currency: string; status: string
   emailSentAt: string | null; paidAt: string | null; missedCheckIns: number
   adviceSent?: boolean; adviceSentAt?: string | null
+  transferId?: string | null; transferStatus?: string | null
+  transferReference?: string | null; paidVia?: string | null
   staffMember?: StaffMember
 }
 
@@ -363,6 +365,12 @@ export default function PayrollPage() {
   const [editSaving, setEditSaving] = useState(false)
   const [adviceSending, setAdviceSending] = useState<string | null>(null)
 
+  // Payroll run states
+  const [showPayroll,   setShowPayroll]   = useState(false)
+  const [dryRun,        setDryRun]        = useState<any>(null)
+  const [payrollResult, setPayrollResult] = useState<any>(null)
+  const [processing,    setProcessing]    = useState(false)
+
   function showToast(msg: string) { setToast(msg); setTimeout(() => setToast(null), 3500) }
 
   const loadStaff = useCallback(async () => {
@@ -485,6 +493,35 @@ export default function PayrollPage() {
     } finally { setSendingAll(false) }
   }
 
+  async function handlePreview() {
+    setProcessing(true)
+    try {
+      const res  = await fetch('/api/admin/payroll/transfer', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ dryRun: true }),
+      })
+      const data = await res.json()
+      if (data.error) throw new Error(data.error)
+      setDryRun(data)
+      setPayrollResult(null)
+      setShowPayroll(true)
+    } catch (e: any) { showToast(`Error: ${e.message}`) } finally { setProcessing(false) }
+  }
+
+  async function handleRunPayroll() {
+    setProcessing(true)
+    try {
+      const res  = await fetch('/api/admin/payroll/transfer', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ dryRun: false }),
+      })
+      const data = await res.json()
+      setPayrollResult(data)
+    } catch (e: any) {
+      setPayrollResult({ error: e.message })
+    } finally { setProcessing(false) }
+  }
+
   const netPreview = editForm.baseSalary + editForm.allowances - editForm.deductions
 
   return (
@@ -509,10 +546,17 @@ export default function PayrollPage() {
           </div>
         </div>
         {tab === 'staff' && (
-          <button onClick={() => setShowAdd(true)}
-            className="flex items-center gap-2 bg-[#C9A84C] hover:bg-[#d4b05a] text-[#0B1F3A] font-bold text-sm px-4 py-2.5 rounded-xl transition-colors">
-            <Plus className="w-4 h-4" /> Add Staff
-          </button>
+          <div className="flex items-center gap-2">
+            <button onClick={handlePreview} disabled={processing || !staff.length}
+              className="flex items-center gap-2 bg-green-500 hover:bg-green-400 disabled:opacity-40 text-black font-bold text-sm px-4 py-2.5 rounded-xl transition-colors">
+              {processing ? <Loader2 className="w-4 h-4 animate-spin" /> : '💸'}
+              {processing ? 'Processing…' : 'Run Payroll'}
+            </button>
+            <button onClick={() => setShowAdd(true)}
+              className="flex items-center gap-2 bg-[#C9A84C] hover:bg-[#d4b05a] text-[#0B1F3A] font-bold text-sm px-4 py-2.5 rounded-xl transition-colors">
+              <Plus className="w-4 h-4" /> Add Staff
+            </button>
+          </div>
         )}
         {tab === 'payslips' && (
           <button onClick={sendAll} disabled={sendingAll}
@@ -807,6 +851,103 @@ export default function PayrollPage() {
                 {editSaving ? 'Saving...' : 'Save Changes'}
               </button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Payroll Run Modal ── */}
+      {showPayroll && (
+        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-[#0B1F3A] rounded-2xl w-full max-w-md p-7 border border-white/10 shadow-2xl max-h-[90vh] overflow-y-auto">
+            <h3 className="text-white font-bold text-xl mb-1">
+              {payrollResult ? (payrollResult.error ? '✗ Payroll Error' : '✓ Payroll Complete') : 'Confirm Payroll Run'}
+            </h3>
+            <p className="text-white/40 text-sm mb-5">
+              {payrollResult
+                ? (payrollResult.error
+                    ? payrollResult.error
+                    : `${payrollResult.summary?.successful ?? 0} transferred · ${payrollResult.summary?.failed ?? 0} failed`)
+                : 'Review transfers before sending real money'}
+            </p>
+
+            {/* Preview */}
+            {!payrollResult && dryRun && (
+              <>
+                <div className="space-y-2 mb-5">
+                  {dryRun.transfers?.map((t: any, i: number) => (
+                    <div key={i} className="flex items-center justify-between bg-white/5 rounded-xl px-4 py-3">
+                      <div className="flex items-center gap-2.5">
+                        <div className="w-8 h-8 rounded-full bg-amber-500 flex items-center justify-center text-black text-xs font-bold flex-shrink-0">
+                          {t.name?.charAt(0)}
+                        </div>
+                        <div>
+                          <p className="text-white text-sm font-medium">{t.name}</p>
+                          <p className={`text-xs ${t.bankCodeFound === false ? 'text-red-400' : 'text-white/40'}`}>
+                            {t.bank} · {t.account}
+                            {t.bankCodeFound === false && ' ⚠️ Unknown bank'}
+                          </p>
+                        </div>
+                      </div>
+                      <p className="text-amber-400 font-bold text-sm flex-shrink-0 ml-3">
+                        {t.currency} {t.amount?.toLocaleString()}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+                <div className="bg-white/5 rounded-xl p-4 mb-5">
+                  {Object.entries(dryRun.totals || {}).map(([currency, total]: any) => (
+                    <div key={currency} className="flex justify-between text-sm mb-1 last:mb-0">
+                      <span className="text-white/50">Total {currency}</span>
+                      <span className="text-white font-bold">{currency} {Number(total).toLocaleString()}</span>
+                    </div>
+                  ))}
+                </div>
+                <div className="bg-red-500/10 border border-red-500/20 rounded-xl p-4 mb-5">
+                  <p className="text-red-400 text-sm">⚠️ This sends real money via Flutterwave. Ensure your FLW balance is sufficient before confirming.</p>
+                </div>
+              </>
+            )}
+
+            {/* Results */}
+            {payrollResult && !payrollResult.error && (
+              <div className="space-y-2 mb-5">
+                {payrollResult.results?.map((r: any, i: number) => (
+                  <div key={i} className={`flex items-center justify-between rounded-xl px-4 py-3 ${
+                    r.status === 'SUCCESS' ? 'bg-green-500/10 border border-green-500/20'
+                    : r.status === 'FAILED'  ? 'bg-red-500/10 border border-red-500/20'
+                    : 'bg-white/5'
+                  }`}>
+                    <div>
+                      <p className="text-white text-sm font-medium">{r.status === 'SUCCESS' ? '✓' : r.status === 'ALREADY_PAID' ? '—' : '✗'} {r.name}</p>
+                      {r.error       && <p className="text-red-400 text-xs mt-0.5">{r.error}</p>}
+                      {r.message     && <p className="text-white/40 text-xs mt-0.5">{r.message}</p>}
+                      {r.transferId  && <p className="text-white/30 text-xs mt-0.5">ID: {r.transferId}</p>}
+                    </div>
+                    {r.amount && <p className="text-white/60 text-sm font-semibold flex-shrink-0 ml-3">{r.currency} {r.amount?.toLocaleString()}</p>}
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Actions */}
+            {!payrollResult ? (
+              <div className="flex gap-3">
+                <button onClick={handleRunPayroll} disabled={processing}
+                  className="flex-1 bg-green-500 hover:bg-green-400 disabled:opacity-50 text-black font-bold py-3.5 rounded-xl transition text-sm flex items-center justify-center gap-2">
+                  {processing ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
+                  {processing ? 'Sending…' : '✓ Confirm & Pay All'}
+                </button>
+                <button onClick={() => { setShowPayroll(false); setDryRun(null) }} disabled={processing}
+                  className="px-5 bg-white/5 hover:bg-white/10 text-white py-3.5 rounded-xl transition text-sm">
+                  Cancel
+                </button>
+              </div>
+            ) : (
+              <button onClick={() => { setShowPayroll(false); setDryRun(null); setPayrollResult(null); loadStaff() }}
+                className="w-full bg-amber-500 hover:bg-amber-400 text-black font-bold py-3.5 rounded-xl transition text-sm">
+                Done
+              </button>
+            )}
           </div>
         </div>
       )}

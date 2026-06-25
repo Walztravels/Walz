@@ -1655,6 +1655,16 @@ model Payslip {
 
   missedCheckIns  Int         @default(0)
 
+  transferId            String?
+  transferStatus        String?
+  transferReference     String?
+  transferError         String?
+  transferInitiatedAt   DateTime?
+  transferCompletedAt   DateTime?
+  paidVia               String?   @default("manual")
+  adviceSent            Boolean   @default(false)
+  adviceSentAt          DateTime?
+
   @@unique([staffMemberId, month, year])
   @@index([month, year])
   @@index([status])
