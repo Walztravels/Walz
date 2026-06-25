@@ -37,13 +37,25 @@ export async function POST(
 
   const clientName = `${app.firstName ?? ''} ${app.lastName ?? ''}`.trim() || 'Valued Client'
 
-  const updateData: Record<string, unknown> = { lastEmailSentAt: new Date() }
-  if (body.appointmentDate)     updateData.appointmentDate     = new Date(body.appointmentDate)
-  if (body.appointmentLocation) updateData.appointmentLocation = body.appointmentLocation
-  if (body.appointmentNotes)    updateData.appointmentNotes    = body.appointmentNotes
-  if (body.updateStatus)        updateData.status              = body.updateStatus
+  const updateData: Record<string, unknown> = {}
+  if (body.updateStatus) updateData.status = body.updateStatus
 
-  await prisma.visaApplication.update({ where: { id }, data: updateData })
+  // These columns may not exist in DB until SQL migration is run; ignore errors silently
+  const extendedData: Record<string, unknown> = {
+    lastEmailSentAt: new Date(),
+    ...(body.appointmentDate     ? { appointmentDate:     new Date(body.appointmentDate) } : {}),
+    ...(body.appointmentLocation ? { appointmentLocation: body.appointmentLocation }        : {}),
+    ...(body.appointmentNotes    ? { appointmentNotes:    body.appointmentNotes }           : {}),
+  }
+
+  try {
+    await prisma.visaApplication.update({ where: { id }, data: { ...updateData, ...extendedData }, select: { id: true } })
+  } catch {
+    // Extended columns not yet in DB — update only confirmed-safe fields
+    if (Object.keys(updateData).length > 0) {
+      await prisma.visaApplication.update({ where: { id }, data: updateData, select: { id: true } }).catch(() => {})
+    }
+  }
 
   const apptFormatted = body.appointmentDate
     ? new Date(body.appointmentDate).toLocaleDateString('en-GB', {

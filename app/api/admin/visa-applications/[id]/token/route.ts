@@ -20,13 +20,17 @@ export async function POST(req: NextRequest, { params }: Params) {
   const { clientEmail, clientName, personalMessage } = await req.json()
   if (!clientEmail) return NextResponse.json({ error: 'clientEmail required' }, { status: 400 })
 
-  const application = await prisma.visaApplication.findUnique({ where: { id } })
+  const application = await prisma.visaApplication.findUnique({
+    where:  { id },
+    select: { id: true, email: true, destinationIso2: true, firstName: true, lastName: true },
+  })
   if (!application) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
   // Mark application as admin-initiated and save client email
   await prisma.visaApplication.update({
-    where: { id },
-    data: { initiatedBy: 'admin', email: clientEmail },
+    where:  { id },
+    data:   { initiatedBy: 'admin', email: clientEmail },
+    select: { id: true },
   })
 
   // Create token — 7 day expiry

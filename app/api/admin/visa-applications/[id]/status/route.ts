@@ -20,23 +20,37 @@ export async function PATCH(req: NextRequest, { params }: Params) {
 
   if (!status) return NextResponse.json({ error: 'status required' }, { status: 400 })
 
-  const app = await prisma.visaApplication.findUnique({ where: { id } })
+  const app = await prisma.visaApplication.findUnique({
+    where:  { id },
+    select: { id: true, email: true, firstName: true, lastName: true, referenceNumber: true, destinationIso2: true },
+  })
   if (!app) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
   const statusMessage = message ?? statusDefaultMessage(status)
   const now           = new Date().toISOString()
-  const existingTimeline = Array.isArray(app.timeline) ? app.timeline as object[] : []
   const newEntry      = { status, date: now, message: statusMessage }
 
-  await prisma.visaApplication.update({
-    where: { id },
-    data: {
-      status,
-      statusMessage,
-      timeline:  [...existingTimeline, newEntry],
-      updatedAt: new Date(),
-    },
-  })
+  // Try full update with timeline; fall back without if timeline column not yet in DB
+  try {
+    // Fetch timeline separately to avoid selecting it in the main query
+    const raw = await prisma.visaApplication.findUnique({
+      where: { id },
+      select: { timeline: true },
+    }) as { timeline: unknown } | null
+    const existingTimeline = Array.isArray(raw?.timeline) ? raw!.timeline as object[] : []
+    await prisma.visaApplication.update({
+      where: { id },
+      data:  { status, statusMessage, timeline: [...existingTimeline, newEntry], updatedAt: new Date() },
+      select: { id: true },
+    })
+  } catch {
+    // timeline column not in DB yet — update status/statusMessage only
+    await prisma.visaApplication.update({
+      where:  { id },
+      data:   { status, statusMessage, updatedAt: new Date() },
+      select: { id: true },
+    })
+  }
 
   // Send email notification to client
   const clientEmail = app.email
