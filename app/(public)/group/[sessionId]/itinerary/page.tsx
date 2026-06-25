@@ -2,8 +2,9 @@
 
 import { useState, useEffect } from 'react'
 import { useParams }           from 'next/navigation'
+import type { VisaRule }       from '@/lib/visa-lookup'
 
-// ─── Types for the new itinerary format ────────────────────────────────────────
+// ── Types ─────────────────────────────────────────────────────────────────────
 
 interface Activity {
   time:        string
@@ -11,14 +12,25 @@ interface Activity {
   description: string
   duration:    string
   type:        string
-  tips:        string
+  cost?:       string
+  bookingTip?: string
+  jadeTip?:    string
+  tips?:       string
+  location?:   string
+}
+
+interface Accommodation {
+  name:          string
+  stars?:        number
+  area?:         string
+  pricePerNight?: string
 }
 
 interface ItineraryDay {
   day:           number
   title:         string
   activities:    Activity[]
-  accommodation: string
+  accommodation: string | Accommodation
   meals: {
     breakfast: string
     lunch:     string
@@ -27,50 +39,115 @@ interface ItineraryDay {
   estimatedCost: string
 }
 
+interface FlightAdvice {
+  from:           string
+  to:             string
+  airlines?:      string
+  estimatedPrice?: string
+  tip:            string
+}
+
+interface CostBreakdown {
+  budget?:      string
+  comfortable?: string
+  luxury?:      string
+}
+
 interface Itinerary {
   destination:        string
   duration:           string
   groupSize:          number
+  tagline?:           string
   theme:              string
   highlights:         string[]
   days:               ItineraryDay[]
+  costBreakdown?:     CostBreakdown
   totalEstimatedCost: string
-  flightTip:          string
-  jadeTip:            string
+  flightAdvice?:      FlightAdvice[]
+  flightTip?:         string
+  packingTips?:       string[]
+  jadeFinalWord?:     string
+  jadeTip?:           string
   bookWithWalz:       string
 }
+
+interface VoteResult {
+  destination: string
+  points:      number
+  percentage:  number
+  isWinner:    boolean
+}
+
+interface VisaMemberResult {
+  memberName:  string
+  passport:    string
+  flyingFrom:  string
+  destination: string
+  rule:        VisaRule
+}
+
+// ── Helper components ─────────────────────────────────────────────────────────
+
+function VisaStatusBadge({ status }: { status: VisaRule['status'] }) {
+  const config = {
+    free:       { label: 'Visa Free',   bg: 'bg-emerald-500/20 text-emerald-300  border-emerald-500/30' },
+    on_arrival: { label: 'On Arrival',  bg: 'bg-blue-500/20    text-blue-300     border-blue-500/30'    },
+    evisa:      { label: 'eVisa',       bg: 'bg-purple-500/20  text-purple-300   border-purple-500/30'  },
+    required:   { label: 'Visa Needed', bg: 'bg-amber-500/20   text-amber-300    border-amber-500/30'   },
+  }
+  const c = config[status]
+  return (
+    <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full border ${c.bg}`}>{c.label}</span>
+  )
+}
+
+function getAccommodationName(acc: string | Accommodation): string {
+  if (typeof acc === 'string') return acc
+  return acc?.name ?? ''
+}
+
+function getAccommodationDetail(acc: string | Accommodation): string {
+  if (typeof acc === 'string') return ''
+  const parts = [acc.area, acc.pricePerNight].filter(Boolean)
+  return parts.length > 0 ? parts.join(' · ') : ''
+}
+
+// ── Main page ────────────────────────────────────────────────────────────────
 
 export default function ItineraryPage() {
   const { sessionId } = useParams<{ sessionId: string }>()
 
-  const [itinerary,          setItinerary]          = useState<Itinerary | null>(null)
-  const [sessionName,        setSessionName]         = useState('')
-  const [sessionStatus,      setSessionStatus]       = useState<string>('collecting')
-  const [sessionDestination, setSessionDestination]  = useState<string | null>(null)
-  const [generating,         setGenerating]          = useState(false)
-  const [loading,            setLoading]             = useState(true)
-  const [error,              setError]               = useState<string | null>(null)
-  const [copied,             setCopied]              = useState(false)
-  const [expandedDay,        setExpandedDay]         = useState<number | null>(1)
+  const [itinerary,    setItinerary]    = useState<Itinerary | null>(null)
+  const [voteResults,  setVoteResults]  = useState<VoteResult[]>([])
+  const [visaMatrix,   setVisaMatrix]   = useState<VisaMemberResult[]>([])
+  const [sessionName,  setSessionName]  = useState('')
+  const [destination,  setDestination]  = useState<string | null>(null)
+  const [generating,   setGenerating]   = useState(false)
+  const [loading,      setLoading]      = useState(true)
+  const [error,        setError]        = useState<string | null>(null)
+  const [copied,       setCopied]       = useState(false)
+  const [expandedDay,  setExpandedDay]  = useState<number | null>(1)
 
   useEffect(() => {
+    let autoGenerate = false
     fetch(`/api/public/group/${sessionId}/result`)
       .then(r => r.json())
       .then(d => {
         if (d.error) { setError(d.error); setLoading(false); return }
         setSessionName(d.sessionName ?? '')
-        setSessionStatus(d.status ?? 'collecting')
-        setSessionDestination(d.destination ?? null)
-        if (d.itineraryJson) {
-          setItinerary(d.itineraryJson as Itinerary)
+        if (d.destination) setDestination(d.destination)
+        if (d.status === 'locked' && d.itineraryJson) {
+          autoGenerate = true
         }
         setLoading(false)
+        if (autoGenerate) generateItinerary(true)
       })
       .catch(() => { setError('Failed to load session'); setLoading(false) })
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [sessionId])
 
-  async function generateItinerary() {
-    setGenerating(true)
+  async function generateItinerary(silent = false) {
+    if (!silent) setGenerating(true)
     setError(null)
     try {
       const res  = await fetch(`/api/public/group/${sessionId}/lock`, { method: 'POST' })
@@ -81,8 +158,9 @@ export default function ItineraryPage() {
         return
       }
       setItinerary(data.itinerary as Itinerary)
-      setSessionStatus('locked')
-      setSessionDestination(data.destination ?? null)
+      setDestination(data.destination ?? null)
+      if (data.voteResults)  setVoteResults(data.voteResults  as VoteResult[])
+      if (data.visaMatrix)   setVisaMatrix(data.visaMatrix    as VisaMemberResult[])
       setExpandedDay(1)
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Something went wrong — please try again')
@@ -99,103 +177,80 @@ export default function ItineraryPage() {
 
   const displayName = sessionName && sessionName.length > 2 ? sessionName : 'Group Trip'
 
+  // ── Loading ───────────────────────────────────────────────────────────────
+
   if (loading) return (
     <div className="min-h-screen bg-[#060f1e] flex items-center justify-center">
       <div className="w-8 h-8 rounded-full border-3 border-[#C9A84C]/30 border-t-[#C9A84C] animate-spin" />
     </div>
   )
 
+  const dest = itinerary?.destination ?? destination ?? displayName
+
   return (
     <div className="min-h-screen bg-[#060f1e]">
 
-      {/* Header */}
-      <div className="bg-[#0B1F3A] px-4 py-8">
-        <div className="max-w-2xl mx-auto flex items-start justify-between gap-4">
-          <div>
-            <div className="inline-flex items-center gap-2 bg-[#C9A84C]/10 border border-[#C9A84C]/20 rounded-xl px-3 py-1 mb-3">
-              <span className="text-[#C9A84C] text-xs font-bold">✈ GROUP ITINERARY</span>
+      {/* ── SECTION 1 : Hero ──────────────────────────────────────────────── */}
+      <div className="bg-[#0B1F3A] px-4 pt-10 pb-8">
+        <div className="max-w-2xl mx-auto">
+          <div className="flex items-start justify-between gap-4 mb-4">
+            <div className="inline-flex items-center gap-2 bg-[#C9A84C]/10 border border-[#C9A84C]/20 rounded-xl px-3 py-1.5">
+              <span className="text-[#C9A84C] text-xs font-bold tracking-widest">✈ JADE GROUP ITINERARY</span>
             </div>
-            <h1 className="text-white text-2xl font-bold">
-              {itinerary?.destination ?? sessionDestination ?? displayName}
-            </h1>
-            {itinerary && (
-              <>
-                <p className="text-white/40 text-sm mt-1">
-                  {itinerary.duration} · {itinerary.totalEstimatedCost} per person
-                </p>
-                {itinerary.theme && (
-                  <p className="text-[#C9A84C]/70 text-xs mt-0.5 italic">{itinerary.theme}</p>
-                )}
-              </>
-            )}
-          </div>
-          <button onClick={copyShareLink}
-            className="flex-shrink-0 flex items-center gap-2 px-4 py-2 rounded-xl bg-white/10 text-white text-sm hover:bg-white/20 transition">
-            {copied ? '✓ Copied!' : '🔗 Share'}
-          </button>
-        </div>
-
-        {/* Highlights */}
-        {itinerary?.highlights && itinerary.highlights.length > 0 && (
-          <div className="max-w-2xl mx-auto mt-4 flex flex-wrap gap-2">
-            {itinerary.highlights.map((h, i) => (
-              <span key={i}
-                className="text-xs font-semibold px-3 py-1.5 rounded-full bg-[#C9A84C]/15 border border-[#C9A84C]/30 text-[#C9A84C]">
-                ✦ {h}
-              </span>
-            ))}
-          </div>
-        )}
-      </div>
-
-      <div className="max-w-2xl mx-auto px-4 py-8">
-
-        {/* Generate state */}
-        {!itinerary && !generating && (
-          <div className="text-center py-12">
-            <p className="text-4xl mb-4">🗺️</p>
-            {sessionStatus === 'locked' && sessionDestination ? (
-              <>
-                <h2 className="text-white font-bold text-xl mb-1">Winning destination</h2>
-                <p className="text-[#C9A84C] font-bold text-2xl mb-3">{sessionDestination}</p>
-                <p className="text-white/50 text-sm mb-6">
-                  Jade AI will build a personalised day-by-day plan for your group.
-                </p>
-              </>
-            ) : (
-              <>
-                <h2 className="text-white font-bold text-xl mb-2">Generate your group itinerary</h2>
-                <p className="text-white/50 text-sm mb-6">
-                  Jade AI will pick the best destination for your group and build a day-by-day plan based on everyone&apos;s preferences.
-                </p>
-              </>
-            )}
-            <button onClick={generateItinerary}
-              className="px-6 py-3 rounded-xl bg-[#C9A84C] text-[#0B1F3A] font-bold hover:bg-[#E8C87A] transition">
-              {sessionStatus === 'locked' && sessionDestination ? 'Generate itinerary' : 'Pick destination & generate itinerary'}
+            <button onClick={copyShareLink}
+              className="flex-shrink-0 flex items-center gap-2 px-3 py-1.5 rounded-xl bg-white/10 text-white/60 text-xs hover:bg-white/20 transition">
+              {copied ? '✓ Copied!' : '🔗 Share'}
             </button>
           </div>
-        )}
 
-        {/* Generating spinner */}
+          <h1 className="text-white text-4xl font-black tracking-tight">{dest}</h1>
+
+          {itinerary?.tagline && (
+            <p className="text-[#C9A84C] text-lg font-semibold mt-1">{itinerary.tagline}</p>
+          )}
+          {itinerary?.theme && (
+            <p className="text-white/40 text-sm mt-1 italic">{itinerary.theme}</p>
+          )}
+
+          {itinerary && (
+            <div className="mt-3 flex items-center gap-4 text-white/50 text-sm">
+              <span>📅 {itinerary.duration}</span>
+              <span>👥 {itinerary.groupSize} travellers</span>
+              <span>💷 {itinerary.totalEstimatedCost}</span>
+            </div>
+          )}
+
+          {itinerary?.highlights && itinerary.highlights.length > 0 && (
+            <div className="mt-4 flex flex-wrap gap-2">
+              {itinerary.highlights.map((h, i) => (
+                <span key={i} className="text-xs font-semibold px-3 py-1.5 rounded-full bg-[#C9A84C]/15 border border-[#C9A84C]/30 text-[#C9A84C]">
+                  ✦ {h}
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+
+      <div className="max-w-2xl mx-auto px-4 py-8 space-y-8">
+
+        {/* ── Generating / Generate button ──────────────────────────────── */}
+
         {generating && (
           <div className="text-center py-12">
             <div className="w-10 h-10 rounded-full border-3 border-[#C9A84C]/30 border-t-[#C9A84C] animate-spin mx-auto mb-4" />
             <p className="text-white font-semibold mb-1">Jade is crafting your itinerary…</p>
             <p className="text-white/40 text-sm">
-              {sessionDestination
-                ? `Building your ${sessionDestination} experience`
-                : 'Picking your destination and building the plan'}
+              {destination ? `Building your ${destination} experience` : 'Picking the best destination and planning your trip'}
             </p>
           </div>
         )}
 
-        {/* Error */}
         {error && (
-          <div className="bg-red-900/30 border border-red-500/30 rounded-xl p-4 mb-6">
+          <div className="bg-red-900/30 border border-red-500/30 rounded-xl p-4">
             <p className="text-red-400 text-sm font-medium">{error}</p>
             {!itinerary && (
-              <button onClick={generateItinerary}
+              <button onClick={() => generateItinerary()}
                 className="mt-3 text-xs text-red-300 underline hover:text-red-200 transition">
                 Try again
               </button>
@@ -203,126 +258,333 @@ export default function ItineraryPage() {
           </div>
         )}
 
-        {/* Itinerary */}
-        {itinerary && (
-          <div className="space-y-4">
+        {!itinerary && !generating && (
+          <div className="text-center py-16">
+            <p className="text-5xl mb-4">🗺️</p>
+            <h2 className="text-white font-bold text-xl mb-2">
+              {destination ? `Your destination: ${destination}` : 'Ready to plan?'}
+            </h2>
+            <p className="text-white/50 text-sm mb-6 max-w-xs mx-auto">
+              Jade AI will build a premium day-by-day itinerary tailored to your whole group.
+            </p>
+            <button onClick={() => generateItinerary()}
+              className="px-6 py-3 rounded-xl bg-[#C9A84C] text-[#0B1F3A] font-bold hover:bg-[#E8C87A] transition">
+              Generate our itinerary ✦
+            </button>
+          </div>
+        )}
 
-            {/* Jade tip */}
-            {itinerary.jadeTip && (
-              <div className="bg-[#C9A84C]/10 border border-[#C9A84C]/20 rounded-2xl p-4">
-                <p className="text-[#C9A84C] text-xs font-bold mb-1.5">💡 Jade&apos;s tip</p>
-                <p className="text-white/70 text-sm">{itinerary.jadeTip}</p>
+        {itinerary && (
+          <>
+            {/* ── SECTION 2 : Vote bar chart ──────────────────────────────── */}
+            {voteResults.length > 0 && (
+              <div>
+                <h2 className="text-white/50 text-xs font-bold uppercase tracking-widest mb-4">Vote Results</h2>
+                <div className="bg-[#0B1F3A] rounded-2xl p-5 space-y-3">
+                  {voteResults.map((v) => (
+                    <div key={v.destination}>
+                      <div className="flex items-center justify-between mb-1">
+                        <div className="flex items-center gap-2">
+                          {v.isWinner && <span className="text-base">🏆</span>}
+                          <span className={`text-sm font-semibold ${v.isWinner ? 'text-[#C9A84C]' : 'text-white/60'}`}>
+                            {v.destination}
+                          </span>
+                        </div>
+                        <span className={`text-xs font-bold ${v.isWinner ? 'text-[#C9A84C]' : 'text-white/30'}`}>
+                          {v.points}pts · {v.percentage}%
+                        </span>
+                      </div>
+                      <div className="h-2 bg-white/10 rounded-full overflow-hidden">
+                        <div
+                          className={`h-full rounded-full transition-all duration-700 ${v.isWinner ? 'bg-[#C9A84C]' : 'bg-white/30'}`}
+                          style={{ width: `${v.percentage}%` }}
+                        />
+                      </div>
+                    </div>
+                  ))}
+                </div>
               </div>
             )}
 
-            {/* Flight tip */}
-            {itinerary.flightTip && (
-              <div className="bg-white/5 border border-white/8 rounded-2xl p-4">
-                <p className="text-white/50 text-xs font-bold mb-1.5">✈ Flight tip</p>
+            {/* ── SECTION 3 : Visa intelligence ───────────────────────────── */}
+            {visaMatrix.length > 0 && (
+              <div>
+                <h2 className="text-white/50 text-xs font-bold uppercase tracking-widest mb-4">Visa Intelligence</h2>
+                <div className="space-y-3">
+                  {visaMatrix.map((v, i) => (
+                    <div key={i} className={`rounded-2xl p-4 border ${
+                      v.rule.status === 'required'   ? 'bg-amber-500/10  border-amber-500/20'  :
+                      v.rule.status === 'on_arrival' ? 'bg-blue-500/10   border-blue-500/20'   :
+                      v.rule.status === 'evisa'      ? 'bg-purple-500/10 border-purple-500/20' :
+                                                       'bg-emerald-500/10 border-emerald-500/20'
+                    }`}>
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <div className="flex items-center gap-2 mb-1">
+                            <p className="text-white font-semibold text-sm">{v.memberName}</p>
+                            <VisaStatusBadge status={v.rule.status} />
+                          </div>
+                          <p className="text-white/40 text-xs">{v.passport} passport → {v.destination}</p>
+                          {v.rule.visaType && (
+                            <p className="text-white/60 text-xs mt-1">{v.rule.visaType}</p>
+                          )}
+                        </div>
+                        {(v.rule.cost || v.rule.processingTime) && (
+                          <div className="text-right flex-shrink-0">
+                            {v.rule.cost && (
+                              <p className="text-white/80 text-sm font-bold">{v.rule.cost}</p>
+                            )}
+                            {v.rule.processingTime && (
+                              <p className="text-white/40 text-[10px]">{v.rule.processingTime}</p>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                      <p className="text-white/50 text-xs mt-2">{v.rule.notes}</p>
+                      {v.rule.canWalzHelp && (
+                        <div className="mt-2">
+                          <a href="https://wa.me/447459327417" target="_blank" rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1.5 text-[#C9A84C] text-xs font-semibold hover:text-[#E8C87A] transition">
+                            Apply with Walz →
+                          </a>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* ── SECTION 4 : Flights at a glance ─────────────────────────── */}
+            {itinerary.flightAdvice && itinerary.flightAdvice.length > 0 && (
+              <div>
+                <h2 className="text-white/50 text-xs font-bold uppercase tracking-widest mb-4">Flights at a Glance</h2>
+                <div className="space-y-3">
+                  {itinerary.flightAdvice.map((f, i) => (
+                    <div key={i} className="bg-[#0B1F3A] rounded-2xl p-4">
+                      <div className="flex items-center justify-between mb-2">
+                        <div className="flex items-center gap-2">
+                          <span className="text-white font-semibold text-sm">{f.from}</span>
+                          <span className="text-white/30 text-xs">→</span>
+                          <span className="text-white font-semibold text-sm">{f.to}</span>
+                        </div>
+                        {f.estimatedPrice && (
+                          <span className="text-[#C9A84C] font-bold text-sm">{f.estimatedPrice}</span>
+                        )}
+                      </div>
+                      {f.airlines && (
+                        <p className="text-white/40 text-xs mb-1">✈ {f.airlines}</p>
+                      )}
+                      <p className="text-white/60 text-xs">{f.tip}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Legacy flightTip (v1 format) */}
+            {!itinerary.flightAdvice && itinerary.flightTip && (
+              <div className="bg-[#0B1F3A] rounded-2xl p-4">
+                <p className="text-white/50 text-xs font-bold mb-2">✈ FLIGHT TIP</p>
                 <p className="text-white/70 text-sm">{itinerary.flightTip}</p>
               </div>
             )}
 
-            {/* Day cards */}
-            {itinerary.days.map((day) => {
-              const isOpen = expandedDay === day.day
-              return (
-                <div key={day.day} className="bg-[#0d1e35] rounded-2xl border border-white/8 overflow-hidden">
-                  {/* Day header — clickable to expand/collapse */}
-                  <button
-                    onClick={() => setExpandedDay(isOpen ? null : day.day)}
-                    className="w-full bg-[#0B1F3A] px-5 py-3.5 flex items-center justify-between hover:bg-[#0d2447] transition">
-                    <div className="text-left">
-                      <span className="text-[#C9A84C] font-bold text-sm">Day {day.day}</span>
-                      <h3 className="text-white font-semibold text-sm mt-0.5">{day.title}</h3>
-                    </div>
-                    <div className="flex items-center gap-3">
-                      <div className="text-right">
-                        <p className="text-white/40 text-xs">{day.estimatedCost}</p>
-                        <p className="text-white/25 text-[10px] truncate max-w-[120px]">{day.accommodation}</p>
-                      </div>
-                      <span className="text-white/40 text-sm">{isOpen ? '▲' : '▼'}</span>
-                    </div>
-                  </button>
-
-                  {isOpen && (
-                    <>
-                      {/* Activities */}
-                      <div className="divide-y divide-white/5">
-                        {day.activities.map((act, ai) => (
-                          <div key={ai} className="px-5 py-4">
-                            <div className="flex items-start gap-3">
-                              <div className="flex-shrink-0 text-center w-12 pt-0.5">
-                                <p className="text-[#C9A84C] text-xs font-bold font-mono">{act.time}</p>
-                                <p className="text-white/25 text-[9px] mt-0.5">{act.duration}</p>
-                              </div>
-                              <div className="flex-1">
-                                <p className="text-white font-semibold text-sm">{act.title}</p>
-                                <p className="text-white/60 text-xs mt-1 leading-relaxed">{act.description}</p>
-                                {act.tips && (
-                                  <p className="text-[#C9A84C]/70 text-xs mt-1.5 italic">
-                                    💡 {act.tips}
-                                  </p>
-                                )}
-                              </div>
-                            </div>
+            {/* ── SECTION 5 : Day-by-day timeline ─────────────────────────── */}
+            <div>
+              <h2 className="text-white/50 text-xs font-bold uppercase tracking-widest mb-4">Day-by-Day Plan</h2>
+              <div className="space-y-3">
+                {itinerary.days.map((day) => {
+                  const isOpen   = expandedDay === day.day
+                  const accName  = getAccommodationName(day.accommodation)
+                  const accDetail = getAccommodationDetail(day.accommodation)
+                  return (
+                    <div key={day.day} className="bg-[#0d1e35] rounded-2xl border border-white/8 overflow-hidden">
+                      <button
+                        onClick={() => setExpandedDay(isOpen ? null : day.day)}
+                        className="w-full bg-[#0B1F3A] px-5 py-4 flex items-center justify-between hover:bg-[#0d2447] transition">
+                        <div className="text-left">
+                          <span className="text-[#C9A84C] font-bold text-sm">Day {day.day}</span>
+                          <h3 className="text-white font-semibold text-sm mt-0.5">{day.title}</h3>
+                        </div>
+                        <div className="flex items-center gap-3">
+                          <div className="text-right">
+                            <p className="text-white/40 text-xs">{day.estimatedCost}</p>
+                            {accName && (
+                              <p className="text-white/25 text-[10px] truncate max-w-[120px]">{accName}</p>
+                            )}
                           </div>
-                        ))}
-                      </div>
+                          <span className="text-white/40 text-xs">{isOpen ? '▲' : '▼'}</span>
+                        </div>
+                      </button>
 
-                      {/* Meals */}
-                      {day.meals && (
-                        <div className="px-5 py-4 border-t border-white/5 bg-white/3">
-                          <p className="text-white/40 text-xs font-bold uppercase tracking-wider mb-3">Meals</p>
-                          <div className="grid grid-cols-3 gap-3">
-                            {[
-                              { label: '🌅 Breakfast', value: day.meals.breakfast },
-                              { label: '☀️ Lunch',     value: day.meals.lunch     },
-                              { label: '🌙 Dinner',    value: day.meals.dinner    },
-                            ].map(m => (
-                              <div key={m.label} className="bg-white/5 rounded-xl p-2.5">
-                                <p className="text-white/40 text-[9px] font-bold mb-0.5">{m.label}</p>
-                                <p className="text-white/70 text-xs leading-relaxed">{m.value}</p>
+                      {isOpen && (
+                        <>
+                          <div className="divide-y divide-white/5">
+                            {day.activities.map((act, ai) => (
+                              <div key={ai} className="px-5 py-4">
+                                <div className="flex items-start gap-3">
+                                  <div className="flex-shrink-0 text-center w-12 pt-0.5">
+                                    <p className="text-[#C9A84C] text-xs font-bold font-mono">{act.time}</p>
+                                    <p className="text-white/25 text-[9px] mt-0.5">{act.duration}</p>
+                                  </div>
+                                  <div className="flex-1 min-w-0">
+                                    <div className="flex items-start justify-between gap-2">
+                                      <p className="text-white font-semibold text-sm">{act.title}</p>
+                                      {act.cost && (
+                                        <span className="text-white/40 text-[10px] flex-shrink-0">{act.cost}</span>
+                                      )}
+                                    </div>
+                                    {act.location && (
+                                      <p className="text-white/30 text-[10px] mt-0.5">📍 {act.location}</p>
+                                    )}
+                                    <p className="text-white/60 text-xs mt-1 leading-relaxed">{act.description}</p>
+                                    {(act.jadeTip || act.tips) && (
+                                      <p className="text-[#C9A84C]/70 text-xs mt-1.5 italic">
+                                        💡 {act.jadeTip ?? act.tips}
+                                      </p>
+                                    )}
+                                    {act.bookingTip && (
+                                      <p className="text-blue-400/60 text-xs mt-1">🎟 {act.bookingTip}</p>
+                                    )}
+                                  </div>
+                                </div>
                               </div>
                             ))}
                           </div>
-                        </div>
-                      )}
 
-                      {/* Accommodation */}
-                      {day.accommodation && (
-                        <div className="px-5 py-3 border-t border-white/5 flex items-center gap-2">
-                          <span className="text-white/30 text-xs">🏨</span>
-                          <p className="text-white/40 text-xs">{day.accommodation}</p>
-                        </div>
+                          {day.meals && (
+                            <div className="px-5 py-4 border-t border-white/5 bg-white/[0.02]">
+                              <p className="text-white/30 text-[10px] font-bold uppercase tracking-wider mb-3">Meals</p>
+                              <div className="grid grid-cols-3 gap-2">
+                                {[
+                                  { label: '🌅 Breakfast', value: day.meals.breakfast },
+                                  { label: '☀️ Lunch',     value: day.meals.lunch     },
+                                  { label: '🌙 Dinner',    value: day.meals.dinner    },
+                                ].map(m => (
+                                  <div key={m.label} className="bg-white/5 rounded-xl p-2.5">
+                                    <p className="text-white/30 text-[9px] font-bold mb-0.5">{m.label}</p>
+                                    <p className="text-white/70 text-[10px] leading-relaxed">{m.value}</p>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+
+                          {accName && (
+                            <div className="px-5 py-3 border-t border-white/5 flex items-start gap-2">
+                              <span className="text-white/30 text-xs mt-0.5">🏨</span>
+                              <div>
+                                <p className="text-white/50 text-xs font-medium">{accName}</p>
+                                {accDetail && (
+                                  <p className="text-white/25 text-[10px] mt-0.5">{accDetail}</p>
+                                )}
+                              </div>
+                            </div>
+                          )}
+                        </>
                       )}
-                    </>
-                  )}
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+
+            {/* ── SECTION 6 : Trip cost estimate ───────────────────────────── */}
+            {itinerary.costBreakdown && (
+              <div>
+                <h2 className="text-white/50 text-xs font-bold uppercase tracking-widest mb-4">Trip Cost Estimate</h2>
+                <div className="grid grid-cols-3 gap-3">
+                  {[
+                    { key: 'budget',      label: 'Budget',      emoji: '💰', color: 'border-white/10 text-white/60' },
+                    { key: 'comfortable', label: 'Comfortable',  emoji: '✈',  color: 'border-[#C9A84C]/30 text-[#C9A84C]' },
+                    { key: 'luxury',      label: 'Luxury',       emoji: '👑', color: 'border-purple-500/30 text-purple-300' },
+                  ].map(({ key, label, emoji, color }) => {
+                    const val = itinerary.costBreakdown?.[key as keyof CostBreakdown]
+                    if (!val) return null
+                    return (
+                      <div key={key} className={`bg-white/5 rounded-2xl p-4 border ${color}`}>
+                        <p className="text-lg mb-1">{emoji}</p>
+                        <p className="text-white/40 text-[10px] font-bold uppercase tracking-wider mb-1">{label}</p>
+                        <p className="text-xs font-semibold leading-relaxed">{val}</p>
+                      </div>
+                    )
+                  })}
                 </div>
-              )
-            })}
+              </div>
+            )}
 
-            {/* Book with Walz CTA */}
-            {itinerary.bookWithWalz && (
-              <div className="mt-4 bg-[#C9A84C] rounded-2xl p-5 text-center">
-                <p className="text-[#0B1F3A] text-xs font-bold uppercase tracking-widest mb-2">Book with Walz Travels</p>
-                <p className="text-[#0B1F3A]/80 text-sm mb-4">{itinerary.bookWithWalz}</p>
-                <a href="https://walztravels.com" target="_blank" rel="noopener noreferrer"
-                  className="inline-block px-6 py-2.5 rounded-xl bg-[#0B1F3A] text-white text-sm font-bold hover:bg-[#132038] transition">
-                  Plan with Walz →
+            {/* ── SECTION 7 : Jade's final word ────────────────────────────── */}
+            {(itinerary.jadeFinalWord || itinerary.jadeTip) && (
+              <div className="relative bg-[#0B1F3A] rounded-2xl p-6 border border-[#C9A84C]/20 overflow-hidden">
+                <div className="absolute inset-0 bg-gradient-to-br from-[#C9A84C]/5 to-transparent pointer-events-none" />
+                <div className="relative">
+                  <div className="flex items-center gap-3 mb-4">
+                    <div className="w-10 h-10 rounded-full bg-[#C9A84C]/20 flex items-center justify-center text-[#C9A84C] font-black text-sm">
+                      J
+                    </div>
+                    <div>
+                      <p className="text-white font-bold text-sm">Jade</p>
+                      <p className="text-white/30 text-[10px]">Walz AI Travel Planner</p>
+                    </div>
+                  </div>
+                  <p className="text-white/80 text-sm leading-relaxed">
+                    &ldquo;{itinerary.jadeFinalWord ?? itinerary.jadeTip}&rdquo;
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {/* ── SECTION 8 : Book with Walz CTA ───────────────────────────── */}
+            <div className="bg-[#C9A84C] rounded-2xl overflow-hidden">
+              <div className="p-6 text-center">
+                <p className="text-[#0B1F3A] text-xs font-black uppercase tracking-widest mb-1">Book with Walz Travels</p>
+                <p className="text-[#0B1F3A]/80 text-sm mb-5">{itinerary.bookWithWalz}</p>
+
+                <div className="grid grid-cols-3 gap-2 mb-5">
+                  {[
+                    { emoji: '✈', title: 'Group Flights',   desc: 'Multi-city departures' },
+                    { emoji: '🛂', title: 'Visa Processing', desc: 'All passports handled' },
+                    { emoji: '🏨', title: 'Hotel Blocks',    desc: 'Group rates available' },
+                  ].map(c => (
+                    <div key={c.title} className="bg-[#0B1F3A]/10 rounded-xl p-3 text-center">
+                      <p className="text-xl mb-1">{c.emoji}</p>
+                      <p className="text-[#0B1F3A] text-[10px] font-black uppercase">{c.title}</p>
+                      <p className="text-[#0B1F3A]/60 text-[9px] mt-0.5">{c.desc}</p>
+                    </div>
+                  ))}
+                </div>
+
+                <a href="https://wa.me/447459327417?text=Hi%20Walz!%20I%20want%20to%20book%20a%20group%20trip%20to%20" target="_blank" rel="noopener noreferrer"
+                  className="inline-flex items-center gap-2 px-6 py-3 rounded-xl bg-[#0B1F3A] text-white text-sm font-bold hover:bg-[#132038] transition">
+                  💬 WhatsApp us to start planning
                 </a>
+              </div>
+            </div>
+
+            {/* Packing tips */}
+            {itinerary.packingTips && itinerary.packingTips.length > 0 && (
+              <div className="bg-white/5 rounded-2xl p-4">
+                <p className="text-white/40 text-xs font-bold uppercase tracking-wider mb-3">🎒 Packing Tips</p>
+                <ul className="space-y-1.5">
+                  {itinerary.packingTips.map((tip, i) => (
+                    <li key={i} className="flex items-start gap-2 text-white/60 text-xs">
+                      <span className="text-[#C9A84C] mt-0.5">✓</span>
+                      {tip}
+                    </li>
+                  ))}
+                </ul>
               </div>
             )}
 
             {/* Regenerate */}
-            <div className="text-center pt-2">
-              <button onClick={generateItinerary} disabled={generating}
-                className="text-white/30 text-xs hover:text-white/60 transition disabled:opacity-30">
+            <div className="text-center pt-2 pb-8">
+              <button onClick={() => generateItinerary()} disabled={generating}
+                className="text-white/20 text-xs hover:text-white/50 transition disabled:opacity-30">
                 ↺ Regenerate itinerary
               </button>
             </div>
-
-          </div>
+          </>
         )}
       </div>
     </div>

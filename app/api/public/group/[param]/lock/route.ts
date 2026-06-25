@@ -1,20 +1,48 @@
 import { NextRequest, NextResponse } from 'next/server'
 import Anthropic                     from '@anthropic-ai/sdk'
 import prisma                        from '@/lib/db'
+import { buildVisaMatrix }           from '@/lib/visa-lookup'
 
 export const dynamic     = 'force-dynamic'
 export const runtime     = 'nodejs'
-export const maxDuration = 60
+export const maxDuration = 120
 
-/**
- * POST /api/public/group/[param]/lock
- *
- * Public route — no auth required. The session ID acts as the secret.
- * Generates a full day-by-day group itinerary with Claude and locks the session.
- * Idempotent: returns the cached itinerary if already generated.
- *
- * [param] = sessionId
- */
+// ── Vote tally ───────────────────────────────────────────────────────────────
+
+interface VoteResult {
+  destination: string
+  points:      number
+  percentage:  number
+  isWinner:    boolean
+}
+
+function computeVoteTally(members: Array<{ preferencesJson: unknown }>): VoteResult[] {
+  const raw: Record<string, number> = {}
+  for (const m of members) {
+    const prefs = m.preferencesJson as { destinations?: string[] } | null
+    const dests = prefs?.destinations ?? []
+    dests.forEach((d, i) => {
+      if (d && i < 3) raw[d] = (raw[d] ?? 0) + (3 - i)
+    })
+  }
+  const total  = Object.values(raw).reduce((a, b) => a + b, 0)
+  const sorted = Object.entries(raw).sort(([, a], [, b]) => b - a)
+  return sorted.map(([destination, points], idx) => ({
+    destination,
+    points,
+    percentage: total > 0 ? Math.round((points / total) * 100) : 0,
+    isWinner:   idx === 0,
+  }))
+}
+
+// ── Member context helpers ───────────────────────────────────────────────────
+
+function getPrefsField(prefs: unknown, key: string): string {
+  return (prefs as Record<string, unknown>)?.[key] as string ?? ''
+}
+
+// ── Main handler ─────────────────────────────────────────────────────────────
+
 export async function POST(
   _req: NextRequest,
   { params }: { params: { param: string } },
@@ -26,13 +54,30 @@ export async function POST(
 
   if (!session) return NextResponse.json({ error: 'Session not found' }, { status: 404 })
 
+  // Always compute these — they're fast and needed even for cached responses
+  const submitted  = session.members.filter(m => m.submittedAt && m.preferencesJson)
+  const voteResults = computeVoteTally(submitted)
+
+  const winner     = session.destination ?? voteResults[0]?.destination ?? 'London'
+  const destination = winner
+
+  // Build visa matrix from preferencesJson (works before SQL migration too)
+  const membersForVisa = submitted.map(m => ({
+    name:                m.name,
+    passportNationality: (m.passportNationality ?? getPrefsField(m.preferencesJson, 'passportNationality')) || null,
+    flyingFrom:          (m.flyingFrom ?? getPrefsField(m.preferencesJson, 'flyingFrom')) || null,
+  }))
+  const visaMatrix = buildVisaMatrix(membersForVisa, destination)
+
   // Idempotent — return cached itinerary if already generated
   if (session.status === 'locked' && session.itineraryJson && session.destination) {
     return NextResponse.json({
-      success:     true,
-      itinerary:   session.itineraryJson,
-      destination: session.destination,
-      cached:      true,
+      success:      true,
+      itinerary:    session.itineraryJson,
+      destination:  session.destination,
+      voteResults,
+      visaMatrix,
+      cached:       true,
     })
   }
 
@@ -40,96 +85,150 @@ export async function POST(
     return NextResponse.json({ error: 'AI service not configured' }, { status: 503 })
   }
 
-  // Pick destination — use existing if already set, else tally votes from prefs
-  let destination = session.destination ?? ''
-  if (!destination) {
-    const votes: Record<string, number> = {}
-    for (const m of session.members) {
-      const prefs = m.preferencesJson as { destinations?: string[] } | null
-      const dests = prefs?.destinations ?? []
-      dests.forEach((d, i) => {
-        if (d && i < 3) votes[d] = (votes[d] ?? 0) + (3 - i)
-      })
-    }
-    destination = Object.entries(votes).sort(([, a], [, b]) => b - a)[0]?.[0] ?? 'London'
+  const groupSize  = session.members.length
+
+  // Trip duration — average from member prefs
+  const durationMap: Record<string, number> = {
+    weekend: 3, short: 5, week: 7, '2weeks': 14,
   }
-
-  // Build member context from preferences
-  const submitted = session.members.filter(m => m.submittedAt && m.preferencesJson)
-  const groupSize = session.members.length
-
-  const prefsContext = submitted.length > 0
-    ? submitted.map(m => {
-        const p = m.preferencesJson as Record<string, unknown>
-        return `${m.name}: budget=${p.budget ?? '?'}, vibe=${p.vibe ?? '?'}, days=${p.durationDays ?? 7}`
-      }).join(' | ')
-    : `Group of ${groupSize} travellers — preferences not yet collected`
-
-  // Average trip duration from member prefs
   const durations = submitted.map(m => {
-    const p = m.preferencesJson as Record<string, unknown>
-    return typeof p?.durationDays === 'number' ? (p.durationDays as number) : 5
+    const d = getPrefsField(m.preferencesJson, 'duration')
+    return durationMap[d] ?? (typeof (m.preferencesJson as Record<string,unknown>)?.durationDays === 'number'
+      ? (m.preferencesJson as Record<string,unknown>).durationDays as number : 5)
   })
   const tripDays = durations.length > 0
-    ? Math.round(durations.reduce((a, b) => a + b, 0) / durations.length)
-    : 5
+    ? Math.round(durations.reduce((a, b) => a + b, 0) / durations.length) : 5
 
-  const prompt = `You are Jade, Walz Travels' expert AI travel planner. Create a premium ${tripDays}-day group itinerary for ${destination}.
+  // Unique flying-from cities
+  const flyingFromSet = new Set(
+    membersForVisa.map(m => m.flyingFrom).filter(Boolean) as string[],
+  )
+  const flyingFromList = flyingFromSet.size > 0
+    ? [...flyingFromSet].join(', ')
+    : 'various cities'
 
-Group details:
+  // Vibe summary
+  const vibes = submitted
+    .map(m => getPrefsField(m.preferencesJson, 'vibe'))
+    .filter(Boolean)
+  const vibesSummary = vibes.length > 0
+    ? [...new Set(vibes)].join(', ')
+    : 'mixed preferences'
+
+  // Budget summary
+  const budgets = submitted
+    .map(m => getPrefsField(m.preferencesJson, 'budget'))
+    .filter(Boolean)
+  const budgetMap: Record<string, string> = {
+    'under-500': 'Under £500', '500-1000': '£500–£1,000',
+    '1000-2000': '£1,000–£2,000', '2000-plus': '£2,000+',
+  }
+  const budgetsSummary = budgets.length > 0
+    ? [...new Set(budgets.map(b => budgetMap[b] ?? b))].join(', ')
+    : 'mixed budgets'
+
+  // Vote results text for Claude
+  const voteText = voteResults.slice(0, 5)
+    .map((v, i) => `${i === 0 ? '🏆' : `${i + 1}.`} ${v.destination} — ${v.points}pts (${v.percentage}%)`)
+    .join('\n')
+
+  // Member passport summary for flight sections
+  const memberFlyingFrom = membersForVisa
+    .map(m => `${m.name}: flying from ${m.flyingFrom || 'unknown'}`)
+    .join(', ')
+
+  const prompt = `You are Jade, Walz Travels' expert AI travel planner. Build a premium ${tripDays}-day group trip to ${destination}.
+
+GROUP PROFILE:
 - ${groupSize} travellers
-- ${prefsContext}
-- Managed by Walz Travels concierge team
+- Flying from: ${flyingFromList}
+- Trip vibes: ${vibesSummary}
+- Budgets: ${budgetsSummary}
+- Member flight origins: ${memberFlyingFrom}
 
-Return ONLY valid JSON (no prose, no fences):
+DESTINATION VOTE RESULTS (weighted 1st=3pts, 2nd=2pts, 3rd=1pt):
+${voteText}
+
+INSTRUCTIONS:
+- Be specific — name real hotels, restaurants, and attractions
+- Suggest hotels in the best neighbourhoods for groups
+- Give practical Jade insider tips
+- Flight advice must account for their specific origins (${flyingFromList})
+- Include activities across all vibes the group mentioned
+- Keep costs realistic in local currency + GBP equivalent
+
+Return ONLY valid JSON (no markdown, no prose):
 
 {
   "destination": "${destination}",
   "duration": "${tripDays} days",
   "groupSize": ${groupSize},
-  "theme": "<one-line theme for this trip>",
-  "highlights": ["<highlight 1>", "<highlight 2>", "<highlight 3>"],
+  "tagline": "<5-8 word tagline for this specific group trip>",
+  "theme": "<one-line theme explaining why ${destination} is perfect for this group>",
+  "highlights": ["<top highlight 1>", "<top highlight 2>", "<top highlight 3>"],
   "days": [
     {
       "day": 1,
-      "title": "<Day title>",
+      "title": "<evocative day title>",
       "activities": [
         {
           "time": "09:00",
           "title": "<Activity name>",
-          "description": "<What to do and why — 2 sentences>",
+          "description": "<What it is and why this group will love it — 2 sentences>",
           "duration": "2 hours",
           "type": "sightseeing",
-          "tips": "<Jade's insider tip>"
+          "cost": "<realistic cost per person>",
+          "bookingTip": "<how to book or get tickets>",
+          "jadeTip": "<insider tip only Jade knows>",
+          "location": "<neighbourhood or exact area>"
         }
       ],
-      "accommodation": "<Recommended hotel name>",
-      "meals": {
-        "breakfast": "<recommendation>",
-        "lunch": "<recommendation>",
-        "dinner": "<recommendation>"
+      "accommodation": {
+        "name": "<Real hotel name>",
+        "stars": 4,
+        "area": "<neighbourhood>",
+        "pricePerNight": "<£X–£Y per room>"
       },
-      "estimatedCost": "<per person in local currency>"
+      "meals": {
+        "breakfast": "<specific recommendation with restaurant name>",
+        "lunch": "<specific recommendation with restaurant name>",
+        "dinner": "<specific recommendation with restaurant name>"
+      },
+      "estimatedCost": "<£X–£Y per person for this day excluding accommodation>"
     }
   ],
-  "totalEstimatedCost": "<per person total>",
-  "flightTip": "<flight booking advice for this destination>",
-  "jadeTip": "<Jade's personal recommendation for the group>",
-  "bookWithWalz": "Book this entire trip through Walz Travels and save up to 15% on flights and hotels."
+  "costBreakdown": {
+    "budget": "<total inc. flights from ${flyingFromList} for budget travellers>",
+    "comfortable": "<total inc. flights for comfortable experience>",
+    "luxury": "<total inc. flights for luxury experience>"
+  },
+  "totalEstimatedCost": "<comfortable tier total — e.g. '£1,400 per person'>",
+  "flightAdvice": [
+    {
+      "from": "<city>",
+      "to": "${destination}",
+      "airlines": "<2-3 recommended airlines>",
+      "estimatedPrice": "<return price range>",
+      "tip": "<booking advice specific to this route>"
+    }
+  ],
+  "packingTips": ["<tip 1>", "<tip 2>", "<tip 3>"],
+  "jadeFinalWord": "<Jade's personal message to the group — warm, specific, 2-3 sentences>",
+  "bookWithWalz": "Book this entire trip through Walz Travels — we handle group flights from ${flyingFromList}, hotel blocks, visa processing, and transfers in one package. WhatsApp us to start planning."
 }
 
-Include ${tripDays} days. Each day should have 3-4 activities covering morning through evening.`
+Include exactly ${tripDays} days. Each day must have 3–4 activities with specific times from morning to evening.`
 
   const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
 
   try {
     const message = await anthropic.messages.create({
       model:      'claude-sonnet-4-6',
-      max_tokens: 4000,
+      max_tokens: 8000,
       messages:   [{ role: 'user', content: prompt }],
     })
 
-    const raw  = message.content[0]?.type === 'text' ? message.content[0].text : ''
+    const raw   = message.content[0]?.type === 'text' ? message.content[0].text : ''
     const clean = raw.replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/\s*```$/i, '').trim()
 
     let itinerary: Record<string, unknown>
@@ -155,6 +254,8 @@ Include ${tripDays} days. Each day should have 3-4 activities covering morning t
       success:     true,
       itinerary,
       destination: finalDestination,
+      voteResults,
+      visaMatrix,
     })
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err)
