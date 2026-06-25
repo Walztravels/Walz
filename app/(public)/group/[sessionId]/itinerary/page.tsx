@@ -149,22 +149,49 @@ export default function ItineraryPage() {
   async function generateItinerary(silent = false) {
     if (!silent) setGenerating(true)
     setError(null)
+
+    const controller = new AbortController()
+    // Abort client-side after 65 s so we always get an actionable error
+    const timer = setTimeout(() => controller.abort(), 65_000)
+
     try {
-      const res  = await fetch(`/api/public/group/${sessionId}/lock`, { method: 'POST' })
-      const data = await res.json()
-      if (!res.ok) {
-        setError(data.error ?? 'Failed to generate itinerary — please try again')
-        setGenerating(false)
+      let res: Response
+      try {
+        res = await fetch(`/api/public/group/${sessionId}/lock`, {
+          method: 'POST',
+          signal: controller.signal,
+        })
+      } catch (fetchErr) {
+        const isAbort = fetchErr instanceof Error && fetchErr.name === 'AbortError'
+        setError(
+          isAbort
+            ? "Jade is still working on this — it's taking a while. Please try again."
+            : 'Network error — check your connection and try again.',
+        )
         return
       }
+
+      // Parse response JSON safely (res.json() throws on non-JSON bodies in Safari)
+      let data: Record<string, unknown>
+      try {
+        data = await res.json() as Record<string, unknown>
+      } catch {
+        setError(res.ok ? 'Unexpected response from server — please try again.' : `Server error ${res.status} — please try again.`)
+        return
+      }
+
+      if (!res.ok) {
+        setError((data.error as string | undefined) ?? 'Failed to generate itinerary — please try again.')
+        return
+      }
+
       setItinerary(data.itinerary as Itinerary)
-      setDestination(data.destination ?? null)
-      if (data.voteResults)  setVoteResults(data.voteResults  as VoteResult[])
-      if (data.visaMatrix)   setVisaMatrix(data.visaMatrix    as VisaMemberResult[])
+      if (data.destination) setDestination(data.destination as string)
+      if (data.voteResults) setVoteResults(data.voteResults as VoteResult[])
+      if (data.visaMatrix)  setVisaMatrix(data.visaMatrix  as VisaMemberResult[])
       setExpandedDay(1)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Something went wrong — please try again')
     } finally {
+      clearTimeout(timer)
       setGenerating(false)
     }
   }

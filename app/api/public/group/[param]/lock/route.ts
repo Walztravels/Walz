@@ -221,12 +221,20 @@ Include exactly ${tripDays} days. Each day must have 3–4 activities with speci
 
   const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
 
+  // Timeout promise — ensures we return a clean JSON error before Vercel drops the connection
+  const claudeTimeout = new Promise<never>((_, reject) =>
+    setTimeout(() => reject(new Error('Jade timed out — please try generating again')), 55_000)
+  )
+
   try {
-    const message = await anthropic.messages.create({
-      model:      'claude-sonnet-4-6',
-      max_tokens: 8000,
-      messages:   [{ role: 'user', content: prompt }],
-    })
+    const message = await Promise.race([
+      anthropic.messages.create({
+        model:      'claude-sonnet-4-6',
+        max_tokens: 5000,
+        messages:   [{ role: 'user', content: prompt }],
+      }),
+      claudeTimeout,
+    ])
 
     const raw   = message.content[0]?.type === 'text' ? message.content[0].text : ''
     const clean = raw.replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/\s*```$/i, '').trim()
