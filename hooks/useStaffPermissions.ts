@@ -52,10 +52,11 @@ export function useStaffPermissions(): UseStaffPermissionsReturn {
   const [profile, setProfile] = useState<StaffProfile | null>(_cachedProfile)
   const [loading, setLoading] = useState(!_cachedProfile)
   const [error,   setError]   = useState<string | null>(null)
-  const [tick,    setTick]    = useState(0)
 
   const fetchProfile = useCallback(async () => {
-    setLoading(true)
+    // Show cached data immediately (no loading flash on re-mount).
+    // Only show the spinner on the very first load.
+    if (!_cachedProfile) setLoading(true)
     setError(null)
     try {
       const res = await fetch('/api/admin/me', { credentials: 'include' })
@@ -76,9 +77,9 @@ export function useStaffPermissions(): UseStaffPermissionsReturn {
     }
   }, [])
 
-  // Subscribe to cache updates from other hook instances
+  // Subscribe to cache updates from other hook instances on this page
   useEffect(() => {
-    const handler = () => setTick((t) => t + 1)
+    const handler = () => { if (_cachedProfile) setProfile(_cachedProfile) }
     _listeners.push(handler)
     return () => {
       const idx = _listeners.indexOf(handler)
@@ -86,14 +87,11 @@ export function useStaffPermissions(): UseStaffPermissionsReturn {
     }
   }, [])
 
+  // Always re-fetch on mount so role changes take effect on next page navigation
+  // without requiring a full browser reload.
   useEffect(() => {
-    if (_cachedProfile) {
-      setProfile(_cachedProfile)
-      setLoading(false)
-    } else {
-      fetchProfile()
-    }
-  }, [fetchProfile, tick])
+    fetchProfile()
+  }, [fetchProfile])
 
   const perms = profile?.permissions ?? EMPTY_PERMISSIONS
 

@@ -1,6 +1,7 @@
 import { SignJWT, jwtVerify } from 'jose'
 import { cookies } from 'next/headers'
 import { prisma } from '@/lib/db'
+import { mergePermissions } from '@/lib/permissions'
 
 const COOKIE_NAME = 'admin_token'
 
@@ -126,15 +127,25 @@ export async function getAdminSession(): Promise<AdminSession | null> {
 
   if (!staff.isActive) return null
 
+  // Merge role defaults + per-staff overrides so session.permissions always reflects
+  // the full effective permission set (role change in RoleManager → instant effect).
+  const roleRecord = await prisma.rolePermission.findUnique({
+    where:  { role: staff.role },
+    select: { permissions: true },
+  })
+  const roleDefaults   = (roleRecord?.permissions ?? {}) as Record<string, boolean>
+  const staffOverrides = (staff.permissions       ?? {}) as Record<string, boolean>
+  const mergedPerms    = mergePermissions(roleDefaults, staffOverrides)
+
   return {
     id:          staff.id,
     email:       staff.email,
     name:        staff.name,
     role:        staff.role,
-    staffRole:   staff.role,    // backward compat alias
-    permissions: (staff.permissions ?? {}) as Record<string, boolean>,
-    branch:      staff.branch      ?? 'nigeria',
-    department:  staff.department  ?? 'general',
+    staffRole:   staff.role,
+    permissions: mergedPerms,
+    branch:      staff.branch     ?? 'nigeria',
+    department:  staff.department ?? 'general',
     isActive:    staff.isActive,
     staffId:     staff.id,
   }
