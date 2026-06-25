@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import prisma from '@/lib/db'
+import { prisma } from '@/lib/db'
 import { getAdminSession } from '@/lib/admin-auth'
 import { ISO2_TO_SLUG } from '@/lib/visa-config'
 
@@ -37,26 +37,55 @@ export async function GET(req: NextRequest) {
     ]
   }
 
-  const applications = await prisma.visaApplication.findMany({
-    where,
-    include: {
-      tokens: { orderBy: { createdAt: 'desc' } },
-    },
-    orderBy: { updatedAt: 'desc' },
-    take: 100,
-  })
+  try {
+    const [applications, counts] = await Promise.all([
+      prisma.visaApplication.findMany({
+        where,
+        select: {
+          id:              true,
+          referenceNumber: true,
+          firstName:       true,
+          lastName:        true,
+          email:           true,
+          destinationIso2: true,
+          status:          true,
+          openedAt:        true,
+          startedAt:       true,
+          viewCount:       true,
+          updatedAt:       true,
+          tokens: {
+            select: {
+              id:          true,
+              token:       true,
+              clientEmail: true,
+              clientName:  true,
+              used:        true,
+              expiresAt:   true,
+              createdAt:   true,
+            },
+            orderBy: { createdAt: 'desc' },
+          },
+        },
+        orderBy: { updatedAt: 'desc' },
+        take: 100,
+      }),
+      Promise.all([
+        prisma.visaApplication.count({ where: { tokens: { some: {} } } }),
+        prisma.visaApplication.count({ where: { openedAt: { not: null } } }),
+        prisma.visaApplication.count({ where: { startedAt: { not: null } } }),
+        prisma.visaApplication.count({ where: { tokens: { some: {} }, openedAt: null } }),
+      ]),
+    ])
+    const [totalSent, totalOpened, totalStarted, totalNotOpened] = counts
 
-  const [totalSent, totalOpened, totalStarted, totalNotOpened] = await Promise.all([
-    prisma.visaApplication.count({ where: { tokens: { some: {} } } }),
-    prisma.visaApplication.count({ where: { openedAt: { not: null } } }),
-    prisma.visaApplication.count({ where: { startedAt: { not: null } } }),
-    prisma.visaApplication.count({ where: { tokens: { some: {} }, openedAt: null } }),
-  ])
-
-  return NextResponse.json({
-    applications,
-    counts: { totalSent, totalOpened, totalStarted, totalNotOpened },
-  })
+    return NextResponse.json({
+      applications,
+      counts: { totalSent, totalOpened, totalStarted, totalNotOpened },
+    })
+  } catch (err: any) {
+    console.error('[form-tracker GET]:', err.message)
+    return NextResponse.json({ error: err.message, applications: [], counts: null }, { status: 500 })
+  }
 }
 
 export async function POST(req: NextRequest) {

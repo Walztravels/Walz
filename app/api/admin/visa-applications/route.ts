@@ -40,9 +40,24 @@ export async function GET(req: NextRequest) {
       where,
       orderBy: { createdAt: 'desc' },
       take:    500,
-      include: {
+      select: {
+        id:             true,
+        referenceNumber: true,
+        destinationIso2: true,
+        visaType:       true,
+        firstName:      true,
+        lastName:       true,
+        email:          true,
+        phone:          true,
+        status:         true,
+        serviceFeePaid: true,
+        assignedTo:     true,
+        initiatedBy:    true,
+        isDraft:        true,
+        createdAt:      true,
+        updatedAt:      true,
         user:  { select: { name: true, email: true } },
-        notes: { orderBy: { createdAt: 'desc' }, take: 1 },
+        notes: { select: { content: true, createdAt: true }, orderBy: { createdAt: 'desc' }, take: 1 },
       },
     })
 
