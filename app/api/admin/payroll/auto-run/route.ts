@@ -12,7 +12,8 @@ export async function GET(req: NextRequest) {
   console.log('[auto-run] Starting monthly payroll transfer...')
 
   try {
-    const res  = await fetch(`${process.env.NEXTAUTH_URL}/api/admin/payroll/transfer`, {
+    const appUrl = process.env.NEXTAUTH_URL || process.env.NEXT_PUBLIC_APP_URL || 'https://walztravels.com'
+    const res  = await fetch(`${appUrl}/api/admin/payroll/transfer`, {
       method: 'POST',
       headers: {
         'Content-Type':     'application/json',
