@@ -4,29 +4,34 @@ import { useState, useEffect } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 
 interface SessionInfo {
-  sessionId:    string
-  sessionName:  string
-  memberName:   string
-  memberId:     string
-  hasSubmitted: boolean
-  totalMembers: number
-  submitted:    number
+  sessionId:     string
+  sessionName:   string
+  memberName:    string
+  memberId:      string
+  hasSubmitted:  boolean
+  totalMembers:  number
+  submitted:     number
+  sessionStatus: string
 }
 
-const ACTIVITIES = [
-  { id: 'beach',     label: '🏖️ Beach' },
-  { id: 'culture',   label: '🏛️ Culture & history' },
-  { id: 'nightlife', label: '🎵 Nightlife' },
-  { id: 'adventure', label: '🧗 Adventure' },
-  { id: 'food',      label: '🍽️ Food & dining' },
-  { id: 'shopping',  label: '🛍️ Shopping' },
-  { id: 'nature',    label: '🌿 Nature' },
-  { id: 'relax',     label: '🧘 Relaxation' },
+const POPULAR_DESTINATIONS = [
+  'Dubai', 'London', 'Paris', 'Bali',
+  'New York', 'Tokyo', 'Lagos', 'Accra',
+  'Amsterdam', 'Barcelona', 'Istanbul', 'Cape Town',
 ]
 
-const NATIONALITIES = [
-  'Nigerian', 'British', 'American', 'Canadian', 'Ghanaian', 'South African',
-  'Kenyan', 'Indian', 'Pakistani', 'Bangladeshi', 'Jamaican', 'Other',
+const BUDGET_OPTIONS = [
+  { value: 'under-500',   label: 'Under £500' },
+  { value: '500-1000',    label: '£500–£1,000' },
+  { value: '1000-2000',   label: '£1,000–£2,000' },
+  { value: '2000-plus',   label: '£2,000+' },
+]
+
+const VIBE_OPTIONS = [
+  { value: 'beach',     label: '🏖 Beach & Relaxation' },
+  { value: 'city',      label: '🏙 City & Culture' },
+  { value: 'adventure', label: '🌿 Adventure & Nature' },
+  { value: 'food',      label: '🍽 Food & Nightlife' },
 ]
 
 export default function JoinPage() {
@@ -39,49 +44,57 @@ export default function JoinPage() {
   const [error,      setError]      = useState<string | null>(null)
 
   // Form state
-  const [startDate,       setStartDate]       = useState('')
-  const [durationDays,    setDurationDays]    = useState(7)
-  const [budget,          setBudget]          = useState<'budget' | 'mid' | 'flexible'>('mid')
-  const [activities,      setActivities]      = useState<string[]>([])
-  const [dietary,         setDietary]         = useState('')
-  const [accessibility,   setAccessibility]   = useState('')
-  const [nationality,     setNationality]     = useState('')
-  const [visitedCountry,  setVisitedCountry]  = useState('')
-  const [visitedList,     setVisitedList]     = useState<string[]>([])
+  const [memberName,     setMemberName]     = useState('')
+  const [selectedDests,  setSelectedDests]  = useState<string[]>([])
+  const [customDest,     setCustomDest]     = useState('')
+  const [budget,         setBudget]         = useState('')
+  const [vibe,           setVibe]           = useState('')
+  const [durationDays,   setDurationDays]   = useState(7)
 
   useEffect(() => {
     fetch(`/api/public/group/${token}`)
       .then(r => r.json())
       .then(d => {
         if (d.error) setError(d.error)
-        else setInfo(d)
+        else {
+          setInfo(d)
+          setMemberName(d.memberName?.startsWith('Person ') ? '' : (d.memberName ?? ''))
+        }
         setLoading(false)
       })
       .catch(() => { setError('Failed to load session'); setLoading(false) })
   }, [token])
 
-  function toggleActivity(id: string) {
-    setActivities(prev => prev.includes(id) ? prev.filter(a => a !== id) : [...prev, id])
+  function toggleDest(dest: string) {
+    setSelectedDests(prev => {
+      if (prev.includes(dest)) return prev.filter(d => d !== dest)
+      if (prev.length < 3)    return [...prev, dest]
+      return prev
+    })
   }
 
-  function addCountry() {
-    if (visitedCountry.trim() && !visitedList.includes(visitedCountry.trim())) {
-      setVisitedList(prev => [...prev, visitedCountry.trim()])
-      setVisitedCountry('')
+  function addCustomDest() {
+    const d = customDest.trim()
+    if (d && !selectedDests.includes(d) && selectedDests.length < 3) {
+      setSelectedDests(prev => [...prev, d])
+      setCustomDest('')
     }
   }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
-    if (!activities.length) { setError('Please select at least one activity preference.'); return }
-    if (!nationality)        { setError('Please select your passport nationality.'); return }
+    if (selectedDests.length < 1) { setError('Pick at least one destination.'); return }
+    if (!budget)                   { setError('Select a budget range.'); return }
+    if (!vibe)                     { setError('Select a trip vibe.'); return }
     setError(null)
     setSubmitting(true)
 
     const preferences = {
-      startDate, durationDays, budget, activities,
-      dietary, accessibility, nationality,
-      visitedCountries: visitedList,
+      name:         memberName.trim() || info?.memberName || '',
+      destinations: selectedDests,
+      budget,
+      vibe,
+      durationDays,
     }
 
     const res  = await fetch(`/api/public/group/${token}/submit`, {
@@ -118,10 +131,32 @@ export default function JoinPage() {
         <p className="text-5xl mb-4">✅</p>
         <h1 className="text-white text-xl font-bold mb-2">Already submitted!</h1>
         <p className="text-white/50 text-sm">
-          You have already submitted your preferences for <strong className="text-white">{info.sessionName}</strong>.
+          You've already shared your preferences for{' '}
+          <strong className="text-white">{info.sessionName}</strong>.
         </p>
-        <p className="text-white/30 text-xs mt-3">
-          {info.submitted} of {info.totalMembers} members have submitted.
+        <div className="mt-5 flex justify-center gap-1">
+          {Array.from({ length: info.totalMembers }).map((_, i) => (
+            <div key={i}
+              className={`w-2.5 h-2.5 rounded-full transition-colors ${
+                i < info.submitted ? 'bg-[#C9A84C]' : 'bg-white/20'
+              }`}
+            />
+          ))}
+        </div>
+        <p className="text-white/30 text-xs mt-2">
+          {info.submitted} of {info.totalMembers} members submitted
+        </p>
+      </div>
+    </div>
+  )
+
+  if (info?.sessionStatus === 'locked' && !info.hasSubmitted) return (
+    <div className="min-h-screen bg-[#0B1F3A] flex items-center justify-center px-4">
+      <div className="text-center max-w-sm">
+        <p className="text-4xl mb-4">🔒</p>
+        <h1 className="text-white text-xl font-bold mb-2">Trip is being planned</h1>
+        <p className="text-white/50 text-sm">
+          The group has already submitted and the itinerary is being generated.
         </p>
       </div>
     </div>
@@ -130,6 +165,7 @@ export default function JoinPage() {
   return (
     <div className="min-h-screen bg-[#0B1F3A]">
       <div className="max-w-lg mx-auto px-4 py-10">
+
         {/* Header */}
         <div className="mb-8">
           <div className="inline-flex items-center gap-2 bg-[#C9A84C]/10 border border-[#C9A84C]/20 rounded-xl px-3 py-1.5 mb-4">
@@ -137,13 +173,14 @@ export default function JoinPage() {
           </div>
           <h1 className="text-white text-2xl font-bold">{info?.sessionName}</h1>
           <p className="text-white/50 text-sm mt-1">
-            Hi <strong className="text-white">{info?.memberName}</strong> — share your preferences privately.
-            Others can't see your answers.
+            Share your preferences privately — others can&apos;t see your answers.
           </p>
-          <div className="mt-3 bg-white/5 rounded-xl px-4 py-2 flex items-center gap-2">
+          <div className="mt-3 flex items-center gap-2">
             <div className="flex gap-1">
               {Array.from({ length: info?.totalMembers ?? 0 }).map((_, i) => (
-                <div key={i} className={`w-2 h-2 rounded-full ${i < (info?.submitted ?? 0) ? 'bg-[#C9A84C]' : 'bg-white/20'}`} />
+                <div key={i}
+                  className={`w-2 h-2 rounded-full ${i < (info?.submitted ?? 0) ? 'bg-[#C9A84C]' : 'bg-white/20'}`}
+                />
               ))}
             </div>
             <p className="text-white/40 text-xs">{info?.submitted}/{info?.totalMembers} submitted</p>
@@ -152,120 +189,140 @@ export default function JoinPage() {
 
         <form onSubmit={handleSubmit} className="space-y-6">
 
-          {/* Travel dates */}
+          {/* Name */}
           <div className="bg-white/5 rounded-2xl p-5">
-            <h2 className="text-white font-semibold mb-4">📅 Travel dates</h2>
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="block text-white/40 text-xs mb-1.5">Flexible start (from)</label>
-                <input type="date" value={startDate} onChange={e => setStartDate(e.target.value)}
-                  className="w-full bg-white/10 border border-white/10 text-white rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-[#C9A84C]" />
+            <h2 className="text-white font-semibold mb-3">👤 Your name <span className="text-white/30 font-normal text-sm">(optional)</span></h2>
+            <input
+              type="text"
+              value={memberName}
+              onChange={e => setMemberName(e.target.value)}
+              placeholder={info?.memberName ?? 'Your name'}
+              maxLength={40}
+              className="w-full bg-white/10 border border-white/10 text-white placeholder-white/30 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-[#C9A84C]"
+            />
+          </div>
+
+          {/* Destination picks */}
+          <div className="bg-white/5 rounded-2xl p-5">
+            <h2 className="text-white font-semibold mb-1">🌍 Where do you want to go?</h2>
+            <p className="text-white/30 text-xs mb-4">
+              Pick up to 3 destinations (in order of preference)
+            </p>
+
+            {/* Selected order */}
+            {selectedDests.length > 0 && (
+              <div className="flex gap-2 mb-4 flex-wrap">
+                {selectedDests.map((d, i) => (
+                  <span key={d}
+                    className="flex items-center gap-1.5 bg-[#C9A84C] text-[#0B1F3A] rounded-lg px-3 py-1.5 text-sm font-bold">
+                    <span className="text-[#0B1F3A]/50 text-xs">#{i + 1}</span>
+                    {d}
+                    <button type="button" onClick={() => toggleDest(d)}
+                      className="text-[#0B1F3A]/50 hover:text-[#0B1F3A] ml-0.5">×</button>
+                  </span>
+                ))}
               </div>
-              <div>
-                <label className="block text-white/40 text-xs mb-1.5">Trip length (days)</label>
-                <input type="number" min={3} max={30} value={durationDays}
-                  onChange={e => setDurationDays(Number(e.target.value))}
-                  className="w-full bg-white/10 border border-white/10 text-white rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-[#C9A84C]" />
-              </div>
+            )}
+
+            {/* Pills */}
+            <div className="grid grid-cols-3 gap-2 mb-4">
+              {POPULAR_DESTINATIONS.map(dest => {
+                const idx     = selectedDests.indexOf(dest)
+                const picked  = idx !== -1
+                const maxed   = selectedDests.length >= 3 && !picked
+                return (
+                  <button
+                    key={dest}
+                    type="button"
+                    onClick={() => toggleDest(dest)}
+                    disabled={maxed}
+                    className={`relative py-2 px-1 rounded-xl text-xs font-semibold border transition-all text-center disabled:opacity-30 disabled:cursor-not-allowed ${
+                      picked
+                        ? 'bg-[#C9A84C]/20 border-[#C9A84C] text-[#C9A84C]'
+                        : 'bg-white/5 border-white/10 text-white/60 hover:border-white/30'
+                    }`}
+                  >
+                    {picked && (
+                      <span className="absolute top-0.5 right-1 text-[9px] text-[#C9A84C]/70 font-bold">
+                        #{idx + 1}
+                      </span>
+                    )}
+                    {dest}
+                  </button>
+                )
+              })}
             </div>
+
+            {/* Custom destination */}
+            {selectedDests.length < 3 && (
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  placeholder="Another destination…"
+                  value={customDest}
+                  onChange={e => setCustomDest(e.target.value)}
+                  onKeyDown={e => e.key === 'Enter' && (e.preventDefault(), addCustomDest())}
+                  className="flex-1 bg-white/10 border border-white/10 text-white placeholder-white/30 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-[#C9A84C]"
+                />
+                <button type="button" onClick={addCustomDest}
+                  className="px-4 py-2 rounded-xl bg-white/10 text-white/60 text-sm hover:bg-white/20 transition">
+                  Add
+                </button>
+              </div>
+            )}
           </div>
 
           {/* Budget */}
           <div className="bg-white/5 rounded-2xl p-5">
             <h2 className="text-white font-semibold mb-4">💰 Budget per person</h2>
-            <div className="grid grid-cols-3 gap-3">
-              {(['budget', 'mid', 'flexible'] as const).map(b => (
-                <button key={b} type="button" onClick={() => setBudget(b)}
-                  className={`py-3 rounded-xl text-sm font-semibold border transition-all ${
-                    budget === b
+            <div className="grid grid-cols-2 gap-3">
+              {BUDGET_OPTIONS.map(b => (
+                <button key={b.value} type="button" onClick={() => setBudget(b.value)}
+                  className={`py-3 px-3 rounded-xl text-sm font-semibold border transition-all ${
+                    budget === b.value
                       ? 'bg-[#C9A84C] border-[#C9A84C] text-[#0B1F3A]'
                       : 'bg-white/5 border-white/10 text-white/60 hover:border-white/30'
                   }`}>
-                  {b === 'budget' ? '💵 Budget' : b === 'mid' ? '💳 Mid-range' : '✨ Flexible'}
+                  {b.label}
                 </button>
               ))}
             </div>
           </div>
 
-          {/* Activities */}
+          {/* Trip vibe */}
           <div className="bg-white/5 rounded-2xl p-5">
-            <h2 className="text-white font-semibold mb-1">🎯 Activity preferences</h2>
-            <p className="text-white/30 text-xs mb-4">Select all that interest you</p>
-            <div className="grid grid-cols-2 gap-2">
-              {ACTIVITIES.map(a => (
-                <button key={a.id} type="button" onClick={() => toggleActivity(a.id)}
-                  className={`py-2.5 px-3 rounded-xl text-sm text-left border transition-all ${
-                    activities.includes(a.id)
-                      ? 'bg-[#C9A84C]/20 border-[#C9A84C]/50 text-[#C9A84C]'
+            <h2 className="text-white font-semibold mb-4">🎯 Trip vibe</h2>
+            <div className="grid grid-cols-2 gap-3">
+              {VIBE_OPTIONS.map(v => (
+                <button key={v.value} type="button" onClick={() => setVibe(v.value)}
+                  className={`py-3 px-3 rounded-xl text-sm font-semibold border transition-all text-left ${
+                    vibe === v.value
+                      ? 'bg-[#C9A84C]/20 border-[#C9A84C] text-[#C9A84C]'
                       : 'bg-white/5 border-white/10 text-white/60 hover:border-white/30'
                   }`}>
-                  {a.label}
+                  {v.label}
                 </button>
               ))}
             </div>
           </div>
 
-          {/* Dietary */}
+          {/* Trip length */}
           <div className="bg-white/5 rounded-2xl p-5">
-            <h2 className="text-white font-semibold mb-3">🥗 Dietary requirements</h2>
-            <input
-              type="text"
-              placeholder="e.g. Halal, vegetarian, nut allergy… (optional)"
-              value={dietary}
-              onChange={e => setDietary(e.target.value)}
-              className="w-full bg-white/10 border border-white/10 text-white placeholder-white/30 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-[#C9A84C]"
-            />
-          </div>
-
-          {/* Accessibility */}
-          <div className="bg-white/5 rounded-2xl p-5">
-            <h2 className="text-white font-semibold mb-3">♿ Accessibility needs</h2>
-            <input
-              type="text"
-              placeholder="e.g. Wheelchair access, limited walking… (optional)"
-              value={accessibility}
-              onChange={e => setAccessibility(e.target.value)}
-              className="w-full bg-white/10 border border-white/10 text-white placeholder-white/30 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-[#C9A84C]"
-            />
-          </div>
-
-          {/* Passport */}
-          <div className="bg-white/5 rounded-2xl p-5">
-            <h2 className="text-white font-semibold mb-3">🛂 Passport nationality</h2>
-            <select required value={nationality} onChange={e => setNationality(e.target.value)}
-              className="w-full bg-white/10 border border-white/10 text-white rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-[#C9A84C] appearance-none">
-              <option value="" disabled>Select nationality</option>
-              {NATIONALITIES.map(n => <option key={n} value={n}>{n}</option>)}
-            </select>
-          </div>
-
-          {/* Visited countries */}
-          <div className="bg-white/5 rounded-2xl p-5">
-            <h2 className="text-white font-semibold mb-1">🌍 Countries visited (last 3 years)</h2>
-            <p className="text-white/30 text-xs mb-3">Optional — helps Claude tailor destination recommendations</p>
-            <div className="flex gap-2 mb-3">
-              <input
-                type="text"
-                placeholder="e.g. France"
-                value={visitedCountry}
-                onChange={e => setVisitedCountry(e.target.value)}
-                onKeyDown={e => e.key === 'Enter' && (e.preventDefault(), addCountry())}
-                className="flex-1 bg-white/10 border border-white/10 text-white placeholder-white/30 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-[#C9A84C]"
-              />
-              <button type="button" onClick={addCountry}
-                className="px-4 py-2 rounded-xl bg-white/10 text-white/60 text-sm hover:bg-white/20 transition">Add</button>
-            </div>
-            {visitedList.length > 0 && (
-              <div className="flex flex-wrap gap-2">
-                {visitedList.map(c => (
-                  <span key={c} className="flex items-center gap-1.5 bg-[#C9A84C]/10 border border-[#C9A84C]/20 rounded-lg px-3 py-1 text-[#C9A84C] text-xs">
-                    {c}
-                    <button type="button" onClick={() => setVisitedList(prev => prev.filter(x => x !== c))}
-                      className="text-[#C9A84C]/50 hover:text-[#C9A84C]">×</button>
-                  </span>
-                ))}
+            <h2 className="text-white font-semibold mb-4">📅 How many days?</h2>
+            <div className="flex items-center gap-4">
+              <button type="button" onClick={() => setDurationDays(n => Math.max(3, n - 1))}
+                className="w-10 h-10 rounded-full border border-white/15 text-white/50 text-xl font-bold flex items-center justify-center hover:border-[#C9A84C] hover:text-[#C9A84C] transition">
+                −
+              </button>
+              <div className="flex-1 text-center">
+                <span className="text-white font-bold text-3xl">{durationDays}</span>
+                <p className="text-white/30 text-[10px] mt-0.5">days</p>
               </div>
-            )}
+              <button type="button" onClick={() => setDurationDays(n => Math.min(21, n + 1))}
+                className="w-10 h-10 rounded-full border border-white/15 text-white/50 text-xl font-bold flex items-center justify-center hover:border-[#C9A84C] hover:text-[#C9A84C] transition">
+                +
+              </button>
+            </div>
           </div>
 
           {error && (
@@ -276,10 +333,15 @@ export default function JoinPage() {
 
           <button type="submit" disabled={submitting}
             className="w-full py-4 rounded-2xl bg-[#C9A84C] text-[#0B1F3A] font-bold text-base hover:bg-[#E8C87A] transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2">
-            {submitting ? (
-              <><div className="w-4 h-4 rounded-full border-2 border-[#0B1F3A]/30 border-t-[#0B1F3A] animate-spin" /> Saving…</>
-            ) : '✓ Submit my preferences'}
+            {submitting
+              ? <><div className="w-4 h-4 rounded-full border-2 border-[#0B1F3A]/30 border-t-[#0B1F3A] animate-spin" /> Saving…</>
+              : '✓ Submit my preferences'
+            }
           </button>
+
+          <p className="text-white/20 text-[11px] text-center">
+            Your choices are private — Jade AI will find the destination your whole group will love.
+          </p>
         </form>
       </div>
     </div>

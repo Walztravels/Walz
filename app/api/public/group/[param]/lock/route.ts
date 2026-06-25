@@ -39,9 +39,9 @@ export async function POST(
     return NextResponse.json({ success: true, destination: session.destination, alreadyLocked: true })
   }
 
-  const submitted = session.members.filter(m => m.submittedAt && m.preferencesJson)
+  const submitted = session.members.filter(m => m.submittedAt)
   if (submitted.length < 1) {
-    return NextResponse.json({ error: 'No preferences submitted yet' }, { status: 400 })
+    return NextResponse.json({ error: 'No members have submitted yet — share the invite links so everyone can fill in their preferences' }, { status: 400 })
   }
 
   // If shortlist already exists (previous synthesise call), just pick the winner
@@ -63,7 +63,10 @@ export async function POST(
     return NextResponse.json({ error: 'AI service not configured' }, { status: 503 })
   }
 
-  const prefs = submitted.map(m => ({ member: m.name, preferences: m.preferencesJson }))
+  const prefs = submitted.map(m => ({
+    member:      m.name,
+    preferences: m.preferencesJson ?? { note: 'Submitted without specific preferences' },
+  }))
 
   const client  = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
   const message = await client.messages.create({
