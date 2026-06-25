@@ -170,7 +170,7 @@ export function AdminSidebar() {
   const roleLabel  = ROLE_LABELS[roleKey]        ?? profile?.roleLabel ?? profile?.role ?? ''
 
   return (
-    <aside className="flex flex-col w-60 min-h-screen bg-[#0B1F3A] flex-shrink-0 border-r border-white/5">
+    <aside className="flex flex-col w-60 h-full bg-[#0B1F3A] flex-shrink-0 border-r border-white/5">
 
       {/* Logo */}
       <div className="px-5 py-4 border-b border-white/10 flex-shrink-0">
