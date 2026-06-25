@@ -50,6 +50,16 @@ export async function POST(req: NextRequest) {
         govtFeeAmount: govtFee,
       } : {}),
     },
+    // Explicit select avoids selecting schema columns that may not yet exist in DB
+    select: {
+      id:              true,
+      referenceNumber: true,
+      destinationIso2: true,
+      visaType:        true,
+      email:           true,
+      firstName:       true,
+      lastName:        true,
+    },
   })
 
   // Token — 7 day expiry

@@ -11,6 +11,83 @@ async function isAdmin() {
 
 type Params = { params: Promise<{ id: string }> }
 
+// Explicit select covering all VisaApplication scalar fields that exist in the DB.
+// Avoids columns added to schema.prisma but not yet migrated (timeline, decisionNotes,
+// govtFeeInstructions, pdfUrl, openedAt, startedAt, viewCount, appointment*, lastEmailSentAt).
+// After running the full SQL migration these can go back to a bare include.
+const APP_SELECT = {
+  id:              true,
+  referenceNumber: true,
+  userId:          true,
+  destinationIso2: true,
+  visaType:        true,
+  firstName:       true,
+  middleName:      true,
+  lastName:        true,
+  dateOfBirth:     true,
+  sex:             true,
+  placeOfBirth:    true,
+  nationality:     true,
+  maritalStatus:   true,
+  passportNumber:      true,
+  passportType:        true,
+  passportIssueDate:   true,
+  passportExpiryDate:  true,
+  issuingAuthority:    true,
+  issuingCountry:      true,
+  phone:        true,
+  email:        true,
+  homeAddress:  true,
+  homeAddress2: true,
+  city:         true,
+  stateRegion:  true,
+  country:      true,
+  postalCode:   true,
+  employmentStatus: true,
+  employerName:     true,
+  jobTitle:         true,
+  employerAddress:  true,
+  monthlyIncome:    true,
+  arrivalDate:          true,
+  returnDate:           true,
+  purposeOfVisit:       true,
+  accommodationName:    true,
+  accommodationAddress: true,
+  portOfEntry:          true,
+  previousRefusal:        true,
+  previousRefusalDetails: true,
+  previousVisits:         true,
+  previousVisitDetails:   true,
+  criminalRecord:       true,
+  communicableDisease:  true,
+  deportedBefore:       true,
+  countrySpecific: true,
+  declarationAccurate:  true,
+  declarationAuthorise: true,
+  declarationFeePolicy: true,
+  status:       true,
+  statusMessage: true,
+  isDraft:      true,
+  initiatedBy:  true,
+  assignedTo:        true,
+  assignedOfficerId: true,
+  branch:            true,
+  embassyReference:  true,
+  submissionDate:    true,
+  decisionDate:      true,
+  serviceFeePaid:         true,
+  serviceFeeAmount:       true,
+  serviceFeeCurrency:     true,
+  stripePaymentIntentId:  true,
+  govtFeePaid:            true,
+  govtFeeAmount:          true,
+  createdAt: true,
+  updatedAt: true,
+  user:   { select: { name: true, email: true } },
+  notes:  { orderBy: { createdAt: 'desc' } as const },
+  tokens: { orderBy: { createdAt: 'desc' } as const },
+} as const
+
 // GET /api/admin/visa-applications/[id]
 export async function GET(_req: NextRequest, { params }: Params) {
   if (!await isAdmin()) return NextResponse.json({ error: 'Unauthorised' }, { status: 401 })
@@ -18,12 +95,8 @@ export async function GET(_req: NextRequest, { params }: Params) {
   const { id } = await params
 
   const app = await prisma.visaApplication.findUnique({
-    where: { id },
-    include: {
-      user:   { select: { name: true, email: true } },
-      notes:  { orderBy: { createdAt: 'desc' } },
-      tokens: { orderBy: { createdAt: 'desc' } },
-    },
+    where:  { id },
+    select: APP_SELECT,
   })
   if (!app) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
@@ -37,9 +110,9 @@ export async function GET(_req: NextRequest, { params }: Params) {
   return NextResponse.json({
     application: {
       ...app,
-      bank_statement_url:         bankData?.bank_statement_url        ?? null,
-      bank_statement_admin_url:   bankData?.bank_statement_admin_url  ?? null,
-      bank_statement_analysis:    bankData?.bank_statement_analysis   ?? null,
+      bank_statement_url:         bankData?.bank_statement_url         ?? null,
+      bank_statement_admin_url:   bankData?.bank_statement_admin_url   ?? null,
+      bank_statement_analysis:    bankData?.bank_statement_analysis    ?? null,
       bank_statement_analyzed_at: bankData?.bank_statement_analyzed_at ?? null,
       bank_statement_uploaded_by: bankData?.bank_statement_uploaded_by ?? null,
     },
@@ -57,9 +130,12 @@ export async function PATCH(req: NextRequest, { params }: Params) {
   // Handle "send form link to client" action
   if (_sendFormLink) {
     const { clientEmail, clientName, personalMessage } = _sendFormLink
-    const app = await prisma.visaApplication.findUnique({ where: { id } })
+    const app = await prisma.visaApplication.findUnique({
+      where:  { id },
+      select: { id: true, email: true, referenceNumber: true, destinationIso2: true, visaType: true, firstName: true, lastName: true },
+    })
     if (app && clientEmail) {
-      try { await sendApplicationFormLink(app, clientEmail, clientName, personalMessage) } catch (e) { console.error(e) }
+      try { await sendApplicationFormLink(app as any, clientEmail, clientName, personalMessage) } catch (e) { console.error(e) }
     }
     return NextResponse.json({ ok: true })
   }
@@ -79,18 +155,13 @@ export async function PATCH(req: NextRequest, { params }: Params) {
     }
   }
 
-  // When status changes to 'received', ensure isDraft=false
-  if (data.status) {
-    if (data.status !== 'draft') data.isDraft = false
-  }
+  // When status changes away from draft, mark isDraft=false
+  if (data.status && data.status !== 'draft') data.isDraft = false
 
   const updated = await prisma.visaApplication.update({
-    where: { id },
-    data: { ...data, updatedAt: new Date() },
-    include: {
-      user:   { select: { name: true, email: true } },
-      tokens: { orderBy: { createdAt: 'desc' } },
-    },
+    where:  { id },
+    data:   { ...data, updatedAt: new Date() },
+    select: APP_SELECT,
   })
 
   // If status changed, send email notification to client
@@ -98,7 +169,7 @@ export async function PATCH(req: NextRequest, { params }: Params) {
     const emailTo = updated.email ?? updated.user?.email
     if (emailTo) {
       try {
-        await sendVisaStatusUpdate({ ...updated, email: emailTo })
+        await sendVisaStatusUpdate({ ...updated, email: emailTo } as any)
       } catch (e) {
         console.error('[VisaStatus] Email failed:', e)
       }
