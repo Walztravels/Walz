@@ -44,10 +44,36 @@ function StatusBadge({ status }: { status: string }) {
   )
 }
 
+interface SystemStaff { id: string; name: string; email: string; roleTitle: string; role: string; isActive: boolean }
+
 function AddStaffModal({ onClose, onSaved }: { onClose: () => void; onSaved: () => void }) {
   const [form, setForm] = useState({ name:'', email:'', role:'', location:'', department:'Operations', currency:'NGN', baseSalary:'', payDay:'28', bankName:'', accountNumber:'' })
   const [saving, setSaving] = useState(false)
   const [error,  setError]  = useState('')
+
+  const [staff,          setStaff]          = useState<SystemStaff[]>([])
+  const [loadingStaff,   setLoadingStaff]   = useState(false)
+  const [showPicker,     setShowPicker]     = useState(false)
+  const [selectedStaff,  setSelectedStaff]  = useState<SystemStaff | null>(null)
+
+  useEffect(() => {
+    setLoadingStaff(true)
+    fetch('/api/admin/staff')
+      .then(r => r.json())
+      .then(d => { setStaff(d.staff || []); setLoadingStaff(false) })
+      .catch(() => setLoadingStaff(false))
+  }, [])
+
+  function pickStaff(member: SystemStaff) {
+    setSelectedStaff(member)
+    setShowPicker(false)
+    setForm(p => ({ ...p, name: member.name || '', email: member.email || '', role: member.roleTitle || member.role || '' }))
+  }
+
+  function clearStaff() {
+    setSelectedStaff(null)
+    setForm(p => ({ ...p, name: '', email: '', role: '' }))
+  }
 
   async function submit(e: React.FormEvent) {
     e.preventDefault(); setSaving(true); setError('')
@@ -65,17 +91,66 @@ function AddStaffModal({ onClose, onSaved }: { onClose: () => void; onSaved: () 
 
   return (
     <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4">
-      <div className="bg-white rounded-2xl border border-gray-100 w-full max-w-lg shadow-2xl">
-        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
+      <div className="bg-white rounded-2xl border border-gray-100 w-full max-w-lg shadow-2xl max-h-[90vh] overflow-y-auto">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 sticky top-0 bg-white z-10">
           <h2 className="font-bold text-[#0B1F3A]">Add Staff Member</h2>
           <button onClick={onClose} className="text-gray-400 hover:text-gray-600"><X className="w-5 h-5" /></button>
         </div>
         <form onSubmit={submit} className="p-6 space-y-4">
+
+          {/* ── Load from existing staff ── */}
+          <div className="pb-4 border-b border-gray-100">
+            <div className="flex items-center justify-between mb-2">
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Load from existing staff</p>
+              {!loadingStaff && staff.length > 0 && (
+                <button type="button" onClick={() => setShowPicker(v => !v)}
+                  className="text-xs text-[#C9A84C] font-semibold hover:text-[#b8943d] transition-colors">
+                  {showPicker ? 'Hide ▲' : `Browse ${staff.length} staff ▼`}
+                </button>
+              )}
+              {loadingStaff && <span className="text-xs text-gray-400">Loading…</span>}
+            </div>
+
+            {/* Selected preview */}
+            {selectedStaff && (
+              <div className="flex items-center gap-3 bg-amber-50 border border-amber-200 rounded-xl p-3 mb-2">
+                <div className="w-8 h-8 rounded-full bg-[#C9A84C] flex items-center justify-center text-[#0B1F3A] text-sm font-bold flex-shrink-0">
+                  {selectedStaff.name?.charAt(0).toUpperCase()}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-semibold text-gray-800 truncate">{selectedStaff.name}</p>
+                  <p className="text-xs text-gray-500 truncate">{selectedStaff.roleTitle} · {selectedStaff.email}</p>
+                </div>
+                <button type="button" onClick={clearStaff} className="text-gray-400 hover:text-gray-600 flex-shrink-0 text-xs">✕ Clear</button>
+              </div>
+            )}
+
+            {/* Picker dropdown */}
+            {showPicker && (
+              <div className="border border-gray-200 rounded-xl overflow-hidden max-h-52 overflow-y-auto">
+                {staff.map(member => (
+                  <button key={member.id} type="button" onClick={() => pickStaff(member)}
+                    className="w-full flex items-center gap-3 px-4 py-3 hover:bg-amber-50 transition-colors text-left border-b border-gray-50 last:border-0">
+                    <div className="w-8 h-8 rounded-full bg-gray-100 border border-gray-200 flex items-center justify-center text-gray-600 text-sm font-bold flex-shrink-0">
+                      {member.name?.charAt(0).toUpperCase()}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium text-gray-800 truncate">{member.name}</p>
+                      <p className="text-xs text-gray-400 truncate">{member.roleTitle || member.role} · {member.email}</p>
+                    </div>
+                    {member.isActive && <span className="text-[10px] text-green-600 font-semibold flex-shrink-0">Active</span>}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* ── Form fields ── */}
           <div className="grid grid-cols-2 gap-3">
             {(['name','email','role','location'] as const).map(k => (
               <div key={k}>
                 <label className="block text-xs text-gray-500 mb-1 capitalize">{k}</label>
-                <input value={form[k]} onChange={f(k)} required
+                <input value={form[k]} onChange={f(k)} required={k !== 'location'}
                   className="w-full border border-gray-200 text-[#0B1F3A] rounded-xl px-3 py-2.5 text-sm outline-none focus:border-[#C9A84C]" />
               </div>
             ))}
