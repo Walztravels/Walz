@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
-import { signIn, useSession } from 'next-auth/react'
+import { signIn } from 'next-auth/react'
 import Link from 'next/link'
 import Image from 'next/image'
 import { Mail, Lock, User, Loader2, Eye, EyeOff, AlertCircle, CheckCircle } from 'lucide-react'
@@ -10,7 +10,6 @@ import { Mail, Lock, User, Loader2, Eye, EyeOff, AlertCircle, CheckCircle } from
 export default function LoginForm() {
   const router       = useRouter()
   const searchParams = useSearchParams()
-  const { status }   = useSession()
 
   const rawCallback = searchParams.get('callbackUrl') ?? ''
   const callbackUrl = rawCallback.startsWith('/')
@@ -29,10 +28,6 @@ export default function LoginForm() {
   const [showCf, setShowCf]     = useState(false)
   const [loading, setLoading]   = useState(false)
   const [error, setError]       = useState('')
-
-  useEffect(() => {
-    if (status === 'authenticated') window.location.href = callbackUrl
-  }, [status, callbackUrl])
 
   useEffect(() => {
     if (errorParam === 'CredentialsSignin') {
@@ -88,14 +83,6 @@ export default function LoginForm() {
     } finally {
       setLoading(false)
     }
-  }
-
-  if (status === 'loading') {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-[#0B1F3A]">
-        <Loader2 className="w-8 h-8 text-[#C9A84C] animate-spin" />
-      </div>
-    )
   }
 
   return (

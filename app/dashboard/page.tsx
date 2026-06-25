@@ -74,12 +74,6 @@ export default function Dashboard() {
   const [trips, setTrips]   = useState<{ id: string; title: string; destination: string; status: string; coverImage: string | null }[]>([])
 
   useEffect(() => {
-    if (status === 'unauthenticated') {
-      window.location.href = '/login?callbackUrl=/dashboard'
-    }
-  }, [status])
-
-  useEffect(() => {
     if (status !== 'authenticated') return
     fetch('/api/portal/dashboard').then(r => r.json()).then(d => { setData(d); setLoading(false) }).catch(() => setLoading(false))
     fetch('/api/trips').then(r => r.json()).then(d => { if (d.trips) setTrips(d.trips.slice(0, 3)) }).catch(() => {})

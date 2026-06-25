@@ -159,6 +159,7 @@ export const config = {
   matcher: [
     '/admin/:path*',
     '/api/admin/:path*',
+    '/dashboard',
     '/dashboard/:path*',
     '/portal',
     '/portal/((?!login$).*)',
