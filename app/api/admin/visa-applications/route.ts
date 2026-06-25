@@ -35,23 +35,28 @@ export async function GET(req: NextRequest) {
   if (destination && destination !== 'all') where.destinationIso2 = destination
   if (assignedTo && assignedTo !== 'all')   where.assignedTo      = assignedTo === 'unassigned' ? null : assignedTo
 
-  const applications = await prisma.visaApplication.findMany({
-    where,
-    orderBy: { createdAt: 'desc' },
-    include: {
-      user: { select: { name: true, email: true } },
-      notes: { orderBy: { createdAt: 'desc' }, take: 1 },
-    },
-  })
+  try {
+    const applications = await prisma.visaApplication.findMany({
+      where,
+      orderBy: { createdAt: 'desc' },
+      take:    500,
+      include: {
+        user:  { select: { name: true, email: true } },
+        notes: { orderBy: { createdAt: 'desc' }, take: 1 },
+      },
+    })
 
-  // Client-side search filter (name / reference)
-  const filtered = search
-    ? applications.filter(a =>
-        `${a.firstName} ${a.lastName} ${a.referenceNumber} ${a.email}`
-          .toLowerCase()
-          .includes(search.toLowerCase())
-      )
-    : applications
+    const filtered = search
+      ? applications.filter(a =>
+          `${a.firstName} ${a.lastName} ${a.referenceNumber} ${a.email}`
+            .toLowerCase()
+            .includes(search.toLowerCase())
+        )
+      : applications
 
-  return NextResponse.json({ applications: filtered })
+    return NextResponse.json({ applications: filtered })
+  } catch (err: any) {
+    console.error('[visa-applications GET]:', err.message)
+    return NextResponse.json({ error: err.message, applications: [] }, { status: 500 })
+  }
 }

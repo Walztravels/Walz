@@ -381,6 +381,13 @@ export default function BankAnalyserPage() {
   const [letterLoading, setLetterLoading] = useState<string | null>(null)
   const [letter,       setLetter]       = useState<{ text: string; type: string } | null>(null)
 
+  // ── Save / send ─────────────────────────────────────────────────────────────
+  const [saving,       setSaving]       = useState(false)
+  const [sending,      setSending]      = useState(false)
+  const [savedId,      setSavedId]      = useState<string | null>(null)
+  const [sendSuccess,  setSendSuccess]  = useState(false)
+  const [reportError,  setReportError]  = useState('')
+
   // ── Drag and drop ───────────────────────────────────────────────────────────
   const dropRef   = useRef<HTMLLabelElement>(null)
   const [dragging, setDragging] = useState(false)
@@ -457,6 +464,9 @@ export default function BankAnalyserPage() {
     setSuggestClaude(false)
     setAnalysis(null)
     setLetter(null)
+    setSavedId(null)
+    setSendSuccess(false)
+    setReportError('')
     setProgress(STEPS[0])
 
     let stepIdx = 0
@@ -767,6 +777,87 @@ export default function BankAnalyserPage() {
               })()}
             </div>
           </div>
+        </div>
+
+        {/* Save / Send actions */}
+        <div className="max-w-5xl mx-auto mt-3 pt-3 border-t border-white/10 flex items-center gap-3 flex-wrap">
+          <button
+            onClick={async () => {
+              setSaving(true)
+              setReportError('')
+              try {
+                const res  = await fetch('/api/admin/visa-fortress/save', {
+                  method:  'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body:    JSON.stringify({
+                    clientName:     clientName || analysis.summary.accountHolder,
+                    clientEmail,
+                    visaType,
+                    nationality:    passport,
+                    approvalScore:  analysis.approvalScore,
+                    recommendation: analysis.recommendation || analysis.approvalRationale,
+                    analysisJson:   analysis,
+                    currency:       analysis.summary.currency,
+                    applicationId:  linkedAppId || null,
+                  }),
+                })
+                const data = await res.json()
+                if (data.success) setSavedId(data.id ?? 'saved')
+                else setReportError(data.error ?? 'Failed to save')
+              } catch (e: unknown) {
+                setReportError(e instanceof Error ? e.message : 'Failed to save')
+              }
+              setSaving(false)
+            }}
+            disabled={saving || !!savedId}
+            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold transition ${
+              savedId
+                ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+                : 'bg-white/10 hover:bg-white/20 text-white border border-white/10'
+            }`}>
+            {saving ? '⏳ Saving…' : savedId ? '✓ Saved' : '💾 Save Report'}
+          </button>
+
+          <button
+            onClick={async () => {
+              if (!clientEmail) { setReportError('Enter client email (in the form above) before sending'); return }
+              setSending(true)
+              setReportError('')
+              try {
+                const res  = await fetch('/api/admin/visa-fortress/send', {
+                  method:  'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body:    JSON.stringify({
+                    clientName:     clientName || analysis.summary.accountHolder,
+                    clientEmail,
+                    visaType,
+                    nationality:    passport,
+                    approvalScore:  analysis.approvalScore,
+                    recommendation: analysis.recommendation || analysis.approvalRationale,
+                    analysisJson:   analysis,
+                    currency:       analysis.summary.currency,
+                  }),
+                })
+                const data = await res.json()
+                if (data.success) { setSendSuccess(true); setTimeout(() => setSendSuccess(false), 4000) }
+                else setReportError(data.error ?? 'Failed to send')
+              } catch (e: unknown) {
+                setReportError(e instanceof Error ? e.message : 'Failed to send')
+              }
+              setSending(false)
+            }}
+            disabled={sending}
+            className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold transition ${
+              sendSuccess
+                ? 'bg-emerald-500 text-black'
+                : 'bg-[#C9A84C] hover:bg-[#E8C87A] text-[#0B1F3A]'
+            }`}>
+            {sending ? '⏳ Sending…' : sendSuccess ? '✓ Sent!' : '📧 Send Report to Client'}
+          </button>
+
+          {reportError && (
+            <p className="text-red-400 text-xs">{reportError}</p>
+          )}
         </div>
       </div>
 
@@ -1258,7 +1349,7 @@ export default function BankAnalyserPage() {
           </div>
           {analysis && (
             <button
-              onClick={() => { setAnalysis(null); setFile(null); setLetter(null); setError('') }}
+              onClick={() => { setAnalysis(null); setFile(null); setLetter(null); setError(''); setSavedId(null); setSendSuccess(false); setReportError('') }}
               className="text-xs font-semibold px-4 py-2 rounded-lg bg-white/10 text-white hover:bg-white/20 transition-colors">
               + New Analysis
             </button>
