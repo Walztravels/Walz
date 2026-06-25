@@ -310,6 +310,10 @@ export default function BankAnalyserPage() {
   const [bankStmtUrl,   setBankStmtUrl]   = useState<string | null>(null)
   const [bankStmtFetch, setBankStmtFetch] = useState(false)
 
+  // ── AI model ─────────────────────────────────────────────────────────────────
+  const [aiModel, setAiModel] = useState<'claude' | 'openai'>('claude')
+  const [aiUsed,  setAiUsed]  = useState<string | null>(null)
+
   // ── Analysis state ──────────────────────────────────────────────────────────
   const [loading,   setLoading]   = useState(false)
   const [progress,  setProgress]  = useState('')
@@ -410,6 +414,7 @@ export default function BankAnalyserPage() {
       fd.append('visaType', visaType)
       fd.append('passportCountry', passport)
       fd.append('applicantName', clientName)
+      fd.append('aiModel', aiModel)
       if (linkedAppId) fd.append('applicationId', linkedAppId)
       // DO NOT set Content-Type — browser sets multipart boundary automatically
 
@@ -425,6 +430,7 @@ export default function BankAnalyserPage() {
       if (!data.success || !data.analysis) throw new Error('No analysis returned from VisaFortress AI')
 
       setAnalysis(sanitizeVF(data.analysis))
+      setAiUsed(data.aiUsed ?? null)
       setActiveTab('overview')
       setProgress('')
     } catch (e: unknown) {
@@ -568,6 +574,29 @@ export default function BankAnalyserPage() {
           </label>
         </div>
 
+        {/* AI engine selector */}
+        <div>
+          <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-2">AI Engine</label>
+          <div className="flex gap-2">
+            <button type="button" onClick={() => setAiModel('claude')}
+              className={`flex-1 py-2.5 px-3 rounded-xl text-sm font-semibold border transition-all ${
+                aiModel === 'claude'
+                  ? 'bg-[#0B1F3A] border-[#0B1F3A] text-white'
+                  : 'bg-white border-gray-200 text-gray-500 hover:border-[#0B1F3A]/30'
+              }`}>
+              🤖 Claude Sonnet 4.6
+            </button>
+            <button type="button" onClick={() => setAiModel('openai')}
+              className={`flex-1 py-2.5 px-3 rounded-xl text-sm font-semibold border transition-all ${
+                aiModel === 'openai'
+                  ? 'bg-emerald-700 border-emerald-700 text-white'
+                  : 'bg-white border-gray-200 text-gray-500 hover:border-emerald-400'
+              }`}>
+              ✦ GPT-4o
+            </button>
+          </div>
+        </div>
+
         {error && (
           <div className="bg-red-50 border border-red-200 rounded-xl px-4 py-3 text-sm text-red-700 font-medium">
             {error}
@@ -623,6 +652,11 @@ export default function BankAnalyserPage() {
                   </span>
                 )
               })()}
+              {aiUsed && (
+                <span className="text-[10px] font-bold px-2.5 py-1 rounded-full bg-white/10 text-white/60 whitespace-nowrap">
+                  {aiUsed}
+                </span>
+              )}
             </div>
             <p className="text-white/50 text-xs mb-2">
               {visaType} · {passport} · {analysis.summary.period} · {currency}

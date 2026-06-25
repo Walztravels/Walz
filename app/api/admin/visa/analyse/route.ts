@@ -104,6 +104,7 @@ export async function POST(req: NextRequest) {
     if (!file)                       return NextResponse.json({ error: 'No file provided' }, { status: 400 })
     if (file.size > 50 * 1024 * 1024) return NextResponse.json({ error: 'File exceeds 50 MB' }, { status: 413 })
 
+    const aiModel   = ((form.get('aiModel') as string | null) ?? 'claude') as 'claude' | 'openai'
     const buffer    = Buffer.from(await file.arrayBuffer())
     const base64    = buffer.toString('base64')
     const isImage   = file.type.startsWith('image/')
@@ -120,12 +121,18 @@ export async function POST(req: NextRequest) {
 
     const userPrompt = buildUserPrompt(applicantName, passport, visaType)
 
-    let analysis: unknown | null   = null
-    let claudeError: string | null = null
+    let analysis: unknown | null = null
+    let aiUsed   = ''
 
-    // ── Try Claude ─────────────────────────────────────────────────────────────
+    // ── Claude path ────────────────────────────────────────────────────────────
 
-    if (process.env.ANTHROPIC_API_KEY) {
+    if (aiModel !== 'openai') {
+      if (!process.env.ANTHROPIC_API_KEY) {
+        return NextResponse.json({
+          success: false,
+          error:   'ANTHROPIC_API_KEY is not configured. Select GPT-4o or contact your administrator.',
+        }, { status: 503 })
+      }
       try {
         const claude = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
 
@@ -151,37 +158,37 @@ export async function POST(req: NextRequest) {
         }))
         const aText = a2.content[0]?.type === 'text' ? a2.content[0].text : ''
         analysis    = extractJSON<unknown>(aText)
+        aiUsed      = 'Claude Sonnet 4.6'
         console.log('[VF] Claude succeeded')
       } catch (e) {
-        claudeError = e instanceof Error ? e.message : String(e)
-        console.warn('[VF] Claude failed:', claudeError.slice(0, 200))
+        const msg = e instanceof Error ? e.message : String(e)
+        console.warn('[VF] Claude failed:', msg.slice(0, 200))
+        return NextResponse.json({
+          success: false,
+          error:   `Claude analysis failed: ${msg.slice(0, 300)}`,
+        }, { status: 502 })
       }
-    } else {
-      claudeError = 'ANTHROPIC_API_KEY not configured'
     }
 
-    // ── OpenAI GPT-4o fallback ─────────────────────────────────────────────────
+    // ── OpenAI GPT-4o path ─────────────────────────────────────────────────────
 
-    if (!analysis) {
+    if (aiModel === 'openai') {
       if (!process.env.OPENAI_API_KEY) {
         return NextResponse.json({
           success: false,
-          error:   `Claude failed and no OpenAI fallback is configured. Claude error: ${claudeError}`,
-        }, { status: 502 })
+          error:   'OPENAI_API_KEY is not configured.',
+        }, { status: 503 })
       }
-
-      console.log('[VF] Falling back to OpenAI GPT-4o')
+      console.log('[VF] Using OpenAI GPT-4o')
       const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
-
       try {
         if (isImage) {
-          // GPT-4o vision — send image directly
           const oRes = await openai.chat.completions.create({
             model: 'gpt-4o', max_tokens: 6000, temperature: 0,
             response_format: { type: 'json_object' },
             messages: [
               { role: 'system', content: systemPrompt.replace(JSON_ONLY, '') + '\n\nReturn only valid JSON.' },
-              { role: 'user',   content: [
+              { role: 'user', content: [
                 { type: 'image_url', image_url: { url: `data:${mediaType};base64,${base64}` } },
                 { type: 'text', text: userPrompt('Read directly from the image.') },
               ]},
@@ -189,12 +196,11 @@ export async function POST(req: NextRequest) {
           })
           analysis = extractJSON<unknown>(oRes.choices[0]?.message?.content ?? '{}')
         } else {
-          // PDF — extract text then send
           const pdfText = await extractPdfText(buffer)
           if (!pdfText || pdfText.length < 100) {
             return NextResponse.json({
               success: false,
-              error:   'Claude is unavailable and text could not be extracted from this PDF. Please upload a digital (not scanned) bank statement.',
+              error:   'GPT-4o requires extractable text. Could not read this PDF — please upload a digital (not scanned) bank statement.',
             }, { status: 422 })
           }
           const oRes = await openai.chat.completions.create({
@@ -202,18 +208,19 @@ export async function POST(req: NextRequest) {
             response_format: { type: 'json_object' },
             messages: [
               { role: 'system', content: systemPrompt.replace(JSON_ONLY, '') + '\n\nReturn only valid JSON.' },
-              { role: 'user',   content: userPrompt(`Bank statement text:\n${pdfText.slice(0, 14000)}`) },
+              { role: 'user', content: userPrompt(`Bank statement text:\n${pdfText.slice(0, 14000)}`) },
             ],
           })
           analysis = extractJSON<unknown>(oRes.choices[0]?.message?.content ?? '{}')
         }
+        aiUsed = 'GPT-4o'
         console.log('[VF] OpenAI succeeded')
       } catch (oErr) {
         const oMsg = oErr instanceof Error ? oErr.message : String(oErr)
-        console.error('[VF] OpenAI also failed:', oMsg.slice(0, 200))
+        console.error('[VF] OpenAI failed:', oMsg.slice(0, 200))
         return NextResponse.json({
           success: false,
-          error:   `Both AI providers failed. Claude: ${claudeError}. OpenAI: ${oMsg}`,
+          error:   `GPT-4o analysis failed: ${oMsg.slice(0, 300)}`,
         }, { status: 502 })
       }
     }
@@ -222,6 +229,7 @@ export async function POST(req: NextRequest) {
       success: true, analysis, applicantName, visaType, passport,
       applicationId: appId ?? null,
       analysedAt:    new Date().toISOString(),
+      aiUsed,
     })
   } catch (fatal) {
     const msg = fatal instanceof Error ? fatal.message : String(fatal)
