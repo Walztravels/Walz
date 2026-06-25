@@ -1,6 +1,5 @@
 import { NextResponse } from 'next/server'
-import { getServerSession } from 'next-auth'
-import { authOptions } from '@/lib/auth'
+import { getAdminSession } from '@/lib/admin-auth'
 import { prisma } from '@/lib/db'
 import { Resend } from 'resend'
 
@@ -65,8 +64,8 @@ function paystubHtml(params: {
 }
 
 export async function POST(req: Request) {
-  const session = await getServerSession(authOptions)
-  if (!session?.user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const session = await getAdminSession()
+  if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const { payslipId } = await req.json()
   if (!payslipId) return NextResponse.json({ error: 'payslipId required' }, { status: 400 })

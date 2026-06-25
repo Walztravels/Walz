@@ -1,12 +1,11 @@
 import { NextResponse } from 'next/server'
-import { getServerSession } from 'next-auth'
-import { authOptions } from '@/lib/auth'
+import { getAdminSession } from '@/lib/admin-auth'
 import { prisma } from '@/lib/db'
 
 export async function GET() {
   try {
-    const session = await getServerSession(authOptions)
-    if (!session?.user) return NextResponse.json({ error: 'Unauthorized', staff: [] }, { status: 401 })
+    const session = await getAdminSession()
+    if (!session) return NextResponse.json({ error: 'Unauthorized', staff: [] }, { status: 401 })
 
     const staff = await prisma.staffMember.findMany({
       orderBy: [{ isActive: 'desc' }, { name: 'asc' }],
@@ -27,8 +26,8 @@ export async function GET() {
 
 export async function POST(req: Request) {
   try {
-    const session = await getServerSession(authOptions)
-    if (!session?.user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    const session = await getAdminSession()
+    if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
     const body = await req.json()
     const { name, email, role, location, department, currency, baseSalary, payDay, bankName, accountNumber } = body
