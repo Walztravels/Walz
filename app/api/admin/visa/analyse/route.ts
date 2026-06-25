@@ -73,16 +73,16 @@ function extractJSON<T = unknown>(text: string): T {
     .trim()
   try { return JSON.parse(cleaned) as T } catch {}
 
-  // T2: find outermost { ... } by first { and last }
   const start = cleaned.indexOf('{')
   const end   = cleaned.lastIndexOf('}')
+
   if (start !== -1 && end !== -1 && end > start) {
     const jsonStr = cleaned.substring(start, end + 1)
     try { return JSON.parse(jsonStr) as T } catch (parseErr) {
       // T3: repair trailing commas
       const repaired = jsonStr.replace(/,(\s*[}\]])/g, '$1')
       try { return JSON.parse(repaired) as T } catch {}
-      // T4: bracket-count walk
+      // T4: bracket-count walk to find correct closing brace
       let depth = 0; let inStr = false; let esc = false
       for (let i = start; i < cleaned.length; i++) {
         const ch = cleaned[i]
@@ -103,6 +103,31 @@ function extractJSON<T = unknown>(text: string): T {
       throw new Error(`JSON parse failed: ${msg} | Raw (first 300): ${text.substring(0, 300)}`)
     }
   }
+
+  // T5: Truncation recovery — opening brace exists but no closing brace
+  if (start !== -1) {
+    console.warn('[VF] extractJSON: truncated response — attempting recovery')
+    let partial = cleaned.substring(start).replace(/,\s*$/, '').trim()
+    let depth = 0; let inStr = false; let esc = false
+    for (const ch of partial) {
+      if (esc) { esc = false; continue }
+      if (ch === '\\' && inStr) { esc = true; continue }
+      if (ch === '"') { inStr = !inStr; continue }
+      if (inStr) continue
+      if (ch === '{' || ch === '[') depth++
+      if (ch === '}' || ch === ']') depth--
+    }
+    for (let i = 0; i < Math.abs(depth); i++) partial += depth > 0 ? '}' : ']'
+    partial = partial.replace(/,(\s*[}\]])/g, '$1')
+    try {
+      const result = JSON.parse(partial) as T
+      console.log('[VF] extractJSON: truncation recovery succeeded')
+      return result
+    } catch {
+      throw new Error(`JSON truncated at char ${cleaned.length} and recovery failed. Increase max_tokens.`)
+    }
+  }
+
   throw new Error(`No JSON object found in AI response. Raw (first 300): ${text.substring(0, 300)}`)
 }
 
@@ -182,7 +207,8 @@ export async function POST(req: NextRequest) {
 
         // Pass 2: full forensic analysis
         const a2 = await callWithRetry(() => claude.messages.create({
-          model: 'claude-sonnet-4-6', max_tokens: 6000, temperature: 0,
+          model: 'claude-sonnet-4-6', max_tokens: 8000, temperature: 0,
+          stop_sequences: ['\n\nHere', '\n\nNote', '\n\nPlease', '\n\nI hope', '\n\nThe above'],
           system: systemPrompt,
           messages: [{
             role: 'user',
@@ -229,7 +255,7 @@ export async function POST(req: NextRequest) {
         if (isImage) {
           // Image input — send directly with json_object mode
           const oRes = await openai.chat.completions.create({
-            model: 'gpt-4o', max_tokens: 6000, temperature: 0,
+            model: 'gpt-4o', max_tokens: 8000, temperature: 0,
             response_format: { type: 'json_object' },
             messages: [
               { role: 'system', content: systemPrompt.replace(JSON_ONLY, '') + '\n\nReturn only valid JSON.' },
@@ -269,13 +295,13 @@ export async function POST(req: NextRequest) {
 
           console.log(`[VF] Extracted ${statementText.length} chars from PDF`)
           const oRes = await openai.chat.completions.create({
-            model: 'gpt-4o', max_tokens: 6000, temperature: 0,
+            model: 'gpt-4o', max_tokens: 8000, temperature: 0,
             response_format: { type: 'json_object' },
             messages: [
               { role: 'system', content: systemPrompt.replace(JSON_ONLY, '') + '\n\nReturn only valid JSON.' },
               { role: 'user',   content:
                   userPrompt(`Extracted from PDF — ${statementText.length} characters of text.`) +
-                  `\n\nBANK STATEMENT TEXT:\n${statementText.substring(0, 12000)}`,
+                  `\n\nBANK STATEMENT TEXT:\n${statementText.substring(0, 6000)}`,
               },
             ],
           })
@@ -328,99 +354,50 @@ const EXTRACTION_PROMPT = `Extract all data from this bank statement. Return JSO
 }`
 
 function buildUserPrompt(applicantName: string, passport: string, visaType: string, visaInfo: VisaInfo) {
-  return (txnContext: string) => `Applicant: ${applicantName} | Passport: ${passport} | Visa applied: ${visaType}
-Context from extraction: ${txnContext}
+  return (txnContext: string) => `Applicant: ${applicantName} | Passport: ${passport} | Visa: ${visaType}
+Context: ${txnContext}
 
-STEP 1 — DETECT STATEMENT CURRENCY:
-Read the bank statement and detect the actual currency used in it (look for symbols and codes in headers, balances, and transactions).
-Common currencies: NGN (₦), GHS (GH₵), KES (KSh), ZAR (R), USD ($), GBP (£), EUR (€), AED (AED), CAD (CA$), AUD (A$)
-Report ALL balances and transaction amounts in the ORIGINAL statement currency exactly as they appear.
+CURRENCY DETECTION:
+Read the statement and identify the currency from symbols and codes in headers, balances, and transactions.
+Common: NGN (₦), GHS (GH₵), KES (KSh), ZAR (R), USD ($), GBP (£), EUR (€), AED (AED), CAD (CA$), AUD (A$)
+Report all amounts in the ORIGINAL statement currency.
 
-STEP 2 — CONVERT TO VISA COUNTRY CURRENCY (${visaInfo.currency} = ${visaInfo.symbol}):
-Use these approximate exchange rates to convert key balances to ${visaInfo.currency}:
-  NGN → GBP: ÷ 2,050  |  NGN → EUR: ÷ 1,790  |  NGN → USD: ÷ 1,580  |  NGN → AED: ÷ 5,800  |  NGN → CAD: ÷ 2,150  |  NGN → AUD: ÷ 2,400
-  GHS → GBP: × 0.057  |  GHS → USD: × 0.063  |  GHS → EUR: × 0.068
-  KES → GBP: ÷ 168    |  KES → USD: ÷ 129    |  KES → EUR: ÷ 141
-  ZAR → GBP: × 0.043  |  ZAR → USD: × 0.054  |  ZAR → EUR: × 0.049
-  USD → GBP: × 0.79   |  EUR → GBP: × 0.86   |  AED → GBP: ÷ 4.79   |  CAD → GBP: × 0.57
-  If statement is ALREADY in ${visaInfo.currency}: set conversionRate to "Direct — no conversion needed"
+CONVERT TO ${visaInfo.currency} (${visaInfo.symbol}) — use these rates:
+NGN÷2050 GHS×0.057 KES÷168 ZAR×0.043 USD×0.79 EUR×0.86 AED÷4.79 CAD×0.57 AUD×0.57
+If statement is already ${visaInfo.currency}: set conversionRate to "Direct — no conversion needed"
 
-STEP 3 — VISA REQUIREMENT CHECK:
-The visa requires: ${visaInfo.requirement}
-Set meetsVisaRequirement: true if converted balance meets this, false if below.
-In requirementGap write: "Has ${visaInfo.symbol}X,XXX equivalent, needs ${visaInfo.symbol}Y,YYY" or "Meets requirement with ${visaInfo.symbol}X,XXX equivalent".
+VISA REQUIREMENT: ${visaInfo.requirement}
+Set meetsVisaRequirement true if converted balance meets this, false if not.
 
-Return a JSON object with EXACTLY these fields:
+Return ONLY this JSON object — nothing before or after, no markdown, no backticks:
 {
-  "statementCurrency": "<detected code e.g. NGN>",
+  "statementCurrency": "<code e.g. NGN>",
   "statementCurrencySymbol": "<symbol e.g. ₦>",
   "visaCountryCurrency": "${visaInfo.currency}",
   "visaCountryCurrencySymbol": "${visaInfo.symbol}",
-  "conversionRate": "<e.g. 1 GBP = 2,050 NGN>",
+  "conversionRate": "<e.g. 1 GBP = 2050 NGN>",
+  "avgMonthlyBalance": <number in statement currency>,
+  "avgMonthlyBalanceConverted": <number in ${visaInfo.currency}>,
+  "avgMonthlyIncome": <number in statement currency>,
+  "avgMonthlyIncomeConverted": <number in ${visaInfo.currency}>,
+  "approvalScore": <0-100>,
+  "scoreGrade": "<A|B|C|D|F>",
+  "approvalLikelihood": "<HIGH|MEDIUM|LOW|VERY_LOW>",
+  "incomeRegular": <true|false>,
   "meetsVisaRequirement": <true|false>,
-  "requirementGap": "<e.g. Has £1,200 equivalent, needs £2,000>",
-  "summary": {
-    "accountHolder": "Full Name",
-    "bank": "Bank Name",
-    "currency": "<statement currency code e.g. NGN>",
-    "period": "Jan 2024 - Mar 2024",
-    "months": 3,
-    "openingBalance": 5000000.00,
-    "openingBalanceConverted": 2439.00,
-    "closingBalance": 4800000.00,
-    "closingBalanceConverted": 2341.00,
-    "averageBalance": 6500000.00,
-    "averageBalanceConverted": 3171.00,
-    "lowestBalance": 1200000.00,
-    "highestBalance": 12000000.00,
-    "totalCredits": 15000000.00,
-    "totalDebits": 14200000.00,
-    "transactionCount": 45,
-    "regularIncomeDetected": true,
-    "averageMonthlySalary": 3000000.00,
-    "averageMonthlySalaryConverted": 1463.00
-  },
-  "approvalScore": 45,
-  "scoreGrade": "C",
-  "approvalLikelihood": "LOW",
-  "embassyEye": {
-    "visaType": "${visaType}",
-    "passport": "${passport}",
-    "officerVerdict": "Two-to-three sentence officer verdict here.",
-    "keyStrengths": ["Regular salary credits"],
-    "keyWeaknesses": ["Low balance equivalent in ${visaInfo.currency}"],
-    "similarCasesApprovalRate": 35
-  },
-  "redFlags": [
-    { "id": "rf1", "type": "BALANCE_PARKING", "title": "Flag title", "description": "Description", "severity": "HIGH", "transaction": "01 Jan CASH DEPOSIT 5000000", "embassyInterpretation": "Officer interpretation" }
-  ],
-  "positives": [
-    { "title": "Regular Income", "description": "Consistent monthly salary credited" }
-  ],
-  "cashFlowAnalysis": {
-    "incomeConsistency": "Regular monthly salary",
-    "spendingPattern": "Consistent everyday spending",
-    "savingsRate": 12,
-    "financialStability": "Stable with moderate reserves",
-    "balanceTrend": "STABLE"
-  },
-  "recommendation": "Single paragraph recommendation for the visa officer.",
-  "suggestedActions": [
-    { "priority": "HIGH", "action": "Provide 3 months payslips", "reason": "To corroborate salary credits" }
-  ],
-  "documentsToAdd": ["3 months payslips", "Employer reference letter"],
-  "transactions": [
-    { "date": "01 Jan 2024", "description": "SALARY ACME LTD", "credit": 3000000.00, "debit": null, "balance": 8000000.00, "flagged": false, "flagReason": null }
-  ]
+  "requirementGap": "<one sentence e.g. Has £1,200 equivalent, needs £2,000>",
+  "recommendation": "<approve|conditional|likely_reject|reject>",
+  "strengths": ["<s1>", "<s2>", "<s3>"],
+  "concerns": ["<c1>", "<c2>", "<c3>"],
+  "redFlags": ["<flag description 1>", "<flag description 2>"],
+  "embassyView": "<2-3 sentence officer perspective>",
+  "cashFlowAnalysis": "<2-3 sentence cash flow summary>",
+  "approvalRationale": "<2-3 sentence overall rationale>"
 }
 
 Rules:
-- statementCurrency is auto-detected from the statement content — NEVER derived from the visa type
-- All balance fields in summary (openingBalance etc.) are in the ORIGINAL statement currency
-- All xxxConverted fields are in ${visaInfo.currency}
-- scoreGrade: A B C D F
-- approvalLikelihood: HIGH MEDIUM LOW VERY_LOW
-- severity in redFlags: HIGH MEDIUM LOW
-- priority in suggestedActions: URGENT HIGH MEDIUM LOW
-- balanceTrend: IMPROVING STABLE DECLINING`
+- statementCurrency is auto-detected from statement content — NEVER derived from visa type
+- strengths, concerns, redFlags: max 5 items each, one sentence per item
+- All string values: concise, one sentence max
+- scoreGrade: A B C D F | approvalLikelihood: HIGH MEDIUM LOW VERY_LOW`
 }

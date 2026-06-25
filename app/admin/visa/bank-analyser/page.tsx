@@ -79,6 +79,18 @@ interface VFAnalysis {
   suggestedActions: { priority: 'URGENT' | 'HIGH' | 'MEDIUM' | 'LOW'; action: string; reason: string }[]
   documentsToAdd: string[]
   transactions: VFTransaction[]
+  // Flat fields from simplified schema (v2)
+  avgMonthlyBalance?: number | null
+  avgMonthlyBalanceConverted?: number | null
+  avgMonthlyIncome?: number | null
+  avgMonthlyIncomeConverted?: number | null
+  incomeRegular?: boolean | null
+  strengths?: string[]
+  concerns?: string[]
+  redFlagsSimple?: string[]
+  embassyView?: string
+  cashFlowText?: string
+  approvalRationale?: string
 }
 
 type Tab = 'overview' | 'redflags' | 'embassy' | 'actions' | 'transactions'
@@ -93,7 +105,11 @@ function sanitizeVF(raw: unknown): VFAnalysis {
   const r   = (raw ?? {}) as Record<string, unknown>
   const sum = ((r.summary ?? {}) as Record<string, unknown>)
   const ee  = ((r.embassyEye ?? {}) as Record<string, unknown>)
-  const cf  = ((r.cashFlowAnalysis ?? {}) as Record<string, unknown>)
+  const cf  = (typeof r.cashFlowAnalysis === 'object' && r.cashFlowAnalysis !== null
+    ? r.cashFlowAnalysis
+    : {}) as Record<string, unknown>
+  const rawRedFlags      = safeArr<unknown>(r.redFlags)
+  const redFlagsAreStrings = rawRedFlags.length > 0 && typeof rawRedFlags[0] === 'string'
 
   const grades   = ['A', 'B', 'C', 'D', 'F'] as const
   const likes    = ['HIGH', 'MEDIUM', 'LOW', 'VERY_LOW'] as const
@@ -140,15 +156,20 @@ function sanitizeVF(raw: unknown): VFAnalysis {
       keyWeaknesses:           safeArr<string>(ee.keyWeaknesses),
       similarCasesApprovalRate: safeNum(ee.similarCasesApprovalRate, 50),
     },
-    redFlags: safeArr<Record<string, unknown>>(r.redFlags).map(f => ({
-      id:                   safeStr(f.id, Math.random().toString(36).slice(2)),
-      type:                 safeStr(f.type),
-      title:                safeStr(f.title),
-      description:          safeStr(f.description),
-      severity:             sevs.includes(f.severity as never) ? f.severity as 'HIGH'|'MEDIUM'|'LOW' : 'LOW',
-      transaction:          f.transaction != null ? safeStr(f.transaction) : null,
-      embassyInterpretation: safeStr(f.embassyInterpretation),
-    })),
+    redFlags: redFlagsAreStrings
+      ? []
+      : rawRedFlags.map(f => {
+          const fo = (f ?? {}) as Record<string, unknown>
+          return {
+            id:                    safeStr(fo.id, Math.random().toString(36).slice(2)),
+            type:                  safeStr(fo.type),
+            title:                 safeStr(fo.title),
+            description:           safeStr(fo.description),
+            severity:              sevs.includes(fo.severity as never) ? fo.severity as 'HIGH'|'MEDIUM'|'LOW' : 'LOW',
+            transaction:           fo.transaction != null ? safeStr(fo.transaction) : null,
+            embassyInterpretation: safeStr(fo.embassyInterpretation),
+          }
+        }),
     positives: safeArr<Record<string, unknown>>(r.positives).map(p => ({
       title:       safeStr(p.title),
       description: safeStr(p.description),
@@ -176,6 +197,18 @@ function sanitizeVF(raw: unknown): VFAnalysis {
       flagged:     Boolean(t.flagged),
       flagReason:  t.flagReason != null ? safeStr(t.flagReason) : null,
     })),
+    // Flat fields from simplified schema (v2)
+    avgMonthlyBalance:          r.avgMonthlyBalance          != null ? safeNum(r.avgMonthlyBalance)          : null,
+    avgMonthlyBalanceConverted: r.avgMonthlyBalanceConverted != null ? safeNum(r.avgMonthlyBalanceConverted) : null,
+    avgMonthlyIncome:           r.avgMonthlyIncome           != null ? safeNum(r.avgMonthlyIncome)           : null,
+    avgMonthlyIncomeConverted:  r.avgMonthlyIncomeConverted  != null ? safeNum(r.avgMonthlyIncomeConverted)  : null,
+    incomeRegular:              r.incomeRegular              != null ? Boolean(r.incomeRegular)              : null,
+    strengths:                  safeArr<string>(r.strengths).map(String),
+    concerns:                   safeArr<string>(r.concerns).map(String),
+    redFlagsSimple:             redFlagsAreStrings ? rawRedFlags.map(String) : [],
+    embassyView:                r.embassyView    != null ? safeStr(r.embassyView)    : undefined,
+    cashFlowText:               typeof r.cashFlowAnalysis === 'string' ? r.cashFlowAnalysis : undefined,
+    approvalRationale:          r.approvalRationale != null ? safeStr(r.approvalRationale) : undefined,
   }
 }
 
@@ -705,25 +738,33 @@ export default function BankAnalyserPage() {
               )}
             </div>
             <p className="text-white/50 text-xs mb-2">
-              {visaType} · {passport} · {analysis.summary.period} · {currency}
+              {visaType} · {passport}{analysis.summary.period !== 'Unknown' ? ` · ${analysis.summary.period}` : ''} · {currency}
             </p>
-            <p className="text-white/70 text-sm leading-relaxed line-clamp-2">{analysis.recommendation}</p>
+            <p className="text-white/70 text-sm leading-relaxed line-clamp-2">{analysis.recommendation || analysis.approvalRationale}</p>
           </div>
 
           <div className="flex-shrink-0 flex flex-col items-end gap-3">
             <div className="text-right">
               <p className="text-white/40 text-[10px] uppercase tracking-widest">Avg Balance</p>
-              <p className="text-white font-bold text-lg">{fmt(analysis.summary.averageBalance, currency)}</p>
-              {analysis.summary.averageBalanceConverted != null && analysis.statementCurrency !== analysis.visaCountryCurrency && (
-                <p className="text-[#C9A84C] text-xs mt-0.5">≈ {analysis.visaCountryCurrencySymbol}{fmt(analysis.summary.averageBalanceConverted)}</p>
-              )}
+              <p className="text-white font-bold text-lg">{fmt(analysis.summary.averageBalance || analysis.avgMonthlyBalance || null, currency)}</p>
+              {(() => {
+                const conv = analysis.summary.averageBalanceConverted ?? analysis.avgMonthlyBalanceConverted
+                return conv != null && analysis.statementCurrency !== analysis.visaCountryCurrency
+                  ? <p className="text-[#C9A84C] text-xs mt-0.5">≈ {analysis.visaCountryCurrencySymbol}{fmt(conv)}</p>
+                  : null
+              })()}
             </div>
             <div className="text-right">
               <p className="text-white/40 text-[10px] uppercase tracking-widest">Red Flags</p>
-              <p className={`font-bold text-lg ${analysis.redFlags.length > 0 ? 'text-red-400' : 'text-emerald-400'}`}>
-                {analysis.redFlags.length}
-                {highFlags > 0 && <span className="text-xs font-normal text-red-300 ml-1">({highFlags} HIGH)</span>}
-              </p>
+              {(() => {
+                const total = analysis.redFlags.length + (analysis.redFlagsSimple?.length ?? 0)
+                return (
+                  <p className={`font-bold text-lg ${total > 0 ? 'text-red-400' : 'text-emerald-400'}`}>
+                    {total}
+                    {highFlags > 0 && <span className="text-xs font-normal text-red-300 ml-1">({highFlags} HIGH)</span>}
+                  </p>
+                )
+              })()}
             </div>
           </div>
         </div>
@@ -734,7 +775,7 @@ export default function BankAnalyserPage() {
         <div className="max-w-5xl mx-auto flex">
           {([
             { id: 'overview',      label: 'Overview' },
-            { id: 'redflags',     label: `Red Flags${analysis.redFlags.length > 0 ? ` (${analysis.redFlags.length})` : ''}` },
+            { id: 'redflags',     label: (() => { const n = analysis.redFlags.length + (analysis.redFlagsSimple?.length ?? 0); return `Red Flags${n > 0 ? ` (${n})` : ''}` })() },
             { id: 'embassy',      label: 'Embassy Eye' },
             { id: 'actions',      label: 'Actions' },
             { id: 'transactions', label: `Transactions${analysis.transactions.length > 0 ? ` (${analysis.transactions.length})` : ''}` },
@@ -810,78 +851,121 @@ export default function BankAnalyserPage() {
             {/* Financial summary */}
             <div className="bg-white rounded-2xl border border-[#0B1F3A]/8 p-5">
               <h3 className="font-bold text-[#0B1F3A] mb-4">Financial Summary</h3>
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-                {[
-                  { label: 'Opening Balance', value: fmt(analysis.summary.openingBalance, currency), converted: analysis.summary.openingBalanceConverted },
-                  { label: 'Closing Balance',  value: fmt(analysis.summary.closingBalance, currency),  converted: analysis.summary.closingBalanceConverted },
-                  { label: 'Average Balance',  value: fmt(analysis.summary.averageBalance, currency),  converted: analysis.summary.averageBalanceConverted },
-                  { label: 'Lowest Balance',   value: fmt(analysis.summary.lowestBalance, currency),   converted: null },
-                  { label: 'Total Credits',    value: fmt(analysis.summary.totalCredits, currency),    converted: null },
-                  { label: 'Total Debits',     value: fmt(analysis.summary.totalDebits, currency),     converted: null },
-                  { label: 'Transactions',     value: analysis.summary.transactionCount.toString(),    converted: null },
-                  { label: 'Period',           value: `${analysis.summary.months}mo`,                  converted: null },
-                ].map(row => (
-                  <div key={row.label} className="bg-[#F5F7FA] rounded-xl p-3">
-                    <p className="text-[10px] text-gray-400 uppercase tracking-wide mb-0.5">{row.label}</p>
-                    <p className="font-bold text-[#0B1F3A] text-sm">{row.value}</p>
-                    {row.converted != null && analysis.statementCurrency !== analysis.visaCountryCurrency && (
-                      <p className="text-amber-600 text-[10px] mt-0.5">
-                        ≈ {analysis.visaCountryCurrencySymbol}{fmt(row.converted)}
-                      </p>
-                    )}
+              {analysis.summary.averageBalance > 0 ? (
+                <>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                    {[
+                      { label: 'Opening Balance', value: fmt(analysis.summary.openingBalance, currency), converted: analysis.summary.openingBalanceConverted },
+                      { label: 'Closing Balance',  value: fmt(analysis.summary.closingBalance, currency),  converted: analysis.summary.closingBalanceConverted },
+                      { label: 'Average Balance',  value: fmt(analysis.summary.averageBalance, currency),  converted: analysis.summary.averageBalanceConverted },
+                      { label: 'Lowest Balance',   value: fmt(analysis.summary.lowestBalance, currency),   converted: null },
+                      { label: 'Total Credits',    value: fmt(analysis.summary.totalCredits, currency),    converted: null },
+                      { label: 'Total Debits',     value: fmt(analysis.summary.totalDebits, currency),     converted: null },
+                      { label: 'Transactions',     value: analysis.summary.transactionCount.toString(),    converted: null },
+                      { label: 'Period',           value: `${analysis.summary.months}mo`,                  converted: null },
+                    ].map(row => (
+                      <div key={row.label} className="bg-[#F5F7FA] rounded-xl p-3">
+                        <p className="text-[10px] text-gray-400 uppercase tracking-wide mb-0.5">{row.label}</p>
+                        <p className="font-bold text-[#0B1F3A] text-sm">{row.value}</p>
+                        {row.converted != null && analysis.statementCurrency !== analysis.visaCountryCurrency && (
+                          <p className="text-amber-600 text-[10px] mt-0.5">
+                            ≈ {analysis.visaCountryCurrencySymbol}{fmt(row.converted)}
+                          </p>
+                        )}
+                      </div>
+                    ))}
                   </div>
-                ))}
-              </div>
-              {analysis.summary.regularIncomeDetected && (
-                <div className="mt-3 flex items-center gap-2 text-emerald-700 bg-emerald-50 rounded-xl px-3 py-2 flex-wrap">
-                  <span className="text-base">✓</span>
-                  <span className="text-xs font-semibold">
-                    Regular income detected · avg {fmt(analysis.summary.averageMonthlySalary, currency)}/month
-                    {analysis.summary.averageMonthlySalaryConverted != null && analysis.statementCurrency !== analysis.visaCountryCurrency && (
-                      <span className="text-amber-600 ml-1">
-                        (≈ {analysis.visaCountryCurrencySymbol}{fmt(analysis.summary.averageMonthlySalaryConverted)}/month)
+                  {analysis.summary.regularIncomeDetected && (
+                    <div className="mt-3 flex items-center gap-2 text-emerald-700 bg-emerald-50 rounded-xl px-3 py-2 flex-wrap">
+                      <span className="text-base">✓</span>
+                      <span className="text-xs font-semibold">
+                        Regular income detected · avg {fmt(analysis.summary.averageMonthlySalary, currency)}/month
+                        {analysis.summary.averageMonthlySalaryConverted != null && analysis.statementCurrency !== analysis.visaCountryCurrency && (
+                          <span className="text-amber-600 ml-1">
+                            (≈ {analysis.visaCountryCurrencySymbol}{fmt(analysis.summary.averageMonthlySalaryConverted)}/month)
+                          </span>
+                        )}
                       </span>
-                    )}
-                  </span>
-                </div>
+                    </div>
+                  )}
+                </>
+              ) : (
+                <>
+                  <div className="grid grid-cols-2 gap-4">
+                    {[
+                      { label: 'Avg Monthly Balance', value: fmt(analysis.avgMonthlyBalance, currency), converted: analysis.avgMonthlyBalanceConverted },
+                      { label: 'Avg Monthly Income',  value: fmt(analysis.avgMonthlyIncome, currency),  converted: analysis.avgMonthlyIncomeConverted },
+                    ].map(row => (
+                      <div key={row.label} className="bg-[#F5F7FA] rounded-xl p-4">
+                        <p className="text-[10px] text-gray-400 uppercase tracking-wide mb-1">{row.label}</p>
+                        <p className="font-bold text-[#0B1F3A] text-base">{row.value}</p>
+                        {row.converted != null && analysis.statementCurrency !== analysis.visaCountryCurrency && (
+                          <p className="text-amber-600 text-xs mt-1">
+                            ≈ {analysis.visaCountryCurrencySymbol}{fmt(row.converted)}
+                          </p>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                  {(analysis.incomeRegular ?? analysis.summary.regularIncomeDetected) && (
+                    <div className="mt-3 flex items-center gap-2 text-emerald-700 bg-emerald-50 rounded-xl px-3 py-2">
+                      <span className="text-base">✓</span>
+                      <span className="text-xs font-semibold">Regular income detected</span>
+                    </div>
+                  )}
+                </>
               )}
             </div>
 
             {/* Cash flow */}
-            <div className="bg-white rounded-2xl border border-[#0B1F3A]/8 p-5">
-              <h3 className="font-bold text-[#0B1F3A] mb-4">Cash Flow Analysis</h3>
-              <div className="space-y-3">
-                {[
-                  { label: 'Income Consistency',   value: analysis.cashFlowAnalysis.incomeConsistency },
-                  { label: 'Spending Pattern',      value: analysis.cashFlowAnalysis.spendingPattern },
-                  { label: 'Financial Stability',   value: analysis.cashFlowAnalysis.financialStability },
-                  { label: 'Balance Trend',         value: analysis.cashFlowAnalysis.balanceTrend },
-                  { label: 'Savings Rate',          value: `${analysis.cashFlowAnalysis.savingsRate}%` },
-                ].map(row => (
-                  <div key={row.label} className="flex items-start justify-between gap-4 py-2 border-b border-[#0B1F3A]/5 last:border-0">
-                    <span className="text-xs text-gray-400 font-medium flex-shrink-0 w-36">{row.label}</span>
-                    <span className="text-sm text-[#0B1F3A] font-medium text-right">{row.value}</span>
+            {(analysis.cashFlowText || analysis.cashFlowAnalysis.incomeConsistency) && (
+              <div className="bg-white rounded-2xl border border-[#0B1F3A]/8 p-5">
+                <h3 className="font-bold text-[#0B1F3A] mb-4">Cash Flow Analysis</h3>
+                {analysis.cashFlowText ? (
+                  <p className="text-sm text-[#0B1F3A]/70 leading-relaxed">{analysis.cashFlowText}</p>
+                ) : (
+                  <div className="space-y-3">
+                    {[
+                      { label: 'Income Consistency',   value: analysis.cashFlowAnalysis.incomeConsistency },
+                      { label: 'Spending Pattern',      value: analysis.cashFlowAnalysis.spendingPattern },
+                      { label: 'Financial Stability',   value: analysis.cashFlowAnalysis.financialStability },
+                      { label: 'Balance Trend',         value: analysis.cashFlowAnalysis.balanceTrend },
+                      { label: 'Savings Rate',          value: `${analysis.cashFlowAnalysis.savingsRate}%` },
+                    ].map(row => (
+                      <div key={row.label} className="flex items-start justify-between gap-4 py-2 border-b border-[#0B1F3A]/5 last:border-0">
+                        <span className="text-xs text-gray-400 font-medium flex-shrink-0 w-36">{row.label}</span>
+                        <span className="text-sm text-[#0B1F3A] font-medium text-right">{row.value}</span>
+                      </div>
+                    ))}
                   </div>
-                ))}
+                )}
               </div>
-            </div>
+            )}
 
             {/* Strengths */}
-            {analysis.positives.length > 0 && (
+            {(analysis.positives.length > 0 || (analysis.strengths?.length ?? 0) > 0) && (
               <div className="bg-white rounded-2xl border border-[#0B1F3A]/8 p-5">
                 <h3 className="font-bold text-[#0B1F3A] mb-4 flex items-center gap-2">
                   <span className="text-emerald-600">✓</span> Key Strengths
                 </h3>
                 <div className="space-y-3">
-                  {analysis.positives.map((p, i) => (
-                    <div key={i} className="flex items-start gap-3 bg-emerald-50 rounded-xl p-3">
-                      <span className="text-emerald-500 flex-shrink-0 mt-0.5">●</span>
-                      <div>
-                        <p className="text-sm font-semibold text-emerald-800">{p.title}</p>
-                        <p className="text-xs text-emerald-700 mt-0.5">{p.description}</p>
-                      </div>
-                    </div>
-                  ))}
+                  {analysis.positives.length > 0
+                    ? analysis.positives.map((p, i) => (
+                        <div key={i} className="flex items-start gap-3 bg-emerald-50 rounded-xl p-3">
+                          <span className="text-emerald-500 flex-shrink-0 mt-0.5">●</span>
+                          <div>
+                            <p className="text-sm font-semibold text-emerald-800">{p.title}</p>
+                            <p className="text-xs text-emerald-700 mt-0.5">{p.description}</p>
+                          </div>
+                        </div>
+                      ))
+                    : analysis.strengths?.map((s, i) => (
+                        <div key={i} className="flex items-start gap-3 bg-emerald-50 rounded-xl p-3">
+                          <span className="text-emerald-500 flex-shrink-0 mt-0.5">●</span>
+                          <p className="text-sm text-emerald-800">{s}</p>
+                        </div>
+                      ))
+                  }
                 </div>
               </div>
             )}
@@ -919,12 +1003,19 @@ export default function BankAnalyserPage() {
         {/* ── RED FLAGS ── */}
         {activeTab === 'redflags' && (
           <div className="space-y-4">
-            {analysis.redFlags.length === 0 ? (
+            {analysis.redFlags.length === 0 && (analysis.redFlagsSimple?.length ?? 0) === 0 ? (
               <div className="bg-emerald-50 border border-emerald-200 rounded-2xl p-8 text-center">
                 <div className="text-4xl mb-3">✅</div>
                 <p className="font-bold text-emerald-800">No Red Flags Detected</p>
                 <p className="text-sm text-emerald-600 mt-1">Clean statement with no suspicious financial activity</p>
               </div>
+            ) : (analysis.redFlagsSimple?.length ?? 0) > 0 ? (
+              analysis.redFlagsSimple!.map((flag, i) => (
+                <div key={i} className="bg-white rounded-2xl border border-red-200 p-5 flex items-start gap-3">
+                  <span className="text-red-500 text-lg flex-shrink-0 mt-0.5">⚑</span>
+                  <p className="text-sm text-[#0B1F3A]/80">{flag}</p>
+                </div>
+              ))
             ) : (
               [...analysis.redFlags]
                 .sort((a, b) => ({ HIGH: 0, MEDIUM: 1, LOW: 2 }[a.severity] ?? 3) - ({ HIGH: 0, MEDIUM: 1, LOW: 2 }[b.severity] ?? 3))
@@ -960,65 +1051,96 @@ export default function BankAnalyserPage() {
         {/* ── EMBASSY EYE ── */}
         {activeTab === 'embassy' && (
           <div className="space-y-4">
-            <div className="bg-[#0B1F3A] rounded-2xl p-6">
-              <p className="text-[#C9A84C] text-xs font-bold uppercase tracking-widest mb-2">Officer Verdict</p>
-              <p className="text-white text-sm leading-relaxed">{analysis.embassyEye.officerVerdict}</p>
-
-              <div className="mt-5">
-                <div className="flex items-center justify-between mb-2">
-                  <span className="text-white/50 text-xs">Similar Cases Approval Rate</span>
-                  <span className="text-[#C9A84C] font-bold">{analysis.embassyEye.similarCasesApprovalRate}%</span>
-                </div>
-                <div className="h-2 bg-white/10 rounded-full overflow-hidden">
-                  <div className="h-2 bg-[#C9A84C] rounded-full transition-all"
-                    style={{ width: `${analysis.embassyEye.similarCasesApprovalRate}%` }} />
-                </div>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              <div className="bg-white rounded-2xl border border-[#0B1F3A]/8 p-5">
-                <h3 className="font-bold text-emerald-700 mb-3 flex items-center gap-2">
-                  <span>✓</span> Key Strengths
-                </h3>
-                {analysis.embassyEye.keyStrengths.length === 0 ? (
-                  <p className="text-xs text-gray-400">None identified</p>
-                ) : (
-                  <ul className="space-y-2">
-                    {analysis.embassyEye.keyStrengths.map((s, i) => (
-                      <li key={i} className="flex items-start gap-2 text-sm text-emerald-800">
-                        <span className="text-emerald-500 flex-shrink-0 mt-0.5">●</span>
-                        {s}
-                      </li>
-                    ))}
-                  </ul>
+            {analysis.embassyView || analysis.embassyEye.officerVerdict ? (
+              <div className="bg-[#0B1F3A] rounded-2xl p-6">
+                <p className="text-[#C9A84C] text-xs font-bold uppercase tracking-widest mb-2">Officer Verdict</p>
+                <p className="text-white text-sm leading-relaxed">
+                  {analysis.embassyView || analysis.embassyEye.officerVerdict}
+                </p>
+                {!analysis.embassyView && (
+                  <div className="mt-5">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-white/50 text-xs">Similar Cases Approval Rate</span>
+                      <span className="text-[#C9A84C] font-bold">{analysis.embassyEye.similarCasesApprovalRate}%</span>
+                    </div>
+                    <div className="h-2 bg-white/10 rounded-full overflow-hidden">
+                      <div className="h-2 bg-[#C9A84C] rounded-full transition-all"
+                        style={{ width: `${analysis.embassyEye.similarCasesApprovalRate}%` }} />
+                    </div>
+                  </div>
                 )}
               </div>
+            ) : null}
 
+            {/* v1: keyStrengths / keyWeaknesses */}
+            {(analysis.embassyEye.keyStrengths.length > 0 || analysis.embassyEye.keyWeaknesses.length > 0) && (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="bg-white rounded-2xl border border-[#0B1F3A]/8 p-5">
+                  <h3 className="font-bold text-emerald-700 mb-3 flex items-center gap-2">
+                    <span>✓</span> Key Strengths
+                  </h3>
+                  {analysis.embassyEye.keyStrengths.length === 0 ? (
+                    <p className="text-xs text-gray-400">None identified</p>
+                  ) : (
+                    <ul className="space-y-2">
+                      {analysis.embassyEye.keyStrengths.map((s, i) => (
+                        <li key={i} className="flex items-start gap-2 text-sm text-emerald-800">
+                          <span className="text-emerald-500 flex-shrink-0 mt-0.5">●</span>
+                          {s}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+                <div className="bg-white rounded-2xl border border-[#0B1F3A]/8 p-5">
+                  <h3 className="font-bold text-red-700 mb-3 flex items-center gap-2">
+                    <span>✗</span> Key Weaknesses
+                  </h3>
+                  {analysis.embassyEye.keyWeaknesses.length === 0 ? (
+                    <p className="text-xs text-gray-400">None identified</p>
+                  ) : (
+                    <ul className="space-y-2">
+                      {analysis.embassyEye.keyWeaknesses.map((w, i) => (
+                        <li key={i} className="flex items-start gap-2 text-sm text-red-800">
+                          <span className="text-red-500 flex-shrink-0 mt-0.5">●</span>
+                          {w}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* v2: concerns */}
+            {analysis.embassyView && (analysis.concerns?.length ?? 0) > 0 && (
               <div className="bg-white rounded-2xl border border-[#0B1F3A]/8 p-5">
                 <h3 className="font-bold text-red-700 mb-3 flex items-center gap-2">
-                  <span>✗</span> Key Weaknesses
+                  <span>✗</span> Key Concerns
                 </h3>
-                {analysis.embassyEye.keyWeaknesses.length === 0 ? (
-                  <p className="text-xs text-gray-400">None identified</p>
-                ) : (
-                  <ul className="space-y-2">
-                    {analysis.embassyEye.keyWeaknesses.map((w, i) => (
-                      <li key={i} className="flex items-start gap-2 text-sm text-red-800">
-                        <span className="text-red-500 flex-shrink-0 mt-0.5">●</span>
-                        {w}
-                      </li>
-                    ))}
-                  </ul>
-                )}
+                <ul className="space-y-2">
+                  {analysis.concerns!.map((c, i) => (
+                    <li key={i} className="flex items-start gap-2 text-sm text-red-800">
+                      <span className="text-red-500 flex-shrink-0 mt-0.5">●</span>
+                      {c}
+                    </li>
+                  ))}
+                </ul>
               </div>
-            </div>
+            )}
           </div>
         )}
 
         {/* ── ACTIONS ── */}
         {activeTab === 'actions' && (
           <div className="space-y-5">
+            {analysis.approvalRationale && (
+              <div className="bg-[#0B1F3A] rounded-2xl p-5">
+                <p className="text-[#C9A84C] text-xs font-bold uppercase tracking-widest mb-2">Approval Rationale</p>
+                <p className="text-white text-sm leading-relaxed">{analysis.approvalRationale}</p>
+              </div>
+            )}
+
             {analysis.documentsToAdd.length > 0 && (
               <div className="bg-white rounded-2xl border border-[#0B1F3A]/8 p-5">
                 <h3 className="font-bold text-[#0B1F3A] mb-3">Additional Documents Required</h3>
@@ -1050,6 +1172,10 @@ export default function BankAnalyserPage() {
                   ))}
                 </div>
               </div>
+            )}
+
+            {analysis.suggestedActions.length === 0 && analysis.documentsToAdd.length === 0 && !analysis.approvalRationale && (
+              <div className="p-8 text-center text-gray-400 text-sm">No actions generated</div>
             )}
           </div>
         )}
