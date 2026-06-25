@@ -11,8 +11,11 @@ interface VFSummary {
   period: string
   months: number
   openingBalance: number
+  openingBalanceConverted: number | null
   closingBalance: number
+  closingBalanceConverted: number | null
   averageBalance: number
+  averageBalanceConverted: number | null
   lowestBalance: number
   highestBalance: number
   totalCredits: number
@@ -20,6 +23,7 @@ interface VFSummary {
   transactionCount: number
   regularIncomeDetected: boolean
   averageMonthlySalary: number
+  averageMonthlySalaryConverted: number | null
 }
 
 interface VFTransaction {
@@ -43,6 +47,13 @@ interface VFRedFlag {
 }
 
 interface VFAnalysis {
+  statementCurrency:        string
+  statementCurrencySymbol:  string
+  visaCountryCurrency:      string
+  visaCountryCurrencySymbol: string
+  conversionRate:           string
+  meetsVisaRequirement:     boolean | null
+  requirementGap:           string
   summary: VFSummary
   approvalScore: number
   scoreGrade: 'A' | 'B' | 'C' | 'D' | 'F'
@@ -90,22 +101,33 @@ function sanitizeVF(raw: unknown): VFAnalysis {
   const pris     = ['URGENT', 'HIGH', 'MEDIUM', 'LOW'] as const
 
   return {
+    statementCurrency:        safeStr(r.statementCurrency),
+    statementCurrencySymbol:  safeStr(r.statementCurrencySymbol),
+    visaCountryCurrency:      safeStr(r.visaCountryCurrency),
+    visaCountryCurrencySymbol: safeStr(r.visaCountryCurrencySymbol),
+    conversionRate:           safeStr(r.conversionRate),
+    meetsVisaRequirement:     r.meetsVisaRequirement != null ? Boolean(r.meetsVisaRequirement) : null,
+    requirementGap:           safeStr(r.requirementGap),
     summary: {
-      accountHolder:        sum.accountHolder != null ? safeStr(sum.accountHolder) : null,
-      bank:                 sum.bank          != null ? safeStr(sum.bank)          : null,
-      currency:             safeStr(sum.currency, 'USD'),
-      period:               safeStr(sum.period,   'Unknown'),
-      months:               safeNum(sum.months,   0),
-      openingBalance:       safeNum(sum.openingBalance),
-      closingBalance:       safeNum(sum.closingBalance),
-      averageBalance:       safeNum(sum.averageBalance),
-      lowestBalance:        safeNum(sum.lowestBalance),
-      highestBalance:       safeNum(sum.highestBalance),
-      totalCredits:         safeNum(sum.totalCredits),
-      totalDebits:          safeNum(sum.totalDebits),
-      transactionCount:     safeNum(sum.transactionCount),
-      regularIncomeDetected: Boolean(sum.regularIncomeDetected),
-      averageMonthlySalary: safeNum(sum.averageMonthlySalary),
+      accountHolder:                sum.accountHolder != null ? safeStr(sum.accountHolder) : null,
+      bank:                         sum.bank          != null ? safeStr(sum.bank)          : null,
+      currency:                     safeStr(sum.currency, 'USD'),
+      period:                       safeStr(sum.period,   'Unknown'),
+      months:                       safeNum(sum.months,   0),
+      openingBalance:               safeNum(sum.openingBalance),
+      openingBalanceConverted:      sum.openingBalanceConverted      != null ? safeNum(sum.openingBalanceConverted)      : null,
+      closingBalance:               safeNum(sum.closingBalance),
+      closingBalanceConverted:      sum.closingBalanceConverted      != null ? safeNum(sum.closingBalanceConverted)      : null,
+      averageBalance:               safeNum(sum.averageBalance),
+      averageBalanceConverted:      sum.averageBalanceConverted      != null ? safeNum(sum.averageBalanceConverted)      : null,
+      lowestBalance:                safeNum(sum.lowestBalance),
+      highestBalance:               safeNum(sum.highestBalance),
+      totalCredits:                 safeNum(sum.totalCredits),
+      totalDebits:                  safeNum(sum.totalDebits),
+      transactionCount:             safeNum(sum.transactionCount),
+      regularIncomeDetected:        Boolean(sum.regularIncomeDetected),
+      averageMonthlySalary:         safeNum(sum.averageMonthlySalary),
+      averageMonthlySalaryConverted: sum.averageMonthlySalaryConverted != null ? safeNum(sum.averageMonthlySalaryConverted) : null,
     },
     approvalScore:      Math.min(100, Math.max(0, safeNum(r.approvalScore))),
     scoreGrade:         grades.includes(r.scoreGrade as never)         ? r.scoreGrade         as 'A'|'B'|'C'|'D'|'F'            : 'C',
@@ -668,6 +690,9 @@ export default function BankAnalyserPage() {
             <div className="text-right">
               <p className="text-white/40 text-[10px] uppercase tracking-widest">Avg Balance</p>
               <p className="text-white font-bold text-lg">{fmt(analysis.summary.averageBalance, currency)}</p>
+              {analysis.summary.averageBalanceConverted != null && analysis.statementCurrency !== analysis.visaCountryCurrency && (
+                <p className="text-[#C9A84C] text-xs mt-0.5">≈ {analysis.visaCountryCurrencySymbol}{fmt(analysis.summary.averageBalanceConverted)}</p>
+              )}
             </div>
             <div className="text-right">
               <p className="text-white/40 text-[10px] uppercase tracking-widest">Red Flags</p>
@@ -708,31 +733,91 @@ export default function BankAnalyserPage() {
         {/* ── OVERVIEW ── */}
         {activeTab === 'overview' && (
           <>
+            {/* Currency banner */}
+            {analysis.statementCurrency && (
+              <div className="bg-[#0B1F3A] rounded-2xl p-4 flex items-center gap-4 flex-wrap">
+                <div className="flex items-center gap-3">
+                  <span className="text-2xl">💱</span>
+                  <div>
+                    <p className="text-white/50 text-[10px] uppercase tracking-wider">Statement Currency</p>
+                    <p className="text-white font-bold">{analysis.statementCurrencySymbol} {analysis.statementCurrency}</p>
+                  </div>
+                </div>
+                {analysis.statementCurrency !== analysis.visaCountryCurrency ? (
+                  <>
+                    <span className="text-white/30 text-xl">→</span>
+                    <div className="flex items-center gap-3">
+                      <div>
+                        <p className="text-white/50 text-[10px] uppercase tracking-wider">Visa Country Currency</p>
+                        <p className="text-white font-bold">{analysis.visaCountryCurrencySymbol} {analysis.visaCountryCurrency}</p>
+                      </div>
+                      <span className="text-2xl">🎯</span>
+                    </div>
+                    {analysis.conversionRate && (
+                      <div className="ml-auto text-right">
+                        <p className="text-white/50 text-[10px] uppercase tracking-wider">Rate Used</p>
+                        <p className="text-[#C9A84C] text-sm font-semibold">{analysis.conversionRate}</p>
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  <p className="text-white/40 text-sm">Direct {analysis.statementCurrency} assessment — no conversion needed</p>
+                )}
+              </div>
+            )}
+
+            {/* Visa requirement check */}
+            {analysis.meetsVisaRequirement != null && (
+              <div className={`rounded-2xl p-5 border ${
+                analysis.meetsVisaRequirement
+                  ? 'bg-emerald-500/10 border-emerald-500/30'
+                  : 'bg-red-500/10 border-red-500/30'
+              }`}>
+                <p className="text-white/50 text-[10px] uppercase tracking-wider mb-1">Visa Financial Requirement</p>
+                <p className={`font-bold text-lg ${analysis.meetsVisaRequirement ? 'text-emerald-400' : 'text-red-400'}`}>
+                  {analysis.meetsVisaRequirement ? '✓ MEETS REQUIREMENT' : '✗ BELOW REQUIREMENT'}
+                </p>
+                {analysis.requirementGap && (
+                  <p className="text-white/60 text-sm mt-1">{analysis.requirementGap}</p>
+                )}
+              </div>
+            )}
+
             {/* Financial summary */}
             <div className="bg-white rounded-2xl border border-[#0B1F3A]/8 p-5">
               <h3 className="font-bold text-[#0B1F3A] mb-4">Financial Summary</h3>
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
                 {[
-                  { label: 'Opening Balance', value: fmt(analysis.summary.openingBalance, currency) },
-                  { label: 'Closing Balance',  value: fmt(analysis.summary.closingBalance, currency) },
-                  { label: 'Average Balance',  value: fmt(analysis.summary.averageBalance, currency) },
-                  { label: 'Lowest Balance',   value: fmt(analysis.summary.lowestBalance, currency) },
-                  { label: 'Total Credits',    value: fmt(analysis.summary.totalCredits, currency) },
-                  { label: 'Total Debits',     value: fmt(analysis.summary.totalDebits, currency) },
-                  { label: 'Transactions',     value: analysis.summary.transactionCount.toString() },
-                  { label: 'Period',           value: `${analysis.summary.months}mo` },
+                  { label: 'Opening Balance', value: fmt(analysis.summary.openingBalance, currency), converted: analysis.summary.openingBalanceConverted },
+                  { label: 'Closing Balance',  value: fmt(analysis.summary.closingBalance, currency),  converted: analysis.summary.closingBalanceConverted },
+                  { label: 'Average Balance',  value: fmt(analysis.summary.averageBalance, currency),  converted: analysis.summary.averageBalanceConverted },
+                  { label: 'Lowest Balance',   value: fmt(analysis.summary.lowestBalance, currency),   converted: null },
+                  { label: 'Total Credits',    value: fmt(analysis.summary.totalCredits, currency),    converted: null },
+                  { label: 'Total Debits',     value: fmt(analysis.summary.totalDebits, currency),     converted: null },
+                  { label: 'Transactions',     value: analysis.summary.transactionCount.toString(),    converted: null },
+                  { label: 'Period',           value: `${analysis.summary.months}mo`,                  converted: null },
                 ].map(row => (
                   <div key={row.label} className="bg-[#F5F7FA] rounded-xl p-3">
                     <p className="text-[10px] text-gray-400 uppercase tracking-wide mb-0.5">{row.label}</p>
                     <p className="font-bold text-[#0B1F3A] text-sm">{row.value}</p>
+                    {row.converted != null && analysis.statementCurrency !== analysis.visaCountryCurrency && (
+                      <p className="text-amber-600 text-[10px] mt-0.5">
+                        ≈ {analysis.visaCountryCurrencySymbol}{fmt(row.converted)}
+                      </p>
+                    )}
                   </div>
                 ))}
               </div>
               {analysis.summary.regularIncomeDetected && (
-                <div className="mt-3 flex items-center gap-2 text-emerald-700 bg-emerald-50 rounded-xl px-3 py-2">
+                <div className="mt-3 flex items-center gap-2 text-emerald-700 bg-emerald-50 rounded-xl px-3 py-2 flex-wrap">
                   <span className="text-base">✓</span>
                   <span className="text-xs font-semibold">
                     Regular income detected · avg {fmt(analysis.summary.averageMonthlySalary, currency)}/month
+                    {analysis.summary.averageMonthlySalaryConverted != null && analysis.statementCurrency !== analysis.visaCountryCurrency && (
+                      <span className="text-amber-600 ml-1">
+                        (≈ {analysis.visaCountryCurrencySymbol}{fmt(analysis.summary.averageMonthlySalaryConverted)}/month)
+                      </span>
+                    )}
                   </span>
                 </div>
               )}

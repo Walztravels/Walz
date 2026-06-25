@@ -172,14 +172,7 @@ export async function POST(req: NextRequest) {
     const systemPrompt =
       `You are VisaFortress AI — a forensic financial analyst specialising in visa bank statement review ` +
       `for ${passport} applicants applying for a ${visaType} visa. ` +
-      `You combine the knowledge of a senior UK visa caseworker, a certified forensic accountant, and an AML compliance officer.\n\n` +
-      `VISA TYPE: ${visaType}\n` +
-      `TARGET CURRENCY: ${visaInfo.currency} (${visaInfo.symbol})\n` +
-      `FINANCIAL REQUIREMENT: ${visaInfo.requirement}\n\n` +
-      `IMPORTANT:\n` +
-      `- Analyse all amounts in ${visaInfo.currency} (${visaInfo.symbol})\n` +
-      `- If the statement is in a different currency (e.g. NGN, GHS, KES), convert using approximate current exchange rates and note this\n` +
-      `- Set "meetsRequirement" to true/false based on whether the balance satisfies: ${visaInfo.requirement}` +
+      `You combine the knowledge of a senior UK visa caseworker, a certified forensic accountant, and an AML compliance officer.` +
       JSON_ONLY
 
     const userPrompt = buildUserPrompt(applicantName, passport, visaType, visaInfo)
@@ -361,51 +354,77 @@ const EXTRACTION_PROMPT = `Extract all data from this bank statement. Return JSO
 
 function buildUserPrompt(applicantName: string, passport: string, visaType: string, visaInfo: VisaInfo) {
   return (txnContext: string) => `Applicant: ${applicantName} | Passport: ${passport} | Visa applied: ${visaType}
-Target currency: ${visaInfo.currency} (${visaInfo.symbol}) | Requirement: ${visaInfo.requirement}
 Context from extraction: ${txnContext}
 
-Analyse this bank statement and return a JSON object with EXACTLY these fields (replace example values with real analysis):
+STEP 1 — DETECT STATEMENT CURRENCY:
+Read the bank statement and detect the actual currency used in it (look for symbols and codes in headers, balances, and transactions).
+Common currencies: NGN (₦), GHS (GH₵), KES (KSh), ZAR (R), USD ($), GBP (£), EUR (€), AED (AED), CAD (CA$), AUD (A$)
+Report ALL balances and transaction amounts in the ORIGINAL statement currency exactly as they appear.
+
+STEP 2 — CONVERT TO VISA COUNTRY CURRENCY (${visaInfo.currency} = ${visaInfo.symbol}):
+Use these approximate exchange rates to convert key balances to ${visaInfo.currency}:
+  NGN → GBP: ÷ 2,050  |  NGN → EUR: ÷ 1,790  |  NGN → USD: ÷ 1,580  |  NGN → AED: ÷ 5,800  |  NGN → CAD: ÷ 2,150  |  NGN → AUD: ÷ 2,400
+  GHS → GBP: × 0.057  |  GHS → USD: × 0.063  |  GHS → EUR: × 0.068
+  KES → GBP: ÷ 168    |  KES → USD: ÷ 129    |  KES → EUR: ÷ 141
+  ZAR → GBP: × 0.043  |  ZAR → USD: × 0.054  |  ZAR → EUR: × 0.049
+  USD → GBP: × 0.79   |  EUR → GBP: × 0.86   |  AED → GBP: ÷ 4.79   |  CAD → GBP: × 0.57
+  If statement is ALREADY in ${visaInfo.currency}: set conversionRate to "Direct — no conversion needed"
+
+STEP 3 — VISA REQUIREMENT CHECK:
+The visa requires: ${visaInfo.requirement}
+Set meetsVisaRequirement: true if converted balance meets this, false if below.
+In requirementGap write: "Has ${visaInfo.symbol}X,XXX equivalent, needs ${visaInfo.symbol}Y,YYY" or "Meets requirement with ${visaInfo.symbol}X,XXX equivalent".
+
+Return a JSON object with EXACTLY these fields:
 {
+  "statementCurrency": "<detected code e.g. NGN>",
+  "statementCurrencySymbol": "<symbol e.g. ₦>",
+  "visaCountryCurrency": "${visaInfo.currency}",
+  "visaCountryCurrencySymbol": "${visaInfo.symbol}",
+  "conversionRate": "<e.g. 1 GBP = 2,050 NGN>",
+  "meetsVisaRequirement": <true|false>,
+  "requirementGap": "<e.g. Has £1,200 equivalent, needs £2,000>",
   "summary": {
     "accountHolder": "Full Name",
     "bank": "Bank Name",
-    "currency": "${visaInfo.currency}",
-    "statementCurrency": "NGN",
+    "currency": "<statement currency code e.g. NGN>",
     "period": "Jan 2024 - Mar 2024",
     "months": 3,
-    "openingBalance": 5000.00,
-    "closingBalance": 4800.00,
-    "averageBalance": 6500.00,
-    "lowestBalance": 1200.00,
-    "highestBalance": 12000.00,
-    "totalCredits": 15000.00,
-    "totalDebits": 14200.00,
+    "openingBalance": 5000000.00,
+    "openingBalanceConverted": 2439.00,
+    "closingBalance": 4800000.00,
+    "closingBalanceConverted": 2341.00,
+    "averageBalance": 6500000.00,
+    "averageBalanceConverted": 3171.00,
+    "lowestBalance": 1200000.00,
+    "highestBalance": 12000000.00,
+    "totalCredits": 15000000.00,
+    "totalDebits": 14200000.00,
     "transactionCount": 45,
     "regularIncomeDetected": true,
-    "averageMonthlySalary": 3000.00
+    "averageMonthlySalary": 3000000.00,
+    "averageMonthlySalaryConverted": 1463.00
   },
-  "meetsRequirement": true,
-  "requirementDetails": "Applicant's average balance of ${visaInfo.symbol}X,XXX meets/does not meet the ${visaInfo.requirement}",
-  "approvalScore": 72,
-  "scoreGrade": "B",
-  "approvalLikelihood": "MEDIUM",
+  "approvalScore": 45,
+  "scoreGrade": "C",
+  "approvalLikelihood": "LOW",
   "embassyEye": {
     "visaType": "${visaType}",
     "passport": "${passport}",
     "officerVerdict": "Two-to-three sentence officer verdict here.",
-    "keyStrengths": ["Regular salary credits", "Stable account history"],
-    "keyWeaknesses": ["Low average balance relative to trip cost"],
-    "similarCasesApprovalRate": 65
+    "keyStrengths": ["Regular salary credits"],
+    "keyWeaknesses": ["Low balance equivalent in ${visaInfo.currency}"],
+    "similarCasesApprovalRate": 35
   },
   "redFlags": [
-    { "id": "rf1", "type": "BALANCE_PARKING", "title": "Flag title", "description": "Detailed description", "severity": "HIGH", "transaction": "01 Jan 2024 CASH DEPOSIT 5000.00", "embassyInterpretation": "How an officer interprets this" }
+    { "id": "rf1", "type": "BALANCE_PARKING", "title": "Flag title", "description": "Description", "severity": "HIGH", "transaction": "01 Jan CASH DEPOSIT 5000000", "embassyInterpretation": "Officer interpretation" }
   ],
   "positives": [
     { "title": "Regular Income", "description": "Consistent monthly salary credited" }
   ],
   "cashFlowAnalysis": {
-    "incomeConsistency": "Regular monthly salary from ACME Ltd",
-    "spendingPattern": "Consistent everyday spending with no unusual spikes",
+    "incomeConsistency": "Regular monthly salary",
+    "spendingPattern": "Consistent everyday spending",
     "savingsRate": 12,
     "financialStability": "Stable with moderate reserves",
     "balanceTrend": "STABLE"
@@ -416,16 +435,17 @@ Analyse this bank statement and return a JSON object with EXACTLY these fields (
   ],
   "documentsToAdd": ["3 months payslips", "Employer reference letter"],
   "transactions": [
-    { "date": "01 Jan 2024", "description": "SALARY ACME LTD", "credit": 3000.00, "debit": null, "balance": 8000.00, "flagged": false, "flagReason": null }
+    { "date": "01 Jan 2024", "description": "SALARY ACME LTD", "credit": 3000000.00, "debit": null, "balance": 8000000.00, "flagged": false, "flagReason": null }
   ]
 }
 
 Rules:
-- All monetary values must be in ${visaInfo.currency} (convert from statement currency if different, state exchange rate used)
-- scoreGrade must be one of: A B C D F
-- approvalLikelihood must be one of: HIGH MEDIUM LOW VERY_LOW
-- severity in redFlags must be one of: HIGH MEDIUM LOW
-- priority in suggestedActions must be one of: URGENT HIGH MEDIUM LOW
-- balanceTrend must be one of: IMPROVING STABLE DECLINING
-- meetsRequirement: true if the applicant's finances satisfy "${visaInfo.requirement}", false otherwise`
+- statementCurrency is auto-detected from the statement content — NEVER derived from the visa type
+- All balance fields in summary (openingBalance etc.) are in the ORIGINAL statement currency
+- All xxxConverted fields are in ${visaInfo.currency}
+- scoreGrade: A B C D F
+- approvalLikelihood: HIGH MEDIUM LOW VERY_LOW
+- severity in redFlags: HIGH MEDIUM LOW
+- priority in suggestedActions: URGENT HIGH MEDIUM LOW
+- balanceTrend: IMPROVING STABLE DECLINING`
 }
