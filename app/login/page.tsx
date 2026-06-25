@@ -33,8 +33,8 @@ function LoginContent() {
   const [error, setError]       = useState('')
 
   useEffect(() => {
-    if (status === 'authenticated') router.push(callbackUrl)
-  }, [status, router, callbackUrl])
+    if (status === 'authenticated') window.location.href = callbackUrl
+  }, [status, callbackUrl])
 
   useEffect(() => {
     if (errorParam === 'CredentialsSignin') {
@@ -61,7 +61,7 @@ function LoginContent() {
     if (res?.error) {
       setError('Incorrect email or password. Please check your details and try again.')
     } else if (res?.ok) {
-      router.push(callbackUrl)
+      window.location.href = callbackUrl
     }
   }
 
@@ -95,20 +95,20 @@ function LoginContent() {
 
   if (status === 'loading') {
     return (
-      <div className="min-h-[60vh] flex items-center justify-center">
+      <div className="min-h-screen flex items-center justify-center bg-[#0B1F3A]">
         <Loader2 className="w-8 h-8 text-[#C9A84C] animate-spin" />
       </div>
     )
   }
 
   return (
-    <div className="min-h-[85vh] flex items-center justify-center py-12 px-4 bg-[#F7F8FA]">
+    <div className="min-h-screen flex items-center justify-center py-16 px-4 bg-[#0B1F3A]">
       <div className="w-full max-w-md">
 
         {/* Logo */}
         <Link href="/" className="flex justify-center mb-8">
           <Image src="/walz-logo.png" alt="Walz Travels" width={140} height={140}
-            className="h-12 w-auto object-contain hover:opacity-90 transition-opacity" />
+            className="h-12 w-auto object-contain hover:opacity-90 transition-opacity brightness-0 invert" />
         </Link>
 
         <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
@@ -271,7 +271,7 @@ function LoginContent() {
           </div>
         </div>
 
-        <p className="text-center text-xs text-gray-400 mt-5">
+        <p className="text-center text-xs text-white/40 mt-5">
           {tab === 'signin' ? "Don't have an account? " : 'Already have an account? '}
           <button onClick={() => switchTab(tab === 'signin' ? 'signup' : 'signin')}
             className="text-[#C9A84C] font-semibold hover:underline">

@@ -216,7 +216,7 @@ export function Navbar() {
             <Link href="/" className="flex items-center group" onClick={() => setIsMobileOpen(false)}>
               {/* eslint-disable-next-line @next/next/no-img-element */}
               <img src={logoUrl} alt="Walz Travels"
-                className="h-10 lg:h-12 w-auto min-w-[100px] max-w-[160px] object-contain group-hover:opacity-90 transition-opacity brightness-0 invert" />
+                className={`h-10 lg:h-12 w-auto min-w-[100px] max-w-[160px] object-contain group-hover:opacity-90 transition-opacity ${navDark ? 'brightness-0 invert' : ''}`} />
             </Link>
 
             {/* Desktop Nav */}
