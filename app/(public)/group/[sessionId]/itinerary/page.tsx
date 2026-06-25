@@ -31,12 +31,13 @@ interface ItineraryDay {
   title:         string
   activities:    Activity[]
   accommodation: string | Accommodation
-  meals: {
+  meals?: {
     breakfast: string
     lunch:     string
     dinner:    string
   }
-  estimatedCost: string
+  estimatedCost?: string
+  dayBudget?:     string
 }
 
 interface FlightAdvice {
@@ -54,21 +55,22 @@ interface CostBreakdown {
 }
 
 interface Itinerary {
-  destination:        string
-  duration:           string
-  groupSize:          number
-  tagline?:           string
-  theme:              string
-  highlights:         string[]
-  days:               ItineraryDay[]
-  costBreakdown?:     CostBreakdown
-  totalEstimatedCost: string
-  flightAdvice?:      FlightAdvice[]
-  flightTip?:         string
-  packingTips?:       string[]
-  jadeFinalWord?:     string
-  jadeTip?:           string
-  bookWithWalz:       string
+  destination:         string
+  duration:            string
+  groupSize?:          number
+  tagline?:            string
+  theme?:              string
+  highlights:          string[]
+  days:                ItineraryDay[]
+  costBreakdown?:      CostBreakdown
+  totalCost?:          CostBreakdown
+  totalEstimatedCost?: string
+  flightAdvice?:       FlightAdvice[]
+  flightTip?:          string
+  packingTips?:        string[]
+  jadeFinalWord?:      string
+  jadeTip?:            string
+  bookWithWalz?:       string
 }
 
 interface VoteResult {
@@ -122,9 +124,10 @@ export default function ItineraryPage() {
   const [visaMatrix,   setVisaMatrix]   = useState<VisaMemberResult[]>([])
   const [sessionName,  setSessionName]  = useState('')
   const [destination,  setDestination]  = useState<string | null>(null)
-  const [generating,   setGenerating]   = useState(false)
-  const [loading,      setLoading]      = useState(true)
-  const [error,        setError]        = useState<string | null>(null)
+  const [generating,     setGenerating]     = useState(false)
+  const [loadingMessage, setLoadingMessage] = useState('Jade is thinking...')
+  const [loading,        setLoading]        = useState(true)
+  const [error,          setError]          = useState<string | null>(null)
   const [copied,       setCopied]       = useState(false)
   const [expandedDay,  setExpandedDay]  = useState<number | null>(1)
 
@@ -147,51 +150,76 @@ export default function ItineraryPage() {
   }, [sessionId])
 
   async function generateItinerary(silent = false) {
-    if (!silent) setGenerating(true)
+    if (!silent) {
+      setGenerating(true)
+      setLoadingMessage('Jade is thinking...')
+    }
     setError(null)
 
-    const controller = new AbortController()
-    // Abort client-side after 65 s so we always get an actionable error
-    const timer = setTimeout(() => controller.abort(), 65_000)
+    const msgs = [
+      'Jade is thinking...',
+      `Researching ${destination ?? 'your destination'}...`,
+      'Planning your days...',
+      'Adding insider tips...',
+      'Checking visa requirements...',
+      'Almost ready...',
+    ]
+    let msgIdx = 0
+    const msgTimer = !silent
+      ? setInterval(() => { msgIdx = (msgIdx + 1) % msgs.length; setLoadingMessage(msgs[msgIdx]) }, 3000)
+      : null
+
+    let completed = false
 
     try {
       let res: Response
       try {
-        res = await fetch(`/api/public/group/${sessionId}/lock`, {
-          method: 'POST',
-          signal: controller.signal,
-        })
-      } catch (fetchErr) {
-        const isAbort = fetchErr instanceof Error && fetchErr.name === 'AbortError'
-        setError(
-          isAbort
-            ? "Jade is still working on this — it's taking a while. Please try again."
-            : 'Network error — check your connection and try again.',
-        )
-        return
-      }
-
-      // Parse response JSON safely (res.json() throws on non-JSON bodies in Safari)
-      let data: Record<string, unknown>
-      try {
-        data = await res.json() as Record<string, unknown>
+        res = await fetch(`/api/public/group/${sessionId}/lock`, { method: 'POST' })
       } catch {
-        setError(res.ok ? 'Unexpected response from server — please try again.' : `Server error ${res.status} — please try again.`)
+        setError('Network error — check your connection and try again.')
         return
       }
 
       if (!res.ok) {
-        setError((data.error as string | undefined) ?? 'Failed to generate itinerary — please try again.')
+        let errMsg = `Server error ${res.status} — please try again.`
+        try { const d = await res.json(); errMsg = (d.error as string) ?? errMsg } catch {}
+        setError(errMsg)
         return
       }
 
-      setItinerary(data.itinerary as Itinerary)
-      if (data.destination) setDestination(data.destination as string)
-      if (data.voteResults) setVoteResults(data.voteResults as VoteResult[])
-      if (data.visaMatrix)  setVisaMatrix(data.visaMatrix  as VisaMemberResult[])
-      setExpandedDay(1)
+      const reader = res.body?.getReader()
+      if (!reader) { setError('No response from server — please try again.'); return }
+
+      const decoder = new TextDecoder()
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+        const lines = decoder.decode(value, { stream: true }).split('\n').filter(Boolean)
+        for (const line of lines) {
+          try {
+            const data = JSON.parse(line) as Record<string, unknown>
+            if (data.type === 'complete') {
+              completed = true
+              if (msgTimer) clearInterval(msgTimer)
+              setItinerary(data.itinerary as Itinerary)
+              if (data.destination) setDestination(data.destination as string)
+              if (data.voteResults)  setVoteResults(data.voteResults as VoteResult[])
+              if (data.visaMatrix)   setVisaMatrix(data.visaMatrix as VisaMemberResult[])
+              setExpandedDay(1)
+            } else if (data.type === 'error') {
+              completed = true
+              if (msgTimer) clearInterval(msgTimer)
+              setError((data.error as string | undefined) ?? 'Failed to generate — please try again.')
+            }
+          } catch { /* incomplete chunk — ignore */ }
+        }
+      }
+
+      if (!completed) {
+        setError("Jade is still working on this — it's taking longer than expected. Please try again.")
+      }
     } finally {
-      clearTimeout(timer)
+      if (msgTimer) clearInterval(msgTimer)
       setGenerating(false)
     }
   }
@@ -240,10 +268,12 @@ export default function ItineraryPage() {
           )}
 
           {itinerary && (
-            <div className="mt-3 flex items-center gap-4 text-white/50 text-sm">
+            <div className="mt-3 flex items-center gap-4 text-white/50 text-sm flex-wrap">
               <span>📅 {itinerary.duration}</span>
-              <span>👥 {itinerary.groupSize} travellers</span>
-              <span>💷 {itinerary.totalEstimatedCost}</span>
+              {itinerary.groupSize && <span>👥 {itinerary.groupSize} travellers</span>}
+              {(itinerary.totalEstimatedCost ?? itinerary.totalCost?.comfortable) && (
+                <span>💷 {itinerary.totalEstimatedCost ?? itinerary.totalCost?.comfortable}</span>
+              )}
             </div>
           )}
 
@@ -264,12 +294,18 @@ export default function ItineraryPage() {
         {/* ── Generating / Generate button ──────────────────────────────── */}
 
         {generating && (
-          <div className="text-center py-12">
-            <div className="w-10 h-10 rounded-full border-3 border-[#C9A84C]/30 border-t-[#C9A84C] animate-spin mx-auto mb-4" />
-            <p className="text-white font-semibold mb-1">Jade is crafting your itinerary…</p>
-            <p className="text-white/40 text-sm">
-              {destination ? `Building your ${destination} experience` : 'Picking the best destination and planning your trip'}
-            </p>
+          <div className="flex flex-col items-center justify-center py-24 text-center">
+            <div className="w-16 h-16 rounded-full bg-[#C9A84C]/20 border-2 border-[#C9A84C]/40 flex items-center justify-center mb-6 animate-pulse">
+              <span className="text-2xl">✈</span>
+            </div>
+            <p className="text-white font-semibold text-lg mb-2">{loadingMessage}</p>
+            <p className="text-white/40 text-sm">This takes about 15–20 seconds</p>
+            <div className="flex gap-1.5 mt-6">
+              {[0, 1, 2].map(i => (
+                <div key={i} className="w-2 h-2 rounded-full bg-[#C9A84C] animate-bounce"
+                  style={{ animationDelay: `${i * 0.15}s` }} />
+              ))}
+            </div>
           </div>
         )}
 
@@ -436,7 +472,7 @@ export default function ItineraryPage() {
                         </div>
                         <div className="flex items-center gap-3">
                           <div className="text-right">
-                            <p className="text-white/40 text-xs">{day.estimatedCost}</p>
+                            <p className="text-white/40 text-xs">{day.estimatedCost ?? day.dayBudget}</p>
                             {accName && (
                               <p className="text-white/25 text-[10px] truncate max-w-[120px]">{accName}</p>
                             )}
@@ -518,7 +554,7 @@ export default function ItineraryPage() {
             </div>
 
             {/* ── SECTION 6 : Trip cost estimate ───────────────────────────── */}
-            {itinerary.costBreakdown && (
+            {(itinerary.costBreakdown ?? itinerary.totalCost) && (
               <div>
                 <h2 className="text-white/50 text-xs font-bold uppercase tracking-widest mb-4">Trip Cost Estimate</h2>
                 <div className="grid grid-cols-3 gap-3">
@@ -527,7 +563,8 @@ export default function ItineraryPage() {
                     { key: 'comfortable', label: 'Comfortable',  emoji: '✈',  color: 'border-[#C9A84C]/30 text-[#C9A84C]' },
                     { key: 'luxury',      label: 'Luxury',       emoji: '👑', color: 'border-purple-500/30 text-purple-300' },
                   ].map(({ key, label, emoji, color }) => {
-                    const val = itinerary.costBreakdown?.[key as keyof CostBreakdown]
+                    const costs = itinerary.costBreakdown ?? itinerary.totalCost
+                    const val   = costs?.[key as keyof CostBreakdown]
                     if (!val) return null
                     return (
                       <div key={key} className={`bg-white/5 rounded-2xl p-4 border ${color}`}>
@@ -566,7 +603,9 @@ export default function ItineraryPage() {
             <div className="bg-[#C9A84C] rounded-2xl overflow-hidden">
               <div className="p-6 text-center">
                 <p className="text-[#0B1F3A] text-xs font-black uppercase tracking-widest mb-1">Book with Walz Travels</p>
-                <p className="text-[#0B1F3A]/80 text-sm mb-5">{itinerary.bookWithWalz}</p>
+                <p className="text-[#0B1F3A]/80 text-sm mb-5">
+                  {itinerary.bookWithWalz ?? 'Book this entire trip through Walz Travels — we handle group flights, hotel blocks, visa processing, and transfers in one package. WhatsApp us to start planning.'}
+                </p>
 
                 <div className="grid grid-cols-3 gap-2 mb-5">
                   {[

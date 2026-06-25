@@ -5,7 +5,7 @@ import { buildVisaMatrix }           from '@/lib/visa-lookup'
 
 export const dynamic     = 'force-dynamic'
 export const runtime     = 'nodejs'
-export const maxDuration = 120
+export const maxDuration = 60
 
 // ── Vote tally ───────────────────────────────────────────────────────────────
 
@@ -35,10 +35,25 @@ function computeVoteTally(members: Array<{ preferencesJson: unknown }>): VoteRes
   }))
 }
 
-// ── Member context helpers ───────────────────────────────────────────────────
+// ── Helpers ───────────────────────────────────────────────────────────────────
 
 function getPrefsField(prefs: unknown, key: string): string {
   return (prefs as Record<string, unknown>)?.[key] as string ?? ''
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function extractJSON<T = unknown>(text: string): T {
+  const cleaned = text.replace(/```json\s*/gi, '').replace(/```\s*/gi, '').trim()
+  try { return JSON.parse(cleaned) as T } catch {}
+  const start = cleaned.indexOf('{')
+  const end   = cleaned.lastIndexOf('}')
+  if (start !== -1 && end > start) {
+    const slice = cleaned.substring(start, end + 1)
+    try { return JSON.parse(slice) as T } catch {}
+    // repair trailing commas
+    try { return JSON.parse(slice.replace(/,(\s*[}\]])/g, '$1')) as T } catch {}
+  }
+  throw new Error('Could not parse JSON from AI response')
 }
 
 // ── Main handler ─────────────────────────────────────────────────────────────
@@ -54,14 +69,11 @@ export async function POST(
 
   if (!session) return NextResponse.json({ error: 'Session not found' }, { status: 404 })
 
-  // Always compute these — they're fast and needed even for cached responses
-  const submitted  = session.members.filter(m => m.submittedAt && m.preferencesJson)
+  // Always compute — fast and needed for every response
+  const submitted   = session.members.filter(m => m.submittedAt && m.preferencesJson)
   const voteResults = computeVoteTally(submitted)
+  const destination = session.destination ?? voteResults[0]?.destination ?? 'London'
 
-  const winner     = session.destination ?? voteResults[0]?.destination ?? 'London'
-  const destination = winner
-
-  // Build visa matrix from preferencesJson (works before SQL migration too)
   const membersForVisa = submitted.map(m => ({
     name:                m.name,
     passportNationality: (m.passportNationality ?? getPrefsField(m.preferencesJson, 'passportNationality')) || null,
@@ -69,208 +81,155 @@ export async function POST(
   }))
   const visaMatrix = buildVisaMatrix(membersForVisa, destination)
 
-  // Idempotent — return cached itinerary if already generated
-  if (session.status === 'locked' && session.itineraryJson && session.destination) {
-    return NextResponse.json({
-      success:      true,
-      itinerary:    session.itineraryJson,
-      destination:  session.destination,
-      voteResults,
-      visaMatrix,
-      cached:       true,
-    })
-  }
+  const encoder = new TextEncoder()
 
-  if (!process.env.ANTHROPIC_API_KEY) {
-    return NextResponse.json({ error: 'AI service not configured' }, { status: 503 })
-  }
+  const readable = new ReadableStream({
+    async start(controller) {
+      const send = (data: unknown) => {
+        try { controller.enqueue(encoder.encode(JSON.stringify(data) + '\n')) } catch {}
+      }
 
-  const groupSize  = session.members.length
+      try {
+        // ── Cached — return immediately ──────────────────────────────────────
+        if (session.status === 'locked' && session.itineraryJson && session.destination) {
+          send({ type: 'complete', itinerary: session.itineraryJson, destination: session.destination, voteResults, visaMatrix, cached: true })
+          controller.close()
+          return
+        }
 
-  // Trip duration — average from member prefs
-  const durationMap: Record<string, number> = {
-    weekend: 3, short: 5, week: 7, '2weeks': 14,
-  }
-  const durations = submitted.map(m => {
-    const d = getPrefsField(m.preferencesJson, 'duration')
-    return durationMap[d] ?? (typeof (m.preferencesJson as Record<string,unknown>)?.durationDays === 'number'
-      ? (m.preferencesJson as Record<string,unknown>).durationDays as number : 5)
-  })
-  const tripDays = durations.length > 0
-    ? Math.round(durations.reduce((a, b) => a + b, 0) / durations.length) : 5
+        if (!process.env.ANTHROPIC_API_KEY) {
+          send({ type: 'error', error: 'AI service not configured — contact support.' })
+          controller.close()
+          return
+        }
 
-  // Unique flying-from cities
-  const flyingFromSet = new Set(
-    membersForVisa.map(m => m.flyingFrom).filter(Boolean) as string[],
-  )
-  const flyingFromList = flyingFromSet.size > 0
-    ? [...flyingFromSet].join(', ')
-    : 'various cities'
+        // ── Member context ────────────────────────────────────────────────────
+        const groupSize = session.members.length
 
-  // Vibe summary
-  const vibes = submitted
-    .map(m => getPrefsField(m.preferencesJson, 'vibe'))
-    .filter(Boolean)
-  const vibesSummary = vibes.length > 0
-    ? [...new Set(vibes)].join(', ')
-    : 'mixed preferences'
+        const flyingFromSet  = new Set(membersForVisa.map(m => m.flyingFrom).filter(Boolean) as string[])
+        const flyingFromList = flyingFromSet.size > 0 ? [...flyingFromSet].join(', ') : 'various cities'
 
-  // Budget summary
-  const budgets = submitted
-    .map(m => getPrefsField(m.preferencesJson, 'budget'))
-    .filter(Boolean)
-  const budgetMap: Record<string, string> = {
-    'under-500': 'Under £500', '500-1000': '£500–£1,000',
-    '1000-2000': '£1,000–£2,000', '2000-plus': '£2,000+',
-  }
-  const budgetsSummary = budgets.length > 0
-    ? [...new Set(budgets.map(b => budgetMap[b] ?? b))].join(', ')
-    : 'mixed budgets'
+        const vibes = submitted.map(m => getPrefsField(m.preferencesJson, 'vibe')).filter(Boolean)
+        const vibesSummary = vibes.length > 0 ? [...new Set(vibes)].join(', ') : 'mixed'
 
-  // Vote results text for Claude
-  const voteText = voteResults.slice(0, 5)
-    .map((v, i) => `${i === 0 ? '🏆' : `${i + 1}.`} ${v.destination} — ${v.points}pts (${v.percentage}%)`)
-    .join('\n')
+        const budgets = submitted.map(m => getPrefsField(m.preferencesJson, 'budget')).filter(Boolean)
+        const budgetMap: Record<string, string> = {
+          'under-500': 'Under £500', '500-1000': '£500–£1,000',
+          '1000-2000': '£1,000–£2,000', '2000-plus': '£2,000+',
+        }
+        const budgetsSummary = budgets.length > 0
+          ? [...new Set(budgets.map(b => budgetMap[b] ?? b))].join(', ')
+          : 'mixed budgets'
 
-  // Member passport summary for flight sections
-  const memberFlyingFrom = membersForVisa
-    .map(m => `${m.name}: flying from ${m.flyingFrom || 'unknown'}`)
-    .join(', ')
+        const voteText = voteResults.slice(0, 5)
+          .map((v, i) => `${i === 0 ? '🏆' : `${i + 1}.`} ${v.destination} — ${v.points}pts (${v.percentage}%)`)
+          .join('\n')
 
-  const prompt = `You are Jade, Walz Travels' expert AI travel planner. Build a premium ${tripDays}-day group trip to ${destination}.
+        // ── Prompt (concise — 3 days, max_tokens 2000 for fast response) ─────
+        const prompt = `You are Jade, Walz Travels' AI travel planner. Create a 3-day group trip to ${destination} for ${groupSize} people.
 
-GROUP PROFILE:
-- ${groupSize} travellers
-- Flying from: ${flyingFromList}
-- Trip vibes: ${vibesSummary}
-- Budgets: ${budgetsSummary}
-- Member flight origins: ${memberFlyingFrom}
+Flying from: ${flyingFromList}
+Group vibes: ${vibesSummary}
+Budgets: ${budgetsSummary}
+Destination vote: ${voteText}
 
-DESTINATION VOTE RESULTS (weighted 1st=3pts, 2nd=2pts, 3rd=1pt):
-${voteText}
-
-INSTRUCTIONS:
-- Be specific — name real hotels, restaurants, and attractions
-- Suggest hotels in the best neighbourhoods for groups
-- Give practical Jade insider tips
-- Flight advice must account for their specific origins (${flyingFromList})
-- Include activities across all vibes the group mentioned
-- Keep costs realistic in local currency + GBP equivalent
-
-Return ONLY valid JSON (no markdown, no prose):
-
+Return ONLY valid JSON starting with { — no markdown, no prose:
 {
   "destination": "${destination}",
-  "duration": "${tripDays} days",
+  "duration": "3 days",
   "groupSize": ${groupSize},
-  "tagline": "<5-8 word tagline for this specific group trip>",
-  "theme": "<one-line theme explaining why ${destination} is perfect for this group>",
+  "tagline": "<5-8 word tagline for this specific group>",
   "highlights": ["<top highlight 1>", "<top highlight 2>", "<top highlight 3>"],
   "days": [
     {
       "day": 1,
       "title": "<evocative day title>",
       "activities": [
-        {
-          "time": "09:00",
-          "title": "<Activity name>",
-          "description": "<What it is and why this group will love it — 2 sentences>",
-          "duration": "2 hours",
-          "type": "sightseeing",
-          "cost": "<realistic cost per person>",
-          "bookingTip": "<how to book or get tickets>",
-          "jadeTip": "<insider tip only Jade knows>",
-          "location": "<neighbourhood or exact area>"
-        }
+        {"time":"10:00","title":"<name>","description":"<what it is and why this group will love it — 2 sentences>","type":"culture","cost":"<£Xpp>","jadeTip":"<insider tip>"},
+        {"time":"14:00","title":"<name>","description":"<2 sentences>","type":"food","cost":"<£Xpp>","jadeTip":"<insider tip>"},
+        {"time":"19:00","title":"<name>","description":"<2 sentences>","type":"dining","cost":"<£Xpp>","jadeTip":"<insider tip>"}
       ],
-      "accommodation": {
-        "name": "<Real hotel name>",
-        "stars": 4,
-        "area": "<neighbourhood>",
-        "pricePerNight": "<£X–£Y per room>"
-      },
-      "meals": {
-        "breakfast": "<specific recommendation with restaurant name>",
-        "lunch": "<specific recommendation with restaurant name>",
-        "dinner": "<specific recommendation with restaurant name>"
-      },
-      "estimatedCost": "<£X–£Y per person for this day excluding accommodation>"
-    }
-  ],
-  "costBreakdown": {
-    "budget": "<total inc. flights from ${flyingFromList} for budget travellers>",
-    "comfortable": "<total inc. flights for comfortable experience>",
-    "luxury": "<total inc. flights for luxury experience>"
-  },
-  "totalEstimatedCost": "<comfortable tier total — e.g. '£1,400 per person'>",
-  "flightAdvice": [
+      "accommodation": "<Real hotel name in ${destination}>",
+      "dayBudget": "<£X–£Ypp excluding accommodation>"
+    },
     {
-      "from": "<city>",
-      "to": "${destination}",
-      "airlines": "<2-3 recommended airlines>",
-      "estimatedPrice": "<return price range>",
-      "tip": "<booking advice specific to this route>"
+      "day": 2,
+      "title": "<day 2 title>",
+      "activities": [
+        {"time":"10:00","title":"<name>","description":"<2 sentences>","type":"adventure","cost":"<£Xpp>","jadeTip":"<tip>"},
+        {"time":"14:00","title":"<name>","description":"<2 sentences>","type":"leisure","cost":"<£Xpp>","jadeTip":"<tip>"},
+        {"time":"19:00","title":"<name>","description":"<2 sentences>","type":"dining","cost":"<£Xpp>","jadeTip":"<tip>"}
+      ],
+      "accommodation": "<hotel name>",
+      "dayBudget": "<£X–£Ypp>"
+    },
+    {
+      "day": 3,
+      "title": "<day 3 title>",
+      "activities": [
+        {"time":"10:00","title":"<name>","description":"<2 sentences>","type":"shopping","cost":"<£Xpp>","jadeTip":"<tip>"},
+        {"time":"14:00","title":"<name>","description":"<2 sentences>","type":"culture","cost":"<£Xpp>","jadeTip":"<tip>"},
+        {"time":"18:00","title":"<name>","description":"<2 sentences>","type":"leisure","cost":"<£Xpp>","jadeTip":"<tip>"}
+      ],
+      "accommodation": "<hotel name>",
+      "dayBudget": "<£X–£Ypp>"
     }
   ],
-  "packingTips": ["<tip 1>", "<tip 2>", "<tip 3>"],
-  "jadeFinalWord": "<Jade's personal message to the group — warm, specific, 2-3 sentences>",
-  "bookWithWalz": "Book this entire trip through Walz Travels — we handle group flights from ${flyingFromList}, hotel blocks, visa processing, and transfers in one package. WhatsApp us to start planning."
-}
+  "totalCost": {
+    "budget": "<total per person inc. flights from ${flyingFromList} — budget travellers>",
+    "comfortable": "<total — comfortable experience>",
+    "luxury": "<total — luxury experience>"
+  },
+  "jadeFinalWord": "<Jade's warm personal message to the group — 2 sentences>"
+}`
 
-Include exactly ${tripDays} days. Each day must have 3–4 activities with specific times from morning to evening.`
+        // ── Stream from Claude ────────────────────────────────────────────────
+        const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
 
-  const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
+        let fullText = ''
+        const stream = anthropic.messages.stream({
+          model:      'claude-sonnet-4-6',
+          max_tokens: 2000,
+          messages:   [{ role: 'user', content: prompt }],
+        })
 
-  // Timeout promise — ensures we return a clean JSON error before Vercel drops the connection
-  const claudeTimeout = new Promise<never>((_, reject) =>
-    setTimeout(() => reject(new Error('Jade timed out — please try generating again')), 55_000)
-  )
+        stream.on('text', (text) => {
+          fullText += text
+          send({ type: 'chunk', text })
+        })
 
-  try {
-    const message = await Promise.race([
-      anthropic.messages.create({
-        model:      'claude-sonnet-4-6',
-        max_tokens: 5000,
-        messages:   [{ role: 'user', content: prompt }],
-      }),
-      claudeTimeout,
-    ])
+        await stream.finalMessage()
 
-    const raw   = message.content[0]?.type === 'text' ? message.content[0].text : ''
-    const clean = raw.replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/\s*```$/i, '').trim()
+        console.log('[group/lock] Raw Claude (first 500):', fullText.substring(0, 500))
 
-    let itinerary: Record<string, unknown>
-    try {
-      const jsonMatch = clean.match(/\{[\s\S]*\}/)
-      itinerary = JSON.parse(jsonMatch?.[0] ?? clean) as Record<string, unknown>
-    } catch {
-      return NextResponse.json({ error: 'Claude returned invalid JSON — please try again' }, { status: 502 })
-    }
+        const itinerary = extractJSON<Record<string, unknown>>(fullText)
+        const finalDest = (itinerary.destination as string | undefined) ?? destination
 
-    const finalDestination = (itinerary.destination as string | undefined) ?? destination
+        await prisma.groupSession.update({
+          where: { id: session.id },
+          data:  {
+            status:        'locked',
+            destination:   finalDest,
+            itineraryJson: itinerary as object,
+          },
+        })
 
-    await prisma.groupSession.update({
-      where: { id: session.id },
-      data:  {
-        status:        'locked',
-        destination:   finalDestination,
-        itineraryJson: itinerary as object,
-      },
-    })
+        send({ type: 'complete', itinerary, destination: finalDest, voteResults, visaMatrix })
+        controller.close()
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err)
+        console.error('[group/lock] Error:', msg.slice(0, 300))
+        send({ type: 'error', error: `Failed to generate itinerary: ${msg.slice(0, 150)}` })
+        try { controller.close() } catch {}
+      }
+    },
+  })
 
-    return NextResponse.json({
-      success:     true,
-      itinerary,
-      destination: finalDestination,
-      voteResults,
-      visaMatrix,
-    })
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err)
-    console.error('[group/lock] Claude error:', msg.slice(0, 300))
-    return NextResponse.json(
-      { error: `Failed to generate itinerary: ${msg.slice(0, 200)}` },
-      { status: 500 },
-    )
-  }
+  return new Response(readable, {
+    headers: {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      'Connection':   'keep-alive',
+    },
+  })
 }
