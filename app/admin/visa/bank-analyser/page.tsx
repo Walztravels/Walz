@@ -337,10 +337,11 @@ export default function BankAnalyserPage() {
   const [aiUsed,  setAiUsed]  = useState<string | null>(null)
 
   // ── Analysis state ──────────────────────────────────────────────────────────
-  const [loading,   setLoading]   = useState(false)
-  const [progress,  setProgress]  = useState('')
-  const [error,     setError]     = useState('')
-  const [analysis,  setAnalysis]  = useState<VFAnalysis | null>(null)
+  const [loading,       setLoading]       = useState(false)
+  const [progress,      setProgress]      = useState('')
+  const [error,         setError]         = useState('')
+  const [suggestClaude, setSuggestClaude] = useState(false)
+  const [analysis,      setAnalysis]      = useState<VFAnalysis | null>(null)
 
   // ── Results UI ──────────────────────────────────────────────────────────────
   const [activeTab,    setActiveTab]    = useState<Tab>('overview')
@@ -420,6 +421,7 @@ export default function BankAnalyserPage() {
 
     setLoading(true)
     setError('')
+    setSuggestClaude(false)
     setAnalysis(null)
     setLetter(null)
     setProgress(STEPS[0])
@@ -445,6 +447,12 @@ export default function BankAnalyserPage() {
 
       if (!res.ok) {
         const err = await res.json().catch(() => ({ error: `HTTP ${res.status}` }))
+        if (err.suggestClaude) {
+          clearInterval(timer)
+          setSuggestClaude(true)
+          setProgress('')
+          return
+        }
         throw new Error(err.error ?? `Analysis failed (${res.status})`)
       }
 
@@ -622,6 +630,22 @@ export default function BankAnalyserPage() {
         {error && (
           <div className="bg-red-50 border border-red-200 rounded-xl px-4 py-3 text-sm text-red-700 font-medium">
             {error}
+          </div>
+        )}
+
+        {suggestClaude && (
+          <div className="bg-blue-500/10 border border-blue-500/30 rounded-2xl p-6 text-center">
+            <p className="text-3xl mb-3">🔄</p>
+            <h3 className="text-[#0B1F3A] font-bold text-lg mb-2">Switch to Claude for this PDF</h3>
+            <p className="text-[#0B1F3A]/60 text-sm mb-5 max-w-sm mx-auto">
+              This PDF appears to be scanned or image-based — GPT-4o requires extractable text.
+              Claude reads all PDF types natively, including scans, with built-in OCR.
+            </p>
+            <button
+              onClick={() => { setAiModel('claude'); setSuggestClaude(false); handleAnalyse() }}
+              className="bg-[#0B1F3A] text-white font-bold px-8 py-3 rounded-xl hover:bg-[#132038] transition">
+              Switch to Claude &amp; Re-analyse →
+            </button>
           </div>
         )}
 

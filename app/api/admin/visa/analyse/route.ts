@@ -106,33 +106,6 @@ function extractJSON<T = unknown>(text: string): T {
   throw new Error(`No JSON object found in AI response. Raw (first 300): ${text.substring(0, 300)}`)
 }
 
-// ─── PDF → images for GPT-4o vision ──────────────────────────────────────────
-// Converts up to 4 PDF pages to PNG images (150 dpi) for GPT-4o vision input.
-// Uses /tmp which is writable on Vercel serverless.
-
-async function pdfToImages(buffer: Buffer): Promise<string[]> {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const { fromBuffer } = require('pdf2pic') as typeof import('pdf2pic')
-  const convert = fromBuffer(buffer, {
-    density:      150,
-    format:       'png',
-    width:        1200,
-    height:       1600,
-    saveFilename: `vf-${Date.now()}`,
-    savePath:     '/tmp',
-  })
-  const base64Pages: string[] = []
-  for (let page = 1; page <= 4; page++) {
-    try {
-      const result = await convert(page, { responseType: 'base64' })
-      if (result?.base64) base64Pages.push(result.base64)
-    } catch {
-      break // fewer pages than requested
-    }
-  }
-  return base64Pages
-}
-
 // ─── POST handler ─────────────────────────────────────────────────────────────
 
 export async function POST(req: NextRequest) {
@@ -270,38 +243,40 @@ export async function POST(req: NextRequest) {
           console.log('[VF] Raw GPT-4o response (first 500):', iText.substring(0, 500))
           analysis = extractJSON<unknown>(iText)
         } else {
-          // PDF input — convert pages to PNG images, then use vision
-          // NOTE: response_format json_object is NOT used with vision (image) inputs
-          console.log('[VF] Converting PDF to images for GPT-4o vision…')
-          let pdfImages: string[] = []
+          // PDF input — extract text first, then send as plain text to GPT-4o.
+          // GPT-4o cannot process PDFs natively; pdf2pic (ghostscript) is unavailable on Vercel.
+          console.log('[VF] Extracting PDF text for GPT-4o…')
+          let statementText = ''
           try {
-            pdfImages = await pdfToImages(buffer)
-          } catch (convertErr) {
-            console.error('[VF] pdf2pic failed:', convertErr instanceof Error ? convertErr.message : convertErr)
+            // eslint-disable-next-line @typescript-eslint/no-require-imports
+            const pdfParse = require('pdf-parse/lib/pdf-parse.js') as (
+              b: Buffer, o?: unknown
+            ) => Promise<{ text: string }>
+            const parsed   = await pdfParse(buffer, { max: 0 })
+            statementText  = parsed.text?.trim() ?? ''
+          } catch (e) {
+            console.error('[VF GPT] pdf-parse error:', e instanceof Error ? e.message : String(e))
           }
 
-          if (pdfImages.length === 0) {
+          if (!statementText || statementText.replace(/\s/g, '').length < 100) {
             return NextResponse.json({
-              success: false,
-              error:   'Could not convert this PDF to images for GPT-4o analysis. Try using Claude (which reads PDFs natively without any conversion).',
+              success:       false,
+              suggestClaude: true,
+              error: `GPT-4o cannot read this PDF — it appears to be scanned or image-based (no extractable text found). ` +
+                     `Switch to Claude, which reads all PDF types natively including scanned documents.`,
             }, { status: 422 })
           }
-          console.log(`[VF] Converted ${pdfImages.length} PDF page(s) to PNG`)
 
-          const imgParts: ImgPart[] = pdfImages.map(b64 => ({
-            type:      'image_url',
-            image_url: { url: `data:image/png;base64,${b64}`, detail: 'high' },
-          }))
-
+          console.log(`[VF] Extracted ${statementText.length} chars from PDF`)
           const oRes = await openai.chat.completions.create({
             model: 'gpt-4o', max_tokens: 6000, temperature: 0,
-            // No response_format here — incompatible with vision (image) input
+            response_format: { type: 'json_object' },
             messages: [
-              { role: 'system', content: systemPrompt.replace(JSON_ONLY, '') + '\n\nReturn only valid JSON. No markdown.' },
-              { role: 'user', content: [
-                ...imgParts,
-                { type: 'text', text: `Analyse the bank statement pages shown in the images above.\n\n${userPrompt(`${pdfImages.length} PDF page(s) converted to images for analysis.`)}` } as TxtPart,
-              ]},
+              { role: 'system', content: systemPrompt.replace(JSON_ONLY, '') + '\n\nReturn only valid JSON.' },
+              { role: 'user',   content:
+                  userPrompt(`Extracted from PDF — ${statementText.length} characters of text.`) +
+                  `\n\nBANK STATEMENT TEXT:\n${statementText.substring(0, 12000)}`,
+              },
             ],
           })
           const pText = oRes.choices[0]?.message?.content ?? '{}'
