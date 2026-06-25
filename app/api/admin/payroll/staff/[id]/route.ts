@@ -7,6 +7,7 @@ export async function PATCH(
   req: NextRequest,
   { params }: { params: { id: string } }
 ) {
+  try {
   const session = await getServerSession(authOptions)
   if (!session?.user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
@@ -65,4 +66,8 @@ export async function PATCH(
   })
 
   return NextResponse.json({ success: true, staff: updated })
+  } catch (err: any) {
+    console.error('[payroll/staff PATCH]', err.message)
+    return NextResponse.json({ error: err.message ?? 'Internal server error' }, { status: 500 })
+  }
 }

@@ -84,15 +84,27 @@ function AddStaffModal({ onClose, onSaved }: { onClose: () => void; onSaved: () 
   }
 
   async function submit(e: React.FormEvent) {
-    e.preventDefault(); setSaving(true); setError('')
+    e.preventDefault()
+    if (saving) return
+    setSaving(true); setError('')
     try {
       const res = await fetch('/api/admin/payroll/staff', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ...form, baseSalary: Number(form.baseSalary), payDay: Number(form.payDay) }),
       })
-      if (!res.ok) { const d = await res.json(); throw new Error(d.error) }
-      onSaved(); onClose()
-    } catch (e: any) { setError(e.message) } finally { setSaving(false) }
+      const text = await res.text()
+      if (!res.ok) {
+        const msg = text ? (JSON.parse(text).error ?? `Error ${res.status}`) : `Error ${res.status}`
+        throw new Error(msg)
+      }
+      // Close modal first so the unmount is clean, then reload the list
+      setSaving(false)
+      onClose()
+      setTimeout(() => onSaved(), 150)
+    } catch (e: any) {
+      setError(e.message ?? 'Failed to add staff')
+      setSaving(false)
+    }
   }
 
   const f = (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => setForm(p => ({ ...p, [k]: e.target.value }))
@@ -352,18 +364,16 @@ export default function PayrollPage() {
   const loadStaff = useCallback(async () => {
     setLoading(true)
     try {
-      const res = await fetch('/api/admin/payroll/staff')
-      if (!res.ok) {
-        const text = await res.text().catch(() => '')
-        console.error('[payroll] staff API error', res.status, text)
-        showToast(`Failed to load staff (${res.status})`)
-        return
+      const res  = await fetch('/api/admin/payroll/staff')
+      const text = await res.text().catch(() => '')
+      if (!res.ok || !text) {
+        console.error('[payroll] staff API error', res.status, text?.slice(0, 200))
+        return // don't clear existing list on error
       }
-      const d = await res.json()
+      const d = JSON.parse(text)
       setStaff(d.staff ?? [])
     } catch (err: any) {
       console.error('[payroll] loadStaff error', err)
-      showToast('Failed to load payroll staff')
     } finally { setLoading(false) }
   }, [])
 

@@ -26,21 +26,26 @@ export async function GET() {
 }
 
 export async function POST(req: Request) {
-  const session = await getServerSession(authOptions)
-  if (!session?.user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  try {
+    const session = await getServerSession(authOptions)
+    if (!session?.user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const body = await req.json()
-  const { name, email, role, location, department, currency, baseSalary, payDay, bankName, accountNumber } = body
+    const body = await req.json()
+    const { name, email, role, location, department, currency, baseSalary, payDay, bankName, accountNumber } = body
 
-  if (!name || !email || !role || !location || !baseSalary) {
-    return NextResponse.json({ error: 'Missing required fields' }, { status: 400 })
+    if (!name || !email || !baseSalary) {
+      return NextResponse.json({ error: 'Name, email and base salary are required' }, { status: 400 })
+    }
+
+    const member = await prisma.staffMember.upsert({
+      where: { email },
+      update: { name, role: role || 'Staff', location: location || '', department: department || 'Operations', currency: currency || 'NGN', baseSalary: Number(baseSalary), payDay: Number(payDay ?? 28), bankName: bankName || null, accountNumber: accountNumber || null },
+      create: { name, email, role: role || 'Staff', location: location || '', department: department ?? 'Operations', currency: currency ?? 'NGN', baseSalary: Number(baseSalary), payDay: Number(payDay ?? 28), bankName: bankName || null, accountNumber: accountNumber || null },
+    })
+
+    return NextResponse.json({ member })
+  } catch (err: any) {
+    console.error('[payroll/staff POST]', err.message, err.stack)
+    return NextResponse.json({ error: err.message ?? 'Internal server error' }, { status: 500 })
   }
-
-  const member = await prisma.staffMember.upsert({
-    where: { email },
-    update: { name, role, location, department, currency, baseSalary, payDay, bankName, accountNumber },
-    create: { name, email, role, location, department: department ?? 'Operations', currency: currency ?? 'NGN', baseSalary, payDay: payDay ?? 28, bankName, accountNumber },
-  })
-
-  return NextResponse.json({ member })
 }
