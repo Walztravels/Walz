@@ -2,7 +2,6 @@
 
 import { useState, useEffect } from 'react'
 import { useParams }           from 'next/navigation'
-import { getServerSession }    from 'next-auth'
 
 interface DaySlot {
   title:       string
@@ -32,8 +31,10 @@ interface Itinerary {
 export default function ItineraryPage() {
   const { sessionId } = useParams<{ sessionId: string }>()
 
-  const [itinerary,   setItinerary]   = useState<Itinerary | null>(null)
-  const [sessionName, setSessionName] = useState('')
+  const [itinerary,    setItinerary]    = useState<Itinerary | null>(null)
+  const [sessionName,  setSessionName]  = useState('')
+  const [sessionStatus,      setSessionStatus]      = useState<string>('collecting')
+  const [sessionDestination, setSessionDestination] = useState<string | null>(null)
   const [generating,  setGenerating]  = useState(false)
   const [loading,     setLoading]     = useState(true)
   const [error,       setError]       = useState<string | null>(null)
@@ -45,6 +46,8 @@ export default function ItineraryPage() {
       .then(d => {
         if (d.error) { setError(d.error); setLoading(false); return }
         setSessionName(d.sessionName ?? '')
+        setSessionStatus(d.status ?? 'collecting')
+        setSessionDestination(d.destination ?? null)
         if (d.itineraryJson) {
           setItinerary(d.itineraryJson as Itinerary)
         }
@@ -56,6 +59,20 @@ export default function ItineraryPage() {
   async function generateItinerary() {
     setGenerating(true)
     setError(null)
+
+    // Lock the session first if it isn't already
+    if (sessionStatus !== 'locked') {
+      const lockRes  = await fetch(`/api/public/group/${sessionId}/lock`, { method: 'POST' })
+      const lockData = await lockRes.json()
+      if (!lockRes.ok) {
+        setError(lockData.error ?? 'Could not determine winning destination — try again')
+        setGenerating(false)
+        return
+      }
+      setSessionStatus('locked')
+      setSessionDestination(lockData.destination ?? null)
+    }
+
     const res  = await fetch(`/api/public/group/${sessionId}/itinerary`, { method: 'POST' })
     const data = await res.json()
     if (!res.ok) { setError(data.error ?? 'Generation failed'); setGenerating(false); return }
@@ -84,7 +101,9 @@ export default function ItineraryPage() {
             <div className="inline-flex items-center gap-2 bg-[#C9A84C]/10 border border-[#C9A84C]/20 rounded-xl px-3 py-1 mb-3">
               <span className="text-[#C9A84C] text-xs font-bold">✈ GROUP ITINERARY</span>
             </div>
-            <h1 className="text-white text-2xl font-bold">{itinerary?.destination ?? sessionName}</h1>
+            <h1 className="text-white text-2xl font-bold">
+              {itinerary?.destination ?? sessionDestination ?? sessionName}
+            </h1>
             {itinerary && (
               <p className="text-white/40 text-sm mt-1">
                 {itinerary.totalDays} days · {itinerary.totalEstimatedBudget}
@@ -102,13 +121,25 @@ export default function ItineraryPage() {
         {!itinerary && !generating && (
           <div className="text-center py-12">
             <p className="text-4xl mb-4">🗺️</p>
-            <h2 className="text-[#0B1F3A] font-bold text-xl mb-2">Ready to generate your itinerary</h2>
-            <p className="text-[#0B1F3A]/50 text-sm mb-6">
-              Jade AI will build a personalised day-by-day plan based on everyone's preferences.
-            </p>
+            {sessionStatus === 'locked' && sessionDestination ? (
+              <>
+                <h2 className="text-[#0B1F3A] font-bold text-xl mb-1">Winning destination</h2>
+                <p className="text-[#C9A84C] font-bold text-2xl mb-3">{sessionDestination}</p>
+                <p className="text-[#0B1F3A]/50 text-sm mb-6">
+                  Jade AI will build a personalised day-by-day plan for your group.
+                </p>
+              </>
+            ) : (
+              <>
+                <h2 className="text-[#0B1F3A] font-bold text-xl mb-2">Generate your group itinerary</h2>
+                <p className="text-[#0B1F3A]/50 text-sm mb-6">
+                  Jade AI will pick the best destination for your group and build a day-by-day plan based on everyone's preferences.
+                </p>
+              </>
+            )}
             <button onClick={generateItinerary}
               className="px-6 py-3 rounded-xl bg-[#0B1F3A] text-white font-semibold hover:bg-[#132038] transition">
-              Generate itinerary
+              {sessionStatus === 'locked' ? 'Generate itinerary' : 'Pick destination & generate itinerary'}
             </button>
           </div>
         )}
@@ -116,7 +147,11 @@ export default function ItineraryPage() {
         {generating && (
           <div className="text-center py-12">
             <div className="w-10 h-10 rounded-full border-3 border-[#C9A84C]/30 border-t-[#C9A84C] animate-spin mx-auto mb-4" />
-            <p className="text-[#0B1F3A]/60 text-sm">Jade AI is crafting your itinerary…</p>
+            <p className="text-[#0B1F3A]/60 text-sm">
+              {sessionDestination
+                ? `Jade AI is crafting your ${sessionDestination} itinerary…`
+                : 'Jade AI is picking your destination and crafting your itinerary…'}
+            </p>
           </div>
         )}
 
