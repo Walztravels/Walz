@@ -11,7 +11,12 @@ export const maxDuration = 300
 
 const JSON_ONLY = `
 
-CRITICAL: Respond with valid JSON only. No markdown fences, no prose, no explanation — just the JSON object. Start with { and end with }. If the document is unreadable return: {"error":"cannot read document","analysable":false}`
+CRITICAL: You must respond with ONLY a valid JSON object.
+- No explanation text before or after the JSON.
+- No markdown code blocks. No backticks. No triple backticks.
+- Do NOT write "Here is the analysis" or any prose.
+- Start your response with { and end with }. Nothing else.
+- If the document is unreadable return exactly: {"error":"cannot read document","analysable":false}`
 
 // ─── Retry on 529 overload ────────────────────────────────────────────────────
 
@@ -34,55 +39,62 @@ async function callWithRetry<T>(fn: () => Promise<T>, maxRetries = 3): Promise<T
 
 // ─── Robust JSON extractor ────────────────────────────────────────────────────
 
-function extractJSON<T>(text: string): T {
-  // T1: direct parse
-  try { return JSON.parse(text) as T } catch {}
-  // T2: strip markdown fences
-  const stripped = text.replace(/^```json\s*/i, '').replace(/^```\s*/i, '').replace(/```\s*$/i, '').trim()
-  try { return JSON.parse(stripped) as T } catch {}
-  // T3: extract first complete {...} block with bracket counting
-  const start = text.indexOf('{')
-  if (start !== -1) {
-    let depth = 0; let inStr = false; let esc = false
-    for (let i = start; i < text.length; i++) {
-      const ch = text[i]
-      if (esc)              { esc = false; continue }
-      if (ch === '\\' && inStr) { esc = true; continue }
-      if (ch === '"')           { inStr = !inStr; continue }
-      if (inStr)                continue
-      if (ch === '{')           depth++
-      else if (ch === '}')      { depth--; if (depth === 0) { try { return JSON.parse(text.slice(start, i + 1)) as T } catch {} ; break } }
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function extractJSON<T = unknown>(text: string): T {
+  // T1: strip ALL markdown code fences then try direct parse
+  const cleaned = text
+    .replace(/```json\s*/gi, '')
+    .replace(/```\s*/gi, '')
+    .trim()
+  try { return JSON.parse(cleaned) as T } catch {}
+
+  // T2: find outermost { ... } by first { and last }
+  const start = cleaned.indexOf('{')
+  const end   = cleaned.lastIndexOf('}')
+  if (start !== -1 && end !== -1 && end > start) {
+    const jsonStr = cleaned.substring(start, end + 1)
+    try { return JSON.parse(jsonStr) as T } catch (parseErr) {
+      // T3: repair common Claude quirks — trailing commas
+      const repaired = jsonStr.replace(/,(\s*[}\]])/g, '$1')
+      try { return JSON.parse(repaired) as T } catch {}
+      // T4: bracket-count walk to find a balanced sub-object
+      let depth = 0; let inStr = false; let esc = false
+      for (let i = start; i < cleaned.length; i++) {
+        const ch = cleaned[i]
+        if (esc)                  { esc = false; continue }
+        if (ch === '\\' && inStr) { esc = true;  continue }
+        if (ch === '"')           { inStr = !inStr; continue }
+        if (inStr)                continue
+        if (ch === '{') depth++
+        else if (ch === '}') {
+          depth--
+          if (depth === 0) {
+            try { return JSON.parse(cleaned.slice(start, i + 1)) as T } catch {}
+            break
+          }
+        }
+      }
+      const msg = parseErr instanceof Error ? parseErr.message : String(parseErr)
+      throw new Error(`JSON parse failed: ${msg} | Raw (first 300): ${text.substring(0, 300)}`)
     }
   }
-  throw new Error('Could not extract valid JSON from AI response')
+  throw new Error(`No JSON object found in AI response. Raw (first 300): ${text.substring(0, 300)}`)
 }
 
-// ─── PDF text for OpenAI text-mode fallback ───────────────────────────────────
-// pdf-parse@2 wraps pdfjs-dist — use pdfjs directly since pdf-parse v2 API is class-based (no simple fn call)
+// ─── PDF text extraction ─────────────────────────────────────────────────────
+// Use pdf-parse via the lib path — bypasses the Vercel test-file crash that
+// kills the standard `require('pdf-parse')` import on serverless.
 
 async function extractPdfText(buffer: Buffer): Promise<string> {
   try {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const pdfjsLib = await import('pdfjs-dist/legacy/build/pdf.mjs') as any
-    // Resolve the worker file bundled in node_modules alongside pdfjs-dist
     // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const workerPath = require.resolve('pdfjs-dist/legacy/build/pdf.worker.mjs')
-    pdfjsLib.GlobalWorkerOptions.workerSrc = `file://${workerPath}`
-
-    const doc = await pdfjsLib.getDocument({ data: new Uint8Array(buffer) }).promise
-    const texts: string[] = []
-    for (let i = 1; i <= doc.numPages; i++) {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const page: any = await doc.getPage(i)
-      const content   = await page.getTextContent()
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      texts.push(content.items.map((it: any) => it.str ?? '').join(' '))
-      page.cleanup()
-    }
-    await doc.destroy()
-    return texts.join('\n').trim()
+    const pdfLib = require('pdf-parse/lib/pdf-parse.js')
+    const data   = await pdfLib(buffer, { max: 0 }) // max: 0 = parse all pages
+    const text   = (data.text as string | undefined)?.trim() ?? ''
+    console.log(`[VF] pdf-parse extracted ${text.length} chars (${data.numpages ?? '?'} pages)`)
+    return text
   } catch (e) {
-    console.error('[VF] pdf text extraction failed:', e instanceof Error ? e.message : e)
+    console.error('[VF] pdf-parse failed:', e instanceof Error ? e.message : e)
     return ''
   }
 }
@@ -157,6 +169,7 @@ export async function POST(req: NextRequest) {
           messages: [{ role: 'user', content: [docBlock, { type: 'text', text: userPrompt(txnContext) }] }],
         }))
         const aText = a2.content[0]?.type === 'text' ? a2.content[0].text : ''
+        console.log('[VF] Raw Claude response (first 500 chars):', aText.substring(0, 500))
         analysis    = extractJSON<unknown>(aText)
         aiUsed      = 'Claude Sonnet 4.6'
         console.log('[VF] Claude succeeded')
@@ -194,13 +207,15 @@ export async function POST(req: NextRequest) {
               ]},
             ],
           })
-          analysis = extractJSON<unknown>(oRes.choices[0]?.message?.content ?? '{}')
+          const iText = oRes.choices[0]?.message?.content ?? '{}'
+          console.log('[VF] Raw GPT-4o response (first 500 chars):', iText.substring(0, 500))
+          analysis = extractJSON<unknown>(iText)
         } else {
           const pdfText = await extractPdfText(buffer)
-          if (!pdfText || pdfText.length < 100) {
+          if (!pdfText || pdfText.replace(/\s/g, '').length < 100) {
             return NextResponse.json({
               success: false,
-              error:   'GPT-4o requires extractable text. Could not read this PDF — please upload a digital (not scanned) bank statement.',
+              error:   'Could not extract text from this PDF. This usually means it is a scanned or image-based PDF. Ask the client to download a fresh digital statement directly from their online banking app or website (not a scan or photo).',
             }, { status: 422 })
           }
           const oRes = await openai.chat.completions.create({
@@ -211,7 +226,9 @@ export async function POST(req: NextRequest) {
               { role: 'user', content: userPrompt(`Bank statement text:\n${pdfText.slice(0, 14000)}`) },
             ],
           })
-          analysis = extractJSON<unknown>(oRes.choices[0]?.message?.content ?? '{}')
+          const pText = oRes.choices[0]?.message?.content ?? '{}'
+          console.log('[VF] Raw GPT-4o response (first 500 chars):', pText.substring(0, 500))
+          analysis = extractJSON<unknown>(pText)
         }
         aiUsed = 'GPT-4o'
         console.log('[VF] OpenAI succeeded')
