@@ -42,13 +42,21 @@ export async function POST(
   })
 
   // Check if all members have now submitted
-  const allMembers  = await prisma.sessionMember.findMany({ where: { sessionId: member.sessionId } })
-  const allDone     = allMembers.every(m => m.submittedAt || m.id === member.id)
+  const allMembers = await prisma.sessionMember.findMany({ where: { sessionId: member.sessionId } })
+  const allDone    = allMembers.every(m => m.submittedAt || m.id === member.id)
+
+  // Auto-lock the session when everyone is in — destination will be set by the lock route (AI synthesis)
+  if (allDone && member.session.status === 'collecting') {
+    await prisma.groupSession.update({
+      where: { id: member.sessionId },
+      data:  { status: 'locked' },
+    })
+  }
 
   return NextResponse.json({
-    success:    true,
-    sessionId:  member.sessionId,
+    success:   true,
+    sessionId: member.sessionId,
     allDone,
-    message:    allDone ? 'All members submitted! The creator can now trigger synthesis.' : 'Preferences saved.',
+    message:   allDone ? 'All members submitted! Itinerary is ready to generate.' : 'Preferences saved.',
   })
 }

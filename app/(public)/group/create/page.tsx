@@ -37,7 +37,7 @@ export default function GroupCreatePage() {
     if (
       status === 'authenticated' &&
       !autoSubmitted.current &&
-      tripName.trim() &&
+      tripName.trim().length >= 3 &&
       travellers >= 2 &&
       !result &&
       !loading &&
@@ -51,7 +51,7 @@ export default function GroupCreatePage() {
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
-    if (!tripName.trim() || travellers < 2) return
+    if (tripName.trim().length < 3 || travellers < 2) return
     setLoading(true)
     setError(null)
 

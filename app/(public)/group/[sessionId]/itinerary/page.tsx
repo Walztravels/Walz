@@ -60,8 +60,8 @@ export default function ItineraryPage() {
     setGenerating(true)
     setError(null)
 
-    // Lock the session first if it isn't already
-    if (sessionStatus !== 'locked') {
+    // Lock (and synthesise destination) if not yet locked or destination is missing
+    if (sessionStatus !== 'locked' || !sessionDestination) {
       const lockRes  = await fetch(`/api/public/group/${sessionId}/lock`, { method: 'POST' })
       const lockData = await lockRes.json()
       if (!lockRes.ok) {
@@ -87,13 +87,13 @@ export default function ItineraryPage() {
   }
 
   if (loading) return (
-    <div className="min-h-screen bg-[#FAF7F2] flex items-center justify-center">
+    <div className="min-h-screen bg-[#060f1e] flex items-center justify-center">
       <div className="w-8 h-8 rounded-full border-3 border-[#C9A84C]/30 border-t-[#C9A84C] animate-spin" />
     </div>
   )
 
   return (
-    <div className="min-h-screen bg-[#FAF7F2]">
+    <div className="min-h-screen bg-[#060f1e]">
       {/* Header */}
       <div className="bg-[#0B1F3A] px-4 py-8">
         <div className="max-w-2xl mx-auto flex items-start justify-between gap-4">
@@ -123,23 +123,23 @@ export default function ItineraryPage() {
             <p className="text-4xl mb-4">🗺️</p>
             {sessionStatus === 'locked' && sessionDestination ? (
               <>
-                <h2 className="text-[#0B1F3A] font-bold text-xl mb-1">Winning destination</h2>
+                <h2 className="text-white font-bold text-xl mb-1">Winning destination</h2>
                 <p className="text-[#C9A84C] font-bold text-2xl mb-3">{sessionDestination}</p>
-                <p className="text-[#0B1F3A]/50 text-sm mb-6">
+                <p className="text-white/50 text-sm mb-6">
                   Jade AI will build a personalised day-by-day plan for your group.
                 </p>
               </>
             ) : (
               <>
-                <h2 className="text-[#0B1F3A] font-bold text-xl mb-2">Generate your group itinerary</h2>
-                <p className="text-[#0B1F3A]/50 text-sm mb-6">
+                <h2 className="text-white font-bold text-xl mb-2">Generate your group itinerary</h2>
+                <p className="text-white/50 text-sm mb-6">
                   Jade AI will pick the best destination for your group and build a day-by-day plan based on everyone's preferences.
                 </p>
               </>
             )}
             <button onClick={generateItinerary}
-              className="px-6 py-3 rounded-xl bg-[#0B1F3A] text-white font-semibold hover:bg-[#132038] transition">
-              {sessionStatus === 'locked' ? 'Generate itinerary' : 'Pick destination & generate itinerary'}
+              className="px-6 py-3 rounded-xl bg-[#C9A84C] text-[#0B1F3A] font-bold hover:bg-[#E8C87A] transition">
+              {sessionStatus === 'locked' && sessionDestination ? 'Generate itinerary' : 'Pick destination & generate itinerary'}
             </button>
           </div>
         )}
@@ -147,7 +147,7 @@ export default function ItineraryPage() {
         {generating && (
           <div className="text-center py-12">
             <div className="w-10 h-10 rounded-full border-3 border-[#C9A84C]/30 border-t-[#C9A84C] animate-spin mx-auto mb-4" />
-            <p className="text-[#0B1F3A]/60 text-sm">
+            <p className="text-white/60 text-sm">
               {sessionDestination
                 ? `Jade AI is crafting your ${sessionDestination} itinerary…`
                 : 'Jade AI is picking your destination and crafting your itinerary…'}
@@ -156,8 +156,8 @@ export default function ItineraryPage() {
         )}
 
         {error && (
-          <div className="bg-red-50 border border-red-200 rounded-xl p-3 mb-6">
-            <p className="text-red-700 text-sm">{error}</p>
+          <div className="bg-red-900/30 border border-red-500/30 rounded-xl p-3 mb-6">
+            <p className="text-red-400 text-sm">{error}</p>
           </div>
         )}
 
@@ -165,10 +165,10 @@ export default function ItineraryPage() {
           <>
             {/* Travel tips */}
             {itinerary.travelTips?.length > 0 && (
-              <div className="bg-[#C9A84C]/8 border border-[#C9A84C]/20 rounded-2xl p-4 mb-6">
+              <div className="bg-[#C9A84C]/10 border border-[#C9A84C]/20 rounded-2xl p-4 mb-6">
                 <p className="text-[#C9A84C] text-xs font-bold mb-2">✈ Travel tips</p>
                 {itinerary.travelTips.map((t, i) => (
-                  <p key={i} className="text-[#0B1F3A]/70 text-sm mb-1">• {t}</p>
+                  <p key={i} className="text-white/70 text-sm mb-1">• {t}</p>
                 ))}
               </div>
             )}
@@ -176,7 +176,7 @@ export default function ItineraryPage() {
             {/* Days */}
             <div className="space-y-6">
               {itinerary.days.map((day) => (
-                <div key={day.day} className="bg-white rounded-2xl shadow-sm border border-[#0B1F3A]/5 overflow-hidden">
+                <div key={day.day} className="bg-[#0d1e35] rounded-2xl border border-white/8 overflow-hidden">
                   <div className="bg-[#0B1F3A] px-5 py-3 flex items-center justify-between">
                     <div>
                       <span className="text-[#C9A84C] font-bold text-sm">Day {day.day}</span>
@@ -198,7 +198,7 @@ export default function ItineraryPage() {
                             <span className="text-lg flex-shrink-0 mt-0.5">{icons[slot]}</span>
                             <div className="flex-1">
                               <p className="font-semibold text-[#0B1F3A] text-sm">{s.title}</p>
-                              <p className="text-[#0B1F3A]/60 text-xs mt-0.5">{s.description}</p>
+                              <p className="text-white/60 text-xs mt-0.5">{s.description}</p>
                               {s.satisfies?.length > 0 && (
                                 <div className="flex flex-wrap gap-1 mt-2">
                                   {s.satisfies.map((name, i) => (
@@ -220,11 +220,11 @@ export default function ItineraryPage() {
 
             {/* Packing */}
             {itinerary.packingHighlights?.length > 0 && (
-              <div className="mt-6 bg-white rounded-2xl p-5 border border-[#0B1F3A]/5">
-                <p className="font-semibold text-[#0B1F3A] mb-3">🎒 Pack these</p>
+              <div className="mt-6 bg-[#0d1e35] rounded-2xl p-5 border border-white/8">
+                <p className="font-semibold text-white mb-3">🎒 Pack these</p>
                 <div className="grid grid-cols-2 gap-1.5">
                   {itinerary.packingHighlights.map((item, i) => (
-                    <p key={i} className="text-[#0B1F3A]/60 text-sm">• {item}</p>
+                    <p key={i} className="text-white/60 text-sm">• {item}</p>
                   ))}
                 </div>
               </div>

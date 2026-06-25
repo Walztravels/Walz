@@ -1,6 +1,4 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getServerSession }          from 'next-auth'
-import { authOptions }               from '@/lib/auth'
 import Anthropic                     from '@anthropic-ai/sdk'
 import prisma                        from '@/lib/db'
 
@@ -24,21 +22,12 @@ export async function POST(
     return NextResponse.json({ error: 'AI service not configured' }, { status: 503 })
   }
 
-  const authSession = await getServerSession(authOptions)
-  if (!authSession?.user?.email) {
-    return NextResponse.json({ error: 'Unauthorised' }, { status: 401 })
-  }
-
-  const creator = await prisma.user.findUnique({ where: { email: authSession.user.email } })
   const session = await prisma.groupSession.findUnique({
     where:   { id: params.param },
     include: { members: true },
   })
 
   if (!session) return NextResponse.json({ error: 'Session not found' }, { status: 404 })
-  if (session.creatorId !== creator?.id) {
-    return NextResponse.json({ error: 'Only the creator can generate the itinerary' }, { status: 403 })
-  }
   if (session.status !== 'locked' || !session.destination) {
     return NextResponse.json({ error: 'Session must be locked with a winning destination first' }, { status: 409 })
   }

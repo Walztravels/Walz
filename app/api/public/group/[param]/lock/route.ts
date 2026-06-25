@@ -33,9 +33,6 @@ export async function POST(
   })
 
   if (!session) return NextResponse.json({ error: 'Session not found' }, { status: 404 })
-  if (session.creatorId !== creator?.id) {
-    return NextResponse.json({ error: 'Only the session creator can lock it' }, { status: 403 })
-  }
 
   // Already locked — idempotent
   if (session.status === 'locked' && session.destination) {
