@@ -45,6 +45,12 @@ async function sendTransfer(
   }
 
   try {
+    try {
+      const ipCheck = await fetch('https://api.ipify.org?format=json')
+      const { ip }  = await ipCheck.json()
+      console.log('[transfer] Outbound IP:', ip)
+    } catch {}
+
     console.log('[transfer] Sending:', { name: staff.name, amount: netPay, currency, bank: staff.bankName, reference })
 
     const res  = await fetch('https://api.flutterwave.com/v3/transfers', {
