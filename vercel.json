@@ -1,7 +1,7 @@
 {
   "alias": ["walztravels.com", "www.walztravels.com", "walztravels.us", "www.walztravels.us"],
   "functions": {
-    "app/api/public/group/[param]/lock/route.ts": { "maxDuration": 60 },
+    "app/api/public/group/[param]/lock/route.ts": { "maxDuration": 120 },
     "app/api/admin/visa/analyse/route.ts":         { "maxDuration": 300 }
   },
   "crons": [

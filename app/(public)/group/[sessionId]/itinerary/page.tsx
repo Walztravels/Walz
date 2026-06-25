@@ -10,7 +10,7 @@ interface Activity {
   time:        string
   title:       string
   description: string
-  duration:    string
+  duration?:   string
   type:        string
   cost?:       string
   bookingTip?: string
@@ -20,38 +20,80 @@ interface Activity {
 }
 
 interface Accommodation {
-  name:          string
-  stars?:        number
-  area?:         string
+  name:           string
+  stars?:         number
+  area?:          string
   pricePerNight?: string
+  priceRange?:    string
+  whyWeChoseIt?:  string
+}
+
+interface MealDetail {
+  venue?: string
+  dish?:  string
+  cost?:  string
+  tip?:   string
 }
 
 interface ItineraryDay {
   day:           number
   title:         string
+  theme?:        string
   activities:    Activity[]
   accommodation: string | Accommodation
   meals?: {
-    breakfast: string
-    lunch:     string
-    dinner:    string
+    breakfast?: string | MealDetail
+    lunch?:     string | MealDetail
+    dinner?:    string | MealDetail
   }
   estimatedCost?: string
   dayBudget?:     string
 }
 
+// old array-item format
 interface FlightAdvice {
-  from:           string
-  to:             string
-  airlines?:      string
+  from:            string
+  to:              string
+  airlines?:       string
   estimatedPrice?: string
-  tip:            string
+  tip?:            string
+}
+
+// new rich object format
+interface FlightRoute {
+  from:                  string
+  to:                    string
+  recommendedAirlines?:  string[]
+  estimatedCost?:        string
+  estimatedPrice?:       string
+  flightDuration?:       string
+  bestTimeToBook?:       string
+  jadeTip?:              string
+  tip?:                  string
+  airlines?:             string
+}
+
+interface FlightAdviceFull {
+  summary?:         string
+  routes?:          FlightRoute[]
+  groupBookingTip?: string
+  baggageAdvice?:   string
+}
+
+interface PackingList {
+  essential?: string[]
+  clothing?:  string[]
+  tech?:      string[]
+  documents?: string[]
+  jadePick?:  string
 }
 
 interface CostBreakdown {
   budget?:      string
   comfortable?: string
   luxury?:      string
+  includes?:    string
+  excludes?:    string
 }
 
 interface Itinerary {
@@ -60,17 +102,20 @@ interface Itinerary {
   groupSize?:          number
   tagline?:            string
   theme?:              string
+  bestTimeToVisit?:    string
   highlights:          string[]
   days:                ItineraryDay[]
   costBreakdown?:      CostBreakdown
   totalCost?:          CostBreakdown
   totalEstimatedCost?: string
-  flightAdvice?:       FlightAdvice[]
+  flightAdvice?:       FlightAdviceFull | FlightAdvice[]
   flightTip?:          string
+  packingList?:        PackingList
   packingTips?:        string[]
   jadeFinalWord?:      string
   jadeTip?:            string
   bookWithWalz?:       string
+  _modelUsed?:         string
 }
 
 interface VoteResult {
@@ -110,7 +155,7 @@ function getAccommodationName(acc: string | Accommodation): string {
 
 function getAccommodationDetail(acc: string | Accommodation): string {
   if (typeof acc === 'string') return ''
-  const parts = [acc.area, acc.pricePerNight].filter(Boolean)
+  const parts = [acc.area, acc.pricePerNight ?? acc.priceRange, acc.whyWeChoseIt].filter(Boolean)
   return parts.length > 0 ? parts.join(' · ') : ''
 }
 
@@ -210,6 +255,8 @@ export default function ItineraryPage() {
               completed = true
               if (msgTimer) clearInterval(msgTimer)
               setError((data.error as string | undefined) ?? 'Failed to generate — please try again.')
+            } else if (data.type === 'status' && typeof data.message === 'string') {
+              setLoadingMessage(data.message)
             }
           } catch { /* incomplete chunk — ignore */ }
         }
@@ -268,13 +315,29 @@ export default function ItineraryPage() {
           )}
 
           {itinerary && (
-            <div className="mt-3 flex items-center gap-4 text-white/50 text-sm flex-wrap">
-              <span>📅 {itinerary.duration}</span>
-              {itinerary.groupSize && <span>👥 {itinerary.groupSize} travellers</span>}
-              {(itinerary.totalEstimatedCost ?? itinerary.totalCost?.comfortable) && (
-                <span>💷 {itinerary.totalEstimatedCost ?? itinerary.totalCost?.comfortable}</span>
+            <>
+              <div className="mt-3 flex items-center gap-4 text-white/50 text-sm flex-wrap">
+                <span>📅 {itinerary.duration}</span>
+                {itinerary.groupSize && <span>👥 {itinerary.groupSize} travellers</span>}
+                {(itinerary.totalEstimatedCost ?? itinerary.totalCost?.comfortable) && (
+                  <span>💷 {itinerary.totalEstimatedCost ?? itinerary.totalCost?.comfortable}</span>
+                )}
+                {itinerary.bestTimeToVisit && (
+                  <span>📆 Best: {itinerary.bestTimeToVisit}</span>
+                )}
+              </div>
+              {itinerary._modelUsed && (
+                <div className="mt-2">
+                  <span className={`text-xs px-2.5 py-1 rounded-full font-medium ${
+                    itinerary._modelUsed.includes('gpt')
+                      ? 'bg-green-500/20 text-green-400'
+                      : 'bg-[#C9A84C]/20 text-[#C9A84C]'
+                  }`}>
+                    {itinerary._modelUsed.includes('gpt') ? '✦ Generated by GPT-4o' : '🤖 Generated by Claude'}
+                  </span>
+                </div>
               )}
-            </div>
+            </>
           )}
 
           {itinerary?.highlights && itinerary.highlights.length > 0 && (
@@ -419,31 +482,86 @@ export default function ItineraryPage() {
             )}
 
             {/* ── SECTION 4 : Flights at a glance ─────────────────────────── */}
-            {itinerary.flightAdvice && itinerary.flightAdvice.length > 0 && (
-              <div>
-                <h2 className="text-white/50 text-xs font-bold uppercase tracking-widest mb-4">Flights at a Glance</h2>
-                <div className="space-y-3">
-                  {itinerary.flightAdvice.map((f, i) => (
-                    <div key={i} className="bg-[#0B1F3A] rounded-2xl p-4">
-                      <div className="flex items-center justify-between mb-2">
-                        <div className="flex items-center gap-2">
-                          <span className="text-white font-semibold text-sm">{f.from}</span>
-                          <span className="text-white/30 text-xs">→</span>
-                          <span className="text-white font-semibold text-sm">{f.to}</span>
-                        </div>
-                        {f.estimatedPrice && (
-                          <span className="text-[#C9A84C] font-bold text-sm">{f.estimatedPrice}</span>
-                        )}
-                      </div>
-                      {f.airlines && (
-                        <p className="text-white/40 text-xs mb-1">✈ {f.airlines}</p>
+            {itinerary.flightAdvice && (() => {
+              const fa      = itinerary.flightAdvice
+              const isRich  = !Array.isArray(fa) && !!(fa as FlightAdviceFull).routes?.length
+              const isLegacy = Array.isArray(fa) && (fa as FlightAdvice[]).length > 0
+              return (
+                <div>
+                  <h2 className="text-white/50 text-xs font-bold uppercase tracking-widest mb-4">✈ Flights at a Glance</h2>
+
+                  {isRich && (
+                    <div className="bg-[#0B1F3A] rounded-2xl border border-white/8 p-5">
+                      {(fa as FlightAdviceFull).summary && (
+                        <p className="text-white/60 text-sm mb-4">{(fa as FlightAdviceFull).summary}</p>
                       )}
-                      <p className="text-white/60 text-xs">{f.tip}</p>
+                      <div className="space-y-3 mb-4">
+                        {(fa as FlightAdviceFull).routes?.map((route, i) => (
+                          <div key={i} className="bg-white/5 rounded-xl p-4 border border-white/5">
+                            <div className="flex items-center justify-between mb-2">
+                              <div className="flex items-center gap-2">
+                                <span className="text-white font-semibold text-sm">{route.from}</span>
+                                <span className="text-[#C9A84C]">→</span>
+                                <span className="text-white font-semibold text-sm">{route.to}</span>
+                              </div>
+                              <span className="text-[#C9A84C] font-bold text-sm">
+                                {route.estimatedCost ?? route.estimatedPrice}
+                              </span>
+                            </div>
+                            <div className="flex gap-4 mb-2">
+                              {route.flightDuration  && <span className="text-white/40 text-xs">⏱ {route.flightDuration}</span>}
+                              {route.bestTimeToBook  && <span className="text-white/40 text-xs">📅 Book {route.bestTimeToBook}</span>}
+                            </div>
+                            {route.recommendedAirlines && route.recommendedAirlines.length > 0 && (
+                              <div className="flex flex-wrap gap-1.5 mb-2">
+                                {route.recommendedAirlines.map((a, ai) => (
+                                  <span key={ai} className="bg-white/10 text-white/60 text-[10px] px-2 py-0.5 rounded-full">{a}</span>
+                                ))}
+                              </div>
+                            )}
+                            {(route.jadeTip ?? route.tip) && (
+                              <p className="text-[#C9A84C]/70 text-xs">💡 {route.jadeTip ?? route.tip}</p>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                      {(fa as FlightAdviceFull).groupBookingTip && (
+                        <div className="bg-amber-500/10 border border-amber-500/20 rounded-xl p-3 mb-4">
+                          <p className="text-amber-400 text-[10px] font-bold uppercase tracking-wider mb-1">Group Booking Tip</p>
+                          <p className="text-white/70 text-xs">{(fa as FlightAdviceFull).groupBookingTip}</p>
+                        </div>
+                      )}
+                      {(fa as FlightAdviceFull).baggageAdvice && (
+                        <p className="text-white/40 text-xs mb-4">🧳 {(fa as FlightAdviceFull).baggageAdvice}</p>
+                      )}
+                      <a href="/flights"
+                        className="flex items-center justify-center gap-2 bg-[#C9A84C] hover:bg-[#E8C87A] text-[#0B1F3A] font-bold py-3 rounded-xl transition text-sm">
+                        Search Flights with Walz Travels →
+                      </a>
                     </div>
-                  ))}
+                  )}
+
+                  {isLegacy && (
+                    <div className="space-y-3">
+                      {(fa as FlightAdvice[]).map((f, i) => (
+                        <div key={i} className="bg-[#0B1F3A] rounded-2xl p-4">
+                          <div className="flex items-center justify-between mb-2">
+                            <div className="flex items-center gap-2">
+                              <span className="text-white font-semibold text-sm">{f.from}</span>
+                              <span className="text-white/30 text-xs">→</span>
+                              <span className="text-white font-semibold text-sm">{f.to}</span>
+                            </div>
+                            {f.estimatedPrice && <span className="text-[#C9A84C] font-bold text-sm">{f.estimatedPrice}</span>}
+                          </div>
+                          {f.airlines && <p className="text-white/40 text-xs mb-1">✈ {f.airlines}</p>}
+                          {f.tip && <p className="text-white/60 text-xs">{f.tip}</p>}
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
-              </div>
-            )}
+              )
+            })()}
 
             {/* Legacy flightTip (v1 format) */}
             {!itinerary.flightAdvice && itinerary.flightTip && (
@@ -518,18 +636,38 @@ export default function ItineraryPage() {
 
                           {day.meals && (
                             <div className="px-5 py-4 border-t border-white/5 bg-white/[0.02]">
-                              <p className="text-white/30 text-[10px] font-bold uppercase tracking-wider mb-3">Meals</p>
+                              <p className="text-white/30 text-[10px] font-bold uppercase tracking-wider mb-3">🍽 Meals</p>
                               <div className="grid grid-cols-3 gap-2">
-                                {[
-                                  { label: '🌅 Breakfast', value: day.meals.breakfast },
-                                  { label: '☀️ Lunch',     value: day.meals.lunch     },
-                                  { label: '🌙 Dinner',    value: day.meals.dinner    },
-                                ].map(m => (
-                                  <div key={m.label} className="bg-white/5 rounded-xl p-2.5">
-                                    <p className="text-white/30 text-[9px] font-bold mb-0.5">{m.label}</p>
-                                    <p className="text-white/70 text-[10px] leading-relaxed">{m.value}</p>
-                                  </div>
-                                ))}
+                                {([
+                                  { icon: '🌅', key: 'breakfast', label: 'Breakfast' },
+                                  { icon: '☀️', key: 'lunch',     label: 'Lunch'     },
+                                  { icon: '🌙', key: 'dinner',    label: 'Dinner'    },
+                                ] as { icon: string; key: 'breakfast' | 'lunch' | 'dinner'; label: string }[]).map(({ icon, key, label }) => {
+                                  const meal = day.meals?.[key]
+                                  if (!meal) return null
+                                  const isRich = typeof meal === 'object'
+                                  return (
+                                    <div key={key} className="bg-white/5 rounded-xl p-2.5">
+                                      <p className="text-white/30 text-[9px] font-bold mb-1">{icon} {label}</p>
+                                      {isRich ? (
+                                        <>
+                                          <p className="text-white/80 text-[10px] font-medium leading-snug">{(meal as MealDetail).venue}</p>
+                                          {(meal as MealDetail).dish && (
+                                            <p className="text-[#C9A84C] text-[9px] mt-0.5">{(meal as MealDetail).dish}</p>
+                                          )}
+                                          {(meal as MealDetail).cost && (
+                                            <p className="text-white/30 text-[9px] mt-0.5">{(meal as MealDetail).cost}</p>
+                                          )}
+                                          {(meal as MealDetail).tip && (
+                                            <p className="text-white/40 text-[9px] mt-0.5 italic">{(meal as MealDetail).tip}</p>
+                                          )}
+                                        </>
+                                      ) : (
+                                        <p className="text-white/70 text-[10px] leading-relaxed">{meal as string}</p>
+                                      )}
+                                    </div>
+                                  )
+                                })}
                               </div>
                             </div>
                           )}
@@ -628,8 +766,53 @@ export default function ItineraryPage() {
               </div>
             </div>
 
-            {/* Packing tips */}
-            {itinerary.packingTips && itinerary.packingTips.length > 0 && (
+            {/* Packing list — rich format */}
+            {itinerary.packingList && (
+              <div className="bg-[#0B1F3A] rounded-2xl border border-white/8 p-5">
+                <div className="flex items-center gap-3 mb-5">
+                  <span className="text-2xl">🧳</span>
+                  <h3 className="text-white font-bold text-lg">Packing List</h3>
+                </div>
+
+                {itinerary.packingList.jadePick && (
+                  <div className="bg-amber-500/10 border border-amber-500/20 rounded-xl p-4 mb-5 flex items-center gap-3">
+                    <span className="text-xl flex-shrink-0">⭐</span>
+                    <div>
+                      <p className="text-amber-400 text-[10px] font-bold uppercase tracking-wider mb-0.5">Jade&apos;s Top Pick</p>
+                      <p className="text-white text-sm">{itinerary.packingList.jadePick}</p>
+                    </div>
+                  </div>
+                )}
+
+                <div className="grid grid-cols-2 gap-4">
+                  {([
+                    { key: 'essential',  label: 'Essentials', icon: '✅' },
+                    { key: 'clothing',   label: 'Clothing',   icon: '👔' },
+                    { key: 'documents',  label: 'Documents',  icon: '📄' },
+                    { key: 'tech',       label: 'Tech',       icon: '💻' },
+                  ] as { key: keyof PackingList; label: string; icon: string }[]).map(({ key, label, icon }) => {
+                    const items = itinerary.packingList?.[key] as string[] | undefined
+                    if (!items?.length) return null
+                    return (
+                      <div key={key}>
+                        <p className="text-white/40 text-[10px] uppercase tracking-wider font-bold mb-2">{icon} {label}</p>
+                        <ul className="space-y-1.5">
+                          {items.map((item, i) => (
+                            <li key={i} className="flex items-start gap-2 text-white/60 text-xs">
+                              <span className="text-[#C9A84C] mt-0.5 flex-shrink-0 text-[9px]">●</span>
+                              {item}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+            )}
+
+            {/* Flat packing tips — legacy fallback */}
+            {!itinerary.packingList && itinerary.packingTips && itinerary.packingTips.length > 0 && (
               <div className="bg-white/5 rounded-2xl p-4">
                 <p className="text-white/40 text-xs font-bold uppercase tracking-wider mb-3">🎒 Packing Tips</p>
                 <ul className="space-y-1.5">
