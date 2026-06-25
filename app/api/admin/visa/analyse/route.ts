@@ -4,6 +4,7 @@ import OpenAI                        from 'openai'
 import { getAdminSession }           from '@/lib/admin-auth'
 
 export const dynamic     = 'force-dynamic'
+export const runtime     = 'nodejs'
 export const maxDuration = 300
 
 // ─── JSON enforcement ─────────────────────────────────────────────────────────
@@ -57,14 +58,33 @@ function extractJSON<T>(text: string): T {
 }
 
 // ─── PDF text for OpenAI text-mode fallback ───────────────────────────────────
+// pdf-parse@2 wraps pdfjs-dist — use pdfjs directly since pdf-parse v2 API is class-based (no simple fn call)
 
 async function extractPdfText(buffer: Buffer): Promise<string> {
   try {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const mod = await import('pdf-parse') as any
-    const pp  = mod.default ?? mod
-    return ((await pp(buffer)).text ?? '').trim()
-  } catch { return '' }
+    const pdfjsLib = await import('pdfjs-dist/legacy/build/pdf.mjs') as any
+    // Resolve the worker file bundled in node_modules alongside pdfjs-dist
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const workerPath = require.resolve('pdfjs-dist/legacy/build/pdf.worker.mjs')
+    pdfjsLib.GlobalWorkerOptions.workerSrc = `file://${workerPath}`
+
+    const doc = await pdfjsLib.getDocument({ data: new Uint8Array(buffer) }).promise
+    const texts: string[] = []
+    for (let i = 1; i <= doc.numPages; i++) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const page: any = await doc.getPage(i)
+      const content   = await page.getTextContent()
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      texts.push(content.items.map((it: any) => it.str ?? '').join(' '))
+      page.cleanup()
+    }
+    await doc.destroy()
+    return texts.join('\n').trim()
+  } catch (e) {
+    console.error('[VF] pdf text extraction failed:', e instanceof Error ? e.message : e)
+    return ''
+  }
 }
 
 // ─── POST handler ─────────────────────────────────────────────────────────────
