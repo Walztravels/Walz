@@ -4,20 +4,25 @@ import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/db'
 
 export async function GET() {
-  const session = await getServerSession(authOptions)
-  if (!session?.user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  try {
+    const session = await getServerSession(authOptions)
+    if (!session?.user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const staff = await prisma.staffMember.findMany({
-    orderBy: [{ isActive: 'desc' }, { name: 'asc' }],
-    include: {
-      payslips: {
-        orderBy: [{ year: 'desc' }, { month: 'desc' }],
-        take: 1,
+    const staff = await prisma.staffMember.findMany({
+      orderBy: [{ isActive: 'desc' }, { name: 'asc' }],
+      include: {
+        payslips: {
+          orderBy: [{ year: 'desc' }, { month: 'desc' }],
+          take: 1,
+        },
       },
-    },
-  })
+    })
 
-  return NextResponse.json({ staff })
+    return NextResponse.json({ staff })
+  } catch (err: any) {
+    console.error('[payroll/staff GET]', err.message, err.stack)
+    return NextResponse.json({ error: err.message ?? 'Internal server error' }, { status: 500 })
+  }
 }
 
 export async function POST(req: Request) {

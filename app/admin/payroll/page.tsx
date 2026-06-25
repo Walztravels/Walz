@@ -20,7 +20,7 @@ interface Payslip {
   attendanceDeduction: number; otherDeduction: number; deductionNote: string | null
   grossPay: number; netPay: number; currency: string; status: string
   emailSentAt: string | null; paidAt: string | null; missedCheckIns: number
-  adviceSent: boolean; adviceSentAt: string | null
+  adviceSent?: boolean; adviceSentAt?: string | null
   staffMember?: StaffMember
 }
 
@@ -353,8 +353,17 @@ export default function PayrollPage() {
     setLoading(true)
     try {
       const res = await fetch('/api/admin/payroll/staff')
-      const d   = await res.json()
+      if (!res.ok) {
+        const text = await res.text().catch(() => '')
+        console.error('[payroll] staff API error', res.status, text)
+        showToast(`Failed to load staff (${res.status})`)
+        return
+      }
+      const d = await res.json()
       setStaff(d.staff ?? [])
+    } catch (err: any) {
+      console.error('[payroll] loadStaff error', err)
+      showToast('Failed to load payroll staff')
     } finally { setLoading(false) }
   }, [])
 

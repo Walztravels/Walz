@@ -115,13 +115,5 @@ export async function POST(req: NextRequest) {
     html,
   })
 
-  // Mark advice as sent on the payslip (graceful if column not yet in DB)
-  if (payslip) {
-    await prisma.payslip.update({
-      where: { id: payslip.id },
-      data:  { adviceSent: true, adviceSentAt: now },
-    }).catch(() => {})
-  }
-
   return NextResponse.json({ success: true, message: `Salary advice sent to ${staff.email}` })
 }
