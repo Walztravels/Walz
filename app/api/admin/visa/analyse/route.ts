@@ -7,6 +7,28 @@ export const dynamic     = 'force-dynamic'
 export const runtime     = 'nodejs'
 export const maxDuration = 300
 
+// ─── Currency requirements per visa type ─────────────────────────────────────
+
+interface VisaInfo {
+  currency:    string
+  symbol:      string
+  requirement: string
+}
+
+const VISA_CURRENCY: Record<string, VisaInfo> = {
+  'UK Visitor':          { currency: 'GBP', symbol: '£',   requirement: 'Minimum £2,000–£5,000 for a 2-week visit. Regular income preferred over £1,500/month.' },
+  'UK Student':          { currency: 'GBP', symbol: '£',   requirement: 'Must show 28 consecutive days with £1,334/month for London or £1,023/month outside London.' },
+  'UK Work':             { currency: 'GBP', symbol: '£',   requirement: 'Maintenance requirement of £1,270 held for 28 days.' },
+  'UK Family':           { currency: 'GBP', symbol: '£',   requirement: 'Sponsor must earn minimum £29,000/year from April 2024.' },
+  'Schengen Tourist':    { currency: 'EUR', symbol: '€',   requirement: 'Minimum €50–€100 per day of stay. Typically €3,000+ for a 2-week trip.' },
+  'Schengen Business':   { currency: 'EUR', symbol: '€',   requirement: 'Evidence of business funding and return journey costs.' },
+  'Canada Visitor':      { currency: 'CAD', symbol: 'CA$', requirement: 'Minimum CA$10,000 recommended for a 6-month visit.' },
+  'Canada Student':      { currency: 'CAD', symbol: 'CA$', requirement: 'First year tuition + CA$10,000 living expenses.' },
+  'USA B1/B2':           { currency: 'USD', symbol: '$',   requirement: 'Strong financial ties to home country. Sufficient funds for trip duration.' },
+  'UAE Visit':           { currency: 'AED', symbol: 'AED', requirement: 'Minimum AED 3,000–5,000 for visit. Bank balance proof required.' },
+  'Australia Tourist':   { currency: 'AUD', symbol: 'A$',  requirement: 'Minimum A$5,000 for 3-month stay recommended.' },
+}
+
 // ─── JSON enforcement ─────────────────────────────────────────────────────────
 
 const JSON_ONLY = `
@@ -41,6 +63,9 @@ async function callWithRetry<T>(fn: () => Promise<T>, maxRetries = 3): Promise<T
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function extractJSON<T = unknown>(text: string): T {
+  if (!text?.trim()) throw new Error('Empty AI response')
+  console.log('[VF] extractJSON input length:', text.length, '| first 200:', text.substring(0, 200))
+
   // T1: strip ALL markdown code fences then try direct parse
   const cleaned = text
     .replace(/```json\s*/gi, '')
@@ -54,10 +79,10 @@ function extractJSON<T = unknown>(text: string): T {
   if (start !== -1 && end !== -1 && end > start) {
     const jsonStr = cleaned.substring(start, end + 1)
     try { return JSON.parse(jsonStr) as T } catch (parseErr) {
-      // T3: repair common Claude quirks — trailing commas
+      // T3: repair trailing commas
       const repaired = jsonStr.replace(/,(\s*[}\]])/g, '$1')
       try { return JSON.parse(repaired) as T } catch {}
-      // T4: bracket-count walk to find a balanced sub-object
+      // T4: bracket-count walk
       let depth = 0; let inStr = false; let esc = false
       for (let i = start; i < cleaned.length; i++) {
         const ch = cleaned[i]
@@ -81,22 +106,31 @@ function extractJSON<T = unknown>(text: string): T {
   throw new Error(`No JSON object found in AI response. Raw (first 300): ${text.substring(0, 300)}`)
 }
 
-// ─── PDF text extraction ─────────────────────────────────────────────────────
-// Use pdf-parse via the lib path — bypasses the Vercel test-file crash that
-// kills the standard `require('pdf-parse')` import on serverless.
+// ─── PDF → images for GPT-4o vision ──────────────────────────────────────────
+// Converts up to 4 PDF pages to PNG images (150 dpi) for GPT-4o vision input.
+// Uses /tmp which is writable on Vercel serverless.
 
-async function extractPdfText(buffer: Buffer): Promise<string> {
-  try {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const pdfLib = require('pdf-parse/lib/pdf-parse.js')
-    const data   = await pdfLib(buffer, { max: 0 }) // max: 0 = parse all pages
-    const text   = (data.text as string | undefined)?.trim() ?? ''
-    console.log(`[VF] pdf-parse extracted ${text.length} chars (${data.numpages ?? '?'} pages)`)
-    return text
-  } catch (e) {
-    console.error('[VF] pdf-parse failed:', e instanceof Error ? e.message : e)
-    return ''
+async function pdfToImages(buffer: Buffer): Promise<string[]> {
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { fromBuffer } = require('pdf2pic') as typeof import('pdf2pic')
+  const convert = fromBuffer(buffer, {
+    density:      150,
+    format:       'png',
+    width:        1200,
+    height:       1600,
+    saveFilename: `vf-${Date.now()}`,
+    savePath:     '/tmp',
+  })
+  const base64Pages: string[] = []
+  for (let page = 1; page <= 4; page++) {
+    try {
+      const result = await convert(page, { responseType: 'base64' })
+      if (result?.base64) base64Pages.push(result.base64)
+    } catch {
+      break // fewer pages than requested
+    }
   }
+  return base64Pages
 }
 
 // ─── POST handler ─────────────────────────────────────────────────────────────
@@ -113,7 +147,7 @@ export async function POST(req: NextRequest) {
     const applicantName = ((form.get('applicantName')   as string) ?? 'Applicant').trim()
     const appId         = form.get('applicationId') as string | null
 
-    if (!file)                       return NextResponse.json({ error: 'No file provided' }, { status: 400 })
+    if (!file)                        return NextResponse.json({ error: 'No file provided' },   { status: 400 })
     if (file.size > 50 * 1024 * 1024) return NextResponse.json({ error: 'File exceeds 50 MB' }, { status: 413 })
 
     const aiModel   = ((form.get('aiModel') as string | null) ?? 'claude') as 'claude' | 'openai'
@@ -124,19 +158,37 @@ export async function POST(req: NextRequest) {
       ? (file.type as 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp')
       : 'application/pdf'
 
+    // Currency / requirements for this visa type
+    const visaInfo: VisaInfo = VISA_CURRENCY[visaType] ?? {
+      currency: 'GBP', symbol: '£', requirement: 'Sufficient funds for the intended visit.',
+    }
+
+    // Anthropic document block — Claude reads PDFs and images natively
     const docBlock = {
       type:   isImage ? 'image' : 'document',
       source: { type: 'base64', media_type: mediaType, data: base64 },
     } as Anthropic.ImageBlockParam | Anthropic.DocumentBlockParam
 
-    const systemPrompt = `You are VisaFortress AI — a forensic financial analyst specialising in visa bank statement review for ${passport} applicants applying for a ${visaType} visa. You combine the knowledge of a senior UK visa caseworker, a certified forensic accountant, and an AML compliance officer.` + JSON_ONLY
+    const systemPrompt =
+      `You are VisaFortress AI — a forensic financial analyst specialising in visa bank statement review ` +
+      `for ${passport} applicants applying for a ${visaType} visa. ` +
+      `You combine the knowledge of a senior UK visa caseworker, a certified forensic accountant, and an AML compliance officer.\n\n` +
+      `VISA TYPE: ${visaType}\n` +
+      `TARGET CURRENCY: ${visaInfo.currency} (${visaInfo.symbol})\n` +
+      `FINANCIAL REQUIREMENT: ${visaInfo.requirement}\n\n` +
+      `IMPORTANT:\n` +
+      `- Analyse all amounts in ${visaInfo.currency} (${visaInfo.symbol})\n` +
+      `- If the statement is in a different currency (e.g. NGN, GHS, KES), convert using approximate current exchange rates and note this\n` +
+      `- Set "meetsRequirement" to true/false based on whether the balance satisfies: ${visaInfo.requirement}` +
+      JSON_ONLY
 
-    const userPrompt = buildUserPrompt(applicantName, passport, visaType)
+    const userPrompt = buildUserPrompt(applicantName, passport, visaType, visaInfo)
 
     let analysis: unknown | null = null
-    let aiUsed   = ''
+    let aiUsed = ''
 
     // ── Claude path ────────────────────────────────────────────────────────────
+    // Claude reads PDFs and images natively as base64 documents — no text extraction needed.
 
     if (aiModel !== 'openai') {
       if (!process.env.ANTHROPIC_API_KEY) {
@@ -160,18 +212,27 @@ export async function POST(req: NextRequest) {
           const eData = extractJSON<Record<string, unknown>>(eText)
           const txns  = Array.isArray(eData.transactions) ? eData.transactions.length : 0
           txnContext  = `Extracted ${txns} transactions. Currency: ${eData.currency ?? '?'}. Period: ${eData.statementPeriod ?? '?'}. Closing balance: ${eData.closingBalance ?? '?'}.`
-        } catch { /* non-fatal */ }
+        } catch { /* non-fatal — proceed to main analysis */ }
 
         // Pass 2: full forensic analysis
         const a2 = await callWithRetry(() => claude.messages.create({
           model: 'claude-sonnet-4-6', max_tokens: 6000, temperature: 0,
           system: systemPrompt,
-          messages: [{ role: 'user', content: [docBlock, { type: 'text', text: userPrompt(txnContext) }] }],
+          messages: [{
+            role: 'user',
+            content: [
+              docBlock,
+              {
+                type: 'text',
+                text: `CRITICAL INSTRUCTION: Your ENTIRE response must be a single valid JSON object. Start with { and end with }. No text before or after. No markdown. No backticks. No explanation.\n\n${userPrompt(txnContext)}`,
+              },
+            ],
+          }],
         }))
         const aText = a2.content[0]?.type === 'text' ? a2.content[0].text : ''
-        console.log('[VF] Raw Claude response (first 500 chars):', aText.substring(0, 500))
-        analysis    = extractJSON<unknown>(aText)
-        aiUsed      = 'Claude Sonnet 4.6'
+        console.log('[VF] Raw Claude response (first 500):', aText.substring(0, 500))
+        analysis = extractJSON<unknown>(aText)
+        aiUsed   = 'Claude Sonnet 4.6'
         console.log('[VF] Claude succeeded')
       } catch (e) {
         const msg = e instanceof Error ? e.message : String(e)
@@ -184,6 +245,7 @@ export async function POST(req: NextRequest) {
     }
 
     // ── OpenAI GPT-4o path ─────────────────────────────────────────────────────
+    // Images: send directly as vision. PDFs: convert pages to PNG images first.
 
     if (aiModel === 'openai') {
       if (!process.env.OPENAI_API_KEY) {
@@ -195,39 +257,62 @@ export async function POST(req: NextRequest) {
       console.log('[VF] Using OpenAI GPT-4o')
       const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY })
       try {
+        type ImgPart = { type: 'image_url'; image_url: { url: string; detail: 'high' } }
+        type TxtPart = { type: 'text'; text: string }
+
         if (isImage) {
+          // Image input — send directly with json_object mode
           const oRes = await openai.chat.completions.create({
             model: 'gpt-4o', max_tokens: 6000, temperature: 0,
             response_format: { type: 'json_object' },
             messages: [
               { role: 'system', content: systemPrompt.replace(JSON_ONLY, '') + '\n\nReturn only valid JSON.' },
               { role: 'user', content: [
-                { type: 'image_url', image_url: { url: `data:${mediaType};base64,${base64}` } },
-                { type: 'text', text: userPrompt('Read directly from the image.') },
+                { type: 'image_url', image_url: { url: `data:${mediaType};base64,${base64}`, detail: 'high' } } as ImgPart,
+                { type: 'text', text: userPrompt('Read directly from the image above.') } as TxtPart,
               ]},
             ],
           })
           const iText = oRes.choices[0]?.message?.content ?? '{}'
-          console.log('[VF] Raw GPT-4o response (first 500 chars):', iText.substring(0, 500))
+          console.log('[VF] Raw GPT-4o response (first 500):', iText.substring(0, 500))
           analysis = extractJSON<unknown>(iText)
         } else {
-          const pdfText = await extractPdfText(buffer)
-          if (!pdfText || pdfText.replace(/\s/g, '').length < 100) {
+          // PDF input — convert pages to PNG images, then use vision
+          // NOTE: response_format json_object is NOT used with vision (image) inputs
+          console.log('[VF] Converting PDF to images for GPT-4o vision…')
+          let pdfImages: string[] = []
+          try {
+            pdfImages = await pdfToImages(buffer)
+          } catch (convertErr) {
+            console.error('[VF] pdf2pic failed:', convertErr instanceof Error ? convertErr.message : convertErr)
+          }
+
+          if (pdfImages.length === 0) {
             return NextResponse.json({
               success: false,
-              error:   'Could not extract text from this PDF. This usually means it is a scanned or image-based PDF. Ask the client to download a fresh digital statement directly from their online banking app or website (not a scan or photo).',
+              error:   'Could not convert this PDF to images for GPT-4o analysis. Try using Claude (which reads PDFs natively without any conversion).',
             }, { status: 422 })
           }
+          console.log(`[VF] Converted ${pdfImages.length} PDF page(s) to PNG`)
+
+          const imgParts: ImgPart[] = pdfImages.map(b64 => ({
+            type:      'image_url',
+            image_url: { url: `data:image/png;base64,${b64}`, detail: 'high' },
+          }))
+
           const oRes = await openai.chat.completions.create({
             model: 'gpt-4o', max_tokens: 6000, temperature: 0,
-            response_format: { type: 'json_object' },
+            // No response_format here — incompatible with vision (image) input
             messages: [
-              { role: 'system', content: systemPrompt.replace(JSON_ONLY, '') + '\n\nReturn only valid JSON.' },
-              { role: 'user', content: userPrompt(`Bank statement text:\n${pdfText.slice(0, 14000)}`) },
+              { role: 'system', content: systemPrompt.replace(JSON_ONLY, '') + '\n\nReturn only valid JSON. No markdown.' },
+              { role: 'user', content: [
+                ...imgParts,
+                { type: 'text', text: `Analyse the bank statement pages shown in the images above.\n\n${userPrompt(`${pdfImages.length} PDF page(s) converted to images for analysis.`)}` } as TxtPart,
+              ]},
             ],
           })
           const pText = oRes.choices[0]?.message?.content ?? '{}'
-          console.log('[VF] Raw GPT-4o response (first 500 chars):', pText.substring(0, 500))
+          console.log('[VF] Raw GPT-4o response (first 500):', pText.substring(0, 500))
           analysis = extractJSON<unknown>(pText)
         }
         aiUsed = 'GPT-4o'
@@ -247,6 +332,7 @@ export async function POST(req: NextRequest) {
       applicationId: appId ?? null,
       analysedAt:    new Date().toISOString(),
       aiUsed,
+      currency:      visaInfo.currency,
     })
   } catch (fatal) {
     const msg = fatal instanceof Error ? fatal.message : String(fatal)
@@ -273,8 +359,9 @@ const EXTRACTION_PROMPT = `Extract all data from this bank statement. Return JSO
   ]
 }`
 
-function buildUserPrompt(applicantName: string, passport: string, visaType: string) {
+function buildUserPrompt(applicantName: string, passport: string, visaType: string, visaInfo: VisaInfo) {
   return (txnContext: string) => `Applicant: ${applicantName} | Passport: ${passport} | Visa applied: ${visaType}
+Target currency: ${visaInfo.currency} (${visaInfo.symbol}) | Requirement: ${visaInfo.requirement}
 Context from extraction: ${txnContext}
 
 Analyse this bank statement and return a JSON object with EXACTLY these fields (replace example values with real analysis):
@@ -282,7 +369,8 @@ Analyse this bank statement and return a JSON object with EXACTLY these fields (
   "summary": {
     "accountHolder": "Full Name",
     "bank": "Bank Name",
-    "currency": "GBP",
+    "currency": "${visaInfo.currency}",
+    "statementCurrency": "NGN",
     "period": "Jan 2024 - Mar 2024",
     "months": 3,
     "openingBalance": 5000.00,
@@ -296,6 +384,8 @@ Analyse this bank statement and return a JSON object with EXACTLY these fields (
     "regularIncomeDetected": true,
     "averageMonthlySalary": 3000.00
   },
+  "meetsRequirement": true,
+  "requirementDetails": "Applicant's average balance of ${visaInfo.symbol}X,XXX meets/does not meet the ${visaInfo.requirement}",
   "approvalScore": 72,
   "scoreGrade": "B",
   "approvalLikelihood": "MEDIUM",
@@ -331,9 +421,11 @@ Analyse this bank statement and return a JSON object with EXACTLY these fields (
 }
 
 Rules:
+- All monetary values must be in ${visaInfo.currency} (convert from statement currency if different, state exchange rate used)
 - scoreGrade must be one of: A B C D F
 - approvalLikelihood must be one of: HIGH MEDIUM LOW VERY_LOW
 - severity in redFlags must be one of: HIGH MEDIUM LOW
 - priority in suggestedActions must be one of: URGENT HIGH MEDIUM LOW
-- balanceTrend must be one of: IMPROVING STABLE DECLINING`
+- balanceTrend must be one of: IMPROVING STABLE DECLINING
+- meetsRequirement: true if the applicant's finances satisfy "${visaInfo.requirement}", false otherwise`
 }
