@@ -365,6 +365,9 @@ export default function PayrollPage() {
   const [editSaving, setEditSaving] = useState(false)
   const [adviceSending, setAdviceSending] = useState<string | null>(null)
 
+  const [deletingId,    setDeletingId]    = useState<string | null>(null)
+  const [confirmDelete, setConfirmDelete] = useState<StaffMember | null>(null)
+
   // Payroll run states
   const [showPayroll,   setShowPayroll]   = useState(false)
   const [dryRun,        setDryRun]        = useState<any>(null)
@@ -635,6 +638,11 @@ export default function PayrollPage() {
                     className="flex items-center gap-1.5 bg-amber-50 hover:bg-amber-100 border border-amber-200 text-[#C9A84C] text-xs font-semibold px-3 py-2 rounded-xl transition-colors flex-shrink-0">
                     <DollarSign className="w-3.5 h-3.5" /> Payslip
                   </button>
+                  <button
+                    onClick={(e) => { e.stopPropagation(); setConfirmDelete(s) }}
+                    className="flex items-center px-3 py-2 rounded-xl border border-red-500/20 text-red-400/60 hover:border-red-500/40 hover:text-red-400 hover:bg-red-500/5 text-xs transition-colors flex-shrink-0">
+                    🗑
+                  </button>
                 </div>
               </div>
             ))}
@@ -849,6 +857,46 @@ export default function PayrollPage() {
                 disabled={editSaving}
                 className="w-full bg-amber-500 hover:bg-amber-400 disabled:opacity-50 text-black font-bold py-3.5 rounded-xl transition">
                 {editSaving ? 'Saving...' : 'Save Changes'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Delete Confirmation Modal ── */}
+      {confirmDelete && (
+        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-[#0B1F3A] rounded-2xl w-full max-w-sm p-7 border border-white/10 shadow-2xl text-center">
+            <p className="text-3xl mb-4">🗑</p>
+            <h3 className="text-white font-bold text-lg mb-2">Remove from Payroll?</h3>
+            <p className="text-white/50 text-sm mb-1">{confirmDelete.name}</p>
+            <p className="text-white/30 text-xs mb-6">
+              This removes them from payroll and deletes their payslip history.
+              Their main staff account remains active.
+            </p>
+            <div className="flex gap-3">
+              <button
+                onClick={async () => {
+                  setDeletingId(confirmDelete.id)
+                  try {
+                    const res = await fetch(`/api/admin/payroll/staff/${confirmDelete.id}`, { method: 'DELETE' })
+                    if (res.ok) {
+                      setStaff(prev => prev.filter(s => s.id !== confirmDelete.id))
+                      setConfirmDelete(null)
+                      showToast(`${confirmDelete.name} removed from payroll`)
+                    } else {
+                      const d = await res.json()
+                      showToast(`Error: ${d.error}`)
+                    }
+                  } catch { showToast('Failed to delete') } finally { setDeletingId(null) }
+                }}
+                disabled={!!deletingId}
+                className="flex-1 bg-red-500 hover:bg-red-400 disabled:opacity-50 text-white font-bold py-3 rounded-xl transition text-sm">
+                {deletingId ? 'Removing…' : 'Yes, Remove'}
+              </button>
+              <button onClick={() => setConfirmDelete(null)}
+                className="flex-1 bg-white/5 hover:bg-white/10 text-white py-3 rounded-xl transition text-sm">
+                Cancel
               </button>
             </div>
           </div>

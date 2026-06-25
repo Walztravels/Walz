@@ -70,3 +70,23 @@ export async function PATCH(
     return NextResponse.json({ error: err.message ?? 'Internal server error' }, { status: 500 })
   }
 }
+
+export async function DELETE(
+  req: NextRequest,
+  { params }: { params: { id: string } }
+) {
+  try {
+    const session = await getAdminSession()
+    if (!session) return NextResponse.json({ error: 'Unauthorised' }, { status: 401 })
+    if (session.role !== 'super_admin') return NextResponse.json({ error: 'Super Admin only' }, { status: 403 })
+
+    // Delete payslips first (FK constraint)
+    await prisma.payslip.deleteMany({ where: { staffMemberId: params.id } })
+    await prisma.staffMember.delete({ where: { id: params.id } })
+
+    return NextResponse.json({ success: true })
+  } catch (err: any) {
+    console.error('[payroll/staff DELETE]', err.message)
+    return NextResponse.json({ error: err.message ?? 'Internal server error' }, { status: 500 })
+  }
+}
