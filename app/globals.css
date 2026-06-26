@@ -386,15 +386,16 @@
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12) !important;
 }
 
-/* Force landscape 16:9 on all embed images */
+/* Force consistent image size on all embed images */
 #soro-blog img,
 #soro-blog [class*="image"],
 #soro-blog [class*="thumbnail"],
 #soro-blog [class*="cover"] {
   width: 100% !important;
-  aspect-ratio: 16 / 9 !important;
+  height: 220px !important;
   object-fit: cover !important;
   object-position: center !important;
+  display: block !important;
 }
 
 #soro-blog h2,
