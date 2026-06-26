@@ -91,11 +91,23 @@ body{font-family:Arial,sans-serif;background:#f5f5f5;margin:0;padding:20px}
       <p class="acct-bank">${bankName}</p>
       <p class="ref">Ref: ${tx_ref}</p>
     </div>
+    ${isPermanent
+      ? `<div style="background:#F0FDF4;border:1px solid #86EFAC;border-radius:10px;padding:12px 16px;margin:16px 0">
+          <p style="color:#166534;font-size:13px;margin:0">
+            ✓ You can transfer <strong>any amount</strong> to this account — it will be credited automatically
+          </p>
+        </div>`
+      : `<div style="background:#FEF2F2;border:2px solid #FCA5A5;border-radius:10px;padding:14px 16px;margin:16px 0;text-align:center">
+          <p style="color:#991B1B;font-weight:700;font-size:13px;margin:0 0 6px">⚠️ Transfer EXACT Amount Only</p>
+          <p style="color:#DC2626;font-size:26px;font-weight:800;margin:0">${amountFmt}</p>
+          <p style="color:#991B1B;font-size:12px;margin:6px 0 0">Any different amount will be automatically reversed</p>
+        </div>`
+    }
     <div class="steps">
       <p>How to pay:</p>
       <ol>
         <li>Open your banking app or visit any bank branch</li>
-        <li>Transfer exactly <strong>${amountFmt}</strong> to the account above</li>
+        <li>Transfer ${isPermanent ? 'the amount owed' : `exactly <strong>${amountFmt}</strong>`} to the account above</li>
         <li>Use reference: <strong>${tx_ref}</strong></li>
         <li>Your booking is confirmed automatically on receipt</li>
       </ol>

@@ -84,7 +84,7 @@ export default function AdminPaymentsPage() {
   const [showPayLink,    setShowPayLink]    = useState(false)
   const [payLinkForm,    setPayLinkForm]    = useState({
     amount: '', currency: 'GBP', description: '', clientName: '', clientEmail: '', clientPhone: '',
-    provider: 'stripe', isPermanent: false, paymentDeadline: '1', bvn: '',
+    provider: 'stripe', isPermanent: true, paymentDeadline: '1', bvn: '',
   })
   const [generatedLink,  setGeneratedLink]  = useState<{
     url?: string; accountNumber?: string; bankName?: string; expiryDate?: string | null;
@@ -446,6 +446,17 @@ export default function AdminPaymentsPage() {
                     : '✓ Cards + Bank Transfer + USSD · NGN / GHS · Best for Africa clients'}
                 </p>
 
+                {/* VA — recommendation tip */}
+                {payLinkForm.provider === 'virtual_account' && (
+                  <div className="bg-blue-500/10 border border-blue-500/20 rounded-xl p-3 mb-4">
+                    <p className="text-blue-400 text-xs font-semibold mb-1">💡 Recommendation</p>
+                    <p className="text-blue-300/70 text-xs leading-relaxed">
+                      Use <strong>Permanent</strong> for client payments. Temporary accounts reject payments
+                      that don&apos;t match the exact amount — even by ₦1.
+                    </p>
+                  </div>
+                )}
+
                 {/* VA — Permanent vs Temporary toggle */}
                 {payLinkForm.provider === 'virtual_account' && (
                   <div className="mb-4">
@@ -498,6 +509,17 @@ export default function AdminPaymentsPage() {
                               .toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
                           </p>
                         )}
+                      </div>
+                    )}
+
+                    {/* Warning for temporary VAs */}
+                    {!payLinkForm.isPermanent && (
+                      <div className="mt-3 bg-red-500/10 border border-red-500/30 rounded-xl p-3">
+                        <p className="text-red-400 text-xs font-bold mb-1">⚠️ Strict Amount Matching</p>
+                        <p className="text-red-300/70 text-xs leading-relaxed">
+                          Client must transfer the <strong>exact amount</strong>. Any difference — even ₦1 — will be
+                          automatically reversed by Flutterwave.
+                        </p>
                       </div>
                     )}
 

@@ -22,8 +22,11 @@ export async function POST(req: NextRequest) {
       paymentDeadline = 1,
     } = await req.json()
 
-    if (!amount || !clientEmail) {
-      return NextResponse.json({ error: 'Amount and client email are required' }, { status: 400 })
+    if (!isPermanent && !amount) {
+      return NextResponse.json({ error: 'Amount is required for temporary virtual accounts' }, { status: 400 })
+    }
+    if (!clientEmail) {
+      return NextResponse.json({ error: 'Client email is required' }, { status: 400 })
     }
     if (!clientName?.trim()) {
       return NextResponse.json({ error: 'Client name is required for virtual accounts' }, { status: 400 })
@@ -48,7 +51,6 @@ export async function POST(req: NextRequest) {
     // Required fields per Flutterwave OpenAPI spec
     const payload: Record<string, unknown> = {
       email:     clientEmail,
-      amount:    Math.round(Number(amount)),
       firstname,
       lastname,
       currency:  cur,
@@ -56,9 +58,17 @@ export async function POST(req: NextRequest) {
       narration: description || `Walz Travels — ${clientName}`,
     }
 
-    if (clientPhone)                        payload.phonenumber  = clientPhone
-    if (isPermanent)                        payload.is_permanent = true
-    if (isPermanent && cur === 'NGN' && bvn) payload.bvn         = bvn
+    if (clientPhone) payload.phonenumber = clientPhone
+
+    if (isPermanent) {
+      // Permanent VAs accept any transfer amount — never set amount
+      payload.is_permanent = true
+      if (cur === 'NGN' && bvn) payload.bvn = bvn
+    } else {
+      // Temporary VAs require exact amount match — send amount as integer
+      payload.amount       = Math.round(Number(amount))
+      payload.is_permanent = false
+    }
 
     console.log('[virtual-account] Creating VA:', { email: clientEmail, amount, currency: cur, isPermanent, tx_ref })
 
