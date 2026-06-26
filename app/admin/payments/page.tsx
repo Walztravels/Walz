@@ -83,9 +83,15 @@ export default function AdminPaymentsPage() {
   // ── Payment link generator ───────────────────────────────────────────────
   const [showPayLink,    setShowPayLink]    = useState(false)
   const [payLinkForm,    setPayLinkForm]    = useState({
-    amount: '', currency: 'GBP', description: '', clientName: '', clientEmail: '', clientPhone: '', provider: 'stripe',
+    amount: '', currency: 'GBP', description: '', clientName: '', clientEmail: '', clientPhone: '',
+    provider: 'stripe', isPermanent: false, paymentDeadline: '1', bvn: '',
   })
-  const [generatedLink,  setGeneratedLink]  = useState<{ url?: string; accountNumber?: string; bankName?: string; expiryDate?: string | null; tx_ref?: string; provider: string; type?: string; amount: string | number; currency: string; description: string } | null>(null)
+  const [generatedLink,  setGeneratedLink]  = useState<{
+    url?: string; accountNumber?: string; bankName?: string; expiryDate?: string | null;
+    isPermanent?: boolean; expiresAt?: string | null; deadlineHours?: number | null;
+    deadlineFormatted?: string | null; tx_ref?: string; provider: string; type?: string;
+    amount: string | number; currency: string; description: string;
+  } | null>(null)
   const [generating,     setGenerating]     = useState(false)
   const [linkSending,    setLinkSending]    = useState(false)
   const [linkSendOk,     setLinkSendOk]     = useState(false)
@@ -440,6 +446,76 @@ export default function AdminPaymentsPage() {
                     : '✓ Cards + Bank Transfer + USSD · NGN / GHS · Best for Africa clients'}
                 </p>
 
+                {/* VA — Permanent vs Temporary toggle */}
+                {payLinkForm.provider === 'virtual_account' && (
+                  <div className="mb-4">
+                    <label className="text-white/50 text-xs uppercase tracking-wider block mb-2">Account Type</label>
+                    <div className="grid grid-cols-2 gap-2">
+                      <button onClick={() => setPayLinkForm(p => ({ ...p, isPermanent: false, paymentDeadline: '1' }))}
+                        className={`py-3 px-4 rounded-xl text-sm font-bold transition border text-left ${
+                          !payLinkForm.isPermanent
+                            ? 'bg-amber-500/20 border-amber-500/50 text-amber-400'
+                            : 'bg-white/5 border-white/10 text-white/50 hover:text-white'}`}>
+                        <p className="font-bold mb-0.5">⏱ Temporary</p>
+                        <p className="text-xs opacity-70 font-normal">Expires after set time</p>
+                      </button>
+                      <button onClick={() => setPayLinkForm(p => ({ ...p, isPermanent: true, paymentDeadline: '' }))}
+                        className={`py-3 px-4 rounded-xl text-sm font-bold transition border text-left ${
+                          payLinkForm.isPermanent
+                            ? 'bg-amber-500/20 border-amber-500/50 text-amber-400'
+                            : 'bg-white/5 border-white/10 text-white/50 hover:text-white'}`}>
+                        <p className="font-bold mb-0.5">♾ Permanent</p>
+                        <p className="text-xs opacity-70 font-normal">Never expires</p>
+                      </button>
+                    </div>
+
+                    {/* Deadline picker — temporary only */}
+                    {!payLinkForm.isPermanent && (
+                      <div className="mt-3">
+                        <label className="text-white/50 text-xs uppercase tracking-wider block mb-1.5">Payment Deadline</label>
+                        <div className="grid grid-cols-4 gap-2 mb-2">
+                          {['1', '2', '6', '24'].map(h => (
+                            <button key={h}
+                              onClick={() => setPayLinkForm(p => ({ ...p, paymentDeadline: h }))}
+                              className={`py-2 rounded-xl text-xs font-bold transition ${
+                                payLinkForm.paymentDeadline === h
+                                  ? 'bg-amber-500 text-black'
+                                  : 'bg-white/5 text-white/50 hover:text-white border border-white/10'}`}>
+                              {h}hr
+                            </button>
+                          ))}
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <input type="number" min="1" max="168" placeholder="Custom hours"
+                            value={!['1','2','6','24'].includes(payLinkForm.paymentDeadline) ? payLinkForm.paymentDeadline : ''}
+                            onChange={e => setPayLinkForm(p => ({ ...p, paymentDeadline: e.target.value }))}
+                            className="flex-1 bg-white/5 border border-white/10 rounded-xl px-3 py-2 text-white text-sm focus:outline-none focus:border-amber-500/50 placeholder:text-white/20" />
+                          <span className="text-white/40 text-sm">hours</span>
+                        </div>
+                        {payLinkForm.paymentDeadline && (
+                          <p className="text-amber-400/70 text-xs mt-1.5">
+                            Deadline: {new Date(Date.now() + Number(payLinkForm.paymentDeadline) * 3600000)
+                              .toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
+                          </p>
+                        )}
+                      </div>
+                    )}
+
+                    {/* BVN — permanent NGN only */}
+                    {payLinkForm.isPermanent && payLinkForm.currency === 'NGN' && (
+                      <div className="mt-3">
+                        <label className="text-white/50 text-xs uppercase tracking-wider block mb-1.5">
+                          Client BVN <span className="text-white/30 normal-case">(required for permanent accounts)</span>
+                        </label>
+                        <input type="text" placeholder="11-digit BVN" maxLength={11} value={payLinkForm.bvn}
+                          onChange={e => setPayLinkForm(p => ({ ...p, bvn: e.target.value }))}
+                          className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white text-sm focus:outline-none focus:border-amber-500/50 placeholder:text-white/20" />
+                        <p className="text-white/30 text-xs mt-1">BVN is required by CBN regulations for permanent virtual accounts</p>
+                      </div>
+                    )}
+                  </div>
+                )}
+
                 {/* Amount + Currency */}
                 <div className="grid grid-cols-3 gap-3 mb-3">
                   <div className="col-span-2">
@@ -565,41 +641,56 @@ export default function AdminPaymentsPage() {
 
                 {generatedLink.accountNumber ? (
                   /* Virtual account result */
-                  <div className="bg-white/5 rounded-xl p-5 mb-4 space-y-3">
-                    <div className="flex justify-between items-center">
-                      <span className="text-white/40 text-sm">Bank</span>
-                      <span className="text-white font-semibold">{generatedLink.bankName}</span>
-                    </div>
-                    <div className="flex justify-between items-center">
-                      <span className="text-white/40 text-sm">Account Number</span>
-                      <span className="text-amber-400 font-mono text-xl font-bold tracking-wider">{generatedLink.accountNumber}</span>
-                    </div>
-                    <div className="flex justify-between items-center">
-                      <span className="text-white/40 text-sm">Amount</span>
-                      <span className="text-white font-semibold">{generatedLink.currency} {Number(generatedLink.amount).toLocaleString()}</span>
-                    </div>
-                    {generatedLink.expiryDate && (
-                      <div className="flex justify-between items-center">
-                        <span className="text-white/40 text-sm">Expires</span>
-                        <span className="text-red-400 text-sm font-medium">{generatedLink.expiryDate}</span>
+                  <>
+                    {/* Deadline / permanent banner */}
+                    {!generatedLink.isPermanent && generatedLink.expiresAt ? (
+                      <div className="bg-red-500/10 border border-red-500/30 rounded-xl px-4 py-3 mb-4">
+                        <p className="text-red-400 text-xs font-bold uppercase tracking-wider mb-1">⏰ Payment Deadline</p>
+                        <p className="text-red-300 font-bold text-sm">
+                          {new Date(generatedLink.expiresAt).toLocaleString('en-GB', {
+                            weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit',
+                          })}
+                        </p>
+                        <p className="text-red-400/60 text-xs mt-0.5">
+                          {generatedLink.deadlineHours} hour{generatedLink.deadlineHours !== 1 ? 's' : ''} to complete payment
+                        </p>
                       </div>
-                    )}
-                    <div>
-                      <p className="text-white/40 text-xs mb-1">Reference</p>
-                      <p className="text-white/60 font-mono text-xs">{generatedLink.tx_ref}</p>
+                    ) : generatedLink.isPermanent ? (
+                      <div className="bg-green-500/10 border border-green-500/20 rounded-xl px-4 py-3 mb-4 text-center">
+                        <p className="text-green-400 text-sm">♾ Permanent account — never expires</p>
+                      </div>
+                    ) : null}
+
+                    <div className="bg-white/5 rounded-xl p-5 mb-4 space-y-3">
+                      <div className="flex justify-between items-center">
+                        <span className="text-white/40 text-sm">Bank</span>
+                        <span className="text-white font-semibold">{generatedLink.bankName}</span>
+                      </div>
+                      <div className="flex justify-between items-center">
+                        <span className="text-white/40 text-sm">Account Number</span>
+                        <span className="text-amber-400 font-mono text-xl font-bold tracking-wider">{generatedLink.accountNumber}</span>
+                      </div>
+                      <div className="flex justify-between items-center">
+                        <span className="text-white/40 text-sm">Amount</span>
+                        <span className="text-white font-semibold">{generatedLink.currency} {Number(generatedLink.amount).toLocaleString()}</span>
+                      </div>
+                      <div>
+                        <p className="text-white/40 text-xs mb-1">Reference</p>
+                        <p className="text-white/60 font-mono text-xs">{generatedLink.tx_ref}</p>
+                      </div>
+                      <button onClick={() => {
+                        const deadlineLine = generatedLink.deadlineFormatted ? `\nDeadline: ${generatedLink.deadlineFormatted}` : ''
+                        navigator.clipboard.writeText(
+                          `Bank: ${generatedLink.bankName}\nAccount Number: ${generatedLink.accountNumber}\nAmount: ${generatedLink.currency} ${Number(generatedLink.amount).toLocaleString()}\nRef: ${generatedLink.tx_ref}${deadlineLine}`
+                        )
+                        setLinkCopied(true)
+                        setTimeout(() => setLinkCopied(false), 2000)
+                      }}
+                        className="w-full bg-white/10 hover:bg-white/20 text-white text-sm font-bold py-2.5 rounded-xl transition">
+                        {linkCopied ? '✓ Copied!' : '📋 Copy Account Details'}
+                      </button>
                     </div>
-                    {!generatedLink.expiryDate && (
-                      <p className="text-amber-400/60 text-xs pt-1">⏱ This account expires in 1 hour — send to client now</p>
-                    )}
-                    <button onClick={() => {
-                      navigator.clipboard.writeText(`Bank: ${generatedLink.bankName}\nAccount Number: ${generatedLink.accountNumber}\nAmount: ${generatedLink.currency} ${Number(generatedLink.amount).toLocaleString()}\nRef: ${generatedLink.tx_ref}`)
-                      setLinkCopied(true)
-                      setTimeout(() => setLinkCopied(false), 2000)
-                    }}
-                      className="w-full bg-white/10 hover:bg-white/20 text-white text-sm font-bold py-2.5 rounded-xl transition">
-                      {linkCopied ? '✓ Copied!' : '📋 Copy Account Details'}
-                    </button>
-                  </div>
+                  </>
                 ) : (
                   /* URL-based result */
                   <div className="bg-white/5 rounded-xl p-4 mb-4">
@@ -612,16 +703,34 @@ export default function AdminPaymentsPage() {
                   </div>
                 )}
 
-                {payLinkForm.clientEmail && !generatedLink.accountNumber && (
+                {payLinkForm.clientEmail && (
                   <div className="mb-4">
                     <button
                       onClick={async () => {
                         setLinkSending(true)
                         try {
+                          const isVA = !!generatedLink.accountNumber
+                          const body = isVA
+                            ? {
+                                clientEmail:       payLinkForm.clientEmail,
+                                clientName:        payLinkForm.clientName,
+                                amount:            generatedLink.amount,
+                                currency:          generatedLink.currency,
+                                description:       generatedLink.description,
+                                isPermanent:       generatedLink.isPermanent,
+                                deadlineFormatted: generatedLink.deadlineFormatted,
+                                deadlineHours:     generatedLink.deadlineHours,
+                                virtualAccount: {
+                                  accountNumber: generatedLink.accountNumber,
+                                  bankName:      generatedLink.bankName,
+                                  tx_ref:        generatedLink.tx_ref,
+                                },
+                              }
+                            : { ...payLinkForm, paymentUrl: generatedLink.url, provider: generatedLink.provider }
                           const res  = await fetch('/api/admin/payment-links/send', {
                             method:  'POST',
                             headers: { 'Content-Type': 'application/json' },
-                            body:    JSON.stringify({ ...payLinkForm, paymentUrl: generatedLink.url, provider: generatedLink.provider }),
+                            body:    JSON.stringify(body),
                           })
                           const data = await res.json()
                           if (data.success) setLinkSendOk(true)
@@ -635,7 +744,11 @@ export default function AdminPaymentsPage() {
                       className={`w-full font-bold py-3.5 rounded-xl transition text-sm ${
                         linkSendOk ? 'bg-emerald-500 text-black' : 'bg-amber-500 hover:bg-amber-400 text-black'
                       }`}>
-                      {linkSending ? '⏳ Sending…' : linkSendOk ? `✓ Sent to ${payLinkForm.clientEmail}` : `📧 Email to ${payLinkForm.clientEmail}`}
+                      {linkSending ? '⏳ Sending…' : linkSendOk
+                        ? `✓ Sent to ${payLinkForm.clientEmail}`
+                        : generatedLink.accountNumber
+                          ? `🏦 Email Bank Details to ${payLinkForm.clientEmail}`
+                          : `📧 Email Payment Link to ${payLinkForm.clientEmail}`}
                     </button>
                   </div>
                 )}

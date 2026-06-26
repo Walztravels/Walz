@@ -12,13 +12,14 @@ export async function POST(req: NextRequest) {
 
     const {
       amount,
-      currency    = 'NGN',
+      currency        = 'NGN',
       description,
       clientEmail,
       clientName,
       clientPhone,
-      isPermanent = false,
+      isPermanent     = false,
       bvn,
+      paymentDeadline = 1,
     } = await req.json()
 
     if (!amount || !clientEmail) {
@@ -32,9 +33,17 @@ export async function POST(req: NextRequest) {
     const firstname = nameParts[0]
     const lastname  = nameParts.slice(1).join(' ') || 'N/A'
 
-    const tx_ref  = `WALZ-VA-${Date.now()}-${Math.random().toString(36).substring(2, 7).toUpperCase()}`
-    const FLW_KEY = getFLWKey()
-    const cur     = currency === 'GHS' ? 'GHS' : 'NGN'
+    const tx_ref       = `WALZ-VA-${Date.now()}-${Math.random().toString(36).substring(2, 7).toUpperCase()}`
+    const FLW_KEY      = getFLWKey()
+    const cur          = currency === 'GHS' ? 'GHS' : 'NGN'
+    const deadlineHours = isPermanent ? null : (Number(paymentDeadline) || 1)
+    const expiresAt     = isPermanent ? null : new Date(Date.now() + (deadlineHours as number) * 3_600_000)
+    const deadlineFormatted = expiresAt
+      ? expiresAt.toLocaleString('en-GB', {
+          weekday: 'short', day: 'numeric', month: 'short', year: 'numeric',
+          hour: '2-digit', minute: '2-digit', timeZone: 'Africa/Lagos',
+        }) + ' (WAT)'
+      : null
 
     // Required fields per Flutterwave OpenAPI spec
     const payload: Record<string, unknown> = {
@@ -80,7 +89,7 @@ export async function POST(req: NextRequest) {
             description:   description || '',
             type:          'virtual_account',
             status:        'pending',
-            expiresAt:     isPermanent ? null : new Date(Date.now() + 60 * 60 * 1000),
+            expiresAt,
           },
         })
       } catch (dbErr: any) {
@@ -99,6 +108,9 @@ export async function POST(req: NextRequest) {
         description:   description || '',
         tx_ref,
         isPermanent,
+        expiresAt:         expiresAt?.toISOString() ?? null,
+        deadlineHours,
+        deadlineFormatted,
       })
     }
 
