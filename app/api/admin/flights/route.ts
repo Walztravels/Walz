@@ -27,8 +27,13 @@ export async function GET() {
   if (!(await getAdminSession())) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
-  const deals = await prisma.featuredDeal.findMany({ orderBy: { order: 'asc' } })
-  return NextResponse.json(deals)
+  try {
+    const deals = await prisma.featuredDeal.findMany({ orderBy: { order: 'asc' } })
+    return NextResponse.json(deals)
+  } catch (err) {
+    console.error('[flights GET]', err)
+    return NextResponse.json({ error: 'Failed to load deals' }, { status: 500 })
+  }
 }
 
 export async function POST(req: NextRequest) {
@@ -40,10 +45,15 @@ export async function POST(req: NextRequest) {
   if (!parsed.success) {
     return NextResponse.json({ error: 'Invalid data', details: parsed.error.flatten() }, { status: 400 })
   }
-  const deal = await prisma.featuredDeal.create({ data: parsed.data })
-  revalidatePath('/flights')
-  revalidatePath('/')
-  return NextResponse.json(deal, { status: 201 })
+  try {
+    const deal = await prisma.featuredDeal.create({ data: parsed.data })
+    revalidatePath('/flights')
+    revalidatePath('/')
+    return NextResponse.json(deal, { status: 201 })
+  } catch (err) {
+    console.error('[flights POST]', err)
+    return NextResponse.json({ error: 'Failed to create deal' }, { status: 500 })
+  }
 }
 
 export async function PUT(req: NextRequest) {
@@ -57,10 +67,15 @@ export async function PUT(req: NextRequest) {
   if (!parsed.success) {
     return NextResponse.json({ error: 'Invalid data' }, { status: 400 })
   }
-  const deal = await prisma.featuredDeal.update({ where: { id }, data: parsed.data })
-  revalidatePath('/flights')
-  revalidatePath('/')
-  return NextResponse.json(deal)
+  try {
+    const deal = await prisma.featuredDeal.update({ where: { id }, data: parsed.data })
+    revalidatePath('/flights')
+    revalidatePath('/')
+    return NextResponse.json(deal)
+  } catch (err) {
+    console.error('[flights PUT]', err)
+    return NextResponse.json({ error: 'Failed to update deal' }, { status: 500 })
+  }
 }
 
 export async function DELETE(req: NextRequest) {
@@ -69,8 +84,13 @@ export async function DELETE(req: NextRequest) {
   }
   const { id } = await req.json().catch(() => ({}))
   if (!id) return NextResponse.json({ error: 'id required' }, { status: 400 })
-  await prisma.featuredDeal.delete({ where: { id } })
-  revalidatePath('/flights')
-  revalidatePath('/')
-  return NextResponse.json({ success: true })
+  try {
+    await prisma.featuredDeal.delete({ where: { id } })
+    revalidatePath('/flights')
+    revalidatePath('/')
+    return NextResponse.json({ success: true })
+  } catch (err) {
+    console.error('[flights DELETE]', err)
+    return NextResponse.json({ error: 'Failed to delete deal' }, { status: 500 })
+  }
 }

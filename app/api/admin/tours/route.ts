@@ -23,11 +23,16 @@ export async function GET() {
   if (!(await getAdminSession())) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
-  const tours = await prisma.tourListing.findMany({
-    where: { type: 'tour' },
-    orderBy: { order: 'asc' },
-  })
-  return NextResponse.json(tours)
+  try {
+    const tours = await prisma.tourListing.findMany({
+      where: { type: 'tour' },
+      orderBy: { order: 'asc' },
+    })
+    return NextResponse.json(tours)
+  } catch (err) {
+    console.error('[tours GET]', err)
+    return NextResponse.json({ error: 'Failed to load tours' }, { status: 500 })
+  }
 }
 
 export async function POST(req: NextRequest) {
@@ -39,13 +44,17 @@ export async function POST(req: NextRequest) {
   if (!parsed.success) {
     return NextResponse.json({ error: 'Invalid data', details: parsed.error.flatten() }, { status: 400 })
   }
-  // Auto-generate slug if not unique
-  const data = parsed.data
-  const tour = await prisma.tourListing.create({ data: { ...data, type: 'tour' } })
-  revalidatePath('/')
-  revalidatePath('/tours')
-  revalidatePath(`/tours/${tour.slug}`)
-  return NextResponse.json(tour, { status: 201 })
+  try {
+    const data = parsed.data
+    const tour = await prisma.tourListing.create({ data: { ...data, type: 'tour' } })
+    revalidatePath('/')
+    revalidatePath('/tours')
+    revalidatePath(`/tours/${tour.slug}`)
+    return NextResponse.json(tour, { status: 201 })
+  } catch (err) {
+    console.error('[tours POST]', err)
+    return NextResponse.json({ error: 'Failed to create tour' }, { status: 500 })
+  }
 }
 
 export async function PUT(req: NextRequest) {
@@ -59,11 +68,16 @@ export async function PUT(req: NextRequest) {
   if (!parsed.success) {
     return NextResponse.json({ error: 'Invalid data' }, { status: 400 })
   }
-  const tour = await prisma.tourListing.update({ where: { id }, data: parsed.data })
-  revalidatePath('/')
-  revalidatePath('/tours')
-  revalidatePath(`/tours/${tour.slug}`)
-  return NextResponse.json(tour)
+  try {
+    const tour = await prisma.tourListing.update({ where: { id }, data: parsed.data })
+    revalidatePath('/')
+    revalidatePath('/tours')
+    revalidatePath(`/tours/${tour.slug}`)
+    return NextResponse.json(tour)
+  } catch (err) {
+    console.error('[tours PUT]', err)
+    return NextResponse.json({ error: 'Failed to update tour' }, { status: 500 })
+  }
 }
 
 export async function DELETE(req: NextRequest) {
@@ -72,8 +86,13 @@ export async function DELETE(req: NextRequest) {
   }
   const { id } = await req.json().catch(() => ({}))
   if (!id) return NextResponse.json({ error: 'id required' }, { status: 400 })
-  await prisma.tourListing.delete({ where: { id } })
-  revalidatePath('/')
-  revalidatePath('/tours')
-  return NextResponse.json({ success: true })
+  try {
+    await prisma.tourListing.delete({ where: { id } })
+    revalidatePath('/')
+    revalidatePath('/tours')
+    return NextResponse.json({ success: true })
+  } catch (err) {
+    console.error('[tours DELETE]', err)
+    return NextResponse.json({ error: 'Failed to delete tour' }, { status: 500 })
+  }
 }

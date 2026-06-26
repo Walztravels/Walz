@@ -30,32 +30,37 @@ export async function GET(req: NextRequest) {
       }
     : {}
 
-  const [users, total] = await Promise.all([
-    prisma.user.findMany({
-      where,
-      orderBy: { createdAt: 'desc' },
-      skip: (page - 1) * limit,
-      take: limit,
-      select: {
-        id: true,
-        name: true,
-        email: true,
-        createdAt: true,
-        _count: { select: { bookings: true } },
-        portalApplications: {
-          orderBy: { createdAt: 'desc' },
-          include: {
-            documents: { select: { id: true, status: true } },
-            payments:  { select: { id: true, amount: true, status: true } },
-            checklist: { select: { id: true, completedAt: true } },
+  try {
+    const [users, total] = await Promise.all([
+      prisma.user.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        skip: (page - 1) * limit,
+        take: limit,
+        select: {
+          id: true,
+          name: true,
+          email: true,
+          createdAt: true,
+          _count: { select: { bookings: true } },
+          portalApplications: {
+            orderBy: { createdAt: 'desc' },
+            include: {
+              documents: { select: { id: true, status: true } },
+              payments:  { select: { id: true, amount: true, status: true } },
+              checklist: { select: { id: true, completedAt: true } },
+            },
           },
         },
-      },
-    }),
-    prisma.user.count({ where }),
-  ])
+      }),
+      prisma.user.count({ where }),
+    ])
 
-  return NextResponse.json({ clients: users, total, page, limit })
+    return NextResponse.json({ clients: users, total, page, limit })
+  } catch (err) {
+    console.error('[clients GET]', err)
+    return NextResponse.json({ error: 'Failed to load clients' }, { status: 500 })
+  }
 }
 
 // ── POST /api/admin/clients — create new client (admin-initiated) ──────────
@@ -77,6 +82,7 @@ export async function POST(req: NextRequest) {
 
   const normalised = email.toLowerCase().trim()
 
+  try {
   // Check for duplicate
   const existing = await prisma.user.findUnique({ where: { email: normalised } })
   if (existing) {
@@ -205,4 +211,8 @@ export async function POST(req: NextRequest) {
   }
 
   return NextResponse.json({ user, portalApplication: portalApp, tempPassword: sendPortalLink ? undefined : tempPassword }, { status: 201 })
+  } catch (err) {
+    console.error('[clients POST]', err)
+    return NextResponse.json({ error: 'Failed to create client' }, { status: 500 })
+  }
 }

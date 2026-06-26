@@ -11,7 +11,8 @@
     "db:migrate": "prisma migrate dev",
     "db:seed": "ts-node --project tsconfig.json prisma/seed.ts",
     "db:studio": "prisma studio",
-    "seed": "npx prisma db seed"
+    "seed": "npx prisma db seed",
+    "schema:check": "ts-node --project tsconfig.json scripts/check-schema-sync.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.98.0",
