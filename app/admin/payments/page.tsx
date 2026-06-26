@@ -85,7 +85,7 @@ export default function AdminPaymentsPage() {
   const [payLinkForm,    setPayLinkForm]    = useState({
     amount: '', currency: 'GBP', description: '', clientName: '', clientEmail: '', provider: 'stripe',
   })
-  const [generatedLink,  setGeneratedLink]  = useState<{ url: string; provider: string; amount: string | number; currency: string; description: string } | null>(null)
+  const [generatedLink,  setGeneratedLink]  = useState<{ url?: string; account_number?: string; bank_name?: string; tx_ref?: string; provider: string; type?: string; amount: string | number; currency: string; description: string } | null>(null)
   const [generating,     setGenerating]     = useState(false)
   const [linkSending,    setLinkSending]    = useState(false)
   const [linkSendOk,     setLinkSendOk]     = useState(false)
@@ -416,7 +416,11 @@ export default function AdminPaymentsPage() {
               <>
                 {/* Provider toggle */}
                 <div className="flex gap-1 mb-4 bg-white/5 p-1 rounded-xl">
-                  {(['stripe', 'flutterwave'] as const).map(p => (
+                  {([
+                    { id: 'stripe',          label: '💳 Stripe'        },
+                    { id: 'flutterwave',     label: '🌍 Flutterwave'   },
+                    { id: 'virtual_account', label: '🏦 Bank Transfer' },
+                  ] as { id: 'stripe' | 'flutterwave' | 'virtual_account'; label: string }[]).map(({ id: p, label }) => (
                     <button key={p} onClick={() => setPayLinkForm(prev => ({
                       ...prev, provider: p,
                       currency: p === 'stripe' ? 'GBP' : 'NGN',
@@ -424,13 +428,15 @@ export default function AdminPaymentsPage() {
                       className={`flex-1 py-2 rounded-lg text-sm font-bold transition ${
                         payLinkForm.provider === p ? 'bg-amber-500 text-black' : 'text-white/50 hover:text-white'
                       }`}>
-                      {p === 'stripe' ? '💳 Stripe' : '🌍 Flutterwave'}
+                      {label}
                     </button>
                   ))}
                 </div>
                 <p className="text-white/30 text-xs mb-4">
                   {payLinkForm.provider === 'stripe'
                     ? '✓ Cards worldwide · GBP / USD / EUR · Best for UK & EU clients'
+                    : payLinkForm.provider === 'virtual_account'
+                    ? '✓ NGN only · Client sends bank transfer to a dedicated account · Expires in 1 hour'
                     : '✓ Cards + Bank Transfer + USSD · NGN / GHS · Best for Africa clients'}
                 </p>
 
@@ -446,10 +452,11 @@ export default function AdminPaymentsPage() {
                     <label className="text-white/50 text-xs uppercase tracking-wider block mb-1.5">Currency</label>
                     <select value={payLinkForm.currency}
                       onChange={e => setPayLinkForm(p => ({ ...p, currency: e.target.value }))}
-                      className="w-full bg-[#0d1e35] border border-white/10 rounded-xl px-3 py-3 text-white focus:outline-none focus:border-amber-500/50">
+                      disabled={payLinkForm.provider === 'virtual_account'}
+                      className="w-full bg-[#0d1e35] border border-white/10 rounded-xl px-3 py-3 text-white focus:outline-none focus:border-amber-500/50 disabled:opacity-50">
                       {payLinkForm.provider === 'stripe'
                         ? <><option value="GBP">GBP</option><option value="USD">USD</option><option value="EUR">EUR</option><option value="CAD">CAD</option></>
-                        : <><option value="NGN">NGN</option><option value="GHS">GHS</option><option value="USD">USD</option><option value="KES">KES</option></>
+                        : <><option value="NGN">NGN</option>{payLinkForm.provider !== 'virtual_account' && <><option value="GHS">GHS</option><option value="USD">USD</option><option value="KES">KES</option></>}</>
                       }
                     </select>
                   </div>
@@ -505,7 +512,10 @@ export default function AdminPaymentsPage() {
                     setGenerating(true)
                     setLinkError('')
                     try {
-                      const res  = await fetch(`/api/admin/payment-links/${payLinkForm.provider}`, {
+                      const endpoint = payLinkForm.provider === 'virtual_account'
+                        ? '/api/admin/payment-links/virtual-account'
+                        : `/api/admin/payment-links/${payLinkForm.provider}`
+                      const res  = await fetch(endpoint, {
                         method:  'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body:    JSON.stringify(payLinkForm),
@@ -528,22 +538,52 @@ export default function AdminPaymentsPage() {
               <>
                 <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-xl p-5 mb-5 text-center">
                   <p className="text-emerald-400 text-2xl mb-1">✓</p>
-                  <p className="text-white font-bold text-lg">Payment Link Ready</p>
+                  <p className="text-white font-bold text-lg">
+                    {generatedLink.account_number ? 'Bank Account Ready' : 'Payment Link Ready'}
+                  </p>
                   <p className="text-white/50 text-sm mt-1">
                     {generatedLink.currency} {Number(generatedLink.amount).toLocaleString()} · {generatedLink.description}
                   </p>
                 </div>
 
-                <div className="bg-white/5 rounded-xl p-4 mb-4">
-                  <p className="text-white/40 text-xs uppercase tracking-wider mb-2">Payment URL</p>
-                  <p className="text-amber-400 text-sm break-all mb-3 leading-relaxed">{generatedLink.url}</p>
-                  <button onClick={() => { navigator.clipboard.writeText(generatedLink.url); setLinkCopied(true); setTimeout(() => setLinkCopied(false), 2000) }}
-                    className="w-full bg-white/10 hover:bg-white/20 text-white text-sm font-bold py-2.5 rounded-xl transition">
-                    {linkCopied ? '✓ Copied!' : '📋 Copy Link'}
-                  </button>
-                </div>
+                {generatedLink.account_number ? (
+                  /* Virtual account result */
+                  <div className="bg-white/5 rounded-xl p-5 mb-4 space-y-3">
+                    <div>
+                      <p className="text-white/40 text-xs uppercase tracking-wider mb-1">Account Number</p>
+                      <p className="text-amber-400 font-mono text-2xl font-bold">{generatedLink.account_number}</p>
+                    </div>
+                    <div>
+                      <p className="text-white/40 text-xs uppercase tracking-wider mb-1">Bank</p>
+                      <p className="text-white font-semibold">{generatedLink.bank_name}</p>
+                    </div>
+                    <div>
+                      <p className="text-white/40 text-xs uppercase tracking-wider mb-1">Reference</p>
+                      <p className="text-white/60 font-mono text-xs">{generatedLink.tx_ref}</p>
+                    </div>
+                    <p className="text-amber-400/60 text-xs pt-1">⏱ This account expires in 1 hour — send to client now</p>
+                    <button onClick={() => {
+                      navigator.clipboard.writeText(`Account: ${generatedLink.account_number}\nBank: ${generatedLink.bank_name}\nRef: ${generatedLink.tx_ref}`)
+                      setLinkCopied(true)
+                      setTimeout(() => setLinkCopied(false), 2000)
+                    }}
+                      className="w-full bg-white/10 hover:bg-white/20 text-white text-sm font-bold py-2.5 rounded-xl transition">
+                      {linkCopied ? '✓ Copied!' : '📋 Copy Account Details'}
+                    </button>
+                  </div>
+                ) : (
+                  /* URL-based result */
+                  <div className="bg-white/5 rounded-xl p-4 mb-4">
+                    <p className="text-white/40 text-xs uppercase tracking-wider mb-2">Payment URL</p>
+                    <p className="text-amber-400 text-sm break-all mb-3 leading-relaxed">{generatedLink.url}</p>
+                    <button onClick={() => { navigator.clipboard.writeText(generatedLink.url ?? ''); setLinkCopied(true); setTimeout(() => setLinkCopied(false), 2000) }}
+                      className="w-full bg-white/10 hover:bg-white/20 text-white text-sm font-bold py-2.5 rounded-xl transition">
+                      {linkCopied ? '✓ Copied!' : '📋 Copy Link'}
+                    </button>
+                  </div>
+                )}
 
-                {payLinkForm.clientEmail && (
+                {payLinkForm.clientEmail && !generatedLink.account_number && (
                   <div className="mb-4">
                     <button
                       onClick={async () => {
@@ -574,10 +614,12 @@ export default function AdminPaymentsPage() {
                 {linkError && <p className="text-red-400 text-xs mb-3">{linkError}</p>}
 
                 <div className="flex gap-3">
-                  <a href={generatedLink.url} target="_blank" rel="noopener noreferrer"
-                    className="flex-1 bg-white/5 hover:bg-white/10 text-white text-sm font-bold py-3 rounded-xl transition text-center">
-                    👁 Preview
-                  </a>
+                  {generatedLink.url && (
+                    <a href={generatedLink.url} target="_blank" rel="noopener noreferrer"
+                      className="flex-1 bg-white/5 hover:bg-white/10 text-white text-sm font-bold py-3 rounded-xl transition text-center">
+                      👁 Preview
+                    </a>
+                  )}
                   <button onClick={() => { setGeneratedLink(null); setLinkSendOk(false); setLinkCopied(false); setLinkError('') }}
                     className="flex-1 bg-white/5 hover:bg-white/10 text-white text-sm py-3 rounded-xl transition">
                     + New Link
