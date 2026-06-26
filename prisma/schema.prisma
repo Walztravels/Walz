@@ -2339,6 +2339,35 @@ model HomepageContent {
   updatedAt DateTime @default(now()) @db.Timestamptz
 }
 
+// PaymentLink — created via Supabase SQL editor.
+// NEVER run prisma db push for this model.
+// SQL: See scripts/check-schema-sync.ts or run the CREATE TABLE block from the payment-links spec.
+model PaymentLink {
+  id            String    @id @default(cuid())
+  txRef         String    @unique
+  accountNumber String?
+  bankName      String?
+  paymentUrl    String?
+  amount        Decimal?  @db.Decimal(10, 2)
+  currency      String    @default("NGN")
+  clientName    String?
+  clientEmail   String?
+  description   String?
+  type          String    @default("stripe")   // stripe | flutterwave | virtual_account
+  status        String    @default("pending")  // pending | paid | expired | failed
+  provider      String?
+  paidAt        DateTime?
+  payerName     String?
+  payerBank     String?
+  expiresAt     DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@index([txRef])
+  @@index([status])
+  @@index([clientEmail])
+}
+
 // Created via Supabase SQL editor + managed by npx prisma generate.
 // NEVER run prisma db push for this model.
 model HotelDestination {
