@@ -233,7 +233,7 @@ export const ROLE_PERMISSIONS: Record<AdminRole, Permission[]> = {
     'leads', 'leads.all',
     'bookings', 'bookings.create', 'bookings.all',
     'flights', 'hotels', 'visa', 'visa.approve', 'visa.documents',
-    'tours', 'transfers', 'reports', 'approvals', 'blog', 'documents',
+    'tours', 'transfers', 'payments', 'reports', 'approvals', 'blog', 'documents',
     'intelligence',
     'intelligence.doc_centre', 'intelligence.letters', 'intelligence.tickets',
     'intelligence.cris', 'intelligence.revenue',
@@ -250,6 +250,26 @@ export const ROLE_PERMISSIONS: Record<AdminRole, Permission[]> = {
 
 // ─── hasPermission ─────────────────────────────────────────────────────────────
 
+/**
+ * Maps coarse sidebar Permission strings → fine-grained RBAC keys.
+ * Allows a Role Manager grant (e.g. payments_view: true) to also unlock the
+ * corresponding sidebar section ('payments'), bridging the two permission systems.
+ */
+const PERMISSION_TO_RBAC: Partial<Record<Permission, string[]>> = {
+  payments:         ['payments_view'],
+  'payments.all':   ['payments_view_all'],
+  'payments.refund':['payments_refund'],
+  reports:          ['reports_view'],
+  'reports.all':    ['reports_all'],
+  payroll:          ['payroll'],
+  commissions:      ['commissions'],
+  staff:            ['staff_view'],
+  'staff.create':   ['staff_create'],
+  'staff.edit':     ['staff_edit'],
+  'staff.delete':   ['staff_delete'],
+  settings:         ['settings_view'],
+}
+
 export function hasPermission(
   staff: { role: string; permissions: unknown },
   permission: Permission,
@@ -263,10 +283,17 @@ export function hasPermission(
     typeof staff.permissions === 'object' && staff.permissions !== null
       ? staff.permissions
       : {}
-  ) as Record<string, boolean>
+  ) as Record<string, unknown>
 
+  // Direct override (coarse key stored on individual staff)
   if (overrides[permission] === true)  return true
   if (overrides[permission] === false) return false
+
+  // Bridge: if a fine-grained RBAC key was granted (via Role Manager JSONB),
+  // treat the corresponding coarse sidebar permission as granted too.
+  const rbacKeys = PERMISSION_TO_RBAC[permission]
+  if (rbacKeys?.some(k => overrides[k] === true)) return true
+
   return rolePerms.includes(permission)
 }
 

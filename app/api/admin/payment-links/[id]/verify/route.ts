@@ -12,6 +12,9 @@ export async function POST(
   try {
     const session = await getAdminSession()
     if (!session) return NextResponse.json({ error: 'Unauthorised' }, { status: 401 })
+    if (!session.permissions?.payments_create && !session.permissions?.payments_edit && session.role !== 'super_admin') {
+      return NextResponse.json({ error: 'Permission denied', required: 'payments_create' }, { status: 403 })
+    }
 
     const link = await prisma.paymentLink.findUnique({ where: { id: params.id } })
     if (!link) return NextResponse.json({ error: 'Not found' }, { status: 404 })

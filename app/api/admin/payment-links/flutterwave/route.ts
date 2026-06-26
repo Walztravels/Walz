@@ -10,6 +10,9 @@ export async function POST(req: NextRequest) {
   try {
     const session = await getAdminSession()
     if (!session) return NextResponse.json({ error: 'Unauthorised' }, { status: 401 })
+    if (!session.permissions?.payments_create && session.role !== 'super_admin') {
+      return NextResponse.json({ error: 'Permission denied — payments_create required', required: 'payments_create' }, { status: 403 })
+    }
 
     const { amount, currency, description, clientEmail, clientName } = await req.json()
 

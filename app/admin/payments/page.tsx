@@ -7,6 +7,7 @@ import {
   Loader2, CreditCard, Building2, DollarSign, Clock, Link2,
 } from 'lucide-react'
 import { VISA_CONFIGS } from '@/lib/visa-config'
+import { useStaffPermissions } from '@/hooks/useStaffPermissions'
 
 interface PaymentApp {
   id: string
@@ -72,6 +73,7 @@ function fmt(amount: string | null, currency: string) {
 }
 
 export default function AdminPaymentsPage() {
+  const { can } = useStaffPermissions()
   const [apps, setApps] = useState<PaymentApp[]>([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
@@ -183,10 +185,12 @@ export default function AdminPaymentsPage() {
           <p className="text-sm text-gray-400 mt-0.5">Track service fees and government fees across all visa applications</p>
         </div>
         <div className="flex items-center gap-3">
-          <button onClick={() => { setShowPayLink(true); setGeneratedLink(null); setLinkSendOk(false); setLinkError('') }}
-            className="flex items-center gap-2 px-5 py-2.5 bg-amber-500 hover:bg-amber-400 text-black font-bold rounded-xl text-sm transition">
-            🔗 Generate Payment Link
-          </button>
+          {can('payments_create') && (
+            <button onClick={() => { setShowPayLink(true); setGeneratedLink(null); setLinkSendOk(false); setLinkError('') }}
+              className="flex items-center gap-2 px-5 py-2.5 bg-amber-500 hover:bg-amber-400 text-black font-bold rounded-xl text-sm transition">
+              🔗 Generate Payment Link
+            </button>
+          )}
           <button onClick={load} disabled={loading}
             className="flex items-center gap-2 px-4 py-2 bg-white border border-gray-200 rounded-xl text-sm font-semibold text-gray-600 hover:border-[#C9A84C] transition-colors disabled:opacity-50">
             <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
