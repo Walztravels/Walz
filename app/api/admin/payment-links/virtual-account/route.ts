@@ -16,89 +16,98 @@ export async function POST(req: NextRequest) {
       description,
       clientEmail,
       clientName,
+      clientPhone,
       isPermanent = false,
       bvn,
     } = await req.json()
 
-    if (!clientEmail) {
-      return NextResponse.json({ error: 'clientEmail is required' }, { status: 400 })
+    if (!amount || !clientEmail) {
+      return NextResponse.json({ error: 'Amount and client email are required' }, { status: 400 })
     }
-    if (!isPermanent && !amount) {
-      return NextResponse.json({ error: 'amount is required for dynamic virtual accounts' }, { status: 400 })
+    if (!clientName?.trim()) {
+      return NextResponse.json({ error: 'Client name is required for virtual accounts' }, { status: 400 })
     }
-    if (isPermanent && currency === 'NGN' && !bvn) {
-      return NextResponse.json({ error: 'bvn is required for permanent NGN virtual accounts' }, { status: 400 })
-    }
+
+    const nameParts = (clientName as string).trim().split(' ')
+    const firstname = nameParts[0]
+    const lastname  = nameParts.slice(1).join(' ') || 'N/A'
 
     const tx_ref  = `WALZ-VA-${Date.now()}-${Math.random().toString(36).substring(2, 7).toUpperCase()}`
     const FLW_KEY = getFLWKey()
+    const cur     = currency === 'GHS' ? 'GHS' : 'NGN'
 
-    const flwPayload: Record<string, unknown> = {
-      email:        clientEmail,
+    // Required fields per Flutterwave OpenAPI spec
+    const payload: Record<string, unknown> = {
+      email:     clientEmail,
+      amount:    Math.round(Number(amount)),
+      firstname,
+      lastname,
+      currency:  cur,
       tx_ref,
-      currency,
-      is_permanent: isPermanent,
-      narration:    description || 'Payment to Walz Travels',
+      narration: description || `Walz Travels — ${clientName}`,
     }
 
-    // Dynamic VA: include amount (expires 1 hr on Flutterwave side)
-    if (!isPermanent && amount) flwPayload.amount = Number(amount)
+    if (clientPhone)                        payload.phonenumber  = clientPhone
+    if (isPermanent)                        payload.is_permanent = true
+    if (isPermanent && cur === 'NGN' && bvn) payload.bvn         = bvn
 
-    // Static/permanent NGN VA: BVN required
-    if (isPermanent && currency === 'NGN' && bvn) flwPayload.bvn = bvn
+    console.log('[virtual-account] Creating VA:', { email: clientEmail, amount, currency: cur, isPermanent, tx_ref })
 
     const res  = await fetch('https://api.flutterwave.com/v3/virtual-account-numbers', {
       method:  'POST',
       headers: { Authorization: `Bearer ${FLW_KEY}`, 'Content-Type': 'application/json' },
-      body:    JSON.stringify(flwPayload),
+      body:    JSON.stringify(payload),
     })
     const data = await res.json()
 
-    if (data.status !== 'success') {
-      console.error('[virtual-account] FLW error:', data.message)
-      return NextResponse.json({ error: data.message || 'Failed to create virtual account' }, { status: 400 })
-    }
-
-    const { account_number, bank_name, flw_ref, order_ref } = data.data
-
-    // Store in DB for webhook reconciliation (fail silently — PaymentLink table may not exist yet)
-    try {
-      await prisma.paymentLink.create({
-        data: {
-          txRef:         tx_ref,
-          accountNumber: account_number,
-          bankName:      bank_name,
-          amount:        amount ? Number(amount) : null,
-          currency,
-          clientEmail:   clientEmail || '',
-          clientName:    clientName  || '',
-          description:   description || '',
-          type:          'virtual_account',
-          status:        'pending',
-          expiresAt:     isPermanent ? null : new Date(Date.now() + 60 * 60 * 1000),
-        },
-      })
-    } catch (dbErr: any) {
-      console.warn('[virtual-account] DB store skipped (table may not exist yet):', dbErr.message)
-    }
-
-    return NextResponse.json({
-      success:      true,
-      provider:     'flutterwave',
-      type:         'virtual_account',
-      account_number,
-      bank_name,
-      amount:       isPermanent ? null : Number(amount),
-      currency,
-      tx_ref,
-      flw_ref,
-      order_ref,
-      description,
-      expires_at:   isPermanent ? null : new Date(Date.now() + 60 * 60 * 1000).toISOString(),
-      is_permanent: isPermanent,
+    console.log('[virtual-account] FLW response:', {
+      status:        data.status,
+      message:       data.message,
+      accountNumber: data.data?.account_number,
     })
+
+    if (data.status === 'success' && data.data?.account_number) {
+      try {
+        await prisma.paymentLink.create({
+          data: {
+            txRef:         tx_ref,
+            accountNumber: data.data.account_number,
+            bankName:      data.data.bank_name,
+            amount:        Number(amount),
+            currency:      cur,
+            clientEmail,
+            clientName:    clientName || '',
+            description:   description || '',
+            type:          'virtual_account',
+            status:        'pending',
+            expiresAt:     isPermanent ? null : new Date(Date.now() + 60 * 60 * 1000),
+          },
+        })
+      } catch (dbErr: any) {
+        console.warn('[virtual-account] DB save skipped:', dbErr.message)
+      }
+
+      return NextResponse.json({
+        success:       true,
+        provider:      'flutterwave_va',
+        accountNumber: data.data.account_number,
+        bankName:      data.data.bank_name,
+        expiryDate:    data.data.expiry_date ?? null,
+        flwRef:        data.data.flw_ref,
+        amount:        Number(amount),
+        currency:      cur,
+        description:   description || '',
+        tx_ref,
+        isPermanent,
+      })
+    }
+
+    return NextResponse.json(
+      { error: data.message || 'Failed to create virtual account', details: data },
+      { status: 400 }
+    )
   } catch (err: any) {
-    console.error('[virtual-account]', err.message)
+    console.error('[virtual-account] ERROR:', err.message)
     return NextResponse.json({ error: err.message }, { status: 500 })
   }
 }

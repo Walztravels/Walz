@@ -83,9 +83,9 @@ export default function AdminPaymentsPage() {
   // ── Payment link generator ───────────────────────────────────────────────
   const [showPayLink,    setShowPayLink]    = useState(false)
   const [payLinkForm,    setPayLinkForm]    = useState({
-    amount: '', currency: 'GBP', description: '', clientName: '', clientEmail: '', provider: 'stripe',
+    amount: '', currency: 'GBP', description: '', clientName: '', clientEmail: '', clientPhone: '', provider: 'stripe',
   })
-  const [generatedLink,  setGeneratedLink]  = useState<{ url?: string; account_number?: string; bank_name?: string; tx_ref?: string; provider: string; type?: string; amount: string | number; currency: string; description: string } | null>(null)
+  const [generatedLink,  setGeneratedLink]  = useState<{ url?: string; accountNumber?: string; bankName?: string; expiryDate?: string | null; tx_ref?: string; provider: string; type?: string; amount: string | number; currency: string; description: string } | null>(null)
   const [generating,     setGenerating]     = useState(false)
   const [linkSending,    setLinkSending]    = useState(false)
   const [linkSendOk,     setLinkSendOk]     = useState(false)
@@ -489,10 +489,14 @@ export default function AdminPaymentsPage() {
                 </div>
 
                 {/* Client details */}
-                <div className="grid grid-cols-2 gap-3 mb-5">
+                <div className="grid grid-cols-2 gap-3 mb-3">
                   <div>
-                    <label className="text-white/50 text-xs uppercase tracking-wider block mb-1.5">Client Name</label>
-                    <input type="text" placeholder="Optional" value={payLinkForm.clientName}
+                    <label className="text-white/50 text-xs uppercase tracking-wider block mb-1.5">
+                      Client Name {payLinkForm.provider === 'virtual_account' && <span className="text-red-400">*</span>}
+                    </label>
+                    <input type="text"
+                      placeholder={payLinkForm.provider === 'virtual_account' ? 'Required' : 'Optional'}
+                      value={payLinkForm.clientName}
                       onChange={e => setPayLinkForm(p => ({ ...p, clientName: e.target.value }))}
                       className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-amber-500/50 text-sm" />
                   </div>
@@ -503,12 +507,25 @@ export default function AdminPaymentsPage() {
                       className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-amber-500/50 text-sm" />
                   </div>
                 </div>
+                {payLinkForm.provider === 'virtual_account' && (
+                  <div className="mb-5">
+                    <label className="text-white/50 text-xs uppercase tracking-wider block mb-1.5">Phone Number <span className="font-normal text-white/30">(optional)</span></label>
+                    <input type="tel" placeholder="+234 800 000 0000" value={payLinkForm.clientPhone}
+                      onChange={e => setPayLinkForm(p => ({ ...p, clientPhone: e.target.value }))}
+                      className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-amber-500/50 text-sm" />
+                  </div>
+                )}
+                {payLinkForm.provider !== 'virtual_account' && <div className="mb-5" />}
 
                 {linkError && <p className="text-red-400 text-xs mb-3">{linkError}</p>}
 
                 <button
                   onClick={async () => {
                     if (!payLinkForm.amount || !payLinkForm.description) return
+                    if (payLinkForm.provider === 'virtual_account' && !payLinkForm.clientName?.trim()) {
+                      setLinkError('Client name is required for bank transfer accounts')
+                      return
+                    }
                     setGenerating(true)
                     setLinkError('')
                     try {
@@ -539,31 +556,43 @@ export default function AdminPaymentsPage() {
                 <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-xl p-5 mb-5 text-center">
                   <p className="text-emerald-400 text-2xl mb-1">✓</p>
                   <p className="text-white font-bold text-lg">
-                    {generatedLink.account_number ? 'Bank Account Ready' : 'Payment Link Ready'}
+                    {generatedLink.accountNumber ? 'Bank Account Ready' : 'Payment Link Ready'}
                   </p>
                   <p className="text-white/50 text-sm mt-1">
                     {generatedLink.currency} {Number(generatedLink.amount).toLocaleString()} · {generatedLink.description}
                   </p>
                 </div>
 
-                {generatedLink.account_number ? (
+                {generatedLink.accountNumber ? (
                   /* Virtual account result */
                   <div className="bg-white/5 rounded-xl p-5 mb-4 space-y-3">
-                    <div>
-                      <p className="text-white/40 text-xs uppercase tracking-wider mb-1">Account Number</p>
-                      <p className="text-amber-400 font-mono text-2xl font-bold">{generatedLink.account_number}</p>
+                    <div className="flex justify-between items-center">
+                      <span className="text-white/40 text-sm">Bank</span>
+                      <span className="text-white font-semibold">{generatedLink.bankName}</span>
                     </div>
-                    <div>
-                      <p className="text-white/40 text-xs uppercase tracking-wider mb-1">Bank</p>
-                      <p className="text-white font-semibold">{generatedLink.bank_name}</p>
+                    <div className="flex justify-between items-center">
+                      <span className="text-white/40 text-sm">Account Number</span>
+                      <span className="text-amber-400 font-mono text-xl font-bold tracking-wider">{generatedLink.accountNumber}</span>
                     </div>
+                    <div className="flex justify-between items-center">
+                      <span className="text-white/40 text-sm">Amount</span>
+                      <span className="text-white font-semibold">{generatedLink.currency} {Number(generatedLink.amount).toLocaleString()}</span>
+                    </div>
+                    {generatedLink.expiryDate && (
+                      <div className="flex justify-between items-center">
+                        <span className="text-white/40 text-sm">Expires</span>
+                        <span className="text-red-400 text-sm font-medium">{generatedLink.expiryDate}</span>
+                      </div>
+                    )}
                     <div>
-                      <p className="text-white/40 text-xs uppercase tracking-wider mb-1">Reference</p>
+                      <p className="text-white/40 text-xs mb-1">Reference</p>
                       <p className="text-white/60 font-mono text-xs">{generatedLink.tx_ref}</p>
                     </div>
-                    <p className="text-amber-400/60 text-xs pt-1">⏱ This account expires in 1 hour — send to client now</p>
+                    {!generatedLink.expiryDate && (
+                      <p className="text-amber-400/60 text-xs pt-1">⏱ This account expires in 1 hour — send to client now</p>
+                    )}
                     <button onClick={() => {
-                      navigator.clipboard.writeText(`Account: ${generatedLink.account_number}\nBank: ${generatedLink.bank_name}\nRef: ${generatedLink.tx_ref}`)
+                      navigator.clipboard.writeText(`Bank: ${generatedLink.bankName}\nAccount Number: ${generatedLink.accountNumber}\nAmount: ${generatedLink.currency} ${Number(generatedLink.amount).toLocaleString()}\nRef: ${generatedLink.tx_ref}`)
                       setLinkCopied(true)
                       setTimeout(() => setLinkCopied(false), 2000)
                     }}
@@ -583,7 +612,7 @@ export default function AdminPaymentsPage() {
                   </div>
                 )}
 
-                {payLinkForm.clientEmail && !generatedLink.account_number && (
+                {payLinkForm.clientEmail && !generatedLink.accountNumber && (
                   <div className="mb-4">
                     <button
                       onClick={async () => {
