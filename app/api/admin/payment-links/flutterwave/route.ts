@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getAdminSession }           from '@/lib/admin-auth'
 import { getFLWKey }                 from '@/lib/flutterwave-banks'
+import { prisma }                    from '@/lib/db'
 
 export const dynamic = 'force-dynamic'
 
@@ -49,6 +50,26 @@ export async function POST(req: NextRequest) {
     const data = await res.json()
 
     if (data.status === 'success' && data.data?.link) {
+      // Save to DB for history tracking
+      try {
+        await prisma.paymentLink.create({
+          data: {
+            txRef:       reference,
+            paymentUrl:  data.data.link,
+            amount:      Number(amount),
+            currency:    (currency as string).toUpperCase(),
+            clientName:  clientName  || '',
+            clientEmail: clientEmail || '',
+            description: description || '',
+            type:        'flutterwave',
+            provider:    'flutterwave',
+            status:      'pending',
+          },
+        })
+      } catch (dbErr: any) {
+        console.warn('[payment-links/flutterwave] DB save failed:', dbErr.message)
+      }
+
       return NextResponse.json({
         success:     true,
         provider:    'flutterwave',

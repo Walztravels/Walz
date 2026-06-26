@@ -52,58 +52,64 @@ async function handleVirtualAccountPayment(payload: Record<string, unknown>) {
       console.warn('[flw-webhook] VA DB lookup failed (table may not exist):', dbErr.message)
     }
 
-    // Send confirmation email to client
+    // Send receipt email to client
     if (clientEmail) {
       try {
-        const resend  = new Resend(process.env.RESEND_API_KEY)
-        const nameStr = originatorname || clientName || 'Client'
-        const amtFmt  = new Intl.NumberFormat('en-NG', { style: 'currency', currency, minimumFractionDigits: 0 }).format(amount ?? 0)
+        const resend   = new Resend(process.env.RESEND_API_KEY)
+        const nameStr  = originatorname || clientName || 'Client'
+        const symbols: Record<string, string> = { GBP: '£', USD: '$', EUR: '€', NGN: '₦', GHS: 'GH₵' }
+        const sym      = symbols[currency] || currency
+        const amtFmt   = `${sym}${Number(amount ?? 0).toLocaleString()}`
+        const dateStr  = new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })
 
         await resend.emails.send({
-          from:    'Walz Travels <payments@walztravels.com>',
+          from:    'Walz Travels Billing <billing@walztravels.com>',
           to:      clientEmail,
-          subject: `Payment confirmed — ${amtFmt} received`,
+          subject: `Payment Confirmed — ${amtFmt} received | Walz Travels`,
           html: `<!DOCTYPE html>
 <html>
-<head><meta charset="utf-8"></head>
-<body style="margin:0;padding:0;background:#f5f5f5;font-family:Arial,sans-serif;">
-<table width="100%" cellpadding="0" cellspacing="0" style="padding:32px 16px;">
-<tr><td align="center">
-<table width="560" cellpadding="0" cellspacing="0" style="max-width:560px;background:#fff;border-radius:16px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,.08);">
-  <tr><td style="background:#0B1F3A;padding:32px;text-align:center;">
-    <img src="https://www.walztravels.com/walz-logo.png" width="120" alt="Walz Travels" />
-  </td></tr>
-  <tr><td style="padding:36px 40px;">
-    <div style="background:#D1FAE5;border:1px solid #6EE7B7;border-radius:12px;padding:16px;text-align:center;margin-bottom:24px;">
-      <p style="color:#065F46;font-weight:700;margin:0;font-size:16px;">✓ Payment Received</p>
-    </div>
-    <p style="color:#0B1F3A;font-size:15px;">Dear ${nameStr},</p>
-    <p style="color:#4a5568;font-size:14px;line-height:1.8;">
-      We have received your payment of <strong style="color:#0B1F3A;">${amtFmt}</strong>${description ? ` for <em>${description}</em>` : ''}.
-      Our team will process your request and be in touch shortly.
-    </p>
-    <table style="width:100%;border-collapse:collapse;margin-top:16px;">
-      <tr><td style="padding:10px 14px;border-bottom:1px solid #F3F4F6;color:#6b7280;font-size:14px;">Reference</td>
-          <td style="padding:10px 14px;border-bottom:1px solid #F3F4F6;font-size:14px;font-weight:600;color:#0B1F3A;text-align:right;font-family:monospace;">${tx_ref}</td></tr>
-      <tr><td style="padding:10px 14px;border-bottom:1px solid #F3F4F6;color:#6b7280;font-size:14px;">Amount</td>
-          <td style="padding:10px 14px;border-bottom:1px solid #F3F4F6;font-size:14px;font-weight:700;color:#059669;text-align:right;">${amtFmt}</td></tr>
-      ${flw_ref ? `<tr><td style="padding:10px 14px;color:#6b7280;font-size:14px;">FLW Ref</td>
-          <td style="padding:10px 14px;font-size:13px;color:#9ca3af;text-align:right;font-family:monospace;">${flw_ref}</td></tr>` : ''}
+<head><meta charset="utf-8">
+<style>
+body{font-family:Arial,sans-serif;background:#f5f5f5;margin:0;padding:20px}
+.w{max-width:560px;margin:0 auto;background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 4px 20px rgba(0,0,0,.08)}
+.h{background:#060f1e;padding:30px;text-align:center}
+.h h1{color:#F59E0B;margin:0;font-size:22px}
+.h p{color:rgba(255,255,255,.5);margin:6px 0 0;font-size:13px}
+.b{padding:28px 30px}
+.badge{background:#D1FAE5;border:1px solid #6EE7B7;border-radius:8px;padding:14px;text-align:center;margin-bottom:20px}
+.badge p{color:#065F46;font-weight:700;margin:0;font-size:15px}
+.amount{font-size:38px;font-weight:700;color:#111;text-align:center;margin:16px 0}
+table{width:100%;border-collapse:collapse}
+td{padding:10px 12px;border-bottom:1px solid #F3F4F6;font-size:14px;color:#374151}
+td:last-child{text-align:right;font-weight:600}
+.f{background:#060f1e;padding:18px;text-align:center}
+.f p{color:rgba(255,255,255,.3);font-size:11px;margin:0}
+</style>
+</head>
+<body>
+<div class="w">
+  <div class="h"><h1>Walz Travels</h1><p>Payment Confirmed</p></div>
+  <div class="b">
+    <div class="badge"><p>✓ PAYMENT RECEIVED</p></div>
+    <div class="amount">${amtFmt}</div>
+    <table>
+      <tr><td>Description</td><td>${description || 'Payment to Walz Travels'}</td></tr>
+      <tr><td>Paid By</td><td>${nameStr}</td></tr>
+      ${bankname ? `<tr><td>From Bank</td><td>${bankname}</td></tr>` : ''}
+      <tr><td>Reference</td><td style="font-size:11px;word-break:break-all;font-family:monospace">${tx_ref}</td></tr>
+      <tr><td>Date</td><td>${dateStr}</td></tr>
     </table>
-    <p style="color:#9ca3af;font-size:13px;margin-top:24px;">
-      Questions? WhatsApp us at <a href="https://wa.me/447398753797" style="color:#C9A84C;">+44 7398 753797</a>
-      or email <a href="mailto:payments@walztravels.com" style="color:#C9A84C;">payments@walztravels.com</a>
+    <p style="font-size:13px;color:#9CA3AF;margin-top:20px;text-align:center">
+      Thank you for your payment. Our team will be in touch shortly.<br>
+      Questions? <a href="https://wa.me/447398753797" style="color:#C9A84C">WhatsApp us</a> or email
+      <a href="mailto:billing@walztravels.com" style="color:#C9A84C">billing@walztravels.com</a>
     </p>
-  </td></tr>
-  <tr><td style="background:#0B1F3A;padding:16px;text-align:center;">
-    <p style="color:rgba(255,255,255,.3);font-size:12px;margin:0;">© Walz Travels · walztravels.com</p>
-  </td></tr>
-</table>
-</td></tr>
-</table>
+  </div>
+  <div class="f"><p>Walz Travels · This is your payment receipt. Please keep for your records.</p></div>
+</div>
 </body></html>`,
         })
-        console.log('[flw-webhook] VA confirmation email sent to:', clientEmail)
+        console.log('[flw-webhook] VA receipt sent to:', clientEmail)
       } catch (emailErr: any) {
         console.error('[flw-webhook] VA email error:', emailErr.message)
       }
@@ -131,7 +137,8 @@ export async function POST(req: NextRequest) {
     // ── Virtual account payment (bank transfer) ────────────────────────────────
     if (
       event === 'charge.completed' &&
-      payload['event.type'] === 'BANK_TRANSFER_TRANSACTION'
+      (payload['event.type'] === 'BANK_TRANSFER_TRANSACTION' ||
+       (transfer as Record<string, unknown>)?.payment_type === 'bank_transfer')
     ) {
       await handleVirtualAccountPayment(payload)
       return NextResponse.json({ received: true })

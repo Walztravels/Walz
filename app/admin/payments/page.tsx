@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback } from 'react'
 import Link from 'next/link'
 import {
   Search, RefreshCw, CheckCircle, XCircle, ExternalLink,
-  Loader2, CreditCard, Building2, DollarSign, Clock,
+  Loader2, CreditCard, Building2, DollarSign, Clock, Link2,
 } from 'lucide-react'
 import { VISA_CONFIGS } from '@/lib/visa-config'
 
@@ -25,6 +25,26 @@ interface PaymentApp {
   stripePaymentIntentId: string | null
   createdAt: string
   user: { name: string | null; email: string | null } | null
+}
+
+interface PaymentLinkRecord {
+  id:            string
+  txRef:         string
+  paymentUrl:    string | null
+  accountNumber: string | null
+  bankName:      string | null
+  amount:        string | null
+  currency:      string
+  clientName:    string | null
+  clientEmail:   string | null
+  description:   string | null
+  type:          string
+  status:        string
+  provider:      string | null
+  paidAt:        string | null
+  payerName:     string | null
+  payerBank:     string | null
+  createdAt:     string
 }
 
 type Filter = 'all' | 'svc_unpaid' | 'govt_unpaid' | 'fully_paid'
@@ -57,6 +77,8 @@ export default function AdminPaymentsPage() {
   const [search, setSearch] = useState('')
   const [filter, setFilter] = useState<Filter>('all')
   const [toggling,     setToggling]     = useState<string | null>(null)
+  const [links,        setLinks]        = useState<PaymentLinkRecord[]>([])
+  const [linksLoading, setLinksLoading] = useState(true)
 
   // ── Payment link generator ───────────────────────────────────────────────
   const [showPayLink,    setShowPayLink]    = useState(false)
@@ -72,10 +94,17 @@ export default function AdminPaymentsPage() {
 
   const load = useCallback(async () => {
     setLoading(true)
-    const res = await fetch('/api/admin/visa-applications')
-    const d = await res.json()
-    setApps(d.applications ?? [])
+    setLinksLoading(true)
+    const [appsRes, linksRes] = await Promise.all([
+      fetch('/api/admin/visa-applications'),
+      fetch('/api/admin/payment-links'),
+    ])
+    const appsData  = await appsRes.json()
+    const linksData = await linksRes.json()
+    setApps(appsData.applications ?? [])
+    setLinks(linksData.links ?? [])
     setLoading(false)
+    setLinksLoading(false)
   }, [])
 
   useEffect(() => { load() }, [load])
@@ -280,6 +309,94 @@ export default function AdminPaymentsPage() {
         </div>
       )}
 
+      {/* ── Payment Links History ── */}
+      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-100">
+          <div className="flex items-center gap-2">
+            <Link2 className="w-4 h-4 text-[#C9A84C]" />
+            <div>
+              <h2 className="font-bold text-[#0B1F3A] text-sm">Payment Links</h2>
+              <p className="text-[11px] text-gray-400">Stripe · Flutterwave · Virtual Accounts</p>
+            </div>
+          </div>
+          <span className="text-xs text-gray-400 bg-gray-100 px-2 py-1 rounded-full font-semibold">
+            {links.length} total
+          </span>
+        </div>
+
+        {linksLoading ? (
+          <div className="flex items-center justify-center py-12">
+            <Loader2 className="w-5 h-5 animate-spin text-[#C9A84C]" />
+          </div>
+        ) : links.length === 0 ? (
+          <p className="text-center py-12 text-gray-400 text-sm">No payment links generated yet</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-gray-100 bg-gray-50">
+                  <th className="text-left px-4 py-3 text-xs font-semibold text-gray-400 uppercase tracking-wider">Reference</th>
+                  <th className="text-left px-4 py-3 text-xs font-semibold text-gray-400 uppercase tracking-wider">Client</th>
+                  <th className="text-left px-4 py-3 text-xs font-semibold text-gray-400 uppercase tracking-wider">Amount</th>
+                  <th className="text-left px-4 py-3 text-xs font-semibold text-gray-400 uppercase tracking-wider">Type</th>
+                  <th className="text-left px-4 py-3 text-xs font-semibold text-gray-400 uppercase tracking-wider">Status</th>
+                  <th className="text-left px-4 py-3 text-xs font-semibold text-gray-400 uppercase tracking-wider">Date</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-50">
+                {links.map(link => (
+                  <tr key={link.id} className="hover:bg-gray-50 transition-colors">
+                    <td className="px-4 py-3">
+                      <p className="font-mono text-[11px] font-bold text-[#C9A84C]">
+                        {link.txRef.length > 22 ? link.txRef.slice(0, 22) + '…' : link.txRef}
+                      </p>
+                      {link.accountNumber && (
+                        <p className="text-[11px] text-gray-400 mt-0.5">
+                          {link.accountNumber} · {link.bankName}
+                        </p>
+                      )}
+                      {link.paymentUrl && (
+                        <a href={link.paymentUrl} target="_blank" rel="noopener noreferrer"
+                          className="text-[11px] text-blue-500 hover:underline flex items-center gap-1 mt-0.5">
+                          <ExternalLink className="w-2.5 h-2.5" /> Open link
+                        </a>
+                      )}
+                    </td>
+                    <td className="px-4 py-3">
+                      <p className="font-semibold text-[#0B1F3A] text-sm">{link.clientName || '—'}</p>
+                      <p className="text-[11px] text-gray-400">{link.clientEmail || ''}</p>
+                    </td>
+                    <td className="px-4 py-3 font-bold text-[#0B1F3A] whitespace-nowrap">
+                      {link.currency} {Number(link.amount ?? 0).toLocaleString()}
+                    </td>
+                    <td className="px-4 py-3">
+                      <PLTypeBadge type={link.type} />
+                    </td>
+                    <td className="px-4 py-3">
+                      <PLStatusBadge status={link.status} />
+                      {link.payerName && (
+                        <p className="text-[11px] text-gray-400 mt-0.5">
+                          {link.payerName}
+                          {link.payerBank ? ` · ${link.payerBank}` : ''}
+                        </p>
+                      )}
+                    </td>
+                    <td className="px-4 py-3 text-[11px] text-gray-400 whitespace-nowrap">
+                      <p>{new Date(link.createdAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: '2-digit' })}</p>
+                      {link.paidAt && (
+                        <p className="text-green-600 mt-0.5">
+                          Paid {new Date(link.paidAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}
+                        </p>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
       {/* ── Payment Link Modal ── */}
       {showPayLink && (
         <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
@@ -472,6 +589,35 @@ export default function AdminPaymentsPage() {
         </div>
       )}
     </div>
+  )
+}
+
+function PLTypeBadge({ type }: { type: string }) {
+  const map: Record<string, { label: string; cls: string }> = {
+    stripe:          { label: 'Stripe',       cls: 'bg-indigo-50 text-indigo-700' },
+    flutterwave:     { label: 'Flutterwave',  cls: 'bg-amber-50 text-amber-700'   },
+    virtual_account: { label: 'Bank Transfer', cls: 'bg-green-50 text-green-700'  },
+  }
+  const { label, cls } = map[type] ?? { label: type, cls: 'bg-gray-100 text-gray-500' }
+  return (
+    <span className={`text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded-full ${cls}`}>
+      {label}
+    </span>
+  )
+}
+
+function PLStatusBadge({ status }: { status: string }) {
+  const map: Record<string, { label: string; cls: string }> = {
+    pending: { label: '⏳ Pending', cls: 'bg-amber-50 text-amber-700'  },
+    paid:    { label: '✓ Paid',     cls: 'bg-green-50 text-green-700'  },
+    expired: { label: 'Expired',    cls: 'bg-gray-100 text-gray-500'   },
+    failed:  { label: '✗ Failed',   cls: 'bg-red-50 text-red-600'      },
+  }
+  const { label, cls } = map[status] ?? { label: status, cls: 'bg-gray-100 text-gray-500' }
+  return (
+    <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${cls}`}>
+      {label}
+    </span>
   )
 }
 

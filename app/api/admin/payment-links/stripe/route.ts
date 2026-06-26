@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getAdminSession }           from '@/lib/admin-auth'
 import Stripe                        from 'stripe'
+import { prisma }                    from '@/lib/db'
 
 export const dynamic = 'force-dynamic'
 
@@ -49,11 +50,33 @@ export async function POST(req: NextRequest) {
       },
     })
 
+    // Save to DB for history tracking
+    const txRef = `WALZ-STR-${Date.now()}`
+    try {
+      await prisma.paymentLink.create({
+        data: {
+          txRef,
+          paymentUrl:  paymentLink.url,
+          amount:      Number(amount),
+          currency:    (currency as string).toUpperCase(),
+          clientName:  clientName  || '',
+          clientEmail: clientEmail || '',
+          description: description || '',
+          type:        'stripe',
+          provider:    'stripe',
+          status:      'pending',
+        },
+      })
+    } catch (dbErr: any) {
+      console.warn('[payment-links/stripe] DB save failed:', dbErr.message)
+    }
+
     return NextResponse.json({
       success:     true,
       provider:    'stripe',
       url:         paymentLink.url,
       id:          paymentLink.id,
+      txRef,
       amount,
       currency,
       description,
