@@ -111,7 +111,7 @@ export default function AdminPaymentsPage() {
   const [showPayLink,    setShowPayLink]    = useState(false)
   const [payLinkForm,    setPayLinkForm]    = useState({
     amount: '', currency: 'GBP', description: '', clientName: '', clientEmail: '', clientPhone: '',
-    provider: 'stripe', isPermanent: true, paymentDeadline: '1', bvn: '',
+    provider: 'stripe', isPermanent: true, paymentDeadline: '1', bvn: '', feePercent: 0,
   })
   const [generatedLink,  setGeneratedLink]  = useState<{
     url?: string; accountNumber?: string; bankName?: string; expiryDate?: string | null;
@@ -628,6 +628,39 @@ export default function AdminPaymentsPage() {
                     ))}
                   </div>
                 </div>
+
+                {/* Processing fee selector — Stripe/Flutterwave only */}
+                {payLinkForm.provider !== 'virtual_account' && (
+                  <div className="mb-4">
+                    <label className="text-white/50 text-xs uppercase tracking-wider block mb-2">Processing Fee</label>
+                    <div className="grid grid-cols-4 gap-2">
+                      {[{ val: 0, label: 'None' }, { val: 1.5, label: '+1.5%' }, { val: 2, label: '+2%' }, { val: 2.5, label: '+2.5%' }].map(opt => (
+                        <button key={opt.val}
+                          onClick={() => setPayLinkForm(p => ({ ...p, feePercent: opt.val }))}
+                          className={`py-2 rounded-xl text-xs font-bold border transition ${
+                            payLinkForm.feePercent === opt.val
+                              ? 'bg-amber-500 text-black border-amber-500'
+                              : 'bg-white/5 text-white/50 border-white/10 hover:text-white'
+                          }`}>
+                          {opt.label}
+                        </button>
+                      ))}
+                    </div>
+                    {payLinkForm.feePercent > 0 && payLinkForm.amount && (
+                      <div className="mt-2 bg-white/5 rounded-xl px-4 py-2.5 flex justify-between text-xs">
+                        <span className="text-white/40">
+                          Base: {payLinkForm.currency} {Number(payLinkForm.amount).toLocaleString()}
+                        </span>
+                        <span className="text-white/40">
+                          +fee: {payLinkForm.currency} {Math.ceil(Number(payLinkForm.amount) * payLinkForm.feePercent / 100).toLocaleString()}
+                        </span>
+                        <span className="text-amber-400 font-bold">
+                          Total: {payLinkForm.currency} {(Number(payLinkForm.amount) + Math.ceil(Number(payLinkForm.amount) * payLinkForm.feePercent / 100)).toLocaleString()}
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                )}
 
                 {/* Client details */}
                 <div className="grid grid-cols-2 gap-3 mb-3">

@@ -10,16 +10,20 @@ export async function POST(req: NextRequest) {
     const session = await getAdminSession()
     if (!session) return NextResponse.json({ error: 'Unauthorised' }, { status: 401 })
 
-    const { amount, currency, description, clientEmail, clientName } = await req.json()
+    const { amount, currency, description, clientEmail, clientName, feePercent = 0 } = await req.json()
 
     if (!amount || !currency || !description) {
       return NextResponse.json({ error: 'Amount, currency and description are required' }, { status: 400 })
     }
 
+    const baseAmount  = Number(amount)
+    const feeAmount   = feePercent > 0 ? Math.ceil(baseAmount * feePercent / 100) : 0
+    const totalAmount = baseAmount + feeAmount
+
     const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, { apiVersion: '2024-06-20' })
 
     const price = await stripe.prices.create({
-      unit_amount:  Math.round(Number(amount) * 100),
+      unit_amount:  Math.round(totalAmount * 100),
       currency:     currency.toLowerCase(),
       product_data: {
         name:     description,
@@ -57,11 +61,11 @@ export async function POST(req: NextRequest) {
         data: {
           txRef,
           paymentUrl:  paymentLink.url,
-          amount:      Number(amount),
+          amount:      totalAmount,
           currency:    (currency as string).toUpperCase(),
           clientName:  clientName  || '',
           clientEmail: clientEmail || '',
-          description: description || '',
+          description: feeAmount > 0 ? `${description} (incl. ${feePercent}% fee)` : description || '',
           type:        'stripe',
           provider:    'stripe',
           status:      'pending',

@@ -10,11 +10,15 @@ export async function POST(req: NextRequest) {
     const session = await getAdminSession()
     if (!session) return NextResponse.json({ error: 'Unauthorised' }, { status: 401 })
 
-    const { amount, currency, description, clientEmail, clientName } = await req.json()
+    const { amount, currency, description, clientEmail, clientName, feePercent = 0 } = await req.json()
 
     if (!amount || !currency || !description) {
       return NextResponse.json({ error: 'Amount, currency and description are required' }, { status: 400 })
     }
+
+    const baseAmount  = Number(amount)
+    const feeAmount   = feePercent > 0 ? Math.ceil(baseAmount * feePercent / 100) : 0
+    const totalAmount = baseAmount + feeAmount
 
     const FLW_KEY   = getFLWKey()
     const reference = `WALZ-PAY-${Date.now()}`
@@ -25,7 +29,7 @@ export async function POST(req: NextRequest) {
       headers: { Authorization: `Bearer ${FLW_KEY}`, 'Content-Type': 'application/json' },
       body:    JSON.stringify({
         tx_ref:          reference,
-        amount:          Number(amount),
+        amount:          totalAmount,
         currency,
         payment_options: 'card,banktransfer,ussd',
         redirect_url:    `${appUrl}/payment/success`,
@@ -56,11 +60,11 @@ export async function POST(req: NextRequest) {
           data: {
             txRef:       reference,
             paymentUrl:  data.data.link,
-            amount:      Number(amount),
+            amount:      totalAmount,
             currency:    (currency as string).toUpperCase(),
             clientName:  clientName  || '',
             clientEmail: clientEmail || '',
-            description: description || '',
+            description: feeAmount > 0 ? `${description} (incl. ${feePercent}% fee)` : description || '',
             type:        'flutterwave',
             provider:    'flutterwave',
             status:      'pending',
