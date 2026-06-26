@@ -79,6 +79,33 @@ export default function AdminPaymentsPage() {
   const [toggling,     setToggling]     = useState<string | null>(null)
   const [links,        setLinks]        = useState<PaymentLinkRecord[]>([])
   const [linksLoading, setLinksLoading] = useState(true)
+  const [verifying,    setVerifying]    = useState<string | null>(null)
+
+  const handleVerify = async (linkId: string) => {
+    setVerifying(linkId)
+    try {
+      const res  = await fetch(`/api/admin/payment-links/${linkId}/verify`, { method: 'POST' })
+      const data = await res.json()
+      if (data.paid) {
+        setLinks(prev => prev.map(l => l.id === linkId ? { ...l, status: 'paid', paidAt: new Date().toISOString(), payerName: data.payer ?? l.payerName } : l))
+      } else {
+        alert(data.found ? `Not paid yet. FLW status: ${data.flwStatus}` : 'Transaction not found on Flutterwave')
+      }
+    } catch {
+      alert('Verification request failed')
+    }
+    setVerifying(null)
+  }
+
+  const handleMarkPaid = async (linkId: string, txRef: string) => {
+    if (!confirm(`Manually mark ${txRef} as paid?\n\nOnly do this after confirming the payment in Flutterwave.`)) return
+    try {
+      const res = await fetch(`/api/admin/payment-links/${linkId}/mark-paid`, { method: 'POST' })
+      if (res.ok) setLinks(prev => prev.map(l => l.id === linkId ? { ...l, status: 'paid', paidAt: new Date().toISOString() } : l))
+    } catch {
+      alert('Request failed')
+    }
+  }
 
   // ── Payment link generator ───────────────────────────────────────────────
   const [showPayLink,    setShowPayLink]    = useState(false)
@@ -386,6 +413,21 @@ export default function AdminPaymentsPage() {
                           {link.payerName}
                           {link.payerBank ? ` · ${link.payerBank}` : ''}
                         </p>
+                      )}
+                      {link.status === 'pending' && (
+                        <div className="flex items-center gap-1.5 mt-1.5">
+                          <button
+                            onClick={() => handleVerify(link.id)}
+                            disabled={verifying === link.id}
+                            className="text-[11px] border border-amber-400/40 text-amber-600 hover:bg-amber-50 px-2 py-0.5 rounded-md transition font-medium">
+                            {verifying === link.id ? '⏳' : '🔄 Verify'}
+                          </button>
+                          <button
+                            onClick={() => handleMarkPaid(link.id, link.txRef)}
+                            className="text-[11px] border border-green-400/40 text-green-700 hover:bg-green-50 px-2 py-0.5 rounded-md transition font-medium">
+                            ✓ Paid
+                          </button>
+                        </div>
                       )}
                     </td>
                     <td className="px-4 py-3 text-[11px] text-gray-400 whitespace-nowrap">

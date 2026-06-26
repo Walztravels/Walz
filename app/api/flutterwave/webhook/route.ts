@@ -19,37 +19,50 @@ async function handleVirtualAccountPayment(payload: Record<string, unknown>) {
 
     console.log('[flw-webhook] VA payment:', { tx_ref, amount, status, payer: originatorname, payerBank: bankname })
 
-    if (status !== 'successful' || !tx_ref) return
+    // FLW v3 = 'successful', FLW v4 = 'succeeded'
+    const isSuccessful = status === 'successful' || status === 'succeeded'
+    if (!isSuccessful || !tx_ref) {
+      console.warn('[flw-webhook] VA payment not successful or missing tx_ref:', { status, tx_ref })
+      return
+    }
 
-    // Find & update PaymentLink record (table may not exist yet — catch gracefully)
+    // Find & update PaymentLink record
     let clientEmail: string | null = null
     let clientName:  string | null = null
     let description: string | null = null
     let currency:    string        = 'NGN'
 
     try {
-      const record = await prisma.paymentLink.findUnique({ where: { txRef: tx_ref } })
+      // findFirst (not findUnique) because txRef is not a @unique constraint in Prisma schema
+      const record = await prisma.paymentLink.findFirst({ where: { txRef: tx_ref } })
+      console.log('[flw-webhook] DB lookup result:', record ? `id=${record.id} status=${record.status}` : 'NOT FOUND')
+
       if (record) {
         clientEmail = record.clientEmail
         clientName  = record.clientName
         description = record.description
         currency    = record.currency ?? 'NGN'
 
-        await prisma.paymentLink.update({
-          where: { txRef: tx_ref },
-          data: {
-            status:    'paid',
-            paidAt:    new Date(),
-            payerName: originatorname ?? null,
-            payerBank: bankname       ?? null,
-          },
-        })
-        console.log('[flw-webhook] VA PaymentLink updated:', tx_ref)
+        if (record.status !== 'paid') {
+          // Update by id (not txRef) — txRef is not @unique so update-by-txRef throws
+          await prisma.paymentLink.update({
+            where: { id: record.id },
+            data: {
+              status:    'paid',
+              paidAt:    new Date(),
+              payerName: originatorname ?? null,
+              payerBank: bankname       ?? null,
+            },
+          })
+          console.log('[flw-webhook] ✅ Marked paid:', tx_ref)
+        } else {
+          console.log('[flw-webhook] Already paid, skipping update:', tx_ref)
+        }
       } else {
         console.warn('[flw-webhook] No PaymentLink for tx_ref:', tx_ref)
       }
     } catch (dbErr: any) {
-      console.warn('[flw-webhook] VA DB lookup failed (table may not exist):', dbErr.message)
+      console.error('[flw-webhook] VA DB error:', dbErr.message)
     }
 
     // Send receipt email to client
