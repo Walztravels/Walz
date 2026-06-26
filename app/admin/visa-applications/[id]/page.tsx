@@ -858,8 +858,9 @@ export default function AdminVisaDetailPage() {
     : 'text-sm font-medium text-[#0B1F3A]'
 
   // Helper to render editable or read-only field
-  function EditableField({ label, field, type = 'text' }: { label: string; field: keyof VisaApp; type?: string }) {
+  function EditableField({ label, field, type = 'text', dateField = false }: { label: string; field: keyof VisaApp; type?: string; dateField?: boolean }) {
     const val = editing ? (edits[field] as string | null ?? '') : (app![field] as string | null ?? '')
+    const displayVal = !editing && dateField ? fmtDate(val as string) : (String(val) || '—')
     return (
       <div>
         <p className="text-xs text-gray-400 mb-0.5">{label}</p>
@@ -868,7 +869,7 @@ export default function AdminVisaDetailPage() {
             onChange={e => editField(field as string, e.target.value)}
             className={inputCls} />
         ) : (
-          <p className={inputCls}>{String(val) || '—'}</p>
+          <p className={inputCls}>{displayVal}</p>
         )}
       </div>
     )
@@ -1030,7 +1031,7 @@ export default function AdminVisaDetailPage() {
               <EditableField label="First Name" field="firstName" />
               <EditableField label="Middle Name" field="middleName" />
               <EditableField label="Last Name" field="lastName" />
-              <EditableField label="Date of Birth" field="dateOfBirth" type={editing ? 'date' : 'text'} />
+              <EditableField label="Date of Birth" field="dateOfBirth" type={editing ? 'date' : 'text'} dateField />
               <EditableSelect label="Sex" field="sex" options={['Male', 'Female', 'Other']} />
               <EditableField label="Place of Birth" field="placeOfBirth" />
               <EditableField label="Nationality" field="nationality" />
@@ -1046,8 +1047,8 @@ export default function AdminVisaDetailPage() {
               <EditableField label="Passport Number" field="passportNumber" />
               <EditableSelect label="Passport Type" field="passportType"
                 options={['Regular', 'Official', 'Diplomatic', 'Service', 'Emergency']} />
-              <EditableField label="Issue Date" field="passportIssueDate" type={editing ? 'date' : 'text'} />
-              <EditableField label="Expiry Date" field="passportExpiryDate" type={editing ? 'date' : 'text'} />
+              <EditableField label="Issue Date" field="passportIssueDate" type={editing ? 'date' : 'text'} dateField />
+              <EditableField label="Expiry Date" field="passportExpiryDate" type={editing ? 'date' : 'text'} dateField />
               <EditableField label="Issuing Authority" field="issuingAuthority" />
               <EditableField label="Issuing Country" field="issuingCountry" />
             </div>
@@ -1085,8 +1086,8 @@ export default function AdminVisaDetailPage() {
           <div className="bg-white rounded-2xl border border-gray-100 p-5 shadow-sm">
             <SectionHeader icon={Plane} label="Travel Information" />
             <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-              <EditableField label="Arrival Date" field="arrivalDate" type={editing ? 'date' : 'text'} />
-              <EditableField label="Return Date" field="returnDate" type={editing ? 'date' : 'text'} />
+              <EditableField label="Arrival Date" field="arrivalDate" type={editing ? 'date' : 'text'} dateField />
+              <EditableField label="Return Date" field="returnDate" type={editing ? 'date' : 'text'} dateField />
               <EditableField label="Purpose of Visit" field="purposeOfVisit" />
               <EditableField label="Accommodation Name" field="accommodationName" />
               <EditableField label="Accommodation Address" field="accommodationAddress" />

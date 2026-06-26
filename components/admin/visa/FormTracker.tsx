@@ -5,6 +5,7 @@ import {
   Send, Eye, Clock, CheckCircle, RefreshCw,
   Search, Copy, Check, Loader2, AlertCircle,
 } from 'lucide-react'
+import { ISO2_TO_SLUG } from '@/lib/visa-config'
 
 interface TrackedApp {
   id:              string
@@ -96,10 +97,11 @@ export default function FormTracker() {
     setSending(null)
   }
 
-  function copyLink(token: string, id: string) {
-    const link = `${formBase}/visa/apply/${token}`
+  function copyLink(app: TrackedApp, tok: TrackedApp['tokens'][number]) {
+    const slug = ISO2_TO_SLUG[app.destinationIso2] ?? app.destinationIso2.toLowerCase()
+    const link = `${formBase}/visa/apply/${slug}?token=${tok.token}&draft=${app.id}`
     navigator.clipboard.writeText(link).catch(() => {})
-    setCopied(id)
+    setCopied(tok.id)
     setTimeout(() => setCopied(null), 2000)
   }
 
@@ -222,7 +224,7 @@ export default function FormTracker() {
 
                   {/* Copy link */}
                   {tok && !isExpired(tok.expiresAt) && (
-                    <button onClick={() => copyLink(tok.token, tok.id)} title="Copy form link"
+                    <button onClick={() => copyLink(app, tok)} title="Copy form link"
                       className="p-2 rounded-xl text-gray-400 hover:text-[#0B1F3A] hover:bg-gray-100 transition-colors">
                       {copied === tok.id
                         ? <Check className="w-4 h-4 text-green-500" />
@@ -283,7 +285,7 @@ export default function FormTracker() {
                               </p>
                             </div>
                             {!isExpired(t.expiresAt) && (
-                              <button onClick={() => copyLink(t.token, t.id)}
+                              <button onClick={() => copyLink(app, t)}
                                 className="text-[#C9A84C] font-semibold flex items-center gap-1 flex-shrink-0">
                                 {copied === t.id
                                   ? <><Check className="w-3 h-3" /> Copied</>
