@@ -381,13 +381,13 @@ function EmbassyPackSection({ app }: { app: VisaApp }) {
   const [appointmentTime,     setAppointmentTime]     = useState('')
   const [appointmentLocation, setAppointmentLocation] = useState(app.appointmentLocation ?? '')
   const [appointmentRef,      setAppointmentRef]      = useState(app.appointmentNotes ?? '')
-  const [docList,             setDocList]             = useState<string[]>(defaultDocs)
-  const [customDoc,           setCustomDoc]           = useState('')
-  const [extraInstructions,   setExtraInstructions]   = useState('')
-  const [sending,             setSending]             = useState(false)
-  const [sentOk,              setSentOk]              = useState(false)
-  const [attachFile,          setAttachFile]          = useState<File | null>(null)
-  const [attachName,          setAttachName]          = useState('')
+  const [docList,           setDocList]           = useState<string[]>(defaultDocs)
+  const [customDoc,         setCustomDoc]         = useState('')
+  const [extraInstructions, setExtraInstructions] = useState('')
+  const [sending,           setSending]           = useState(false)
+  const [sentOk,            setSentOk]            = useState(false)
+  const [attachFiles,       setAttachFiles]       = useState<File[]>([])
+  const [dragOver,          setDragOver]          = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   function addCustomDoc() {
@@ -411,9 +411,9 @@ function EmbassyPackSection({ app }: { app: VisaApp }) {
       formData.append('appointmentRef',      appointmentRef      || '')
       formData.append('documents',           JSON.stringify(docList))
       formData.append('extraInstructions',   extraInstructions   || '')
-      if (attachFile) {
-        formData.append('attachment', attachFile, attachFile.name)
-      }
+      attachFiles.forEach((file, i) => {
+        formData.append(`attachment_${i}`, file, file.name)
+      })
 
       const res = await fetch(`/api/admin/visa-applications/${app.id}/embassy-pack`, {
         method: 'POST',
@@ -519,46 +519,78 @@ function EmbassyPackSection({ app }: { app: VisaApp }) {
           className="w-full border border-gray-200 rounded-xl px-3 py-2 text-xs focus:outline-none focus:border-[#C9A84C] resize-none leading-relaxed" />
       </div>
 
-      {/* PDF Attachment */}
+      {/* Document Attachments */}
       <div>
-        <p className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">
-          Attach Document{' '}
-          <span className="text-gray-400 font-normal normal-case">(optional)</span>
-        </p>
-        {attachFile ? (
-          <div className="flex items-center gap-3 bg-blue-50 border border-blue-200 rounded-xl px-3 py-2.5">
-            <FileText className="w-4 h-4 text-blue-500 flex-shrink-0" />
-            <div className="flex-1 min-w-0">
-              <p className="text-xs font-semibold text-[#0B1F3A] truncate">{attachFile.name}</p>
-              <p className="text-[10px] text-gray-400">{(attachFile.size / 1024 / 1024).toFixed(1)} MB</p>
-            </div>
-            <button
-              onClick={() => { setAttachFile(null); setAttachName('') }}
-              className="text-gray-400 hover:text-red-400 transition-colors flex-shrink-0">
-              <X className="w-4 h-4" />
-            </button>
+        <div className="flex items-center justify-between mb-2">
+          <p className="text-xs font-bold text-gray-500 uppercase tracking-wider">
+            Attach Documents{' '}
+            <span className="text-gray-400 font-normal normal-case">(optional)</span>
+          </p>
+          {attachFiles.length > 0 && (
+            <span className="text-[10px] bg-[#C9A84C]/10 text-[#C9A84C] font-bold px-2 py-0.5 rounded-full">
+              {attachFiles.length} file{attachFiles.length !== 1 ? 's' : ''}
+            </span>
+          )}
+        </div>
+
+        {/* File list */}
+        {attachFiles.length > 0 && (
+          <div className="space-y-1.5 mb-3">
+            {attachFiles.map((file, i) => (
+              <div key={i} className="flex items-center gap-2.5 bg-gray-50 border border-gray-100 rounded-xl px-3 py-2">
+                <FileText className="w-3.5 h-3.5 text-blue-500 flex-shrink-0" />
+                <div className="flex-1 min-w-0">
+                  <p className="text-xs font-medium text-[#0B1F3A] truncate">{file.name}</p>
+                  <p className="text-[10px] text-gray-400">{(file.size / 1024 / 1024).toFixed(1)} MB</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setAttachFiles(prev => prev.filter((_, idx) => idx !== i))}
+                  className="text-gray-300 hover:text-red-400 transition-colors flex-shrink-0">
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            ))}
           </div>
-        ) : (
-          <button
-            onClick={() => fileInputRef.current?.click()}
-            className="w-full flex items-center justify-center gap-2 py-3 rounded-xl border-2 border-dashed border-gray-200 hover:border-[#C9A84C] text-sm text-gray-400 hover:text-[#C9A84C] transition-all">
-            <Upload className="w-4 h-4" />
-            Upload PDF to attach to email
-          </button>
         )}
+
+        {/* Drop zone */}
+        <div
+          onDragOver={e => { e.preventDefault(); setDragOver(true) }}
+          onDragLeave={() => setDragOver(false)}
+          onDrop={e => {
+            e.preventDefault()
+            setDragOver(false)
+            const dropped = Array.from(e.dataTransfer.files)
+            if (dropped.length) setAttachFiles(prev => [...prev, ...dropped])
+          }}
+          onClick={() => fileInputRef.current?.click()}
+          className={`w-full flex items-center justify-center gap-2 py-3 rounded-xl border-2 border-dashed cursor-pointer transition-all ${
+            dragOver
+              ? 'border-[#C9A84C] bg-[#C9A84C]/5 text-[#C9A84C]'
+              : 'border-gray-200 hover:border-[#C9A84C] text-gray-400 hover:text-[#C9A84C]'
+          }`}
+        >
+          <Upload className="w-4 h-4" />
+          <span className="text-sm">
+            {attachFiles.length > 0 ? 'Add more files' : 'Drop files or click to browse'}
+          </span>
+        </div>
+
         <input
           ref={fileInputRef}
           type="file"
+          multiple
           accept=".pdf,.doc,.docx,.jpg,.jpeg,.png"
           className="hidden"
           onChange={e => {
-            const file = e.target.files?.[0]
-            if (file) { setAttachFile(file); setAttachName(file.name) }
+            const files = Array.from(e.target.files || [])
+            if (files.length) setAttachFiles(prev => [...prev, ...files])
             e.target.value = ''
           }}
         />
         <p className="text-[10px] text-gray-400 mt-1">
-          PDF, Word, or image · max 10MB · will be attached to the client email
+          PDF, Word, or image · max 10 MB each · all files attached to client email
         </p>
       </div>
 

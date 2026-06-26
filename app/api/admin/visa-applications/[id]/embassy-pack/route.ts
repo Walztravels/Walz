@@ -32,7 +32,21 @@ export async function POST(
   const appointmentRef      = formData.get('appointmentRef')      as string | null
   const extraInstructions   = formData.get('extraInstructions')   as string | null
   const documentsRaw        = formData.get('documents')           as string | null
-  const attachmentFile      = formData.get('attachment')          as File | null
+
+  // Collect all attachment_N files (multi-upload support)
+  const attachmentFiles: File[] = []
+  let i = 0
+  while (true) {
+    const f = formData.get(`attachment_${i}`) as File | null
+    if (!f || f.size === 0) break
+    attachmentFiles.push(f)
+    i++
+  }
+  // Backward-compat: legacy single `attachment` field
+  const legacySingle = formData.get('attachment') as File | null
+  if (legacySingle && legacySingle.size > 0 && attachmentFiles.length === 0) {
+    attachmentFiles.push(legacySingle)
+  }
 
   let documents: string[] = []
   try { documents = documentsRaw ? JSON.parse(documentsRaw) : [] } catch { documents = [] }
@@ -133,13 +147,14 @@ export async function POST(
         white-space:pre-line;">${extraInstructions}</p>
     </div>` : ''
 
-  // Attachment note
-  const attachNote = attachmentFile && attachmentFile.size > 0
+  // Attachment note (shows all attached files)
+  const attachNote = attachmentFiles.length > 0
     ? `<div style="background:#eff6ff;border:1px solid #bfdbfe;border-radius:10px;
         padding:14px 18px;margin:0 0 24px;">
-        <p style="margin:0;color:#1d4ed8;font-size:13px;">
-          📎 <strong>${attachmentFile.name}</strong> has been attached to this email.
+        <p style="margin:0 0 6px;color:#1d4ed8;font-size:13px;font-weight:700;">
+          📎 ${attachmentFiles.length} document${attachmentFiles.length !== 1 ? 's' : ''} attached to this email:
         </p>
+        ${attachmentFiles.map(f => `<p style="margin:2px 0;color:#1e40af;font-size:12px;">· ${f.name}</p>`).join('')}
       </div>`
     : ''
 
@@ -212,21 +227,21 @@ export async function POST(
     </div>
   `
 
-  // Build attachments for Resend
+  // Build attachments for Resend (all files)
   const attachments: Array<{ filename: string; content: Buffer; contentType: string }> = []
 
-  if (attachmentFile && attachmentFile.size > 0) {
-    if (attachmentFile.size > 10 * 1024 * 1024) {
+  for (const file of attachmentFiles) {
+    if (file.size > 10 * 1024 * 1024) {
       return NextResponse.json(
-        { error: 'Attachment too large. Maximum size is 10MB.' },
+        { error: `${file.name} is too large. Maximum size is 10 MB per file.` },
         { status: 413 }
       )
     }
-    const bytes  = await attachmentFile.arrayBuffer()
+    const bytes = await file.arrayBuffer()
     attachments.push({
-      filename:    attachmentFile.name,
+      filename:    file.name,
       content:     Buffer.from(bytes),
-      contentType: attachmentFile.type || 'application/octet-stream',
+      contentType: file.type || 'application/octet-stream',
     })
   }
 
