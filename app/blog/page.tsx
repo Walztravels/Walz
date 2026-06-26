@@ -66,12 +66,7 @@ export default async function BlogPage() {
 
       {/* Articles grid */}
       <div className="max-w-6xl mx-auto px-4 py-12 lg:py-16">
-        {posts.length === 0 ? (
-          <>
-            <div id="soro-blog" className="min-h-[400px]" />
-            <Script src={SORO_EMBED} strategy="lazyOnload" />
-          </>
-        ) : (
+        {posts.length > 0 && (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {posts.map(post => {
               const date = post.publishedAt ?? post.createdAt
@@ -130,6 +125,17 @@ export default async function BlogPage() {
             })}
           </div>
         )}
+
+        {/* Soro automated articles */}
+        <div className="mt-16 pt-12 border-t border-gray-200">
+          <div className="text-center mb-10">
+            <h2 className="font-display text-2xl font-bold text-[#0B1F3A] mb-2">More Travel Guides</h2>
+            <p className="text-gray-500 text-sm">Daily visa guides and travel tips</p>
+          </div>
+          <div id="soro-blog" />
+        </div>
+
+        <Script src={SORO_EMBED} strategy="afterInteractive" />
 
         {/* Newsletter CTA */}
         <div className="mt-16 rounded-2xl p-8 lg:p-10 text-center" style={{ backgroundColor: '#0B1F3A' }}>
