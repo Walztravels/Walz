@@ -10,6 +10,7 @@ import {
   ROLE_PERMISSIONS, ALL_PERMISSIONS,
   type AdminRole, type Permission,
 } from '@/lib/admin/permissions'
+import { PERMISSION_GROUPS, ROLE_DEFAULTS } from '@/lib/permissions'
 import { useStaffPermissions } from '@/hooks/useStaffPermissions'
 
 // ─── Permission groups with descriptions ─────────────────────────────────────
@@ -125,47 +126,6 @@ interface StaffMember {
 
 // ─── Role Defaults Tab ────────────────────────────────────────────────────────
 
-// ─── DB-backed permission groups (underscore notation, matches RolePermission table) ──
-const DB_PERM_GROUPS: Array<{ label: string; keys: string[] }> = [
-  { label: 'Dashboard',    keys: ['dashboard_view', 'dashboard_stats_all'] },
-  { label: 'Reports',      keys: ['reports_view', 'reports_submit', 'reports_all', 'reports_staff', 'reports_revenue', 'reports_export'] },
-  { label: 'Applications', keys: ['applications_view', 'applications_view_all', 'applications_create', 'applications_edit', 'applications_delete', 'applications_assign', 'applications_approve'] },
-  { label: 'Visa',         keys: ['visa_view', 'visa_view_all', 'visa_create', 'visa_edit', 'visa_delete', 'visa_approve'] },
-  { label: 'Trips',        keys: ['trips_view', 'trips_view_all', 'trips_create', 'trips_edit', 'trips_delete', 'trips_assign', 'trips_proposals'] },
-  { label: 'Bookings',     keys: ['bookings_view', 'bookings_view_all', 'bookings_create', 'bookings_edit', 'bookings_delete'] },
-  { label: 'Payments',     keys: ['payments_view', 'payments_view_all', 'payments_create', 'payments_edit', 'payments_delete', 'payments_refund'] },
-  { label: 'Staff',        keys: ['staff_view', 'staff_create', 'staff_edit', 'staff_delete', 'staff_manage_roles'] },
-  { label: 'Settings',     keys: ['settings_view', 'settings_edit', 'settings_roles', 'settings_integrations'] },
-  { label: 'CMS',          keys: ['cms_view', 'cms_edit', 'cms_publish'] },
-  { label: 'Inbox & Notifications', keys: ['inbox_delete', 'notifications_view', 'notifications_send', 'notifications_broadcast'] },
-]
-
-const DB_PERM_LABELS: Record<string, string> = {
-  dashboard_view: 'View Dashboard', dashboard_stats_all: 'All Dashboard Stats',
-  reports_view: 'View Own Reports', reports_submit: 'Submit Reports', reports_all: 'View All Staff Reports',
-  reports_staff: 'View Staff Reports', reports_revenue: 'View Revenue Reports', reports_export: 'Export Reports',
-  applications_view: 'View Own Applications', applications_view_all: 'View All Applications',
-  applications_create: 'Create Applications', applications_edit: 'Edit Applications',
-  applications_delete: 'Delete Applications', applications_assign: 'Assign Applications', applications_approve: 'Approve Applications',
-  visa_view: 'View Visa Applications', visa_view_all: 'View All Visa Apps',
-  visa_create: 'Create Visa Applications', visa_edit: 'Edit Visa Applications',
-  visa_delete: 'Delete Visa Applications', visa_approve: 'Approve Visa Applications',
-  trips_view: 'View Trips', trips_view_all: 'View All Trips', trips_create: 'Create Trips',
-  trips_edit: 'Edit Trips', trips_delete: 'Delete Trips', trips_assign: 'Assign Trips', trips_proposals: 'Trip Proposals',
-  bookings_view: 'View Bookings', bookings_view_all: 'View All Bookings',
-  bookings_create: 'Create Bookings', bookings_edit: 'Edit Bookings', bookings_delete: 'Delete Bookings',
-  payments_view: 'View Payments', payments_view_all: 'View All Payments',
-  payments_create: 'Create Payments', payments_edit: 'Edit Payments',
-  payments_delete: 'Delete Payments', payments_refund: 'Process Refunds',
-  staff_view: 'View Staff', staff_create: 'Create Staff', staff_edit: 'Edit Staff',
-  staff_delete: 'Delete Staff', staff_manage_roles: 'Manage Roles',
-  settings_view: 'View Settings', settings_edit: 'Edit Settings',
-  settings_roles: 'Manage Role Permissions', settings_integrations: 'Manage Integrations',
-  cms_view: 'View CMS', cms_edit: 'Edit CMS Content', cms_publish: 'Publish CMS',
-  inbox_delete: 'Delete Inbox Messages', notifications_view: 'View Notifications',
-  notifications_send: 'Send Notifications', notifications_broadcast: 'Broadcast Notifications',
-}
-
 function RoleDefaultsTab({ isSuperAdmin }: { isSuperAdmin: boolean }) {
   const roles = Object.keys(ROLE_META) as AdminRole[]
   const [selectedRole, setSelectedRole] = useState<AdminRole>('coordinator')
@@ -216,8 +176,28 @@ function RoleDefaultsTab({ isSuperAdmin }: { isSuperAdmin: boolean }) {
   }
 
   const currentPerms = editMode ? editPerms : (dbRoles[selectedRole] || {})
-  const grantedCount = DB_PERM_GROUPS.reduce((acc, g) => acc + g.keys.filter(k => currentPerms[k]).length, 0)
-  const totalCount   = DB_PERM_GROUPS.reduce((acc, g) => acc + g.keys.length, 0)
+  const grantedCount = PERMISSION_GROUPS.reduce((acc, g) => acc + g.keys.filter(({ key }) => currentPerms[key]).length, 0)
+  const totalCount   = PERMISSION_GROUPS.reduce((acc, g) => acc + g.keys.length, 0)
+
+  function applyPreset(preset: 'grant_all' | 'revoke_all' | 'reset_default') {
+    if (preset === 'grant_all') {
+      const all: Record<string, boolean> = {}
+      PERMISSION_GROUPS.forEach(g => g.keys.forEach(({ key }) => { all[key] = true }))
+      setEditPerms(all)
+    } else if (preset === 'revoke_all') {
+      const none: Record<string, boolean> = {}
+      PERMISSION_GROUPS.forEach(g => g.keys.forEach(({ key }) => { none[key] = false }))
+      setEditPerms(none)
+    } else {
+      const defaults = ROLE_DEFAULTS[selectedRole] ?? {}
+      const resolved: Record<string, boolean> = {}
+      PERMISSION_GROUPS.forEach(g => g.keys.forEach(({ key }) => {
+        resolved[key] = (defaults as Record<string, boolean>)[key] ?? false
+      }))
+      setEditPerms(resolved)
+    }
+    setSaved(false)
+  }
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
@@ -227,7 +207,7 @@ function RoleDefaultsTab({ isSuperAdmin }: { isSuperAdmin: boolean }) {
         {roles.map(role => {
           const meta  = ROLE_META[role]
           const perms = dbRoles[role] || {}
-          const count = Object.values(perms).filter(Boolean).length
+          const count = PERMISSION_GROUPS.reduce((acc, g) => acc + g.keys.filter(({ key }) => perms[key]).length, 0)
           return (
             <button key={role} onClick={() => selectRole(role)}
               className={`w-full text-left px-3 py-2.5 rounded-xl border transition-all ${
@@ -266,7 +246,19 @@ function RoleDefaultsTab({ isSuperAdmin }: { isSuperAdmin: boolean }) {
           </div>
           {isSuperAdmin && selectedRole !== 'super_admin' && !loadingDB && (
             editMode ? (
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
+                <button onClick={() => applyPreset('grant_all')}
+                  className="text-xs px-3 py-1.5 rounded-lg border border-green-300 text-green-700 bg-green-50 hover:bg-green-100 transition-colors font-medium">
+                  Grant All
+                </button>
+                <button onClick={() => applyPreset('revoke_all')}
+                  className="text-xs px-3 py-1.5 rounded-lg border border-red-300 text-red-700 bg-red-50 hover:bg-red-100 transition-colors font-medium">
+                  Revoke All
+                </button>
+                <button onClick={() => applyPreset('reset_default')}
+                  className="text-xs px-3 py-1.5 rounded-lg border border-gray-300 text-gray-600 bg-gray-50 hover:bg-gray-100 transition-colors font-medium">
+                  Reset Default
+                </button>
                 <button onClick={saveRole} disabled={saving}
                   className="flex items-center gap-1.5 text-xs px-4 py-1.5 rounded-lg font-semibold bg-green-600 hover:bg-green-700 text-white transition-all disabled:opacity-50">
                   {saving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
@@ -305,9 +297,9 @@ function RoleDefaultsTab({ isSuperAdmin }: { isSuperAdmin: boolean }) {
             <Loader2 className="w-5 h-5 text-[#C9A84C] animate-spin" />
           </div>
         ) : (
-          DB_PERM_GROUPS.map(group => {
+          PERMISSION_GROUPS.map(group => {
             const isOpen  = expanded[group.label] !== false
-            const granted = group.keys.filter(k => currentPerms[k]).length
+            const granted = group.keys.filter(({ key }) => currentPerms[key]).length
             return (
               <div key={group.label} className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
                 <button onClick={() => setExpanded(p => ({ ...p, [group.label]: !isOpen }))}
@@ -323,7 +315,7 @@ function RoleDefaultsTab({ isSuperAdmin }: { isSuperAdmin: boolean }) {
                 </button>
                 {isOpen && (
                   <div className="border-t border-gray-50 divide-y divide-gray-50">
-                    {group.keys.map(key => {
+                    {group.keys.map(({ key, label, desc }) => {
                       const has = currentPerms[key] === true
                       return (
                         <div key={key}
@@ -333,7 +325,8 @@ function RoleDefaultsTab({ isSuperAdmin }: { isSuperAdmin: boolean }) {
                             {has ? <Check className="w-3 h-3 text-green-600" /> : <X className="w-3 h-3 text-gray-400" />}
                           </div>
                           <div className="flex-1 min-w-0">
-                            <div className="text-sm font-semibold text-[#0B1F3A]">{DB_PERM_LABELS[key] ?? key}</div>
+                            <div className="text-sm font-semibold text-[#0B1F3A]">{label}</div>
+                            <div className="text-xs text-gray-400 truncate">{desc}</div>
                           </div>
                           <code className="text-[10px] text-gray-300 font-mono hidden sm:block">{key}</code>
                           {editMode && <span className="text-[10px] text-gray-400">{has ? 'click to revoke' : 'click to grant'}</span>}

@@ -8,6 +8,9 @@ export async function GET(req: NextRequest) {
   try {
     const session = await getAdminSession()
     if (!session) return NextResponse.json({ error: 'Unauthorised' }, { status: 401 })
+    if (!session.permissions?.accounting_view && session.role !== 'super_admin') {
+      return NextResponse.json({ error: 'Permission denied — accounting_view required' }, { status: 403 })
+    }
 
     const { searchParams } = new URL(req.url)
     const period = searchParams.get('period') || 'month'

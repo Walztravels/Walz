@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server'
 import { getSupabaseAdmin } from '@/lib/supabase'
 
+export const revalidate = 300
+
 export async function GET() {
   const supabase = getSupabaseAdmin()
   const { data, error } = await supabase
@@ -14,5 +16,9 @@ export async function GET() {
     content[row.section] = row.data
   })
 
-  return NextResponse.json({ content })
+  return NextResponse.json({ content }, {
+    headers: {
+      'Cache-Control': 'public, s-maxage=300, stale-while-revalidate=600',
+    },
+  })
 }

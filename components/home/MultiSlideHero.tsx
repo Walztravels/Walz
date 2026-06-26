@@ -116,6 +116,8 @@ export function MultiSlideHero() {
             alt=""
             className="w-full h-full object-cover"
             loading={i === 0 ? 'eager' : 'lazy'}
+            fetchPriority={i === 0 ? 'high' : 'low'}
+            decoding="async"
           />
           <div
             className="absolute inset-0"

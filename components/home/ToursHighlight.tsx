@@ -131,6 +131,8 @@ export function ToursHighlight() {
                 alt={tour.name}
                 onError={e => { e.currentTarget.src = 'https://images.unsplash.com/photo-1469854523086-cc02fe5d8800?w=800&auto=format&fit=crop' }}
                 className="w-full h-full object-cover ken-burns slide-fade-in"
+                loading="lazy"
+                decoding="async"
               />
             </div>
           )}
@@ -147,7 +149,7 @@ export function ToursHighlight() {
                   className={`w-10 h-10 rounded-lg overflow-hidden border-2 transition-all ${i === 0 ? 'border-[#C9A84C]' : 'border-white/40'}`}
                 >
                   {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={url} alt={`Tour photo ${i + 1}`} className="w-full h-full object-cover" />
+                  <img src={url} alt={`Tour photo ${i + 1}`} className="w-full h-full object-cover" loading="lazy" decoding="async" />
                 </div>
               ))}
             </div>

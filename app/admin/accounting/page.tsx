@@ -1,5 +1,6 @@
 'use client'
 import { useState, useEffect, useCallback } from 'react'
+import { useStaffPermissions } from '@/hooks/useStaffPermissions'
 
 const SYM: Record<string, string> = { GBP: '£', USD: '$', EUR: '€', NGN: '₦', GHS: '₵' }
 
@@ -41,6 +42,7 @@ interface CurrencySummary {
 }
 
 export default function AccountingPage() {
+  const { can, loading: permLoading } = useStaffPermissions()
   const [transactions, setTransactions] = useState<Transaction[]>([])
   const [summary,      setSummary]      = useState<Record<string, CurrencySummary>>({})
   const [loading,      setLoading]      = useState(true)
@@ -92,6 +94,18 @@ export default function AccountingPage() {
   }
 
   const periodLabel = { week: 'This week', month: 'This month', year: 'This year', all: 'All time' }[period] ?? ''
+
+  if (!permLoading && !can('accounting_view')) {
+    return (
+      <div className="p-6 flex items-center justify-center min-h-[60vh]">
+        <div className="text-center">
+          <div className="text-4xl mb-3">🔒</div>
+          <h2 className="text-lg font-bold text-[#0B1F3A] mb-1">Access Restricted</h2>
+          <p className="text-sm text-gray-500">You don't have permission to view accounting data. Contact your admin.</p>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="p-6 max-w-7xl mx-auto space-y-6">

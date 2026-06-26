@@ -3,6 +3,7 @@
 const nextConfig = {
   // ── General ───────────────────────────────────────────────────────────────
   poweredByHeader: false,
+  compress: true,
 
   // ── Image optimisation ────────────────────────────────────────────────────
   images: {
@@ -87,6 +88,19 @@ const nextConfig = {
           },
         ],
       },
+      // ── API response caching — CDN edge serves these without hitting origin ──
+      {
+        source:  '/api/tours',
+        headers: [{ key: 'Cache-Control', value: 'public, s-maxage=300, stale-while-revalidate=600' }],
+      },
+      {
+        source:  '/api/public/:path*',
+        headers: [{ key: 'Cache-Control', value: 'public, s-maxage=300, stale-while-revalidate=600' }],
+      },
+      {
+        source:  '/api/currency',
+        headers: [{ key: 'Cache-Control', value: 'public, s-maxage=3600, stale-while-revalidate=7200' }],
+      },
       // ── Immutable long-term cache for hashed Next.js bundles ──────────────
       {
         source:  '/_next/static/:path*',
@@ -151,6 +165,7 @@ const nextConfig = {
     serverActions: {
       bodySizeLimit: '10mb',
     },
+    optimizePackageImports: ['lucide-react', 'framer-motion', 'date-fns'],
   },
 }
 

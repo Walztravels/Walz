@@ -298,8 +298,10 @@ export default function RootLayout({
           }}
         />
 
-        {/* Meta Pixel */}
-        <script
+        {/* Meta Pixel — lazyOnload so it never blocks render */}
+        <Script
+          id="fb-pixel"
+          strategy="lazyOnload"
           dangerouslySetInnerHTML={{
             __html: `
               !function(f,b,e,v,n,t,s)

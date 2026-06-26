@@ -1,8 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import prisma from '@/lib/db'
 
-export const dynamic = 'force-dynamic'
-export const revalidate = 0
+export const revalidate = 300 // revalidate ISR cache every 5 minutes
 
 // Public endpoint — returns active tour listings; ?type=tour|package filters by type
 export async function GET(req: NextRequest) {
@@ -14,8 +13,12 @@ export async function GET(req: NextRequest) {
       where,
       orderBy: { order: 'asc' },
     })
-    return NextResponse.json(tours)
+    return NextResponse.json(tours, {
+      headers: {
+        'Cache-Control': 'public, s-maxage=300, stale-while-revalidate=600',
+      },
+    })
   } catch {
-    return NextResponse.json([], { status: 200 }) // graceful fallback
+    return NextResponse.json([], { status: 200 })
   }
 }
