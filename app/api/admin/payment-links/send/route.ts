@@ -26,8 +26,11 @@ export async function POST(req: NextRequest) {
 
     // ── Virtual account bank-transfer email ──────────────────────────────────
     if (body.virtualAccount) {
-      const { accountNumber, bankName, tx_ref } = body.virtualAccount
+      const { accountNumber, bankName, tx_ref, amountToPay, fee } = body.virtualAccount
       const { isPermanent, deadlineFormatted, deadlineHours } = body
+      // Use the fee-inclusive amount FLW returned — this is what the client must transfer
+      const displayAmount   = amountToPay || Number(amount)
+      const displayAmountFmt = `${symbol}${displayAmount.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
 
       const deadlineBlock = !isPermanent && deadlineFormatted
         ? `<div style="background:#FEF2F2;border:2px solid #FCA5A5;border-radius:10px;padding:16px;margin:16px 0;text-align:center">
@@ -46,7 +49,7 @@ export async function POST(req: NextRequest) {
       await resend.emails.send({
         from:    'Walz Travels Billing <billing@walztravels.com>',
         to:      clientEmail,
-        subject: `Bank Transfer Details — ${amountFmt} | Walz Travels`,
+        subject: `Bank Transfer Details — ${displayAmountFmt} | Walz Travels`,
         html: `<!DOCTYPE html>
 <html><head><meta charset="utf-8">
 <style>
@@ -80,7 +83,8 @@ body{font-family:Arial,sans-serif;background:#f5f5f5;margin:0;padding:20px}
     <p style="font-size:14px;color:#111">Dear <strong>${clientName || 'Client'}</strong>,</p>
     <p style="font-size:13px;color:#6B7280">Please transfer the exact amount below to the dedicated bank account. Your booking will be confirmed upon receipt.</p>
     <div class="amt">
-      <div class="amt-num">${amountFmt}</div>
+      <div class="amt-num">${displayAmountFmt}</div>
+      ${fee > 0 ? `<div style="color:#92400E;font-size:11px;margin-top:4px">includes processing fee</div>` : ''}
       <div class="amt-desc">${description || 'Payment to Walz Travels'}</div>
     </div>
     ${deadlineBlock}
@@ -107,7 +111,7 @@ body{font-family:Arial,sans-serif;background:#f5f5f5;margin:0;padding:20px}
       <p>How to pay:</p>
       <ol>
         <li>Open your banking app or visit any bank branch</li>
-        <li>Transfer ${isPermanent ? 'the amount owed' : `exactly <strong>${amountFmt}</strong>`} to the account above</li>
+        <li>Transfer ${isPermanent ? 'the amount owed' : `exactly <strong>${displayAmountFmt}</strong>`} to the account above</li>
         <li>Use reference: <strong>${tx_ref}</strong></li>
         <li>Your booking is confirmed automatically on receipt</li>
       </ol>

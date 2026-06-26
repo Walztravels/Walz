@@ -56,6 +56,8 @@ export async function POST(req: NextRequest) {
       currency:  cur,
       tx_ref,
       narration: description || `Walz Travels — ${clientName}`,
+      // Flutterwave MFB (090567) is most reliable — Sterling Bank (232) reverses payments
+      bank_code: '090567',
     }
 
     if (clientPhone) payload.phonenumber = clientPhone
@@ -86,13 +88,19 @@ export async function POST(req: NextRequest) {
     })
 
     if (data.status === 'success' && data.data?.account_number) {
+      // FLW returns the fee-inclusive amount the client must actually transfer.
+      // Using our requested amount causes reversals because the totals don't match.
+      const flwAmount      = parseFloat(String(data.data.amount)) || Number(amount)
+      const requestedAmount = Number(amount) || 0
+      const fee            = Math.max(0, Math.round((flwAmount - requestedAmount) * 100) / 100)
+
       try {
         await prisma.paymentLink.create({
           data: {
             txRef:         tx_ref,
             accountNumber: data.data.account_number,
             bankName:      data.data.bank_name,
-            amount:        Number(amount),
+            amount:        flwAmount,   // fee-inclusive — what client must pay
             currency:      cur,
             clientEmail,
             clientName:    clientName || '',
@@ -107,18 +115,21 @@ export async function POST(req: NextRequest) {
       }
 
       return NextResponse.json({
-        success:       true,
-        provider:      'flutterwave_va',
-        accountNumber: data.data.account_number,
-        bankName:      data.data.bank_name,
-        expiryDate:    data.data.expiry_date ?? null,
-        flwRef:        data.data.flw_ref,
-        amount:        Number(amount),
-        currency:      cur,
-        description:   description || '',
+        success:         true,
+        provider:        'flutterwave_va',
+        accountNumber:   data.data.account_number,
+        bankName:        data.data.bank_name,
+        expiryDate:      data.data.expiry_date ?? null,
+        flwRef:          data.data.flw_ref,
+        amount:          requestedAmount,
+        amountToPay:     flwAmount,    // fee-inclusive — show this to the client
+        requestedAmount,
+        fee,
+        currency:        cur,
+        description:     description || '',
         tx_ref,
         isPermanent,
-        expiresAt:         expiresAt?.toISOString() ?? null,
+        expiresAt:       expiresAt?.toISOString() ?? null,
         deadlineHours,
         deadlineFormatted,
       })

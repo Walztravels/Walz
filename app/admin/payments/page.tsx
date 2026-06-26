@@ -90,7 +90,8 @@ export default function AdminPaymentsPage() {
     url?: string; accountNumber?: string; bankName?: string; expiryDate?: string | null;
     isPermanent?: boolean; expiresAt?: string | null; deadlineHours?: number | null;
     deadlineFormatted?: string | null; tx_ref?: string; provider: string; type?: string;
-    amount: string | number; currency: string; description: string;
+    amount: string | number; amountToPay?: number; requestedAmount?: number; fee?: number;
+    currency: string; description: string;
   } | null>(null)
   const [generating,     setGenerating]     = useState(false)
   const [linkSending,    setLinkSending]    = useState(false)
@@ -692,18 +693,38 @@ export default function AdminPaymentsPage() {
                         <span className="text-white/40 text-sm">Account Number</span>
                         <span className="text-amber-400 font-mono text-xl font-bold tracking-wider">{generatedLink.accountNumber}</span>
                       </div>
-                      <div className="flex justify-between items-center">
-                        <span className="text-white/40 text-sm">Amount</span>
-                        <span className="text-white font-semibold">{generatedLink.currency} {Number(generatedLink.amount).toLocaleString()}</span>
+                      <div className="flex justify-between items-start">
+                        <span className="text-white/40 text-sm pt-0.5">Amount to Transfer</span>
+                        <div className="text-right">
+                          <span className="text-amber-400 font-bold text-xl">
+                            {generatedLink.currency} {(generatedLink.amountToPay ?? Number(generatedLink.amount)).toLocaleString()}
+                          </span>
+                          {(generatedLink.fee ?? 0) > 0 && (
+                            <p className="text-white/30 text-xs mt-0.5">
+                              incl. {generatedLink.currency} {generatedLink.fee} processing fee
+                            </p>
+                          )}
+                        </div>
                       </div>
                       <div>
                         <p className="text-white/40 text-xs mb-1">Reference</p>
                         <p className="text-white/60 font-mono text-xs">{generatedLink.tx_ref}</p>
                       </div>
+                      {/* Exact amount warning — only for temporary VAs */}
+                      {!generatedLink.isPermanent && (
+                        <div className="bg-red-500/10 border border-red-500/30 rounded-xl p-3">
+                          <p className="text-red-400 text-xs font-bold mb-1">⚠️ Client must pay EXACTLY:</p>
+                          <p className="text-red-300 text-2xl font-bold font-mono">
+                            {generatedLink.currency} {(generatedLink.amountToPay ?? Number(generatedLink.amount)).toLocaleString()}
+                          </p>
+                          <p className="text-red-400/60 text-xs mt-0.5">includes processing fee — any other amount will be reversed</p>
+                        </div>
+                      )}
                       <button onClick={() => {
+                        const payAmt = (generatedLink.amountToPay ?? Number(generatedLink.amount)).toLocaleString()
                         const deadlineLine = generatedLink.deadlineFormatted ? `\nDeadline: ${generatedLink.deadlineFormatted}` : ''
                         navigator.clipboard.writeText(
-                          `Bank: ${generatedLink.bankName}\nAccount Number: ${generatedLink.accountNumber}\nAmount: ${generatedLink.currency} ${Number(generatedLink.amount).toLocaleString()}\nRef: ${generatedLink.tx_ref}${deadlineLine}`
+                          `Bank: ${generatedLink.bankName}\nAccount Number: ${generatedLink.accountNumber}\nAmount to Transfer: ${generatedLink.currency} ${payAmt}\nRef: ${generatedLink.tx_ref}${deadlineLine}`
                         )
                         setLinkCopied(true)
                         setTimeout(() => setLinkCopied(false), 2000)
@@ -736,16 +757,18 @@ export default function AdminPaymentsPage() {
                             ? {
                                 clientEmail:       payLinkForm.clientEmail,
                                 clientName:        payLinkForm.clientName,
-                                amount:            generatedLink.amount,
+                                amount:            generatedLink.amountToPay ?? generatedLink.amount,
                                 currency:          generatedLink.currency,
                                 description:       generatedLink.description,
                                 isPermanent:       generatedLink.isPermanent,
                                 deadlineFormatted: generatedLink.deadlineFormatted,
                                 deadlineHours:     generatedLink.deadlineHours,
                                 virtualAccount: {
-                                  accountNumber: generatedLink.accountNumber,
-                                  bankName:      generatedLink.bankName,
-                                  tx_ref:        generatedLink.tx_ref,
+                                  accountNumber:   generatedLink.accountNumber,
+                                  bankName:        generatedLink.bankName,
+                                  tx_ref:          generatedLink.tx_ref,
+                                  amountToPay:     generatedLink.amountToPay ?? generatedLink.amount,
+                                  fee:             generatedLink.fee ?? 0,
                                 },
                               }
                             : { ...payLinkForm, paymentUrl: generatedLink.url, provider: generatedLink.provider }
