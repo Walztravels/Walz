@@ -111,13 +111,14 @@ export default function AdminPaymentsPage() {
   const [showPayLink,    setShowPayLink]    = useState(false)
   const [payLinkForm,    setPayLinkForm]    = useState({
     amount: '', currency: 'GBP', description: '', clientName: '', clientEmail: '', clientPhone: '',
-    provider: 'stripe', isPermanent: true, paymentDeadline: '1', bvn: '', feePercent: 0,
+    provider: 'stripe', isPermanent: true, paymentDeadline: '1', bvn: '', cardType: 'eu',
   })
   const [generatedLink,  setGeneratedLink]  = useState<{
     url?: string; accountNumber?: string; bankName?: string; expiryDate?: string | null;
     isPermanent?: boolean; expiresAt?: string | null; deadlineHours?: number | null;
     deadlineFormatted?: string | null; tx_ref?: string; provider: string; type?: string;
     amount: string | number; amountToPay?: number; requestedAmount?: number; fee?: number;
+    baseAmount?: number; feeAmount?: number; totalCharge?: number; feeLabel?: string;
     currency: string; description: string;
   } | null>(null)
   const [generating,     setGenerating]     = useState(false)
@@ -473,6 +474,7 @@ export default function AdminPaymentsPage() {
                     <button key={p} onClick={() => setPayLinkForm(prev => ({
                       ...prev, provider: p,
                       currency: p === 'stripe' ? 'GBP' : 'NGN',
+                      cardType: 'eu',
                     }))}
                       className={`flex-1 py-2 rounded-lg text-sm font-bold transition ${
                         payLinkForm.provider === p ? 'bg-amber-500 text-black' : 'text-white/50 hover:text-white'
@@ -629,36 +631,70 @@ export default function AdminPaymentsPage() {
                   </div>
                 </div>
 
-                {/* Processing fee selector — Stripe/Flutterwave only */}
+                {/* Fee section — auto-applied, no manual override */}
                 {payLinkForm.provider !== 'virtual_account' && (
-                  <div className="mb-4">
-                    <label className="text-white/50 text-xs uppercase tracking-wider block mb-2">Processing Fee</label>
-                    <div className="grid grid-cols-4 gap-2">
-                      {[{ val: 0, label: 'None' }, { val: 1.5, label: '+1.5%' }, { val: 2, label: '+2%' }, { val: 2.5, label: '+2.5%' }].map(opt => (
-                        <button key={opt.val}
-                          onClick={() => setPayLinkForm(p => ({ ...p, feePercent: opt.val }))}
-                          className={`py-2 rounded-xl text-xs font-bold border transition ${
-                            payLinkForm.feePercent === opt.val
-                              ? 'bg-amber-500 text-black border-amber-500'
-                              : 'bg-white/5 text-white/50 border-white/10 hover:text-white'
-                          }`}>
-                          {opt.label}
-                        </button>
-                      ))}
-                    </div>
-                    {payLinkForm.feePercent > 0 && payLinkForm.amount && (
-                      <div className="mt-2 bg-white/5 rounded-xl px-4 py-2.5 flex justify-between text-xs">
-                        <span className="text-white/40">
-                          Base: {payLinkForm.currency} {Number(payLinkForm.amount).toLocaleString()}
-                        </span>
-                        <span className="text-white/40">
-                          +fee: {payLinkForm.currency} {Math.ceil(Number(payLinkForm.amount) * payLinkForm.feePercent / 100).toLocaleString()}
-                        </span>
-                        <span className="text-amber-400 font-bold">
-                          Total: {payLinkForm.currency} {(Number(payLinkForm.amount) + Math.ceil(Number(payLinkForm.amount) * payLinkForm.feePercent / 100)).toLocaleString()}
-                        </span>
+                  <div className="mb-4 space-y-3">
+                    {/* EU / non-EU toggle — Stripe only */}
+                    {payLinkForm.provider === 'stripe' && (
+                      <div>
+                        <label className="text-white/50 text-xs uppercase tracking-wider block mb-2">Card Origin</label>
+                        <div className="grid grid-cols-2 gap-2">
+                          <button onClick={() => setPayLinkForm(p => ({ ...p, cardType: 'eu' }))}
+                            className={`py-2.5 rounded-xl text-xs font-bold border transition text-left px-3 ${
+                              payLinkForm.cardType === 'eu'
+                                ? 'bg-amber-500/20 border-amber-500/50 text-amber-400'
+                                : 'bg-white/5 border-white/10 text-white/50 hover:text-white'
+                            }`}>
+                            <span className="block">🇬🇧 UK / EU Card</span>
+                            <span className="font-normal opacity-70">1.4% + £0.20</span>
+                          </button>
+                          <button onClick={() => setPayLinkForm(p => ({ ...p, cardType: 'non_eu' }))}
+                            className={`py-2.5 rounded-xl text-xs font-bold border transition text-left px-3 ${
+                              payLinkForm.cardType === 'non_eu'
+                                ? 'bg-amber-500/20 border-amber-500/50 text-amber-400'
+                                : 'bg-white/5 border-white/10 text-white/50 hover:text-white'
+                            }`}>
+                            <span className="block">🌍 International Card</span>
+                            <span className="font-normal opacity-70">2.9% + £0.30</span>
+                          </button>
+                        </div>
                       </div>
                     )}
+
+                    {/* Auto fee breakdown — live preview */}
+                    {payLinkForm.amount && Number(payLinkForm.amount) > 0 && (() => {
+                      const base  = Number(payLinkForm.amount)
+                      const isEU  = payLinkForm.cardType !== 'non_eu'
+                      const pct   = payLinkForm.provider === 'stripe' ? (isEU ? 1.4 : 2.9) : 1.4
+                      const fixed = payLinkForm.provider === 'stripe'
+                        ? (isEU
+                            ? (payLinkForm.currency === 'EUR' ? 0.25 : 0.20)
+                            : 0.30)
+                        : 0
+                      const feeAmt = Math.ceil((base * pct / 100 + fixed) * 100) / 100
+                      const total  = Math.ceil((base + feeAmt) * 100) / 100
+                      const cur    = payLinkForm.currency
+                      const sym    = ({ GBP:'£', USD:'$', EUR:'€', NGN:'₦', GHS:'₵' } as Record<string,string>)[cur] ?? cur
+                      const fmtLabel = `${pct}%${fixed > 0 ? ` + ${sym}${fixed.toFixed(2)}` : ''}`
+                      return (
+                        <div className="bg-amber-500/8 border border-amber-500/20 rounded-xl p-4 space-y-2">
+                          <p className="text-amber-400/60 text-[10px] uppercase tracking-wider font-bold">Fee Pass-Through (auto)</p>
+                          <div className="flex justify-between text-xs">
+                            <span className="text-white/50">Service amount</span>
+                            <span className="text-white">{sym}{base.toLocaleString('en-GB', { minimumFractionDigits: 2 })}</span>
+                          </div>
+                          <div className="flex justify-between text-xs">
+                            <span className="text-white/50">Processing fee <span className="text-white/30">({fmtLabel})</span></span>
+                            <span className="text-amber-400">+ {sym}{feeAmt.toFixed(2)}</span>
+                          </div>
+                          <div className="border-t border-white/10 pt-2 flex justify-between items-baseline">
+                            <span className="text-white text-xs font-bold">Client pays</span>
+                            <span className="text-amber-400 font-bold text-base">{sym}{total.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                          </div>
+                          <p className="text-white/20 text-[10px]">Fee passed to client — Walz receives {sym}{base.toLocaleString('en-GB', { minimumFractionDigits: 2 })} in full</p>
+                        </div>
+                      )
+                    })()}
                   </div>
                 )}
 
@@ -811,14 +847,37 @@ export default function AdminPaymentsPage() {
                   </>
                 ) : (
                   /* URL-based result */
-                  <div className="bg-white/5 rounded-xl p-4 mb-4">
-                    <p className="text-white/40 text-xs uppercase tracking-wider mb-2">Payment URL</p>
-                    <p className="text-amber-400 text-sm break-all mb-3 leading-relaxed">{generatedLink.url}</p>
-                    <button onClick={() => { navigator.clipboard.writeText(generatedLink.url ?? ''); setLinkCopied(true); setTimeout(() => setLinkCopied(false), 2000) }}
-                      className="w-full bg-white/10 hover:bg-white/20 text-white text-sm font-bold py-2.5 rounded-xl transition">
-                      {linkCopied ? '✓ Copied!' : '📋 Copy Link'}
-                    </button>
-                  </div>
+                  <>
+                    {/* Fee breakdown */}
+                    {(generatedLink.feeAmount ?? 0) > 0 && (() => {
+                      const cur = generatedLink.currency
+                      const sym = ({ GBP:'£', USD:'$', EUR:'€', NGN:'₦', GHS:'₵' } as Record<string,string>)[cur] ?? cur
+                      return (
+                        <div className="bg-white/5 rounded-xl p-4 mb-3 space-y-2">
+                          <div className="flex justify-between text-xs">
+                            <span className="text-white/50">Service amount</span>
+                            <span className="text-white">{sym}{Number(generatedLink.baseAmount).toLocaleString('en-GB', { minimumFractionDigits: 2 })}</span>
+                          </div>
+                          <div className="flex justify-between text-xs">
+                            <span className="text-white/50">Processing fee <span className="text-white/30">({generatedLink.feeLabel})</span></span>
+                            <span className="text-amber-400">+ {sym}{Number(generatedLink.feeAmount).toFixed(2)}</span>
+                          </div>
+                          <div className="border-t border-white/10 pt-2 flex justify-between items-baseline">
+                            <span className="text-white text-xs font-bold">Client pays</span>
+                            <span className="text-amber-400 font-bold text-lg">{sym}{Number(generatedLink.totalCharge ?? generatedLink.amount).toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                          </div>
+                        </div>
+                      )
+                    })()}
+                    <div className="bg-white/5 rounded-xl p-4 mb-4">
+                      <p className="text-white/40 text-xs uppercase tracking-wider mb-2">Payment URL</p>
+                      <p className="text-amber-400 text-sm break-all mb-3 leading-relaxed">{generatedLink.url}</p>
+                      <button onClick={() => { navigator.clipboard.writeText(generatedLink.url ?? ''); setLinkCopied(true); setTimeout(() => setLinkCopied(false), 2000) }}
+                        className="w-full bg-white/10 hover:bg-white/20 text-white text-sm font-bold py-2.5 rounded-xl transition">
+                        {linkCopied ? '✓ Copied!' : '📋 Copy Link'}
+                      </button>
+                    </div>
+                  </>
                 )}
 
                 {payLinkForm.clientEmail && (
@@ -846,7 +905,18 @@ export default function AdminPaymentsPage() {
                                   fee:             generatedLink.fee ?? 0,
                                 },
                               }
-                            : { ...payLinkForm, paymentUrl: generatedLink.url, provider: generatedLink.provider }
+                            : {
+                                clientEmail: payLinkForm.clientEmail,
+                                clientName:  payLinkForm.clientName,
+                                amount:      generatedLink.totalCharge ?? generatedLink.amount,
+                                baseAmount:  generatedLink.baseAmount,
+                                feeAmount:   generatedLink.feeAmount,
+                                feeLabel:    generatedLink.feeLabel,
+                                currency:    generatedLink.currency,
+                                description: generatedLink.description,
+                                paymentUrl:  generatedLink.url,
+                                provider:    generatedLink.provider,
+                              }
                           const res  = await fetch('/api/admin/payment-links/send', {
                             method:  'POST',
                             headers: { 'Content-Type': 'application/json' },

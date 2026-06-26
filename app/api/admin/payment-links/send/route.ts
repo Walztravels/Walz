@@ -14,7 +14,7 @@ export async function POST(req: NextRequest) {
     if (!session) return NextResponse.json({ error: 'Unauthorised' }, { status: 401 })
 
     const body = await req.json()
-    const { clientEmail, clientName, amount, currency, description } = body
+    const { clientEmail, clientName, amount, baseAmount, feeAmount, feeLabel, currency, description } = body
 
     if (!clientEmail) {
       return NextResponse.json({ error: 'Client email is required' }, { status: 400 })
@@ -173,6 +173,14 @@ body{font-family:Arial,sans-serif;background:#f5f5f5;margin:0;padding:20px}
     <div class="amt">
       <div class="amt-num">${amountFmt}</div>
       <div class="amt-desc">${description}</div>
+      ${feeAmount > 0 ? `
+      <div style="margin-top:10px;padding-top:10px;border-top:1px solid #FDE68A">
+        <table style="width:100%;font-size:12px;color:#92400E;border-collapse:collapse">
+          <tr><td style="text-align:left;padding:2px 0">Service amount</td><td style="text-align:right">${symbol}${Number(baseAmount).toLocaleString('en-GB', { minimumFractionDigits: 2 })}</td></tr>
+          <tr><td style="text-align:left;padding:2px 0">Processing fee (${feeLabel})</td><td style="text-align:right">+ ${symbol}${Number(feeAmount).toFixed(2)}</td></tr>
+        </table>
+        <p style="color:#78350F;font-size:11px;margin:6px 0 0">Processing fee passed through — Walz Travels receives ${symbol}${Number(baseAmount).toLocaleString('en-GB', { minimumFractionDigits: 2 })} in full</p>
+      </div>` : ''}
     </div>
     <a href="${paymentUrl}" class="pay-btn">💳 Pay Now Securely</a>
     <div class="info">
