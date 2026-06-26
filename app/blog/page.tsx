@@ -1,6 +1,9 @@
 import Link from 'next/link'
+import Script from 'next/script'
 import type { Metadata } from 'next'
 import prisma from '@/lib/db'
+
+const SORO_EMBED = 'https://app.trysoro.com/api/embed/e527122f-370b-455e-8cb1-6eb259425df9'
 
 export const revalidate = 300
 
@@ -64,9 +67,10 @@ export default async function BlogPage() {
       {/* Articles grid */}
       <div className="max-w-6xl mx-auto px-4 py-12 lg:py-16">
         {posts.length === 0 ? (
-          <div className="text-center text-gray-400 py-20">
-            Articles coming soon…
-          </div>
+          <>
+            <div id="soro-blog" className="min-h-[400px]" />
+            <Script src={SORO_EMBED} strategy="lazyOnload" />
+          </>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {posts.map(post => {

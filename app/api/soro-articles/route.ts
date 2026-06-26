@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 
 const EMBED_URL =
-  'https://app.trysoro.com/api/embed/2780678f-725a-44f8-9eda-6b44bd24b5e1'
+  'https://app.trysoro.com/api/embed/e527122f-370b-455e-8cb1-6eb259425df9'
 
 export interface SoroArticle {
   id:      string
