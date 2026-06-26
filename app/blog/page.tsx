@@ -137,6 +137,43 @@ export default async function BlogPage() {
 
         <Script src={SORO_EMBED} strategy="afterInteractive" />
 
+        {/* Fallback: replace broken Soro images with quality Unsplash travel photos */}
+        <Script
+          id="soro-image-fix"
+          strategy="afterInteractive"
+          dangerouslySetInnerHTML={{
+            __html: `
+              var TRAVEL_IMAGES = [
+                'photo-1436491865332-7a61a109cc05',
+                'photo-1488646953014-85cb44e25828',
+                'photo-1503220317375-aaad61436b1b',
+                'photo-1476514525535-07fb3b4ae5f1',
+                'photo-1527631746610-bca00a040d60',
+                'photo-1568605117036-5fe5e7bab0b7',
+                'photo-1512453979798-5ea266f8880c',
+                'photo-1513635269975-59663e0ac1ad',
+                'photo-1517090504586-fde19ea6066f',
+                'photo-1501854140801-50d01698950b',
+              ];
+              function fixSoroImages() {
+                var el = document.getElementById('soro-blog');
+                if (!el) return;
+                var imgs = el.querySelectorAll('img');
+                imgs.forEach(function(img, i) {
+                  img.style.width = '100%';
+                  img.style.aspectRatio = '16/9';
+                  img.style.objectFit = 'cover';
+                  img.addEventListener('error', function() {
+                    img.src = 'https://images.unsplash.com/' + TRAVEL_IMAGES[i % TRAVEL_IMAGES.length] + '?w=800&q=80&auto=format&fit=crop';
+                  }, { once: true });
+                });
+              }
+              setTimeout(fixSoroImages, 2000);
+              setTimeout(fixSoroImages, 5000);
+            `,
+          }}
+        />
+
         {/* Newsletter CTA */}
         <div className="mt-16 rounded-2xl p-8 lg:p-10 text-center" style={{ backgroundColor: '#0B1F3A' }}>
           <p className="text-[#C9A84C] text-xs font-bold uppercase tracking-[4px] mb-3">Stay Updated</p>

@@ -363,3 +363,61 @@
     page-break-inside: avoid;
   }
 }
+
+/* ── Soro blog embed — brand overrides ───────────────────────────── */
+#soro-blog {
+  font-family: inherit !important;
+}
+
+#soro-blog article,
+#soro-blog .soro-article,
+#soro-blog [class*="article"],
+#soro-blog [class*="post"],
+#soro-blog [class*="card"] {
+  border-radius: 16px !important;
+  overflow: hidden !important;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08) !important;
+  transition: transform 0.2s, box-shadow 0.2s !important;
+}
+
+#soro-blog article:hover,
+#soro-blog [class*="card"]:hover {
+  transform: translateY(-4px) !important;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12) !important;
+}
+
+/* Force landscape 16:9 on all embed images */
+#soro-blog img,
+#soro-blog [class*="image"],
+#soro-blog [class*="thumbnail"],
+#soro-blog [class*="cover"] {
+  width: 100% !important;
+  aspect-ratio: 16 / 9 !important;
+  object-fit: cover !important;
+  object-position: center !important;
+}
+
+#soro-blog h2,
+#soro-blog h3,
+#soro-blog [class*="title"] {
+  font-family: inherit !important;
+  color: #111827 !important;
+  font-weight: 700 !important;
+}
+
+#soro-blog [class*="category"],
+#soro-blog [class*="tag"],
+#soro-blog [class*="label"] {
+  color: #D97706 !important;
+  font-weight: 600 !important;
+  font-size: 12px !important;
+  text-transform: uppercase !important;
+  letter-spacing: 0.05em !important;
+}
+
+#soro-blog a[class*="read"],
+#soro-blog a[class*="more"],
+#soro-blog [class*="cta"] {
+  color: #D97706 !important;
+  font-weight: 600 !important;
+}
