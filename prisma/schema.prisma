@@ -615,22 +615,32 @@ model SiteImage {
 // ===========================
 
 model BlogPost {
-  id               String   @id @default(cuid())
+  id               String    @id @default(cuid())
   title            String
-  slug             String   @unique
-  content          String   @db.Text
-  excerpt          String?  @db.Text
-  category         String   @default("Travel Tips")
+  slug             String    @unique
+  content          String    @db.Text
+  excerpt          String?   @db.Text
+  category         String    @default("Travel Tips")
   featuredImageUrl String?
-  metaDescription  String?  @db.Text
-  published        Boolean  @default(false)
-  createdAt        DateTime @default(now())
-  updatedAt        DateTime @updatedAt
+  metaDescription  String?   @db.Text
+  published        Boolean   @default(false)
+  // Soro SEO autopilot fields
+  soroArticleId    String?   @unique
+  source           String    @default("manual")
+  metaTitle        String?
+  focusKeyword     String?
+  tags             String[]  @default([])
+  author           String    @default("Walz Travels")
+  readTime         Int?
+  publishedAt      DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
 
   @@index([slug])
   @@index([published])
   @@index([category])
   @@index([createdAt])
+  @@index([source])
 }
 
 // ===========================

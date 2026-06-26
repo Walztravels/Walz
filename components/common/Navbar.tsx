@@ -8,7 +8,7 @@ import {
   Menu, X, Plane, Building2, Map, FileText, ChevronDown,
   User, LogOut, LayoutDashboard, Gift, MessageCircle,
   Upload, CreditCard, Users, UserCircle, Globe, Compass,
-  Signal, Wifi, Check, MapPin, Car, Package, ShoppingCart,
+  Signal, Wifi, Check, MapPin, Car, Package, ShoppingCart, BookOpen,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
@@ -22,6 +22,7 @@ const LOGO_CACHE_TTL = 60 * 60 * 1000 // 1 hour
 const navLinks = [
   { href: '/flights',  label: 'Flights',       icon: Plane     },
   { href: '/hotels',   label: 'Hotels',        icon: Building2 },
+  { href: '/blog',     label: 'Blog',          icon: BookOpen  },
   { href: '/esim',     label: 'Jade Connect',  icon: Wifi      },
   { href: '/about',    label: 'About',         icon: Users     },
   { href: '/gift',     label: 'Gift Vouchers', icon: Gift      },
