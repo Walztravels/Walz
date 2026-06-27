@@ -175,7 +175,12 @@ function RoleDefaultsTab({ isSuperAdmin }: { isSuperAdmin: boolean }) {
     } finally { setSaving(false) }
   }
 
-  const currentPerms = editMode ? editPerms : (dbRoles[selectedRole] || {})
+  // super_admin always shows all permissions as true regardless of DB
+  const rawPerms = editMode ? editPerms : (dbRoles[selectedRole] || {})
+  const currentPerms = selectedRole === 'super_admin'
+    ? Object.fromEntries(PERMISSION_GROUPS.flatMap(g => g.keys.map(({ key }) => [key, true])))
+    : rawPerms
+  const hasDbRecord = selectedRole in dbRoles
   const grantedCount = PERMISSION_GROUPS.reduce((acc, g) => acc + g.keys.filter(({ key }) => currentPerms[key]).length, 0)
   const totalCount   = PERMISSION_GROUPS.reduce((acc, g) => acc + g.keys.length, 0)
 
@@ -206,8 +211,11 @@ function RoleDefaultsTab({ isSuperAdmin }: { isSuperAdmin: boolean }) {
         <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-3">Select Role</p>
         {roles.map(role => {
           const meta  = ROLE_META[role]
-          const perms = dbRoles[role] || {}
-          const count = PERMISSION_GROUPS.reduce((acc, g) => acc + g.keys.filter(({ key }) => perms[key]).length, 0)
+          const inDb    = role in dbRoles
+          const perms   = role === 'super_admin'
+            ? Object.fromEntries(PERMISSION_GROUPS.flatMap(g => g.keys.map(({ key }) => [key, true])))
+            : (dbRoles[role] || {})
+          const count   = PERMISSION_GROUPS.reduce((acc, g) => acc + g.keys.filter(({ key }) => perms[key]).length, 0)
           return (
             <button key={role} onClick={() => selectRole(role)}
               className={`w-full text-left px-3 py-2.5 rounded-xl border transition-all ${
@@ -220,8 +228,10 @@ function RoleDefaultsTab({ isSuperAdmin }: { isSuperAdmin: boolean }) {
                 <span className="text-xs font-semibold truncate">{meta.label}</span>
                 {!loadingDB && (
                   <span className={`ml-auto text-[10px] font-bold px-1.5 py-0.5 rounded-full ${
-                    selectedRole === role ? 'bg-white/20 text-white' : 'bg-gray-100 text-gray-500'
-                  }`}>{count}</span>
+                    !inDb && role !== 'super_admin'
+                      ? (selectedRole === role ? 'bg-orange-500/30 text-orange-200' : 'bg-orange-100 text-orange-600')
+                      : (selectedRole === role ? 'bg-white/20 text-white' : 'bg-gray-100 text-gray-500')
+                  }`}>{!inDb && role !== 'super_admin' ? '—' : count}</span>
                 )}
               </div>
             </button>
@@ -289,6 +299,30 @@ function RoleDefaultsTab({ isSuperAdmin }: { isSuperAdmin: boolean }) {
           <div className="flex items-center gap-2 px-4 py-2.5 bg-amber-50 border border-amber-200 rounded-xl text-amber-800 text-xs">
             <AlertCircle className="w-4 h-4 flex-shrink-0" />
             Click any permission to toggle it. Changes affect all {ROLE_META[selectedRole].label}s immediately after saving.
+          </div>
+        )}
+
+        {/* No DB record yet — show Initialize button */}
+        {!loadingDB && !hasDbRecord && selectedRole !== 'super_admin' && !editMode && (
+          <div className="flex items-center gap-3 px-4 py-3 bg-orange-50 border border-orange-200 rounded-xl text-orange-800 text-xs">
+            <AlertCircle className="w-4 h-4 flex-shrink-0 text-orange-500" />
+            <span className="flex-1">This role has no permissions record in the database yet. Click Initialize to create it with default permissions.</span>
+            {isSuperAdmin && (
+              <button
+                onClick={() => {
+                  const defaults = ROLE_DEFAULTS[selectedRole] ?? {}
+                  const resolved: Record<string, boolean> = {}
+                  PERMISSION_GROUPS.forEach(g => g.keys.forEach(({ key }) => {
+                    resolved[key] = (defaults as Record<string, boolean>)[key] ?? false
+                  }))
+                  setEditPerms(resolved)
+                  setEditMode(true)
+                }}
+                className="px-3 py-1.5 rounded-lg font-semibold bg-orange-600 hover:bg-orange-700 text-white transition-colors whitespace-nowrap"
+              >
+                Initialize
+              </button>
+            )}
           </div>
         )}
 

@@ -119,6 +119,7 @@ export type PermissionKey =
   // Tools
   | 'ticket_generator'
   | 'itinerary_planner'
+  | 'trip_requests'
   | 'transfers_view'
   | 'visa_intelligence'
   // Settings
@@ -218,6 +219,7 @@ export const EMPTY_PERMISSIONS: Permissions = {
   cms_publish: false,
   ticket_generator: false,
   itinerary_planner: false,
+  trip_requests: false,
   transfers_view: false,
   visa_intelligence: false,
   settings_view: false,
@@ -372,6 +374,7 @@ export const PERMISSION_GROUPS: PermissionGroup[] = [
       { key: 'flight_deals_view',label: 'View Flight Deals', desc: 'See promoted flight deals and specials' },
       { key: 'ticket_generator', label: 'Ticket Generator',  desc: 'Generate flight itinerary PDFs' },
       { key: 'itinerary_planner',label: 'Itinerary Planner', desc: 'Build full trip itineraries' },
+      { key: 'trip_requests',    label: 'Trip Requests',     desc: 'Send and receive client trip intake forms' },
       { key: 'transfers_view',   label: 'Transfers',         desc: 'View and manage airport transfers' },
       { key: 'trips_view',       label: 'View Trips',        desc: 'See trip planner records' },
       { key: 'trips_view_all',   label: 'View All Trips',    desc: "View all staff members' trips" },

@@ -30,5 +30,12 @@ export async function GET() {
     (a, b) => ROLE_HIERARCHY.indexOf(b.role as never) - ROLE_HIERARCHY.indexOf(a.role as never)
   )
 
-  return NextResponse.json(sorted)
+  // super_admin always has all permissions — override DB values
+  const result = sorted.map(r => {
+    if (r.role !== 'super_admin') return r
+    const perms = (r.permissions ?? {}) as Record<string, boolean>
+    return { ...r, permissions: Object.fromEntries(Object.keys(perms).map(k => [k, true])) }
+  })
+
+  return NextResponse.json(result)
 }
