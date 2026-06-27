@@ -1,5 +1,6 @@
 'use client'
 import { useState, useEffect, useCallback } from 'react'
+import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 
 interface Itinerary {
@@ -34,12 +35,23 @@ const CURRENCY_SYM: Record<string, string> = {
   GBP: '£', USD: '$', EUR: '€', NGN: '₦', GHS: '₵', AED: 'د.إ',
 }
 
+const QUICK_EXAMPLES = [
+  'Dubai 7 nights honeymoon £8k Emirates business',
+  'Canada family 10 days Toronto + Vancouver',
+  'Paris long weekend romantic boutique hotel',
+  'Maldives water villa 5 nights £12k',
+]
+
 export default function ItineraryPlannerPage() {
+  const router = useRouter()
   const [itineraries, setItineraries] = useState<Itinerary[]>([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState('all')
   const [showCreate, setShowCreate] = useState(false)
+  const [quickPrompt, setQuickPrompt] = useState('')
+  const [quickLoading, setQuickLoading] = useState(false)
+  const [quickError, setQuickError] = useState('')
 
   const stats = {
     total:    itineraries.length,
@@ -61,6 +73,39 @@ export default function ItineraryPlannerPage() {
 
   useEffect(() => { void fetchItineraries() }, [fetchItineraries])
 
+  const handleQuickCreate = async () => {
+    if (!quickPrompt.trim() || quickLoading) return
+    setQuickLoading(true)
+    setQuickError('')
+    try {
+      const createRes = await fetch('/api/admin/itineraries', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          title: quickPrompt.substring(0, 60),
+          clientName: 'New Client',
+          clientEmail: 'pending@walztravels.com',
+          destination: 'TBD',
+          type: 'itinerary',
+        }),
+      })
+      const createData = await createRes.json() as { itinerary?: { id: string } }
+      if (!createData.itinerary?.id) throw new Error('Failed to create itinerary')
+
+      const itineraryId = createData.itinerary.id
+      await fetch('/api/admin/itineraries/copilot', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prompt: quickPrompt, itineraryId, mode: 'generate' }),
+      })
+
+      router.push(`/admin/itinerary-planner/${itineraryId}`)
+    } catch (err: unknown) {
+      setQuickError(err instanceof Error ? err.message : 'Something went wrong. Please try again.')
+      setQuickLoading(false)
+    }
+  }
+
   return (
     <div className="min-h-screen bg-[#060f1e] text-white">
       <div className="max-w-7xl mx-auto px-6 py-8">
@@ -77,6 +122,55 @@ export default function ItineraryPlannerPage() {
           >
             + New Itinerary
           </button>
+        </div>
+
+        {/* Jade Copilot Quick Start */}
+        <div className="bg-gradient-to-r from-amber-500/10 to-amber-900/10 border border-amber-500/20 rounded-2xl p-5 mb-8">
+          <div className="flex items-center gap-3 mb-4">
+            <div className="w-10 h-10 bg-amber-500/20 border border-amber-500/30 rounded-full flex items-center justify-center flex-shrink-0">
+              <span className="text-xl">✨</span>
+            </div>
+            <div>
+              <p className="text-white font-bold text-sm">Create with Jade Copilot</p>
+              <p className="text-white/40 text-xs">Describe any trip and Jade builds the full itinerary instantly</p>
+            </div>
+          </div>
+          <div className="flex gap-2">
+            <textarea
+              value={quickPrompt}
+              onChange={e => setQuickPrompt(e.target.value)}
+              onKeyDown={e => {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                  e.preventDefault()
+                  void handleQuickCreate()
+                }
+              }}
+              placeholder="e.g. 7 nights Dubai honeymoon for 2, £8,000 budget, Emirates business class from London…"
+              rows={2}
+              className="flex-1 bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white text-sm placeholder:text-white/20 focus:outline-none focus:border-amber-500/50 resize-none"
+            />
+            <button
+              onClick={() => void handleQuickCreate()}
+              disabled={quickLoading || !quickPrompt.trim()}
+              className="bg-amber-500 hover:bg-amber-400 text-black font-bold px-5 rounded-xl transition disabled:opacity-50 flex items-center gap-2 flex-shrink-0"
+            >
+              {quickLoading ? (
+                <><div className="w-4 h-4 border-2 border-black border-t-transparent rounded-full animate-spin" /> Creating…</>
+              ) : '✨ Create'}
+            </button>
+          </div>
+          {quickError && <p className="text-red-400 text-xs mt-2">{quickError}</p>}
+          <div className="flex flex-wrap gap-2 mt-3">
+            {QUICK_EXAMPLES.map(ex => (
+              <button
+                key={ex}
+                onClick={() => setQuickPrompt(ex)}
+                className="text-xs text-amber-400/60 hover:text-amber-400 border border-amber-500/20 hover:border-amber-500/40 px-3 py-1 rounded-full transition"
+              >
+                {ex}
+              </button>
+            ))}
+          </div>
         </div>
 
         {/* Stats */}

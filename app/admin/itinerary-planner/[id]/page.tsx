@@ -1,6 +1,7 @@
 'use client'
 import { useState, useEffect, useCallback } from 'react'
 import { useParams } from 'next/navigation'
+import { JadeCopilot } from './JadeCopilot'
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -272,6 +273,7 @@ export default function ItineraryBuilderPage() {
   const [activeTab, setActiveTab] = useState('overview')
   const [saving, setSaving] = useState(false)
   const [saveMsg, setSaveMsg] = useState('')
+  const [showCopilot, setShowCopilot] = useState(false)
 
   const load = useCallback(async () => {
     const res = await fetch(`/api/admin/itineraries/${id}`)
@@ -281,6 +283,12 @@ export default function ItineraryBuilderPage() {
   }, [id])
 
   useEffect(() => { void load() }, [load])
+
+  const refresh = useCallback(async () => {
+    const res = await fetch(`/api/admin/itineraries/${id}`)
+    const data = await res.json()
+    if (data.itinerary) setItin(data.itinerary)
+  }, [id])
 
   const save = useCallback(async (updates: Record<string, unknown>) => {
     if (!id) return
@@ -311,7 +319,8 @@ export default function ItineraryBuilderPage() {
   )
 
   return (
-    <div className="min-h-screen bg-[#060f1e] text-white">
+    <>
+    <div className={`min-h-screen bg-[#060f1e] text-white transition-all duration-300 ${showCopilot ? 'mr-[420px]' : ''}`}>
       <div className="border-b border-white/[0.08] px-6 py-4 sticky top-0 bg-[#060f1e] z-10">
         <div className="max-w-7xl mx-auto">
           <div className="flex items-center justify-between mb-4">
@@ -327,6 +336,17 @@ export default function ItineraryBuilderPage() {
             <div className="flex items-center gap-3">
               {saving && <span className="text-white/30 text-xs animate-pulse">Saving…</span>}
               {saveMsg && !saving && <span className="text-green-400 text-xs">✓ {saveMsg}</span>}
+              <button
+                onClick={() => setShowCopilot(prev => !prev)}
+                className={`flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold transition ${
+                  showCopilot
+                    ? 'bg-amber-500 text-black'
+                    : 'bg-amber-500/20 border border-amber-500/30 text-amber-400 hover:bg-amber-500/30'
+                }`}
+              >
+                ✨ Jade Copilot
+                {showCopilot && <span className="bg-black/20 text-[10px] px-1.5 py-0.5 rounded-full">ON</span>}
+              </button>
               <span className={`text-xs font-bold px-3 py-1.5 rounded-full ${
                 itin.status === 'approved' ? 'bg-green-500/20 text-green-400' :
                 itin.status === 'proposal' ? 'bg-blue-500/20 text-blue-400' :
@@ -374,6 +394,15 @@ export default function ItineraryBuilderPage() {
         )}
       </div>
     </div>
+
+    {showCopilot && (
+      <JadeCopilot
+        itinerary={itin as unknown as Record<string, unknown>}
+        onItineraryUpdate={refresh}
+        onClose={() => setShowCopilot(false)}
+      />
+    )}
+    </>
   )
 }
 
