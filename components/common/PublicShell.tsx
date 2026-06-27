@@ -15,8 +15,9 @@ const CurrencyConverter = dynamic(
 export function PublicShell({ children }: { children: React.ReactNode }) {
   const pathname = usePathname() ?? ''
   const isAdmin  = pathname.startsWith('/admin')
+  const isForm   = ['/trip-request/', '/itinerary/', '/visa/apply/', '/visa/form/', '/payment/'].some(p => pathname.startsWith(p))
 
-  if (isAdmin) return <>{children}</>
+  if (isAdmin || isForm) return <>{children}</>
 
   return (
     <>

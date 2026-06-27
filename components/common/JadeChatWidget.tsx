@@ -197,6 +197,7 @@ function HandoverCard({ handover }: { handover: HandoverInfo }) {
 export function JadeChatWidget() {
   const pathname = usePathname() ?? ''
   const isAdmin  = pathname.startsWith('/admin')
+  const isForm   = ['/trip-request/', '/itinerary/', '/visa/apply/', '/visa/form/', '/payment/'].some(p => pathname.startsWith(p))
 
   const [isOpen,         setIsOpen]         = useState(false)
   const [isMinimized,    setIsMinimized]     = useState(false)
@@ -608,7 +609,7 @@ export function JadeChatWidget() {
 
   const formatTime = (d: Date) => d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })
 
-  if (!hasMounted || isAdmin) return null
+  if (!hasMounted || isAdmin || isForm) return null
 
   const lastAiMsgIdx = messages.reduce(
     (last, m, i) => (m.role === 'assistant' && !m.isSystemMessage ? i : last),

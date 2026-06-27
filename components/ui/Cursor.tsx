@@ -1,13 +1,19 @@
 'use client'
 
 import { useEffect, useRef } from 'react'
+import { usePathname } from 'next/navigation'
 import gsap from 'gsap'
 
+const FORM_PREFIXES = ['/trip-request/', '/itinerary/', '/visa/apply/', '/visa/form/', '/payment/']
+
 export default function Cursor() {
+  const pathname  = usePathname() ?? ''
   const dotRef    = useRef<HTMLDivElement>(null)
   const circleRef = useRef<HTMLDivElement>(null)
+  const isForm    = FORM_PREFIXES.some(p => pathname.startsWith(p))
 
   useEffect(() => {
+    if (isForm) return
     // Skip on touch/coarse pointer devices
     if (window.matchMedia('(pointer: coarse)').matches) return
     if (window.matchMedia('(hover: none)').matches) return
@@ -69,7 +75,9 @@ export default function Cursor() {
       document.removeEventListener('mouseout',   onDocLeave)
       cancelAnimationFrame(rafId)
     }
-  }, [])
+  }, [isForm])
+
+  if (isForm) return null
 
   return (
     <>
