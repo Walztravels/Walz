@@ -301,65 +301,34 @@ export default function HomePage() {
               { id: 'p2', title: 'Canada Visitor Visa & eTA Guide 2026',              slug: 'canada-visitor-visa', date: 'Jun 2026', image: getArticleImage('canada visitor', 1),   category: 'CANADA VISA' },
               { id: 'p3', title: 'Dubai in 5 Days — The Ultimate Itinerary',          slug: 'dubai-5-days',        date: 'May 2026', image: getArticleImage('dubai days itinerary', 2), category: 'DESTINATION' },
             ]
-            const [featured, ...rest] = posts
             return (
-              <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
-                {/* Featured article — spans 2 cols */}
-                <Link
-                  href={`/blog?post=${featured.slug}`}
-                  className="lg:col-span-2 group relative rounded-2xl overflow-hidden block h-72 lg:h-80"
-                >
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img
-                    src={featured.image}
-                    alt={featured.title}
-                    onError={e => { e.currentTarget.src = BLOG_FALLBACKS.default }}
-                    className="absolute inset-0 w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
-                  />
-                  <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/30 to-transparent" />
-                  <div className="absolute bottom-0 left-0 right-0 p-6">
-                    <span className="text-[10px] font-bold tracking-widest uppercase bg-amber-500 text-black px-2.5 py-1 rounded-full">
-                      Featured · {featured.category}
-                    </span>
-                    <h3 className="text-white font-bold text-lg lg:text-xl mt-2 leading-snug line-clamp-2 group-hover:text-amber-300 transition-colors">
-                      {featured.title}
-                    </h3>
-                    <p className="text-white/50 text-xs mt-1.5 flex items-center gap-1">
-                      {featured.date} · Read More <ArrowRight className="w-3 h-3" />
-                    </p>
-                  </div>
-                </Link>
-
-                {/* 2 stacked smaller cards */}
-                <div className="flex flex-col gap-5">
-                  {rest.slice(0, 2).map((a, i) => (
-                    <Link
-                      key={a.id}
-                      href={`/blog?post=${a.slug}`}
-                      className="group relative rounded-2xl overflow-hidden flex-1 block min-h-[140px]"
-                    >
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img
-                        src={a.image}
-                        alt={a.title}
-                        onError={e => { e.currentTarget.src = BLOG_FALLBACKS.default }}
-                        className="absolute inset-0 w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
-                      />
-                      <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent" />
-                      <div className="absolute bottom-0 left-0 right-0 p-4">
-                        <span className="text-[9px] font-bold tracking-widest uppercase bg-amber-500/90 text-black px-2 py-0.5 rounded-full">
-                          {a.category}
-                        </span>
-                        <h3 className="text-white font-bold text-sm mt-1.5 leading-snug line-clamp-2 group-hover:text-amber-300 transition-colors">
-                          {a.title}
-                        </h3>
-                        <p className="text-white/40 text-[11px] mt-1">
-                          {a.date} · Read More
-                        </p>
-                      </div>
-                    </Link>
-                  ))}
-                </div>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-5">
+                {posts.slice(0, 3).map((a, i) => (
+                  <Link
+                    key={a.id}
+                    href={`/blog?post=${a.slug}`}
+                    className="group relative rounded-2xl overflow-hidden block h-64 md:h-72"
+                  >
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img
+                      src={a.image}
+                      alt={a.title}
+                      onError={e => { e.currentTarget.src = BLOG_FALLBACKS.default }}
+                      className="absolute inset-0 w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                    />
+                    <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/30 to-transparent" />
+                    <div className="absolute bottom-0 left-0 right-0 p-5">
+                      <span className="inline-block bg-amber-500 text-black text-[10px] font-bold uppercase tracking-widest px-2.5 py-1 rounded-full mb-2">
+                        {a.category}
+                      </span>
+                      <h3 className="text-white font-bold text-sm md:text-base leading-tight line-clamp-2 group-hover:text-amber-300 transition-colors">
+                        {a.title}
+                      </h3>
+                      <p className="text-white/50 text-xs mt-1.5 font-medium">{a.date}</p>
+                    </div>
+                    <div className="absolute inset-0 rounded-2xl border-2 border-transparent group-hover:border-amber-400/50 transition-colors pointer-events-none" />
+                  </Link>
+                ))}
               </div>
             )
           })()}

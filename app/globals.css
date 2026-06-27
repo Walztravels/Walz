@@ -375,21 +375,22 @@
   display: none !important;
 }
 
-/* Container — force responsive grid, full width */
+/* Container — full-width wrapper only; grid is on the list */
 .soro-blog {
+  width: 100% !important;
+  max-width: 100% !important;
+  display: block !important;
+}
+
+/* THE GRID — on .soro-blog-list because cards are its children */
+.soro-blog-list {
   display: grid !important;
   grid-template-columns: repeat(3, 1fr) !important;
   gap: 28px !important;
   width: 100% !important;
-  max-width: 100% !important;
+  list-style: none !important;
   padding: 0 !important;
   margin: 0 !important;
-  box-sizing: border-box !important;
-}
-
-/* Inner list becomes transparent to the grid — cards flow directly */
-.soro-blog-list {
-  display: contents !important;
 }
 
 /* ── Cards ─────────────────────────────────────────────────────── */
@@ -487,22 +488,22 @@
 }
 
 /* ── Responsive breakpoints ────────────────────────────────────── */
-@media (max-width: 640px) {
-  .soro-blog {
+@media (max-width: 639px) {
+  .soro-blog-list {
     grid-template-columns: 1fr !important;
     gap: 16px !important;
   }
 }
 
-@media (min-width: 641px) and (max-width: 1023px) {
-  .soro-blog {
+@media (min-width: 640px) and (max-width: 1023px) {
+  .soro-blog-list {
     grid-template-columns: repeat(2, 1fr) !important;
     gap: 20px !important;
   }
 }
 
 @media (min-width: 1024px) {
-  .soro-blog {
+  .soro-blog-list {
     grid-template-columns: repeat(3, 1fr) !important;
     gap: 28px !important;
   }
