@@ -43,12 +43,10 @@ export async function GET() {
       return NextResponse.json({ error: 'Account not found' }, { status: 403 })
     }
 
-    // Grant full super_admin permissions from the RolePermission table
-    const roleRecord = await prisma.rolePermission.findUnique({
-      where:  { role: 'super_admin' },
-      select: { permissions: true },
-    })
-    const permissions = roleRecord?.permissions ?? EMPTY_PERMISSIONS
+    // super_admin always gets ALL permissions — don't trust DB values
+    const permissions = Object.fromEntries(
+      Object.keys(EMPTY_PERMISSIONS).map(k => [k, true])
+    )
 
     return NextResponse.json({
       id:        'env-admin',

@@ -13,6 +13,13 @@ import {
   type Permissions,
 } from '@/lib/permissions'
 
+// super_admin always gets every permission — never read from DB for this role
+function superAdminPermissions(): Permissions {
+  return Object.fromEntries(
+    Object.keys(EMPTY_PERMISSIONS).map(k => [k, true])
+  ) as Permissions
+}
+
 export async function getStaffPermissions(staffId: string): Promise<Permissions> {
   const staff = await prisma.staff.findUnique({
     where:  { id: staffId },
@@ -20,6 +27,9 @@ export async function getStaffPermissions(staffId: string): Promise<Permissions>
   })
 
   if (!staff) return EMPTY_PERMISSIONS
+
+  // super_admin bypasses the DB — DB values don't matter for this role
+  if (staff.role === 'super_admin') return superAdminPermissions()
 
   const [roleRecord] = await Promise.all([
     prisma.rolePermission.findUnique({
@@ -47,6 +57,11 @@ export async function getStaffPermissionsByEmail(
   })
 
   if (!staff) return { ...EMPTY_PERMISSIONS, staffId: null, role: null }
+
+  // super_admin bypasses the DB — DB values don't matter for this role
+  if (staff.role === 'super_admin') {
+    return { ...superAdminPermissions(), staffId: staff.id, role: staff.role }
+  }
 
   const roleRecord = await prisma.rolePermission.findUnique({
     where:  { role: staff.role },

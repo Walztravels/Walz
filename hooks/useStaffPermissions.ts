@@ -94,6 +94,7 @@ export function useStaffPermissions(): UseStaffPermissionsReturn {
   }, [fetchProfile])
 
   const perms = profile?.permissions ?? EMPTY_PERMISSIONS
+  const isSuperAdmin = profile?.role === 'super_admin'
 
   return {
     profile,
@@ -101,9 +102,9 @@ export function useStaffPermissions(): UseStaffPermissionsReturn {
     roleLabel:  profile?.roleLabel ?? null,
     roleBadge:  profile?.roleBadge ?? null,
     permissions: perms,
-    can:    (key)  => perms[key] === true,
-    canAll: (keys) => keys.every((k) => perms[k] === true),
-    canAny: (keys) => keys.some((k)  => perms[k] === true),
+    can:    (key)  => isSuperAdmin || perms[key] === true,
+    canAll: (keys) => isSuperAdmin || keys.every((k) => perms[k] === true),
+    canAny: (keys) => isSuperAdmin || keys.some((k)  => perms[k] === true),
     loading,
     error,
     refresh: fetchProfile,
