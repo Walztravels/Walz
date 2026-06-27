@@ -255,28 +255,73 @@ function resolveCoverImage(keyword: string): string {
 export async function POST(req: NextRequest) {
   if (!await isAdmin()) return NextResponse.json({ error: 'Unauthorised' }, { status: 401 })
 
-  const { prompt, itineraryId, conversationHistory, mode, currentItinerary } = await req.json()
+  const { prompt, itineraryId, conversationHistory, mode } = await req.json()
 
   if (!prompt?.trim()) {
     return NextResponse.json({ error: 'Please describe the trip' }, { status: 400 })
   }
 
-  // Build the user message based on mode
+  // ── Load existing itinerary from DB for context ───────────────────────────
+  let existingContext = ''
+  if (itineraryId) {
+    try {
+      const existing = await prisma.itinerary.findUnique({ where: { id: itineraryId } })
+      if (existing) {
+        const safeParse = (s: string | null, fallback: unknown[]) => { try { return JSON.parse(s || '[]') } catch { return fallback } }
+        const exDays      = safeParse(existing.days, []) as Array<Record<string, unknown>>
+        const exFlights   = safeParse(existing.flights, []) as Array<Record<string, unknown>>
+        const exHotels    = safeParse(existing.hotels, []) as Array<Record<string, unknown>>
+        const exTours     = safeParse(existing.tours, []) as Array<Record<string, unknown>>
+        const exTransfers = safeParse(existing.transfers, []) as Array<Record<string, unknown>>
+
+        existingContext = `
+CURRENT ITINERARY STATE:
+Title: ${existing.title}
+Destination: ${existing.destination}
+Dates: ${existing.startDate?.toISOString().slice(0, 10) || 'TBD'} to ${existing.endDate?.toISOString().slice(0, 10) || 'TBD'}
+Duration: ${existing.duration || 'TBD'} days
+Travellers: ${existing.numberOfTravellers || 'TBD'}
+Trip Type: ${existing.tripType || 'leisure'}
+Budget: ${existing.currency || 'GBP'} ${existing.budget || 'flexible'}
+
+Current Days (${exDays.length}):
+${exDays.map((d) => `Day ${d.day}: ${d.title} — ${d.destination || ''}`).join('\n') || 'None yet'}
+
+Current Flights (${exFlights.length}):
+${exFlights.map((f) => `${f.from} → ${f.to} on ${f.date} (${f.airline} ${f.flightNumber || f.flightNo || ''})`).join('\n') || 'None yet'}
+
+Current Hotels (${exHotels.length}):
+${exHotels.map((h) => `${h.name}, ${h.location} (${h.checkIn} to ${h.checkOut})`).join('\n') || 'None yet'}
+
+Current Tours (${exTours.length}):
+${exTours.map((t) => `${t.name} on ${t.date}`).join('\n') || 'None yet'}
+
+Current Transfers (${exTransfers.length}):
+${exTransfers.map((t) => `${t.from} → ${t.to} on ${t.date}`).join('\n') || 'None yet'}
+`
+      }
+    } catch (e) {
+      console.error('[copilot] Failed to load context:', e)
+    }
+  }
+
+  // ── Build user message ────────────────────────────────────────────────────
   let userMessage = ''
 
-  if (mode === 'refine' && currentItinerary) {
-    userMessage = `Current itinerary context:
-${JSON.stringify(currentItinerary, null, 2).substring(0, 2000)}
-
-Staff request: ${prompt}
-
-Update the itinerary based on the staff member's request. Return the complete updated itinerary JSON.`
-  } else if (mode === 'parse') {
+  if (mode === 'parse') {
     userMessage = `Parse this booking confirmation or travel information and extract all structured details:
 
 ${prompt}
 
 Extract everything: flight numbers, PNRs, hotel confirmation numbers, dates, times, passenger names, booking references. Return as the itinerary JSON format.`
+  } else if (existingContext) {
+    userMessage = `${existingContext}
+
+STAFF REQUEST: "${prompt}"
+
+Based on the current itinerary above, UPDATE it based on this request.
+KEEP all existing days/flights/hotels/tours/transfers unless explicitly asked to change them.
+Only ADD or MODIFY what is requested. Return the COMPLETE itinerary JSON with all sections.`
   } else {
     userMessage = `Create a complete travel itinerary for Walz Travels based on this description:
 
@@ -310,13 +355,13 @@ Generate a comprehensive, professional itinerary with all fields populated. Be s
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          model: 'gpt-4o',
+          model: 'gpt-4o-mini',
           messages: [
             { role: 'system', content: JADE_COPILOT_SYSTEM },
             { role: 'user', content: userMessage },
           ],
           temperature: 0.7,
-          max_tokens: 4000,
+          max_tokens: 2500,
           response_format: { type: 'json_object' },
         }),
       })
@@ -326,7 +371,7 @@ Generate a comprehensive, professional itinerary with all fields populated. Be s
         const content = data.choices?.[0]?.message?.content
         if (content) {
           result = JSON.parse(content) as Record<string, unknown>
-          result._model = 'gpt-4o'
+          result._model = 'gpt-4o-mini'
         }
       }
     } catch (err: unknown) {
@@ -350,7 +395,7 @@ Generate a comprehensive, professional itinerary with all fields populated. Be s
         },
         body: JSON.stringify({
           model: 'claude-sonnet-4-6',
-          max_tokens: 4000,
+          max_tokens: 2500,
           system: JADE_COPILOT_SYSTEM,
           messages: [{ role: 'user', content: userMessage }],
         }),

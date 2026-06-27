@@ -4,6 +4,7 @@ import { AdminSidebar } from '@/components/admin/AdminSidebar'
 import { AdminHeader } from '@/components/admin/AdminHeader'
 import { AdminMobilePWA } from '@/components/admin/AdminMobilePWA'
 import { AircallWidget } from '@/components/admin/AircallWidget'
+import { JadeStaffWidget } from './components/JadeStaffWidget'
 
 export const dynamic = 'force-dynamic'
 
@@ -68,6 +69,9 @@ export default async function AdminLayout({ children }: { children: React.ReactN
 
       {/* Aircall phone widget — floating FAB + slide-up panel */}
       <AircallWidget />
+
+      {/* Jade Staff Assistant — floating widget on all pages except itinerary builder */}
+      <JadeStaffWidget />
 
     </div>
   )
