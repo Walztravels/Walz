@@ -1,11 +1,11 @@
 'use client'
 
-import { useRef, useState } from 'react'
+import { useRef, useState, useEffect, useCallback } from 'react'
 import Link from 'next/link'
 import {
   Plane, Hotel, MapIcon, Car, FileText, Package2,
   ChevronLeft, ChevronRight, Download, Send,
-  CheckCircle, Loader2, History, LayoutTemplate,
+  CheckCircle, Loader2, LayoutTemplate,
   Plus, Trash2, AlertCircle, RefreshCw, Copy, Check,
   Upload, X,
 } from 'lucide-react'
@@ -849,6 +849,221 @@ function buildPreview(ticketType: string, client: ClientInfo, message: string, f
   return { ...buildPayload(ticketType, client, message, flightTicket, hotel, tour, transfer, visa, pkg), ticket_reference: 'WLZ-PREVIEW' }
 }
 
+// ─── Ticket Records Tab ────────────────────────────────────────────────────────
+
+const TYPE_CONFIG: Record<string, { label: string; icon: string; color: string }> = {
+  flight:   { label: 'Flight Ticket',     icon: '✈️', color: 'bg-blue-100 text-blue-700' },
+  hotel:    { label: 'Hotel Voucher',     icon: '🏨', color: 'bg-purple-100 text-purple-700' },
+  tour:     { label: 'Tour Confirmation', icon: '🎯', color: 'bg-green-100 text-green-700' },
+  transfer: { label: 'Transfer Voucher',  icon: '🚗', color: 'bg-amber-100 text-amber-700' },
+  visa:     { label: 'Visa Appointment',  icon: '🛂', color: 'bg-red-100 text-red-700' },
+  package:  { label: 'Holiday Package',   icon: '🌍', color: 'bg-teal-100 text-teal-700' },
+}
+
+const STATUS_CONFIG: Record<string, { label: string; color: string }> = {
+  generated: { label: 'Generated', color: 'bg-gray-100 text-gray-500' },
+  sent:      { label: 'Sent',      color: 'bg-green-100 text-green-700' },
+  downloaded:{ label: 'Downloaded',color: 'bg-blue-100 text-blue-600' },
+  cancelled: { label: 'Cancelled', color: 'bg-red-100 text-red-600' },
+}
+
+function getTicketDetail(ticketType: string, data: Record<string, unknown>): string {
+  if (ticketType === 'flight') {
+    const parts = [data.from_code, data.to_code].filter(Boolean).join(' → ')
+    const date = (data.departure_date as string) || ''
+    const pnr  = data.pnr ? `· PNR: ${data.pnr}` : ''
+    return [parts, date, pnr].filter(Boolean).join(' ')
+  }
+  if (ticketType === 'hotel')    return [data.hotel_name, data.checkin_date].filter(Boolean).join(' · ') as string
+  if (ticketType === 'tour')     return [data.tour_name, data.tour_date].filter(Boolean).join(' · ') as string
+  if (ticketType === 'transfer') return [data.pickup_location, data.dropoff_location].filter(Boolean).join(' → ') as string
+  if (ticketType === 'visa')     return [data.visa_type, data.appointment_date].filter(Boolean).join(' · ') as string
+  if (ticketType === 'package')  return [data.destination, data.travel_from && data.travel_to ? `${data.travel_from}–${data.travel_to}` : ''].filter(Boolean).join(' · ') as string
+  return ''
+}
+
+interface RecordRow {
+  id: string
+  ticket_reference: string
+  client_name: string | null
+  client_email: string | null
+  ticket_type: string
+  ticket_data: string | null
+  sent_to_client: boolean
+  status: string
+  generated_by_name: string | null
+  created_at: string
+}
+
+function TicketRecords({ onTotalLoaded }: { onTotalLoaded?: (n: number) => void }) {
+  const [records, setRecords]     = useState<RecordRow[]>([])
+  const [stats, setStats]         = useState<Record<string, number>>({})
+  const [total, setTotal]         = useState(0)
+  const [loading, setLoading]     = useState(true)
+  const [search, setSearch]       = useState('')
+  const [typeFilter, setTypeFilter] = useState('all')
+  const [copied, setCopied]       = useState<string | null>(null)
+
+  const fetchRecords = useCallback(async () => {
+    setLoading(true)
+    const params = new URLSearchParams()
+    if (typeFilter !== 'all') params.set('type', typeFilter)
+    if (search) params.set('search', search)
+    try {
+      const res  = await fetch(`/api/admin/tickets?${params}`)
+      const data = await res.json() as { tickets: RecordRow[]; total: number; stats: Record<string, number> }
+      setRecords(data.tickets ?? [])
+      setTotal(data.total ?? 0)
+      setStats(data.stats ?? {})
+      onTotalLoaded?.(data.total ?? 0)
+    } catch { /* non-critical */ }
+    finally { setLoading(false) }
+  }, [typeFilter, search, onTotalLoaded])
+
+  useEffect(() => {
+    const t = setTimeout(() => void fetchRecords(), search ? 300 : 0)
+    return () => clearTimeout(t)
+  }, [fetchRecords, search])
+
+  function copyRef(ref: string) {
+    void navigator.clipboard.writeText(ref)
+    setCopied(ref)
+    setTimeout(() => setCopied(null), 2000)
+  }
+
+  const totalAll = Object.values(stats).reduce((a, b) => a + b, 0)
+
+  return (
+    <div className="p-6 space-y-6">
+
+      {/* Stats */}
+      <div className="grid grid-cols-3 md:grid-cols-6 gap-3">
+        <button
+          onClick={() => setTypeFilter('all')}
+          className={`p-3 rounded-xl border text-center transition ${typeFilter === 'all' ? 'border-[#C9A84C] bg-[#C9A84C]/10' : 'border-gray-200 bg-white hover:border-gray-300'}`}>
+          <p className="text-xl mb-1">🎫</p>
+          <p className="text-[#0B1F3A] font-bold text-lg">{totalAll}</p>
+          <p className="text-gray-400 text-xs">All Types</p>
+        </button>
+        {Object.entries(TYPE_CONFIG).map(([type, cfg]) => (
+          <button key={type}
+            onClick={() => setTypeFilter(typeFilter === type ? 'all' : type)}
+            className={`p-3 rounded-xl border text-center transition ${typeFilter === type ? 'border-[#C9A84C] bg-[#C9A84C]/10' : 'border-gray-200 bg-white hover:border-gray-300'}`}>
+            <p className="text-xl mb-1">{cfg.icon}</p>
+            <p className="text-[#0B1F3A] font-bold text-lg">{stats[type] ?? 0}</p>
+            <p className="text-gray-400 text-xs leading-tight">{cfg.label}</p>
+          </button>
+        ))}
+      </div>
+
+      {/* Search + filter */}
+      <div className="flex gap-3">
+        <input
+          type="search"
+          placeholder="Search by name, reference, email…"
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+          className="flex-1 h-10 px-4 border border-gray-200 rounded-xl text-sm text-[#0B1F3A] placeholder:text-gray-400 focus:outline-none focus:border-[#C9A84C] bg-white"
+        />
+        <select
+          value={typeFilter}
+          onChange={e => setTypeFilter(e.target.value)}
+          className="h-10 px-3 border border-gray-200 rounded-xl text-sm text-[#0B1F3A] bg-white focus:outline-none focus:border-[#C9A84C]">
+          <option value="all">All Types</option>
+          {Object.entries(TYPE_CONFIG).map(([type, cfg]) => (
+            <option key={type} value={type}>{cfg.icon} {cfg.label}</option>
+          ))}
+        </select>
+      </div>
+
+      <p className="text-xs text-gray-400">
+        {total} ticket{total !== 1 ? 's' : ''}
+        {search ? ` matching "${search}"` : ''}
+        {typeFilter !== 'all' ? ` · ${TYPE_CONFIG[typeFilter]?.label ?? typeFilter}` : ''}
+      </p>
+
+      {/* Table */}
+      {loading ? (
+        <div className="space-y-2">
+          {Array.from({ length: 6 }).map((_, i) => (
+            <div key={i} className="h-14 bg-gray-100 rounded-xl animate-pulse" />
+          ))}
+        </div>
+      ) : records.length === 0 ? (
+        <div className="text-center py-20 bg-white rounded-2xl border border-gray-100">
+          <p className="text-4xl mb-3">🎫</p>
+          <p className="text-gray-400 font-medium mb-1">No tickets found</p>
+          <p className="text-gray-300 text-sm">Generated tickets will appear here</p>
+        </div>
+      ) : (
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+          <div className="grid grid-cols-12 gap-2 px-4 py-2.5 border-b border-gray-100 text-[10px] font-bold text-gray-400 uppercase tracking-wider">
+            <div className="col-span-2">Reference</div>
+            <div className="col-span-2">Type</div>
+            <div className="col-span-3">Client</div>
+            <div className="col-span-3">Details</div>
+            <div className="col-span-1">By</div>
+            <div className="col-span-1">Status</div>
+          </div>
+          {records.map(row => {
+            const cfg       = TYPE_CONFIG[row.ticket_type]
+            const statusCfg = STATUS_CONFIG[row.status] ?? STATUS_CONFIG.generated
+            let ticketData: Record<string, unknown> = {}
+            try { ticketData = JSON.parse(row.ticket_data ?? '{}') } catch { /* ok */ }
+            const detail = getTicketDetail(row.ticket_type, ticketData)
+            return (
+              <div key={row.id}
+                className="grid grid-cols-12 gap-2 px-4 py-3 border-b border-gray-50 last:border-0 hover:bg-gray-50 transition items-center text-sm">
+
+                <div className="col-span-2">
+                  <button onClick={() => copyRef(row.ticket_reference)}
+                    title="Copy reference"
+                    className="group flex items-center gap-1">
+                    <span className="text-[#C9A84C] font-mono text-xs font-bold">
+                      {row.ticket_reference}
+                    </span>
+                    <span className="opacity-0 group-hover:opacity-100 transition text-gray-400 text-xs">
+                      {copied === row.ticket_reference ? '✓' : '⧉'}
+                    </span>
+                  </button>
+                  <p className="text-[10px] text-gray-400 mt-0.5">
+                    {new Date(row.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: '2-digit' })}
+                  </p>
+                </div>
+
+                <div className="col-span-2">
+                  <span className={`inline-flex items-center gap-1 text-xs font-semibold px-2 py-0.5 rounded-full ${cfg?.color ?? 'bg-gray-100 text-gray-500'}`}>
+                    {cfg?.icon} {cfg?.label ?? row.ticket_type}
+                  </span>
+                </div>
+
+                <div className="col-span-3">
+                  <p className="text-[#0B1F3A] font-semibold text-xs truncate">{row.client_name ?? '—'}</p>
+                  {row.client_email && <p className="text-gray-400 text-[10px] truncate">{row.client_email}</p>}
+                </div>
+
+                <div className="col-span-3">
+                  <p className="text-gray-600 text-xs leading-relaxed">{detail || '—'}</p>
+                </div>
+
+                <div className="col-span-1">
+                  <p className="text-gray-400 text-[10px] truncate">{(row.generated_by_name ?? row.ticket_reference).split('@')[0]}</p>
+                </div>
+
+                <div className="col-span-1">
+                  <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${statusCfg.color}`}>
+                    {statusCfg.label}
+                  </span>
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
 export default function TicketsPage() {
@@ -867,6 +1082,9 @@ export default function TicketsPage() {
   const [isSending, setIsSending]           = useState(false)
   const [toast, setToast]                   = useState<{ type: 'success' | 'error'; msg: string } | null>(null)
   const [sentRef, setSentRef]               = useState<string | null>(null)
+  const [activeTab, setActiveTab]           = useState<'generate' | 'records'>('generate')
+  const [realRef, setRealRef]               = useState<string | null>(null)
+  const [totalTickets, setTotalTickets]     = useState(0)
 
   // Upload banner state
   const [uploadState, setUploadState]       = useState<UploadState>('idle')
@@ -884,7 +1102,7 @@ export default function TicketsPage() {
     setStep(1); setTicketType(''); setClient(BLANK_CLIENT); setMessage('')
     setFlight(BLANK_FLIGHT); setHotel(BLANK_HOTEL); setTour(BLANK_TOUR)
     setTransfer(BLANK_TRANSFER); setVisa(BLANK_VISA); setPkg(BLANK_PACKAGE)
-    setFlightTicket(BLANK_FLIGHT_TICKET); setToast(null); setSentRef(null)
+    setFlightTicket(BLANK_FLIGHT_TICKET); setToast(null); setSentRef(null); setRealRef(null)
     setUploadState('idle'); setUploadFile(''); setUploadError('')
   }
 
@@ -960,6 +1178,7 @@ export default function TicketsPage() {
         link.click()
       }
       showToast('success', `PDF generated — Ref: ${data.ticket_reference}`, data.ticket_reference)
+      setRealRef(data.ticket_reference as string)
     } catch (err) {
       showToast('error', err instanceof Error ? err.message : 'Failed to generate PDF')
     } finally { setIsGenerating(false) }
@@ -976,13 +1195,14 @@ export default function TicketsPage() {
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || 'Failed to send ticket')
       showToast('success', `Sent to ${data.sent_to} — Ref: ${data.ticket_reference}`, data.ticket_reference)
+      setRealRef(data.ticket_reference as string)
     } catch (err) {
       showToast('error', err instanceof Error ? err.message : 'Failed to send ticket')
     } finally { setIsSending(false) }
   }
 
   const canNext = step === 1 ? !!ticketType : step === 2 ? !!client.name && !!client.email : true
-  const previewData = buildPreview(ticketType, client, message, flightTicket, hotel, tour, transfer, visa, pkg)
+  const previewData = { ...buildPreview(ticketType, client, message, flightTicket, hotel, tour, transfer, visa, pkg), ticket_reference: realRef || 'WLZ-PREVIEW' }
 
   return (
     <div className="-mx-6 -my-6 lg:-mx-8 lg:-my-8 bg-[#F8F7F4]">
@@ -994,10 +1214,23 @@ export default function TicketsPage() {
           <p className="text-xs text-gray-500 mt-0.5">Generate branded Walz Travels documents — PDF + calendar invite + flight tracker sent to client</p>
         </div>
         <div className="flex items-center gap-2">
-          <Link href="/admin/ticket-generator/history"
-            className="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50 transition">
-            <History className="w-3.5 h-3.5" /> History
-          </Link>
+          <div className="flex items-center gap-1 bg-gray-100 rounded-xl p-1">
+            <button
+              onClick={() => setActiveTab('generate')}
+              className={`flex items-center gap-1.5 px-4 py-2 text-xs font-bold rounded-lg transition ${activeTab === 'generate' ? 'bg-white text-[#0B1F3A] shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>
+              ✨ Generate
+            </button>
+            <button
+              onClick={() => setActiveTab('records')}
+              className={`flex items-center gap-1.5 px-4 py-2 text-xs font-bold rounded-lg transition ${activeTab === 'records' ? 'bg-white text-[#0B1F3A] shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>
+              📋 Records
+              {totalTickets > 0 && (
+                <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-bold ${activeTab === 'records' ? 'bg-[#C9A84C]/20 text-[#92400E]' : 'bg-gray-200 text-gray-500'}`}>
+                  {totalTickets}
+                </span>
+              )}
+            </button>
+          </div>
           <Link href="/admin/ticket-generator/templates"
             className="flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50 transition">
             <LayoutTemplate className="w-3.5 h-3.5" /> Templates
@@ -1009,80 +1242,86 @@ export default function TicketsPage() {
         </div>
       </div>
 
-      {/* Two-column body */}
-      <div className="flex">
+      {activeTab === 'generate' && (
+        <div className="flex">
 
-        {/* LEFT — Form */}
-        <div className="w-full lg:w-[45%] bg-white border-r border-gray-200">
-          <div className="p-6">
-            <UploadBanner
-              uploadState={uploadState}
-              uploadFile={uploadFile}
-              uploadError={uploadError}
-              onUpload={handleUpload}
-              onDismiss={dismissUpload}
-            />
-            <Stepper step={step} />
-            {step === 1 && <Step1 ticketType={ticketType} setTicketType={setTicketType} />}
-            {step === 2 && <Step2 client={client} setClient={setClient} />}
-            {step === 3 && (
-              <Step3 ticketType={ticketType}
-                flightTicket={flightTicket} hotel={hotel} tour={tour} transfer={transfer} visa={visa} pkg={pkg}
-                setFlightTicket={setFlightTicket} setHotel={setHotel} setTour={setTour} setTransfer={setTransfer} setVisa={setVisa} setPkg={setPkg}
+          {/* LEFT — Form */}
+          <div className="w-full lg:w-[45%] bg-white border-r border-gray-200">
+            <div className="p-6">
+              <UploadBanner
+                uploadState={uploadState}
+                uploadFile={uploadFile}
+                uploadError={uploadError}
+                onUpload={handleUpload}
+                onDismiss={dismissUpload}
               />
-            )}
-            {step === 4 && (
-              <Step4 message={message} setMessage={setMessage}
-                clientName={client.name} clientEmail={client.email} ticketType={ticketType}
-                isGenerating={isGenerating} isSending={isSending}
-                onGenerate={handleGenerate} onSend={handleSend}
-                toast={toast} sentRef={sentRef}
-              />
-            )}
-
-            {/* Nav buttons */}
-            <div className="flex items-center justify-between gap-3 mt-8 pt-5 border-t border-gray-100">
-              <button type="button" onClick={() => setStep(s => Math.max(1, s - 1))} disabled={step === 1}
-                className="flex items-center gap-1.5 px-4 py-2.5 text-xs font-bold text-gray-600 border border-gray-200 rounded-xl hover:bg-gray-50 transition disabled:opacity-30 disabled:cursor-not-allowed">
-                <ChevronLeft className="w-3.5 h-3.5" /> Back
-              </button>
-              <span className="text-[11px] text-gray-400 font-medium">Step {step} of {STEPS.length}</span>
-              {step < STEPS.length ? (
-                <button type="button" onClick={() => setStep(s => Math.min(STEPS.length, s + 1))} disabled={!canNext}
-                  className="flex items-center gap-1.5 px-4 py-2.5 text-xs font-bold bg-[#0B1F3A] text-white rounded-xl hover:bg-[#0f2a4a] transition disabled:opacity-30 disabled:cursor-not-allowed">
-                  Next <ChevronRight className="w-3.5 h-3.5" />
-                </button>
-              ) : (
-                <button type="button" onClick={handleSend} disabled={isSending || isGenerating || !ticketType || !client.email}
-                  className="flex items-center gap-1.5 px-4 py-2.5 text-xs font-bold bg-[#C9A84C] text-[#0B1F3A] rounded-xl hover:bg-[#B8973B] transition disabled:opacity-30 disabled:cursor-not-allowed">
-                  {isSending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
-                  Send to Client
-                </button>
+              <Stepper step={step} />
+              {step === 1 && <Step1 ticketType={ticketType} setTicketType={setTicketType} />}
+              {step === 2 && <Step2 client={client} setClient={setClient} />}
+              {step === 3 && (
+                <Step3 ticketType={ticketType}
+                  flightTicket={flightTicket} hotel={hotel} tour={tour} transfer={transfer} visa={visa} pkg={pkg}
+                  setFlightTicket={setFlightTicket} setHotel={setHotel} setTour={setTour} setTransfer={setTransfer} setVisa={setVisa} setPkg={setPkg}
+                />
               )}
-            </div>
-          </div>
-        </div>
+              {step === 4 && (
+                <Step4 message={message} setMessage={setMessage}
+                  clientName={client.name} clientEmail={client.email} ticketType={ticketType}
+                  isGenerating={isGenerating} isSending={isSending}
+                  onGenerate={handleGenerate} onSend={handleSend}
+                  toast={toast} sentRef={sentRef}
+                />
+              )}
 
-        {/* RIGHT — Live Preview */}
-        <div className="hidden lg:block lg:w-[55%] bg-gray-100">
-          <div className="sticky top-0 p-6 max-h-screen overflow-y-auto">
-            <div className="flex items-center justify-between mb-4">
-              <div>
-                <h2 className="text-sm font-black text-[#0B1F3A]">Live Preview</h2>
-                <p className="text-[10px] text-gray-400">Updates as you fill in the form</p>
+              {/* Nav buttons */}
+              <div className="flex items-center justify-between gap-3 mt-8 pt-5 border-t border-gray-100">
+                <button type="button" onClick={() => setStep(s => Math.max(1, s - 1))} disabled={step === 1}
+                  className="flex items-center gap-1.5 px-4 py-2.5 text-xs font-bold text-gray-600 border border-gray-200 rounded-xl hover:bg-gray-50 transition disabled:opacity-30 disabled:cursor-not-allowed">
+                  <ChevronLeft className="w-3.5 h-3.5" /> Back
+                </button>
+                <span className="text-[11px] text-gray-400 font-medium">Step {step} of {STEPS.length}</span>
+                {step < STEPS.length ? (
+                  <button type="button" onClick={() => setStep(s => Math.min(STEPS.length, s + 1))} disabled={!canNext}
+                    className="flex items-center gap-1.5 px-4 py-2.5 text-xs font-bold bg-[#0B1F3A] text-white rounded-xl hover:bg-[#0f2a4a] transition disabled:opacity-30 disabled:cursor-not-allowed">
+                    Next <ChevronRight className="w-3.5 h-3.5" />
+                  </button>
+                ) : (
+                  <button type="button" onClick={handleSend} disabled={isSending || isGenerating || !ticketType || !client.email}
+                    className="flex items-center gap-1.5 px-4 py-2.5 text-xs font-bold bg-[#C9A84C] text-[#0B1F3A] rounded-xl hover:bg-[#B8973B] transition disabled:opacity-30 disabled:cursor-not-allowed">
+                    {isSending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
+                    Send to Client
+                  </button>
+                )}
               </div>
-              {ticketType && (
-                <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-[#C9A84C]/15 border border-[#C9A84C]/30">
-                  <div className="w-1.5 h-1.5 rounded-full bg-[#C9A84C] animate-pulse" />
-                  <span className="text-[10px] font-bold text-[#92400E] uppercase tracking-wide">Live</span>
-                </div>
-              )}
             </div>
-            <TicketPreview data={previewData as TicketPreviewData} />
           </div>
-        </div>
 
-      </div>
+          {/* RIGHT — Live Preview */}
+          <div className="hidden lg:block lg:w-[55%] bg-gray-100">
+            <div className="sticky top-0 p-6 max-h-screen overflow-y-auto">
+              <div className="flex items-center justify-between mb-4">
+                <div>
+                  <h2 className="text-sm font-black text-[#0B1F3A]">Live Preview</h2>
+                  <p className="text-[10px] text-gray-400">Updates as you fill in the form</p>
+                </div>
+                {ticketType && (
+                  <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-[#C9A84C]/15 border border-[#C9A84C]/30">
+                    <div className="w-1.5 h-1.5 rounded-full bg-[#C9A84C] animate-pulse" />
+                    <span className="text-[10px] font-bold text-[#92400E] uppercase tracking-wide">Live</span>
+                  </div>
+                )}
+              </div>
+              <TicketPreview data={previewData as TicketPreviewData} />
+            </div>
+          </div>
+
+        </div>
+      )}
+
+      {activeTab === 'records' && (
+        <TicketRecords onTotalLoaded={setTotalTickets} />
+      )}
+
     </div>
   )
 }
