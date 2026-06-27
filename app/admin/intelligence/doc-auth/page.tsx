@@ -782,6 +782,118 @@ function SendToClientForm({
   )
 }
 
+const WALZ_AIRPORTS = [
+  { iata: 'LHR', name: 'Heathrow',          city: 'London',        country: 'UK' },
+  { iata: 'LGW', name: 'Gatwick',            city: 'London',        country: 'UK' },
+  { iata: 'MAN', name: 'Manchester',         city: 'Manchester',    country: 'UK' },
+  { iata: 'LOS', name: 'Murtala Muhammed',   city: 'Lagos',         country: 'Nigeria' },
+  { iata: 'ABV', name: 'Nnamdi Azikiwe',     city: 'Abuja',         country: 'Nigeria' },
+  { iata: 'PHC', name: 'Port Harcourt',      city: 'Port Harcourt', country: 'Nigeria' },
+  { iata: 'KAN', name: 'Mallam Aminu Kano',  city: 'Kano',          country: 'Nigeria' },
+  { iata: 'ACC', name: 'Kotoka',             city: 'Accra',         country: 'Ghana' },
+  { iata: 'KMS', name: 'Kumasi',             city: 'Kumasi',        country: 'Ghana' },
+  { iata: 'DXB', name: 'Dubai Intl',         city: 'Dubai',         country: 'UAE' },
+  { iata: 'AUH', name: 'Abu Dhabi',          city: 'Abu Dhabi',     country: 'UAE' },
+  { iata: 'JFK', name: 'John F Kennedy',     city: 'New York',      country: 'USA' },
+  { iata: 'EWR', name: 'Newark Liberty',     city: 'New York',      country: 'USA' },
+  { iata: 'LAX', name: 'Los Angeles',        city: 'Los Angeles',   country: 'USA' },
+  { iata: 'ORD', name: "O'Hare",            city: 'Chicago',       country: 'USA' },
+  { iata: 'IAD', name: 'Dulles',             city: 'Washington DC', country: 'USA' },
+  { iata: 'YYZ', name: 'Toronto Pearson',    city: 'Toronto',       country: 'Canada' },
+  { iata: 'YUL', name: 'Montreal Trudeau',   city: 'Montreal',      country: 'Canada' },
+  { iata: 'CDG', name: 'Charles de Gaulle',  city: 'Paris',         country: 'France' },
+  { iata: 'AMS', name: 'Schiphol',           city: 'Amsterdam',     country: 'Netherlands' },
+  { iata: 'FRA', name: 'Frankfurt Main',     city: 'Frankfurt',     country: 'Germany' },
+  { iata: 'IST', name: 'Istanbul',           city: 'Istanbul',      country: 'Turkey' },
+  { iata: 'ADD', name: 'Addis Ababa Bole',   city: 'Addis Ababa',   country: 'Ethiopia' },
+  { iata: 'NBO', name: 'Jomo Kenyatta',      city: 'Nairobi',       country: 'Kenya' },
+  { iata: 'JNB', name: 'O.R. Tambo',         city: 'Johannesburg',  country: 'South Africa' },
+  { iata: 'DOH', name: 'Hamad',              city: 'Doha',          country: 'Qatar' },
+  { iata: 'SIN', name: 'Changi',             city: 'Singapore',     country: 'Singapore' },
+]
+
+function AirportSearch({ value, onChange, placeholder }: {
+  value: string
+  onChange: (iata: string) => void
+  placeholder?: string
+}) {
+  const [query, setQuery] = useState(value)
+  const [open,  setOpen]  = useState(false)
+  const ref               = useRef<HTMLDivElement>(null)
+
+  const INPUT_CLS = 'w-full h-10 px-3 border border-gray-200 rounded-xl text-sm text-[#0B1F3A] focus:outline-none focus:ring-2 focus:ring-[#C9A84C]/40 bg-white'
+
+  useEffect(() => {
+    const found = WALZ_AIRPORTS.find(a => a.iata === value)
+    setQuery(found ? `${value} – ${found.city}` : value)
+  }, [value])
+
+  const filtered = query.length >= 1
+    ? WALZ_AIRPORTS.filter(a =>
+        a.iata.includes(query.toUpperCase()) ||
+        a.city.toLowerCase().includes(query.toLowerCase()) ||
+        a.name.toLowerCase().includes(query.toLowerCase()) ||
+        a.country.toLowerCase().includes(query.toLowerCase())
+      ).slice(0, 8)
+    : WALZ_AIRPORTS.slice(0, 8)
+
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [])
+
+  const handleSelect = (airport: typeof WALZ_AIRPORTS[0]) => {
+    onChange(airport.iata)
+    setQuery(`${airport.iata} – ${airport.city}`)
+    setOpen(false)
+  }
+
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const v = e.target.value
+    setQuery(v)
+    setOpen(true)
+    const exact = WALZ_AIRPORTS.find(a => a.iata === v.toUpperCase().slice(0, 3))
+    if (exact && v.length === 3) {
+      onChange(exact.iata)
+    } else if (v.length <= 3) {
+      onChange(v.toUpperCase().slice(0, 3))
+    }
+  }
+
+  return (
+    <div ref={ref} className="relative">
+      <input
+        className={INPUT_CLS}
+        value={query}
+        onChange={handleChange}
+        onFocus={() => setOpen(true)}
+        placeholder={placeholder || 'e.g. LHR or London'}
+      />
+      {open && filtered.length > 0 && (
+        <div className="absolute z-50 top-full left-0 right-0 mt-1 bg-white border border-gray-200 rounded-xl shadow-lg overflow-hidden">
+          {filtered.map(a => (
+            <button
+              key={a.iata}
+              type="button"
+              onMouseDown={() => handleSelect(a)}
+              className="w-full flex items-center gap-3 px-3 py-2.5 hover:bg-[#C9A84C]/10 transition text-left border-b border-gray-50 last:border-0">
+              <span className="font-mono font-bold text-[#0B1F3A] text-sm w-10">{a.iata}</span>
+              <span className="flex-1 min-w-0">
+                <span className="text-sm text-[#0B1F3A] font-semibold">{a.city}</span>
+                <span className="text-xs text-gray-400 ml-1">· {a.name}</span>
+              </span>
+              <span className="text-xs text-gray-300">{a.country}</span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
 function DummyTicketTab() {
   type TicketMode = 'live' | 'manual' | 'hotel'
   const [mode,          setMode]          = useState<TicketMode>('live')
@@ -825,6 +937,9 @@ function DummyTicketTab() {
   const [mGate,     setMGate]     = useState('')
   const [mPNR,      setMPNR]      = useState('')
   const [mMessage,  setMMMessage] = useState('')
+
+  // Multi-passenger state
+  const [passengers, setPassengers] = useState<Array<{ name: string; type: string }>>([])
 
   // Hotel fields
   const [hName,     setHName]     = useState('')
@@ -885,7 +1000,7 @@ function DummyTicketTab() {
     if (blobUrl) URL.revokeObjectURL(blobUrl)
     setPdfUrl(''); setPdfBase64(''); setBlobUrl(''); setFlightDetails(null)
     setTicketData(null); setError(''); setErrorMeta(null); setShowSendForm(false)
-    setHoldResult(null); setHoldFailed(false)
+    setHoldResult(null); setHoldFailed(false); setPassengers([])
   }
 
   const generate = async () => {
@@ -900,7 +1015,11 @@ function DummyTicketTab() {
       }
 
       if (mode === 'live') {
-        Object.assign(payload, { originIata, destIata, departureDate: depDate, returnDate: retDate || undefined, cabinClass: cabin, holdPnr: useHoldPnr || undefined })
+        Object.assign(payload, {
+          originIata, destIata, departureDate: depDate, returnDate: retDate || undefined,
+          cabinClass: cabin, holdPnr: useHoldPnr || undefined,
+          passengers: passengers.length > 0 ? [{ name: clientName, type: 'Adult' }, ...passengers] : undefined,
+        })
       } else if (mode === 'manual') {
         Object.assign(payload, {
           fromCode: mFromCode, fromCity: mFromCity,
@@ -911,6 +1030,7 @@ function DummyTicketTab() {
           seat: mSeat, baggage: mBaggage,
           terminal: mTerminal, gate: mGate,
           pnr: mPNR, message: mMessage,
+          passengers: passengers.length > 0 ? [{ name: clientName, type: 'Adult' }, ...passengers] : undefined,
         })
       } else {
         Object.assign(payload, { hotelName: hName, hotelAddress: hAddress, checkIn: hCheckIn, checkOut: hCheckOut, roomType: hRoomType, numGuests: hGuests })
@@ -1011,6 +1131,46 @@ function DummyTicketTab() {
               <input className={INPUT} value={passportNo} onChange={e => setPassportNo(e.target.value)} placeholder="Optional" />
             </div>
           )}
+          {(mode === 'live' || mode === 'manual') && (
+            <div className="sm:col-span-3 mt-2">
+              {passengers.length > 0 && (
+                <div className="space-y-2 mb-2">
+                  {passengers.map((p, i) => (
+                    <div key={i} className="flex gap-2 items-center">
+                      <input
+                        className={INPUT + ' flex-1'}
+                        value={p.name}
+                        onChange={e => setPassengers(prev => prev.map((x, j) => j === i ? { ...x, name: e.target.value } : x))}
+                        placeholder={`Passenger ${i + 2} full name`}
+                      />
+                      <select
+                        className="h-10 px-2 border border-gray-200 rounded-lg text-xs text-[#0B1F3A] bg-white"
+                        value={p.type}
+                        onChange={e => setPassengers(prev => prev.map((x, j) => j === i ? { ...x, type: e.target.value } : x))}>
+                        <option value="Adult">Adult</option>
+                        <option value="Child">Child</option>
+                        <option value="Infant">Infant</option>
+                      </select>
+                      <button
+                        type="button"
+                        onClick={() => setPassengers(prev => prev.filter((_, j) => j !== i))}
+                        className="h-10 w-10 flex items-center justify-center text-gray-400 hover:text-red-500 border border-gray-200 rounded-lg transition">
+                        ×
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {passengers.length < 8 && (
+                <button
+                  type="button"
+                  onClick={() => setPassengers(prev => [...prev, { name: '', type: 'Adult' }])}
+                  className="text-xs text-[#C9A84C] font-semibold hover:text-[#0B1F3A] transition flex items-center gap-1">
+                  + Add Passenger
+                </button>
+              )}
+            </div>
+          )}
         </div>
 
         {/* LIVE MODE fields */}
@@ -1018,11 +1178,11 @@ function DummyTicketTab() {
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 mb-5">
             <div>
               <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1 block">Origin IATA (where client flies from) <span className="text-red-500">*</span></label>
-              <input className={INPUT} value={originIata} onChange={e => setOriginIata(e.target.value.toUpperCase().slice(0,3))} placeholder="e.g. LHR" maxLength={3} />
+              <AirportSearch value={originIata} onChange={setOriginIata} placeholder="e.g. LHR or London" />
             </div>
             <div>
               <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1 block">Destination IATA <span className="text-red-500">*</span></label>
-              <input className={INPUT} value={destIata} onChange={e => setDestIata(e.target.value.toUpperCase().slice(0,3))} placeholder="LHR" maxLength={3} />
+              <AirportSearch value={destIata} onChange={setDestIata} placeholder="e.g. DXB or Dubai" />
             </div>
             <div>
               <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1 block">Cabin Class</label>
@@ -1047,9 +1207,9 @@ function DummyTicketTab() {
         {/* MANUAL MODE fields */}
         {mode === 'manual' && (
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 mb-5">
-            <div><label className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1 block">From IATA</label><input className={INPUT} value={mFromCode} onChange={e => setMFromCode(e.target.value.toUpperCase().slice(0,3))} placeholder="LOS" maxLength={3} /></div>
+            <div><label className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1 block">From IATA</label><AirportSearch value={mFromCode} onChange={setMFromCode} placeholder="LOS or Lagos" /></div>
             <div><label className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1 block">From City</label><input className={INPUT} value={mFromCity} onChange={e => setMFromCity(e.target.value)} placeholder="Lagos" /></div>
-            <div><label className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1 block">To IATA</label><input className={INPUT} value={mToCode} onChange={e => setMToCode(e.target.value.toUpperCase().slice(0,3))} placeholder="LHR" maxLength={3} /></div>
+            <div><label className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1 block">To IATA</label><AirportSearch value={mToCode} onChange={setMToCode} placeholder="LHR or London" /></div>
             <div><label className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1 block">To City</label><input className={INPUT} value={mToCity} onChange={e => setMToCity(e.target.value)} placeholder="London" /></div>
             <div><label className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1 block">Airline</label><input className={INPUT} value={mAirline} onChange={e => setMAirline(e.target.value)} placeholder="British Airways" /></div>
             <div><label className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1 block">Flight Number</label><input className={INPUT} value={mFlightNo} onChange={e => setMFlightNo(e.target.value)} placeholder="BA 076" /></div>

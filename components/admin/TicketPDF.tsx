@@ -665,6 +665,28 @@ function FlightBody({ d }: { d: Record<string, unknown> }) {
           </>
         )}
         {d.message && <GoldBox title="Message from Walz Travels" text={str(d.message)} />}
+
+        {/* Additional passengers when provided in legacy mode */}
+        {passengers.length > 0 && (
+          <>
+            <SectionTitle>All Passengers</SectionTitle>
+            {passengers.map((pax: Passenger, i: number) => (
+              <View key={i} style={[s.passengerBox, { alignItems: 'center' }]}>
+                <Text style={s.passengerNum}>{i + 1}</Text>
+                <View style={{ flex: 1 }}>
+                  <Text style={s.fieldValue}>{pax.title} {pax.firstName} {pax.lastName}</Text>
+                  <Text style={s.fieldLabel}>
+                    {pax.cabinClass}{pax.seat ? ` · Seat ${pax.seat}` : ''}{pax.meal ? ` · ${pax.meal}` : ''}
+                  </Text>
+                </View>
+                {pax.eTicketNumber && (
+                  <Text style={{ fontSize: 8, color: GREY, letterSpacing: 0.5 }}>E-Ticket: {pax.eTicketNumber}</Text>
+                )}
+              </View>
+            ))}
+          </>
+        )}
+
         <TermsPDFSection />
       </View>
     )

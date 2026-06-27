@@ -305,6 +305,13 @@ export async function POST(req: NextRequest) {
     checkOut?:     string
     roomType?:     string
     numGuests?:    string
+    // Multi-passenger
+    passengers?: Array<{
+      name: string
+      type?: string   // 'Adult' | 'Child' | 'Infant'
+      seat?: string
+      passport?: string
+    }>
   }
 
   // ── Optional: auto-fill from linked visa application ──────────────────────
@@ -414,6 +421,24 @@ export async function POST(req: NextRequest) {
       message:           body.message || '',
       stops:             '0',
     }
+
+    const bodyPax = body.passengers ?? []
+    const allPax  = bodyPax.length > 0 ? bodyPax : [{ name: clientName, type: 'Adult' }]
+    const paxForPDF = allPax.map((p) => {
+      const parts     = (p.name || 'PASSENGER').trim().split(' ')
+      const firstName = parts[0]
+      const lastName  = parts.slice(1).join(' ') || ''
+      return {
+        title:         'MR',
+        firstName:     firstName.toUpperCase(),
+        lastName:      lastName.toUpperCase(),
+        cabinClass:    safeUpper(body.cabin || 'ECONOMY'),
+        seat:          p.seat || genSeat(),
+        eTicketNumber: `999${Array.from({ length: 10 }, () => Math.floor(Math.random() * 10)).join('')}`,
+        passport:      p.passport || safeUpper(body.passportNumber || appPassport),
+      }
+    })
+    ticketData.passengers = paxForPDF
 
     try {
       const buf    = await renderTicketPDF(ticketData)
@@ -745,6 +770,16 @@ export async function POST(req: NextRequest) {
         return_seat_number:  genSeat(),
       } : {}),
     }
+
+    ticketData.passengers = [{
+      title:         'MR',
+      firstName:     clientName.split(' ')[0]?.toUpperCase() || 'PASSENGER',
+      lastName:      clientName.split(' ').slice(1).join(' ').toUpperCase() || '',
+      cabinClass:    safeUpper(cabin),
+      seat:          flightDetails.seat,
+      eTicketNumber: `999${Array.from({ length: 10 }, () => Math.floor(Math.random() * 10)).join('')}`,
+      passport:      safeUpper(body.passportNumber || appPassport),
+    }]
 
     const buf    = await renderTicketPDF(ticketData)
     const pdfUrl = await uploadPDF(buf, reference)
