@@ -56,6 +56,51 @@ const BLOG_FALLBACKS: Record<string, string> = {
   default:             'https://images.unsplash.com/photo-1436491865332-7a61a109cc05?w=800&auto=format&fit=crop',
 }
 
+const ARTICLE_KEYWORD_IMAGES: [string, string][] = [
+  ['flight',    'https://images.unsplash.com/photo-1436491865332-7a61a109cc05?w=800&q=80&fit=crop'],
+  ['solo',      'https://images.unsplash.com/photo-1501426026826-31c667bdf23d?w=800&q=80&fit=crop'],
+  ['interview', 'https://images.unsplash.com/photo-1521737711867-e3b97375f902?w=800&q=80&fit=crop'],
+  ['canada',    'https://images.unsplash.com/photo-1530521954074-e64f6810b32d?w=800&q=80&fit=crop'],
+  ['dubai',     'https://images.unsplash.com/photo-1512453979798-5ea266f8880c?w=800&q=80&fit=crop'],
+  ['schengen',  'https://images.unsplash.com/photo-1499856871958-5b9627545d1a?w=800&q=80&fit=crop'],
+  ['uk',        'https://images.unsplash.com/photo-1548013146-72479768bada?w=800&q=80&fit=crop'],
+  ['refusal',   'https://images.unsplash.com/photo-1450101499163-c8848c66ca85?w=800&q=80&fit=crop'],
+  ['hotel',     'https://images.unsplash.com/photo-1571003123894-1f0594d2b5d9?w=800&q=80&fit=crop'],
+  ['europe',    'https://images.unsplash.com/photo-1515859005217-8a1f08870f59?w=800&q=80&fit=crop'],
+  ['visa',      'https://images.unsplash.com/photo-1529400971008-f566de0e6dfc?w=800&q=80&fit=crop'],
+  ['travel',    'https://images.unsplash.com/photo-1488646953014-85cb44e25828?w=800&q=80&fit=crop'],
+]
+
+const ARTICLE_FALLBACK_POOL = [
+  'https://images.unsplash.com/photo-1436491865332-7a61a109cc05?w=800&q=80&fit=crop',
+  'https://images.unsplash.com/photo-1503220317375-aaad61436b1b?w=800&q=80&fit=crop',
+  'https://images.unsplash.com/photo-1488646953014-85cb44e25828?w=800&q=80&fit=crop',
+  'https://images.unsplash.com/photo-1512453979798-5ea266f8880c?w=800&q=80&fit=crop',
+  'https://images.unsplash.com/photo-1548013146-72479768bada?w=800&q=80&fit=crop',
+  'https://images.unsplash.com/photo-1530521954074-e64f6810b32d?w=800&q=80&fit=crop',
+]
+
+function getArticleImage(title: string, idx: number): string {
+  const t = title.toLowerCase()
+  for (const [keyword, url] of ARTICLE_KEYWORD_IMAGES) {
+    if (t.includes(keyword)) return url
+  }
+  return ARTICLE_FALLBACK_POOL[idx % ARTICLE_FALLBACK_POOL.length]
+}
+
+function getArticleCategory(title: string): string {
+  const t = title.toLowerCase()
+  if (t.includes('flight') || t.includes('airline') || t.includes('book'))   return 'FLIGHTS'
+  if (t.includes('hotel') || t.includes('stay') || t.includes('accommod'))   return 'HOTELS'
+  if (t.includes('canada'))   return 'CANADA VISA'
+  if (t.includes('dubai') || t.includes('uae'))  return 'DUBAI'
+  if (t.includes('schengen')) return 'SCHENGEN'
+  if (t.includes('uk') || t.includes('britain')) return 'UK VISA'
+  if (t.includes('solo'))     return 'TRAVEL TIPS'
+  if (t.includes('itinerar') || t.includes('guide') || t.includes('days'))  return 'DESTINATION'
+  return 'VISA GUIDE'
+}
+
 export default function HomePage() {
   const [articles,     setArticles]     = useState<SoroArticle[]>([])
   const [nlEmail,      setNlEmail]      = useState('')
@@ -246,54 +291,78 @@ export default function HomePage() {
             </Link>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
-            {(articles.length > 0 ? articles.map(a => ({
+          {(() => {
+            const posts = articles.length > 0 ? articles.map((a, i) => ({
               id: a.id, title: a.title, slug: a.slug, date: a.date,
-              image: (a as { imageUrl?: string }).imageUrl ?? 'https://images.unsplash.com/photo-1488085061387-422e29b40080?w=600&q=80&auto=format&fit=crop',
-              category: (a as { category?: string }).category ?? 'VISA GUIDE',
-              readTime: (a as { readTime?: string }).readTime ?? '5 min read',
+              image: getArticleImage(a.title, i),
+              category: getArticleCategory(a.title),
             })) : [
-              { id: 'p1', title: 'UK Visa Guide 2026 — Everything You Need to Know', slug: 'uk-visa-tips', date: 'Jun 2026', image: 'https://images.unsplash.com/photo-1513635269975-59663e0ac1ad?w=600&q=80&auto=format&fit=crop', category: 'VISA GUIDE', readTime: '8 min read' },
-              { id: 'p2', title: 'Canada Visitor Visa & eTA Guide 2026', slug: 'canada-visitor-visa', date: 'Jun 2026', image: 'https://images.unsplash.com/photo-1503549207964-47dfe6cef5d0?w=600&q=80&auto=format&fit=crop', category: 'VISA GUIDE', readTime: '7 min read' },
-              { id: 'p3', title: 'Dubai in 5 Days — The Ultimate Itinerary', slug: 'dubai-5-days', date: 'May 2026', image: 'https://images.unsplash.com/photo-1512453979798-5ea266f8880c?w=600&q=80&auto=format&fit=crop', category: 'DESTINATION GUIDE', readTime: '10 min read' },
-            ]).map(a => (
-              <Link
-                key={a.id}
-                href={`/blog?post=${a.slug}`}
-                className="group block rounded-2xl overflow-hidden bg-[#0d1e35] border border-white/8 hover:border-amber-500/30 hover:shadow-lg hover:shadow-amber-500/5 transition-all duration-300"
-              >
-                <div className="relative aspect-[3/2] overflow-hidden">
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
+              { id: 'p1', title: 'UK Visa Guide 2026 — Everything You Need to Know',  slug: 'uk-visa-tips',       date: 'Jun 2026', image: getArticleImage('uk visa guide', 0),    category: 'UK VISA'    },
+              { id: 'p2', title: 'Canada Visitor Visa & eTA Guide 2026',              slug: 'canada-visitor-visa', date: 'Jun 2026', image: getArticleImage('canada visitor', 1),   category: 'CANADA VISA' },
+              { id: 'p3', title: 'Dubai in 5 Days — The Ultimate Itinerary',          slug: 'dubai-5-days',        date: 'May 2026', image: getArticleImage('dubai days itinerary', 2), category: 'DESTINATION' },
+            ]
+            const [featured, ...rest] = posts
+            return (
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+                {/* Featured article — spans 2 cols */}
+                <Link
+                  href={`/blog?post=${featured.slug}`}
+                  className="lg:col-span-2 group relative rounded-2xl overflow-hidden block h-72 lg:h-80"
+                >
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img
-                    src={a.image}
-                    alt={a.title}
-                    onError={e => { e.currentTarget.src = BLOG_FALLBACKS[a.category] ?? BLOG_FALLBACKS.default }}
-                    className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
-                    loading="lazy"
+                    src={featured.image}
+                    alt={featured.title}
+                    onError={e => { e.currentTarget.src = BLOG_FALLBACKS.default }}
+                    className="absolute inset-0 w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
                   />
-                  <div className="absolute top-3 left-3">
+                  <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/30 to-transparent" />
+                  <div className="absolute bottom-0 left-0 right-0 p-6">
                     <span className="text-[10px] font-bold tracking-widest uppercase bg-amber-500 text-black px-2.5 py-1 rounded-full">
-                      {a.category}
+                      Featured · {featured.category}
                     </span>
+                    <h3 className="text-white font-bold text-lg lg:text-xl mt-2 leading-snug line-clamp-2 group-hover:text-amber-300 transition-colors">
+                      {featured.title}
+                    </h3>
+                    <p className="text-white/50 text-xs mt-1.5 flex items-center gap-1">
+                      {featured.date} · Read More <ArrowRight className="w-3 h-3" />
+                    </p>
                   </div>
+                </Link>
+
+                {/* 2 stacked smaller cards */}
+                <div className="flex flex-col gap-5">
+                  {rest.slice(0, 2).map((a, i) => (
+                    <Link
+                      key={a.id}
+                      href={`/blog?post=${a.slug}`}
+                      className="group relative rounded-2xl overflow-hidden flex-1 block min-h-[140px]"
+                    >
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        src={a.image}
+                        alt={a.title}
+                        onError={e => { e.currentTarget.src = BLOG_FALLBACKS.default }}
+                        className="absolute inset-0 w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                      />
+                      <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent" />
+                      <div className="absolute bottom-0 left-0 right-0 p-4">
+                        <span className="text-[9px] font-bold tracking-widest uppercase bg-amber-500/90 text-black px-2 py-0.5 rounded-full">
+                          {a.category}
+                        </span>
+                        <h3 className="text-white font-bold text-sm mt-1.5 leading-snug line-clamp-2 group-hover:text-amber-300 transition-colors">
+                          {a.title}
+                        </h3>
+                        <p className="text-white/40 text-[11px] mt-1">
+                          {a.date} · Read More
+                        </p>
+                      </div>
+                    </Link>
+                  ))}
                 </div>
-                <div className="p-4">
-                  <p className="text-xs text-white/30 mb-2 flex items-center gap-2">
-                    <span>{a.date}</span>
-                    <span>·</span>
-                    <span>{a.readTime}</span>
-                  </p>
-                  <h3 className="text-sm font-bold text-white leading-snug line-clamp-2 group-hover:text-amber-400 transition-colors">
-                    {a.title}
-                  </h3>
-                  <p className="text-xs text-white/35 mt-2 flex items-center gap-1 font-medium">
-                    Read More <ArrowRight className="w-3 h-3" />
-                  </p>
-                </div>
-              </Link>
-            ))}
-          </div>
+              </div>
+            )
+          })()}
 
           <div className="mt-6 md:hidden">
             <Link href="/blog" className="inline-flex items-center gap-2 text-sm font-semibold text-white/60 border border-white/15 px-5 py-2.5 rounded-lg hover:border-amber-500/40 hover:text-amber-400 transition-colors">

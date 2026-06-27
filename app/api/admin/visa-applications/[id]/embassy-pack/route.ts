@@ -99,16 +99,16 @@ export async function POST(
   const resend     = getResend()
 
   // Appointment block
-  const hasAppt = !!(hasDate || appointmentTime || hasLocation)
+  const hasAppt = !!(appointmentDateTime || (appointmentTime && appointmentTime !== '') || (appointmentLocation && appointmentLocation !== ''))
   let apptHtml  = ''
   if (hasAppt) {
     let dateStr = ''
-    if (hasDate) {
+    if (appointmentDateTime) {
       try {
-        dateStr = new Date(appointmentDate!).toLocaleDateString('en-GB', {
+        dateStr = appointmentDateTime.toLocaleDateString('en-GB', {
           weekday: 'long', day: 'numeric', month: 'long', year: 'numeric',
         })
-      } catch { dateStr = appointmentDate! }
+      } catch { dateStr = appointmentDate ?? '' }
     }
     apptHtml = `
       <div style="background:#0B1F3A;border-radius:12px;padding:20px 24px;margin:0 0 28px;">
@@ -122,14 +122,14 @@ export async function POST(
               ${dateStr}${appointmentTime && appointmentTime !== '' ? ' at ' + appointmentTime : ''}
             </td>
           </tr>` : ''}
-          ${hasLocation ? `
+          ${appointmentLocation ? `
           <tr>
             <td style="color:#94a3b8;font-size:13px;padding:6px 0 4px;">Location</td>
             <td style="color:#ffffff;font-size:13px;font-weight:600;padding:6px 0 4px;">
               ${appointmentLocation}
             </td>
           </tr>` : ''}
-          ${hasRef ? `
+          ${appointmentRef ? `
           <tr>
             <td style="color:#94a3b8;font-size:13px;padding:4px 0;">Reference</td>
             <td style="color:#C9A84C;font-size:14px;font-weight:700;padding:4px 0;letter-spacing:1px;">

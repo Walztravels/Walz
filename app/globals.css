@@ -367,35 +367,78 @@
 /* ── Soro blog embed — brand overrides ───────────────────────────── */
 #soro-blog {
   font-family: inherit !important;
+  display: grid !important;
+  grid-template-columns: repeat(3, 1fr) !important;
+  gap: 28px !important;
+  padding: 0 !important;
+}
+
+/* If Soro wraps articles in a container, make it span all cols and re-grid */
+#soro-blog > div,
+#soro-blog > ul,
+#soro-blog > section,
+#soro-blog > ol {
+  grid-column: 1 / -1 !important;
+  display: grid !important;
+  grid-template-columns: repeat(3, 1fr) !important;
+  gap: 28px !important;
+  list-style: none !important;
+  padding: 0 !important;
+  margin: 0 !important;
+}
+
+@media (max-width: 640px) {
+  #soro-blog,
+  #soro-blog > div,
+  #soro-blog > ul {
+    grid-template-columns: 1fr !important;
+    gap: 16px !important;
+  }
+}
+
+@media (min-width: 641px) and (max-width: 1023px) {
+  #soro-blog,
+  #soro-blog > div,
+  #soro-blog > ul {
+    grid-template-columns: repeat(2, 1fr) !important;
+    gap: 20px !important;
+  }
 }
 
 #soro-blog article,
+#soro-blog li,
 #soro-blog .soro-article,
 #soro-blog [class*="article"],
 #soro-blog [class*="post"],
 #soro-blog [class*="card"] {
   border-radius: 16px !important;
   overflow: hidden !important;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08) !important;
-  transition: transform 0.2s, box-shadow 0.2s !important;
+  background: #ffffff !important;
+  border: 1px solid #F3F4F6 !important;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06) !important;
+  transition: transform 0.2s ease, box-shadow 0.2s ease !important;
+  display: flex !important;
+  flex-direction: column !important;
 }
 
 #soro-blog article:hover,
+#soro-blog li:hover,
 #soro-blog [class*="card"]:hover {
   transform: translateY(-4px) !important;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12) !important;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.10) !important;
 }
 
-/* Force consistent image size on all embed images */
+/* Force consistent image size — matches JS height */
 #soro-blog img,
 #soro-blog [class*="image"],
 #soro-blog [class*="thumbnail"],
 #soro-blog [class*="cover"] {
   width: 100% !important;
-  height: 220px !important;
+  height: 200px !important;
   object-fit: cover !important;
   object-position: center !important;
   display: block !important;
+  flex-shrink: 0 !important;
 }
 
 #soro-blog h2,
