@@ -1,25 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getAdminSession } from '@/lib/admin-auth'
 import prisma from '@/lib/db'
+import type { Prisma } from '@prisma/client'
 
 export const dynamic = 'force-dynamic'
-
-interface TicketRow {
-  id: string
-  ticket_reference: string
-  client_name: string | null
-  client_email: string | null
-  ticket_type: string
-  ticket_data: string | null
-  pdf_url: string | null
-  sent_to_client: boolean
-  sent_at: string | null
-  created_by: string | null
-  generated_by_name: string | null
-  status: string
-  download_count: number
-  created_at: string
-}
 
 export async function GET(req: NextRequest) {
   const session = await getAdminSession()
@@ -30,47 +14,86 @@ export async function GET(req: NextRequest) {
   const search = searchParams.get('search') ?? ''
   const page   = Math.max(1, parseInt(searchParams.get('page') ?? '1', 10))
   const limit  = 50
-  const offset = (page - 1) * limit
-
-  const whereClauses: string[] = []
-  const params: unknown[] = []
-  let idx = 1
-
-  if (type !== 'all') { whereClauses.push(`ticket_type = $${idx++}`); params.push(type) }
-  if (search) {
-    whereClauses.push(`(client_name ILIKE $${idx} OR client_email ILIKE $${idx} OR ticket_reference ILIKE $${idx})`)
-    params.push(`%${search}%`)
-    idx++
-  }
-  const where = whereClauses.length > 0 ? `WHERE ${whereClauses.join(' AND ')}` : ''
+  const skip   = (page - 1) * limit
 
   try {
-    const rows = await prisma.$queryRawUnsafe<TicketRow[]>(`
-      SELECT
-        id, ticket_reference, client_name, client_email, ticket_type,
-        ticket_data::text, pdf_url, sent_to_client, sent_at::text,
-        created_by, created_at::text,
-        CASE WHEN sent_to_client THEN 'sent' ELSE 'generated' END AS status,
-        0 AS download_count,
-        created_by AS generated_by_name
-      FROM generated_tickets ${where}
-      ORDER BY created_at DESC
-      LIMIT ${limit} OFFSET ${offset}
-    `, ...params)
+    const where: Prisma.GeneratedTicketWhereInput = {}
+    if (type !== 'all') where.ticketType = type
+    if (search) {
+      where.OR = [
+        { clientName:      { contains: search, mode: 'insensitive' } },
+        { clientEmail:     { contains: search, mode: 'insensitive' } },
+        { referenceNumber: { contains: search, mode: 'insensitive' } },
+      ]
+    }
 
-    const countRows = await prisma.$queryRawUnsafe<Array<{ total: string }>>(`
-      SELECT COUNT(*)::text AS total FROM generated_tickets ${where}
-    `, ...params)
-    const total = parseInt(countRows[0]?.total ?? '0', 10)
+    const [rows, total, statsRaw] = await Promise.all([
+      prisma.generatedTicket.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        skip,
+        take: limit,
+        select: {
+          id:              true,
+          referenceNumber: true,
+          clientName:      true,
+          clientEmail:     true,
+          ticketType:      true,
+          ticketData:      true,
+          status:          true,
+          sentAt:          true,
+          generatedByName: true,
+          downloadCount:   true,
+          createdAt:       true,
+          passengerName:   true,
+          flightFrom:      true,
+          flightTo:        true,
+          flightDate:      true,
+          airline:         true,
+          flightNumber:    true,
+          pnr:             true,
+          hotelName:       true,
+          checkInDate:     true,
+          checkOutDate:    true,
+        },
+      }),
+      prisma.generatedTicket.count({ where }),
+      prisma.generatedTicket.groupBy({
+        by: ['ticketType'],
+        _count: { _all: true },
+      }),
+    ])
 
-    const statsRows = await prisma.$queryRawUnsafe<Array<{ ticket_type: string; cnt: string }>>(`
-      SELECT ticket_type, COUNT(*)::text AS cnt FROM generated_tickets GROUP BY ticket_type
-    `)
     const stats: Record<string, number> = {}
-    statsRows.forEach(r => { stats[r.ticket_type] = parseInt(r.cnt, 10) })
+    statsRaw.forEach(r => { stats[r.ticketType] = r._count._all })
 
-    return NextResponse.json({ tickets: rows, total, page, pages: Math.ceil(total / limit), stats })
-  } catch {
+    const tickets = rows.map(r => ({
+      id:                r.id,
+      ticket_reference:  r.referenceNumber,
+      client_name:       r.clientName,
+      client_email:      r.clientEmail,
+      ticket_type:       r.ticketType,
+      ticket_data:       r.ticketData,
+      status:            r.status,
+      sent_at:           r.sentAt?.toISOString() ?? null,
+      generated_by_name: r.generatedByName,
+      download_count:    r.downloadCount,
+      created_at:        r.createdAt.toISOString(),
+      passenger_name:    r.passengerName,
+      flight_from:       r.flightFrom,
+      flight_to:         r.flightTo,
+      flight_date:       r.flightDate,
+      airline:           r.airline,
+      flight_number:     r.flightNumber,
+      pnr:               r.pnr,
+      hotel_name:        r.hotelName,
+      check_in_date:     r.checkInDate,
+      check_out_date:    r.checkOutDate,
+    }))
+
+    return NextResponse.json({ tickets, total, page, pages: Math.ceil(total / limit), stats })
+  } catch (err) {
+    console.error('[GET /api/admin/tickets]', err)
     return NextResponse.json({ tickets: [], total: 0, page: 1, pages: 0, stats: {} })
   }
 }

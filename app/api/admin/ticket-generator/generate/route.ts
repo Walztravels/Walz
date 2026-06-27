@@ -112,24 +112,47 @@ export async function POST(req: NextRequest) {
   // ── Save record to DB ──────────────────────────────────────────────────────
   let recordId: string | null = null
   try {
-    const rows = await prisma.$queryRawUnsafe<Array<{ id: string }>>(`
-      INSERT INTO generated_tickets (
-        ticket_reference, client_id, client_name, client_email,
-        ticket_type, ticket_data, pdf_url, created_by
-      ) VALUES (
-        $1, $2, $3, $4, $5, $6::jsonb, $7, $8
-      ) RETURNING id
-    `,
-      reference,
-      body.client_id ?? null,
-      body.client_name ?? null,
-      body.client_email ?? null,
-      body.ticket_type,
-      JSON.stringify(ticketData),
-      pdfUrl,
-      session.email,
-    )
-    recordId = rows[0]?.id ?? null
+    const outboundLegs = Array.isArray(body.outbound)
+      ? (body.outbound as Array<{ departureCode?: string; arrivalCode?: string; departureDate?: string; airline?: string; flightNumber?: string }>)
+      : null
+    const firstLeg = outboundLegs?.[0] ?? null
+
+    const firstPassenger = Array.isArray(body.passengers)
+      ? (body.passengers as Array<{ title?: string; firstName?: string; lastName?: string }>)[0]
+      : null
+    const passengerName = firstPassenger
+      ? `${firstPassenger.title ?? ''} ${firstPassenger.firstName ?? ''} ${firstPassenger.lastName ?? ''}`.trim()
+      : (body.client_name as string | undefined) ?? null
+
+    const record = await prisma.generatedTicket.create({
+      data: {
+        referenceNumber:  reference,
+        ticketType:       body.ticket_type as string,
+        generatedBy:      session.email ?? null,
+        generatedByName:  session.name ?? session.email?.split('@')[0] ?? null,
+        clientName:       (body.client_name  as string | undefined) ?? null,
+        clientEmail:      (body.client_email as string | undefined) ?? null,
+        clientPhone:      (body.client_phone as string | undefined) ?? null,
+        ticketData:       JSON.stringify(body),
+        passengerName,
+        flightFrom:       firstLeg?.departureCode ?? null,
+        flightTo:         firstLeg?.arrivalCode   ?? null,
+        flightDate:       firstLeg?.departureDate ?? null,
+        airline:          firstLeg?.airline       ?? null,
+        flightNumber:     firstLeg?.flightNumber  ?? null,
+        pnr:              (body.pnr              as string | undefined) ?? null,
+        hotelName:        (body.hotel_name       as string | undefined) ?? null,
+        checkInDate:      (body.check_in         as string | undefined) ?? null,
+        checkOutDate:     (body.check_out        as string | undefined) ?? null,
+        appointmentDate:  (body.appointment_date as string | undefined) ?? null,
+        appointmentTime:  (body.appointment_time as string | undefined) ?? null,
+        embassy:          (body.embassy          as string | undefined) ?? null,
+        visaType:         (body.visa_type        as string | undefined) ?? null,
+        status:           'generated',
+        downloadCount:    0,
+      },
+    })
+    recordId = record.id
   } catch (err) {
     console.error('[ticket-generator/generate] DB write error:', err)
     // Non-fatal — PDF is generated; return what we have

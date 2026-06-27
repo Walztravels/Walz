@@ -2145,6 +2145,48 @@ model TicketRecord {
 }
 
 // ===========================
+// Generated Tickets
+// ===========================
+
+model GeneratedTicket {
+  id                String    @id @default(cuid())
+  referenceNumber   String    @unique
+  ticketType        String
+  generatedBy       String?
+  generatedByName   String?
+  generatedAt       DateTime? @default(now())
+  clientName        String?
+  clientEmail       String?
+  clientPhone       String?
+  ticketData        String    @default("{}")
+  visaApplicationId String?
+  itineraryId       String?
+  status            String    @default("generated")
+  sentToEmail       String?
+  sentAt            DateTime?
+  downloadCount     Int       @default(0)
+  lastDownloadedAt  DateTime?
+  passengerName     String?
+  flightFrom        String?
+  flightTo          String?
+  flightDate        String?
+  airline           String?
+  flightNumber      String?
+  pnr               String?
+  hotelName         String?
+  checkInDate       String?
+  checkOutDate      String?
+  appointmentDate   String?
+  appointmentTime   String?
+  embassy           String?
+  visaType          String?
+  notes             String?
+  tags              String[]  @default([])
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+}
+
+// ===========================
 // Group Itinerary Planner
 // ===========================
 
