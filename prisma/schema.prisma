@@ -2444,3 +2444,70 @@ model Itinerary {
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 }
+
+// TripRequest — created via Supabase SQL editor.
+// NEVER run prisma db push for this model.
+model TripRequest {
+  id                    String    @id @default(cuid())
+  token                 String    @unique
+  referenceNumber       String    @unique
+  status                String    @default("pending")
+  itineraryId           String?
+  sentBy                String?
+  sentByName            String?
+  sentAt                DateTime? @default(now())
+  firstName             String?
+  lastName              String?
+  email                 String?
+  phone                 String?
+  whatsapp              String?
+  destination           String?
+  departureCity         String?
+  departureDate         String?
+  returnDate            String?
+  datesFlexible         Boolean?  @default(false)
+  numberOfTravellers    Int?      @default(1)
+  tripType              String?
+  budgetRange           String?
+  budgetCurrency        String?   @default("GBP")
+  budgetAmount          Float?
+  hotelPreference       String?
+  vibes                 String?   @default("[]")
+  activities            String?   @default("[]")
+  mustDos               String?
+  dietaryNeeds          String?
+  mobilityNeeds         String?
+  travellingWithChildren Boolean? @default(false)
+  childrenAges          String?   @default("[]")
+  seatPreference        String?
+  cabinClass            String?   @default("economy")
+  bedPreference         String?
+  mealPreference        String?
+  directFlightsOnly     Boolean?  @default(false)
+  passportName          String?
+  passportNumber        String?
+  passportCountry       String?
+  passportIssueDate     String?
+  passportExpiry        String?
+  dateOfBirth           String?
+  gender                String?
+  placeOfBirth          String?
+  nationality           String?
+  citizenship           String?
+  loyaltyPrograms       String?   @default("[]")
+  hasValidVisa          Boolean?
+  visaCountry           String?
+  needsVisaHelp         Boolean?  @default(false)
+  needsTravelInsurance  Boolean?  @default(false)
+  notes                 String?
+  signature             String?
+  signedAt              DateTime?
+  agreedToTerms         Boolean?  @default(false)
+  formOpenedAt          DateTime?
+  submittedAt           DateTime?
+  viewedByStaffAt       DateTime?
+  ipAddress             String?
+  deviceType            String?
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
+}

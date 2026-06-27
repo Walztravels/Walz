@@ -386,6 +386,7 @@ export const NAV_ITEMS: NavSection[] = [
       { href: '/admin/hotel-destinations', label: 'Top Destinations',   icon: 'MapPin',     permission: 'hotels'          },
       { href: '/admin/transfers',   label: 'Transfers',         icon: 'Car',        permission: 'transfers'       },
       { href: '/admin/itinerary-planner', label: 'Itinerary Planner', icon: 'Plane',      permission: 'bookings'        },
+      { href: '/admin/trip-requests', label: 'Trip Requests', icon: 'ClipboardList', permission: 'bookings' },
       { href: '/admin/invoices',    label: 'Invoices',          icon: 'Receipt',    permission: 'payments'        },
       { href: '/admin/tickets',     label: 'Ticket Generator',  icon: 'Ticket',     permission: 'bookings'        },
     ],
