@@ -2441,6 +2441,11 @@ model Itinerary {
   tags            String[] @default([])
   assignedTo      String?
   createdBy       String?
+  destinations    String?  @default("[]")
+  transfers       String?  @default("[]")
+  tours           String?  @default("[]")
+  trains          String?  @default("[]")
+  ferries         String?  @default("[]")
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 }

@@ -22,8 +22,9 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   const data: Record<string, unknown> = { updatedAt: new Date() }
   const stringFields = [
     'title', 'status', 'type', 'clientName', 'clientEmail', 'clientPhone',
-    'destination', 'overview', 'notes', 'terms', 'coverImage', 'selectedOption',
+    'destination', 'destinations', 'overview', 'notes', 'terms', 'coverImage', 'selectedOption',
     'createdBy', 'assignedTo', 'tripType', 'currency', 'days', 'flights', 'hotels',
+    'transfers', 'tours', 'trains', 'ferries',
     'inclusions', 'exclusions', 'attachments', 'options', 'priceBreakdown',
     'clientSignature', 'approvedBy',
   ]

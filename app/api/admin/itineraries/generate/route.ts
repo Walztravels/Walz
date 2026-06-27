@@ -10,58 +10,87 @@ export const maxDuration = 60
 
 export async function POST(req: NextRequest) {
   if (!await isAdmin()) return NextResponse.json({ error: 'Unauthorised' }, { status: 401 })
-  const { destination, duration, tripType, numberOfTravellers, budget, notes } = await req.json()
 
-  const response = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: {
-      'x-api-key': process.env.ANTHROPIC_API_KEY!,
-      'anthropic-version': '2023-06-01',
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      model: 'claude-sonnet-4-6',
-      max_tokens: 3000,
-      messages: [{
-        role: 'user',
-        content: `Create a detailed day-by-day travel itinerary.
+  const { destination, destinations, duration, tripType, numberOfTravellers, budget, notes } = await req.json()
 
-Destination: ${destination}
+  const destList: string[] = destinations && Array.isArray(destinations) && destinations.length > 0
+    ? destinations
+    : destination ? [destination] : []
+  const destLabel = destList.length > 0 ? destList.join(' → ') : 'the destination'
+
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), 50000)
+
+  try {
+    const response = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'x-api-key': process.env.ANTHROPIC_API_KEY!,
+        'anthropic-version': '2023-06-01',
+        'Content-Type': 'application/json',
+      },
+      signal: controller.signal,
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-6',
+        max_tokens: 4000,
+        messages: [{
+          role: 'user',
+          content: `Create a detailed day-by-day travel itinerary for a luxury travel agency.
+
+Destination(s): ${destLabel}
 Duration: ${duration || 7} days
 Trip type: ${tripType || 'leisure'}
 Travellers: ${numberOfTravellers || 1}
-Budget: ${budget ? `${budget}` : 'flexible'}
+Budget: ${budget || 'flexible'}
 Special notes: ${notes || 'none'}
 
-Return ONLY a JSON object with this exact structure (no markdown, no preamble):
+Return ONLY a valid JSON object with no markdown, no preamble, just the JSON:
 {
   "overview": "2-3 sentence engaging trip overview",
-  "inclusions": ["item1", "item2", "item3"],
-  "exclusions": ["item1", "item2"],
+  "inclusions": ["Included item 1", "Included item 2", "Included item 3"],
+  "exclusions": ["Excluded item 1", "Excluded item 2"],
   "days": [
     {
       "day": 1,
       "title": "Arrival & First Impressions",
-      "description": "Exciting paragraph about this day",
-      "activities": ["Activity 1 with detail", "Activity 2 with detail"],
-      "meals": "Breakfast at hotel, Lunch at local restaurant, Welcome dinner at top spot",
+      "description": "Engaging paragraph about this day",
+      "activities": ["Specific activity 1", "Specific activity 2"],
+      "meals": "Breakfast at hotel, Lunch at local spot, Welcome dinner",
       "accommodation": "Hotel name",
-      "notes": "Any special tips or notes"
+      "destination": "City or location for this day",
+      "weather": "Expected weather e.g. Warm 28°C, sunny",
+      "dressCode": "e.g. Smart casual, beach wear, formal",
+      "notes": "Practical tips for this day"
     }
   ]
 }`,
-      }],
-    }),
-  })
+        }],
+      }),
+    })
 
-  if (!response.ok) return NextResponse.json({ error: 'AI generation failed' }, { status: 500 })
-  const aiData = await response.json()
-  const text = aiData.content?.[0]?.text ?? ''
-  try {
-    const cleaned = text.replace(/```json\n?|\n?```/g, '').trim()
-    const parsed = JSON.parse(cleaned)
-    return NextResponse.json(parsed)
-  } catch {
-    return NextResponse.json({ error: 'Failed to parse AI response', raw: text }, { status: 500 })
+    clearTimeout(timer)
+
+    if (!response.ok) {
+      return NextResponse.json({ error: 'AI service error. Please try again.' }, { status: 500 })
+    }
+
+    const aiData = await response.json()
+    const text = aiData.content?.[0]?.text ?? ''
+
+    try {
+      const start = text.indexOf('{')
+      const end = text.lastIndexOf('}')
+      if (start === -1 || end === -1) throw new Error('No JSON found')
+      const parsed = JSON.parse(text.slice(start, end + 1))
+      return NextResponse.json(parsed)
+    } catch {
+      return NextResponse.json({ error: 'AI returned unexpected format. Please try again.', raw: text.slice(0, 300) }, { status: 500 })
+    }
+  } catch (err: unknown) {
+    clearTimeout(timer)
+    if (err instanceof Error && err.name === 'AbortError') {
+      return NextResponse.json({ error: 'Generation timed out after 50 seconds. Please try again or reduce the number of days.' }, { status: 504 })
+    }
+    return NextResponse.json({ error: 'Failed to generate itinerary. Please try again.' }, { status: 500 })
   }
 }

@@ -11,6 +11,9 @@ interface Day {
   activities: string[]
   meals: string
   accommodation: string
+  destination: string
+  weather: string
+  dressCode: string
   notes: string
 }
 
@@ -19,9 +22,11 @@ interface Flight {
   from: string
   to: string
   airline: string
+  iataCode: string
   flightNumber: string
   date: string
   time: string
+  arrivalTime: string
   class: string
   pnr: string
   cost: number | null
@@ -33,6 +38,7 @@ interface Hotel {
   id: string
   name: string
   location: string
+  websiteUrl: string
   checkIn: string
   checkOut: string
   roomType: string
@@ -40,6 +46,65 @@ interface Hotel {
   cost: number | null
   status: string
   notes: string
+  image: string
+}
+
+interface Transfer {
+  id: string
+  type: string
+  from: string
+  to: string
+  date: string
+  time: string
+  vehicle: string
+  provider: string
+  cost: number | null
+  notes: string
+  image: string
+}
+
+interface Tour {
+  id: string
+  name: string
+  location: string
+  date: string
+  time: string
+  duration: string
+  provider: string
+  cost: number | null
+  notes: string
+  image: string
+}
+
+interface Train {
+  id: string
+  from: string
+  to: string
+  date: string
+  departureTime: string
+  arrivalTime: string
+  trainNumber: string
+  class: string
+  provider: string
+  pnr: string
+  cost: number | null
+  notes: string
+  image: string
+}
+
+interface Ferry {
+  id: string
+  from: string
+  to: string
+  date: string
+  departureTime: string
+  arrivalTime: string
+  operator: string
+  class: string
+  vessel: string
+  cost: number | null
+  notes: string
+  image: string
 }
 
 interface PriceRow {
@@ -59,6 +124,7 @@ interface ItineraryData {
   clientEmail: string
   clientPhone: string | null
   destination: string
+  destinations?: string
   startDate: string | null
   endDate: string | null
   duration: number | null
@@ -75,6 +141,10 @@ interface ItineraryData {
   days: string
   flights: string
   hotels: string
+  transfers?: string
+  tours?: string
+  trains?: string
+  ferries?: string
   inclusions: string
   exclusions: string
   terms: string | null
@@ -111,12 +181,47 @@ function fmtDateTime(d?: string | Date | null) {
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
+const DEFAULT_TERMS = `BOOKING & PAYMENT TERMS
+
+DEPOSIT REQUIRED: A non-refundable deposit of 25% of the total package cost is required to secure your booking. Your dates are not confirmed until the deposit is received.
+
+BALANCE PAYMENT: The remaining balance is due no later than 8 weeks (56 days) before your departure date. Failure to pay by this date may result in cancellation without refund.
+
+CANCELLATION POLICY:
+• More than 60 days before departure — Deposit forfeited
+• 31–60 days before departure — 50% of total package cost
+• 15–30 days before departure — 75% of total package cost
+• Fewer than 15 days before departure — 100% of total package cost
+
+TRAVEL INSURANCE: We strongly recommend comprehensive travel insurance covering trip cancellation, medical emergencies, lost baggage, and personal liability. This should be obtained at the time of booking.
+
+AMENDMENTS: Changes to confirmed bookings are subject to availability and may incur supplier fees plus an administration fee of £50 per booking.
+
+ITINERARY CHANGES: Walz Travels reserves the right to modify itineraries due to circumstances beyond our control, including adverse weather, political events, airline schedule changes, or natural disasters. We will endeavour to provide alternatives of equal or greater value.
+
+PASSPORT & VISA RESPONSIBILITY: It is the sole responsibility of each traveller to ensure their passport is valid for at least 6 months beyond the return date, and to obtain all necessary visas and travel documentation. Walz Travels can assist with visa guidance but accepts no liability for refused applications.
+
+HEALTH & SPECIAL REQUIREMENTS: Please inform us of any medical conditions, dietary requirements, or mobility needs at the time of booking.
+
+By approving this itinerary, you confirm you have read, understood, and agreed to these terms and conditions.
+
+Walz Travels Ltd | thewalztechs@gmail.com | walztravels.com`
+
 const TABS = [
   { id: 'overview',  label: '📋 Overview' },
   { id: 'days',      label: '📅 Day by Day' },
-  { id: 'bookings',  label: '✈️ Flights & Hotels' },
+  { id: 'bookings',  label: '🗂️ Bookings' },
   { id: 'pricing',   label: '💰 Pricing' },
   { id: 'preview',   label: '👁 Preview & Send' },
+]
+
+const BOOKING_TABS = [
+  { id: 'flights',   label: '✈️ Flights' },
+  { id: 'hotels',    label: '🏨 Hotels' },
+  { id: 'transfers', label: '🚗 Transfers' },
+  { id: 'tours',     label: '🎭 Tours' },
+  { id: 'trains',    label: '🚂 Trains' },
+  { id: 'ferries',   label: '⛴️ Ferries' },
 ]
 
 const STATUS_LABELS: Record<string, string> = {
@@ -136,6 +241,27 @@ const CURRENCY_SYM: Record<string, string> = {
 const inp = 'w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 text-white text-sm placeholder:text-white/20 focus:outline-none focus:border-amber-500/50'
 const ta  = 'w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 text-white text-sm placeholder:text-white/20 focus:outline-none focus:border-amber-500/50 resize-none'
 const sel = 'w-full bg-[#0b1525] border border-white/10 rounded-xl px-3 py-2.5 text-white text-sm focus:outline-none focus:border-amber-500/50'
+
+// ─── ImageField ───────────────────────────────────────────────────────────────
+
+function ImageField({ value, onChange, label = 'Image URL', placeholder = 'https://…' }: {
+  value: string
+  onChange: (v: string) => void
+  label?: string
+  placeholder?: string
+}) {
+  return (
+    <div>
+      <label className="text-white/30 text-[10px] font-bold uppercase block mb-1">{label}</label>
+      {value && (
+        <div className="mb-2 rounded-lg overflow-hidden h-20 bg-white/5">
+          <img src={value} alt="" className="w-full h-full object-cover" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }} />
+        </div>
+      )}
+      <input value={value} onChange={e => onChange(e.target.value)} placeholder={placeholder} className={inp} />
+    </div>
+  )
+}
 
 // ─── Main Page ────────────────────────────────────────────────────────────────
 
@@ -186,7 +312,6 @@ export default function ItineraryBuilderPage() {
 
   return (
     <div className="min-h-screen bg-[#060f1e] text-white">
-      {/* Top bar */}
       <div className="border-b border-white/[0.08] px-6 py-4 sticky top-0 bg-[#060f1e] z-10">
         <div className="max-w-7xl mx-auto">
           <div className="flex items-center justify-between mb-4">
@@ -235,7 +360,6 @@ export default function ItineraryBuilderPage() {
         </div>
       </div>
 
-      {/* Tab content */}
       <div className="max-w-7xl mx-auto px-6 py-8">
         {activeTab === 'overview'  && <OverviewTab  itin={itin} onSave={save} />}
         {activeTab === 'days'      && <DaysTab      itin={itin} onSave={save} />}
@@ -274,11 +398,14 @@ function OverviewTab({ itin, onSave }: { itin: ItineraryData; onSave: (u: Record
     clientEmail: itin.clientEmail || '',
     clientPhone: itin.clientPhone || '',
   })
+  const [destinations, setDestinations] = useState<string[]>(safeParse<string[]>(itin.destinations || '[]', []))
+  const [newDest, setNewDest] = useState('')
   const [inclusions, setInclusions] = useState<string[]>(safeParse<string[]>(itin.inclusions, []))
   const [exclusions, setExclusions] = useState<string[]>(safeParse<string[]>(itin.exclusions, []))
   const [newInc, setNewInc] = useState('')
   const [newExc, setNewExc] = useState('')
   const [saving, setSaving] = useState(false)
+  const [fetchingCover, setFetchingCover] = useState(false)
 
   const upd = (k: string, v: unknown) => setForm(f => ({ ...f, [k]: v }))
 
@@ -286,6 +413,7 @@ function OverviewTab({ itin, onSave }: { itin: ItineraryData; onSave: (u: Record
     setSaving(true)
     await onSave({
       ...form,
+      destinations: JSON.stringify(destinations),
       duration: form.duration !== '' ? Number(form.duration) : null,
       budget: form.budget !== '' ? Number(form.budget) : null,
       numberOfTravellers: Number(form.numberOfTravellers),
@@ -297,6 +425,23 @@ function OverviewTab({ itin, onSave }: { itin: ItineraryData; onSave: (u: Record
     setSaving(false)
   }
 
+  const handleAutoCover = async () => {
+    setFetchingCover(true)
+    try {
+      const res = await fetch('/api/admin/itineraries/cover-image', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ destination: form.destination, destinations }),
+      })
+      const data = await res.json()
+      if (data.url) upd('coverImage', data.url)
+    } catch {}
+    setFetchingCover(false)
+  }
+
+  const addDest = () => {
+    if (newDest.trim()) { setDestinations(p => [...p, newDest.trim()]); setNewDest('') }
+  }
   const addInc = () => { if (newInc.trim()) { setInclusions(p => [...p, newInc.trim()]); setNewInc('') } }
   const addExc = () => { if (newExc.trim()) { setExclusions(p => [...p, newExc.trim()]); setNewExc('') } }
 
@@ -316,7 +461,7 @@ function OverviewTab({ itin, onSave }: { itin: ItineraryData; onSave: (u: Record
           </div>
           <div>
             <label className="text-white/40 text-xs font-bold uppercase tracking-wider block mb-1.5">Phone</label>
-            <input value={form.clientPhone} onChange={e => upd('clientPhone', e.target.value)} placeholder="+44 7..." className={inp} />
+            <input value={form.clientPhone} onChange={e => upd('clientPhone', e.target.value)} placeholder="+44 7…" className={inp} />
           </div>
         </div>
       </div>
@@ -329,16 +474,58 @@ function OverviewTab({ itin, onSave }: { itin: ItineraryData; onSave: (u: Record
             <label className="text-white/40 text-xs font-bold uppercase tracking-wider block mb-1.5">Trip Title</label>
             <input value={form.title} onChange={e => upd('title', e.target.value)} placeholder="e.g. Dubai Luxury Escape 2026" className={inp} />
           </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <div>
-              <label className="text-white/40 text-xs font-bold uppercase tracking-wider block mb-1.5">Destination</label>
-              <input value={form.destination} onChange={e => upd('destination', e.target.value)} placeholder="e.g. Dubai, UAE" className={inp} />
+
+          {/* Multi-destination */}
+          <div>
+            <label className="text-white/40 text-xs font-bold uppercase tracking-wider block mb-1.5">Destinations</label>
+            {destinations.length > 0 && (
+              <div className="flex flex-wrap gap-2 mb-2">
+                {destinations.map((d, i) => (
+                  <div key={i} className="flex items-center gap-1.5 bg-amber-500/15 border border-amber-500/30 text-amber-400 text-xs px-3 py-1.5 rounded-full">
+                    <span>📍 {d}</span>
+                    <button onClick={() => setDestinations(p => p.filter((_, j) => j !== i))} className="text-amber-400/50 hover:text-amber-400 transition">✕</button>
+                  </div>
+                ))}
+              </div>
+            )}
+            <div className="flex gap-2">
+              <input
+                value={newDest}
+                onChange={e => setNewDest(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && addDest()}
+                placeholder="Add a destination (e.g. Dubai, UAE)…"
+                className={inp + ' flex-1'}
+              />
+              <button onClick={addDest} className="bg-amber-500/20 text-amber-400 px-4 rounded-xl hover:bg-amber-500/30 transition text-sm font-bold">+</button>
             </div>
-            <div>
-              <label className="text-white/40 text-xs font-bold uppercase tracking-wider block mb-1.5">Cover Image URL</label>
-              <input value={form.coverImage} onChange={e => upd('coverImage', e.target.value)} placeholder="https://..." className={inp} />
+            <p className="text-white/20 text-xs mt-1.5">Used for multi-stop trips — AI will generate the route automatically</p>
+          </div>
+
+          <div>
+            <label className="text-white/40 text-xs font-bold uppercase tracking-wider block mb-1.5">Primary Destination</label>
+            <input value={form.destination} onChange={e => upd('destination', e.target.value)} placeholder="e.g. Dubai, UAE" className={inp} />
+          </div>
+
+          {/* Cover Image */}
+          <div>
+            <label className="text-white/40 text-xs font-bold uppercase tracking-wider block mb-1.5">Cover Image URL</label>
+            {form.coverImage && (
+              <div className="mb-2 rounded-xl overflow-hidden h-32 bg-white/5">
+                <img src={form.coverImage} alt="" className="w-full h-full object-cover" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }} />
+              </div>
+            )}
+            <div className="flex gap-2">
+              <input value={form.coverImage} onChange={e => upd('coverImage', e.target.value)} placeholder="https://…" className={inp + ' flex-1'} />
+              <button
+                onClick={handleAutoCover}
+                disabled={fetchingCover}
+                className="bg-purple-600/20 text-purple-300 border border-purple-500/30 px-3 rounded-xl hover:bg-purple-600/30 transition text-xs font-bold whitespace-nowrap disabled:opacity-50 flex items-center gap-1.5"
+              >
+                {fetchingCover ? <span className="w-3 h-3 border border-purple-300 border-t-transparent rounded-full animate-spin" /> : '✨'} Auto
+              </button>
             </div>
           </div>
+
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
             <div>
               <label className="text-white/40 text-xs font-bold uppercase tracking-wider block mb-1.5">Start Date</label>
@@ -416,13 +603,7 @@ function OverviewTab({ itin, onSave }: { itin: ItineraryData; onSave: (u: Record
               ))}
             </div>
             <div className="flex gap-2">
-              <input
-                value={newInc}
-                onChange={e => setNewInc(e.target.value)}
-                onKeyDown={e => e.key === 'Enter' && addInc()}
-                placeholder="Add inclusion…"
-                className={inp + ' flex-1'}
-              />
+              <input value={newInc} onChange={e => setNewInc(e.target.value)} onKeyDown={e => e.key === 'Enter' && addInc()} placeholder="Add inclusion…" className={inp + ' flex-1'} />
               <button onClick={addInc} className="bg-green-500/20 text-green-400 px-3 rounded-xl hover:bg-green-500/30 transition text-sm font-bold">+</button>
             </div>
           </div>
@@ -437,13 +618,7 @@ function OverviewTab({ itin, onSave }: { itin: ItineraryData; onSave: (u: Record
               ))}
             </div>
             <div className="flex gap-2">
-              <input
-                value={newExc}
-                onChange={e => setNewExc(e.target.value)}
-                onKeyDown={e => e.key === 'Enter' && addExc()}
-                placeholder="Add exclusion…"
-                className={inp + ' flex-1'}
-              />
+              <input value={newExc} onChange={e => setNewExc(e.target.value)} onKeyDown={e => e.key === 'Enter' && addExc()} placeholder="Add exclusion…" className={inp + ' flex-1'} />
               <button onClick={addExc} className="bg-red-500/20 text-red-400 px-3 rounded-xl hover:bg-red-500/30 transition text-sm font-bold">+</button>
             </div>
           </div>
@@ -453,12 +628,20 @@ function OverviewTab({ itin, onSave }: { itin: ItineraryData; onSave: (u: Record
       {/* Terms & Notes */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         <div className="bg-white/5 border border-white/[0.08] rounded-2xl p-6">
-          <h2 className="text-white font-bold text-base mb-4">Terms &amp; Conditions</h2>
-          <textarea value={form.terms} onChange={e => upd('terms', e.target.value)} placeholder="Payment terms, cancellation policy, etc." rows={5} className={ta} />
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-white font-bold text-base">Terms &amp; Conditions</h2>
+            <button
+              onClick={() => upd('terms', DEFAULT_TERMS)}
+              className="text-amber-400 text-xs hover:text-amber-300 transition font-medium border border-amber-500/30 px-3 py-1.5 rounded-lg hover:border-amber-500/50"
+            >
+              Load Default Terms
+            </button>
+          </div>
+          <textarea value={form.terms} onChange={e => upd('terms', e.target.value)} placeholder="Payment terms, cancellation policy, etc." rows={8} className={ta} />
         </div>
         <div className="bg-white/5 border border-white/[0.08] rounded-2xl p-6">
           <h2 className="text-white font-bold text-base mb-4">Internal Notes</h2>
-          <textarea value={form.notes} onChange={e => upd('notes', e.target.value)} placeholder="Internal notes (not shown to client)…" rows={5} className={ta} />
+          <textarea value={form.notes} onChange={e => upd('notes', e.target.value)} placeholder="Internal notes (not shown to client)…" rows={8} className={ta} />
         </div>
       </div>
 
@@ -490,7 +673,10 @@ function DaysTab({ itin, onSave }: { itin: ItineraryData; onSave: (u: Record<str
 
   const addDay = () => {
     const next = days.length > 0 ? Math.max(...days.map(d => d.day)) + 1 : 1
-    const newDay: Day = { day: next, title: `Day ${next}`, description: '', activities: [], meals: '', accommodation: '', notes: '' }
+    const newDay: Day = {
+      day: next, title: `Day ${next}`, description: '', activities: [],
+      meals: '', accommodation: '', destination: '', weather: '', dressCode: '', notes: '',
+    }
     setDays(prev => [...prev, newDay])
     setExpanded(next)
   }
@@ -518,8 +704,7 @@ function DaysTab({ itin, onSave }: { itin: ItineraryData; onSave: (u: Record<str
   const updActivity = (dayNum: number, idx: number, val: string) => {
     setDays(prev => prev.map(d => {
       if (d.day !== dayNum) return d
-      const acts = [...d.activities]
-      acts[idx] = val
+      const acts = [...d.activities]; acts[idx] = val
       return { ...d, activities: acts }
     }))
   }
@@ -546,6 +731,7 @@ function DaysTab({ itin, onSave }: { itin: ItineraryData; onSave: (u: Record<str
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           destination: itin.destination,
+          destinations: safeParse<string[]>(itin.destinations || '[]', []),
           duration: itin.duration || days.length || 7,
           tripType: itin.tripType,
           numberOfTravellers: itin.numberOfTravellers,
@@ -554,11 +740,12 @@ function DaysTab({ itin, onSave }: { itin: ItineraryData; onSave: (u: Record<str
         }),
       })
       const data = await res.json()
-      if (data.days && Array.isArray(data.days)) {
+      if (data.error) {
+        setGenMsg(`❌ ${data.error}`)
+      } else if (data.days && Array.isArray(data.days)) {
         setDays(data.days)
         setExpanded(1)
         setGenMsg('✓ Generated! Review and save.')
-        // Also save overview/inclusions if returned
         const extras: Record<string, unknown> = { days: JSON.stringify(data.days) }
         if (data.overview) extras.overview = data.overview
         if (data.inclusions) extras.inclusions = JSON.stringify(data.inclusions)
@@ -568,7 +755,7 @@ function DaysTab({ itin, onSave }: { itin: ItineraryData; onSave: (u: Record<str
         setGenMsg('AI returned unexpected data. Try again.')
       }
     } catch {
-      setGenMsg('Generation failed. Check your API key.')
+      setGenMsg('Generation failed. Check your connection and try again.')
     }
     setGenerating(false)
   }
@@ -583,14 +770,11 @@ function DaysTab({ itin, onSave }: { itin: ItineraryData; onSave: (u: Record<str
             disabled={generating}
             className="bg-purple-600/20 hover:bg-purple-600/30 text-purple-300 border border-purple-500/30 font-bold px-4 py-2 rounded-xl text-sm transition flex items-center gap-2 disabled:opacity-50"
           >
-            {generating ? (
-              <><div className="w-3.5 h-3.5 border-2 border-purple-300 border-t-transparent rounded-full animate-spin" /> Generating…</>
-            ) : '✨ Generate with Jade AI'}
+            {generating
+              ? <><div className="w-3.5 h-3.5 border-2 border-purple-300 border-t-transparent rounded-full animate-spin" /> Generating…</>
+              : '✨ Generate with Jade AI'}
           </button>
-          <button
-            onClick={addDay}
-            className="bg-white/5 hover:bg-white/10 text-white border border-white/10 font-bold px-4 py-2 rounded-xl text-sm transition"
-          >
+          <button onClick={addDay} className="bg-white/5 hover:bg-white/10 text-white border border-white/10 font-bold px-4 py-2 rounded-xl text-sm transition">
             + Add Day
           </button>
         </div>
@@ -616,7 +800,6 @@ function DaysTab({ itin, onSave }: { itin: ItineraryData; onSave: (u: Record<str
         <div className="space-y-3">
           {days.map((day) => (
             <div key={day.day} className="bg-white/5 border border-white/[0.08] rounded-2xl overflow-hidden">
-              {/* Day header */}
               <div
                 className="flex items-center gap-4 p-4 cursor-pointer hover:bg-white/[0.03] transition"
                 onClick={() => setExpanded(expanded === day.day ? null : day.day)}
@@ -627,7 +810,11 @@ function DaysTab({ itin, onSave }: { itin: ItineraryData; onSave: (u: Record<str
                 </div>
                 <div className="flex-1 min-w-0">
                   <p className="text-white font-medium text-sm truncate">{day.title || `Day ${day.day}`}</p>
-                  {day.accommodation && <p className="text-white/30 text-xs">🏨 {day.accommodation}</p>}
+                  <div className="flex items-center gap-3">
+                    {day.destination && <p className="text-white/30 text-xs">📍 {day.destination}</p>}
+                    {day.accommodation && <p className="text-white/30 text-xs">🏨 {day.accommodation}</p>}
+                    {day.weather && <p className="text-white/30 text-xs">🌤 {day.weather}</p>}
+                  </div>
                 </div>
                 <div className="flex items-center gap-2">
                   <button onClick={(e) => { e.stopPropagation(); moveDay(day.day, 'up') }} className="text-white/20 hover:text-white/60 text-xs px-1.5 py-1 rounded transition">↑</button>
@@ -637,27 +824,29 @@ function DaysTab({ itin, onSave }: { itin: ItineraryData; onSave: (u: Record<str
                 </div>
               </div>
 
-              {/* Day body */}
               {expanded === day.day && (
                 <div className="border-t border-white/[0.08] p-5 space-y-4">
                   <div>
                     <label className="text-white/40 text-xs font-bold uppercase tracking-wider block mb-1.5">Day Title</label>
-                    <input
-                      value={day.title}
-                      onChange={e => updDay(day.day, 'title', e.target.value)}
-                      placeholder={`Day ${day.day} title`}
-                      className={inp}
-                    />
+                    <input value={day.title} onChange={e => updDay(day.day, 'title', e.target.value)} placeholder={`Day ${day.day} title`} className={inp} />
                   </div>
                   <div>
                     <label className="text-white/40 text-xs font-bold uppercase tracking-wider block mb-1.5">Description</label>
-                    <textarea
-                      value={day.description}
-                      onChange={e => updDay(day.day, 'description', e.target.value)}
-                      placeholder="What happens on this day…"
-                      rows={3}
-                      className={ta}
-                    />
+                    <textarea value={day.description} onChange={e => updDay(day.day, 'description', e.target.value)} placeholder="What happens on this day…" rows={3} className={ta} />
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div>
+                      <label className="text-white/40 text-xs font-bold uppercase tracking-wider block mb-1.5">Location / City</label>
+                      <input value={day.destination || ''} onChange={e => updDay(day.day, 'destination', e.target.value)} placeholder="e.g. Dubai" className={inp} />
+                    </div>
+                    <div>
+                      <label className="text-white/40 text-xs font-bold uppercase tracking-wider block mb-1.5">Weather</label>
+                      <input value={day.weather || ''} onChange={e => updDay(day.day, 'weather', e.target.value)} placeholder="e.g. Warm 28°C, sunny" className={inp} />
+                    </div>
+                    <div>
+                      <label className="text-white/40 text-xs font-bold uppercase tracking-wider block mb-1.5">Dress Code</label>
+                      <input value={day.dressCode || ''} onChange={e => updDay(day.day, 'dressCode', e.target.value)} placeholder="e.g. Smart casual" className={inp} />
+                    </div>
                   </div>
                   <div>
                     <div className="flex items-center justify-between mb-1.5">
@@ -667,12 +856,7 @@ function DaysTab({ itin, onSave }: { itin: ItineraryData; onSave: (u: Record<str
                     <div className="space-y-2">
                       {day.activities.map((act, ai) => (
                         <div key={ai} className="flex gap-2">
-                          <input
-                            value={act}
-                            onChange={e => updActivity(day.day, ai, e.target.value)}
-                            placeholder={`Activity ${ai + 1}`}
-                            className={inp + ' flex-1'}
-                          />
+                          <input value={act} onChange={e => updActivity(day.day, ai, e.target.value)} placeholder={`Activity ${ai + 1}`} className={inp + ' flex-1'} />
                           <button onClick={() => removeActivity(day.day, ai)} className="text-white/20 hover:text-red-400 px-2 transition">✕</button>
                         </div>
                       ))}
@@ -690,7 +874,7 @@ function DaysTab({ itin, onSave }: { itin: ItineraryData; onSave: (u: Record<str
                     </div>
                     <div>
                       <label className="text-white/40 text-xs font-bold uppercase tracking-wider block mb-1.5">Meals</label>
-                      <input value={day.meals} onChange={e => updDay(day.day, 'meals', e.target.value)} placeholder="B/L/D" className={inp} />
+                      <input value={day.meals} onChange={e => updDay(day.day, 'meals', e.target.value)} placeholder="B / L / D" className={inp} />
                     </div>
                     <div>
                       <label className="text-white/40 text-xs font-bold uppercase tracking-wider block mb-1.5">Notes</label>
@@ -723,198 +907,638 @@ function DaysTab({ itin, onSave }: { itin: ItineraryData; onSave: (u: Record<str
 // ─── Bookings Tab ─────────────────────────────────────────────────────────────
 
 function BookingsTab({ itin, onSave }: { itin: ItineraryData; onSave: (u: Record<string, unknown>) => Promise<void> }) {
+  const [bookingTab, setBookingTab] = useState('flights')
   const [flights, setFlights] = useState<Flight[]>(safeParse<Flight[]>(itin.flights, []))
   const [hotels, setHotels] = useState<Hotel[]>(safeParse<Hotel[]>(itin.hotels, []))
+  const [transfers, setTransfers] = useState<Transfer[]>(safeParse<Transfer[]>(itin.transfers || '[]', []))
+  const [tours, setTours] = useState<Tour[]>(safeParse<Tour[]>(itin.tours || '[]', []))
+  const [trains, setTrains] = useState<Train[]>(safeParse<Train[]>(itin.trains || '[]', []))
+  const [ferries, setFerries] = useState<Ferry[]>(safeParse<Ferry[]>(itin.ferries || '[]', []))
   const [saving, setSaving] = useState(false)
+  const [fetchingHotelImg, setFetchingHotelImg] = useState<string | null>(null)
 
-  const addFlight = () => {
-    const f: Flight = {
-      id: uid(), from: '', to: '', airline: '', flightNumber: '', date: '', time: '',
-      class: 'Economy', pnr: '', cost: null, status: 'confirmed', notes: '',
-    }
-    setFlights(prev => [...prev, f])
+  const sym = CURRENCY_SYM[itin.currency] || ''
+
+  const counts: Record<string, number> = {
+    flights: flights.length, hotels: hotels.length, transfers: transfers.length,
+    tours: tours.length, trains: trains.length, ferries: ferries.length,
   }
-
-  const updFlight = (id: string, field: keyof Flight, value: unknown) => {
-    setFlights(prev => prev.map(f => f.id === id ? { ...f, [field]: value } : f))
-  }
-
-  const removeFlight = (id: string) => setFlights(prev => prev.filter(f => f.id !== id))
-
-  const addHotel = () => {
-    const h: Hotel = {
-      id: uid(), name: '', location: '', checkIn: '', checkOut: '',
-      roomType: '', nights: 1, cost: null, status: 'confirmed', notes: '',
-    }
-    setHotels(prev => [...prev, h])
-  }
-
-  const updHotel = (id: string, field: keyof Hotel, value: unknown) => {
-    setHotels(prev => prev.map(h => h.id === id ? { ...h, [field]: value } : h))
-  }
-
-  const removeHotel = (id: string) => setHotels(prev => prev.filter(h => h.id !== id))
 
   const handleSave = async () => {
     setSaving(true)
-    await onSave({ flights: JSON.stringify(flights), hotels: JSON.stringify(hotels) })
+    await onSave({
+      flights: JSON.stringify(flights),
+      hotels: JSON.stringify(hotels),
+      transfers: JSON.stringify(transfers),
+      tours: JSON.stringify(tours),
+      trains: JSON.stringify(trains),
+      ferries: JSON.stringify(ferries),
+    })
     setSaving(false)
   }
 
+  const fetchHotelImage = async (hotelId: string, url: string) => {
+    if (!url) return
+    setFetchingHotelImg(hotelId)
+    try {
+      const res = await fetch('/api/admin/itineraries/fetch-hotel-image', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url }),
+      })
+      const data = await res.json()
+      if (data.url) setHotels(prev => prev.map(h => h.id === hotelId ? { ...h, image: data.url } : h))
+    } catch {}
+    setFetchingHotelImg(null)
+  }
+
+  // ── Flights ──────────────────────────────────────────────────────────────
+
+  const addFlight = () => setFlights(prev => [...prev, {
+    id: uid(), from: '', to: '', airline: '', iataCode: '', flightNumber: '',
+    date: '', time: '', arrivalTime: '', class: 'Economy', pnr: '', cost: null, status: 'confirmed', notes: '',
+  }])
+  const updFlight = (id: string, f: keyof Flight, v: unknown) => setFlights(prev => prev.map(fl => fl.id === id ? { ...fl, [f]: v } : fl))
+  const rmFlight = (id: string) => setFlights(prev => prev.filter(f => f.id !== id))
+
+  // ── Hotels ───────────────────────────────────────────────────────────────
+
+  const addHotel = () => setHotels(prev => [...prev, {
+    id: uid(), name: '', location: '', websiteUrl: '', checkIn: '', checkOut: '',
+    roomType: '', nights: 1, cost: null, status: 'confirmed', notes: '', image: '',
+  }])
+  const updHotel = (id: string, f: keyof Hotel, v: unknown) => setHotels(prev => prev.map(h => h.id === id ? { ...h, [f]: v } : h))
+  const rmHotel = (id: string) => setHotels(prev => prev.filter(h => h.id !== id))
+
+  // ── Transfers ────────────────────────────────────────────────────────────
+
+  const addTransfer = () => setTransfers(prev => [...prev, {
+    id: uid(), type: 'Private Car', from: '', to: '', date: '', time: '',
+    vehicle: '', provider: '', cost: null, notes: '', image: '',
+  }])
+  const updTransfer = (id: string, f: keyof Transfer, v: unknown) => setTransfers(prev => prev.map(t => t.id === id ? { ...t, [f]: v } : t))
+  const rmTransfer = (id: string) => setTransfers(prev => prev.filter(t => t.id !== id))
+
+  // ── Tours ─────────────────────────────────────────────────────────────────
+
+  const addTour = () => setTours(prev => [...prev, {
+    id: uid(), name: '', location: '', date: '', time: '',
+    duration: '', provider: '', cost: null, notes: '', image: '',
+  }])
+  const updTour = (id: string, f: keyof Tour, v: unknown) => setTours(prev => prev.map(t => t.id === id ? { ...t, [f]: v } : t))
+  const rmTour = (id: string) => setTours(prev => prev.filter(t => t.id !== id))
+
+  // ── Trains ────────────────────────────────────────────────────────────────
+
+  const addTrain = () => setTrains(prev => [...prev, {
+    id: uid(), from: '', to: '', date: '', departureTime: '', arrivalTime: '',
+    trainNumber: '', class: 'Standard', provider: '', pnr: '', cost: null, notes: '', image: '',
+  }])
+  const updTrain = (id: string, f: keyof Train, v: unknown) => setTrains(prev => prev.map(t => t.id === id ? { ...t, [f]: v } : t))
+  const rmTrain = (id: string) => setTrains(prev => prev.filter(t => t.id !== id))
+
+  // ── Ferries ───────────────────────────────────────────────────────────────
+
+  const addFerry = () => setFerries(prev => [...prev, {
+    id: uid(), from: '', to: '', date: '', departureTime: '', arrivalTime: '',
+    operator: '', class: 'Standard', vessel: '', cost: null, notes: '', image: '',
+  }])
+  const updFerry = (id: string, f: keyof Ferry, v: unknown) => setFerries(prev => prev.map(fe => fe.id === id ? { ...fe, [f]: v } : fe))
+  const rmFerry = (id: string) => setFerries(prev => prev.filter(fe => fe.id !== id))
+
   return (
-    <div className="max-w-4xl space-y-8">
-      {/* Flights */}
-      <div className="bg-white/5 border border-white/[0.08] rounded-2xl p-6">
-        <div className="flex items-center justify-between mb-5">
-          <h2 className="text-white font-bold text-base">✈️ Flights</h2>
-          <button onClick={addFlight} className="bg-white/5 hover:bg-white/10 text-white border border-white/10 font-bold px-4 py-2 rounded-xl text-sm transition">
-            + Add Flight
+    <div className="max-w-4xl">
+      {/* Sub-tab bar */}
+      <div className="flex gap-1 mb-6 overflow-x-auto pb-1">
+        {BOOKING_TABS.map(t => (
+          <button
+            key={t.id}
+            onClick={() => setBookingTab(t.id)}
+            className={`px-4 py-2 rounded-lg text-sm font-medium transition whitespace-nowrap flex items-center gap-1.5 ${
+              bookingTab === t.id ? 'bg-white/10 text-white' : 'text-white/40 hover:text-white/70'
+            }`}
+          >
+            {t.label}
+            {counts[t.id] > 0 && (
+              <span className="bg-amber-500 text-black text-[10px] font-bold px-1.5 py-0.5 rounded-full leading-none">
+                {counts[t.id]}
+              </span>
+            )}
           </button>
-        </div>
-
-        {flights.length === 0 ? (
-          <div className="text-center py-8">
-            <p className="text-white/20 text-sm mb-3">No flights added yet</p>
-            <button onClick={addFlight} className="text-amber-400 text-sm hover:text-amber-300 transition">+ Add first flight</button>
-          </div>
-        ) : (
-          <div className="space-y-4">
-            {flights.map((f) => (
-              <div key={f.id} className="bg-white/5 rounded-xl p-4 border border-white/[0.06]">
-                <div className="flex justify-between items-start mb-3">
-                  <p className="text-white/50 text-xs font-bold uppercase tracking-wider">Flight</p>
-                  <button onClick={() => removeFlight(f.id)} className="text-white/20 hover:text-red-400 text-xs transition">✕ Remove</button>
-                </div>
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-3">
-                  <div>
-                    <label className="text-white/30 text-[10px] font-bold uppercase block mb-1">From</label>
-                    <input value={f.from} onChange={e => updFlight(f.id, 'from', e.target.value)} placeholder="LHR" className={inp} />
-                  </div>
-                  <div>
-                    <label className="text-white/30 text-[10px] font-bold uppercase block mb-1">To</label>
-                    <input value={f.to} onChange={e => updFlight(f.id, 'to', e.target.value)} placeholder="DXB" className={inp} />
-                  </div>
-                  <div>
-                    <label className="text-white/30 text-[10px] font-bold uppercase block mb-1">Date</label>
-                    <input type="date" value={f.date} onChange={e => updFlight(f.id, 'date', e.target.value)} className={inp} />
-                  </div>
-                  <div>
-                    <label className="text-white/30 text-[10px] font-bold uppercase block mb-1">Time</label>
-                    <input type="time" value={f.time} onChange={e => updFlight(f.id, 'time', e.target.value)} className={inp} />
-                  </div>
-                </div>
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                  <div>
-                    <label className="text-white/30 text-[10px] font-bold uppercase block mb-1">Airline</label>
-                    <input value={f.airline} onChange={e => updFlight(f.id, 'airline', e.target.value)} placeholder="Emirates" className={inp} />
-                  </div>
-                  <div>
-                    <label className="text-white/30 text-[10px] font-bold uppercase block mb-1">Flight No.</label>
-                    <input value={f.flightNumber} onChange={e => updFlight(f.id, 'flightNumber', e.target.value)} placeholder="EK001" className={inp} />
-                  </div>
-                  <div>
-                    <label className="text-white/30 text-[10px] font-bold uppercase block mb-1">Class</label>
-                    <select value={f.class} onChange={e => updFlight(f.id, 'class', e.target.value)} className={sel}>
-                      <option>Economy</option>
-                      <option>Premium Economy</option>
-                      <option>Business</option>
-                      <option>First Class</option>
-                    </select>
-                  </div>
-                  <div>
-                    <label className="text-white/30 text-[10px] font-bold uppercase block mb-1">PNR</label>
-                    <input value={f.pnr} onChange={e => updFlight(f.id, 'pnr', e.target.value)} placeholder="ABC123" className={inp} />
-                  </div>
-                </div>
-                <div className="grid grid-cols-2 gap-3 mt-3">
-                  <div>
-                    <label className="text-white/30 text-[10px] font-bold uppercase block mb-1">Cost ({CURRENCY_SYM[itin.currency]})</label>
-                    <input type="number" value={f.cost ?? ''} onChange={e => updFlight(f.id, 'cost', e.target.value ? Number(e.target.value) : null)} placeholder="0.00" className={inp} />
-                  </div>
-                  <div>
-                    <label className="text-white/30 text-[10px] font-bold uppercase block mb-1">Notes</label>
-                    <input value={f.notes} onChange={e => updFlight(f.id, 'notes', e.target.value)} placeholder="Baggage, meals, etc." className={inp} />
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
+        ))}
       </div>
 
-      {/* Hotels */}
-      <div className="bg-white/5 border border-white/[0.08] rounded-2xl p-6">
-        <div className="flex items-center justify-between mb-5">
-          <h2 className="text-white font-bold text-base">🏨 Accommodation</h2>
-          <button onClick={addHotel} className="bg-white/5 hover:bg-white/10 text-white border border-white/10 font-bold px-4 py-2 rounded-xl text-sm transition">
-            + Add Hotel
-          </button>
+      {/* ── Flights Section ─────────────────────────────────────────────────── */}
+      {bookingTab === 'flights' && (
+        <div className="bg-white/5 border border-white/[0.08] rounded-2xl p-6">
+          <div className="flex items-center justify-between mb-5">
+            <h2 className="text-white font-bold text-base">✈️ Flights</h2>
+            <button onClick={addFlight} className="bg-white/5 hover:bg-white/10 text-white border border-white/10 font-bold px-4 py-2 rounded-xl text-sm transition">+ Add Flight</button>
+          </div>
+          {flights.length === 0 ? (
+            <div className="text-center py-10">
+              <p className="text-5xl mb-3">✈️</p>
+              <p className="text-white/20 text-sm mb-3">No flights added yet</p>
+              <button onClick={addFlight} className="text-amber-400 text-sm hover:text-amber-300 transition">+ Add first flight</button>
+            </div>
+          ) : (
+            <div className="space-y-5">
+              {flights.map(f => (
+                <div key={f.id} className="bg-white/5 rounded-xl p-4 border border-white/[0.06]">
+                  <div className="flex justify-between items-start mb-4">
+                    <div className="flex items-center gap-3">
+                      {f.iataCode && (
+                        <img
+                          src={`https://content.airhex.com/content/logos/airlines_${f.iataCode.toUpperCase()}_350_100_r.png`}
+                          alt={f.airline || f.iataCode}
+                          className="h-9 max-w-[100px] object-contain bg-white rounded px-2 py-1"
+                          onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }}
+                        />
+                      )}
+                      <p className="text-white/50 text-xs font-bold uppercase tracking-wider">Flight</p>
+                    </div>
+                    <button onClick={() => rmFlight(f.id)} className="text-white/20 hover:text-red-400 text-xs transition">✕ Remove</button>
+                  </div>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-3">
+                    <div>
+                      <label className="text-white/30 text-[10px] font-bold uppercase block mb-1">From</label>
+                      <input value={f.from} onChange={e => updFlight(f.id, 'from', e.target.value)} placeholder="LHR" className={inp} />
+                    </div>
+                    <div>
+                      <label className="text-white/30 text-[10px] font-bold uppercase block mb-1">To</label>
+                      <input value={f.to} onChange={e => updFlight(f.id, 'to', e.target.value)} placeholder="DXB" className={inp} />
+                    </div>
+                    <div>
+                      <label className="text-white/30 text-[10px] font-bold uppercase block mb-1">Date</label>
+                      <input type="date" value={f.date} onChange={e => updFlight(f.id, 'date', e.target.value)} className={inp} />
+                    </div>
+                    <div>
+                      <label className="text-white/30 text-[10px] font-bold uppercase block mb-1">Departs</label>
+                      <input type="time" value={f.time} onChange={e => updFlight(f.id, 'time', e.target.value)} className={inp} />
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-3">
+                    <div>
+                      <label className="text-white/30 text-[10px] font-bold uppercase block mb-1">Airline</label>
+                      <input value={f.airline} onChange={e => updFlight(f.id, 'airline', e.target.value)} placeholder="Emirates" className={inp} />
+                    </div>
+                    <div>
+                      <label className="text-white/30 text-[10px] font-bold uppercase block mb-1">IATA Code</label>
+                      <input
+                        value={f.iataCode}
+                        onChange={e => updFlight(f.id, 'iataCode', e.target.value.toUpperCase())}
+                        placeholder="EK"
+                        maxLength={3}
+                        className={inp}
+                      />
+                    </div>
+                    <div>
+                      <label className="text-white/30 text-[10px] font-bold uppercase block mb-1">Flight No.</label>
+                      <input value={f.flightNumber} onChange={e => updFlight(f.id, 'flightNumber', e.target.value)} placeholder="EK001" className={inp} />
+                    </div>
+                    <div>
+                      <label className="text-white/30 text-[10px] font-bold uppercase block mb-1">Arrives</label>
+                      <input type="time" value={f.arrivalTime} onChange={e => updFlight(f.id, 'arrivalTime', e.target.value)} className={inp} />
+                    </div>
+                    <div>
+                      <label className="text-white/30 text-[10px] font-bold uppercase block mb-1">Class</label>
+                      <select value={f.class} onChange={e => updFlight(f.id, 'class', e.target.value)} className={sel}>
+                        <option>Economy</option>
+                        <option>Premium Economy</option>
+                        <option>Business</option>
+                        <option>First Class</option>
+                      </select>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-3 gap-3">
+                    <div>
+                      <label className="text-white/30 text-[10px] font-bold uppercase block mb-1">PNR</label>
+                      <input value={f.pnr} onChange={e => updFlight(f.id, 'pnr', e.target.value)} placeholder="ABC123" className={inp} />
+                    </div>
+                    <div>
+                      <label className="text-white/30 text-[10px] font-bold uppercase block mb-1">Cost ({sym})</label>
+                      <input type="number" value={f.cost ?? ''} onChange={e => updFlight(f.id, 'cost', e.target.value ? Number(e.target.value) : null)} placeholder="0.00" className={inp} />
+                    </div>
+                    <div>
+                      <label className="text-white/30 text-[10px] font-bold uppercase block mb-1">Notes</label>
+                      <input value={f.notes} onChange={e => updFlight(f.id, 'notes', e.target.value)} placeholder="Baggage, meals…" className={inp} />
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
+      )}
 
-        {hotels.length === 0 ? (
-          <div className="text-center py-8">
-            <p className="text-white/20 text-sm mb-3">No hotels added yet</p>
-            <button onClick={addHotel} className="text-amber-400 text-sm hover:text-amber-300 transition">+ Add first hotel</button>
+      {/* ── Hotels Section ──────────────────────────────────────────────────── */}
+      {bookingTab === 'hotels' && (
+        <div className="bg-white/5 border border-white/[0.08] rounded-2xl p-6">
+          <div className="flex items-center justify-between mb-5">
+            <h2 className="text-white font-bold text-base">🏨 Hotels</h2>
+            <button onClick={addHotel} className="bg-white/5 hover:bg-white/10 text-white border border-white/10 font-bold px-4 py-2 rounded-xl text-sm transition">+ Add Hotel</button>
           </div>
-        ) : (
-          <div className="space-y-4">
-            {hotels.map((h) => (
-              <div key={h.id} className="bg-white/5 rounded-xl p-4 border border-white/[0.06]">
-                <div className="flex justify-between items-start mb-3">
-                  <p className="text-white/50 text-xs font-bold uppercase tracking-wider">Hotel / Accommodation</p>
-                  <button onClick={() => removeHotel(h.id)} className="text-white/20 hover:text-red-400 text-xs transition">✕ Remove</button>
+          {hotels.length === 0 ? (
+            <div className="text-center py-10">
+              <p className="text-5xl mb-3">🏨</p>
+              <p className="text-white/20 text-sm mb-3">No hotels added yet</p>
+              <button onClick={addHotel} className="text-amber-400 text-sm hover:text-amber-300 transition">+ Add first hotel</button>
+            </div>
+          ) : (
+            <div className="space-y-5">
+              {hotels.map(h => (
+                <div key={h.id} className="bg-white/5 rounded-xl p-4 border border-white/[0.06]">
+                  <div className="flex justify-between items-start mb-4">
+                    <p className="text-white/50 text-xs font-bold uppercase tracking-wider">Hotel / Accommodation</p>
+                    <button onClick={() => rmHotel(h.id)} className="text-white/20 hover:text-red-400 text-xs transition">✕ Remove</button>
+                  </div>
+                  {h.image && (
+                    <div className="mb-3 rounded-xl overflow-hidden h-32 bg-white/5">
+                      <img src={h.image} alt={h.name} className="w-full h-full object-cover" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }} />
+                    </div>
+                  )}
+                  <div className="grid grid-cols-2 gap-3 mb-3">
+                    <div>
+                      <label className="text-white/30 text-[10px] font-bold uppercase block mb-1">Hotel Name</label>
+                      <input value={h.name} onChange={e => updHotel(h.id, 'name', e.target.value)} placeholder="Burj Al Arab" className={inp} />
+                    </div>
+                    <div>
+                      <label className="text-white/30 text-[10px] font-bold uppercase block mb-1">Location</label>
+                      <input value={h.location} onChange={e => updHotel(h.id, 'location', e.target.value)} placeholder="Dubai, UAE" className={inp} />
+                    </div>
+                  </div>
+                  <div className="mb-3">
+                    <label className="text-white/30 text-[10px] font-bold uppercase block mb-1">Hotel Website URL</label>
+                    <div className="flex gap-2">
+                      <input value={h.websiteUrl} onChange={e => updHotel(h.id, 'websiteUrl', e.target.value)} placeholder="https://www.burjalarab.com" className={inp + ' flex-1'} />
+                      <button
+                        onClick={() => fetchHotelImage(h.id, h.websiteUrl)}
+                        disabled={fetchingHotelImg === h.id || !h.websiteUrl}
+                        className="bg-purple-600/20 text-purple-300 border border-purple-500/30 px-3 rounded-xl hover:bg-purple-600/30 transition text-xs font-bold whitespace-nowrap disabled:opacity-40 flex items-center gap-1.5"
+                      >
+                        {fetchingHotelImg === h.id
+                          ? <span className="w-3 h-3 border border-purple-300 border-t-transparent rounded-full animate-spin" />
+                          : '🖼'}
+                        Fetch Image
+                      </button>
+                    </div>
+                  </div>
+                  <div className="mb-3">
+                    <label className="text-white/30 text-[10px] font-bold uppercase block mb-1">Image URL (override)</label>
+                    <input value={h.image} onChange={e => updHotel(h.id, 'image', e.target.value)} placeholder="Or paste image URL directly…" className={inp} />
+                  </div>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-3">
+                    <div>
+                      <label className="text-white/30 text-[10px] font-bold uppercase block mb-1">Check-In</label>
+                      <input type="date" value={h.checkIn} onChange={e => updHotel(h.id, 'checkIn', e.target.value)} className={inp} />
+                    </div>
+                    <div>
+                      <label className="text-white/30 text-[10px] font-bold uppercase block mb-1">Check-Out</label>
+                      <input type="date" value={h.checkOut} onChange={e => updHotel(h.id, 'checkOut', e.target.value)} className={inp} />
+                    </div>
+                    <div>
+                      <label className="text-white/30 text-[10px] font-bold uppercase block mb-1">Nights</label>
+                      <input type="number" min="1" value={h.nights} onChange={e => updHotel(h.id, 'nights', Number(e.target.value))} className={inp} />
+                    </div>
+                    <div>
+                      <label className="text-white/30 text-[10px] font-bold uppercase block mb-1">Room Type</label>
+                      <input value={h.roomType} onChange={e => updHotel(h.id, 'roomType', e.target.value)} placeholder="Deluxe Suite" className={inp} />
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="text-white/30 text-[10px] font-bold uppercase block mb-1">Cost ({sym})</label>
+                      <input type="number" value={h.cost ?? ''} onChange={e => updHotel(h.id, 'cost', e.target.value ? Number(e.target.value) : null)} placeholder="0.00" className={inp} />
+                    </div>
+                    <div>
+                      <label className="text-white/30 text-[10px] font-bold uppercase block mb-1">Notes</label>
+                      <input value={h.notes} onChange={e => updHotel(h.id, 'notes', e.target.value)} placeholder="Breakfast included, pool view…" className={inp} />
+                    </div>
+                  </div>
                 </div>
-                <div className="grid grid-cols-2 gap-3 mb-3">
-                  <div>
-                    <label className="text-white/30 text-[10px] font-bold uppercase block mb-1">Hotel Name</label>
-                    <input value={h.name} onChange={e => updHotel(h.id, 'name', e.target.value)} placeholder="Burj Al Arab" className={inp} />
-                  </div>
-                  <div>
-                    <label className="text-white/30 text-[10px] font-bold uppercase block mb-1">Location</label>
-                    <input value={h.location} onChange={e => updHotel(h.id, 'location', e.target.value)} placeholder="Dubai, UAE" className={inp} />
-                  </div>
-                </div>
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-3">
-                  <div>
-                    <label className="text-white/30 text-[10px] font-bold uppercase block mb-1">Check-In</label>
-                    <input type="date" value={h.checkIn} onChange={e => updHotel(h.id, 'checkIn', e.target.value)} className={inp} />
-                  </div>
-                  <div>
-                    <label className="text-white/30 text-[10px] font-bold uppercase block mb-1">Check-Out</label>
-                    <input type="date" value={h.checkOut} onChange={e => updHotel(h.id, 'checkOut', e.target.value)} className={inp} />
-                  </div>
-                  <div>
-                    <label className="text-white/30 text-[10px] font-bold uppercase block mb-1">Nights</label>
-                    <input type="number" min="1" value={h.nights} onChange={e => updHotel(h.id, 'nights', Number(e.target.value))} className={inp} />
-                  </div>
-                  <div>
-                    <label className="text-white/30 text-[10px] font-bold uppercase block mb-1">Room Type</label>
-                    <input value={h.roomType} onChange={e => updHotel(h.id, 'roomType', e.target.value)} placeholder="Deluxe Suite" className={inp} />
-                  </div>
-                </div>
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="text-white/30 text-[10px] font-bold uppercase block mb-1">Cost ({CURRENCY_SYM[itin.currency]})</label>
-                    <input type="number" value={h.cost ?? ''} onChange={e => updHotel(h.id, 'cost', e.target.value ? Number(e.target.value) : null)} placeholder="0.00" className={inp} />
-                  </div>
-                  <div>
-                    <label className="text-white/30 text-[10px] font-bold uppercase block mb-1">Notes</label>
-                    <input value={h.notes} onChange={e => updHotel(h.id, 'notes', e.target.value)} placeholder="Breakfast included, pool view, etc." className={inp} />
-                  </div>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
-      <div className="flex justify-end">
+      {/* ── Transfers Section ───────────────────────────────────────────────── */}
+      {bookingTab === 'transfers' && (
+        <div className="bg-white/5 border border-white/[0.08] rounded-2xl p-6">
+          <div className="flex items-center justify-between mb-5">
+            <h2 className="text-white font-bold text-base">🚗 Transfers</h2>
+            <button onClick={addTransfer} className="bg-white/5 hover:bg-white/10 text-white border border-white/10 font-bold px-4 py-2 rounded-xl text-sm transition">+ Add Transfer</button>
+          </div>
+          {transfers.length === 0 ? (
+            <div className="text-center py-10">
+              <p className="text-5xl mb-3">🚗</p>
+              <p className="text-white/20 text-sm mb-3">No transfers added yet</p>
+              <button onClick={addTransfer} className="text-amber-400 text-sm hover:text-amber-300 transition">+ Add first transfer</button>
+            </div>
+          ) : (
+            <div className="space-y-5">
+              {transfers.map(t => (
+                <div key={t.id} className="bg-white/5 rounded-xl p-4 border border-white/[0.06]">
+                  <div className="flex justify-between items-start mb-3">
+                    <p className="text-white/50 text-xs font-bold uppercase tracking-wider">Transfer</p>
+                    <button onClick={() => rmTransfer(t.id)} className="text-white/20 hover:text-red-400 text-xs transition">✕ Remove</button>
+                  </div>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-3">
+                    <div>
+                      <label className="text-white/30 text-[10px] font-bold uppercase block mb-1">Type</label>
+                      <select value={t.type} onChange={e => updTransfer(t.id, 'type', e.target.value)} className={sel}>
+                        <option>Private Car</option>
+                        <option>Taxi</option>
+                        <option>Shuttle</option>
+                        <option>Minibus</option>
+                        <option>Coach</option>
+                        <option>Limousine</option>
+                        <option>Airport Transfer</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="text-white/30 text-[10px] font-bold uppercase block mb-1">From</label>
+                      <input value={t.from} onChange={e => updTransfer(t.id, 'from', e.target.value)} placeholder="Airport / Hotel" className={inp} />
+                    </div>
+                    <div>
+                      <label className="text-white/30 text-[10px] font-bold uppercase block mb-1">To</label>
+                      <input value={t.to} onChange={e => updTransfer(t.id, 'to', e.target.value)} placeholder="Hotel / Venue" className={inp} />
+                    </div>
+                    <div>
+                      <label className="text-white/30 text-[10px] font-bold uppercase block mb-1">Date</label>
+                      <input type="date" value={t.date} onChange={e => updTransfer(t.id, 'date', e.target.value)} className={inp} />
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-3">
+                    <div>
+                      <label className="text-white/30 text-[10px] font-bold uppercase block mb-1">Time</label>
+                      <input type="time" value={t.time} onChange={e => updTransfer(t.id, 'time', e.target.value)} className={inp} />
+                    </div>
+                    <div>
+                      <label className="text-white/30 text-[10px] font-bold uppercase block mb-1">Vehicle</label>
+                      <input value={t.vehicle} onChange={e => updTransfer(t.id, 'vehicle', e.target.value)} placeholder="Mercedes V-Class" className={inp} />
+                    </div>
+                    <div>
+                      <label className="text-white/30 text-[10px] font-bold uppercase block mb-1">Provider</label>
+                      <input value={t.provider} onChange={e => updTransfer(t.id, 'provider', e.target.value)} placeholder="Company name" className={inp} />
+                    </div>
+                    <div>
+                      <label className="text-white/30 text-[10px] font-bold uppercase block mb-1">Cost ({sym})</label>
+                      <input type="number" value={t.cost ?? ''} onChange={e => updTransfer(t.id, 'cost', e.target.value ? Number(e.target.value) : null)} placeholder="0.00" className={inp} />
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <ImageField value={t.image} onChange={v => updTransfer(t.id, 'image', v)} label="Image URL" placeholder="https://…" />
+                    <div>
+                      <label className="text-white/30 text-[10px] font-bold uppercase block mb-1">Notes</label>
+                      <input value={t.notes} onChange={e => updTransfer(t.id, 'notes', e.target.value)} placeholder="Meet & greet, sign…" className={inp} />
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── Tours / Activities Section ──────────────────────────────────────── */}
+      {bookingTab === 'tours' && (
+        <div className="bg-white/5 border border-white/[0.08] rounded-2xl p-6">
+          <div className="flex items-center justify-between mb-5">
+            <h2 className="text-white font-bold text-base">🎭 Tours &amp; Activities</h2>
+            <button onClick={addTour} className="bg-white/5 hover:bg-white/10 text-white border border-white/10 font-bold px-4 py-2 rounded-xl text-sm transition">+ Add Tour</button>
+          </div>
+          {tours.length === 0 ? (
+            <div className="text-center py-10">
+              <p className="text-5xl mb-3">🎭</p>
+              <p className="text-white/20 text-sm mb-3">No tours or activities added yet</p>
+              <button onClick={addTour} className="text-amber-400 text-sm hover:text-amber-300 transition">+ Add first tour</button>
+            </div>
+          ) : (
+            <div className="space-y-5">
+              {tours.map(t => (
+                <div key={t.id} className="bg-white/5 rounded-xl p-4 border border-white/[0.06]">
+                  <div className="flex justify-between items-start mb-3">
+                    <p className="text-white/50 text-xs font-bold uppercase tracking-wider">Tour / Activity</p>
+                    <button onClick={() => rmTour(t.id)} className="text-white/20 hover:text-red-400 text-xs transition">✕ Remove</button>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3 mb-3">
+                    <div>
+                      <label className="text-white/30 text-[10px] font-bold uppercase block mb-1">Tour / Activity Name</label>
+                      <input value={t.name} onChange={e => updTour(t.id, 'name', e.target.value)} placeholder="Desert Safari" className={inp} />
+                    </div>
+                    <div>
+                      <label className="text-white/30 text-[10px] font-bold uppercase block mb-1">Location</label>
+                      <input value={t.location} onChange={e => updTour(t.id, 'location', e.target.value)} placeholder="Dubai Desert" className={inp} />
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-3">
+                    <div>
+                      <label className="text-white/30 text-[10px] font-bold uppercase block mb-1">Date</label>
+                      <input type="date" value={t.date} onChange={e => updTour(t.id, 'date', e.target.value)} className={inp} />
+                    </div>
+                    <div>
+                      <label className="text-white/30 text-[10px] font-bold uppercase block mb-1">Time</label>
+                      <input type="time" value={t.time} onChange={e => updTour(t.id, 'time', e.target.value)} className={inp} />
+                    </div>
+                    <div>
+                      <label className="text-white/30 text-[10px] font-bold uppercase block mb-1">Duration</label>
+                      <input value={t.duration} onChange={e => updTour(t.id, 'duration', e.target.value)} placeholder="3 hours" className={inp} />
+                    </div>
+                    <div>
+                      <label className="text-white/30 text-[10px] font-bold uppercase block mb-1">Cost ({sym})</label>
+                      <input type="number" value={t.cost ?? ''} onChange={e => updTour(t.id, 'cost', e.target.value ? Number(e.target.value) : null)} placeholder="0.00" className={inp} />
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3 mb-3">
+                    <div>
+                      <label className="text-white/30 text-[10px] font-bold uppercase block mb-1">Provider</label>
+                      <input value={t.provider} onChange={e => updTour(t.id, 'provider', e.target.value)} placeholder="Tour operator" className={inp} />
+                    </div>
+                    <div>
+                      <label className="text-white/30 text-[10px] font-bold uppercase block mb-1">Notes</label>
+                      <input value={t.notes} onChange={e => updTour(t.id, 'notes', e.target.value)} placeholder="What's included…" className={inp} />
+                    </div>
+                  </div>
+                  <ImageField value={t.image} onChange={v => updTour(t.id, 'image', v)} />
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── Trains Section ──────────────────────────────────────────────────── */}
+      {bookingTab === 'trains' && (
+        <div className="bg-white/5 border border-white/[0.08] rounded-2xl p-6">
+          <div className="flex items-center justify-between mb-5">
+            <h2 className="text-white font-bold text-base">🚂 Trains</h2>
+            <button onClick={addTrain} className="bg-white/5 hover:bg-white/10 text-white border border-white/10 font-bold px-4 py-2 rounded-xl text-sm transition">+ Add Train</button>
+          </div>
+          {trains.length === 0 ? (
+            <div className="text-center py-10">
+              <p className="text-5xl mb-3">🚂</p>
+              <p className="text-white/20 text-sm mb-3">No train journeys added yet</p>
+              <button onClick={addTrain} className="text-amber-400 text-sm hover:text-amber-300 transition">+ Add first train</button>
+            </div>
+          ) : (
+            <div className="space-y-5">
+              {trains.map(t => (
+                <div key={t.id} className="bg-white/5 rounded-xl p-4 border border-white/[0.06]">
+                  <div className="flex justify-between items-start mb-3">
+                    <p className="text-white/50 text-xs font-bold uppercase tracking-wider">Train Journey</p>
+                    <button onClick={() => rmTrain(t.id)} className="text-white/20 hover:text-red-400 text-xs transition">✕ Remove</button>
+                  </div>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-3">
+                    <div>
+                      <label className="text-white/30 text-[10px] font-bold uppercase block mb-1">From</label>
+                      <input value={t.from} onChange={e => updTrain(t.id, 'from', e.target.value)} placeholder="London St Pancras" className={inp} />
+                    </div>
+                    <div>
+                      <label className="text-white/30 text-[10px] font-bold uppercase block mb-1">To</label>
+                      <input value={t.to} onChange={e => updTrain(t.id, 'to', e.target.value)} placeholder="Paris Gare du Nord" className={inp} />
+                    </div>
+                    <div>
+                      <label className="text-white/30 text-[10px] font-bold uppercase block mb-1">Date</label>
+                      <input type="date" value={t.date} onChange={e => updTrain(t.id, 'date', e.target.value)} className={inp} />
+                    </div>
+                    <div>
+                      <label className="text-white/30 text-[10px] font-bold uppercase block mb-1">Departs</label>
+                      <input type="time" value={t.departureTime} onChange={e => updTrain(t.id, 'departureTime', e.target.value)} className={inp} />
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-3">
+                    <div>
+                      <label className="text-white/30 text-[10px] font-bold uppercase block mb-1">Arrives</label>
+                      <input type="time" value={t.arrivalTime} onChange={e => updTrain(t.id, 'arrivalTime', e.target.value)} className={inp} />
+                    </div>
+                    <div>
+                      <label className="text-white/30 text-[10px] font-bold uppercase block mb-1">Train / Service</label>
+                      <input value={t.trainNumber} onChange={e => updTrain(t.id, 'trainNumber', e.target.value)} placeholder="9028" className={inp} />
+                    </div>
+                    <div>
+                      <label className="text-white/30 text-[10px] font-bold uppercase block mb-1">Operator</label>
+                      <input value={t.provider} onChange={e => updTrain(t.id, 'provider', e.target.value)} placeholder="Eurostar" className={inp} />
+                    </div>
+                    <div>
+                      <label className="text-white/30 text-[10px] font-bold uppercase block mb-1">Class</label>
+                      <select value={t.class} onChange={e => updTrain(t.id, 'class', e.target.value)} className={sel}>
+                        <option>Standard</option>
+                        <option>Standard Premier</option>
+                        <option>Business Premier</option>
+                        <option>First Class</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label className="text-white/30 text-[10px] font-bold uppercase block mb-1">PNR / Ref</label>
+                      <input value={t.pnr} onChange={e => updTrain(t.id, 'pnr', e.target.value)} placeholder="Booking ref" className={inp} />
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3 mb-3">
+                    <div>
+                      <label className="text-white/30 text-[10px] font-bold uppercase block mb-1">Cost ({sym})</label>
+                      <input type="number" value={t.cost ?? ''} onChange={e => updTrain(t.id, 'cost', e.target.value ? Number(e.target.value) : null)} placeholder="0.00" className={inp} />
+                    </div>
+                    <div>
+                      <label className="text-white/30 text-[10px] font-bold uppercase block mb-1">Notes</label>
+                      <input value={t.notes} onChange={e => updTrain(t.id, 'notes', e.target.value)} placeholder="Seat number, coach…" className={inp} />
+                    </div>
+                  </div>
+                  <ImageField value={t.image} onChange={v => updTrain(t.id, 'image', v)} />
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── Ferries Section ─────────────────────────────────────────────────── */}
+      {bookingTab === 'ferries' && (
+        <div className="bg-white/5 border border-white/[0.08] rounded-2xl p-6">
+          <div className="flex items-center justify-between mb-5">
+            <h2 className="text-white font-bold text-base">⛴️ Ferries</h2>
+            <button onClick={addFerry} className="bg-white/5 hover:bg-white/10 text-white border border-white/10 font-bold px-4 py-2 rounded-xl text-sm transition">+ Add Ferry</button>
+          </div>
+          {ferries.length === 0 ? (
+            <div className="text-center py-10">
+              <p className="text-5xl mb-3">⛴️</p>
+              <p className="text-white/20 text-sm mb-3">No ferry crossings added yet</p>
+              <button onClick={addFerry} className="text-amber-400 text-sm hover:text-amber-300 transition">+ Add first ferry</button>
+            </div>
+          ) : (
+            <div className="space-y-5">
+              {ferries.map(fe => (
+                <div key={fe.id} className="bg-white/5 rounded-xl p-4 border border-white/[0.06]">
+                  <div className="flex justify-between items-start mb-3">
+                    <p className="text-white/50 text-xs font-bold uppercase tracking-wider">Ferry Crossing</p>
+                    <button onClick={() => rmFerry(fe.id)} className="text-white/20 hover:text-red-400 text-xs transition">✕ Remove</button>
+                  </div>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-3">
+                    <div>
+                      <label className="text-white/30 text-[10px] font-bold uppercase block mb-1">From</label>
+                      <input value={fe.from} onChange={e => updFerry(fe.id, 'from', e.target.value)} placeholder="Port / City" className={inp} />
+                    </div>
+                    <div>
+                      <label className="text-white/30 text-[10px] font-bold uppercase block mb-1">To</label>
+                      <input value={fe.to} onChange={e => updFerry(fe.id, 'to', e.target.value)} placeholder="Port / City" className={inp} />
+                    </div>
+                    <div>
+                      <label className="text-white/30 text-[10px] font-bold uppercase block mb-1">Date</label>
+                      <input type="date" value={fe.date} onChange={e => updFerry(fe.id, 'date', e.target.value)} className={inp} />
+                    </div>
+                    <div>
+                      <label className="text-white/30 text-[10px] font-bold uppercase block mb-1">Departs</label>
+                      <input type="time" value={fe.departureTime} onChange={e => updFerry(fe.id, 'departureTime', e.target.value)} className={inp} />
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-3">
+                    <div>
+                      <label className="text-white/30 text-[10px] font-bold uppercase block mb-1">Arrives</label>
+                      <input type="time" value={fe.arrivalTime} onChange={e => updFerry(fe.id, 'arrivalTime', e.target.value)} className={inp} />
+                    </div>
+                    <div>
+                      <label className="text-white/30 text-[10px] font-bold uppercase block mb-1">Operator</label>
+                      <input value={fe.operator} onChange={e => updFerry(fe.id, 'operator', e.target.value)} placeholder="Stena Line" className={inp} />
+                    </div>
+                    <div>
+                      <label className="text-white/30 text-[10px] font-bold uppercase block mb-1">Vessel</label>
+                      <input value={fe.vessel} onChange={e => updFerry(fe.id, 'vessel', e.target.value)} placeholder="MS Britannica" className={inp} />
+                    </div>
+                    <div>
+                      <label className="text-white/30 text-[10px] font-bold uppercase block mb-1">Class</label>
+                      <select value={fe.class} onChange={e => updFerry(fe.id, 'class', e.target.value)} className={sel}>
+                        <option>Standard</option>
+                        <option>Club Class</option>
+                        <option>Premium</option>
+                        <option>Private Cabin</option>
+                      </select>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3 mb-3">
+                    <div>
+                      <label className="text-white/30 text-[10px] font-bold uppercase block mb-1">Cost ({sym})</label>
+                      <input type="number" value={fe.cost ?? ''} onChange={e => updFerry(fe.id, 'cost', e.target.value ? Number(e.target.value) : null)} placeholder="0.00" className={inp} />
+                    </div>
+                    <div>
+                      <label className="text-white/30 text-[10px] font-bold uppercase block mb-1">Notes</label>
+                      <input value={fe.notes} onChange={e => updFerry(fe.id, 'notes', e.target.value)} placeholder="Cabin type, vehicle…" className={inp} />
+                    </div>
+                  </div>
+                  <ImageField value={fe.image} onChange={v => updFerry(fe.id, 'image', v)} />
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      <div className="flex justify-end mt-6">
         <button
           onClick={handleSave}
           disabled={saving}
           className="bg-amber-500 hover:bg-amber-400 text-black font-bold px-8 py-3 rounded-xl transition disabled:opacity-50 flex items-center gap-2"
         >
-          {saving ? <><div className="w-4 h-4 border-2 border-black border-t-transparent rounded-full animate-spin" /> Saving…</> : 'Save Flights & Hotels'}
+          {saving ? <><div className="w-4 h-4 border-2 border-black border-t-transparent rounded-full animate-spin" /> Saving…</> : 'Save All Bookings'}
         </button>
       </div>
     </div>
@@ -934,16 +1558,9 @@ function PricingTab({ itin, onSave }: { itin: ItineraryData; onSave: (u: Record<
   const sym = CURRENCY_SYM[itin.currency] || ''
   const autoTotal = rows.reduce((s, r) => s + (Number(r.cost) || 0), 0)
 
-  const addRow = () => {
-    setRows(prev => [...prev, { id: uid(), item: '', description: '', cost: 0 }])
-  }
-
-  const updRow = (id: string, field: keyof PriceRow, value: unknown) => {
-    setRows(prev => prev.map(r => r.id === id ? { ...r, [field]: value } : r))
-  }
-
+  const addRow = () => setRows(prev => [...prev, { id: uid(), item: '', description: '', cost: 0 }])
+  const updRow = (id: string, field: keyof PriceRow, value: unknown) => setRows(prev => prev.map(r => r.id === id ? { ...r, [field]: value } : r))
   const removeRow = (id: string) => setRows(prev => prev.filter(r => r.id !== id))
-
   const useAutoTotal = () => setTotalPrice(String(autoTotal))
 
   const handleSave = async () => {
@@ -960,13 +1577,10 @@ function PricingTab({ itin, onSave }: { itin: ItineraryData; onSave: (u: Record<
 
   return (
     <div className="max-w-3xl space-y-6">
-      {/* Price breakdown */}
       <div className="bg-white/5 border border-white/[0.08] rounded-2xl p-6">
         <div className="flex items-center justify-between mb-5">
           <h2 className="text-white font-bold text-base">Price Breakdown</h2>
-          <button onClick={addRow} className="bg-white/5 hover:bg-white/10 text-white border border-white/10 font-bold px-4 py-2 rounded-xl text-sm transition">
-            + Add Item
-          </button>
+          <button onClick={addRow} className="bg-white/5 hover:bg-white/10 text-white border border-white/10 font-bold px-4 py-2 rounded-xl text-sm transition">+ Add Item</button>
         </div>
 
         {rows.length === 0 ? (
@@ -985,29 +1599,13 @@ function PricingTab({ itin, onSave }: { itin: ItineraryData; onSave: (u: Record<
             {rows.map(r => (
               <div key={r.id} className="grid grid-cols-12 gap-3 items-center">
                 <div className="col-span-4">
-                  <input
-                    value={r.item}
-                    onChange={e => updRow(r.id, 'item', e.target.value)}
-                    placeholder="e.g. Return Flights"
-                    className={inp}
-                  />
+                  <input value={r.item} onChange={e => updRow(r.id, 'item', e.target.value)} placeholder="e.g. Return Flights" className={inp} />
                 </div>
                 <div className="col-span-5">
-                  <input
-                    value={r.description}
-                    onChange={e => updRow(r.id, 'description', e.target.value)}
-                    placeholder="Per person, economy class…"
-                    className={inp}
-                  />
+                  <input value={r.description} onChange={e => updRow(r.id, 'description', e.target.value)} placeholder="Per person, economy…" className={inp} />
                 </div>
                 <div className="col-span-2">
-                  <input
-                    type="number"
-                    value={r.cost}
-                    onChange={e => updRow(r.id, 'cost', Number(e.target.value))}
-                    placeholder="0"
-                    className={inp + ' text-right'}
-                  />
+                  <input type="number" value={r.cost} onChange={e => updRow(r.id, 'cost', Number(e.target.value))} placeholder="0" className={inp + ' text-right'} />
                 </div>
                 <div className="col-span-1 flex justify-center">
                   <button onClick={() => removeRow(r.id)} className="text-white/20 hover:text-red-400 transition">✕</button>
@@ -1015,54 +1613,30 @@ function PricingTab({ itin, onSave }: { itin: ItineraryData; onSave: (u: Record<
               </div>
             ))}
             <div className="border-t border-white/10 mt-3 pt-3 flex justify-between items-center">
-              <button onClick={useAutoTotal} className="text-amber-400 text-xs hover:text-amber-300 transition">
-                ← Use auto-total
-              </button>
-              <p className="text-white font-bold">
-                Subtotal: {sym}{autoTotal.toLocaleString()}
-              </p>
+              <button onClick={useAutoTotal} className="text-amber-400 text-xs hover:text-amber-300 transition">← Use auto-total</button>
+              <p className="text-white font-bold">Subtotal: {sym}{autoTotal.toLocaleString()}</p>
             </div>
           </div>
         )}
       </div>
 
-      {/* Total & Payments */}
       <div className="bg-white/5 border border-white/[0.08] rounded-2xl p-6">
         <h2 className="text-white font-bold text-base mb-5">Payment Details</h2>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
-            <label className="text-white/40 text-xs font-bold uppercase tracking-wider block mb-1.5">
-              Total Price ({sym})
-            </label>
+            <label className="text-white/40 text-xs font-bold uppercase tracking-wider block mb-1.5">Total Price ({sym})</label>
             <div className="relative">
-              <input
-                type="number"
-                value={totalPrice}
-                onChange={e => setTotalPrice(e.target.value)}
-                placeholder={`Auto: ${autoTotal.toLocaleString()}`}
-                className={inp}
-              />
+              <input type="number" value={totalPrice} onChange={e => setTotalPrice(e.target.value)} placeholder={`Auto: ${autoTotal.toLocaleString()}`} className={inp} />
               {totalPrice === '' && autoTotal > 0 && (
-                <button
-                  onClick={useAutoTotal}
-                  className="absolute right-2 top-1/2 -translate-y-1/2 text-amber-400 text-xs hover:text-amber-300 transition px-1"
-                >
+                <button onClick={useAutoTotal} className="absolute right-2 top-1/2 -translate-y-1/2 text-amber-400 text-xs hover:text-amber-300 transition px-1">
                   Use {sym}{autoTotal.toLocaleString()}
                 </button>
               )}
             </div>
           </div>
           <div>
-            <label className="text-white/40 text-xs font-bold uppercase tracking-wider block mb-1.5">
-              Deposit Amount ({sym})
-            </label>
-            <input
-              type="number"
-              value={deposit}
-              onChange={e => setDeposit(e.target.value)}
-              placeholder="Optional"
-              className={inp}
-            />
+            <label className="text-white/40 text-xs font-bold uppercase tracking-wider block mb-1.5">Deposit Amount ({sym})</label>
+            <input type="number" value={deposit} onChange={e => setDeposit(e.target.value)} placeholder="Optional" className={inp} />
           </div>
           <div>
             <label className="text-white/40 text-xs font-bold uppercase tracking-wider block mb-1.5">Deposit Due Date</label>
@@ -1077,9 +1651,7 @@ function PricingTab({ itin, onSave }: { itin: ItineraryData; onSave: (u: Record<
         {(totalPrice || autoTotal > 0) && (
           <div className="mt-5 bg-[#0B1F3A] rounded-xl p-4 flex items-center justify-between">
             <span className="text-white font-bold">Total</span>
-            <span className="text-amber-400 font-bold text-xl">
-              {sym}{Number(totalPrice || autoTotal).toLocaleString()}
-            </span>
+            <span className="text-amber-400 font-bold text-xl">{sym}{Number(totalPrice || autoTotal).toLocaleString()}</span>
           </div>
         )}
       </div>
@@ -1117,6 +1689,10 @@ function PreviewTab({
   const days = safeParse<Day[]>(itin.days, [])
   const flights = safeParse<Flight[]>(itin.flights, [])
   const hotels = safeParse<Hotel[]>(itin.hotels, [])
+  const transfers = safeParse<Transfer[]>(itin.transfers || '[]', [])
+  const tours = safeParse<Tour[]>(itin.tours || '[]', [])
+  const trains = safeParse<Train[]>(itin.trains || '[]', [])
+  const ferries = safeParse<Ferry[]>(itin.ferries || '[]', [])
   const inclusions = safeParse<string[]>(itin.inclusions, [])
   const exclusions = safeParse<string[]>(itin.exclusions, [])
   const priceBreakdown = safeParse<PriceRow[]>(itin.priceBreakdown, [])
@@ -1156,7 +1732,6 @@ function PreviewTab({
     <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
       {/* Left: Mini preview */}
       <div className="bg-white rounded-2xl overflow-hidden shadow-2xl">
-        {/* Preview header */}
         <div className="bg-[#0B1F3A] px-5 py-3 flex items-center justify-between">
           <div className="bg-white/10 rounded-md px-3 py-1">
             <p className="text-white/50 text-[10px] font-mono truncate max-w-[180px]">walztravels.com/itinerary/{itin.referenceNumber}</p>
@@ -1164,9 +1739,7 @@ function PreviewTab({
           <span className="text-white/30 text-[10px]">Preview</span>
         </div>
 
-        {/* Preview body */}
         <div className="overflow-y-auto max-h-[70vh]">
-          {/* Hero */}
           {itin.coverImage ? (
             <div className="relative h-40">
               <img src={itin.coverImage} alt={itin.title} className="w-full h-full object-cover" />
@@ -1198,11 +1771,10 @@ function PreviewTab({
                     <div key={d.day} className="bg-gray-50 rounded-lg p-3 border-l-2 border-amber-400">
                       <p className="text-amber-600 text-[10px] font-bold">DAY {d.day}</p>
                       <p className="text-gray-800 text-xs font-medium">{d.title}</p>
+                      {d.destination && <p className="text-gray-400 text-[10px]">📍 {d.destination}</p>}
                     </div>
                   ))}
-                  {days.length > 3 && (
-                    <p className="text-gray-400 text-xs text-center">+ {days.length - 3} more days</p>
-                  )}
+                  {days.length > 3 && <p className="text-gray-400 text-xs text-center">+ {days.length - 3} more days</p>}
                 </div>
               </div>
             )}
@@ -1212,7 +1784,7 @@ function PreviewTab({
                 <h3 className="font-bold text-gray-800 text-sm mb-2">✈️ Flights ({flights.length})</h3>
                 {flights.slice(0, 2).map((f, i) => (
                   <div key={i} className="bg-gray-50 rounded-lg p-2 mb-1.5 flex justify-between">
-                    <p className="text-gray-700 text-xs">{f.from || ''} → {f.to || ''} · {f.airline || ''}</p>
+                    <p className="text-gray-700 text-xs">{f.from} → {f.to} · {f.airline}</p>
                     {f.date && <p className="text-gray-400 text-xs">{fmtDate(f.date)}</p>}
                   </div>
                 ))}
@@ -1224,8 +1796,56 @@ function PreviewTab({
                 <h3 className="font-bold text-gray-800 text-sm mb-2">🏨 Hotels ({hotels.length})</h3>
                 {hotels.slice(0, 2).map((h, i) => (
                   <div key={i} className="bg-gray-50 rounded-lg p-2 mb-1.5">
-                    <p className="text-gray-700 text-xs font-medium">{h.name || ''}</p>
-                    <p className="text-gray-400 text-xs">{h.location || ''} · {h.nights} nights</p>
+                    <p className="text-gray-700 text-xs font-medium">{h.name}</p>
+                    <p className="text-gray-400 text-xs">{h.location} · {h.nights} nights</p>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {transfers.length > 0 && (
+              <div>
+                <h3 className="font-bold text-gray-800 text-sm mb-2">🚗 Transfers ({transfers.length})</h3>
+                {transfers.slice(0, 2).map((t, i) => (
+                  <div key={i} className="bg-gray-50 rounded-lg p-2 mb-1.5 flex justify-between">
+                    <p className="text-gray-700 text-xs">{t.from} → {t.to} · {t.type}</p>
+                    {t.date && <p className="text-gray-400 text-xs">{fmtDate(t.date)}</p>}
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {tours.length > 0 && (
+              <div>
+                <h3 className="font-bold text-gray-800 text-sm mb-2">🎭 Tours ({tours.length})</h3>
+                {tours.slice(0, 2).map((t, i) => (
+                  <div key={i} className="bg-gray-50 rounded-lg p-2 mb-1.5">
+                    <p className="text-gray-700 text-xs font-medium">{t.name}</p>
+                    <p className="text-gray-400 text-xs">{t.location}{t.duration ? ` · ${t.duration}` : ''}</p>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {trains.length > 0 && (
+              <div>
+                <h3 className="font-bold text-gray-800 text-sm mb-2">🚂 Trains ({trains.length})</h3>
+                {trains.slice(0, 2).map((t, i) => (
+                  <div key={i} className="bg-gray-50 rounded-lg p-2 mb-1.5 flex justify-between">
+                    <p className="text-gray-700 text-xs">{t.from} → {t.to} · {t.provider}</p>
+                    {t.date && <p className="text-gray-400 text-xs">{fmtDate(t.date)}</p>}
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {ferries.length > 0 && (
+              <div>
+                <h3 className="font-bold text-gray-800 text-sm mb-2">⛴️ Ferries ({ferries.length})</h3>
+                {ferries.slice(0, 2).map((f, i) => (
+                  <div key={i} className="bg-gray-50 rounded-lg p-2 mb-1.5 flex justify-between">
+                    <p className="text-gray-700 text-xs">{f.from} → {f.to} · {f.operator}</p>
+                    {f.date && <p className="text-gray-400 text-xs">{fmtDate(f.date)}</p>}
                   </div>
                 ))}
               </div>
@@ -1271,7 +1891,6 @@ function PreviewTab({
 
       {/* Right: Actions */}
       <div className="space-y-5">
-        {/* Status management */}
         <div className="bg-white/5 border border-white/[0.08] rounded-2xl p-5">
           <h3 className="text-white font-bold text-sm mb-4">Status</h3>
           <div className="grid grid-cols-2 gap-2">
@@ -1281,9 +1900,7 @@ function PreviewTab({
                 onClick={() => handleStatusChange(val)}
                 disabled={statusSaving || itin.status === val}
                 className={`py-2.5 px-3 rounded-xl text-xs font-bold transition ${
-                  itin.status === val
-                    ? 'bg-amber-500 text-black'
-                    : 'bg-white/5 text-white/50 hover:bg-white/10 hover:text-white'
+                  itin.status === val ? 'bg-amber-500 text-black' : 'bg-white/5 text-white/50 hover:bg-white/10 hover:text-white'
                 } disabled:cursor-not-allowed`}
               >
                 {label}
@@ -1292,7 +1909,6 @@ function PreviewTab({
           </div>
         </div>
 
-        {/* Send to client */}
         <div className="bg-white/5 border border-white/[0.08] rounded-2xl p-5">
           <h3 className="text-white font-bold text-sm mb-1">Send to Client</h3>
           <p className="text-white/40 text-xs mb-4">
@@ -1310,9 +1926,9 @@ function PreviewTab({
             disabled={sending}
             className="w-full bg-amber-500 hover:bg-amber-400 text-black font-bold py-3 rounded-xl transition flex items-center justify-center gap-2 disabled:opacity-50"
           >
-            {sending ? (
-              <><div className="w-4 h-4 border-2 border-black border-t-transparent rounded-full animate-spin" /> Sending…</>
-            ) : `📧 Send to ${itin.clientEmail}`}
+            {sending
+              ? <><div className="w-4 h-4 border-2 border-black border-t-transparent rounded-full animate-spin" /> Sending…</>
+              : `📧 Send to ${itin.clientEmail}`}
           </button>
 
           {sentMsg && (
@@ -1322,17 +1938,13 @@ function PreviewTab({
           )}
         </div>
 
-        {/* Client link */}
         <div className="bg-white/5 border border-white/[0.08] rounded-2xl p-5">
           <h3 className="text-white font-bold text-sm mb-3">Client Link</h3>
-          <div className="bg-white/5 rounded-xl px-3 py-2.5 flex items-center gap-2 mb-3">
-            <p className="text-white/50 text-xs font-mono flex-1 truncate">{publicUrl}</p>
+          <div className="bg-white/5 rounded-xl px-3 py-2.5 mb-3">
+            <p className="text-white/50 text-xs font-mono truncate">{publicUrl}</p>
           </div>
           <div className="flex gap-2">
-            <button
-              onClick={handleCopy}
-              className="flex-1 bg-white/5 hover:bg-white/10 text-white border border-white/10 font-bold py-2.5 rounded-xl text-sm transition"
-            >
+            <button onClick={handleCopy} className="flex-1 bg-white/5 hover:bg-white/10 text-white border border-white/10 font-bold py-2.5 rounded-xl text-sm transition">
               {copied ? '✓ Copied!' : '📋 Copy Link'}
             </button>
             <a
@@ -1346,30 +1958,21 @@ function PreviewTab({
           </div>
         </div>
 
-        {/* Info */}
         <div className="bg-white/5 border border-white/[0.08] rounded-2xl p-5 space-y-3">
           <h3 className="text-white font-bold text-sm">Itinerary Info</h3>
           <div className="space-y-2">
-            <div className="flex justify-between">
-              <span className="text-white/30 text-xs">Reference</span>
-              <span className="text-white text-xs font-mono">{itin.referenceNumber}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-white/30 text-xs">Client</span>
-              <span className="text-white text-xs">{itin.clientName}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-white/30 text-xs">Destination</span>
-              <span className="text-white text-xs">{itin.destination}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-white/30 text-xs">Views</span>
-              <span className="text-white text-xs">{itin.viewCount}</span>
-            </div>
-            <div className="flex justify-between">
-              <span className="text-white/30 text-xs">Created</span>
-              <span className="text-white text-xs">{fmtDate(itin.createdAt)}</span>
-            </div>
+            {[
+              ['Reference', itin.referenceNumber],
+              ['Client', itin.clientName],
+              ['Destination', itin.destination],
+              ['Views', String(itin.viewCount)],
+              ['Created', fmtDate(itin.createdAt)],
+            ].map(([label, value]) => (
+              <div key={label} className="flex justify-between">
+                <span className="text-white/30 text-xs">{label}</span>
+                <span className="text-white text-xs font-mono">{value}</span>
+              </div>
+            ))}
             {itin.approvedAt && (
               <div className="flex justify-between">
                 <span className="text-white/30 text-xs">Approved</span>
