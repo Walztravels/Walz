@@ -221,8 +221,8 @@ export function JadeStaffWidget() {
             {/* Header */}
             <div className="flex items-center gap-3 px-4 py-3.5 border-b border-white/[0.08] bg-[#0C1829] flex-shrink-0">
               <div className="relative">
-                <div className="w-9 h-9 bg-gradient-to-br from-amber-400 to-amber-600 rounded-full flex items-center justify-center shadow-lg font-black text-black text-base">
-                  J
+                <div className="w-9 h-9 rounded-full overflow-hidden shadow-lg bg-[#e8eef6] flex-shrink-0">
+                  <img src="/jade-avatar.png" alt="Jade" className="w-full h-full object-cover object-[center_8%]" />
                 </div>
                 <div className="absolute -bottom-0.5 -right-0.5 w-3 h-3 bg-green-400 rounded-full border-2 border-[#0C1829]" />
               </div>
@@ -243,8 +243,8 @@ export function JadeStaffWidget() {
               {messages.map((msg, i) => (
                 <div key={i} className={`flex gap-2.5 ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
                   {msg.role === 'assistant' && (
-                    <div className="w-7 h-7 bg-amber-500/[0.15] border border-amber-500/20 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5 text-xs font-black text-amber-400">
-                      J
+                    <div className="w-7 h-7 rounded-full overflow-hidden flex-shrink-0 mt-0.5 bg-[#e8eef6]">
+                      <img src="/jade-avatar.png" alt="Jade" className="w-full h-full object-cover object-[center_8%]" />
                     </div>
                   )}
                   <div className="flex flex-col gap-0.5 max-w-[85%]">
@@ -265,8 +265,8 @@ export function JadeStaffWidget() {
               {/* Thinking */}
               {jadeState === 'thinking' && (
                 <div className="flex gap-2.5">
-                  <div className="w-7 h-7 bg-amber-500/[0.15] border border-amber-500/20 rounded-full flex items-center justify-center text-xs font-black text-amber-400 flex-shrink-0">
-                    J
+                  <div className="w-7 h-7 rounded-full overflow-hidden flex-shrink-0 bg-[#e8eef6]">
+                    <img src="/jade-avatar.png" alt="Jade" className="w-full h-full object-cover object-[center_8%]" />
                   </div>
                   <div className="bg-white/[0.07] border border-white/[0.05] rounded-2xl rounded-tl-sm px-3.5 py-2.5">
                     <div className="flex items-center gap-2">
@@ -352,17 +352,19 @@ export function JadeStaffWidget() {
           <div className="absolute inset-0 rounded-full bg-amber-500/30 animate-ping" />
         )}
 
-        <div className={`relative w-14 h-14 rounded-full shadow-2xl flex items-center justify-center transition-all duration-200 ${
+        <div className={`relative w-14 h-14 rounded-full shadow-2xl overflow-hidden transition-all duration-200 ${
           open
-            ? 'bg-[#0C1829] border-2 border-white/15'
-            : 'bg-gradient-to-br from-amber-400 to-amber-600 hover:scale-110 hover:shadow-amber-500/30 hover:shadow-xl'
+            ? 'ring-2 ring-white/20'
+            : 'hover:scale-110 hover:shadow-xl hover:shadow-black/40'
         }`}>
           {open ? (
-            <svg className="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
-            </svg>
+            <div className="w-full h-full bg-[#0C1829] flex items-center justify-center">
+              <svg className="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+              </svg>
+            </div>
           ) : (
-            <span className="text-white font-black text-xl tracking-tighter">J</span>
+            <img src="/jade-avatar.png" alt="Jade" className="w-full h-full object-cover object-[center_8%]" />
           )}
 
           {unread > 0 && !open && (
