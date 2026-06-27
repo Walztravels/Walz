@@ -51,6 +51,7 @@ interface VisaApp {
   govtFeePaid: boolean; govtFeeAmount: string | null
   initiatedBy: string
   appointmentDate: string | null; appointmentLocation: string | null; appointmentNotes: string | null
+  lastEmailSentAt: string | null
   createdAt: string; updatedAt: string
   user: { name: string | null; email: string | null } | null
   notes: VisaNote[]
@@ -366,7 +367,7 @@ const DEFAULT_EMBASSY_DOCS: Record<string, string[]> = {
   ],
 }
 
-function EmbassyPackSection({ app }: { app: VisaApp }) {
+function EmbassyPackSection({ app, onSuccess }: { app: VisaApp; onSuccess: () => void }) {
   const defaultDocs = DEFAULT_EMBASSY_DOCS[app.destinationIso2?.toUpperCase() ?? ''] ?? [
     'Valid passport (original)',
     'Completed visa application form',
@@ -378,12 +379,12 @@ function EmbassyPackSection({ app }: { app: VisaApp }) {
   ]
 
   const [appointmentDate,     setAppointmentDate]     = useState(app.appointmentDate?.split('T')[0] ?? '')
-  const [appointmentTime,     setAppointmentTime]     = useState('')
+  const [appointmentTime,     setAppointmentTime]     = useState(app.appointmentDate?.split('T')[1]?.substring(0, 5) ?? '')
   const [appointmentLocation, setAppointmentLocation] = useState(app.appointmentLocation ?? '')
-  const [appointmentRef,      setAppointmentRef]      = useState(app.appointmentNotes ?? '')
+  const [appointmentRef,      setAppointmentRef]      = useState(app.embassyReference ?? '')
   const [docList,           setDocList]           = useState<string[]>(defaultDocs)
   const [customDoc,         setCustomDoc]         = useState('')
-  const [extraInstructions, setExtraInstructions] = useState('')
+  const [extraInstructions, setExtraInstructions] = useState(app.appointmentNotes ?? '')
   const [sending,           setSending]           = useState(false)
   const [sentOk,            setSentOk]            = useState(false)
   const [attachFiles,       setAttachFiles]       = useState<File[]>([])
@@ -419,12 +420,12 @@ function EmbassyPackSection({ app }: { app: VisaApp }) {
         method: 'POST',
         body:   formData,
       })
-      if (res.ok) {
+      const data = await res.json().catch(() => ({})) as { ok?: boolean; error?: string; emailSent?: boolean; to?: string; saved?: Record<string, string | null> }
+      if (res.ok && data.ok) {
         setSentOk(true)
-        setTimeout(() => setSentOk(false), 3000)
+        onSuccess()
       } else {
-        const d = await res.json().catch(() => ({}))
-        alert((d as { error?: string }).error ?? 'Failed to send. Please try again.')
+        alert(data.error ?? 'Failed to send. Please try again.')
       }
     } catch (err) {
       console.error('[EmbassyPack]', err)
@@ -594,24 +595,43 @@ function EmbassyPackSection({ app }: { app: VisaApp }) {
         </p>
       </div>
 
+      {app.lastEmailSentAt && !sentOk && (
+        <p className="text-[10px] text-gray-400 text-center -mb-1">
+          Last sent{' '}
+          {new Date(app.lastEmailSentAt).toLocaleDateString('en-GB', {
+            day: 'numeric', month: 'short', year: 'numeric',
+            hour: '2-digit', minute: '2-digit',
+          })}
+        </p>
+      )}
+
       {!app.email && (
         <p className="text-xs text-red-400">⚠️ No email address on file — cannot send embassy pack.</p>
       )}
       <button
         onClick={sendPack}
         disabled={sending || !app.email}
-        className={`w-full flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-bold transition-colors disabled:opacity-50 ${
-          sentOk ? 'bg-green-500 text-white' : 'bg-[#0B1F3A] text-white hover:bg-[#162d52]'
-        }`}
+        className="w-full flex items-center justify-center gap-2 py-2.5 rounded-xl text-sm font-bold transition-colors disabled:opacity-50 bg-[#0B1F3A] text-white hover:bg-[#162d52]"
       >
-        {sending
-          ? <Loader2 className="w-4 h-4 animate-spin" />
-          : sentOk
-            ? <CheckCircle className="w-4 h-4" />
-            : <Send className="w-4 h-4" />
-        }
-        {sending ? 'Sending…' : sentOk ? 'Pack Sent!' : 'Send Embassy Pack to Client'}
+        {sending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+        {sending ? 'Sending…' : 'Send Embassy Pack to Client'}
       </button>
+
+      {sentOk && (
+        <div className="bg-green-50 border border-green-200 rounded-xl px-4 py-3">
+          <p className="text-green-700 font-bold text-sm flex items-center gap-1.5">
+            <CheckCircle className="w-4 h-4" /> Embassy Pack Sent
+          </p>
+          <p className="text-green-600 text-xs mt-0.5">Email sent to {app.email}</p>
+          {appointmentDate && (
+            <p className="text-green-600 text-xs mt-0.5">
+              Appointment saved:{' '}
+              {new Date(appointmentDate).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })}
+              {appointmentTime ? ` at ${appointmentTime}` : ''}
+            </p>
+          )}
+        </div>
+      )}
     </div>
   )
 }
@@ -1413,7 +1433,7 @@ export default function AdminVisaDetailPage() {
 
           {/* Embassy Appointment Pack */}
           <ActionSection id="embassypack" title="Embassy Appointment Pack" icon={ClipboardList}>
-            <EmbassyPackSection app={app} />
+            <EmbassyPackSection app={app} onSuccess={load} />
           </ActionSection>
 
           {/* Decision */}

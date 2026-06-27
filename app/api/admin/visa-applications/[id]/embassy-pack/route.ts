@@ -64,21 +64,34 @@ export async function POST(
   const emailTo = app.email
   if (!emailTo) return NextResponse.json({ error: 'No email on file' }, { status: 400 })
 
-  // Persist appointment details
-  const hasDate     = appointmentDate     && appointmentDate     !== ''
-  const hasLocation = appointmentLocation && appointmentLocation !== ''
-  const hasRef      = appointmentRef      && appointmentRef      !== ''
+  // Combine date + time into a single DateTime
+  let appointmentDateTime: Date | undefined
+  if (appointmentDate && appointmentDate !== '') {
+    const combined = appointmentTime && appointmentTime !== ''
+      ? `${appointmentDate}T${appointmentTime}`
+      : appointmentDate
+    appointmentDateTime = new Date(combined)
+  }
 
-  if (hasDate || hasLocation) {
+  // Persist to DB — appointmentRef (GWF ref) → embassyReference, extraInstructions → appointmentNotes
+  try {
     await prisma.visaApplication.update({
       where: { id },
       data: {
-        ...(hasDate     ? { appointmentDate: new Date(appointmentDate!) } : {}),
-        ...(hasLocation ? { appointmentLocation } : {}),
-        ...(hasRef      ? { appointmentNotes: appointmentRef } : {}),
-        updatedAt: new Date(),
+        ...(appointmentDateTime !== undefined ? { appointmentDate: appointmentDateTime } : {}),
+        ...(appointmentLocation               ? { appointmentLocation }                  : {}),
+        ...(appointmentRef                    ? { embassyReference: appointmentRef }     : {}),
+        ...(extraInstructions                 ? { appointmentNotes: extraInstructions }  : {}),
+        lastEmailSentAt: new Date(),
+        updatedAt:       new Date(),
       },
-    }).catch(e => console.error('[EmbassyPack] DB update failed:', e))
+    })
+  } catch (dbErr) {
+    console.error('[EmbassyPack] DB update failed:', dbErr)
+    return NextResponse.json(
+      { error: 'Failed to save appointment data. Run the SQL migration to add the required columns.' },
+      { status: 500 }
+    )
   }
 
   const config     = getVisaConfig(app.destinationIso2)
@@ -245,13 +258,35 @@ export async function POST(
     })
   }
 
-  await resend.emails.send({
-    from:        'Jade at Walz Travels <jade@walztravels.com>',
-    to:          emailTo,
-    subject:     `Embassy Appointment Preparation — ${app.referenceNumber}`,
-    html,
-    attachments: attachments.length > 0 ? attachments : undefined,
-  })
+  const now = new Date()
+  let emailSent = false
+  try {
+    const { error: emailError } = await resend.emails.send({
+      from:        'Jade at Walz Travels <jade@walztravels.com>',
+      to:          emailTo,
+      subject:     `Embassy Appointment Preparation — ${app.referenceNumber}`,
+      html,
+      attachments: attachments.length > 0 ? attachments : undefined,
+    })
+    if (emailError) {
+      console.error('[EmbassyPack] Resend error:', emailError)
+    } else {
+      emailSent = true
+    }
+  } catch (emailErr) {
+    console.error('[EmbassyPack] Email send threw:', emailErr)
+  }
 
-  return NextResponse.json({ ok: true })
+  return NextResponse.json({
+    ok:        true,
+    emailSent,
+    to:        emailTo,
+    saved: {
+      appointmentDate:     appointmentDateTime?.toISOString() ?? null,
+      appointmentLocation: appointmentLocation  ?? null,
+      embassyReference:    appointmentRef       ?? null,
+      appointmentNotes:    extraInstructions    ?? null,
+      lastEmailSentAt:     now.toISOString(),
+    },
+  })
 }
