@@ -2394,3 +2394,53 @@ model HotelDestination {
 
   @@index([active, sortOrder])
 }
+
+// Itinerary Planner — created via Supabase SQL editor.
+// NEVER run prisma db push for this model.
+model Itinerary {
+  id              String   @id @default(cuid())
+  referenceNumber String   @unique
+  title           String
+  status          String   @default("draft")
+  type            String   @default("itinerary")
+  clientName      String
+  clientEmail     String
+  clientPhone     String?
+  clientAccountId String?
+  destination     String
+  startDate       DateTime?
+  endDate         DateTime?
+  duration        Int?
+  numberOfTravellers Int   @default(1)
+  tripType        String?
+  budget          Float?
+  currency        String   @default("GBP")
+  notes           String?  @db.Text
+  overview        String?  @db.Text
+  days            String   @default("[]")
+  flights         String   @default("[]")
+  hotels          String   @default("[]")
+  inclusions      String   @default("[]")
+  exclusions      String   @default("[]")
+  terms           String?  @db.Text
+  attachments     String   @default("[]")
+  options         String   @default("[]")
+  selectedOption  String?
+  totalPrice      Float?
+  deposit         Float?
+  depositDue      DateTime?
+  balanceDue      DateTime?
+  priceBreakdown  String   @default("[]")
+  sentAt          DateTime?
+  approvedAt      DateTime?
+  viewedAt        DateTime?
+  viewCount       Int      @default(0)
+  clientSignature String?
+  approvedBy      String?
+  coverImage      String?
+  tags            String[] @default([])
+  assignedTo      String?
+  createdBy       String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+}
