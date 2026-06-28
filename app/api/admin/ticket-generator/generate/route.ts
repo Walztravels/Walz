@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getAdminSession } from '@/lib/admin-auth'
+import { ticketGeneratorRateLimit } from '@/lib/rate-limit'
 import prisma from '@/lib/db'
 import { renderToBuffer } from '@react-pdf/renderer'
 import React from 'react'
@@ -32,6 +33,15 @@ function makeReference(type: string): string {
 export async function POST(req: NextRequest) {
   const session = await getAdminSession()
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
+  const rl = ticketGeneratorRateLimit(session.email)
+  if (!rl.allowed) {
+    const retryAfter = Math.ceil((rl.resetAt - Date.now()) / 1000)
+    return NextResponse.json(
+      { error: `Rate limit reached. Max 30 tickets per hour.` },
+      { status: 429, headers: { 'Retry-After': String(retryAfter) } }
+    )
+  }
 
   const body = await req.json().catch(() => null) as Record<string, unknown> | null
   if (!body || !body.ticket_type) {

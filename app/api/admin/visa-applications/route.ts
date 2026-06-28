@@ -1,14 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { cookies } from 'next/headers'
 import { prisma } from '@/lib/db'
-
-async function isAdmin() {
-  const c = await cookies()
-  return !!(c.get('admin_token')?.value)
-}
+import { getAdminSession } from '@/lib/admin-auth'
+import { can } from '@/lib/permissions-registry'
 
 export async function GET(req: NextRequest) {
-  if (!await isAdmin()) return NextResponse.json({ error: 'Unauthorised' }, { status: 401 })
+  const session = await getAdminSession()
+  if (!session) return NextResponse.json({ error: 'Unauthorised' }, { status: 401 })
 
   const { searchParams } = new URL(req.url)
   const statsOnly   = searchParams.get('stats') === 'true'
@@ -34,6 +31,16 @@ export async function GET(req: NextRequest) {
   if (status && status !== 'all')           where.status          = status
   if (destination && destination !== 'all') where.destinationIso2 = destination
   if (assignedTo && assignedTo !== 'all')   where.assignedTo      = assignedTo === 'unassigned' ? null : assignedTo
+
+  if (!can(session, 'visa_view_all')) {
+    const staffEmail = session.email
+    if (!where.assignedTo) {
+      where.OR = [
+        { assignedTo: staffEmail },
+        { initiatedBy: staffEmail },
+      ]
+    }
+  }
 
   try {
     const applications = await prisma.visaApplication.findMany({

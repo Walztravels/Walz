@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react'
 import dynamic from 'next/dynamic'
 import Link from 'next/link'
+import Script from 'next/script'
 import { ArrowRight, Check, Mail, Gift, Rss } from 'lucide-react'
 
 // ── Above-fold — always in the initial bundle ─────────────────────────────────
@@ -144,6 +145,62 @@ export default function HomePage() {
 
   return (
     <>
+      <Script
+        id="org-schema"
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{
+          __html: JSON.stringify({
+            "@context": "https://schema.org",
+            "@graph": [
+              {
+                "@type": ["TravelAgency", "Organization"],
+                "@id": "https://www.walztravels.com/#organization",
+                "name": "Walz Travels",
+                "url": "https://www.walztravels.com",
+                "logo": {
+                  "@type": "ImageObject",
+                  "url": "https://www.walztravels.com/logo.png",
+                  "width": 400,
+                  "height": 100
+                },
+                "description": "Expert visa processing, flight bookings, hotels and private tours across UK, Canada, UAE, Nigeria and Ghana.",
+                "telephone": "+447398753797",
+                "email": "contact@walztravels.com",
+                "areaServed": ["GB", "CA", "AE", "NG", "GH"],
+                "serviceType": ["Visa Processing", "Flight Booking", "Hotel Booking", "Private Tours"],
+                "sameAs": [
+                  "https://www.facebook.com/walztravels",
+                  "https://www.instagram.com/walztravels",
+                  "https://www.linkedin.com/company/walztravels",
+                  "https://twitter.com/walztravels"
+                ],
+                "contactPoint": {
+                  "@type": "ContactPoint",
+                  "telephone": "+447398753797",
+                  "contactType": "customer service",
+                  "availableLanguage": ["English"]
+                }
+              },
+              {
+                "@type": "WebSite",
+                "@id": "https://www.walztravels.com/#website",
+                "url": "https://www.walztravels.com",
+                "name": "Walz Travels",
+                "publisher": { "@id": "https://www.walztravels.com/#organization" },
+                "potentialAction": {
+                  "@type": "SearchAction",
+                  "target": {
+                    "@type": "EntryPoint",
+                    "urlTemplate": "https://www.walztravels.com/flights/search?from={from}&to={to}&depart={date}"
+                  },
+                  "query-input": "required name=from required name=to required name=date"
+                }
+              }
+            ]
+          })
+        }}
+      />
+
       {/* 1 — Fullscreen 3-scene rotating hero */}
       <MultiSlideHero />
 
@@ -162,7 +219,7 @@ export default function HomePage() {
                 FEATURED DESTINATIONS
               </p>
               <h2 className="text-white text-2xl sm:text-3xl md:text-4xl lg:text-5xl font-bold leading-tight">
-                Where will<br />you go next?
+                Where will you go next?
               </h2>
             </div>
             <Link
@@ -530,8 +587,7 @@ export default function HomePage() {
         <div className="max-w-2xl mx-auto text-center">
           <p className="text-amber-400 text-xs uppercase tracking-[0.2em] mb-4">READY TO TRAVEL?</p>
           <h2 className="text-white text-3xl md:text-4xl lg:text-5xl font-bold mb-5 leading-tight">
-            Let&apos;s plan your<br />
-            <span className="text-amber-400">perfect trip.</span>
+            Let&apos;s plan your <span className="text-amber-400">perfect trip.</span>
           </h2>
           <p className="text-white/45 text-base leading-relaxed mb-10 max-w-lg mx-auto">
             Flights, visas, hotels and tours — all handled by our expert team.

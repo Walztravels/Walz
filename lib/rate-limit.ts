@@ -47,3 +47,15 @@ export function adminLoginRateLimit(ip: string): RateLimitResult {
     windowMs: 15 * 60 * 1000,
   })
 }
+
+export function duffelTicketRateLimit(email: string): RateLimitResult {
+  return rateLimit({ key: `duffel-ticket:${email}`, limit: 20, windowMs: 60 * 60 * 1000 })
+}
+
+export function ticketGeneratorRateLimit(email: string): RateLimitResult {
+  return rateLimit({ key: `ticket-gen:${email}`, limit: 30, windowMs: 60 * 60 * 1000 })
+}
+
+export function flightSearchRateLimit(ip: string): RateLimitResult {
+  return rateLimit({ key: `flight-search:${ip}`, limit: 50, windowMs: 10 * 60 * 1000 })
+}

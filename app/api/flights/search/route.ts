@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse }            from 'next/server'
 import { searchFlights, assignBadges }          from '@/lib/flights/duffel'
 import type { FlightSearchParams, CabinClass }  from '@/lib/flights/types'
+import { flightSearchRateLimit }                from '@/lib/rate-limit'
 
 const CABIN_MAP: Record<string, CabinClass> = {
   economy:         'ECONOMY',
@@ -13,6 +14,16 @@ export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
 
 export async function POST(req: NextRequest) {
+  const ip = req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ?? req.headers.get('x-real-ip') ?? 'unknown'
+  const rl = flightSearchRateLimit(ip)
+  if (!rl.allowed) {
+    const retryAfter = Math.ceil((rl.resetAt - Date.now()) / 1000)
+    return NextResponse.json(
+      { error: 'Too many flight searches. Please wait before trying again.', source: 'rate_limited' },
+      { status: 429, headers: { 'Retry-After': String(retryAfter) } }
+    )
+  }
+
   try {
     const body = await req.json()
     const { from, to, depart, return: ret, trip, cabin, adults, children, infants } = body

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getAdminSession } from '@/lib/admin-auth'
+import { duffelTicketRateLimit } from '@/lib/rate-limit'
 import { duffelPost } from '@/lib/duffel/client'
 import prisma from '@/lib/db'
 import { renderToBuffer } from '@react-pdf/renderer'
@@ -268,6 +269,15 @@ interface FlightDetails {
 export async function POST(req: NextRequest) {
   const session = await getAdminSession()
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
+  const rl = duffelTicketRateLimit(session.email)
+  if (!rl.allowed) {
+    const retryAfter = Math.ceil((rl.resetAt - Date.now()) / 1000)
+    return NextResponse.json(
+      { error: `Rate limit reached. Max 20 dummy tickets per hour per staff member.` },
+      { status: 429, headers: { 'Retry-After': String(retryAfter) } }
+    )
+  }
 
   const body = await req.json() as {
     mode:           'live' | 'manual' | 'hotel'

@@ -38,7 +38,7 @@ export const viewport = {
 export const metadata: Metadata = {
   // FIX 2 — updated title
   title: {
-    default: 'Walz Travels | Flights, Visas & Tours',
+    default: 'Walz Travels | Expert Visas, Flights & Tours — UK, Canada & UAE',
     template: '%s | Walz Travels',
   },
   // FIX 3 — under 155 chars, no IATA claim

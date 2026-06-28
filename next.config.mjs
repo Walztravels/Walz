@@ -66,8 +66,11 @@ const nextConfig = {
           { key: 'X-Content-Type-Options',     value: 'nosniff' },
           { key: 'Strict-Transport-Security',  value: 'max-age=31536000; includeSubDomains; preload' },
           { key: 'Referrer-Policy',            value: 'strict-origin-when-cross-origin' },
-          { key: 'Permissions-Policy',         value: 'camera=*, microphone=*, clipboard-read=*, clipboard-write=*, hid=*, geolocation=(self), payment=(self)' },
+          { key: 'Permissions-Policy',         value: 'camera=(self), microphone=(self), clipboard-read=(self), clipboard-write=(self), hid=(self), geolocation=(self), payment=(self)' },
           { key: 'X-XSS-Protection',           value: '1; mode=block' },
+          { key: 'Cross-Origin-Opener-Policy',   value: 'same-origin' },
+          { key: 'Cross-Origin-Resource-Policy', value: 'same-origin' },
+          { key: 'Cross-Origin-Embedder-Policy', value: 'credentialless' },
           {
             key:   'Content-Security-Policy',
             value: [
@@ -105,6 +108,11 @@ const nextConfig = {
       {
         source:  '/_next/static/:path*',
         headers: [{ key: 'Cache-Control', value: 'public, max-age=31536000, immutable' }],
+      },
+      // ── Relax CORP for public images so cross-origin embeds work ──────────
+      {
+        source: '/images/:path*',
+        headers: [{ key: 'Cross-Origin-Resource-Policy', value: 'cross-origin' }],
       },
       // ── 7-day cache for public static assets (logo, favicon, etc.) ─────────
       {
