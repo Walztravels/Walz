@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { Sparkles, Copy, CalendarPlus, Loader2, CheckCircle, ChevronDown } from 'lucide-react'
+import { Sparkles, Copy, CalendarPlus, Loader2, CheckCircle, ChevronDown, MessageSquare, X } from 'lucide-react'
 
 type Caption = {
   variation:    number
@@ -57,6 +57,36 @@ export default function CaptionsPage() {
   const [scheduleFor, setScheduleFor]   = useState<{ [k: number]: string }>({})
   const [scheduling,  setScheduling]    = useState<number | null>(null)
   const [scheduled,   setScheduled]     = useState<Set<number>>(new Set())
+
+  // Jade ideas panel
+  const [showJade,    setShowJade]      = useState(false)
+  const [jadeQ,       setJadeQ]         = useState('')
+  const [jadeLoading, setJadeLoading]   = useState(false)
+  const [jadeIdeas,   setJadeIdeas]     = useState('')
+
+  async function askJade() {
+    if (!jadeQ.trim()) return
+    setJadeLoading(true)
+    setJadeIdeas('')
+    try {
+      const res  = await fetch('/api/admin/marketing/jade-ideas', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ question: jadeQ }),
+      })
+      const data = await res.json() as { ideas: string }
+      setJadeIdeas(data.ideas ?? '')
+    } finally {
+      setJadeLoading(false)
+    }
+  }
+
+  function useJadeIdea(idea: string) {
+    setDetails(prev => prev ? prev + '\n\n' + idea : idea)
+    setShowJade(false)
+    setJadeIdeas('')
+    setJadeQ('')
+  }
 
   async function generate() {
     setLoading(true)
@@ -186,9 +216,17 @@ export default function CaptionsPage() {
 
         {/* Details */}
         <div>
-          <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">
-            Details / Brief <span className="text-gray-400 normal-case font-normal">(route, price, name, story…)</span>
-          </label>
+          <div className="flex items-center justify-between mb-2">
+            <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider">
+              Details / Brief <span className="text-gray-400 normal-case font-normal">(route, price, name, story…)</span>
+            </label>
+            <button
+              onClick={() => setShowJade(v => !v)}
+              className="flex items-center gap-1.5 text-xs text-amber-600 hover:text-amber-700 font-semibold bg-amber-50 hover:bg-amber-100 px-3 py-1.5 rounded-lg transition"
+            >
+              <Sparkles className="w-3.5 h-3.5" /> Ask Jade for ideas
+            </button>
+          </div>
           <textarea
             value={details}
             onChange={e => setDetails(e.target.value)}
@@ -197,6 +235,50 @@ export default function CaptionsPage() {
             className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-amber-400/50 resize-none"
           />
         </div>
+
+        {/* Jade ideas panel */}
+        {showJade && (
+          <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 space-y-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <MessageSquare className="w-4 h-4 text-amber-600" />
+                <p className="text-xs font-semibold text-amber-700">Jade Marketing Assistant</p>
+              </div>
+              <button onClick={() => setShowJade(false)} className="text-amber-400 hover:text-amber-600">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <p className="text-[11px] text-amber-600">Ask Jade what to post this week, get ideas for a client win, or brainstorm a flight deal caption.</p>
+            <div className="flex gap-2">
+              <input
+                value={jadeQ}
+                onChange={e => setJadeQ(e.target.value)}
+                placeholder="e.g. What should we post about UK visa processing times this week?"
+                className="flex-1 border border-amber-200 bg-white rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400/50"
+                onKeyDown={e => e.key === 'Enter' && void askJade()}
+              />
+              <button
+                onClick={askJade}
+                disabled={jadeLoading || !jadeQ.trim()}
+                className="flex items-center gap-1.5 px-4 py-2 bg-amber-500 hover:bg-amber-600 text-white rounded-xl text-xs font-semibold transition disabled:opacity-50"
+              >
+                {jadeLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Sparkles className="w-3.5 h-3.5" />}
+                Ask
+              </button>
+            </div>
+            {jadeIdeas && (
+              <div className="bg-white border border-amber-100 rounded-xl p-4 space-y-3">
+                <p className="text-xs text-gray-700 whitespace-pre-wrap leading-relaxed">{jadeIdeas}</p>
+                <button
+                  onClick={() => useJadeIdea(jadeIdeas)}
+                  className="text-xs font-semibold text-amber-600 hover:text-amber-700 flex items-center gap-1"
+                >
+                  Use this as brief →
+                </button>
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Generate button */}
         <button

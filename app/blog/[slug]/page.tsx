@@ -2,7 +2,6 @@ import { Metadata } from 'next'
 import { notFound } from 'next/navigation'
 import Image from 'next/image'
 import Link from 'next/link'
-import Script from 'next/script'
 import { marked } from 'marked'
 import { Calendar, Tag, ArrowLeft, ArrowRight, Share2 } from 'lucide-react'
 
@@ -110,12 +109,12 @@ export default async function BlogPostPage({ params }: { params: { slug: string 
   }
 
   return (
+    <>
+    <script
+      type="application/ld+json"
+      dangerouslySetInnerHTML={{ __html: JSON.stringify(articleSchema) }}
+    />
     <div className="min-h-screen bg-[#F7F8FA]">
-      <Script
-        id="article-schema"
-        type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(articleSchema) }}
-      />
 
       {/* Hero */}
       <div className="relative">
@@ -313,6 +312,7 @@ export default async function BlogPostPage({ params }: { params: { slug: string 
 
       </div>
     </div>
+    </>
   )
 }
 
