@@ -1,6 +1,8 @@
 import { MetadataRoute } from 'next'
 import prisma from '@/lib/db'
 
+export const dynamic = 'force-dynamic'
+
 const BASE = 'https://www.walztravels.com'
 
 // 19 programmatic flight route pages — declared now, built out as programmatic SEO pages

@@ -2,6 +2,8 @@ import { Metadata } from 'next'
 import { notFound } from 'next/navigation'
 import Image from 'next/image'
 import Link from 'next/link'
+import Script from 'next/script'
+import { marked } from 'marked'
 import { Calendar, Tag, ArrowLeft, ArrowRight, Share2 } from 'lucide-react'
 
 interface Post {
@@ -79,7 +81,27 @@ export default async function BlogPostPage({ params }: { params: { slug: string 
   if (!data) notFound()
 
   const { post, related } = data
-  const postUrl = `https://walztravels.com/blog/${post.slug}`
+  const postUrl = `https://www.walztravels.com/blog/${post.slug}`
+
+  const articleSchema = {
+    '@context': 'https://schema.org',
+    '@type': 'BlogPosting',
+    headline: post.title,
+    description: post.metaDescription || post.excerpt || '',
+    url: postUrl,
+    datePublished: post.createdAt,
+    dateModified: post.updatedAt,
+    author: { '@type': 'Organization', name: 'Walz Travels', url: 'https://www.walztravels.com' },
+    publisher: {
+      '@type': 'Organization',
+      name: 'Walz Travels',
+      logo: { '@type': 'ImageObject', url: 'https://www.walztravels.com/walz-logo.png' },
+    },
+    image: post.featuredImageUrl || 'https://www.walztravels.com/walz-logo.png',
+    mainEntityOfPage: { '@type': 'WebPage', '@id': postUrl },
+  }
+
+  const htmlContent = marked(post.content)
 
   const shareLinks = {
     twitter: `https://twitter.com/intent/tweet?text=${encodeURIComponent(post.title)}&url=${encodeURIComponent(postUrl)}`,
@@ -89,6 +111,11 @@ export default async function BlogPostPage({ params }: { params: { slug: string 
 
   return (
     <div className="min-h-screen bg-[#F7F8FA]">
+      <Script
+        id="article-schema"
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(articleSchema) }}
+      />
 
       {/* Hero */}
       <div className="relative">
@@ -144,7 +171,7 @@ export default async function BlogPostPage({ params }: { params: { slug: string 
                 prose-li:text-gray-700
                 prose-blockquote:border-l-4 prose-blockquote:border-[#C9A84C] prose-blockquote:pl-4 prose-blockquote:italic prose-blockquote:text-gray-600
                 prose-img:rounded-xl prose-img:shadow-md"
-              dangerouslySetInnerHTML={{ __html: post.content }}
+              dangerouslySetInnerHTML={{ __html: htmlContent }}
             />
 
             {/* Share */}
