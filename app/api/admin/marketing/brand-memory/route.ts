@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { Prisma } from '@prisma/client'
 import { getAdminSession } from '@/lib/admin-auth'
 import { can } from '@/lib/permissions-registry'
 import prisma from '@/lib/db'
@@ -78,13 +79,21 @@ export async function PATCH(req: NextRequest) {
   const memory = await prisma.marketingBrandMemory.upsert({
     where: { id: 'singleton' },
     update: {
-      ...(body.toneOfVoice     !== undefined && { toneOfVoice:     body.toneOfVoice     }),
-      ...(body.targetAudiences !== undefined && { targetAudiences: body.targetAudiences }),
-      ...(body.hashtags        !== undefined && { hashtags:        body.hashtags        }),
-      ...(body.themes          !== undefined && { themes:          body.themes          }),
-      ...(body.templates       !== undefined && { templates:       body.templates       }),
+      ...(body.toneOfVoice     !== undefined && { toneOfVoice:     body.toneOfVoice                                       }),
+      ...(body.targetAudiences !== undefined && { targetAudiences: body.targetAudiences as Prisma.InputJsonValue }),
+      ...(body.hashtags        !== undefined && { hashtags:        body.hashtags        as Prisma.InputJsonValue }),
+      ...(body.themes          !== undefined && { themes:          body.themes          as Prisma.InputJsonValue }),
+      ...(body.templates       !== undefined && { templates:       body.templates       as Prisma.InputJsonValue }),
     },
-    create: { id: 'singleton', ...WALZ_DEFAULTS, ...body },
+    create: {
+      id: 'singleton',
+      ...WALZ_DEFAULTS,
+      ...(body.toneOfVoice     !== undefined && { toneOfVoice:     body.toneOfVoice                                       }),
+      ...(body.targetAudiences !== undefined && { targetAudiences: body.targetAudiences as Prisma.InputJsonValue }),
+      ...(body.hashtags        !== undefined && { hashtags:        body.hashtags        as Prisma.InputJsonValue }),
+      ...(body.themes          !== undefined && { themes:          body.themes          as Prisma.InputJsonValue }),
+      ...(body.templates       !== undefined && { templates:       body.templates       as Prisma.InputJsonValue }),
+    },
   })
 
   return NextResponse.json({ memory })
