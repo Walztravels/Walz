@@ -46,3 +46,40 @@ Canada, United Kingdom, United Arab Emirates, Nigeria, Ghana
 - Jade Connect eSIM: /esim
 - Help Centre: /help
 - Book Now: /portal
+
+## FAQ
+
+Q: What is Walz Travels' UK visa approval rate?
+A: Walz Travels achieves a 90%+ approval rate on UK visa applications for Nigerian and Ghanaian clients.
+
+Q: Can I book flights and visa together?
+A: Yes. Walz Travels handles both flight bookings and visa applications in one package.
+
+Q: How long does UK visa processing take?
+A: Standard: 3 weeks. Priority: 5 working days. Super Priority: next working day. Walz Travels manages the full process for you.
+
+Q: What currencies do you accept?
+A: GBP, NGN, CAD, AED via Stripe and Flutterwave.
+
+Q: Is there a payment plan for flights?
+A: Yes. Walz Travels offers instalment booking. Contact via WhatsApp: +447398753797.
+
+Q: What is the Schengen Area?
+A: 29 European countries with no internal border controls. One Schengen visa lets you visit all of them.
+
+Q: Which is the easiest Schengen country for Nigerians to apply through?
+A: France and Portugal tend to have higher approval rates for Nigerian applicants. Walz Travels advises on country selection.
+
+## Service Pages
+- Visa Services: https://www.walztravels.com/visa
+- UK Visa: https://www.walztravels.com/visa/uk
+- Canada Visa: https://www.walztravels.com/visa/canada
+- Flights: https://www.walztravels.com/flights
+- Lagos-London Flights: https://www.walztravels.com/flights/los-lhr
+- Accra-London Flights: https://www.walztravels.com/flights/acc-lhr
+- Lagos-Dubai Flights: https://www.walztravels.com/flights/los-dxb
+- Blog: https://www.walztravels.com/blog
+- UK Visa for Nigerians: https://www.walztravels.com/visa/uk-visa-nigeria
+- UK Visa for Ghanaians: https://www.walztravels.com/visa/uk-visa-ghana
+- Canada Visa for Nigerians: https://www.walztravels.com/visa/canada-visa-nigeria
+- Schengen Visa for Nigerians: https://www.walztravels.com/visa/schengen-visa-nigeria

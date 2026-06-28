@@ -18,6 +18,15 @@ const VISA_DESTINATIONS = [
   'netherlands', 'turkey', 'india', 'china', 'south-africa', 'brazil',
 ]
 
+// 5 programmatic SEO visa landing pages — nationality-specific, high intent
+const VISA_SEO_PAGES = [
+  'uk-visa-nigeria',
+  'uk-visa-ghana',
+  'canada-visa-nigeria',
+  'canada-visa-ghana',
+  'schengen-visa-nigeria',
+]
+
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const staticPages: MetadataRoute.Sitemap = [
     { url: BASE,                      lastModified: new Date(), changeFrequency: 'weekly',  priority: 1.0 },
@@ -48,6 +57,13 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
       lastModified:    new Date(),
       changeFrequency: 'daily' as const,
       priority:        0.85,
+    })),
+    // 5 nationality-specific visa SEO pages — priority 0.90 (high commercial intent)
+    ...VISA_SEO_PAGES.map(slug => ({
+      url:             `${BASE}/visa/${slug}`,
+      lastModified:    new Date(),
+      changeFrequency: 'monthly' as const,
+      priority:        0.90,
     })),
   ]
 
