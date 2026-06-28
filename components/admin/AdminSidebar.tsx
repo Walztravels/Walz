@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, Fragment } from 'react'
 import { createClient } from '@supabase/supabase-js'
 import {
   LayoutDashboard, TrendingUp, MessageSquare,
@@ -207,37 +207,74 @@ export function AdminSidebar() {
       {/* Navigation — built from new RBAC system */}
       <nav className="flex-1 overflow-y-auto py-3 px-3 space-y-4">
         {navSections.map(({ section, items }) => (
-          <div key={section}>
-            <p className="px-3 mb-1 text-[10px] font-bold text-white/30 uppercase tracking-[0.15em]">
-              {section}
-            </p>
-            <div className="space-y-0.5">
-              {items.map(({ href, label, icon }) => {
-                const Icon   = ICON_MAP[icon]
-                const active = isActive(href)
-                return (
-                  <Link
-                    key={href}
-                    href={href}
-                    className={cn(
-                      'flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium transition-all',
-                      active
-                        ? 'bg-[#C9A84C] text-[#0B1F3A]'
-                        : 'text-white/65 hover:bg-white/8 hover:text-white',
-                    )}
-                  >
-                    {Icon && <Icon className="w-4 h-4 flex-shrink-0" />}
-                    <span className="flex-1">{label}</span>
-                    {href === '/admin/inbox' && unreadCount > 0 && (
-                      <span className="min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center">
-                        {unreadCount > 99 ? '99+' : unreadCount}
-                      </span>
-                    )}
-                  </Link>
-                )
-              })}
+          <Fragment key={section}>
+            <div>
+              <p className="px-3 mb-1 text-[10px] font-bold text-white/30 uppercase tracking-[0.15em]">
+                {section}
+              </p>
+              <div className="space-y-0.5">
+                {items.map(({ href, label, icon }) => {
+                  const Icon   = ICON_MAP[icon]
+                  const active = isActive(href)
+                  return (
+                    <Link
+                      key={href}
+                      href={href}
+                      className={cn(
+                        'flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium transition-all',
+                        active
+                          ? 'bg-[#C9A84C] text-[#0B1F3A]'
+                          : 'text-white/65 hover:bg-white/8 hover:text-white',
+                      )}
+                    >
+                      {Icon && <Icon className="w-4 h-4 flex-shrink-0" />}
+                      <span className="flex-1">{label}</span>
+                      {href === '/admin/inbox' && unreadCount > 0 && (
+                        <span className="min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center">
+                          {unreadCount > 99 ? '99+' : unreadCount}
+                        </span>
+                      )}
+                    </Link>
+                  )
+                })}
+              </div>
             </div>
-          </div>
+
+            {/* Inject Marketing after INTELLIGENCE if not already in navSections */}
+            {section === 'INTELLIGENCE' &&
+             !navSections.some(s => s.section === 'MARKETING') &&
+             (profile?.role === 'super_admin' ||
+              profile?.role === 'operations_manager' ||
+              profile?.permissions?.manage_marketing === true) && (
+              <div>
+                <p className="px-3 mb-1 text-[10px] font-bold text-white/30 uppercase tracking-[0.15em]">MARKETING</p>
+                <div className="space-y-0.5">
+                  {([
+                    { href: '/admin/marketing/captions',     label: 'Caption Generator',  Icon: Sparkles      },
+                    { href: '/admin/marketing/calendar',     label: 'Content Calendar',   Icon: CalendarDays  },
+                    { href: '/admin/marketing/media',        label: 'Media Library',      Icon: Image         },
+                    { href: '/admin/marketing/whatsapp',     label: 'WhatsApp Broadcast', Icon: MessageSquare },
+                    { href: '/admin/marketing/analytics',    label: 'Analytics',          Icon: BarChart2     },
+                    { href: '/admin/marketing/brand-memory', label: 'Brand Memory',       Icon: Brain         },
+                  ]).map(({ href, label, Icon }) => (
+                    <Link
+                      key={href}
+                      href={href}
+                      className={cn(
+                        'flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium transition-all',
+                        isActive(href)
+                          ? 'bg-[#C9A84C] text-[#0B1F3A]'
+                          : 'text-white/65 hover:bg-white/8 hover:text-white',
+                      )}
+                    >
+                      <Icon className="w-4 h-4 flex-shrink-0" />
+                      <span className="flex-1">{label}</span>
+                    </Link>
+                  ))}
+                </div>
+              </div>
+            )}
+          </Fragment>
         ))}
       </nav>
 
