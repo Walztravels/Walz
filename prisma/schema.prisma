@@ -2570,3 +2570,53 @@ model TripRequest {
   createdAt             DateTime  @default(now())
   updatedAt             DateTime  @updatedAt
 }
+
+// ===========================
+// Social Studio — Month 1
+// ===========================
+
+model MarketingBrandMemory {
+  id              String   @id @default("singleton")
+  toneOfVoice     String   @default("")
+  targetAudiences Json     @default("[]")
+  hashtags        Json     @default("[]")
+  themes          Json     @default("[]")
+  templates       Json     @default("[]")
+  updatedAt       DateTime @updatedAt
+}
+
+model SocialPost {
+  id          String    @id @default(cuid())
+  platform    String
+  postType    String
+  caption     String
+  hashtags    String    @default("")
+  imageUrls   Json      @default("[]")
+  scheduledAt DateTime?
+  publishedAt DateTime?
+  status      String    @default("draft")
+  metaPostId  String?
+  errorMsg    String?
+  createdBy   String
+  approvedBy  String?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([status])
+  @@index([scheduledAt])
+  @@index([platform])
+}
+
+model MarketingMedia {
+  id          String   @id @default(cuid())
+  filename    String
+  url         String
+  mimeType    String
+  sizeBytes   Int?
+  tags        Json     @default("[]")
+  altText     String?
+  uploadedBy  String
+  createdAt   DateTime @default(now())
+
+  @@index([uploadedBy])
+}

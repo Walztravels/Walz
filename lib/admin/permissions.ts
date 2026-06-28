@@ -84,6 +84,9 @@ export type Permission =
   | 'intelligence.lifecycle'
   // ── Jade AI ──────────────────────────────────────────────────────────────
   | 'jade.staff'
+  // ── Social Studio ────────────────────────────────────────────────────────
+  | 'marketing'
+  | 'marketing.publish'
 
 // ── All permissions (super_admin gets all automatically) ─────────────────────
 
@@ -112,6 +115,7 @@ export const ALL_PERMISSIONS: Permission[] = [
   'intelligence.diaspora', 'intelligence.staff_perf',
   'intelligence.conversation', 'intelligence.lifecycle',
   'jade.staff',
+  'marketing', 'marketing.publish',
 ]
 
 export const ROLE_PERMISSIONS: Record<AdminRole, Permission[]> = {
@@ -135,6 +139,7 @@ export const ROLE_PERMISSIONS: Record<AdminRole, Permission[]> = {
     'intelligence.diaspora', 'intelligence.staff_perf',
     'intelligence.conversation', 'intelligence.lifecycle',
     'jade.staff',
+    'marketing', 'marketing.publish',
   ],
 
   visa_officer: [
@@ -456,6 +461,14 @@ export const NAV_ITEMS: NavSection[] = [
       { href: '/admin/intelligence/staff-performance', label: 'Staff Performance',      icon: 'BarChart2',     permission: 'intelligence.staff_perf'     },
       { href: '/admin/intelligence/conversation',      label: 'Conversation Intel',     icon: 'MessageSquare', permission: 'intelligence.conversation'   },
       { href: '/admin/intelligence/lifecycle',         label: 'Client Lifecycle',       icon: 'TrendingUp',    permission: 'intelligence.lifecycle'      },
+    ],
+  },
+  {
+    section: 'MARKETING',
+    items: [
+      { href: '/admin/marketing/captions',    label: 'Caption Generator', icon: 'Sparkles',   permission: 'marketing'         },
+      { href: '/admin/marketing/calendar',    label: 'Content Calendar',  icon: 'Calendar',   permission: 'marketing'         },
+      { href: '/admin/marketing/brand-memory', label: 'Brand Memory',     icon: 'Brain',      permission: 'marketing.publish' },
     ],
   },
   {
