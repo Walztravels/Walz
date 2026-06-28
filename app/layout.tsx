@@ -4,6 +4,7 @@ import Script from 'next/script'
 import './globals.css'
 import { PublicShell } from '@/components/common/PublicShell'
 import { JadeChatWidget } from '@/components/common/JadeChatWidget'
+import CookieConsent from '@/components/cookie-consent/CookieConsent'
 import { SessionProvider } from '@/components/providers/SessionProvider'
 import { LenisProvider } from '@/components/providers/LenisProvider'
 import { CurrencyProvider } from '@/lib/context/CurrencyContext'
@@ -298,7 +299,38 @@ export default function RootLayout({
           }}
         />
 
-        {/* Meta Pixel — lazyOnload so it never blocks render */}
+        {/* Google Consent Mode v2 — must fire before GA4 initialises */}
+        <Script
+          id="google-consent-mode"
+          strategy="beforeInteractive"
+          dangerouslySetInnerHTML={{
+            __html: `
+              window.dataLayer = window.dataLayer || [];
+              function gtag(){dataLayer.push(arguments);}
+              gtag('consent', 'default', {
+                analytics_storage: 'denied',
+                ad_storage: 'denied',
+                ad_user_data: 'denied',
+                ad_personalization: 'denied',
+                wait_for_update: 500,
+              });
+              try {
+                var stored = localStorage.getItem('walz_cookie_consent');
+                if (stored) {
+                  var c = JSON.parse(stored);
+                  gtag('consent', 'update', {
+                    analytics_storage:  c.analytics ? 'granted' : 'denied',
+                    ad_storage:         c.marketing ? 'granted' : 'denied',
+                    ad_user_data:       c.marketing ? 'granted' : 'denied',
+                    ad_personalization: c.marketing ? 'granted' : 'denied',
+                  });
+                }
+              } catch(e) {}
+            `,
+          }}
+        />
+
+        {/* Meta Pixel — loads library but gates init behind marketing consent */}
         <Script
           id="fb-pixel"
           strategy="lazyOnload"
@@ -312,24 +344,23 @@ export default function RootLayout({
               t.src=v;s=b.getElementsByTagName(e)[0];
               s.parentNode.insertBefore(t,s)}(window, document,'script',
               'https://connect.facebook.net/en_US/fbevents.js');
-              fbq('init', '841406678690648');
-              fbq('track', 'PageView');
+              function _walzInitFbPixel() {
+                if (window._walzFbInit) return;
+                fbq('init', '841406678690648');
+                fbq('track', 'PageView');
+                window._walzFbInit = true;
+              }
+              try {
+                var c = JSON.parse(localStorage.getItem('walz_cookie_consent') || 'null');
+                if (c && c.marketing) _walzInitFbPixel();
+              } catch(e) {}
+              window._walzInitFbPixel = _walzInitFbPixel;
             `,
           }}
         />
-        <noscript>
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
-            height="1"
-            width="1"
-            style={{ display: 'none' }}
-            src="https://www.facebook.com/tr?id=841406678690648&ev=PageView&noscript=1"
-            alt=""
-          />
-        </noscript>
         {/* End Meta Pixel */}
 
-        {/* Google Analytics 4 — ID hardcoded (GA4 measurement IDs are public) */}
+        {/* Google Analytics 4 — Consent Mode v2 blocks tracking until user accepts */}
         <Script
           src="https://www.googletagmanager.com/gtag/js?id=G-KJH17JHQST"
           strategy="afterInteractive"
@@ -365,6 +396,7 @@ export default function RootLayout({
                   {children}
                 </PublicShell>
                 <JadeChatWidget />
+                <CookieConsent />
               </LenisProvider>
             </CartProvider>
           </CurrencyProvider>
