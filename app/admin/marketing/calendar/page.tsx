@@ -1,7 +1,10 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { ChevronLeft, ChevronRight, Sparkles, Loader2, X, Check, Calendar, Plus, CheckCircle, XCircle, Send } from 'lucide-react'
+import {
+  ChevronLeft, ChevronRight, Sparkles, Loader2, X, Check,
+  Calendar, Plus, CheckCircle, XCircle, Send, Trash2,
+} from 'lucide-react'
 import { useStaffPermissions } from '@/hooks/useStaffPermissions'
 
 type Post = {
@@ -28,12 +31,18 @@ const STATUS_COLORS: Record<string, string> = {
 
 const STATUS_LABELS: Record<string, string> = {
   draft:            'Draft',
-  pending_approval: 'Pending',
+  pending_approval: 'Pending Approval',
   approved:         'Approved',
   scheduled:        'Scheduled',
   published:        '✓ Published',
   failed:           '⚠ Failed',
 }
+
+const PLATFORMS = [
+  { value: 'instagram', label: 'Instagram' },
+  { value: 'facebook',  label: 'Facebook'  },
+  { value: 'both',      label: 'Both'      },
+]
 
 const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
 const ROWS = [
@@ -60,22 +69,34 @@ function fmt(d: Date) {
   return d.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })
 }
 
+function toLocalDT(iso: string | null): string {
+  if (!iso) return ''
+  const d   = new Date(iso)
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
+}
+
 export default function CalendarPage() {
   const { role }                         = useStaffPermissions()
   const isSuperAdmin                     = role === 'super_admin'
 
-  const [weekStart,   setWeekStart]      = useState(() => getWeekStart(new Date()))
-  const [posts,       setPosts]          = useState<Post[]>([])
-  const [loading,     setLoading]        = useState(true)
-  const [generating,  setGenerating]     = useState(false)
-  const [genDone,     setGenDone]        = useState(false)
-  const [selected,    setSelected]       = useState<Post | null>(null)
-  const [editStatus,  setEditStatus]     = useState('')
-  const [saving,      setSaving]         = useState(false)
-  const [rejectionNote, setRejectionNote] = useState('')
-  const [imageUrl,    setImageUrl]       = useState('')
-  const [publishing,  setPublishing]     = useState<string | null>(null)
-  const [publishMsg,  setPublishMsg]     = useState<{ id: string; ok: boolean; text: string } | null>(null)
+  const [weekStart,    setWeekStart]     = useState(() => getWeekStart(new Date()))
+  const [posts,        setPosts]         = useState<Post[]>([])
+  const [loading,      setLoading]       = useState(true)
+  const [generating,   setGenerating]    = useState(false)
+  const [genDone,      setGenDone]       = useState(false)
+  const [selected,     setSelected]      = useState<Post | null>(null)
+  const [saving,       setSaving]        = useState(false)
+  const [deleting,     setDeleting]      = useState(false)
+  const [rejectionNote,setRejectionNote] = useState('')
+  const [publishing,   setPublishing]    = useState<string | null>(null)
+  const [publishMsg,   setPublishMsg]    = useState<{ id: string; ok: boolean; text: string } | null>(null)
+
+  const [editCaption,  setEditCaption]   = useState('')
+  const [editHashtags, setEditHashtags]  = useState('')
+  const [editPlatform, setEditPlatform]  = useState('')
+  const [editSchedule, setEditSchedule]  = useState('')
+  const [editImageUrl, setEditImageUrl]  = useState('')
 
   const weekEnd = addDays(weekStart, 6)
 
@@ -120,27 +141,62 @@ export default function CalendarPage() {
 
   function openModal(post: Post) {
     setSelected(post)
-    setEditStatus(post.status)
-    setImageUrl((post.imageUrls ?? [])[0] ?? '')
+    setEditCaption(post.caption)
+    setEditHashtags(post.hashtags)
+    setEditPlatform(post.platform)
+    setEditSchedule(toLocalDT(post.scheduledAt))
+    setEditImageUrl((post.imageUrls ?? [])[0] ?? '')
     setRejectionNote('')
   }
 
-  async function saveStatus() {
+  function closeModal() {
+    setSelected(null)
+    setPublishMsg(null)
+  }
+
+  async function savePost() {
     if (!selected) return
     setSaving(true)
     await fetch('/api/admin/marketing/posts', {
       method: 'PATCH', headers: { 'Content-Type': 'application/json' },
       body:   JSON.stringify({
-        id:        selected.id,
-        status:    editStatus,
-        imageUrls: imageUrl ? [imageUrl] : selected.imageUrls,
+        id:          selected.id,
+        caption:     editCaption,
+        hashtags:    editHashtags,
+        imageUrls:   editImageUrl ? [editImageUrl] : selected.imageUrls,
+        scheduledAt: editSchedule ? new Date(editSchedule).toISOString() : null,
       }),
     })
     setPosts(prev => prev.map(p =>
-      p.id === selected.id ? { ...p, status: editStatus, imageUrls: imageUrl ? [imageUrl] : p.imageUrls } : p
+      p.id === selected.id
+        ? { ...p, caption: editCaption, hashtags: editHashtags,
+            imageUrls: editImageUrl ? [editImageUrl] : p.imageUrls,
+            scheduledAt: editSchedule ? new Date(editSchedule).toISOString() : null }
+        : p
     ))
     setSaving(false)
-    setSelected(null)
+    closeModal()
+  }
+
+  async function submitForApproval() {
+    if (!selected) return
+    setSaving(true)
+    await fetch('/api/admin/marketing/posts', {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+      body:   JSON.stringify({
+        id:          selected.id,
+        caption:     editCaption,
+        hashtags:    editHashtags,
+        imageUrls:   editImageUrl ? [editImageUrl] : selected.imageUrls,
+        scheduledAt: editSchedule ? new Date(editSchedule).toISOString() : null,
+        status:      'pending_approval',
+      }),
+    })
+    setPosts(prev => prev.map(p =>
+      p.id === selected.id ? { ...p, status: 'pending_approval', caption: editCaption } : p
+    ))
+    setSaving(false)
+    closeModal()
   }
 
   async function approvePost() {
@@ -153,7 +209,7 @@ export default function CalendarPage() {
     const nextStatus = selected.scheduledAt ? 'scheduled' : 'approved'
     setPosts(prev => prev.map(p => p.id === selected.id ? { ...p, status: nextStatus } : p))
     setSaving(false)
-    setSelected(null)
+    closeModal()
   }
 
   async function rejectPost() {
@@ -163,9 +219,21 @@ export default function CalendarPage() {
       method: 'PATCH', headers: { 'Content-Type': 'application/json' },
       body:   JSON.stringify({ status: 'rejected', rejectionNote }),
     })
-    setPosts(prev => prev.map(p => p.id === selected.id ? { ...p, status: 'draft', errorMsg: rejectionNote } : p))
+    setPosts(prev => prev.map(p =>
+      p.id === selected.id ? { ...p, status: 'draft', errorMsg: rejectionNote } : p
+    ))
     setSaving(false)
-    setSelected(null)
+    closeModal()
+  }
+
+  async function deletePost() {
+    if (!selected) return
+    if (!confirm('Delete this post? This cannot be undone.')) return
+    setDeleting(true)
+    await fetch(`/api/admin/marketing/posts/${selected.id}`, { method: 'DELETE' })
+    setPosts(prev => prev.filter(p => p.id !== selected.id))
+    setDeleting(false)
+    closeModal()
   }
 
   async function publishNow(postId: string) {
@@ -180,12 +248,13 @@ export default function CalendarPage() {
       if (data.success) {
         setPosts(prev => prev.map(p => p.id === postId ? { ...p, status: 'published' } : p))
         setPublishMsg({ id: postId, ok: true, text: 'Published!' })
+        if (selected?.id === postId) closeModal()
       } else {
         setPublishMsg({ id: postId, ok: false, text: data.error ?? 'Failed' })
       }
     } finally {
       setPublishing(null)
-      setTimeout(() => setPublishMsg(null), 4000)
+      setTimeout(() => setPublishMsg(null), 5000)
     }
   }
 
@@ -228,7 +297,7 @@ export default function CalendarPage() {
       </div>
 
       {/* Legend */}
-      <div className="flex items-center gap-3 flex-wrap">
+      <div className="flex items-center gap-2 flex-wrap">
         {Object.entries(STATUS_LABELS).map(([k, v]) => (
           <span key={k} className={`text-[11px] px-2.5 py-1 rounded-full border font-medium ${STATUS_COLORS[k]}`}>{v}</span>
         ))}
@@ -266,20 +335,15 @@ export default function CalendarPage() {
                           <p className="text-[10px] leading-tight line-clamp-2 mt-0.5">{post.caption.slice(0, 60)}…</p>
                         </button>
 
-                        {/* Approve/reject — super_admin only, pending posts */}
                         {isSuperAdmin && post.status === 'pending_approval' && (
-                          <div className="flex gap-1">
-                            <button
-                              onClick={() => { openModal(post) }}
-                              className="flex-1 flex items-center justify-center gap-1 py-1 text-[10px] font-medium bg-green-50 text-green-600 hover:bg-green-100 border border-green-200 rounded-md transition"
-                              title="Review & Approve"
-                            >
-                              <CheckCircle className="w-3 h-3" /> Review
-                            </button>
-                          </div>
+                          <button
+                            onClick={() => openModal(post)}
+                            className="flex items-center justify-center gap-1 py-1 text-[10px] font-medium bg-green-50 text-green-600 hover:bg-green-100 border border-green-200 rounded-md transition"
+                          >
+                            <CheckCircle className="w-3 h-3" /> Review
+                          </button>
                         )}
 
-                        {/* Publish Now — super_admin, approved/scheduled */}
                         {isSuperAdmin && (post.status === 'approved' || post.status === 'scheduled') && (
                           <button
                             onClick={() => void publishNow(post.id)}
@@ -289,10 +353,8 @@ export default function CalendarPage() {
                             {publishing === post.id
                               ? <Loader2 className="w-3 h-3 animate-spin" />
                               : publishMsg?.id === post.id
-                              ? publishMsg.ok
-                                ? <><Check className="w-3 h-3" /> Live!</>
-                                : <><X className="w-3 h-3" /> {publishMsg.text.slice(0, 12)}</>
-                              : <><Send className="w-3 h-3" /> Publish Now</>
+                              ? publishMsg.ok ? <><Check className="w-3 h-3" /> Live!</> : <><X className="w-3 h-3" /> Error</>
+                              : <><Send className="w-3 h-3" /> Publish</>
                             }
                           </button>
                         )}
@@ -314,81 +376,112 @@ export default function CalendarPage() {
         ))}
       </div>
 
-      {/* Edit / Approve modal */}
+      {/* Edit / Review modal */}
       {selected && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={() => setSelected(null)}>
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4" onClick={closeModal}>
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[92vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+
             <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 sticky top-0 bg-white z-10">
-              <div>
-                <h2 className="font-semibold text-gray-900">Post Details</h2>
+              <div className="flex items-center gap-2">
+                <h2 className="font-semibold text-gray-900">Edit Post</h2>
                 <span className={`text-[11px] px-2 py-0.5 rounded-full border font-medium ${STATUS_COLORS[selected.status]}`}>
                   {STATUS_LABELS[selected.status]}
                 </span>
               </div>
-              <button onClick={() => setSelected(null)} className="text-gray-400 hover:text-gray-600">
-                <X className="w-5 h-5" />
-              </button>
+              <div className="flex items-center gap-1">
+                {isSuperAdmin && (
+                  <button
+                    onClick={deletePost}
+                    disabled={deleting}
+                    className="p-1.5 text-red-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition"
+                    title="Delete post"
+                  >
+                    {deleting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+                  </button>
+                )}
+                <button onClick={closeModal} className="text-gray-400 hover:text-gray-600 p-1.5">
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
             </div>
 
             <div className="p-6 space-y-4">
-              <div>
-                <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1">Caption</p>
-                <p className="text-sm text-gray-700 leading-relaxed whitespace-pre-wrap">{selected.caption}</p>
-              </div>
-
-              {selected.hashtags && (
-                <div>
-                  <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1">Hashtags</p>
-                  <p className="text-xs text-amber-600">{selected.hashtags}</p>
-                </div>
-              )}
 
               {selected.errorMsg && selected.status === 'draft' && (
                 <div className="bg-red-50 border border-red-200 rounded-xl p-3">
-                  <p className="text-xs font-semibold text-red-600 mb-1">Rejection Note</p>
+                  <p className="text-xs font-semibold text-red-600 mb-1">Feedback from reviewer</p>
                   <p className="text-xs text-red-700">{selected.errorMsg}</p>
                 </div>
               )}
 
-              {/* Image URL field */}
               <div>
-                <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-1">Image URL</p>
+                <label className="text-xs font-semibold text-gray-400 uppercase tracking-wider block mb-1">Caption</label>
+                <textarea
+                  value={editCaption}
+                  onChange={e => setEditCaption(e.target.value)}
+                  rows={4}
+                  className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400/50 resize-none"
+                />
+              </div>
+
+              <div>
+                <label className="text-xs font-semibold text-gray-400 uppercase tracking-wider block mb-1">Hashtags</label>
+                <textarea
+                  value={editHashtags}
+                  onChange={e => setEditHashtags(e.target.value)}
+                  rows={2}
+                  placeholder="#walztravels #travelagent …"
+                  className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm text-amber-600 focus:outline-none focus:ring-2 focus:ring-amber-400/50 resize-none"
+                />
+              </div>
+
+              <div>
+                <label className="text-xs font-semibold text-gray-400 uppercase tracking-wider block mb-2">Platform</label>
+                <div className="flex gap-2">
+                  {PLATFORMS.map(p => (
+                    <button
+                      key={p.value}
+                      onClick={() => setEditPlatform(p.value)}
+                      className={`flex-1 py-2 text-xs font-medium rounded-xl border transition ${
+                        editPlatform === p.value
+                          ? 'bg-[#0B1F3A] text-white border-[#0B1F3A]'
+                          : 'bg-white text-gray-500 border-gray-200 hover:border-gray-300'
+                      }`}
+                    >
+                      {p.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <label className="text-xs font-semibold text-gray-400 uppercase tracking-wider block mb-1">Schedule</label>
                 <input
-                  value={imageUrl}
-                  onChange={e => setImageUrl(e.target.value)}
-                  placeholder="Paste public image URL or use Media Library…"
+                  type="datetime-local"
+                  value={editSchedule}
+                  onChange={e => setEditSchedule(e.target.value)}
                   className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400/50"
                 />
-                {imageUrl && (
+              </div>
+
+              <div>
+                <label className="text-xs font-semibold text-gray-400 uppercase tracking-wider block mb-1">Image URL</label>
+                <input
+                  value={editImageUrl}
+                  onChange={e => setEditImageUrl(e.target.value)}
+                  placeholder="Paste URL or copy from Media Library…"
+                  className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400/50"
+                />
+                {editImageUrl && (
                   /* eslint-disable-next-line @next/next/no-img-element */
-                  <img src={imageUrl} alt="Preview" className="mt-2 rounded-lg max-h-40 object-contain border border-gray-100" />
+                  <img src={editImageUrl} alt="Preview" className="mt-2 rounded-lg max-h-36 object-contain border border-gray-100 w-full" />
                 )}
               </div>
 
-              {/* Status picker (for non-super_admin or non-pending posts) */}
-              {(!isSuperAdmin || selected.status !== 'pending_approval') && (
-                <div>
-                  <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-2">Status</p>
-                  <div className="flex flex-wrap gap-2">
-                    {Object.entries(STATUS_LABELS).map(([k, v]) => (
-                      <button
-                        key={k}
-                        onClick={() => setEditStatus(k)}
-                        className={`text-xs px-3 py-1.5 rounded-full border font-medium transition ${
-                          editStatus === k ? STATUS_COLORS[k] : 'bg-white text-gray-400 border-gray-200 hover:border-gray-300'
-                        }`}
-                      >
-                        {v}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* Approve/reject section for super_admin */}
+              {/* Approval section — super_admin + pending */}
               {isSuperAdmin && selected.status === 'pending_approval' && (
                 <div className="border border-amber-200 rounded-xl p-4 bg-amber-50 space-y-3">
-                  <p className="text-xs font-semibold text-amber-700 uppercase tracking-wider">Review Required</p>
+                  <p className="text-xs font-semibold text-amber-700 uppercase tracking-wider">Approval Required</p>
                   <div className="flex gap-2">
                     <button
                       onClick={approvePost}
@@ -399,13 +492,8 @@ export default function CalendarPage() {
                       Approve
                     </button>
                     <button
-                      onClick={() => {
-                        const note = rejectionNote || window.prompt('Reason for rejection (staff will be notified):') ?? ''
-                        if (!note) return
-                        setRejectionNote(note)
-                        void rejectPost()
-                      }}
-                      disabled={saving}
+                      onClick={rejectPost}
+                      disabled={saving || !rejectionNote.trim()}
                       className="flex-1 flex items-center justify-center gap-2 py-2.5 bg-white hover:bg-red-50 text-red-500 border border-red-200 font-semibold rounded-xl text-sm transition disabled:opacity-50"
                     >
                       <XCircle className="w-4 h-4" /> Reject
@@ -414,14 +502,14 @@ export default function CalendarPage() {
                   <textarea
                     value={rejectionNote}
                     onChange={e => setRejectionNote(e.target.value)}
-                    placeholder="Rejection note (optional — staff will see this)"
+                    placeholder="Rejection reason (required to reject — staff will see this)"
                     rows={2}
                     className="w-full border border-amber-200 rounded-xl px-3 py-2 text-xs bg-white focus:outline-none focus:ring-2 focus:ring-amber-400/50 resize-none"
                   />
                 </div>
               )}
 
-              {/* Publish Now for approved/scheduled (super_admin) */}
+              {/* Publish Now — super_admin + approved/scheduled */}
               {isSuperAdmin && (selected.status === 'approved' || selected.status === 'scheduled') && (
                 <button
                   onClick={() => void publishNow(selected.id)}
@@ -430,26 +518,36 @@ export default function CalendarPage() {
                 >
                   {publishing === selected.id
                     ? <><Loader2 className="w-4 h-4 animate-spin" /> Publishing…</>
-                    : <><Send className="w-4 h-4" /> Publish to {selected.platform === 'both' ? 'Instagram + Facebook' : selected.platform}</>
+                    : <><Send className="w-4 h-4" /> Publish Now to {selected.platform === 'both' ? 'Instagram + Facebook' : selected.platform}</>
                   }
                 </button>
               )}
             </div>
 
-            <div className="px-6 pb-5 flex justify-end gap-2 border-t border-gray-100 pt-4">
-              <button onClick={() => setSelected(null)} className="px-4 py-2 text-sm text-gray-500 hover:text-gray-700 transition">
+            <div className="px-6 pb-5 pt-4 border-t border-gray-100 flex items-center justify-between gap-2">
+              <button onClick={closeModal} className="px-4 py-2 text-sm text-gray-500 hover:text-gray-700 transition">
                 Cancel
               </button>
-              {(!isSuperAdmin || selected.status !== 'pending_approval') && (
+              <div className="flex gap-2">
+                {(selected.status === 'draft' || selected.status === 'failed') && (
+                  <button
+                    onClick={submitForApproval}
+                    disabled={saving}
+                    className="flex items-center gap-2 px-4 py-2 bg-amber-100 hover:bg-amber-200 text-amber-800 font-semibold rounded-xl text-sm transition disabled:opacity-50"
+                  >
+                    {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
+                    Submit for Approval
+                  </button>
+                )}
                 <button
-                  onClick={saveStatus}
+                  onClick={savePost}
                   disabled={saving}
                   className="flex items-center gap-2 px-5 py-2 bg-amber-500 hover:bg-amber-600 text-white font-semibold rounded-xl text-sm transition disabled:opacity-50"
                 >
                   {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
                   Save
                 </button>
-              )}
+              </div>
             </div>
           </div>
         </div>

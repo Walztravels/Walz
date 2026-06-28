@@ -81,3 +81,20 @@ export async function PATCH(
 
   return NextResponse.json({ post: updated })
 }
+
+export async function DELETE(
+  _req: NextRequest,
+  { params }: { params: { id: string } }
+) {
+  const session = await getAdminSession()
+  if (!session) return NextResponse.json({ error: 'Unauthorised' }, { status: 401 })
+  if (session.role !== 'super_admin') {
+    return NextResponse.json({ error: 'Only super_admin can delete posts' }, { status: 403 })
+  }
+
+  const post = await prisma.socialPost.findUnique({ where: { id: params.id } })
+  if (!post) return NextResponse.json({ error: 'Post not found' }, { status: 404 })
+
+  await prisma.socialPost.delete({ where: { id: params.id } })
+  return NextResponse.json({ success: true })
+}
