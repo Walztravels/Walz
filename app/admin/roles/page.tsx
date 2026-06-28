@@ -83,6 +83,11 @@ const PERM_META: Record<Permission, PermMeta> = {
   'intelligence.conversation':  { label: 'Conversation Intelligence', desc: 'AI analysis of client chat transcripts' },
   'intelligence.lifecycle':     { label: 'Client Lifecycle',        desc: 'AI-predicted churn, re-booking, LTV timelines' },
   'jade.staff':           { label: 'Jade Staff Assistant',          desc: 'Access the internal AI assistant (visa, letters, scripts)' },
+  marketing:              { label: 'Marketing Studio',              desc: 'Access caption generator, content calendar, and media library' },
+  'marketing.publish':    { label: 'Publish & Schedule Posts',      desc: 'Publish posts to Instagram and Facebook' },
+  'marketing.analytics':  { label: 'Marketing Analytics',           desc: 'View social media performance and post stats' },
+  'marketing.whatsapp':   { label: 'WhatsApp Broadcast',            desc: 'Send WhatsApp broadcasts to clients' },
+  'marketing.tenants':    { label: 'TravelPost Tenants',            desc: 'Manage white-label TravelPost agency tenants' },
 }
 
 const PERM_GROUPS: { label: string; perms: Permission[] }[] = [
@@ -95,6 +100,7 @@ const PERM_GROUPS: { label: string; perms: Permission[] }[] = [
   { label: 'Staff & System',       perms: ['staff', 'staff.create', 'staff.edit', 'staff.delete', 'suppliers', 'tools', 'settings', 'audit_logs', 'api_keys', 'documents'] },
   { label: 'Intelligence Hub',     perms: ['intelligence', 'intelligence.financial_dna', 'intelligence.officer_sim', 'intelligence.embassy_feed', 'intelligence.doc_centre', 'intelligence.doc_upload', 'intelligence.form_check', 'intelligence.letters', 'intelligence.tickets', 'intelligence.cris', 'intelligence.revenue', 'intelligence.diaspora', 'intelligence.staff_perf', 'intelligence.conversation', 'intelligence.lifecycle'] },
   { label: 'Jade AI',              perms: ['jade.staff'] },
+  { label: 'Marketing',           perms: ['marketing', 'marketing.publish', 'marketing.analytics', 'marketing.whatsapp', 'marketing.tenants'] },
 ]
 
 const ROLE_META: Record<AdminRole, { label: string; color: string; desc: string }> = {
