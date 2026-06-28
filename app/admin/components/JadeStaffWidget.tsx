@@ -11,6 +11,39 @@ type Message = {
 
 type JadeState = 'idle' | 'thinking'
 
+const SESSION_KEY = 'walz_jade_staff_session'
+const SESSION_TTL = 2 * 60 * 60 * 1000
+
+type StoredSession = {
+  messages: Array<{ role: 'user' | 'assistant'; content: string; time: string; suggestions?: string[] }>
+  staffName: string
+  savedAt: number
+}
+
+function loadSession(): StoredSession | null {
+  try {
+    const raw = localStorage.getItem(SESSION_KEY)
+    if (!raw) return null
+    const s: StoredSession = JSON.parse(raw)
+    if (Date.now() - s.savedAt > SESSION_TTL) {
+      localStorage.removeItem(SESSION_KEY)
+      return null
+    }
+    return s
+  } catch { return null }
+}
+
+function saveSession(messages: Message[], staffName: string) {
+  try {
+    const s: StoredSession = {
+      messages: messages.map(m => ({ ...m, time: m.time.toISOString() })),
+      staffName,
+      savedAt: Date.now(),
+    }
+    localStorage.setItem(SESSION_KEY, JSON.stringify(s))
+  } catch { /* quota exceeded or private mode */ }
+}
+
 const GREETINGS = [
   (name: string) => `Hey ${name} 👋 What do you need?`,
   (name: string) => `${name}! What's up?`,
@@ -104,8 +137,22 @@ export function JadeStaffWidget() {
   const inputRef = useRef<HTMLTextAreaElement>(null)
   const historyRef = useRef<Message[]>([])
 
-  // Sync history to ref (avoids stale closure in send)
-  useEffect(() => { historyRef.current = messages }, [messages])
+  // Restore session from localStorage on first mount
+  useEffect(() => {
+    const saved = loadSession()
+    if (saved && saved.messages.length > 0) {
+      const restored = saved.messages.map(m => ({ ...m, time: new Date(m.time) }))
+      setMessages(restored)
+      setStaffName(saved.staffName)
+      setInitialized(true)
+    }
+  }, [])
+
+  // Sync history to ref and persist session whenever messages change
+  useEffect(() => {
+    historyRef.current = messages
+    if (messages.length > 0) saveSession(messages, staffName)
+  }, [messages, staffName])
 
   // Hide on itinerary builder — that page has Jade Copilot instead
   const isBuilder = pathname.includes('/itinerary-planner/')
@@ -188,15 +235,15 @@ export function JadeStaffWidget() {
 
       setMessages(prev => [...prev, {
         role: 'assistant',
-        content: data.response || '',
+        content: data.response || "I didn't catch that — try rephrasing?",
         time: new Date(),
         suggestions: data.suggestions,
       }])
       if (!open) setUnread(n => n + 1)
-    } catch (err: unknown) {
+    } catch {
       setMessages(prev => [...prev, {
         role: 'assistant',
-        content: `Hmm, something went wrong on my end. Try again? (${err instanceof Error ? err.message : 'unknown error'})`,
+        content: "Jade is unavailable right now. Try again in a moment.",
         time: new Date(),
       }])
     } finally {
