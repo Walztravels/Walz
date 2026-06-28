@@ -2663,3 +2663,41 @@ model TravelPostTenant {
   @@index([status])
   @@index([country])
 }
+
+model GroupHiveSession {
+  id             String    @id @default(cuid())
+  slug           String    @unique
+  groupName      String
+  visaType       String
+  destination    String
+  travelDate     String?
+  memberCount    Int       @default(1)
+  status         String    @default("collecting")
+  analysisResult String?   @db.Text
+  createdBy      String
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  members        GroupHiveMember[]
+}
+
+model GroupHiveMember {
+  id               String    @id @default(cuid())
+  sessionId        String
+  slotNumber       Int
+  firstName        String    @default("")
+  lastName         String    @default("")
+  dateOfBirth      String?
+  nationality      String?
+  passportNumber   String?
+  passportExpiry   String?
+  email            String?
+  phone            String?
+  hasUKVisa        Boolean   @default(false)
+  previousRefusals Boolean   @default(false)
+  travelHistory    String?
+  submittedAt      DateTime?
+  isSubmitted      Boolean   @default(false)
+  session          GroupHiveSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([sessionId])
+}
