@@ -68,8 +68,7 @@ export function FinalCTA() {
           ref={headlineRef}
           className="font-display text-[#0B1F3A] font-bold text-[clamp(2.6rem,7vw,5.5rem)] leading-[0.95] mb-6"
         >
-          <span className="block">Your Journey</span>
-          <span className="block">Starts Here.</span>
+          Your Journey Starts Here.
         </h2>
 
         <p

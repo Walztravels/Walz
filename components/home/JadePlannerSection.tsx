@@ -407,6 +407,7 @@ export function JadePlannerSection() {
 
             {/* Headline — word-by-word clip reveal */}
             <h2 className="font-display font-bold text-white leading-[1.06] mb-7"
+              aria-label="Plan Your Perfect Trip. Jade Builds It."
               style={{ fontSize: 'clamp(2.6rem, 5.5vw, 4.6rem)' }}>
               {HEADLINE_LINES.map((line, li) => (
                 <div key={li} className="overflow-hidden block">
