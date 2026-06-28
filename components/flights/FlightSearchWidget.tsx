@@ -8,33 +8,7 @@ import { DatePickerField } from '@/components/ui/DatePicker'
 import { useAbandonmentCapture } from '@/hooks/useAbandonmentCapture'
 import { AbandonmentModal } from '@/components/AbandonmentModal'
 
-const AIRPORTS = [
-  { iata: 'LHR', name: 'Heathrow',               city: 'London',       country: 'United Kingdom' },
-  { iata: 'LGW', name: 'Gatwick',                 city: 'London',       country: 'United Kingdom' },
-  { iata: 'YYZ', name: 'Pearson International',   city: 'Toronto',      country: 'Canada'         },
-  { iata: 'YUL', name: 'Montréal-Trudeau',         city: 'Montreal',     country: 'Canada'         },
-  { iata: 'YVR', name: 'Vancouver International', city: 'Vancouver',    country: 'Canada'         },
-  { iata: 'DXB', name: 'Dubai International',     city: 'Dubai',        country: 'UAE'            },
-  { iata: 'AUH', name: 'Abu Dhabi International', city: 'Abu Dhabi',    country: 'UAE'            },
-  { iata: 'LOS', name: 'Murtala Muhammed',        city: 'Lagos',        country: 'Nigeria'        },
-  { iata: 'ABV', name: 'Nnamdi Azikiwe',          city: 'Abuja',        country: 'Nigeria'        },
-  { iata: 'ACC', name: 'Kotoka International',    city: 'Accra',        country: 'Ghana'          },
-  { iata: 'JFK', name: 'John F. Kennedy',         city: 'New York',     country: 'USA'            },
-  { iata: 'EWR', name: 'Newark Liberty',          city: 'New York',     country: 'USA'            },
-  { iata: 'ORD', name: "O'Hare International",    city: 'Chicago',      country: 'USA'            },
-  { iata: 'LAX', name: 'Los Angeles International', city: 'Los Angeles', country: 'USA'           },
-  { iata: 'CDG', name: 'Charles de Gaulle',       city: 'Paris',        country: 'France'         },
-  { iata: 'AMS', name: 'Schiphol',                city: 'Amsterdam',    country: 'Netherlands'    },
-  { iata: 'FRA', name: 'Frankfurt Airport',       city: 'Frankfurt',    country: 'Germany'        },
-  { iata: 'IST', name: 'Istanbul Airport',        city: 'Istanbul',     country: 'Turkey'         },
-  { iata: 'DOH', name: 'Hamad International',     city: 'Doha',         country: 'Qatar'          },
-  { iata: 'NBO', name: 'Jomo Kenyatta',           city: 'Nairobi',      country: 'Kenya'          },
-  { iata: 'JNB', name: "O.R. Tambo",              city: 'Johannesburg', country: 'South Africa'   },
-  { iata: 'CMN', name: 'Mohammed V',              city: 'Casablanca',   country: 'Morocco'        },
-  { iata: 'ADD', name: 'Addis Ababa Bole',        city: 'Addis Ababa',  country: 'Ethiopia'       },
-  { iata: 'SIN', name: 'Changi Airport',          city: 'Singapore',    country: 'Singapore'      },
-  { iata: 'HKG', name: 'Hong Kong International', city: 'Hong Kong',    country: 'China'          },
-]
+interface ApiAirport { code: string; city: string; name: string; country: string }
 
 const CABIN_LABELS: Record<CabinClass, string> = {
   ECONOMY:          'Economy',
@@ -43,24 +17,13 @@ const CABIN_LABELS: Record<CabinClass, string> = {
   FIRST:            'First Class',
 }
 
-type Airport = typeof AIRPORTS[number]
-
-function filterAirports(q: string): Airport[] {
-  const lq = q.toLowerCase()
-  return AIRPORTS.filter(a =>
-    a.iata.toLowerCase().includes(lq) ||
-    a.city.toLowerCase().includes(lq) ||
-    a.name.toLowerCase().includes(lq)
-  ).slice(0, 6)
-}
-
-function AirportDropdown({ airports, onSelect }: { airports: Airport[]; onSelect: (a: Airport) => void }) {
+function AirportDropdown({ airports, onSelect }: { airports: ApiAirport[]; onSelect: (a: ApiAirport) => void }) {
   return (
     <div className="absolute left-0 right-0 top-full mt-1 bg-white rounded-xl shadow-xl border border-black/5 z-50 overflow-hidden">
       {airports.map(a => (
-        <button key={a.iata} type="button" onMouseDown={() => onSelect(a)}
+        <button key={a.code} type="button" onMouseDown={() => onSelect(a)}
           className="w-full flex items-center gap-3 px-4 py-3 hover:bg-[#F5F2EE] transition-colors text-left">
-          <span className="text-[#C9A84C] font-bold text-sm w-10 flex-shrink-0">{a.iata}</span>
+          <span className="text-[#C9A84C] font-bold text-sm w-10 flex-shrink-0">{a.code}</span>
           <div>
             <p className="text-sm font-medium text-[#0B1F3A]">{a.city}</p>
             <p className="text-xs text-[#0B1F3A]/40">{a.name} · {a.country}</p>
@@ -120,15 +83,26 @@ export function FlightSearchWidget() {
   const [depart,   setDepart]   = useState<Date | undefined>()
   const [ret,      setRet]      = useState<Date | undefined>()
 
-  const [fromSug,     setFromSug]     = useState<Airport[]>([])
-  const [toSug,       setToSug]       = useState<Airport[]>([])
+  const [fromSug,     setFromSug]     = useState<ApiAirport[]>([])
+  const [toSug,       setToSug]       = useState<ApiAirport[]>([])
   const [showPax,     setShowPax]     = useState(false)
   const [showCabin,   setShowCabin]   = useState(false)
   const [errors,      setErrors]      = useState<Record<string, string>>({})
   const [hasSubmitted, setHasSubmitted] = useState(false)
 
-  const paxRef   = useRef<HTMLDivElement>(null)
-  const cabinRef = useRef<HTMLDivElement>(null)
+  const paxRef      = useRef<HTMLDivElement>(null)
+  const cabinRef    = useRef<HTMLDivElement>(null)
+  const fromDebounce = useRef<ReturnType<typeof setTimeout>>()
+  const toDebounce   = useRef<ReturnType<typeof setTimeout>>()
+
+  async function fetchAirports(q: string, setSug: React.Dispatch<React.SetStateAction<ApiAirport[]>>) {
+    if (q.length < 2) { setSug([]); return }
+    try {
+      const res  = await fetch(`/api/places?q=${encodeURIComponent(q)}`)
+      const data = await res.json() as { data?: ApiAirport[] }
+      setSug(data.data ?? [])
+    } catch { setSug([]) }
+  }
 
   const { showCapture, setShowCapture, captureEmail } = useAbandonmentCapture({
     type: 'flight_search',
@@ -255,12 +229,12 @@ export function FlightSearchWidget() {
             <div className="flex-1 min-w-0">
               {fromCode && <div className="text-[10px] text-[#0B1F3A]/40 leading-none mb-0.5">{fromCode}</div>}
               <input type="text" placeholder="City or airport" value={from} aria-label="Departure city or airport"
-                onChange={e => { setFrom(e.target.value); setFromCode(''); setFromSug(e.target.value ? filterAirports(e.target.value) : []) }}
+                onChange={e => { const v = e.target.value; setFrom(v); setFromCode(''); clearTimeout(fromDebounce.current); fromDebounce.current = setTimeout(() => void fetchAirports(v, setFromSug), 200) }}
                 className="w-full bg-transparent outline-none text-sm font-medium text-[#0B1F3A] placeholder:text-[#0B1F3A]/30" />
             </div>
           </div>
           {errors.from && <p className="text-red-500 text-xs mt-1">{errors.from}</p>}
-          {fromSug.length > 0 && <AirportDropdown airports={fromSug} onSelect={a => { setFrom(`${a.city} (${a.iata})`); setFromCode(a.iata); setFromSug([]) }} />}
+          {fromSug.length > 0 && <AirportDropdown airports={fromSug} onSelect={a => { setFrom(`${a.city} (${a.code})`); setFromCode(a.code); setFromSug([]) }} />}
         </div>
 
         {/* SWAP */}
@@ -285,12 +259,12 @@ export function FlightSearchWidget() {
             <div className="flex-1 min-w-0">
               {toCode && <div className="text-[10px] text-[#0B1F3A]/40 leading-none mb-0.5">{toCode}</div>}
               <input type="text" placeholder="City or airport" value={to} aria-label="Destination city or airport"
-                onChange={e => { setTo(e.target.value); setToCode(''); setToSug(e.target.value ? filterAirports(e.target.value) : []) }}
+                onChange={e => { const v = e.target.value; setTo(v); setToCode(''); clearTimeout(toDebounce.current); toDebounce.current = setTimeout(() => void fetchAirports(v, setToSug), 200) }}
                 className="w-full bg-transparent outline-none text-sm font-medium text-[#0B1F3A] placeholder:text-[#0B1F3A]/30" />
             </div>
           </div>
           {errors.to && <p className="text-red-500 text-xs mt-1">{errors.to}</p>}
-          {toSug.length > 0 && <AirportDropdown airports={toSug} onSelect={a => { setTo(`${a.city} (${a.iata})`); setToCode(a.iata); setToSug([]) }} />}
+          {toSug.length > 0 && <AirportDropdown airports={toSug} onSelect={a => { setTo(`${a.city} (${a.code})`); setToCode(a.code); setToSug([]) }} />}
         </div>
 
         {/* DEPART */}
