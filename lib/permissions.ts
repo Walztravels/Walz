@@ -131,6 +131,12 @@ export type PermissionKey =
   | 'roles_view'
   | 'roles_manage'
   | 'roles_assign'
+  // Social Studio (Marketing)
+  | 'manage_marketing'
+  | 'marketing_publish'
+  | 'marketing_whatsapp_broadcast'
+  | 'marketing_brand_memory'
+  | 'marketing_tenants'
 
 export type Permissions = Record<PermissionKey, boolean>
 
@@ -229,6 +235,11 @@ export const EMPTY_PERMISSIONS: Permissions = {
   roles_view: false,
   roles_manage: false,
   roles_assign: false,
+  manage_marketing: false,
+  marketing_publish: false,
+  marketing_whatsapp_broadcast: false,
+  marketing_brand_memory: false,
+  marketing_tenants: false,
 }
 
 /**
@@ -480,6 +491,16 @@ export const PERMISSION_GROUPS: PermissionGroup[] = [
     ],
   },
   {
+    label: 'Social Studio',
+    keys: [
+      { key: 'manage_marketing',             label: 'Manage Marketing',          desc: 'Access caption generator, content calendar, media library and analytics' },
+      { key: 'marketing_publish',            label: 'Publish to Social Media',   desc: 'Approve and publish posts to Instagram and Facebook' },
+      { key: 'marketing_whatsapp_broadcast', label: 'WhatsApp Broadcast',        desc: 'Send WhatsApp broadcast messages to client lists' },
+      { key: 'marketing_brand_memory',       label: 'Edit Brand Memory',         desc: 'Edit brand voice, hashtags, templates and audience profiles' },
+      { key: 'marketing_tenants',            label: 'Manage TravelPost Tenants', desc: 'Onboard and manage white-label agency tenants' },
+    ],
+  },
+  {
     label: 'Administration',
     keys: [
       { key: 'roles_view',            label: 'View Role Manager',     desc: 'View role permissions and settings' },
@@ -524,6 +545,7 @@ export const ROLE_DEFAULTS: Record<string, Partial<Record<PermissionKey, boolean
     cms_view: T, cms_edit: T, cms_publish: T,
     roles_view: T, roles_manage: F, roles_assign: F,
     settings_view: T, settings_edit: F, settings_roles: F, settings_integrations: F,
+    manage_marketing: T, marketing_publish: T, marketing_whatsapp_broadcast: T, marketing_brand_memory: F, marketing_tenants: F,
   },
 
   general_manager: {
@@ -547,6 +569,7 @@ export const ROLE_DEFAULTS: Record<string, Partial<Record<PermissionKey, boolean
     cms_view: T, cms_edit: T, cms_publish: T,
     roles_view: T, roles_manage: F, roles_assign: F,
     settings_view: T, settings_edit: F, settings_roles: F, settings_integrations: F,
+    manage_marketing: F, marketing_publish: F, marketing_whatsapp_broadcast: F, marketing_brand_memory: F, marketing_tenants: F,
   },
 
   senior_manager: {
@@ -570,6 +593,7 @@ export const ROLE_DEFAULTS: Record<string, Partial<Record<PermissionKey, boolean
     cms_view: T, cms_edit: T, cms_publish: F,
     roles_view: F, roles_manage: F, roles_assign: F,
     settings_view: F, settings_edit: F, settings_roles: F, settings_integrations: F,
+    manage_marketing: F, marketing_publish: F, marketing_whatsapp_broadcast: F, marketing_brand_memory: F, marketing_tenants: F,
   },
 
   visa_officer: {
@@ -593,6 +617,7 @@ export const ROLE_DEFAULTS: Record<string, Partial<Record<PermissionKey, boolean
     cms_view: F, cms_edit: F, cms_publish: F,
     roles_view: F, roles_manage: F, roles_assign: F,
     settings_view: F, settings_edit: F, settings_roles: F, settings_integrations: F,
+    manage_marketing: F, marketing_publish: F, marketing_whatsapp_broadcast: F, marketing_brand_memory: F, marketing_tenants: F,
   },
 
   coordinator: {
@@ -616,6 +641,7 @@ export const ROLE_DEFAULTS: Record<string, Partial<Record<PermissionKey, boolean
     cms_view: F, cms_edit: F, cms_publish: F,
     roles_view: F, roles_manage: F, roles_assign: F,
     settings_view: F, settings_edit: F, settings_roles: F, settings_integrations: F,
+    manage_marketing: F, marketing_publish: F, marketing_whatsapp_broadcast: F, marketing_brand_memory: F, marketing_tenants: F,
   },
 
   flight_staff: {
@@ -639,6 +665,7 @@ export const ROLE_DEFAULTS: Record<string, Partial<Record<PermissionKey, boolean
     cms_view: F, cms_edit: F, cms_publish: F,
     roles_view: F, roles_manage: F, roles_assign: F,
     settings_view: F, settings_edit: F, settings_roles: F, settings_integrations: F,
+    manage_marketing: F, marketing_publish: F, marketing_whatsapp_broadcast: F, marketing_brand_memory: F, marketing_tenants: F,
   },
 
   tours_staff: {
@@ -662,6 +689,7 @@ export const ROLE_DEFAULTS: Record<string, Partial<Record<PermissionKey, boolean
     cms_view: F, cms_edit: F, cms_publish: F,
     roles_view: F, roles_manage: F, roles_assign: F,
     settings_view: F, settings_edit: F, settings_roles: F, settings_integrations: F,
+    manage_marketing: F, marketing_publish: F, marketing_whatsapp_broadcast: F, marketing_brand_memory: F, marketing_tenants: F,
   },
 
   hotel_staff: {
@@ -685,6 +713,7 @@ export const ROLE_DEFAULTS: Record<string, Partial<Record<PermissionKey, boolean
     cms_view: F, cms_edit: F, cms_publish: F,
     roles_view: F, roles_manage: F, roles_assign: F,
     settings_view: F, settings_edit: F, settings_roles: F, settings_integrations: F,
+    manage_marketing: F, marketing_publish: F, marketing_whatsapp_broadcast: F, marketing_brand_memory: F, marketing_tenants: F,
   },
 
   sales_agent: {
@@ -708,6 +737,7 @@ export const ROLE_DEFAULTS: Record<string, Partial<Record<PermissionKey, boolean
     cms_view: F, cms_edit: F, cms_publish: F,
     roles_view: F, roles_manage: F, roles_assign: F,
     settings_view: F, settings_edit: F, settings_roles: F, settings_integrations: F,
+    manage_marketing: F, marketing_publish: F, marketing_whatsapp_broadcast: F, marketing_brand_memory: F, marketing_tenants: F,
   },
 
   accountant: {
@@ -731,6 +761,7 @@ export const ROLE_DEFAULTS: Record<string, Partial<Record<PermissionKey, boolean
     cms_view: F, cms_edit: F, cms_publish: F,
     roles_view: F, roles_manage: F, roles_assign: F,
     settings_view: F, settings_edit: F, settings_roles: F, settings_integrations: F,
+    manage_marketing: F, marketing_publish: F, marketing_whatsapp_broadcast: F, marketing_brand_memory: F, marketing_tenants: F,
   },
 
   customer_support: {
@@ -754,6 +785,7 @@ export const ROLE_DEFAULTS: Record<string, Partial<Record<PermissionKey, boolean
     cms_view: F, cms_edit: F, cms_publish: F,
     roles_view: F, roles_manage: F, roles_assign: F,
     settings_view: F, settings_edit: F, settings_roles: F, settings_integrations: F,
+    manage_marketing: F, marketing_publish: F, marketing_whatsapp_broadcast: F, marketing_brand_memory: F, marketing_tenants: F,
   },
 
   sales_rep: {
@@ -777,5 +809,6 @@ export const ROLE_DEFAULTS: Record<string, Partial<Record<PermissionKey, boolean
     cms_view: F, cms_edit: F, cms_publish: F,
     roles_view: F, roles_manage: F, roles_assign: F,
     settings_view: F, settings_edit: F, settings_roles: F, settings_integrations: F,
+    manage_marketing: F, marketing_publish: F, marketing_whatsapp_broadcast: F, marketing_brand_memory: F, marketing_tenants: F,
   },
 }

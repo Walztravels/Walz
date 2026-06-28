@@ -6,7 +6,7 @@ import { useState, useEffect } from 'react'
 import { createClient } from '@supabase/supabase-js'
 import {
   LayoutDashboard, TrendingUp, MessageSquare,
-  Users, UserPlus, Calendar, Plus, Plane, Building2, Car,
+  Users, UserPlus, Calendar, CalendarDays, Plus, Plane, Building2, Car,
   FileText, Map, FolderOpen, ClipboardList, ScanSearch, Tag,
   CreditCard, Award, DollarSign, Gift,
   BarChart2, CheckCircle,
@@ -14,7 +14,7 @@ import {
   Shield, Package, Wrench, Activity, Key, Settings,
   MapPin, Signal, Globe, Image, Home,
   ShieldCheck, Star, Mail, AlertTriangle,
-  Brain, Dna, Radio, AlertOctagon, Zap, UserCheck, Sparkles,
+  Brain, Dna, Radio, AlertOctagon, Zap, UserCheck, Sparkles, Megaphone,
   Ticket, Receipt, GitBranch, Phone,
   LogOut,
 } from 'lucide-react'
@@ -77,6 +77,8 @@ const ICON_MAP: Record<string, React.ElementType> = {
   Zap,
   UserCheck,
   Sparkles,
+  Megaphone,
+  CalendarDays,
   Ticket,
   Receipt,
   GitBranch,

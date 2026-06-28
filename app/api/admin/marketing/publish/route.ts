@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getAdminSession } from '@/lib/admin-auth'
+import { can } from '@/lib/permissions-registry'
 import prisma from '@/lib/db'
 import { publishPost } from '@/lib/meta-publisher'
 
@@ -8,9 +9,7 @@ export const maxDuration = 60
 export async function POST(req: NextRequest) {
   const session = await getAdminSession()
   if (!session) return NextResponse.json({ error: 'Unauthorised' }, { status: 401 })
-  if (session.role !== 'super_admin') {
-    return NextResponse.json({ error: 'Only super_admin can publish posts' }, { status: 403 })
-  }
+  if (!can(session, 'marketing_publish')) return NextResponse.json({ error: 'Publishing permission required.' }, { status: 403 })
 
   const { postId } = await req.json() as { postId: string }
 

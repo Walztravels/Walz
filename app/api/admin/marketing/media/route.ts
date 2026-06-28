@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getAdminSession } from '@/lib/admin-auth'
+import { can } from '@/lib/permissions-registry'
 import { getSupabaseAdmin } from '@/lib/supabase'
 import prisma from '@/lib/db'
 
@@ -26,6 +27,7 @@ export async function GET(req: NextRequest) {
 export async function POST(req: NextRequest) {
   const session = await getAdminSession()
   if (!session) return NextResponse.json({ error: 'Unauthorised' }, { status: 401 })
+  if (!can(session, 'manage_marketing')) return NextResponse.json({ error: 'Marketing access not granted. Contact your admin.' }, { status: 403 })
 
   let formData: FormData
   try {
@@ -82,6 +84,7 @@ export async function POST(req: NextRequest) {
 export async function DELETE(req: NextRequest) {
   const session = await getAdminSession()
   if (!session) return NextResponse.json({ error: 'Unauthorised' }, { status: 401 })
+  if (!can(session, 'manage_marketing')) return NextResponse.json({ error: 'Marketing access not granted. Contact your admin.' }, { status: 403 })
 
   const { id } = await req.json() as { id: string }
 

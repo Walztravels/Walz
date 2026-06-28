@@ -114,6 +114,13 @@ export const PERMISSION_REGISTRY = {
 
   // APPLICATIONS (duplicate of visa above — kept for backward compat)
 
+  // SOCIAL STUDIO (MARKETING)
+  manage_marketing:              { label: 'Manage Marketing',          section: 'Social Studio', desc: 'Access caption generator, content calendar, media library and analytics' },
+  marketing_publish:             { label: 'Publish to Social Media',   section: 'Social Studio', desc: 'Approve and publish posts to Instagram and Facebook' },
+  marketing_whatsapp_broadcast:  { label: 'WhatsApp Broadcast',        section: 'Social Studio', desc: 'Send WhatsApp broadcast messages to client lists' },
+  marketing_brand_memory:        { label: 'Edit Brand Memory',         section: 'Social Studio', desc: 'Edit brand voice, hashtags, templates and audience profiles' },
+  marketing_tenants:             { label: 'Manage TravelPost Tenants', section: 'Social Studio', desc: 'Onboard and manage white-label agency tenants' },
+
   // ADMINISTRATION
   roles_view:               { label: 'View Role Manager',    section: 'Administration',         desc: 'View role permissions and settings' },
   roles_manage:             { label: 'Manage Role Permissions', section: 'Administration',      desc: 'Edit default permissions for each role' },
@@ -134,6 +141,7 @@ export const PERMISSION_SECTIONS = [
   'Visa Services',
   'Finance',
   'Content & Marketing',
+  'Social Studio',
   'Inbox & Communications',
   'Staff Management',
   'Administration',

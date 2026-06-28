@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getAdminSession } from '@/lib/admin-auth'
+import { can } from '@/lib/permissions-registry'
 import prisma from '@/lib/db'
 
 const WALZ_DEFAULTS = {
@@ -64,6 +65,7 @@ export async function GET() {
 export async function PATCH(req: NextRequest) {
   const session = await getAdminSession()
   if (!session) return NextResponse.json({ error: 'Unauthorised' }, { status: 401 })
+  if (!can(session, 'marketing_brand_memory')) return NextResponse.json({ error: 'Brand memory edit permission required.' }, { status: 403 })
 
   const body = await req.json() as Partial<{
     toneOfVoice: string

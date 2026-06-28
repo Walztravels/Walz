@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import Anthropic from '@anthropic-ai/sdk'
 import { getAdminSession } from '@/lib/admin-auth'
+import { can } from '@/lib/permissions-registry'
 import prisma from '@/lib/db'
 
 export const maxDuration = 90
@@ -20,6 +21,7 @@ type WeekPostRaw = {
 export async function POST(req: NextRequest) {
   const session = await getAdminSession()
   if (!session) return NextResponse.json({ error: 'Unauthorised' }, { status: 401 })
+  if (!can(session, 'manage_marketing')) return NextResponse.json({ error: 'Marketing access not granted. Contact your admin.' }, { status: 403 })
 
   const apiKey = process.env.ANTHROPIC_API_KEY
   if (!apiKey) return NextResponse.json({ error: 'ANTHROPIC_API_KEY not set' }, { status: 500 })

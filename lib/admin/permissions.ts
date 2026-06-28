@@ -469,13 +469,12 @@ export const NAV_ITEMS: NavSection[] = [
   {
     section: 'MARKETING',
     items: [
-      { href: '/admin/marketing/captions',     label: 'Caption Generator', icon: 'Sparkles',       permission: 'marketing'           },
-      { href: '/admin/marketing/calendar',     label: 'Content Calendar',  icon: 'Calendar',       permission: 'marketing'           },
-      { href: '/admin/marketing/media',        label: 'Media Library',     icon: 'Image',          permission: 'marketing'           },
-      { href: '/admin/marketing/analytics',    label: 'Analytics',         icon: 'BarChart2',      permission: 'marketing.analytics' },
-      { href: '/admin/marketing/whatsapp',     label: 'WhatsApp Broadcast',icon: 'MessageSquare',  permission: 'marketing.whatsapp'  },
-      { href: '/admin/marketing/brand-memory', label: 'Brand Memory',      icon: 'Brain',          permission: 'marketing.publish'   },
-      { href: '/admin/marketing/tenants',      label: 'TravelPost Tenants',icon: 'Building2',      permission: 'marketing.tenants'   },
+      { href: '/admin/marketing/captions',     label: 'Caption Generator',  icon: 'Sparkles',      permission: 'marketing'           },
+      { href: '/admin/marketing/calendar',     label: 'Content Calendar',   icon: 'CalendarDays',  permission: 'marketing'           },
+      { href: '/admin/marketing/media',        label: 'Media Library',      icon: 'Image',         permission: 'marketing'           },
+      { href: '/admin/marketing/whatsapp',     label: 'WhatsApp Broadcast', icon: 'MessageSquare', permission: 'marketing.whatsapp'  },
+      { href: '/admin/marketing/analytics',    label: 'Analytics',          icon: 'BarChart2',     permission: 'marketing.analytics' },
+      { href: '/admin/marketing/brand-memory', label: 'Brand Memory',       icon: 'Brain',         permission: 'marketing.publish'   },
     ],
   },
   {
