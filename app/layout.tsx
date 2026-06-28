@@ -351,7 +351,7 @@ export default function RootLayout({
         {/* Trustpilot bootstrap — lazyOnload so it never blocks LCP */}
         <Script
           src="//widget.trustpilot.com/bootstrap/v5/tp.widget.bootstrap.min.js"
-          strategy="lazyOnload"
+          strategy="afterInteractive"
         />
 
       </head>

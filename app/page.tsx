@@ -321,14 +321,14 @@ export default function HomePage() {
       <section className="py-10 bg-[#060f1e] border-t border-white/5">
         <div className="max-w-2xl mx-auto px-5 flex flex-col items-center gap-4">
           <p className="text-xs font-semibold text-white/40 uppercase tracking-widest">Verified reviews on Trustpilot</p>
-          <TrustBox variant="horizontal" theme="dark" className="w-full" />
+          <TrustBox variant="collector" theme="light" className="w-full" />
           <a
-            href="https://trstp.lt/OVwDw7a68P"
+            href="https://www.trustpilot.com/review/walztravels.com"
             target="_blank"
             rel="noopener noreferrer"
-            className="text-sm font-semibold text-[#C9A84C] hover:text-[#d4b05a] underline underline-offset-4 transition-colors"
+            className="text-xs text-gray-400 hover:text-[#C9A84C] transition-colors"
           >
-            Leave us a review →
+            Review us on Trustpilot ↗
           </a>
         </div>
       </section>

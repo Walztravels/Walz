@@ -416,7 +416,7 @@ export default function AboutPage() {
       <section className="bg-[#060f1e] py-10 px-5 border-b border-white/5">
         <div className="max-w-xl mx-auto text-center">
           <p className="text-xs font-semibold text-white/40 uppercase tracking-widest mb-4">What our clients say</p>
-          <TrustBox variant="horizontal" theme="dark" className="w-full" />
+          <TrustBox variant="collector" theme="light" className="w-full" />
           <a
             href="https://trstp.lt/OVwDw7a68P"
             target="_blank"
