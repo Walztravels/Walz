@@ -466,9 +466,10 @@ export const NAV_ITEMS: NavSection[] = [
   {
     section: 'MARKETING',
     items: [
-      { href: '/admin/marketing/captions',    label: 'Caption Generator', icon: 'Sparkles',   permission: 'marketing'         },
-      { href: '/admin/marketing/calendar',    label: 'Content Calendar',  icon: 'Calendar',   permission: 'marketing'         },
-      { href: '/admin/marketing/brand-memory', label: 'Brand Memory',     icon: 'Brain',      permission: 'marketing.publish' },
+      { href: '/admin/marketing/captions',     label: 'Caption Generator', icon: 'Sparkles',   permission: 'marketing'         },
+      { href: '/admin/marketing/calendar',     label: 'Content Calendar',  icon: 'Calendar',   permission: 'marketing'         },
+      { href: '/admin/marketing/media',        label: 'Media Library',     icon: 'Image',      permission: 'marketing'         },
+      { href: '/admin/marketing/brand-memory', label: 'Brand Memory',      icon: 'Brain',      permission: 'marketing.publish' },
     ],
   },
   {

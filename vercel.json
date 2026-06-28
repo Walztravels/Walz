@@ -26,6 +26,10 @@
     {
       "path": "/api/admin/payroll/auto-run",
       "schedule": "0 9 28 * *"
+    },
+    {
+      "path": "/api/cron/publish-scheduled-posts",
+      "schedule": "*/5 * * * *"
     }
   ]
 }
