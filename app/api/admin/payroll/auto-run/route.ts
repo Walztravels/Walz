@@ -2,11 +2,33 @@ export const maxDuration = 60
 
 import { NextRequest, NextResponse } from 'next/server'
 import { Resend }                    from 'resend'
+import { prisma }                    from '@/lib/db'
 
 export async function GET(req: NextRequest) {
   const auth = req.headers.get('authorization')
   if (!process.env.CRON_SECRET || auth !== `Bearer ${process.env.CRON_SECRET}`) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+
+  // Guard 1 — check if auto-run is enabled
+  const settings = await prisma.payrollSettings.findUnique({ where: { id: 'singleton' } })
+  if (!settings?.autoRunEnabled) {
+    console.log('[auto-run] Auto-run is disabled — skipping')
+    return NextResponse.json({ message: 'Auto-run is disabled', skipped: true }, { status: 200 })
+  }
+
+  // Guard 2 — prevent double-run: check if any payslip was successfully transferred this month
+  const now = new Date()
+  const alreadyRan = await prisma.payslip.findFirst({
+    where: { month: now.getMonth() + 1, year: now.getFullYear(), transferStatus: 'SUCCESS' },
+  })
+  if (alreadyRan) {
+    console.log('[auto-run] Payroll already ran this month — skipping')
+    return NextResponse.json({
+      message: 'Payroll already completed this month',
+      lastRun: alreadyRan.transferCompletedAt,
+      skipped: true,
+    }, { status: 200 })
   }
 
   console.log('[auto-run] Starting monthly payroll transfer...')

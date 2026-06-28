@@ -1681,6 +1681,18 @@ model Payslip {
 }
 
 // ===========================
+// Payroll Settings
+// ===========================
+
+model PayrollSettings {
+  id             String    @id @default("singleton")
+  autoRunEnabled Boolean   @default(false)
+  runDay         Int       @default(28)
+  lastRunAt      DateTime?
+  updatedAt      DateTime  @updatedAt
+}
+
+// ===========================
 // Activities
 // ===========================
 

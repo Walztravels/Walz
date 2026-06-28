@@ -374,6 +374,10 @@ export default function PayrollPage() {
   const [payrollResult, setPayrollResult] = useState<any>(null)
   const [processing,    setProcessing]    = useState(false)
 
+  // Auto-run toggle
+  const [autoRun,        setAutoRun]        = useState(false)
+  const [autoRunLoading, setAutoRunLoading] = useState(false)
+
   function showToast(msg: string) { setToast(msg); setTimeout(() => setToast(null), 3500) }
 
   const loadStaff = useCallback(async () => {
@@ -402,6 +406,32 @@ export default function PayrollPage() {
   }, [filterMonth, filterYear])
 
   useEffect(() => { if (tab === 'staff') loadStaff(); else loadPayslips() }, [tab, loadStaff, loadPayslips])
+
+  useEffect(() => {
+    fetch('/api/admin/payroll/settings')
+      .then(r => r.json())
+      .then(d => setAutoRun(d.autoRunEnabled ?? false))
+      .catch(() => {})
+  }, [])
+
+  async function handleAutoRunToggle(enabled: boolean) {
+    setAutoRunLoading(true)
+    try {
+      const res = await fetch('/api/admin/payroll/settings', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ autoRunEnabled: enabled }),
+      })
+      if (!res.ok) throw new Error('Failed')
+      const d = await res.json()
+      setAutoRun(d.autoRunEnabled)
+      showToast(enabled ? 'Auto payroll enabled — runs on the 28th' : 'Auto payroll disabled')
+    } catch {
+      showToast('Failed to update auto-run setting')
+    } finally {
+      setAutoRunLoading(false)
+    }
+  }
 
   function openEdit(s: StaffMember) {
     setEditingStaff(s)
@@ -569,6 +599,45 @@ export default function PayrollPage() {
           </button>
         )}
       </div>
+
+      {/* Auto-run toggle */}
+      <div className="mb-4 flex items-center justify-between p-4 bg-white rounded-xl border border-gray-200">
+        <div>
+          <p className="font-semibold text-gray-900 text-sm">Monthly Auto Payroll</p>
+          <p className="text-xs text-gray-500 mt-0.5">
+            {autoRun
+              ? 'Runs automatically on the 28th of each month'
+              : 'Disabled — run payroll manually when ready'}
+          </p>
+        </div>
+        <div className="flex items-center gap-3">
+          {autoRunLoading && <span className="text-xs text-gray-400">Saving…</span>}
+          <button
+            onClick={() => handleAutoRunToggle(!autoRun)}
+            disabled={autoRunLoading}
+            role="switch"
+            aria-checked={autoRun}
+            aria-label="Toggle monthly auto payroll"
+            className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-amber-500 focus:ring-offset-2 disabled:opacity-50 ${autoRun ? 'bg-amber-500' : 'bg-gray-200'}`}
+          >
+            <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow-md transition-transform duration-200 ${autoRun ? 'translate-x-6' : 'translate-x-1'}`} />
+          </button>
+          <span className={`text-sm font-medium ${autoRun ? 'text-amber-600' : 'text-gray-400'}`}>
+            {autoRun ? 'ON' : 'OFF'}
+          </span>
+        </div>
+      </div>
+
+      {/* Warning banner when auto-run is active */}
+      {autoRun && (
+        <div className="mb-4 flex items-center gap-2 px-4 py-2.5 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-800">
+          <span>⚠️</span>
+          <span>
+            Auto payroll is <strong>ON</strong> — it will run automatically on the 28th.
+            Turn it off after manual payments to avoid double processing.
+          </span>
+        </div>
+      )}
 
       {/* Tabs */}
       <div className="flex gap-1 mb-4 border-b border-gray-100 pb-0">
