@@ -677,6 +677,10 @@ export default function AdminVisaDetailPage() {
   const [showDocModal,  setShowDocModal]  = useState(false)
   const [selectedDocs,  setSelectedDocs]  = useState<string[]>([])
   const [docMessage,    setDocMessage]    = useState('')
+
+  // Trustpilot review request
+  const [reviewSent,    setReviewSent]    = useState(false)
+  const [reviewLoading, setReviewLoading] = useState(false)
   const [sendingDocs,   setSendingDocs]   = useState(false)
   const [docSentOk,     setDocSentOk]     = useState(false)
 
@@ -717,6 +721,24 @@ export default function AdminVisaDetailPage() {
     setSaveMsg('Saved')
     setTimeout(() => setSaveMsg(''), 2500)
     setSaving(false)
+  }
+
+  async function sendReviewRequest() {
+    if (!app) return
+    setReviewLoading(true)
+    try {
+      const res = await fetch(`/api/admin/visa-applications/${app.id}/review-request`, { method: 'POST' })
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({})) as { error?: string }
+        alert(d.error ?? 'Failed to send review request')
+        return
+      }
+      setReviewSent(true)
+    } catch {
+      alert('Failed to send review request')
+    } finally {
+      setReviewLoading(false)
+    }
   }
 
   async function updateStatus() {
@@ -1038,6 +1060,32 @@ export default function AdminVisaDetailPage() {
           <p className="text-white/40 text-xs mt-1">{fmtDate(app.createdAt)}</p>
         </div>
       </div>
+
+      {/* Trustpilot review request — only shown when approved */}
+      {app.status === 'approved' && (
+        <div className="mb-6 flex items-center justify-between px-4 py-3 bg-green-50 border border-green-200 rounded-xl">
+          <div className="flex items-center gap-2 text-sm text-green-800">
+            <span>⭐</span>
+            <span>Application approved — invite client to leave a Trustpilot review</span>
+          </div>
+          <button
+            onClick={sendReviewRequest}
+            disabled={reviewLoading || reviewSent}
+            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-all disabled:opacity-60 ${
+              reviewSent
+                ? 'bg-green-100 text-green-700 border border-green-300'
+                : 'bg-white border border-green-300 text-green-700 hover:border-green-500 hover:bg-green-50'
+            }`}
+          >
+            {reviewLoading
+              ? <><Loader2 className="w-4 h-4 animate-spin" /> Sending…</>
+              : reviewSent
+                ? <><Check className="w-4 h-4" /> Sent</>
+                : <>⭐ Request Review</>
+            }
+          </button>
+        </div>
+      )}
 
       {/* Two-panel layout */}
       <div className="grid grid-cols-1 xl:grid-cols-[1fr_380px] gap-6">

@@ -9,6 +9,7 @@ import { ArrowRight, Check, Mail, Gift, Rss } from 'lucide-react'
 // ── Above-fold — always in the initial bundle ─────────────────────────────────
 import { MultiSlideHero } from '@/components/home/MultiSlideHero'
 import { MarqueeStrip }   from '@/components/home/MarqueeStrip'
+import TrustBox           from '@/components/trustpilot/TrustBox'
 
 // ── Below-fold — code-split into separate lazy chunks ─────────────────────────
 const dyn = <T extends Record<string, React.ComponentType>>(
@@ -315,6 +316,22 @@ export default function HomePage() {
 
       {/* 10 — Testimonials */}
       <TestimonialsSection />
+
+      {/* Trustpilot widget — follows testimonials as verified social proof */}
+      <section className="py-10 bg-[#060f1e] border-t border-white/5">
+        <div className="max-w-2xl mx-auto px-5 flex flex-col items-center gap-4">
+          <p className="text-xs font-semibold text-white/40 uppercase tracking-widest">Verified reviews on Trustpilot</p>
+          <TrustBox variant="horizontal" theme="dark" className="w-full" />
+          <a
+            href="https://trstp.lt/OVwDw7a68P"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-sm font-semibold text-[#C9A84C] hover:text-[#d4b05a] underline underline-offset-4 transition-colors"
+          >
+            Leave us a review →
+          </a>
+        </div>
+      </section>
 
       {/* 11 — Why Walz alternating sections */}
       <WhyWalzSection />

@@ -348,6 +348,12 @@ export default function RootLayout({
         />
         {/* End Google Analytics 4 */}
 
+        {/* Trustpilot bootstrap — lazyOnload so it never blocks LCP */}
+        <Script
+          src="//widget.trustpilot.com/bootstrap/v5/tp.widget.bootstrap.min.js"
+          strategy="lazyOnload"
+        />
+
       </head>
       <body className="font-sans bg-walz-off-white text-walz-deep-navy antialiased min-h-screen flex flex-col">
         <SessionProvider>

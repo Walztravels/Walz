@@ -1,5 +1,6 @@
 import { Resend } from 'resend'
 import type { BookingPassenger, BookingAddon } from '@/types/booking'
+import { TRUSTPILOT_AFS_EMAIL } from '@/lib/email-visa'
 
 // Lazy init — avoids crashing at build time when RESEND_API_KEY is not set
 function getResend(): Resend {
@@ -259,6 +260,7 @@ export async function sendBookingConfirmation(booking: BookingEmailData, pnr: st
   await getResend().emails.send({
     from: FROM_ADDRESS,
     to: booking.contactEmail,
+    bcc: TRUSTPILOT_AFS_EMAIL,
     subject: `Booking Confirmed — Reference: ${pnr} | Walz Travels`,
     html,
   })

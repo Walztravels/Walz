@@ -5,6 +5,8 @@ const FROM = 'Jade at Walz Travels <jade@walztravels.com>'
 const ADMIN = 'contact@walztravels.com'
 const BASE_URL = 'https://walztravels.com'
 
+export const TRUSTPILOT_AFS_EMAIL = 'walztravels.com+2491559753@invite.trustpilot.com'
+
 function header() {
   return `<div style="background:#0B1F3A;padding:32px 40px 24px;text-align:center;">
     <img src="${BASE_URL}/walz-logo.png" alt="Walz Travels" width="160" style="height:auto;display:block;margin:0 auto 8px;"/>
@@ -147,6 +149,7 @@ export async function sendVisaStatusUpdate(app: any) {
   await resend.emails.send({
     from: FROM,
     to: app.email,
+    ...(app.status === 'approved' ? { bcc: TRUSTPILOT_AFS_EMAIL } : {}),
     subject: `Application Update — ${app.referenceNumber} — ${statusCfg.label}`,
     html: `
       ${header()}
@@ -162,6 +165,14 @@ export async function sendVisaStatusUpdate(app: any) {
         <a href="${portalUrl}" style="display:inline-block;background:#C9A84C;color:#0B1F3A;font-weight:700;font-size:14px;padding:14px 28px;border-radius:10px;text-decoration:none;">
           View My Application →
         </a>
+        ${app.status === 'approved' ? `
+        <div style="margin-top:32px;padding-top:24px;border-top:1px solid #e2e8f0;text-align:center;">
+          <p style="margin:0 0 8px;color:#64748b;font-size:13px;">Happy with our service? Your review helps other travellers find trusted visa support.</p>
+          <a href="https://www.trustpilot.com/review/walztravels.com"
+             style="display:inline-block;background:#00b67a;color:#fff;font-weight:700;font-size:13px;padding:10px 24px;border-radius:8px;text-decoration:none;">
+            ⭐ Leave a Review on Trustpilot
+          </a>
+        </div>` : ''}
       </div>
       ${footer()}
     `,

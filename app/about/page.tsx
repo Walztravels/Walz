@@ -9,6 +9,7 @@ import {
   ArrowRight, ChevronDown, MapPin, ShieldCheck, Briefcase,
   Users, Shield, Landmark, Clock,
 } from 'lucide-react'
+import TrustBox from '@/components/trustpilot/TrustBox'
 
 gsap.registerPlugin(ScrollTrigger)
 
@@ -408,6 +409,22 @@ export default function AboutPage() {
               <p className="text-white/50 text-xs leading-relaxed">{item.desc}</p>
             </div>
           ))}
+        </div>
+      </section>
+
+      {/* Trustpilot widget — below credentials */}
+      <section className="bg-[#060f1e] py-10 px-5 border-b border-white/5">
+        <div className="max-w-xl mx-auto text-center">
+          <p className="text-xs font-semibold text-white/40 uppercase tracking-widest mb-4">What our clients say</p>
+          <TrustBox variant="horizontal" theme="dark" className="w-full" />
+          <a
+            href="https://trstp.lt/OVwDw7a68P"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1.5 mt-4 text-sm font-semibold text-[#C9A84C] hover:text-[#d4b05a] transition-colors"
+          >
+            <span>⭐</span> Leave a review on Trustpilot →
+          </a>
         </div>
       </section>
 
