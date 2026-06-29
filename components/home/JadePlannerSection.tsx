@@ -68,12 +68,11 @@ export function JadePlannerSection() {
   const [dest,         setDest]         = useState('')
   const [planMode,     setPlanMode]     = useState<'solo' | 'group'>('solo')
   const [groupName,    setGroupName]    = useState('')
-  const [groupEmail,   setGroupEmail]   = useState('')
   const [groupCount,   setGroupCount]   = useState(4)
   const [groupLoading, setGroupLoading] = useState(false)
   const [groupError,   setGroupError]   = useState('')
   const [groupCreated, setGroupCreated] = useState<{
-    shareUrl: string; waShareUrl: string; memberCount: number; slug: string
+    shareUrl: string; slug: string; memberCount: number
   } | null>(null)
 
   // ── GSAP animations ──────────────────────────────────────────────────────────
@@ -206,15 +205,14 @@ export function JadePlannerSection() {
 
   async function handleGroupPlan(e: React.FormEvent) {
     e.preventDefault()
-    if (!groupName.trim()) { setGroupError('Please give your trip a name'); return }
-    if (!groupEmail.trim()) { setGroupError('Please enter your email address'); return }
+    if (!groupName.trim()) { setGroupError('Give your trip a name first'); return }
     setGroupLoading(true)
     setGroupError('')
     try {
       const res  = await fetch('/api/plan/group-hive', {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({ tripName: groupName.trim(), memberCount: groupCount, email: groupEmail.trim() }),
+        body:    JSON.stringify({ tripName: groupName.trim(), memberCount: groupCount }),
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || 'Failed to create group plan')
@@ -501,7 +499,7 @@ export function JadePlannerSection() {
                   </div>
                 </>
               ) : groupCreated ? (
-                /* Group success state */
+                /* Group success state — 4 share options */
                 <div
                   className="rounded-xl p-5"
                   style={{
@@ -512,49 +510,70 @@ export function JadePlannerSection() {
                 >
                   <div className="text-center mb-4">
                     <div className="text-2xl mb-2">🐝</div>
-                    <p className="text-white font-bold text-sm">Your Group Hive is ready!</p>
-                    <p className="text-white/45 text-xs mt-1">
-                      Share ONE link with all {groupCreated.memberCount} people — everyone fills preferences privately
+                    <p className="text-white font-bold text-sm">{groupName} is ready!</p>
+                    <p className="text-white/45 text-xs mt-1 leading-relaxed">
+                      Share ONE link with all {groupCreated.memberCount} people. Everyone opens the same link and fills their preferences privately.
                     </p>
                   </div>
                   <div
-                    className="rounded-lg p-3 mb-3"
+                    className="rounded-lg p-3 mb-3 text-center"
                     style={{ background: 'rgba(201,168,76,0.08)', border: '1px solid rgba(201,168,76,0.2)' }}
                   >
                     <p className="text-[10px] font-bold tracking-wider uppercase mb-1" style={{ color: 'rgba(201,168,76,0.7)' }}>
-                      Your group link
+                      One link for everyone
                     </p>
-                    <p className="text-white/70 text-xs font-mono break-all leading-relaxed">
-                      {groupCreated.shareUrl}
+                    <p className="text-white/60 text-xs font-mono break-all">
+                      walztravels.com/plan/group-hive/{groupCreated.slug}
                     </p>
                   </div>
-                  <div className="flex gap-2">
-                    <button
-                      onClick={() => navigator.clipboard.writeText(groupCreated.shareUrl)}
-                      className="flex-1 py-2.5 rounded-lg text-xs font-bold transition-all"
-                      style={{ background: '#C9A84C', color: '#0B1F3A' }}
-                    >
-                      📋 Copy Link
-                    </button>
+                  {/* 3-button share row */}
+                  <div className="grid grid-cols-3 gap-2 mb-2">
                     <a
-                      href={groupCreated.waShareUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="flex-1 py-2.5 rounded-lg text-xs font-bold text-center transition-all"
+                      href={`https://wa.me/?text=${encodeURIComponent(`Hi! I'm planning "${groupName}" for our group.\n\nShare your travel preferences here (2 min, totally private):\nhttps://www.walztravels.com/plan/group-hive/${groupCreated.slug}\n\nJade will reveal the perfect destination once everyone's done 🐝`)}`}
+                      target="_blank" rel="noopener noreferrer"
+                      className="flex flex-col items-center gap-1 py-2.5 rounded-lg text-xs font-bold text-center transition-all"
                       style={{ background: 'rgba(37,211,102,0.15)', color: '#25D366', border: '1px solid rgba(37,211,102,0.3)' }}
                     >
-                      📱 WhatsApp
+                      <span>📱</span><span>WhatsApp</span>
                     </a>
+                    <a
+                      href={`mailto:?subject=${encodeURIComponent(`Join our group trip: ${groupName}`)}&body=${encodeURIComponent(`Hi,\n\nI'm planning "${groupName}" and would love you to join!\n\nShare your travel preferences here (2 min, totally private):\nhttps://www.walztravels.com/plan/group-hive/${groupCreated.slug}\n\nJade AI will reveal the perfect destination for our group once everyone has shared their preferences.\n\nSee you there!`)}`}
+                      className="flex flex-col items-center gap-1 py-2.5 rounded-lg text-xs font-bold text-center transition-all"
+                      style={{ background: 'rgba(59,130,246,0.15)', color: '#60a5fa', border: '1px solid rgba(59,130,246,0.3)' }}
+                    >
+                      <span>✉️</span><span>Email</span>
+                    </a>
+                    <button
+                      onClick={async e => {
+                        await navigator.clipboard.writeText(`https://www.walztravels.com/plan/group-hive/${groupCreated.slug}`)
+                        const el = e.currentTarget
+                        el.innerHTML = '<span>✅</span><span>Copied!</span>'
+                        el.style.borderColor = 'rgba(201,168,76,0.5)'
+                        setTimeout(() => { el.innerHTML = '<span>🔗</span><span>Copy</span>'; el.style.borderColor = 'rgba(255,255,255,0.15)' }, 2000)
+                      }}
+                      className="flex flex-col items-center gap-1 py-2.5 rounded-lg text-xs font-bold transition-all"
+                      style={{ border: '1px solid rgba(255,255,255,0.15)', color: 'rgba(255,255,255,0.6)' }}
+                    >
+                      <span>🔗</span><span>Copy</span>
+                    </button>
                   </div>
-                  <button
-                    onClick={() => { setGroupCreated(null); setGroupName(''); setGroupEmail(''); setGroupError('') }}
-                    className="mt-3 text-white/25 text-[10px] w-full text-center hover:text-white/45 transition-colors"
+                  {/* SMS row */}
+                  <a
+                    href={`sms:?body=${encodeURIComponent(`Join our group trip "${groupName}"! Share your travel preferences here (2 min): https://www.walztravels.com/plan/group-hive/${groupCreated.slug}`)}`}
+                    className="flex items-center justify-center gap-2 w-full py-2 rounded-lg text-xs transition-all"
+                    style={{ border: '1px solid rgba(255,255,255,0.1)', color: 'rgba(255,255,255,0.4)' }}
                   >
-                    Create another group plan
+                    💬 Send via SMS
+                  </a>
+                  <button
+                    onClick={() => { setGroupCreated(null); setGroupName(''); setGroupError('') }}
+                    className="mt-3 text-white/20 text-[10px] w-full text-center hover:text-white/40 transition-colors"
+                  >
+                    Plan a different trip
                   </button>
                 </div>
               ) : (
-                /* Group: trip name + email + count */
+                /* Group: trip name + count (no email) */
                 <form onSubmit={handleGroupPlan}>
                   <div
                     className="rounded-xl p-5 mb-4"
@@ -575,23 +594,6 @@ export function JadePlannerSection() {
                       onChange={e => setGroupName(e.target.value)}
                       placeholder="Lads Trip 2026, Family Summer…"
                       maxLength={60}
-                      required
-                      className="w-full bg-transparent text-white placeholder-white/25 text-sm outline-none py-1.5 mb-4 transition-colors"
-                      style={{ borderBottom: '1px solid rgba(255,255,255,0.15)' }}
-                      onFocus={e => { e.currentTarget.style.borderBottomColor = 'rgba(201,168,76,0.65)' }}
-                      onBlur={e  => { e.currentTarget.style.borderBottomColor = 'rgba(255,255,255,0.15)' }}
-                    />
-
-                    {/* Email */}
-                    <label className="block text-[9px] font-bold tracking-[0.26em] uppercase mb-2"
-                      style={{ color: '#C9A84C' }}>
-                      Your email
-                    </label>
-                    <input
-                      type="email"
-                      value={groupEmail}
-                      onChange={e => setGroupEmail(e.target.value)}
-                      placeholder="your@email.com"
                       required
                       className="w-full bg-transparent text-white placeholder-white/25 text-sm outline-none py-1.5 mb-4 transition-colors"
                       style={{ borderBottom: '1px solid rgba(255,255,255,0.15)' }}
