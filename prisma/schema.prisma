@@ -2205,7 +2205,7 @@ model GeneratedTicket {
 model GroupSession {
   id               String   @id @default(cuid())
   name             String
-  creatorId        String
+  creatorId        String?
   status           String   @default("collecting") // collecting | voting | locked
   destination      String?
   shortlistJson    Json?    // Claude synthesis: 3 destination options
@@ -2218,7 +2218,7 @@ model GroupSession {
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
 
-  creator            User                @relation(fields: [creatorId], references: [id], onDelete: Cascade)
+  creator            User?               @relation(fields: [creatorId], references: [id], onDelete: SetNull)
   members            SessionMember[]
   votes              SessionVote[]
   memberVisaProfiles MemberVisaProfile[]

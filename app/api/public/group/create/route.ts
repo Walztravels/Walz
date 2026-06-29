@@ -8,24 +8,22 @@ export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
 
 /**
- * POST /api/group/create
+ * POST /api/public/group/create
  *
  * Creates a new group planning session and generates unique invite tokens
  * for each member. Returns shareable invite URLs per member.
+ *
+ * Auth is optional — associates with the logged-in user if available,
+ * but works for unauthenticated users too (creatorId = null).
  *
  * Body:
  *   name:    string             — e.g. "Lads trip 2026"
  *   members: { name: string }[] — list of members to invite
  *
  * Returns:
- *   { sessionId, inviteLinks: { name, url, token }[] }
+ *   { sessionId, sessionName, inviteLinks: { name, url, token }[] }
  */
 export async function POST(req: NextRequest) {
-  const session = await getServerSession(authOptions)
-  if (!session?.user?.email) {
-    return NextResponse.json({ error: 'Sign in to create a group session' }, { status: 401 })
-  }
-
   const body = await req.json().catch(() => null)
   if (!body?.name || !Array.isArray(body.members) || body.members.length < 2) {
     return NextResponse.json(
@@ -34,18 +32,27 @@ export async function POST(req: NextRequest) {
     )
   }
 
-  const user = await prisma.user.findUnique({ where: { email: session.user.email } })
-  if (!user) return NextResponse.json({ error: 'User not found' }, { status: 404 })
+  // Associate with logged-in user if available, but don't require it
+  let creatorId: string | undefined = undefined
+  try {
+    const session = await getServerSession(authOptions)
+    if (session?.user?.email) {
+      const user = await prisma.user.findUnique({ where: { email: session.user.email } })
+      if (user) creatorId = user.id
+    }
+  } catch {
+    // ignore auth errors — proceed anonymously
+  }
 
   try {
     const groupSession = await prisma.groupSession.create({
       data: {
         id:        randomUUID(),
         name:      body.name,
-        creatorId: user.id,
+        creatorId: creatorId,
         status:    'collecting',
         members: {
-          create: (body.members as { name: string }[]).map(m => ({
+          create: (body.members as { name: string }[]).map((m: { name: string }) => ({
             id:          randomUUID(),
             inviteToken: randomUUID(),
             name:        m.name,
