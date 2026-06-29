@@ -275,9 +275,7 @@ export async function POST(req: NextRequest) {
           let statementText = ''
           try {
             // eslint-disable-next-line @typescript-eslint/no-require-imports
-            const pdfParse = require('pdf-parse/lib/pdf-parse.js') as (
-              b: Buffer, o?: unknown
-            ) => Promise<{ text: string }>
+            const pdfParse = require('pdf-parse') as (b: Buffer, o?: unknown) => Promise<{ text: string }>
             const parsed   = await pdfParse(buffer, { max: 0 })
             statementText  = parsed.text?.trim() ?? ''
           } catch (e) {
