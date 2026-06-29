@@ -68,4 +68,4 @@ async function approveLink(linkId: string, userId: string, applicationId: string
   })
 }
 
-export { approveLink }
+
