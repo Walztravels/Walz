@@ -35,7 +35,11 @@ const LABEL_MAP: Record<string, string> = {
 export function openJadeChat(context: JadeChatContext = {}) {
   const { service = 'General', detail = '', page = '' } = context
 
-  function tryOpen(attempts = 0) {
+  // Primary: always open the Jade widget via custom event
+  window.dispatchEvent(new CustomEvent('jade:open', { detail: context }))
+
+  // Enhancement: if Chatwoot is loaded, also set attributes there
+  function tryOpenChatwoot(attempts = 0) {
     if (window.$chatwoot) {
       window.$chatwoot.setCustomAttributes({
         service_interest: detail ? `${service} — ${detail}` : service,
@@ -44,10 +48,10 @@ export function openJadeChat(context: JadeChatContext = {}) {
       })
       window.$chatwoot.setLabel(LABEL_MAP[service] ?? 'general-inquiry')
       window.$chatwoot.toggle('open')
-    } else if (attempts < 20) {
-      setTimeout(() => tryOpen(attempts + 1), 100)
+    } else if (attempts < 5) {
+      setTimeout(() => tryOpenChatwoot(attempts + 1), 200)
     }
   }
 
-  tryOpen()
+  tryOpenChatwoot()
 }
