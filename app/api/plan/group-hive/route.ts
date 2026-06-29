@@ -5,8 +5,8 @@ export const dynamic = 'force-dynamic'
 
 export async function POST(req: NextRequest) {
   try {
-    const body = await req.json() as { tripName?: string; memberCount?: number }
-    const { tripName, memberCount } = body
+    const body = await req.json() as { tripName?: string; memberCount?: number; email?: string }
+    const { tripName, memberCount, email } = body
 
     if (!tripName?.trim() || !memberCount) {
       return NextResponse.json({ error: 'tripName and memberCount are required' }, { status: 400 })
@@ -37,12 +37,17 @@ export async function POST(req: NextRequest) {
     })
 
     const shareUrl = `https://www.walztravels.com/plan/group-hive/${slug}`
+    const waText   = encodeURIComponent(
+      `Hi! I'm planning "${tripName!.trim()}" for our group.\n\nShare your travel preferences here (takes 2 min, totally private):\n${shareUrl}\n\nJade will reveal the perfect destination for everyone once all ${count} of us have shared our preferences 🐝`
+    )
 
     return NextResponse.json({
       id:          session.id,
       slug,
       shareUrl,
+      waShareUrl:  `https://wa.me/?text=${waText}`,
       memberCount: count,
+      email:       email ?? null,
     }, { status: 201 })
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err)

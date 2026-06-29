@@ -2,7 +2,6 @@
 
 import { useEffect, useRef, useState } from 'react'
 import Image from 'next/image'
-import { useRouter } from 'next/navigation'
 import gsap from 'gsap'
 import ScrollTrigger from 'gsap/ScrollTrigger'
 import { ArrowRight, Users } from 'lucide-react'
@@ -10,58 +9,6 @@ import { useSettings, waLink } from '@/hooks/useSettings'
 import { cn } from '@/lib/utils'
 
 // ── Data ──────────────────────────────────────────────────────────────────────
-
-const PREVIEWS = [
-  {
-    flag: '🇬🇧',
-    city: 'London',
-    duration: '7 Days',
-    days: [
-      {
-        n: 1, title: 'Arrival',
-        items: ['✈ Heathrow Terminal 5', '🏨 Central London hotel', '🍽 Borough Market evening'],
-      },
-      {
-        n: 2, title: 'Royal London',
-        items: ['🏰 Tower of London', '🌉 Tower Bridge walk', '🎭 West End show'],
-      },
-      {
-        n: 3, title: 'Culture',
-        items: ['🏛 British Museum', '🛍 Covent Garden', '🌆 Soho dining'],
-      },
-    ],
-  },
-  {
-    flag: '🇦🇪',
-    city: 'Dubai',
-    duration: '5 Days',
-    days: [
-      {
-        n: 1, title: 'Arrival',
-        items: ['✈ Dubai International', '🏨 Downtown hotel', '🌆 Burj Khalifa sunset'],
-      },
-      {
-        n: 2, title: 'The City',
-        items: ['🕌 Old Dubai tour', '🛍 Gold Souk', '🍽 Creek dining'],
-      },
-    ],
-  },
-  {
-    flag: '🇨🇦',
-    city: 'Toronto & Niagara',
-    duration: '7 Days',
-    days: [
-      {
-        n: 1, title: 'Arrival',
-        items: ['✈ Pearson International', '🏨 Downtown Toronto', '🍁 CN Tower evening'],
-      },
-      {
-        n: 2, title: 'Niagara Falls',
-        items: ['🌊 Private VIP boat tour', '🍷 Wine tasting', '🌅 Falls at golden hour'],
-      },
-    ],
-  },
-]
 
 const STEPS = [
   { num: '01', text: 'Tell Jade your destination and travel preferences' },
@@ -105,7 +52,6 @@ const HEADLINE_LINES = [
 
 export function JadePlannerSection() {
   const settings    = useSettings()
-  const router      = useRouter()
   const sectionRef  = useRef<HTMLDivElement>(null)
   const accentRef   = useRef<HTMLDivElement>(null)
   const mapRef      = useRef<HTMLDivElement>(null)
@@ -119,25 +65,16 @@ export function JadePlannerSection() {
   const cardRef     = useRef<HTMLDivElement>(null)
   const trustRef    = useRef<HTMLDivElement>(null)
 
-  const [dest,       setDest]       = useState('')
-  const [previewIdx, setPreviewIdx] = useState(0)
-  const [fading,     setFading]     = useState(false)
-  const [planMode,   setPlanMode]   = useState<'solo' | 'group'>('solo')
-  const [groupName,  setGroupName]  = useState('')
-  const [groupCount, setGroupCount] = useState(4)
-
-  // ── Itinerary cycling (CSS crossfade) ────────────────────────────────────────
-  useEffect(() => {
-    const id = setInterval(() => {
-      setFading(true)
-      const t = setTimeout(() => {
-        setPreviewIdx(i => (i + 1) % PREVIEWS.length)
-        setFading(false)
-      }, 600)
-      return () => clearTimeout(t)
-    }, 3500)
-    return () => clearInterval(id)
-  }, [])
+  const [dest,         setDest]         = useState('')
+  const [planMode,     setPlanMode]     = useState<'solo' | 'group'>('solo')
+  const [groupName,    setGroupName]    = useState('')
+  const [groupEmail,   setGroupEmail]   = useState('')
+  const [groupCount,   setGroupCount]   = useState(4)
+  const [groupLoading, setGroupLoading] = useState(false)
+  const [groupError,   setGroupError]   = useState('')
+  const [groupCreated, setGroupCreated] = useState<{
+    shareUrl: string; waShareUrl: string; memberCount: number; slug: string
+  } | null>(null)
 
   // ── GSAP animations ──────────────────────────────────────────────────────────
   useEffect(() => {
@@ -267,14 +204,27 @@ export function JadePlannerSection() {
     )
   }
 
-  function handleGroupPlan(e: React.FormEvent) {
+  async function handleGroupPlan(e: React.FormEvent) {
     e.preventDefault()
-    if (!groupName.trim()) return
-    const url = `/group/create?name=${encodeURIComponent(groupName.trim())}&count=${groupCount}`
-    router.push(url)
+    if (!groupName.trim()) { setGroupError('Please give your trip a name'); return }
+    if (!groupEmail.trim()) { setGroupError('Please enter your email address'); return }
+    setGroupLoading(true)
+    setGroupError('')
+    try {
+      const res  = await fetch('/api/plan/group-hive', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ tripName: groupName.trim(), memberCount: groupCount, email: groupEmail.trim() }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Failed to create group plan')
+      setGroupCreated(data)
+    } catch (err: unknown) {
+      setGroupError(err instanceof Error ? err.message : 'Something went wrong. Please try again.')
+    } finally {
+      setGroupLoading(false)
+    }
   }
-
-  const preview = PREVIEWS[previewIdx]
 
   return (
     <section
@@ -550,8 +500,61 @@ export function JadePlannerSection() {
                     ))}
                   </div>
                 </>
+              ) : groupCreated ? (
+                /* Group success state */
+                <div
+                  className="rounded-xl p-5"
+                  style={{
+                    background:     'rgba(255,255,255,0.05)',
+                    backdropFilter: 'blur(10px)',
+                    border:         '1px solid rgba(201,168,76,0.3)',
+                  }}
+                >
+                  <div className="text-center mb-4">
+                    <div className="text-2xl mb-2">🐝</div>
+                    <p className="text-white font-bold text-sm">Your Group Hive is ready!</p>
+                    <p className="text-white/45 text-xs mt-1">
+                      Share ONE link with all {groupCreated.memberCount} people — everyone fills preferences privately
+                    </p>
+                  </div>
+                  <div
+                    className="rounded-lg p-3 mb-3"
+                    style={{ background: 'rgba(201,168,76,0.08)', border: '1px solid rgba(201,168,76,0.2)' }}
+                  >
+                    <p className="text-[10px] font-bold tracking-wider uppercase mb-1" style={{ color: 'rgba(201,168,76,0.7)' }}>
+                      Your group link
+                    </p>
+                    <p className="text-white/70 text-xs font-mono break-all leading-relaxed">
+                      {groupCreated.shareUrl}
+                    </p>
+                  </div>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => navigator.clipboard.writeText(groupCreated.shareUrl)}
+                      className="flex-1 py-2.5 rounded-lg text-xs font-bold transition-all"
+                      style={{ background: '#C9A84C', color: '#0B1F3A' }}
+                    >
+                      📋 Copy Link
+                    </button>
+                    <a
+                      href={groupCreated.waShareUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="flex-1 py-2.5 rounded-lg text-xs font-bold text-center transition-all"
+                      style={{ background: 'rgba(37,211,102,0.15)', color: '#25D366', border: '1px solid rgba(37,211,102,0.3)' }}
+                    >
+                      📱 WhatsApp
+                    </a>
+                  </div>
+                  <button
+                    onClick={() => { setGroupCreated(null); setGroupName(''); setGroupEmail(''); setGroupError('') }}
+                    className="mt-3 text-white/25 text-[10px] w-full text-center hover:text-white/45 transition-colors"
+                  >
+                    Create another group plan
+                  </button>
+                </div>
               ) : (
-                /* Group: trip name + count */
+                /* Group: trip name + email + count */
                 <form onSubmit={handleGroupPlan}>
                   <div
                     className="rounded-xl p-5 mb-4"
@@ -562,7 +565,7 @@ export function JadePlannerSection() {
                     }}
                   >
                     {/* Trip name */}
-                    <label className="block text-[9px] font-bold tracking-[0.26em] uppercase mb-3"
+                    <label className="block text-[9px] font-bold tracking-[0.26em] uppercase mb-2"
                       style={{ color: '#C9A84C' }}>
                       Give your trip a name
                     </label>
@@ -573,14 +576,31 @@ export function JadePlannerSection() {
                       placeholder="Lads Trip 2026, Family Summer…"
                       maxLength={60}
                       required
-                      className="w-full bg-transparent text-white placeholder-white/25 text-sm outline-none py-1.5 mb-5 transition-colors"
+                      className="w-full bg-transparent text-white placeholder-white/25 text-sm outline-none py-1.5 mb-4 transition-colors"
+                      style={{ borderBottom: '1px solid rgba(255,255,255,0.15)' }}
+                      onFocus={e => { e.currentTarget.style.borderBottomColor = 'rgba(201,168,76,0.65)' }}
+                      onBlur={e  => { e.currentTarget.style.borderBottomColor = 'rgba(255,255,255,0.15)' }}
+                    />
+
+                    {/* Email */}
+                    <label className="block text-[9px] font-bold tracking-[0.26em] uppercase mb-2"
+                      style={{ color: '#C9A84C' }}>
+                      Your email
+                    </label>
+                    <input
+                      type="email"
+                      value={groupEmail}
+                      onChange={e => setGroupEmail(e.target.value)}
+                      placeholder="your@email.com"
+                      required
+                      className="w-full bg-transparent text-white placeholder-white/25 text-sm outline-none py-1.5 mb-4 transition-colors"
                       style={{ borderBottom: '1px solid rgba(255,255,255,0.15)' }}
                       onFocus={e => { e.currentTarget.style.borderBottomColor = 'rgba(201,168,76,0.65)' }}
                       onBlur={e  => { e.currentTarget.style.borderBottomColor = 'rgba(255,255,255,0.15)' }}
                     />
 
                     {/* Traveller count */}
-                    <label className="block text-[9px] font-bold tracking-[0.26em] uppercase mb-3"
+                    <label className="block text-[9px] font-bold tracking-[0.26em] uppercase mb-2"
                       style={{ color: '#C9A84C' }}>
                       How many people?
                     </label>
@@ -604,16 +624,20 @@ export function JadePlannerSection() {
                       </button>
                       <button
                         type="submit"
+                        disabled={groupLoading}
                         className={cn(
                           'group flex items-center gap-2 font-bold text-sm px-5 py-2.5 rounded-lg transition-all flex-shrink-0',
-                          'bg-[#C9A84C] text-[#0B1F3A] hover:brightness-110 hover:scale-[1.03]',
+                          'bg-[#C9A84C] text-[#0B1F3A] hover:brightness-110 hover:scale-[1.03] disabled:opacity-50 disabled:pointer-events-none',
                         )}
                       >
-                        Create Group Plan
-                        <ArrowRight className="w-4 h-4 transition-transform duration-200 group-hover:translate-x-1" />
+                        {groupLoading ? 'Creating…' : 'Create Group Plan'}
+                        {!groupLoading && <ArrowRight className="w-4 h-4 transition-transform duration-200 group-hover:translate-x-1" />}
                       </button>
                     </div>
                   </div>
+                  {groupError && (
+                    <p className="text-red-400 text-xs text-center -mt-2 mb-2">{groupError}</p>
+                  )}
                 </form>
               )}
             </div>
@@ -675,7 +699,7 @@ export function JadePlannerSection() {
               </div>
             </div>
 
-            {/* Itinerary preview card */}
+            {/* Itinerary prompt card */}
             <div
               ref={cardRef}
               className="w-full max-w-[340px] rounded-2xl overflow-hidden"
@@ -694,83 +718,33 @@ export function JadePlannerSection() {
                   className="w-2 h-2 rounded-full bg-[#C9A84C] flex-shrink-0 animate-pulse"
                   style={{ animationDuration: '2s' }}
                 />
-                <p className="text-white/50 text-xs">
-                  Jade is building your itinerary
-                  <LoadingDots />
+                <p className="text-white/50 text-xs">Jade — AI Travel Advisor</p>
+              </div>
+
+              {/* Empty prompt state */}
+              <div className="px-5 py-8 text-center">
+                <p className="text-4xl mb-4">✈️</p>
+                <p className="text-white/60 text-sm font-medium mb-2">
+                  Your personalised itinerary will appear here
+                </p>
+                <p className="text-white/30 text-xs leading-relaxed">
+                  Tell Jade where you want to go and when — she will build a complete day by day plan with flights, hotels, visa and transfers
                 </p>
               </div>
 
-              {/* Crossfading content */}
-              <div
-                className="px-5 py-5 transition-opacity"
-                style={{
-                  opacity:          fading ? 0 : 1,
-                  transitionDuration: '600ms',
-                }}
-              >
-                {/* Destination header */}
-                <div className="flex items-center gap-3 mb-4">
-                  <span className="text-3xl leading-none">{preview.flag}</span>
-                  <div>
-                    <p className="text-white font-bold text-sm leading-none">{preview.city}</p>
-                    <p className="text-white/40 text-[11px] mt-1">{preview.duration}</p>
-                  </div>
-                </div>
-
-                {/* Divider */}
-                <div className="h-px bg-white/8 mb-4" style={{ background: 'rgba(255,255,255,0.08)' }} />
-
-                {/* Days */}
-                <div className="space-y-4">
-                  {preview.days.map(day => (
-                    <div key={day.n}>
-                      <p className="text-[10px] font-bold tracking-wider uppercase mb-1.5"
-                        style={{ color: 'rgba(201,168,76,0.85)' }}>
-                        Day {day.n} — {day.title}
-                      </p>
-                      <div className="space-y-0.5 pl-0.5">
-                        {day.items.map((item, i) => (
-                          <p key={i} className="text-white/52 text-[11px] leading-relaxed"
-                            style={{ color: 'rgba(255,255,255,0.52)' }}>
-                            {item}
-                          </p>
-                        ))}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              {/* Book This Trip CTA */}
-              <div className="px-5 pb-4">
+              {/* Book with Walz CTA */}
+              <div className="px-5 pb-5">
                 <a
-                  href={waLink(settings.whatsapp_uk, `Hi, I'm interested in booking a ${preview.city ?? 'trip'} with Walz Travels. Can you help me plan it?`)}
+                  href={waLink(settings.whatsapp_uk, `Hi, I'd like to plan a trip with Walz Travels. Can you help me?`)}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="flex items-center justify-center gap-2 w-full bg-[#C9A84C] text-[#0B1F3A] font-bold text-sm py-3 rounded-xl hover:bg-[#d4b05a] transition-all hover:scale-[1.02] active:scale-100">
-                  Book This Trip with Walz →
+                  className="flex items-center justify-center gap-2 w-full bg-[#C9A84C] text-[#0B1F3A] font-bold text-sm py-3 rounded-xl hover:bg-[#d4b05a] transition-all hover:scale-[1.02] active:scale-100"
+                >
+                  Chat with Walz Travels →
                 </a>
                 <p className="text-white/25 text-[10px] text-center mt-2">
                   Our team will arrange everything — flights, hotels, visa &amp; transfers
                 </p>
-              </div>
-
-              {/* Progress dots */}
-              <div
-                className="flex items-center justify-center gap-2 py-3"
-                style={{ borderTop: '1px solid rgba(255,255,255,0.08)' }}
-              >
-                {PREVIEWS.map((_, i) => (
-                  <div
-                    key={i}
-                    className="rounded-full transition-all duration-300"
-                    style={{
-                      width:      i === previewIdx ? '16px' : '6px',
-                      height:     '6px',
-                      background: i === previewIdx ? '#C9A84C' : 'rgba(255,255,255,0.2)',
-                    }}
-                  />
-                ))}
               </div>
             </div>
           </div>
@@ -796,14 +770,3 @@ export function JadePlannerSection() {
   )
 }
 
-// ── Loading dots animation ────────────────────────────────────────────────────
-function LoadingDots() {
-  const [dots, setDots] = useState('.')
-  useEffect(() => {
-    const id = setInterval(() => {
-      setDots(d => d.length >= 3 ? '.' : d + '.')
-    }, 500)
-    return () => clearInterval(id)
-  }, [])
-  return <span className="inline-block w-4">{dots}</span>
-}

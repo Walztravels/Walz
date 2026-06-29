@@ -6,6 +6,7 @@ import { Users, ArrowRight, Loader2, Copy, Check } from 'lucide-react'
 
 export default function GroupHiveCreatePage() {
   const [tripName,    setTripName]    = useState('')
+  const [email,       setEmail]       = useState('')
   const [memberCount, setMemberCount] = useState(4)
   const [loading,     setLoading]     = useState(false)
   const [error,       setError]       = useState<string | null>(null)
@@ -15,13 +16,14 @@ export default function GroupHiveCreatePage() {
   async function handleCreate(e: React.FormEvent) {
     e.preventDefault()
     if (!tripName.trim() || memberCount < 2) return
+    if (!email.trim()) { setError('Please enter your email so we can send you the results'); return }
     setLoading(true)
     setError(null)
     try {
       const res  = await fetch('/api/plan/group-hive', {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({ tripName: tripName.trim(), memberCount }),
+        body:    JSON.stringify({ tripName: tripName.trim(), memberCount, email: email.trim() }),
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error ?? 'Failed to create group plan')
@@ -72,7 +74,7 @@ export default function GroupHiveCreatePage() {
               style={{ background: 'rgba(255,255,255,0.05)', backdropFilter: 'blur(12px)', border: '1px solid rgba(201,168,76,0.25)' }}
             >
               {/* Trip name */}
-              <div className="mb-7">
+              <div className="mb-5">
                 <label className="block text-[9px] font-bold tracking-[0.26em] uppercase mb-2.5 text-[#C9A84C]">
                   Give your trip a name
                 </label>
@@ -83,6 +85,24 @@ export default function GroupHiveCreatePage() {
                   placeholder="Bali 2026, Lagos Squad, Family Summer..."
                   required
                   maxLength={60}
+                  className="w-full bg-transparent text-white text-sm outline-none py-2 placeholder-white/20"
+                  style={{ borderBottom: '1px solid rgba(255,255,255,0.15)' }}
+                  onFocus={e => { e.currentTarget.style.borderBottomColor = 'rgba(201,168,76,0.65)' }}
+                  onBlur={e  => { e.currentTarget.style.borderBottomColor = 'rgba(255,255,255,0.15)' }}
+                />
+              </div>
+
+              {/* Email */}
+              <div className="mb-7">
+                <label className="block text-[9px] font-bold tracking-[0.26em] uppercase mb-2.5 text-[#C9A84C]">
+                  Your email (we'll send the link)
+                </label>
+                <input
+                  type="email"
+                  value={email}
+                  onChange={e => setEmail(e.target.value)}
+                  placeholder="your@email.com"
+                  required
                   className="w-full bg-transparent text-white text-sm outline-none py-2 placeholder-white/20"
                   style={{ borderBottom: '1px solid rgba(255,255,255,0.15)' }}
                   onFocus={e => { e.currentTarget.style.borderBottomColor = 'rgba(201,168,76,0.65)' }}
