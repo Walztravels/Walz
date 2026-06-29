@@ -38,14 +38,51 @@ export async function PATCH(
       data: { status: 'approved', reviewedBy: session.email, reviewedAt: new Date(), notes: body.notes },
     })
 
-    // Notify client
+    // Create portal notification
+    prisma.portalNotification.create({
+      data: {
+        userId: linkReq.userId,
+        type:   'application_linked',
+        title:  'Application added to your portal',
+        body:   `Your ${linkReq.applicationLabel ?? linkReq.applicationType} application has been linked to your Walz Travels account. You can now track it from your dashboard.`,
+        data: {
+          applicationId:    linkReq.applicationId,
+          applicationType:  linkReq.applicationType,
+          applicationLabel: linkReq.applicationLabel,
+        },
+      },
+    }).catch(() => {})
+
+    // Notify client by email
     const resend = getResend()
     if (resend) {
+      const user = await prisma.user.findUnique({
+        where:  { id: linkReq.userId },
+        select: { name: true },
+      }).catch(() => null)
+
       resend.emails.send({
         from:    'Walz Travels <contact@walztravels.com>',
         to:      linkReq.userEmail,
-        subject: 'Your Walz Travels applications are now in your portal',
-        html: `<p>Hi,</p><p>Your previous applications with Walz Travels are now linked to your portal account.</p><p><a href="https://www.walztravels.com/portal/dashboard">View My Applications →</a></p>`,
+        subject: '✅ Your application is now in your Walz portal',
+        html: `
+<div style="font-family:sans-serif;max-width:600px;margin:0 auto;padding:24px;">
+  <h2 style="color:#0B1F3A;">Good news, ${user?.name ?? 'there'}! 👋</h2>
+  <p style="color:#444;line-height:1.6;">
+    Your <strong>${linkReq.applicationLabel ?? linkReq.applicationType}</strong> application
+    has been linked to your Walz Travels portal account.
+  </p>
+  <p style="color:#444;line-height:1.6;">
+    You can now view your application status, track progress, and receive updates directly from your portal dashboard.
+  </p>
+  <a href="https://www.walztravels.com/dashboard"
+     style="display:inline-block;margin:20px 0;padding:12px 28px;background:#C9A84C;color:#0B1F3A;text-decoration:none;border-radius:8px;font-weight:700;">
+    View My Dashboard →
+  </a>
+  <p style="color:#888;font-size:13px;margin-top:32px;">
+    Walz Travels · contact@walztravels.com · +447398753797
+  </p>
+</div>`,
       }).catch(() => {})
     }
   } else {

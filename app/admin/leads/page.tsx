@@ -148,14 +148,14 @@ export default function LeadsPage() {
                       <td className="px-4 py-3">
                         <div className="flex items-center gap-2">
                           <a
-                            href={`https://wa.me/${lead.whatsapp.replace(/\D/g, '')}`}
+                            href={`https://wa.me/${(lead.whatsapp ?? '').replace(/\D/g, '')}`}
                             target="_blank"
                             rel="noopener noreferrer"
                             className="text-green-600 hover:underline font-medium"
                           >
-                            {lead.whatsapp}
+                            {lead.whatsapp || '—'}
                           </a>
-                          <CallButton phoneNumber={lead.whatsapp} />
+                          {lead.whatsapp && <CallButton phoneNumber={lead.whatsapp} />}
                         </div>
                       </td>
                       <td className="px-4 py-3">
@@ -171,7 +171,7 @@ export default function LeadsPage() {
                         </span>
                       </td>
                       <td className="px-4 py-3 text-gray-500 text-xs whitespace-nowrap">
-                        {format(new Date(lead.createdAt), 'd MMM yyyy')}
+                        {lead.createdAt ? format(new Date(lead.createdAt), 'd MMM yyyy') : '—'}
                       </td>
                       <td className="px-4 py-3">
                         <select

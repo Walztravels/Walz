@@ -9,7 +9,7 @@ import {
   MessageCircle, Shield, Globe, Compass, AlertCircle,
   ChevronRight, CheckCircle, XCircle, Clock, Activity,
   CreditCard, Package2, Car, TicketCheck, LogOut, Signal,
-  Download, ArrowRight,
+  Download, ArrowRight, Bell,
 } from 'lucide-react'
 
 type Stage = 'ENQUIRY' | 'DOCUMENTS_PENDING' | 'DOCUMENTS_RECEIVED' | 'PROCESSING' | 'SUBMITTED' | 'AWAITING_DECISION' | 'APPROVED' | 'REJECTED' | 'COMPLETED'
@@ -66,18 +66,41 @@ const navLinks = [
   { href: '/portal/profile',      label: 'Profile',       icon: Shield          },
 ]
 
+type Notification = {
+  id: string; type: string; title: string; body: string; read: boolean; createdAt: string
+}
+
 export default function Dashboard() {
   const { data: session, status } = useSession()
   const [data, setData]     = useState<DashboardData | null>(null)
   const [loading, setLoading] = useState(true)
   const [logoUrl, setLogoUrl] = useState('/walz-logo.png')
   const [trips, setTrips]   = useState<{ id: string; title: string; destination: string; status: string; coverImage: string | null }[]>([])
+  const [notifications, setNotifications]   = useState<Notification[]>([])
+  const [unreadCount, setUnreadCount]       = useState(0)
+  const [showNotifs, setShowNotifs]         = useState(false)
+
+  const fetchNotifications = () => {
+    fetch('/api/portal/notifications').then(r => r.json()).then(d => {
+      setNotifications(d.notifications ?? [])
+      setUnreadCount(d.unreadCount ?? 0)
+    }).catch(() => {})
+  }
+
+  const markAllRead = () => {
+    fetch('/api/portal/notifications', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ markAllRead: true }),
+    }).then(() => { setUnreadCount(0); setNotifications(prev => prev.map(n => ({ ...n, read: true }))) }).catch(() => {})
+  }
 
   useEffect(() => {
     if (status !== 'authenticated') return
     fetch('/api/portal/dashboard').then(r => r.json()).then(d => { setData(d); setLoading(false) }).catch(() => setLoading(false))
     fetch('/api/trips').then(r => r.json()).then(d => { if (d.trips) setTrips(d.trips.slice(0, 3)) }).catch(() => {})
     fetch('/api/media/logo_main').then(r => r.json()).then(d => { if (d.url) setLogoUrl(d.url) }).catch(() => {})
+    fetchNotifications()
   }, [status])
 
   if (status === 'loading' || (status === 'authenticated' && loading)) {
@@ -124,6 +147,47 @@ export default function Dashboard() {
           </nav>
 
           <div className="flex items-center gap-3">
+            {/* Notification bell */}
+            <div className="relative">
+              <button
+                onClick={() => { setShowNotifs(v => !v); if (!showNotifs) fetchNotifications() }}
+                className="relative p-2 rounded-lg text-white/50 hover:text-white hover:bg-white/8 transition-all"
+              >
+                <Bell className="w-5 h-5" />
+                {unreadCount > 0 && (
+                  <span className="absolute -top-0.5 -right-0.5 min-w-[16px] h-4 px-0.5 rounded-full bg-amber-500 text-white text-[10px] font-bold flex items-center justify-center">
+                    {unreadCount > 9 ? '9+' : unreadCount}
+                  </span>
+                )}
+              </button>
+
+              {showNotifs && (
+                <div className="absolute right-0 top-11 w-80 bg-white rounded-2xl shadow-2xl border border-gray-100 z-50">
+                  <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100">
+                    <p className="font-semibold text-sm text-gray-800">Notifications</p>
+                    {unreadCount > 0 && (
+                      <button onClick={markAllRead} className="text-xs text-amber-500 hover:underline font-medium">
+                        Mark all read
+                      </button>
+                    )}
+                  </div>
+                  <div className="max-h-80 overflow-y-auto">
+                    {notifications.length === 0 ? (
+                      <div className="py-8 text-center text-sm text-gray-400">No notifications yet</div>
+                    ) : notifications.map(n => (
+                      <div key={n.id} className={`px-4 py-3 border-b border-gray-50 last:border-0 ${!n.read ? 'bg-amber-50' : ''}`}>
+                        <p className="text-sm font-medium text-gray-800">{n.title}</p>
+                        <p className="text-xs text-gray-500 mt-0.5 leading-relaxed">{n.body}</p>
+                        <p className="text-xs text-gray-400 mt-1.5">
+                          {n.createdAt ? new Date(n.createdAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) : ''}
+                        </p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+
             <span className="text-white/50 text-sm hidden lg:block">{session?.user?.email}</span>
             <button onClick={() => signOut({ callbackUrl: '/login' })}
               className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-white/40 hover:text-red-400 hover:bg-red-500/10 text-sm transition-all">

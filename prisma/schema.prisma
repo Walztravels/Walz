@@ -2687,6 +2687,19 @@ model ApplicationLinkRequest {
   @@index([status])
 }
 
+model PortalNotification {
+  id        String   @id @default(cuid())
+  userId    String
+  type      String
+  title     String
+  body      String
+  data      Json?
+  read      Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+}
+
 model GroupHiveSession {
   id             String    @id @default(cuid())
   slug           String    @unique
