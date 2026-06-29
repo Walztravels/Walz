@@ -2701,3 +2701,34 @@ model GroupHiveMember {
 
   @@index([sessionId])
 }
+
+model ItineraryHiveSession {
+  id             String    @id @default(cuid())
+  slug           String    @unique
+  tripName       String
+  destination    String?
+  memberCount    Int       @default(2)
+  status         String    @default("collecting")
+  analysisResult String?   @db.Text
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  members        ItineraryHiveMember[]
+}
+
+model ItineraryHiveMember {
+  id           String    @id @default(cuid())
+  sessionId    String
+  slotNumber   Int
+  name         String    @default("")
+  destinations String?
+  travelStyle  String?
+  budget       String?
+  mustHaves    String?
+  dates        String?
+  specialNeeds String?
+  isSubmitted  Boolean   @default(false)
+  submittedAt  DateTime?
+  session      ItineraryHiveSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([sessionId])
+}
