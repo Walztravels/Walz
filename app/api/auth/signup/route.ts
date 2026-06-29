@@ -16,6 +16,45 @@ function fmt(date: Date) {
   return date.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })
 }
 
+// Helper: find all unlinked applications for an email
+async function findUnlinkedApplications(email: string) {
+  const normalised = email.toLowerCase().trim()
+  const items: Array<{ id: string; type: string; label: string; date: Date }> = []
+
+  const [visaApps, tripReqs, tourEnqs] = await Promise.all([
+    prisma.visaApplication.findMany({
+      where: { email: { equals: normalised, mode: 'insensitive' }, userId: null },
+      select: { id: true, createdAt: true, visaType: true, destinationIso2: true },
+    }),
+    prisma.tripRequest.findMany({
+      where: { email: { equals: normalised, mode: 'insensitive' }, userId: null },
+      select: { id: true, createdAt: true, destination: true },
+    }),
+    prisma.tourEnquiry.findMany({
+      where: { email: { equals: normalised, mode: 'insensitive' }, userId: null },
+      select: { id: true, createdAt: true },
+    }),
+  ])
+
+  visaApps.forEach(a => items.push({
+    id: a.id, type: 'visa',
+    label: `Visa Application — ${a.visaType ?? a.destinationIso2 ?? 'Unknown'}`,
+    date: a.createdAt,
+  }))
+  tripReqs.forEach(t => items.push({
+    id: t.id, type: 'trip',
+    label: `Trip Request — ${t.destination ?? 'Custom Trip'}`,
+    date: t.createdAt,
+  }))
+  tourEnqs.forEach(e => items.push({
+    id: e.id, type: 'tour',
+    label: `Tour Enquiry`,
+    date: e.createdAt,
+  }))
+
+  return { total: items.length, items }
+}
+
 export async function POST(req: NextRequest) {
   try {
     const { name, email, password } = await req.json()
@@ -75,9 +114,34 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Could not create account. Please try again.' }, { status: 500 })
     }
 
+    // Auto-detect unlinked applications
+    const resend = getResend()
+    try {
+      const matchingApps = await findUnlinkedApplications(normalised)
+      if (matchingApps.total > 0) {
+        await prisma.applicationLinkRequest.createMany({
+          data: matchingApps.items.map(app => ({
+            userId:           user.id,
+            userEmail:        normalised,
+            applicationId:    app.id,
+            applicationType:  app.type,
+            applicationLabel: app.label,
+            autoDetected:     true,
+          })),
+        })
+        if (resend) {
+          resend.emails.send({
+            from:    'Walz Travels System <noreply@walztravels.com>',
+            to:      'contact@walztravels.com',
+            subject: `🔗 Portal signup matches ${matchingApps.total} existing application(s)`,
+            html: `<p><strong>${normalised}</strong> just created a portal account.</p><p>We found <strong>${matchingApps.total} unlinked application(s)</strong> with this email.</p><p><a href="https://www.walztravels.com/admin/clients/link-applications">Review and link applications →</a></p>`,
+          }).catch(() => { /* non-fatal */ })
+        }
+      }
+    } catch { /* non-fatal — don't block signup */ }
+
     const baseUrl    = process.env.NEXTAUTH_URL ?? 'https://walztravels.com'
     const verifyUrl  = `${baseUrl}/api/auth/verify-email?token=${verificationToken}`
-    const resend     = getResend()
 
     // ── Verification email ──────────────────────────────────────────────────
     if (resend) {

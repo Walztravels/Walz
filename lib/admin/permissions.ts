@@ -90,6 +90,7 @@ export type Permission =
   | 'marketing.analytics'
   | 'marketing.whatsapp'
   | 'marketing.tenants'
+  | 'link_applications'
 
 // ── All permissions (super_admin gets all automatically) ─────────────────────
 
@@ -119,6 +120,7 @@ export const ALL_PERMISSIONS: Permission[] = [
   'intelligence.conversation', 'intelligence.lifecycle',
   'jade.staff',
   'marketing', 'marketing.publish', 'marketing.analytics', 'marketing.whatsapp', 'marketing.tenants',
+  'link_applications',
 ]
 
 export const ROLE_PERMISSIONS: Record<AdminRole, Permission[]> = {
@@ -377,8 +379,9 @@ export const NAV_ITEMS: NavSection[] = [
   {
     section: 'CLIENTS & LEADS',
     items: [
-      { href: '/admin/clients',     label: 'Clients',        icon: 'Users',           permission: 'clients'         },
-      { href: '/admin/leads',       label: 'Leads',          icon: 'UserPlus',        permission: 'leads'           },
+      { href: '/admin/clients',              label: 'Clients',            icon: 'Users',           permission: 'clients'          },
+      { href: '/admin/clients/link-applications', label: 'Link Applications', icon: 'Link2',           permission: 'link_applications' },
+      { href: '/admin/leads',                label: 'Leads',              icon: 'UserPlus',        permission: 'leads'            },
     ],
   },
   {
@@ -482,6 +485,7 @@ export const NAV_ITEMS: NavSection[] = [
     items: [
       { href: '/admin/jade-oversight',   label: 'Jade Oversight',  icon: 'MessageSquare', permission: 'jade.staff' },
       { href: '/admin/group-sessions',   label: 'Group Sessions',  icon: 'Users',         permission: 'jade.staff' },
+      { href: '/admin/itinerary-hive',   label: 'Itinerary Hive',  icon: 'MapPin',        permission: 'jade.staff' },
     ],
   },
   {

@@ -88,11 +88,12 @@ const PERM_META: Record<Permission, PermMeta> = {
   'marketing.analytics':  { label: 'Marketing Analytics',           desc: 'View social media performance and post stats' },
   'marketing.whatsapp':   { label: 'WhatsApp Broadcast',            desc: 'Send WhatsApp broadcasts to clients' },
   'marketing.tenants':    { label: 'TravelPost Tenants',            desc: 'Manage white-label TravelPost agency tenants' },
+  link_applications:      { label: 'Link Applications',             desc: 'Link unlinked applications to client portal accounts' },
 }
 
 const PERM_GROUPS: { label: string; perms: Permission[] }[] = [
   { label: 'General',              perms: ['dashboard', 'analytics', 'inbox'] },
-  { label: 'Clients & Leads',      perms: ['clients', 'clients.create', 'clients.delete', 'clients.all', 'leads', 'leads.all'] },
+  { label: 'Clients & Leads',      perms: ['clients', 'clients.create', 'clients.delete', 'clients.all', 'leads', 'leads.all', 'link_applications'] },
   { label: 'Bookings & Travel',    perms: ['bookings', 'bookings.create', 'bookings.delete', 'bookings.all', 'flights', 'flights.issue', 'hotels', 'hotels.manage', 'visa', 'visa.approve', 'visa.documents', 'tours', 'tours.manage', 'transfers'] },
   { label: 'Finance',              perms: ['payments', 'payments.refund', 'payments.all', 'reports', 'reports.financial', 'reports.all', 'commissions', 'payroll'] },
   { label: 'Reports & Approvals',  perms: ['approvals', 'approvals.resolve'] },

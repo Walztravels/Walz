@@ -17,6 +17,7 @@ import {
   Brain, Dna, Radio, AlertOctagon, Zap, UserCheck, Sparkles, Megaphone,
   Ticket, Receipt, GitBranch, Phone,
   LogOut,
+  Link2,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useStaffPermissions } from '@/hooks/useStaffPermissions'
@@ -83,6 +84,7 @@ const ICON_MAP: Record<string, React.ElementType> = {
   Receipt,
   GitBranch,
   Phone,
+  Link2,
 }
 
 const LOGO_CACHE_KEY = 'walz_logo_url'
@@ -93,8 +95,9 @@ export function AdminSidebar() {
   const router    = useRouter()
   const { profile, loading } = useStaffPermissions()
 
-  const [logoUrl,     setLogoUrl]     = useState('/walz-logo.svg')
-  const [unreadCount, setUnreadCount] = useState(0)
+  const [logoUrl,          setLogoUrl]          = useState('/walz-logo.svg')
+  const [unreadCount,      setUnreadCount]      = useState(0)
+  const [pendingLinkCount, setPendingLinkCount] = useState(0)
 
   // ── Logo loader ──────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -139,13 +142,23 @@ export function AdminSidebar() {
 
     fetchUnread()
 
+    const fetchLinkCount = async () => {
+      try {
+        const res  = await fetch('/api/admin/link-requests/count')
+        const data = await res.json() as { count: number }
+        setPendingLinkCount(data.count ?? 0)
+      } catch { /* non-fatal */ }
+    }
+    fetchLinkCount()
+    const linkInterval = setInterval(fetchLinkCount, 5 * 60 * 1000)
+
     const sb = createClient(url, key)
     const channel = sb
       .channel('sidebar-unread')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'leads' }, () => fetchUnread())
       .subscribe()
 
-    return () => { sb.removeChannel(channel) }
+    return () => { sb.removeChannel(channel); clearInterval(linkInterval) }
   }, [])
 
   function isActive(href: string, exact?: boolean) {
@@ -232,6 +245,11 @@ export function AdminSidebar() {
                       {href === '/admin/inbox' && unreadCount > 0 && (
                         <span className="min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center">
                           {unreadCount > 99 ? '99+' : unreadCount}
+                        </span>
+                      )}
+                      {href === '/admin/clients/link-applications' && pendingLinkCount > 0 && (
+                        <span className="min-w-[18px] h-[18px] px-1 rounded-full bg-amber-500 text-white text-[10px] font-bold flex items-center justify-center">
+                          {pendingLinkCount}
                         </span>
                       )}
                     </Link>

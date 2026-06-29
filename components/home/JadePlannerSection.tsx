@@ -2,9 +2,11 @@
 
 import { useEffect, useRef, useState } from 'react'
 import Image from 'next/image'
+import Link from 'next/link'
 import gsap from 'gsap'
 import ScrollTrigger from 'gsap/ScrollTrigger'
 import { ArrowRight, Users } from 'lucide-react'
+import { useSession } from 'next-auth/react'
 import { useSettings, waLink } from '@/hooks/useSettings'
 import { cn } from '@/lib/utils'
 
@@ -52,6 +54,7 @@ const HEADLINE_LINES = [
 
 export function JadePlannerSection() {
   const settings    = useSettings()
+  const { data: userSession } = useSession()
   const sectionRef  = useRef<HTMLDivElement>(null)
   const accentRef   = useRef<HTMLDivElement>(null)
   const mapRef      = useRef<HTMLDivElement>(null)
@@ -498,6 +501,46 @@ export function JadePlannerSection() {
                     ))}
                   </div>
                 </>
+              ) : !userSession ? (
+                /* Auth gate — must be signed in to create a group hive */
+                <div
+                  className="rounded-xl p-5 text-center"
+                  style={{
+                    background:     'rgba(255,255,255,0.05)',
+                    backdropFilter: 'blur(10px)',
+                    border:         '1px solid rgba(201,168,76,0.3)',
+                  }}
+                >
+                  <div className="text-2xl mb-3">🐝</div>
+                  <p className="text-white font-bold text-sm mb-1">
+                    Sign in to plan as a group
+                  </p>
+                  <p className="text-white/45 text-xs mb-5 leading-relaxed max-w-[220px] mx-auto">
+                    Create a free account to start your group itinerary hive
+                  </p>
+                  <div className="flex gap-2 mb-4">
+                    <Link
+                      href="/login?callbackUrl=%2F%23jade-planner"
+                      className="flex-1 py-2.5 rounded-lg text-xs font-bold text-center transition-all"
+                      style={{ background: '#C9A84C', color: '#0B1F3A' }}
+                    >
+                      Sign in
+                    </Link>
+                    <Link
+                      href="/register?callbackUrl=%2F%23jade-planner"
+                      className="flex-1 py-2.5 rounded-lg text-xs font-bold text-center transition-all"
+                      style={{ border: '1px solid rgba(201,168,76,0.45)', color: '#C9A84C' }}
+                    >
+                      Create account
+                    </Link>
+                  </div>
+                  <button
+                    onClick={() => setPlanMode('solo')}
+                    className="text-white/30 text-[10px] hover:text-white/50 transition-colors"
+                  >
+                    Plan solo instead
+                  </button>
+                </div>
               ) : groupCreated ? (
                 /* Group success state — 4 share options */
                 <div

@@ -52,6 +52,7 @@ model User {
   riskScore           ClientRiskScore?
   lifecyclePrediction ClientLifecyclePrediction?
   groupSessionsCreated GroupSession[]
+  tripRequests         TripRequest[]
 }
 
 model Account {
@@ -2511,6 +2512,7 @@ model TripRequest {
   token                 String    @unique
   referenceNumber       String    @unique
   status                String    @default("pending")
+  userId                String?
   itineraryId           String?
   sentBy                String?
   sentByName            String?
@@ -2569,6 +2571,9 @@ model TripRequest {
   deviceType            String?
   createdAt             DateTime  @default(now())
   updatedAt             DateTime  @updatedAt
+  user                  User?     @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([userId])
 }
 
 // ===========================
@@ -2662,6 +2667,24 @@ model TravelPostTenant {
 
   @@index([status])
   @@index([country])
+}
+
+model ApplicationLinkRequest {
+  id               String    @id @default(cuid())
+  userId           String
+  userEmail        String
+  applicationId    String
+  applicationType  String
+  applicationLabel String?
+  status           String    @default("pending")
+  autoDetected     Boolean   @default(true)
+  detectedAt       DateTime  @default(now())
+  reviewedBy       String?
+  reviewedAt       DateTime?
+  notes            String?
+
+  @@index([userEmail])
+  @@index([status])
 }
 
 model GroupHiveSession {
