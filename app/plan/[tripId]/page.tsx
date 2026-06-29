@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useRef, use } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useSession } from 'next-auth/react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import Image from 'next/image'
@@ -48,8 +48,8 @@ const ITEM_COLORS: Record<string, string> = {
 type PanelTab = 'itinerary' | 'jade' | 'settings'
 
 // ── Main ───────────────────────────────────────────────────────────────────
-export default function TripPlannerPage({ params }: { params: Promise<{ tripId: string }> }) {
-  const { tripId } = use(params)
+export default function TripPlannerPage({ params }: { params: { tripId: string } }) {
+  const { tripId } = params
   const { data: session, status } = useSession()
   const router = useRouter()
 
