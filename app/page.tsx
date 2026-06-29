@@ -23,7 +23,6 @@ const VisaIntelligenceSection = dyn(() => import('@/components/home/VisaIntellig
 const EsimBanner              = dyn(() => import('@/components/home/EsimBanner'),              'EsimBanner')
 const JadePlannerSection      = dyn(() => import('@/components/home/JadePlannerSection'),      'JadePlannerSection')
 const TestimonialsSection     = dyn(() => import('@/components/home/TestimonialsSection'),     'TestimonialsSection')
-const WhyWalzSection          = dyn(() => import('@/components/home/WhyWalzSection'),          'WhyWalzSection')
 const JadeSection             = dyn(() => import('@/components/home/JadeSection'),             'JadeSection')
 const TopSellers              = dynamic(() => import('@/components/home/TopSellers'),           { ssr: false })
 const FinalCTA                = dyn(() => import('@/components/home/FinalCTA'),                'FinalCTA')
@@ -332,9 +331,6 @@ export default function HomePage() {
           </a>
         </div>
       </section>
-
-      {/* 11 — Why Walz alternating sections */}
-      <WhyWalzSection />
 
       {/* 12 — Jade AI introduction */}
       <JadeSection />
