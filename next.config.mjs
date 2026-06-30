@@ -28,6 +28,8 @@ const nextConfig = {
       { protocol: 'https', hostname: '**.hotelbeds.com',                 pathname: '/**' },
       { protocol: 'https', hostname: 'cdn.hotelbeds.com',                pathname: '/**' },
       { protocol: 'https', hostname: '**.giata.com',                     pathname: '/**' },
+      // Hotelbeds Activity Content API — images served from activitiesbank.com CDN
+      { protocol: 'https', hostname: '**.activitiesbank.com',            pathname: '/**' },
     ],
   },
 
