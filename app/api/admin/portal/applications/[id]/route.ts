@@ -1,10 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getAdminSession } from '@/lib/admin-auth'
 import prisma from '@/lib/db'
-import { Resend } from 'resend'
+import { getResend } from '@/lib/resend'
 import { z } from 'zod'
 
-const resend = new Resend(process.env.RESEND_API_KEY)
 
 const updateSchema = z.object({
   stage:       z.enum(['ENQUIRY', 'DOCUMENTS_PENDING', 'DOCUMENTS_RECEIVED', 'PROCESSING', 'SUBMITTED', 'AWAITING_DECISION', 'APPROVED', 'REJECTED', 'COMPLETED']).optional(),
@@ -63,7 +62,7 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
       COMPLETED: 'Completed',
     }
     try {
-      await resend.emails.send({
+      await getResend().emails.send({
         from:    'Walz Travels <noreply@walztravels.com>',
         to:      application.user.email,
         subject: `Application Update — ${application.title}: ${STAGE_LABELS[parsed.data.stage]}`,

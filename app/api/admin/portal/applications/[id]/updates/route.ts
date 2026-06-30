@@ -1,9 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getAdminSession } from '@/lib/admin-auth'
 import prisma from '@/lib/db'
-import { Resend } from 'resend'
+import { getResend } from '@/lib/resend'
 
-const resend = new Resend(process.env.RESEND_API_KEY)
 
 const STAGE_ACCENT: Record<string, string> = {
   APPROVED:            '#22c55e',
@@ -80,7 +79,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     const textColor   = ['APPROVED','REJECTED'].includes(newStatus ?? '') ? '#fff' : '#0B1F3A'
 
     try {
-      await resend.emails.send({
+      await getResend().emails.send({
         from:    'Walz Travels <visa@walztravels.com>',
         to:      app.user.email,
         subject: `${title} — Your Visa Application Update`,

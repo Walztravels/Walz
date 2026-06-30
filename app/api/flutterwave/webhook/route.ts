@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma }                    from '@/lib/db'
-import { Resend }                    from 'resend'
+import { getResend } from '@/lib/resend'
 
 const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December']
 
@@ -68,14 +68,13 @@ async function handleVirtualAccountPayment(payload: Record<string, unknown>) {
     // Send receipt email to client
     if (clientEmail) {
       try {
-        const resend   = new Resend(process.env.RESEND_API_KEY)
-        const nameStr  = originatorname || clientName || 'Client'
+                const nameStr  = originatorname || clientName || 'Client'
         const symbols: Record<string, string> = { GBP: '£', USD: '$', EUR: '€', NGN: '₦', GHS: 'GH₵' }
         const sym      = symbols[currency] || currency
         const amtFmt   = `${sym}${Number(amount ?? 0).toLocaleString()}`
         const dateStr  = new Date().toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })
 
-        await resend.emails.send({
+        await getResend().emails.send({
           from:    'Walz Travels Billing <billing@walztravels.com>',
           to:      clientEmail,
           subject: `Payment Confirmed — ${amtFmt} received | Walz Travels`,
@@ -188,8 +187,7 @@ export async function POST(req: NextRequest) {
       const staff = await prisma.staffMember.findUnique({ where: { id: payslip.staffMemberId } })
       if (staff?.email) {
         try {
-          const resend      = new Resend(process.env.RESEND_API_KEY)
-          const currency    = payslip.currency || staff.currency || 'NGN'
+                    const currency    = payslip.currency || staff.currency || 'NGN'
           const monthLabel  = MONTHS[payslip.month - 1] + ' ' + payslip.year
           const gross       = payslip.grossPay || 0
           const net         = payslip.netPay   || 0
@@ -197,7 +195,7 @@ export async function POST(req: NextRequest) {
           const allowance   = payslip.allowance || 0
           const f           = (n: number) => new Intl.NumberFormat('en-GB', { style: 'currency', currency, minimumFractionDigits: 0 }).format(n)
 
-          await resend.emails.send({
+          await getResend().emails.send({
             from:    'Walz Travels HR <hr@walztravels.com>',
             to:      staff.email,
             subject: `Payslip — ${monthLabel} | Walz Travels`,
@@ -261,8 +259,7 @@ td:last-child{text-align:right;font-weight:600}
     if (isFailed) {
       try {
         const staff  = await prisma.staffMember.findUnique({ where: { id: payslip.staffMemberId } })
-        const resend = new Resend(process.env.RESEND_API_KEY)
-        await resend.emails.send({
+                await getResend().emails.send({
           from:    'Walz Travels Alerts <alerts@walztravels.com>',
           to:      'contact@walztravels.com',
           subject: `⚠️ Salary Transfer Failed — ${staff?.name}`,

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import prisma from '@/lib/db'
-import { Resend } from 'resend'
+import { getResend } from '@/lib/resend'
 
 export const dynamic = 'force-dynamic'
 
@@ -125,8 +125,7 @@ export async function POST(req: NextRequest) {
   const name    = pt ? `${pt.first_name ?? ''} ${pt.last_name ?? ''}`.trim() : session.user.email
 
   if (toEmail && process.env.RESEND_API_KEY) {
-    const resend = new Resend(process.env.RESEND_API_KEY)
-    const ref    = policyNumber ?? dbOrder.order_reference ?? order_id
+        const ref    = policyNumber ?? dbOrder.order_reference ?? order_id
     const docBtn = policyDocUrl
       ? `<p style="margin:24px 0 0">
            <a href="${policyDocUrl}"
@@ -136,7 +135,7 @@ export async function POST(req: NextRequest) {
          </p>`
       : ''
 
-    await resend.emails.send({
+    await getResend().emails.send({
       from:    'Walz Travels <bookings@walztravels.com>',
       to:      toEmail,
       subject: `Your Travel Insurance Policy — ${ref}`,

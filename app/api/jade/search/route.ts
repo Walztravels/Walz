@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
-import Anthropic from '@anthropic-ai/sdk'
+import { getAnthropic } from '@/lib/anthropic'
 
-const client = new Anthropic()
 
 export const maxDuration = 60
 export const dynamic     = 'force-dynamic'
@@ -59,7 +58,7 @@ export async function POST(req: NextRequest) {
   ]
 
   try {
-    const response = await client.messages.create({
+    const response = await getAnthropic().messages.create({
       model:      'claude-sonnet-4-6',
       max_tokens: 1024,
       system:     SYSTEM_PROMPT,

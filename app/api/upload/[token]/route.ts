@@ -1,9 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { Resend } from 'resend'
+import { getResend } from '@/lib/resend'
 import prisma from '@/lib/db'
 import { getSupabaseAdmin } from '@/lib/supabase'
 
-const resend = new Resend(process.env.RESEND_API_KEY)
 const SITE   = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://www.walztravels.com'
 const BUCKET = 'portal-documents'
 
@@ -139,7 +138,7 @@ export async function POST(
 
   if (isComplete) {
     const appLink = `${SITE}/admin/documents`
-    await resend.emails.send({
+    await getResend().emails.send({
       from:    'Walz Travels System <noreply@walztravels.com>',
       to:      request.requestedBy,
       subject: `✅ Documents uploaded — ${request.clientName}`,

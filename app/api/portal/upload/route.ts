@@ -3,9 +3,8 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/db'
 import { getSupabaseAdmin } from '@/lib/supabase'
-import { Resend } from 'resend'
+import { getResend } from '@/lib/resend'
 
-const resend = new Resend(process.env.RESEND_API_KEY)
 const BUCKET = 'portal-documents'
 
 export async function POST(request: NextRequest) {
@@ -84,7 +83,7 @@ export async function POST(request: NextRequest) {
 
   // Email Glory / admin
   try {
-    await resend.emails.send({
+    await getResend().emails.send({
       from:    'Walz Travels Portal <noreply@walztravels.com>',
       to:      'contact@walztravels.com',
       subject: `📎 New Document — ${user?.name ?? session.user.email} · ${application.refNumber}`,

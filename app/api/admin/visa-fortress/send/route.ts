@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getAdminSession }           from '@/lib/admin-auth'
-import { Resend }                    from 'resend'
+import { getResend } from '@/lib/resend'
 
 export const dynamic = 'force-dynamic'
 
@@ -38,9 +38,8 @@ export async function POST(req: NextRequest) {
       : []
     ).filter(Boolean).slice(0, 5)
 
-    const resend = new Resend(process.env.RESEND_API_KEY)
-
-    await resend.emails.send({
+    
+    await getResend().emails.send({
       from: 'visa@walztravels.com',
       to:   clientEmail,
       subject: `Your Bank Statement Assessment — ${visaType} Visa | Walz Travels`,

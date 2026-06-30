@@ -1,11 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getAdminSession } from '@/lib/admin-auth'
 import { prisma } from '@/lib/db'
-import { Resend } from 'resend'
+import { getResend } from '@/lib/resend'
 
 const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December']
 
-const resend = new Resend(process.env.RESEND_API_KEY)
 
 function fmtCurrency(n: number, currency: string) {
   return new Intl.NumberFormat('en-GB', {
@@ -117,7 +116,7 @@ export async function POST(req: NextRequest) {
     accountNumber:       payslip.staffMember.accountNumber,
   })
 
-  await resend.emails.send({
+  await getResend().emails.send({
     from:    'Walz Travels HR <hr@walztravels.com>',
     to:      payslip.staffMember.email,
     subject: `Your Payslip – ${MONTHS[payslip.month - 1]} ${payslip.year} [${payslipRef}]`,

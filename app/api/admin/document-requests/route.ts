@@ -1,9 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { Resend } from 'resend'
+import { getResend } from '@/lib/resend'
 import prisma from '@/lib/db'
 import { getAdminSession } from '@/lib/admin-auth'
 
-const resend = new Resend(process.env.RESEND_API_KEY)
 const SITE   = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://www.walztravels.com'
 
 export const dynamic = 'force-dynamic'
@@ -78,7 +77,7 @@ export async function POST(req: NextRequest) {
     </li>`
   ).join('')
 
-  await resend.emails.send({
+  await getResend().emails.send({
     from:    'Walz Travels Visa Team <visa@walztravels.com>',
     to:      body.clientEmail,
     subject: 'Action Required — Documents needed for your application',

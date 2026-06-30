@@ -1,7 +1,18 @@
 import Stripe from 'stripe'
 
-export const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
-  apiVersion: '2024-06-20',
+let _stripe: Stripe | undefined
+
+export function getStripe(): Stripe {
+  if (!_stripe) _stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, { apiVersion: '2024-06-20' })
+  return _stripe
+}
+
+// Proxy so callers using `stripe.X` keep working without changes.
+// The actual Stripe instance is created only on first request (not at module load).
+export const stripe: Stripe = new Proxy({} as Stripe, {
+  get(_t, prop, receiver) {
+    return Reflect.get(getStripe(), prop, receiver)
+  },
 })
 
 export async function createStripePaymentIntent(params: {

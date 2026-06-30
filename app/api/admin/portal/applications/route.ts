@@ -1,9 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getAdminSession } from '@/lib/admin-auth'
 import prisma from '@/lib/db'
-import { Resend } from 'resend'
+import { getResend } from '@/lib/resend'
 
-const resend = new Resend(process.env.RESEND_API_KEY)
 
 export async function GET(request: NextRequest) {
   const session = await getAdminSession()
@@ -79,7 +78,7 @@ export async function POST(request: NextRequest) {
   // Notify client
   try {
     if (application.user?.email) {
-      await resend.emails.send({
+      await getResend().emails.send({
         from:    'Walz Travels <noreply@walztravels.com>',
         to:      application.user.email,
         subject: `Application Created — ${application.title} (${refNumber})`,

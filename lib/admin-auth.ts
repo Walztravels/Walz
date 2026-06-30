@@ -23,8 +23,6 @@ function getSecret(): Uint8Array {
   return new TextEncoder().encode(secret)
 }
 
-const SECRET = getSecret()
-
 /** Minimal payload stored in the JWT (kept small for cookie size) */
 interface JwtClaims {
   email:     string
@@ -68,12 +66,12 @@ export async function signAdminToken(
     .setProtectedHeader({ alg: 'HS256' })
     .setIssuedAt()
     .setExpirationTime('12h')
-    .sign(SECRET)
+    .sign(getSecret())
 }
 
 export async function verifyAdminToken(token: string): Promise<JwtClaims | null> {
   try {
-    const { payload } = await jwtVerify(token, SECRET)
+    const { payload } = await jwtVerify(token, getSecret())
     return payload as unknown as JwtClaims
   } catch {
     return null

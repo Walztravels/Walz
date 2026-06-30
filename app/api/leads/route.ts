@@ -1,9 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import prisma from '@/lib/db'
-import { Resend } from 'resend'
+import { getResend } from '@/lib/resend'
 
-const resend = new Resend(process.env.RESEND_API_KEY)
 
 const leadSchema = z.object({
   name:        z.string().min(2).max(120),
@@ -59,7 +58,7 @@ export async function POST(request: NextRequest) {
 
   // Email notification to admin
   try {
-    await resend.emails.send({
+    await getResend().emails.send({
       from:    'Walz Travels <noreply@walztravels.com>',
       to:      'contact@walztravels.com',
       subject: `New Lead: ${data.service} — ${data.name}`,

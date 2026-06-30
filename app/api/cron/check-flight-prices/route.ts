@@ -1,8 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import prisma from '@/lib/db'
-import { Resend } from 'resend'
+import { getResend } from '@/lib/resend'
 
-const resend = new Resend(process.env.RESEND_API_KEY)
 const FROM   = process.env.RESEND_FROM ?? 'Walz Travels <alerts@walztravels.com>'
 
 const DUFFEL_TOKEN  = process.env.DUFFEL_ACCESS_TOKEN
@@ -87,7 +86,7 @@ export async function GET(req: NextRequest) {
 
     // Send price drop email
     try {
-      await resend.emails.send({
+      await getResend().emails.send({
         from:    FROM,
         to:      alert.email,
         subject: `🚨 Price drop! ${alert.origin} → ${alert.destination} — £${livePrice.toFixed(0)} now`,

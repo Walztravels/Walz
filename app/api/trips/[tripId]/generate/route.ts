@@ -2,12 +2,11 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import prisma from '@/lib/db'
-import Anthropic from '@anthropic-ai/sdk'
+import { getAnthropic } from '@/lib/anthropic'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 60
 
-const client = new Anthropic()
 
 type Ctx = { params: { tripId: string } }
 
@@ -78,7 +77,7 @@ export async function POST(req: NextRequest, { params }: Ctx) {
     ? `Generate a ${durationDays}-day itinerary for ${trip.destination}. Additional context: ${prompt}`
     : `Generate a ${durationDays}-day itinerary for ${trip.destination}. Trip: "${trip.title}". ${trip.description ? `Description: ${trip.description}` : ''}`
 
-  const message = await client.messages.create({
+  const message = await getAnthropic().messages.create({
     model: 'claude-sonnet-4-6',
     max_tokens: 4096,
     system: JADE_PLANNER_PROMPT,

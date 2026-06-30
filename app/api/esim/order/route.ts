@@ -2,12 +2,11 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import prisma from '@/lib/db'
-import { Resend } from 'resend'
+import { getResend } from '@/lib/resend'
 import { esimHeaders, ESIM_BASE, applyMarkup, calcMargin, generateOrderRef, formatData } from '@/lib/esim-pricing'
 
 export const dynamic = 'force-dynamic'
 
-const resend = new Resend(process.env.RESEND_API_KEY)
 
 function buildQrEmail(p: {
   name: string; destination: string; plan: string; duration: number
@@ -166,7 +165,7 @@ export async function POST(req: NextRequest) {
   // ── 3. Email QR code ─────────────────────────────────────────────────────────
   if (user.email) {
     try {
-      await resend.emails.send({
+      await getResend().emails.send({
         from:    'Jade Connect <noreply@walztravels.com>',
         to:      user.email,
         subject: `📶 Your Jade Connect eSIM — ${destination}`,
@@ -186,7 +185,7 @@ export async function POST(req: NextRequest) {
   }
 
   // ── 4. Ops notification ──────────────────────────────────────────────────────
-  resend.emails.send({
+  getResend().emails.send({
     from:    'Jade Connect <noreply@walztravels.com>',
     to:      'contact@walztravels.com',
     subject: `[eSIM] ${destination} — ${packageName} — $${retail.toFixed(2)} (margin $${margin.toFixed(2)})`,

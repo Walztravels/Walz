@@ -1,8 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getAdminSession } from '@/lib/admin-auth'
-import { Resend } from 'resend'
+import { getResend } from '@/lib/resend'
 
-const resend = new Resend(process.env.RESEND_API_KEY)
 
 export async function POST(req: NextRequest) {
   const session = await getAdminSession()
@@ -135,7 +134,7 @@ export async function POST(req: NextRequest) {
 </body>
 </html>`
 
-  const { data, error } = await resend.emails.send({
+  const { data, error } = await getResend().emails.send({
     from: 'Walz Travels <contact@walztravels.com>',
     to: clientEmail,
     subject: `Your ${destination.toUpperCase()} Visa Bank Statement Analysis — Walz Travels`,

@@ -1,8 +1,7 @@
 import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
-import { Resend } from 'resend'
+import { getResend } from '@/lib/resend'
 
-const resend = new Resend(process.env.RESEND_API_KEY)
 const CRON_SECRET = process.env.CRON_SECRET
 
 const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December']
@@ -112,7 +111,7 @@ export async function GET(req: Request) {
         missedCheckIns:      payslip.missedCheckIns,
       })
 
-      await resend.emails.send({
+      await getResend().emails.send({
         from:    'Walz Travels HR <hr@walztravels.com>',
         to:      staff.email,
         subject: `Your Paystub – ${MONTHS[month - 1]} ${year}`,

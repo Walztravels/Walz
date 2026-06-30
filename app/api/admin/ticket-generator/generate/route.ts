@@ -6,15 +6,11 @@ import { renderToBuffer } from '@react-pdf/renderer'
 import React from 'react'
 import { TicketPDFDocument } from '@/components/admin/TicketPDF'
 import { FlightTicketPDF } from '@/components/tickets/FlightTicketPDF'
-import { createClient } from '@supabase/supabase-js'
+import { getSupabaseAdmin } from '@/lib/supabase'
 import type { FlightTicketEmailProps, FlightLeg } from '@/types/flight-ticket'
 
 export const dynamic = 'force-dynamic'
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!,
-)
 
 const BUCKET = 'generated-tickets'
 
@@ -105,12 +101,12 @@ export async function POST(req: NextRequest) {
 
   let pdfUrl: string | null = null
   try {
-    const { error: uploadErr } = await supabase.storage
+    const { error: uploadErr } = await getSupabaseAdmin().storage
       .from(BUCKET)
       .upload(path, pdfBuffer, { contentType: 'application/pdf', upsert: true })
 
     if (!uploadErr) {
-      const { data: urlData } = supabase.storage.from(BUCKET).getPublicUrl(path)
+      const { data: urlData } = getSupabaseAdmin().storage.from(BUCKET).getPublicUrl(path)
       pdfUrl = urlData?.publicUrl ?? null
     } else {
       console.warn('[ticket-generator/generate] storage upload:', uploadErr.message)

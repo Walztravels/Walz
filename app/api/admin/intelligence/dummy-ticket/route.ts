@@ -4,7 +4,7 @@ import { duffelTicketRateLimit } from '@/lib/rate-limit'
 import { duffelPost } from '@/lib/duffel/client'
 import prisma from '@/lib/db'
 import { renderToBuffer } from '@react-pdf/renderer'
-import { createClient } from '@supabase/supabase-js'
+import { getSupabaseAdmin } from '@/lib/supabase'
 import React from 'react'
 import { TicketPDFDocument, type TicketData } from '@/components/admin/TicketPDF'
 
@@ -13,10 +13,6 @@ export const maxDuration = 60
 
 const BUCKET = 'generated-tickets'
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!,
-)
 
 // ─── Safe string helper ────────────────────────────────────────────────────────
 const safeUpper = (s: unknown): string => (s != null ? String(s) : '').toUpperCase()
@@ -120,11 +116,11 @@ async function uploadPDF(buffer: Buffer, reference: string): Promise<string | nu
     const year  = now.getFullYear()
     const month = String(now.getMonth() + 1).padStart(2, '0')
     const path  = `tickets/${year}/${month}/${reference}.pdf`
-    const { error } = await supabase.storage
+    const { error } = await getSupabaseAdmin().storage
       .from(BUCKET)
       .upload(path, buffer, { contentType: 'application/pdf', upsert: true })
     if (error) { console.warn('[dummy-ticket] upload:', error.message); return null }
-    const { data } = supabase.storage.from(BUCKET).getPublicUrl(path)
+    const { data } = getSupabaseAdmin().storage.from(BUCKET).getPublicUrl(path)
     return data?.publicUrl ?? null
   } catch (e) {
     console.warn('[dummy-ticket] upload error:', e)

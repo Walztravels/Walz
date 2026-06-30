@@ -1,8 +1,7 @@
 import { NextResponse } from 'next/server'
-import { Resend } from 'resend'
+import { getResend } from '@/lib/resend'
 import prisma from '@/lib/db'
 
-const resend = new Resend(process.env.RESEND_API_KEY)
 
 export const dynamic = 'force-dynamic'
 
@@ -45,7 +44,7 @@ export async function GET(req: Request) {
       })
       const urgency = days === 1 ? '⚠️ TOMORROW' : `📅 In ${days} days`
 
-      await resend.emails.send({
+      await getResend().emails.send({
         from:    'Jade by Walz Travels <jade@walztravels.com>',
         to:      app.email!,
         subject: `${urgency} — Your visa appointment reminder (Ref: ${app.referenceNumber})`,

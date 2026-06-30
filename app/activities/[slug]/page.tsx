@@ -6,9 +6,24 @@ import { getActivityBySlug, STATIC_ACTIVITIES }  from '@/lib/activities-data'
 import { hotelbedsRequest }                       from '@/lib/hotelbeds'
 import prisma                                     from '@/lib/db'
 
-// ── Image extraction (same shapes as main route) ──────────────────────────────
+// ── Destination code → readable city name ─────────────────────────────────────
+const DEST_CODE_TO_NAME: Record<string, string> = {
+  LON: 'London',    DXB: 'Dubai',       PAR: 'Paris',       NYC: 'New York',
+  AUH: 'Abu Dhabi', NBO: 'Nairobi',    JRO: 'Kilimanjaro', CPT: 'Cape Town',
+  JNB: 'Johannesburg', BKK: 'Bangkok', SIN: 'Singapore',   IST: 'Istanbul',
+  RAK: 'Marrakech', MLE: 'Maldives',   MRU: 'Mauritius',   SEZ: 'Seychelles',
+  BCN: 'Barcelona', MAD: 'Madrid',     LIS: 'Lisbon',       ROM: 'Rome',
+  AMS: 'Amsterdam', CAI: 'Cairo',      LOS: 'Lagos',        ABV: 'Abuja',
+  ACC: 'Accra',     DAR: 'Dar es Salaam', ZNZ: 'Zanzibar', DPS: 'Bali',
+  TYO: 'Tokyo',     YTO: 'Toronto',    YVR: 'Vancouver',
+}
+
+// ── Image extraction — mirrors all shapes from app/api/activities/route.ts ────
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function extractImg(item: any): string {
+  if (!item) return ''
+
+  // Shape 1: media.images[{urls:[{sizeType,resource}]}] — Hotel/content API
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const imgList: any[] = item.media?.images ?? item.images ?? []
   for (const img of imgList) {
@@ -19,118 +34,214 @@ function extractImg(item: any): string {
     if (res?.startsWith('http')) return res
     if ((img as { url?: string }).url?.startsWith('http')) return (img as { url: string }).url
   }
+
+  // Shape 2: GIATA picture list
   if (item.pictureList?.[0]?.numericId) {
     return `https://photos.hotelbeds.com/giata/${item.pictureList[0].numericId}.jpg`
+  }
+
+  // Shape 3: content sub-object
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const subImages: any[] = item.content?.media?.images ?? []
+  for (const img of subImages) {
+    const url = img.urls?.[0]?.resource ?? img.url
+    if (url?.startsWith('http')) return url
+  }
+
+  // Shape 4: Activity Content API v3 — multimedia [{type, url}]
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const multimedia: any[] = Array.isArray(item.multimedia) ? item.multimedia : []
+  for (const m of multimedia) {
+    const url: string | undefined = m.url ?? m.resource ?? m.path
+    if (url?.startsWith('http')) return url
+  }
+
+  // Shape 5: media as flat array
+  const mediaArr: { url?: string; resource?: string }[] = Array.isArray(item.media) ? item.media : []
+  for (const m of mediaArr) {
+    if (m.url?.startsWith('http')) return m.url
+    if (m.resource?.startsWith('http')) return m.resource
+  }
+
+  // Shape 6: media as object with direct url
+  if (item.media && typeof item.media === 'object' && !Array.isArray(item.media)) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const url = (item.media as any).url ?? (item.media as any).resource
+    if (typeof url === 'string' && url.startsWith('http')) return url
+  }
+
+  return ''
+}
+
+// ── Pull text from Activity Content API v3 featureGroups ──────────────────────
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function fromFeatureGroups(groups: any[], ...codes: string[]): string {
+  for (const code of codes) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const group = groups.find((g: any) => g.groupCode === code)
+    if (!group) continue
+    const texts: string[] = (group.included ?? [])
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      .map((i: any) => (i.des ?? i.description ?? '').trim())
+      .filter(Boolean)
+    if (texts.length > 0) return texts.join('\n')
   }
   return ''
 }
 
-// ── Resolve a live Hotelbeds hb- slug directly from HB APIs ──────────────────
+// ── Resolve a live hb-* activity via Hotelbeds APIs ───────────────────────────
 async function resolveHBActivity(rawCode: string) {
-  // Strategy 1: Content API GET — single activity, no modalityCodes needed
-  try {
+  const DESTS = [
+    'LON','DXB','PAR','NYC','NBO','BKK','SIN','IST','CPT','RAK',
+    'MLE','JRO','AUH','BCN','ROM','AMS','TYO','DPS','LOS','ABV','ACC',
+    'DAR','ZNZ','YTO','YVR','MAD','LIS','CAI','MRU','SEZ','JNB',
+  ]
+
+  // Content API and Cache scan run in parallel — fastest combined result
+  const [contentResult, cacheResult] = await Promise.allSettled([
+    // Content API POST (no modalityCodes needed for single-activity detail)
+    hotelbedsRequest('activities-content', '/activities', {
+      method: 'POST',
+      body: { codes: [{ activityCode: rawCode }], language: 'en' },
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const data: any = await hotelbedsRequest(
-      'activities-content',
-      `/activities/${encodeURIComponent(rawCode)}?language=en`,
-    )
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const activity: any = data?.activity ?? (Array.isArray(data) ? data[0] : data)
-    if (activity?.name || activity?.code) {
-      return buildActivityShape(rawCode, activity, activity)
+    }).then((d: any) => d?.activitiesContent?.[0] ?? null).catch(() => null),
+
+    // Cache API — sequential dest scan for price, modalities, destination name
+    (async () => {
+      for (const dest of DESTS) {
+        try {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const d: any = await hotelbedsRequest(
+            'activities-cache',
+            `/portfolio?destination=${dest}&limit=100&offset=0`,
+          )
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const items: any[] = Array.isArray(d) ? d : (d?.activities ?? [])
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const found = items.find((a: any) =>
+            String(a.code ?? a.id).replace(/^hb-/, '') === rawCode
+          )
+          if (found) return { item: found, dest }
+        } catch { /* try next */ }
+      }
+      return null
+    })(),
+  ])
+
+  const contentItem = contentResult.status === 'fulfilled' ? contentResult.value : null
+  const cacheFound  = cacheResult.status  === 'fulfilled' ? cacheResult.value  : null
+  const cacheItem   = cacheFound?.item ?? null
+  const destCode    = cacheFound?.dest ?? ''
+
+  if (!cacheItem && !contentItem) return null
+
+  // If POST returned no content, fall back to GET /activities/en/{code}/{modality}
+  let enrichedContent = contentItem
+  if (!enrichedContent && cacheItem) {
+    const firstMod: string | undefined = (cacheItem.modalities ?? [])[0]?.code
+    if (firstMod) {
+      try {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const raw: any = await hotelbedsRequest(
+          'activities-content',
+          `/activities/en/${encodeURIComponent(rawCode)}/${encodeURIComponent(firstMod)}`,
+        )
+        enrichedContent = raw?.activitiesContent?.[0] ?? null
+      } catch { /* use cache data only */ }
     }
-  } catch { /* fall through */ }
-
-  // Strategy 2: Cache API to get basic info + modalities, then Content API POST
-  const DESTS = ['DXB', 'LON', 'PAR', 'NYC', 'NBO', 'JRO', 'CPT', 'BKK', 'SIN', 'IST', 'RAK', 'MLE']
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  let cacheItem: any = null
-
-  for (const dest of DESTS) {
-    try {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const d: any = await hotelbedsRequest(
-        'activities-cache',
-        `/portfolio?destination=${dest}&limit=100&offset=0`,
-      )
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const items: any[] = Array.isArray(d) ? d : (d?.activities ?? [])
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const found = items.find((a: any) => String(a.code).replace(/^hb-/, '') === rawCode)
-      if (found) { cacheItem = found; break }
-    } catch { /* try next dest */ }
   }
 
-  if (!cacheItem) return null
-
-  // Try to enrich with Content API POST using real modality codes
-  const modalityCodes: string[] = (cacheItem.modalities ?? [])
-    .slice(0, 3)
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    .map((m: any) => m.code)
-    .filter(Boolean)
-
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  let contentItem: any = null
-  if (modalityCodes.length > 0) {
-    try {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const d: any = await hotelbedsRequest(
-        'activities-content',
-        '/activities',
-        { method: 'POST', body: { codes: [{ activityCode: rawCode, modalityCodes }], language: 'en' } },
-      )
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const items: any[] = Array.isArray(d) ? d : (d?.activities ?? [])
-      contentItem = items[0] ?? null
-    } catch { /* fall back to Cache data */ }
-  }
-
-  return buildActivityShape(rawCode, cacheItem, contentItem ?? cacheItem)
+  return buildActivityShape(rawCode, cacheItem, enrichedContent, destCode)
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-function buildActivityShape(rawCode: string, cacheItem: any, contentItem: any) {
-  const img = extractImg(contentItem) || extractImg(cacheItem)
+function buildActivityShape(rawCode: string, cacheItem: any, contentItem: any, destCode = '') {
+  const cache   = cacheItem   ?? {}
+  const content = contentItem ?? {}
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const groups: any[] = content.featureGroups ?? []
 
-  const rawDesc: string = contentItem.content?.description ?? contentItem.description ?? ''
+  // Image — try content item first, then cache item
+  const img = extractImg(content) || extractImg(cache)
+
+  // Description — Activity Content API v3 puts it in featureGroups
+  const rawDesc =
+    fromFeatureGroups(groups, 'DESCRIPTION', 'OVERVIEW', 'ABOUT', 'BRIEFDESCRIPTION') ||
+    content.description         ||
+    content.shortDescription    ||
+    content.content?.description ||
+    cache.content?.description  ||
+    cache.description           ||
+    ''
   const description = rawDesc.replace(/<[^>]*>/g, '').trim()
 
-  const durationMins = cacheItem.durationInMinutes ?? contentItem.durationInMinutes ?? null
-  const duration = durationMins
-    ? durationMins >= 1440
-      ? `${Math.round(durationMins / 1440)} days`
-      : durationMins >= 60
-        ? `${Math.round(durationMins / 60)} hrs`
-        : `${durationMins} min`
+  // Duration
+  const durMins: number | null = cache.durationInMinutes ?? content.durationInMinutes ?? null
+  const duration = durMins
+    ? durMins >= 1440
+      ? `${Math.round(durMins / 1440)} day${Math.round(durMins / 1440) !== 1 ? 's' : ''}`
+      : durMins >= 60
+        ? `${Math.round(durMins / 60)} hr${Math.round(durMins / 60) !== 1 ? 's' : ''}`
+        : `${durMins} min`
     : ''
+
+  // Location — map raw dest code (e.g. "LON") to readable city name
+  const rawDest = destCode || cache.destination || cache.country || ''
+  const location = DEST_CODE_TO_NAME[rawDest] ?? rawDest
+
+  // Price — from cache portfolio (amountFrom); content API doesn't carry pricing
+  const price = parseFloat(cache.amountFrom ?? cache.minAmount ?? '0')
+
+  // Highlights
+  const highlightGroup = groups.find(
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (g: any) => g.groupCode === 'HIGHLIGHTS' || g.groupCode === 'HIGHLIGHT_LIST'
+  )
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const highlights: string[] = (highlightGroup?.included ?? [])
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    .map((i: any) => (i.des ?? i.description ?? '').trim())
+    .filter(Boolean)
+
+  // Included
+  const includesGroup = groups.find(
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (g: any) => ['INCLUDES', 'INCLUDED', 'INCLUSIONS'].includes(g.groupCode)
+  )
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const included: string[] = (includesGroup?.included ?? content.content?.inclusions ?? [])
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    .map((i: any) => typeof i === 'string' ? i : (i.des ?? i.text ?? i.description ?? ''))
+    .filter(Boolean)
+
+  // Not included
+  const excludesGroup = groups.find(
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (g: any) => ['EXCLUDES', 'EXCLUDED', 'EXCLUSIONS'].includes(g.groupCode)
+  )
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const notIncluded: string[] = (excludesGroup?.included ?? content.content?.exclusions ?? [])
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    .map((e: any) => typeof e === 'string' ? e : (e.des ?? e.text ?? e.description ?? ''))
+    .filter(Boolean)
 
   return {
     id:          rawCode,
     slug:        `hb-${rawCode}`,
-    title:       cacheItem.name ?? contentItem.name ?? rawCode,
-    shortDesc:   contentItem.content?.briefDescription?.replace(/<[^>]*>/g, '').trim() ?? description.slice(0, 150),
+    title:       cache.name ?? content.name ?? rawCode,
+    shortDesc:   description.slice(0, 150),
     description,
     image:       img,
-    price:       parseFloat(cacheItem.amountFrom ?? '0'),
-    currency:    cacheItem.currency ?? 'USD',
+    price,
+    currency:    cache.currency ?? 'USD',
     duration,
-    location:    cacheItem.destination ?? cacheItem.country ?? '',
-    category:    (cacheItem.activityFactsheetType ?? '').toLowerCase(),
+    location,
+    category:    (cache.activityFactsheetType ?? content.category ?? '').toLowerCase(),
     freeCancel:  false,
     rating:      0,
-    highlights:  (contentItem.content?.highlights ?? [])
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      .map((h: any) => typeof h === 'string' ? h : (h.text ?? h.description ?? ''))
-      .filter(Boolean),
-    included:    (contentItem.content?.inclusions ?? [])
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      .map((i: any) => typeof i === 'string' ? i : (i.text ?? i.description ?? ''))
-      .filter(Boolean),
-    notIncluded: (contentItem.content?.exclusions ?? [])
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      .map((e: any) => typeof e === 'string' ? e : (e.text ?? e.description ?? ''))
-      .filter(Boolean),
+    highlights,
+    included,
+    notIncluded,
     source:      'hotelbeds',
   }
 }
@@ -147,7 +258,7 @@ async function getActivityData(slug: string) {
   const staticAct = getActivityBySlug(slug)
   if (staticAct) return staticAct
 
-  // 3. Live Hotelbeds — call APIs directly (no round-trip through own routes)
+  // 3. Live Hotelbeds
   if (slug.startsWith('hb-')) {
     return resolveHBActivity(slug.replace(/^hb-/, ''))
   }
@@ -159,7 +270,6 @@ export async function generateStaticParams() {
   return STATIC_ACTIVITIES.map(a => ({ slug: a.slug }))
 }
 
-// Next.js 14 — params is a plain object, not a Promise
 export async function generateMetadata(
   { params }: { params: { slug: string } }
 ): Promise<Metadata> {

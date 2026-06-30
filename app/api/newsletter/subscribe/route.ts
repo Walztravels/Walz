@@ -1,8 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
-import { Resend } from 'resend'
+import { getResend } from '@/lib/resend'
 
-const resend = new Resend(process.env.RESEND_API_KEY)
 
 export async function POST(req: NextRequest) {
   try {
@@ -28,7 +27,7 @@ export async function POST(req: NextRequest) {
     const isNew = subscriber.subscribedAt >= new Date(Date.now() - 5000)
 
     if (isNew) {
-      await resend.emails.send({
+      await getResend().emails.send({
         from: 'Walz Travels <noreply@walztravels.com>',
         to: emailTrimmed,
         subject: 'Welcome to Walz Travels — Exclusive Deals Inside ✈️',

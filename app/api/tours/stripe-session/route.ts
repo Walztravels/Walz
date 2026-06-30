@@ -1,8 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
-import Stripe from 'stripe'
+import { getStripe } from '@/lib/stripe'
 import { z } from 'zod'
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, { apiVersion: '2024-06-20' })
 
 const schema = z.object({
   tourId: z.string().min(1),
@@ -71,7 +70,7 @@ export async function POST(req: NextRequest) {
     const images: string[] = []
     if (d.imageUrl && d.imageUrl.startsWith('https://')) images.push(d.imageUrl)
 
-    const session = await stripe.checkout.sessions.create({
+    const session = await getStripe().checkout.sessions.create({
       mode: 'payment',
       customer_email: d.email,
       line_items: [

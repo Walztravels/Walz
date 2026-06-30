@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import crypto from 'crypto'
 import prisma from '@/lib/db'
-import { Resend } from 'resend'
+import { getResend } from '@/lib/resend'
 
 const FROM = 'Walz Travels <noreply@walztravels.com>'
 
@@ -29,8 +29,7 @@ export async function POST(req: NextRequest) {
     const resetUrl = `${process.env.NEXTAUTH_URL ?? 'https://walztravels.com'}/reset-password?token=${token}`
 
     if (process.env.RESEND_API_KEY) {
-      const resend = new Resend(process.env.RESEND_API_KEY)
-      await resend.emails.send({
+            await getResend().emails.send({
         from: FROM,
         to: normalised,
         subject: 'Reset your Walz Travels password',

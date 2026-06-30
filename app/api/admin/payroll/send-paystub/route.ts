@@ -1,9 +1,8 @@
 import { NextResponse } from 'next/server'
 import { getAdminSession } from '@/lib/admin-auth'
 import { prisma } from '@/lib/db'
-import { Resend } from 'resend'
+import { getResend } from '@/lib/resend'
 
-const resend = new Resend(process.env.RESEND_API_KEY)
 
 const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December']
 
@@ -92,7 +91,7 @@ export async function POST(req: Request) {
     missedCheckIns:      payslip.missedCheckIns,
   })
 
-  await resend.emails.send({
+  await getResend().emails.send({
     from:    'Walz Travels HR <hr@walztravels.com>',
     to:      payslip.staffMember.email,
     subject: `Your Paystub – ${MONTHS[payslip.month - 1]} ${payslip.year}`,

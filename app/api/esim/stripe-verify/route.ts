@@ -1,11 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
-import Stripe from 'stripe'
+import { getStripe } from '@/lib/stripe'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 
 export const dynamic = 'force-dynamic'
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, { apiVersion: '2024-06-20' })
 
 // Called from confirmation page to trigger eSIM order after Stripe payment
 export async function POST(req: NextRequest) {
@@ -17,7 +16,7 @@ export async function POST(req: NextRequest) {
   const { sessionId } = await req.json().catch(() => ({}))
   if (!sessionId) return NextResponse.json({ error: 'sessionId required' }, { status: 400 })
 
-  const checkoutSession = await stripe.checkout.sessions.retrieve(sessionId)
+  const checkoutSession = await getStripe().checkout.sessions.retrieve(sessionId)
 
   if (checkoutSession.payment_status !== 'paid') {
     return NextResponse.json({ error: 'Payment not completed' }, { status: 402 })

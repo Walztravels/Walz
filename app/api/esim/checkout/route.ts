@@ -1,12 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
-import Stripe from 'stripe'
+import { getStripe } from '@/lib/stripe'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { z } from 'zod'
 
 export const dynamic = 'force-dynamic'
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, { apiVersion: '2024-06-20' })
 
 const schema = z.object({
   packageCode:     z.string().min(1),
@@ -38,7 +37,7 @@ export async function POST(req: NextRequest) {
   const d = parsed.data
 
   // Create a PaymentIntent so we can use Stripe Elements (embedded, no redirect)
-  const intent = await stripe.paymentIntents.create({
+  const intent = await getStripe().paymentIntents.create({
     amount:   Math.round(d.retailUsd * 100),
     currency: 'usd',
     receipt_email: session.user.email,

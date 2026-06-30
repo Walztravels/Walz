@@ -1,13 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
-import Stripe from 'stripe'
+import { getStripe } from '@/lib/stripe'
+import type Stripe from 'stripe'
 import prisma from '@/lib/db'
-import { Resend } from 'resend'
+import { getResend } from '@/lib/resend'
 import { esimHeaders, ESIM_BASE, calcMargin, generateOrderRef, formatData } from '@/lib/esim-pricing'
 
 export const dynamic = 'force-dynamic'
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, { apiVersion: '2024-06-20' })
-const resend  = new Resend(process.env.RESEND_API_KEY)
 
 async function fulfillEsim(intent: Stripe.PaymentIntent) {
   const meta = intent.metadata ?? {}
@@ -96,7 +95,7 @@ async function fulfillEsim(intent: Stripe.PaymentIntent) {
   // Send QR email
   if (user?.email && qrCodeUrl) {
     try {
-      await resend.emails.send({
+      await getResend().emails.send({
         from:    'Jade Connect <noreply@walztravels.com>',
         to:      user.email,
         subject: `📶 Your Jade Connect eSIM — ${meta.destination}`,
@@ -120,7 +119,7 @@ export async function POST(req: NextRequest) {
   let event: Stripe.Event
   try {
     if (secret) {
-      event = stripe.webhooks.constructEvent(payload, sig, secret)
+      event = getStripe().webhooks.constructEvent(payload, sig, secret)
     } else {
       // No webhook secret configured — parse directly (development only)
       event = JSON.parse(payload) as Stripe.Event

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
 import { getAdminSession } from '@/lib/admin-auth'
 import { ISO2_TO_SLUG } from '@/lib/visa-config'
+import { getResend } from '@/lib/resend'
 
 export const dynamic = 'force-dynamic'
 
@@ -118,9 +119,7 @@ export async function POST(req: NextRequest) {
   const formLink = `${SITE}/visa/apply/${slug}?token=${token.token}&draft=${app.id}`
 
   try {
-    const { Resend } = await import('resend')
-    const resend = new Resend(process.env.RESEND_API_KEY)
-    await resend.emails.send({
+        await getResend().emails.send({
       from:    'Walz Travels Visa Team <visa@walztravels.com>',
       to:      token.clientEmail,
       subject: `Your Visa Application Form — ${app.referenceNumber}`,

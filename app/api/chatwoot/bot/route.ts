@@ -1,10 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
-import Anthropic from '@anthropic-ai/sdk';
+import { getAnthropic } from '@/lib/anthropic'
 import { loadJadeSession, saveJadeSession } from '@/lib/jade-session';
 
-const anthropic = new Anthropic({
-  apiKey: process.env.ANTHROPIC_API_KEY,
-});
 
 const CHATWOOT_BASE = process.env.CHATWOOT_BASE_URL ||
   'https://chat.walztravels.com';
@@ -276,7 +273,7 @@ export async function POST(request: NextRequest) {
     }
 
     // AI response
-    const claude = await anthropic.messages.create({
+    const claude = await getAnthropic().messages.create({
       model: 'claude-sonnet-4-6',
       max_tokens: 300,
       system: JADE_SYSTEM_PROMPT,

@@ -1,9 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import prisma from '@/lib/db'
-import { Resend } from 'resend'
+import { getResend } from '@/lib/resend'
 
-const resend = new Resend(process.env.RESEND_API_KEY)
-const FROM   = 'Jade at Walz Travels <jade@walztravels.com>'
+const FROM = 'Jade at Walz Travels <jade@walztravels.com>'
 
 type AbandonType = 'flight_search' | 'visa_application' | 'booking_checkout'
 
@@ -132,8 +131,8 @@ export async function POST(req: NextRequest) {
     // Send follow-up email if we have an address
     if (email) {
       try {
-        const { subject, html } = buildEmail(type, name ?? null, data)
-        await resend.emails.send({ from: FROM, to: email, subject, html })
+                const { subject, html } = buildEmail(type, name ?? null, data)
+        await getResend().emails.send({ from: FROM, to: email, subject, html })
         emailSent = true
         await prisma.abandonedSession.updateMany({
           where: { email, type, emailSent: false },

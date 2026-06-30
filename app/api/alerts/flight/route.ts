@@ -1,8 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import prisma from '@/lib/db'
-import { Resend } from 'resend'
+import { getResend } from '@/lib/resend'
 
-const resend = new Resend(process.env.RESEND_API_KEY)
 const FROM   = process.env.RESEND_FROM ?? 'Walz Travels <alerts@walztravels.com>'
 
 export async function POST(req: NextRequest) {
@@ -48,7 +47,7 @@ export async function POST(req: NextRequest) {
 
     // Confirmation email
     try {
-      await resend.emails.send({
+      await getResend().emails.send({
         from:    FROM,
         to:      email,
         subject: `✈️ Price alert set — ${origin.toUpperCase()} → ${destination.toUpperCase()}`,

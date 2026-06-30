@@ -2,12 +2,11 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import prisma from '@/lib/db'
-import Stripe from 'stripe'
+import { getStripe } from '@/lib/stripe'
 import { z } from 'zod'
 
 export const dynamic = 'force-dynamic'
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, { apiVersion: '2024-06-20' })
 
 // ── Validation ────────────────────────────────────────────────────────────────
 
@@ -120,7 +119,7 @@ export async function POST(req: NextRequest) {
   const orderRef    = String(bfOrder.order_reference ?? bfOrder.reference ?? bfOrderId)
 
   // ── Create Stripe PaymentIntent ────────────────────────────────────────────
-  const intent = await stripe.paymentIntents.create({
+  const intent = await getStripe().paymentIntents.create({
     amount:        Math.round(d.premium * 100),
     currency:      d.currency.toLowerCase(),
     receipt_email: d.primary_traveller.email,

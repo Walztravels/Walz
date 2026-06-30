@@ -1,12 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
-import Anthropic from '@anthropic-ai/sdk'
+import { getAnthropic } from '@/lib/anthropic'
 import { getAdminSession } from '@/lib/admin-auth'
 import prisma from '@/lib/db'
 
 export const dynamic     = 'force-dynamic'
 export const maxDuration = 60
 
-const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
 
 const FORM_TYPES = [
   'VAF1A (UK Standard Visitor)',
@@ -126,7 +125,7 @@ export async function POST(req: NextRequest) {
       const isPdf     = file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf')
 
       if (!isPdf) {
-        const res = await anthropic.messages.create({
+        const res = await getAnthropic().messages.create({
           model:      'claude-sonnet-4-6',
           max_tokens: 2000,
           messages: [{
@@ -146,7 +145,7 @@ export async function POST(req: NextRequest) {
         }
       } else {
         // PDF cross-check without vision
-        const res = await anthropic.messages.create({
+        const res = await getAnthropic().messages.create({
           model:      'claude-sonnet-4-6',
           max_tokens: 1500,
           messages: [{
@@ -164,7 +163,7 @@ export async function POST(req: NextRequest) {
       }
     } else {
       // No file — do a pre-check based on DB data alone
-      const res = await anthropic.messages.create({
+      const res = await getAnthropic().messages.create({
         model:      'claude-sonnet-4-6',
         max_tokens: 1500,
         messages: [{

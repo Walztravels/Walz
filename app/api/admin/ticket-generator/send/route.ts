@@ -7,15 +7,11 @@ import React from 'react'
 import { TicketPDFDocument } from '@/components/admin/TicketPDF'
 import { FlightTicketPDF } from '@/components/tickets/FlightTicketPDF'
 import { generateFlightICS } from '@/lib/generateICS'
-import { createClient } from '@supabase/supabase-js'
+import { getSupabaseAdmin } from '@/lib/supabase'
 import type { FlightTicketEmailProps, FlightLeg } from '@/types/flight-ticket'
 
 export const dynamic = 'force-dynamic'
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!,
-)
 const BUCKET = 'generated-tickets'
 
 function makeReference(type: string): string {
@@ -63,8 +59,8 @@ function keyDetails(type: string, d: Record<string, unknown>): string {
 
 async function uploadToSupabase(path: string, buffer: Buffer, contentType: string): Promise<string | null> {
   try {
-    await supabase.storage.from(BUCKET).upload(path, buffer, { contentType, upsert: true })
-    const { data } = supabase.storage.from(BUCKET).getPublicUrl(path)
+    await getSupabaseAdmin().storage.from(BUCKET).upload(path, buffer, { contentType, upsert: true })
+    const { data } = getSupabaseAdmin().storage.from(BUCKET).getPublicUrl(path)
     return data?.publicUrl ?? null
   } catch (err) {
     console.error('[ticket-generator] Supabase upload error:', err)

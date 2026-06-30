@@ -1,12 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
-import Anthropic from '@anthropic-ai/sdk'
+import { getAnthropic } from '@/lib/anthropic'
 import type { DocumentBlockParam, ImageBlockParam } from '@anthropic-ai/sdk/resources'
 import { getAdminSession } from '@/lib/admin-auth'
 
 export const dynamic     = 'force-dynamic'
 export const maxDuration = 60
 
-const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
 
 const ALLOWED_TYPES = ['application/pdf', 'image/jpeg', 'image/png', 'image/webp', 'image/gif']
 
@@ -204,7 +203,7 @@ export async function POST(req: NextRequest) {
       },
     }
 
-    const res = await anthropic.messages.create({
+    const res = await getAnthropic().messages.create({
       model:      'claude-sonnet-4-6',
       max_tokens: 4096,
       messages: [{

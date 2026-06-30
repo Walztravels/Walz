@@ -1,11 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getAdminSession } from '@/lib/admin-auth'
-import { createClient } from '@supabase/supabase-js'
+import { getSupabaseAdmin } from '@/lib/supabase'
 
-const supabase = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!,
-)
 
 export async function POST(req: NextRequest) {
   const session = await getAdminSession()
@@ -22,13 +18,13 @@ export async function POST(req: NextRequest) {
     const path     = `visa-docs/${appId ?? 'misc'}/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`
     const buffer   = Buffer.from(await file.arrayBuffer())
 
-    const { error } = await supabase.storage
+    const { error } = await getSupabaseAdmin().storage
       .from('walz-documents')
       .upload(path, buffer, { contentType: file.type, upsert: true })
 
     if (error) throw error
 
-    const { data: { publicUrl } } = supabase.storage
+    const { data: { publicUrl } } = getSupabaseAdmin().storage
       .from('walz-documents')
       .getPublicUrl(path)
 

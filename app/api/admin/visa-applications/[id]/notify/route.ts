@@ -1,9 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { Resend } from 'resend'
+import { getResend } from '@/lib/resend'
 import prisma from '@/lib/db'
 import { getAdminSession } from '@/lib/admin-auth'
 
-const resend = new Resend(process.env.RESEND_API_KEY)
 
 export const dynamic = 'force-dynamic'
 
@@ -66,7 +65,7 @@ export async function POST(
 
   let emailSent = false
   if (app.email) {
-    await resend.emails.send({
+    await getResend().emails.send({
       from:    'Walz Travels Visa Team <visa@walztravels.com>',
       to:      app.email,
       subject: body.subject ?? `Update on your visa application — Ref: ${app.referenceNumber}`,

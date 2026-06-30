@@ -1,11 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { stripe }  from '@/lib/stripe'
-import { Resend }  from 'resend'
+import { getResend } from '@/lib/resend'
 import prisma      from '@/lib/db'
 import { generateVoucherPDF }               from '@/lib/voucher/generateVoucher'
 import { sendWhatsAppBookingConfirmation }  from '@/lib/whatsapp/sendBookingConfirmation'
 
-const resend = new Resend(process.env.RESEND_API_KEY)
 const SITE   = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://www.walztravels.com'
 
 function generateRef() {
@@ -87,7 +86,7 @@ export async function POST(req: NextRequest) {
 
     // Send confirmation email with PDF attachment
     if (customerEmail) {
-      await resend.emails.send({
+      await getResend().emails.send({
         from:    'Walz Travels <bookings@walztravels.com>',
         to:      customerEmail,
         subject: `Booking Confirmed — ${bookingReference} | Your Voucher is Ready`,

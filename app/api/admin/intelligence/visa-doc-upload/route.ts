@@ -1,12 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
-import Anthropic from '@anthropic-ai/sdk'
+import { getAnthropic } from '@/lib/anthropic'
 import { getAdminSession } from '@/lib/admin-auth'
 import prisma from '@/lib/db'
 
 export const dynamic     = 'force-dynamic'
 export const maxDuration = 60
 
-const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
 
 const DOC_TYPES = [
   'passport', 'bank_statement', 'payslip', 'employment_letter',
@@ -67,7 +66,7 @@ export async function POST(req: NextRequest) {
       const isPdf = file.type === 'application/pdf' || fileName.toLowerCase().endsWith('.pdf')
 
       if (!isPdf) {
-        const res = await anthropic.messages.create({
+        const res = await getAnthropic().messages.create({
           model:      'claude-sonnet-4-6',
           max_tokens: 1000,
           messages: [{
@@ -90,7 +89,7 @@ export async function POST(req: NextRequest) {
         }
       } else {
         // PDF — text-based analysis prompt
-        const res = await anthropic.messages.create({
+        const res = await getAnthropic().messages.create({
           model:      'claude-sonnet-4-6',
           max_tokens: 800,
           messages: [{

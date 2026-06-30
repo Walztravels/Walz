@@ -1,7 +1,7 @@
 export const maxDuration = 60
 
 import { NextRequest, NextResponse } from 'next/server'
-import { Resend }                    from 'resend'
+import { getResend } from '@/lib/resend'
 import { prisma }                    from '@/lib/db'
 
 export async function GET(req: NextRequest) {
@@ -48,8 +48,7 @@ export async function GET(req: NextRequest) {
     const now   = new Date()
     const month = now.toLocaleString('en-GB', { month: 'long', year: 'numeric' })
 
-    const resend = new Resend(process.env.RESEND_API_KEY)
-    await resend.emails.send({
+        await getResend().emails.send({
       from:    'Walz Travels Payroll <payroll@walztravels.com>',
       to:      'contact@walztravels.com',
       subject: `Payroll Auto-Run — ${month}`,

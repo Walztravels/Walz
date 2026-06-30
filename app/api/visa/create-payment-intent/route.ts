@@ -1,11 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
-import Stripe from 'stripe'
+import { getStripe } from '@/lib/stripe'
 import prisma from '@/lib/db'
 import { getVisaConfig } from '@/lib/visa-config'
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!, {
-  apiVersion: '2024-06-20',
-})
 
 const SITE = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://www.walztravels.com'
 
@@ -29,7 +26,7 @@ export async function POST(req: NextRequest) {
   const feeGbp   = config?.serviceFeeUsd ?? 150
   const amountPence = Math.round(feeGbp * 100)
 
-  const session = await stripe.checkout.sessions.create({
+  const session = await getStripe().checkout.sessions.create({
     payment_method_types: ['card'],
     mode:                 'payment',
     customer_email:       app.email ?? undefined,
