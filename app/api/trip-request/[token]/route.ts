@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
 import { getResend } from '@/lib/email-internal'
+import { ensurePortalAccount } from '@/lib/portal-account'
 
 export async function GET(_req: NextRequest, { params }: { params: Promise<{ token: string }> }) {
   const { token } = await params
@@ -79,6 +80,25 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ tok
       updatedAt: new Date(),
     },
   })
+
+  // Auto-create portal account for the client
+  const clientEmail = body.email || request.email
+  if (clientEmail) {
+    const fullName = [body.firstName || request.firstName, body.lastName || request.lastName].filter(Boolean).join(' ') || 'Client'
+    const { userId } = await ensurePortalAccount(
+      clientEmail,
+      fullName,
+      updated.referenceNumber,
+      'Trip Request',
+    ).catch(() => ({ userId: null as string | null }))
+
+    if (userId) {
+      await prisma.tripRequest.update({
+        where: { id: updated.id },
+        data: { userId },
+      }).catch(() => {})
+    }
+  }
 
   // Notify staff
   if (request.sentBy) {

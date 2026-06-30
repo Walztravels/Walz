@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
 import { sendVisaAdminNotification } from '@/lib/email-visa'
 import { ensureClientAccount } from '@/lib/create-client-account'
+import { ensurePortalAccount } from '@/lib/portal-account'
 
 // POST /api/visa-application/[id]/submit
 // Token-based submission — no payment (admin-initiated flow)
@@ -44,6 +45,20 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   if (application.email) {
     const fullName = [application.firstName, application.lastName].filter(Boolean).join(' ') || 'Client'
     await ensureClientAccount({ email: application.email, name: fullName, phone: application.phone ?? null, applicationId: application.id })
+
+    const { userId } = await ensurePortalAccount(
+      application.email,
+      fullName,
+      application.referenceNumber,
+      `${application.visaType} Visa Application`,
+    ).catch(() => ({ userId: null as string | null }))
+
+    if (userId && !application.userId) {
+      await prisma.visaApplication.update({
+        where: { id: application.id },
+        data: { userId },
+      }).catch(() => {})
+    }
   }
 
   return NextResponse.json({ application, referenceNumber: application.referenceNumber })

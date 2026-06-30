@@ -4,6 +4,7 @@ import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/db'
 import { sendVisaAdminNotification, sendVisaApplicationConfirmation } from '@/lib/email-visa'
 import { ensureClientAccount } from '@/lib/create-client-account'
+import { ensurePortalAccount } from '@/lib/portal-account'
 
 // POST /api/visa-application/[id]/client-submit
 // Client-initiated manual submission (no payment required — e.g. unsupported destination)
@@ -42,6 +43,12 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   if (email) {
     const fullName = [application.firstName, application.lastName].filter(Boolean).join(' ') || session.user.name || 'Client'
     await ensureClientAccount({ email, name: fullName, phone: application.phone ?? null, applicationId: application.id })
+    await ensurePortalAccount(
+      email,
+      fullName,
+      application.referenceNumber,
+      `${application.visaType} Visa Application`,
+    ).catch(() => {})
   }
 
   return NextResponse.json({ referenceNumber: application.referenceNumber })

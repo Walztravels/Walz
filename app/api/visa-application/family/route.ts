@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
 import { Resend } from 'resend'
+import { ensurePortalAccount } from '@/lib/portal-account'
 
 export const dynamic = 'force-dynamic'
 
@@ -86,9 +87,25 @@ export async function POST(req: NextRequest) {
       },
     })
 
+    // Auto-create portal account for lead applicant
+    const lead = applicants[0]
+    const leadName = [lead.firstName, lead.lastName].filter(Boolean).join(' ')
+    const { userId } = await ensurePortalAccount(
+      contactEmail,
+      leadName,
+      refNumber,
+      `Family Visa Application (${applicants.length} people)`,
+    ).catch(() => ({ userId: null as string | null }))
+
+    if (userId) {
+      await prisma.visaApplication.updateMany({
+        where: { familyGroupId: refNumber },
+        data: { userId },
+      }).catch(() => {})
+    }
+
     // Send confirmation email to lead applicant
     const resend = getResend()
-    const lead = applicants[0]
     if (resend) {
       resend.emails.send({
         from:    'Walz Travels <contact@walztravels.com>',

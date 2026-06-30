@@ -101,9 +101,13 @@ export default function PortalLoginPage() {
 
           <div className="mt-5 pt-5 border-t border-gray-100 text-center space-y-2">
             <Link href="/forgot-password" className="text-sm text-[#C9A84C] hover:underline block">Forgot password?</Link>
+            <p className="text-sm text-gray-500">
+              New to Walz Travels?{' '}
+              <Link href="/portal/register" className="text-[#C9A84C] font-medium hover:underline">Create an account</Link>
+            </p>
             <p className="text-xs text-gray-400">
-              Don&apos;t have an account?{' '}
-              <Link href="/login?signup=true" className="text-[#0A1628] font-medium hover:underline">Create one here</Link>
+              Applied without an account?{' '}
+              <Link href="/portal/register" className="text-[#0A1628] font-medium hover:underline">Claim your portal →</Link>
             </p>
           </div>
         </div>
