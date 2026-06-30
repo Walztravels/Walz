@@ -127,7 +127,7 @@ export function TransferSearchForm({ loading }: Props) {
   const router = useRouter()
 
   const [from,     setFrom]     = useState<{ code: string; name: string } | null>(null)
-  const [to,       setTo]       = useState('')
+  const [to,       setTo]       = useState<{ code: string; name: string } | null>(null)
   const [date,     setDate]     = useState('')
   const [time,     setTime]     = useState('10:00')
   const [adults,   setAdults]   = useState(2)
@@ -138,13 +138,13 @@ export function TransferSearchForm({ loading }: Props) {
 
   function handleSearch(e: React.FormEvent) {
     e.preventDefault()
-    if (!from)       { setError('Select a pickup airport.'); return }
-    if (!to.trim())  { setError('Enter a drop-off location.'); return }
-    if (!date)       { setError('Select a travel date.'); return }
+    if (!from)  { setError('Select a pickup airport.'); return }
+    if (!to)    { setError('Select a drop-off airport.'); return }
+    if (!date)  { setError('Select a travel date.'); return }
     setError(null)
     const qs = new URLSearchParams({
       from:     from.code,
-      to:       to.trim(),
+      to:       to.code,
       date,
       time:     time || '10:00',
       adults:   String(adults),
@@ -161,18 +161,11 @@ export function TransferSearchForm({ loading }: Props) {
           value={from}
           onSelect={a => setFrom({ code: a.code, name: a.name })}
         />
-        <div>
-          <label className="block text-xs font-semibold text-white/60 uppercase tracking-wide mb-1.5">
-            Drop-off Location
-          </label>
-          <input
-            type="text"
-            value={to}
-            onChange={e => setTo(e.target.value)}
-            placeholder="Hotel, home or address…"
-            className="w-full bg-white/10 border border-white/20 text-white placeholder-white/40 rounded-xl px-4 py-3 text-sm outline-none focus:border-[#C9A84C]"
-          />
-        </div>
+        <AirportPicker
+          label="Drop-off Location"
+          value={to}
+          onSelect={a => setTo({ code: a.code, name: a.name })}
+        />
       </div>
 
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
@@ -214,8 +207,8 @@ export function TransferSearchForm({ loading }: Props) {
 
       <button
         type="submit"
-        disabled={loading}
-        className="w-full bg-[#C9A84C] hover:bg-[#d4b05a] disabled:opacity-60 text-[#0B1F3A] font-bold py-3.5 rounded-xl transition-colors flex items-center justify-center gap-2 text-sm"
+        disabled={loading || !from || !to}
+        className="w-full bg-[#C9A84C] hover:bg-[#d4b05a] disabled:opacity-60 disabled:cursor-not-allowed text-[#0B1F3A] font-bold py-3.5 rounded-xl transition-colors flex items-center justify-center gap-2 text-sm"
       >
         {loading ? (
           <Loader2 className="w-4 h-4 animate-spin" />

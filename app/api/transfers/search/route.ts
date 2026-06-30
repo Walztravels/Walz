@@ -86,7 +86,7 @@ export async function GET(req: NextRequest) {
     const data: any = await hotelbedsRequest('transfers', path)
 
     console.log('[HB Transfers] GET', path, 'services:', data?.services?.length ?? 0, 'error:', data?.errors?.[0]?.message ?? null)
-    console.log('[HB Transfers raw first service]', JSON.stringify(data?.services?.[0]).slice(0, 400))
+    console.log('[HB Transfers raw first service]', JSON.stringify(data?.services?.[0] ?? null).slice(0, 400))
 
     if (data?.errors?.length) {
       return NextResponse.json({ transfers: [], error: data.errors[0].message, debug: { path } })
