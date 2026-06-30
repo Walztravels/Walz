@@ -9,8 +9,17 @@ export async function GET() {
   const session = await getServerSession(authOptions)
   if (!session?.user?.id) return NextResponse.json({ error: 'Unauthorised' }, { status: 401 })
 
+  // Query by userId (linked applications) OR by email (applications submitted
+  // before the portal account was created / before admin linked them)
   const applications = await prisma.visaApplication.findMany({
-    where: { userId: session.user.id },
+    where: {
+      OR: [
+        { userId: session.user.id },
+        ...(session.user.email
+          ? [{ email: { equals: session.user.email, mode: 'insensitive' as const } }]
+          : []),
+      ],
+    },
     orderBy: { createdAt: 'desc' },
     select: {
       id: true, referenceNumber: true, destinationIso2: true, visaType: true,

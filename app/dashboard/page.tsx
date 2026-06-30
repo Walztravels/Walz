@@ -61,7 +61,7 @@ function stageProgress(s: Stage) {
 
 const navLinks = [
   { href: '/plan/library',        label: 'My Trips',      icon: Compass         },
-  { href: '/portal/application',  label: 'Applications',  icon: FileText        },
+  { href: '/portal/applications',  label: 'Applications',  icon: FileText        },
   { href: '/portal/documents',    label: 'Documents',     icon: Upload          },
   { href: '/portal/profile',      label: 'Profile',       icon: Shield          },
 ]

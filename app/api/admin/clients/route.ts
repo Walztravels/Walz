@@ -56,7 +56,29 @@ export async function GET(req: NextRequest) {
       prisma.user.count({ where }),
     ])
 
-    return NextResponse.json({ clients: users, total, page, limit })
+    // Attach visa applications per client (by userId OR email)
+    const clientsWithVisa = await Promise.all(
+      users.map(async u => {
+        const visaApplications = await prisma.visaApplication.findMany({
+          where: {
+            isDraft: false,
+            OR: [
+              { userId: u.id },
+              { email: { equals: u.email ?? '', mode: 'insensitive' } },
+            ],
+          },
+          orderBy: { createdAt: 'desc' },
+          take: 10,
+          select: {
+            id: true, referenceNumber: true, destinationIso2: true,
+            visaType: true, status: true, createdAt: true,
+          },
+        })
+        return { ...u, visaApplications }
+      })
+    )
+
+    return NextResponse.json({ clients: clientsWithVisa, total, page, limit })
   } catch (err) {
     console.error('[clients GET]', err)
     return NextResponse.json({ error: 'Failed to load clients' }, { status: 500 })
