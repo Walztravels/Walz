@@ -141,6 +141,21 @@ function extractHBImage(item: any): string {
     if (url?.startsWith('http')) return url
   }
 
+  // Shape 6: Activity Content API v3.0 — multimedia array [{type, url}]
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const multimedia: any[] = Array.isArray(item.multimedia) ? item.multimedia : []
+  for (const m of multimedia) {
+    const url: string | undefined = m.url ?? m.resource ?? m.path
+    if (url?.startsWith('http')) return url
+  }
+
+  // Shape 7: Activity Content API v3.0 — media as object with url directly
+  if (typeof item.media === 'object' && !Array.isArray(item.media) && item.media !== null) {
+    const url: string | undefined = (item.media as { url?: string; resource?: string }).url
+      ?? (item.media as { url?: string; resource?: string }).resource
+    if (url?.startsWith('http')) return url
+  }
+
   return ''
 }
 
@@ -306,15 +321,16 @@ export async function GET(req: NextRequest) {
                 { method: 'POST', body: { codes, language: 'en' } },
               )
 
-              // Log raw shape to diagnose empty-array returns
-              console.log('[HB Content API] POST raw keys:', contentData ? Object.keys(contentData) : 'null')
-              console.log('[HB Content API] POST raw preview:', JSON.stringify(contentData).slice(0, 300))
-
+              // Activity Content API v3.0 returns { activitiesContent: [...] }
               contentItems = Array.isArray(contentData)
                 ? contentData
-                : (contentData?.activities ?? contentData?.data ?? contentData?.content ?? contentData?.results ?? [])
+                : (contentData?.activitiesContent ?? contentData?.activities ?? [])
 
               console.log('[HB Content API] POST enriched:', contentItems.length, 'of', codes.length)
+              if (contentItems[0]) {
+                console.log('[HB Content API] POST content item keys:', Object.keys(contentItems[0]))
+                console.log('[HB Content API] POST content item sample:', JSON.stringify(contentItems[0]).slice(0, 500))
+              }
             } catch (postErr: unknown) {
               console.warn('[HB Content API] POST failed:', postErr instanceof Error ? postErr.message : postErr)
             }
@@ -336,11 +352,14 @@ export async function GET(req: NextRequest) {
                     if (!c.activityCode || !firstMod) return null
                     try {
                       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                      const item: any = await hotelbedsRequest(
+                      const raw: any = await hotelbedsRequest(
                         'activities-content',
                         `/activities/en/${encodeURIComponent(c.activityCode)}/${encodeURIComponent(firstMod)}`,
                       )
-                      return item ? { ...item, code: c.activityCode, activityCode: c.activityCode } : null
+                      // GET response: { operationId, auditData, activitiesContent: [contentItem] }
+                      // Unwrap the inner content item and attach the code for the contentMap lookup
+                      const inner = raw?.activitiesContent?.[0] ?? raw
+                      return inner ? { ...inner, code: c.activityCode, activityCode: c.activityCode } : null
                     } catch { return null }
                   }),
                 )
@@ -349,9 +368,8 @@ export async function GET(req: NextRequest) {
               contentItems = getResults
               console.log('[HB Content API] GET fallback enriched:', contentItems.length, 'of', codes.length)
               if (contentItems[0]) {
-                console.log('[HB Content API] GET first item keys:', Object.keys(contentItems[0]))
-                console.log('[HB Content API] GET first item images:',
-                  JSON.stringify(contentItems[0]?.media?.images?.[0]?.urls?.[0]))
+                console.log('[HB Content API] GET content item keys:', Object.keys(contentItems[0]))
+                console.log('[HB Content API] GET content item sample:', JSON.stringify(contentItems[0]).slice(0, 500))
               }
             }
 
