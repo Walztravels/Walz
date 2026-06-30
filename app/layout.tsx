@@ -146,8 +146,10 @@ export default function RootLayout({
         <link rel="dns-prefetch" href="https://images.unsplash.com" />
         <link rel="preconnect" href="https://bxacijnrgqgmyqyfgumg.supabase.co" />
 
-        {/* Organisation / LocalBusiness schema — single canonical instance in head */}
-        <script
+        {/* Organisation schema lives on homepage (app/page.tsx) only — not root layout.
+            Emitting TravelAgency on every URL (including /flights/search?...) causes
+            Semrush "invalid structured data" warnings on parameterised search pages. */}
+        {false && <script
           type="application/ld+json"
           dangerouslySetInnerHTML={{
             __html: JSON.stringify({
@@ -297,7 +299,7 @@ export default function RootLayout({
               ],
             }),
           }}
-        />
+        />}
 
         {/* Google Consent Mode v2 — must fire before GA4 initialises */}
         <Script

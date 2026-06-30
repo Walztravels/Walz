@@ -1,6 +1,6 @@
 import { MetadataRoute } from 'next'
 
-const BLOCKED = ['/admin/', '/portal/', '/api/', '/_next/', '/auth/']
+const BLOCKED = ['/admin/', '/portal/', '/api/', '/auth/']
 
 export default function robots(): MetadataRoute.Robots {
   return {

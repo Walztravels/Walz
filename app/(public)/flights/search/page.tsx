@@ -339,12 +339,20 @@ function SearchContent() {
 
 export default function SearchPage() {
   return (
-    <Suspense fallback={
-      <div className="min-h-screen bg-[#0B1F3A] flex items-center justify-center">
-        <div className="w-10 h-10 rounded-full border-4 border-[#C9A84C]/30 border-t-[#C9A84C] animate-spin" />
-      </div>
-    }>
-      <SearchContent />
-    </Suspense>
+    <>
+      {/* Visually hidden H1 for search result pages — satisfies SEO requirements
+          (H1 missing = Semrush warning). The SearchContent component renders its
+          own visual header once results load, but this is present in initial HTML. */}
+      <h1 className="sr-only">
+        Flight Search Results — Compare Live Prices | Walz Travels
+      </h1>
+      <Suspense fallback={
+        <div className="min-h-screen bg-[#0B1F3A] flex items-center justify-center">
+          <div className="w-10 h-10 rounded-full border-4 border-[#C9A84C]/30 border-t-[#C9A84C] animate-spin" />
+        </div>
+      }>
+        <SearchContent />
+      </Suspense>
+    </>
   )
 }

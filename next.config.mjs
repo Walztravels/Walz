@@ -52,17 +52,15 @@ const nextConfig = {
         destination: 'https://www.walztravels.com/:path*',
         permanent:   true,
       },
-      // FIX 5: dummy-ticket is a tab within doc-auth, not a standalone page
       {
         source:      '/admin/intelligence/dummy-ticket',
         destination: '/admin/intelligence/doc-auth',
-        permanent:   false,
+        permanent:   true,
       },
-      // FIX 6: itineraries page was renamed to itinerary-planner
       {
         source:      '/admin/itineraries',
         destination: '/admin/itinerary-planner',
-        permanent:   false,
+        permanent:   true,
       },
     ]
   },
