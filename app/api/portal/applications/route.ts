@@ -9,18 +9,35 @@ export async function GET() {
     return NextResponse.json({ error: 'Unauthorised' }, { status: 401 })
   }
 
-  const user = await prisma.user.findUnique({ where: { email: session.user.email } })
-  if (!user) return NextResponse.json({ error: 'User not found' }, { status: 404 })
+  const userId = (session.user as { id?: string }).id
+  const email  = session.user.email
 
-  const applications = await prisma.portalApplication.findMany({
-    where: { userId: user.id },
-    include: {
-      documents: { select: { id: true, status: true } },
-      payments:  { select: { id: true, amount: true, currency: true, status: true } },
-      checklist: { select: { id: true, completedAt: true } },
-    },
-    orderBy: { createdAt: 'desc' },
-  })
+  const orClause = [
+    ...(userId ? [{ userId }] : []),
+    { email: { equals: email, mode: 'insensitive' as const } },
+  ]
+
+  const [visaApps, tripReqs] = await Promise.all([
+    prisma.visaApplication.findMany({
+      where: { isDraft: false, OR: orClause },
+      orderBy: { createdAt: 'desc' },
+      select: {
+        id: true, referenceNumber: true, visaType: true, status: true,
+        destinationIso2: true, firstName: true, lastName: true,
+        createdAt: true, updatedAt: true, statusMessage: true,
+      },
+    }),
+    prisma.tripRequest.findMany({
+      where: { OR: orClause },
+      orderBy: { createdAt: 'desc' },
+      select: { id: true, destination: true, status: true, createdAt: true },
+    }).catch(() => [] as { id: string; destination: string | null; status: string; createdAt: Date }[]),
+  ])
+
+  const applications = [
+    ...visaApps.map(a => ({ ...a, type: 'visa' as const })),
+    ...tripReqs.map(t => ({ ...t, type: 'trip' as const })),
+  ].sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
 
   return NextResponse.json({ applications })
 }

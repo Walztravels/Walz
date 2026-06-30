@@ -27,12 +27,22 @@ interface PortalApp {
   checklist: { id: string; completedAt: string | null }[]
 }
 
+interface VisaApp {
+  id: string
+  referenceNumber: string
+  destinationIso2: string
+  visaType: string
+  status: string
+  createdAt: string
+}
+
 interface Client {
   id: string
   name: string | null
   email: string
   createdAt: string
   portalApplications: PortalApp[]
+  visaApplications: VisaApp[]
   _count: { bookings: number }
 }
 
@@ -163,8 +173,9 @@ export default function AdminClientsPage() {
         ) : clients.length === 0 ? (
           <div className="bg-[#112240] rounded-2xl p-12 text-center text-white/30 ring-1 ring-white/5">No clients found.</div>
         ) : clients.map(c => {
-          const isOpen = expanded === c.id
-          const apps   = c.portalApplications ?? []
+          const isOpen  = expanded === c.id
+          const apps    = c.portalApplications ?? []
+          const visaApps = c.visaApplications ?? []
 
           return (
             <div key={c.id} className="bg-[#112240] rounded-2xl ring-1 ring-white/5 overflow-hidden">
@@ -183,7 +194,7 @@ export default function AdminClientsPage() {
                   <div className="flex items-center gap-3 text-xs text-white/35 mt-0.5 flex-wrap">
                     {c.name && <span>{c.email}</span>}
                     <span>{c._count?.bookings ?? 0} booking{(c._count?.bookings ?? 0) !== 1 ? 's' : ''}</span>
-                    <span className="font-medium text-amber-400/70">{apps.length} portal app{apps.length !== 1 ? 's' : ''}</span>
+                    <span className="font-medium text-amber-400/70">{visaApps.length} visa app{visaApps.length !== 1 ? 's' : ''}</span>
                     <span>since {format(new Date(c.createdAt), 'MMM yyyy')}</span>
                   </div>
                 </div>
@@ -210,101 +221,36 @@ export default function AdminClientsPage() {
                   : <ChevronDown className="w-4 h-4 text-white/30 flex-shrink-0" />}
               </button>
 
-              {/* Expanded: portal applications */}
+              {/* Expanded: visa applications */}
               {isOpen && (
-                <div className="border-t border-white/5 px-5 py-4 bg-black/10 space-y-3">
-                  {apps.length === 0 ? (
-                    <p className="text-sm text-white/30 py-2">No portal applications for this client yet.</p>
-                  ) : apps.map(app => {
-                    const approvedDocs = app.documents.filter(d => d.status === 'APPROVED').length
-                    const totalPaid    = app.payments.filter(p => p.status === 'PAID').reduce((s, p) => s + p.amount, 0)
-                    const doneCl       = app.checklist.filter(ci => ci.completedAt).length
-
-                    return (
-                      <div key={app.id} className="bg-white/5 rounded-xl border border-white/8 p-4">
-                        <div className="flex items-start justify-between gap-3 mb-3">
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-2 flex-wrap mb-1">
-                              <span className={`text-xs font-semibold px-2.5 py-0.5 rounded-full ${STAGE_COLOR[app.stage]}`}>
-                                {STAGE_LABEL[app.stage]}
-                              </span>
-                              <span className="text-xs font-mono text-white/30">{app.refNumber}</span>
-                              <span className="text-xs text-white/30 bg-white/5 px-2 py-0.5 rounded-full">{app.type}</span>
-                            </div>
-                            <h3 className="font-bold text-white text-sm">{app.title}</h3>
-                            {app.destination && (
-                              <p className="text-xs text-white/40 mt-0.5">
-                                {app.destination}{app.travelDate ? ` · ${app.travelDate}` : ''}
-                              </p>
-                            )}
-                          </div>
-                          <span className="text-xs text-white/30 flex-shrink-0">
-                            {format(new Date(app.createdAt), 'd MMM yyyy')}
-                          </span>
-                        </div>
-
-                        {/* Stats */}
-                        <div className="flex items-center gap-4 mb-3 flex-wrap text-xs text-white/40">
-                          <span className="flex items-center gap-1">
-                            <FileText className="w-3.5 h-3.5" />
-                            {approvedDocs}/{app.documents.length} docs approved
-                          </span>
-                          <span className="flex items-center gap-1">
-                            <CheckSquare className="w-3.5 h-3.5" />
-                            {doneCl}/{app.checklist.length} checklist
-                          </span>
-                          {app.amount && (
-                            <span className="flex items-center gap-1">
-                              <CreditCard className="w-3.5 h-3.5" />
-                              {app.currency} {totalPaid.toLocaleString()} / {app.amount.toLocaleString()} paid
-                            </span>
-                          )}
-                        </div>
-
-                        {/* Controls */}
-                        <div className="flex items-end gap-3 flex-wrap">
-                          <div>
-                            <label className="text-xs text-white/30 block mb-1">Stage</label>
-                            <select
-                              value={app.stage}
-                              disabled={saving === app.id}
-                              onChange={e => updateStage(app.id, e.target.value as Stage)}
-                              className="text-xs border border-white/10 rounded-lg px-3 py-2 bg-white/5 text-white focus:outline-none focus:border-amber-500/40 disabled:opacity-50"
-                            >
-                              {STAGES.map(s => (
-                                <option key={s} value={s}>{STAGE_LABEL[s]}</option>
-                              ))}
-                            </select>
-                          </div>
-                          <div className="flex-1 min-w-[160px]">
-                            <label className="text-xs text-white/30 block mb-1">Note to client</label>
-                            <div className="flex gap-2">
-                              <input
-                                type="text"
-                                value={editNotes[app.id] ?? app.adminNotes ?? ''}
-                                onChange={e => setEditNotes(p => ({ ...p, [app.id]: e.target.value }))}
-                                placeholder="e.g. Please upload passport"
-                                className="flex-1 text-xs border border-white/10 rounded-lg px-3 py-2 bg-white/5 text-white placeholder-white/25 focus:outline-none focus:border-amber-500/40"
-                              />
-                              <button
-                                onClick={() => saveNotes(app.id)}
-                                disabled={saving === app.id}
-                                className="px-3 py-2 bg-amber-500 text-black text-xs font-semibold rounded-lg hover:bg-amber-400 disabled:opacity-50"
-                              >
-                                {saving === app.id ? '…' : 'Save'}
-                              </button>
-                            </div>
-                          </div>
-                          <a
-                            href={`mailto:${c.email}?subject=Re: ${encodeURIComponent(app.title)}`}
-                            className="text-xs text-amber-400 hover:text-amber-300 hover:underline whitespace-nowrap pb-2"
-                          >
-                            Email client
-                          </a>
-                        </div>
+                <div className="border-t border-white/5 px-5 py-4 bg-black/10 space-y-2">
+                  {visaApps.length === 0 ? (
+                    <p className="text-sm text-white/30 py-2">No applications found for this client.</p>
+                  ) : visaApps.map(app => (
+                    <a
+                      key={app.id}
+                      href={`/admin/visa-applications/${app.id}`}
+                      className="flex items-center justify-between p-3 bg-white/5 border border-white/8 rounded-xl hover:bg-white/8 transition-colors group"
+                    >
+                      <div>
+                        <p className="text-sm font-medium text-white capitalize">
+                          {app.visaType} Visa — {app.destinationIso2.toUpperCase()}
+                        </p>
+                        <p className="text-xs text-white/35 mt-0.5">
+                          Ref: {app.referenceNumber} · {format(new Date(app.createdAt), 'd MMM yyyy')}
+                        </p>
                       </div>
-                    )
-                  })}
+                      <span className={`text-xs font-semibold px-2.5 py-1 rounded-full whitespace-nowrap ${
+                        app.status === 'approved'
+                          ? 'bg-green-500/15 text-green-400'
+                          : app.status === 'refused'
+                          ? 'bg-red-500/15 text-red-400'
+                          : 'bg-amber-500/15 text-amber-400'
+                      }`}>
+                        {app.status.replace(/_/g, ' ')}
+                      </span>
+                    </a>
+                  ))}
                 </div>
               )}
             </div>
