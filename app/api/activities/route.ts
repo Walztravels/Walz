@@ -296,22 +296,63 @@ export async function GET(req: NextRequest) {
 
           if (codes.length > 0) {
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            const contentData: any = await hotelbedsRequest(
-              'activities-content',
-              '/activities',
-              { method: 'POST', body: { codes, language: 'en' } },
-            )
+            let contentItems: any[] = []
 
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            const contentItems: any[] = Array.isArray(contentData)
-              ? contentData
-              : (contentData?.activities ?? [])
+            try {
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              const contentData: any = await hotelbedsRequest(
+                'activities-content',
+                '/activities',
+                { method: 'POST', body: { codes, language: 'en' } },
+              )
 
-            console.log('[HB Content API] enriched:', contentItems.length, 'of', codes.length)
-            if (contentItems[0]) {
-              console.log('[HB Content API] first item keys:', Object.keys(contentItems[0]))
-              console.log('[HB Content API] first item images:',
-                JSON.stringify(contentItems[0]?.media?.images?.[0]?.urls?.[0]))
+              // Log raw shape to diagnose empty-array returns
+              console.log('[HB Content API] POST raw keys:', contentData ? Object.keys(contentData) : 'null')
+              console.log('[HB Content API] POST raw preview:', JSON.stringify(contentData).slice(0, 300))
+
+              contentItems = Array.isArray(contentData)
+                ? contentData
+                : (contentData?.activities ?? contentData?.data ?? contentData?.content ?? contentData?.results ?? [])
+
+              console.log('[HB Content API] POST enriched:', contentItems.length, 'of', codes.length)
+            } catch (postErr: unknown) {
+              console.warn('[HB Content API] POST failed:', postErr instanceof Error ? postErr.message : postErr)
+            }
+
+            // Fallback to individual GET /activities/{lang}/{code}/{modality}
+            // when the bulk POST returns 0 — same endpoint as [code]/route.ts
+            if (contentItems.length === 0) {
+              console.log('[HB Content API] POST=0 → falling back to per-activity GET')
+              const BATCH = 8
+              // eslint-disable-next-line @typescript-eslint/no-explicit-any
+              const getResults: any[] = []
+              for (let bi = 0; bi < codes.length; bi += BATCH) {
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                const batchSlice = (codes as any[]).slice(bi, bi + BATCH)
+                const batchData = await Promise.all(
+                  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                  batchSlice.map(async (c: any) => {
+                    const firstMod = c.modalityCodes?.[0]
+                    if (!c.activityCode || !firstMod) return null
+                    try {
+                      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                      const item: any = await hotelbedsRequest(
+                        'activities-content',
+                        `/activities/en/${encodeURIComponent(c.activityCode)}/${encodeURIComponent(firstMod)}`,
+                      )
+                      return item ? { ...item, code: c.activityCode, activityCode: c.activityCode } : null
+                    } catch { return null }
+                  }),
+                )
+                getResults.push(...batchData.filter(Boolean))
+              }
+              contentItems = getResults
+              console.log('[HB Content API] GET fallback enriched:', contentItems.length, 'of', codes.length)
+              if (contentItems[0]) {
+                console.log('[HB Content API] GET first item keys:', Object.keys(contentItems[0]))
+                console.log('[HB Content API] GET first item images:',
+                  JSON.stringify(contentItems[0]?.media?.images?.[0]?.urls?.[0]))
+              }
             }
 
             // Key content map by RAW code (no hb- prefix)
