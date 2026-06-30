@@ -140,6 +140,7 @@ function ResultsContent() {
   const searchParams = useSearchParams()
   const from     = searchParams.get('from')     ?? ''
   const to       = searchParams.get('to')       ?? ''
+  const toType   = searchParams.get('toType')   ?? 'IATA'
   const date     = searchParams.get('date')     ?? ''
   const time     = searchParams.get('time')     ?? '10:00'
   const adults   = searchParams.get('adults')   ?? '2'
@@ -151,7 +152,7 @@ function ResultsContent() {
 
   useEffect(() => {
     if (!from || !to || !date) { setLoading(false); return }
-    const qs = new URLSearchParams({ from, to, date, time, adults, children })
+    const qs = new URLSearchParams({ from, to, toType, date, time, adults, children })
     fetch(`/api/transfers/search?${qs}`)
       .then(r => r.json())
       .then(d => {
@@ -160,7 +161,7 @@ function ResultsContent() {
         setLoading(false)
       })
       .catch(() => { setError('Search failed. Please try again.'); setLoading(false) })
-  }, [from, to, date, time, adults, children])
+  }, [from, to, toType, date, time, adults, children])
 
   if (loading) return (
     <div className="min-h-screen bg-[#0B1F3A] flex items-center justify-center">

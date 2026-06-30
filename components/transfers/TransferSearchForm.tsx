@@ -1,8 +1,8 @@
 'use client'
 
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { Search, Loader2, ArrowRight } from 'lucide-react'
+import { Search, Loader2, ArrowRight, PlaneTakeoff, Building2 } from 'lucide-react'
 
 const AIRPORTS = [
   { code: 'LHR', name: 'London Heathrow',         country: 'UK'           },
@@ -123,11 +123,141 @@ function AirportPicker({
   )
 }
 
+interface DropOffOption {
+  type: 'IATA' | 'ACCOM'
+  code: string
+  name: string
+}
+
+interface HotelHit {
+  code: string
+  name: string
+  city: string
+  country: string
+}
+
+function DropOffPicker({
+  value,
+  onSelect,
+}: {
+  value: DropOffOption | null
+  onSelect: (opt: DropOffOption) => void
+}) {
+  const [query,    setQuery]  = useState(value ? value.name : '')
+  const [open,     setOpen]   = useState(false)
+  const [hotels,   setHotels] = useState<HotelHit[]>([])
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const airportHits = query.length >= 1
+    ? AIRPORTS.filter(a =>
+        a.name.toLowerCase().includes(query.toLowerCase()) ||
+        a.code.toLowerCase().startsWith(query.toLowerCase()) ||
+        a.country.toLowerCase().includes(query.toLowerCase())
+      ).slice(0, 4)
+    : AIRPORTS.slice(0, 4)
+
+  function handleChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const q = e.target.value
+    setQuery(q)
+    setOpen(true)
+    if (timerRef.current) clearTimeout(timerRef.current)
+    if (q.length >= 3) {
+      timerRef.current = setTimeout(() => {
+        fetch(`/api/transfers/hotel-search?q=${encodeURIComponent(q)}`)
+          .then(r => r.json())
+          .then(d => setHotels(d.hotels ?? []))
+          .catch(() => setHotels([]))
+      }, 300)
+    } else {
+      setHotels([])
+    }
+  }
+
+  const showAirports = airportHits.length > 0
+  const showHotels   = hotels.length > 0
+  const showEmpty    = !showAirports && !showHotels
+
+  return (
+    <div className="relative">
+      <label className="block text-xs font-semibold text-white/60 uppercase tracking-wide mb-1.5">
+        Drop-off Location
+      </label>
+      <input
+        type="text"
+        value={query}
+        onChange={handleChange}
+        onFocus={() => setOpen(true)}
+        placeholder="Search hotel, airport or city…"
+        className="w-full bg-white/10 border border-white/20 text-white placeholder-white/40 rounded-xl px-4 py-3 text-sm outline-none focus:border-[#C9A84C]"
+      />
+      {open && (
+        <>
+          <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
+          <div className="absolute top-full mt-1 left-0 right-0 bg-[#0B1F3A] border border-white/15 rounded-xl shadow-2xl z-20 max-h-64 overflow-y-auto">
+            {showAirports && (
+              <>
+                <p className="text-white/30 text-[10px] font-semibold uppercase tracking-widest px-4 pt-2.5 pb-1">
+                  Airports
+                </p>
+                {airportHits.map(a => (
+                  <button
+                    key={a.code}
+                    type="button"
+                    onClick={() => {
+                      setQuery(`${a.code} – ${a.name}`)
+                      onSelect({ type: 'IATA', code: a.code, name: a.name })
+                      setOpen(false)
+                    }}
+                    className="w-full text-left px-4 py-2.5 hover:bg-white/8 transition-colors border-b border-white/5 last:border-0 flex items-center gap-2"
+                  >
+                    <PlaneTakeoff className="w-3.5 h-3.5 text-[#C9A84C] flex-shrink-0" />
+                    <span className="font-bold text-[#C9A84C] text-xs">{a.code}</span>
+                    <span className="text-white text-sm">{a.name}</span>
+                    <span className="text-white/40 text-xs ml-auto">{a.country}</span>
+                  </button>
+                ))}
+              </>
+            )}
+            {showHotels && (
+              <>
+                <p className="text-white/30 text-[10px] font-semibold uppercase tracking-widest px-4 pt-2.5 pb-1">
+                  Hotels
+                </p>
+                {hotels.map(h => (
+                  <button
+                    key={h.code}
+                    type="button"
+                    onClick={() => {
+                      setQuery(h.name)
+                      onSelect({ type: 'ACCOM', code: h.code, name: h.name })
+                      setOpen(false)
+                    }}
+                    className="w-full text-left px-4 py-2.5 hover:bg-white/8 transition-colors border-b border-white/5 last:border-0 flex items-center gap-2"
+                  >
+                    <Building2 className="w-3.5 h-3.5 text-[#C9A84C] flex-shrink-0" />
+                    <span className="text-white text-sm flex-1 min-w-0 truncate">{h.name}</span>
+                    {h.city && <span className="text-white/40 text-xs flex-shrink-0">{h.city}</span>}
+                  </button>
+                ))}
+              </>
+            )}
+            {showEmpty && (
+              <p className="text-white/40 text-xs px-4 py-3 text-center">
+                {query.length >= 3 ? 'No results found' : 'Type to search…'}
+              </p>
+            )}
+          </div>
+        </>
+      )}
+    </div>
+  )
+}
+
 export function TransferSearchForm({ loading }: Props) {
   const router = useRouter()
 
   const [from,     setFrom]     = useState<{ code: string; name: string } | null>(null)
-  const [to,       setTo]       = useState<{ code: string; name: string } | null>(null)
+  const [to,       setTo]       = useState<DropOffOption | null>(null)
   const [date,     setDate]     = useState('')
   const [time,     setTime]     = useState('10:00')
   const [adults,   setAdults]   = useState(2)
@@ -145,6 +275,7 @@ export function TransferSearchForm({ loading }: Props) {
     const qs = new URLSearchParams({
       from:     from.code,
       to:       to.code,
+      toType:   to.type,
       date,
       time:     time || '10:00',
       adults:   String(adults),
@@ -161,10 +292,9 @@ export function TransferSearchForm({ loading }: Props) {
           value={from}
           onSelect={a => setFrom({ code: a.code, name: a.name })}
         />
-        <AirportPicker
-          label="Drop-off Location"
+        <DropOffPicker
           value={to}
-          onSelect={a => setTo({ code: a.code, name: a.name })}
+          onSelect={setTo}
         />
       </div>
 

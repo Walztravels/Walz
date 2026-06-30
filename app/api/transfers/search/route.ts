@@ -64,6 +64,7 @@ export async function GET(req: NextRequest) {
   const { searchParams } = new URL(req.url)
   const from     = searchParams.get('from')     ?? ''
   const to       = searchParams.get('to')       ?? ''
+  const toType   = searchParams.get('toType')   ?? 'IATA'
   const date     = searchParams.get('date')     ?? ''
   const time     = searchParams.get('time')     ?? '10:00'
   const adults   = parseInt(searchParams.get('adults')   ?? '2')
@@ -73,14 +74,14 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'Missing from, to, or date' }, { status: 400 })
   }
 
-  const fromCode = resolveTerminal(from)
-  const toCode   = resolveTerminal(to)
+  const fromCode  = resolveTerminal(from)
   const fromParam = fromCode ?? from
-  const toParam   = toCode   ?? to
+  // For ACCOM type the caller sends the hotel code directly — no terminal resolution needed
+  const toParam   = toType === 'IATA' ? (resolveTerminal(to) ?? to) : to
 
   try {
     const outboundDateTime = `${date}T${time}:00`
-    const path = `/availability/en/from/IATA/${fromParam}/to/IATA/${toParam}/${outboundDateTime}/${adults}/${children}/0`
+    const path = `/availability/en/from/IATA/${fromParam}/to/${toType}/${toParam}/${outboundDateTime}/${adults}/${children}/0`
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const data: any = await hotelbedsRequest('transfers', path)
