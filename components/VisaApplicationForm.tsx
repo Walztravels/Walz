@@ -53,6 +53,18 @@ const EMPTY_FORM: VFormData = {
   declarationAccurate: false, declarationAuthorise: false, declarationFeePolicy: false,
 }
 
+interface FamilyApplicant {
+  id: string
+  relationship: string
+  firstName: string
+  lastName: string
+  dateOfBirth: string
+  nationality: string
+  passportNumber: string
+  passportExpiry: string
+  isMinor: boolean
+}
+
 const STEPS = [
   { label: 'Personal',    icon: User          },
   { label: 'Passport',    icon: Shield        },
@@ -633,6 +645,17 @@ export function VisaApplicationForm({
   const [confirmed, setConfirmed] = useState<{ refNumber: string; email: string } | null>(null)
   const [draftFees, setDraftFees] = useState<{ walzFee: number; walzCurrency: string; govFee: number | null } | null>(null)
 
+  // Family mode
+  const [mode, setMode] = useState<'single' | 'family' | null>(adminToken ? 'single' : null)
+  const [applicants, setApplicants] = useState<FamilyApplicant[]>([
+    { id: 'lead', relationship: 'lead', firstName: '', lastName: '', dateOfBirth: '', nationality: '', passportNumber: '', passportExpiry: '', isMinor: false },
+  ])
+  const [familyEmail, setFamilyEmail] = useState('')
+  const [familyPhone, setFamilyPhone] = useState('')
+  const [familyLoading, setFamilyLoading] = useState(false)
+  const [familyError, setFamilyError] = useState<string | null>(null)
+  const [familyConfirmed, setFamilyConfirmed] = useState<{ referenceNumber: string; totalApplicants: number } | null>(null)
+
   const { debouncedSave, saving, lastSaved } = useAutoSave(appId, adminToken)
 
   function mapAppToForm(app: Record<string, unknown>): Partial<VFormData> {
@@ -658,6 +681,7 @@ export function VisaApplicationForm({
 
   useEffect(() => {
     if (!destinationIso2) { setLoading(false); return }
+    if (mode === null || mode === 'family') { setLoading(false); return }
 
     async function init() {
       setCreating(true)
@@ -723,7 +747,7 @@ export function VisaApplicationForm({
     }
     init()
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [authStatus, destinationIso2, adminToken])
+  }, [authStatus, destinationIso2, adminToken, mode])
 
   function update(key: string, value: string | boolean) {
     setForm(prev => {
@@ -769,6 +793,51 @@ export function VisaApplicationForm({
       }
     }
     return null
+  }
+
+  async function handleFamilySubmit(e: React.FormEvent) {
+    e.preventDefault()
+    setFamilyError(null)
+
+    // Validate
+    if (!familyEmail.trim()) { setFamilyError('Email address is required'); return }
+    for (let i = 0; i < applicants.length; i++) {
+      const a = applicants[i]
+      if (!a.firstName.trim() || !a.lastName.trim()) {
+        setFamilyError(`Please fill in first and last name for applicant ${i + 1}`)
+        return
+      }
+      if (!a.isMinor && !a.passportNumber.trim()) {
+        setFamilyError(`Passport number is required for ${a.firstName || `applicant ${i + 1}`}`)
+        return
+      }
+    }
+
+    setFamilyLoading(true)
+    try {
+      const res = await fetch('/api/visa-application/family', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({
+          visaType:       form.visaType || config.visaTypes[0] || 'tourist',
+          destinationIso2,
+          contactEmail:   familyEmail.trim(),
+          contactPhone:   familyPhone.trim(),
+          applicants,
+        }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error ?? 'Failed to submit')
+      setFamilyConfirmed({ referenceNumber: data.referenceNumber, totalApplicants: data.totalApplicants })
+    } catch (err) {
+      setFamilyError(err instanceof Error ? err.message : 'Something went wrong')
+    } finally {
+      setFamilyLoading(false)
+    }
+  }
+
+  function updateApplicant(index: number, key: keyof FamilyApplicant, value: string | boolean) {
+    setApplicants(prev => prev.map((a, i) => i === index ? { ...a, [key]: value } : a))
   }
 
   async function goNext() {
@@ -824,6 +893,238 @@ export function VisaApplicationForm({
   function goBack() {
     setError(null)
     if (step > 0) { setStep(s => s - 1); window.scrollTo({ top: 0, behavior: 'smooth' }) }
+  }
+
+  // ── Mode selector ──────────────────────────────────────────────────────────
+  if (mode === null) {
+    return (
+      <div className={inline ? '' : 'min-h-screen bg-[#F4F6F9] flex items-center justify-center px-4'}>
+        <div className="max-w-lg w-full">
+          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-8">
+            <div className="text-center mb-8">
+              <div className="w-12 h-12 rounded-xl bg-[#0B1F3A] flex items-center justify-center mx-auto mb-4">
+                <Globe className="w-6 h-6 text-[#C9A84C]" />
+              </div>
+              <h2 className="text-xl font-bold text-[#0B1F3A]">
+                {destinationName} Visa Application
+                {destinationFlag && <span className="ml-2">{destinationFlag}</span>}
+              </h2>
+              <p className="text-gray-500 text-sm mt-1">Who are you applying for?</p>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <button
+                onClick={() => setMode('single')}
+                className="border-2 border-gray-200 rounded-2xl p-5 text-left hover:border-[#C9A84C] hover:bg-amber-50 transition-all group"
+              >
+                <div className="text-2xl mb-3">👤</div>
+                <p className="font-semibold text-[#0B1F3A] text-sm group-hover:text-[#8B6914]">Just me</p>
+                <p className="text-gray-400 text-xs mt-1">Single applicant — detailed form</p>
+              </button>
+              <button
+                onClick={() => setMode('family')}
+                className="border-2 border-gray-200 rounded-2xl p-5 text-left hover:border-[#C9A84C] hover:bg-amber-50 transition-all group"
+              >
+                <div className="text-2xl mb-3">👨‍👩‍👧‍👦</div>
+                <p className="font-semibold text-[#0B1F3A] text-sm group-hover:text-[#8B6914]">Family / Group</p>
+                <p className="text-gray-400 text-xs mt-1">Multiple applicants together</p>
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  // ── Family confirmed ────────────────────────────────────────────────────────
+  if (familyConfirmed) {
+    return (
+      <div className={inline ? '' : 'min-h-screen bg-[#F4F6F9] flex items-center justify-center px-4'}>
+        <div className="max-w-lg w-full bg-white rounded-2xl border border-gray-100 shadow-sm p-8 text-center">
+          <CheckCircle className="w-12 h-12 text-green-500 mx-auto mb-4" />
+          <h2 className="text-xl font-bold text-[#0B1F3A] mb-2">Family Application Submitted!</h2>
+          <p className="text-gray-500 text-sm mb-6">
+            We received your application for {familyConfirmed.totalApplicants} applicant{familyConfirmed.totalApplicants > 1 ? 's' : ''}.
+          </p>
+          <div className="bg-gray-50 rounded-xl p-4 mb-6">
+            <p className="text-xs text-gray-500 mb-1">Family reference number</p>
+            <p className="font-bold text-[#0B1F3A] text-lg tracking-wide">{familyConfirmed.referenceNumber}</p>
+          </div>
+          <p className="text-xs text-gray-400 mb-6">
+            Our team will review and contact you within 24 hours with document requirements for each applicant.
+          </p>
+          <a href="https://wa.me/447398753797"
+             className="inline-flex items-center gap-2 px-6 py-3 bg-[#C9A84C] text-[#0B1F3A] font-bold rounded-xl text-sm">
+            Contact Walz Travels on WhatsApp
+          </a>
+        </div>
+      </div>
+    )
+  }
+
+  // ── Family form ─────────────────────────────────────────────────────────────
+  if (mode === 'family') {
+    return (
+      <div className={inline ? '' : 'min-h-screen bg-[#F4F6F9] px-4 py-8'}>
+        <div className="max-w-2xl mx-auto">
+          <button
+            onClick={() => setMode(null)}
+            className="flex items-center gap-1.5 text-sm text-gray-500 hover:text-gray-700 mb-4 transition-colors"
+          >
+            <ChevronLeft className="w-4 h-4" /> Back
+          </button>
+
+          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 sm:p-8">
+            <div className="flex items-center gap-3 mb-6 pb-5 border-b border-gray-100">
+              <div className="w-10 h-10 rounded-xl bg-[#0B1F3A] flex items-center justify-center">
+                <User className="w-5 h-5 text-[#C9A84C]" />
+              </div>
+              <div>
+                <h2 className="font-bold text-[#0B1F3A] text-lg">Family Visa Application</h2>
+                <p className="text-gray-400 text-xs">{destinationName}{destinationFlag ? ` ${destinationFlag}` : ''} · {applicants.length} applicant{applicants.length > 1 ? 's' : ''}</p>
+              </div>
+            </div>
+
+            <form onSubmit={handleFamilySubmit} className="space-y-5">
+              {/* Contact details */}
+              <div>
+                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">Contact Details</p>
+                <div className="grid grid-cols-2 gap-3">
+                  <input
+                    type="email" required placeholder="Email address *"
+                    value={familyEmail} onChange={e => setFamilyEmail(e.target.value)}
+                    className="col-span-2 px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-amber-300"
+                  />
+                  <input
+                    type="tel" placeholder="Phone / WhatsApp"
+                    value={familyPhone} onChange={e => setFamilyPhone(e.target.value)}
+                    className="col-span-2 px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-amber-300"
+                  />
+                </div>
+              </div>
+
+              {/* Applicant sections */}
+              <div className="space-y-4">
+                <p className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Applicants</p>
+                {applicants.map((applicant, index) => (
+                  <div key={applicant.id} className="border border-gray-200 rounded-2xl p-4">
+                    <div className="flex items-center justify-between mb-3">
+                      <div className="flex items-center gap-2">
+                        <span className="w-6 h-6 bg-[#C9A84C] text-[#0B1F3A] text-xs font-bold rounded-full flex items-center justify-center">
+                          {index + 1}
+                        </span>
+                        <h3 className="font-semibold text-gray-900 text-sm">
+                          {index === 0 ? 'Lead Applicant (You)' :
+                           applicant.relationship === 'spouse' ? 'Spouse / Partner' :
+                           applicant.relationship === 'child' ? 'Child' :
+                           applicant.relationship === 'parent' ? 'Parent' :
+                           applicant.relationship === 'sibling' ? 'Sibling' : `Applicant ${index + 1}`}
+                        </h3>
+                      </div>
+                      {index > 0 && (
+                        <button type="button" onClick={() => setApplicants(prev => prev.filter((_, i) => i !== index))}
+                          className="text-red-400 hover:text-red-600 text-xs font-medium transition-colors">
+                          Remove
+                        </button>
+                      )}
+                    </div>
+
+                    {index > 0 && (
+                      <div className="mb-3">
+                        <select
+                          value={applicant.relationship}
+                          onChange={e => {
+                            const rel = e.target.value
+                            updateApplicant(index, 'relationship', rel)
+                            updateApplicant(index, 'isMinor', rel === 'child')
+                          }}
+                          className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-amber-300"
+                        >
+                          <option value="spouse">Spouse / Partner</option>
+                          <option value="child">Child (under 18)</option>
+                          <option value="parent">Parent</option>
+                          <option value="sibling">Sibling</option>
+                          <option value="other">Other family member</option>
+                        </select>
+                      </div>
+                    )}
+
+                    <div className="grid grid-cols-2 gap-2.5">
+                      <input placeholder="First name *" value={applicant.firstName}
+                        onChange={e => updateApplicant(index, 'firstName', e.target.value)}
+                        className="px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-amber-300" />
+                      <input placeholder="Last name *" value={applicant.lastName}
+                        onChange={e => updateApplicant(index, 'lastName', e.target.value)}
+                        className="px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-amber-300" />
+                      <input placeholder="Date of birth" type="date" value={applicant.dateOfBirth}
+                        onChange={e => updateApplicant(index, 'dateOfBirth', e.target.value)}
+                        className="px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-amber-300" />
+                      <input placeholder="Nationality *" value={applicant.nationality}
+                        onChange={e => updateApplicant(index, 'nationality', e.target.value)}
+                        className="px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-amber-300" />
+                      <input
+                        placeholder={applicant.isMinor ? 'Passport number (if applicable)' : 'Passport number *'}
+                        value={applicant.passportNumber}
+                        onChange={e => updateApplicant(index, 'passportNumber', e.target.value)}
+                        className="px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-amber-300" />
+                      <input
+                        placeholder={applicant.isMinor ? 'Passport expiry (if applicable)' : 'Passport expiry *'}
+                        type="date" value={applicant.passportExpiry}
+                        onChange={e => updateApplicant(index, 'passportExpiry', e.target.value)}
+                        className="px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-amber-300" />
+                    </div>
+                    {applicant.isMinor && (
+                      <p className="text-xs text-amber-700 mt-2.5 bg-amber-50 px-3 py-2 rounded-lg">
+                        Children under 16 may travel on a parent&apos;s passport — our team will advise on the correct route.
+                      </p>
+                    )}
+                  </div>
+                ))}
+
+                {applicants.length < 10 && (
+                  <button type="button"
+                    onClick={() => setApplicants(prev => [...prev, {
+                      id: `a-${Date.now()}`, relationship: 'spouse',
+                      firstName: '', lastName: '', dateOfBirth: '',
+                      nationality: '', passportNumber: '', passportExpiry: '', isMinor: false,
+                    }])}
+                    className="w-full py-3 border-2 border-dashed border-amber-300 rounded-2xl text-amber-600 text-sm font-medium hover:border-amber-400 hover:bg-amber-50 transition-colors">
+                    + Add another family member
+                  </button>
+                )}
+              </div>
+
+              {/* Summary */}
+              <div className="bg-gray-50 rounded-xl p-4 text-sm">
+                <p className="font-medium text-gray-700 mb-2">
+                  {applicants.length} applicant{applicants.length > 1 ? 's' : ''} · {destinationName} visa
+                </p>
+                <ul className="space-y-0.5">
+                  {applicants.map((a, i) => (
+                    <li key={a.id} className="text-gray-500 text-xs">
+                      {i + 1}. {a.firstName || 'Unnamed'} {a.lastName} — {i === 0 ? 'Lead' : a.relationship}{a.isMinor ? ' (minor)' : ''}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+
+              {familyError && (
+                <div className="flex items-start gap-2 bg-red-50 border border-red-200 rounded-xl px-4 py-3 text-xs text-red-700">
+                  <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
+                  {familyError}
+                </div>
+              )}
+
+              <button type="submit" disabled={familyLoading}
+                className="w-full flex items-center justify-center gap-2 py-3.5 bg-[#C9A84C] text-[#0B1F3A] font-bold rounded-xl text-sm hover:brightness-105 transition-all disabled:opacity-60 disabled:cursor-not-allowed">
+                {familyLoading
+                  ? <><Loader2 className="w-4 h-4 animate-spin" /> Submitting…</>
+                  : <><CheckCircle className="w-4 h-4" /> Submit Family Application</>}
+              </button>
+            </form>
+          </div>
+        </div>
+      </div>
+    )
   }
 
   // ── Token error ────────────────────────────────────────────────────────────

@@ -18,6 +18,20 @@ interface VisaApp {
   createdAt: string; updatedAt: string
   user: { name: string | null; email: string | null } | null
   notes: { content: string; createdAt: string }[]
+  familyGroupId?: string | null
+  relationship?: string | null
+  isMinor?: boolean
+}
+
+type FamilyGroup = {
+  familyGroupId: string
+  visaType: string
+  destinationIso2: string
+  totalCount: number
+  leadName: string
+  leadEmail: string | null
+  members: VisaApp[]
+  createdAt: string
 }
 
 const ALL_STATUSES = [
@@ -81,6 +95,10 @@ export default function AdminVisaApplicationsPage() {
   const [agentFilter, setAgentFilter] = useState('all')
   const [search, setSearch]           = useState('')
 
+  const [showFamily, setShowFamily]       = useState(false)
+  const [familyGroups, setFamilyGroups]   = useState<FamilyGroup[]>([])
+  const [familyLoading, setFamilyLoading] = useState(false)
+
   // Access guard
   useEffect(() => {
     if (!permLoading && !can('visa_view')) router.replace('/admin/unauthorized')
@@ -124,6 +142,41 @@ export default function AdminVisaApplicationsPage() {
   useEffect(() => { load() }, [statusFilter, destFilter, agentFilter]) // eslint-disable-line
 
   function handleSearch(e: React.FormEvent) { e.preventDefault(); load() }
+
+  const fetchFamilyApps = async () => {
+    setFamilyLoading(true)
+    try {
+      const res  = await fetch('/api/admin/visa-applications?family=true')
+      const data = await res.json() as { applications: (VisaApp & { familyGroupId: string | null; relationship: string | null; isMinor: boolean })[] }
+
+      // Group by familyGroupId
+      const grouped = new Map<string, FamilyGroup>()
+      for (const app of data.applications) {
+        const gid = app.familyGroupId ?? `single-${app.id}`
+        if (!grouped.has(gid)) {
+          grouped.set(gid, {
+            familyGroupId: gid,
+            visaType:       app.visaType,
+            destinationIso2: app.destinationIso2,
+            totalCount:     0,
+            leadName:       [app.firstName, app.lastName].filter(Boolean).join(' ') || 'Unknown',
+            leadEmail:      app.email,
+            members:        [],
+            createdAt:      app.createdAt,
+          })
+        }
+        const g = grouped.get(gid)!
+        g.members.push(app)
+        g.totalCount++
+        if (app.relationship === 'lead' || g.members.length === 1) {
+          g.leadName  = [app.firstName, app.lastName].filter(Boolean).join(' ') || 'Unknown'
+          g.leadEmail = app.email
+        }
+      }
+      setFamilyGroups(Array.from(grouped.values()).sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()))
+    } catch { /* non-fatal */ }
+    setFamilyLoading(false)
+  }
 
   async function handleSendForm(e: React.FormEvent) {
     e.preventDefault()
@@ -239,16 +292,24 @@ export default function AdminVisaApplicationsPage() {
           { key: 'all', label: 'All', count: apps.length },
           ...ALL_STATUSES.slice(1).map(s => ({ key: s, label: STATUS_CONFIG[s]?.label ?? s, count: statCounts[s] ?? 0 })),
         ].map(({ key, label, count }) => (
-          <button key={key} onClick={() => setStatusFilter(key)}
+          <button key={key} onClick={() => { setShowFamily(false); setStatusFilter(key) }}
             className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors flex items-center gap-1.5 ${
-              statusFilter === key
+              !showFamily && statusFilter === key
                 ? 'bg-[#0B1F3A] text-white'
                 : 'bg-white border border-gray-200 text-gray-600 hover:border-gray-300'
             }`}>
             {label}
-            {count > 0 && <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${statusFilter === key ? 'bg-white/20' : 'bg-gray-100'}`}>{count}</span>}
+            {count > 0 && <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${!showFamily && statusFilter === key ? 'bg-white/20' : 'bg-gray-100'}`}>{count}</span>}
           </button>
         ))}
+        <button onClick={() => { setShowFamily(true); fetchFamilyApps() }}
+          className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors flex items-center gap-1.5 ${
+            showFamily
+              ? 'bg-[#0B1F3A] text-white'
+              : 'bg-white border border-gray-200 text-gray-600 hover:border-gray-300'
+          }`}>
+          👨‍👩‍👧‍👦 Family
+        </button>
       </div>
 
       {/* Filters */}
@@ -277,8 +338,42 @@ export default function AdminVisaApplicationsPage() {
         </select>
       </div>
 
-      {/* Table */}
-      {loading ? (
+      {/* Table / Family view */}
+      {showFamily ? (
+        familyLoading ? (
+          <div className="p-8 text-center"><Loader2 className="w-5 h-5 animate-spin mx-auto text-gray-400" /></div>
+        ) : familyGroups.length === 0 ? (
+          <div className="p-12 text-center text-gray-400">No family applications found</div>
+        ) : (
+          <div className="bg-white rounded-2xl border border-gray-100 overflow-hidden shadow-sm divide-y divide-gray-100">
+            {familyGroups.map(group => (
+              <div key={group.familyGroupId} className="p-5">
+                <div className="flex items-start justify-between mb-3">
+                  <div>
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className="text-sm">👨‍👩‍👧‍👦</span>
+                      <span className="font-semibold text-[#0B1F3A] text-sm">{group.familyGroupId}</span>
+                      <span className="text-xs text-gray-500">· {group.visaType} · {group.totalCount} applicant{group.totalCount > 1 ? 's' : ''}</span>
+                    </div>
+                    <p className="text-xs text-gray-500">Lead: {group.leadName} · {group.leadEmail}</p>
+                  </div>
+                </div>
+                <div className="space-y-1.5">
+                  {group.members.map((m, i) => (
+                    <div key={m.id} className="flex items-center gap-3 text-xs text-gray-600 bg-gray-50 rounded-lg px-3 py-2">
+                      <span className="text-gray-400 w-4">{i + 1}.</span>
+                      <span className="font-medium text-gray-800 flex-1">{[m.firstName, m.lastName].filter(Boolean).join(' ') || '—'}</span>
+                      <span className="text-gray-400 capitalize">{m.relationship ?? 'lead'}</span>
+                      <StatusBadge status={m.status} />
+                      <Link href={`/admin/visa-applications/${m.id}`} className="text-[#C9A84C] hover:underline">View →</Link>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        )
+      ) : loading ? (
         <div className="flex items-center justify-center py-20">
           <Loader2 className="w-8 h-8 text-[#C9A84C] animate-spin" />
         </div>

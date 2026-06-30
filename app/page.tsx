@@ -109,11 +109,10 @@ export default function HomePage() {
   const [destinations, setDestinations] = useState<FeaturedDestination[]>(FALLBACK_DESTINATIONS)
 
   useEffect(() => {
-    fetch('/api/public/homepage')
+    fetch('/api/destinations')
       .then(r => r.json())
-      .then((d: { content?: { destinations?: FeaturedDestination[] } }) => {
-        const dest = d.content?.destinations
-        if (Array.isArray(dest) && dest.length > 0) setDestinations(dest)
+      .then((dest: unknown) => {
+        if (Array.isArray(dest) && dest.length > 0) setDestinations(dest as FeaturedDestination[])
       })
       .catch(() => {})
   }, [])

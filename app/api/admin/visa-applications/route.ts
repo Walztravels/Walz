@@ -27,10 +27,13 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ stats: { total, submittedToEmbassy, inProgress, approved } })
   }
 
+  const familyOnly = searchParams.get('family') === 'true'
+
   const where: Record<string, unknown> = { isDraft: false }
   if (status && status !== 'all')           where.status          = status
   if (destination && destination !== 'all') where.destinationIso2 = destination
   if (assignedTo && assignedTo !== 'all')   where.assignedTo      = assignedTo === 'unassigned' ? null : assignedTo
+  if (familyOnly)                           where.familyGroupId   = { not: null }
 
   if (!can(session, 'visa_view_all')) {
     const staffEmail = session.email
@@ -61,6 +64,9 @@ export async function GET(req: NextRequest) {
         assignedTo:     true,
         initiatedBy:    true,
         isDraft:        true,
+        familyGroupId:  true,
+        relationship:   true,
+        isMinor:        true,
         createdAt:      true,
         updatedAt:      true,
         user:  { select: { name: true, email: true } },
