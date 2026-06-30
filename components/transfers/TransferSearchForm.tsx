@@ -131,6 +131,7 @@ interface DropOffOption {
 
 interface HotelHit {
   code: string
+  type: 'IATA' | 'ACCOM'
   name: string
   city: string
   country: string
@@ -229,7 +230,7 @@ function DropOffPicker({
                     type="button"
                     onClick={() => {
                       setQuery(h.name)
-                      onSelect({ type: 'ACCOM', code: h.code, name: h.name })
+                      onSelect({ type: h.type, code: h.code, name: h.name })
                       setOpen(false)
                     }}
                     className="w-full text-left px-4 py-2.5 hover:bg-white/8 transition-colors border-b border-white/5 last:border-0 flex items-center gap-2"
