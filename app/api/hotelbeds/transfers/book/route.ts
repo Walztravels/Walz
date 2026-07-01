@@ -11,6 +11,7 @@ export async function POST(req: NextRequest) {
       rateKey,        transferKey,       // accept either; rateKey preferred
       fromCode,       fromType  = 'IATA',
       toCode,         toType    = 'IATA',
+      toName,                            // display name of destination (needed for GPS)
       fromDate,       fromTime,
       adults,         children  = 0,
       holderName,     holderEmail, holderPhone,
@@ -29,6 +30,17 @@ export async function POST(req: NextRequest) {
 
     // Correct Hotelbeds Transfer Booking API format:
     // holder is at root level; rateKey not transferKey; transferDetails required
+    // GPS destinations require pickupInformation/dropoffInformation in the booking payload
+    const gpsAddressBlock = toType === 'GPS' ? {
+      dropoffInformation: {
+        name:    (toName ?? 'Destination').slice(0, 50),
+        address: (toName ?? 'Destination').slice(0, 100),
+        town:    'N/A',
+        country: 'N/A',
+        zip:     '00000',
+      },
+    } : {}
+
     const bookingPayload = {
       language: 'en',
       holder: {
@@ -39,6 +51,7 @@ export async function POST(req: NextRequest) {
       },
       transfers: [{
         rateKey: resolvedRateKey,
+        ...gpsAddressBlock,
         transferDetails: [{
           type:      'FLIGHT',
           direction: flightDirection,

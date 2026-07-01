@@ -39,8 +39,8 @@ const BASE_URLS: Record<HotelbedsAPI, string> = {
   activities:           'https://api.test.hotelbeds.com/activity-booking-api/1.0',
   'activities-cache':   'https://api.test.hotelbeds.com/activity-cache-api/1.0',
   'activities-content': 'https://api.test.hotelbeds.com/activity-content-api/3.0',
-  transfers:            'https://api.test.hotelbeds.com/transfer-api/1.0',
-  'transfer-cache':    'https://api.test.hotelbeds.com/transfer-cache-api/1.0',
+  transfers:            process.env.HOTELBEDS_TRANSFERS_BASE_URL ?? 'https://api.test.hotelbeds.com/transfer-api/1.0',
+  'transfer-cache':     process.env.HOTELBEDS_TRANSFERS_CACHE_BASE_URL ?? 'https://api.test.hotelbeds.com/transfer-cache-api/1.0',
 }
 
 function makeSignature(api: HotelbedsAPI): string {
