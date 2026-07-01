@@ -30,6 +30,8 @@ const nextConfig = {
       { protocol: 'https', hostname: '**.giata.com',                     pathname: '/**' },
       // Hotelbeds Activity Content API — images served from activitiesbank.com CDN
       { protocol: 'https', hostname: '**.activitiesbank.com',            pathname: '/**' },
+      // Hotelbeds Transfer API — vehicle images served from htxstaging.com (test env)
+      { protocol: 'https', hostname: '**.htxstaging.com',                pathname: '/**' },
     ],
   },
 

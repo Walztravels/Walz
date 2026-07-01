@@ -8,40 +8,45 @@ export const maxDuration = 60
 export async function POST(req: NextRequest) {
   try {
     const {
-      transferKey,
-      fromCode,   fromType  = 'IATA',
-      toCode,     toType    = 'IATA',
-      fromDate,   fromTime,
-      adults,     children  = 0,
-      holderName, holderEmail, holderPhone,
-      holderCountry = 'GB',
-      totalAmount, currency,
-      txRef, paymentGateway, transactionId,
+      rateKey,        transferKey,       // accept either; rateKey preferred
+      fromCode,       fromType  = 'IATA',
+      toCode,         toType    = 'IATA',
+      fromDate,       fromTime,
+      adults,         children  = 0,
+      holderName,     holderEmail, holderPhone,
+      flightNumber,   flightDirection = 'ARRIVAL',
+      totalAmount,    currency,
+      txRef,          paymentGateway,  transactionId,
     } = await req.json()
 
-    if (!transferKey || !holderName || !holderEmail || !fromDate)
+    const resolvedRateKey = rateKey ?? transferKey
+    if (!resolvedRateKey || !holderName || !holderEmail || !fromDate)
       return NextResponse.json({ error: 'Missing required fields' }, { status: 400 })
 
     const [firstName, ...rest] = holderName.trim().split(' ')
     const lastName = rest.join(' ') || firstName
     const ref = generateBookingReference()
 
+    // Correct Hotelbeds Transfer Booking API format:
+    // holder is at root level; rateKey not transferKey; transferDetails required
     const bookingPayload = {
-      language: 'ENG',
-      clientReference: ref,
+      language: 'en',
+      holder: {
+        name:    firstName,
+        surname: lastName,
+        email:   holderEmail,
+        phone:   holderPhone ?? '+440000000000',
+      },
       transfers: [{
-        transferKey,
-        from: { type: fromType, code: fromCode, date: fromDate, time: fromTime ?? '12:00' },
-        to:   { type: toType,   code: toCode },
-        holder: {
-          name:    firstName,
-          surname: lastName,
-          email:   holderEmail,
-          phone:   holderPhone ?? '',
-          country: holderCountry,
-        },
-        passengers: { adults: Number(adults), children: Number(children), infants: 0 },
+        rateKey: resolvedRateKey,
+        transferDetails: [{
+          type:      'FLIGHT',
+          direction: flightDirection,
+          code:      flightNumber ?? 'XX0000',
+        }],
       }],
+      clientReference: ref,
+      remark: '',
     }
 
     const data = await hotelbedsRequest('transfers', '/bookings', {
@@ -49,8 +54,9 @@ export async function POST(req: NextRequest) {
       body:   bookingPayload,
     })
 
-    const hbBooking = data?.bookings?.[0] ?? data?.booking
+    const hbBooking = Array.isArray(data?.bookings) ? data.bookings[0] : (data?.booking ?? null)
     if (!hbBooking) throw new Error('No booking returned from Hotelbeds')
+    const hbRef = hbBooking.reference ?? null
 
     await prisma.booking.create({
       data: {
@@ -67,7 +73,7 @@ export async function POST(req: NextRequest) {
           holderName, holderEmail, holderPhone: holderPhone ?? null,
           fromCode, toCode, fromDate, fromTime,
           adults: Number(adults), children: Number(children),
-          hotelbedsRef: hbBooking.bookingId ?? hbBooking.reference ?? ref,
+          hotelbedsRef: hbRef ?? hbBooking.bookingId ?? ref,
           paymentGateway, transactionId: String(transactionId), txRef,
         }],
       },
@@ -76,10 +82,11 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({
       success:      true,
       walzRef:      ref,
-      hotelbedsRef: hbBooking.bookingId ?? hbBooking.reference ?? null,
+      hotelbedsRef: hbRef ?? hbBooking.bookingId ?? null,
     })
-  } catch (e: any) {
-    console.error('[transfers/book]', e.message)
-    return NextResponse.json({ error: e.message }, { status: 500 })
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : String(e)
+    console.error('[transfers/book]', msg)
+    return NextResponse.json({ error: msg }, { status: 500 })
   }
 }

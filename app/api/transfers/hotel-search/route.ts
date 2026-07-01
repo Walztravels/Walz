@@ -37,7 +37,7 @@ export async function GET(req: NextRequest) {
 
       return [{
         code:    String(h.code),
-        type:    'ATLAS_HOTEL' as const,
+        type:    'ATLAS' as const,
         name:    rawName,
         city:    rawCity,
         country: String(h.countryCode ?? ''),

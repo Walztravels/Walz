@@ -76,8 +76,8 @@ export async function GET(req: NextRequest) {
 
   const fromCode  = resolveTerminal(from)
   const fromParam = fromCode ?? from
-  // For ACCOM type the caller sends the hotel code directly — no terminal resolution needed
-  const toParam   = toType === 'IATA' ? (resolveTerminal(to) ?? to) : to
+  // For ATLAS codes (hotel) pass the raw code; for IATA resolve to terminal code
+  const toParam   = toType === 'ATLAS' ? to : (resolveTerminal(to) ?? to)
 
   try {
     const outboundDateTime = `${date}T${time}:00`
@@ -87,7 +87,13 @@ export async function GET(req: NextRequest) {
     const data: any = await hotelbedsRequest('transfers', path)
 
     console.log('[HB Transfers] GET', path, 'services:', data?.services?.length ?? 0, 'error:', data?.errors?.[0]?.message ?? null)
-    console.log('[HB Transfers raw first service]', JSON.stringify(data?.services?.[0] ?? null).slice(0, 400))
+    console.log('[HB Transfers raw first service]', JSON.stringify({
+      id:                 data?.services?.[0]?.id,
+      price:              data?.services?.[0]?.price,
+      vehicle:            data?.services?.[0]?.vehicle,
+      contentImages:      data?.services?.[0]?.content?.images?.slice(0, 1),
+      transferDetailInfo: data?.services?.[0]?.content?.transferDetailInfo,
+    }))
 
     if (data?.errors?.length) {
       return NextResponse.json({ transfers: [], error: data.errors[0].message, debug: { path } })
@@ -101,21 +107,27 @@ export async function GET(req: NextRequest) {
     }
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const transfers = services.map((s: any) => ({
-      id:         s.id ?? s.rateKey,
-      name:       s.vehicle?.name ?? s.description ?? 'Transfer',
-      category:   s.category?.name ?? '',
-      vehicle:    s.vehicle?.code ?? '',
-      passengers: s.vehicle?.maxPax ?? adults,
-      bags:       s.vehicle?.maxBaggages ?? null,
-      image:      s.vehicle?.images?.[0]?.url ?? null,
-      price:      parseFloat(s.price?.totalAmount ?? s.minPrice ?? '0'),
-      currency:   s.price?.currency ?? 'GBP',
-      duration:   s.travelTime ? `${Math.round(s.travelTime / 60)} min` : null,
-      type:       s.transferType ?? 'PRIVATE',
-      rateKey:    s.rateKey ?? s.id,
+    const transfers = services.map((s: any) => {
+      const detailInfo: any[] = s.content?.transferDetailInfo ?? []
+      const travelMin  = detailInfo.find((d: any) => d.id === 'TRFTIME')?.value
+      const maxPax     = detailInfo.find((d: any) => d.id === 'MAXPAX')?.value
+      const luggage    = detailInfo.find((d: any) => d.id === 'LUGGAGE')?.value
+      return {
+        id:         s.id ?? s.serviceId,
+        name:       s.vehicle?.name ?? s.category?.name ?? 'Transfer',
+        category:   s.category?.name ?? '',
+        vehicle:    s.vehicle?.code ?? '',
+        passengers: maxPax ? Number(maxPax) : null,
+        bags:       luggage ? Number(luggage) : null,
+        image:      s.content?.images?.[0]?.url ?? null,
+        price:      s.price?.totalAmount ?? 0,
+        currency:   s.price?.currencyId ?? 'GBP',
+        duration:   travelMin ? `${travelMin} min` : null,
+        type:       s.transferType ?? 'PRIVATE',
+        rateKey:    s.rateKey ?? String(s.id ?? s.serviceId),
+      }
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    })).filter((t: any) => t.price > 0)
+    }).filter((t: any) => t.price > 0)
 
     return NextResponse.json({ transfers })
   } catch (err: unknown) {
