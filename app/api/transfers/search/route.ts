@@ -93,7 +93,13 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ transfers: [], error: data.errors[0].message, debug: { path } })
     }
 
-    const services = data?.services ?? []
+    // Guard: Hotelbeds returns undefined (not []) when no services are found
+    const services: unknown[] = Array.isArray(data?.services) ? data.services : []
+
+    if (services.length === 0) {
+      return NextResponse.json({ transfers: [] })
+    }
+
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const transfers = services.map((s: any) => ({
       id:         s.id ?? s.rateKey,

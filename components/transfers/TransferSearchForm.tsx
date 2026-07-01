@@ -124,14 +124,14 @@ function AirportPicker({
 }
 
 interface DropOffOption {
-  type: 'IATA' | 'ACCOM'
+  type: 'IATA' | 'ACCOM' | 'ATLAS_HOTEL'
   code: string
   name: string
 }
 
 interface HotelHit {
   code: string
-  type: 'IATA' | 'ACCOM'
+  type: 'IATA' | 'ACCOM' | 'ATLAS_HOTEL'
   name: string
   city: string
   country: string
