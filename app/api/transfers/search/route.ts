@@ -76,8 +76,12 @@ export async function GET(req: NextRequest) {
 
   const fromCode  = resolveTerminal(from)
   const fromParam = fromCode ?? from
-  // For ATLAS codes (hotel) pass the raw code; for IATA resolve to terminal code
-  const toParam   = toType === 'ATLAS' ? to : (resolveTerminal(to) ?? to)
+  // GPS: pass raw "lat,lon" code directly
+  // ATLAS: pass raw ATLAS hotel code directly
+  // IATA: resolve terminal name to IATA code
+  const toParam   = (toType === 'ATLAS' || toType === 'GPS')
+    ? to
+    : (resolveTerminal(to) ?? to)
 
   try {
     const outboundDateTime = `${date}T${time}:00`
