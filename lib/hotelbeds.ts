@@ -1,6 +1,6 @@
 import crypto from 'crypto'
 
-type HotelbedsAPI = 'hotel' | 'content' | 'activities' | 'activities-cache' | 'activities-content' | 'transfers'
+type HotelbedsAPI = 'hotel' | 'content' | 'activities' | 'activities-cache' | 'activities-content' | 'transfers' | 'transfers-cache'
 
 const CREDENTIALS: Record<HotelbedsAPI, { key: string; secret: string }> = {
   hotel: {
@@ -27,6 +27,10 @@ const CREDENTIALS: Record<HotelbedsAPI, { key: string; secret: string }> = {
     key:    process.env.HOTELBEDS_TRANSFERS_API_KEY ?? '3bc0e240098af5c828736f59bf7ecbf2',
     secret: process.env.HOTELBEDS_TRANSFERS_SECRET  ?? 'wMfgvPkvyl',
   },
+  'transfers-cache': {
+    key:    process.env.HOTELBEDS_TRANSFERS_API_KEY ?? '3bc0e240098af5c828736f59bf7ecbf2',
+    secret: process.env.HOTELBEDS_TRANSFERS_SECRET  ?? 'wMfgvPkvyl',
+  },
 }
 
 const BASE_URLS: Record<HotelbedsAPI, string> = {
@@ -36,6 +40,7 @@ const BASE_URLS: Record<HotelbedsAPI, string> = {
   'activities-cache':   'https://api.test.hotelbeds.com/activity-cache-api/1.0',
   'activities-content': 'https://api.test.hotelbeds.com/activity-content-api/3.0',
   transfers:            'https://api.test.hotelbeds.com/transfer-api/1.0',
+  'transfers-cache':    'https://api.test.hotelbeds.com/transfer-cache-api/1.0',
 }
 
 function makeSignature(api: HotelbedsAPI): string {
@@ -47,7 +52,7 @@ function makeSignature(api: HotelbedsAPI): string {
 export async function hotelbedsRequest(
   api: HotelbedsAPI,
   path: string,
-  opts: { method?: string; body?: unknown; params?: Record<string, string | number | undefined> } = {},
+  opts: { method?: string; body?: unknown; params?: Record<string, string | number | string[] | undefined> } = {},
 ): Promise<any> {
   const { key } = CREDENTIALS[api]
   const signature = makeSignature(api)
@@ -58,7 +63,7 @@ export async function hotelbedsRequest(
     const qs = new URLSearchParams(
       Object.entries(opts.params)
         .filter(([, v]) => v !== undefined && v !== null)
-        .map(([k, v]) => [k, String(v)])
+        .flatMap(([k, v]) => Array.isArray(v) ? v.map(item => [k, String(item)]) : [[k, String(v)]])
     )
     url += `?${qs.toString()}`
   }

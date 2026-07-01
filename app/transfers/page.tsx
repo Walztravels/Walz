@@ -233,7 +233,7 @@ export default function TransfersPage() {
             <h2 className="font-display text-white font-bold text-[clamp(1.5rem,3vw,2.2rem)] leading-tight">
               Search Airport Transfers
             </h2>
-            <p className="text-white/50 text-sm mt-2">Live pricing · Instant confirmation · Hotelbeds powered</p>
+            <p className="text-white/50 text-sm mt-2">Live pricing · Instant confirmation</p>
           </div>
 
           <TransferSearchForm onSearch={handleSearch} loading={loading} />

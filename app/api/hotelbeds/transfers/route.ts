@@ -12,53 +12,53 @@ export async function GET(req: NextRequest) {
     const fromTime  = searchParams.get('fromTime') ?? '12:00'
     const adults    = searchParams.get('adults')   ?? '2'
     const children  = searchParams.get('children') ?? '0'
-    const language  = 'ENG'
 
     if (!fromCode || !toCode || !fromDate) {
       return NextResponse.json({ error: 'fromCode, toCode and fromDate are required' }, { status: 400 })
     }
 
-    const data = await hotelbedsRequest('transfers', '/availability', {
-      params: {
-        from:       fromCode,
-        to:         toCode,
-        fromType,
-        toType,
-        fromDate,
-        fromTime,
-        language,
-        adults,
-        children,
-        infants:    '0',
-      },
-    })
+    // Hotelbeds Transfers API uses a path-based URL, not query params
+    const datetime = `${fromDate}T${fromTime}:00`
+    const path = `/availability/ENG/from/${fromType}/${fromCode}/to/${toType}/${toCode}/${datetime}/${adults}/${children}/0`
 
-    const raw: any[] = data?.transfers ?? []
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const data: any = await hotelbedsRequest('transfers', path)
 
-    const transfers = raw.map((t: any) => ({
-      transferKey:  t.transferKey,
-      transferType: t.transferType ?? 'PRIVATE',
-      vehicleName:  t.vehicle?.name   ?? t.category?.name ?? 'Vehicle',
-      vehicleDesc:  t.vehicle?.description ?? null,
-      maxPax:       t.vehicle?.maxPax ?? t.category?.maxPax ?? null,
-      price:        t.price?.amount   ?? 0,
-      currency:     t.price?.currencyId ?? 'GBP',
-      duration:     t.tripDuration    ?? null,
-      imageUrl:     t.vehicle?.images?.[0]?.url ?? null,
-      from:         t.from,
-      to:           t.to,
-    }))
+    console.log('[HB Transfers inline] GET', path, 'services:', data?.services?.length ?? 0, 'error:', data?.errors?.[0]?.message ?? null)
+
+    if (data?.errors?.length) {
+      return NextResponse.json({ ok: false, error: data.errors[0].message, transfers: [] })
+    }
+
+    const services: unknown[] = Array.isArray(data?.services) ? data.services : []
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const transfers = services.map((s: any) => ({
+      transferKey:  s.rateKey ?? s.id ?? '',
+      transferType: s.transferType ?? 'PRIVATE',
+      vehicleName:  s.vehicle?.name ?? s.category?.name ?? 'Vehicle',
+      vehicleDesc:  s.vehicle?.description ?? null,
+      maxPax:       s.vehicle?.maxPax ?? null,
+      price:        parseFloat(s.price?.totalAmount ?? s.minPrice ?? '0'),
+      currency:     s.price?.currency ?? 'GBP',
+      // travelTime from Hotelbeds is in seconds
+      duration:     s.travelTime ? Math.round(s.travelTime / 60) : null,
+      imageUrl:     s.vehicle?.images?.[0]?.url ?? null,
+      from:         s.from,
+      to:           s.to,
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    })).filter((t: any) => t.price > 0)
 
     return NextResponse.json({ ok: true, total: transfers.length, transfers })
-  } catch (error: any) {
-    const msg = String(error.message ?? '')
+  } catch (error: unknown) {
+    const msg = error instanceof Error ? error.message : String(error)
     console.error('[transfers/availability]', msg)
     if (msg.includes('403') || msg.toLowerCase().includes('disallowed') || msg.toLowerCase().includes('quota')) {
       return NextResponse.json(
-        { error: 'Transfer search is currently unavailable. Please contact us to arrange a transfer.' },
+        { ok: false, error: 'Transfer search is currently unavailable. Please contact us to arrange a transfer.' },
         { status: 503 }
       )
     }
-    return NextResponse.json({ error: 'Transfer search failed. Please try again.' }, { status: 500 })
+    return NextResponse.json({ ok: false, error: 'Transfer search failed. Please try again.' }, { status: 500 })
   }
 }
