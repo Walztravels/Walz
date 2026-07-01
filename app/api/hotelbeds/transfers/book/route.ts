@@ -20,7 +20,7 @@ export async function POST(req: NextRequest) {
     } = await req.json()
 
     const resolvedRateKey = rateKey ?? transferKey
-    if (!resolvedRateKey || !holderName || !holderEmail || !fromDate)
+    if (!resolvedRateKey || !holderName || !holderEmail)
       return NextResponse.json({ error: 'Missing required fields' }, { status: 400 })
 
     const [firstName, ...rest] = holderName.trim().split(' ')

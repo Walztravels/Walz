@@ -1,6 +1,6 @@
 import crypto from 'crypto'
 
-type HotelbedsAPI = 'hotel' | 'content' | 'activities' | 'activities-cache' | 'activities-content' | 'transfers' | 'transfers-cache'
+type HotelbedsAPI = 'hotel' | 'content' | 'activities' | 'activities-cache' | 'activities-content' | 'transfers' | 'transfer-cache'
 
 const CREDENTIALS: Record<HotelbedsAPI, { key: string; secret: string }> = {
   hotel: {
@@ -27,7 +27,7 @@ const CREDENTIALS: Record<HotelbedsAPI, { key: string; secret: string }> = {
     key:    process.env.HOTELBEDS_TRANSFERS_API_KEY ?? '3bc0e240098af5c828736f59bf7ecbf2',
     secret: process.env.HOTELBEDS_TRANSFERS_SECRET  ?? 'wMfgvPkvyl',
   },
-  'transfers-cache': {
+  'transfer-cache': {
     key:    process.env.HOTELBEDS_TRANSFERS_API_KEY ?? '3bc0e240098af5c828736f59bf7ecbf2',
     secret: process.env.HOTELBEDS_TRANSFERS_SECRET  ?? 'wMfgvPkvyl',
   },
@@ -40,7 +40,7 @@ const BASE_URLS: Record<HotelbedsAPI, string> = {
   'activities-cache':   'https://api.test.hotelbeds.com/activity-cache-api/1.0',
   'activities-content': 'https://api.test.hotelbeds.com/activity-content-api/3.0',
   transfers:            'https://api.test.hotelbeds.com/transfer-api/1.0',
-  'transfers-cache':    'https://api.test.hotelbeds.com/transfer-cache-api/1.0',
+  'transfer-cache':    'https://api.test.hotelbeds.com/transfer-cache-api/1.0',
 }
 
 function makeSignature(api: HotelbedsAPI): string {
