@@ -25,23 +25,19 @@ async function getAllInboxes(): Promise<CWInbox[]> {
 }
 
 // Find the WhatsApp / Twilio inbox in Chatwoot.
-// Pin a specific inbox by setting CHATWOOT_WHATSAPP_INBOX_ID env var.
+// Defaults to inbox 132 (Nigeria WhatsApp). Override with CHATWOOT_WHATSAPP_INBOX_ID.
 async function getWhatsAppInbox(): Promise<CWInbox | null> {
-  const pinned = process.env.CHATWOOT_WHATSAPP_INBOX_ID
-  const inboxes = await getAllInboxes()
-  console.log('[whatsapp-chat] available inboxes:', JSON.stringify(inboxes.map(i => ({ id: i.id, name: i.name, channel_type: i.channel_type }))))
-  if (pinned) {
-    const found = inboxes.find(i => i.id === Number(pinned))
-    if (found) { console.log('[whatsapp-chat] using pinned inbox:', found); return found }
-  }
-  const inbox = inboxes.find(i =>
+  const pinnedId = Number(process.env.CHATWOOT_WHATSAPP_INBOX_ID ?? '132')
+  const inboxes  = await getAllInboxes()
+  const pinned   = inboxes.find(i => i.id === pinnedId)
+  if (pinned) return pinned
+  // Fallback: auto-detect by channel type / name
+  return inboxes.find(i =>
     i.channel_type === 'Channel::TwilioSms' ||
     i.channel_type === 'Channel::Whatsapp'  ||
     i.name.toLowerCase().includes('whatsapp') ||
     i.name.toLowerCase().includes('twilio')
-  )
-  console.log('[whatsapp-chat] auto-detected inbox:', inbox)
-  return inbox ?? null
+  ) ?? null
 }
 
 // GET /api/admin/whatsapp-chat — list all Chatwoot inboxes for diagnostics
