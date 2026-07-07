@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { getAdminSession } from '@/lib/admin-auth'
 import prisma from '@/lib/db'
-import { sendWhatsAppViaTwilio, twilioConfigured, twilioTemplateConfigured } from '@/lib/twilio-whatsapp'
+import { sendWhatsAppViaTwilio, twilioConfigured, twilioTemplateConfigured, isNigeriaPhone } from '@/lib/twilio-whatsapp'
 
 export const dynamic = 'force-dynamic'
 
@@ -25,13 +25,32 @@ async function getAllInboxes(): Promise<CWInbox[]> {
   return data.payload ?? []
 }
 
-// Find the WhatsApp / Twilio inbox in Chatwoot.
-// Defaults to inbox 132 (Nigeria WhatsApp). Override with CHATWOOT_WHATSAPP_INBOX_ID.
-async function getWhatsAppInbox(): Promise<CWInbox | null> {
-  const pinnedId = Number(process.env.CHATWOOT_WHATSAPP_INBOX_ID ?? '132')
-  const inboxes  = await getAllInboxes()
-  const pinned   = inboxes.find(i => i.id === pinnedId)
+// Find the appropriate Chatwoot WhatsApp inbox based on client phone.
+// Nigeria clients (+234) → CHATWOOT_WHATSAPP_INBOX_ID_NG (or 132)
+// International       → CHATWOOT_WHATSAPP_INBOX_ID_INTL
+// Legacy single-inbox → CHATWOOT_WHATSAPP_INBOX_ID
+async function getWhatsAppInbox(clientPhone?: string): Promise<CWInbox | null> {
+  const inboxes = await getAllInboxes()
+
+  // Pick the right pinned ID based on phone country
+  let pinnedId: number | null = null
+  if (clientPhone && isNigeriaPhone(clientPhone)) {
+    pinnedId = Number(process.env.CHATWOOT_WHATSAPP_INBOX_ID_NG ?? process.env.CHATWOOT_WHATSAPP_INBOX_ID ?? '132')
+  } else if (clientPhone) {
+    const intlId = process.env.CHATWOOT_WHATSAPP_INBOX_ID_INTL
+    if (intlId) {
+      pinnedId = Number(intlId)
+    } else {
+      // No international inbox configured — fall back to Nigeria inbox
+      pinnedId = Number(process.env.CHATWOOT_WHATSAPP_INBOX_ID ?? '132')
+    }
+  } else {
+    pinnedId = Number(process.env.CHATWOOT_WHATSAPP_INBOX_ID ?? '132')
+  }
+
+  const pinned = inboxes.find(i => i.id === pinnedId)
   if (pinned) return pinned
+
   // Fallback: auto-detect by channel type / name
   return inboxes.find(i =>
     i.channel_type === 'Channel::TwilioSms' ||
@@ -148,8 +167,8 @@ export async function POST(req: Request) {
     }).catch(() => null)
   }
 
-  // ── 1. Get WhatsApp inbox ──────────────────────────────────────────────────
-  const inbox = await getWhatsAppInbox()
+  // ── 1. Get WhatsApp inbox (Nigeria clients → NG inbox, others → INTL inbox) ─
+  const inbox = await getWhatsAppInbox(clientPhone)
   if (!inbox) {
     return NextResponse.json({
       error: 'No WhatsApp inbox found in Chatwoot. Set CHATWOOT_WHATSAPP_INBOX_ID or connect a Twilio/WhatsApp inbox.',
