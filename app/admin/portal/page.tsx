@@ -2,7 +2,8 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import { format } from 'date-fns'
-import { LayoutDashboard, RefreshCw, ChevronDown, CheckCircle, FileText, CreditCard, ExternalLink, Send, X, Loader2, FolderUp, Copy, Plus, Trash2, ChevronUp, Eye, Download, Pencil } from 'lucide-react'
+import { LayoutDashboard, RefreshCw, ChevronDown, CheckCircle, FileText, CreditCard, ExternalLink, Send, X, Loader2, FolderUp, Copy, Plus, Trash2, ChevronUp, Eye, Download, Pencil, MessageCircle, Phone } from 'lucide-react'
+import { WhatsAppDrawer } from './components/WhatsAppDrawer'
 import BankStatementCard from '@/components/admin/BankStatementCard'
 import Link from 'next/link'
 
@@ -19,8 +20,9 @@ interface Application {
   amount: number | null
   amountPaid: number
   currency: string
-  adminNotes: string | null
-  walzFee:     number | null
+  adminNotes:      string | null
+  whatsappNumber:  string | null
+  walzFee:         number | null
   walzCurrency: string | null
   govFee:      number | null
   govCurrency: string | null
@@ -163,6 +165,13 @@ export default function AdminPortalPage() {
   const [sendLoading, setSendLoading]         = useState(false)
   const [sendSuccess, setSendSuccess]         = useState(false)
 
+  // WhatsApp chat drawer
+  const [waDrawer, setWaDrawer]           = useState<{ convId: number; app: Application } | null>(null)
+  const [waLoading, setWaLoading]         = useState<string | null>(null)
+  const [waError, setWaError]             = useState<string | null>(null)
+  const [editingPhone, setEditingPhone]   = useState<string | null>(null)
+  const [phoneInputs, setPhoneInputs]     = useState<Record<string, string>>({})
+
   // Fee editing — one app at a time
   const [editingFeesFor, setEditingFeesFor] = useState<string | null>(null)
   const [walzFee,     setWalzFee]     = useState<number | ''>('')
@@ -240,6 +249,33 @@ export default function AdminPortalPage() {
     setReqDocDeadline('')
     setReqDocResult(null)
     setCopied(false)
+  }
+
+  async function openWhatsApp(app: Application, phoneOverride?: string) {
+    const phone = phoneOverride ?? app.whatsappNumber
+    if (!phone) { setEditingPhone(app.id); return }
+    setWaLoading(app.id)
+    setWaError(null)
+    const res = await fetch('/api/admin/whatsapp-chat', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        applicationId: app.id,
+        clientName:    app.user.name ?? app.title,
+        clientPhone:   phone,
+        refNumber:     app.refNumber,
+      }),
+    })
+    const data = await res.json() as { conversationId?: number; error?: string }
+    setWaLoading(null)
+    if (!res.ok || !data.conversationId) {
+      setWaError(data.error ?? 'Failed to open WhatsApp chat')
+      return
+    }
+    // Optimistically update local state so phone shows immediately
+    setApps(prev => prev.map(a => a.id === app.id ? { ...a, whatsappNumber: phone } : a))
+    setWaDrawer({ convId: data.conversationId, app: { ...app, whatsappNumber: phone } })
+    setEditingPhone(null)
   }
 
   function toggleReqDoc(name: string) {
@@ -505,6 +541,58 @@ export default function AdminPortalPage() {
                     >
                       <FolderUp className="w-3 h-3" /> Request Docs
                     </button>
+
+                    {/* WhatsApp Chat button */}
+                    {editingPhone === app.id ? (
+                      <div className="flex items-center gap-1.5">
+                        <Phone className="w-3 h-3 text-green-600" />
+                        <input
+                          type="tel"
+                          autoFocus
+                          value={phoneInputs[app.id] ?? app.whatsappNumber ?? ''}
+                          onChange={e => setPhoneInputs(p => ({ ...p, [app.id]: e.target.value }))}
+                          onKeyDown={e => {
+                            if (e.key === 'Enter') void openWhatsApp(app, phoneInputs[app.id] ?? '')
+                            if (e.key === 'Escape') setEditingPhone(null)
+                          }}
+                          placeholder="+44 7700 000000"
+                          className="text-xs border border-green-300 rounded-lg px-2 py-1.5 w-40 outline-none focus:border-green-500"
+                        />
+                        <button
+                          onClick={() => void openWhatsApp(app, phoneInputs[app.id] ?? '')}
+                          disabled={!phoneInputs[app.id]?.trim()}
+                          className="text-xs font-semibold text-white bg-green-500 hover:bg-green-600 px-2.5 py-1.5 rounded-lg disabled:opacity-40 transition-colors"
+                        >
+                          Chat
+                        </button>
+                        <button onClick={() => setEditingPhone(null)} className="text-gray-400 hover:text-gray-600">
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    ) : (
+                      <button
+                        onClick={() => void openWhatsApp(app)}
+                        disabled={waLoading === app.id}
+                        className="flex items-center gap-1.5 text-xs font-semibold text-white bg-green-500 hover:bg-green-600 px-3 py-2 rounded-lg transition-colors disabled:opacity-60"
+                        title={app.whatsappNumber ? `WhatsApp: ${app.whatsappNumber}` : 'Add WhatsApp number'}
+                      >
+                        {waLoading === app.id
+                          ? <Loader2 className="w-3 h-3 animate-spin" />
+                          : <MessageCircle className="w-3 h-3" />
+                        }
+                        {app.whatsappNumber ? 'WhatsApp' : 'Add WhatsApp'}
+                        {app.whatsappNumber && (
+                          <button
+                            type="button"
+                            onClick={e => { e.stopPropagation(); setEditingPhone(app.id); setPhoneInputs(p => ({ ...p, [app.id]: app.whatsappNumber ?? '' })) }}
+                            className="ml-0.5 opacity-70 hover:opacity-100"
+                            title="Edit number"
+                          >
+                            <Pencil className="w-2.5 h-2.5" />
+                          </button>
+                        )}
+                      </button>
+                    )}
                     <Link
                       href={`/admin/portal/${app.id}`}
                       className="flex items-center gap-1 text-xs font-semibold text-[#0B1F3A] bg-[#C9A84C]/10 hover:bg-[#C9A84C]/20 border border-[#C9A84C]/30 px-3 py-2 rounded-lg transition-colors"
@@ -678,6 +766,26 @@ export default function AdminPortalPage() {
           </div>
         )}
       </div>
+
+      {/* WhatsApp error toast */}
+      {waError && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-3 px-5 py-3 bg-red-600 text-white rounded-2xl shadow-xl text-sm font-semibold">
+          {waError}
+          <button onClick={() => setWaError(null)} className="opacity-70 hover:opacity-100"><X className="w-4 h-4" /></button>
+        </div>
+      )}
+
+      {/* WhatsApp Chat Drawer */}
+      {waDrawer && (
+        <WhatsAppDrawer
+          conversationId={waDrawer.convId}
+          clientName={waDrawer.app.user.name ?? waDrawer.app.title}
+          clientPhone={waDrawer.app.whatsappNumber ?? ''}
+          applicationType={waDrawer.app.type}
+          refNumber={waDrawer.app.refNumber}
+          onClose={() => setWaDrawer(null)}
+        />
+      )}
 
       {/* Request Docs Modal */}
       {reqDocsModal && (

@@ -15,7 +15,8 @@ const updateSchema = z.object({
   walzCurrency: z.string().nullable().optional(),
   govFee:      z.number().nullable().optional(),
   govCurrency: z.string().nullable().optional(),
-  govFeeNote:  z.string().nullable().optional(),
+  govFeeNote:     z.string().nullable().optional(),
+  whatsappNumber: z.string().nullable().optional(),
 }).partial()
 
 export async function GET(_: NextRequest, { params }: { params: { id: string } }) {

@@ -53,6 +53,7 @@ model User {
   lifecyclePrediction ClientLifecyclePrediction?
   groupSessionsCreated GroupSession[]
   tripRequests         TripRequest[]
+  walzRewards          WalzRewardsMembership?
 }
 
 model Account {
@@ -139,6 +140,12 @@ model Booking {
   // Stripe
   stripePaymentIntentId String?
   stripeClientSecret    String?
+
+  // NOWPayments (crypto)
+  paymentProvider       String?   // 'stripe' | 'flutterwave' | 'nowpayments'
+  cryptoInvoiceId       String?
+  cryptoPaidCurrency    String?
+  cryptoAmountReceived  Float?
 
   // Contact details
   contactEmail  String
@@ -428,6 +435,8 @@ model Lead {
   assignedToId      String?   // FK to Staff (row-level security)
   branch            String    @default("nigeria")
   platform          String?   // Facebook | Instagram | WhatsApp | Website
+  // ── CSV import tracking ────────────────────────────────────────────────
+  importBatchId String?  // shared ID for all leads from one CSV upload
   // ──────────────────────────────────────────────────────────────────────
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -440,6 +449,7 @@ model Lead {
   @@index([isRead])
   @@index([assignedToId])
   @@index([branch])
+  @@index([importBatchId])
 }
 
 // ===========================
@@ -765,6 +775,8 @@ model PortalApplication {
   amount      Float?
   currency    String             @default("GBP")
   amountPaid  Float              @default(0)
+
+  whatsappNumber String?
 
   // Admin-editable fee breakdown
   walzFee      Float?
@@ -2807,4 +2819,55 @@ model FeaturedDestination {
   updatedAt   DateTime @updatedAt
 
   @@index([isActive, sortOrder])
+}
+
+// ===========================
+// Walz Rewards
+// ===========================
+
+model WalzRewardsMembership {
+  id            String   @id @default(cuid())
+  userId        String   @unique
+  tier          String   @default("bronze")
+  milesBalance  Int      @default(0)
+  lifetimeMiles Int      @default(0)
+  joinedAt      DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  transactions  WalzMilesTransaction[]
+}
+
+model WalzMilesTransaction {
+  id           String   @id @default(cuid())
+  membershipId String
+  bookingId    String?
+  miles        Int
+  type         String   @default("earned")
+  description  String?
+  createdAt    DateTime @default(now())
+  membership   WalzRewardsMembership @relation(fields: [membershipId], references: [id], onDelete: Cascade)
+
+  @@index([membershipId])
+}
+
+// ===========================
+// Admin Payment Links
+// ===========================
+
+model AdminPaymentLink {
+  id          String   @id @default(cuid())
+  invoiceId   String
+  orderId     String   @unique
+  invoiceUrl  String
+  amount      Decimal  @db.Decimal(10, 2)
+  currency    String   @default("GBP")
+  description String?
+  clientEmail String?
+  bookingId   String?
+  status      String   @default("pending")
+  createdBy   String
+  createdAt   DateTime @default(now())
+
+  @@index([status])
+  @@index([createdAt])
 }
