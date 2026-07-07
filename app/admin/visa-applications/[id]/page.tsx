@@ -901,7 +901,12 @@ export default function AdminVisaDetailPage() {
   async function openWhatsApp() {
     if (!app) return
     const phone = (waPhone || app.phone || '').trim()
-    if (!phone) { setWaEditPhone(true); return }
+    // Always show phone confirm step if the number hasn't been verified this session
+    if (!waPhone) {
+      setWaPhone(phone)
+      setWaEditPhone(true)
+      return
+    }
     setWaLoading(true); setWaError(null)
     try {
       const clientName = [app.firstName, app.lastName].filter(Boolean).join(' ') || 'Applicant'

@@ -32,8 +32,11 @@ async function getWhatsAppInboxId(): Promise<number | null> {
 // Find or create a Chatwoot contact by phone number
 // Returns [contactId, errorMessage]
 async function findOrCreateContact(name: string, phone: string): Promise<[number | null, string | null]> {
-  // Normalise phone: strip non-digits then prepend +
-  const digits = phone.replace(/\D/g, '')
+  // Normalise phone: strip non-digits, handle local formats
+  let digits = phone.replace(/\D/g, '')
+  // Strip leading trunk prefix (0) only if not already an international number
+  // e.g. "08138666875" → "2348138666875" is caller's responsibility via the UI
+  // Just ensure we have a + prefix
   const normalised = `+${digits}`
 
   // Search by phone number first (handles both payload shapes Chatwoot uses)
@@ -56,10 +59,14 @@ async function findOrCreateContact(name: string, phone: string): Promise<[number
   })
 
   if (create.ok) {
-    // Chatwoot returns the contact directly or wrapped in payload
-    const cd = await create.json() as { id?: number; payload?: { id?: number } }
-    const id = cd.id ?? cd.payload?.id ?? null
-    return [id, id ? null : 'Contact created but no id returned']
+    const raw = await create.json() as Record<string, unknown>
+    console.log('[whatsapp-chat] contact create response:', JSON.stringify(raw))
+    // Chatwoot may nest the id several ways
+    const id = (raw.id as number | undefined)
+      ?? ((raw.payload as Record<string, unknown> | undefined)?.id as number | undefined)
+      ?? ((raw.contact as Record<string, unknown> | undefined)?.id as number | undefined)
+      ?? null
+    return [id, id ? null : `Contact created but id not found in response: ${JSON.stringify(raw)}`]
   }
 
   // 422 usually means phone already taken — try searching again with just digits
