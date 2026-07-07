@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
-import { UserCheck, Search, RefreshCw, Loader2, Mail, FileText } from 'lucide-react'
+import { UserCheck, Search, RefreshCw, Loader2, Mail, FileText, KeyRound } from 'lucide-react'
 import { format } from 'date-fns'
 import Link from 'next/link'
 
@@ -16,11 +16,13 @@ interface ClientAccount {
 }
 
 export default function ClientAccountsPage() {
-  const [accounts, setAccounts]   = useState<ClientAccount[]>([])
-  const [total,    setTotal]      = useState(0)
-  const [loading,  setLoading]    = useState(true)
-  const [search,   setSearch]     = useState('')
-  const [query,    setQuery]      = useState('')
+  const [accounts,    setAccounts]    = useState<ClientAccount[]>([])
+  const [total,       setTotal]       = useState(0)
+  const [loading,     setLoading]     = useState(true)
+  const [search,      setSearch]      = useState('')
+  const [query,       setQuery]       = useState('')
+  const [resetSent,   setResetSent]   = useState<string | null>(null)
+  const [resetLoading, setResetLoading] = useState<string | null>(null)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -41,6 +43,27 @@ export default function ClientAccountsPage() {
   function handleSearch(e: React.FormEvent) {
     e.preventDefault()
     setQuery(search)
+  }
+
+  async function sendReset(email: string) {
+    setResetLoading(email)
+    try {
+      const res = await fetch('/api/admin/client-accounts/send-reset', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ email }),
+      })
+      const data = await res.json()
+      if (res.ok) {
+        setResetSent(email)
+        setTimeout(() => setResetSent(null), 5000)
+      } else {
+        alert(data.error ?? 'Failed to send reset email')
+      }
+    } catch {
+      alert('Failed to send reset email')
+    }
+    setResetLoading(null)
   }
 
   return (
@@ -118,10 +141,25 @@ export default function ClientAccountsPage() {
                         {format(new Date(account.createdAt), 'd MMM yyyy')}
                       </td>
                       <td className="px-4 py-3">
-                        <a href={`mailto:${account.email}`}
-                          className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium bg-[#0B1F3A]/5 text-[#0B1F3A] hover:bg-[#C9A84C]/15 hover:text-[#8B6914] transition-colors">
-                          <Mail className="w-3 h-3" /> Email
-                        </a>
+                        <div className="flex items-center gap-1.5">
+                          <a href={`mailto:${account.email}`}
+                            className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium bg-[#0B1F3A]/5 text-[#0B1F3A] hover:bg-[#C9A84C]/15 hover:text-[#8B6914] transition-colors">
+                            <Mail className="w-3 h-3" /> Email
+                          </a>
+                          <button
+                            onClick={() => sendReset(account.email)}
+                            disabled={resetLoading === account.email}
+                            title="Send password reset email"
+                            className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-medium bg-amber-50 text-amber-700 hover:bg-amber-100 transition-colors disabled:opacity-50"
+                          >
+                            {resetLoading === account.email
+                              ? <Loader2 className="w-3 h-3 animate-spin" />
+                              : resetSent === account.email
+                                ? <span className="text-green-700">✓ Sent</span>
+                                : <><KeyRound className="w-3 h-3" /> Reset</>
+                            }
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   ))}
