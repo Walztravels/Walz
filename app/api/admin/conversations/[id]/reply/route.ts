@@ -23,11 +23,15 @@ export async function POST(
       headers: { 'Content-Type': 'application/json', api_access_token: CW_TOKEN },
       body:    JSON.stringify({
         content:      body.content,
-        message_type: body.message_type ?? 'outgoing',
+        message_type: 1,           // 1 = outgoing agent message (numeric, not string)
         private:      body.private ?? false,
       }),
     }
   )
   const data = await res.json()
+  if (!res.ok) {
+    console.error('[reply] Chatwoot error:', res.status, JSON.stringify(data))
+    return NextResponse.json({ error: data?.message ?? data?.error ?? 'Chatwoot send failed', chatwoot: data }, { status: res.status })
+  }
   return NextResponse.json(data)
 }

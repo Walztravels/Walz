@@ -47,6 +47,7 @@ export function WhatsAppDrawer({
   const [messages, setMessages]   = useState<CWMessage[]>([])
   const [text, setText]           = useState('')
   const [sending, setSending]     = useState(false)
+  const [sendError, setSendError] = useState<string | null>(null)
   const [loading, setLoading]     = useState(true)
   const [pos, setPos]             = useState<{ x: number; y: number } | null>(null)
   const bottomRef                 = useRef<HTMLDivElement>(null)
@@ -114,13 +115,23 @@ export function WhatsAppDrawer({
   async function handleSend() {
     if (!text.trim() || sending) return
     setSending(true)
-    await fetch(`/api/admin/conversations/${conversationId}/reply`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ content: text.trim(), private: false }),
-    })
-    setText('')
-    await fetchMessages()
+    setSendError(null)
+    try {
+      const res  = await fetch(`/api/admin/conversations/${conversationId}/reply`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content: text.trim(), private: false }),
+      })
+      const data = await res.json() as { error?: string; id?: number }
+      if (!res.ok || data.error) {
+        setSendError(data.error ?? 'Message failed to send')
+      } else {
+        setText('')
+        await fetchMessages()
+      }
+    } catch {
+      setSendError('Network error — message not sent')
+    }
     setSending(false)
   }
 
@@ -250,14 +261,20 @@ export function WhatsAppDrawer({
 
       {/* Reply box */}
       <div className="px-3 py-2 border-t border-gray-100 bg-white flex-shrink-0">
+        {sendError && (
+          <div className="mb-2 px-2.5 py-1.5 bg-red-50 border border-red-200 rounded-xl text-[10px] text-red-700 flex items-start gap-1.5">
+            <AlertCircle className="w-3 h-3 flex-shrink-0 mt-0.5" />
+            <span>{sendError}</span>
+          </div>
+        )}
         <div className="flex gap-2 items-end">
           <textarea
             value={text}
-            onChange={e => setText(e.target.value)}
+            onChange={e => { setText(e.target.value); setSendError(null) }}
             onKeyDown={handleKeyDown}
             placeholder="Type a message… (Enter to send)"
             rows={2}
-            className="flex-1 resize-none px-2.5 py-2 border border-gray-200 rounded-xl text-xs outline-none focus:border-[#C9A84C] transition-colors"
+            className={`flex-1 resize-none px-2.5 py-2 border rounded-xl text-xs outline-none transition-colors ${sendError ? 'border-red-300 focus:border-red-400' : 'border-gray-200 focus:border-[#C9A84C]'}`}
           />
           <button
             onClick={() => void handleSend()}
