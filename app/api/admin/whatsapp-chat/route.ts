@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { getAdminSession } from '@/lib/admin-auth'
 import prisma from '@/lib/db'
-import { sendWhatsAppViaTwilio, twilioConfigured, twilioTemplateConfigured, isNigeriaPhone } from '@/lib/twilio-whatsapp'
+import { sendWhatsAppViaTwilio, twilioConfigured, twilioTemplateConfigured, isNigeriaPhone, normalisePhone } from '@/lib/twilio-whatsapp'
 
 export const dynamic = 'force-dynamic'
 
@@ -75,12 +75,9 @@ export async function GET() {
 // Find or create a Chatwoot contact by phone number
 // Returns [contactId, errorMessage]
 async function findOrCreateContact(name: string, phone: string): Promise<[number | null, string | null]> {
-  // Normalise phone: strip non-digits, handle local formats
-  let digits = phone.replace(/\D/g, '')
-  // Strip leading trunk prefix (0) only if not already an international number
-  // e.g. "08138666875" → "2348138666875" is caller's responsibility via the UI
-  // Just ensure we have a + prefix
-  const normalised = `+${digits}`
+  // Normalise to E.164 (handles local Nigerian 08x numbers → +234...)
+  const normalised = normalisePhone(phone)
+  const digits     = normalised.replace(/\D/g, '')
 
   // Search by phone number first (handles both payload shapes Chatwoot uses)
   const search = await cw(`/contacts/search?q=${encodeURIComponent(normalised)}&include_contacts=true`)
@@ -104,9 +101,11 @@ async function findOrCreateContact(name: string, phone: string): Promise<[number
   if (create.ok) {
     const raw = await create.json() as Record<string, unknown>
     console.log('[whatsapp-chat] contact create response:', JSON.stringify(raw))
-    // Chatwoot may nest the id several ways
+    // Chatwoot nests the id several ways; check all known shapes
+    const payload = raw.payload as Record<string, unknown> | undefined
     const id = (raw.id as number | undefined)
-      ?? ((raw.payload as Record<string, unknown> | undefined)?.id as number | undefined)
+      ?? (payload?.id as number | undefined)
+      ?? ((payload?.contact as Record<string, unknown> | undefined)?.id as number | undefined)
       ?? ((raw.contact as Record<string, unknown> | undefined)?.id as number | undefined)
       ?? null
     return [id, id ? null : `Contact created but id not found in response: ${JSON.stringify(raw)}`]
