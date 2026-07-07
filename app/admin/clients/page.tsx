@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import {
   Search, Mail, MessageCircle, ChevronDown, ChevronUp,
-  FileText, CreditCard, CheckSquare, RefreshCw, UserPlus, Loader2,
+  FileText, CreditCard, CheckSquare, RefreshCw, UserPlus, Loader2, KeyRound,
 } from 'lucide-react'
 import { format } from 'date-fns'
 
@@ -68,10 +68,34 @@ export default function AdminClientsPage() {
   const [expanded, setExpanded]   = useState<string | null>(null)
   const [saving, setSaving]       = useState<string | null>(null)
   const [editNotes, setEditNotes] = useState<Record<string, string>>({})
-  const [converting, setConverting] = useState<string | null>(null)
+  const [converting, setConverting]   = useState<string | null>(null)
+  const [resetLoading, setResetLoading] = useState<string | null>(null)
+  const [resetSent, setResetSent]       = useState<string | null>(null)
   const [toast, setToast]           = useState<string | null>(null)
 
   function showToast(msg: string) { setToast(msg); setTimeout(() => setToast(null), 3000) }
+
+  async function sendReset(email: string) {
+    setResetLoading(email)
+    try {
+      const res  = await fetch('/api/admin/client-accounts/send-reset', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ email }),
+      })
+      const data = await res.json()
+      if (res.ok) {
+        setResetSent(email)
+        showToast(`Password reset email sent to ${email}`)
+        setTimeout(() => setResetSent(null), 6000)
+      } else {
+        showToast(data.error ?? 'Failed to send reset email')
+      }
+    } catch {
+      showToast('Failed to send reset email')
+    }
+    setResetLoading(null)
+  }
 
   async function convertToLead(c: Client) {
     setConverting(c.id)
@@ -203,7 +227,7 @@ export default function AdminClientsPage() {
                     className="p-2 text-white/30 hover:text-amber-400 hover:bg-amber-500/10 rounded-lg transition-colors">
                     <Mail className="w-4 h-4" />
                   </a>
-                  <a href={`https://wa.me/447398753797?text=${encodeURIComponent(`Hi, I'm contacting you about client ${c.name ?? c.email}`)}`}
+                  <a href={`https://wa.me/12317902336?text=${encodeURIComponent(`Hi, I'm contacting you about client ${c.name ?? c.email}`)}`}
                     target="_blank" rel="noreferrer"
                     className="p-2 text-white/30 hover:text-green-400 hover:bg-green-500/10 rounded-lg transition-colors">
                     <MessageCircle className="w-4 h-4" />
@@ -214,6 +238,17 @@ export default function AdminClientsPage() {
                     {converting === c.id
                       ? <Loader2 className="w-4 h-4 animate-spin" />
                       : <UserPlus className="w-4 h-4" />}
+                  </button>
+                  <button onClick={() => sendReset(c.email)} disabled={resetLoading === c.email}
+                    title="Send password reset email"
+                    className={`p-2 rounded-lg transition-colors disabled:opacity-50 ${
+                      resetSent === c.email
+                        ? 'text-green-400 bg-green-500/10'
+                        : 'text-white/30 hover:text-amber-400 hover:bg-amber-500/10'
+                    }`}>
+                    {resetLoading === c.email
+                      ? <Loader2 className="w-4 h-4 animate-spin" />
+                      : <KeyRound className="w-4 h-4" />}
                   </button>
                 </div>
                 {isOpen
