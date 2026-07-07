@@ -8,6 +8,7 @@ import {
   Loader2, RefreshCw, Send, X, CheckCircle,
 } from 'lucide-react'
 import { STATUS_CONFIG, VISA_AGENTS, VISA_CONFIGS } from '@/lib/visa-config'
+import { ALL_COUNTRIES } from '@/lib/countries'
 import { useStaffPermissions } from '@/hooks/useStaffPermissions'
 import FormTracker from '@/components/admin/visa/FormTracker'
 
@@ -119,6 +120,7 @@ export default function AdminVisaApplicationsPage() {
   const [sendForm, setSendForm]     = useState<SendFormState>({
     clientEmail: '', clientName: '', destinationIso2: '', visaType: 'tourist', personalMessage: '',
   })
+  const [countrySearch, setCountrySearch] = useState('')
   const [walzFee,      setWalzFee]      = useState<number | ''>('')
   const [feeCurrency,  setFeeCurrency]  = useState('GBP')
   const [paymentChoice, setPaymentChoice] = useState<'now' | 'later'>('later')
@@ -212,6 +214,7 @@ export default function AdminVisaApplicationsPage() {
     setModalOpen(false)
     setSentLink(null)
     setSendForm({ clientEmail: '', clientName: '', destinationIso2: '', visaType: 'tourist', personalMessage: '' })
+    setCountrySearch('')
     setWalzFee('')
     setFeeCurrency('GBP')
     setPaymentChoice('later')
@@ -530,16 +533,57 @@ export default function AdminVisaApplicationsPage() {
                   </div>
                   <div>
                     <label className="block text-xs font-semibold text-gray-700 mb-1">Destination *</label>
+                    {/* Search filter */}
+                    <input
+                      type="text"
+                      value={countrySearch}
+                      onChange={e => setCountrySearch(e.target.value)}
+                      placeholder="Search country…"
+                      className="w-full px-3 py-2 border border-gray-200 rounded-xl text-sm outline-none focus:border-[#C9A84C] mb-1"
+                    />
                     <select
                       required
+                      size={5}
                       value={sendForm.destinationIso2}
                       onChange={e => setSendForm(f => ({ ...f, destinationIso2: e.target.value }))}
-                      className="w-full px-3 py-2 border border-gray-200 rounded-xl text-sm outline-none focus:border-[#C9A84C] bg-white">
-                      <option value="">Select…</option>
-                      {Object.values(VISA_CONFIGS).map(c => (
-                        <option key={c.destinationIso2} value={c.destinationIso2}>{c.flag} {c.name}</option>
-                      ))}
+                      className="w-full px-2 py-1 border border-gray-200 rounded-xl text-sm outline-none focus:border-[#C9A84C] bg-white"
+                    >
+                      <option value="">— select a country —</option>
+                      {/* Full-config countries shown first */}
+                      {(() => {
+                        const configuredIso2 = new Set(Object.keys(VISA_CONFIGS))
+                        const search = countrySearch.toLowerCase()
+                        const featured = ALL_COUNTRIES.filter(c => configuredIso2.has(c.iso2) && (!search || c.name.toLowerCase().includes(search)))
+                        const others   = ALL_COUNTRIES.filter(c => !configuredIso2.has(c.iso2) && (!search || c.name.toLowerCase().includes(search)))
+                        return (
+                          <>
+                            {featured.length > 0 && (
+                              <optgroup label="✅ Full embassy form">
+                                {featured.map(c => (
+                                  <option key={c.iso2} value={c.iso2}>{c.flag} {c.name}</option>
+                                ))}
+                              </optgroup>
+                            )}
+                            {others.length > 0 && (
+                              <optgroup label="All other countries">
+                                {others.sort((a,b) => a.name.localeCompare(b.name)).map(c => (
+                                  <option key={c.iso2} value={c.iso2}>{c.flag} {c.name}</option>
+                                ))}
+                              </optgroup>
+                            )}
+                          </>
+                        )
+                      })()}
                     </select>
+                    {sendForm.destinationIso2 && (() => {
+                      const c = ALL_COUNTRIES.find(x => x.iso2 === sendForm.destinationIso2)
+                      const hasConfig = !!VISA_CONFIGS[sendForm.destinationIso2]
+                      return c ? (
+                        <p className={`text-[10px] mt-1 font-semibold ${hasConfig ? 'text-green-600' : 'text-amber-600'}`}>
+                          {c.flag} {c.name} — {hasConfig ? '✅ Full embassy form available' : '⚠️ Generic form (no country-specific fields)'}
+                        </p>
+                      ) : null
+                    })()}
                   </div>
                   <div>
                     <label className="block text-xs font-semibold text-gray-700 mb-1">Visa Type</label>

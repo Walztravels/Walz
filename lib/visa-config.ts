@@ -47,6 +47,23 @@ export const SLUG_TO_ISO2: Record<string, string> = {
   morocco: 'MA',
   'new-zealand': 'NZ',
   'south-africa': 'ZA',
+  // Extended — all countries in lib/countries.ts
+  nigeria: 'NG', ghana: 'GH', ethiopia: 'ET', tanzania: 'TZ', uganda: 'UG',
+  senegal: 'SN', rwanda: 'RW', zambia: 'ZM', zimbabwe: 'ZW', namibia: 'NA',
+  botswana: 'BW', 'ivory-coast': 'CI', cameroon: 'CM', tunisia: 'TN',
+  germany: 'DE', 'united-kingdom': 'GB', netherlands: 'NL', spain: 'ES',
+  italy: 'IT', portugal: 'PT', belgium: 'BE', austria: 'AT', switzerland: 'CH',
+  sweden: 'SE', norway: 'NO', denmark: 'DK', finland: 'FI', ireland: 'IE',
+  poland: 'PL', 'czech-republic': 'CZ', hungary: 'HU', greece: 'GR',
+  romania: 'RO', ukraine: 'UA', cyprus: 'CY', malta: 'MT',
+  china: 'CN', japan: 'JP', 'south-korea': 'KR', singapore: 'SG',
+  malaysia: 'MY', thailand: 'TH', indonesia: 'ID', pakistan: 'PK',
+  'sri-lanka': 'LK', nepal: 'NP',
+  brazil: 'BR', argentina: 'AR', mexico: 'MX', colombia: 'CO',
+  jamaica: 'JM', barbados: 'BB', trinidad: 'TT',
+  'saudi-arabia': 'SA', qatar: 'QA', kuwait: 'KW', bahrain: 'BH', oman: 'OM',
+  maldives: 'MV', mauritius: 'MU', seychelles: 'SC',
+  fiji: 'FJ',
 }
 
 export const ISO2_TO_SLUG: Record<string, string> = {
@@ -54,6 +71,20 @@ export const ISO2_TO_SLUG: Record<string, string> = {
   US: 'usa', AU: 'australia', VN: 'vietnam', IN: 'india',
   TR: 'turkey', KE: 'kenya', EG: 'egypt', PH: 'philippines',
   MA: 'morocco', NZ: 'new-zealand', ZA: 'south-africa',
+  NG: 'nigeria', GH: 'ghana', ET: 'ethiopia', TZ: 'tanzania', UG: 'uganda',
+  SN: 'senegal', RW: 'rwanda', ZM: 'zambia', ZW: 'zimbabwe', NA: 'namibia',
+  BW: 'botswana', CI: 'ivory-coast', CM: 'cameroon', TN: 'tunisia',
+  DE: 'germany', NL: 'netherlands', ES: 'spain', IT: 'italy', PT: 'portugal',
+  BE: 'belgium', AT: 'austria', CH: 'switzerland', SE: 'sweden', NO: 'norway',
+  DK: 'denmark', FI: 'finland', IE: 'ireland', PL: 'poland', CZ: 'czech-republic',
+  HU: 'hungary', GR: 'greece', RO: 'romania', UA: 'ukraine', CY: 'cyprus', MT: 'malta',
+  CN: 'china', JP: 'japan', KR: 'south-korea', SG: 'singapore',
+  MY: 'malaysia', TH: 'thailand', ID: 'indonesia', PK: 'pakistan',
+  LK: 'sri-lanka', NP: 'nepal',
+  BR: 'brazil', AR: 'argentina', MX: 'mexico', CO: 'colombia',
+  JM: 'jamaica', BB: 'barbados', TT: 'trinidad',
+  SA: 'saudi-arabia', QA: 'qatar', KW: 'kuwait', BH: 'bahrain', OM: 'oman',
+  MV: 'maldives', MU: 'mauritius', SC: 'seychelles', FJ: 'fiji',
 }
 
 // ── Country Configs ───────────────────────────────────────────────────────────
