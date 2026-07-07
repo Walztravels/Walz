@@ -701,6 +701,13 @@ export default function AdminVisaDetailPage() {
   const [waError,     setWaError]     = useState<string | null>(null)
   const [waPhone,     setWaPhone]     = useState<string>('')
   const [waEditPhone, setWaEditPhone] = useState(false)
+  const [waTwilioStatus, setWaTwilioStatus] = useState<{
+    sent: boolean | null
+    usedTemplate: boolean | null
+    configured: boolean
+    templateConfigured: boolean
+    error: string | null
+  } | null>(null)
 
   // Trustpilot review request
   const [reviewSent,    setReviewSent]    = useState(false)
@@ -907,7 +914,7 @@ export default function AdminVisaDetailPage() {
       setWaEditPhone(true)
       return
     }
-    setWaLoading(true); setWaError(null)
+    setWaLoading(true); setWaError(null); setWaTwilioStatus(null)
     try {
       const clientName = [app.firstName, app.lastName].filter(Boolean).join(' ') || 'Applicant'
       const res = await fetch('/api/admin/whatsapp-chat', {
@@ -915,8 +922,19 @@ export default function AdminVisaDetailPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ clientName, clientPhone: phone, refNumber: app.referenceNumber }),
       })
-      const data = await res.json() as { conversationId?: number; error?: string; inboxName?: string; channelType?: string }
+      const data = await res.json() as {
+        conversationId?: number; error?: string; inboxName?: string; channelType?: string
+        twilioConfigured?: boolean; templateConfigured?: boolean
+        twilioSent?: boolean | null; twilioUsedTemplate?: boolean | null; twilioError?: string | null
+      }
       if (!res.ok || !data.conversationId) { setWaError(data.error ?? 'Failed to open chat'); return }
+      setWaTwilioStatus({
+        sent:               data.twilioSent ?? null,
+        usedTemplate:       data.twilioUsedTemplate ?? null,
+        configured:         data.twilioConfigured ?? false,
+        templateConfigured: data.templateConfigured ?? false,
+        error:              data.twilioError ?? null,
+      })
       setWaDrawer({ conversationId: data.conversationId, inboxName: data.inboxName, channelType: data.channelType })
     } catch { setWaError('Network error') }
     finally { setWaLoading(false) }
@@ -1622,6 +1640,31 @@ export default function AdminVisaDetailPage() {
               </div>
             )}
             {waError && <p className="text-xs text-red-500 px-1">{waError}</p>}
+
+            {/* Twilio delivery status banner */}
+            {waTwilioStatus && !waTwilioStatus.configured && (
+              <div className="px-2.5 py-2 bg-amber-50 border border-amber-200 rounded-xl text-[10px] text-amber-700 leading-snug">
+                <p className="font-bold mb-0.5">⚠️ Twilio not configured</p>
+                <p>Messages go via Chatwoot only. To send to clients who haven&apos;t messaged you first, add <code>TWILIO_ACCOUNT_SID</code> &amp; <code>TWILIO_AUTH_TOKEN</code> to Vercel env vars.</p>
+              </div>
+            )}
+            {waTwilioStatus?.configured && waTwilioStatus.sent === true && (
+              <div className="px-2.5 py-2 bg-green-50 border border-green-200 rounded-xl text-[10px] text-green-700 leading-snug">
+                {waTwilioStatus.usedTemplate
+                  ? '✅ Opening message sent via WhatsApp template — client will receive it even if they have never messaged before.'
+                  : '✅ Opening message sent via WhatsApp. Chat is now open — continue the conversation in the drawer above.'}
+              </div>
+            )}
+            {waTwilioStatus?.configured && waTwilioStatus.sent === false && (
+              <div className="px-2.5 py-2 bg-orange-50 border border-orange-200 rounded-xl text-[10px] text-orange-700 leading-snug">
+                <p className="font-bold mb-0.5">⚠️ First message may not deliver</p>
+                <p>{waTwilioStatus.error ?? 'WhatsApp requires an approved template for business-initiated conversations.'}</p>
+                {!waTwilioStatus.templateConfigured && (
+                  <p className="mt-1">Add <code>TWILIO_CONTENT_TEMPLATE_SID</code> to Vercel env vars to fix this permanently.</p>
+                )}
+              </div>
+            )}
+
             {app.phone && (
               <div className="flex items-center justify-between p-2.5 rounded-xl hover:bg-gray-50 border border-gray-100">
                 <span className="text-sm text-[#0B1F3A] font-semibold">Call Client</span>

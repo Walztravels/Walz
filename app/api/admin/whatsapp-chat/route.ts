@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { getAdminSession } from '@/lib/admin-auth'
 import prisma from '@/lib/db'
+import { sendWhatsAppViaTwilio, twilioConfigured, twilioTemplateConfigured } from '@/lib/twilio-whatsapp'
 
 export const dynamic = 'force-dynamic'
 
@@ -40,13 +41,19 @@ async function getWhatsAppInbox(): Promise<CWInbox | null> {
   ) ?? null
 }
 
-// GET /api/admin/whatsapp-chat — list all Chatwoot inboxes for diagnostics
+// GET /api/admin/whatsapp-chat — list all Chatwoot inboxes + Twilio config status
 export async function GET() {
   const session = await getAdminSession()
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   const inboxes = await getAllInboxes()
   const pinned  = process.env.CHATWOOT_WHATSAPP_INBOX_ID
-  return NextResponse.json({ inboxes, pinned: pinned ?? null })
+  return NextResponse.json({
+    inboxes,
+    pinned:            pinned ?? null,
+    twilioConfigured:  twilioConfigured(),
+    templateConfigured: twilioTemplateConfigured(),
+    twilioNumber:      process.env.TWILIO_WHATSAPP_NUMBER || '+2347077691701',
+  })
 }
 
 // Find or create a Chatwoot contact by phone number
@@ -113,19 +120,22 @@ async function findOrCreateContact(name: string, phone: string): Promise<[number
 }
 
 // POST /api/admin/whatsapp-chat
-// Creates a new Chatwoot WhatsApp conversation for a portal application
+// Creates (or reopens) a Chatwoot WhatsApp conversation, then fires a Twilio
+// direct message to ensure the client receives the first contact even when the
+// 24-hour WhatsApp session has expired (requires TWILIO_CONTENT_TEMPLATE_SID).
 export async function POST(req: Request) {
   const session = await getAdminSession()
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const body = await req.json() as {
-    applicationId: string
-    clientName:    string
-    clientPhone:   string
-    refNumber?:    string
+    applicationId?: string
+    clientName:     string
+    clientPhone:    string
+    refNumber?:     string
+    firstMessage?:  string  // optional custom first message body
   }
 
-  const { applicationId, clientName, clientPhone, refNumber } = body
+  const { applicationId, clientName, clientPhone, refNumber, firstMessage } = body
   if (!clientName || !clientPhone) {
     return NextResponse.json({ error: 'clientName and clientPhone required' }, { status: 400 })
   }
@@ -138,45 +148,80 @@ export async function POST(req: Request) {
     }).catch(() => null)
   }
 
-  // Get WhatsApp inbox
+  // ── 1. Get WhatsApp inbox ──────────────────────────────────────────────────
   const inbox = await getWhatsAppInbox()
   if (!inbox) {
-    return NextResponse.json({ error: 'No WhatsApp inbox found in Chatwoot. Set CHATWOOT_WHATSAPP_INBOX_ID or connect a Twilio/WhatsApp inbox.' }, { status: 422 })
+    return NextResponse.json({
+      error: 'No WhatsApp inbox found in Chatwoot. Set CHATWOOT_WHATSAPP_INBOX_ID or connect a Twilio/WhatsApp inbox.',
+    }, { status: 422 })
   }
   const inboxId = inbox.id
 
-  // Find or create Chatwoot contact
+  // ── 2. Find or create Chatwoot contact ────────────────────────────────────
   const [contactId, contactErr] = await findOrCreateContact(clientName, clientPhone)
   if (!contactId) {
     return NextResponse.json({ error: contactErr ?? 'Failed to create Chatwoot contact' }, { status: 500 })
   }
 
-  // Check if there is already an open conversation with this contact in the WhatsApp inbox
+  // ── 3. Find existing open conversation or create one ──────────────────────
+  let conversationId: number | null = null
+  let reused = false
+
   const existing = await cw(`/contacts/${contactId}/conversations`)
   if (existing.ok) {
     const ed = await existing.json() as { payload: Array<{ id: number; status: string; inbox_id: number }> }
+    // Prefer open conversation in this inbox; fall back to most recent resolved one
     const open = ed.payload?.find(c => c.inbox_id === inboxId && c.status === 'open')
     if (open) {
-      return NextResponse.json({ conversationId: open.id, contactId, reused: true, inboxId, inboxName: inbox.name, channelType: inbox.channel_type })
+      conversationId = open.id
+      reused         = true
     }
   }
 
-  // Create new conversation
-  const conv = await cw('/conversations', {
-    method: 'POST',
-    body: JSON.stringify({
-      inbox_id:   inboxId,
-      contact_id: contactId,
-      additional_attributes: {
-        source:    'admin_portal',
-        ref:       refNumber ?? applicationId,
-      },
-    }),
-  })
-  if (!conv.ok) {
-    const err = await conv.json().catch(() => ({})) as { message?: string }
-    return NextResponse.json({ error: err.message ?? 'Failed to create conversation' }, { status: 500 })
+  if (!conversationId) {
+    const conv = await cw('/conversations', {
+      method: 'POST',
+      body:   JSON.stringify({
+        inbox_id:   inboxId,
+        contact_id: contactId,
+        additional_attributes: { source: 'admin_portal', ref: refNumber ?? applicationId },
+      }),
+    })
+    if (!conv.ok) {
+      const err = await conv.json().catch(() => ({})) as { message?: string }
+      return NextResponse.json({ error: err.message ?? 'Failed to create conversation' }, { status: 500 })
+    }
+    const cd = await conv.json() as { id: number }
+    conversationId = cd.id
   }
-  const cd = await conv.json() as { id: number }
-  return NextResponse.json({ conversationId: cd.id, contactId, reused: false, inboxId, inboxName: inbox.name, channelType: inbox.channel_type })
+
+  // ── 4. Send via Twilio directly (bypasses WhatsApp session restriction) ────
+  // This runs alongside Chatwoot. Twilio delivers even for new/expired sessions
+  // when TWILIO_CONTENT_TEMPLATE_SID is configured.
+  const ref        = refNumber ?? applicationId ?? 'N/A'
+  const msgBody    = firstMessage
+    ?? `Hello ${clientName}, this is Walz Travels. Your visa application (Ref: ${ref}) is being processed. How can we help? 🌍`
+
+  let twilioResult: { ok: boolean; sid?: string; status?: string; error?: string; usedTemplate: boolean } | null = null
+  if (!reused) {
+    // Only send the initiation message for new (not reused) conversations
+    twilioResult = await sendWhatsAppViaTwilio(clientPhone, clientName, ref, msgBody)
+    if (!twilioResult.ok) {
+      console.warn('[whatsapp-chat] Twilio send failed (continuing with Chatwoot only):', twilioResult.error)
+    }
+  }
+
+  return NextResponse.json({
+    conversationId,
+    contactId,
+    reused,
+    inboxId,
+    inboxName:         inbox.name,
+    channelType:       inbox.channel_type,
+    twilioConfigured:  twilioConfigured(),
+    templateConfigured: twilioTemplateConfigured(),
+    twilioSent:        twilioResult?.ok ?? null,
+    twilioUsedTemplate: twilioResult?.usedTemplate ?? null,
+    twilioError:       twilioResult?.ok === false ? twilioResult.error : null,
+  })
 }
