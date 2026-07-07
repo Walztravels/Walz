@@ -227,7 +227,7 @@ export async function POST(req: Request) {
 
     // Mirror the sent message into Chatwoot so the admin thread isn't empty
     const chatwootMsgBody = twilioResult?.usedTemplate
-      ? `Hi ${clientName}, we are excited to have you here! How can we help you today?`
+      ? `Hello ${clientName}, your visa application with Walz Travels (Ref: ${ref}) is being processed. Our team will contact you shortly. How can we help? 🌍`
       : msgBody
     await cw(`/conversations/${conversationId}/messages`, {
       method: 'POST',
