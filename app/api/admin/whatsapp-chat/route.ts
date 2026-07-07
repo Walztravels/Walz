@@ -5,8 +5,8 @@ import { sendWhatsAppViaTwilio, twilioConfigured, twilioTemplateConfigured, isNi
 
 export const dynamic = 'force-dynamic'
 
-const CW_BASE    = process.env.CHATWOOT_BASE_URL    || 'https://chatwoot-production-d486.up.railway.app'
-const CW_TOKEN   = process.env.CHATWOOT_ADMIN_TOKEN!
+const CW_BASE    = process.env.CHATWOOT_BASE_URL    || 'https://chat.walztravels.com'
+const CW_TOKEN   = process.env.CHATWOOT_ADMIN_TOKEN || process.env.CHATWOOT_API_TOKEN || '1rnd6Rp9GNVKtbJ8238Vg2S1'
 const CW_ACCOUNT = process.env.CHATWOOT_ACCOUNT_ID  || '1'
 
 function cw(path: string, opts?: RequestInit) {
@@ -25,38 +25,35 @@ async function getAllInboxes(): Promise<CWInbox[]> {
   return data.payload ?? []
 }
 
-// Find the appropriate Chatwoot WhatsApp inbox based on client phone.
-// Nigeria clients (+234) → CHATWOOT_WHATSAPP_INBOX_ID_NG (or 132)
-// International       → CHATWOOT_WHATSAPP_INBOX_ID_INTL
-// Legacy single-inbox → CHATWOOT_WHATSAPP_INBOX_ID
+// Real inbox IDs (verified from Chatwoot):
+//   27 — "Nigeria Whatsapp"      Channel::TwilioSms  whatsapp:+2347077691701
+//   26 — "Walz Whatsapp"         Channel::TwilioSms  whatsapp:+12317902336
+// Override via env vars: CHATWOOT_WHATSAPP_INBOX_ID_NG / _INTL
+const DEFAULT_NG_INBOX   = 27
+const DEFAULT_INTL_INBOX = 26
+
 async function getWhatsAppInbox(clientPhone?: string): Promise<CWInbox | null> {
   const inboxes = await getAllInboxes()
 
-  // Pick the right pinned ID based on phone country
-  let pinnedId: number | null = null
+  let pinnedId: number
   if (clientPhone && isNigeriaPhone(clientPhone)) {
-    pinnedId = Number(process.env.CHATWOOT_WHATSAPP_INBOX_ID_NG ?? process.env.CHATWOOT_WHATSAPP_INBOX_ID ?? '132')
-  } else if (clientPhone) {
-    const intlId = process.env.CHATWOOT_WHATSAPP_INBOX_ID_INTL
-    if (intlId) {
-      pinnedId = Number(intlId)
-    } else {
-      // No international inbox configured — fall back to Nigeria inbox
-      pinnedId = Number(process.env.CHATWOOT_WHATSAPP_INBOX_ID ?? '132')
-    }
+    pinnedId = Number(process.env.CHATWOOT_WHATSAPP_INBOX_ID_NG ?? DEFAULT_NG_INBOX)
   } else {
-    pinnedId = Number(process.env.CHATWOOT_WHATSAPP_INBOX_ID ?? '132')
+    // International clients, or no phone provided → use INTL inbox
+    pinnedId = Number(
+      process.env.CHATWOOT_WHATSAPP_INBOX_ID_INTL ??
+      process.env.CHATWOOT_WHATSAPP_INBOX_ID ??
+      DEFAULT_INTL_INBOX,
+    )
   }
 
   const pinned = inboxes.find(i => i.id === pinnedId)
   if (pinned) return pinned
 
-  // Fallback: auto-detect by channel type / name
+  // Fallback: auto-detect by channel type matching Twilio WhatsApp
   return inboxes.find(i =>
-    i.channel_type === 'Channel::TwilioSms' ||
-    i.channel_type === 'Channel::Whatsapp'  ||
-    i.name.toLowerCase().includes('whatsapp') ||
-    i.name.toLowerCase().includes('twilio')
+    (i.channel_type === 'Channel::TwilioSms' || i.channel_type === 'Channel::Whatsapp') &&
+    (i.name.toLowerCase().includes('whatsapp') || i.name.toLowerCase().includes('twilio'))
   ) ?? null
 }
 
