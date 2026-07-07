@@ -66,15 +66,17 @@ export async function POST(req: Request) {
   }
 
   const { applicationId, clientName, clientPhone, refNumber } = body
-  if (!applicationId || !clientName || !clientPhone) {
-    return NextResponse.json({ error: 'applicationId, clientName and clientPhone required' }, { status: 400 })
+  if (!clientName || !clientPhone) {
+    return NextResponse.json({ error: 'clientName and clientPhone required' }, { status: 400 })
   }
 
-  // Persist phone number on the application
-  await prisma.portalApplication.update({
-    where: { id: applicationId },
-    data:  { whatsappNumber: clientPhone },
-  }).catch(() => null)
+  // Persist phone number on the portal application (only when applicationId provided)
+  if (applicationId) {
+    await prisma.portalApplication.update({
+      where: { id: applicationId },
+      data:  { whatsappNumber: clientPhone },
+    }).catch(() => null)
+  }
 
   // Get WhatsApp inbox
   const inboxId = await getWhatsAppInboxId()

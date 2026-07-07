@@ -13,6 +13,7 @@ import {
 } from 'lucide-react'
 import type { BankStatementAnalysis } from '@/lib/analyzeBankStatement'
 import { BankStatementPanel } from '@/components/admin/BankStatementPanel'
+import { WhatsAppDrawer } from '@/app/admin/portal/components/WhatsAppDrawer'
 import {
   STATUS_CONFIG, VISA_AGENTS, VISA_CONFIGS, getVisaConfig, ISO2_TO_SLUG,
 } from '@/lib/visa-config'
@@ -694,6 +695,13 @@ export default function AdminVisaDetailPage() {
   const [docAddName,      setDocAddName]      = useState('')
   const [docAddDesc,      setDocAddDesc]      = useState('')
 
+  // WhatsApp drawer
+  const [waDrawer,    setWaDrawer]    = useState<{ conversationId: number } | null>(null)
+  const [waLoading,   setWaLoading]   = useState(false)
+  const [waError,     setWaError]     = useState<string | null>(null)
+  const [waPhone,     setWaPhone]     = useState<string>('')
+  const [waEditPhone, setWaEditPhone] = useState(false)
+
   // Trustpilot review request
   const [reviewSent,    setReviewSent]    = useState(false)
   const [reviewLoading, setReviewLoading] = useState(false)
@@ -888,6 +896,25 @@ export default function AdminVisaDetailPage() {
       setDocReqLoaded(true)
     } catch {}
     setDocReqLoading(false)
+  }
+
+  async function openWhatsApp() {
+    if (!app) return
+    const phone = (waPhone || app.phone || '').trim()
+    if (!phone) { setWaEditPhone(true); return }
+    setWaLoading(true); setWaError(null)
+    try {
+      const clientName = [app.firstName, app.lastName].filter(Boolean).join(' ') || 'Applicant'
+      const res = await fetch('/api/admin/whatsapp-chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ clientName, clientPhone: phone, refNumber: app.referenceNumber }),
+      })
+      const data = await res.json() as { conversationId?: number; error?: string }
+      if (!res.ok || !data.conversationId) { setWaError(data.error ?? 'Failed to open chat'); return }
+      setWaDrawer({ conversationId: data.conversationId })
+    } catch { setWaError('Network error') }
+    finally { setWaLoading(false) }
   }
 
   async function sendDocRequest() {
@@ -1544,11 +1571,52 @@ export default function AdminVisaDetailPage() {
               <span className="text-sm text-[#0B1F3A] font-semibold">Application Form</span>
               <ExternalLink className="w-4 h-4 text-gray-400" />
             </Link>
-            <a href={`https://wa.me/${app.phone?.replace(/\D/g, '')}`} target="_blank" rel="noopener noreferrer"
-              className="flex items-center justify-between p-2.5 rounded-xl hover:bg-gray-50 border border-gray-100 transition-colors">
-              <span className="text-sm text-[#0B1F3A] font-semibold">WhatsApp Client</span>
-              <MessageCircle className="w-4 h-4 text-green-500" />
-            </a>
+            {/* WhatsApp chat button */}
+            {waEditPhone ? (
+              <div className="p-2.5 rounded-xl border border-gray-100 space-y-2">
+                <p className="text-xs text-gray-500 font-semibold">WhatsApp number</p>
+                <input
+                  value={waPhone || app.phone || ''}
+                  onChange={e => setWaPhone(e.target.value)}
+                  placeholder="+234..."
+                  className="w-full text-sm border border-gray-200 rounded-lg px-2.5 py-1.5 focus:outline-none focus:border-green-400"
+                />
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => { setWaEditPhone(false); void openWhatsApp() }}
+                    className="text-xs font-bold px-3 py-1.5 rounded-lg bg-green-500 text-white hover:bg-green-600 transition-colors"
+                  >Open Chat</button>
+                  <button
+                    onClick={() => setWaEditPhone(false)}
+                    className="text-xs px-3 py-1.5 rounded-lg border border-gray-200 text-gray-500 hover:bg-gray-50 transition-colors"
+                  >Cancel</button>
+                </div>
+              </div>
+            ) : (
+              <div className="flex items-center gap-1 rounded-xl border border-gray-100">
+                <button
+                  onClick={() => void openWhatsApp()}
+                  disabled={waLoading}
+                  className="flex-1 flex items-center justify-between p-2.5 hover:bg-gray-50 rounded-l-xl transition-colors disabled:opacity-60"
+                >
+                  <span className="text-sm text-[#0B1F3A] font-semibold">
+                    {waLoading ? 'Opening…' : 'WhatsApp Client'}
+                  </span>
+                  {waLoading
+                    ? <Loader2 className="w-4 h-4 text-green-500 animate-spin" />
+                    : <MessageCircle className="w-4 h-4 text-green-500" />
+                  }
+                </button>
+                <button
+                  onClick={() => setWaEditPhone(true)}
+                  className="px-2.5 py-2.5 hover:bg-gray-50 rounded-r-xl border-l border-gray-100 text-gray-400 hover:text-gray-600 transition-colors"
+                  title="Edit WhatsApp number"
+                >
+                  <Pencil className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            )}
+            {waError && <p className="text-xs text-red-500 px-1">{waError}</p>}
             {app.phone && (
               <div className="flex items-center justify-between p-2.5 rounded-xl hover:bg-gray-50 border border-gray-100">
                 <span className="text-sm text-[#0B1F3A] font-semibold">Call Client</span>
@@ -1790,6 +1858,18 @@ export default function AdminVisaDetailPage() {
         </div>
         )
       })()}
+
+      {/* WhatsApp Chat Drawer */}
+      {waDrawer && app && (
+        <WhatsAppDrawer
+          conversationId={waDrawer.conversationId}
+          clientName={[app.firstName, app.lastName].filter(Boolean).join(' ') || 'Applicant'}
+          clientPhone={waPhone || app.phone || ''}
+          applicationType="VISA"
+          refNumber={app.referenceNumber}
+          onClose={() => setWaDrawer(null)}
+        />
+      )}
     </div>
   )
 }
