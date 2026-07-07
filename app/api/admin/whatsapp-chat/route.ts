@@ -30,26 +30,59 @@ async function getWhatsAppInboxId(): Promise<number | null> {
 }
 
 // Find or create a Chatwoot contact by phone number
-async function findOrCreateContact(name: string, phone: string): Promise<number | null> {
-  // Normalise phone: ensure it starts with +
-  const normalised = phone.startsWith('+') ? phone : `+${phone}`
+// Returns [contactId, errorMessage]
+async function findOrCreateContact(name: string, phone: string): Promise<[number | null, string | null]> {
+  // Normalise phone: strip non-digits then prepend +
+  const digits = phone.replace(/\D/g, '')
+  const normalised = `+${digits}`
 
-  // Search first
+  // Search by phone number first (handles both payload shapes Chatwoot uses)
   const search = await cw(`/contacts/search?q=${encodeURIComponent(normalised)}&include_contacts=true`)
   if (search.ok) {
-    const sd = await search.json() as { payload: Array<{ id: number; phone_number: string }> }
-    const match = sd.payload?.find(c => c.phone_number === normalised)
-    if (match) return match.id
+    const sd = await search.json() as {
+      payload?: Array<{ id: number; phone_number: string }> | { contacts?: Array<{ id: number; phone_number: string }> }
+    }
+    const list = Array.isArray(sd.payload)
+      ? sd.payload
+      : (sd.payload as { contacts?: Array<{ id: number; phone_number: string }> })?.contacts ?? []
+    const match = list.find((c: { phone_number: string }) => c.phone_number === normalised)
+    if (match) return [match.id, null]
   }
 
-  // Create new contact
+  // Attempt to create
   const create = await cw('/contacts', {
     method: 'POST',
     body: JSON.stringify({ name, phone_number: normalised }),
   })
-  if (!create.ok) return null
-  const cd = await create.json() as { id?: number }
-  return cd.id ?? null
+
+  if (create.ok) {
+    // Chatwoot returns the contact directly or wrapped in payload
+    const cd = await create.json() as { id?: number; payload?: { id?: number } }
+    const id = cd.id ?? cd.payload?.id ?? null
+    return [id, id ? null : 'Contact created but no id returned']
+  }
+
+  // 422 usually means phone already taken — try searching again with just digits
+  if (create.status === 422) {
+    const retry = await cw(`/contacts/search?q=${encodeURIComponent(digits)}&include_contacts=true`)
+    if (retry.ok) {
+      const rd = await retry.json() as {
+        payload?: Array<{ id: number; phone_number: string }> | { contacts?: Array<{ id: number; phone_number: string }> }
+      }
+      const list = Array.isArray(rd.payload)
+        ? rd.payload
+        : (rd.payload as { contacts?: Array<{ id: number; phone_number: string }> })?.contacts ?? []
+      const match = list.find((c: { phone_number: string }) =>
+        c.phone_number === normalised || c.phone_number?.replace(/\D/g, '') === digits
+      )
+      if (match) return [match.id, null]
+    }
+    const errText = await create.text().catch(() => '')
+    return [null, `Phone may already exist but could not be found. Chatwoot: ${errText.slice(0, 200)}`]
+  }
+
+  const errText = await create.text().catch(() => '')
+  return [null, `Chatwoot contact creation failed (${create.status}): ${errText.slice(0, 200)}`]
 }
 
 // POST /api/admin/whatsapp-chat
@@ -85,9 +118,9 @@ export async function POST(req: Request) {
   }
 
   // Find or create Chatwoot contact
-  const contactId = await findOrCreateContact(clientName, clientPhone)
+  const [contactId, contactErr] = await findOrCreateContact(clientName, clientPhone)
   if (!contactId) {
-    return NextResponse.json({ error: 'Failed to create Chatwoot contact' }, { status: 500 })
+    return NextResponse.json({ error: contactErr ?? 'Failed to create Chatwoot contact' }, { status: 500 })
   }
 
   // Check if there is already an open conversation with this contact in the WhatsApp inbox
