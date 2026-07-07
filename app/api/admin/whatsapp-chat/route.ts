@@ -224,6 +224,15 @@ export async function POST(req: Request) {
     if (!twilioResult.ok) {
       console.warn('[whatsapp-chat] Twilio send failed (continuing with Chatwoot only):', twilioResult.error)
     }
+
+    // Mirror the sent message into Chatwoot so the admin thread isn't empty
+    const chatwootMsgBody = twilioResult?.usedTemplate
+      ? `Hi ${clientName}, we are excited to have you here! How can we help you today?`
+      : msgBody
+    await cw(`/conversations/${conversationId}/messages`, {
+      method: 'POST',
+      body:   JSON.stringify({ content: chatwootMsgBody, message_type: 'outgoing', private: false }),
+    }).catch(() => null)
   }
 
   return NextResponse.json({
