@@ -7,7 +7,7 @@ import {
   Search, Globe, Clock, ChevronRight,
   Loader2, RefreshCw, Send, X, CheckCircle,
 } from 'lucide-react'
-import { STATUS_CONFIG, VISA_AGENTS, VISA_CONFIGS } from '@/lib/visa-config'
+import { STATUS_CONFIG, VISA_AGENTS, VISA_CONFIGS, SCHENGEN_ISO2 } from '@/lib/visa-config'
 import { ALL_COUNTRIES } from '@/lib/countries'
 import { useStaffPermissions } from '@/hooks/useStaffPermissions'
 import FormTracker from '@/components/admin/visa/FormTracker'
@@ -577,10 +577,17 @@ export default function AdminVisaApplicationsPage() {
                     </select>
                     {sendForm.destinationIso2 && (() => {
                       const c = ALL_COUNTRIES.find(x => x.iso2 === sendForm.destinationIso2)
-                      const hasConfig = !!VISA_CONFIGS[sendForm.destinationIso2]
+                      const isSchengen = SCHENGEN_ISO2.has(sendForm.destinationIso2)
+                      const hasConfig  = !!VISA_CONFIGS[sendForm.destinationIso2]
+                      const label = isSchengen
+                        ? `✅ Schengen Visa form — covers all 29 Schengen countries`
+                        : hasConfig
+                        ? '✅ Full embassy form available'
+                        : '⚠️ Generic form (standard requirements)'
+                      const color = (isSchengen || hasConfig) ? 'text-green-600' : 'text-amber-600'
                       return c ? (
-                        <p className={`text-[10px] mt-1 font-semibold ${hasConfig ? 'text-green-600' : 'text-amber-600'}`}>
-                          {c.flag} {c.name} — {hasConfig ? '✅ Full embassy form available' : '⚠️ Generic form (no country-specific fields)'}
+                        <p className={`text-[10px] mt-1 font-semibold ${color}`}>
+                          {c.flag} {c.name} — {label}
                         </p>
                       ) : null
                     })()}

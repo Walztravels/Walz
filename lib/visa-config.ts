@@ -30,12 +30,52 @@ export interface VisaExtraField {
   section: 'travel' | 'country'
 }
 
+// ── All 29 Schengen Area members ─────────────────────────────────────────────
+// All use the same Schengen (FR) application form and requirements.
+export const SCHENGEN_MEMBERS: Record<string, { name: string; flag: string }> = {
+  AT: { name: 'Austria',         flag: '🇦🇹' },
+  BE: { name: 'Belgium',         flag: '🇧🇪' },
+  HR: { name: 'Croatia',         flag: '🇭🇷' },
+  CZ: { name: 'Czech Republic',  flag: '🇨🇿' },
+  DK: { name: 'Denmark',         flag: '🇩🇰' },
+  EE: { name: 'Estonia',         flag: '🇪🇪' },
+  FI: { name: 'Finland',         flag: '🇫🇮' },
+  FR: { name: 'France',          flag: '🇫🇷' },
+  DE: { name: 'Germany',         flag: '🇩🇪' },
+  GR: { name: 'Greece',          flag: '🇬🇷' },
+  HU: { name: 'Hungary',         flag: '🇭🇺' },
+  IS: { name: 'Iceland',         flag: '🇮🇸' },
+  IT: { name: 'Italy',           flag: '🇮🇹' },
+  LV: { name: 'Latvia',          flag: '🇱🇻' },
+  LI: { name: 'Liechtenstein',   flag: '🇱🇮' },
+  LT: { name: 'Lithuania',       flag: '🇱🇹' },
+  LU: { name: 'Luxembourg',      flag: '🇱🇺' },
+  MT: { name: 'Malta',           flag: '🇲🇹' },
+  NL: { name: 'Netherlands',     flag: '🇳🇱' },
+  NO: { name: 'Norway',          flag: '🇳🇴' },
+  PL: { name: 'Poland',          flag: '🇵🇱' },
+  PT: { name: 'Portugal',        flag: '🇵🇹' },
+  RO: { name: 'Romania',         flag: '🇷🇴' },
+  SK: { name: 'Slovakia',        flag: '🇸🇰' },
+  SI: { name: 'Slovenia',        flag: '🇸🇮' },
+  ES: { name: 'Spain',           flag: '🇪🇸' },
+  SE: { name: 'Sweden',          flag: '🇸🇪' },
+  CH: { name: 'Switzerland',     flag: '🇨🇭' },
+}
+export const SCHENGEN_ISO2 = new Set(Object.keys(SCHENGEN_MEMBERS))
+
 // ── Slug → ISO2 (mirrors visa/[country] mapping) ─────────────────────────────
 export const SLUG_TO_ISO2: Record<string, string> = {
   uk: 'GB', 'great-britain': 'GB', gb: 'GB',
   canada: 'CA',
   uae: 'AE', 'united-arab-emirates': 'AE',
-  schengen: 'FR', france: 'FR',
+  // All Schengen slugs resolve to FR (the Schengen form config)
+  schengen: 'FR', france: 'FR', germany: 'DE', spain: 'ES', italy: 'IT',
+  netherlands: 'NL', portugal: 'PT', belgium: 'BE', austria: 'AT', switzerland: 'CH',
+  sweden: 'SE', norway: 'NO', denmark: 'DK', finland: 'FI', poland: 'PL',
+  'czech-republic': 'CZ', hungary: 'HU', greece: 'GR', romania: 'RO', malta: 'MT',
+  croatia: 'HR', estonia: 'EE', latvia: 'LV', liechtenstein: 'LI', lithuania: 'LT',
+  luxembourg: 'LU', iceland: 'IS', slovakia: 'SK', slovenia: 'SI',
   usa: 'US', 'united-states': 'US', america: 'US',
   australia: 'AU',
   vietnam: 'VN',
@@ -47,15 +87,11 @@ export const SLUG_TO_ISO2: Record<string, string> = {
   morocco: 'MA',
   'new-zealand': 'NZ',
   'south-africa': 'ZA',
-  // Extended — all countries in lib/countries.ts
+  // Other countries
   nigeria: 'NG', ghana: 'GH', ethiopia: 'ET', tanzania: 'TZ', uganda: 'UG',
   senegal: 'SN', rwanda: 'RW', zambia: 'ZM', zimbabwe: 'ZW', namibia: 'NA',
   botswana: 'BW', 'ivory-coast': 'CI', cameroon: 'CM', tunisia: 'TN',
-  germany: 'DE', 'united-kingdom': 'GB', netherlands: 'NL', spain: 'ES',
-  italy: 'IT', portugal: 'PT', belgium: 'BE', austria: 'AT', switzerland: 'CH',
-  sweden: 'SE', norway: 'NO', denmark: 'DK', finland: 'FI', ireland: 'IE',
-  poland: 'PL', 'czech-republic': 'CZ', hungary: 'HU', greece: 'GR',
-  romania: 'RO', ukraine: 'UA', cyprus: 'CY', malta: 'MT',
+  'united-kingdom': 'GB', ukraine: 'UA', ireland: 'IE', cyprus: 'CY',
   china: 'CN', japan: 'JP', 'south-korea': 'KR', singapore: 'SG',
   malaysia: 'MY', thailand: 'TH', indonesia: 'ID', pakistan: 'PK',
   'sri-lanka': 'LK', nepal: 'NP',
@@ -67,17 +103,14 @@ export const SLUG_TO_ISO2: Record<string, string> = {
 }
 
 export const ISO2_TO_SLUG: Record<string, string> = {
-  GB: 'uk', CA: 'canada', AE: 'uae', FR: 'schengen',
+  GB: 'uk', CA: 'canada', AE: 'uae',
   US: 'usa', AU: 'australia', VN: 'vietnam', IN: 'india',
   TR: 'turkey', KE: 'kenya', EG: 'egypt', PH: 'philippines',
   MA: 'morocco', NZ: 'new-zealand', ZA: 'south-africa',
   NG: 'nigeria', GH: 'ghana', ET: 'ethiopia', TZ: 'tanzania', UG: 'uganda',
   SN: 'senegal', RW: 'rwanda', ZM: 'zambia', ZW: 'zimbabwe', NA: 'namibia',
   BW: 'botswana', CI: 'ivory-coast', CM: 'cameroon', TN: 'tunisia',
-  DE: 'germany', NL: 'netherlands', ES: 'spain', IT: 'italy', PT: 'portugal',
-  BE: 'belgium', AT: 'austria', CH: 'switzerland', SE: 'sweden', NO: 'norway',
-  DK: 'denmark', FI: 'finland', IE: 'ireland', PL: 'poland', CZ: 'czech-republic',
-  HU: 'hungary', GR: 'greece', RO: 'romania', UA: 'ukraine', CY: 'cyprus', MT: 'malta',
+  UA: 'ukraine', IE: 'ireland', CY: 'cyprus',
   CN: 'china', JP: 'japan', KR: 'south-korea', SG: 'singapore',
   MY: 'malaysia', TH: 'thailand', ID: 'indonesia', PK: 'pakistan',
   LK: 'sri-lanka', NP: 'nepal',
@@ -85,6 +118,8 @@ export const ISO2_TO_SLUG: Record<string, string> = {
   JM: 'jamaica', BB: 'barbados', TT: 'trinidad',
   SA: 'saudi-arabia', QA: 'qatar', KW: 'kuwait', BH: 'bahrain', OM: 'oman',
   MV: 'maldives', MU: 'mauritius', SC: 'seychelles', FJ: 'fiji',
+  // All 29 Schengen countries → same 'schengen' form
+  ...Object.fromEntries(Object.keys(SCHENGEN_MEMBERS).map(iso2 => [iso2, 'schengen'])),
 }
 
 // ── Country Configs ───────────────────────────────────────────────────────────
@@ -211,6 +246,24 @@ export const VISA_CONFIGS: Record<string, VisaCountryConfig> = {
     notes: 'The Australian visa fee is paid separately through the Department of Home Affairs. Processing times vary — apply at least 6 weeks before travel.',
   },
 }
+
+// ── Populate VISA_CONFIGS for every Schengen country (inherit FR base) ────────
+// Each non-FR member gets its own name/flag but shares all form fields/docs.
+;(function () {
+  const base = VISA_CONFIGS['FR']
+  if (!base) return
+  for (const [iso2, { name, flag }] of Object.entries(SCHENGEN_MEMBERS)) {
+    if (!VISA_CONFIGS[iso2]) {
+      VISA_CONFIGS[iso2] = {
+        ...base,
+        destinationIso2: iso2,
+        name,
+        flag,
+        notes: `${flag} ${name} is a Schengen member. Your Schengen visa application will follow the standard Schengen requirements. ${base.notes}`,
+      }
+    }
+  }
+})()
 
 // ── Fallback for unknown countries ───────────────────────────────────────────
 export function getVisaConfig(slugOrIso2: string): VisaCountryConfig | null {
