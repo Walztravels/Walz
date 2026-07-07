@@ -60,15 +60,47 @@ export default function ClientUploadPage() {
   async function handleUpload(doc: RequestedDoc, file: File) {
     setUploading(doc.name)
     try {
-      const form = new FormData()
-      form.append('file',     file)
-      form.append('docName',  doc.name)
-      form.append('category', doc.category ?? 'General')
+      // Step 1 — get a presigned URL (tiny JSON request, no file data through Vercel)
+      const presignRes = await fetch(
+        `/api/upload/${token}/presign?docName=${encodeURIComponent(doc.name)}&fileName=${encodeURIComponent(file.name)}&mimeType=${encodeURIComponent(file.type || 'application/octet-stream')}`,
+      )
+      const presign = await presignRes.json() as {
+        signedUrl?: string; fileKey?: string; mimeType?: string; error?: string
+      }
+      if (!presignRes.ok || !presign.signedUrl || !presign.fileKey) {
+        alert(presign.error ?? 'Could not start upload. Please try again.')
+        setUploading(null)
+        return
+      }
 
-      const res    = await fetch(`/api/upload/${token}`, { method: 'POST', body: form })
-      const result = await res.json()
+      // Step 2 — upload the file directly to Supabase (bypasses Vercel's 4.5 MB limit)
+      const putRes = await fetch(presign.signedUrl, {
+        method:  'PUT',
+        headers: { 'Content-Type': presign.mimeType ?? file.type ?? 'application/octet-stream' },
+        body:    file,
+      })
+      if (!putRes.ok) {
+        alert('Upload failed. Please try again.')
+        setUploading(null)
+        return
+      }
 
-      if (res.ok) {
+      // Step 3 — confirm the upload so the server records it in the database
+      const confirmRes = await fetch(`/api/upload/${token}/confirm`, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({
+          fileKey:  presign.fileKey,
+          docName:  doc.name,
+          category: doc.category ?? 'General',
+          fileName: file.name,
+          fileSize: file.size,
+          mimeType: file.type || 'application/octet-stream',
+        }),
+      })
+      const result = await confirmRes.json()
+
+      if (confirmRes.ok) {
         setUploaded(prev => new Set([...prev, doc.name]))
         await load()
       } else {
@@ -92,7 +124,7 @@ export default function ClientUploadPage() {
         <AlertCircle className="w-12 h-12 text-red-400 mx-auto mb-4" />
         <h2 className="text-xl font-bold text-[#0B1F3A] mb-2">Upload Link Unavailable</h2>
         <p className="text-gray-500 text-sm mb-6">{pageError}</p>
-        <a href="https://wa.me/447398753797"
+        <a href="https://wa.me/12317902336"
           className="bg-green-500 text-white font-bold px-6 py-3 rounded-xl text-sm inline-block hover:bg-green-600 transition-colors">
           Contact Walz Travels on WhatsApp
         </a>
@@ -236,7 +268,7 @@ export default function ClientUploadPage() {
                     }
                   </button>
                   <p className="text-gray-400 text-xs text-center mt-1.5">
-                    PDF, JPG, PNG, HEIC, Word — max 10 MB
+                    PDF, JPG, PNG, HEIC, Word — max 50 MB
                   </p>
                 </div>
               )}
@@ -247,9 +279,9 @@ export default function ClientUploadPage() {
         {/* Help footer */}
         <div className="bg-white rounded-2xl p-4 text-center shadow-sm">
           <p className="text-gray-400 text-sm mb-2">Having trouble uploading?</p>
-          <a href="https://wa.me/447398753797"
+          <a href="https://wa.me/12317902336"
             className="text-[#C9A84C] font-semibold text-sm hover:underline">
-            💬 WhatsApp us: +44 7398 753797
+            💬 WhatsApp us: +12317902336
           </a>
           <p className="text-gray-300 text-xs mt-2">
             Link expires {new Date(data.expiresAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}
