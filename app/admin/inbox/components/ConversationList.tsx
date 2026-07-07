@@ -11,6 +11,7 @@ interface Props {
   selected: CWConversation | null
   tab: Tab
   profile: AdminProfile | null
+  canViewAll?: boolean
   onSelect: (conv: CWConversation) => void
   onTabChange: (tab: Tab) => void
   onOpenSettings: () => void
@@ -19,7 +20,7 @@ interface Props {
 }
 
 export function ConversationList({
-  conversations, selected, tab, profile, onSelect, onTabChange, onOpenSettings, onDelete, counts,
+  conversations, selected, tab, profile, canViewAll = false, onSelect, onTabChange, onOpenSettings, onDelete, counts,
 }: Props) {
   const [confirmDelete, setConfirmDelete] = useState<number | null>(null)
   const [search, setSearch] = useState('')
@@ -31,7 +32,7 @@ export function ConversationList({
   })
 
   const TABS: { key: Tab; label: string }[] = [
-    { key: 'all',        label: 'All'        },
+    ...(canViewAll ? [{ key: 'all' as Tab, label: 'All' }] : []),
     { key: 'mine',       label: 'Mine'       },
     { key: 'unassigned', label: 'Unassigned' },
     { key: 'resolved',   label: 'Resolved'   },

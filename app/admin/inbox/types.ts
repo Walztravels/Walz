@@ -58,14 +58,16 @@ export interface AdminProfile {
   name: string
   role: 'super_admin' | 'admin' | 'agent'
   chatwootAgentId: number
+  permissions: Record<string, boolean>
 }
 
-// email → chatwoot agent mapping
+// email → chatwoot agent mapping (fallback; runtime auto-resolves from Chatwoot agents API)
 export const EMAIL_TO_AGENT: Record<string, { id: number; role: AdminProfile['role'] }> = {
-  'admin@walztravels.com':        { id: 1, role: 'super_admin' },
-  'contact@walztravels.com':      { id: 1, role: 'super_admin' },
-  'reservations@walztravels.com': { id: 3, role: 'admin' },
-  'visa@walztravels.com':         { id: 4, role: 'agent' },
+  'admin@walztravels.com':           { id: 1, role: 'super_admin' },
+  'contact@walztravels.com':         { id: 1, role: 'super_admin' },
+  'reservations@walztravels.com':    { id: 3, role: 'admin' },
+  'visa@walztravels.com':            { id: 4, role: 'agent' },
+  'priscilla.fsr@walztravels.com':   { id: 5, role: 'agent' },
 }
 
 export function timeAgo(ts: number): string {

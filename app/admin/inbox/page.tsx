@@ -37,7 +37,7 @@ export default function InboxPage() {
   const [selected,   setSelected]   = useState<CWConversation | null>(null)
   const [messages,   setMessages]   = useState<CWMessage[]>([])
   const [agents,     setAgents]     = useState<CWAgent[]>([])
-  const [tab,        setTab]        = useState<Tab>('all')
+  const [tab,        setTab]        = useState<Tab>('mine')
   const [loading,    setLoading]    = useState(true)
   const [showStaff,  setShowStaff]  = useState(false)
   const [toasts,     setToasts]     = useState<Toast[]>([])
@@ -53,18 +53,23 @@ export default function InboxPage() {
       try {
         const res  = await fetch('/api/admin/me')
         if (!res.ok) { router.push('/admin/login'); return }
-        const data = await res.json() as { email?: string; name?: string; role?: string }
+        const data = await res.json() as { email?: string; name?: string; role?: string; permissions?: Record<string, boolean> }
         if (!data.email) { router.push('/admin/login'); return }
         const mapped = EMAIL_TO_AGENT[data.email]
         // Staff DB role wins over EMAIL_TO_AGENT for super_admin detection
         const effectiveRole: AdminProfile['role'] =
           data.role === 'super_admin' ? 'super_admin' : (mapped?.role ?? 'agent')
+        const perms = data.permissions ?? {}
         setProfile({
           email:           data.email,
           name:            data.name ?? data.email,
           role:            effectiveRole,
           chatwootAgentId: mapped?.id ?? 0,
+          permissions:     perms,
         })
+        // Default 'all' tab for managers; stay on 'mine' for everyone else
+        const viewAll = data.role === 'super_admin' || perms.inbox_view_all === true
+        setTab(viewAll ? 'all' : 'mine')
       } catch {
         router.push('/admin/login')
       }
@@ -72,11 +77,26 @@ export default function InboxPage() {
     loadProfile()
   }, [router])
 
-  // ── Load agents ─────────────────────────────────────────────────────────────
+  // ── Load agents + resolve current user's Chatwoot agent ID ─────────────────
   useEffect(() => {
-    fetch('/api/admin/agents').then(r => r.json()).then((data: unknown) => {
-      if (Array.isArray(data)) setAgents(data as CWAgent[])
-    }).catch(() => {})
+    Promise.all([
+      fetch('/api/admin/agents').then(r => r.json()).catch(() => []),
+      fetch('/api/admin/inbox-mapping').then(r => r.json()).catch(() => ({ mappings: [] })),
+    ]).then(([agentData, mappingData]) => {
+      const agentList: CWAgent[] = Array.isArray(agentData) ? agentData : []
+      const dbMappings: { email: string; chatwootAgentId: number }[] =
+        Array.isArray(mappingData?.mappings) ? mappingData.mappings : []
+      setAgents(agentList)
+      // Priority: DB mapping > Chatwoot email match > EMAIL_TO_AGENT hardcoded
+      setProfile(prev => {
+        if (!prev) return prev
+        const dbEntry = dbMappings.find(m => m.email?.toLowerCase() === prev.email.toLowerCase())
+        if (dbEntry?.chatwootAgentId) return { ...prev, chatwootAgentId: dbEntry.chatwootAgentId }
+        const cwMatch = agentList.find(a => a.email?.toLowerCase() === prev.email.toLowerCase())
+        if (cwMatch) return { ...prev, chatwootAgentId: cwMatch.id }
+        return prev
+      })
+    })
   }, [])
 
   // ── Fetch conversations ─────────────────────────────────────────────────────
@@ -110,11 +130,14 @@ export default function InboxPage() {
         filtered = conversations.filter(c => !c.meta?.assignee && !c.assignee)
       }
 
-      // Agent role: only own conversations (guard: chatwootAgentId must be > 0)
-      if (profile?.role === 'agent' && profile.chatwootAgentId > 0) {
-        filtered = filtered.filter(c =>
-          (c.meta?.assignee ?? c.assignee)?.id === profile.chatwootAgentId
-        )
+      // RBAC: staff without inbox_view_all see only their assigned + unassigned conversations
+      const canViewAll = profile?.role === 'super_admin' || profile?.permissions?.inbox_view_all === true
+      if (!canViewAll && profile) {
+        filtered = filtered.filter(c => {
+          const assignee = c.meta?.assignee ?? c.assignee
+          // show: unassigned OR assigned to this user (by chatwoot agent id)
+          return !assignee || (profile.chatwootAgentId > 0 && assignee.id === profile.chatwootAgentId)
+        })
       }
 
       // New conversation detection → toast + beep
@@ -290,6 +313,7 @@ export default function InboxPage() {
           selected={selected}
           tab={tab}
           profile={profile}
+          canViewAll={profile?.role === 'super_admin' || profile?.permissions?.inbox_view_all === true}
           counts={counts}
           onSelect={doSelectConv}
           onTabChange={setTab}

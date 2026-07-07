@@ -19,6 +19,7 @@ export type Permission =
   | 'dashboard'
   | 'analytics'
   | 'inbox'
+  | 'inbox.all'
   // ── Clients & Leads ──────────────────────────────────────────────────────
   | 'clients'
   | 'clients.create'
@@ -95,7 +96,7 @@ export type Permission =
 // ── All permissions (super_admin gets all automatically) ─────────────────────
 
 export const ALL_PERMISSIONS: Permission[] = [
-  'dashboard', 'analytics', 'inbox',
+  'dashboard', 'analytics', 'inbox', 'inbox.all',
   'clients', 'clients.create', 'clients.delete', 'clients.all',
   'leads', 'leads.all',
   'bookings', 'bookings.create', 'bookings.delete', 'bookings.all',
@@ -407,6 +408,7 @@ export const NAV_ITEMS: NavSection[] = [
     items: [
       { href: '/admin/visa-applications',  label: 'Visa Applications',   icon: 'FileText',   permission: 'visa'      },
       { href: '/admin/visa-pricing',       label: 'Visa Pricing',        icon: 'Tag',        permission: 'visa'      },
+      { href: '/admin/fees',              label: 'Fee Management',      icon: 'DollarSign', permission: 'settings'  },
       { href: '/admin/visa/bank-analyser', label: 'Bank Analyser',       icon: 'ScanSearch', permission: 'visa'      },
       { href: '/admin/group-visa',         label: 'Group Visa Analysis', icon: 'ShieldCheck', permission: 'visa'      },
       { href: '/admin/tours',              label: 'Tours',               icon: 'Map',        permission: 'tours'     },
@@ -421,11 +423,12 @@ export const NAV_ITEMS: NavSection[] = [
   {
     section: 'FINANCE',
     items: [
-      { href: '/admin/payments',    label: 'Payments',       icon: 'CreditCard',  permission: 'payments'    },
-      { href: '/admin/accounting',  label: 'Accounting',     icon: 'BarChart2',   permission: 'payments'    },
-      { href: '/admin/vouchers',    label: 'Vouchers',       icon: 'Gift',        permission: 'payments'    },
-      { href: '/admin/commissions', label: 'Commissions',    icon: 'Award',       permission: 'commissions' },
-      { href: '/admin/payroll',     label: 'Payroll',        icon: 'DollarSign',  permission: 'payroll'     },
+      { href: '/admin/payments',                label: 'Payments',           icon: 'CreditCard',  permission: 'payments'    },
+      { href: '/admin/payments/crypto-links',   label: 'Crypto Payment Links', icon: 'Link2',       permission: 'payments'    },
+      { href: '/admin/accounting',              label: 'Accounting',           icon: 'BarChart2',   permission: 'payments'    },
+      { href: '/admin/vouchers',                label: 'Vouchers',             icon: 'Gift',        permission: 'payments'    },
+      { href: '/admin/commissions',             label: 'Commissions',          icon: 'Award',       permission: 'commissions' },
+      { href: '/admin/payroll',                 label: 'Payroll',              icon: 'DollarSign',  permission: 'payroll'     },
     ],
   },
   {
@@ -492,14 +495,15 @@ export const NAV_ITEMS: NavSection[] = [
   {
     section: 'SYSTEM',
     items: [
-      { href: '/admin/routing',     label: 'Routing',      icon: 'GitBranch',   permission: 'settings'     },
-      { href: '/admin/staff',       label: 'Staff',        icon: 'Shield',      permission: 'staff'        },
-      { href: '/admin/staff/new',   label: 'Add Staff',    icon: 'UserPlus',    permission: 'staff.create' },
-      { href: '/admin/roles',       label: 'Role Manager', icon: 'ShieldCheck', permission: 'staff'        },
-      { href: '/admin/suppliers',   label: 'Suppliers',    icon: 'Package',     permission: 'suppliers'    },
-      { href: '/admin/audit-logs',  label: 'Audit Logs',   icon: 'Activity',    permission: 'audit_logs'   },
-      { href: '/admin/api-keys',    label: 'API Keys',     icon: 'Key',         permission: 'api_keys'     },
-      { href: '/admin/settings',    label: 'Settings',     icon: 'Settings',    permission: 'settings'     },
+      { href: '/admin/routing',                   label: 'Routing',         icon: 'GitBranch',   permission: 'settings'     },
+      { href: '/admin/staff',                     label: 'Staff',           icon: 'Shield',      permission: 'staff'        },
+      { href: '/admin/staff/new',                 label: 'Add Staff',       icon: 'UserPlus',    permission: 'staff.create' },
+      { href: '/admin/roles',                     label: 'Role Manager',    icon: 'ShieldCheck', permission: 'staff'        },
+      { href: '/admin/suppliers',                 label: 'Suppliers',       icon: 'Package',     permission: 'suppliers'    },
+      { href: '/admin/audit-logs',                label: 'Audit Logs',      icon: 'Activity',    permission: 'audit_logs'   },
+      { href: '/admin/api-keys',                  label: 'API Keys',        icon: 'Key',         permission: 'api_keys'     },
+      { href: '/admin/settings',                  label: 'Settings',        icon: 'Settings',    permission: 'settings'     },
+      { href: '/admin/settings/inbox-mapping',    label: 'Inbox Mapping',   icon: 'Link2',       permission: 'settings'     },
     ],
   },
 ]

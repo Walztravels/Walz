@@ -24,6 +24,7 @@ const PERM_META: Record<Permission, PermMeta> = {
   dashboard:              { label: 'Dashboard',                      desc: 'View admin dashboard and summary cards' },
   analytics:              { label: 'Analytics',                      desc: 'Access charts, revenue graphs, KPI trends' },
   inbox:                  { label: 'Inbox',                          desc: 'View and reply to client messages' },
+  'inbox.all':            { label: 'See All Inbox',                  desc: "View all conversations, not just own assigned or unassigned ones" },
   clients:                { label: 'View Clients',                   desc: 'See client list and profiles' },
   'clients.create':       { label: 'Create Clients',                 desc: 'Add new client records' },
   'clients.delete':       { label: 'Delete Clients',                 desc: 'Permanently remove client records' },
@@ -92,7 +93,7 @@ const PERM_META: Record<Permission, PermMeta> = {
 }
 
 const PERM_GROUPS: { label: string; perms: Permission[] }[] = [
-  { label: 'General',              perms: ['dashboard', 'analytics', 'inbox'] },
+  { label: 'General',              perms: ['dashboard', 'analytics', 'inbox', 'inbox.all'] },
   { label: 'Clients & Leads',      perms: ['clients', 'clients.create', 'clients.delete', 'clients.all', 'leads', 'leads.all', 'link_applications'] },
   { label: 'Bookings & Travel',    perms: ['bookings', 'bookings.create', 'bookings.delete', 'bookings.all', 'flights', 'flights.issue', 'hotels', 'hotels.manage', 'visa', 'visa.approve', 'visa.documents', 'tours', 'tours.manage', 'transfers'] },
   { label: 'Finance',              perms: ['payments', 'payments.refund', 'payments.all', 'reports', 'reports.financial', 'reports.all', 'commissions', 'payroll'] },
