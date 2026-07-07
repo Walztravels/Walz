@@ -8,7 +8,7 @@ import {
   ArrowLeft, Save, RefreshCw, Loader2, CheckCircle, AlertTriangle,
   FileText, User, Globe, Briefcase, Plane, Shield, MessageCircle,
   ChevronDown, Plus, Send, Edit3, X, Clock, Building2, Phone,
-  Mail, Check, AlertCircle, ExternalLink,
+  Mail, Check, AlertCircle, ExternalLink, Pencil,
   ClipboardList, StickyNote, Flag, Calendar, FolderUp, Upload,
 } from 'lucide-react'
 import type { BankStatementAnalysis } from '@/lib/analyzeBankStatement'
@@ -76,20 +76,26 @@ interface DocRequest {
   uploads: DocUpload[]
 }
 
-const COMMON_DOCS = [
-  { name: 'Passport (bio data page)',  description: 'Clear scan of passport info page',             required: true  },
-  { name: 'Bank Statement (3 months)', description: 'Last 3 months showing salary credits',         required: true  },
-  { name: 'Proof of Employment',       description: 'Employment letter or recent pay slip',          required: true  },
-  { name: 'Utility Bill',              description: 'Proof of address, not older than 3 months',    required: false },
-  { name: 'Travel Itinerary',          description: 'Confirmed or dummy flight booking',             required: false },
-  { name: 'Hotel Booking',             description: 'Hotel reservation confirmation',                required: false },
-  { name: 'Travel Insurance',          description: 'Policy covering travel dates',                  required: false },
-  { name: 'Invitation Letter',         description: 'From host in destination country',              required: false },
-  { name: 'Passport Photo',            description: 'White background, recent photo',                required: false },
-  { name: 'Sponsor Letter',            description: 'Letter from financial sponsor',                 required: false },
-  { name: 'Birth Certificate',         description: 'For family or dependent applications',          required: false },
-  { name: 'Marriage Certificate',      description: 'For married applicants / spouse visa',          required: false },
-]
+type DocItem = { name: string; description: string; required: boolean }
+
+function getDocList(destIso2: string): DocItem[] {
+  const isUK = destIso2?.toLowerCase() === 'gb'
+  return [
+    { name: 'Passport (bio data page)',          description: 'Clear scan of passport info page',                   required: true  },
+    { name: isUK ? 'Bank Statement (6 months)' : 'Bank Statement (3 months)',
+                                                  description: isUK ? 'Last 6 months showing salary credits' : 'Last 3 months showing salary credits', required: true },
+    { name: 'Proof of Employment',               description: 'Employment letter or recent pay slip',               required: true  },
+    { name: 'Utility Bill',                      description: 'Proof of address, not older than 3 months',          required: false },
+    { name: 'Travel Itinerary',                  description: 'Confirmed or dummy flight booking',                  required: false },
+    { name: 'Hotel Booking',                     description: 'Hotel reservation confirmation',                     required: false },
+    { name: 'Travel Insurance',                  description: 'Policy covering travel dates',                       required: false },
+    { name: 'Invitation Letter',                 description: 'From host in destination country',                   required: false },
+    { name: 'Passport Photo',                    description: 'White background, recent photo',                     required: false },
+    { name: 'Sponsor Letter',                    description: 'Letter from financial sponsor',                      required: false },
+    { name: 'Birth Certificate',                 description: 'For family or dependent applications',               required: false },
+    { name: 'Marriage Certificate',              description: 'For married applicants / spouse visa',               required: false },
+  ]
+}
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 function fmtDate(iso: string | null) {
@@ -677,6 +683,16 @@ export default function AdminVisaDetailPage() {
   const [showDocModal,  setShowDocModal]  = useState(false)
   const [selectedDocs,  setSelectedDocs]  = useState<string[]>([])
   const [docMessage,    setDocMessage]    = useState('')
+  // Inline doc editing
+  const [docOverrides,    setDocOverrides]    = useState<Record<string, Partial<DocItem>>>({})
+  const [docEditing,      setDocEditing]      = useState<string | null>(null)
+  const [docEditName,     setDocEditName]     = useState('')
+  const [docEditDesc,     setDocEditDesc]     = useState('')
+  // Custom / special docs
+  const [docCustomList,   setDocCustomList]   = useState<DocItem[]>([])
+  const [docAddingCustom, setDocAddingCustom] = useState(false)
+  const [docAddName,      setDocAddName]      = useState('')
+  const [docAddDesc,      setDocAddDesc]      = useState('')
 
   // Trustpilot review request
   const [reviewSent,    setReviewSent]    = useState(false)
@@ -875,13 +891,16 @@ export default function AdminVisaDetailPage() {
   }
 
   async function sendDocRequest() {
-    if (!app || selectedDocs.length === 0) return
+    if (!app || (selectedDocs.length === 0 && docCustomList.length === 0)) return
     setSendingDocs(true)
     try {
-      const docs = selectedDocs.map(name => {
-        const c = COMMON_DOCS.find(d => d.name === name)
-        return c ?? { name, required: true }
+      const docList = getDocList(app.destinationIso2 ?? '')
+      const baseDocs = selectedDocs.map(name => {
+        const base = docList.find(d => d.name === name) ?? { name, description: '', required: true }
+        const override = docOverrides[name] ?? {}
+        return { ...base, ...override }
       })
+      const docs = [...baseDocs, ...docCustomList]
       const res = await fetch('/api/admin/document-requests', {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -901,6 +920,9 @@ export default function AdminVisaDetailPage() {
           setShowDocModal(false)
           setSelectedDocs([])
           setDocMessage('')
+          setDocOverrides({})
+          setDocEditing(null)
+          setDocCustomList([])
           loadDocRequests()
         }, 1500)
       }
@@ -1543,7 +1565,9 @@ export default function AdminVisaDetailPage() {
       </div>
 
       {/* Request Documents Modal */}
-      {showDocModal && (
+      {showDocModal && app && (() => {
+        const docList = getDocList(app.destinationIso2 ?? '')
+        return (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
           <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden">
             {/* Header */}
@@ -1552,47 +1576,173 @@ export default function AdminVisaDetailPage() {
                 <FolderUp className="w-5 h-5 text-[#C9A84C]" />
                 <h2 className="text-base font-bold text-[#0B1F3A]">Request Documents</h2>
               </div>
-              <button onClick={() => { setShowDocModal(false); setSelectedDocs([]); setDocMessage('') }}
+              <button onClick={() => { setShowDocModal(false); setSelectedDocs([]); setDocMessage(''); setDocOverrides({}); setDocEditing(null); setDocCustomList([]) }}
                 className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400 transition-colors">
                 <X className="w-4 h-4" />
               </button>
             </div>
 
             {/* Body */}
-            <div className="px-6 py-4 space-y-4 max-h-[60vh] overflow-y-auto">
+            <div className="px-6 py-4 space-y-4 max-h-[65vh] overflow-y-auto">
               {/* Recipient info */}
               <div className="bg-gray-50 rounded-xl px-4 py-3 text-xs text-gray-500 space-y-0.5">
                 <p><span className="font-semibold text-gray-700">To:</span> {[app.firstName, app.lastName].filter(Boolean).join(' ') || 'Applicant'}</p>
                 <p><span className="font-semibold text-gray-700">Email:</span> {app.email ?? '—'}</p>
               </div>
 
-              {/* Document selector */}
+              {/* Document selector — single column with inline edit */}
               <div>
                 <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-2">Select Documents</p>
-                <div className="grid grid-cols-2 gap-2">
-                  {COMMON_DOCS.map(doc => {
-                    const selected = selectedDocs.includes(doc.name)
+                <div className="space-y-1.5">
+                  {docList.map(doc => {
+                    const selected  = selectedDocs.includes(doc.name)
+                    const override  = docOverrides[doc.name] ?? {}
+                    const dispName  = override.name ?? doc.name
+                    const dispDesc  = override.description ?? doc.description
+                    const isEditing = docEditing === doc.name
                     return (
-                      <button
-                        key={doc.name}
-                        onClick={() => setSelectedDocs(prev =>
-                          selected ? prev.filter(n => n !== doc.name) : [...prev, doc.name]
-                        )}
-                        className={`flex items-start gap-2 p-2.5 rounded-xl border text-left text-xs transition-all ${
-                          selected
-                            ? 'border-[#C9A84C] bg-amber-50 text-[#0B1F3A]'
-                            : 'border-gray-100 hover:border-gray-200 text-gray-500'
+                      <div key={doc.name}
+                        className={`rounded-xl border transition-all ${
+                          selected ? 'border-[#C9A84C] bg-amber-50' : 'border-gray-100'
                         }`}
                       >
-                        <span className={`mt-0.5 w-3.5 h-3.5 flex-shrink-0 rounded border ${
-                          selected ? 'bg-[#C9A84C] border-[#C9A84C]' : 'border-gray-300'
-                        } flex items-center justify-center`}>
-                          {selected && <Check className="w-2.5 h-2.5 text-white" />}
-                        </span>
-                        <span className="leading-snug font-medium">{doc.name}</span>
-                      </button>
+                        {/* Row */}
+                        <div className="flex items-center gap-2 px-3 py-2.5">
+                          <button
+                            type="button"
+                            onClick={() => setSelectedDocs(prev =>
+                              selected ? prev.filter(n => n !== doc.name) : [...prev, doc.name]
+                            )}
+                            className={`w-4 h-4 flex-shrink-0 rounded border flex items-center justify-center transition-colors ${
+                              selected ? 'bg-[#C9A84C] border-[#C9A84C]' : 'border-gray-300'
+                            }`}
+                          >
+                            {selected && <Check className="w-2.5 h-2.5 text-white" />}
+                          </button>
+                          <div className="flex-1 min-w-0">
+                            <p className={`text-xs font-semibold leading-snug ${selected ? 'text-[#0B1F3A]' : 'text-gray-600'}`}>{dispName}</p>
+                            {dispDesc && <p className="text-[10px] text-gray-400 leading-snug mt-0.5">{dispDesc}</p>}
+                          </div>
+                          {selected && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                if (isEditing) { setDocEditing(null) }
+                                else { setDocEditing(doc.name); setDocEditName(dispName); setDocEditDesc(dispDesc) }
+                              }}
+                              className="flex-shrink-0 p-1 rounded hover:bg-[#C9A84C]/20 text-[#C9A84C] transition-colors"
+                              title="Edit name / description"
+                            >
+                              <Pencil className="w-3 h-3" />
+                            </button>
+                          )}
+                        </div>
+                        {/* Inline edit panel */}
+                        {isEditing && (
+                          <div className="px-3 pb-3 space-y-2 border-t border-[#C9A84C]/20 pt-2">
+                            <input
+                              value={docEditName}
+                              onChange={e => setDocEditName(e.target.value)}
+                              placeholder="Document name"
+                              className="w-full text-xs border border-gray-200 rounded-lg px-2.5 py-1.5 focus:outline-none focus:border-[#C9A84C]"
+                            />
+                            <input
+                              value={docEditDesc}
+                              onChange={e => setDocEditDesc(e.target.value)}
+                              placeholder="Description (optional)"
+                              className="w-full text-xs border border-gray-200 rounded-lg px-2.5 py-1.5 focus:outline-none focus:border-[#C9A84C]"
+                            />
+                            <div className="flex gap-2">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setDocOverrides(prev => ({ ...prev, [doc.name]: { name: docEditName, description: docEditDesc } }))
+                                  setDocEditing(null)
+                                }}
+                                className="text-[10px] font-bold px-2.5 py-1 rounded-lg bg-[#C9A84C] text-[#0B1F3A] hover:bg-[#b8973f] transition-colors"
+                              >Save</button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setDocOverrides(prev => { const n = {...prev}; delete n[doc.name]; return n })
+                                  setDocEditing(null)
+                                }}
+                                className="text-[10px] px-2.5 py-1 rounded-lg border border-gray-200 text-gray-500 hover:bg-gray-50 transition-colors"
+                              >Reset</button>
+                              <button
+                                type="button"
+                                onClick={() => setDocEditing(null)}
+                                className="text-[10px] px-2.5 py-1 rounded-lg border border-gray-200 text-gray-500 hover:bg-gray-50 transition-colors"
+                              >Cancel</button>
+                            </div>
+                          </div>
+                        )}
+                      </div>
                     )
                   })}
+
+                  {/* Custom docs added this session */}
+                  {docCustomList.map((doc, i) => (
+                    <div key={`custom-${i}`} className="rounded-xl border border-blue-200 bg-blue-50 flex items-center gap-2 px-3 py-2.5">
+                      <div className="w-4 h-4 flex-shrink-0 rounded border bg-blue-400 border-blue-400 flex items-center justify-center">
+                        <Check className="w-2.5 h-2.5 text-white" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-xs font-semibold text-[#0B1F3A] leading-snug">{doc.name}</p>
+                        {doc.description && <p className="text-[10px] text-gray-400 leading-snug mt-0.5">{doc.description}</p>}
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setDocCustomList(prev => prev.filter((_, j) => j !== i))}
+                        className="flex-shrink-0 p-1 rounded hover:bg-red-100 text-red-400 transition-colors"
+                      >
+                        <X className="w-3 h-3" />
+                      </button>
+                    </div>
+                  ))}
+
+                  {/* Add special document */}
+                  {docAddingCustom ? (
+                    <div className="rounded-xl border border-dashed border-blue-300 bg-blue-50/50 px-3 py-3 space-y-2">
+                      <p className="text-[10px] font-bold text-blue-500 uppercase tracking-wider">Special Document</p>
+                      <input
+                        value={docAddName}
+                        onChange={e => setDocAddName(e.target.value)}
+                        placeholder="Document name *"
+                        className="w-full text-xs border border-gray-200 rounded-lg px-2.5 py-1.5 focus:outline-none focus:border-blue-400"
+                      />
+                      <input
+                        value={docAddDesc}
+                        onChange={e => setDocAddDesc(e.target.value)}
+                        placeholder="Description (optional)"
+                        className="w-full text-xs border border-gray-200 rounded-lg px-2.5 py-1.5 focus:outline-none focus:border-blue-400"
+                      />
+                      <div className="flex gap-2">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (!docAddName.trim()) return
+                            setDocCustomList(prev => [...prev, { name: docAddName.trim(), description: docAddDesc.trim(), required: true }])
+                            setDocAddName(''); setDocAddDesc(''); setDocAddingCustom(false)
+                          }}
+                          className="text-[10px] font-bold px-2.5 py-1 rounded-lg bg-blue-500 text-white hover:bg-blue-600 transition-colors"
+                        >Add</button>
+                        <button
+                          type="button"
+                          onClick={() => { setDocAddingCustom(false); setDocAddName(''); setDocAddDesc('') }}
+                          className="text-[10px] px-2.5 py-1 rounded-lg border border-gray-200 text-gray-500 hover:bg-gray-50 transition-colors"
+                        >Cancel</button>
+                      </div>
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => setDocAddingCustom(true)}
+                      className="w-full flex items-center gap-2 px-3 py-2 rounded-xl border border-dashed border-gray-200 text-xs text-gray-400 hover:border-blue-300 hover:text-blue-400 transition-colors"
+                    >
+                      <Plus className="w-3.5 h-3.5" /> Add special document
+                    </button>
+                  )}
                 </div>
               </div>
 
@@ -1612,18 +1762,18 @@ export default function AdminVisaDetailPage() {
             {/* Footer */}
             <div className="px-6 py-4 border-t border-gray-100 flex items-center justify-between gap-3">
               <span className="text-xs text-gray-400">
-                {selectedDocs.length} doc{selectedDocs.length !== 1 ? 's' : ''} selected
+                {selectedDocs.length + docCustomList.length} doc{selectedDocs.length + docCustomList.length !== 1 ? 's' : ''} selected
               </span>
               <div className="flex gap-2">
                 <button
-                  onClick={() => { setShowDocModal(false); setSelectedDocs([]); setDocMessage('') }}
+                  onClick={() => { setShowDocModal(false); setSelectedDocs([]); setDocMessage(''); setDocOverrides({}); setDocEditing(null); setDocCustomList([]) }}
                   className="px-4 py-2 rounded-xl border border-gray-200 text-sm text-gray-500 hover:bg-gray-50 transition-colors"
                 >
                   Cancel
                 </button>
                 <button
                   onClick={sendDocRequest}
-                  disabled={sendingDocs || selectedDocs.length === 0}
+                  disabled={sendingDocs || (selectedDocs.length === 0 && docCustomList.length === 0)}
                   className="flex items-center gap-2 bg-[#C9A84C] text-[#0B1F3A] font-bold px-5 py-2 rounded-xl text-sm hover:bg-[#b8973f] disabled:opacity-50 transition-colors"
                 >
                   {sendingDocs ? (
@@ -1638,7 +1788,8 @@ export default function AdminVisaDetailPage() {
             </div>
           </div>
         </div>
-      )}
+        )
+      })()}
     </div>
   )
 }
