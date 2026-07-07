@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import {
   Search, Mail, MessageCircle, ChevronDown, ChevronUp,
-  FileText, CreditCard, CheckSquare, RefreshCw, UserPlus, Loader2, KeyRound,
+  FileText, CreditCard, CheckSquare, RefreshCw, UserPlus, Loader2, KeyRound, Copy, X,
 } from 'lucide-react'
 import { format } from 'date-fns'
 
@@ -71,6 +71,8 @@ export default function AdminClientsPage() {
   const [converting, setConverting]   = useState<string | null>(null)
   const [resetLoading, setResetLoading] = useState<string | null>(null)
   const [resetSent, setResetSent]       = useState<string | null>(null)
+  const [resetLink, setResetLink]       = useState<{ email: string; link: string } | null>(null)
+  const [copied, setCopied]             = useState(false)
   const [toast, setToast]           = useState<string | null>(null)
 
   function showToast(msg: string) { setToast(msg); setTimeout(() => setToast(null), 3000) }
@@ -95,6 +97,33 @@ export default function AdminClientsPage() {
       showToast('Failed to send reset email')
     }
     setResetLoading(null)
+  }
+
+  async function getResetLink(email: string) {
+    setResetLoading(email)
+    try {
+      const res  = await fetch('/api/admin/client-accounts/reset-link', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ email }),
+      })
+      const data = await res.json()
+      if (res.ok) {
+        setResetLink({ email, link: data.link })
+      } else {
+        showToast(data.error ?? 'Failed to generate link')
+      }
+    } catch {
+      showToast('Failed to generate link')
+    }
+    setResetLoading(null)
+  }
+
+  function copyLink(link: string) {
+    navigator.clipboard.writeText(link).then(() => {
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    })
   }
 
   async function convertToLead(c: Client) {
@@ -170,6 +199,43 @@ export default function AdminClientsPage() {
           {toast}
         </div>
       )}
+
+      {/* Reset link modal */}
+      {resetLink && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
+          <div className="bg-[#112240] rounded-2xl border border-white/10 shadow-2xl w-full max-w-lg p-6">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-white font-bold text-base">Password Reset Link</h3>
+              <button onClick={() => setResetLink(null)} className="text-white/40 hover:text-white transition-colors">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <p className="text-white/50 text-sm mb-3">
+              Send this link to <span className="text-amber-400 font-medium">{resetLink.email}</span> via WhatsApp, SMS, or any channel. It expires in 24 hours.
+            </p>
+            <div className="bg-black/30 rounded-xl p-3 break-all text-xs text-white/70 font-mono mb-4 border border-white/8">
+              {resetLink.link}
+            </div>
+            <div className="flex gap-2">
+              <button
+                onClick={() => copyLink(resetLink.link)}
+                className="flex-1 flex items-center justify-center gap-2 py-2.5 bg-amber-500 hover:bg-amber-400 text-[#0B1F3A] font-bold rounded-xl text-sm transition-colors"
+              >
+                <Copy className="w-4 h-4" />
+                {copied ? 'Copied!' : 'Copy Link'}
+              </button>
+              <a
+                href={`https://wa.me/?text=${encodeURIComponent(`Hi, here is your Walz Travels portal login link (valid 24 hours): ${resetLink.link}`)}`}
+                target="_blank" rel="noreferrer"
+                className="flex-1 flex items-center justify-center gap-2 py-2.5 bg-green-600 hover:bg-green-500 text-white font-bold rounded-xl text-sm transition-colors"
+              >
+                <MessageCircle className="w-4 h-4" />
+                Send via WhatsApp
+              </a>
+            </div>
+          </div>
+        </div>
+      )}
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-2xl font-bold text-white">Clients</h1>
@@ -239,13 +305,9 @@ export default function AdminClientsPage() {
                       ? <Loader2 className="w-4 h-4 animate-spin" />
                       : <UserPlus className="w-4 h-4" />}
                   </button>
-                  <button onClick={() => sendReset(c.email)} disabled={resetLoading === c.email}
-                    title="Send password reset email"
-                    className={`p-2 rounded-lg transition-colors disabled:opacity-50 ${
-                      resetSent === c.email
-                        ? 'text-green-400 bg-green-500/10'
-                        : 'text-white/30 hover:text-amber-400 hover:bg-amber-500/10'
-                    }`}>
+                  <button onClick={() => getResetLink(c.email)} disabled={resetLoading === c.email}
+                    title="Generate password reset link"
+                    className="p-2 text-white/30 hover:text-amber-400 hover:bg-amber-500/10 rounded-lg transition-colors disabled:opacity-50">
                     {resetLoading === c.email
                       ? <Loader2 className="w-4 h-4 animate-spin" />
                       : <KeyRound className="w-4 h-4" />}
