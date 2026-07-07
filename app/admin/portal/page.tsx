@@ -570,28 +570,32 @@ export default function AdminPortalPage() {
                         </button>
                       </div>
                     ) : (
-                      <button
-                        onClick={() => void openWhatsApp(app)}
-                        disabled={waLoading === app.id}
-                        className="flex items-center gap-1.5 text-xs font-semibold text-white bg-green-500 hover:bg-green-600 px-3 py-2 rounded-lg transition-colors disabled:opacity-60"
-                        title={app.whatsappNumber ? `WhatsApp: ${app.whatsappNumber}` : 'Add WhatsApp number'}
-                      >
-                        {waLoading === app.id
-                          ? <Loader2 className="w-3 h-3 animate-spin" />
-                          : <MessageCircle className="w-3 h-3" />
-                        }
-                        {app.whatsappNumber ? 'WhatsApp' : 'Add WhatsApp'}
-                        {app.whatsappNumber && (
+                      <div className="flex items-center gap-0.5">
+                        <button
+                          onClick={() => void openWhatsApp(app)}
+                          disabled={waLoading === app.id}
+                          className="flex items-center gap-1.5 text-xs font-semibold text-white bg-green-500 hover:bg-green-600 px-3 py-2 rounded-l-lg transition-colors disabled:opacity-60"
+                          title={app.whatsappNumber ? `WhatsApp: ${app.whatsappNumber}` : 'Add WhatsApp number'}
+                        >
+                          {waLoading === app.id
+                            ? <Loader2 className="w-3 h-3 animate-spin" />
+                            : <MessageCircle className="w-3 h-3" />
+                          }
+                          {app.whatsappNumber ? 'WhatsApp' : 'Add WhatsApp'}
+                        </button>
+                        {app.whatsappNumber ? (
                           <button
                             type="button"
-                            onClick={e => { e.stopPropagation(); setEditingPhone(app.id); setPhoneInputs(p => ({ ...p, [app.id]: app.whatsappNumber ?? '' })) }}
-                            className="ml-0.5 opacity-70 hover:opacity-100"
-                            title="Edit number"
+                            onClick={() => { setEditingPhone(app.id); setPhoneInputs(p => ({ ...p, [app.id]: app.whatsappNumber ?? '' })) }}
+                            className="flex items-center justify-center w-7 h-[30px] bg-green-600 hover:bg-green-700 text-white rounded-r-lg transition-colors"
+                            title={`Edit number: ${app.whatsappNumber}`}
                           >
                             <Pencil className="w-2.5 h-2.5" />
                           </button>
+                        ) : (
+                          <div className="w-0 rounded-r-lg bg-green-500 h-[30px]" />
                         )}
-                      </button>
+                      </div>
                     )}
                     <Link
                       href={`/admin/portal/${app.id}`}
