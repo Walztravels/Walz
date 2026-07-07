@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import { format } from 'date-fns'
-import { LayoutDashboard, RefreshCw, ChevronDown, CheckCircle, FileText, CreditCard, ExternalLink, Send, X, Loader2, FolderUp, Copy, Plus, Trash2, ChevronUp, Eye, Download } from 'lucide-react'
+import { LayoutDashboard, RefreshCw, ChevronDown, CheckCircle, FileText, CreditCard, ExternalLink, Send, X, Loader2, FolderUp, Copy, Plus, Trash2, ChevronUp, Eye, Download, Pencil } from 'lucide-react'
 import BankStatementCard from '@/components/admin/BankStatementCard'
 import Link from 'next/link'
 
@@ -109,6 +109,18 @@ interface RequestDocsModal {
   clientEmail: string
   clientName:  string
   refNumber:   string
+  destination: string
+}
+
+function getDocList(destination: string): DocItem[] {
+  const d = (destination ?? '').toLowerCase()
+  const isUK = d.includes('uk') || d.includes('united kingdom') || d.includes('britain')
+  return COMMON_DOCS.map(doc => {
+    if (doc.name === 'Bank Statement (3 months)' && isUK) {
+      return { ...doc, name: 'Bank Statement (6 months)', description: 'Last 6 months showing salary credits (UK requirement)' }
+    }
+    return doc
+  })
 }
 
 export default function AdminPortalPage() {
@@ -120,14 +132,21 @@ export default function AdminPortalPage() {
   const [editNotes, setEditNotes] = useState<Record<string, string>>({})
 
   // Request Docs modal state
-  const [reqDocsModal, setReqDocsModal]       = useState<RequestDocsModal | null>(null)
-  const [reqDocSelected, setReqDocSelected]   = useState<Set<string>>(new Set())
-  const [reqDocCustom, setReqDocCustom]       = useState<DocItem[]>([])
-  const [reqDocMessage, setReqDocMessage]     = useState('')
-  const [reqDocDeadline, setReqDocDeadline]   = useState('')
-  const [reqDocSending, setReqDocSending]     = useState(false)
-  const [reqDocResult, setReqDocResult]       = useState<{ link: string; email: string } | null>(null)
-  const [copied, setCopied]                   = useState(false)
+  const [reqDocsModal, setReqDocsModal]             = useState<RequestDocsModal | null>(null)
+  const [reqDocSelected, setReqDocSelected]         = useState<Set<string>>(new Set())
+  const [reqDocCustom, setReqDocCustom]             = useState<DocItem[]>([])
+  const [reqDocOverrides, setReqDocOverrides]       = useState<Record<string, Partial<DocItem>>>({})
+  const [reqDocEditing, setReqDocEditing]           = useState<string | null>(null)
+  const [reqDocEditName, setReqDocEditName]         = useState('')
+  const [reqDocEditDesc, setReqDocEditDesc]         = useState('')
+  const [reqDocAddingCustom, setReqDocAddingCustom] = useState(false)
+  const [reqDocAddName, setReqDocAddName]           = useState('')
+  const [reqDocAddDesc, setReqDocAddDesc]           = useState('')
+  const [reqDocMessage, setReqDocMessage]           = useState('')
+  const [reqDocDeadline, setReqDocDeadline]         = useState('')
+  const [reqDocSending, setReqDocSending]           = useState(false)
+  const [reqDocResult, setReqDocResult]             = useState<{ link: string; email: string } | null>(null)
+  const [copied, setCopied]                         = useState(false)
   // Document requests panel per application
   const [docReqs, setDocReqs]                 = useState<Record<string, DocRequest[]>>({})
   const [docsOpen, setDocsOpen]               = useState<Set<string>>(new Set())
@@ -209,9 +228,14 @@ export default function AdminPortalPage() {
   }
 
   function openReqDocs(app: Application) {
-    setReqDocsModal({ appId: app.id, clientEmail: app.user.email ?? '', clientName: app.user.name ?? app.title, refNumber: app.refNumber })
+    setReqDocsModal({ appId: app.id, clientEmail: app.user.email ?? '', clientName: app.user.name ?? app.title, refNumber: app.refNumber, destination: app.destination ?? '' })
     setReqDocSelected(new Set())
     setReqDocCustom([])
+    setReqDocOverrides({})
+    setReqDocEditing(null)
+    setReqDocAddingCustom(false)
+    setReqDocAddName('')
+    setReqDocAddDesc('')
     setReqDocMessage('')
     setReqDocDeadline('')
     setReqDocResult(null)
@@ -228,7 +252,14 @@ export default function AdminPortalPage() {
 
   async function submitReqDocs() {
     if (!reqDocsModal) return
-    const selected = COMMON_DOCS.filter(d => reqDocSelected.has(d.name))
+    const docList = getDocList(reqDocsModal.destination)
+    const selected = docList
+      .filter(d => reqDocSelected.has(d.name))
+      .map(d => ({
+        ...d,
+        name:        reqDocOverrides[d.name]?.name        ?? d.name,
+        description: reqDocOverrides[d.name]?.description ?? d.description,
+      }))
     const allDocs  = [...selected, ...reqDocCustom]
     if (allDocs.length === 0) return alert('Select at least one document')
 
@@ -701,53 +732,154 @@ export default function AdminPortalPage() {
                 {/* Common doc checklist */}
                 <div>
                   <p className="text-xs font-bold text-gray-400 uppercase tracking-widest mb-2">Select Documents</p>
-                  <div className="space-y-1.5 max-h-56 overflow-y-auto">
-                    {COMMON_DOCS.map(doc => (
-                      <label key={doc.name} className="flex items-start gap-3 cursor-pointer p-2 rounded-xl hover:bg-gray-50 transition-colors">
-                        <input
-                          type="checkbox"
-                          checked={reqDocSelected.has(doc.name)}
-                          onChange={() => toggleReqDoc(doc.name)}
-                          className="mt-0.5 accent-[#C9A84C]"
-                        />
-                        <div className="min-w-0 flex-1">
-                          <p className="text-sm font-semibold text-[#0B1F3A] leading-tight">{doc.name}</p>
-                          {doc.description && <p className="text-xs text-gray-400 mt-0.5">{doc.description}</p>}
+                  <div className="space-y-1 max-h-64 overflow-y-auto pr-1">
+                    {getDocList(reqDocsModal.destination).map(doc => {
+                      const override = reqDocOverrides[doc.name]
+                      const displayName = override?.name ?? doc.name
+                      const displayDesc = override?.description ?? doc.description
+                      const isEditing   = reqDocEditing === doc.name
+                      const isChecked   = reqDocSelected.has(doc.name)
+                      return (
+                        <div key={doc.name} className={`rounded-xl border transition-colors ${isChecked ? 'border-[#C9A84C]/40 bg-[#C9A84C]/5' : 'border-transparent hover:bg-gray-50'}`}>
+                          <label className="flex items-start gap-3 cursor-pointer p-2">
+                            <input
+                              type="checkbox"
+                              checked={isChecked}
+                              onChange={() => toggleReqDoc(doc.name)}
+                              className="mt-0.5 accent-[#C9A84C]"
+                            />
+                            <div className="min-w-0 flex-1">
+                              <p className="text-sm font-semibold text-[#0B1F3A] leading-tight">{displayName}</p>
+                              {displayDesc && <p className="text-xs text-gray-400 mt-0.5">{displayDesc}</p>}
+                            </div>
+                            <div className="flex items-center gap-1 flex-shrink-0 mt-0.5">
+                              <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
+                                doc.required !== false ? 'bg-red-50 text-red-500' : 'bg-gray-100 text-gray-400'
+                              }`}>
+                                {doc.required !== false ? 'Req' : 'Opt'}
+                              </span>
+                              {isChecked && !isEditing && (
+                                <button
+                                  type="button"
+                                  onClick={e => { e.preventDefault(); setReqDocEditing(doc.name); setReqDocEditName(displayName); setReqDocEditDesc(displayDesc ?? '') }}
+                                  className="p-0.5 text-gray-300 hover:text-[#C9A84C] transition-colors"
+                                  title="Edit label"
+                                >
+                                  <Pencil className="w-3 h-3" />
+                                </button>
+                              )}
+                            </div>
+                          </label>
+                          {isEditing && (
+                            <div className="px-3 pb-3 space-y-1.5">
+                              <input
+                                value={reqDocEditName}
+                                onChange={e => setReqDocEditName(e.target.value)}
+                                placeholder="Document name"
+                                className="w-full px-2.5 py-1.5 border border-[#C9A84C]/50 rounded-lg text-xs outline-none focus:border-[#C9A84C]"
+                              />
+                              <input
+                                value={reqDocEditDesc}
+                                onChange={e => setReqDocEditDesc(e.target.value)}
+                                placeholder="Description (optional)"
+                                className="w-full px-2.5 py-1.5 border border-gray-200 rounded-lg text-xs outline-none focus:border-[#C9A84C]"
+                              />
+                              <div className="flex gap-2">
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    if (reqDocEditName.trim()) {
+                                      setReqDocOverrides(prev => ({ ...prev, [doc.name]: { name: reqDocEditName.trim(), description: reqDocEditDesc.trim() || undefined } }))
+                                    }
+                                    setReqDocEditing(null)
+                                  }}
+                                  className="text-xs px-3 py-1 bg-[#0B1F3A] text-white rounded-lg font-semibold"
+                                >
+                                  Save
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => { setReqDocEditing(null); setReqDocOverrides(prev => { const n = { ...prev }; delete n[doc.name]; return n }) }}
+                                  className="text-xs px-3 py-1 border border-gray-200 text-gray-500 rounded-lg"
+                                >
+                                  Reset
+                                </button>
+                                <button type="button" onClick={() => setReqDocEditing(null)} className="text-xs text-gray-400 hover:text-gray-600 ml-auto">
+                                  Cancel
+                                </button>
+                              </div>
+                            </div>
+                          )}
                         </div>
-                        <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded flex-shrink-0 mt-0.5 ${
-                          doc.required !== false ? 'bg-red-50 text-red-500' : 'bg-gray-100 text-gray-400'
-                        }`}>
-                          {doc.required !== false ? 'Req' : 'Opt'}
-                        </span>
-                      </label>
-                    ))}
+                      )
+                    })}
                   </div>
                 </div>
 
                 {/* Custom docs */}
-                {reqDocCustom.length > 0 && (
-                  <div className="space-y-2">
-                    <p className="text-xs font-bold text-gray-400 uppercase tracking-widest">Custom Documents</p>
-                    {reqDocCustom.map((d, i) => (
-                      <div key={i} className="flex items-center gap-2 bg-blue-50 border border-blue-100 rounded-xl px-3 py-2">
-                        <span className="flex-1 text-sm text-[#0B1F3A] font-semibold">{d.name}</span>
-                        <button onClick={() => setReqDocCustom(prev => prev.filter((_, j) => j !== i))}
-                          className="text-gray-400 hover:text-red-500">
-                          <X className="w-3.5 h-3.5" />
+                <div className="space-y-2">
+                  {reqDocCustom.length > 0 && (
+                    <>
+                      <p className="text-xs font-bold text-gray-400 uppercase tracking-widest">Special / Custom Documents</p>
+                      {reqDocCustom.map((d, i) => (
+                        <div key={i} className="flex items-start gap-2 bg-blue-50 border border-blue-100 rounded-xl px-3 py-2">
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm text-[#0B1F3A] font-semibold leading-tight">{d.name}</p>
+                            {d.description && <p className="text-xs text-gray-500 mt-0.5">{d.description}</p>}
+                          </div>
+                          <button onClick={() => setReqDocCustom(prev => prev.filter((_, j) => j !== i))}
+                            className="text-gray-400 hover:text-red-500 mt-0.5 flex-shrink-0">
+                            <X className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      ))}
+                    </>
+                  )}
+
+                  {reqDocAddingCustom ? (
+                    <div className="border border-blue-200 rounded-xl p-3 space-y-2 bg-blue-50/50">
+                      <p className="text-xs font-bold text-blue-700">New Special Document</p>
+                      <input
+                        value={reqDocAddName}
+                        onChange={e => setReqDocAddName(e.target.value)}
+                        placeholder="Document name *"
+                        className="w-full px-2.5 py-1.5 border border-gray-200 rounded-lg text-sm outline-none focus:border-[#C9A84C] bg-white"
+                        autoFocus
+                      />
+                      <input
+                        value={reqDocAddDesc}
+                        onChange={e => setReqDocAddDesc(e.target.value)}
+                        placeholder="Instructions / description (optional)"
+                        className="w-full px-2.5 py-1.5 border border-gray-200 rounded-lg text-sm outline-none focus:border-[#C9A84C] bg-white"
+                      />
+                      <div className="flex gap-2">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (!reqDocAddName.trim()) return
+                            setReqDocCustom(prev => [...prev, { name: reqDocAddName.trim(), description: reqDocAddDesc.trim() || undefined, required: true }])
+                            setReqDocAddName(''); setReqDocAddDesc(''); setReqDocAddingCustom(false)
+                          }}
+                          disabled={!reqDocAddName.trim()}
+                          className="text-xs px-4 py-1.5 bg-[#0B1F3A] text-white rounded-lg font-semibold disabled:opacity-40"
+                        >
+                          Add
+                        </button>
+                        <button type="button" onClick={() => { setReqDocAddingCustom(false); setReqDocAddName(''); setReqDocAddDesc('') }}
+                          className="text-xs px-3 py-1.5 border border-gray-200 text-gray-500 rounded-lg">
+                          Cancel
                         </button>
                       </div>
-                    ))}
-                  </div>
-                )}
-                <button
-                  onClick={() => {
-                    const name = prompt('Document name:')
-                    if (name?.trim()) setReqDocCustom(prev => [...prev, { name: name.trim(), required: true }])
-                  }}
-                  className="flex items-center gap-1.5 text-xs text-blue-600 font-semibold hover:text-blue-800"
-                >
-                  <Plus className="w-3.5 h-3.5" /> Add custom document
-                </button>
+                    </div>
+                  ) : (
+                    <button
+                      onClick={() => setReqDocAddingCustom(true)}
+                      className="flex items-center gap-1.5 text-xs text-blue-600 font-semibold hover:text-blue-800"
+                    >
+                      <Plus className="w-3.5 h-3.5" /> Add special document
+                    </button>
+                  )}
+                </div>
 
                 <div>
                   <label className="block text-xs font-semibold text-gray-600 mb-1">Message to client (optional)</label>
