@@ -696,7 +696,7 @@ export default function AdminVisaDetailPage() {
   const [docAddDesc,      setDocAddDesc]      = useState('')
 
   // WhatsApp drawer
-  const [waDrawer,    setWaDrawer]    = useState<{ conversationId: number } | null>(null)
+  const [waDrawer,    setWaDrawer]    = useState<{ conversationId: number; inboxName?: string; channelType?: string } | null>(null)
   const [waLoading,   setWaLoading]   = useState(false)
   const [waError,     setWaError]     = useState<string | null>(null)
   const [waPhone,     setWaPhone]     = useState<string>('')
@@ -915,9 +915,9 @@ export default function AdminVisaDetailPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ clientName, clientPhone: phone, refNumber: app.referenceNumber }),
       })
-      const data = await res.json() as { conversationId?: number; error?: string }
+      const data = await res.json() as { conversationId?: number; error?: string; inboxName?: string; channelType?: string }
       if (!res.ok || !data.conversationId) { setWaError(data.error ?? 'Failed to open chat'); return }
-      setWaDrawer({ conversationId: data.conversationId })
+      setWaDrawer({ conversationId: data.conversationId, inboxName: data.inboxName, channelType: data.channelType })
     } catch { setWaError('Network error') }
     finally { setWaLoading(false) }
   }
@@ -1872,6 +1872,8 @@ export default function AdminVisaDetailPage() {
           clientPhone={waPhone || app.phone || ''}
           applicationType="VISA"
           refNumber={app.referenceNumber}
+          inboxName={waDrawer.inboxName}
+          channelType={waDrawer.channelType}
           onClose={() => setWaDrawer(null)}
         />
       )}

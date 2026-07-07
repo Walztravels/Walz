@@ -15,18 +15,42 @@ function cw(path: string, opts?: RequestInit) {
   })
 }
 
-// Find the WhatsApp / Twilio inbox in Chatwoot
-async function getWhatsAppInboxId(): Promise<number | null> {
-  const res  = await cw('/inboxes')
-  if (!res.ok) return null
-  const data = await res.json() as { payload: Array<{ id: number; name: string; channel_type: string }> }
-  const inbox = data.payload?.find(i =>
+type CWInbox = { id: number; name: string; channel_type: string }
+
+async function getAllInboxes(): Promise<CWInbox[]> {
+  const res = await cw('/inboxes')
+  if (!res.ok) return []
+  const data = await res.json() as { payload: CWInbox[] }
+  return data.payload ?? []
+}
+
+// Find the WhatsApp / Twilio inbox in Chatwoot.
+// Pin a specific inbox by setting CHATWOOT_WHATSAPP_INBOX_ID env var.
+async function getWhatsAppInbox(): Promise<CWInbox | null> {
+  const pinned = process.env.CHATWOOT_WHATSAPP_INBOX_ID
+  const inboxes = await getAllInboxes()
+  console.log('[whatsapp-chat] available inboxes:', JSON.stringify(inboxes.map(i => ({ id: i.id, name: i.name, channel_type: i.channel_type }))))
+  if (pinned) {
+    const found = inboxes.find(i => i.id === Number(pinned))
+    if (found) { console.log('[whatsapp-chat] using pinned inbox:', found); return found }
+  }
+  const inbox = inboxes.find(i =>
     i.channel_type === 'Channel::TwilioSms' ||
     i.channel_type === 'Channel::Whatsapp'  ||
     i.name.toLowerCase().includes('whatsapp') ||
     i.name.toLowerCase().includes('twilio')
   )
-  return inbox?.id ?? null
+  console.log('[whatsapp-chat] auto-detected inbox:', inbox)
+  return inbox ?? null
+}
+
+// GET /api/admin/whatsapp-chat — list all Chatwoot inboxes for diagnostics
+export async function GET() {
+  const session = await getAdminSession()
+  if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const inboxes = await getAllInboxes()
+  const pinned  = process.env.CHATWOOT_WHATSAPP_INBOX_ID
+  return NextResponse.json({ inboxes, pinned: pinned ?? null })
 }
 
 // Find or create a Chatwoot contact by phone number
@@ -119,10 +143,11 @@ export async function POST(req: Request) {
   }
 
   // Get WhatsApp inbox
-  const inboxId = await getWhatsAppInboxId()
-  if (!inboxId) {
-    return NextResponse.json({ error: 'No WhatsApp inbox found in Chatwoot. Connect a Twilio/WhatsApp inbox first.' }, { status: 422 })
+  const inbox = await getWhatsAppInbox()
+  if (!inbox) {
+    return NextResponse.json({ error: 'No WhatsApp inbox found in Chatwoot. Set CHATWOOT_WHATSAPP_INBOX_ID or connect a Twilio/WhatsApp inbox.' }, { status: 422 })
   }
+  const inboxId = inbox.id
 
   // Find or create Chatwoot contact
   const [contactId, contactErr] = await findOrCreateContact(clientName, clientPhone)
@@ -136,7 +161,7 @@ export async function POST(req: Request) {
     const ed = await existing.json() as { payload: Array<{ id: number; status: string; inbox_id: number }> }
     const open = ed.payload?.find(c => c.inbox_id === inboxId && c.status === 'open')
     if (open) {
-      return NextResponse.json({ conversationId: open.id, contactId, reused: true })
+      return NextResponse.json({ conversationId: open.id, contactId, reused: true, inboxId, inboxName: inbox.name, channelType: inbox.channel_type })
     }
   }
 
@@ -157,5 +182,5 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: err.message ?? 'Failed to create conversation' }, { status: 500 })
   }
   const cd = await conv.json() as { id: number }
-  return NextResponse.json({ conversationId: cd.id, contactId, reused: false })
+  return NextResponse.json({ conversationId: cd.id, contactId, reused: false, inboxId, inboxName: inbox.name, channelType: inbox.channel_type })
 }

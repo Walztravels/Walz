@@ -166,7 +166,7 @@ export default function AdminPortalPage() {
   const [sendSuccess, setSendSuccess]         = useState(false)
 
   // WhatsApp chat drawer
-  const [waDrawer, setWaDrawer]           = useState<{ convId: number; app: Application } | null>(null)
+  const [waDrawer, setWaDrawer]           = useState<{ convId: number; app: Application; inboxName?: string; channelType?: string } | null>(null)
   const [waLoading, setWaLoading]         = useState<string | null>(null)
   const [waError, setWaError]             = useState<string | null>(null)
   const [editingPhone, setEditingPhone]   = useState<string | null>(null)
@@ -266,7 +266,7 @@ export default function AdminPortalPage() {
         refNumber:     app.refNumber,
       }),
     })
-    const data = await res.json() as { conversationId?: number; error?: string }
+    const data = await res.json() as { conversationId?: number; error?: string; inboxName?: string; channelType?: string }
     setWaLoading(null)
     if (!res.ok || !data.conversationId) {
       setWaError(data.error ?? 'Failed to open WhatsApp chat')
@@ -274,7 +274,7 @@ export default function AdminPortalPage() {
     }
     // Optimistically update local state so phone shows immediately
     setApps(prev => prev.map(a => a.id === app.id ? { ...a, whatsappNumber: phone } : a))
-    setWaDrawer({ convId: data.conversationId, app: { ...app, whatsappNumber: phone } })
+    setWaDrawer({ convId: data.conversationId, app: { ...app, whatsappNumber: phone }, inboxName: data.inboxName, channelType: data.channelType })
     setEditingPhone(null)
   }
 
@@ -787,6 +787,8 @@ export default function AdminPortalPage() {
           clientPhone={waDrawer.app.whatsappNumber ?? ''}
           applicationType={waDrawer.app.type}
           refNumber={waDrawer.app.refNumber}
+          inboxName={waDrawer.inboxName}
+          channelType={waDrawer.channelType}
           onClose={() => setWaDrawer(null)}
         />
       )}
