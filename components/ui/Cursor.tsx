@@ -4,17 +4,30 @@ import { useEffect, useRef } from 'react'
 import { usePathname } from 'next/navigation'
 import gsap from 'gsap'
 
-const FORM_PREFIXES = ['/admin', '/trip-request/', '/itinerary/', '/visa/apply/', '/visa/form/', '/payment/']
+const EXCLUDED_PREFIXES = ['/admin', '/trip-request/', '/itinerary/', '/visa/apply/', '/visa/form/', '/payment/']
 
 export default function Cursor() {
-  const pathname  = usePathname() ?? ''
+  const pathname = usePathname() ?? ''
   const dotRef    = useRef<HTMLDivElement>(null)
   const circleRef = useRef<HTMLDivElement>(null)
-  const isForm    = FORM_PREFIXES.some(p => pathname.startsWith(p))
+  const excluded  = EXCLUDED_PREFIXES.some(p => pathname.startsWith(p))
+
+  // Manage cursor:none on <html> so admin/form pages always show the default OS cursor.
+  // We apply cursor:none in JS (not globals.css) so it only hides the OS cursor when
+  // the custom cursor is actually active.
+  useEffect(() => {
+    if (excluded) return
+    if (window.matchMedia('(pointer: coarse)').matches) return
+    if (window.matchMedia('(hover: none)').matches) return
+
+    document.documentElement.style.setProperty('cursor', 'none', 'important')
+    return () => {
+      document.documentElement.style.removeProperty('cursor')
+    }
+  }, [excluded])
 
   useEffect(() => {
-    if (isForm) return
-    // Skip on touch/coarse pointer devices
+    if (excluded) return
     if (window.matchMedia('(pointer: coarse)').matches) return
     if (window.matchMedia('(hover: none)').matches) return
 
@@ -44,40 +57,31 @@ export default function Cursor() {
     window.addEventListener('mousemove', onMouseMove)
     rafId = requestAnimationFrame(animate)
 
-    // Expand on interactive elements
-    const onEnterInteractive = () => {
-      gsap.to(circle, { scale: 2, duration: 0.3, ease: 'power2.out' })
-    }
-    const onLeaveInteractive = () => {
-      gsap.to(circle, { scale: 1, duration: 0.3, ease: 'power2.out' })
-    }
-
-    // Use event delegation — handles dynamically added elements too
     const onDocEnter = (e: MouseEvent) => {
       const t = e.target as HTMLElement
       if (t.closest('a, button, [data-cursor], input, select, textarea, [role="button"]')) {
-        onEnterInteractive()
+        gsap.to(circle, { scale: 2, duration: 0.3, ease: 'power2.out' })
       }
     }
     const onDocLeave = (e: MouseEvent) => {
       const t = e.target as HTMLElement
       if (t.closest('a, button, [data-cursor], input, select, textarea, [role="button"]')) {
-        onLeaveInteractive()
+        gsap.to(circle, { scale: 1, duration: 0.3, ease: 'power2.out' })
       }
     }
 
-    document.addEventListener('mouseover',  onDocEnter)
-    document.addEventListener('mouseout',   onDocLeave)
+    document.addEventListener('mouseover', onDocEnter)
+    document.addEventListener('mouseout',  onDocLeave)
 
     return () => {
       window.removeEventListener('mousemove', onMouseMove)
-      document.removeEventListener('mouseover',  onDocEnter)
-      document.removeEventListener('mouseout',   onDocLeave)
+      document.removeEventListener('mouseover', onDocEnter)
+      document.removeEventListener('mouseout',  onDocLeave)
       cancelAnimationFrame(rafId)
     }
-  }, [isForm])
+  }, [excluded])
 
-  if (isForm) return null
+  if (excluded) return null
 
   return (
     <>
@@ -85,17 +89,17 @@ export default function Cursor() {
         ref={dotRef}
         className="cursor-dot"
         style={{
-          position:      'fixed',
-          top:           0,
-          left:          0,
-          width:         '8px',
-          height:        '8px',
+          position:        'fixed',
+          top:             0,
+          left:            0,
+          width:           '8px',
+          height:          '8px',
           backgroundColor: '#C9A84C',
-          borderRadius:  '50%',
-          pointerEvents: 'none',
-          zIndex:        99999,
-          transform:     'translate(-50%, -50%)',
-          willChange:    'transform',
+          borderRadius:    '50%',
+          pointerEvents:   'none',
+          zIndex:          99999,
+          transform:       'translate(-50%, -50%)',
+          willChange:      'transform',
         }}
       />
       <div

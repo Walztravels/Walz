@@ -2,21 +2,6 @@
 @tailwind components;
 @tailwind utilities;
 
-/* ── Custom cursor — hide default, show custom on desktop ─────────────────── */
-@media (hover: hover) and (pointer: fine) {
-  *, *::before, *::after {
-    cursor: none !important;
-  }
-}
-
-@media (max-width: 768px),
-       (hover: none),
-       (pointer: coarse) {
-  .cursor-dot,
-  .cursor-circle {
-    display: none !important;
-  }
-}
 
 /* ── Marquee ──────────────────────────────────────────────────────────────── */
 @keyframes marquee {
