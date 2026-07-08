@@ -10,9 +10,6 @@ interface CallInfo {
   to?:   string
 }
 
-// The Aircall workspace URL — must match frame-src in next.config.mjs
-const WORKSPACE_URL = 'https://workspace.aircall.io?integration=generic'
-
 export function AircallWidget() {
   const sdkRef    = useRef<import('aircall-everywhere').default | null>(null)
   const timerRef  = useRef<ReturnType<typeof setInterval> | null>(null)
@@ -22,9 +19,8 @@ export function AircallWidget() {
   const [isLoaded,   setIsLoaded]   = useState(false)
   const [timer,      setTimer]      = useState(0)
 
-  // Init SDK on mount WITHOUT domToLoadWorkspace — we render the iframe in JSX
-  // and the SDK handles all postMessage events independently of who created the DOM.
-  // This avoids the SDK's innerHTML injection which Chrome mobile blocks.
+  // Init SDK using domToLoadWorkspace so it controls the iframe and uses
+  // phone.aircall.io (the CTI embedding URL). workspace.aircall.io blocks iframes.
   useEffect(() => {
     let active = true
 
@@ -32,6 +28,7 @@ export function AircallWidget() {
       if (!active || sdkRef.current) return
 
       const workspace = new AircallWorkspace({
+        domToLoadWorkspace: '#aircall-phone-container',
         integrationToLoad: 'generic',
         onLogin: (settings: Record<string, unknown>) => {
           if (!active) return
@@ -161,7 +158,7 @@ export function AircallWidget() {
       {/* Aircall workspace panel */}
       {isOpen && (
         <div
-          className="fixed z-50 bottom-16 left-0 right-0 md:bottom-6 md:right-6 md:left-auto md:w-80 bg-[#0a1628] border border-white/10 rounded-t-2xl md:rounded-2xl shadow-2xl overflow-hidden flex flex-col"
+          className="fixed z-50 bottom-20 left-0 right-0 md:bottom-6 md:right-6 md:left-auto md:w-80 bg-[#0a1628] border border-white/10 rounded-t-2xl md:rounded-2xl shadow-2xl overflow-hidden flex flex-col"
           style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
         >
           {/* Header */}
@@ -182,19 +179,15 @@ export function AircallWidget() {
             </button>
           </div>
 
-          {/* Direct JSX iframe — avoids SDK's innerHTML injection which Chrome mobile blocks */}
-          <iframe
-            src={WORKSPACE_URL}
-            allow="microphone; autoplay; clipboard-read; clipboard-write; hid"
-            referrerPolicy="no-referrer-when-downgrade"
+          {/* SDK injects phone.aircall.io iframe into this container */}
+          <div
+            id="aircall-phone-container"
             style={{
               height: 'min(540px, calc(100vh - 120px))',
               width: '100%',
-              border: 'none',
               flexShrink: 0,
               display: 'block',
             }}
-            title="Aircall Phone"
           />
         </div>
       )}
