@@ -200,7 +200,17 @@ async function processTurn(
       messages.push({ role: "user", content: toolResults });
     }
 
-    // ---- 6. Reply + side effects -------------------------------------------
+    // ---- 6. Guard: re-check status before replying -------------------------
+    // A human agent may have taken over while Jade was thinking (race condition).
+    // If the conversation is no longer "pending", skip the reply entirely.
+    const latestConv = await getConversation(conversationId);
+    const latestStatus = latestConv?.status;
+    if (latestStatus && latestStatus !== "pending") {
+      console.log(`[jade] conv=${conversationId} aborting reply — status changed to "${latestStatus}" while processing (human took over)`);
+      return;
+    }
+
+    // ---- 7. Reply + side effects -------------------------------------------
     if (finalText) {
       await sendReply(conversationId, finalText);
     }
@@ -212,6 +222,7 @@ async function processTurn(
 
     if (contactId) {
       updateContactMemory(contactId, {
+
         last_jade_contact: new Date().toISOString(),
         last_topic: content.slice(0, 120),
       }).catch(() => {});
