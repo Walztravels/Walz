@@ -137,7 +137,11 @@ export async function POST(
   })
 
   if (isComplete) {
-    const appLink = `${SITE}/admin/documents`
+    const appLink = request.visaAppId
+      ? `${SITE}/admin/visa-applications/${request.visaAppId}`
+      : request.applicationId
+      ? `${SITE}/admin/portal`
+      : `${SITE}/admin/documents`
     await getResend().emails.send({
       from:    'Walz Travels System <noreply@walztravels.com>',
       to:      request.requestedBy,
