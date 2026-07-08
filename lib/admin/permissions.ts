@@ -503,6 +503,7 @@ export const NAV_ITEMS: NavSection[] = [
       { href: '/admin/audit-logs',                label: 'Audit Logs',      icon: 'Activity',    permission: 'audit_logs'   },
       { href: '/admin/api-keys',                  label: 'API Keys',        icon: 'Key',         permission: 'api_keys'     },
       { href: '/admin/settings',                  label: 'Settings',        icon: 'Settings',    permission: 'settings'     },
+      { href: '/admin/settings/contact',          label: 'Contact & Numbers', icon: 'Phone',     permission: 'settings'     },
       { href: '/admin/settings/inbox-mapping',    label: 'Inbox Mapping',   icon: 'Link2',       permission: 'settings'     },
     ],
   },
