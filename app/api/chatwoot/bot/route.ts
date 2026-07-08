@@ -28,6 +28,8 @@ import {
   getConversation,
   updateContactMemory,
   isLatestIncoming,
+  markAsRead,
+  openConversation,
 } from "@/lib/jade/chatwoot-client";
 import { JADE_TOOLS, executeTool, type ToolContext } from "@/lib/jade/tools";
 import { buildSystemPrompt } from "@/lib/jade/prompt";
@@ -58,6 +60,30 @@ export async function POST(req: NextRequest) {
 
   // Strip bare Instagram/Facebook ad attachment labels — they're not real customer messages
   const AD_LABEL_RE = /^(shared post|ad response|story reply|story mention|post reply|reel reply|reels reply|\[.*?\])$/i;
+
+  // ---- Human staff replied in a pending/bot-owned conversation ------------
+  // When a staff member sends a message while the bot still "owns" the convo
+  // (status: pending), Chatwoot sometimes fails to auto-clear the unread badge.
+  // Fix: when we see an outgoing (staff) message on a pending conversation,
+  // explicitly move it to "open" and mark as read so the inbox reflects reality.
+  if (
+    event === "message_created" &&
+    messageType === "outgoing" &&
+    !isPrivate &&
+    conversationId &&
+    conversation?.status === "pending"
+  ) {
+    // Run in background — don't block the ACK
+    waitUntil(
+      Promise.all([
+        openConversation(conversationId),
+        markAsRead(conversationId),
+      ]).catch((e) =>
+        console.error(`[jade] staff-reply cleanup conv=${conversationId}:`, e)
+      )
+    );
+    return NextResponse.json({ ok: true, handled: "staff-reply-cleanup" });
+  }
 
   if (
     event !== "message_created" ||

@@ -72,6 +72,33 @@ export async function sendReply(conversationId: number, content: string) {
       );
     }
   }
+  // Mark as read so the conversation doesn't sit as "unread" in agents' inbox
+  // after Jade handles it. Chatwoot still shows it in the pending queue, but
+  // agents won't see a red unread badge on top of Jade's reply.
+  await markAsRead(conversationId).catch(() => {});
+}
+
+/**
+ * Mark all messages in a conversation as read.
+ * Chatwoot endpoint: GET /conversations/{id}/read (yes, GET — it's a side-effect call).
+ */
+export async function markAsRead(conversationId: number) {
+  await fetch(api(`/conversations/${conversationId}/read`), {
+    method: "GET",
+    headers,
+  });
+}
+
+/**
+ * Move a conversation status to "open" if it's currently pending.
+ * Called when a human agent sends a reply so the conversation exits the bot queue.
+ */
+export async function openConversation(conversationId: number) {
+  await fetch(api(`/conversations/${conversationId}/toggle_status`), {
+    method: "POST",
+    headers,
+    body: JSON.stringify({ status: "open" }),
+  }).catch((e) => console.error("[jade] openConversation error:", e));
 }
 
 /**
