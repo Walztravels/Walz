@@ -30,6 +30,9 @@
 const TWILIO_SID      = process.env.TWILIO_ACCOUNT_SID
 const TWILIO_TOKEN    = process.env.TWILIO_AUTH_TOKEN
 const TEMPLATE_SID    = process.env.TWILIO_CONTENT_TEMPLATE_SID
+// Messaging Service SID — both WhatsApp senders are registered under this service.
+// Use MessagingServiceSid instead of From so Twilio routes via the correct WhatsApp sender.
+const MESSAGING_SVC   = process.env.TWILIO_MESSAGING_SERVICE_SID || 'MGd179b68a408e4fea5a366a8505030401'
 
 const NG_FROM   = process.env.TWILIO_WHATSAPP_NUMBER_NG   || '+2347077691701'
 const INTL_FROM = process.env.TWILIO_WHATSAPP_NUMBER_INTL || '+12317902336'
@@ -101,13 +104,18 @@ export async function sendWhatsAppViaTwilio(
   const fromNumber = getWhatsAppSender(toPhone)
 
   const params = new URLSearchParams()
-  params.set('From', `whatsapp:${fromNumber}`)
-  params.set('To',   `whatsapp:${to}`)
+  // Use MessagingServiceSid — both WhatsApp senders live inside this service.
+  // Sending with From: directly causes error 63049 for business-initiated messages.
+  if (MESSAGING_SVC) {
+    params.set('MessagingServiceSid', MESSAGING_SVC)
+  } else {
+    params.set('From', `whatsapp:${fromNumber}`)
+  }
+  params.set('To', `whatsapp:${to}`)
 
   const usedTemplate = !!TEMPLATE_SID
   if (usedTemplate) {
     params.set('ContentSid', TEMPLATE_SID!)
-    // Variable names must match the template definition exactly
     params.set('ContentVariables', JSON.stringify({ first_name: clientName, ref_number: refNumber }))
   } else {
     params.set('Body', body)
