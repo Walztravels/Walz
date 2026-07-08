@@ -3,6 +3,8 @@
 import { useState, useEffect, useRef } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
+import { useSettings } from '@/lib/settings-context'
+import { whatsappLink } from '@/lib/site-settings'
 import { useSession, signOut } from 'next-auth/react'
 import {
   Menu, X, Plane, Building2, Map, FileText, ChevronDown,
@@ -61,6 +63,7 @@ const portalMenu = [
 ]
 
 export function Navbar() {
+  const settings = useSettings()
   const { data: session, status } = useSession()
   const [isScrolled,       setIsScrolled]       = useState(false)
   const [isMobileOpen,     setIsMobileOpen]     = useState(false)
@@ -202,10 +205,10 @@ export function Navbar() {
         )}>
           <div className="container-walz flex items-center justify-between py-1.5 text-xs text-walz-muted">
             <span>Visa support, flights, hotels, tours and group travel — expert help from Walz Travels.</span>
-            <a href="https://wa.me/447398753797" target="_blank" rel="noopener noreferrer"
+            <a href={whatsappLink(settings.whatsapp_header)} target="_blank" rel="noopener noreferrer"
               className="flex items-center gap-1.5 text-green-400 hover:text-green-300 transition-colors font-medium">
               <MessageCircle className="w-3.5 h-3.5" />
-              WhatsApp +44 7398 753797
+              WhatsApp {settings.whatsapp_header_display}
             </a>
           </div>
         </div>

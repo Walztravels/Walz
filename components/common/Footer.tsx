@@ -3,6 +3,8 @@
 import Link from 'next/link'
 import { useState, useEffect } from 'react'
 import { Mail, MapPin, MessageCircle, Award, Lock } from 'lucide-react'
+import { useSettings } from '@/lib/settings-context'
+import { whatsappLink } from '@/lib/site-settings'
 
 const LOGO_CACHE_KEY = 'walz_logo_url'
 const LOGO_CACHE_TTL  = 60 * 60 * 1000
@@ -146,6 +148,7 @@ const socialLinks = [
 ]
 
 export function Footer() {
+  const settings = useSettings()
   const currentYear = new Date().getFullYear()
 
   return (
@@ -166,37 +169,32 @@ export function Footer() {
 
             {/* Contact Info */}
             <div className="space-y-3 mb-6">
-              {/* WhatsApp UK */}
-              <a
-                href="https://wa.me/447398753797"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="flex items-center gap-3 text-sm text-walz-muted hover:text-walz-gold transition-colors group"
-              >
-                <div className="w-8 h-8 rounded-lg bg-green-600 flex items-center justify-center flex-shrink-0 group-hover:bg-green-500 transition-colors">
-                  <MessageCircle className="w-4 h-4 text-white" />
-                </div>
-                <div>
-                  <div className="text-walz-off-white font-medium text-xs">WhatsApp UK</div>
-                  <div>+44 7398 753797</div>
-                </div>
-              </a>
-
-              {/* WhatsApp Canada */}
-              <a
-                href="https://wa.me/15557107823"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="flex items-center gap-3 text-sm text-walz-muted hover:text-walz-gold transition-colors group"
-              >
-                <div className="w-8 h-8 rounded-lg bg-green-600 flex items-center justify-center flex-shrink-0 group-hover:bg-green-500 transition-colors">
-                  <MessageCircle className="w-4 h-4 text-white" />
-                </div>
-                <div>
-                  <div className="text-walz-off-white font-medium text-xs">WhatsApp Canada</div>
-                  <div>+1 555 710 7823</div>
-                </div>
-              </a>
+              {/* Footer WhatsApp slots — configurable from admin/settings */}
+              {([
+                { label: settings.footer_wa_1_label, number: settings.footer_wa_1_number },
+                { label: settings.footer_wa_2_label, number: settings.footer_wa_2_number },
+                { label: settings.footer_wa_3_label, number: settings.footer_wa_3_number },
+                { label: settings.footer_wa_4_label, number: settings.footer_wa_4_number },
+              ] as { label: string; number: string }[])
+                .filter(slot => slot.number?.trim())
+                .map((slot, i) => (
+                  <a
+                    key={i}
+                    href={whatsappLink(slot.number)}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center gap-3 text-sm text-walz-muted hover:text-walz-gold transition-colors group"
+                  >
+                    <div className="w-8 h-8 rounded-lg bg-green-600 flex items-center justify-center flex-shrink-0 group-hover:bg-green-500 transition-colors">
+                      <MessageCircle className="w-4 h-4 text-white" />
+                    </div>
+                    <div>
+                      <div className="text-walz-off-white font-medium text-xs">{slot.label || 'WhatsApp'}</div>
+                      <div>{slot.number}</div>
+                    </div>
+                  </a>
+                ))
+              }
 
               {/* Email */}
               <a
@@ -225,7 +223,7 @@ export function Footer() {
               <div className="pt-2 mt-1 border-t border-walz-slate/40 space-y-1.5 text-xs text-walz-muted">
                 <div className="text-walz-off-white font-medium text-[11px] uppercase tracking-wide mb-2">Enquiries</div>
                 <div>📄 Visa enquiries: <a href="mailto:visa@walztravels.com" className="hover:text-walz-gold transition-colors">visa@walztravels.com</a></div>
-                <div>✈️ Group &amp; corporate travel: <a href="https://wa.me/447398753797" target="_blank" rel="noopener noreferrer" className="hover:text-walz-gold transition-colors">WhatsApp us</a></div>
+                <div>✈️ Group &amp; corporate travel: <a href={whatsappLink(settings.whatsapp_header)} target="_blank" rel="noopener noreferrer" className="hover:text-walz-gold transition-colors">WhatsApp us</a></div>
                 <div>🚨 Emergency support: <a href="tel:+19843880110" className="hover:text-walz-gold transition-colors">+1 984 388 0110</a></div>
               </div>
             </div>
@@ -339,7 +337,7 @@ export function Footer() {
                 © {currentYear} Walz Travels Ltd. All rights reserved.
               </p>
               <address className="not-italic text-walz-muted/60 text-[10px] mt-0.5">
-                THE WALZ TRAVELS INC · Ontario, Canada · Registered in England &amp; Wales
+                {settings.business_address}
               </address>
             </div>
           </div>

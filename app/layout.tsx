@@ -9,9 +9,9 @@ import { SessionProvider } from '@/components/providers/SessionProvider'
 import { LenisProvider } from '@/components/providers/LenisProvider'
 import { CurrencyProvider } from '@/lib/context/CurrencyContext'
 import { CartProvider }    from '@/lib/context/CartContext'
-import dynamic from 'next/dynamic'
+import { getSiteSettings } from '@/lib/site-settings'
+import { SettingsProvider } from '@/lib/settings-context'
 
-const Cursor = dynamic(() => import('@/components/ui/Cursor'), { ssr: false })
 
 const playfairDisplay = Playfair_Display({
   subsets: ['latin'],
@@ -74,10 +74,7 @@ export const metadata: Metadata = {
   authors: [{ name: 'Walz Travels Ltd' }],
   creator: 'Walz Travels Ltd',
   publisher: 'Walz Travels Ltd',
-  // FIX 4 — root canonical
-  // FIX 6 — hreflang for all markets served
   alternates: {
-    canonical: 'https://www.walztravels.com',
     languages: {
       'en-GB':    'https://www.walztravels.com',
       'en-CA':    'https://www.walztravels.com',
@@ -129,11 +126,12 @@ export const metadata: Metadata = {
   },
 }
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: {
   children: React.ReactNode
 }) {
+  const settings = await getSiteSettings()
   return (
     <html
       lang="en"
@@ -170,7 +168,7 @@ export default function RootLayout({
                   image: 'https://www.walztravels.com/og-image.png',
                   description:
                     'Walz Travels is a premium global travel and visa consultancy offering international flight bookings, visa processing for UK, Canada, Schengen, USA and UAE, luxury tour packages, hotel bookings and bespoke travel itineraries for individuals, families and corporate clients worldwide.',
-                  telephone: '+447398753797',
+                  telephone: '+12317902336',
                   email: 'contact@walztravels.com',
                   address: {
                     '@type': 'PostalAddress',
@@ -212,7 +210,7 @@ export default function RootLayout({
                   ],
                   contactPoint: {
                     '@type': 'ContactPoint',
-                    telephone: '+447398753797',
+                    telephone: '+12317902336',
                     contactType: 'customer service',
                     availableLanguage: ['English'],
                     areaServed: ['CA', 'GB', 'AE', 'NG', 'GH', 'US'],
@@ -301,10 +299,10 @@ export default function RootLayout({
           }}
         />}
 
-        {/* Google Consent Mode v2 — must fire before GA4 initialises */}
+        {/* Google Consent Mode v2 */}
         <Script
           id="google-consent-mode"
-          strategy="beforeInteractive"
+          strategy="afterInteractive"
           dangerouslySetInnerHTML={{
             __html: `
               window.dataLayer = window.dataLayer || [];
@@ -389,11 +387,11 @@ export default function RootLayout({
 
       </head>
       <body className="font-sans bg-walz-off-white text-walz-deep-navy antialiased min-h-screen flex flex-col">
+        <SettingsProvider settings={settings}>
         <SessionProvider>
           <CurrencyProvider>
             <CartProvider>
               <LenisProvider>
-                <Cursor />
                 <PublicShell>
                   {children}
                 </PublicShell>
@@ -403,6 +401,7 @@ export default function RootLayout({
             </CartProvider>
           </CurrencyProvider>
         </SessionProvider>
+        </SettingsProvider>
       </body>
     </html>
   )
