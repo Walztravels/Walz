@@ -906,7 +906,7 @@ export default function AdminVisaDetailPage() {
       setWaEditPhone(true)
       return
     }
-    setWaLoading(true); setWaError(null); setWaTwilioStatus(null)
+    setWaLoading(true); setWaError(null)
     try {
       const clientName = [app.firstName, app.lastName].filter(Boolean).join(' ') || 'Applicant'
       const res = await fetch('/api/admin/whatsapp-chat', {
