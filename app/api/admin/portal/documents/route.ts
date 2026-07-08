@@ -12,10 +12,14 @@ export async function GET(req: NextRequest) {
   const session = await getAdminSession()
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const applicationId = new URL(req.url).searchParams.get('applicationId')
+  const { searchParams } = new URL(req.url)
+  const applicationId = searchParams.get('applicationId')
+  const userId        = searchParams.get('userId')
 
   const documents = await prisma.portalDocument.findMany({
-    where:   applicationId ? { applicationId } : undefined,
+    where: applicationId ? { applicationId }
+         : userId        ? { userId }
+         : undefined,
     orderBy: { uploadedAt: 'desc' },
     take:    200,
     include: {

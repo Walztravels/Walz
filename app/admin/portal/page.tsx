@@ -189,6 +189,56 @@ export default function AdminPortalPage() {
   const [editingPhone, setEditingPhone]   = useState<string | null>(null)
   const [phoneInputs, setPhoneInputs]     = useState<Record<string, string>>({})
 
+  // Create Application modal
+  const [createOpen,       setCreateOpen]       = useState(false)
+  const [createEmail,      setCreateEmail]      = useState('')
+  const [createClient,     setCreateClient]     = useState<{ id: string; name: string | null; email: string } | null>(null)
+  const [createSearching,  setCreateSearching]  = useState(false)
+  const [createSearchErr,  setCreateSearchErr]  = useState('')
+  const [createTitle,      setCreateTitle]      = useState('')
+  const [createType,       setCreateType]       = useState<'VISA' | 'TRIP' | 'OTHER'>('VISA')
+  const [createDest,       setCreateDest]       = useState('')
+  const [createDate,       setCreateDate]       = useState('')
+  const [createSubmitting, setCreateSubmitting] = useState(false)
+
+  async function searchClient() {
+    if (!createEmail.trim()) return
+    setCreateSearching(true); setCreateSearchErr(''); setCreateClient(null)
+    try {
+      const res = await fetch(`/api/admin/clients?search=${encodeURIComponent(createEmail.trim())}`)
+      const data = await res.json() as { clients?: { id: string; name: string | null; email: string }[] }
+      const match = data.clients?.[0]
+      if (match) { setCreateClient(match) }
+      else        { setCreateSearchErr('No client account found for that email.') }
+    } catch { setCreateSearchErr('Search failed. Try again.') }
+    setCreateSearching(false)
+  }
+
+  async function submitCreateApp() {
+    if (!createClient || !createTitle.trim()) return
+    setCreateSubmitting(true)
+    try {
+      const res = await fetch('/api/admin/portal/applications', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userId:      createClient.id,
+          title:       createTitle.trim(),
+          type:        createType,
+          stage:       'ENQUIRY',
+          destination: createDest.trim() || null,
+          travelDate:  createDate || null,
+        }),
+      })
+      if (res.ok) {
+        setCreateOpen(false); setCreateEmail(''); setCreateClient(null)
+        setCreateTitle(''); setCreateDest(''); setCreateDate('')
+        await load()
+      }
+    } catch {}
+    setCreateSubmitting(false)
+  }
+
   // Fee editing — one app at a time
   const [editingFeesFor, setEditingFeesFor] = useState<string | null>(null)
   const [walzFee,     setWalzFee]     = useState<number | ''>('')
@@ -447,9 +497,17 @@ export default function AdminPortalPage() {
               <p className="text-sm text-gray-500">{total} total</p>
             </div>
           </div>
-          <button onClick={load} className="flex items-center gap-2 px-4 py-2 rounded-lg border border-gray-200 text-sm text-gray-600 hover:bg-gray-50 transition-colors">
-            <RefreshCw className="w-4 h-4" /> Refresh
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setCreateOpen(true)}
+              className="flex items-center gap-2 px-4 py-2 rounded-lg bg-[#0B1F3A] text-white text-sm font-semibold hover:bg-[#0a1a31] transition-colors"
+            >
+              <Plus className="w-4 h-4" /> New Application
+            </button>
+            <button onClick={load} className="flex items-center gap-2 px-4 py-2 rounded-lg border border-gray-200 text-sm text-gray-600 hover:bg-gray-50 transition-colors">
+              <RefreshCw className="w-4 h-4" /> Refresh
+            </button>
+          </div>
         </div>
       </div>
 
@@ -1197,6 +1255,111 @@ export default function AdminPortalPage() {
                 ) : (
                   <><Send className="w-4 h-4" /> Send Email</>
                 )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Create Application Modal ─────────────────────────────────── */}
+      {createOpen && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md">
+            <div className="flex items-center justify-between p-5 border-b border-gray-100">
+              <h2 className="text-base font-bold text-[#0B1F3A]">New Portal Application</h2>
+              <button onClick={() => { setCreateOpen(false); setCreateClient(null); setCreateEmail(''); setCreateSearchErr('') }} className="text-gray-400 hover:text-gray-600">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="p-5 space-y-4">
+              {/* Step 1 — find client */}
+              <div>
+                <label className="text-xs font-semibold text-gray-600 block mb-1">Client Email</label>
+                <div className="flex gap-2">
+                  <input
+                    type="email"
+                    value={createEmail}
+                    onChange={e => { setCreateEmail(e.target.value); setCreateClient(null); setCreateSearchErr('') }}
+                    onKeyDown={e => e.key === 'Enter' && searchClient()}
+                    placeholder="client@example.com"
+                    className="flex-1 text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:border-amber-400"
+                  />
+                  <button
+                    onClick={searchClient}
+                    disabled={createSearching || !createEmail.trim()}
+                    className="px-3 py-2 bg-[#0B1F3A] text-white text-xs font-semibold rounded-lg hover:bg-[#0a1a31] disabled:opacity-50"
+                  >
+                    {createSearching ? <Loader2 className="w-4 h-4 animate-spin" /> : 'Find'}
+                  </button>
+                </div>
+                {createSearchErr && <p className="text-xs text-red-500 mt-1">{createSearchErr}</p>}
+                {createClient && (
+                  <div className="flex items-center gap-2 mt-2 bg-green-50 border border-green-200 rounded-lg px-3 py-2 text-xs text-green-700">
+                    <CheckCircle className="w-3.5 h-3.5 shrink-0" />
+                    <span><strong>{createClient.name ?? createClient.email}</strong> — account found</span>
+                  </div>
+                )}
+              </div>
+
+              {/* Step 2 — application details */}
+              <div>
+                <label className="text-xs font-semibold text-gray-600 block mb-1">Title <span className="text-red-400">*</span></label>
+                <input
+                  type="text"
+                  value={createTitle}
+                  onChange={e => setCreateTitle(e.target.value)}
+                  placeholder="e.g. UK Visa Application"
+                  className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:border-amber-400"
+                />
+              </div>
+              <div className="flex gap-3">
+                <div className="flex-1">
+                  <label className="text-xs font-semibold text-gray-600 block mb-1">Type</label>
+                  <select
+                    value={createType}
+                    onChange={e => setCreateType(e.target.value as 'VISA' | 'TRIP' | 'OTHER')}
+                    className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:border-amber-400 bg-white"
+                  >
+                    <option value="VISA">Visa</option>
+                    <option value="TRIP">Trip</option>
+                    <option value="OTHER">Other</option>
+                  </select>
+                </div>
+                <div className="flex-1">
+                  <label className="text-xs font-semibold text-gray-600 block mb-1">Destination</label>
+                  <input
+                    type="text"
+                    value={createDest}
+                    onChange={e => setCreateDest(e.target.value)}
+                    placeholder="e.g. GB"
+                    className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:border-amber-400"
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="text-xs font-semibold text-gray-600 block mb-1">Travel Date (optional)</label>
+                <input
+                  type="date"
+                  value={createDate}
+                  onChange={e => setCreateDate(e.target.value)}
+                  className="w-full text-sm border border-gray-200 rounded-lg px-3 py-2 focus:outline-none focus:border-amber-400"
+                />
+              </div>
+            </div>
+            <div className="p-5 border-t border-gray-100 flex gap-3">
+              <button
+                onClick={() => { setCreateOpen(false); setCreateClient(null); setCreateEmail(''); setCreateSearchErr('') }}
+                className="flex-1 py-2.5 text-sm text-gray-600 border border-gray-200 rounded-xl hover:bg-gray-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={submitCreateApp}
+                disabled={!createClient || !createTitle.trim() || createSubmitting}
+                className="flex-1 py-2.5 text-sm font-semibold bg-[#0B1F3A] text-white rounded-xl hover:bg-[#0a1a31] disabled:opacity-40 flex items-center justify-center gap-2"
+              >
+                {createSubmitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
+                Create Application
               </button>
             </div>
           </div>

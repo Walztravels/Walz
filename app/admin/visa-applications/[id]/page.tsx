@@ -50,6 +50,7 @@ interface VisaApp {
   serviceFeePaid: boolean; serviceFeeAmount: string | null; serviceFeeCurrency: string
   stripePaymentIntentId: string | null
   govtFeePaid: boolean; govtFeeAmount: string | null
+  userId: string | null
   initiatedBy: string
   appointmentDate: string | null; appointmentLocation: string | null; appointmentNotes: string | null
   lastEmailSentAt: string | null
@@ -64,9 +65,16 @@ interface VisaApp {
   bank_statement_uploaded_by?: string | null
 }
 
+interface ClientDoc {
+  id: string; name: string; category: string; fileUrl: string; fileKey: string
+  fileSize: number | null; mimeType: string | null; status: string
+  reviewNote: string | null; uploadedAt: string
+}
+
 interface DocUpload {
   id: string; docName: string; fileName: string
-  fileUrl: string; uploadedAt: string; status: string
+  fileUrl: string; fileKey: string; uploadedAt: string
+  fileSize: number | null; mimeType: string | null; status: string
 }
 
 interface DocRequest {
@@ -681,6 +689,11 @@ export default function AdminVisaDetailPage() {
   const [docRequests,   setDocRequests]   = useState<DocRequest[]>([])
   const [docReqLoaded,  setDocReqLoaded]  = useState(false)
   const [docReqLoading, setDocReqLoading] = useState(false)
+
+  // Client-uploaded portal documents
+  const [clientDocs,        setClientDocs]        = useState<ClientDoc[]>([])
+  const [clientDocsLoaded,  setClientDocsLoaded]  = useState(false)
+  const [clientDocsLoading, setClientDocsLoading] = useState(false)
   const [showDocModal,  setShowDocModal]  = useState(false)
   const [selectedDocs,  setSelectedDocs]  = useState<string[]>([])
   const [docMessage,    setDocMessage]    = useState('')
@@ -694,6 +707,10 @@ export default function AdminVisaDetailPage() {
   const [docAddingCustom, setDocAddingCustom] = useState(false)
   const [docAddName,      setDocAddName]      = useState('')
   const [docAddDesc,      setDocAddDesc]      = useState('')
+
+  // Create portal application
+  const [portalCreating, setPortalCreating] = useState(false)
+  const [portalCreated,  setPortalCreated]  = useState<string | null>(null) // refNumber on success
 
   // WhatsApp drawer
   const [waDrawer,    setWaDrawer]    = useState<{ conversationId: number; inboxName?: string; channelType?: string } | null>(null)
@@ -895,6 +912,44 @@ export default function AdminVisaDetailPage() {
       setDocReqLoaded(true)
     } catch {}
     setDocReqLoading(false)
+  }
+
+  async function loadClientDocs() {
+    if (clientDocsLoaded || clientDocsLoading || !app?.userId) return
+    setClientDocsLoading(true)
+    try {
+      const res  = await fetch(`/api/admin/portal/documents?userId=${app.userId}`)
+      const data = await res.json()
+      setClientDocs(data.documents ?? [])
+      setClientDocsLoaded(true)
+    } catch {}
+    setClientDocsLoading(false)
+  }
+
+  async function createPortalApp() {
+    if (!app?.userId || portalCreating) return
+    setPortalCreating(true)
+    try {
+      const clientName = [app.firstName, app.lastName].filter(Boolean).join(' ') || 'Client'
+      const res = await fetch('/api/admin/portal/applications', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userId:      app.userId,
+          title:       `Visa Application — ${app.destinationIso2?.toUpperCase() ?? 'Unknown'} (${app.visaType ?? 'Visa'})`,
+          type:        'VISA',
+          stage:       'ENQUIRY',
+          destination: app.destinationIso2 ?? null,
+          travelDate:  app.arrivalDate ?? null,
+          notes:       `Linked from visa application ${app.referenceNumber}. Applicant: ${clientName}.`,
+        }),
+      })
+      const data = await res.json()
+      if (data.application?.refNumber) {
+        setPortalCreated(data.application.refNumber)
+      }
+    } catch {}
+    setPortalCreating(false)
   }
 
   async function openWhatsApp() {
@@ -1427,7 +1482,7 @@ export default function AdminVisaDetailPage() {
                 <p className="text-xs text-gray-400 py-1">No document requests sent yet.</p>
               )}
               {docRequests.map(req => (
-                <div key={req.id} className="bg-gray-50 rounded-xl p-3 text-xs space-y-1.5">
+                <div key={req.id} className="bg-gray-50 rounded-xl p-3 text-xs space-y-2">
                   <div className="flex items-center justify-between">
                     <span className={`font-bold px-2 py-0.5 rounded-full text-[10px] uppercase tracking-wide ${
                       req.status === 'completed' ? 'bg-green-100 text-green-700' :
@@ -1446,6 +1501,36 @@ export default function AdminVisaDetailPage() {
                       </span>
                     ))}
                   </div>
+                  {req.uploads.length > 0 && (
+                    <div className="border-t border-gray-200 pt-2 space-y-1.5">
+                      <p className="text-[10px] font-semibold text-gray-500 uppercase tracking-wide">Uploaded Files</p>
+                      {req.uploads.map(u => (
+                        <a
+                          key={u.id}
+                          href={u.fileUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="flex items-center justify-between gap-2 bg-white border border-gray-200 rounded-lg px-2.5 py-2 hover:border-amber-400 hover:bg-amber-50 transition-colors group"
+                        >
+                          <div className="flex items-center gap-2 min-w-0">
+                            <FileText className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+                            <div className="min-w-0">
+                              <p className="font-medium text-gray-700 truncate">{u.docName}</p>
+                              <p className="text-[10px] text-gray-400 truncate">{u.fileName}</p>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-2 shrink-0">
+                            <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full ${
+                              u.status === 'approved' ? 'bg-green-100 text-green-700' :
+                              u.status === 'rejected' ? 'bg-red-100 text-red-600'    :
+                                                        'bg-gray-100 text-gray-500'
+                            }`}>{u.status}</span>
+                            <ExternalLink className="w-3 h-3 text-gray-400 group-hover:text-amber-500" />
+                          </div>
+                        </a>
+                      ))}
+                    </div>
+                  )}
                 </div>
               ))}
               <button
@@ -1457,6 +1542,66 @@ export default function AdminVisaDetailPage() {
               </button>
             </div>
           </ActionSection>
+
+          {/* Client Portal Documents (uploaded directly by client) */}
+          {app.userId && (
+            <ActionSection id="clientdocs" title="Client Portal Documents" icon={Upload} onOpen={loadClientDocs}>
+              <div className="space-y-2">
+                {clientDocsLoading && (
+                  <div className="flex items-center gap-2 text-xs text-gray-400 py-2">
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" /> Loading…
+                  </div>
+                )}
+                {!clientDocsLoading && clientDocs.length === 0 && (
+                  <p className="text-xs text-gray-400 py-1">No documents uploaded directly by client yet.</p>
+                )}
+                {clientDocs.map(doc => (
+                  <a
+                    key={doc.id}
+                    href={doc.fileUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center justify-between gap-2 bg-gray-50 border border-gray-200 rounded-xl px-3 py-2.5 hover:border-amber-400 hover:bg-amber-50 transition-colors group"
+                  >
+                    <div className="flex items-center gap-2 min-w-0">
+                      <FileText className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+                      <div className="min-w-0">
+                        <p className="text-xs font-medium text-gray-700 truncate">{doc.name}</p>
+                        <p className="text-[10px] text-gray-400">{doc.category} · {new Date(doc.uploadedAt).toLocaleDateString()}</p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full ${
+                        doc.status === 'APPROVED' ? 'bg-green-100 text-green-700' :
+                        doc.status === 'REJECTED' ? 'bg-red-100 text-red-600'    :
+                                                    'bg-amber-100 text-amber-700'
+                      }`}>{doc.status}</span>
+                      <ExternalLink className="w-3 h-3 text-gray-400 group-hover:text-amber-500" />
+                    </div>
+                  </a>
+                ))}
+                {/* Create portal application link */}
+                <div className="border-t border-gray-100 pt-2 mt-1">
+                  {portalCreated ? (
+                    <div className="flex items-center gap-2 text-xs text-green-600 bg-green-50 rounded-lg px-3 py-2">
+                      <CheckCircle className="w-3.5 h-3.5" />
+                      Portal application created — {portalCreated}
+                      <Link href="/admin/portal" className="ml-auto text-green-700 underline">View</Link>
+                    </div>
+                  ) : (
+                    <button
+                      onClick={createPortalApp}
+                      disabled={portalCreating}
+                      className="w-full flex items-center justify-center gap-2 text-xs font-semibold text-amber-700 bg-amber-50 border border-amber-200 rounded-lg py-2 hover:bg-amber-100 transition-colors disabled:opacity-50"
+                    >
+                      {portalCreating ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Plus className="w-3.5 h-3.5" />}
+                      Create Portal Application for this Client
+                    </button>
+                  )}
+                </div>
+              </div>
+            </ActionSection>
+          )}
 
           {/* Fee Overrides */}
           <ActionSection id="fees" title="Fee Overrides" icon={Building2}>

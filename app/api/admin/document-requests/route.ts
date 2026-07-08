@@ -2,8 +2,11 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getResend } from '@/lib/resend'
 import prisma from '@/lib/db'
 import { getAdminSession } from '@/lib/admin-auth'
+import { getSupabaseAdmin } from '@/lib/supabase'
 
 const SITE   = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://www.walztravels.com'
+const BUCKET = 'portal-documents'
+const SIGNED_TTL = 60 * 60 * 24
 
 export const dynamic = 'force-dynamic'
 
@@ -24,7 +27,22 @@ export async function GET(req: NextRequest) {
     orderBy: { createdAt: 'desc' },
   })
 
-  return NextResponse.json({ requests })
+  // Regenerate fresh signed URLs for all uploads so they never appear broken
+  const supabase = getSupabaseAdmin()
+  const requestsWithFreshUrls = await Promise.all(
+    requests.map(async r => ({
+      ...r,
+      uploads: await Promise.all(
+        r.uploads.map(async u => {
+          if (!u.fileKey) return u
+          const { data } = await supabase.storage.from(BUCKET).createSignedUrl(u.fileKey, SIGNED_TTL)
+          return { ...u, fileUrl: data?.signedUrl ?? u.fileUrl }
+        })
+      ),
+    }))
+  )
+
+  return NextResponse.json({ requests: requestsWithFreshUrls })
 }
 
 export async function POST(req: NextRequest) {
@@ -114,7 +132,7 @@ export async function POST(req: NextRequest) {
           </div>
           <p style="color:#888;font-size:12px;text-align:center">
             This link expires in ${daysToExpire} days. Need help?
-            <a href="https://wa.me/447398753797" style="color:#C9A84C">WhatsApp: +44 7398 753797</a>
+            <a href="https://wa.me/12317902336" style="color:#C9A84C">WhatsApp: +12317902336</a>
           </p>
         </div>
         <div style="background:#f5f5f5;padding:16px;text-align:center">
