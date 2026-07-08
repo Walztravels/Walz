@@ -8,21 +8,16 @@ interface CallButtonProps {
   className?:  string
 }
 
+// Uses tel: so the Aircall Chrome extension intercepts clicks and pre-fills
+// the dialer. On mobile it opens the native dialer directly.
 export function CallButton({ phoneNumber, label, className }: CallButtonProps) {
-  function handleCall() {
-    const dial = (window as unknown as Record<string, unknown>).walzDialNumber
-    if (typeof dial === 'function') {
-      ;(dial as (n: string) => void)(phoneNumber)
-    }
-  }
-
   return (
-    <button
-      onClick={handleCall}
+    <a
+      href={`tel:${phoneNumber}`}
       className={`inline-flex items-center gap-1.5 text-xs text-amber-500 hover:text-amber-400 transition-colors active:scale-95 ${className ?? ''}`}
     >
       <Phone className="w-3 h-3" strokeWidth={1.5} />
       {label ?? 'Call'}
-    </button>
+    </a>
   )
 }
