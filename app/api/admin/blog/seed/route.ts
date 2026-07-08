@@ -84,7 +84,7 @@ Walz Travels achieves a **90%+ approval rate** on UK visa applications for Niger
 
 [Start your UK visa application →](https://www.walztravels.com/visa/uk)
 
-📱 WhatsApp us: [+44 7398 753797](https://wa.me/447398753797)`,
+📱 WhatsApp us: [+12317902336](https://wa.me/12317902336)`,
   },
   {
     slug: 'uk-visa-refusal-reasons-nigerians',
@@ -192,7 +192,7 @@ Our **90%+ approval rate** is built on a rigorous document review process. We ca
 
 [Start your UK visa application →](https://www.walztravels.com/visa/uk)
 
-📱 WhatsApp: [+44 7398 753797](https://wa.me/447398753797)`,
+📱 WhatsApp: [+12317902336](https://wa.me/12317902336)`,
   },
   {
     slug: 'cheap-flights-lagos-london-2026',
@@ -287,7 +287,7 @@ We search live fares across 400+ airlines through the Sabre Global Distribution 
 
 [Search live fares →](https://www.walztravels.com/flights)
 
-📱 WhatsApp: [+44 7398 753797](https://wa.me/447398753797)`,
+📱 WhatsApp: [+12317902336](https://wa.me/12317902336)`,
   },
   {
     slug: 'canada-visa-requirements-nigerians-2026',
@@ -388,7 +388,7 @@ Walz Travels manages Canada visa applications end-to-end — from form preparati
 
 [Apply for Canada Visa →](https://www.walztravels.com/visa/canada)
 
-📱 WhatsApp: [+44 7398 753797](https://wa.me/447398753797)`,
+📱 WhatsApp: [+12317902336](https://wa.me/12317902336)`,
   },
   {
     slug: 'uae-visa-nigerians-guide-2026',
@@ -492,7 +492,7 @@ Walz Travels processes UAE visas quickly and reliably. We handle the full applic
 
 [Apply for UAE Visa →](https://www.walztravels.com/visa/uae)
 
-📱 WhatsApp: [+44 7398 753797](https://wa.me/447398753797)`,
+📱 WhatsApp: [+12317902336](https://wa.me/12317902336)`,
   },
   {
     slug: 'lagos-london-flight-time-route-guide',
@@ -579,7 +579,7 @@ Walz Travels searches live fares across all airlines on this route. We find the 
 
 [Search Lagos–London flights →](https://www.walztravels.com/flights)
 
-📱 WhatsApp: [+44 7398 753797](https://wa.me/447398753797)`,
+📱 WhatsApp: [+12317902336](https://wa.me/12317902336)`,
   },
   {
     slug: 'uk-visitor-visa-documents-checklist-nigerians-2026',
@@ -697,7 +697,7 @@ Before you submit, let the Walz Travels visa team review every document. We chec
 
 [Start your UK visa application →](https://www.walztravels.com/visa/uk)
 
-📱 WhatsApp: [+44 7398 753797](https://wa.me/447398753797)`,
+📱 WhatsApp: [+12317902336](https://wa.me/12317902336)`,
   },
   {
     slug: 'walz-travels-90-percent-visa-approval-rate',
@@ -785,7 +785,7 @@ A: Yes. We process visas for clients in Lagos, Abuja, Port Harcourt, Accra, and 
 
 [Apply for UK Visa →](https://www.walztravels.com/visa/uk)
 
-📱 WhatsApp: [+44 7398 753797](https://wa.me/447398753797)`,
+📱 WhatsApp: [+12317902336](https://wa.me/12317902336)`,
   },
   {
     slug: 'schengen-visa-nigeria-easiest-country',
@@ -878,7 +878,7 @@ A: Yes. We process Schengen visas for Nigerian and Ghanaian clients applying thr
 
 [Contact Walz Travels →](https://www.walztravels.com/contact)
 
-📱 WhatsApp: [+44 7398 753797](https://wa.me/447398753797)`,
+📱 WhatsApp: [+12317902336](https://wa.me/12317902336)`,
   },
   {
     slug: 'first-time-london-nigerians-complete-guide',
@@ -991,7 +991,7 @@ Walz Travels can handle your UK visa, flights, and hotel in one package. We know
 
 [Start planning your London trip →](https://www.walztravels.com/visa/uk)
 
-📱 WhatsApp: [+44 7398 753797](https://wa.me/447398753797)`,
+📱 WhatsApp: [+12317902336](https://wa.me/12317902336)`,
   },
 ]
 

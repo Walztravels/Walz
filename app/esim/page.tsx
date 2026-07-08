@@ -9,7 +9,7 @@ import { EsimTicker, EsimHowItWorks, EsimCompatibility, EsimFAQ, EsimCTA } from 
 export const revalidate = 21600
 
 export const metadata: Metadata = {
-  title:       { absolute: 'Jade Connect eSIM | Stay Connected in 150+ Countries | Walz Travels' },
+  title:       'Jade Connect eSIM | 150+ Countries',
   description: 'Instant eSIM for 150+ countries from USD 9.99. No roaming charges, no physical SIM. Activate before you land.',
   keywords: [
     'eSIM', 'travel eSIM', 'international eSIM', 'no roaming', 'Jade Connect',
@@ -41,6 +41,7 @@ export default async function EsimPage() {
 
   return (
     <>
+      <h1 className="sr-only">Jade Connect eSIM — Stay Connected in 150+ Countries</h1>
       <EsimHero />
       <EsimTicker />
 

@@ -62,8 +62,8 @@ export default function AccessibilityPage() {
           </li>
           <li>
             WhatsApp:{' '}
-            <a href="https://wa.me/447398753797" className="text-amber-600 hover:text-amber-700">
-              +44 7398 753797
+            <a href="https://wa.me/12317902336" className="text-amber-600 hover:text-amber-700">
+              +12317902336
             </a>
           </li>
           <li>

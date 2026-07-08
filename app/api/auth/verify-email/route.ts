@@ -87,7 +87,7 @@ export async function GET(req: NextRequest) {
         <tr><td style="background:#0B1F3A;padding:28px 40px;text-align:center;">
           <p style="margin:0 0 10px;color:#8B9BAE;font-size:13px;">Need help? Our team is always available.</p>
           <p style="margin:0;font-size:13px;">
-            <a href="https://wa.me/447398753797" style="color:#C9A84C;text-decoration:none;font-weight:600;">💬 WhatsApp: +44 7398 753797</a>
+            <a href="https://wa.me/12317902336" style="color:#C9A84C;text-decoration:none;font-weight:600;">💬 WhatsApp: +12317902336</a>
             &nbsp;&nbsp;|&nbsp;&nbsp;
             <a href="mailto:contact@walztravels.com" style="color:#C9A84C;text-decoration:none;font-weight:600;">✉️ contact@walztravels.com</a>
           </p>

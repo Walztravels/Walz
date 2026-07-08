@@ -585,7 +585,7 @@ export default function VisaPage() {
               Our team handles visa applications for 199+ destinations. WhatsApp us for any country not listed.
             </p>
             <a
-              href="https://wa.me/447398753797"
+              href="https://wa.me/12317902336"
               target="_blank"
               rel="noopener noreferrer"
               className="inline-flex items-center gap-2 px-6 py-3 bg-[#C9A84C] text-[#0B1F3A] font-bold text-sm rounded-xl hover:bg-[#b8943d] transition-colors"

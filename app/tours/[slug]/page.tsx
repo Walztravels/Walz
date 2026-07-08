@@ -329,7 +329,7 @@ function TourDetailContent() {
 
               {/* WhatsApp CTA */}
               <a
-                href={`https://wa.me/447398753797?text=${whatsappMessage}`}
+                href={`https://wa.me/12317902336?text=${whatsappMessage}`}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="flex items-center justify-center gap-2 w-full bg-[#C9A84C] hover:bg-[#d4b45f] text-[#0B1F3A] font-bold py-3 rounded-xl text-sm transition-colors mb-3"

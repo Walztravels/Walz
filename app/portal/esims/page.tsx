@@ -200,7 +200,7 @@ export default function PortalEsimsPage() {
                     </div>
 
                     <a
-                      href={`https://wa.me/447398753797?text=Hi, I need help with my Jade Connect eSIM (${order.orderRef})`}
+                      href={`https://wa.me/12317902336?text=Hi, I need help with my Jade Connect eSIM (${order.orderRef})`}
                       target="_blank"
                       rel="noopener noreferrer"
                       className="flex items-center justify-center gap-2 py-2.5 border border-[#E5E7EB] text-[#0B1F3A] font-semibold text-xs rounded-full hover:border-[#0B1F3A]/30 transition-colors"

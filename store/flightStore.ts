@@ -26,6 +26,7 @@ export interface FarePrediction {
 
 export interface LoyaltyAccount {
   isGuest:    boolean
+  enrolled:   boolean
   miles:      number
   tier:       'bronze' | 'silver' | 'gold' | 'platinum'
   nextTier:   'silver' | 'gold' | 'platinum' | null

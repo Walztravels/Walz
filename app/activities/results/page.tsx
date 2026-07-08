@@ -175,7 +175,7 @@ function ActivityCard({ act, fromDate, adults }: { act: Activity; fromDate: stri
             </button>
           </div>
           <a
-            href="https://wa.me/447398753797"
+            href="https://wa.me/12317902336"
             target="_blank"
             rel="noopener noreferrer"
             onClick={e => e.stopPropagation()}

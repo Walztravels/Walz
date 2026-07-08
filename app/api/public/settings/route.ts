@@ -12,7 +12,7 @@ const PUBLIC_KEYS = [
 ]
 
 const DEFAULTS: Record<string, string> = {
-  whatsapp_uk:     '+447398753797',
+  whatsapp_uk:     '+12317902336',
   whatsapp_us:     '+19843880110',
   whatsapp_canada: '+15557107823',
   business_name:   'Walz Travels',

@@ -1,6 +1,7 @@
 'use client'
 
-import { useEffect } from 'react'
+import { useEffect, useState, useCallback } from 'react'
+import { useSearchParams }                   from 'next/navigation'
 import { useFlightStore, type LoyaltyAccount } from '@/store/flightStore'
 
 type Variant = 'earn-preview' | 'compact' | 'full'
@@ -45,9 +46,30 @@ function ProgressBar({ miles, nextThreshold, colour }: { miles: number; nextThre
   )
 }
 
+function EnrolButton({ onEnrol }: { onEnrol: () => void }) {
+  const [state, setState] = useState<'idle' | 'loading' | 'done' | 'error'>('idle')
+  const handle = async () => {
+    setState('loading')
+    try {
+      const res = await fetch('/api/rewards/membership', { method: 'POST' })
+      if (res.ok) { setState('done'); onEnrol() }
+      else setState('error')
+    } catch { setState('error') }
+  }
+  if (state === 'done') return (
+    <div className="mt-3 text-center text-sm font-semibold text-green-600">✓ Welcome to Walz Rewards!</div>
+  )
+  return (
+    <button onClick={handle} disabled={state === 'loading'}
+      className="mt-3 block w-full text-center px-4 py-2 rounded-xl bg-[#C9A84C] text-[#0B1F3A] text-sm font-bold hover:bg-[#E8C87A] transition-all disabled:opacity-50">
+      {state === 'loading' ? 'Enrolling…' : state === 'error' ? 'Try again' : 'Join Walz Rewards — it\'s free'}
+    </button>
+  )
+}
+
 function EarnPreview({ bookingValueGBP, account }: { bookingValueGBP: number; account: LoyaltyAccount }) {
-  const config   = TIER_CONFIG[account.tier as keyof typeof TIER_CONFIG] ?? TIER_CONFIG.bronze
-  const earnRate = account.multiplier * 10
+  const config    = TIER_CONFIG[account.tier as keyof typeof TIER_CONFIG] ?? TIER_CONFIG.bronze
+  const earnRate  = account.multiplier * 10
   const milesEarning = Math.round(bookingValueGBP * earnRate)
 
   return (
@@ -59,8 +81,9 @@ function EarnPreview({ bookingValueGBP, account }: { bookingValueGBP: number; ac
           Earn +{milesEarning.toLocaleString()} miles on this booking
         </p>
       </div>
-      {account.isGuest && (
-        <a href="/auth/signup" className="text-[11px] font-semibold text-[#C9A84C] hover:underline whitespace-nowrap">
+      {!account.enrolled && (
+        <a href={account.isGuest ? '/portal/register?enrol=rewards' : '#enrol'}
+          className="text-[11px] font-semibold text-[#C9A84C] hover:underline whitespace-nowrap">
           Join free →
         </a>
       )}
@@ -68,8 +91,8 @@ function EarnPreview({ bookingValueGBP, account }: { bookingValueGBP: number; ac
   )
 }
 
-function CompactCard({ account }: { account: LoyaltyAccount }) {
-  const config    = TIER_CONFIG[account.tier as keyof typeof TIER_CONFIG] ?? TIER_CONFIG.bronze
+function CompactCard({ account, onEnrol }: { account: LoyaltyAccount; onEnrol: () => void }) {
+  const config     = TIER_CONFIG[account.tier as keyof typeof TIER_CONFIG] ?? TIER_CONFIG.bronze
   const nextConfig = account.nextTier ? TIER_CONFIG[account.nextTier as keyof typeof TIER_CONFIG] : null
   return (
     <div className="bg-white rounded-2xl border border-black/5 p-5">
@@ -90,15 +113,19 @@ function CompactCard({ account }: { account: LoyaltyAccount }) {
         </div>
       )}
 
-      {!account.isGuest && (
+      {account.enrolled && (
         <a href="/flights/loyalty" className="mt-3 block text-center text-[12px] font-semibold text-[#C9A84C] hover:underline">
           View full loyalty account →
         </a>
       )}
-      {account.isGuest && (
-        <a href="/auth/signup" className="mt-3 block text-center px-4 py-2 rounded-xl bg-[#C9A84C] text-[#0B1F3A] text-sm font-bold hover:bg-[#E8C87A] transition-all">
+      {!account.enrolled && account.isGuest && (
+        <a href="/portal/register?enrol=rewards"
+          className="mt-3 block text-center px-4 py-2 rounded-xl bg-[#C9A84C] text-[#0B1F3A] text-sm font-bold hover:bg-[#E8C87A] transition-all">
           Join Walz Rewards — it's free
         </a>
+      )}
+      {!account.enrolled && !account.isGuest && (
+        <EnrolButton onEnrol={onEnrol} />
       )}
     </div>
   )
@@ -110,11 +137,9 @@ const REDEEM_OPTIONS = [
   { miles: 20000, discountGBP: 200, label: '20,000 miles', value: '£200 off' },
 ]
 
-function FullDashboard({ account, onRedeem }: { account: LoyaltyAccount; onRedeem?: Props['onRedeem'] }) {
-  const config    = TIER_CONFIG[account.tier as keyof typeof TIER_CONFIG] ?? TIER_CONFIG.bronze
+function FullDashboard({ account, onRedeem, onEnrol }: { account: LoyaltyAccount; onRedeem?: Props['onRedeem']; onEnrol: () => void }) {
+  const config     = TIER_CONFIG[account.tier as keyof typeof TIER_CONFIG] ?? TIER_CONFIG.bronze
   const nextConfig = account.nextTier ? TIER_CONFIG[account.nextTier as keyof typeof TIER_CONFIG] : null
-  const TABS = ['My Miles', 'Benefits', 'Redeem'] as const
-  const [tab, setTab] = [TABS[0], () => {}]
 
   return (
     <div className="bg-white rounded-2xl border border-black/5 overflow-hidden">
@@ -153,7 +178,7 @@ function FullDashboard({ account, onRedeem }: { account: LoyaltyAccount; onRedee
         </div>
 
         {/* Redeem */}
-        {!account.isGuest && onRedeem && (
+        {account.enrolled && onRedeem && (
           <div>
             <p className="text-xs font-bold text-[#0B1F3A]/40 uppercase tracking-wider mb-3">Redeem Miles</p>
             <div className="space-y-2">
@@ -175,11 +200,14 @@ function FullDashboard({ account, onRedeem }: { account: LoyaltyAccount; onRedee
           </div>
         )}
 
-        {account.isGuest && (
-          <a href="/auth/signup"
+        {!account.enrolled && account.isGuest && (
+          <a href="/portal/register?enrol=rewards"
             className="block w-full text-center py-3 rounded-xl bg-[#C9A84C] text-[#0B1F3A] font-bold text-sm hover:bg-[#E8C87A] transition-all">
             Join Walz Rewards — it's free
           </a>
+        )}
+        {!account.enrolled && !account.isGuest && (
+          <EnrolButton onEnrol={onEnrol} />
         )}
       </div>
     </div>
@@ -188,26 +216,41 @@ function FullDashboard({ account, onRedeem }: { account: LoyaltyAccount; onRedee
 
 export function LoyaltyDashboard({ variant, bookingValueGBP = 0, onRedeem }: Props) {
   const { loyalty, setLoyalty } = useFlightStore()
+  const searchParams = useSearchParams()
 
-  useEffect(() => {
-    if (loyalty) return
+  const refreshAccount = useCallback(() => {
     fetch('/api/flights/loyalty')
       .then(r => r.json())
       .then(d => d.account && setLoyalty(d.account))
       .catch(() => {})
+  }, [setLoyalty])
+
+  useEffect(() => {
+    // Always re-fetch on mount (session state may differ from cached store)
+    refreshAccount()
   }, []) // eslint-disable-line
 
+  // Auto-enrol when landing with ?join=1 (redirected here from register page)
+  useEffect(() => {
+    if (searchParams?.get('join') !== '1') return
+    fetch('/api/rewards/membership', { method: 'POST' })
+      .then(r => r.json())
+      .then(() => refreshAccount())
+      .catch(() => {})
+  }, [searchParams]) // eslint-disable-line
+
   const account: LoyaltyAccount = loyalty ?? {
-    isGuest:      true,
-    miles:        0,
-    tier:         'bronze',
-    nextTier:     'silver',
+    isGuest:       true,
+    enrolled:      false,
+    miles:         0,
+    tier:          'bronze',
+    nextTier:      'silver',
     milesNextTier: 5000,
     recentActivity: [],
-    multiplier:   1,
+    multiplier:    1,
   }
 
   if (variant === 'earn-preview') return <EarnPreview bookingValueGBP={bookingValueGBP} account={account} />
-  if (variant === 'compact')     return <CompactCard account={account} />
-  return <FullDashboard account={account} onRedeem={onRedeem} />
+  if (variant === 'compact')     return <CompactCard account={account} onEnrol={refreshAccount} />
+  return <FullDashboard account={account} onRedeem={onRedeem} onEnrol={refreshAccount} />
 }

@@ -151,7 +151,7 @@ export function EsimCompatibility() {
                 </div>
               ))}
             </div>
-            <a href="https://wa.me/447398753797" target="_blank" rel="noopener noreferrer"
+            <a href="https://wa.me/12317902336" target="_blank" rel="noopener noreferrer"
               className="mt-5 flex items-center gap-2 text-[#C9A84C] text-sm font-semibold hover:opacity-80 transition-opacity">
               <MessageCircle className="w-4 h-4" />
               Not sure? WhatsApp Jade
@@ -211,7 +211,7 @@ export function EsimFAQ() {
         </div>
         <div className="text-center mt-10">
           <p className="text-white/30 text-sm mb-4">Still have questions?</p>
-          <a href="https://wa.me/447398753797" target="_blank" rel="noopener noreferrer"
+          <a href="https://wa.me/12317902336" target="_blank" rel="noopener noreferrer"
             className="inline-flex items-center gap-2 px-7 py-3.5 rounded-full font-bold text-sm transition-all duration-300 hover:scale-105"
             style={{ background: 'rgba(201,168,76,0.1)', border: '1px solid rgba(201,168,76,0.4)', color: '#C9A84C' }}>
             <MessageCircle className="w-4 h-4" />
@@ -321,7 +321,7 @@ export function EsimCTA() {
               Get Your eSIM Now
               <ArrowRight className="w-4 h-4" />
             </button>
-            <a href="https://wa.me/447398753797" target="_blank" rel="noopener noreferrer"
+            <a href="https://wa.me/12317902336" target="_blank" rel="noopener noreferrer"
               className="flex items-center gap-2 text-white/50 text-sm hover:text-white transition-colors">
               <MessageCircle className="w-4 h-4" />
               Or WhatsApp Jade — +44 7398 753797

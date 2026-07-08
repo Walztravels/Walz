@@ -103,7 +103,7 @@ If you have a complaint, please contact us first at contact@walztravels.com. We 
     body: `Walz Travels Ltd
 1 Commercial Street, London, E1 6RF
 Email: contact@walztravels.com
-WhatsApp: +44 7398 753797`,
+WhatsApp: +12317902336`,
   },
 ]
 

@@ -136,7 +136,7 @@ function PayLaterForm({ appId, refNumber }: { appId: string; refNumber: string }
           Jade will send your invoice within 2 business hours.
           Reference: <strong>{refNumber}</strong>
         </p>
-        <a href="https://wa.me/447398753797" target="_blank" rel="noopener noreferrer"
+        <a href="https://wa.me/12317902336" target="_blank" rel="noopener noreferrer"
           className="inline-flex items-center gap-2 px-5 py-3 bg-green-600 text-white font-semibold text-sm rounded-xl">
           <MessageCircle className="w-4 h-4" /> Follow up on WhatsApp
         </a>
@@ -154,7 +154,7 @@ function PayLaterForm({ appId, refNumber }: { appId: string; refNumber: string }
         {sending ? <Loader2 className="w-5 h-5 animate-spin" /> : <FileText className="w-5 h-5" />}
         Request Invoice
       </button>
-      <a href={`https://wa.me/447398753797?text=Hi+Jade,+I'd+like+to+pay+for+my+visa+application+by+bank+transfer.+Reference:+${refNumber}`}
+      <a href={`https://wa.me/12317902336?text=Hi+Jade,+I'd+like+to+pay+for+my+visa+application+by+bank+transfer.+Reference:+${refNumber}`}
         target="_blank" rel="noopener noreferrer"
         className="w-full py-4 bg-green-600 text-white font-bold text-sm rounded-xl flex items-center justify-center gap-2 hover:bg-green-700 transition-colors">
         <MessageCircle className="w-4 h-4" /> Pay via Bank Transfer (WhatsApp)

@@ -206,7 +206,7 @@ export default async function PackagesPage() {
               We design fully bespoke packages to any destination worldwide — your dates, your group size, your budget.
             </p>
             <a
-              href="https://wa.me/447398753797?text=Hi!%20I%20want%20to%20enquire%20about%20a%20custom%20travel%20package."
+              href="https://wa.me/12317902336?text=Hi!%20I%20want%20to%20enquire%20about%20a%20custom%20travel%20package."
               target="_blank"
               rel="noopener noreferrer"
               className="inline-flex items-center gap-3 px-8 py-4 rounded-2xl font-bold text-sm transition-opacity hover:opacity-90"

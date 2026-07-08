@@ -1,12 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { stripe } from '@/lib/stripe'
-import { initializeHelcimCheckout } from '@/lib/helcim'
 
 /**
  * POST /api/booking/create
  *
- * Supports three payment gateways:
+ * Supports two payment gateways:
  *
  * gateway: "stripe"
  *   → creates a Stripe PaymentIntent and returns clientSecret for
@@ -16,10 +15,6 @@ import { initializeHelcimCheckout } from '@/lib/helcim'
  *   → returns a unique tx_ref; Flutterwave handles payment collection
  *     entirely on the frontend with no server round-trip.
  *
- * gateway: "helcim"
- *   → initialises a Helcim Pay checkout session and returns
- *     checkoutToken for mounting HelcimPay.js on the frontend.
- *
  * After payment succeeds, call POST /api/booking/confirm.
  */
 
@@ -28,7 +23,7 @@ const schema = z.object({
   currency:         z.string().length(3),
   bookingReference: z.string().min(4).max(20),
   contactEmail:     z.string().email(),
-  gateway:          z.enum(['stripe', 'flutterwave', 'helcim']).default('flutterwave'),
+  gateway:          z.enum(['stripe', 'flutterwave']).default('flutterwave'),
 })
 
 export async function POST(request: NextRequest) {
@@ -58,20 +53,6 @@ export async function POST(request: NextRequest) {
         gateway: 'stripe',
         clientSecret: intent.client_secret,
         paymentIntentId: intent.id,
-        txRef,
-      })
-    }
-
-    if (gateway === 'helcim') {
-      const session = await initializeHelcimCheckout({
-        amount,
-        currency,
-        invoiceNumber: bookingReference,
-      })
-      return NextResponse.json({
-        gateway: 'helcim',
-        checkoutToken: session.checkoutToken,
-        secretToken:   session.secretToken,
         txRef,
       })
     }

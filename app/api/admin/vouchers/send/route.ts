@@ -148,8 +148,8 @@ export async function POST(req: NextRequest) {
           <p style="color:#94a3b8;font-size:12px;text-align:center;
             line-height:1.6;margin:0;">
             Need help? WhatsApp us on
-            <a href="https://wa.me/447398753797" style="color:#C9A84C;">
-              +44 7398 753797</a>
+            <a href="https://wa.me/12317902336" style="color:#C9A84C;">
+              +12317902336</a>
             or email
             <a href="mailto:contact@walztravels.com" style="color:#C9A84C;">
               contact@walztravels.com</a>

@@ -49,7 +49,7 @@ export default function NotFound() {
         {/* Help */}
         <p className="mt-8 text-gray-400 text-xs">
           Need help?{' '}
-          <a href="https://wa.me/447398753797" className="text-[#C9A84C] hover:underline font-medium">
+          <a href="https://wa.me/12317902336" className="text-[#C9A84C] hover:underline font-medium">
             WhatsApp us
           </a>{' '}
           or{' '}

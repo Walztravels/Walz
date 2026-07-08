@@ -8,7 +8,6 @@ const PAYMENT_SETTINGS = {
   // Gateway toggles (stored as 'true' / 'false')
   gateway_stripe:  { label: 'Stripe',   group: 'gateways', default: 'true' },
   gateway_flocash: { label: 'FloCash',  group: 'gateways', default: 'false' },
-  gateway_helcim:  { label: 'Helcim',   group: 'gateways', default: 'false' },
 
   // Visa service fees (USD)
   fee_uk_visa:       { label: 'UK Visa Service Fee',      group: 'fees', default: '150', currency: 'USD' },
@@ -27,7 +26,6 @@ type SettingKey = keyof typeof PAYMENT_SETTINGS
 const GATEWAY_LOGOS: Record<string, string> = {
   gateway_stripe:  '💳 Stripe',
   gateway_flocash: '🏦 FloCash',
-  gateway_helcim:  '💰 Helcim',
 }
 
 const INPUT = 'h-10 px-3 border border-gray-200 rounded-xl text-sm outline-none focus:border-[#C9A84C] focus:ring-1 focus:ring-[#C9A84C]/20 bg-white transition-colors w-full'

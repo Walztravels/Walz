@@ -1,4 +1,5 @@
 import type { Metadata } from 'next'
+import { Suspense } from 'react'
 import { LoyaltyDashboard } from '@/components/flights/loyalty/LoyaltyDashboard'
 
 export const metadata: Metadata = {
@@ -64,7 +65,7 @@ export default function LoyaltyPage() {
         <p className="text-white/50 text-lg max-w-lg mx-auto mb-8">
           Every booking earns Walz Miles. Climb the tiers for better perks, upgrades, and exclusive access.
         </p>
-        <a href="/auth/signup"
+        <a href="/portal/register?enrol=rewards"
           className="inline-block px-8 py-3.5 rounded-xl bg-[#C9A84C] text-[#0B1F3A] font-bold text-base hover:bg-[#E8C87A] transition-all">
           Join for free →
         </a>
@@ -153,7 +154,9 @@ export default function LoyaltyPage() {
           {/* Right: live dashboard */}
           <aside>
             <div className="sticky top-6">
-              <LoyaltyDashboard variant="full" />
+              <Suspense fallback={<div className="bg-white rounded-2xl border border-black/5 h-64 animate-pulse" />}>
+                <LoyaltyDashboard variant="full" />
+              </Suspense>
             </div>
           </aside>
         </div>

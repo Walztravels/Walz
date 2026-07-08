@@ -260,7 +260,7 @@ export function JadeStaffWidget() {
       {/* Chat panel */}
       {open && (
         <div
-          className="fixed bottom-20 right-5 z-[999] flex flex-col"
+          className="fixed bottom-36 right-5 md:bottom-20 z-[999] flex flex-col"
           style={{ width: 360, height: 520, maxHeight: 'calc(100vh - 100px)' }}
         >
           <div className="flex flex-col h-full bg-[#0C1829] rounded-2xl border border-white/10 shadow-2xl overflow-hidden">
@@ -394,7 +394,7 @@ export function JadeStaffWidget() {
       )}
 
       {/* Floating bubble */}
-      <button onClick={() => setOpen(o => !o)} className="fixed bottom-5 right-5 z-[1000] group">
+      <button onClick={() => setOpen(o => !o)} className="fixed bottom-20 right-5 md:bottom-5 z-[1000] group">
         {unread > 0 && !open && (
           <div className="absolute inset-0 rounded-full bg-amber-500/30 animate-ping" />
         )}

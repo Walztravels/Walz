@@ -34,7 +34,8 @@ function ConfirmationContent() {
   const seg  = it.segments[0]
   const last = it.segments[it.segments.length - 1]
 
-  const [tick, setTick] = useState(false)
+  const [tick,         setTick]         = useState(false)
+  const [resendState,  setResendState]  = useState<'idle' | 'sending' | 'sent' | 'error'>('idle')
 
   useEffect(() => {
     const t = setTimeout(() => setTick(true), 400)
@@ -43,6 +44,108 @@ function ConfirmationContent() {
 
   const milesEarned  = Math.round(it.price.total * 10)
   const leadPax      = passengers[0]
+
+  function handleDownloadTicket() {
+    const ticket = `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Walz Travels — Booking ${bookingRef}</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: Arial, sans-serif; max-width: 620px; margin: 0 auto; padding: 32px 20px; color: #0B1F3A; }
+    .header { background: #0B1F3A; color: white; padding: 24px; border-radius: 8px 8px 0 0; text-align: center; }
+    .header h1 { color: #C9A84C; font-size: 26px; margin-bottom: 4px; }
+    .header p { color: rgba(255,255,255,0.6); font-size: 13px; }
+    .body { border: 1px solid #e5e7eb; border-top: none; padding: 24px; border-radius: 0 0 8px 8px; }
+    .ref-box { border: 2px solid #C9A84C; border-radius: 8px; padding: 16px; text-align: center; margin: 16px 0; }
+    .ref-label { font-size: 11px; color: #6b7280; text-transform: uppercase; letter-spacing: 1px; }
+    .ref { font-family: monospace; font-size: 30px; font-weight: bold; color: #0B1F3A; letter-spacing: 4px; margin-top: 6px; }
+    .route { display: flex; gap: 12px; align-items: center; margin: 20px 0; background: #f9fafb; padding: 16px; border-radius: 8px; }
+    .city { flex: 1; }
+    .iata { font-size: 28px; font-weight: bold; color: #0B1F3A; }
+    .city-name { font-size: 12px; color: #6b7280; margin-top: 2px; }
+    .arrow { font-size: 24px; color: #C9A84C; }
+    table { width: 100%; border-collapse: collapse; margin: 16px 0; }
+    td { padding: 9px 0; border-bottom: 1px solid #f3f4f6; font-size: 14px; }
+    td:first-child { color: #6b7280; width: 45%; }
+    td:last-child { font-weight: 600; }
+    .notice { background: #FFF9E6; border: 1px solid #F59E0B; border-radius: 8px; padding: 12px 16px; font-size: 13px; color: #92400E; margin-top: 20px; }
+    .print-btn { margin-top: 20px; padding: 12px 24px; background: #0B1F3A; color: white; border: none; border-radius: 8px; cursor: pointer; font-size: 14px; font-weight: bold; }
+    @media print { .print-btn { display: none; } }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <img src="https://walztravels.com/walz-logo.png" alt="Walz Travels" style="width:120px;height:auto;display:block;margin:0 auto;" />
+    <p>Booking Confirmation Receipt</p>
+  </div>
+  <div class="body">
+    <div class="ref-box">
+      <div class="ref-label">Booking Reference</div>
+      <div class="ref">${bookingRef}</div>
+    </div>
+    <div class="route">
+      <div class="city">
+        <div class="iata">${seg.departureIata}</div>
+        <div class="city-name">${seg.departureCity}</div>
+      </div>
+      <div class="arrow">→</div>
+      <div class="city" style="text-align:right">
+        <div class="iata">${last.arrivalIata}</div>
+        <div class="city-name">${last.arrivalCity}</div>
+      </div>
+    </div>
+    <table>
+      <tr><td>Airline</td><td>${seg.airlineName}</td></tr>
+      <tr><td>Flight number</td><td>${seg.flightNumber}</td></tr>
+      <tr><td>Departure</td><td>${formatTime(seg.departureTime)}</td></tr>
+      <tr><td>Arrival</td><td>${formatTime(last.arrivalTime)}</td></tr>
+      <tr><td>Cabin</td><td style="text-transform:capitalize">${seg.cabinClass.replace('_', ' ')}</td></tr>
+      <tr><td>Passengers</td><td>${store.passengerCount()} passenger${store.passengerCount() !== 1 ? 's' : ''}</td></tr>
+      ${leadPax ? `<tr><td>Lead passenger</td><td>${leadPax.firstName} ${leadPax.lastName}</td></tr>` : ''}
+      <tr><td>Status</td><td style="color:#d97706;font-weight:bold">Pending confirmation</td></tr>
+    </table>
+    <div class="notice">⏳ Your flight is being verified. Your official e-ticket will be emailed within 2 business hours. WhatsApp: <strong>+1 231 790 2336</strong></div>
+    <button class="print-btn" onclick="window.print()">🖨️ Print / Save as PDF</button>
+  </div>
+</body>
+</html>`
+
+    const blob = new Blob([ticket], { type: 'text/html' })
+    const url  = URL.createObjectURL(blob)
+    const a    = document.createElement('a')
+    a.href     = url
+    a.target   = '_blank'
+    a.click()
+    setTimeout(() => URL.revokeObjectURL(url), 5000)
+  }
+
+  async function handleResendEmail() {
+    if (resendState === 'sending') return
+    if (!leadPax?.email) {
+      setResendState('error')
+      return
+    }
+    setResendState('sending')
+    try {
+      const res = await fetch('/api/flights/resend-confirmation', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          bookingRef,
+          clientName:  `${leadPax.firstName} ${leadPax.lastName}`.trim(),
+          clientEmail: leadPax.email,
+          origin:      seg.departureIata,
+          dest:        last.arrivalIata,
+          departDate:  seg.departureTime.split('T')[0],
+        }),
+      })
+      setResendState(res.ok ? 'sent' : 'error')
+    } catch {
+      setResendState('error')
+    }
+  }
 
   function handleCalendar() {
     const depart = new Date(seg.departureTime)
@@ -138,18 +241,33 @@ function ConfirmationContent() {
 
             {/* Action buttons */}
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-              {[
-                { icon: '🖨️', label: 'Download e-Ticket', action: () => window.print()                      },
-                { icon: '📧', label: 'Resend Email',       action: () => {}                                   },
-                { icon: '📅', label: 'Add to Calendar',   action: handleCalendar                              },
-                { icon: '💬', label: 'Contact Support',   action: () => window.open('https://wa.me/447398753797', '_blank') },
-              ].map(({ icon, label, action }) => (
-                <button key={label} onClick={action}
-                  className="flex flex-col items-center gap-2 p-4 rounded-2xl bg-white border border-black/5 hover:border-[#C9A84C]/30 hover:shadow-sm transition-all">
-                  <span className="text-2xl">{icon}</span>
-                  <span className="text-xs font-medium text-[#0B1F3A]/60 text-center leading-tight">{label}</span>
-                </button>
-              ))}
+              <button onClick={handleDownloadTicket}
+                className="flex flex-col items-center gap-2 p-4 rounded-2xl bg-white border border-black/5 hover:border-[#C9A84C]/30 hover:shadow-sm transition-all">
+                <span className="text-2xl">🖨️</span>
+                <span className="text-xs font-medium text-[#0B1F3A]/60 text-center leading-tight">Download e-Ticket</span>
+              </button>
+
+              <button onClick={handleResendEmail} disabled={resendState === 'sending'}
+                className="flex flex-col items-center gap-2 p-4 rounded-2xl bg-white border border-black/5 hover:border-[#C9A84C]/30 hover:shadow-sm transition-all disabled:opacity-50">
+                <span className="text-2xl">
+                  {resendState === 'sending' ? '⏳' : resendState === 'sent' ? '✅' : resendState === 'error' ? '❌' : '📧'}
+                </span>
+                <span className="text-xs font-medium text-[#0B1F3A]/60 text-center leading-tight">
+                  {resendState === 'sending' ? 'Sending…' : resendState === 'sent' ? 'Email Sent!' : resendState === 'error' ? 'Failed — WhatsApp us' : 'Resend Email'}
+                </span>
+              </button>
+
+              <button onClick={handleCalendar}
+                className="flex flex-col items-center gap-2 p-4 rounded-2xl bg-white border border-black/5 hover:border-[#C9A84C]/30 hover:shadow-sm transition-all">
+                <span className="text-2xl">📅</span>
+                <span className="text-xs font-medium text-[#0B1F3A]/60 text-center leading-tight">Add to Calendar</span>
+              </button>
+
+              <button onClick={() => window.open('https://wa.me/12317902336', '_blank')}
+                className="flex flex-col items-center gap-2 p-4 rounded-2xl bg-white border border-black/5 hover:border-[#C9A84C]/30 hover:shadow-sm transition-all">
+                <span className="text-2xl">💬</span>
+                <span className="text-xs font-medium text-[#0B1F3A]/60 text-center leading-tight">Contact Support</span>
+              </button>
             </div>
 
             {/* What happens next */}

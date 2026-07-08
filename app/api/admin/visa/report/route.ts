@@ -111,7 +111,7 @@ export async function POST(req: NextRequest) {
               <p style="margin:0;color:#0B1F3A;font-size:13px;font-weight:600;">Next Step:</p>
               <p style="margin:4px 0 0;color:#475569;font-size:13px;line-height:1.6;">
                 WhatsApp your consultant on
-                <a href="https://wa.me/447398753797" style="color:#C9A84C;font-weight:700;"> +44 7398 753797</a>
+                <a href="https://wa.me/12317902336" style="color:#C9A84C;font-weight:700;"> +12317902336</a>
                 to discuss your report and proceed with your application.
               </p>
             </div>

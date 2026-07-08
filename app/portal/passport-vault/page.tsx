@@ -226,7 +226,7 @@ export default function PassportVaultPage() {
                 </li>
               ))}
             </ul>
-            <a href="https://wa.me/447398753797" target="_blank" rel="noopener noreferrer"
+            <a href="https://wa.me/12317902336" target="_blank" rel="noopener noreferrer"
               className="block text-center py-3 bg-[#0B1F3A] text-white font-bold text-sm rounded-xl hover:bg-[#0d2345] transition-colors">
               Upgrade to Vault Pro →
             </a>

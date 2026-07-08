@@ -79,7 +79,7 @@ export async function GET(req: Request) {
               </div>` : ''}
               <p style="color:#666;font-size:13px">
                 Questions? Contact your Walz Travels visa team:<br/>
-                📱 <a href="https://wa.me/447398753797" style="color:#C9A84C">+44 7398 753797</a>
+                📱 <a href="https://wa.me/12317902336" style="color:#C9A84C">+12317902336</a>
               </p>
             </div>
             <div style="background:#f5f5f5;padding:16px;text-align:center">

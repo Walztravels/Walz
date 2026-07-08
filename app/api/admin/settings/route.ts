@@ -1,21 +1,42 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getAdminSession } from '@/lib/admin-auth'
 import prisma from '@/lib/db'
+import { revalidateSiteSettings } from '@/lib/site-settings'
 
 // ── Hard-coded default settings (used as fallbacks if DB has no value) ──────
 const DEFAULT_SETTINGS: Record<string, { label: string; value: string; group: string }> = {
-  // General
-  business_name:   { label: 'Business Name',      value: 'Walz Travels',                        group: 'general' },
-  website_url:     { label: 'Website URL',         value: 'https://walztravels.com',               group: 'general' },
-  office_address:  { label: 'Office Address',      value: '1 Commercial Street, London, E1 6RF', group: 'general' },
+  // General — keys match SiteSettings type in lib/site-settings.ts
+  business_name:    { label: 'Business Name',     value: 'Walz Travels Ltd',                     group: 'general' },
+  business_address: { label: 'Business Address',  value: '1 Commercial Street, London, E1 6RF', group: 'general' },
+  business_email:   { label: 'Business Email',    value: 'contact@walztravels.com',              group: 'general' },
+  website_url:      { label: 'Website URL',       value: 'https://walztravels.com',              group: 'general' },
+  office_address:   { label: 'Office Address (legacy)', value: '1 Commercial Street, London, E1 6RF', group: 'general' },
 
   // Emails
   contact_email:   { label: 'Contact Email',       value: 'contact@walztravels.com',              group: 'emails' },
   support_email:   { label: 'Support Email',        value: 'contact@walztravels.com',              group: 'emails' },
   booking_email:   { label: 'Booking Email',        value: 'contact@walztravels.com',              group: 'emails' },
 
-  // Phone & WhatsApp
-  whatsapp_uk:     { label: 'WhatsApp UK',          value: '+447398753797',                        group: 'phones' },
+  // Phone & WhatsApp — these keys are consumed by lib/site-settings.ts → components
+  whatsapp_header:         { label: 'WhatsApp (Navbar – raw number)',    value: '+12317902336',  group: 'phones' },
+  whatsapp_header_display: { label: 'WhatsApp (Navbar – display text)',  value: '+12317902336',group: 'phones' },
+  whatsapp_cta:            { label: 'WhatsApp (Homepage CTA – raw number)',    value: '+12317902336',  group: 'phones' },
+  whatsapp_cta_display:    { label: 'WhatsApp (Homepage CTA – display text)',  value: '+12317902336',  group: 'phones' },
+  phone_uk:        { label: 'WhatsApp UK',      value: '+12317902336',  group: 'phones' },
+  phone_canada:    { label: 'WhatsApp Canada',  value: '+13657200865',   group: 'phones' },
+  phone_uae:       { label: 'WhatsApp UAE',     value: '+971000000000',  group: 'phones' },
+  phone_nigeria:   { label: 'WhatsApp Nigeria', value: '+2347077691701', group: 'phones' },
+  phone_ghana:     { label: 'WhatsApp Ghana',   value: '+2330000000000', group: 'phones' },
+  footer_wa_1_label:  { label: 'Footer Slot 1 – Label',  value: 'WhatsApp UK',     group: 'phones' },
+  footer_wa_1_number: { label: 'Footer Slot 1 – Number', value: '+12317902336',   group: 'phones' },
+  footer_wa_2_label:  { label: 'Footer Slot 2 – Label',  value: 'WhatsApp Canada', group: 'phones' },
+  footer_wa_2_number: { label: 'Footer Slot 2 – Number', value: '+13657200865',    group: 'phones' },
+  footer_wa_3_label:  { label: 'Footer Slot 3 – Label',  value: '',                group: 'phones' },
+  footer_wa_3_number: { label: 'Footer Slot 3 – Number', value: '',                group: 'phones' },
+  footer_wa_4_label:  { label: 'Footer Slot 4 – Label',  value: '',                group: 'phones' },
+  footer_wa_4_number: { label: 'Footer Slot 4 – Number', value: '',                group: 'phones' },
+  // Legacy keys kept for backwards compat
+  whatsapp_uk:     { label: 'WhatsApp UK (legacy)', value: '+12317902336',                        group: 'phones' },
   whatsapp_us:     { label: 'WhatsApp US',          value: '+19843880110',                         group: 'phones' },
   whatsapp_canada: { label: 'WhatsApp Canada',      value: '+15557107823',                         group: 'phones' },
   call_jade:       { label: 'Call Jade (Phone)',     value: '+19843880110',                         group: 'phones' },
@@ -108,6 +129,9 @@ export async function POST(req: NextRequest) {
       })
     )
   )
+
+  // Bust the site-settings cache so the next request picks up new values
+  await revalidateSiteSettings()
 
   return NextResponse.json({ success: true })
 }

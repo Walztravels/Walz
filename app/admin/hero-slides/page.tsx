@@ -35,7 +35,7 @@ const EMPTY: Omit<HeroSlide, 'id'> = {
   ctaPrimaryText:   'Start Your Journey',
   ctaPrimaryLink:   '/plan/new',
   ctaSecondaryText: 'Chat with Jade',
-  ctaSecondaryLink: 'https://wa.me/447398753797',
+  ctaSecondaryLink: 'https://wa.me/12317902336',
   overlayDarkness:  55,
   slideOrder:       0,
   active:           true,

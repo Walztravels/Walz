@@ -4,7 +4,6 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import prisma from '@/lib/db'
 import { sendVoucherEmail, sendVoucherAdminNotification } from '@/lib/voucher-email'
-import { verifyHelcimTransaction, isTransactionValid } from '@/lib/helcim'
 
 const CURRENCIES: Record<string, string> = {
   usd: 'USD', gbp: 'GBP', cad: 'CAD',
@@ -31,10 +30,9 @@ const schema = z.object({
   scheduledDeliveryDate: z.string().optional(),
 
   // Payment
-  gateway:       z.enum(['flutterwave', 'stripe', 'helcim']),
+  gateway:       z.enum(['flutterwave', 'stripe']),
   transactionId:      z.string().optional(),  // flutterwave
   paymentIntentId:    z.string().optional(),  // stripe
-  helcimTransactionId: z.union([z.string(), z.number()]).optional(), // helcim
 })
 
 function generateCode(serviceType: string): string {
@@ -84,13 +82,6 @@ export async function POST(req: NextRequest) {
     const verified = await verifyFlutterwave(d.transactionId, d.amount, d.currency)
     if (!verified) return NextResponse.json({ error: 'Payment verification failed' }, { status: 402 })
     paymentRef = String(verified.id)
-  } else if (d.gateway === 'helcim') {
-    if (!d.helcimTransactionId) return NextResponse.json({ error: 'helcimTransactionId required' }, { status: 400 })
-    const tx = await verifyHelcimTransaction(d.helcimTransactionId)
-    if (!tx || !isTransactionValid(tx, d.amount, d.currency)) {
-      return NextResponse.json({ error: 'Payment verification failed' }, { status: 402 })
-    }
-    paymentRef = String(tx.transactionId)
   } else {
     if (!d.paymentIntentId) return NextResponse.json({ error: 'paymentIntentId required' }, { status: 400 })
     const verified = await verifyStripe(d.paymentIntentId)

@@ -227,7 +227,7 @@ export default function CanadaVisaGhanaPage() {
             <h2 className="text-xl font-bold text-[#0B1F3A] mb-4">How to Apply for Canada Visa with Walz Travels from Ghana</h2>
             <div className="space-y-4">
               {[
-                { step: '1', title: 'WhatsApp consultation', desc: 'Contact +44 7398 753797. We review your profile, identify risk areas, and outline the process.' },
+                { step: '1', title: 'WhatsApp consultation', desc: 'Contact +12317902336. We review your profile, identify risk areas, and outline the process.' },
                 { step: '2', title: 'Personalised checklist', desc: 'You receive a document checklist specific to your employment status, finances, and travel history.' },
                 { step: '3', title: 'Document review', desc: 'We review every document — bank statements, employment letters, purpose of visit — before submission.' },
                 { step: '4', title: 'Application and covering letter', desc: 'We complete IMM 5257 and IMM 5645 and write a detailed covering letter demonstrating your ties to Ghana.' },
@@ -277,12 +277,12 @@ export default function CanadaVisaGhanaPage() {
                 Apply for Canada Visa →
               </Link>
               <a
-                href="https://wa.me/447398753797"
+                href="https://wa.me/12317902336"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="inline-flex items-center justify-center px-8 py-3 border-2 border-white/20 hover:border-white/40 text-white font-semibold rounded-xl transition-colors text-sm"
               >
-                WhatsApp +44 7398 753797
+                WhatsApp +12317902336
               </a>
             </div>
           </div>

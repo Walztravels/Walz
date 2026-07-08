@@ -43,7 +43,7 @@ KEY BRAND THEMES:
 ${themes.map((t: string) => `- ${t}`).join('\n')}
 
 ALWAYS INCLUDE:
-- WhatsApp CTA: +447398753797
+- WhatsApp CTA: +12317902336
 - 1-2 relevant emojis per paragraph
 - Call to action (DM, WhatsApp, link in bio)
 - Hashtags from our brand list

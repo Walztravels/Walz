@@ -261,7 +261,7 @@ export default async function ClientItineraryPage({ params }: { params: Promise<
           <h3 className="text-white font-bold text-lg mb-2">Questions about your itinerary?</h3>
           <p className="text-white/60 text-sm mb-6">We&apos;re here to make your trip perfect.</p>
           <div className="flex flex-col sm:flex-row gap-3 justify-center">
-            <a href="https://wa.me/447398753797" className="bg-green-500 text-white font-bold px-6 py-3 rounded-xl text-sm hover:bg-green-400 transition">💬 WhatsApp Us</a>
+            <a href="https://wa.me/12317902336" className="bg-green-500 text-white font-bold px-6 py-3 rounded-xl text-sm hover:bg-green-400 transition">💬 WhatsApp Us</a>
             <a href="mailto:contact@walztravels.com" className="bg-amber-500 text-black font-bold px-6 py-3 rounded-xl text-sm hover:bg-amber-400 transition">✉️ Email Us</a>
           </div>
         </div>

@@ -26,10 +26,17 @@ function coverPhoto(pkg: { photos: string[]; imageUrl: string | null }): string 
 export async function generateMetadata({ params }: RouteContext): Promise<Metadata> {
   const pkg = await prisma.tourListing.findUnique({ where: { slug: params.slug } })
   if (!pkg) return {}
+  const canonical = `https://www.walztravels.com/packages/${pkg.slug}`
   return {
     title: { absolute: `${pkg.name} | Walz Travels` },
     description: pkg.description.slice(0, 160),
-    openGraph: { title: pkg.name, description: pkg.description.slice(0, 160) },
+    alternates: { canonical },
+    robots: { index: true, follow: true },
+    openGraph: {
+      title: pkg.name,
+      description: pkg.description.slice(0, 160),
+      url: canonical,
+    },
   }
 }
 

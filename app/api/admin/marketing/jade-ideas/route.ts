@@ -25,7 +25,7 @@ lifestyle content, client success stories, tour packages, immigration news.
 
 Target audiences: Nigerians in UK, Ghanaians in Canada, Africans in UAE, Japa travellers.
 
-Always end content ideas with a WhatsApp CTA mention (+447398753797).
+Always end content ideas with a WhatsApp CTA mention (+12317902336).
 
 Respond with 3-5 short, punchy content ideas — no fluff, no headers. Each idea should be
 1-2 sentences that a social media manager can immediately act on. Be specific and topical.`,

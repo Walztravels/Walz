@@ -251,7 +251,7 @@ export default function MyAccountPage() {
 
         <p className="text-center text-xs text-gray-400">
           Questions?{' '}
-          <a href="https://wa.me/447398753797" className="text-[#C9A84C] hover:underline" target="_blank" rel="noopener noreferrer">WhatsApp us</a>
+          <a href="https://wa.me/12317902336" className="text-[#C9A84C] hover:underline" target="_blank" rel="noopener noreferrer">WhatsApp us</a>
           {' '}or{' '}
           <a href="mailto:contact@walztravels.com" className="text-[#C9A84C] hover:underline">email us</a>
         </p>

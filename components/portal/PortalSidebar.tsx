@@ -109,7 +109,7 @@ export function PortalSidebar({ userName, userEmail }: Props) {
           <Globe className="w-4 h-4" />
           Back to Website
         </Link>
-        <a href="https://wa.me/447398753797" target="_blank" rel="noopener noreferrer"
+        <a href="https://wa.me/12317902336" target="_blank" rel="noopener noreferrer"
           className="flex items-center gap-3 px-3 py-2 rounded-lg text-xs text-green-400/80 hover:text-green-300 hover:bg-white/10 transition-all">
           <MessageCircle className="w-4 h-4" />
           WhatsApp Support

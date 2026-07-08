@@ -212,7 +212,7 @@ export default function UkVisaGhanaPage() {
             </p>
             <div className="space-y-4">
               {[
-                { step: '1', title: 'WhatsApp consultation', desc: 'Contact us on +44 7398 753797. We assess your profile and identify any risk factors.' },
+                { step: '1', title: 'WhatsApp consultation', desc: 'Contact us on +12317902336. We assess your profile and identify any risk factors.' },
                 { step: '2', title: 'Personalised document checklist', desc: 'Based on your employment status, finances, and travel history.' },
                 { step: '3', title: 'Document review', desc: 'Our visa specialists review every document for accuracy, consistency, and completeness.' },
                 { step: '4', title: 'Custom covering letter', desc: 'We write a tailored covering letter that addresses your specific situation and any potential concerns.' },
@@ -262,12 +262,12 @@ export default function UkVisaGhanaPage() {
                 Apply for UK Visa →
               </Link>
               <a
-                href="https://wa.me/447398753797"
+                href="https://wa.me/12317902336"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="inline-flex items-center justify-center px-8 py-3 border-2 border-white/20 hover:border-white/40 text-white font-semibold rounded-xl transition-colors text-sm"
               >
-                WhatsApp +44 7398 753797
+                WhatsApp +12317902336
               </a>
             </div>
           </div>

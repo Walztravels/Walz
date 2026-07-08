@@ -160,9 +160,9 @@ export default function PortalApplicationsPage() {
           <span className="text-2xl">💬</span>
           <div>
             <p className="text-sm font-medium text-green-800">Need an update on your application?</p>
-            <a href="https://wa.me/447398753797" target="_blank" rel="noopener noreferrer"
+            <a href="https://wa.me/12317902336" target="_blank" rel="noopener noreferrer"
               className="text-xs text-green-600 hover:underline">
-              WhatsApp us: +44 7398 753797 →
+              WhatsApp us: +12317902336 →
             </a>
           </div>
         </div>

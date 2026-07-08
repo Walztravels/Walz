@@ -109,7 +109,7 @@ export async function POST(req: NextRequest) {
       <div style="margin-top:24px;padding:20px;background:#0B1F3A;border-radius:10px;text-align:center">
         <p style="margin:0 0 14px;color:rgba(255,255,255,.8);font-size:14px">Have questions? Our team is ready to help.</p>
         <div>
-          <a href="https://wa.me/447398753797" style="display:inline-block;background:#C9A84C;color:#0B1F3A;text-decoration:none;font-weight:700;padding:10px 24px;border-radius:6px;font-size:13px;margin:4px">
+          <a href="https://wa.me/12317902336" style="display:inline-block;background:#C9A84C;color:#0B1F3A;text-decoration:none;font-weight:700;padding:10px 24px;border-radius:6px;font-size:13px;margin:4px">
             WhatsApp UK
           </a>
           <a href="mailto:contact@walztravels.com" style="display:inline-block;background:rgba(255,255,255,.1);color:#fff;text-decoration:none;font-weight:600;padding:10px 24px;border-radius:6px;font-size:13px;border:1px solid rgba(255,255,255,.2);margin:4px">

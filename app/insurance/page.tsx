@@ -950,7 +950,7 @@ function InsurancePageInner() {
               Get Instant Quote
             </a>
             <a
-              href="https://wa.me/447398753797?text=Hi%20Walz%20Travels%2C%20I%20need%20travel%20insurance%20for%20my%20upcoming%20trip."
+              href="https://wa.me/12317902336?text=Hi%20Walz%20Travels%2C%20I%20need%20travel%20insurance%20for%20my%20upcoming%20trip."
               target="_blank"
               rel="noopener noreferrer"
               className="inline-flex items-center gap-2.5 px-8 py-3.5 bg-white/20 hover:bg-white/30 text-[#0B1F3A] font-bold text-sm rounded-full transition-all duration-300 hover:scale-105"

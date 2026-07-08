@@ -49,14 +49,14 @@ export default function ContactPage() {
       {/* Contact cards */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4 max-w-3xl mx-auto px-5 -mt-8 mb-16">
         <a
-          href="https://wa.me/447398753797"
+          href="https://wa.me/12317902336"
           target="_blank"
           rel="noopener noreferrer"
           className="bg-[#0B1F3A] rounded-2xl p-7 text-center border border-white/8 hover:border-green-500/40 transition-all"
         >
           <div className="text-3xl mb-3">💬</div>
           <h3 className="text-white font-semibold mb-1">WhatsApp</h3>
-          <p className="text-white/50 text-sm mb-3">+44 7398 753797</p>
+          <p className="text-white/50 text-sm mb-3">+12317902336</p>
           <p className="text-green-400 text-xs font-semibold">Available 24/7</p>
         </a>
 

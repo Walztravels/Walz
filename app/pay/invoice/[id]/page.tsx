@@ -140,7 +140,7 @@ export default async function PublicInvoicePage({ params }: { params: Promise<{ 
               To pay by bank transfer or for payment queries, please contact us:
             </div>
             <div style={{ display: 'flex', gap: 12, justifyContent: 'center', flexWrap: 'wrap' }}>
-              <a href="https://wa.me/447398753797"
+              <a href="https://wa.me/12317902336"
                 style={{ display: 'flex', alignItems: 'center', gap: 8, background: '#25D366', color: 'white', padding: '12px 20px', borderRadius: 50, textDecoration: 'none', fontWeight: 700, fontSize: 13 }}>
                 💬 WhatsApp Us
               </a>
@@ -154,7 +154,7 @@ export default async function PublicInvoicePage({ params }: { params: Promise<{ 
 
         {/* Footer */}
         <div style={{ background: '#0B1F3A', padding: '16px 32px', textAlign: 'center', fontSize: 11, color: 'rgba(255,255,255,0.4)' }}>
-          © {new Date().getFullYear()} Walz Travels Ltd · walztravels.com · contact@walztravels.com · +44 7398 753797
+          © {new Date().getFullYear()} Walz Travels Ltd · walztravels.com · contact@walztravels.com · +12317902336
         </div>
       </div>
     </div>

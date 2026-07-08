@@ -216,7 +216,7 @@ export function BookingCard({
           Book this Package
         </button>
         <a
-          href={`https://wa.me/447398753797?text=${waText}`}
+          href={`https://wa.me/12317902336?text=${waText}`}
           target="_blank"
           rel="noopener noreferrer"
           className="block w-full text-center py-3 rounded-xl font-semibold text-sm border border-[#0B1F3A] text-[#0B1F3A] hover:bg-[#0B1F3A] hover:text-white transition-colors mb-3"

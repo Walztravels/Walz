@@ -255,7 +255,7 @@ export default function TransfersPage() {
                 <p className="font-semibold">Search failed</p>
                 <p className="mt-0.5 text-red-400 text-xs">{error}</p>
                 <p className="mt-1 text-xs text-red-400/70">
-                  Or <a href="https://wa.me/447398753797?text=Hi%20Walz%20Travels%2C%20I%20need%20an%20airport%20transfer." target="_blank" rel="noopener noreferrer" className="underline hover:text-red-300">WhatsApp us</a> for a manual quote.
+                  Or <a href="https://wa.me/12317902336?text=Hi%20Walz%20Travels%2C%20I%20need%20an%20airport%20transfer." target="_blank" rel="noopener noreferrer" className="underline hover:text-red-300">WhatsApp us</a> for a manual quote.
                 </p>
               </div>
             </div>
@@ -279,7 +279,7 @@ export default function TransfersPage() {
                   <p className="text-white font-semibold">No transfers found</p>
                   <p className="text-white/40 text-sm mt-1 mb-4">Try different airports or dates, or book via WhatsApp.</p>
                   <a
-                    href="https://wa.me/447398753797?text=Hi%20Walz%20Travels%2C%20I%20need%20an%20airport%20transfer."
+                    href="https://wa.me/12317902336?text=Hi%20Walz%20Travels%2C%20I%20need%20an%20airport%20transfer."
                     target="_blank"
                     rel="noopener noreferrer"
                     className="inline-flex items-center gap-2 px-5 py-2.5 bg-[#25D366] text-white font-bold text-sm rounded-full hover:bg-[#1fbe5a] transition-colors"
@@ -361,7 +361,7 @@ export default function TransfersPage() {
 
           <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
             <a
-              href="https://wa.me/447398753797?text=Hi%20Walz%20Travels%2C%20I%20need%20an%20airport%20transfer."
+              href="https://wa.me/12317902336?text=Hi%20Walz%20Travels%2C%20I%20need%20an%20airport%20transfer."
               target="_blank"
               rel="noopener noreferrer"
               className="inline-flex items-center gap-2.5 px-8 py-3.5 bg-[#25D366] hover:bg-[#1fbe5a] text-white font-bold text-sm rounded-full transition-all duration-300 hover:scale-105 active:scale-100 shadow-lg shadow-green-500/20"
@@ -574,7 +574,7 @@ export default function TransfersPage() {
               If you can&apos;t find what you need online, WhatsApp us and Jade will confirm your transfer — usually within 15 minutes.
             </p>
             <a
-              href="https://wa.me/447398753797?text=Hi%20Walz%20Travels%2C%20I%20need%20an%20airport%20transfer."
+              href="https://wa.me/12317902336?text=Hi%20Walz%20Travels%2C%20I%20need%20an%20airport%20transfer."
               target="_blank"
               rel="noopener noreferrer"
               className="inline-flex items-center gap-2.5 px-10 py-4 bg-[#C9A84C] hover:bg-[#d4b05a] text-[#0B1F3A] font-bold text-sm rounded-full transition-all duration-300 hover:scale-105 active:scale-100 shadow-xl shadow-[#C9A84C]/20"

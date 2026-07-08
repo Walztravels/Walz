@@ -1,7 +1,7 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
-import { Plus, Pencil, Trash2, Eye, EyeOff, Loader2, MapPin } from 'lucide-react'
+import { useState, useEffect, useCallback, useRef, DragEvent, ChangeEvent } from 'react'
+import { Plus, Pencil, Trash2, Eye, EyeOff, Loader2, MapPin, Upload, X } from 'lucide-react'
 
 interface Destination {
   id: string
@@ -32,6 +32,129 @@ const SEED_DESTINATIONS = [
   { city: 'Accra',    country: 'Ghana',           tag: 'NEW ROUTE',    imageUrl: 'https://images.unsplash.com/photo-1597149374936-796cb7d85a06?w=800&auto=format&fit=crop', flightFrom: '£620', hotelFrom: '£55/night',  visaFrom: '£60',  sortOrder: 6 },
 ]
 
+// ── Image Upload Zone ──────────────────────────────────────────────────────────
+function ImageUploadZone({
+  value,
+  onChange,
+}: {
+  value: string
+  onChange: (url: string) => void
+}) {
+  const [uploading, setUploading] = useState(false)
+  const [dragOver,  setDragOver]  = useState(false)
+  const [error,     setError]     = useState('')
+  const fileInputRef = useRef<HTMLInputElement>(null)
+
+  async function uploadFile(file: File) {
+    setError('')
+    setUploading(true)
+    try {
+      const fd = new FormData()
+      fd.append('file', file)
+      const res  = await fetch('/api/admin/destinations/upload', { method: 'POST', body: fd })
+      const data = await res.json() as { url?: string; error?: string }
+      if (!res.ok || !data.url) {
+        setError(data.error ?? 'Upload failed')
+      } else {
+        onChange(data.url)
+      }
+    } catch {
+      setError('Upload failed — check connection')
+    } finally {
+      setUploading(false)
+    }
+  }
+
+  function handleDrop(e: DragEvent<HTMLDivElement>) {
+    e.preventDefault()
+    setDragOver(false)
+    const file = e.dataTransfer.files[0]
+    if (file) void uploadFile(file)
+  }
+
+  function handleFileChange(e: ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (file) void uploadFile(file)
+    e.target.value = ''
+  }
+
+  return (
+    <div className="space-y-2">
+      {/* Drop zone */}
+      <div
+        onDragOver={e => { e.preventDefault(); setDragOver(true) }}
+        onDragLeave={() => setDragOver(false)}
+        onDrop={handleDrop}
+        onClick={() => !uploading && fileInputRef.current?.click()}
+        className={`relative flex flex-col items-center justify-center gap-2 h-32 rounded-xl border-2 border-dashed cursor-pointer transition-all
+          ${dragOver  ? 'border-amber-400 bg-amber-50' : 'border-gray-200 hover:border-amber-300 hover:bg-gray-50'}
+          ${uploading ? 'pointer-events-none opacity-70' : ''}`}
+      >
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="image/jpeg,image/png,image/webp,image/avif"
+          className="hidden"
+          onChange={handleFileChange}
+        />
+        {uploading ? (
+          <>
+            <Loader2 className="w-6 h-6 text-amber-500 animate-spin" />
+            <span className="text-xs text-gray-500">Uploading…</span>
+          </>
+        ) : (
+          <>
+            <Upload className="w-6 h-6 text-gray-400" />
+            <span className="text-xs font-medium text-gray-600 text-center px-4">
+              Drop photo here or <span className="text-amber-600 underline">click to browse</span>
+            </span>
+            <span className="text-[10px] text-gray-400">JPG, PNG, WebP · max 8 MB</span>
+          </>
+        )}
+
+        {/* Drag highlight overlay */}
+        {dragOver && (
+          <div className="absolute inset-0 rounded-xl border-2 border-amber-400 bg-amber-50/80 flex items-center justify-center">
+            <span className="text-amber-700 text-sm font-semibold">Drop to upload</span>
+          </div>
+        )}
+      </div>
+
+      {error && <p className="text-xs text-red-500">{error}</p>}
+
+      {/* URL fallback */}
+      <div className="flex gap-2 items-center">
+        <div className="flex-1 h-px bg-gray-100" />
+        <span className="text-[10px] text-gray-400 uppercase tracking-widest">or paste URL</span>
+        <div className="flex-1 h-px bg-gray-100" />
+      </div>
+
+      <input
+        placeholder="https://images.unsplash.com/… or Supabase URL"
+        value={value}
+        onChange={e => onChange(e.target.value)}
+        className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-amber-400"
+      />
+
+      {/* Preview */}
+      {value && (
+        <div className="relative h-40 rounded-xl overflow-hidden bg-gray-100 group">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={value} alt="preview" className="w-full h-full object-cover" />
+          <button
+            type="button"
+            onClick={e => { e.stopPropagation(); onChange('') }}
+            className="absolute top-2 right-2 bg-black/60 hover:bg-black/80 text-white rounded-full p-1 opacity-0 group-hover:opacity-100 transition-opacity"
+          >
+            <X className="w-3 h-3" />
+          </button>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── Main page ─────────────────────────────────────────────────────────────────
 export default function DestinationsAdminPage() {
   const [destinations, setDestinations] = useState<Destination[]>([])
   const [loading,      setLoading]      = useState(true)
@@ -44,7 +167,7 @@ export default function DestinationsAdminPage() {
 
   const load = useCallback(async () => {
     setLoading(true)
-    const res = await fetch('/api/admin/destinations')
+    const res  = await fetch('/api/admin/destinations')
     const data = await res.json() as { destinations?: Destination[] }
     setDestinations(data.destinations ?? [])
     setLoading(false)
@@ -142,7 +265,9 @@ export default function DestinationsAdminPage() {
             </div>
             <div>
               <h1 className="text-xl font-bold text-gray-900">Featured Destinations</h1>
-              <p className="text-sm text-gray-500">{destinations.length} destination{destinations.length !== 1 ? 's' : ''} · shown on homepage</p>
+              <p className="text-sm text-gray-500">
+                {destinations.length} destination{destinations.length !== 1 ? 's' : ''} · shown on homepage
+              </p>
             </div>
           </div>
           <div className="flex items-center gap-2">
@@ -203,8 +328,7 @@ export default function DestinationsAdminPage() {
                 className={`bg-white rounded-2xl overflow-hidden shadow-sm border-2 transition-all ${dest.isActive ? 'border-transparent' : 'border-red-200 opacity-75'}`}>
                 <div className="relative h-44 bg-gray-200">
                   {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={dest.imageUrl} alt={dest.city}
-                    className="w-full h-full object-cover" />
+                  <img src={dest.imageUrl} alt={dest.city} className="w-full h-full object-cover" />
                   {dest.tag && (
                     <span className="absolute top-3 left-3 bg-amber-500 text-black text-[9px] font-bold uppercase tracking-widest px-2 py-0.5 rounded-full">
                       {dest.tag}
@@ -278,16 +402,13 @@ export default function DestinationsAdminPage() {
                   onChange={e => setForm(f => ({ ...f, tag: e.target.value.toUpperCase() }))}
                   className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-amber-400" />
 
-                <input placeholder="Image URL (Unsplash or Supabase storage) *" value={form.imageUrl}
-                  onChange={e => setForm(f => ({ ...f, imageUrl: e.target.value }))}
-                  className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-amber-400" />
-
-                {form.imageUrl && (
-                  <div className="relative h-36 rounded-xl overflow-hidden bg-gray-100">
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img src={form.imageUrl} alt="preview" className="w-full h-full object-cover" />
-                  </div>
-                )}
+                <div>
+                  <p className="text-xs font-medium text-gray-500 mb-1.5">Destination photo *</p>
+                  <ImageUploadZone
+                    value={form.imageUrl}
+                    onChange={url => setForm(f => ({ ...f, imageUrl: url }))}
+                  />
+                </div>
 
                 <div className="grid grid-cols-3 gap-3">
                   <input placeholder="Flights from (e.g. £89)" value={form.flightFrom}

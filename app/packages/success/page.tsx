@@ -109,7 +109,7 @@ export default async function PackageSuccessPage({ searchParams }: Props) {
         {/* CTAs */}
         <div className="space-y-3">
           <a
-            href={`https://wa.me/447398753797?text=${waText}`}
+            href={`https://wa.me/12317902336?text=${waText}`}
             target="_blank"
             rel="noopener noreferrer"
             className="flex items-center justify-center gap-3 w-full py-4 rounded-xl font-bold text-sm transition-opacity hover:opacity-90"

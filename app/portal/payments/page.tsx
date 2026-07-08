@@ -79,7 +79,7 @@ export default function PortalPaymentsPage() {
                   <div className="flex items-center gap-3 flex-shrink-0">
                     <p className="font-bold text-[#0B1F3A]">{p.currency} {p.amount.toLocaleString()}</p>
                     <a
-                      href="https://wa.me/447398753797"
+                      href="https://wa.me/12317902336"
                       target="_blank"
                       rel="noopener noreferrer"
                       className="flex items-center gap-1.5 px-3 py-1.5 bg-green-600 text-white text-xs font-semibold rounded-lg hover:bg-green-700 transition-colors"
@@ -136,7 +136,7 @@ export default function PortalPaymentsPage() {
           <h3 className="font-semibold mb-1">Need to make a payment?</h3>
           <p className="text-white/60 text-sm mb-4">Contact us on WhatsApp and we&apos;ll send you a secure payment link for your application.</p>
           <a
-            href="https://wa.me/447398753797"
+            href="https://wa.me/12317902336"
             target="_blank"
             rel="noopener noreferrer"
             className="inline-flex items-center gap-2 px-5 py-2.5 bg-green-600 text-white text-sm font-semibold rounded-xl hover:bg-green-700 transition-colors"

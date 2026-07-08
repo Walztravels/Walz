@@ -202,7 +202,7 @@ export default function PortalVisaApplicationPage() {
             <AlertTriangle className="w-4 h-4" /> Refusal Details
           </h3>
           <p className="text-red-700 text-sm leading-relaxed">{app.decisionNotes}</p>
-          <a href="https://wa.me/447398753797" target="_blank" rel="noopener noreferrer"
+          <a href="https://wa.me/12317902336" target="_blank" rel="noopener noreferrer"
             className="mt-4 inline-flex items-center gap-2 px-5 py-2.5 bg-[#0B1F3A] text-white font-semibold text-sm rounded-xl">
             <MessageCircle className="w-4 h-4" /> Discuss Resubmission with Jade
           </a>
@@ -240,12 +240,12 @@ export default function PortalVisaApplicationPage() {
             <p className="text-white/40 text-xs">Add supporting files</p>
           </div>
         </Link>
-        <a href="https://wa.me/447398753797" target="_blank" rel="noopener noreferrer"
+        <a href="https://wa.me/12317902336" target="_blank" rel="noopener noreferrer"
           className="flex items-center gap-3 p-4 bg-green-600 rounded-xl hover:bg-green-700 transition-colors">
           <MessageCircle className="w-5 h-5 text-white" />
           <div>
             <p className="text-white font-semibold text-sm">WhatsApp Jade</p>
-            <p className="text-white/70 text-xs">+44 7398 753797</p>
+            <p className="text-white/70 text-xs">+12317902336</p>
           </div>
         </a>
       </div>

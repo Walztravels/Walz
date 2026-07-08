@@ -293,22 +293,36 @@ async function cwGet(path: string) {
   } catch (e) { clearTimeout(t); throw e }
 }
 
-async function getOrCreateContact(sessionId: string, name: string): Promise<number | null> {
+async function findContactByIdentifier(identifier: string): Promise<number | null> {
   try {
-    const search = await cwGet(
-      `/accounts/${ACCOUNT_ID}/contacts/search?q=${encodeURIComponent(sessionId)}&include_contacts=true`
-    )
-    const found = Array.isArray(search?.payload) ? search.payload[0] : search?.payload?.contacts?.[0]
-    if (found?.id) return found.id as number
-  } catch {}
+    const res = await cwPost(`/accounts/${ACCOUNT_ID}/contacts/filter`, {
+      payload: [{ attribute_key: 'identifier', filter_operator: 'equal_to', values: [identifier], query_operator: null }],
+    })
+    const contacts = Array.isArray(res?.payload) ? res.payload : []
+    return contacts[0]?.id ?? null
+  } catch {
+    return null
+  }
+}
 
+async function getOrCreateContact(sessionId: string, name: string): Promise<number | null> {
+  // Primary: filter by identifier (exact match — works for returning visitors)
+  const existing = await findContactByIdentifier(sessionId)
+  if (existing) return existing
+
+  // Create new contact
   try {
     const created = await cwPost(`/accounts/${ACCOUNT_ID}/contacts`, {
       name: name || 'Website Visitor', identifier: sessionId,
     })
     return created?.payload?.contact?.id ?? created?.payload?.id ?? created?.id ?? null
   } catch (e) {
-    console.error('[Jade→CW] Contact create failed:', String(e).slice(0, 100))
+    const msg = String(e)
+    // 422 = identifier already taken (race condition) — look it up
+    if (msg.includes('422') || msg.includes('Identifier has already been taken')) {
+      return await findContactByIdentifier(sessionId)
+    }
+    console.error('[Jade→CW] Contact create failed:', msg.slice(0, 100))
     return null
   }
 }
@@ -592,7 +606,7 @@ When a client asks how to follow us or find us on social media, share the correc
 - LinkedIn: /company/walztravels (linkedin.com/company/walztravels)
 
 Contact:
-- WhatsApp UK: wa.me/447398753797
+- WhatsApp UK: wa.me/12317902336
 - WhatsApp Canada: wa.me/15557107823
 - Email: contact@walztravels.com
 - Call Jade: +1 984 388 0110
@@ -852,7 +866,7 @@ async function jadeReply(
     return res.choices[0]?.message?.content ?? ''
   } catch (e) { console.error('[Jade] OpenAI failed:', e) }
 
-  return "I'm having a brief technical issue. For immediate help, WhatsApp us on +44 7398 753797 or email contact@walztravels.com ✈"
+  return "I'm having a brief technical issue. For immediate help, WhatsApp us on +12317902336 or email contact@walztravels.com ✈"
 }
 
 // ─── Flow types ────────────────────────────────────────────────────────────────

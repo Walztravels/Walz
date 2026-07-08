@@ -54,8 +54,8 @@ const SERVICES = [
   { Icon: Plane,     title: 'Flight Bookings',    body: 'Live prices across hundreds of airlines. IATA certified booking with expert support.',                               href: '/flights'                  },
   { Icon: Building2, title: 'Hotel Reservations', body: 'Best available rates worldwide. Expert recommendations for every destination and budget.',                            href: '/hotels'                   },
   { Icon: MapPin,    title: 'Private Tours',       body: 'Exclusive guided experiences in Niagara Falls, London, Dublin and beyond.',                                          href: '/tours'                    },
-  { Icon: Briefcase, title: 'Corporate Travel',   body: 'Reliable travel coordination for businesses, conferences and executive trips worldwide.',                              href: 'https://wa.me/447398753797' },
-  { Icon: Users,     title: 'Group Packages',      body: 'Churches, student organisations, family groups and corporate teams — we coordinate every detail.',                   href: 'https://wa.me/447398753797' },
+  { Icon: Briefcase, title: 'Corporate Travel',   body: 'Reliable travel coordination for businesses, conferences and executive trips worldwide.',                              href: 'https://wa.me/12317902336' },
+  { Icon: Users,     title: 'Group Packages',      body: 'Churches, student organisations, family groups and corporate teams — we coordinate every detail.',                   href: 'https://wa.me/12317902336' },
 ]
 
 const MARKETS = [
@@ -373,7 +373,7 @@ export default function AboutPage() {
               Explore Our Services <ArrowRight className="w-4 h-4" />
             </Link>
             <a
-              href="https://wa.me/447398753797"
+              href="https://wa.me/12317902336"
               target="_blank"
               rel="noopener noreferrer"
               className="flex items-center gap-2 border-2 border-white/30 hover:border-[#C9A84C] text-white hover:text-[#C9A84C] font-bold px-7 py-3.5 rounded-xl text-sm transition-colors"
@@ -664,7 +664,7 @@ export default function AboutPage() {
           </div>
 
           <a
-            href="https://wa.me/447398753797"
+            href="https://wa.me/12317902336"
             target="_blank"
             rel="noopener noreferrer"
             className="inline-flex items-center gap-2.5 bg-[#C9A84C] hover:bg-[#d4b45f] text-[#0B1F3A] font-bold px-8 py-4 rounded-xl text-sm transition-colors shadow-lg animate-pulse"
@@ -764,7 +764,7 @@ export default function AboutPage() {
           </p>
           <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
             <a
-              href="https://wa.me/447398753797"
+              href="https://wa.me/12317902336"
               target="_blank"
               rel="noopener noreferrer"
               className="flex items-center gap-2.5 bg-[#C9A84C] hover:bg-[#d4b45f] text-[#0B1F3A] font-bold px-8 py-4 rounded-xl text-base transition-colors shadow-xl"

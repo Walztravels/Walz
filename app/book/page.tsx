@@ -137,7 +137,7 @@ function BookPageContent() {
     setCurrentStep('payment')
   }
 
-  const handlePaymentSuccess = async (transactionId: string | number, gateway: 'flutterwave' | 'stripe' | 'helcim') => {
+  const handlePaymentSuccess = async (transactionId: string | number, gateway: 'flutterwave' | 'stripe') => {
     setIsConfirming(true)
     setError(null)
 
@@ -149,9 +149,7 @@ function BookPageContent() {
           gateway,
           ...(gateway === 'flutterwave'
             ? { transactionId: String(transactionId) }
-            : gateway === 'helcim'
-              ? { helcimTransactionId: transactionId }
-              : { paymentIntentId: String(transactionId) }),
+            : { paymentIntentId: String(transactionId) }),
           bookingReference,
           passengers,
           contactEmail,
@@ -400,7 +398,7 @@ function BookPageContent() {
                 {/* Action buttons */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <a
-                    href={`https://wa.me/447398753797?text=Hi%2C%20I%20just%20booked%20(ref%3A%20${bookingReference}).%20Looking%20forward%20to%20my%20ticket!`}
+                    href={`https://wa.me/12317902336?text=Hi%2C%20I%20just%20booked%20(ref%3A%20${bookingReference}).%20Looking%20forward%20to%20my%20ticket!`}
                     target="_blank"
                     rel="noopener noreferrer"
                     className="flex items-center justify-center gap-2 px-5 py-3 bg-[#25D366] hover:bg-[#1ebe5d] text-white rounded-xl font-semibold text-sm transition-colors"

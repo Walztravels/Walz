@@ -2,13 +2,15 @@
 
 import { useState } from 'react'
 import { signIn } from 'next-auth/react'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import Image from 'next/image'
 import Link from 'next/link'
 import { Mail, Lock, Loader2, AlertCircle, Eye, EyeOff } from 'lucide-react'
 
 export default function PortalLoginPage() {
-  const router = useRouter()
+  const router       = useRouter()
+  const searchParams = useSearchParams()
+  const enrolRewards = searchParams?.get('enrol') === 'rewards'
   const [email, setEmail]       = useState('')
   const [password, setPassword] = useState('')
   const [showPw, setShowPw]     = useState(false)
@@ -30,6 +32,9 @@ export default function PortalLoginPage() {
     if (result?.error) {
       setError('Incorrect email or password. Please try again.')
       setLoading(false)
+    } else if (enrolRewards) {
+      await fetch('/api/rewards/membership', { method: 'POST' }).catch(() => {})
+      router.push('/flights/loyalty?join=1')
     } else {
       router.push('/portal/dashboard')
     }
@@ -113,7 +118,7 @@ export default function PortalLoginPage() {
         </div>
 
         <p className="text-center text-xs text-white/40 mt-6">
-          Need help? <a href="https://wa.me/447398753797" target="_blank" rel="noopener noreferrer" className="text-green-400 hover:underline">WhatsApp us</a>
+          Need help? <a href="https://wa.me/12317902336" target="_blank" rel="noopener noreferrer" className="text-green-400 hover:underline">WhatsApp us</a>
         </p>
       </div>
     </div>

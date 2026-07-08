@@ -164,8 +164,8 @@ async function sendTicketEmail(booking: any, ticket: any) {
         <div style="max-width:620px;margin:0 auto;background:white;border-radius:12px;overflow:hidden;box-shadow:0 4px 16px rgba(0,0,0,0.1);">
 
           <div style="background:#0B1F3A;padding:24px;text-align:center;">
-            <h1 style="color:#C9A84C;margin:0;font-size:24px;letter-spacing:2px;">WALZ TRAVELS</h1>
-            <p style="color:white;margin:4px 0 0;font-size:11px;letter-spacing:3px;text-transform:uppercase;">Electronic Ticket</p>
+            <img src="https://walztravels.com/walz-logo.png" alt="Walz Travels" width="140" style="display:block;margin:0 auto 10px;height:auto;" />
+            <p style="color:white;margin:0;font-size:11px;letter-spacing:3px;text-transform:uppercase;">Electronic Ticket</p>
           </div>
 
           <div style="background:#16A34A;padding:10px;text-align:center;">
@@ -217,7 +217,7 @@ async function sendTicketEmail(booking: any, ticket: any) {
           </div>
 
           <div style="background:#0B1F3A;padding:16px;text-align:center;">
-            <p style="color:#C9A84C;margin:0;font-size:12px;">Questions? WhatsApp: +44 7398 753797</p>
+            <p style="color:#C9A84C;margin:0;font-size:12px;">Questions? WhatsApp: +12317902336</p>
             <p style="color:#9ca3af;margin:4px 0 0;font-size:11px;">bookings@walztravels.com · walztravels.com</p>
           </div>
         </div>

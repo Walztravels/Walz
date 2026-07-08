@@ -119,6 +119,10 @@ export async function middleware(req: NextRequest) {
     if (pathname === '/api/admin/auth/login' || pathname === '/api/admin/auth/logout') {
       return NextResponse.next()
     }
+    // Public GET endpoints — flight extras config is needed by the public booking flow
+    if (pathname === '/api/admin/extras' && req.method === 'GET') {
+      return NextResponse.next()
+    }
     // Allow CRON_SECRET bearer token (used by CLI migration triggers)
     const cronSecret = process.env.CRON_SECRET
     const authHeader = req.headers.get('authorization')

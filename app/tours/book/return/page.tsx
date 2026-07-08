@@ -77,7 +77,7 @@ function ReturnContent() {
           </p>
           <div className="flex flex-col gap-3">
             <a
-              href="https://wa.me/447398753797"
+              href="https://wa.me/12317902336"
               target="_blank" rel="noopener noreferrer"
               className="flex items-center justify-center gap-2 bg-[#25D366] hover:bg-[#1ebe5d] text-white font-bold py-3.5 rounded-xl transition-colors"
             >
@@ -185,7 +185,7 @@ function ReturnContent() {
         {/* Actions */}
         <div className="flex flex-col sm:flex-row gap-3 mb-6">
           <a
-            href={`https://wa.me/447398753797?text=${encodeURIComponent(waMsg)}`}
+            href={`https://wa.me/12317902336?text=${encodeURIComponent(waMsg)}`}
             target="_blank" rel="noopener noreferrer"
             className="flex-1 flex items-center justify-center gap-2 bg-[#25D366] hover:bg-[#20bc59] text-white font-bold py-3.5 rounded-xl transition-colors"
           >

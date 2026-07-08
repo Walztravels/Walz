@@ -143,12 +143,7 @@ export default async function VisaCountryPage({ params }: Props) {
           {/* Walz Fee — uses Price for live currency conversion */}
           <div className="bg-white rounded-xl border border-gray-100 p-4 text-center">
             {portal.walzFeeUsd > 0 ? (
-              <>
-                <Price amount={portal.walzFeeUsd} from="USD" size="md" />
-                {portal.walzFeeNgn > 0 && (
-                  <div className="text-gray-400 text-xs mt-0.5">₦{(portal.walzFeeNgn / 1000).toFixed(0)}k</div>
-                )}
-              </>
+              <Price amount={portal.walzFeeUsd} from="USD" size="md" />
             ) : (
               <div className="text-[#0B1F3A] font-bold text-lg">Contact us</div>
             )}
@@ -391,7 +386,7 @@ export default async function VisaCountryPage({ params }: Props) {
           </div>
           <div className="mt-4 p-4 bg-green-50 rounded-xl border border-green-100">
             <p className="text-sm text-green-800 font-medium">💬 WhatsApp Support Available</p>
-            <p className="text-xs text-green-700 mt-0.5">+44 7398 753797 — Mon–Sat 8am–8pm (UK time)</p>
+            <p className="text-xs text-green-700 mt-0.5">+12317902336 — Mon–Sat 8am–8pm (UK time)</p>
           </div>
         </div>
 

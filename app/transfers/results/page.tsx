@@ -41,7 +41,7 @@ function TransferCard({ t, from, to, date, time, adults, children }: TransferCar
       `Vehicle: ${t.name}\nPassengers: ${adults} adults, ${children} children\n` +
       `Price: ${sym}${t.price}`
     )
-    window.open(`https://wa.me/447398753797?text=${msg}`, '_blank')
+    window.open(`https://wa.me/12317902336?text=${msg}`, '_blank')
   }
 
   function handleAddToCart() {
@@ -197,7 +197,7 @@ function ResultsContent() {
             <p className="text-amber-800 font-semibold text-sm mb-1">Live search unavailable</p>
             <p className="text-amber-600 text-xs mb-4">{error}</p>
             <a
-              href={`https://wa.me/447398753797?text=${encodeURIComponent(`Hi Walz Travels! I need a transfer from ${from} to ${to} on ${date} at ${time} for ${adults} adults.`)}`}
+              href={`https://wa.me/12317902336?text=${encodeURIComponent(`Hi Walz Travels! I need a transfer from ${from} to ${to} on ${date} at ${time} for ${adults} adults.`)}`}
               target="_blank" rel="noreferrer"
               className="inline-flex items-center gap-2 bg-[#25D366] text-white font-bold px-6 py-2.5 rounded-full text-sm"
             >
@@ -212,7 +212,7 @@ function ResultsContent() {
             <p className="text-gray-500 font-semibold mb-1">No transfers found</p>
             <p className="text-gray-400 text-sm mb-6">Try different locations or dates</p>
             <a
-              href={`https://wa.me/447398753797?text=${encodeURIComponent(`Hi Walz Travels! I need a transfer from ${from} to ${to} on ${date} at ${time}.`)}`}
+              href={`https://wa.me/12317902336?text=${encodeURIComponent(`Hi Walz Travels! I need a transfer from ${from} to ${to} on ${date} at ${time}.`)}`}
               target="_blank" rel="noreferrer"
               className="inline-flex items-center gap-2 bg-[#C9A84C] text-[#0B1F3A] font-bold px-6 py-2.5 rounded-full text-sm"
             >

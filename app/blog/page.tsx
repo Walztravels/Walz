@@ -98,7 +98,7 @@ export default function BlogPage() {
               Apply for a Visa
             </a>
             <a
-              href="https://wa.me/447398753797"
+              href="https://wa.me/12317902336"
               target="_blank"
               rel="noopener noreferrer"
               className="bg-white/20 border-2 border-white/40 text-white font-bold px-8 py-4 rounded-2xl hover:bg-white/30 transition text-base"

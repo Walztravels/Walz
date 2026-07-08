@@ -46,9 +46,55 @@ export default function FlightsPage() {
 
       <TrustStrip />
       <PopularRoutes />
+      <AllRoutesGrid />
       <WhyWalz />
       <JadeMilesSection />
       <AiAssistantTeaser />
     </main>
+  )
+}
+
+const ALL_ROUTES = [
+  { slug: 'los-lhr', label: 'Lagos → London' },
+  { slug: 'acc-lhr', label: 'Accra → London' },
+  { slug: 'los-dxb', label: 'Lagos → Dubai' },
+  { slug: 'los-jfk', label: 'Lagos → New York' },
+  { slug: 'acc-jfk', label: 'Accra → New York' },
+  { slug: 'los-yyz', label: 'Lagos → Toronto' },
+  { slug: 'acc-yyz', label: 'Accra → Toronto' },
+  { slug: 'los-nbo', label: 'Lagos → Nairobi' },
+  { slug: 'los-jnb', label: 'Lagos → Johannesburg' },
+  { slug: 'los-bom', label: 'Lagos → Mumbai' },
+  { slug: 'acc-dxb', label: 'Accra → Dubai' },
+  { slug: 'acc-nbo', label: 'Accra → Nairobi' },
+  { slug: 'los-cdg', label: 'Lagos → Paris' },
+  { slug: 'los-fra', label: 'Lagos → Frankfurt' },
+  { slug: 'acc-cdg', label: 'Accra → Paris' },
+  { slug: 'los-ams', label: 'Lagos → Amsterdam' },
+  { slug: 'acc-ams', label: 'Accra → Amsterdam' },
+  { slug: 'los-iad', label: 'Lagos → Washington DC' },
+  { slug: 'los-atl', label: 'Lagos → Atlanta' },
+]
+
+function AllRoutesGrid() {
+  return (
+    <section className="bg-[#FAF7F2] py-16 px-5 sm:px-8">
+      <div className="container-walz">
+        <p className="text-[#C9A84C] text-[11px] font-bold tracking-[0.3em] uppercase mb-3">All Destinations</p>
+        <h2 className="font-display text-3xl font-bold text-[#0B1F3A] mb-8">Browse All Flight Routes</h2>
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
+          {ALL_ROUTES.map(r => (
+            <a
+              key={r.slug}
+              href={`/flights/${r.slug}`}
+              className="flex items-center gap-2 px-4 py-3 rounded-xl border border-[#0B1F3A]/10 bg-white hover:border-[#C9A84C] hover:text-[#C9A84C] text-[#0B1F3A] text-sm font-medium transition-all group"
+            >
+              <span className="text-[#C9A84C] text-xs">✈</span>
+              {r.label}
+            </a>
+          ))}
+        </div>
+      </div>
+    </section>
   )
 }

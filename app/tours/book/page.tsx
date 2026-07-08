@@ -5,9 +5,8 @@ import { useSearchParams } from 'next/navigation'
 import {
   Check, ChevronRight, ChevronLeft, Calendar, Users, Plus, Minus,
   Star, MapPin, Clock, Shield, Loader2, CheckCircle, AlertCircle,
-  CreditCard, Smartphone, MessageSquare, Image as ImageIcon,
+  CreditCard, Smartphone, MessageSquare, Image as ImageIcon, Coins,
 } from 'lucide-react'
-import { HelcimPayButton } from '@/components/payment/HelcimPayButton'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -139,8 +138,10 @@ function StepOne({ tour, date, setDate, groupSize, setGroupSize, addons, setAddo
             <Calendar className="w-4 h-4 text-[#C9A84C]" /> Select Your Date
           </h3>
           <input
-            type="date" min={today} value={date}
-            onChange={(e) => setDate(e.target.value)}
+            type="date" min={today}
+            onChange={(e) => { if (e.target.value) setDate(e.target.value) }}
+            onInput={(e) => { const v = (e.target as HTMLInputElement).value; if (v) setDate(v) }}
+            onBlur={(e)  => { if (e.target.value) setDate(e.target.value) }}
             className="w-full border-2 border-gray-200 focus:border-[#C9A84C] rounded-xl px-4 py-3 text-sm outline-none transition-colors"
           />
           <p className="text-xs text-gray-400 mt-2">All dates are subject to availability. Our team will confirm within 2 hours.</p>
@@ -402,7 +403,7 @@ function StepThree({ tour, date, groupSize, addons, details, onBack, onSuccess }
   const [agreed, setAgreed] = useState(false)
   const [paying, setPaying] = useState(false)
   const [error, setError] = useState('')
-  const [gateway, setGateway] = useState<'helcim' | 'stripe' | 'flutterwave'>('helcim')
+  const [gateway, setGateway] = useState<'stripe' | 'flutterwave' | 'nowpayments'>('stripe')
 
   const currency = tour.currency
   const basePrice = tour.price * groupSize
@@ -444,21 +445,50 @@ function StepThree({ tour, date, groupSize, addons, details, onBack, onSuccess }
 
   // ── Flutterwave (inline modal) ────────────────────────────────────────────
   async function handleFlutterwavePay() {
+    const flwKey = process.env.NEXT_PUBLIC_FLW_PUBLIC_KEY
+    if (!flwKey) {
+      setError('Flutterwave is not configured. Please choose another payment method.')
+      return
+    }
     setPaying(true)
     setError('')
     const txRef = 'WLZ-TOUR-' + Date.now()
     try {
       await new Promise<void>((resolve, reject) => {
-        if ((window as unknown as Record<string, unknown>).FlutterwaveCheckout) { resolve(); return }
+        const win = window as unknown as Record<string, unknown>
+        if (typeof win.FlutterwaveCheckout === 'function') { resolve(); return }
+
+        const alreadyInjected = document.querySelector('script[src*="checkout.flutterwave.com/v3.js"]')
+        if (alreadyInjected) {
+          let ticks = 0
+          const poll = setInterval(() => {
+            if (typeof win.FlutterwaveCheckout === 'function') { clearInterval(poll); resolve(); return }
+            if (++ticks > 80) {
+              clearInterval(poll)
+              reject(new Error('Flutterwave did not initialise — it may be blocked by an ad-blocker.'))
+            }
+          }, 100)
+          return
+        }
+
         const s = document.createElement('script')
         s.src = 'https://checkout.flutterwave.com/v3.js'
-        s.onload = () => resolve()
-        s.onerror = () => reject(new Error('Payment script failed to load'))
+        s.onload = () => {
+          if (typeof win.FlutterwaveCheckout === 'function') {
+            resolve()
+          } else {
+            reject(new Error('Flutterwave loaded but did not initialise correctly.'))
+          }
+        }
+        s.onerror = () => {
+          console.error('[FLW] Failed to load https://checkout.flutterwave.com/v3.js')
+          reject(new Error('Payment script could not be loaded. Please try another method.'))
+        }
         document.body.appendChild(s)
       })
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       ;(window as any).FlutterwaveCheckout({
-        public_key: process.env.NEXT_PUBLIC_FLW_PUBLIC_KEY,
+        public_key: flwKey,
         tx_ref: txRef,
         amount: total,
         currency,
@@ -502,16 +532,17 @@ function StepThree({ tour, date, groupSize, addons, details, onBack, onSuccess }
     }
   }
 
-  // ── Helcim (HelcimPay.js inline iframe) ──────────────────────────────────
-  async function handleHelcimSuccess(transactionId: string | number) {
+  // ── NOWPayments (hosted crypto invoice — USDC / USDT) ────────────────────
+  async function handleNOWPaymentsPay() {
     setPaying(true)
     setError('')
     try {
-      const res = await fetch('/api/tours/book', {
-        method: 'POST',
+      const res = await fetch('/api/payments/crypto/create-invoice', {
+        method:  'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           tourId: tour.id, tourName: tour.name, tourSlug: tour.slug,
+          tourLocation: tour.location,
           date, groupSize, currency,
           addons: selectedAddons.map(a => ({ id: a.id, name: a.name, price: a.price })),
           basePrice, addonsTotal, totalAmount: total,
@@ -521,25 +552,27 @@ function StepThree({ tour, date, groupSize, addons, details, onBack, onSuccess }
           country: details.country,
           requirements: details.requirements,
           message: details.message,
-          gateway: 'helcim',
-          helcimTransactionId: String(transactionId),
         }),
       })
-      const data = await res.json() as { bookingReference?: string; error?: string }
-      if (res.ok && data.bookingReference) { onSuccess(data.bookingReference) }
-      else { setError('Payment received but booking save failed. Please contact us quoting transaction ' + transactionId) }
-    } catch {
-      setError('Payment received but booking save failed. Please contact us on WhatsApp.')
-    } finally {
+      const data = await res.json() as { invoiceUrl?: string; error?: string }
+      if (!res.ok || !data.invoiceUrl) throw new Error(data.error ?? 'Failed to create crypto invoice')
+      window.location.href = data.invoiceUrl
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not start crypto payment. Please try again.')
       setPaying(false)
     }
   }
 
   function handlePay() {
-    if (!agreed) { setError('Please accept the terms and conditions to proceed.'); return }
+    if (!agreed) {
+      setError('Please accept the terms and conditions to proceed.')
+      // On mobile the error is in the scrolled content; scroll it into view
+      document.querySelector('[data-terms-error]')?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      return
+    }
     if (gateway === 'stripe') { handleStripePay() }
     else if (gateway === 'flutterwave') { handleFlutterwavePay() }
-    // helcim handled by HelcimPayButton directly
+    else if (gateway === 'nowpayments') { handleNOWPaymentsPay() }
   }
 
   return (
@@ -655,7 +688,7 @@ function StepThree({ tour, date, groupSize, addons, details, onBack, onSuccess }
         </label>
 
         {error && (
-          <div className="p-4 bg-red-50 border border-red-200 rounded-xl flex items-start gap-2 text-red-700 text-sm">
+          <div data-terms-error className="p-4 bg-red-50 border border-red-200 rounded-xl flex items-start gap-2 text-red-700 text-sm">
             <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" /> {error}
           </div>
         )}
@@ -684,9 +717,9 @@ function StepThree({ tour, date, groupSize, addons, details, onBack, onSuccess }
             <p className="text-white/50 text-[11px] uppercase tracking-wider mb-2 font-medium">Choose payment method</p>
             <div className="grid grid-cols-3 gap-1.5 mb-4">
               {([
-                ['helcim',      CreditCard,  'Helcim',      'Visa · MC · Amex'],
-                ['stripe',      CreditCard,  'Stripe',      'Apple/Google Pay'],
-                ['flutterwave', Smartphone,  'Flutterwave', 'Mobile · USSD'],
+                ['stripe',       CreditCard, 'Stripe',      'Apple/Google Pay'],
+                ['flutterwave',  Smartphone, 'Flutterwave', 'Mobile · USSD'],
+                ['nowpayments',  Coins,      'Crypto',      'USDC · USDT'],
               ] as const).map(([id, Icon, label, sub]) => (
                 <button
                   key={id}
@@ -704,34 +737,19 @@ function StepThree({ tour, date, groupSize, addons, details, onBack, onSuccess }
               ))}
             </div>
 
-            {/* Pay button / Helcim iframe */}
-            {gateway === 'helcim' ? (
-              <div className="[&_button]:rounded-xl [&_button]:font-bold [&_button]:text-base [&_button]:py-4">
-                <HelcimPayButton
-                  amount={total}
-                  currency={currency}
-                  invoiceNumber={`TOUR-${tour.slug.slice(0,16).toUpperCase()}-${Date.now()}`}
-                  label={`Pay ${fmt(total, currency)}`}
-                  disabled={!agreed}
-                  onSuccess={handleHelcimSuccess}
-                  onError={(msg) => setError(msg)}
-                />
-                {!agreed && (
-                  <p className="text-white/40 text-[10px] text-center mt-1">Accept terms below to pay</p>
-                )}
-              </div>
-            ) : (
-              <button
-                onClick={handlePay}
-                disabled={paying}
-                className="w-full bg-[#C9A84C] hover:bg-[#d4b45f] disabled:opacity-60 disabled:cursor-not-allowed text-[#0B1F3A] font-bold py-4 rounded-xl transition-colors flex items-center justify-center gap-2 text-base"
-              >
-                {paying
-                  ? <><Loader2 className="w-4 h-4 animate-spin" /> {gateway === 'stripe' ? 'Redirecting…' : 'Processing…'}</>
+            {/* Pay button */}
+            <button
+              onClick={handlePay}
+              disabled={paying}
+              className="w-full bg-[#C9A84C] hover:bg-[#d4b45f] disabled:opacity-60 disabled:cursor-not-allowed text-[#0B1F3A] font-bold py-4 rounded-xl transition-colors flex items-center justify-center gap-2 text-base"
+            >
+              {paying
+                ? <><Loader2 className="w-4 h-4 animate-spin" /> {gateway === 'stripe' || gateway === 'nowpayments' ? 'Redirecting…' : 'Processing…'}</>
+                : gateway === 'nowpayments'
+                  ? <><Coins className="w-4 h-4" /> Pay with Crypto</>
                   : <><CreditCard className="w-4 h-4" /> Pay {fmt(total, currency)}</>
-                }
-              </button>
-            )}
+              }
+            </button>
           </div>
 
           <button
@@ -745,39 +763,34 @@ function StepThree({ tour, date, groupSize, addons, details, onBack, onSuccess }
 
       {/* Mobile sticky pay bar */}
       <div className="lg:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 px-4 py-3 z-40 shadow-lg">
-        <div className="flex gap-1.5 mb-2">
-          {(['helcim', 'stripe', 'flutterwave'] as const).map((gw) => (
+        <div className="grid grid-cols-3 gap-1.5 mb-2">
+          {([
+            ['stripe',      '🃏', 'Stripe'],
+            ['flutterwave', '📱', 'Flutterwave'],
+            ['nowpayments', '🪙', 'Crypto'],
+          ] as const).map(([gw, icon, label]) => (
             <button
               key={gw}
               type="button"
               onClick={() => setGateway(gw)}
-              className={`flex-1 py-1.5 rounded-lg text-[10px] font-bold border-2 capitalize transition-all
+              className={`py-1.5 rounded-lg text-[10px] font-bold border-2 transition-all
                 ${gateway === gw ? 'border-[#C9A84C] bg-[#C9A84C]/10 text-[#0B1F3A]' : 'border-gray-200 text-gray-400'}`}
             >
-              {gw === 'helcim' ? '💳 Helcim' : gw === 'stripe' ? '🃏 Stripe' : '📱 Flutterwave'}
+              {icon} {label}
             </button>
           ))}
         </div>
-        {gateway === 'helcim' ? (
-          <HelcimPayButton
-            amount={total}
-            currency={currency}
-            label={`Pay ${fmt(total, currency)}`}
-            disabled={!agreed}
-            onSuccess={handleHelcimSuccess}
-            onError={(msg) => setError(msg)}
-          />
-        ) : (
-          <button
-            onClick={handlePay}
-            disabled={paying}
-            className="w-full bg-[#C9A84C] hover:bg-[#d4b45f] disabled:opacity-60 text-[#0B1F3A] font-bold py-3.5 rounded-xl transition-colors flex items-center justify-center gap-2"
-          >
-            {paying
-              ? <><Loader2 className="w-4 h-4 animate-spin" /> {gateway === 'stripe' ? 'Redirecting…' : 'Processing…'}</>
+        <button
+          onClick={handlePay}
+          disabled={paying}
+          className="w-full bg-[#C9A84C] hover:bg-[#d4b45f] disabled:opacity-60 text-[#0B1F3A] font-bold py-3.5 rounded-xl transition-colors flex items-center justify-center gap-2"
+        >
+          {paying
+            ? <><Loader2 className="w-4 h-4 animate-spin" /> {gateway === 'stripe' || gateway === 'nowpayments' ? 'Redirecting…' : 'Processing…'}</>
+            : gateway === 'nowpayments'
+              ? <><Coins className="w-4 h-4" /> Pay with Crypto (USDC · USDT)</>
               : `Pay ${fmt(total, currency)}`}
-          </button>
-        )}
+        </button>
       </div>
     </div>
   )
@@ -844,7 +857,7 @@ function SuccessPage({ bookingRef, tour, date, groupSize, details }: {
       {/* Actions */}
       <div className="flex flex-col sm:flex-row gap-3 mb-6">
         <a
-          href={`https://wa.me/447398753797?text=${encodeURIComponent(waMsg)}`}
+          href={`https://wa.me/12317902336?text=${encodeURIComponent(waMsg)}`}
           target="_blank" rel="noopener noreferrer"
           className="flex-1 flex items-center justify-center gap-2 bg-[#25D366] hover:bg-[#20bc59] text-white font-bold py-3.5 rounded-xl transition-colors"
         >

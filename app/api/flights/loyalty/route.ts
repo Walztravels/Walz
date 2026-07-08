@@ -1,4 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { getServerSession }          from 'next-auth'
+import { authOptions }               from '@/lib/auth'
+import { prisma }                    from '@/lib/db'
 
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
@@ -11,7 +14,7 @@ const TIERS: { tier: Tier; threshold: number; multiplier: number }[] = [
   { tier: 'platinum', threshold: 50000, multiplier: 2    },
 ]
 
-function getTier(miles: number): { tier: Tier; multiplier: number; nextTier: Tier | null; milesNextTier: number } {
+function getTier(miles: number) {
   let current = TIERS[0]
   for (const t of TIERS) {
     if (miles >= t.threshold) current = t
@@ -26,23 +29,63 @@ function getTier(miles: number): { tier: Tier; multiplier: number; nextTier: Tie
   }
 }
 
-function previewAccount() {
-  const miles = 0
-  const { tier, multiplier, nextTier, milesNextTier } = getTier(miles)
-  return {
-    isGuest: true,
-    miles,
-    tier,
-    nextTier,
-    milesNextTier,
-    multiplier,
-    recentActivity: [],
-  }
-}
-
 export async function GET() {
-  const preview = previewAccount()
-  return NextResponse.json({ account: preview })
+  const session = await getServerSession(authOptions)
+
+  if (session?.user?.id) {
+    const membership = await prisma.walzRewardsMembership.findUnique({
+      where: { userId: session.user.id },
+      include: { transactions: { orderBy: { createdAt: 'desc' }, take: 5 } },
+    })
+
+    if (membership) {
+      const { tier, multiplier, nextTier, milesNextTier } = getTier(membership.lifetimeMiles)
+      return NextResponse.json({
+        account: {
+          isGuest:      false,
+          enrolled:     true,
+          miles:        membership.milesBalance,
+          tier,
+          nextTier,
+          milesNextTier,
+          multiplier,
+          recentActivity: membership.transactions.map(t => ({
+            date:        t.createdAt,
+            description: t.description ?? t.type,
+            miles:       t.miles,
+          })),
+        },
+      })
+    }
+
+    // Logged in but not yet enrolled
+    return NextResponse.json({
+      account: {
+        isGuest:      false,
+        enrolled:     false,
+        miles:        0,
+        tier:         'bronze' as Tier,
+        nextTier:     'silver' as Tier,
+        milesNextTier: 5000,
+        multiplier:   1,
+        recentActivity: [],
+      },
+    })
+  }
+
+  // Guest
+  return NextResponse.json({
+    account: {
+      isGuest:      true,
+      enrolled:     false,
+      miles:        0,
+      tier:         'bronze' as Tier,
+      nextTier:     'silver' as Tier,
+      milesNextTier: 5000,
+      multiplier:   1,
+      recentActivity: [],
+    },
+  })
 }
 
 export async function POST(req: NextRequest) {
@@ -51,10 +94,9 @@ export async function POST(req: NextRequest) {
     const action = body.action as string
 
     if (action === 'earn') {
-      const amountGBP   = Number(body.amountGBP ?? 0)
-      const bookingRef  = String(body.bookingRef ?? '')
-      const baseMiles   = Math.round(amountGBP * 10)
-      // Apply tier multiplier — for now return base (we'd look up account from DB in prod)
+      const amountGBP  = Number(body.amountGBP ?? 0)
+      const bookingRef = String(body.bookingRef ?? '')
+      const baseMiles  = Math.round(amountGBP * 10)
       return NextResponse.json({ earned: baseMiles, bookingRef, message: `+${baseMiles} miles earned on booking ${bookingRef}` })
     }
 

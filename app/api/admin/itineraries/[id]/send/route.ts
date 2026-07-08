@@ -91,7 +91,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     </div>
     <div style="background:#f8fafc;padding:24px 40px;text-align:center;border-top:1px solid #e2e8f0;">
       <p style="color:#0B1F3A;font-weight:600;font-size:13px;margin:0 0 6px;">Questions? We're here.</p>
-      <p style="color:#64748b;font-size:13px;margin:0;">💬 <a href="https://wa.me/447398753797" style="color:#C9A84C;">WhatsApp</a> | ✉️ <a href="mailto:contact@walztravels.com" style="color:#C9A84C;">contact@walztravels.com</a></p>
+      <p style="color:#64748b;font-size:13px;margin:0;">💬 <a href="https://wa.me/12317902336" style="color:#C9A84C;">WhatsApp</a> | ✉️ <a href="mailto:contact@walztravels.com" style="color:#C9A84C;">contact@walztravels.com</a></p>
       <p style="color:#94a3b8;font-size:11px;margin:12px 0 0;">Ref: ${itin.referenceNumber} · Walz Travels</p>
     </div>
   </div>`

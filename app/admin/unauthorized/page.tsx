@@ -41,7 +41,7 @@ export default function UnauthorizedPage() {
             Back to Dashboard
           </Link>
           <a
-            href="https://wa.me/447398753797"
+            href="https://wa.me/12317902336"
             target="_blank"
             rel="noopener noreferrer"
             className="inline-flex items-center gap-2 px-5 py-2.5 bg-white border border-gray-200 text-gray-700 text-sm font-semibold rounded-lg hover:bg-gray-50 transition-all"

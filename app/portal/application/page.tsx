@@ -145,7 +145,7 @@ export default function ApplicationsPage() {
               <Link href="/visa" className="inline-flex items-center gap-2 px-6 py-3 bg-[#C9A84C] text-[#0B1F3A] text-sm font-bold rounded-xl hover:bg-[#b8943d] transition-colors">
                 <Globe className="w-4 h-4" /> Apply for a Visa
               </Link>
-              <button onClick={() => window.$chatwoot ? window.$chatwoot.toggle('open') : window.open('https://wa.me/447398753797','_blank','noopener,noreferrer')}
+              <button onClick={() => window.$chatwoot ? window.$chatwoot.toggle('open') : window.open('https://wa.me/12317902336','_blank','noopener,noreferrer')}
                 className="inline-flex items-center gap-2 px-6 py-3 bg-[#0B1F3A] text-white text-sm font-semibold rounded-xl hover:bg-[#0d2040] transition-colors">
                 <MessageCircle className="w-4 h-4" /> Chat with Jade
               </button>
@@ -300,7 +300,7 @@ export default function ApplicationsPage() {
               <h3 className="font-semibold text-sm">Need help with your application?</h3>
               <p className="text-white/50 text-xs mt-0.5">Chat with Jade — our visa coordinator is available Mon–Sat.</p>
             </div>
-            <button onClick={() => window.$chatwoot ? window.$chatwoot.toggle('open') : window.open('https://wa.me/447398753797','_blank','noopener,noreferrer')}
+            <button onClick={() => window.$chatwoot ? window.$chatwoot.toggle('open') : window.open('https://wa.me/12317902336','_blank','noopener,noreferrer')}
               className="flex-shrink-0 px-4 py-2 bg-[#0B1F3A] border border-[#C9A84C] text-white text-sm font-semibold rounded-xl hover:bg-[#162d52] transition-colors">
               Chat Now
             </button>

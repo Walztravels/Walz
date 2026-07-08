@@ -90,7 +90,7 @@ export async function POST(req: NextRequest) {
               </table>
 
               <p style="margin:0 0 8px;color:#8B9BAE;font-size:13px;line-height:1.6;">
-                Questions? WhatsApp us at <a href="https://wa.me/447398753797" style="color:#C9A84C;text-decoration:none;">+44 7398 753797</a> or email <a href="mailto:contact@walztravels.com" style="color:#C9A84C;text-decoration:none;">contact@walztravels.com</a>.
+                Questions? WhatsApp us at <a href="https://wa.me/12317902336" style="color:#C9A84C;text-decoration:none;">+12317902336</a> or email <a href="mailto:contact@walztravels.com" style="color:#C9A84C;text-decoration:none;">contact@walztravels.com</a>.
               </p>
             </td>
           </tr>

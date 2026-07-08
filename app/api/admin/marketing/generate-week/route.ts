@@ -45,7 +45,7 @@ ${audiences.map((a: Audience) => `- ${a.name}: ${a.description}`).join('\n') || 
 
 BRAND HASHTAGS: ${hashtags.join(' ') || '#walztravels #africandiapora #travelagency'}
 
-WhatsApp CTA to include: +447398753797
+WhatsApp CTA to include: +12317902336
 
 Generate a themed content week. Return ONLY valid JSON (no markdown):
 {

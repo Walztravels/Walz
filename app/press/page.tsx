@@ -49,12 +49,12 @@ export default function PressPage() {
               contact@walztravels.com
             </a>
             <a
-              href="https://wa.me/447398753797"
+              href="https://wa.me/12317902336"
               target="_blank"
               rel="noopener noreferrer"
               className="inline-flex items-center gap-2 px-6 py-3 border-2 border-[#C9A84C] text-[#C9A84C] font-semibold text-sm rounded-xl hover:bg-[#C9A84C] hover:text-[#0B1F3A] transition-colors"
             >
-              WhatsApp +44 7398 753797
+              WhatsApp +12317902336
             </a>
           </div>
         </div>

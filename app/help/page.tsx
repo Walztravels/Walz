@@ -19,7 +19,7 @@ const HELP_TILES = [
   { icon: Banknote,     label: 'Payments',                href: '#faq' },
   { icon: XCircle,      label: 'Refunds',                 href: '#faq' },
   { icon: User,         label: 'My Portal',               href: '#faq' },
-  { icon: Headphones,   label: 'Speak to Jade',           href: 'https://wa.me/447398753797' },
+  { icon: Headphones,   label: 'Speak to Jade',           href: 'https://wa.me/12317902336' },
 ]
 
 // ── FAQ accordion items ───────────────────────────────────────────────────────
@@ -51,7 +51,7 @@ const FAQS = [
   },
   {
     q: 'How do I contact Walz Travels?',
-    a: 'WhatsApp us at +447398753797 or email contact@walztravels.com. Jade AI is available 24/7 on the website.',
+    a: 'WhatsApp us at +12317902336 or email contact@walztravels.com. Jade AI is available 24/7 on the website.',
   },
 ]
 
@@ -259,7 +259,7 @@ export default function HelpPage() {
 
           <div ref={ctaRef} style={{ opacity: 0 }}>
             <a
-              href="https://wa.me/447398753797"
+              href="https://wa.me/12317902336"
               target="_blank"
               rel="noopener noreferrer"
               className="inline-flex items-center gap-2.5 px-8 py-3.5 bg-[#25D366] hover:bg-[#1fbe5a] text-white font-bold text-sm rounded-full transition-all duration-300 hover:scale-105 active:scale-100 shadow-lg shadow-green-500/20"
@@ -367,7 +367,7 @@ export default function HelpPage() {
 
             {/* WhatsApp */}
             <a
-              href="https://wa.me/447398753797"
+              href="https://wa.me/12317902336"
               target="_blank"
               rel="noopener noreferrer"
               className="group flex flex-col items-center gap-4 p-8 bg-white rounded-2xl border border-[#E2D9CC] hover:border-green-300 hover:shadow-xl hover:-translate-y-1 transition-all duration-300"
@@ -377,7 +377,7 @@ export default function HelpPage() {
               </div>
               <div className="text-center">
                 <p className="text-[#0B1F3A] font-bold text-sm mb-1">WhatsApp Jade</p>
-                <p className="text-[#0B1F3A]/50 text-xs mb-2">+44 7398 753797</p>
+                <p className="text-[#0B1F3A]/50 text-xs mb-2">+12317902336</p>
                 <p className="text-green-600 text-xs font-semibold">Replies within 1 hour</p>
               </div>
             </a>

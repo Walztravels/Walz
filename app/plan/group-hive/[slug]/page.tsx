@@ -231,7 +231,7 @@ export default function GroupHiveSlugPage() {
           )}
 
           <a
-            href="https://wa.me/447398753797"
+            href="https://wa.me/12317902336"
             className="w-full flex items-center justify-center gap-2 py-4 rounded-xl font-bold text-sm bg-green-500 text-white hover:bg-green-600 transition-colors"
           >
             📱 WhatsApp Walz Travels to Book

@@ -103,7 +103,7 @@ function buildProposalHtml(
     ${daysHtml}
   </div>
   <div style="background:#0B1F3A;padding:20px 32px;text-align:center">
-    <div style="color:rgba(255,255,255,0.5);font-size:11px">Walz Travels · walztravels.com · contact@walztravels.com · +44 7398 753797</div>
+    <div style="color:rgba(255,255,255,0.5);font-size:11px">Walz Travels · walztravels.com · contact@walztravels.com · +12317902336</div>
   </div>
 </div>
 </body>

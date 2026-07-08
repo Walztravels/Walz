@@ -41,7 +41,7 @@ function buildEmail(
       Or chat with <strong>Jade</strong> — our AI can find the best fares and book for you directly.
     </p>
     <p style="color:#9CA3AF;font-size:11px;margin:20px 0 0">
-      WhatsApp: <a href="https://wa.me/447398753797" style="color:#C9A84C">+44 7398 753797</a> ·
+      WhatsApp: <a href="https://wa.me/12317902336" style="color:#C9A84C">+12317902336</a> ·
       <a href="mailto:contact@walztravels.com" style="color:#C9A84C">contact@walztravels.com</a>
     </p>
   </div>
@@ -72,7 +72,7 @@ function buildEmail(
       Questions? Reply to this email or WhatsApp us — we typically respond within 30 minutes.
     </p>
     <p style="color:#9CA3AF;font-size:11px;margin:20px 0 0">
-      WhatsApp: <a href="https://wa.me/447398753797" style="color:#C9A84C">+44 7398 753797</a>
+      WhatsApp: <a href="https://wa.me/12317902336" style="color:#C9A84C">+12317902336</a>
     </p>
   </div>
 </div>

@@ -66,7 +66,7 @@ export default function AccountCreatedPage() {
         <div className="mt-6 text-center">
           <p className="text-xs text-gray-400">
             Need help?{' '}
-            <a href="https://wa.me/447398753797" target="_blank" rel="noopener noreferrer"
+            <a href="https://wa.me/12317902336" target="_blank" rel="noopener noreferrer"
               className="text-[#C9A84C] font-semibold hover:underline">WhatsApp us</a>
             {' '}or email{' '}
             <a href="mailto:contact@walztravels.com" className="text-[#C9A84C] font-semibold hover:underline">

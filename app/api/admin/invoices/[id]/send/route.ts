@@ -49,7 +49,7 @@ td{padding:10px 12px;border-bottom:1px solid #f0f0f0;font-size:13px}
 <body>
 <div class="container">
   <div class="header">
-    <div class="logo">WALZ TRAVELS</div>
+    <img src="https://walztravels.com/walz-logo.png" alt="Walz Travels" width="130" style="display:block;max-width:100%;height:auto;" />
     <div style="color:rgba(255,255,255,0.4);font-size:10px;margin-top:4px;letter-spacing:2px">FLIGHTS · VISAS · HOTELS · TOURS</div>
   </div>
   <div class="body">
@@ -89,7 +89,7 @@ td{padding:10px 12px;border-bottom:1px solid #f0f0f0;font-size:13px}
   </div>
   <div style="background:#f8f9fa;padding:20px 32px;text-align:center;font-size:11px;color:#999">
     © ${new Date().getFullYear()} Walz Travels Ltd · walztravels.com<br>
-    contact@walztravels.com · +44 7398 753797
+    contact@walztravels.com · +12317902336
   </div>
 </div>
 </body>

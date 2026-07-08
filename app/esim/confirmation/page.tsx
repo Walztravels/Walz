@@ -70,7 +70,7 @@ function ConfirmationContent() {
             {order?.error ?? 'We could not process your eSIM. Please contact support.'}
           </p>
           <a
-            href="https://wa.me/447398753797"
+            href="https://wa.me/12317902336"
             target="_blank"
             rel="noopener noreferrer"
             className="inline-flex items-center gap-2 px-6 py-3 bg-[#0B1F3A] text-white font-semibold text-sm rounded-full"
@@ -189,7 +189,7 @@ function ConfirmationContent() {
             Email QR again
           </a>
           <a
-            href={`https://wa.me/447398753797?text=Hi, I need help with my Jade Connect eSIM (${order.orderRef})`}
+            href={`https://wa.me/12317902336?text=Hi, I need help with my Jade Connect eSIM (${order.orderRef})`}
             target="_blank"
             rel="noopener noreferrer"
             className="flex items-center justify-center gap-2 py-3 bg-white border border-[#E5E7EB] text-[#0B1F3A] font-semibold text-sm rounded-full hover:border-[#0B1F3A]/30 transition-colors"

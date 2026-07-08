@@ -28,9 +28,8 @@ const bookingSchema = z.object({
   requirements: z.string().optional().default(''),
   message: z.string().optional().default(''),
   txRef: z.string().optional().default(''),
-  gateway: z.enum(['flutterwave', 'stripe', 'helcim']).optional().default('flutterwave'),
+  gateway: z.enum(['flutterwave', 'stripe']).optional().default('flutterwave'),
   flutterwaveTransactionId: z.string().optional().default(''),
-  helcimTransactionId: z.union([z.string(), z.number()]).optional(),
 })
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -173,7 +172,7 @@ function buildGuestEmail(d: TourBookingEmailData): string {
       <!-- Contact -->
       <p style="color:#8B9BAE;font-size:13px;line-height:1.6;">
         Questions? Reach us anytime:<br>
-        📱 <a href="https://wa.me/447398753797" style="color:#C9A84C;">WhatsApp: +44 7398 753797</a><br>
+        📱 <a href="https://wa.me/12317902336" style="color:#C9A84C;">WhatsApp: +12317902336</a><br>
         📧 <a href="mailto:tours@walztravels.com" style="color:#C9A84C;">tours@walztravels.com</a>
       </p>
     </div>
@@ -288,9 +287,7 @@ export async function POST(request: NextRequest) {
           description: a.name,
         })),
         // Payment references
-        notes: d.gateway === 'helcim'
-          ? `Helcim Transaction ID: ${d.helcimTransactionId}`
-          : `Gateway: ${d.gateway} | Tx ID: ${d.flutterwaveTransactionId} | Tx Ref: ${d.txRef}`,
+        notes: `Gateway: ${d.gateway} | Tx ID: ${d.flutterwaveTransactionId} | Tx Ref: ${d.txRef}`,
       },
     })
 

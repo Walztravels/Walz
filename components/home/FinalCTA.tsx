@@ -5,8 +5,11 @@ import Link from 'next/link'
 import gsap from 'gsap'
 import ScrollTrigger from 'gsap/ScrollTrigger'
 import { MessageCircle, FileText } from 'lucide-react'
+import { useSettings } from '@/lib/settings-context'
+import { whatsappLink } from '@/lib/site-settings'
 
 export function FinalCTA() {
+  const settings    = useSettings()
   const sectionRef  = useRef<HTMLDivElement>(null)
   const headlineRef = useRef<HTMLHeadingElement>(null)
   const subRef      = useRef<HTMLParagraphElement>(null)
@@ -87,13 +90,13 @@ export function FinalCTA() {
 
         <div ref={btnsRef} className="flex flex-col sm:flex-row items-center justify-center gap-4 flex-wrap">
           <a
-            href="https://wa.me/447398753797"
+            href={whatsappLink(settings.whatsapp_cta)}
             target="_blank"
             rel="noopener noreferrer"
             className="flex items-center gap-2.5 px-8 py-4 bg-[#0B1F3A] hover:bg-[#0d2345] text-white font-bold text-sm rounded-full transition-all duration-300 hover:scale-105 active:scale-100 shadow-lg"
           >
             <MessageCircle className="w-4 h-4" />
-            WhatsApp +447398753797
+            WhatsApp {settings.whatsapp_cta_display}
           </a>
           <Link href="/visa">
             <button className="flex items-center gap-2.5 px-8 py-4 border-2 border-[#0B1F3A]/30 hover:border-[#0B1F3A] text-[#0B1F3A] font-bold text-sm rounded-full transition-all duration-300 hover:scale-105 active:scale-100">

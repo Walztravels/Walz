@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
+import Image from 'next/image'
 import Link from 'next/link'
 import { cn } from '@/lib/utils'
 
@@ -110,14 +111,13 @@ export function MultiSlideHero() {
             i === current ? 'opacity-100' : 'opacity-0',
           )}
         >
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
+          <Image
             src={s.bg}
-            alt=""
-            className="w-full h-full object-cover"
-            loading={i === 0 ? 'eager' : 'lazy'}
-            fetchPriority={i === 0 ? 'high' : 'low'}
-            decoding="async"
+            alt={`${s.line1} ${s.line2} ${s.line3} — Walz Travels`}
+            fill
+            sizes="100vw"
+            priority={i === 0}
+            className="object-cover"
           />
           <div
             className="absolute inset-0"
@@ -134,8 +134,8 @@ export function MultiSlideHero() {
       <div
         className={cn(
           'relative z-10 text-center px-4 max-w-5xl mx-auto w-full',
-          'transition-all duration-350',
-          fading ? 'opacity-0 translate-y-3' : 'opacity-100 translate-y-0',
+          'transition-opacity duration-350',
+          fading ? 'opacity-0' : 'opacity-100',
         )}
       >
         {/* Animated pill */}

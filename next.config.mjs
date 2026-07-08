@@ -56,6 +56,10 @@ const nextConfig = {
         destination: 'https://www.walztravels.com/:path*',
         permanent:   true,
       },
+      // ── SEO: old/broken URL patterns → correct pages ─────────────────────
+      { source: '/terms-conditions', destination: '/terms', permanent: true },
+      { source: '/faq',             destination: '/help',  permanent: true },
+      { source: '/$',               destination: '/',      permanent: true },
       {
         source:      '/admin/intelligence/dummy-ticket',
         destination: '/admin/intelligence/doc-auth',
@@ -89,13 +93,13 @@ const nextConfig = {
             key:   'Content-Security-Policy',
             value: [
               "default-src 'self'",
-              "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://js.stripe.com https://www.googletagmanager.com https://www.google-analytics.com https://cdn.jsdelivr.net https://cdnjs.cloudflare.com https://app.trysoro.com https://*.trysoro.com",
+              "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://js.stripe.com https://www.googletagmanager.com https://www.google-analytics.com https://cdn.jsdelivr.net https://cdnjs.cloudflare.com https://app.trysoro.com https://*.trysoro.com https://checkout.flutterwave.com",
               "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://*.trysoro.com",
               "font-src 'self' https://fonts.gstatic.com https://*.trysoro.com",
               "img-src 'self' data: blob: https: http:",
-              "frame-src 'self' https://workspace.aircall.io https://phone.aircall.io https://*.aircall.io https://js.stripe.com https://hooks.stripe.com https://*.trysoro.com",
+              "frame-src 'self' https://workspace.aircall.io https://phone.aircall.io https://*.aircall.io https://js.stripe.com https://hooks.stripe.com https://*.trysoro.com https://checkout.flutterwave.com https://*.flutterwave.com",
               "child-src 'self' https://workspace.aircall.io https://phone.aircall.io https://*.aircall.io",
-              "connect-src 'self' https://*.walztravels.com https://api.stripe.com https://api.flutterwave.com https://*.supabase.co wss://*.supabase.co https://www.google-analytics.com https://*.aircall.io wss://*.aircall.io https://app.trysoro.com https://*.trysoro.com",
+              "connect-src 'self' https://*.walztravels.com https://*.stripe.com https://api.flutterwave.com https://*.flutterwave.com https://*.supabase.co wss://*.supabase.co https://www.google-analytics.com https://*.aircall.io wss://*.aircall.io https://app.trysoro.com https://*.trysoro.com",
               "media-src 'self' https:",
               "object-src 'none'",
               "base-uri 'self'",

@@ -322,7 +322,7 @@ export default function TripRequestFormPage() {
           Your trip request has already been submitted. Our team is reviewing your preferences and will be in touch soon.
         </p>
         <a
-          href="https://wa.me/447398753797"
+          href="https://wa.me/12317902336"
           target="_blank"
           rel="noreferrer"
           className="block w-full bg-green-500 hover:bg-green-400 text-white font-bold px-6 py-4 rounded-2xl text-base transition text-center mb-3">
@@ -353,7 +353,7 @@ export default function TripRequestFormPage() {
         </div>
         <div className="space-y-3">
           <a
-            href={`https://wa.me/447398753797?text=${encodeURIComponent(`Hi Walz Travels! I've just submitted my trip request for ${form.destination}. Reference: ${done.referenceNumber}`)}`}
+            href={`https://wa.me/12317902336?text=${encodeURIComponent(`Hi Walz Travels! I've just submitted my trip request for ${form.destination}. Reference: ${done.referenceNumber}`)}`}
             target="_blank"
             rel="noreferrer"
             className="flex items-center justify-center gap-2 w-full bg-green-500 hover:bg-green-400 text-white font-bold px-6 py-4 rounded-2xl text-base transition">

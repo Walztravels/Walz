@@ -604,7 +604,7 @@ function Step4({ code, selected, buyer }: { code: string; selected: SelectedVouc
       </div>
 
       <div className="flex gap-3">
-        <a href="https://wa.me/447398753797" target="_blank" rel="noopener noreferrer"
+        <a href="https://wa.me/12317902336" target="_blank" rel="noopener noreferrer"
           className="flex-1 flex items-center justify-center gap-2 py-3 bg-[#25D366] text-white text-sm font-bold rounded-xl hover:bg-[#20c45e] transition-colors">
           💬 WhatsApp Us
         </a>
@@ -724,7 +724,7 @@ export default function GiftPage() {
               Chat with Jade for a recommendation — she&apos;ll match the perfect gift to your budget and the lucky recipient.
             </p>
             <button
-              onClick={() => window.$chatwoot ? window.$chatwoot.toggle('open') : window.open('https://wa.me/447398753797','_blank','noopener,noreferrer')}
+              onClick={() => window.$chatwoot ? window.$chatwoot.toggle('open') : window.open('https://wa.me/12317902336','_blank','noopener,noreferrer')}
               className="inline-flex items-center gap-3 px-8 py-4 bg-[#0B1F3A] text-white font-bold text-base rounded-2xl hover:bg-[#0d2345] transition-colors"
             >
               <MessageCircle className="w-5 h-5" />

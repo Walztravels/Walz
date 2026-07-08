@@ -85,12 +85,12 @@ export default function PartnersPage() {
               Email Us <ArrowRight className="w-4 h-4" />
             </a>
             <a
-              href="https://wa.me/447398753797"
+              href="https://wa.me/12317902336"
               target="_blank"
               rel="noopener noreferrer"
               className="inline-flex items-center justify-center gap-2 px-6 py-3 border-2 border-white/20 text-white font-semibold text-sm rounded-xl hover:border-[#C9A84C] hover:text-[#C9A84C] transition-colors"
             >
-              WhatsApp +44 7398 753797
+              WhatsApp +12317902336
             </a>
           </div>
         </div>

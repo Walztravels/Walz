@@ -97,7 +97,7 @@ export async function POST(
 
             <p style="color:#666;font-size:13px">
               If you have any questions, please contact us:<br/>
-              📱 <a href="https://wa.me/447398753797" style="color:#C9A84C">WhatsApp: +44 7398 753797</a><br/>
+              📱 <a href="https://wa.me/12317902336" style="color:#C9A84C">WhatsApp: +12317902336</a><br/>
               📧 <a href="mailto:visa@walztravels.com" style="color:#C9A84C">visa@walztravels.com</a>
             </p>
           </div>

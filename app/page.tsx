@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import dynamic from 'next/dynamic'
+import Image from 'next/image'
 import Link from 'next/link'
 import Script from 'next/script'
 import { ArrowRight, Check, Mail, Gift, Rss } from 'lucide-react'
@@ -163,7 +164,7 @@ export default function HomePage() {
                   "height": 100
                 },
                 "description": "Expert visa processing, flight bookings, hotels and private tours across UK, Canada, UAE, Nigeria and Ghana.",
-                "telephone": "+447398753797",
+                "telephone": "+12317902336",
                 "email": "contact@walztravels.com",
                 "areaServed": ["GB", "CA", "AE", "NG", "GH"],
                 "serviceType": ["Visa Processing", "Flight Booking", "Hotel Booking", "Private Tours"],
@@ -175,7 +176,7 @@ export default function HomePage() {
                 ],
                 "contactPoint": {
                   "@type": "ContactPoint",
-                  "telephone": "+447398753797",
+                  "telephone": "+12317902336",
                   "contactType": "customer service",
                   "availableLanguage": ["English"]
                 }
@@ -236,13 +237,12 @@ export default function HomePage() {
                 key={dest.city}
                 className="relative rounded-2xl overflow-hidden aspect-[3/4] sm:aspect-square group cursor-pointer"
               >
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img
+                <Image
                   src={dest.image}
                   alt={dest.city}
-                  onError={e => { e.currentTarget.src = 'https://images.unsplash.com/photo-1436491865332-7a61a109cc05?w=800&auto=format&fit=crop' }}
-                  className="absolute inset-0 w-full h-full object-cover group-hover:scale-110 transition-transform duration-700 ease-out"
-                  loading="lazy"
+                  fill
+                  sizes="(max-width: 640px) 50vw, 33vw"
+                  className="object-cover group-hover:scale-110 transition-transform duration-700 ease-out"
                 />
                 <div
                   className="absolute inset-0"
@@ -378,12 +378,12 @@ export default function HomePage() {
                     href={`/blog?post=${a.slug}`}
                     className="group relative rounded-2xl overflow-hidden block h-64 md:h-72"
                   >
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img
+                    <Image
                       src={a.image}
                       alt={a.title}
-                      onError={e => { e.currentTarget.src = BLOG_FALLBACKS.default }}
-                      className="absolute inset-0 w-full h-full object-cover group-hover:scale-105 transition-transform duration-500"
+                      fill
+                      sizes="(max-width: 768px) 100vw, 33vw"
+                      className="object-cover group-hover:scale-105 transition-transform duration-500"
                     />
                     <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/30 to-transparent" />
                     <div className="absolute bottom-0 left-0 right-0 p-5">

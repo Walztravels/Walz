@@ -255,7 +255,7 @@ export function FlightTicketEmail({
                               {[
                                 { icon: '📋', label: 'Manage', sub: 'Booking', href: 'https://www.walztravels.com/portal/dashboard' },
                                 { icon: '📅', label: 'Add to', sub: 'Calendar', href: `https://www.walztravels.com/api/tickets/calendar?ref=${reference}` },
-                                { icon: '💬', label: 'WhatsApp', sub: 'Support', href: 'https://wa.me/447398753797' },
+                                { icon: '💬', label: 'WhatsApp', sub: 'Support', href: 'https://wa.me/12317902336' },
                                 { icon: '🌐', label: 'View', sub: 'Online', href: 'https://www.walztravels.com' },
                               ].map(({ icon, label, sub, href }) => (
                                 <td key={label} align="center" style={{ padding: '0 6px' }}>

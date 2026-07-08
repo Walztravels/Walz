@@ -53,7 +53,7 @@ function buildQrEmail(p: {
       <p style="margin:0 0 8px;font-size:12px;color:#374151;"><strong>Android:</strong> Settings → Network → SIM → Add eSIM → Scan QR</p>
       <p style="margin:0;font-size:11px;color:#92400E;">💡 Activate before you travel, but only switch to it when you land.</p>
     </div>
-    <p style="margin:0;color:#9CA3AF;font-size:11px;text-align:center;">Need help? WhatsApp <a href="https://wa.me/447398753797" style="color:#C9A84C;">+44 7398 753797</a> any time.</p>
+    <p style="margin:0;color:#9CA3AF;font-size:11px;text-align:center;">Need help? WhatsApp <a href="https://wa.me/12317902336" style="color:#C9A84C;">+12317902336</a> any time.</p>
   </td></tr>
   <tr><td style="background:#0B1F3A;padding:14px 32px;text-align:center;">
     <p style="margin:0;color:#8B9BAE;font-size:11px;">© ${new Date().getFullYear()} Walz Travels — Jade Connect eSIM</p>

@@ -585,7 +585,7 @@ function InlineConfirmation({ refNumber, email, destinationName }: { refNumber: 
         <Link href="/portal/application" className="inline-flex items-center gap-2 px-5 py-2.5 bg-[#0B1F3A] text-white text-sm font-semibold rounded-xl hover:bg-[#0d2345] transition-colors">
           <FileText className="w-4 h-4" /> View My Applications
         </Link>
-        <a href="https://wa.me/447398753797" target="_blank" rel="noopener noreferrer"
+        <a href="https://wa.me/12317902336" target="_blank" rel="noopener noreferrer"
           className="inline-flex items-center gap-2 px-5 py-2.5 border border-gray-200 text-[#0B1F3A] text-sm font-semibold rounded-xl hover:bg-gray-50 transition-colors">
           Chat with Jade →
         </a>
@@ -952,7 +952,7 @@ export function VisaApplicationForm({
           <p className="text-xs text-gray-400 mb-6">
             Our team will review and contact you within 24 hours with document requirements for each applicant.
           </p>
-          <a href="https://wa.me/447398753797"
+          <a href="https://wa.me/12317902336"
              className="inline-flex items-center gap-2 px-6 py-3 bg-[#C9A84C] text-[#0B1F3A] font-bold rounded-xl text-sm">
             Contact Walz Travels on WhatsApp
           </a>
@@ -1137,7 +1137,7 @@ export function VisaApplicationForm({
           </div>
           <h2 className="font-bold text-[#0B1F3A] text-xl mb-2">Link Invalid or Expired</h2>
           <p className="text-gray-500 text-sm mb-6 leading-relaxed">{tokenError}</p>
-          <a href="https://wa.me/447398753797" target="_blank" rel="noopener noreferrer"
+          <a href="https://wa.me/12317902336" target="_blank" rel="noopener noreferrer"
             className="inline-flex items-center gap-2 px-6 py-3 bg-[#C9A84C] text-[#0B1F3A] font-bold rounded-xl text-sm">
             Contact Walz Travels on WhatsApp
           </a>

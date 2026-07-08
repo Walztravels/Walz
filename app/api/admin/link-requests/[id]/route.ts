@@ -80,7 +80,7 @@ export async function PATCH(
     View My Dashboard →
   </a>
   <p style="color:#888;font-size:13px;margin-top:32px;">
-    Walz Travels · contact@walztravels.com · +447398753797
+    Walz Travels · contact@walztravels.com · +12317902336
   </p>
 </div>`,
       }).catch(() => {})

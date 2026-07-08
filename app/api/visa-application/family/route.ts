@@ -139,7 +139,7 @@ export async function POST(req: NextRequest) {
       View My Dashboard →
     </a>
     <p style="color:#888;font-size:12px;margin-top:24px;">
-      WhatsApp: <a href="https://wa.me/447398753797" style="color:#C9A84C;">+44 7398 753797</a> · contact@walztravels.com
+      WhatsApp: <a href="https://wa.me/12317902336" style="color:#C9A84C;">+12317902336</a> · contact@walztravels.com
     </p>
   </div>
 </div>`,

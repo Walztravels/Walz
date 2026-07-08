@@ -5,7 +5,7 @@ import { can } from '@/lib/permissions-registry'
 import prisma from '@/lib/db'
 
 const WALZ_DEFAULTS = {
-  toneOfVoice: `Professional yet warm and culturally aware. Speak directly to the Nigerian and Ghanaian diaspora. Use phrases like "your journey", "we've got you", "stress-free". Never corporate-cold. Always include a clear WhatsApp CTA (+447398753797). Celebrate client wins enthusiastically.`,
+  toneOfVoice: `Professional yet warm and culturally aware. Speak directly to the Nigerian and Ghanaian diaspora. Use phrases like "your journey", "we've got you", "stress-free". Never corporate-cold. Always include a clear WhatsApp CTA (+12317902336). Celebrate client wins enthusiastically.`,
   targetAudiences: [
     { id: '1', name: 'Nigerians in UK', description: 'Professionals on Tier 2/Skilled Worker visas, families visiting home, students' },
     { id: '2', name: 'Ghanaians in Canada', description: 'Permanent residents visiting family, new immigrants needing travel docs' },
@@ -30,7 +30,7 @@ const WALZ_DEFAULTS = {
   ],
   templates: [
     { id: '1', name: 'Visa Approval Win', structure: '🎉 [Client first name] just got their [country] visa approved! [Personal detail]. Ready to start your own journey? WhatsApp us now 👇' },
-    { id: '2', name: 'Flight Deal', structure: '✈️ [Route] from [price] | [Airline] | [Date range]. Limited seats. DM or WhatsApp +447398753797 to book.' },
+    { id: '2', name: 'Flight Deal', structure: '✈️ [Route] from [price] | [Airline] | [Date range]. Limited seats. DM or WhatsApp +12317902336 to book.' },
     { id: '3', name: 'Visa Tip', structure: '📋 [Number] things that get UK visas REFUSED (and how we help you avoid them): [Tips]. Save this post. Share with someone who needs it.' },
     { id: '4', name: 'Tour Promo', structure: '🌍 [Destination] group tour | [Month] [Year] | [Price] per person. [Highlight 1], [Highlight 2], [Highlight 3]. Limited to [N] people.' },
   ],

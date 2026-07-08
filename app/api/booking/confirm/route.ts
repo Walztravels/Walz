@@ -3,7 +3,6 @@ import { z } from 'zod'
 import { stripe } from '@/lib/stripe'
 import prisma from '@/lib/db'
 import { sendBookingConfirmation, sendBookingNotificationToAdmin } from '@/lib/email'
-import { verifyHelcimTransaction } from '@/lib/helcim'
 
 /**
  * POST /api/booking/confirm
@@ -14,7 +13,7 @@ import { verifyHelcimTransaction } from '@/lib/helcim'
  * gateway: "stripe"       → Retrieves and verifies the PaymentIntent via Stripe API
  *
  * After payment verification:
- *   1. Saves booking to the database with status PENDING
+ *   1. Saves booking to the database
  *   2. Sends confirmation email to the client
  *   3. Sends full booking details to contact@walztravels.com
  *
@@ -43,10 +42,9 @@ const addonSchema = z.object({
 })
 
 const schema = z.object({
-  gateway: z.enum(['flutterwave', 'stripe', 'helcim']).default('flutterwave'),
+  gateway: z.enum(['flutterwave', 'stripe']).default('flutterwave'),
   transactionId: z.string().optional(),    // required for flutterwave
   paymentIntentId: z.string().optional(),  // required for stripe
-  helcimTransactionId: z.union([z.string(), z.number()]).optional(), // required for helcim
   bookingReference: z.string().min(4),
   passengers: z.array(passengerSchema).min(1),
   contactEmail: z.string().email(),
@@ -98,9 +96,6 @@ export async function POST(request: NextRequest) {
   if (data.gateway === 'stripe' && !data.paymentIntentId) {
     return NextResponse.json({ error: 'paymentIntentId is required for Stripe' }, { status: 400 })
   }
-  if (data.gateway === 'helcim' && !data.helcimTransactionId) {
-    return NextResponse.json({ error: 'helcimTransactionId is required for Helcim' }, { status: 400 })
-  }
 
   try {
     // ── 1a. Verify Flutterwave transaction ──────────────────────────────────────
@@ -138,17 +133,6 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // ── 1c. Verify Helcim transaction ────────────────────────────────────────────
-    if (data.gateway === 'helcim') {
-      const tx = await verifyHelcimTransaction(data.helcimTransactionId!)
-      if (!tx || tx.status !== 'APPROVED') {
-        return NextResponse.json(
-          { error: 'Helcim payment could not be verified. Please contact support.' },
-          { status: 400 }
-        )
-      }
-    }
-
     // ── 2. Save booking to database ──────────────────────────────────────────────
     const totalAmount = data.totalAmount ?? data.flight.price.amount
     const currency = data.flight.price.currency
@@ -169,9 +153,7 @@ export async function POST(request: NextRequest) {
           flightDetails: {
             outbound: data.flight.outbound,
             price: data.flight.price,
-            ...(data.gateway === 'flutterwave'
-              ? { flutterwaveTransactionId: data.transactionId }
-              : {}),
+            ...(data.gateway === 'flutterwave' ? { flutterwaveTransactionId: data.transactionId } : {}),
           },
           passengers: data.passengers,
           addons: data.addons,
@@ -214,7 +196,6 @@ export async function POST(request: NextRequest) {
           gateway: data.gateway,
           flutterwaveTransactionId: data.transactionId,
           stripePaymentIntentId: data.paymentIntentId,
-          helcimTransactionId: data.helcimTransactionId,
           contactEmail: data.contactEmail,
           contactPhone: data.contactPhone,
           passengers: data.passengers as Parameters<typeof sendBookingNotificationToAdmin>[0]['passengers'],
@@ -236,9 +217,7 @@ export async function POST(request: NextRequest) {
       gateway: data.gateway,
       ...(data.gateway === 'flutterwave'
         ? { flutterwaveTransactionId: data.transactionId }
-        : data.gateway === 'helcim'
-          ? { helcimTransactionId: data.helcimTransactionId }
-          : { stripePaymentIntentId: data.paymentIntentId }),
+        : { stripePaymentIntentId: data.paymentIntentId }),
     })
 
   } catch (err) {

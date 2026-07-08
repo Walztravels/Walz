@@ -147,7 +147,7 @@ export async function POST(req: NextRequest) {
             </div>
             <p style="color:#888;font-size:12px">
               This link expires in 30 days.<br/>
-              Need help? <a href="https://wa.me/447398753797" style="color:#C9A84C">WhatsApp: +44 7398 753797</a>
+              Need help? <a href="https://wa.me/12317902336" style="color:#C9A84C">WhatsApp: +12317902336</a>
             </p>
           </div>
           <div style="background:#f5f5f5;padding:16px;text-align:center">

@@ -233,7 +233,7 @@ export default function Dashboard() {
             { href: '/insurance',        icon: Shield,         label: 'Insurance',    cls: 'text-[#C9A84C] bg-amber-500/10' },
             { href: '/tours',            icon: Map,            label: 'Book Tour',    cls: 'text-green-400 bg-green-500/10' },
             { href: '/gift',             icon: Gift,           label: 'Gift Voucher', cls: 'text-amber-400 bg-amber-500/10' },
-            { href: 'https://wa.me/447398753797', icon: MessageCircle, label: 'WhatsApp', cls: 'text-green-400 bg-green-500/10', ext: true },
+            { href: 'https://wa.me/12317902336', icon: MessageCircle, label: 'WhatsApp', cls: 'text-green-400 bg-green-500/10', ext: true },
           ].map(({ href, icon: Icon, label, cls, ext }) => (
             ext ? (
               <a key={label} href={href} target="_blank" rel="noopener noreferrer"
@@ -279,7 +279,7 @@ export default function Dashboard() {
         {/* ── Applications ──────────────────────── */}
         <Card title="My Applications" icon={<FileText className="w-4 h-4 text-[#C9A84C]" />} count={apps.length} viewAll="/portal/application">
           {apps.length === 0 ? (
-            <Empty icon="🛂" title="No applications yet" sub="Your visa, flight, and travel applications will appear here once our team creates them." cta={{ label: 'Contact us on WhatsApp', href: 'https://wa.me/447398753797', ext: true }} />
+            <Empty icon="🛂" title="No applications yet" sub="Your visa, flight, and travel applications will appear here once our team creates them." cta={{ label: 'Contact us on WhatsApp', href: 'https://wa.me/12317902336', ext: true }} />
           ) : (
             <div className="space-y-3">
               {apps.map(app => {
@@ -389,7 +389,7 @@ export default function Dashboard() {
               <h3 className="font-semibold text-white text-sm">Need help?</h3>
               <p className="text-white/40 text-xs mt-0.5">Our team is on WhatsApp 24/7 for any question.</p>
             </div>
-            <a href="https://wa.me/447398753797" target="_blank" rel="noopener noreferrer"
+            <a href="https://wa.me/12317902336" target="_blank" rel="noopener noreferrer"
               className="flex-shrink-0 px-4 py-2 bg-green-600 text-white text-sm font-semibold rounded-xl hover:bg-green-700 transition-colors">
               Chat Now
             </a>

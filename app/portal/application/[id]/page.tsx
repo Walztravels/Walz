@@ -116,7 +116,7 @@ export default function ApplicationDetailPage() {
   const progress = app.stage === 'REJECTED' ? 100 : Math.round(((STAGE_ORDER.indexOf(app.stage) + 1) / STAGE_ORDER.length) * 100)
   const completedChecklist = app.checklist.filter(c => c.completedAt).length
 
-  const waLink = `https://wa.me/447398753797?text=${encodeURIComponent(
+  const waLink = `https://wa.me/12317902336?text=${encodeURIComponent(
     `Hi Walz Travels, I have a question about my ${app.destination ?? ''} visa application (Ref: ${app.refNumber})`
   )}`
 

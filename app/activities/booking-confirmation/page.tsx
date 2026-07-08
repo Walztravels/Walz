@@ -62,7 +62,7 @@ function ConfirmationContent() {
 
         <div className="flex flex-col gap-3">
           <a
-            href={`https://wa.me/447398753797?text=${encodeURIComponent(
+            href={`https://wa.me/12317902336?text=${encodeURIComponent(
               `Hi Walz Travels! I just booked ${meta.activityTitle ?? 'an activity'} online. My name is ${meta.clientName ?? 'a client'}. Looking forward to it!`
             )}`}
             target="_blank"

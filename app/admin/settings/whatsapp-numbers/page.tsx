@@ -8,7 +8,7 @@ const NUMBERS = [
   {
     flag: '🇬🇧',
     label: 'United Kingdom',
-    number: '+44 7398 753797',
+    number: '+12317902336',
     status: 'expired',
     statusLabel: 'Token expired',
     statusColor: 'bg-red-100 text-red-700',

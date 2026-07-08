@@ -168,7 +168,7 @@ export default async function TrackApplicationPage({ params }: { params: { token
         <div className="bg-[#0B1F3A] rounded-2xl p-6 text-center">
           <p className="text-white/60 text-sm mb-4">Have questions about your application?</p>
           <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
-            <a href="https://wa.me/447398753797" target="_blank" rel="noreferrer"
+            <a href="https://wa.me/12317902336" target="_blank" rel="noreferrer"
               className="bg-[#C9A84C] text-[#0B1F3A] font-bold px-6 py-2.5 rounded-full text-sm hover:bg-white transition-colors">
               WhatsApp Us
             </a>
@@ -180,7 +180,7 @@ export default async function TrackApplicationPage({ params }: { params: { token
         </div>
 
         <p className="text-center text-xs text-gray-400 pb-4">
-          Walz Travels · visa@walztravels.com · +44 7398 753797
+          Walz Travels · visa@walztravels.com · +12317902336
         </p>
       </div>
     </div>

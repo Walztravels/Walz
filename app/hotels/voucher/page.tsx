@@ -109,7 +109,7 @@ async function VoucherContent({ ref }: { ref: string }) {
         <PrintButton />
 
         <p className="text-center text-xs text-gray-400 print:hidden">
-          Questions? WhatsApp +44 7398 753797 · contact@walztravels.com
+          Questions? WhatsApp +12317902336 · contact@walztravels.com
         </p>
       </div>
     </div>

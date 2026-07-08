@@ -115,7 +115,7 @@ export async function GET(req: NextRequest) {
         Book This Flight Now →
       </a>
       <p style="color:#9CA3AF;font-size:11px;margin:16px 0 0;text-align:center">
-        Or call us: +1 984-388-0110 · WhatsApp: +44 7398 753797<br>
+        Or call us: +1 984-388-0110 · WhatsApp: +12317902336<br>
         To stop alerts for this route, reply "STOP" to this email.
       </p>
     </div>

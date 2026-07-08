@@ -85,18 +85,29 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   } catch {}
 
   let tourPages: MetadataRoute.Sitemap = []
+  let packagePages: MetadataRoute.Sitemap = []
   try {
-    const tours = await prisma.tourListing.findMany({
+    const listings = await prisma.tourListing.findMany({
       where:   { active: true },
-      select:  { slug: true, updatedAt: true },
+      select:  { slug: true, updatedAt: true, type: true },
     })
-    tourPages = tours.map(tour => ({
-      url:             `${BASE}/tours/${tour.slug}`,
-      lastModified:    tour.updatedAt,
-      changeFrequency: 'weekly' as const,
-      priority:        0.7,
-    }))
+    tourPages = listings
+      .filter(l => l.type !== 'package')
+      .map(l => ({
+        url:             `${BASE}/tours/${l.slug}`,
+        lastModified:    l.updatedAt,
+        changeFrequency: 'weekly' as const,
+        priority:        0.7,
+      }))
+    packagePages = listings
+      .filter(l => l.type === 'package')
+      .map(l => ({
+        url:             `${BASE}/packages/${l.slug}`,
+        lastModified:    l.updatedAt,
+        changeFrequency: 'weekly' as const,
+        priority:        0.8,
+      }))
   } catch {}
 
-  return [...staticPages, ...blogPages, ...tourPages]
+  return [...staticPages, ...blogPages, ...tourPages, ...packagePages]
 }

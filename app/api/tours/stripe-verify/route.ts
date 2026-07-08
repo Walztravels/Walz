@@ -154,7 +154,7 @@ export async function GET(req: NextRequest) {
         <tr style="background:#0A1628;"><td style="padding:12px;color:#C9A84C;font-weight:700;font-size:16px;">Total Paid</td><td style="padding:12px;color:#C9A84C;font-weight:700;font-size:16px;text-align:right;">${fmt(totalAmount, currency)}</td></tr>
       </table>
     </div>
-    <p style="color:#8B9BAE;font-size:13px;">Questions? <a href="https://wa.me/447398753797" style="color:#C9A84C;">WhatsApp: +44 7398 753797</a> · <a href="mailto:contact@walztravels.com" style="color:#C9A84C;">contact@walztravels.com</a></p>
+    <p style="color:#8B9BAE;font-size:13px;">Questions? <a href="https://wa.me/12317902336" style="color:#C9A84C;">WhatsApp: +12317902336</a> · <a href="mailto:contact@walztravels.com" style="color:#C9A84C;">contact@walztravels.com</a></p>
   </div>
   <div style="padding:24px 40px;background:#F7F4EF;text-align:center;">
     <p style="margin:0;color:#8B9BAE;font-size:12px;">© ${new Date().getFullYear()} Walz Travels Ltd. IATA Certified</p>

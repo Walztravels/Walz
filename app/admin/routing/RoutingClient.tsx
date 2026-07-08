@@ -253,11 +253,18 @@ function AgentModal({
                 Chatwoot Agent
                 {loadingDropdowns && <Loader2 className="inline w-3 h-3 ml-1 animate-spin" />}
               </span>
-              <select value={cwId} onChange={e => setCwId(e.target.value ? Number(e.target.value) : '')}
+              <select value={cwAgents.some(a => a.id === cwId) ? cwId : ''} onChange={e => setCwId(e.target.value ? Number(e.target.value) : '')}
                 className="mt-1 w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#C9A84C]/50">
                 <option value="">— not linked —</option>
-                {cwAgents.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+                {cwAgents.map(a => <option key={a.id} value={a.id}>{a.name} (#{a.id})</option>)}
               </select>
+              <input
+                type="number"
+                placeholder="or enter Chatwoot ID manually"
+                value={cwId}
+                onChange={e => setCwId(e.target.value ? Number(e.target.value) : '')}
+                className="mt-1.5 w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#C9A84C]/50 placeholder:text-gray-300"
+              />
             </label>
             <label className="block">
               <span className="text-xs font-medium text-gray-600">

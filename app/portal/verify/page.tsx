@@ -173,7 +173,7 @@ function PortalVerifyContent() {
         </div>
 
         <p className="text-center text-xs text-white/40 mt-6">
-          Need help? <a href="https://wa.me/447398753797" target="_blank" rel="noopener noreferrer" className="text-green-400 hover:underline">WhatsApp us</a>
+          Need help? <a href="https://wa.me/12317902336" target="_blank" rel="noopener noreferrer" className="text-green-400 hover:underline">WhatsApp us</a>
         </p>
       </div>
     </div>

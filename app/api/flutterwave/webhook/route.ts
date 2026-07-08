@@ -113,7 +113,7 @@ td:last-child{text-align:right;font-weight:600}
     </table>
     <p style="font-size:13px;color:#9CA3AF;margin-top:20px;text-align:center">
       Thank you for your payment. Our team will be in touch shortly.<br>
-      Questions? <a href="https://wa.me/447398753797" style="color:#C9A84C">WhatsApp us</a> or email
+      Questions? <a href="https://wa.me/12317902336" style="color:#C9A84C">WhatsApp us</a> or email
       <a href="mailto:billing@walztravels.com" style="color:#C9A84C">billing@walztravels.com</a>
     </p>
   </div>

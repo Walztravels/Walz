@@ -227,7 +227,7 @@ export default function UkVisaNigeriaPage() {
             <h2 className="text-xl font-bold text-[#0B1F3A] mb-4">How to Apply for UK Visa with Walz Travels</h2>
             <div className="space-y-4">
               {[
-                { step: '1', title: 'Contact us on WhatsApp', desc: 'Send a message to +44 7398 753797. We respond within 2 hours during business hours.' },
+                { step: '1', title: 'Contact us on WhatsApp', desc: 'Send a message to +12317902336. We respond within 2 hours during business hours.' },
                 { step: '2', title: 'Initial consultation', desc: 'We review your profile — employment, finances, travel history, purpose of visit — and identify any risk areas.' },
                 { step: '3', title: 'Document checklist', desc: 'You receive a personalised checklist based on your specific situation.' },
                 { step: '4', title: 'Document review', desc: 'Our visa team reviews every document before submission. We flag problems before UKVI sees them.' },
@@ -277,12 +277,12 @@ export default function UkVisaNigeriaPage() {
                 Apply for UK Visa →
               </Link>
               <a
-                href="https://wa.me/447398753797"
+                href="https://wa.me/12317902336"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="inline-flex items-center justify-center px-8 py-3 border-2 border-white/20 hover:border-white/40 text-white font-semibold rounded-xl transition-colors text-sm"
               >
-                WhatsApp +44 7398 753797
+                WhatsApp +12317902336
               </a>
             </div>
           </div>

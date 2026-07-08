@@ -119,7 +119,7 @@ function WhatsAppFallback() {
           </div>
         </div>
         <a
-          href={`https://wa.me/447398753797?text=${encodeURIComponent(msg)}`}
+          href={`https://wa.me/12317902336?text=${encodeURIComponent(msg)}`}
           target="_blank" rel="noopener noreferrer"
           className="block w-full text-center bg-green-500 hover:bg-green-600 text-white font-semibold rounded-xl py-3 transition-colors"
         >

@@ -212,7 +212,7 @@ export default function PackageBookingModal({ pkg: initialPkg, isOpen: controlle
   }
 
   const waText = encodeURIComponent(`Hi, I just booked ${pkg.title} ref ${bookingRef}`)
-  const waUrl = `https://wa.me/447398753797?text=${waText}`
+  const waUrl = `https://wa.me/12317902336?text=${waText}`
 
   const fmtCurrency = (amount: number, currency: string) => {
     try {

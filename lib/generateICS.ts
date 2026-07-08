@@ -39,7 +39,7 @@ export function generateFlightICS(
       `Baggage: ${leg.baggage}`,
       leg.seat ? `Seat: ${leg.seat}` : '',
       '',
-      'Support: https://wa.me/447398753797',
+      'Support: https://wa.me/12317902336',
       'Portal: https://www.walztravels.com/portal',
     ].filter(l => l !== null).join('\\n')
 

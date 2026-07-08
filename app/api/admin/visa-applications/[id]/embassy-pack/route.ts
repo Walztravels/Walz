@@ -227,8 +227,8 @@ export async function POST(
           Questions? We're here.
         </p>
         <p style="margin:0;color:#64748b;font-size:13px;">
-          💬 <a href="https://wa.me/447398753797" style="color:#C9A84C;">
-            WhatsApp +44 7398 753797</a>
+          💬 <a href="https://wa.me/12317902336" style="color:#C9A84C;">
+            WhatsApp +12317902336</a>
           &nbsp;|&nbsp;
           ✉️ <a href="mailto:contact@walztravels.com" style="color:#C9A84C;">
             contact@walztravels.com</a>

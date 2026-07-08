@@ -522,7 +522,7 @@ export function EsimSearch({ packages }: { packages: EsimPackage[] }) {
                     className="px-5 py-2.5 text-sm font-semibold rounded-full border border-white/20 text-white/60 hover:text-white transition-colors">
                     Clear search
                   </button>}
-                  <a href="https://wa.me/447398753797" target="_blank" rel="noopener noreferrer"
+                  <a href="https://wa.me/12317902336" target="_blank" rel="noopener noreferrer"
                     className="inline-flex items-center gap-2 px-5 py-2.5 rounded-full text-sm font-bold"
                     style={{ background: '#C9A84C', color: '#0B1F3A' }}>
                     <MessageCircle className="w-4 h-4" /> WhatsApp us

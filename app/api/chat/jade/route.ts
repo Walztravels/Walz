@@ -46,7 +46,7 @@ Important links to mention:
 For complex bookings or urgent queries, always offer WhatsApp and mention the UK number. If the client is in Canada or North America, offer the Canada number too.
 
 Contact details:
-- WhatsApp UK: +447398753797 (wa.me/447398753797)
+- WhatsApp UK: +12317902336 (wa.me/12317902336)
 - WhatsApp Canada: +15557107823
 - Call Jade: +19843880110
 - Email: contact@walztravels.com

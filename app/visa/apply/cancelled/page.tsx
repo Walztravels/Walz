@@ -19,7 +19,7 @@ export default function CancelledPage() {
             Try Again
           </Link>
           <a
-            href="https://wa.me/447398753797"
+            href="https://wa.me/12317902336"
             className="border border-gray-200 text-gray-500 py-3 rounded-xl text-sm hover:bg-gray-50 transition-colors block">
             Pay via WhatsApp Instead
           </a>

@@ -27,7 +27,7 @@ export function CurrencyProvider({ children }: { children: React.ReactNode }) {
   const [loading,     setLoading]     = useState(true)
   const [lastUpdated, setLastUpdated] = useState('')
 
-  // Restore preference from localStorage; fall back to browser locale detection
+  // Restore preference from localStorage, then IP geo, then browser locale
   useEffect(() => {
     try {
       const saved = localStorage.getItem(LS_KEY)
@@ -35,16 +35,28 @@ export function CurrencyProvider({ children }: { children: React.ReactNode }) {
         setSelectedCurrencyState(saved)
         return
       }
-      // Auto-detect from browser locale — default stays GBP for diaspora market
-      const lang = navigator.language || 'en-GB'
-      if      (lang.includes('CA'))                       setSelectedCurrencyState('CAD')
-      else if (lang.includes('NG'))                       setSelectedCurrencyState('NGN')
-      else if (lang.includes('GH'))                       setSelectedCurrencyState('GHS')
-      else if (lang.includes('AE'))                       setSelectedCurrencyState('AED')
-      else if (lang.includes('AU'))                       setSelectedCurrencyState('AUD')
-      else if (lang.includes('US') && !lang.includes('AU')) setSelectedCurrencyState('USD')
-      // else keep GBP default
     } catch { /* private browsing */ }
+
+    // IP-based detection via Vercel geo headers — accurate, free, no API key
+    fetch('/api/geo')
+      .then(r => r.json())
+      .then((d: { currency?: string }) => {
+        if (d.currency && CURRENCIES.some(c => c.code === d.currency)) {
+          setSelectedCurrencyState(d.currency)
+        }
+      })
+      .catch(() => {
+        // Fallback: browser locale (less accurate — device language ≠ location)
+        try {
+          const lang = navigator.language || 'en-GB'
+          if      (lang.includes('CA'))                         setSelectedCurrencyState('CAD')
+          else if (lang.includes('NG'))                         setSelectedCurrencyState('NGN')
+          else if (lang.includes('GH'))                         setSelectedCurrencyState('GHS')
+          else if (lang.includes('AE'))                         setSelectedCurrencyState('AED')
+          else if (lang.includes('AU'))                         setSelectedCurrencyState('AUD')
+          else if (lang.includes('US') && !lang.includes('AU')) setSelectedCurrencyState('USD')
+        } catch { /* private browsing */ }
+      })
   }, [])
 
   // Fetch rates once on mount (USD base covers all conversions)

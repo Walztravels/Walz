@@ -464,12 +464,12 @@ export default function FlightRoutePage({ params }: Props) {
                 Search live fares →
               </Link>
               <a
-                href="https://wa.me/447398753797"
+                href="https://wa.me/12317902336"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="inline-flex items-center justify-center px-8 py-3 border-2 border-white/20 hover:border-white/40 text-white font-semibold rounded-xl transition-colors text-sm"
               >
-                WhatsApp +44 7398 753797
+                WhatsApp +12317902336
               </a>
             </div>
           </div>

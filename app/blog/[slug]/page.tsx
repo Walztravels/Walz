@@ -58,6 +58,7 @@ export async function generateMetadata(
   return {
     title: `${post.title} | Walz Travels Blog`,
     description,
+    alternates: { canonical: `https://www.walztravels.com/blog/${post.slug}` },
     openGraph: {
       title: post.title,
       description,
@@ -228,7 +229,7 @@ export default async function BlogPostPage({ params }: { params: { slug: string 
                 Get expert travel advice, visa help, and flight bookings — all in one place.
               </p>
               <a
-                href="https://wa.me/447398753797"
+                href="https://wa.me/12317902336"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="flex items-center justify-center gap-2 w-full py-3 bg-[#25D366] text-white text-sm font-bold rounded-xl hover:bg-[#20c45e] transition-colors"

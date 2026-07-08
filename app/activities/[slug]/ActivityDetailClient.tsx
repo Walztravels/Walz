@@ -194,7 +194,7 @@ export default function ActivityDetailClient({ activity }: { activity: any }) {
               <div className="pt-4 border-t border-white/10 text-center">
                 <p className="text-white/30 text-xs mb-2">Need help choosing?</p>
                 <a
-                  href="https://wa.me/447398753797"
+                  href="https://wa.me/12317902336"
                   target="_blank"
                   rel="noopener noreferrer"
                   className="flex items-center justify-center gap-1.5 text-xs text-[#C9A84C]

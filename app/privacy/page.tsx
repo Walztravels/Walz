@@ -122,7 +122,7 @@ You can control non-essential cookies through your browser settings. Disabling e
     body: `For any privacy-related questions, requests or complaints:
 
 Email: contact@walztravels.com
-WhatsApp: +44 7398 753797
+WhatsApp: +12317902336
 Post: Walz Travels Ltd, 1 Commercial Street, London, E1 6RF
 
 If you are unsatisfied with our response, you have the right to lodge a complaint with the Information Commissioner's Office (ICO) at ico.org.uk.`,

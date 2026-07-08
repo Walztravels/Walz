@@ -189,7 +189,7 @@ async function main() {
 
   // ── Site Settings ──────────────────────────────────────────────────────────
   const settings = [
-    { key: 'whatsapp_uk',       value: '+447398753797', label: 'WhatsApp UK' },
+    { key: 'whatsapp_uk',       value: '+12317902336', label: 'WhatsApp UK' },
     { key: 'whatsapp_us',       value: '+15557107823',  label: 'WhatsApp US' },
     { key: 'call_jade',         value: '+19843880110',  label: 'Call Jade' },
     { key: 'email',             value: 'contact@walztravels.com', label: 'Email' },

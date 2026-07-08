@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
 
-export const revalidate = 3600
+export const revalidate = 30
 
 export async function GET() {
   try {
@@ -20,7 +20,7 @@ export async function GET() {
       visaFrom:   r.visaFrom  ?? undefined,
     }))
     return NextResponse.json(destinations, {
-      headers: { 'Cache-Control': 'public, s-maxage=3600, stale-while-revalidate=7200' },
+      headers: { 'Cache-Control': 'public, s-maxage=30, stale-while-revalidate=120' },
     })
   } catch {
     return NextResponse.json([], { status: 200 })

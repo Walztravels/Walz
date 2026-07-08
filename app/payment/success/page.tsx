@@ -73,6 +73,22 @@ function PaymentSuccessContent() {
 
             <p className="text-white/40 text-sm mb-8">A receipt has been sent to your email address.</p>
 
+            {/* Walz Rewards CTA */}
+            <div className="bg-white/5 border border-amber-500/30 rounded-2xl p-5 mb-8 text-left">
+              <div className="flex items-start gap-3">
+                <span className="text-2xl">⭐</span>
+                <div className="flex-1">
+                  <p className="text-amber-400 font-bold text-sm mb-1">Earn Walz Miles on every booking</p>
+                  <p className="text-white/50 text-xs leading-relaxed mb-3">
+                    Join Walz Rewards — it's free. Earn 10 miles per £1 spent and unlock perks as you climb the tiers.
+                  </p>
+                  <Link href="/flights/loyalty" className="inline-block bg-amber-500 hover:bg-amber-400 text-black font-bold px-4 py-2 rounded-lg text-xs transition">
+                    Learn about Walz Rewards →
+                  </Link>
+                </div>
+              </div>
+            </div>
+
             <div className="flex flex-col sm:flex-row gap-3 justify-center">
               <Link
                 href="/"
@@ -81,7 +97,7 @@ function PaymentSuccessContent() {
                 Back to Walz Travels
               </Link>
               <a
-                href="https://wa.me/447389753787"
+                href="https://wa.me/12317902336"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="border border-white/20 hover:border-white/40 text-white px-8 py-3.5 rounded-xl transition text-sm"
@@ -112,7 +128,7 @@ function PaymentSuccessContent() {
 
             <div className="flex flex-col sm:flex-row gap-3 justify-center">
               <a
-                href="https://wa.me/447389753787"
+                href="https://wa.me/12317902336"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="bg-amber-500 hover:bg-amber-400 text-black font-bold px-8 py-3.5 rounded-xl transition text-sm"

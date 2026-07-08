@@ -36,7 +36,7 @@ export async function POST(req: NextRequest) {
       <p>Thank you for reaching out to Walz Travels. We&apos;ve received your enquiry about
       <strong>${subject}</strong> and will respond within 2 hours.</p>
       <p>In the meantime, you can reach us on WhatsApp for urgent matters:
-      <strong>+44 7398 753797</strong></p>
+      <strong>+12317902336</strong></p>
       <p>— Walz Travels Team</p>
     `,
   })

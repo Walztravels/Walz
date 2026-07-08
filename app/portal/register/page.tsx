@@ -2,21 +2,24 @@
 
 import { useState } from 'react'
 import { signIn } from 'next-auth/react'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import Image from 'next/image'
 import Link from 'next/link'
 import { Mail, Lock, User, Loader2, AlertCircle, Eye, EyeOff, CheckCircle } from 'lucide-react'
 
 export default function PortalRegisterPage() {
-  const router = useRouter()
-  const [name, setName]             = useState('')
-  const [email, setEmail]           = useState('')
-  const [password, setPassword]     = useState('')
-  const [confirm, setConfirm]       = useState('')
-  const [showPw, setShowPw]         = useState(false)
-  const [loading, setLoading]       = useState(false)
-  const [error, setError]           = useState('')
-  const [linked, setLinked]         = useState(0)
+  const router       = useRouter()
+  const searchParams = useSearchParams()
+  const enrolRewards = searchParams?.get('enrol') === 'rewards'
+
+  const [name, setName]       = useState('')
+  const [email, setEmail]     = useState('')
+  const [password, setPassword] = useState('')
+  const [confirm, setConfirm] = useState('')
+  const [showPw, setShowPw]   = useState(false)
+  const [loading, setLoading] = useState(false)
+  const [error, setError]     = useState('')
+  const [linked, setLinked]   = useState(0)
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -52,6 +55,13 @@ export default function PortalRegisterPage() {
 
       if (signInRes?.error) {
         router.push('/portal/login?registered=1')
+        return
+      }
+
+      if (enrolRewards) {
+        // Auto-enrol in Walz Rewards then land on the loyalty page showing the welcome state
+        await fetch('/api/rewards/membership', { method: 'POST' }).catch(() => {})
+        router.push('/flights/loyalty?join=1')
       } else {
         router.push('/portal/dashboard')
       }
@@ -72,6 +82,16 @@ export default function PortalRegisterPage() {
         </div>
 
         <div className="bg-white rounded-2xl shadow-2xl p-8">
+          {enrolRewards && (
+            <div className="flex items-center gap-3 p-4 bg-amber-50 border border-amber-200 rounded-xl mb-6">
+              <span className="text-2xl">⭐</span>
+              <div>
+                <p className="text-sm font-bold text-[#0B1F3A]">Joining Walz Rewards</p>
+                <p className="text-xs text-[#0B1F3A]/60">Create your account to start earning Walz Miles</p>
+              </div>
+            </div>
+          )}
+
           <h1 className="text-2xl font-bold text-[#0A1628] mb-1">Create your account</h1>
           <p className="text-gray-500 text-sm mb-6">
             Already applied? Enter the same email and we&apos;ll link your applications automatically.
@@ -160,20 +180,27 @@ export default function PortalRegisterPage() {
               disabled={loading}
               className="w-full py-3 bg-[#0A1628] text-white font-semibold rounded-xl hover:bg-[#0d2040] transition-colors disabled:opacity-60 flex items-center justify-center gap-2 mt-2"
             >
-              {loading ? <><Loader2 className="w-4 h-4 animate-spin" /> Creating account…</> : 'Create Account →'}
+              {loading
+                ? <><Loader2 className="w-4 h-4 animate-spin" /> {enrolRewards ? 'Creating account & enrolling…' : 'Creating account…'}</>
+                : enrolRewards ? 'Create Account & Join Walz Rewards →' : 'Create Account →'}
             </button>
           </form>
 
           <div className="mt-5 pt-5 border-t border-gray-100 text-center">
             <p className="text-sm text-gray-500">
               Already have an account?{' '}
-              <Link href="/portal/login" className="text-[#C9A84C] font-medium hover:underline">Sign in</Link>
+              <Link
+                href={enrolRewards ? '/portal/login?enrol=rewards' : '/portal/login'}
+                className="text-[#C9A84C] font-medium hover:underline"
+              >
+                Sign in
+              </Link>
             </p>
           </div>
         </div>
 
         <p className="text-center text-xs text-white/40 mt-6">
-          Need help? <a href="https://wa.me/447398753797" target="_blank" rel="noopener noreferrer" className="text-green-400 hover:underline">WhatsApp us</a>
+          Need help? <a href="https://wa.me/12317902336" target="_blank" rel="noopener noreferrer" className="text-green-400 hover:underline">WhatsApp us</a>
         </p>
       </div>
     </div>

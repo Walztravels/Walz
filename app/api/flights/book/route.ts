@@ -68,16 +68,21 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Failed to save booking. Please try again.' }, { status: 500 })
     }
 
-    // Non-blocking notifications — failure doesn't affect the customer response
-    void sendAdminEmail(booking, {
-      clientName, clientEmail, clientPhone,
-      searchedOrigin, searchedDest, departDate,
-      cabinClass, paidAmount, currency, paymentRef, paymentMethod, offerExpiresAt,
-    }).catch(e => console.warn('[flights/book] Admin email failed:', e))
-
-    void sendClientHoldingEmail(booking, {
-      clientName, clientEmail, searchedOrigin, searchedDest, departDate,
-    }).catch(e => console.warn('[flights/book] Client email failed:', e))
+    // Await both emails before responding — Vercel terminates the Node process
+    // after the response is sent, so fire-and-forget risks the client email
+    // being cut off. allSettled() ensures both finish without failing the booking.
+    const [adminRes, clientRes] = await Promise.allSettled([
+      sendAdminEmail(booking, {
+        clientName, clientEmail, clientPhone,
+        searchedOrigin, searchedDest, departDate,
+        cabinClass, paidAmount, currency, paymentRef, paymentMethod, offerExpiresAt,
+      }),
+      sendClientHoldingEmail(booking, {
+        clientName, clientEmail, searchedOrigin, searchedDest, departDate,
+      }),
+    ])
+    if (adminRes.status  === 'rejected') console.error('[flights/book] Admin email failed:', adminRes.reason)
+    if (clientRes.status === 'rejected') console.error('[flights/book] Client email failed:', clientRes.reason)
 
     return NextResponse.json({
       success:   true,
@@ -161,7 +166,7 @@ async function sendClientHoldingEmail(
     html: `
       <div style="font-family:Arial,sans-serif;max-width:560px;margin:0 auto;">
         <div style="background:#0B1F3A;padding:24px;border-radius:8px 8px 0 0;text-align:center;">
-          <h1 style="color:#C9A84C;margin:0;font-size:22px;">WALZ TRAVELS</h1>
+          <img src="https://walztravels.com/walz-logo.png" alt="Walz Travels" width="130" style="display:block;margin:0 auto;height:auto;" />
         </div>
         <div style="padding:28px;background:#f9fafb;border:1px solid #e5e7eb;border-top:none;border-radius:0 0 8px 8px;">
           <h2 style="color:#0B1F3A;font-size:20px;margin:0 0 16px;">Hi ${firstName},</h2>
@@ -179,8 +184,8 @@ async function sendClientHoldingEmail(
             You'll receive your e-ticket by email as soon as it's issued.
           </p>
 
-          <a href="https://wa.me/447398753797" style="display:inline-block;background:#25D366;color:white;padding:10px 20px;border-radius:8px;text-decoration:none;font-weight:bold;margin-top:8px;">
-            WhatsApp +44 7398 753797
+          <a href="https://wa.me/12317902336" style="display:inline-block;background:#25D366;color:white;padding:10px 20px;border-radius:8px;text-decoration:none;font-weight:bold;margin-top:8px;">
+            WhatsApp +1 231 790 2336
           </a>
 
           <p style="color:#9ca3af;font-size:13px;margin-top:28px;">The Walz Travels Team<br>bookings@walztravels.com</p>

@@ -146,10 +146,10 @@ function buildClientEmailHtml(params: {
       <div style="text-align:center;margin-bottom:8px;">
         <p style="color:#8B9BAE;font-size:13px;margin:0 0 12px;">Have questions? We&rsquo;re here to help.</p>
         <a
-          href="https://wa.me/447398753797"
+          href="https://wa.me/12317902336"
           style="display:inline-block;background:#25D366;color:#ffffff;font-weight:600;padding:12px 28px;border-radius:10px;text-decoration:none;font-size:14px;"
         >
-          WhatsApp us: +44 7398 753797
+          WhatsApp us: +12317902336
         </a>
       </div>
 
@@ -161,7 +161,7 @@ function buildClientEmailHtml(params: {
       <p style="margin:0;color:#8B9BAE;font-size:12px;">
         <a href="mailto:contact@walztravels.com" style="color:#C9A84C;text-decoration:none;">contact@walztravels.com</a>
         &nbsp;&nbsp;|&nbsp;&nbsp;
-        <a href="https://wa.me/447398753797" style="color:#C9A84C;text-decoration:none;">+44 7398 753797</a>
+        <a href="https://wa.me/12317902336" style="color:#C9A84C;text-decoration:none;">+12317902336</a>
       </p>
     </div>
     <div style="padding:16px 40px;text-align:center;border-top:1px solid #E2D9CC;">

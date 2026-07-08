@@ -267,7 +267,7 @@ export default function PortalProfilePage() {
           <h2 className="font-semibold text-[#0B1F3A] mb-1">Need help?</h2>
           <p className="text-sm text-gray-500 mb-4">For account issues or if you need to change your email, contact our support team.</p>
           <a
-            href="https://wa.me/447398753797"
+            href="https://wa.me/12317902336"
             target="_blank"
             rel="noopener noreferrer"
             className="inline-flex items-center gap-2 px-4 py-2.5 bg-green-600 text-white text-sm font-semibold rounded-xl hover:bg-green-700 transition-colors"

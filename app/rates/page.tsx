@@ -4,8 +4,9 @@ import prisma from '@/lib/db'
 export const dynamic = 'force-dynamic'
 
 export const metadata = {
-  title: 'Service Rates — Walz Travels',
+  title: 'Service Rates',
   description: 'Transparent pricing for visa applications, travel planning, and all Walz Travels services.',
+  alternates: { canonical: 'https://www.walztravels.com/rates' },
 }
 
 const FALLBACK_RATES = [
@@ -145,7 +146,7 @@ export default async function RatesPage() {
             Book a free 30-minute consultation and we will walk you through the exact costs for your situation — no obligation.
           </p>
           <div className="flex flex-col sm:flex-row gap-3 justify-center">
-            <a href="https://wa.me/447398753797" target="_blank" rel="noreferrer"
+            <a href="https://wa.me/12317902336" target="_blank" rel="noreferrer"
               className="inline-flex items-center justify-center gap-2 bg-[#C9A84C] text-[#0B1F3A] font-bold px-6 py-3 rounded-full hover:bg-white transition-colors text-sm">
               WhatsApp Us Free
             </a>

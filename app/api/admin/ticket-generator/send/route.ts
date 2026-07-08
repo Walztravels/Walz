@@ -270,7 +270,7 @@ export async function POST(req: NextRequest) {
         <table width="100%" cellpadding="0" cellspacing="0">
           <tr>
             <td>
-              <div style="color:#fff;font-size:22px;font-weight:800;letter-spacing:-0.5px">WALZ TRAVELS</div>
+              <img src="https://walztravels.com/walz-logo.png" alt="Walz Travels" width="110" style="display:block;height:auto;" />
               <div style="color:#C9A84C;font-size:10px;letter-spacing:3px;text-transform:uppercase;margin-top:2px">YOUR JOURNEY. OUR EXPERTISE.</div>
             </td>
             <td align="right">
@@ -303,7 +303,7 @@ export async function POST(req: NextRequest) {
         <!-- WhatsApp CTA -->
         <div style="background:#F0FDF4;border:1px solid #BBF7D0;border-radius:10px;padding:16px 20px;text-align:center">
           <p style="font-size:13px;color:#166534;margin:0 0 12px;font-weight:600">Need help? Chat with Jade — Walz Travels AI</p>
-          <a href="https://wa.me/447398753797?text=Hi! I have a question about my booking ${reference}"
+          <a href="https://wa.me/12317902336?text=Hi! I have a question about my booking ${reference}"
              style="display:inline-block;padding:10px 24px;background:#16A34A;color:#fff;text-decoration:none;font-weight:700;border-radius:8px;font-size:13px">
             💬 WhatsApp Jade Now
           </a>
@@ -312,7 +312,7 @@ export async function POST(req: NextRequest) {
         <div style="margin-top:32px;padding-top:20px;border-top:1px solid #E5E7EB">
           <p style="font-size:11px;color:#9CA3AF;text-align:center;margin:0;line-height:1.8">
             Walz Travels Ltd · contact@walztravels.com · walztravels.com<br>
-            WhatsApp UK: +44 7398 753797 · WhatsApp Canada: +1 555 710 7823<br>
+            WhatsApp UK: +12317902336 · WhatsApp Canada: +1 555 710 7823<br>
             Powered by Jade — Walz Travels AI
           </p>
         </div>

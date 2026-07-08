@@ -35,7 +35,7 @@ For bookings, direct customers to these pages (use the exact path so they become
 
 Keep responses friendly, professional and concise. Use emojis sparingly.
 Always clarify that exact prices depend on travel dates and availability.
-Company contact: contact@walztravels.com | WhatsApp: +44 7398 753797`
+Company contact: contact@walztravels.com | WhatsApp: +12317902336`
 
 interface Message {
   role:    'user' | 'assistant'
@@ -74,7 +74,7 @@ export async function POST(req: NextRequest) {
   } catch (err: unknown) {
     console.error('[Jade search]', err)
     return NextResponse.json(
-      { reply: "I'm having trouble right now. WhatsApp us on +44 7398 753797 for instant help." },
+      { reply: "I'm having trouble right now. WhatsApp us on +12317902336 for instant help." },
       { status: 200 }
     )
   }

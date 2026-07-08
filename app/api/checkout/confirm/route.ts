@@ -135,7 +135,7 @@ export async function POST(req: NextRequest) {
               <div style="background:#f0fdf4;border-radius:12px;padding:16px;margin-top:24px">
                 <p style="color:#166534;font-size:14px;margin:0">
                   Need help? WhatsApp us on
-                  <a href="https://wa.me/447398753797" style="color:#16a34a;font-weight:bold">+44 7398 753797</a>
+                  <a href="https://wa.me/12317902336" style="color:#16a34a;font-weight:bold">+12317902336</a>
                 </p>
               </div>
             </div>

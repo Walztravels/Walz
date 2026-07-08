@@ -307,7 +307,7 @@ function ResultCard({ result, cardRef }: { result: VisaResult; cardRef: React.Re
           </Link>
         )}
         <a
-          href="https://wa.me/447398753797"
+          href="https://wa.me/12317902336"
           target="_blank"
           rel="noopener noreferrer"
           className="flex-1 flex items-center justify-center gap-2 px-5 py-3 border border-white/20 hover:border-[#C9A84C] text-white hover:text-[#C9A84C] font-semibold text-sm rounded-xl transition-colors"

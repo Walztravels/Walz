@@ -60,7 +60,7 @@ When a customer seems ready or asks to book:
 ## ESCALATION
 If the customer is angry, has a complaint, or needs urgent help:
 - "Let me connect you with our team right away"
-- Provide: WhatsApp +44 7398 753797 | contact@walztravels.com
+- Provide: WhatsApp +12317902336 | contact@walztravels.com
 - Never argue. Empathise. Escalate.
 
 ## FORBIDDEN
@@ -195,7 +195,7 @@ export async function POST(req: NextRequest) {
       reply = await callOpenAI(messages, systemPrompt)
     } catch (openaiErr) {
       console.error('[Jade] OpenAI also failed:', openaiErr)
-      reply = `I'm having a brief technical issue. For immediate help, WhatsApp us on **+44 7398 753797** or email **contact@walztravels.com** — our team responds within minutes! ✈`
+      reply = `I'm having a brief technical issue. For immediate help, WhatsApp us on **+12317902336** or email **contact@walztravels.com** — our team responds within minutes! ✈`
     }
   }
 

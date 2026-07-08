@@ -5,14 +5,24 @@ import prisma from '@/lib/db'
 // GET /api/admin/leads — list all leads with optional filters
 export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url)
-  const status      = searchParams.get('status')
-  const service     = searchParams.get('service')
-  const page        = Math.max(1, parseInt(searchParams.get('page') ?? '1', 10))
-  const pageSize    = 50
+  const status        = searchParams.get('status')
+  const service       = searchParams.get('service')
+  const source        = searchParams.get('source')
+  const importBatchId = searchParams.get('importBatchId')
+  const page          = Math.max(1, parseInt(searchParams.get('page') ?? '1', 10))
+  const pageSize      = 50
 
   const where: Record<string, unknown> = {}
-  if (status)  where.status  = status
-  if (service) where.service = service
+  if (status)        where.status        = status
+  if (service)       where.service       = service
+  if (importBatchId) where.importBatchId = importBatchId
+  if (source) {
+    if (source === 'organic') {
+      where.source = { notIn: ['csv_import', 'sleekflow_import', 'zendesk_import'] }
+    } else {
+      where.source = source
+    }
+  }
 
   const [leads, total] = await Promise.all([
     prisma.lead.findMany({
