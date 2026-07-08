@@ -210,29 +210,23 @@ export async function POST(req: Request) {
     conversationId = cd.id
   }
 
-  // ── 4. Send via Twilio directly (bypasses WhatsApp session restriction) ────
-  // This runs alongside Chatwoot. Twilio delivers even for new/expired sessions
-  // when TWILIO_CONTENT_TEMPLATE_SID is configured.
-  const ref        = refNumber ?? applicationId ?? 'N/A'
-  const msgBody    = firstMessage
-    ?? `Hello ${clientName}, this is Walz Travels. Your visa application (Ref: ${ref}) is being processed. How can we help? 🌍`
+  // ── 4. Send the greeting via Chatwoot (which routes through the WhatsApp inbox) ─
+  // Twilio REST API business-initiated is not available on these numbers (error 63049).
+  // Chatwoot sends through its own WhatsApp channel connection.
+  const ref     = refNumber ?? applicationId ?? 'N/A'
+  const msgBody = firstMessage
+    ?? `Hello ${clientName}, your visa application with Walz Travels (Ref: ${ref}) is being processed. Our team will contact you shortly. How can we help? 🌍`
 
-  let twilioResult: { ok: boolean; sid?: string; status?: string; error?: string; usedTemplate: boolean } | null = null
+  let chatwootSent = false
   if (!reused) {
-    // Only send the initiation message for new (not reused) conversations
-    twilioResult = await sendWhatsAppViaTwilio(clientPhone, clientName, ref, msgBody)
-    if (!twilioResult.ok) {
-      console.warn('[whatsapp-chat] Twilio send failed (continuing with Chatwoot only):', twilioResult.error)
-    }
-
-    // Mirror the sent message into Chatwoot so the admin thread isn't empty
-    const chatwootMsgBody = twilioResult?.usedTemplate
-      ? `Hello ${clientName}, your visa application with Walz Travels (Ref: ${ref}) is being processed. Our team will contact you shortly. How can we help? 🌍`
-      : msgBody
-    await cw(`/conversations/${conversationId}/messages`, {
+    const msgRes = await cw(`/conversations/${conversationId}/messages`, {
       method: 'POST',
-      body:   JSON.stringify({ content: chatwootMsgBody, message_type: 'outgoing', private: false }),
+      body:   JSON.stringify({ content: msgBody, message_type: 'outgoing', private: false }),
     }).catch(() => null)
+    chatwootSent = msgRes?.ok ?? false
+    if (!chatwootSent) {
+      console.warn('[whatsapp-chat] Chatwoot message post failed')
+    }
   }
 
   return NextResponse.json({
@@ -240,12 +234,8 @@ export async function POST(req: Request) {
     contactId,
     reused,
     inboxId,
-    inboxName:         inbox.name,
-    channelType:       inbox.channel_type,
-    twilioConfigured:  twilioConfigured(),
-    templateConfigured: twilioTemplateConfigured(),
-    twilioSent:        twilioResult?.ok ?? null,
-    twilioUsedTemplate: twilioResult?.usedTemplate ?? null,
-    twilioError:       twilioResult?.ok === false ? twilioResult.error : null,
+    inboxName:    inbox.name,
+    channelType:  inbox.channel_type,
+    chatwootSent,
   })
 }

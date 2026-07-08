@@ -40,16 +40,9 @@ export function isNigeriaPhone(phone: string): boolean {
   return digits.startsWith('234') || (digits.length === 11 && digits.startsWith('0'))
 }
 
-/** Pick the correct FROM number based on the client's phone country.
- *  Nigeria sender disabled for business-initiated (Twilio error 63049) —
- *  use INTL number for all outbound until NG number is approved.
- *  Set TWILIO_USE_NG_SENDER=true in env to re-enable once approved.
- */
-export function getWhatsAppSender(_clientPhone: string): string {
-  if (process.env.TWILIO_USE_NG_SENDER === 'true' && isNigeriaPhone(_clientPhone)) {
-    return NG_FROM
-  }
-  return INTL_FROM
+/** Pick the correct FROM number based on the client's phone country */
+export function getWhatsAppSender(clientPhone: string): string {
+  return isNigeriaPhone(clientPhone) ? NG_FROM : INTL_FROM
 }
 
 /** Normalise any phone to E.164, auto-expanding Nigeria local numbers */
