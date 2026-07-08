@@ -155,42 +155,39 @@ export function AircallWidget() {
         </button>
       )}
 
-      {/* Aircall workspace panel */}
-      {isOpen && (
-        <div
-          className="fixed z-50 bottom-20 left-0 right-0 md:bottom-6 md:right-6 md:left-auto md:w-80 bg-[#0a1628] border border-white/10 rounded-t-2xl md:rounded-2xl shadow-2xl overflow-hidden flex flex-col"
-          style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
-        >
-          {/* Header */}
-          <div className="flex items-center justify-between px-4 py-3 border-b border-white/10 bg-[#0d1e35] flex-shrink-0">
-            <div className="flex items-center gap-2">
-              <Phone
-                className={callState === 'active' ? 'w-4 h-4 text-green-400' : 'w-4 h-4 text-amber-400'}
-                strokeWidth={1.5}
-              />
-              <span className="text-white text-sm font-medium">{headerLabel}</span>
-              {callState === 'active' && <span className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />}
-            </div>
-            <button
-              onClick={() => setIsOpen(false)}
-              className="text-white/40 hover:text-white/70 p-1.5 transition-colors"
-            >
-              <X className="w-4 h-4" />
-            </button>
+      {/* Aircall workspace panel — always rendered so SDK can find #aircall-phone-container on mount */}
+      <div
+        className="fixed z-50 bottom-20 left-0 right-0 md:bottom-6 md:right-6 md:left-auto md:w-80 bg-[#0a1628] border border-white/10 rounded-t-2xl md:rounded-2xl shadow-2xl overflow-hidden flex flex-col"
+        style={{ paddingBottom: 'env(safe-area-inset-bottom)', display: isOpen ? 'flex' : 'none' }}
+      >
+        {/* Header */}
+        <div className="flex items-center justify-between px-4 py-3 border-b border-white/10 bg-[#0d1e35] flex-shrink-0">
+          <div className="flex items-center gap-2">
+            <Phone
+              className={callState === 'active' ? 'w-4 h-4 text-green-400' : 'w-4 h-4 text-amber-400'}
+              strokeWidth={1.5}
+            />
+            <span className="text-white text-sm font-medium">{headerLabel}</span>
+            {callState === 'active' && <span className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />}
           </div>
-
-          {/* SDK injects phone.aircall.io iframe into this container */}
-          <div
-            id="aircall-phone-container"
-            style={{
-              height: 'min(540px, calc(100vh - 120px))',
-              width: '100%',
-              flexShrink: 0,
-              display: 'block',
-            }}
-          />
+          <button
+            onClick={() => setIsOpen(false)}
+            className="text-white/40 hover:text-white/70 p-1.5 transition-colors"
+          >
+            <X className="w-4 h-4" />
+          </button>
         </div>
-      )}
+
+        {/* SDK injects phone.aircall.io iframe into this container */}
+        <div
+          id="aircall-phone-container"
+          style={{
+            height: 'min(540px, calc(100vh - 120px))',
+            width: '100%',
+            flexShrink: 0,
+          }}
+        />
+      </div>
     </>
   )
 }

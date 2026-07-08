@@ -4,7 +4,7 @@ import { useEffect, useRef } from 'react'
 import { usePathname } from 'next/navigation'
 import gsap from 'gsap'
 
-const FORM_PREFIXES = ['/trip-request/', '/itinerary/', '/visa/apply/', '/visa/form/', '/payment/']
+const FORM_PREFIXES = ['/admin', '/trip-request/', '/itinerary/', '/visa/apply/', '/visa/form/', '/payment/']
 
 export default function Cursor() {
   const pathname  = usePathname() ?? ''
