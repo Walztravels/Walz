@@ -39,7 +39,7 @@ export async function sendBookingConfirmationEmail({
     <body style="margin:0;padding:0;font-family:'DM Sans',system-ui,sans-serif;background:#F7F4EF;">
       <div style="max-width:600px;margin:0 auto;background:#fff;">
         <!-- Header -->
-        <div style="background:linear-gradient(135deg,#0B1F3A,#1C3557);padding:36px 40px 28px;text-align:center;">
+        <div style="background:#ffffff;padding:24px 40px 16px;text-align:center;border-bottom:3px solid #C9A84C;">
           <img src="https://walztravels.com/walz-logo.png" alt="Walz Travels" width="160" style="display:block;margin:0 auto 10px;width:160px;height:auto;" />
           <p style="margin:0;color:#8B9BAE;font-size:12px;letter-spacing:1.5px;text-transform:uppercase;">Luxury Travel Agency</p>
         </div>
@@ -77,7 +77,7 @@ export async function sendBookingConfirmationEmail({
           <p style="margin:0 0 8px;color:#0B1F3A;font-weight:600;font-size:14px;">Need help?</p>
           <p style="margin:0;color:#8B9BAE;font-size:13px;">
             📧 <a href="mailto:info@walztravels.com" style="color:#C9A84C;text-decoration:none;">info@walztravels.com</a>&nbsp;&nbsp;
-            📱 <a href="https://wa.me/447398753797" style="color:#C9A84C;text-decoration:none;">+44 7398 753797</a>
+            📱 <a href="https://wa.me/12317902336" style="color:#C9A84C;text-decoration:none;">+12317902336</a>
           </p>
         </div>
         <div style="padding:20px 40px;text-align:center;border-top:1px solid #E2D9CC;">
@@ -111,7 +111,7 @@ export async function sendMilesEarnedEmail({
     <body style="margin:0;padding:0;font-family:'DM Sans',system-ui,sans-serif;background:#F7F4EF;">
       <div style="max-width:600px;margin:0 auto;background:#fff;">
         <!-- Header -->
-        <div style="background:linear-gradient(135deg,#0B1F3A,#1C3557);padding:36px 40px 28px;text-align:center;">
+        <div style="background:#ffffff;padding:24px 40px 16px;text-align:center;border-bottom:3px solid #C9A84C;">
           <img src="https://walztravels.com/walz-logo.png" alt="Walz Travels" width="160" style="display:block;margin:0 auto 10px;width:160px;height:auto;" />
         </div>
 
@@ -145,7 +145,7 @@ export async function sendMilesEarnedEmail({
         <div style="padding:24px 40px;background:#F7F4EF;border-top:1px solid #E2D9CC;">
           <p style="margin:0;color:#8B9BAE;font-size:13px;">
             📧 <a href="mailto:info@walztravels.com" style="color:#C9A84C;text-decoration:none;">info@walztravels.com</a>&nbsp;&nbsp;
-            📱 <a href="https://wa.me/447398753797" style="color:#C9A84C;text-decoration:none;">+44 7398 753797</a>
+            📱 <a href="https://wa.me/12317902336" style="color:#C9A84C;text-decoration:none;">+12317902336</a>
           </p>
         </div>
         <div style="padding:20px 40px;text-align:center;border-top:1px solid #E2D9CC;">

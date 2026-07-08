@@ -69,9 +69,9 @@ export async function ensurePortalAccount(
 <tr><td align="center">
 <table width="580" cellpadding="0" cellspacing="0" style="max-width:580px;width:100%;background:#fff;border-radius:16px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.08);">
 
-  <tr><td style="background:linear-gradient(135deg,#0B1F3A,#1C3557);padding:36px 40px 28px;text-align:center;">
+  <tr><td style="background:#ffffff;padding:24px 40px 16px;text-align:center;border-bottom:3px solid #C9A84C;">
     <img src="https://walztravels.com/walz-logo.png" alt="Walz Travels" width="120" style="display:block;margin:0 auto 16px;height:auto;" />
-    <p style="margin:0;color:#C9A84C;font-size:12px;letter-spacing:2px;text-transform:uppercase;font-weight:600;">Your Client Portal</p>
+    <p style="margin:0;color:#0B1F3A;font-size:12px;letter-spacing:2px;text-transform:uppercase;font-weight:700;">Your Client Portal</p>
   </td></tr>
 
   <tr><td style="padding:36px 40px;">
@@ -103,7 +103,7 @@ export async function ensurePortalAccount(
 
     <div style="background:#F8F9FA;border-radius:12px;padding:16px 20px;">
       <p style="margin:0;color:#6b7280;font-size:13px;">
-        Need help? WhatsApp us: <strong>+44 7398 753797</strong><br/>
+        Need help? WhatsApp us: <strong>+12317902336</strong><br/>
         contact@walztravels.com
       </p>
     </div>

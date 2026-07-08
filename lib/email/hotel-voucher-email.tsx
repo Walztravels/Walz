@@ -105,7 +105,7 @@ export function HotelVoucherEmail(p: HotelVoucherEmailProps) {
                           <tbody>
                             <tr>
                               <td>
-                                <div style={{ fontSize: 20, fontWeight: 900, color: WHITE, letterSpacing: 1 }}>WALZ TRAVELS</div>
+                                <img src="https://walztravels.com/walz-logo.png" alt="Walz Travels" width={120} style={{ display: 'block', height: 'auto' }} />
                                 <div style={{ fontSize: 9, color: GOLD, letterSpacing: '3px', marginTop: 3, textTransform: 'uppercase' }}>
                                   YOUR JOURNEY. OUR EXPERTISE.
                                 </div>
@@ -336,7 +336,7 @@ export function HotelVoucherEmail(p: HotelVoucherEmailProps) {
                           View in My Portal →
                         </a>
                         <p style={{ fontSize: 11, color: GREY, marginTop: 12 }}>
-                          Questions? WhatsApp us at <a href="https://wa.me/447398753797" style={{ color: NAVY, fontWeight: 600 }}>+44 7398 753797</a>
+                          Questions? WhatsApp us at <a href="https://wa.me/12317902336" style={{ color: NAVY, fontWeight: 600 }}>+12317902336</a>
                         </p>
                       </td>
                     </tr>
@@ -355,7 +355,7 @@ export function HotelVoucherEmail(p: HotelVoucherEmailProps) {
                               <td>
                                 <div style={{ fontSize: 11, color: '#94A3B8', lineHeight: 1.8 }}>
                                   Walz Travels Ltd<br />
-                                  WhatsApp: +44 7398 753797<br />
+                                  WhatsApp: +12317902336<br />
                                   contact@walztravels.com · walztravels.com
                                 </div>
                               </td>

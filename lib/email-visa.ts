@@ -7,10 +7,14 @@ const BASE_URL = 'https://walztravels.com'
 
 export const TRUSTPILOT_AFS_EMAIL = 'walztravels.com+2491559753@invite.trustpilot.com'
 
+const LOGO_URL = `${BASE_URL}/walz-logo.png`
+const WA_NUMBER = '+12317902336'
+const WA_LINK = 'https://wa.me/12317902336'
+
 function header() {
-  return `<div style="background:#0B1F3A;padding:32px 40px 24px;text-align:center;">
-    <img src="${BASE_URL}/walz-logo.png" alt="Walz Travels" width="160" style="height:auto;display:block;margin:0 auto 8px;"/>
-    <p style="margin:0;color:#C9A84C;font-size:11px;letter-spacing:2px;text-transform:uppercase;">Visa Application</p>
+  return `<div style="background:#ffffff;padding:24px 40px 16px;text-align:center;border-bottom:3px solid #C9A84C;">
+    <img src="${LOGO_URL}" alt="Walz Travels" width="140" style="height:auto;display:block;margin:0 auto 10px;max-width:140px;" onerror="this.style.display='none'"/>
+    <p style="margin:0;color:#0B1F3A;font-size:11px;letter-spacing:2px;text-transform:uppercase;font-weight:700;">Visa Application</p>
   </div>`
 }
 
@@ -18,7 +22,7 @@ function footer() {
   return `<div style="padding:24px 40px;background:#F4F6F9;border-top:1px solid #e2e8f0;text-align:center;">
     <p style="margin:0 0 8px;color:#0B1F3A;font-weight:600;font-size:13px;">Questions?</p>
     <p style="margin:0;color:#64748b;font-size:13px;">
-      💬 <a href="https://wa.me/447398753797" style="color:#C9A84C;">WhatsApp +44 7398 753797</a> &nbsp;|&nbsp;
+      💬 <a href="${WA_LINK}" style="color:#C9A84C;">WhatsApp ${WA_NUMBER}</a> &nbsp;|&nbsp;
       ✉️ <a href="mailto:contact@walztravels.com" style="color:#C9A84C;">contact@walztravels.com</a>
     </p>
     <p style="margin:12px 0 0;color:#94a3b8;font-size:11px;">Walz Travels Ltd · walztravels.com</p>
@@ -286,7 +290,7 @@ export async function sendApplicationFormLink(
         </a>
         <div style="background:#0B1F3A;border-radius:10px;padding:16px 20px;">
           <p style="margin:0;color:#C9A84C;font-size:12px;text-transform:uppercase;letter-spacing:1px;margin:0 0 4px;">Questions? WhatsApp Jade</p>
-          <p style="margin:0;color:#ffffff;font-size:15px;font-weight:600;">+44 7398 753797</p>
+          <p style="margin:0;color:#ffffff;font-size:15px;font-weight:600;">+12317902336</p>
         </div>
       </div>
       ${footer()}
@@ -331,7 +335,7 @@ export async function sendClientWelcomeEmail({
         </a>
         <div style="background:#0B1F3A;border-radius:10px;padding:16px 20px;">
           <p style="margin:0;color:#C9A84C;font-size:12px;text-transform:uppercase;letter-spacing:1px;margin:0 0 4px;">Need help?</p>
-          <p style="margin:0;color:#ffffff;font-size:14px;">WhatsApp us on <strong>+44 7398 753797</strong> or email <a href="mailto:contact@walztravels.com" style="color:#C9A84C;">contact@walztravels.com</a></p>
+          <p style="margin:0;color:#ffffff;font-size:14px;">WhatsApp us on <strong>+12317902336</strong> or email <a href="mailto:contact@walztravels.com" style="color:#C9A84C;">contact@walztravels.com</a></p>
         </div>
       </div>
       ${footer()}
@@ -442,7 +446,7 @@ export async function sendVisaStatusUpdateEmail({
         </a>
         <div style="background:#0B1F3A;border-radius:10px;padding:16px 20px;">
           <p style="margin:0;color:#C9A84C;font-size:12px;text-transform:uppercase;letter-spacing:1px;margin:0 0 4px;">Questions?</p>
-          <p style="margin:0;color:#ffffff;font-size:14px;">WhatsApp <strong>+44 7398 753797</strong> or <a href="mailto:contact@walztravels.com" style="color:#C9A84C;">contact@walztravels.com</a></p>
+          <p style="margin:0;color:#ffffff;font-size:14px;">WhatsApp <strong>+12317902336</strong> or <a href="mailto:contact@walztravels.com" style="color:#C9A84C;">contact@walztravels.com</a></p>
         </div>
       </div>
       ${footer()}

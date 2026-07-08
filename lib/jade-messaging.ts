@@ -37,7 +37,7 @@ For bookings always collect:
 Then direct them to WhatsApp for full booking.
 
 Contact details:
-- WhatsApp UK: +447398753797 (wa.me/447398753797)
+- WhatsApp UK: +12317902336 (wa.me/12317902336)
 - WhatsApp Canada: +15557107823
 - Call Jade: +19843880110
 - Email: contact@walztravels.com
@@ -99,7 +99,7 @@ When responding:
 1. Acknowledge the company by name if mentioned — show you read their message carefully
 2. Position Walz Travels briefly: what we do, where we operate, our core strengths
 3. Express genuine interest in exploring what we could build together
-4. Route to the right contact: "Our business development team — contact@walztravels.com or WhatsApp +44 7398 753797"
+4. Route to the right contact: "Our business development team — contact@walztravels.com or WhatsApp +12317902336"
 
 NEVER ask about travel dates, passenger counts, or treat this as a holiday booking.
 Keep your response to 3 short paragraphs. Be warm but professional. End with the contact details for our business team. Add a 🤝 emoji naturally once.`
