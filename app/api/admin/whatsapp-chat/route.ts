@@ -210,23 +210,31 @@ export async function POST(req: Request) {
     conversationId = cd.id
   }
 
-  // ── 4. Send the greeting via Chatwoot (which routes through the WhatsApp inbox) ─
-  // Twilio REST API business-initiated is not available on these numbers (error 63049).
-  // Chatwoot sends through its own WhatsApp channel connection.
+  // ── 4. Send greeting ─────────────────────────────────────────────────────────
   const ref     = refNumber ?? applicationId ?? 'N/A'
   const msgBody = firstMessage
     ?? `Hello ${clientName}, your visa application with Walz Travels (Ref: ${ref}) is being processed. Our team will contact you shortly. How can we help? 🌍`
 
-  let chatwootSent = false
+  let twilioSent      = false
+  let twilioError: string | null = null
+  let chatwootSent    = false
+
   if (!reused) {
+    // Try Twilio first — works once the Nigeria number is enabled for business-initiated
+    // (Twilio console → Messaging → WhatsApp → Senders → enable outbound on +2347077691701)
+    if (twilioConfigured() && twilioTemplateConfigured()) {
+      const tr = await sendWhatsAppViaTwilio(clientPhone, clientName, ref, msgBody)
+      twilioSent  = tr.ok
+      twilioError = tr.ok ? null : (tr.error ?? null)
+      if (!tr.ok) console.warn('[whatsapp-chat] Twilio send failed:', tr.error)
+    }
+
+    // Always also post into Chatwoot conversation so admin can see the thread
     const msgRes = await cw(`/conversations/${conversationId}/messages`, {
       method: 'POST',
       body:   JSON.stringify({ content: msgBody, message_type: 'outgoing', private: false }),
     }).catch(() => null)
     chatwootSent = msgRes?.ok ?? false
-    if (!chatwootSent) {
-      console.warn('[whatsapp-chat] Chatwoot message post failed')
-    }
   }
 
   return NextResponse.json({
@@ -236,6 +244,8 @@ export async function POST(req: Request) {
     inboxId,
     inboxName:    inbox.name,
     channelType:  inbox.channel_type,
+    twilioSent,
+    twilioError,
     chatwootSent,
   })
 }
