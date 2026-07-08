@@ -36,7 +36,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
   }
 
   return (
-    <div className="flex h-[100dvh] bg-[#0a1628] overflow-hidden">
+    <div className="flex h-[100dvh] bg-[#0a1628] overflow-hidden" style={{ cursor: 'default' }}>
 
       {/* Sidebar — desktop only */}
       <div className="hidden md:flex flex-shrink-0">
