@@ -73,6 +73,19 @@ interface DocUpload {
   reviewNote: string | null
 }
 
+interface ClientDoc {
+  id:          string
+  name:        string
+  category:    string
+  fileUrl:     string
+  fileKey:     string
+  fileSize:    number | null
+  mimeType:    string | null
+  status:      string
+  reviewNote:  string | null
+  uploadedAt:  string
+}
+
 interface DocRequest {
   id:           string
   token:        string
@@ -153,6 +166,10 @@ export default function AdminPortalPage() {
   const [docReqs, setDocReqs]                 = useState<Record<string, DocRequest[]>>({})
   const [docsOpen, setDocsOpen]               = useState<Set<string>>(new Set())
   const [docsLoading, setDocsLoading]         = useState<Set<string>>(new Set())
+  // Client portal documents (uploaded directly by clients, separate from doc requests)
+  const [clientDocs, setClientDocs]           = useState<Record<string, ClientDoc[]>>({})
+  const [clientDocsOpen, setClientDocsOpen]   = useState<Set<string>>(new Set())
+  const [clientDocsLoading, setClientDocsLoading] = useState<Set<string>>(new Set())
 
   // Send Update modal state
   const [sendModal, setSendModal]             = useState<SendUpdateModal | null>(null)
@@ -337,6 +354,23 @@ export default function AdminPortalPage() {
     setDocsOpen(prev => {
       const n = new Set(prev)
       if (n.has(appId)) { n.delete(appId) } else { n.add(appId); loadDocRequests(appId) }
+      return n
+    })
+  }
+
+  async function loadClientDocs(appId: string) {
+    if (clientDocsLoading.has(appId)) return
+    setClientDocsLoading(prev => new Set([...prev, appId]))
+    const res = await fetch(`/api/admin/portal/documents?applicationId=${appId}`)
+    const d   = await res.json()
+    setClientDocs(prev => ({ ...prev, [appId]: d.documents ?? [] }))
+    setClientDocsLoading(prev => { const n = new Set(prev); n.delete(appId); return n })
+  }
+
+  function toggleClientDocs(appId: string) {
+    setClientDocsOpen(prev => {
+      const n = new Set(prev)
+      if (n.has(appId)) { n.delete(appId) } else { n.add(appId); loadClientDocs(appId) }
       return n
     })
   }
@@ -732,6 +766,56 @@ export default function AdminPortalPage() {
                     destination={app.destination ?? 'uk'}
                     applicantName={app.user.name ?? app.title}
                   />
+
+                  {/* Client Portal Documents — files uploaded directly by client through portal */}
+                  <div className="mt-3">
+                    <button
+                      onClick={() => toggleClientDocs(app.id)}
+                      className="flex items-center gap-2 text-xs font-semibold text-gray-500 hover:text-[#0B1F3A] transition-colors"
+                    >
+                      {clientDocsOpen.has(app.id) ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+                      Client Documents
+                      <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-full ${app.documents.length > 0 ? 'bg-amber-100 text-amber-700' : 'bg-gray-100 text-gray-400'}`}>
+                        {app.documents.length}
+                      </span>
+                    </button>
+
+                    {clientDocsOpen.has(app.id) && (
+                      <div className="mt-2 space-y-1.5">
+                        {clientDocsLoading.has(app.id) ? (
+                          <div className="flex items-center gap-2 py-3 text-gray-400 text-xs">
+                            <Loader2 className="w-3.5 h-3.5 animate-spin" /> Loading…
+                          </div>
+                        ) : (clientDocs[app.id] ?? []).length === 0 ? (
+                          <p className="text-xs text-gray-400 py-2">Client has not uploaded any documents yet.</p>
+                        ) : (
+                          (clientDocs[app.id] ?? []).map(doc => (
+                            <div key={doc.id} className="flex items-center gap-2 bg-gray-50 border border-gray-100 rounded-xl px-3 py-2">
+                              <FileText className="w-3.5 h-3.5 text-[#C9A84C] flex-shrink-0" />
+                              <div className="flex-1 min-w-0">
+                                <p className="text-xs font-semibold text-[#0B1F3A] truncate">{doc.name}</p>
+                                <p className="text-[10px] text-gray-400">
+                                  {doc.category} · {format(new Date(doc.uploadedAt), 'd MMM yyyy')}
+                                  {doc.fileSize ? ` · ${(doc.fileSize / 1024).toFixed(0)} KB` : ''}
+                                </p>
+                              </div>
+                              <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded flex-shrink-0 ${
+                                doc.status === 'APPROVED' ? 'bg-green-100 text-green-700' :
+                                doc.status === 'REJECTED' ? 'bg-red-100 text-red-600'   :
+                                'bg-amber-100 text-amber-700'
+                              }`}>
+                                {doc.status}
+                              </span>
+                              <a href={doc.fileUrl} target="_blank" rel="noreferrer"
+                                className="text-gray-400 hover:text-[#C9A84C] flex-shrink-0" title="Download">
+                                <Download className="w-3.5 h-3.5" />
+                              </a>
+                            </div>
+                          ))
+                        )}
+                      </div>
+                    )}
+                  </div>
 
                   {/* Document Requests panel */}
                   <div className="mt-3">
