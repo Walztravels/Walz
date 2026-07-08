@@ -1,300 +1,233 @@
-import { NextRequest, NextResponse } from 'next/server';
-import { getAnthropic } from '@/lib/anthropic'
-import { loadJadeSession, saveJadeSession } from '@/lib/jade-session';
+// app/api/chatwoot/bot/route.ts
+// Jade 2.1 — agentic WhatsApp/omnichannel support bot (ack-first).
+//
+// Chatwoot AgentBot webhook → immediate 200 ACK → background: Claude (with tools) → reply via Chatwoot API.
+//
+// Fixes vs v2.0 (root-caused live, 2026-07-02, convs 61 & 62):
+//   1. CHATWOOT 5s BOT TIMEOUT: Chatwoot gives agent-bot webhooks ~5 seconds
+//      before declaring "error with the agent bot", flipping the conversation
+//      to open and auto-assigning a human. Any tool-using turn (flight/hotel
+//      search ≈ 8-15s) blew past it. Fix: ACK instantly, process with
+//      waitUntil() in the background (Vercel keeps the function alive up to
+//      maxDuration after the response is sent).
+//   2. FLIGHT SEARCH: /api/search/flights requires UPPERCASE cabinClass and
+//      returns a BARE ARRAY of offers. v2.0 sent "economy" (→ 400) and parsed
+//      data.offers (→ always empty). Both fixed in lib/jade/tools.ts.
+//   3. Skip reasons are now logged for diagnostics.
+//
+// Required env: ANTHROPIC_API_KEY, CHATWOOT_API_TOKEN,
+//               CHATWOOT_BASE_URL (optional), NEXT_PUBLIC_BASE_URL
 
+import { NextRequest, NextResponse } from "next/server";
+import Anthropic from "@anthropic-ai/sdk";
+import { waitUntil } from "@vercel/functions";
+import {
+  getConversationHistory,
+  sendReply,
+  handoffToHuman,
+  getConversation,
+  updateContactMemory,
+  isLatestIncoming,
+} from "@/lib/jade/chatwoot-client";
+import { JADE_TOOLS, executeTool, type ToolContext } from "@/lib/jade/tools";
+import { buildSystemPrompt } from "@/lib/jade/prompt";
 
-const CHATWOOT_BASE = process.env.CHATWOOT_BASE_URL ||
-  'https://chat.walztravels.com';
-// CHATWOOT_BOT_TOKEN = the Jade Agent Bot's access token from Chatwoot → Settings → Bots → edit Jade
-// This makes Jade post as sender.type='agent_bot' (not as a human agent user)
-const BOT_TOKEN = process.env.CHATWOOT_BOT_TOKEN ?? process.env.CHATWOOT_API_TOKEN!;
-const ADMIN_TOKEN = process.env.CHATWOOT_ADMIN_TOKEN ||
-  '1rnd6Rp9GNVKtbJ8238Vg2S1';
-const ACCOUNT_ID = 1;
+export const maxDuration = 60;
+export const dynamic = "force-dynamic";
 
-// Staff agents for round-robin (in rotation order)
-const STAFF_AGENTS = [
-  { id: 3, name: 'Glory' },
-  { id: 4, name: 'Anita' },
-  { id: 1, name: 'Seyi' },
-];
+const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! });
+const MODEL = "claude-sonnet-4-6";
+const MAX_TOOL_ROUNDS = 5;
 
-// Round-robin: use conversation ID mod number of agents
-function getAssignedAgent(conversationId: number) {
-  const index = (conversationId - 1) % STAFF_AGENTS.length;
-  return STAFF_AGENTS[index];
-}
-
-// Open conversation so staff can see it in admin
-async function openConversation(conversationId: number) {
+export async function POST(req: NextRequest) {
+  let payload: any;
   try {
-    await fetch(
-      `${CHATWOOT_BASE}/api/v1/accounts/${ACCOUNT_ID}/conversations/${conversationId}/toggle_status`,
-      {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'api_access_token': ADMIN_TOKEN,
-        },
-        body: JSON.stringify({ status: 'open' }),
-      }
-    );
-  } catch (e) {
-    console.error('openConversation error:', e);
+    payload = await req.json();
+  } catch {
+    return NextResponse.json({ ok: false, error: "invalid json" }, { status: 400 });
   }
+
+  // ---- 1. Filter: only respond to real incoming customer messages -------
+  const event = payload.event;
+  const messageType = payload.message_type;
+  const isPrivate = payload.private === true;
+  const conversation = payload.conversation;
+  const conversationId: number | undefined = conversation?.id ?? payload.conversation_id;
+  const messageId: number | undefined = payload.id;
+  const content: string | undefined = payload.content;
+
+  // Strip bare Instagram/Facebook ad attachment labels — they're not real customer messages
+  const AD_LABEL_RE = /^(shared post|ad response|story reply|story mention|post reply|reel reply|reels reply|\[.*?\])$/i;
+
+  if (
+    event !== "message_created" ||
+    messageType !== "incoming" ||
+    isPrivate ||
+    !conversationId ||
+    !content?.trim() ||
+    AD_LABEL_RE.test(content.trim())
+  ) {
+    return NextResponse.json({ ok: true, skipped: true });
+  }
+
+  // Only reply while the bot owns the conversation (status: pending).
+  const status = conversation?.status;
+  if (status && status !== "pending") {
+    console.log(`[jade] conv=${conversationId} skipped: status=${status} (human-owned)`);
+    return NextResponse.json({ ok: true, skipped: "human-owned" });
+  }
+
+  console.log(`[jade] incoming conv=${conversationId} msg=${messageId}: "${content.slice(0, 80)}"`);
+
+  // ---- 2. ACK NOW, think later -------------------------------------------
+  // Chatwoot gives agent-bot webhooks ~5s before timing out and handing off.
+  // We return 200 immediately and do all the slow work in the background.
+  waitUntil(
+    processTurn(payload, conversationId, messageId, content).catch((err) => {
+      console.error(`[jade] background fatal conv=${conversationId}:`, err);
+    })
+  );
+
+  return NextResponse.json({ ok: true, accepted: true });
 }
 
-// Assign conversation to specific agent
-async function assignAgent(
+// ---------------------------------------------------------------------------
+// Background turn processor
+// ---------------------------------------------------------------------------
+async function processTurn(
+  payload: any,
   conversationId: number,
-  agentId: number
+  messageId: number | undefined,
+  content: string
 ) {
+  const conversation = payload.conversation;
+
   try {
-    await fetch(
-      `${CHATWOOT_BASE}/api/v1/accounts/${ACCOUNT_ID}/conversations/${conversationId}/assignments`,
-      {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'api_access_token': ADMIN_TOKEN,
-        },
-        body: JSON.stringify({ assignee_id: agentId }),
-      }
-    );
-  } catch (e) {
-    console.error('assignAgent error:', e);
-  }
-}
-
-// Send message as Jade bot
-async function sendMessage(
-  conversationId: number,
-  content: string,
-  isPrivate = false
-) {
-  try {
-    const res = await fetch(
-      `${CHATWOOT_BASE}/api/v1/accounts/${ACCOUNT_ID}/conversations/${conversationId}/messages`,
-      {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'api_access_token': BOT_TOKEN,
-        },
-        body: JSON.stringify({
-          content,
-          message_type:       'outgoing',
-          private:            isPrivate,
-          content_attributes: { jade_ai: true },
-        }),
-      }
-    );
-    return res.json();
-  } catch (e) {
-    console.error('sendMessage error:', e);
-  }
-}
-
-// Transfer keywords
-function wantsLiveAgent(message: string): boolean {
-  const triggers = [
-    'transfer', 'live agent', 'human agent', 'real person',
-    'real agent', 'speak to someone', 'talk to someone',
-    'talk to agent', 'connect me', 'agent please',
-    'human please', 'real human', 'someone else',
-    'escalate', 'supervisor', 'manager', 'call me',
-  ];
-  return triggers.some(t => message.toLowerCase().includes(t));
-}
-
-const JADE_SYSTEM_PROMPT = `You are Jade, a travel expert who works for Walz Travels. You chat with clients through the website.
-
-PERSONALITY:
-- Talk like a knowledgeable friend, not a bot
-- Natural flowing sentences — no bullet lists, no headers
-- Warm, curious and genuinely helpful
-- Ask ONE question at a time
-- Keep replies to 2-4 sentences max
-- Only mention WhatsApp when client is ready to book
-- Don't sign off every message with "Jade | Walz Travels"
-- React naturally: "Oh Paris! Great choice." or "That's a tight timeline..."
-
-WHAT YOU KNOW:
-- Visas: UK, UAE, Canada, USA, Schengen
-- Flights: economy, business, group
-- Group tours: Dubai Dec 2026 ($1,850), London Jul 2026 ($2,450), Zanzibar ($1,650), Paris ($1,950), Toronto Oct 2026 ($2,350), New York ($2,850)
-- Hotels worldwide, eSIMs, gift vouchers
-
-HOW TO RESPOND:
-- Visa questions: ask passport + travel dates naturally first
-- Flight queries: ask origin, destination, dates
-- Package interest: get excited, ask what kind of trip
-- Ready to book: WhatsApp +1 984-388-0110
-
-EXAMPLES:
-BAD: long bullet list + phone number block every message
-GOOD: "Which passport are you travelling on, and when are you looking to go?"
-GOOD: "Schengen goes through the country you spend most time in — do you have a destination yet?"
-GOOD: "Paris! Love it. Romantic trip or more of a sightseeing adventure?"`;
-
-export async function POST(request: NextRequest) {
-  try {
-    const body = await request.json();
-
-    console.log('Jade bot:', {
-      event: body.event,
-      type: body.message_type,
-      sender: body.sender?.type,
-      conv: body.conversation?.id,
-      content: body.content?.substring(0, 50),
-    });
-
-    if (body.event !== 'message_created') {
-      return NextResponse.json({ status: 'ignored_event' });
+    // ---- 3. Coalesce rapid messages --------------------------------------
+    if (messageId && !(await isLatestIncoming(conversationId, messageId))) {
+      console.log(`[jade] conv=${conversationId} msg=${messageId} superseded, skipping`);
+      return;
     }
 
-    const msgType = body.message_type ?? body.message?.message_type;
-    const isIncoming = msgType === 'incoming' || msgType === 0;
-    const senderType = body.sender?.type ?? body.message?.sender?.type;
-    const content      = body.content ?? body.message?.content;
-    const conversationId = body.conversation?.id;
+    // ---- 4. Rebuild full context ------------------------------------------
+    const [history, convDetail] = await Promise.all([
+      getConversationHistory(conversationId, 30),
+      getConversation(conversationId),
+    ]);
 
-    if (!conversationId) {
-      return NextResponse.json({ status: 'no_content' });
-    }
+    const contactId: number | null =
+      convDetail?.meta?.sender?.id ?? payload.sender?.id ?? null;
+    const contactName: string | null =
+      convDetail?.meta?.sender?.name ?? payload.sender?.name ?? null;
+    const phone: string | null =
+      convDetail?.meta?.sender?.phone_number ?? payload.sender?.phone_number ?? null;
+    const contactMemory: Record<string, any> | null =
+      convDetail?.meta?.sender?.custom_attributes ?? null;
 
-    const convKey = String(conversationId);
+    const ch: string = conversation?.channel || "";
+    const channel: string =
+      ch.includes("Twilio") || ch.includes("Whatsapp")
+        ? "WhatsApp"
+        : ch.includes("Facebook") || ch.includes("Instagram")
+        ? "Instagram DM"
+        : ch.includes("WebWidget") || ch.includes("Web")
+        ? "website chat"
+        : "chat";
 
-    const isJadeMessage =
-      senderType === 'agent_bot'
-      || body.content_attributes?.jade_ai === true;
-
-    // Outgoing message — detect human agent replies to silence Jade BEFORE returning
-    if (!isIncoming) {
-      if (senderType && senderType !== 'contact' && !isJadeMessage) {
-        const session = await loadJadeSession(convKey).catch(() => null);
-        const silenced = {
-          intent:              session?.intent ?? null,
-          lastMessage:         session?.lastMessage ?? '',
-          conversationHistory: session?.conversationHistory ?? [],
-          bookingContext:      session?.bookingContext ?? null,
-          groupContext:        session?.groupContext ?? null,
-          agentActive:         true,
-          agentMessages:       [
-            ...(session?.agentMessages ?? []),
-            ...(content ? [{ content: content as string, agentName: body.sender?.name ?? 'Agent', timestamp: new Date().toISOString() }] : []),
-          ],
-        };
-        await saveJadeSession(convKey, silenced).catch(() => {});
-        console.log('[jade-bot] Human agent outgoing — Jade silenced for conv', conversationId, 'sender:', senderType);
-      }
-      return NextResponse.json({ status: 'ignored_outgoing' });
-    }
-
-    // Incoming customer message — ignore if it's from a non-contact (shouldn't happen but guard it)
-    if (senderType && senderType !== 'contact') {
-      return NextResponse.json({ status: 'ignored_agent' });
-    }
-
-    if (!content) {
-      return NextResponse.json({ status: 'no_content' });
-    }
-
-    // Check if a human agent is currently handling this conversation.
-    // Primary: JadeSession agentActive flag (set when we detect an agent message).
-    // Fallback: query Chatwoot messages API directly — works even when the bot
-    //           webhook doesn't receive outgoing agent messages.
-    const session = await loadJadeSession(convKey).catch(() => null);
-    if (session?.agentActive === true) {
-      console.log('[jade-bot] agentActive=true (session) — staying silent for conv', conversationId);
-      return NextResponse.json({ status: 'agent_active_silenced' });
-    }
-
-    // API fallback: look for any human agent outgoing message in this conversation.
-    // Uses ADMIN_TOKEN (human agent token) — bot token lacks read permissions.
-    try {
-      const msgsRes = await fetch(
-        `${CHATWOOT_BASE}/api/v1/accounts/${ACCOUNT_ID}/conversations/${conversationId}/messages`,
-        { headers: { api_access_token: ADMIN_TOKEN }, signal: AbortSignal.timeout(4000) },
-      )
-      console.log('[jade-bot] messages API status:', msgsRes.status, 'conv:', conversationId)
-      if (msgsRes.ok) {
-        const msgsData = await msgsRes.json() as { payload?: Array<{ message_type?: number; content_attributes?: { jade_ai?: boolean }; sender?: { type?: string } }> }
-        const msgs = msgsData.payload ?? []
-        console.log('[jade-bot] total messages:', msgs.length, 'outgoing:', msgs.filter(m => m.message_type === 1).length)
-        const hasHumanAgent = msgs.some(m =>
-          m.message_type === 1
-          && m.sender?.type === 'user'  // strictly human agent (not agent_bot, not contact)
-        )
-        if (hasHumanAgent) {
-          const existing = await loadJadeSession(convKey).catch(() => null)
-          await saveJadeSession(convKey, {
-            intent:              existing?.intent ?? null,
-            lastMessage:         existing?.lastMessage ?? '',
-            conversationHistory: existing?.conversationHistory ?? [],
-            bookingContext:      existing?.bookingContext ?? null,
-            groupContext:        existing?.groupContext ?? null,
-            agentActive:         true,
-            agentMessages:       existing?.agentMessages ?? [],
-          }).catch(() => {})
-          console.log('[jade-bot] Human agent (sender.type=user) detected via API — staying silent for conv', conversationId)
-          return NextResponse.json({ status: 'agent_active_silenced' })
-        }
+    // Chatwoot history → Anthropic messages (merge consecutive same-role turns).
+    // Strip bare attachment/ad labels that arrive when customers reply to Instagram/Facebook ads
+    // (e.g. "Shared post", "Ad response", "Story reply") — they carry no useful content and
+    // caused Jade to say "I can't see the post."
+    const AD_LABEL_RE = /^(shared post|ad response|story reply|story mention|post reply|reel reply|reels reply|\[.*?\])$/i;
+    const messages: Anthropic.MessageParam[] = [];
+    for (const m of history) {
+      const raw = (m.content ?? "").trim();
+      if (!raw || AD_LABEL_RE.test(raw)) continue; // skip empty/attachment-only messages
+      const role = m.message_type === 0 ? "user" : "assistant";
+      const last = messages[messages.length - 1];
+      if (last && last.role === role && typeof last.content === "string") {
+        last.content = `${last.content}\n${raw}`;
       } else {
-        const errText = await msgsRes.text().catch(() => '')
-        console.error('[jade-bot] messages API error:', msgsRes.status, errText.substring(0, 200))
+        messages.push({ role, content: raw });
       }
-    } catch (e) {
-      console.error('[jade-bot] API agent check failed:', e)
+    }
+    if (messages.length === 0 || messages[messages.length - 1].role !== "user") {
+      messages.push({ role: "user", content });
     }
 
-    // Move to open so staff can see in admin
-    await openConversation(conversationId);
+    const system = buildSystemPrompt({
+      contactName,
+      channel,
+      memory: contactMemory,
+      today: new Date().toISOString().slice(0, 10),
+    });
 
-    // Auto round-robin assign to staff
-    const assignedAgent = getAssignedAgent(conversationId);
-    await assignAgent(conversationId, assignedAgent.id);
+    const toolCtx: ToolContext = { conversationId, contactId, phone, contactName };
 
-    // Handle transfer request
-    if (wantsLiveAgent(content as string)) {
-      await sendMessage(
-        conversationId,
-        `Of course! Let me get ${assignedAgent.name} on this for you right now. They'll be with you shortly.`
-      );
-      await sendMessage(
-        conversationId,
-        `🔔 Client requested live agent. Message: "${content as string}"`,
-        true
-      );
-      return NextResponse.json({
-        status: 'transferred',
-        agent: assignedAgent.name,
+    // ---- 5. Agentic loop ---------------------------------------------------
+    let handoffReason: string | null = null;
+    let finalText = "";
+
+    for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
+      const response = await anthropic.messages.create({
+        model: MODEL,
+        max_tokens: 1024,
+        system,
+        tools: JADE_TOOLS as any,
+        messages,
       });
+
+      const textBlocks = response.content.filter((b) => b.type === "text");
+      const toolBlocks = response.content.filter((b) => b.type === "tool_use");
+
+      finalText = textBlocks.map((b: any) => b.text).join("\n").trim();
+
+      if (toolBlocks.length === 0 || response.stop_reason !== "tool_use") break;
+
+      messages.push({ role: "assistant", content: response.content });
+      const toolResults: Anthropic.ToolResultBlockParam[] = [];
+      for (const block of toolBlocks as any[]) {
+        const result = await executeTool(block.name, block.input, toolCtx);
+        if (result === "HANDOFF_REQUESTED") {
+          handoffReason = block.input?.reason || "Customer requested human agent";
+        }
+        toolResults.push({
+          type: "tool_result",
+          tool_use_id: block.id,
+          content: result,
+        });
+      }
+      messages.push({ role: "user", content: toolResults });
     }
 
-    // AI response
-    const claude = await getAnthropic().messages.create({
-      model: 'claude-sonnet-4-6',
-      max_tokens: 300,
-      system: JADE_SYSTEM_PROMPT,
-      messages: [{ role: 'user', content: content as string }],
-    });
+    // ---- 6. Reply + side effects -------------------------------------------
+    if (finalText) {
+      await sendReply(conversationId, finalText);
+    }
 
-    const reply = claude.content[0].type === 'text'
-      ? claude.content[0].text
-      : 'Thanks for reaching out! How can I help?';
+    if (handoffReason) {
+      await handoffToHuman(conversationId, handoffReason);
+      console.log(`[jade] conv=${conversationId} handed off: ${handoffReason}`);
+    }
 
-    const sent = await sendMessage(conversationId, reply);
+    if (contactId) {
+      updateContactMemory(contactId, {
+        last_jade_contact: new Date().toISOString(),
+        last_topic: content.slice(0, 120),
+      }).catch(() => {});
+    }
 
-    return NextResponse.json({
-      status: 'replied',
-      conv: conversationId,
-      agent: assignedAgent.name,
-      reply_id: sent?.id,
-    });
-
-  } catch (error) {
-    console.error('Jade bot error:', error);
-    return NextResponse.json({ status: 'error' }, { status: 500 });
+    console.log(
+      `[jade] conv=${conversationId} done replied=${Boolean(finalText)} handoff=${Boolean(handoffReason)}`
+    );
+  } catch (err: any) {
+    console.error(`[jade] fatal conv=${conversationId}:`, err);
+    try {
+      await sendReply(
+        conversationId,
+        "Sorry, I hit a small glitch on my end 🙈 One of our team will jump in shortly — or just send your message again!"
+      );
+      await handoffToHuman(conversationId, `Jade error: ${err?.message || "unknown"}`);
+    } catch {}
   }
 }
