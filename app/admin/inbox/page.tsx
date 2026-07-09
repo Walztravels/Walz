@@ -115,9 +115,10 @@ export default function InboxPage() {
 
       // Compute counts client-side — meta.mine_count from Chatwoot reflects the
       // admin API token user, not the logged-in staff member, so it's always wrong.
+      const myId = profile?.chatwootAgentId ?? 0
       setMetaCounts({
         all:        conversations.length,
-        mine:       conversations.filter(c => (c.meta?.assignee ?? c.assignee)?.id === profile?.chatwootAgentId && profile?.chatwootAgentId > 0).length,
+        mine:       myId > 0 ? conversations.filter(c => (c.meta?.assignee ?? c.assignee)?.id === myId).length : 0,
         unassigned: conversations.filter(c => !c.meta?.assignee && !c.assignee).length,
       })
 
