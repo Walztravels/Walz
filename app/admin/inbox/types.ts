@@ -67,7 +67,7 @@ export const EMAIL_TO_AGENT: Record<string, { id: number; role: AdminProfile['ro
   'contact@walztravels.com':         { id: 1, role: 'super_admin' },
   'reservations@walztravels.com':    { id: 3, role: 'admin' },
   'visa@walztravels.com':            { id: 4, role: 'agent' },
-  'priscilla.fsr@walztravels.com':   { id: 5, role: 'agent' },
+  'priscilla.fsr@walztravels.com':   { id: 8, role: 'agent' },
 }
 
 export function timeAgo(ts: number): string {
