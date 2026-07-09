@@ -9,7 +9,7 @@ import {
   Loader2, Globe, Shield, AlertCircle, User, FileText,
   Phone, Briefcase, Plane, Clock, AlertTriangle, Lock, LogIn, Upload, CreditCard,
 } from 'lucide-react'
-import { getVisaConfig, ISO2_TO_SLUG, VisaCountryConfig } from '@/lib/visa-config'
+import { getVisaConfig, ISO2_TO_SLUG, VisaCountryConfig, VisaExtraField } from '@/lib/visa-config'
 import { PaymentStep } from '@/components/visa/PaymentStep'
 import type { BankStatementAnalysis } from '@/lib/analyzeBankStatement'
 import { cn } from '@/lib/utils'
@@ -134,7 +134,7 @@ function SelectInput({ value, onChange, options, placeholder }: {
   )
 }
 
-function YesNoField({ label, value, onChange }: { label: string; value: boolean; onChange: (v: boolean) => void }) {
+function YesNoField({ label, value, onChange }: { label: string; value: boolean | undefined; onChange: (v: boolean) => void }) {
   return (
     <Field label={label}>
       <div className="flex gap-3">
@@ -150,19 +150,86 @@ function YesNoField({ label, value, onChange }: { label: string; value: boolean;
   )
 }
 
+function ExtraFields({
+  config,
+  form,
+  update,
+  sections,
+}: {
+  config: VisaCountryConfig
+  form: VFormData
+  update: (k: string, v: string | boolean) => void
+  sections: VisaExtraField['section'][]
+}) {
+  const fields = config.extraFields.filter(f => sections.includes(f.section))
+  if (fields.length === 0) return null
+  return (
+    <div className="mt-6 pt-6 border-t border-gray-100 space-y-4">
+      <p className="text-xs font-bold text-[#C9A84C] uppercase tracking-wider">
+        {config.flag} {config.name} — Additional Required Information
+      </p>
+      {fields.map(field => {
+        if (field.conditional && !form[field.conditional]) return null
+        if (field.conditionalFalse && form[field.conditionalFalse] !== false) return null
+        return (
+          <div key={field.key}>
+            {field.type === 'boolean' ? (
+              <YesNoField
+                label={field.label}
+                value={form[field.key] as boolean | undefined}
+                onChange={v => update(field.key, v)}
+              />
+            ) : field.type === 'select' ? (
+              <Field label={field.label} required={field.required}>
+                <SelectInput
+                  value={(form[field.key] as string) ?? ''}
+                  onChange={v => update(field.key, v)}
+                  options={field.options ?? []}
+                  placeholder="Select…"
+                />
+              </Field>
+            ) : field.type === 'textarea' ? (
+              <Field label={field.label} required={field.required}>
+                <textarea
+                  value={(form[field.key] as string) ?? ''}
+                  onChange={e => update(field.key, e.target.value)}
+                  rows={4}
+                  placeholder={field.placeholder}
+                  className="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm outline-none focus:border-[#C9A84C] resize-none"
+                />
+              </Field>
+            ) : (
+              <Field label={field.label} required={field.required}>
+                <TextInput
+                  value={(form[field.key] as string) ?? ''}
+                  onChange={v => update(field.key, v)}
+                  placeholder={field.placeholder}
+                />
+              </Field>
+            )}
+          </div>
+        )
+      })}
+    </div>
+  )
+}
+
 // ─── Step components ──────────────────────────────────────────────────────────
 
-function StepPersonal({ form, update }: { form: VFormData; update: (k: string, v: string | boolean) => void }) {
+function StepPersonal({ form, update, config }: { form: VFormData; update: (k: string, v: string | boolean) => void; config: VisaCountryConfig }) {
   return (
-    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-      <Field label="First Name" required><TextInput value={form.firstName} onChange={v => update('firstName', v)} placeholder="As in passport" /></Field>
-      <Field label="Middle Name"><TextInput value={form.middleName} onChange={v => update('middleName', v)} placeholder="If applicable" /></Field>
-      <Field label="Last / Surname" required><TextInput value={form.lastName} onChange={v => update('lastName', v)} placeholder="As in passport" /></Field>
-      <Field label="Date of Birth" required><TextInput type="date" value={form.dateOfBirth} onChange={v => update('dateOfBirth', v)} /></Field>
-      <Field label="Sex" required><SelectInput value={form.sex} onChange={v => update('sex', v)} options={['Male', 'Female', 'Other']} placeholder="Select" /></Field>
-      <Field label="Place of Birth" required><TextInput value={form.placeOfBirth} onChange={v => update('placeOfBirth', v)} placeholder="City, Country" /></Field>
-      <Field label="Nationality" required><TextInput value={form.nationality} onChange={v => update('nationality', v)} placeholder="e.g. Nigerian" /></Field>
-      <Field label="Marital Status" required><SelectInput value={form.maritalStatus} onChange={v => update('maritalStatus', v)} options={['Single', 'Married', 'Divorced', 'Widowed', 'Separated']} placeholder="Select" /></Field>
+    <div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <Field label="First Name" required><TextInput value={form.firstName} onChange={v => update('firstName', v)} placeholder="As in passport" /></Field>
+        <Field label="Middle Name"><TextInput value={form.middleName} onChange={v => update('middleName', v)} placeholder="If applicable" /></Field>
+        <Field label="Last / Surname" required><TextInput value={form.lastName} onChange={v => update('lastName', v)} placeholder="As in passport" /></Field>
+        <Field label="Date of Birth" required><TextInput type="date" value={form.dateOfBirth} onChange={v => update('dateOfBirth', v)} /></Field>
+        <Field label="Sex" required><SelectInput value={form.sex} onChange={v => update('sex', v)} options={['Male', 'Female', 'Other']} placeholder="Select" /></Field>
+        <Field label="Place of Birth" required><TextInput value={form.placeOfBirth} onChange={v => update('placeOfBirth', v)} placeholder="City, Country" /></Field>
+        <Field label="Nationality" required><TextInput value={form.nationality} onChange={v => update('nationality', v)} placeholder="e.g. Nigerian" /></Field>
+        <Field label="Marital Status" required><SelectInput value={form.maritalStatus} onChange={v => update('maritalStatus', v)} options={['Single', 'Married', 'Common-law', 'Divorced', 'Legally Separated', 'Widowed', 'Annulled Marriage']} placeholder="Select" /></Field>
+      </div>
+      <ExtraFields config={config} form={form} update={update} sections={['personal']} />
     </div>
   )
 }
@@ -195,55 +262,61 @@ function StepContact({ form, update }: { form: VFormData; update: (k: string, v:
   )
 }
 
-function StepEmployment({ form, update }: { form: VFormData; update: (k: string, v: string | boolean) => void }) {
+function StepEmployment({ form, update, config }: { form: VFormData; update: (k: string, v: string | boolean) => void; config: VisaCountryConfig }) {
   const status = form.employmentStatus
   return (
-    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-      <div className="sm:col-span-2">
-        <Field label="Employment Status" required>
-          <SelectInput value={status} onChange={v => update('employmentStatus', v)}
-            options={['Employed (Full-time)', 'Employed (Part-time)', 'Self-employed / Business owner', 'Student', 'Retired', 'Unemployed', 'Homemaker', 'Other']}
-            placeholder="Select status" />
-        </Field>
+    <div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div className="sm:col-span-2">
+          <Field label="Current Employment Status" required>
+            <SelectInput value={status} onChange={v => update('employmentStatus', v)}
+              options={['Employed (Full-time)', 'Employed (Part-time)', 'Self-employed / Business owner', 'Student', 'Retired', 'Unemployed', 'Homemaker', 'Other']}
+              placeholder="Select status" />
+          </Field>
+        </div>
+        {(status.startsWith('Employed') || status === 'Self-employed / Business owner') && <>
+          <Field label="Employer / Business Name"><TextInput value={form.employerName} onChange={v => update('employerName', v)} placeholder="Company name" /></Field>
+          <Field label="Job Title"><TextInput value={form.jobTitle} onChange={v => update('jobTitle', v)} placeholder="Your role" /></Field>
+          <div className="sm:col-span-2"><Field label="Employer Address"><TextInput value={form.employerAddress} onChange={v => update('employerAddress', v)} placeholder="Full company address" /></Field></div>
+        </>}
+        <div className="sm:col-span-2">
+          <Field label="Monthly Income Range">
+            <SelectInput value={form.monthlyIncome} onChange={v => update('monthlyIncome', v)}
+              options={['Below $500', '$500–$1,000', '$1,000–$2,000', '$2,000–$3,500', '$3,500–$5,000', '$5,000–$10,000', 'Above $10,000', 'Prefer not to say']}
+              placeholder="Select range" />
+          </Field>
+        </div>
       </div>
-      {(status.startsWith('Employed') || status === 'Self-employed / Business owner') && <>
-        <Field label="Employer / Business Name"><TextInput value={form.employerName} onChange={v => update('employerName', v)} placeholder="Company name" /></Field>
-        <Field label="Job Title"><TextInput value={form.jobTitle} onChange={v => update('jobTitle', v)} placeholder="Your role" /></Field>
-        <div className="sm:col-span-2"><Field label="Employer Address"><TextInput value={form.employerAddress} onChange={v => update('employerAddress', v)} placeholder="Full company address" /></Field></div>
-      </>}
-      <div className="sm:col-span-2">
-        <Field label="Monthly Income Range">
-          <SelectInput value={form.monthlyIncome} onChange={v => update('monthlyIncome', v)}
-            options={['Below $500', '$500–$1,000', '$1,000–$2,000', '$2,000–$3,500', '$3,500–$5,000', '$5,000–$10,000', 'Above $10,000', 'Prefer not to say']}
-            placeholder="Select range" />
-        </Field>
-      </div>
+      <ExtraFields config={config} form={form} update={update} sections={['education']} />
     </div>
   )
 }
 
 function StepTravel({ form, update, config }: { form: VFormData; update: (k: string, v: string | boolean) => void; config: VisaCountryConfig }) {
   return (
-    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-      <div className="sm:col-span-2">
-        <Field label="Visa Type" required>
-          <SelectInput value={form.visaType} onChange={v => update('visaType', v)} options={config.visaTypes} placeholder="Select visa type" />
-        </Field>
+    <div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div className="sm:col-span-2">
+          <Field label="Visa Type" required>
+            <SelectInput value={form.visaType} onChange={v => update('visaType', v)} options={config.visaTypes} placeholder="Select visa type" />
+          </Field>
+        </div>
+        <Field label="Intended Arrival Date" required><TextInput type="date" value={form.arrivalDate} onChange={v => update('arrivalDate', v)} /></Field>
+        <Field label="Intended Return Date" required><TextInput type="date" value={form.returnDate} onChange={v => update('returnDate', v)} /></Field>
+        <div className="sm:col-span-2">
+          <Field label="Purpose of Visit" required>
+            <SelectInput value={form.purposeOfVisit} onChange={v => update('purposeOfVisit', v)} options={config.purposeOptions} placeholder="Select purpose" />
+          </Field>
+        </div>
+        <Field label="Accommodation Name"><TextInput value={form.accommodationName} onChange={v => update('accommodationName', v)} placeholder="Hotel / host name" /></Field>
+        <Field label="Accommodation Address"><TextInput value={form.accommodationAddress} onChange={v => update('accommodationAddress', v)} placeholder="Full address" /></Field>
+        <div className="sm:col-span-2">
+          <Field label="Intended Port of Entry">
+            <SelectInput value={form.portOfEntry} onChange={v => update('portOfEntry', v)} options={config.portOfEntryOptions} placeholder="Select airport / port" />
+          </Field>
+        </div>
       </div>
-      <Field label="Intended Arrival Date" required><TextInput type="date" value={form.arrivalDate} onChange={v => update('arrivalDate', v)} /></Field>
-      <Field label="Intended Return Date" required><TextInput type="date" value={form.returnDate} onChange={v => update('returnDate', v)} /></Field>
-      <div className="sm:col-span-2">
-        <Field label="Purpose of Visit" required>
-          <SelectInput value={form.purposeOfVisit} onChange={v => update('purposeOfVisit', v)} options={config.purposeOptions} placeholder="Select purpose" />
-        </Field>
-      </div>
-      <Field label="Accommodation Name"><TextInput value={form.accommodationName} onChange={v => update('accommodationName', v)} placeholder="Hotel / host name" /></Field>
-      <Field label="Accommodation Address"><TextInput value={form.accommodationAddress} onChange={v => update('accommodationAddress', v)} placeholder="Full address" /></Field>
-      <div className="sm:col-span-2">
-        <Field label="Intended Port of Entry">
-          <SelectInput value={form.portOfEntry} onChange={v => update('portOfEntry', v)} options={config.portOfEntryOptions} placeholder="Select airport / port" />
-        </Field>
-      </div>
+      <ExtraFields config={config} form={form} update={update} sections={['travel']} />
     </div>
   )
 }
@@ -271,7 +344,6 @@ function StepHistory({ form, update }: { form: VFormData; update: (k: string, v:
 }
 
 function StepBackground({ form, update, config }: { form: VFormData; update: (k: string, v: string | boolean) => void; config: VisaCountryConfig }) {
-  const countryFields = config.extraFields.filter(f => f.section === 'country')
   return (
     <div className="space-y-6">
       <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 flex gap-3">
@@ -281,37 +353,7 @@ function StepBackground({ form, update, config }: { form: VFormData; update: (k:
       <YesNoField label="Do you have a criminal record in any country?" value={form.criminalRecord} onChange={v => update('criminalRecord', v)} />
       <YesNoField label="Do you have or have you ever had a communicable disease (e.g. TB)?" value={form.communicableDisease} onChange={v => update('communicableDisease', v)} />
       <YesNoField label="Have you ever been deported or removed from any country?" value={form.deportedBefore} onChange={v => update('deportedBefore', v)} />
-      {countryFields.length > 0 && (
-        <>
-          <div className="border-t border-gray-100 pt-4">
-            <h3 className="font-bold text-[#0B1F3A] mb-4">{config.flag} {config.name} — Additional Questions</h3>
-          </div>
-          {countryFields.map(field => {
-            if (field.conditional && !form[field.conditional]) return null
-            return (
-              <div key={field.key}>
-                {field.type === 'boolean' ? (
-                  <YesNoField label={field.label} value={form[field.key] as boolean} onChange={v => update(field.key, v)} />
-                ) : field.type === 'select' ? (
-                  <Field label={field.label} required={field.required}>
-                    <SelectInput value={form[field.key] as string} onChange={v => update(field.key, v)} options={field.options ?? []} placeholder="Select…" />
-                  </Field>
-                ) : field.type === 'textarea' ? (
-                  <Field label={field.label} required={field.required}>
-                    <textarea value={form[field.key] as string} onChange={e => update(field.key, e.target.value)}
-                      rows={3} placeholder={field.placeholder}
-                      className="w-full px-4 py-3 border border-gray-200 rounded-xl text-sm outline-none focus:border-[#C9A84C] resize-none" />
-                  </Field>
-                ) : (
-                  <Field label={field.label} required={field.required}>
-                    <TextInput value={form[field.key] as string} onChange={v => update(field.key, v)} placeholder={field.placeholder} />
-                  </Field>
-                )}
-              </div>
-            )
-          })}
-        </>
-      )}
+      <ExtraFields config={config} form={form} update={update} sections={['background', 'country']} />
     </div>
   )
 }
@@ -1199,10 +1241,10 @@ export function VisaApplicationForm({
           </div>
         )}
 
-        {step === 0 && <StepPersonal form={form} update={update} />}
+        {step === 0 && <StepPersonal form={form} update={update} config={config} />}
         {step === 1 && <StepPassport form={form} update={update} />}
         {step === 2 && <StepContact form={form} update={update} />}
-        {step === 3 && <StepEmployment form={form} update={update} />}
+        {step === 3 && <StepEmployment form={form} update={update} config={config} />}
         {step === 4 && <StepTravel form={form} update={update} config={config} />}
         {step === 5 && <StepHistory form={form} update={update} />}
         {step === 6 && <StepBackground form={form} update={update} config={config} />}

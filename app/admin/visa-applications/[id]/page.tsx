@@ -144,6 +144,104 @@ function Field({ label, value }: { label: string; value: string | number | boole
   )
 }
 
+// ─── Request More Info Modal ──────────────────────────────────────────────────
+function RequestInfoModal({ app, onClose }: { app: VisaApp; onClose: () => void }) {
+  const [clientEmail, setClientEmail] = useState(app.email ?? '')
+  const [clientName, setClientName] = useState([app.firstName, app.lastName].filter(Boolean).join(' '))
+  const [missingFields, setMissingFields] = useState('')
+  const [sending, setSending] = useState(false)
+  const [sentLink, setSentLink] = useState<string | null>(null)
+
+  const defaultMsg = missingFields.trim()
+    ? `We have reviewed your ${app.destinationIso2} visa application and need some additional information before we can proceed.\n\nPlease update the following in your form:\n\n${missingFields.trim()}\n\nKindly use the link below to access your saved form and complete these details at your earliest convenience. The link is valid for 7 days.`
+    : `We have reviewed your visa application and need some additional information before we can proceed.\n\nPlease use the link below to access your saved form, complete any missing fields, and resubmit. The link is valid for 7 days.`
+
+  async function send() {
+    setSending(true)
+    try {
+      // Update status to info_required
+      await fetch(`/api/admin/visa-applications/${app.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: 'info_required' }),
+      })
+      // Send form link with the info-request message
+      const res = await fetch(`/api/admin/visa-applications/${app.id}/token`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ clientEmail, clientName, personalMessage: defaultMsg }),
+      })
+      const d = await res.json()
+      if (res.ok) setSentLink(d.link)
+      else alert(d.error ?? 'Failed to send')
+    } finally {
+      setSending(false)
+    }
+  }
+
+  if (sentLink) {
+    return (
+      <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+        <div className="bg-white rounded-2xl p-8 max-w-md w-full text-center">
+          <CheckCircle className="w-12 h-12 text-orange-400 mx-auto mb-4" />
+          <h3 className="font-bold text-[#0B1F3A] text-xl mb-2">Info Request Sent</h3>
+          <p className="text-gray-500 text-sm mb-4">
+            A form link has been emailed to <strong>{clientEmail}</strong>. The application status has been updated to <span className="font-semibold text-orange-600">Info Required</span>.
+          </p>
+          <div className="bg-gray-50 rounded-xl p-3 mb-5 text-left">
+            <p className="text-xs text-gray-500 mb-1 font-medium">Form link (also emailed):</p>
+            <p className="text-xs text-[#C9A84C] font-mono break-all">{sentLink}</p>
+          </div>
+          <button onClick={onClose} className="px-6 py-2.5 bg-[#0B1F3A] text-white rounded-xl font-semibold text-sm">Done</button>
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-2xl w-full max-w-lg shadow-2xl flex flex-col max-h-[90vh]">
+        <div className="flex-shrink-0 flex items-center justify-between p-6 border-b border-gray-100">
+          <div>
+            <h3 className="font-bold text-[#0B1F3A] text-lg">Request More Information</h3>
+            <p className="text-xs text-gray-500 mt-0.5">Sends a form link and marks application as Info Required</p>
+          </div>
+          <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-gray-100"><X className="w-4 h-4" /></button>
+        </div>
+        <div className="overflow-y-auto p-6 space-y-4">
+          <div>
+            <label className="text-xs font-semibold text-gray-600 block mb-1">Client Name</label>
+            <input value={clientName} onChange={e => setClientName(e.target.value)}
+              className="w-full h-10 px-3 border border-gray-200 rounded-xl text-sm outline-none focus:border-[#C9A84C]" />
+          </div>
+          <div>
+            <label className="text-xs font-semibold text-gray-600 block mb-1">Client Email *</label>
+            <input value={clientEmail} onChange={e => setClientEmail(e.target.value)} type="email"
+              className="w-full h-10 px-3 border border-gray-200 rounded-xl text-sm outline-none focus:border-[#C9A84C]" />
+          </div>
+          <div>
+            <label className="text-xs font-semibold text-gray-600 block mb-1">What information is missing? <span className="text-gray-400 font-normal">(optional — shown in the email)</span></label>
+            <textarea value={missingFields} onChange={e => setMissingFields(e.target.value)} rows={4}
+              placeholder="e.g.&#10;— Employment history for the past 10 years&#10;— Country of birth&#10;— Contact person name and address in Canada"
+              className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm outline-none focus:border-[#C9A84C] resize-none" />
+          </div>
+          <div className="bg-orange-50 border border-orange-200 rounded-xl p-3 text-xs text-orange-700">
+            ⚠️ This will update the application status to <strong>Info Required</strong> and send a secure 7-day form link to the client.
+          </div>
+          <div className="flex gap-3 pt-2">
+            <button onClick={onClose} className="flex-1 py-2.5 border border-gray-200 rounded-xl text-sm font-semibold text-gray-600 hover:bg-gray-50">Cancel</button>
+            <button onClick={send} disabled={sending || !clientEmail}
+              className="flex-1 py-2.5 bg-orange-500 text-white rounded-xl text-sm font-bold flex items-center justify-center gap-2 disabled:opacity-60">
+              {sending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+              Send & Update Status
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ─── Send Form Modal ──────────────────────────────────────────────────────────
 function SendFormModal({ app, onClose }: { app: VisaApp; onClose: () => void }) {
   const [clientEmail, setClientEmail] = useState(app.email ?? '')
@@ -662,6 +760,7 @@ export default function AdminVisaDetailPage() {
   const [saveMsg, setSaveMsg] = useState('')
   const [editing, setEditing] = useState(false)
   const [showSendForm, setShowSendForm] = useState(false)
+  const [showRequestInfo, setShowRequestInfo] = useState(false)
 
   // Editable form state (mirrors app fields)
   const [edits, setEdits] = useState<Partial<VisaApp>>({})
@@ -1118,6 +1217,7 @@ export default function AdminVisaDetailPage() {
   return (
     <div className="p-4 md:p-6 max-w-7xl mx-auto">
       {showSendForm && <SendFormModal app={app} onClose={() => setShowSendForm(false)} />}
+      {showRequestInfo && <RequestInfoModal app={app} onClose={() => { setShowRequestInfo(false); load() }} />}
 
       {/* Header */}
       <div className="flex flex-wrap items-start gap-3 mb-6">
@@ -1132,6 +1232,10 @@ export default function AdminVisaDetailPage() {
               <CheckCircle className="w-3.5 h-3.5" /> {saveMsg}
             </span>
           )}
+          <button onClick={() => setShowRequestInfo(true)}
+            className="flex items-center gap-2 px-3 py-2 border border-orange-300 text-orange-600 rounded-xl text-sm font-semibold hover:bg-orange-50 transition-colors">
+            <AlertCircle className="w-4 h-4" /> Request More Info
+          </button>
           <button onClick={() => setShowSendForm(true)}
             className="flex items-center gap-2 px-3 py-2 border border-[#C9A84C] text-[#C9A84C] rounded-xl text-sm font-semibold hover:bg-[#C9A84C]/5 transition-colors">
             <Send className="w-4 h-4" /> Send Form to Client

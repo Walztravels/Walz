@@ -26,8 +26,9 @@ export interface VisaExtraField {
   options?: string[]
   placeholder?: string
   required?: boolean
-  conditional?: string            // show when this key is 'true'
-  section: 'travel' | 'country'
+  conditional?: string            // show when this key is true
+  conditionalFalse?: string       // show when this key is explicitly false
+  section: 'personal' | 'travel' | 'education' | 'background' | 'country'
 }
 
 // ── All 29 Schengen Area members ─────────────────────────────────────────────
@@ -159,9 +160,42 @@ export const VISA_CONFIGS: Record<string, VisaCountryConfig> = {
     purposeOptions: ['Tourism / Holiday', 'Visiting Family or Friends', 'Business', 'Transit through Canada', 'Medical Treatment', 'Other'],
     portOfEntryOptions: ['Toronto Pearson (YYZ)', 'Vancouver (YVR)', 'Montreal (YUL)', 'Calgary (YYC)', 'Ottawa (YOW)', 'Edmonton (YEG)', 'Halifax (YHZ)', 'Other'],
     extraFields: [
-      { key: 'hasSponsor', label: 'Do you have a sponsor or host in Canada?', type: 'boolean', section: 'country' },
-      { key: 'sponsorDetails', label: 'Sponsor name, address and immigration status', type: 'textarea', placeholder: 'Full name, Canadian address, immigration status (citizen / PR / visitor)', conditional: 'hasSponsor', section: 'country' },
-      { key: 'biometricsGiven', label: 'Have you previously given biometrics for Canada?', type: 'boolean', section: 'country' },
+      // ── Personal (IMM 5257 Page 1) ────────────────────────────────────────
+      { key: 'otherNamesUsed', label: 'Other names used (maiden name, alias, etc.)', type: 'text', placeholder: 'Leave blank if none', section: 'personal' },
+      { key: 'countryOfBirth', label: 'Country of birth', type: 'text', placeholder: 'e.g. Nigeria', required: true, section: 'personal' },
+      { key: 'dualCitizenship', label: 'Are you a citizen of any other country besides your current nationality?', type: 'boolean', section: 'personal' },
+      { key: 'dualCitizenshipCountry', label: 'Other citizenship country', type: 'text', placeholder: 'e.g. United Kingdom', conditional: 'dualCitizenship', section: 'personal' },
+      { key: 'usGreenCard', label: 'Do you hold a valid US Permanent Resident (green) card?', type: 'boolean', section: 'personal' },
+      { key: 'usGreenCardNumber', label: 'US green card number', type: 'text', placeholder: 'e.g. A123456789', conditional: 'usGreenCard', section: 'personal' },
+      { key: 'usGreenCardExpiry', label: 'US green card expiry date', type: 'text', placeholder: 'YYYY-MM-DD', conditional: 'usGreenCard', section: 'personal' },
+      { key: 'previousMarriages', label: 'Have you had any previous marriages or common-law partnerships?', type: 'boolean', section: 'personal' },
+      { key: 'previousMarriageDetails', label: 'Previous marriage / partnership details (name, date, end date)', type: 'textarea', placeholder: 'e.g. Jane Smith — married May 2010, divorced March 2015', conditional: 'previousMarriages', section: 'personal' },
+      { key: 'nativeLanguage', label: 'Native language / mother tongue', type: 'text', placeholder: 'e.g. Yoruba, Igbo, Hausa', required: true, section: 'personal' },
+      { key: 'languagesSpoken', label: 'Official language(s) you can communicate in', type: 'select', options: ['English only', 'French only', 'Both English and French', 'Neither English nor French'], required: true, section: 'personal' },
+      // ── Travel (IMM 5257 Page 3) ──────────────────────────────────────────
+      { key: 'tripPayor', label: 'Who is paying for your trip to Canada?', type: 'select', required: true, options: ['Self / My own funds', 'Host or contact in Canada', 'Company / Employer', 'Other person'], section: 'travel' },
+      { key: 'tripPayorDetails', label: "If not self — payer's name, address in Canada, phone and relationship to you", type: 'textarea', placeholder: 'Full name\nAddress in Canada\nPhone\nRelationship (e.g. aunt, employer)', section: 'travel' },
+      { key: 'fundsAvailableCAD', label: 'Funds available for stay in Canada (CAD)', type: 'text', placeholder: 'e.g. CAD 5,000', required: true, section: 'travel' },
+      { key: 'firstVisitToCanada', label: 'Is this your first visit to Canada?', type: 'boolean', section: 'travel' },
+      { key: 'previousCanadaVisits', label: 'Details of previous visits to Canada (year, duration, purpose)', type: 'textarea', placeholder: 'e.g.\n2019 — 2 weeks, tourism\n2022 — 10 days, family visit', conditionalFalse: 'firstVisitToCanada', section: 'travel' },
+      { key: 'travelingAlone', label: 'Are you traveling to Canada alone?', type: 'boolean', section: 'travel' },
+      { key: 'travelCompanions', label: 'Who are you traveling with? (name, DOB, relationship)', type: 'textarea', placeholder: 'e.g.\nJohn Smith (husband), 15 Jan 1985\nMary Smith (daughter), 3 Jun 2015', conditionalFalse: 'travelingAlone', section: 'travel' },
+      { key: 'contactInCanadaName', label: 'Contact person in Canada — Full name', type: 'text', placeholder: 'Full name', section: 'travel' },
+      { key: 'contactInCanadaAddress', label: "Contact's address in Canada", type: 'text', placeholder: 'Full address in Canada', section: 'travel' },
+      { key: 'contactInCanadaRelationship', label: 'Your relationship to this contact', type: 'select', options: ['Friend', 'Relative', 'Business contact', 'Employer', 'Travel agent / agency', 'Other'], section: 'travel' },
+      // ── Education (IMM 5257 Page 3) ───────────────────────────────────────
+      { key: 'educationLevel', label: 'Highest level of education completed', type: 'select', required: true, options: ['None', 'Primary / Elementary', 'Secondary / High School', 'Apprenticeship / Trade Certificate', 'College / CEGEP', "Bachelor's Degree", "Master's Degree", 'Doctorate / PhD', 'Other'], section: 'education' },
+      { key: 'fieldOfStudy', label: 'Field of study', type: 'text', placeholder: 'e.g. Business Administration, Medicine, Engineering', section: 'education' },
+      { key: 'employmentHistory10yr', label: 'Employment / activity history for past 10 years — no time gaps allowed', type: 'textarea', required: true, placeholder: 'List all activities from most recent (employment, study, self-employment, unemployment). Example:\n\n2022–present: Software Engineer at XYZ Ltd, Lagos, Nigeria (full-time)\n2019–2022: BSc Computer Science, University of Lagos\n2017–2019: Unemployed (career break)', section: 'education' },
+      // ── Background (IMM 5257 Page 4) ──────────────────────────────────────
+      { key: 'biometricsGiven', label: 'Have you previously given biometrics for Canada?', type: 'boolean', section: 'background' },
+      { key: 'tbContact', label: 'Have you ever had tuberculosis (TB) or been in close contact with a TB patient?', type: 'boolean', section: 'background' },
+      { key: 'militaryService', label: 'Have you ever served in a military, paramilitary, or police force?', type: 'boolean', section: 'background' },
+      { key: 'militaryServiceDetails', label: 'Military / police service — organization, role/rank, dates', type: 'textarea', placeholder: 'Organization name, your role/rank, country, start and end dates', conditional: 'militaryService', section: 'background' },
+      { key: 'politicalOrg', label: 'Have you ever been a member of a group that used violence to achieve political or religious goals?', type: 'boolean', section: 'background' },
+      { key: 'civilIllTreatment', label: 'Have you ever witnessed or participated in the ill-treatment of prisoners or civilians?', type: 'boolean', section: 'background' },
+      { key: 'hasSponsor', label: 'Do you have a financial sponsor or host in Canada?', type: 'boolean', section: 'background' },
+      { key: 'sponsorDetails', label: "Sponsor's name, Canadian address and immigration status", type: 'textarea', placeholder: 'Full name, Canadian address, immigration status (citizen / permanent resident / visitor)', conditional: 'hasSponsor', section: 'background' },
     ],
     notes: 'The Canadian government fee of CAD $100 is paid separately through IRCC when your application is ready for submission.',
   },
@@ -282,6 +316,7 @@ export const STATUS_CONFIG: Record<string, { label: string; color: string; bg: s
   decision_pending:       { label: 'Decision Pending',        color: 'text-orange-700',bg: 'bg-orange-50',   dot: 'bg-orange-500' },
   approved:               { label: 'Approved ✅',              color: 'text-green-700', bg: 'bg-green-50',    dot: 'bg-green-500'  },
   refused:                { label: 'Refused',                 color: 'text-red-700',   bg: 'bg-red-50',      dot: 'bg-red-500'    },
+  info_required:          { label: 'Info Required',            color: 'text-orange-700',bg: 'bg-orange-50',   dot: 'bg-orange-500' },
 }
 
 export const STATUS_TIMELINE = [
