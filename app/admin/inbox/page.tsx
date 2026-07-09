@@ -113,11 +113,12 @@ export default function InboxPage() {
       const conversations: CWConversation[] = json?.payload || json?.data?.payload || []
       const meta = json?.meta || json?.data?.meta
 
-      // Update tab counts from Chatwoot meta
+      // Compute counts client-side — meta.mine_count from Chatwoot reflects the
+      // admin API token user, not the logged-in staff member, so it's always wrong.
       setMetaCounts({
-        all:        meta?.all_count        ?? conversations.length,
-        mine:       meta?.mine_count       ?? conversations.filter(c => (c.meta?.assignee ?? c.assignee)?.id === profile?.chatwootAgentId).length,
-        unassigned: meta?.unassigned_count ?? conversations.filter(c => !c.meta?.assignee && !c.assignee).length,
+        all:        conversations.length,
+        mine:       conversations.filter(c => (c.meta?.assignee ?? c.assignee)?.id === profile?.chatwootAgentId && profile?.chatwootAgentId > 0).length,
+        unassigned: conversations.filter(c => !c.meta?.assignee && !c.assignee).length,
       })
 
       // Client-side tab filtering
