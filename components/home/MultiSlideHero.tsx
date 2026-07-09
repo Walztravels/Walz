@@ -22,7 +22,7 @@ interface Slide {
 const FALLBACK_SLIDES: Slide[] = [
   {
     id: 'flights',
-    bg: 'https://images.unsplash.com/photo-1436491865332-7a61a109cc05?w=1600&q=80',
+    bg: 'https://images.unsplash.com/photo-1436491865332-7a61a109cc05?w=1200&q=65&auto=format&fit=crop',
     pill: 'EMIRATES · QATAR · BRITISH AIRWAYS',
     line1: 'Fly Higher.',
     line2: 'Fly Further.',
@@ -35,7 +35,7 @@ const FALLBACK_SLIDES: Slide[] = [
   },
   {
     id: 'visas',
-    bg: 'https://images.unsplash.com/photo-1513635269975-59663e0ac1ad?w=1600&q=80',
+    bg: 'https://images.unsplash.com/photo-1513635269975-59663e0ac1ad?w=1200&q=65&auto=format&fit=crop',
     pill: 'UK · CANADA · SCHENGEN · UAE · USA',
     line1: 'Your Visa.',
     line2: 'Your Journey.',
@@ -48,7 +48,7 @@ const FALLBACK_SLIDES: Slide[] = [
   },
   {
     id: 'hotels',
-    bg: 'https://images.unsplash.com/photo-1571896349842-33c89424de2d?w=1600&q=80',
+    bg: 'https://images.unsplash.com/photo-1571896349842-33c89424de2d?w=1200&q=65&auto=format&fit=crop',
     pill: 'HILTON · MARRIOTT · HYATT · IHG',
     line1: 'Every Hotel.',
     line2: 'Every City.',
@@ -169,7 +169,7 @@ export function MultiSlideHero() {
         </h1>
 
         {/* Sub text */}
-        <p className="text-white/55 text-base md:text-lg mb-10 max-w-xl mx-auto leading-relaxed">
+        <p className="text-white/75 text-base md:text-lg mb-10 max-w-xl mx-auto leading-relaxed">
           {slide.sub}
         </p>
 
@@ -215,7 +215,7 @@ export function MultiSlideHero() {
         </div>
 
         {/* Trust line */}
-        <p className="text-white/25 text-xs tracking-wider">
+        <p className="text-white/50 text-xs tracking-wider">
           90%+ visa approval · 900+ airlines · 500K+ hotels · 24/7 expert support
         </p>
       </div>

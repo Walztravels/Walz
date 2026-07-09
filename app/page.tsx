@@ -43,43 +43,43 @@ interface FeaturedDestination {
 }
 
 const FALLBACK_DESTINATIONS: FeaturedDestination[] = [
-  { city: 'London',   country: 'UK',       tag: 'MOST VISITED', image: 'https://images.unsplash.com/photo-1513635269975-59663e0ac1ad?w=800&auto=format&fit=crop', flightFrom: '£89',  hotelFrom: '£120/night', visaFrom: '£120' },
-  { city: 'Dubai',    country: 'UAE',      tag: 'HOT DEAL',     image: 'https://images.unsplash.com/photo-1512453979798-5ea266f8880c?w=800&auto=format&fit=crop', flightFrom: '£280', hotelFrom: '£89/night',  visaFrom: '£80'  },
-  { city: 'Toronto',  country: 'Canada',   tag: 'POPULAR',      image: 'https://images.unsplash.com/photo-1517090504586-fde19ea6066f?w=800&auto=format&fit=crop', flightFrom: '£380', hotelFrom: '£95/night',  visaFrom: '£150' },
-  { city: 'New York', country: 'USA',      tag: 'POPULAR',      image: 'https://images.unsplash.com/photo-1522083165195-3424ed129620?w=800&auto=format&fit=crop', flightFrom: '£420', hotelFrom: '£180/night', visaFrom: '£160' },
-  { city: 'Lagos',    country: 'Nigeria',  tag: 'BEST VALUE',   image: 'https://images.unsplash.com/photo-1555990793-da11153b2473?w=800&auto=format&fit=crop', flightFrom: '£580', hotelFrom: '£65/night',  visaFrom: '£60'  },
-  { city: 'Accra',    country: 'Ghana',    tag: 'NEW ROUTE',    image: 'https://images.unsplash.com/photo-1597149374936-796cb7d85a06?w=800&auto=format&fit=crop', flightFrom: '£620', hotelFrom: '£55/night',  visaFrom: '£60'  },
+  { city: 'London',   country: 'UK',       tag: 'MOST VISITED', image: 'https://images.unsplash.com/photo-1513635269975-59663e0ac1ad?w=640&q=65&auto=format&fit=crop', flightFrom: '£89',  hotelFrom: '£120/night', visaFrom: '£120' },
+  { city: 'Dubai',    country: 'UAE',      tag: 'HOT DEAL',     image: 'https://images.unsplash.com/photo-1512453979798-5ea266f8880c?w=640&q=65&auto=format&fit=crop', flightFrom: '£280', hotelFrom: '£89/night',  visaFrom: '£80'  },
+  { city: 'Toronto',  country: 'Canada',   tag: 'POPULAR',      image: 'https://images.unsplash.com/photo-1517090504586-fde19ea6066f?w=640&q=65&auto=format&fit=crop', flightFrom: '£380', hotelFrom: '£95/night',  visaFrom: '£150' },
+  { city: 'New York', country: 'USA',      tag: 'POPULAR',      image: 'https://images.unsplash.com/photo-1522083165195-3424ed129620?w=640&q=65&auto=format&fit=crop', flightFrom: '£420', hotelFrom: '£180/night', visaFrom: '£160' },
+  { city: 'Lagos',    country: 'Nigeria',  tag: 'BEST VALUE',   image: 'https://images.unsplash.com/photo-1555990793-da11153b2473?w=640&q=65&auto=format&fit=crop', flightFrom: '£580', hotelFrom: '£65/night',  visaFrom: '£60'  },
+  { city: 'Accra',    country: 'Ghana',    tag: 'NEW ROUTE',    image: 'https://images.unsplash.com/photo-1597149374936-796cb7d85a06?w=640&q=65&auto=format&fit=crop', flightFrom: '£620', hotelFrom: '£55/night',  visaFrom: '£60'  },
 ]
 
 const BLOG_FALLBACKS: Record<string, string> = {
-  'VISA GUIDE':        'https://images.unsplash.com/photo-1529400971008-f566de0e6dfc?w=800&auto=format&fit=crop',
-  'DESTINATION GUIDE': 'https://images.unsplash.com/photo-1436491865332-7a61a109cc05?w=800&auto=format&fit=crop',
-  'TOUR GUIDE':        'https://images.unsplash.com/photo-1469854523086-cc02fe5d8800?w=800&auto=format&fit=crop',
-  default:             'https://images.unsplash.com/photo-1436491865332-7a61a109cc05?w=800&auto=format&fit=crop',
+  'VISA GUIDE':        'https://images.unsplash.com/photo-1529400971008-f566de0e6dfc?w=640&q=65&auto=format&fit=crop',
+  'DESTINATION GUIDE': 'https://images.unsplash.com/photo-1436491865332-7a61a109cc05?w=640&q=65&auto=format&fit=crop',
+  'TOUR GUIDE':        'https://images.unsplash.com/photo-1469854523086-cc02fe5d8800?w=640&q=65&auto=format&fit=crop',
+  default:             'https://images.unsplash.com/photo-1436491865332-7a61a109cc05?w=640&q=65&auto=format&fit=crop',
 }
 
 const ARTICLE_KEYWORD_IMAGES: [string, string][] = [
-  ['flight',    'https://images.unsplash.com/photo-1436491865332-7a61a109cc05?w=800&q=80&fit=crop'],
-  ['solo',      'https://images.unsplash.com/photo-1501426026826-31c667bdf23d?w=800&q=80&fit=crop'],
-  ['interview', 'https://images.unsplash.com/photo-1521737711867-e3b97375f902?w=800&q=80&fit=crop'],
-  ['canada',    'https://images.unsplash.com/photo-1530521954074-e64f6810b32d?w=800&q=80&fit=crop'],
-  ['dubai',     'https://images.unsplash.com/photo-1512453979798-5ea266f8880c?w=800&q=80&fit=crop'],
-  ['schengen',  'https://images.unsplash.com/photo-1499856871958-5b9627545d1a?w=800&q=80&fit=crop'],
-  ['uk',        'https://images.unsplash.com/photo-1548013146-72479768bada?w=800&q=80&fit=crop'],
-  ['refusal',   'https://images.unsplash.com/photo-1450101499163-c8848c66ca85?w=800&q=80&fit=crop'],
-  ['hotel',     'https://images.unsplash.com/photo-1571003123894-1f0594d2b5d9?w=800&q=80&fit=crop'],
-  ['europe',    'https://images.unsplash.com/photo-1515859005217-8a1f08870f59?w=800&q=80&fit=crop'],
-  ['visa',      'https://images.unsplash.com/photo-1529400971008-f566de0e6dfc?w=800&q=80&fit=crop'],
-  ['travel',    'https://images.unsplash.com/photo-1488646953014-85cb44e25828?w=800&q=80&fit=crop'],
+  ['flight',    'https://images.unsplash.com/photo-1436491865332-7a61a109cc05?w=640&q=65&fit=crop'],
+  ['solo',      'https://images.unsplash.com/photo-1501426026826-31c667bdf23d?w=640&q=65&fit=crop'],
+  ['interview', 'https://images.unsplash.com/photo-1521737711867-e3b97375f902?w=640&q=65&fit=crop'],
+  ['canada',    'https://images.unsplash.com/photo-1530521954074-e64f6810b32d?w=640&q=65&fit=crop'],
+  ['dubai',     'https://images.unsplash.com/photo-1512453979798-5ea266f8880c?w=640&q=65&fit=crop'],
+  ['schengen',  'https://images.unsplash.com/photo-1499856871958-5b9627545d1a?w=640&q=65&fit=crop'],
+  ['uk',        'https://images.unsplash.com/photo-1548013146-72479768bada?w=640&q=65&fit=crop'],
+  ['refusal',   'https://images.unsplash.com/photo-1450101499163-c8848c66ca85?w=640&q=65&fit=crop'],
+  ['hotel',     'https://images.unsplash.com/photo-1571003123894-1f0594d2b5d9?w=640&q=65&fit=crop'],
+  ['europe',    'https://images.unsplash.com/photo-1515859005217-8a1f08870f59?w=640&q=65&fit=crop'],
+  ['visa',      'https://images.unsplash.com/photo-1529400971008-f566de0e6dfc?w=640&q=65&fit=crop'],
+  ['travel',    'https://images.unsplash.com/photo-1488646953014-85cb44e25828?w=640&q=65&fit=crop'],
 ]
 
 const ARTICLE_FALLBACK_POOL = [
-  'https://images.unsplash.com/photo-1436491865332-7a61a109cc05?w=800&q=80&fit=crop',
-  'https://images.unsplash.com/photo-1503220317375-aaad61436b1b?w=800&q=80&fit=crop',
-  'https://images.unsplash.com/photo-1488646953014-85cb44e25828?w=800&q=80&fit=crop',
-  'https://images.unsplash.com/photo-1512453979798-5ea266f8880c?w=800&q=80&fit=crop',
-  'https://images.unsplash.com/photo-1548013146-72479768bada?w=800&q=80&fit=crop',
-  'https://images.unsplash.com/photo-1530521954074-e64f6810b32d?w=800&q=80&fit=crop',
+  'https://images.unsplash.com/photo-1436491865332-7a61a109cc05?w=640&q=65&fit=crop',
+  'https://images.unsplash.com/photo-1503220317375-aaad61436b1b?w=640&q=65&fit=crop',
+  'https://images.unsplash.com/photo-1488646953014-85cb44e25828?w=640&q=65&fit=crop',
+  'https://images.unsplash.com/photo-1512453979798-5ea266f8880c?w=640&q=65&fit=crop',
+  'https://images.unsplash.com/photo-1548013146-72479768bada?w=640&q=65&fit=crop',
+  'https://images.unsplash.com/photo-1530521954074-e64f6810b32d?w=640&q=65&fit=crop',
 ]
 
 function getArticleImage(title: string, idx: number): string {
@@ -211,7 +211,7 @@ export default function HomePage() {
       <StatsStrip />
 
       {/* 5 — Featured destination showcase */}
-      <section className="py-16 md:py-20 px-4 md:px-6 bg-[#060f1e]">
+      <section aria-label="Featured destinations" className="py-16 md:py-20 px-4 md:px-6 bg-[#060f1e]">
         <div className="max-w-7xl mx-auto">
           <div className="flex items-end justify-between mb-8 md:mb-10">
             <div>
@@ -224,7 +224,7 @@ export default function HomePage() {
             </div>
             <Link
               href="/flights"
-              className="hidden md:flex items-center gap-2 text-white/40 text-sm hover:text-amber-400 transition-colors group"
+              className="hidden md:flex items-center gap-2 text-white/60 text-sm hover:text-amber-400 transition-colors group"
             >
               Explore all
               <span className="group-hover:translate-x-1 transition-transform">→</span>
@@ -263,7 +263,7 @@ export default function HomePage() {
                   <h3 className="text-white font-bold text-lg sm:text-2xl mb-2 sm:mb-3 leading-tight">{dest.city}</h3>
                   <div className="flex gap-3 mb-3">
                     <span className="text-amber-400 text-xs font-medium">✈ from {dest.flightFrom}</span>
-                    <span className="text-white/40 text-xs">🏨 {dest.hotelFrom}</span>
+                    <span className="text-white/60 text-xs">🏨 {dest.hotelFrom}</span>
                   </div>
                   {/* Action buttons — appear on hover */}
                   <div className="flex gap-2 opacity-0 translate-y-3 group-hover:opacity-100 group-hover:translate-y-0 transition-all duration-300">
@@ -316,9 +316,9 @@ export default function HomePage() {
       <TestimonialsSection />
 
       {/* Trustpilot widget — follows testimonials as verified social proof */}
-      <section className="py-10 bg-[#060f1e] border-t border-white/5">
+      <section aria-label="Customer reviews" className="py-10 bg-[#060f1e] border-t border-white/5">
         <div className="max-w-2xl mx-auto px-5 flex flex-col items-center gap-4">
-          <p className="text-xs font-semibold text-white/40 uppercase tracking-widest">Verified reviews on Trustpilot</p>
+          <p className="text-xs font-semibold text-white/60 uppercase tracking-widest">Verified reviews on Trustpilot</p>
           <TrustBox variant="collector" theme="light" className="w-full" />
           <a
             href="https://www.trustpilot.com/review/walztravels.com"
@@ -338,7 +338,7 @@ export default function HomePage() {
       <TopSellers />
 
       {/* 15 — Blog preview */}
-      <section className="py-16 lg:py-20 bg-[#060f1e] border-t border-white/5">
+      <section aria-label="Travel blog" className="py-16 lg:py-20 bg-[#060f1e] border-t border-white/5">
         <div className="max-w-6xl mx-auto px-5 sm:px-8">
           <div className="flex items-end justify-between mb-10">
             <div>
@@ -411,7 +411,7 @@ export default function HomePage() {
       </section>
 
       {/* 16 — Gift voucher banner */}
-      <section className="bg-[#C9A84C] py-12 lg:py-16">
+      <section aria-label="Gift vouchers" className="bg-[#C9A84C] py-12 lg:py-16">
         <div className="max-w-6xl mx-auto px-5 sm:px-8">
           <div className="flex flex-col md:flex-row items-center justify-between gap-8">
             <div className="flex items-center gap-5">
@@ -438,7 +438,7 @@ export default function HomePage() {
       </section>
 
       {/* 17 — Newsletter */}
-      <section className="py-16 bg-[#0a1628] border-t border-white/5">
+      <section aria-label="Newsletter signup" className="py-16 bg-[#0a1628] border-t border-white/5">
         <div className="max-w-6xl mx-auto px-5 sm:px-8">
           <div className="max-w-2xl mx-auto text-center">
             <div className="w-12 h-12 rounded-xl bg-amber-500 flex items-center justify-center mx-auto mb-5 shadow-lg shadow-amber-500/20">
@@ -447,7 +447,7 @@ export default function HomePage() {
             <h2 className="font-display text-2xl lg:text-3xl font-bold text-white mb-3">
               Get Exclusive Travel Deals
             </h2>
-            <p className="text-white/40 mb-6">
+            <p className="text-white/60 mb-6">
               Subscribe to receive hand-picked deals, travel inspiration and exclusive offers.
             </p>
             {nlStatus === 'success' ? (
@@ -481,7 +481,7 @@ export default function HomePage() {
             {nlStatus === 'error' && (
               <p className="text-red-400 text-xs mt-2 text-center">Something went wrong. Please try again.</p>
             )}
-            <div className="flex items-center justify-center gap-4 mt-5 text-xs text-white/25">
+            <div className="flex items-center justify-center gap-4 mt-5 text-xs text-white/50">
               {['Join our travel community', 'Weekly deals', 'Exclusive offers'].map(item => (
                 <div key={item} className="flex items-center gap-1">
                   <Check className="w-3 h-3 text-amber-400" />
@@ -494,7 +494,7 @@ export default function HomePage() {
       </section>
 
       {/* 19 — New dark CTA */}
-      <section className="py-24 px-4 bg-gradient-to-br from-[#0d1e35] to-[#0a1628] border-t border-white/5">
+      <section aria-label="Book your trip" className="py-24 px-4 bg-gradient-to-br from-[#0d1e35] to-[#0a1628] border-t border-white/5">
         <div className="max-w-2xl mx-auto text-center">
           <p className="text-amber-400 text-xs uppercase tracking-[0.2em] mb-4">READY TO TRAVEL?</p>
           <h2 className="text-white text-3xl md:text-4xl lg:text-5xl font-bold mb-5 leading-tight">
