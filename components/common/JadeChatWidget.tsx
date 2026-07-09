@@ -673,19 +673,19 @@ export function JadeChatWidget() {
                 className="w-8 h-8 rounded-full flex items-center justify-center text-white/60 hover:text-[#25D366] hover:bg-white/10 transition-all">
                 <Phone className="w-3.5 h-3.5" />
               </a>
-              <a href="mailto:contact@walztravels.com" title="Email"
+              <a href="mailto:contact@walztravels.com" title="Email" aria-label="Email us"
                 className="w-8 h-8 rounded-full flex items-center justify-center text-white/60 hover:text-[#C9A84C] hover:bg-white/10 transition-all">
                 <Mail className="w-3.5 h-3.5" />
               </a>
-              <button onClick={handleReset} title="New conversation"
+              <button onClick={handleReset} title="New conversation" aria-label="Start new conversation"
                 className="w-8 h-8 rounded-full flex items-center justify-center text-white/60 hover:text-white hover:bg-white/10 transition-all">
                 <RotateCcw className="w-3.5 h-3.5" />
               </button>
-              <button onClick={() => setIsMinimized(p => !p)} title={isMinimized ? 'Expand' : 'Minimize'}
+              <button onClick={() => setIsMinimized(p => !p)} title={isMinimized ? 'Expand' : 'Minimize'} aria-label={isMinimized ? 'Expand chat' : 'Minimize chat'}
                 className="w-8 h-8 rounded-full flex items-center justify-center text-white/60 hover:text-white hover:bg-white/10 transition-all">
                 {isMinimized ? <Maximize2 className="w-3.5 h-3.5" /> : <Minimize2 className="w-3.5 h-3.5" />}
               </button>
-              <button onClick={() => { setIsOpen(false); setUnreadCount(0) }} title="Close"
+              <button onClick={() => { setIsOpen(false); setUnreadCount(0) }} title="Close" aria-label="Close chat"
                 className="w-8 h-8 rounded-full flex items-center justify-center text-white/60 hover:text-white hover:bg-white/10 transition-all">
                 <X className="w-3.5 h-3.5" />
               </button>

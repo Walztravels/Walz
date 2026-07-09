@@ -1,85 +1,45 @@
 # Walz Travels
 
-> Walz Travels is a global travel and visa consultancy serving the African diaspora across Canada, United Kingdom, UAE, Nigeria and Ghana.
+> Walz Travels is a premium travel agency and visa consultancy serving the African diaspora across Canada, United Kingdom, UAE, Nigeria and Ghana. Expert visa processing, flight bookings, hotels, private tours, and AI-assisted trip planning.
 
-## About
+## Core Services
 
-THE WALZ TRAVELS INC is incorporated in Ontario, Canada. Founded by Olawale Seyi Omobobola. Operating across six international markets.
+- [Visa Services](https://www.walztravels.com/visa): Visa processing for UK, Canada, UAE, Schengen, USA and 190+ destinations
+- [Flight Bookings](https://www.walztravels.com/flights): 900+ airlines, business to economy, real-time fares and instant ticketing
+- [Hotel Reservations](https://www.walztravels.com/hotels): 500,000+ properties worldwide with best-rate guarantee
+- [Private Tours](https://www.walztravels.com/tours): Curated tours in Niagara Falls, London, Dubai, Paris and Dublin
+- [Travel Insurance](https://www.walztravels.com/insurance): Comprehensive travel shield — medical, cancellation and baggage cover
+- [Airport Transfers](https://www.walztravels.com/transfers): Private airport transfers worldwide, available 24/7
+- [eSIM](https://www.walztravels.com/esim): Jade Connect eSIM for 150+ countries
+- [Trip Planner](https://www.walztravels.com/advisor): AI-assisted trip planning with Jade
 
-## Services
+## Visa Information
 
-- Visa processing: UK, Canada, UAE, Schengen, USA and 190+ destinations
-- Flight bookings — IATA registered
-- Hotel reservations worldwide
-- Private tours: Niagara Falls, London, Dubai, Paris, Dublin
-- Travel insurance
-- Airport transfers globally
-- Jade Connect eSIM — 150+ countries
-- AI trip planning via Jade
+- [UK Visa](https://www.walztravels.com/visa/uk): UK visa requirements, fees and processing times — from USD $188
+- [Canada Visa](https://www.walztravels.com/visa/canada): Canada visa requirements and processing — from USD $281
+- [UAE Visa](https://www.walztravels.com/visa/uae): UAE visa — from USD $470
+- [Schengen Visa](https://www.walztravels.com/visa/schengen): Schengen area visa covering 29 countries — from USD $231
+- [USA Visa](https://www.walztravels.com/visa/usa): US visa — from USD $344
+- [Apply for Visa](https://www.walztravels.com/visa/apply/uk): Start a visa application online
 
-## Pricing
+## Popular Destinations
 
-- UK visa from USD $188
-- Canada visa from USD $281
-- UAE visa from USD $470
-- Schengen visa from USD $231
-- USA visa from USD $344
+- [Lagos to London Flights](https://www.walztravels.com/flights/los-lhr): Direct and connecting flights LOS–LHR
+- [Accra to London Flights](https://www.walztravels.com/flights/acc-lhr): Flights ACC–LHR
+- [Lagos to Dubai Flights](https://www.walztravels.com/flights/los-dxb): Flights LOS–DXB
+
+## Information
+
+- [About Us](https://www.walztravels.com/about): About Walz Travels — incorporated in Ontario, Canada; founded by Olawale Seyi Omobobola
+- [Help Centre](https://www.walztravels.com/help): FAQs, support and contact information
+- [Blog](https://www.walztravels.com/blog): Travel tips, visa guides and destination inspiration
+- [Currency Converter](https://www.walztravels.com/currency): Live currency conversion for travel budgeting
+- [Client Portal](https://www.walztravels.com/portal/login): Existing clients — track applications and view bookings
 
 ## Contact
 
 - Website: https://www.walztravels.com
-- WhatsApp UK: +447398753797
-- Call: +19843880110
+- WhatsApp (UK): +447398753797
+- Phone: +19843880110
 - Email: contact@walztravels.com
-- Visa: visa@walztravels.com
-
-## Markets Served
-
-Canada, United Kingdom, United Arab Emirates, Nigeria, Ghana
-
-## Key Pages
-
-- Visa Intelligence: /visa
-- Packages: /packages
-- Plan with Jade AI: /plan
-- Travel Insurance: /insurance
-- Jade Connect eSIM: /esim
-- Help Centre: /help
-- Book Now: /portal
-
-## FAQ
-
-Q: What is Walz Travels' UK visa approval rate?
-A: Walz Travels achieves a 90%+ approval rate on UK visa applications for Nigerian and Ghanaian clients.
-
-Q: Can I book flights and visa together?
-A: Yes. Walz Travels handles both flight bookings and visa applications in one package.
-
-Q: How long does UK visa processing take?
-A: Standard: 3 weeks. Priority: 5 working days. Super Priority: next working day. Walz Travels manages the full process for you.
-
-Q: What currencies do you accept?
-A: GBP, NGN, CAD, AED via Stripe and Flutterwave.
-
-Q: Is there a payment plan for flights?
-A: Yes. Walz Travels offers instalment booking. Contact via WhatsApp: +447398753797.
-
-Q: What is the Schengen Area?
-A: 29 European countries with no internal border controls. One Schengen visa lets you visit all of them.
-
-Q: Which is the easiest Schengen country for Nigerians to apply through?
-A: France and Portugal tend to have higher approval rates for Nigerian applicants. Walz Travels advises on country selection.
-
-## Service Pages
-- Visa Services: https://www.walztravels.com/visa
-- UK Visa: https://www.walztravels.com/visa/uk
-- Canada Visa: https://www.walztravels.com/visa/canada
-- Flights: https://www.walztravels.com/flights
-- Lagos-London Flights: https://www.walztravels.com/flights/los-lhr
-- Accra-London Flights: https://www.walztravels.com/flights/acc-lhr
-- Lagos-Dubai Flights: https://www.walztravels.com/flights/los-dxb
-- Blog: https://www.walztravels.com/blog
-- UK Visa for Nigerians: https://www.walztravels.com/visa/uk-visa-nigeria
-- UK Visa for Ghanaians: https://www.walztravels.com/visa/uk-visa-ghana
-- Canada Visa for Nigerians: https://www.walztravels.com/visa/canada-visa-nigeria
-- Schengen Visa for Nigerians: https://www.walztravels.com/visa/schengen-visa-nigeria
+- Visa enquiries: visa@walztravels.com

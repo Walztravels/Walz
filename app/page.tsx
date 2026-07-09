@@ -25,7 +25,7 @@ const EsimBanner              = dyn(() => import('@/components/home/EsimBanner')
 const JadePlannerSection      = dyn(() => import('@/components/home/JadePlannerSection'),      'JadePlannerSection')
 const TestimonialsSection     = dyn(() => import('@/components/home/TestimonialsSection'),     'TestimonialsSection')
 const JadeSection             = dyn(() => import('@/components/home/JadeSection'),             'JadeSection')
-const TopSellers              = dynamic(() => import('@/components/home/TopSellers'),           { ssr: false })
+const TopSellers              = dynamic(() => import('@/components/home/TopSellers'))
 const FinalCTA                = dyn(() => import('@/components/home/FinalCTA'),                'FinalCTA')
 
 // ── Types ─────────────────────────────────────────────────────────────────────
