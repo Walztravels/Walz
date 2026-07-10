@@ -98,15 +98,17 @@ export async function airaloPost<T>(
 // ── Airalo response types ─────────────────────────────────────────────────────
 
 export interface AiraloPackage {
-  id:           string
-  type:         string
-  price:        number   // Airalo's suggested retail USD
-  day:          number
-  is_unlimited: boolean
-  title:        string
-  data:         string   // "1 GB" | "Unlimited" | "500 MB"
-  voice:        string | null
-  text:         string | null
+  id:                   string
+  type:                 string
+  price:                number   // Airalo's suggested retail USD
+  day:                  number
+  is_unlimited:         boolean
+  title:                string
+  data:                 string   // "1 GB" | "Unlimited" | "500 MB"
+  voice:                string | null
+  text:                 string | null
+  is_fair_usage_policy: boolean
+  fair_usage_policy:    string | null
 }
 
 export interface AiraloOperator {
@@ -187,4 +189,46 @@ export interface AiraloOrderData {
 export interface AiraloOrderResponse {
   data: AiraloOrderData
   meta: { message: string }
+}
+
+// ── Installation instructions (structured JSON, not HTML blobs) ───────────────
+// GET /v2/sims/{iccid}/instructions — returns typed step arrays, QR URL,
+// and the iOS 17.4+ direct_apple_installation_url for tap-to-install.
+
+export interface AiraloInstallSteps {
+  [stepNumber: string]: string   // e.g. { "1": "Open Settings", "2": "Tap Mobile Data" }
+}
+
+export interface AiraloInstallPlatform {
+  installation_via_qr_code?: {
+    steps:                          AiraloInstallSteps
+    qr_code_url?:                   string
+    direct_apple_installation_url?: string  // iOS 17.4+ tap-to-install
+  }
+  installation_manual?: {
+    steps: AiraloInstallSteps
+  }
+  network_setup?: {
+    steps: AiraloInstallSteps
+  }
+}
+
+export interface AiraloInstallInstructions {
+  ios:     AiraloInstallPlatform[]
+  android: AiraloInstallPlatform[]
+}
+
+/**
+ * Fetch structured install instructions for an activated SIM.
+ * Always use this for delivery (WhatsApp, SMS, push) — not the HTML blobs
+ * from the order response, which are unsuitable for plain-text channels.
+ */
+export async function getInstallInstructions(iccid: string): Promise<AiraloInstallInstructions | null> {
+  try {
+    const res = await airaloGet<{ data: AiraloInstallInstructions }>(`/sims/${iccid}/instructions`)
+    return res.data ?? null
+  } catch (err) {
+    console.error(`[airalo] getInstallInstructions(${iccid}):`, err)
+    return null
+  }
 }

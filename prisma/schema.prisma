@@ -23,6 +23,7 @@ model User {
   image                String?
   stripeCustomerId       String?   @unique
   stripePaymentMethodId  String?
+  phone                  String?
   password                  String?
   passwordResetToken        String?
   passwordResetExpires      DateTime?

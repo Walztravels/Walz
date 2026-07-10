@@ -13,9 +13,11 @@ export interface EsimPackage {
   marginUsd:    number
   speed:        string
   // Plan type fields (from Airalo — optional for back-compat with legacy parsers)
-  isUnlimited?: boolean
-  voice?:       string | null   // non-null means voice calls included (e.g. "Unlimited" or "60 min")
-  text?:        string | null   // non-null means SMS included
+  isUnlimited?:       boolean
+  voice?:             string | null   // non-null means voice calls included
+  text?:              string | null   // non-null means SMS included
+  isFairUsagePolicy?: boolean         // true = data is throttled after a limit
+  fairUsagePolicy?:   string | null   // throttling terms to display on the card
 }
 
 export interface CountryGroup {

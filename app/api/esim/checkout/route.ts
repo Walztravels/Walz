@@ -3,6 +3,7 @@ import { getStripe } from '@/lib/stripe'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { z } from 'zod'
+import prisma from '@/lib/db'
 
 export const dynamic = 'force-dynamic'
 
@@ -37,6 +38,13 @@ export async function POST(req: NextRequest) {
   }
 
   const d = parsed.data
+
+  // Look up user phone for WhatsApp delivery
+  const user = await prisma.user.findUnique({
+    where:  { email: session.user.email },
+    select: { phone: true },
+  })
+  const customerPhone = user?.phone ?? ''
 
   // ── Flutterwave ──────────────────────────────────────────────────────────────
   if (d.gateway === 'flutterwave') {
@@ -75,6 +83,7 @@ export async function POST(req: NextRequest) {
           wholesaleUsd:    String(d.wholesaleUsd),
           retailUsd:       String(d.retailUsd),
           customerEmail:   session.user.email,
+          customerPhone,
           tripId:          d.tripId ?? '',
         },
       }),
@@ -109,6 +118,7 @@ export async function POST(req: NextRequest) {
       speed:           d.speed,
       tripId:          d.tripId ?? '',
       customerEmail:   session.user.email,
+      customerPhone,
     },
   })
 

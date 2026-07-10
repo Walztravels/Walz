@@ -86,6 +86,57 @@ export interface TwilioSendResult {
  * - No template:
  *   sends free-form `body` → only reaches clients who messaged us within 24h.
  */
+/**
+ * Send a free-form WhatsApp message — no template, always uses Body.
+ * Supports an optional mediaUrl for image attachments (e.g. QR code image).
+ * Only reaches clients who have messaged us within 24 h, or when using a
+ * business-initiated template window is not required (post-purchase context).
+ */
+export async function sendWhatsAppBody(
+  toPhone:   string,
+  body:      string,
+  mediaUrl?: string,
+): Promise<TwilioSendResult> {
+  if (!TWILIO_SID || !TWILIO_TOKEN) {
+    return { ok: false, error: 'Twilio credentials not configured', usedTemplate: false }
+  }
+
+  const to         = normalisePhone(toPhone)
+  const fromNumber = getWhatsAppSender(toPhone)
+
+  const params = new URLSearchParams()
+  if (MESSAGING_SVC) {
+    params.set('MessagingServiceSid', MESSAGING_SVC)
+  } else {
+    params.set('From', `whatsapp:${fromNumber}`)
+  }
+  params.set('To',   `whatsapp:${to}`)
+  params.set('Body', body)
+  if (mediaUrl) params.set('MediaUrl', mediaUrl)
+
+  const res = await fetch(
+    `https://api.twilio.com/2010-04-01/Accounts/${TWILIO_SID}/Messages.json`,
+    {
+      method:  'POST',
+      headers: {
+        Authorization:  `Basic ${Buffer.from(`${TWILIO_SID}:${TWILIO_TOKEN}`).toString('base64')}`,
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+      body: params.toString(),
+    },
+  )
+
+  const data = await res.json() as { sid?: string; status?: string; message?: string; error_message?: string }
+
+  if (!res.ok) {
+    console.error('[twilio-wa] sendWhatsAppBody failed:', res.status, JSON.stringify(data))
+    return { ok: false, error: data.message ?? data.error_message ?? `Twilio error ${res.status}`, usedTemplate: false, fromNumber }
+  }
+
+  console.log('[twilio-wa] body sent:', data.sid, data.status, `from ${fromNumber}`)
+  return { ok: true, sid: data.sid, status: data.status, usedTemplate: false, fromNumber }
+}
+
 export async function sendWhatsAppViaTwilio(
   toPhone:    string,
   clientName: string,

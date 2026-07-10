@@ -98,9 +98,11 @@ export interface EsimPackage {
   retailUsd:     number
   marginUsd:     number
   speed:         string
-  isUnlimited?:  boolean
-  voice?:        string | null
-  text?:         string | null
+  isUnlimited?:       boolean
+  voice?:             string | null
+  text?:              string | null
+  isFairUsagePolicy?: boolean
+  fairUsagePolicy?:   string | null
 }
 
 // ── Airalo package parser ─────────────────────────────────────────────────────
@@ -114,6 +116,7 @@ export function parseAiraloPackage(
     id: string; title: string; price: number; day: number
     is_unlimited: boolean; data: string
     voice?: string | null; text?: string | null; type?: string
+    is_fair_usage_policy?: boolean; fair_usage_policy?: string | null
   },
   country: { slug: string; country_code: string; title: string },
   discountPct = 25,
@@ -163,9 +166,11 @@ export function parseAiraloPackage(
     retailUsd:    retail,
     marginUsd:    calcMargin(wholesaleUsd, retail),
     speed,
-    isUnlimited:  pkg.is_unlimited,
-    voice:        pkg.voice ?? null,
-    text:         pkg.text  ?? null,
+    isUnlimited:       pkg.is_unlimited,
+    voice:             pkg.voice ?? null,
+    text:              pkg.text  ?? null,
+    isFairUsagePolicy: pkg.is_fair_usage_policy ?? false,
+    fairUsagePolicy:   pkg.fair_usage_policy ?? null,
   }
 }
 

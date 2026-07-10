@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import prisma from '@/lib/db'
 import { getResend } from '@/lib/resend'
 import { calcMargin, generateOrderRef, formatData } from '@/lib/esim-pricing'
-import { airaloPost, type AiraloOrderResponse } from '@/lib/airalo'
+import { airaloPost, getInstallInstructions, type AiraloOrderResponse } from '@/lib/airalo'
+import { sendEsimWhatsApp } from '@/lib/esim-whatsapp-message'
 
 export const dynamic = 'force-dynamic'
 
@@ -119,9 +120,11 @@ export async function POST(req: NextRequest) {
   const esimOrderNo     = airaloOrder?.code                 ?? ''
   const actualWholesale = airaloOrder?.unit_paid_price      ?? wholesale
 
+  const installInstructions = iccid ? await getInstallInstructions(iccid) : null
+
   const user = await prisma.user.findUnique({
     where:  { email: meta.customerEmail ?? '' },
-    select: { id: true, name: true, email: true },
+    select: { id: true, name: true, email: true, phone: true },
   })
 
   await prisma.esimOrder.create({
@@ -172,6 +175,19 @@ export async function POST(req: NextRequest) {
     } catch (e) {
       console.error('[esim/flw-webhook] email error:', e)
     }
+  }
+
+  const toPhone = (meta.customerPhone ?? user?.phone ?? '').trim()
+  if (toPhone) {
+    sendEsimWhatsApp({
+      toPhone,
+      customerName:    user?.name ?? 'Traveller',
+      orderRef,
+      destination:     meta.destination,
+      instructions:    installInstructions,
+      qrCodeUrl,
+      appleInstallUrl,
+    }).catch(e => console.error('[esim/flw-webhook] WhatsApp error:', e))
   }
 
   return NextResponse.json({ status: 'ok' })

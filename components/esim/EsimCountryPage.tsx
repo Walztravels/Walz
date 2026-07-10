@@ -125,10 +125,30 @@ function PlanCard({
             <Wifi className="w-3.5 h-3.5 text-[#C9A84C] flex-shrink-0" />
             <span>{pkg.speed || '4G/LTE'} speeds</span>
           </div>
+          {pkg.voice && (
+            <div className="flex items-center gap-2 text-[13px] text-[#4B5563]">
+              <Check className="w-3.5 h-3.5 text-blue-500 flex-shrink-0" />
+              <span>Calls: {pkg.voice}</span>
+            </div>
+          )}
+          {pkg.text && (
+            <div className="flex items-center gap-2 text-[13px] text-[#4B5563]">
+              <Check className="w-3.5 h-3.5 text-blue-500 flex-shrink-0" />
+              <span>SMS: {pkg.text}</span>
+            </div>
+          )}
           <div className="flex items-center gap-2 text-[13px] text-[#4B5563]">
             <Check className="w-3.5 h-3.5 text-green-500 flex-shrink-0" />
             <span>Instant QR delivery</span>
           </div>
+          {pkg.isFairUsagePolicy && (
+            <div className="flex items-start gap-2 pt-1">
+              <span className="flex-shrink-0 mt-0.5 w-3.5 h-3.5 text-amber-500 text-[11px] font-bold leading-none">⚠</span>
+              <p className="text-[11px] text-amber-700 leading-snug">
+                {pkg.fairUsagePolicy ?? 'Fair usage policy applies — speeds may reduce after high usage.'}
+              </p>
+            </div>
+          )}
         </div>
 
         {/* Price + CTA */}
