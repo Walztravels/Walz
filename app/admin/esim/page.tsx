@@ -139,6 +139,7 @@ export default function AdminEsimPage() {
   const [showAccessForm,    setShowAccessForm]    = useState(false)
   const [accessForm,        setAccessForm]        = useState<PlaceOrderForm>({ clientEmail: '', country: '', packageCode: '', customRetail: '' })
   const [accessPkgs,        setAccessPkgs]        = useState<AdminPkg[]>([])
+  const [accessPkgsError,   setAccessPkgsError]   = useState<string | null>(null)
   const [loadingAccessPkgs, setLoadingAccessPkgs] = useState(false)
   const [placingAccessOrder,setPlacingAccessOrder]= useState(false)
   const [accessOrderResult, setAccessOrderResult] = useState<PlaceOrderResult | null>(null)
@@ -148,11 +149,20 @@ export default function AdminEsimPage() {
     if (iso2.length !== 2) return
     setLoadingAccessPkgs(true)
     setAccessPkgs([])
+    setAccessPkgsError(null)
     setAccessForm(f => ({ ...f, packageCode: '' }))
     try {
       const res  = await fetch(`/api/admin/esim/access-packages?iso2=${iso2}`)
       const data = await res.json()
-      setAccessPkgs((data.packages ?? []) as AdminPkg[])
+      if (!res.ok) {
+        setAccessPkgsError(data.error ?? `HTTP ${res.status}`)
+        return
+      }
+      const pkgs = (data.packages ?? []) as AdminPkg[]
+      setAccessPkgs(pkgs)
+      if (pkgs.length === 0) setAccessPkgsError(`No packages found for ${iso2}. Check Vercel logs for API response details.`)
+    } catch (e) {
+      setAccessPkgsError(String(e))
     } finally {
       setLoadingAccessPkgs(false)
     }
@@ -487,7 +497,10 @@ export default function AdminEsimPage() {
                 </div>
               )}
 
-              {accessPkgs.length === 0 && accessForm.country.length === 2 && !loadingAccessPkgs && (
+              {accessPkgsError && (
+                <p className="text-xs text-red-600 bg-red-50 border border-red-200 rounded p-2 mb-4 font-mono break-all">{accessPkgsError}</p>
+              )}
+              {accessPkgs.length === 0 && accessForm.country.length === 2 && !loadingAccessPkgs && !accessPkgsError && (
                 <p className="text-xs text-[#0B1F3A]/40 mb-4">No eSIM Access packages found for {accessForm.country}. Try a different country code.</p>
               )}
 

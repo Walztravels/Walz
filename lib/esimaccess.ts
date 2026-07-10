@@ -144,27 +144,51 @@ function classifyAccessError(errorCode: string, errorMsg: string | null): Normal
 export async function fetchAllEsimAccessPackages(locationCode?: string): Promise<ProviderPackage[]> {
   try {
     const body = locationCode ? { locationCode: locationCode.toUpperCase() } : {}
-    const res = await accessPost<unknown[]>('/open/package/list', body)
+    const res = await accessPost<unknown>('/open/package/list', body)
+
+    console.log('[esimaccess] package list raw response:', JSON.stringify({
+      success:   res.success,
+      errorCode: res.errorCode,
+      errorMsg:  res.errorMsg,
+      objType:   Array.isArray(res.obj) ? `array(${(res.obj as unknown[]).length})` : typeof res.obj,
+      objSample: Array.isArray(res.obj) ? (res.obj as unknown[]).slice(0, 1) : res.obj,
+    }))
 
     if (!res.success && res.errorCode !== '0') {
       console.error('[esimaccess] package list error:', res.errorCode, res.errorMsg)
       return []
     }
 
-    const rawList = Array.isArray(res.obj) ? (res.obj as Record<string, unknown>[]) : []
+    // Support both top-level array and nested { packageList: [...] } shapes
+    let rawArray: unknown[]
+    if (Array.isArray(res.obj)) {
+      rawArray = res.obj as unknown[]
+    } else if (res.obj && typeof res.obj === 'object') {
+      const nested = res.obj as Record<string, unknown>
+      rawArray = Array.isArray(nested.packageList) ? nested.packageList as unknown[]
+               : Array.isArray(nested.packages)    ? nested.packages as unknown[]
+               : Array.isArray(nested.data)        ? nested.data as unknown[]
+               : []
+    } else {
+      rawArray = []
+    }
+
+    const rawList = rawArray as Record<string, unknown>[]
     const packages: ProviderPackage[] = []
 
     for (const rec of rawList) {
-      // Primary field is `location` (ISO-2); some multi-country packages use locationNetworkList
+      // Try locationNetworkList first, then top-level location/locationCode
       const locationList = Array.isArray(rec.locationNetworkList) ? rec.locationNetworkList : []
       const firstLoc     = locationList[0] as Record<string, unknown> | undefined
-      const locationCode = String(
-        firstLoc?.locationCode ?? rec.location ?? rec.countryCode ?? '',
+      const pkgLocCode   = String(
+        firstLoc?.locationCode ?? firstLoc?.location
+        ?? rec.locationCode ?? rec.location ?? rec.countryCode ?? '',
       ).toUpperCase()
 
-      if (!locationCode || locationCode.length !== 2) continue
+      const finalLocCode = pkgLocCode.length === 2 ? pkgLocCode : (locationCode?.toUpperCase() ?? '')
+      if (!finalLocCode || finalLocCode.length !== 2) continue
 
-      const parsed = parsePackage(rec, locationCode)
+      const parsed = parsePackage(rec, finalLocCode)
       if (!parsed) continue
 
       packages.push({
@@ -185,6 +209,7 @@ export async function fetchAllEsimAccessPackages(locationCode?: string): Promise
       })
     }
 
+    console.log(`[esimaccess] parsed ${packages.length} packages for ${locationCode ?? 'all'}`)
     return packages
   } catch (err) {
     console.error('[esimaccess] fetchAllEsimAccessPackages failed:', err)
