@@ -16,6 +16,17 @@ interface AdminPkg {
   wholesaleUsd: number
   dataAmount:   number | null
   dataUnit:     string
+  voice?:       string | null
+  text?:        string | null
+}
+
+function pkgTypeLabel(p: AdminPkg): string {
+  const hasVoice = p.voice != null && p.voice !== ''
+  const hasText  = p.text  != null && p.text  !== ''
+  if (hasVoice && hasText)  return '📞+💬 Data+Call+SMS'
+  if (hasVoice)             return '📞 Data+Call'
+  if (hasText)              return '💬 Data+SMS'
+  return '📶 Data only'
 }
 
 interface PlaceOrderForm {
@@ -360,7 +371,7 @@ export default function AdminEsimPage() {
                       <option value="">Select a package…</option>
                       {orderPkgs.map(p => (
                         <option key={p.packageCode} value={p.packageCode}>
-                          {p.name} — {p.durationDays}d · {p.dataLabel} · ${p.retailUsd.toFixed(2)}
+                          {p.name} — {p.durationDays}d · {p.dataLabel} · {pkgTypeLabel(p)} · ${p.retailUsd.toFixed(2)}
                         </option>
                       ))}
                     </select>
@@ -477,7 +488,7 @@ export default function AdminEsimPage() {
                       <option value="">Select a package…</option>
                       {accessPkgs.map(p => (
                         <option key={p.packageCode} value={p.packageCode}>
-                          {p.name} — {p.durationDays}d · {p.dataLabel} · ${p.retailUsd.toFixed(2)}
+                          {p.name} — {p.durationDays}d · {p.dataLabel} · {pkgTypeLabel(p)} · ${p.retailUsd.toFixed(2)}
                         </option>
                       ))}
                     </select>

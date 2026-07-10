@@ -25,7 +25,9 @@ export async function GET(req: NextRequest) {
       dataAmount:   p.dataAmountMb,
       dataUnit:     p.dataUnit,
       wholesaleUsd: p.wholesaleUsd,
-      retailUsd:    p.wholesaleUsd * 1.35,  // same markup as Airalo path
+      retailUsd:    p.wholesaleUsd * 1.35,
+      voice:        p.voice  ?? null,
+      text:         p.text   ?? null,
     })),
   })
 }
