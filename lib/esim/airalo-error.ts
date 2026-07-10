@@ -19,17 +19,9 @@
 
 import { airaloPost, getAiraloToken, type AiraloOrderResponse } from '@/lib/airalo'
 import { getResend } from '@/lib/resend'
+import type { NormalizedOrderResult } from '@/lib/esim/provider'
 
-export interface AiraloOrderResult {
-  ok:           boolean
-  data?:        AiraloOrderResponse['data']
-  errorCode?:   number          // Airalo meta.code on 422
-  errorMsg?:    string
-  customerMsg?: string          // safe message to show the customer
-  needsRetry?:  boolean         // true when retrying might help
-  alertStaff?:  boolean         // true when staff must act (insufficient credit, etc.)
-  alertMsg?:    string          // message to include in staff alert
-}
+export type AiraloOrderResult = NormalizedOrderResult & { errorCode?: number }
 
 function sleep(ms: number) {
   return new Promise<void>(resolve => setTimeout(resolve, ms))
@@ -139,8 +131,20 @@ export async function placeAiraloOrder(
 
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     try {
-      const data = await airaloPost<AiraloOrderResponse>('/orders', body)
-      return { ok: true, data: data.data }
+      const data     = await airaloPost<AiraloOrderResponse>('/orders', body)
+      const orderData = data.data
+      const sim       = orderData?.sims?.[0]
+      return {
+        ok:              true,
+        providerOrderId: orderData?.code                           ?? undefined,
+        iccid:           sim?.iccid                                ?? undefined,
+        qrCodeUrl:       sim?.qrcode_url                           ?? undefined,
+        activationCode:  sim?.matching_id                          ?? undefined,
+        smdpAddress:     sim?.lpa                                  ?? undefined,
+        lpaString:       sim?.qrcode                               ?? undefined,
+        appleInstallUrl: sim?.direct_apple_installation_url        ?? undefined,
+        wholesalePaid:   orderData?.unit_paid_price                ?? undefined,
+      }
     } catch (err: unknown) {
       // airaloPost throws a string like "Airalo POST /orders: 422 — {body}"
       const msg    = err instanceof Error ? err.message : String(err)
