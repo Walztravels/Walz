@@ -225,33 +225,37 @@ export function EsimFAQ() {
 
 // ── CTA ───────────────────────────────────────────────────────────────────────
 function CountUpStat({ end, suffix, label }: { end: number; suffix: string; label: string }) {
-  const ref   = useRef<HTMLSpanElement>(null)
-  const fired = useRef(false)
+  const [current, setCurrent] = useState(0)
+  const divRef  = useRef<HTMLDivElement>(null)
+  const firedRef = useRef(false)
+
   useEffect(() => {
-    const el = ref.current
+    const el = divRef.current
     if (!el) return
-    const obs = new IntersectionObserver(([entry]) => {
-      if (entry.isIntersecting && !fired.current) {
-        fired.current = true
-        const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
-        if (reduced) { el.textContent = String(end); return }
-        const start = performance.now(); const dur = 1800
-        const animate = (now: number) => {
-          const t = Math.min((now - start) / dur, 1)
-          el.textContent = String(Math.floor((1 - Math.pow(1 - t, 3)) * end))
-          if (t < 1) requestAnimationFrame(animate); else el.textContent = String(end)
-        }
-        requestAnimationFrame(animate)
-        obs.disconnect()
+    const run = () => {
+      if (firedRef.current) return
+      firedRef.current = true
+      const reduced = window.matchMedia('(prefers-reduced-motion: reduce)').matches
+      if (reduced) { setCurrent(end); return }
+      const t0 = performance.now(); const dur = 1800
+      const tick = (now: number) => {
+        const t = Math.min((now - t0) / dur, 1)
+        setCurrent(Math.floor((1 - Math.pow(1 - t, 3)) * end))
+        if (t < 1) requestAnimationFrame(tick)
+        else setCurrent(end)
       }
-    }, { threshold: 0.5 })
+      requestAnimationFrame(tick)
+    }
+    // threshold: 0 — fires as soon as any pixel enters the viewport
+    const obs = new IntersectionObserver(([entry]) => { if (entry.isIntersecting) run() }, { threshold: 0 })
     obs.observe(el)
     return () => obs.disconnect()
   }, [end])
+
   return (
-    <div className="text-center">
+    <div ref={divRef} className="text-center">
       <p className="text-[#C9A84C] font-bold text-5xl leading-none mb-2">
-        <span ref={ref}>0</span>{suffix}
+        {current}{suffix}
       </p>
       <p className="text-white/40 text-sm">{label}</p>
     </div>
@@ -270,9 +274,9 @@ export function EsimCTA() {
         <div className="max-w-5xl mx-auto">
           <div className="grid grid-cols-2 md:grid-cols-4 gap-8">
             {[
-              { end: 150, suffix: '+',   label: 'Countries covered'          },
-              { end: 70,  suffix: '%',   label: 'Average savings vs roaming' },
-              { end: 2,   suffix: ' min',label: 'Average activation time'    },
+              { end: 215, suffix: '+',   label: 'Countries covered'          },
+              { end: 60,  suffix: '%',   label: 'Average savings vs roaming' },
+              { end: 5,   suffix: ' min',label: 'Average activation time'    },
               { end: 24,  suffix: '/7',  label: 'Jade support included'      },
             ].map((s, i) => (
               <CountUpStat key={i} end={s.end} suffix={s.suffix} label={s.label} />

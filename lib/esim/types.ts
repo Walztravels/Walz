@@ -12,6 +12,10 @@ export interface EsimPackage {
   retailUsd:    number
   marginUsd:    number
   speed:        string
+  // Plan type fields (from Airalo — optional for back-compat with legacy parsers)
+  isUnlimited?: boolean
+  voice?:       string | null   // non-null means voice calls included (e.g. "Unlimited" or "60 min")
+  text?:        string | null   // non-null means SMS included
 }
 
 export interface CountryGroup {

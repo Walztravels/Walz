@@ -13,6 +13,23 @@ import type { EsimPackage } from '@/lib/esim/types'
 
 const stripePromise = loadStripe(process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY!)
 
+// ── Filter tabs ───────────────────────────────────────────────────────────────
+type FilterKey = 'all' | 'data' | 'voice' | 'unlimited'
+const FILTER_LABELS: Record<FilterKey, string> = {
+  all:       'All',
+  data:      'Data',
+  voice:     'Data + Calls & Texts',
+  unlimited: 'Unlimited',
+}
+
+function filterPackages(pkgs: EsimPackage[], by: FilterKey): EsimPackage[] {
+  if (by === 'all')       return pkgs
+  if (by === 'unlimited') return pkgs.filter(p => p.isUnlimited === true)
+  if (by === 'voice')     return pkgs.filter(p => p.voice != null || p.text != null)
+  // data: not unlimited, no voice/sms
+  return pkgs.filter(p => !p.isUnlimited && p.voice == null && p.text == null)
+}
+
 // ── Sort options ──────────────────────────────────────────────────────────────
 type SortKey = 'price' | 'data' | 'duration'
 const SORT_LABELS: Record<SortKey, string> = { price: 'Price', data: 'Data', duration: 'Duration' }
@@ -489,11 +506,21 @@ export function EsimCountryPage({
   const searchParams      = useSearchParams()
 
   const [sortBy,       setSortBy]       = useState<SortKey>('price')
+  const [filterBy,     setFilterBy]     = useState<FilterKey>('all')
   const [checkoutPkg,  setCheckoutPkg]  = useState<EsimPackage | null>(null)
   const [showSuccess,  setShowSuccess]  = useState(false)
 
-  const sorted = sortPackages(packages, sortBy)
-  const popular = sorted[Math.floor(sorted.length / 2)] // middle-priced plan
+  const filtered = filterPackages(packages, filterBy)
+  const sorted   = sortPackages(filtered, sortBy)
+  const popular  = sorted[Math.floor(sorted.length / 2)] // middle-priced plan
+
+  // Compute which filter tabs have results so we can hide empty ones
+  const filterCounts: Record<FilterKey, number> = {
+    all:       packages.length,
+    data:      filterPackages(packages, 'data').length,
+    voice:     filterPackages(packages, 'voice').length,
+    unlimited: filterPackages(packages, 'unlimited').length,
+  }
 
   // Auto-open checkout if returning from login with ?buy=packageCode
   useEffect(() => {
@@ -567,10 +594,33 @@ export function EsimCountryPage({
       <div style={{ background: '#F5F4F0' }}>
         <div className="max-w-7xl mx-auto px-5 sm:px-8 py-8">
 
+          {/* Filter tabs */}
+          <div className="flex gap-2 mb-5 overflow-x-auto" style={{ scrollbarWidth: 'none' }}>
+            {(Object.keys(FILTER_LABELS) as FilterKey[])
+              .filter(k => filterCounts[k] > 0 || k === 'all')
+              .map(key => (
+                <button
+                  key={key}
+                  onClick={() => { setFilterBy(key); setSortBy('price') }}
+                  className="flex-shrink-0 px-4 py-2 rounded-full text-xs font-semibold transition-all"
+                  style={{
+                    background:  filterBy === key ? '#0B1F3A' : 'white',
+                    color:       filterBy === key ? '#C9A84C' : '#6B7280',
+                    border:      filterBy === key ? '1.5px solid #0B1F3A' : '1.5px solid #E9E6E0',
+                    boxShadow:   filterBy === key ? 'none' : '0 1px 3px rgba(0,0,0,0.05)',
+                  }}>
+                  {FILTER_LABELS[key]}
+                  {key !== 'all' && (
+                    <span className="ml-1.5 opacity-50 text-[10px]">({filterCounts[key]})</span>
+                  )}
+                </button>
+              ))}
+          </div>
+
           {/* Sort bar */}
           <div className="flex items-center justify-between mb-6 gap-4">
             <p className="text-[11px] text-[#9CA3AF] font-semibold uppercase tracking-wider">
-              {packages.length} plan{packages.length !== 1 ? 's' : ''} available
+              {sorted.length} plan{sorted.length !== 1 ? 's' : ''}
             </p>
             <div className="flex items-center gap-1 bg-white rounded-xl border border-[#E9E6E0] p-1">
               <span className="text-[11px] text-[#9CA3AF] px-2">Sort:</span>
@@ -589,7 +639,14 @@ export function EsimCountryPage({
 
           {/* Plan grid */}
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-            {sorted.map(pkg => (
+            {sorted.length === 0 ? (
+              <div className="col-span-full text-center py-16">
+                <p className="text-[#6B7280] text-base mb-1">No {FILTER_LABELS[filterBy].toLowerCase()} plans available</p>
+                <button onClick={() => setFilterBy('all')} className="text-[#C9A84C] text-sm font-semibold hover:opacity-75 mt-2">
+                  Show all plans
+                </button>
+              </div>
+            ) : sorted.map(pkg => (
               <PlanCard
                 key={pkg.packageCode}
                 pkg={pkg}
