@@ -9,7 +9,7 @@ export const dynamic = 'force-dynamic'
 
 function buildAccessQrEmail(p: {
   name: string; destination: string; plan: string; duration: number
-  dataLabel: string; qrUrl: string; orderRef: string; retailUsd: number
+  dataLabel: string; qrUrl: string; lpaString?: string; orderRef: string; retailUsd: number
 }) {
   return `<!DOCTYPE html>
 <html lang="en">
@@ -43,12 +43,17 @@ function buildAccessQrEmail(p: {
     </table>
     ${p.qrUrl ? `
     <div style="text-align:center;margin:0 0 24px;">
-      <img src="${p.qrUrl}" alt="eSIM QR Code" width="200" style="border:1px solid #E5E7EB;border-radius:8px;padding:8px;"/>
+      <img src="${p.qrUrl}" alt="eSIM QR Code" width="220" style="border:1px solid #E5E7EB;border-radius:8px;padding:8px;background:#fff;"/>
       <p style="margin:8px 0 0;color:#9CA3AF;font-size:11px;">Scan this QR code to install your eSIM</p>
     </div>` : `
     <div style="background:#FEF3C7;border:1px solid #FDE68A;border-radius:8px;padding:14px;margin:0 0 24px;">
       <p style="margin:0;font-size:13px;color:#92400E;">Your eSIM is being provisioned — we will email your QR code within a few minutes.</p>
     </div>`}
+    ${p.lpaString ? `
+    <div style="background:#F0F9FF;border:1px solid #BAE6FD;border-radius:8px;padding:14px;margin:0 0 24px;">
+      <p style="margin:0 0 4px;font-weight:700;color:#0369A1;font-size:12px;">Manual installation code</p>
+      <p style="margin:0;font-size:11px;font-family:monospace;color:#374151;word-break:break-all;">${p.lpaString}</p>
+    </div>` : ''}
     <div style="background:#FFFBEB;border:1px solid #FDE68A;border-radius:8px;padding:14px;margin:0 0 24px;">
       <p style="margin:0 0 8px;font-weight:700;color:#92400E;font-size:13px;">📱 How to activate</p>
       <p style="margin:0 0 4px;font-size:12px;color:#374151;"><strong>iPhone:</strong> Settings → Mobile Data → Add eSIM → Use QR Code</p>
@@ -98,9 +103,10 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: result.customerMsg ?? result.errorMsg ?? 'eSIM Access order failed' }, { status: 500 })
   }
 
-  const iccid          = result.iccid          ?? ''
-  const qrCodeUrl      = result.qrCodeUrl      ?? ''
-  const activationCode = result.activationCode ?? ''
+  const iccid           = result.iccid          ?? ''
+  const qrCodeUrl       = result.qrCodeUrl      ?? ''
+  const lpaString       = result.lpaString      ?? ''
+  const activationCode  = result.activationCode ?? lpaString
   const providerOrderId = result.providerOrderId ?? ''
 
   const order = await prisma.esimOrder.create({
@@ -124,7 +130,7 @@ export async function POST(req: NextRequest) {
       qrCodeUrl:         qrCodeUrl || null,
       activationCode:    activationCode || null,
       smdpAddress:       null,
-      lpaString:         null,
+      lpaString:         lpaString || null,
       status:            iccid ? 'active' : 'pending',
       stripePaymentId:   null,
       emailSent:         false,
@@ -142,6 +148,7 @@ export async function POST(req: NextRequest) {
         plan: packageName ?? packageCode,
         duration: Number(durationDays ?? 0),
         dataLabel, qrUrl: qrCodeUrl,
+        lpaString: lpaString || undefined,
         orderRef, retailUsd: retail,
       }),
     })

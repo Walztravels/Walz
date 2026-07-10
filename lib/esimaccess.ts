@@ -14,6 +14,7 @@
  */
 
 import { createHmac, randomUUID } from 'crypto'
+import QRCode                     from 'qrcode'
 import { parsePackage }           from '@/lib/esim-pricing'
 import type {
   NormalizedOrderResult,
@@ -21,6 +22,11 @@ import type {
   ProviderPackage,
 }                                 from '@/lib/esim/provider'
 import { getResend }              from '@/lib/resend'
+
+/** Generate a base64-encoded PNG QR code from a string (e.g. an LPA string). */
+async function lpaToQrDataUri(lpa: string): Promise<string> {
+  return QRCode.toDataURL(lpa, { width: 300, margin: 2, errorCorrectionLevel: 'M' })
+}
 
 const ESIM_ACCESS_BASE = 'https://api.esimaccess.com/api/v1'
 
@@ -231,12 +237,15 @@ interface EsimAccessEsimItem {
 /**
  * Poll /open/esim/query until ICCID is populated or retries are exhausted.
  * eSIM Access provisions asynchronously — typically 3–10 seconds after ordering.
+ *
+ * The `ac` field is the LPA activation string (LPA:1$smdp$code).
+ * If the API doesn't return qrCodeUrl, we generate a QR data URI from `ac`.
  */
 async function pollForIccid(
   orderNo: string,
   maxAttempts = 5,
   delayMs = 3000,
-): Promise<{ iccid: string; qrCodeUrl: string; ac: string } | null> {
+): Promise<{ iccid: string; qrCodeUrl: string; lpaString: string } | null> {
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
     if (attempt > 0) {
       await new Promise(resolve => setTimeout(resolve, delayMs))
@@ -246,14 +255,21 @@ async function pollForIccid(
         '/open/esim/query',
         { orderNo },
       )
+      console.log(`[esimaccess] query attempt ${attempt + 1}/${maxAttempts}:`, JSON.stringify({
+        success:   res.success,
+        errorCode: res.errorCode,
+        first:     res.obj?.esimList?.[0],
+      }))
       if (res.success || res.errorCode === '0') {
         const first = res.obj?.esimList?.[0]
         if (first?.iccid) {
-          return {
-            iccid:    first.iccid,
-            qrCodeUrl: first.qrCodeUrl ?? '',
-            ac:       first.ac ?? '',
+          const lpaString  = first.ac ?? ''
+          // Prefer the API-provided URL; fall back to generating our own QR from the LPA string
+          let qrCodeUrl = first.qrCodeUrl ?? ''
+          if (!qrCodeUrl && lpaString) {
+            try { qrCodeUrl = await lpaToQrDataUri(lpaString) } catch { /* keep empty */ }
           }
+          return { iccid: first.iccid, qrCodeUrl, lpaString }
         }
       }
     } catch (e) {
@@ -328,10 +344,10 @@ export async function placeEsimAccessOrder(
       ok:             true,
       provider:       'esimaccess',
       providerOrderId: orderNo,
-      iccid:          provisioned.iccid     || undefined,
-      qrCodeUrl:      provisioned.qrCodeUrl || undefined,
-      activationCode: provisioned.ac        || undefined,
-      // No smdpAddress or lpaString — eSIM Access encodes these inside the QR image only
+      iccid:          provisioned.iccid      || undefined,
+      qrCodeUrl:      provisioned.qrCodeUrl  || undefined,
+      lpaString:      provisioned.lpaString  || undefined,
+      activationCode: provisioned.lpaString  || undefined,
     }
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err)
