@@ -28,7 +28,7 @@ export interface VisaExtraField {
   required?: boolean
   conditional?: string            // show when this key is true
   conditionalFalse?: string       // show when this key is explicitly false
-  section: 'personal' | 'travel' | 'education' | 'background' | 'country'
+  section: 'personal' | 'family' | 'travel' | 'education' | 'background' | 'country'
 }
 
 // ── All 29 Schengen Area members ─────────────────────────────────────────────
@@ -172,6 +172,29 @@ export const VISA_CONFIGS: Record<string, VisaCountryConfig> = {
       { key: 'previousMarriageDetails', label: 'Previous marriage / partnership details (name, date, end date)', type: 'textarea', placeholder: 'e.g. Jane Smith — married May 2010, divorced March 2015', conditional: 'previousMarriages', section: 'personal' },
       { key: 'nativeLanguage', label: 'Native language / mother tongue', type: 'text', placeholder: 'e.g. Yoruba, Igbo, Hausa', required: true, section: 'personal' },
       { key: 'languagesSpoken', label: 'Official language(s) you can communicate in', type: 'select', options: ['English only', 'French only', 'Both English and French', 'Neither English nor French'], required: true, section: 'personal' },
+      // ── Family Information (IMM 5707) ─────────────────────────────────────
+      // Father
+      { key: 'fatherFamilyName', label: "Father's family name (surname)", type: 'text', placeholder: 'As on birth certificate', required: true, section: 'family' },
+      { key: 'fatherGivenNames', label: "Father's given name(s)", type: 'text', placeholder: 'All given names', required: true, section: 'family' },
+      { key: 'fatherDob', label: "Father's date of birth", type: 'text', placeholder: 'YYYY-MM-DD', required: true, section: 'family' },
+      { key: 'fatherCountryOfBirth', label: "Father's country of birth", type: 'text', placeholder: 'e.g. Nigeria', required: true, section: 'family' },
+      { key: 'fatherCitizenship', label: "Father's current citizenship / nationality", type: 'text', placeholder: 'e.g. Nigerian', required: true, section: 'family' },
+      { key: 'fatherCountryOfResidence', label: "Father's current country of residence", type: 'text', placeholder: 'e.g. Nigeria', required: true, section: 'family' },
+      { key: 'fatherDeceased', label: 'Has your father passed away?', type: 'boolean', section: 'family' },
+      { key: 'fatherYearOfDeath', label: "Father's year of death", type: 'text', placeholder: 'YYYY', conditional: 'fatherDeceased', section: 'family' },
+      // Mother
+      { key: 'motherFamilyName', label: "Mother's family name (surname)", type: 'text', placeholder: 'As on birth certificate', required: true, section: 'family' },
+      { key: 'motherGivenNames', label: "Mother's given name(s)", type: 'text', placeholder: 'All given names', required: true, section: 'family' },
+      { key: 'motherDob', label: "Mother's date of birth", type: 'text', placeholder: 'YYYY-MM-DD', required: true, section: 'family' },
+      { key: 'motherCountryOfBirth', label: "Mother's country of birth", type: 'text', placeholder: 'e.g. Nigeria', required: true, section: 'family' },
+      { key: 'motherCitizenship', label: "Mother's current citizenship / nationality", type: 'text', placeholder: 'e.g. Nigerian', required: true, section: 'family' },
+      { key: 'motherCountryOfResidence', label: "Mother's current country of residence", type: 'text', placeholder: 'e.g. Nigeria', required: true, section: 'family' },
+      { key: 'motherDeceased', label: 'Has your mother passed away?', type: 'boolean', section: 'family' },
+      { key: 'motherYearOfDeath', label: "Mother's year of death", type: 'text', placeholder: 'YYYY', conditional: 'motherDeceased', section: 'family' },
+      // Siblings
+      { key: 'siblingsDetails', label: 'Siblings — list all brothers and sisters (write "None" if you have none)', type: 'textarea', required: true, placeholder: 'For each sibling provide: Full name | Date of birth (YYYY-MM-DD) | Country of birth | Citizenship | Country of residence\n\nExample:\n1. John Smith | 1990-03-15 | Nigeria | Nigerian | United Kingdom\n2. Mary Smith | 1993-07-22 | Nigeria | Nigerian | Nigeria', section: 'family' },
+      // Children
+      { key: 'childrenFamilyDetails', label: 'Children — list all (include all ages; write "None" if you have no children)', type: 'textarea', required: true, placeholder: 'For each child provide: Full name | Date of birth (YYYY-MM-DD) | Country of birth | Citizenship | Country of residence\n\nExample:\n1. James Doe | 2015-06-10 | Nigeria | Nigerian | Nigeria', section: 'family' },
       // ── Travel (IMM 5257 Page 3) ──────────────────────────────────────────
       { key: 'tripPayor', label: 'Who is paying for your trip to Canada?', type: 'select', required: true, options: ['Self / My own funds', 'Host or contact in Canada', 'Company / Employer', 'Other person'], section: 'travel' },
       { key: 'tripPayorDetails', label: "If not self — payer's name, address in Canada, phone and relationship to you", type: 'textarea', placeholder: 'Full name\nAddress in Canada\nPhone\nRelationship (e.g. aunt, employer)', section: 'travel' },

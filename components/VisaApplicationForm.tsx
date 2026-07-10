@@ -155,18 +155,20 @@ function ExtraFields({
   form,
   update,
   sections,
+  label,
 }: {
   config: VisaCountryConfig
   form: VFormData
   update: (k: string, v: string | boolean) => void
   sections: VisaExtraField['section'][]
+  label?: string
 }) {
   const fields = config.extraFields.filter(f => sections.includes(f.section))
   if (fields.length === 0) return null
   return (
     <div className="mt-6 pt-6 border-t border-gray-100 space-y-4">
       <p className="text-xs font-bold text-[#C9A84C] uppercase tracking-wider">
-        {config.flag} {config.name} — Additional Required Information
+        {label ?? `${config.flag} ${config.name} — Additional Required Information`}
       </p>
       {fields.map(field => {
         if (field.conditional && !form[field.conditional]) return null
@@ -230,6 +232,13 @@ function StepPersonal({ form, update, config }: { form: VFormData; update: (k: s
         <Field label="Marital Status" required><SelectInput value={form.maritalStatus} onChange={v => update('maritalStatus', v)} options={['Single', 'Married', 'Common-law', 'Divorced', 'Legally Separated', 'Widowed', 'Annulled Marriage']} placeholder="Select" /></Field>
       </div>
       <ExtraFields config={config} form={form} update={update} sections={['personal']} />
+      <ExtraFields
+        config={config}
+        form={form}
+        update={update}
+        sections={['family']}
+        label={`${config.flag} Family Information (IMM 5707) — Parents, Siblings & Children`}
+      />
     </div>
   )
 }
