@@ -18,6 +18,7 @@ export interface EsimPackage {
   text?:              string | null   // non-null means SMS included
   isFairUsagePolicy?: boolean         // true = data is throttled after a limit
   fairUsagePolicy?:   string | null   // throttling terms to display on the card
+  planType?:          string          // operator.plan_type: "data" | "data-voice-text"
 }
 
 export interface CountryGroup {

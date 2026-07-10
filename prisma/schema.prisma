@@ -1423,7 +1423,7 @@ model EsimOrder {
   smdpAddress         String?             // SM-DP+ address
   lpaString           String?             // LPA:1:smdp:ac combined
   status              String    @default("pending")  // pending | active | cancelled | expired
-  stripePaymentId     String?
+  stripePaymentId     String?   @unique
   emailSent           Boolean   @default(false)
   purchasedAt         DateTime  @default(now())
   activatedAt         DateTime?

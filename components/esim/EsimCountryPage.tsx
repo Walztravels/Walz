@@ -14,20 +14,33 @@ import type { EsimPackage } from '@/lib/esim/types'
 const stripePromise = loadStripe(process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY!)
 
 // ── Filter tabs ───────────────────────────────────────────────────────────────
-type FilterKey = 'all' | 'data' | 'voice' | 'unlimited'
+// Field mappings confirmed from Airalo's GET /v2/packages response schema:
+//   Data              → operator.plan_type === "data"
+//   Data+Calls+Texts  → operator.plan_type === "data-voice-text"
+//   Unlimited         → package.is_unlimited === true
+//   Standard          → package.is_unlimited === false
+type FilterKey = 'all' | 'data' | 'voice' | 'unlimited' | 'standard'
 const FILTER_LABELS: Record<FilterKey, string> = {
-  all:       'All',
-  data:      'Data',
-  voice:     'Data + Calls & Texts',
-  unlimited: 'Unlimited',
+  all:      'All',
+  data:     'Data',
+  voice:    'Data + Calls & Texts',
+  unlimited:'Unlimited',
+  standard: 'Standard',
 }
 
 function filterPackages(pkgs: EsimPackage[], by: FilterKey): EsimPackage[] {
   if (by === 'all')       return pkgs
   if (by === 'unlimited') return pkgs.filter(p => p.isUnlimited === true)
-  if (by === 'voice')     return pkgs.filter(p => p.voice != null || p.text != null)
-  // data: not unlimited, no voice/sms
-  return pkgs.filter(p => !p.isUnlimited && p.voice == null && p.text == null)
+  if (by === 'standard')  return pkgs.filter(p => !p.isUnlimited)
+  // Use planType (operator.plan_type) as the primary signal; fall back to voice/text
+  // fields for packages that pre-date the planType field being stored.
+  if (by === 'voice')     return pkgs.filter(p =>
+    p.planType === 'data-voice-text' || (!p.planType && (p.voice != null || p.text != null)),
+  )
+  // data-only: planType === "data", or no voice/text and planType isn't voice
+  return pkgs.filter(p =>
+    p.planType === 'data' || (!p.planType && p.voice == null && p.text == null),
+  )
 }
 
 // ── Sort options ──────────────────────────────────────────────────────────────
@@ -540,6 +553,7 @@ export function EsimCountryPage({
     data:      filterPackages(packages, 'data').length,
     voice:     filterPackages(packages, 'voice').length,
     unlimited: filterPackages(packages, 'unlimited').length,
+    standard:  filterPackages(packages, 'standard').length,
   }
 
   // Auto-open checkout if returning from login with ?buy=packageCode

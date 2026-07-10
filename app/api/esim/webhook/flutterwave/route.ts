@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import prisma from '@/lib/db'
 import { getResend } from '@/lib/resend'
 import { calcMargin, generateOrderRef, formatData } from '@/lib/esim-pricing'
-import { airaloPost, getInstallInstructions, type AiraloOrderResponse } from '@/lib/airalo'
+import { getInstallInstructions } from '@/lib/airalo'
+import { placeAiraloOrder, alertStaffOfOrderFailure } from '@/lib/esim/airalo-error'
 import { sendEsimWhatsApp } from '@/lib/esim-whatsapp-message'
 
 export const dynamic = 'force-dynamic'
@@ -95,38 +96,32 @@ export async function POST(req: NextRequest) {
   const orderRef  = generateOrderRef()
   const { label: dataLabel } = formatData(Number(meta.dataAmount) || 0)
 
-  // Place Airalo order
-  let airaloOrder: AiraloOrderResponse['data'] | null = null
-  try {
-    const res = await airaloPost<AiraloOrderResponse>('/orders', {
-      package_id:  meta.packageCode,
-      quantity:    1,
-      type:        'sim',
-      description: `Walz Travels — ${meta.destination} eSIM`,
-    })
-    airaloOrder = res.data
-    console.log('[esim/flw-webhook] Airalo response:', JSON.stringify(res).slice(0, 300))
-  } catch (err) {
-    console.error('[esim/flw-webhook] Airalo error:', err)
-  }
-
-  const sim             = airaloOrder?.sims?.[0]
-  const iccid           = sim?.iccid                        ?? ''
-  const qrCodeUrl       = sim?.qrcode_url                   ?? ''
-  const activationCode  = sim?.matching_id                  ?? ''
-  const smdpAddress     = sim?.lpa                          ?? ''
-  const lpaString       = sim?.qrcode                       ?? ''
-  const appleInstallUrl = sim?.direct_apple_installation_url ?? ''
-  const esimOrderNo     = airaloOrder?.code                 ?? ''
-  const actualWholesale = airaloOrder?.unit_paid_price      ?? wholesale
-
-  const installInstructions = iccid ? await getInstallInstructions(iccid) : null
-
   const user = await prisma.user.findUnique({
     where:  { email: meta.customerEmail ?? '' },
     select: { id: true, name: true, email: true, phone: true },
   })
 
+  // Place order with Airalo — retry on 5xx/401, typed errors on 422
+  const airaloResult = await placeAiraloOrder(
+    meta.packageCode,
+    `Walz Travels — ${meta.destination} eSIM`,
+  )
+  console.log('[esim/flw-webhook] Airalo result:', airaloResult.ok, airaloResult.errorCode ?? '')
+
+  const airaloOrder    = airaloResult.data ?? null
+  const sim            = airaloOrder?.sims?.[0]
+  const iccid          = sim?.iccid                         ?? ''
+  const qrCodeUrl      = sim?.qrcode_url                    ?? ''
+  const activationCode = sim?.matching_id                   ?? ''
+  const smdpAddress    = sim?.lpa                           ?? ''
+  const lpaString      = sim?.qrcode                        ?? ''
+  const appleInstallUrl= sim?.direct_apple_installation_url ?? ''
+  const esimOrderNo    = airaloOrder?.code                  ?? ''
+  const actualWholesale= airaloOrder?.unit_paid_price       ?? wholesale
+  const orderStatus    = !airaloResult.ok ? 'failed' : iccid ? 'active' : 'pending'
+
+  // Flutterwave idempotency is handled by the txRef check above.
+  // transactionId is unique per Flutterwave payment reference.
   await prisma.esimOrder.create({
     data: {
       userId:            user?.id ?? null,
@@ -149,14 +144,46 @@ export async function POST(req: NextRequest) {
       activationCode:    activationCode || null,
       smdpAddress:       smdpAddress || null,
       lpaString:         lpaString || null,
-      status:            iccid ? 'active' : 'pending',
+      status:            orderStatus,
       stripePaymentId:   null,
       emailSent:         false,
     },
   })
 
-  if (user?.email || meta.customerEmail) {
+  // If Airalo order failed after payment was captured — alert staff, tell customer
+  if (!airaloResult.ok) {
+    console.error('[esim/flw-webhook] Airalo order failed:', airaloResult.errorMsg)
+    await alertStaffOfOrderFailure({
+      orderRef,
+      packageCode: meta.packageCode,
+      destination: meta.destination,
+      retailUsd:   retail,
+      customerId:  user?.id,
+      reason:      airaloResult.customerMsg ?? airaloResult.errorMsg ?? 'Unknown error',
+      alertMsg:    airaloResult.alertMsg ?? airaloResult.errorMsg,
+    })
     const toEmail = user?.email ?? meta.customerEmail
+    if (toEmail) {
+      try {
+        await getResend().emails.send({
+          from:    'Jade Connect <noreply@walztravels.com>',
+          to:      toEmail,
+          subject: `Your Jade eSIM order is being processed — ${meta.destination}`,
+          html:    `<p>Hi ${user?.name ?? 'Traveller'},</p>
+                    <p>Your payment for a <strong>${meta.destination}</strong> eSIM was received (Ref: ${orderRef}).</p>
+                    <p>${airaloResult.customerMsg ?? 'Our team is processing your order and will send your QR code shortly.'}</p>
+                    <p>If you have any questions, WhatsApp us at <a href="https://wa.me/12317902336">+1 231 790 2336</a>.</p>`,
+        })
+      } catch { /* ignore */ }
+    }
+    return NextResponse.json({ status: 'ok' })
+  }
+
+  // Fetch structured install instructions (not the HTML blobs from the order response)
+  const installInstructions = iccid ? await getInstallInstructions(iccid) : null
+
+  const toEmail = user?.email ?? meta.customerEmail
+  if (toEmail) {
     try {
       await getResend().emails.send({
         from:    'Jade Connect <noreply@walztravels.com>',

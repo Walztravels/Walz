@@ -38,7 +38,7 @@ export async function fetchAllEsimPackages(): Promise<EsimPackage[]> {
             if (seenCodes.has(pkg.id)) continue
             seenCodes.add(pkg.id)
 
-            const parsed = parseAiraloPackage(pkg, country, discountPct, operator.info ?? [])
+            const parsed = parseAiraloPackage(pkg, country, discountPct, operator.info ?? [], operator.plan_type)
             if (parsed) packages.push(parsed)
           }
         }

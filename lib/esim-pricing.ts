@@ -103,6 +103,7 @@ export interface EsimPackage {
   text?:              string | null
   isFairUsagePolicy?: boolean
   fairUsagePolicy?:   string | null
+  planType?:          string
 }
 
 // ── Airalo package parser ─────────────────────────────────────────────────────
@@ -121,6 +122,7 @@ export function parseAiraloPackage(
   country: { slug: string; country_code: string; title: string },
   discountPct = 25,
   operatorInfo: string[] = [],
+  operatorPlanType?: string,
 ): EsimPackage | null {
   if (!pkg.id || !pkg.price) return null
 
@@ -171,6 +173,7 @@ export function parseAiraloPackage(
     text:              pkg.text  ?? null,
     isFairUsagePolicy: pkg.is_fair_usage_policy ?? false,
     fairUsagePolicy:   pkg.fair_usage_policy ?? null,
+    planType:          operatorPlanType,
   }
 }
 
