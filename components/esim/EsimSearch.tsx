@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import Image from 'next/image'
 import { useSession }  from 'next-auth/react'
-import { useRouter }   from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { loadStripe }  from '@stripe/stripe-js'
 import { Elements, PaymentElement, useStripe, useElements } from '@stripe/react-stripe-js'
 import { Search, X, Clock, Wifi, Globe, Lock, Check, ArrowRight, RefreshCw, MessageCircle, ChevronDown } from 'lucide-react'
@@ -160,7 +160,7 @@ function CheckoutForm({
     const { error } = await stripe.confirmPayment({
       elements,
       redirect: 'if_required',
-      confirmParams: { return_url: `${window.location.origin}/esim/confirmation` },
+      confirmParams: { return_url: `${window.location.origin}/esim?paid=1` },
     })
     if (error) {
       setErrMsg(error.message ?? 'Payment failed. Please try again.')
@@ -216,7 +216,7 @@ function CheckoutForm({
   )
 }
 
-// ── Checkout modal (outer — creates PaymentIntent) ────────────────────────────
+// ── Checkout modal (outer — gateway picker then PaymentIntent or FLW redirect) ──
 function CheckoutModal({
   pkg, country, onClose, onDone,
 }: {
@@ -227,71 +227,163 @@ function CheckoutModal({
 }) {
   const { data: session } = useSession()
   const router            = useRouter()
+  const [step,          setStep]          = useState<'pick' | 'stripe'>('pick')
   const [clientSecret,  setClientSecret]  = useState<string | null>(null)
-  const [loadingIntent, setLoadingIntent] = useState(true)
-  const [intentError,   setIntentError]   = useState('')
+  const [loadingStripe, setLoadingStripe] = useState(false)
+  const [loadingFlw,    setLoadingFlw]    = useState(false)
+  const [checkoutErr,   setCheckoutErr]   = useState('')
 
-  useEffect(() => {
-    if (!session?.user?.email) {
-      router.push(`/auth/login?redirect=/esim`)
-      return
+  function checkoutPayload(gateway: string) {
+    return {
+      gateway,
+      packageCode: pkg.packageCode, packageName: pkg.name,
+      destination: country.name, destinationIso2: country.code,
+      durationDays: pkg.durationDays, dataAmount: pkg.dataAmount,
+      dataUnit: pkg.dataUnit, dataLabel: pkg.dataLabel,
+      wholesaleUsd: pkg.wholesaleUsd, retailUsd: pkg.retailUsd, speed: pkg.speed,
     }
-    ;(async () => {
-      try {
-        const res  = await fetch('/api/esim/checkout', {
-          method:  'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            packageCode: pkg.packageCode, packageName: pkg.name,
-            destination: country.name, destinationIso2: country.code,
-            durationDays: pkg.durationDays, dataAmount: pkg.dataAmount,
-            dataUnit: pkg.dataUnit, dataLabel: pkg.dataLabel,
-            wholesaleUsd: pkg.wholesaleUsd, retailUsd: pkg.retailUsd, speed: pkg.speed,
-          }),
-        })
-        const data = await res.json() as { clientSecret?: string; error?: string }
-        if (data.clientSecret) setClientSecret(data.clientSecret)
-        else setIntentError(data.error ?? 'Failed to start checkout.')
-      } catch {
-        setIntentError('Connection error. Please try again.')
-      } finally {
-        setLoadingIntent(false)
+  }
+
+  async function pickStripe() {
+    if (!session?.user?.email) { router.push(`/auth/login?redirect=/esim`); return }
+    setStep('stripe')
+    setLoadingStripe(true)
+    setCheckoutErr('')
+    try {
+      const res  = await fetch('/api/esim/checkout', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(checkoutPayload('stripe')),
+      })
+      const data = await res.json() as { clientSecret?: string; error?: string }
+      if (data.clientSecret) setClientSecret(data.clientSecret)
+      else setCheckoutErr(data.error ?? 'Failed to start checkout.')
+    } catch {
+      setCheckoutErr('Connection error. Please try again.')
+    } finally {
+      setLoadingStripe(false)
+    }
+  }
+
+  async function pickFlutterwave() {
+    if (!session?.user?.email) { router.push(`/auth/login?redirect=/esim`); return }
+    setLoadingFlw(true)
+    setCheckoutErr('')
+    try {
+      const res  = await fetch('/api/esim/checkout', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(checkoutPayload('flutterwave')),
+      })
+      const data = await res.json() as { checkoutUrl?: string; error?: string }
+      if (data.checkoutUrl) {
+        window.location.href = data.checkoutUrl
+      } else {
+        setCheckoutErr(data.error ?? 'Flutterwave checkout failed.')
+        setLoadingFlw(false)
       }
-    })()
-  }, [pkg, country, session, router])
+    } catch {
+      setCheckoutErr('Connection error. Please try again.')
+      setLoadingFlw(false)
+    }
+  }
+
+  const planRecap = (
+    <div className="bg-[#F8F9FA] rounded-xl p-4 mb-5">
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <p className="font-bold text-[#0B1F3A] text-base">{country.flag} {country.name}</p>
+          <p className="text-[#0B1F3A]/60 text-sm mt-0.5">{pkg.name}</p>
+          <div className="flex flex-wrap gap-2 mt-2">
+            {[`${pkg.durationDays} days`, pkg.dataLabel, pkg.speed].map(v => (
+              <span key={v} className="text-xs text-[#0B1F3A]/50 bg-white border border-[#E5E7EB] px-2 py-0.5 rounded-full">{v}</span>
+            ))}
+          </div>
+        </div>
+        <div className="text-right flex-shrink-0">
+          <p className="text-2xl font-bold text-[#0B1F3A]">${pkg.retailUsd.toFixed(2)}</p>
+          <p className="text-xs text-[#0B1F3A]/40">USD</p>
+        </div>
+      </div>
+    </div>
+  )
 
   return (
     <div className="fixed inset-0 z-[100] flex items-end sm:items-center justify-center p-4 bg-black/70 backdrop-blur-sm"
       onClick={e => { if (e.target === e.currentTarget) onClose() }}>
       <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl overflow-hidden max-h-[90vh] overflow-y-auto">
+
+        {/* Header */}
         <div className="bg-[#0B1F3A] px-6 py-5 flex items-center justify-between sticky top-0 z-10">
           <div>
             <p className="text-[#C9A84C] text-[11px] font-semibold tracking-[0.2em] uppercase">📶 Jade Connect</p>
-            <h3 className="text-white font-bold text-lg mt-0.5">Confirm Purchase</h3>
+            <h3 className="text-white font-bold text-lg mt-0.5">
+              {step === 'pick' ? 'Choose Payment Method' : 'Secure Checkout'}
+            </h3>
           </div>
-          <button onClick={onClose} className="text-white/40 hover:text-white transition-colors p-1">
-            <X className="w-5 h-5" />
+          <button
+            onClick={step === 'stripe' && !clientSecret ? () => { setStep('pick'); setCheckoutErr('') } : onClose}
+            className="text-white/40 hover:text-white transition-colors p-1">
+            {step === 'stripe' && !clientSecret
+              ? <span className="text-xs font-semibold">← Back</span>
+              : <X className="w-5 h-5" />}
           </button>
         </div>
 
-        {loadingIntent ? (
-          <div className="p-10 text-center">
-            <div className="w-10 h-10 rounded-full border-4 border-[#C9A84C]/30 border-t-[#C9A84C] animate-spin mx-auto mb-4" />
-            <p className="text-[#0B1F3A]/60 text-sm">Preparing secure checkout…</p>
+        {/* Step 1: gateway picker */}
+        {step === 'pick' && (
+          <div className="p-6">
+            {planRecap}
+            <p className="text-[#0B1F3A]/50 text-sm mb-4 text-center">How would you like to pay?</p>
+            <div className="space-y-3">
+              <button onClick={pickStripe}
+                className="w-full flex items-center gap-3 p-4 border-2 border-[#E5E7EB] rounded-xl hover:border-[#0B1F3A] transition-colors text-left">
+                <div className="w-10 h-10 rounded-lg bg-[#635BFF] flex items-center justify-center flex-shrink-0">
+                  <Lock className="w-5 h-5 text-white" />
+                </div>
+                <div>
+                  <p className="font-semibold text-[#0B1F3A] text-sm">Pay by Card</p>
+                  <p className="text-[#0B1F3A]/45 text-xs">Visa, Mastercard · Secured by Stripe</p>
+                </div>
+              </button>
+
+              <button onClick={pickFlutterwave} disabled={loadingFlw}
+                className="w-full flex items-center gap-3 p-4 border-2 border-[#E5E7EB] rounded-xl hover:border-[#F5A623] transition-colors text-left disabled:opacity-60">
+                <div className="w-10 h-10 rounded-lg bg-[#F5A623] flex items-center justify-center flex-shrink-0 text-lg font-bold text-white">
+                  F
+                </div>
+                <div>
+                  <p className="font-semibold text-[#0B1F3A] text-sm">
+                    {loadingFlw ? 'Redirecting…' : 'Pay with Flutterwave'}
+                  </p>
+                  <p className="text-[#0B1F3A]/45 text-xs">Card · Bank transfer · Mobile money</p>
+                </div>
+              </button>
+            </div>
+            {checkoutErr && <p className="text-red-500 text-sm mt-4 text-center">{checkoutErr}</p>}
           </div>
-        ) : intentError ? (
-          <div className="p-8 text-center">
-            <p className="text-red-500 text-sm mb-4">{intentError}</p>
-            <button onClick={onClose} className="px-5 py-2.5 bg-[#0B1F3A] text-white rounded-full text-sm font-semibold">Close</button>
-          </div>
-        ) : clientSecret ? (
-          <Elements stripe={stripePromise} options={{
-            clientSecret,
-            appearance: { theme: 'stripe', variables: { colorPrimary: '#C9A84C', colorBackground: '#FFFFFF', borderRadius: '8px' } },
-          }}>
-            <CheckoutForm pkg={pkg} country={country} onSuccess={onDone} onClose={onClose} />
-          </Elements>
-        ) : null}
+        )}
+
+        {/* Step 2: Stripe Elements */}
+        {step === 'stripe' && (
+          loadingStripe ? (
+            <div className="p-10 text-center">
+              <div className="w-10 h-10 rounded-full border-4 border-[#C9A84C]/30 border-t-[#C9A84C] animate-spin mx-auto mb-4" />
+              <p className="text-[#0B1F3A]/60 text-sm">Preparing secure checkout…</p>
+            </div>
+          ) : checkoutErr ? (
+            <div className="p-8 text-center">
+              <p className="text-red-500 text-sm mb-4">{checkoutErr}</p>
+              <button onClick={() => { setStep('pick'); setCheckoutErr('') }}
+                className="px-5 py-2.5 bg-[#0B1F3A] text-white rounded-full text-sm font-semibold">Back</button>
+            </div>
+          ) : clientSecret ? (
+            <Elements stripe={stripePromise} options={{
+              clientSecret,
+              appearance: { theme: 'stripe', variables: { colorPrimary: '#C9A84C', colorBackground: '#FFFFFF', borderRadius: '8px' } },
+            }}>
+              <CheckoutForm pkg={pkg} country={country} onSuccess={onDone} onClose={onClose} />
+            </Elements>
+          ) : null
+        )}
       </div>
     </div>
   )
@@ -352,6 +444,7 @@ function displayPrice(usd: number, currency: Currency): string {
 
 // ── MAIN ESIM SEARCH ──────────────────────────────────────────────────────────
 export function EsimSearch({ packages }: { packages: EsimPackage[] }) {
+  const searchParams = useSearchParams()
   const [query,    setQuery]    = useState('')
   const [region,   setRegion]   = useState('All')
   const [currency, setCurrency] = useState<Currency>('USD')
@@ -360,6 +453,11 @@ export function EsimSearch({ packages }: { packages: EsimPackage[] }) {
   const [checkoutCountry, setCheckoutCountry] = useState<CountryGroup | null>(null)
   const [showSuccess,     setShowSuccess]     = useState(false)
   const [toasts,          setToasts]          = useState<Toast[]>([])
+
+  // Show success overlay when returning from Flutterwave or 3DS redirect
+  useEffect(() => {
+    if (searchParams.get('paid') === '1') setShowSuccess(true)
+  }, [searchParams])
 
   // Client-side fallback fetch (if ISR returned 0 packages)
   const [livePackages, setLivePackages] = useState<EsimPackage[]>(packages)

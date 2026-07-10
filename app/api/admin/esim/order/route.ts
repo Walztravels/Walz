@@ -1,9 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getStripe } from '@/lib/stripe'
-import type Stripe from 'stripe'
+import { getAdminSession } from '@/lib/admin-auth'
 import prisma from '@/lib/db'
 import { getResend } from '@/lib/resend'
-import { calcMargin, generateOrderRef, formatData } from '@/lib/esim-pricing'
+import { applyMarkup, calcMargin, generateOrderRef, formatData } from '@/lib/esim-pricing'
 import { airaloPost, type AiraloOrderResponse } from '@/lib/airalo'
 
 export const dynamic = 'force-dynamic'
@@ -24,7 +23,7 @@ function buildQrEmail(p: {
   <tr><td style="background:#0B1F3A;padding:28px 32px;">
     <img src="https://walztravels.com/walz-logo.png" alt="Walz Travels" width="70" style="display:block;margin:0 0 12px;"/>
     <h1 style="margin:0;color:#C9A84C;font-size:20px;font-weight:700;">📶 Your Jade Connect eSIM</h1>
-    <p style="margin:4px 0 0;color:#8B9BAE;font-size:13px;">Stay connected from the moment you land</p>
+    <p style="margin:4px 0 0;color:#8B9BAE;font-size:13px;">Arranged by Walz Travels · Stay connected from the moment you land</p>
   </td></tr>
   <tr><td style="padding:28px 32px;">
     <p style="margin:0 0 16px;color:#374151;font-size:15px;">Hi ${p.name},</p>
@@ -64,37 +63,44 @@ function buildQrEmail(p: {
 </body></html>`
 }
 
-async function fulfillEsim(intent: Stripe.PaymentIntent) {
-  const meta = intent.metadata ?? {}
-  if (meta.type !== 'esim') return
+export async function POST(req: NextRequest) {
+  const adminSession = await getAdminSession()
+  if (!adminSession) return NextResponse.json({ error: 'Unauthorised' }, { status: 401 })
 
-  // Idempotency — check if already fulfilled
-  const existing = await prisma.esimOrder.findFirst({
-    where: { stripePaymentId: intent.id },
-  })
-  if (existing) {
-    console.log('[esim/webhook] already fulfilled:', intent.id)
-    return
+  const body = await req.json().catch(() => null)
+  const {
+    clientEmail, packageCode, packageName, destination, destinationIso2,
+    durationDays, dataAmount, dataUnit, wholesaleUsd, retailUsd,
+  } = body ?? {}
+
+  if (!clientEmail || !packageCode || !destination) {
+    return NextResponse.json({ error: 'clientEmail, packageCode, and destination are required' }, { status: 400 })
   }
 
-  const wholesale = Number(meta.wholesaleUsd)
-  const retail    = Number(meta.retailUsd)
-  const orderRef  = generateOrderRef()
-  const { label: dataLabel } = formatData(Number(meta.dataAmount) || 0)
+  const user = await prisma.user.findUnique({
+    where:  { email: clientEmail },
+    select: { id: true, name: true, email: true },
+  })
 
-  // Place order with Airalo
+  const orderRef       = generateOrderRef()
+  const wholesale      = wholesaleUsd ?? 0
+  const retail         = retailUsd    ?? applyMarkup(wholesale)
+  const { label: dataLabel } = formatData(dataAmount)
+
+  // Place Airalo order
   let airaloOrder: AiraloOrderResponse['data'] | null = null
   try {
     const res = await airaloPost<AiraloOrderResponse>('/orders', {
-      package_id:  meta.packageCode,
+      package_id:  packageCode,
       quantity:    1,
       type:        'sim',
-      description: `Walz Travels — ${meta.destination} eSIM`,
+      description: `Walz Admin — ${destination} eSIM for ${clientEmail}`,
     })
     airaloOrder = res.data
-    console.log('[esim/webhook] Airalo response:', JSON.stringify(res).slice(0, 300))
+    console.log('[admin/esim/order] Airalo response:', JSON.stringify(res).slice(0, 300))
   } catch (err) {
-    console.error('[esim/webhook] Airalo order error:', err)
+    console.error('[admin/esim/order] Airalo error:', err)
+    return NextResponse.json({ error: 'Airalo order failed: ' + String(err) }, { status: 500 })
   }
 
   const sim             = airaloOrder?.sims?.[0]
@@ -107,25 +113,19 @@ async function fulfillEsim(intent: Stripe.PaymentIntent) {
   const esimOrderNo     = airaloOrder?.code                 ?? ''
   const actualWholesale = airaloOrder?.unit_paid_price      ?? wholesale
 
-  const user = await prisma.user.findUnique({
-    where:  { email: meta.customerEmail ?? '' },
-    select: { id: true, name: true, email: true },
-  })
-
-  await prisma.esimOrder.create({
+  const order = await prisma.esimOrder.create({
     data: {
       userId:            user?.id ?? null,
-      tripId:            meta.tripId || null,
       orderRef,
       transactionId:     orderRef,
       esimAccessOrderNo: esimOrderNo || null,
-      destination:       meta.destination,
-      destinationIso2:   meta.destinationIso2,
-      packageCode:       meta.packageCode,
-      packageName:       meta.packageName,
-      durationDays:      Number(meta.durationDays),
-      dataAmount:        Number(meta.dataAmount) || null,
-      dataUnit:          meta.dataUnit || null,
+      destination,
+      destinationIso2:   destinationIso2 ?? '',
+      packageCode,
+      packageName:       packageName ?? packageCode,
+      durationDays:      Number(durationDays ?? 0),
+      dataAmount:        dataAmount ?? null,
+      dataUnit:          dataUnit   ?? null,
       wholesaleCostUsd:  actualWholesale,
       retailPriceUsd:    retail,
       marginUsd:         calcMargin(actualWholesale, retail),
@@ -135,54 +135,37 @@ async function fulfillEsim(intent: Stripe.PaymentIntent) {
       smdpAddress:       smdpAddress || null,
       lpaString:         lpaString || null,
       status:            iccid ? 'active' : 'pending',
-      stripePaymentId:   intent.id,
+      stripePaymentId:   null,
       emailSent:         false,
     },
   })
 
-  if (user?.email) {
-    try {
-      await getResend().emails.send({
-        from:    'Jade Connect <noreply@walztravels.com>',
-        to:      user.email,
-        subject: `📶 Your Jade Connect eSIM — ${meta.destination}`,
-        html:    buildQrEmail({
-          name: user.name ?? 'Traveller', destination: meta.destination,
-          plan: meta.packageName ?? meta.packageCode,
-          duration: Number(meta.durationDays),
-          dataLabel, qrUrl: qrCodeUrl,
-          ac: activationCode, smdp: smdpAddress,
-          lpaString, orderRef, retailUsd: retail,
-          appleInstallUrl,
-        }),
-      })
-    } catch (e) {
-      console.error('[esim/webhook] email error:', e)
-    }
-  }
-}
-
-export async function POST(req: NextRequest) {
-  const payload = await req.text()
-  const sig     = req.headers.get('stripe-signature') ?? ''
-  const secret  = process.env.STRIPE_ESIM_WEBHOOK_SECRET ?? process.env.STRIPE_WEBHOOK_SECRET
-
-  let event: Stripe.Event
+  // Email QR to client
   try {
-    if (secret) {
-      event = getStripe().webhooks.constructEvent(payload, sig, secret)
-    } else {
-      // No webhook secret configured — parse directly (development only)
-      event = JSON.parse(payload) as Stripe.Event
-    }
-  } catch (err) {
-    console.error('[esim/webhook] signature verification failed:', err)
-    return NextResponse.json({ error: 'Webhook signature failed' }, { status: 400 })
+    await getResend().emails.send({
+      from:    'Jade Connect <noreply@walztravels.com>',
+      to:      clientEmail,
+      subject: `📶 Your Jade Connect eSIM — ${destination}`,
+      html:    buildQrEmail({
+        name: user?.name ?? 'Traveller', destination,
+        plan: packageName ?? packageCode,
+        duration: Number(durationDays ?? 0),
+        dataLabel, qrUrl: qrCodeUrl,
+        ac: activationCode, smdp: smdpAddress,
+        lpaString, orderRef, retailUsd: retail,
+        appleInstallUrl,
+      }),
+    })
+    await prisma.esimOrder.update({ where: { id: order.id }, data: { emailSent: true } })
+  } catch (e) {
+    console.error('[admin/esim/order] email error:', e)
   }
 
-  if (event.type === 'payment_intent.succeeded') {
-    await fulfillEsim(event.data.object as Stripe.PaymentIntent)
-  }
-
-  return NextResponse.json({ received: true })
+  return NextResponse.json({
+    success:  true,
+    orderRef,
+    iccid:    iccid || null,
+    qrCodeUrl: qrCodeUrl || null,
+    status:   iccid ? 'active' : 'pending',
+  })
 }

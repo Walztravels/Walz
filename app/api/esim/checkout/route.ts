@@ -6,8 +6,10 @@ import { z } from 'zod'
 
 export const dynamic = 'force-dynamic'
 
+const SITE = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://www.walztravels.com'
 
 const schema = z.object({
+  gateway:         z.enum(['stripe', 'flutterwave']).default('stripe'),
   packageCode:     z.string().min(1),
   packageName:     z.string().min(1),
   destination:     z.string().min(1),
@@ -36,10 +38,61 @@ export async function POST(req: NextRequest) {
 
   const d = parsed.data
 
-  // Create a PaymentIntent so we can use Stripe Elements (embedded, no redirect)
+  // ── Flutterwave ──────────────────────────────────────────────────────────────
+  if (d.gateway === 'flutterwave') {
+    const FLW_SECRET = process.env.FLW_SECRET_KEY
+    if (!FLW_SECRET) {
+      return NextResponse.json({ error: 'Flutterwave not configured' }, { status: 500 })
+    }
+
+    const txRef = `JADE-ESIM-${Date.now()}`
+    const flwRes = await fetch('https://api.flutterwave.com/v3/payments', {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${FLW_SECRET}` },
+      body: JSON.stringify({
+        tx_ref:       txRef,
+        amount:       d.retailUsd,
+        currency:     'USD',
+        redirect_url: `${SITE}/esim?paid=1`,
+        customer: {
+          email: session.user.email,
+          name:  session.user.name ?? 'Traveller',
+        },
+        customizations: {
+          title:       'Jade Connect eSIM',
+          description: `${d.destination} eSIM — ${d.packageName}`,
+          logo:        `${SITE}/walz-logo.png`,
+        },
+        meta: {
+          type:            'esim',
+          packageCode:     d.packageCode,
+          packageName:     d.packageName,
+          destination:     d.destination,
+          destinationIso2: d.destinationIso2,
+          durationDays:    String(d.durationDays),
+          dataAmount:      String(d.dataAmount ?? ''),
+          dataUnit:        d.dataUnit,
+          wholesaleUsd:    String(d.wholesaleUsd),
+          retailUsd:       String(d.retailUsd),
+          customerEmail:   session.user.email,
+          tripId:          d.tripId ?? '',
+        },
+      }),
+    })
+
+    const flwData = await flwRes.json()
+    if (flwData.status !== 'success') {
+      console.error('[esim/checkout] Flutterwave error:', flwData)
+      return NextResponse.json({ error: flwData.message ?? 'Flutterwave error' }, { status: 500 })
+    }
+
+    return NextResponse.json({ checkoutUrl: flwData.data?.link, gateway: 'flutterwave' })
+  }
+
+  // ── Stripe (default) ─────────────────────────────────────────────────────────
   const intent = await getStripe().paymentIntents.create({
-    amount:   Math.round(d.retailUsd * 100),
-    currency: 'usd',
+    amount:        Math.round(d.retailUsd * 100),
+    currency:      'usd',
     receipt_email: session.user.email,
     metadata: {
       type:            'esim',

@@ -1,6 +1,4 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getStripe } from '@/lib/stripe'
-import type Stripe from 'stripe'
 import prisma from '@/lib/db'
 import { getResend } from '@/lib/resend'
 import { calcMargin, generateOrderRef, formatData } from '@/lib/esim-pricing'
@@ -64,17 +62,31 @@ function buildQrEmail(p: {
 </body></html>`
 }
 
-async function fulfillEsim(intent: Stripe.PaymentIntent) {
-  const meta = intent.metadata ?? {}
-  if (meta.type !== 'esim') return
+export async function POST(req: NextRequest) {
+  const hash       = req.headers.get('verif-hash')
+  const secretHash = process.env.FLUTTERWAVE_WEBHOOK_HASH
+  if (secretHash && hash !== secretHash) {
+    return NextResponse.json({ error: 'Invalid hash' }, { status: 401 })
+  }
 
-  // Idempotency — check if already fulfilled
-  const existing = await prisma.esimOrder.findFirst({
-    where: { stripePaymentId: intent.id },
-  })
-  if (existing) {
-    console.log('[esim/webhook] already fulfilled:', intent.id)
-    return
+  const payload = await req.json().catch(() => null)
+  if (!payload) return NextResponse.json({ status: 'ignored' })
+
+  if (payload.event !== 'charge.completed' || payload.data?.status !== 'successful') {
+    return NextResponse.json({ status: 'ignored' })
+  }
+
+  const meta = payload.data?.meta ?? {}
+  if (meta.type !== 'esim') return NextResponse.json({ status: 'ignored' })
+
+  // Idempotency — check by Flutterwave tx_ref
+  const txRef = payload.data?.tx_ref ?? ''
+  if (txRef) {
+    const existing = await prisma.esimOrder.findFirst({ where: { transactionId: txRef } })
+    if (existing) {
+      console.log('[esim/flw-webhook] already fulfilled:', txRef)
+      return NextResponse.json({ status: 'already_fulfilled' })
+    }
   }
 
   const wholesale = Number(meta.wholesaleUsd)
@@ -82,7 +94,7 @@ async function fulfillEsim(intent: Stripe.PaymentIntent) {
   const orderRef  = generateOrderRef()
   const { label: dataLabel } = formatData(Number(meta.dataAmount) || 0)
 
-  // Place order with Airalo
+  // Place Airalo order
   let airaloOrder: AiraloOrderResponse['data'] | null = null
   try {
     const res = await airaloPost<AiraloOrderResponse>('/orders', {
@@ -92,9 +104,9 @@ async function fulfillEsim(intent: Stripe.PaymentIntent) {
       description: `Walz Travels — ${meta.destination} eSIM`,
     })
     airaloOrder = res.data
-    console.log('[esim/webhook] Airalo response:', JSON.stringify(res).slice(0, 300))
+    console.log('[esim/flw-webhook] Airalo response:', JSON.stringify(res).slice(0, 300))
   } catch (err) {
-    console.error('[esim/webhook] Airalo order error:', err)
+    console.error('[esim/flw-webhook] Airalo error:', err)
   }
 
   const sim             = airaloOrder?.sims?.[0]
@@ -117,7 +129,7 @@ async function fulfillEsim(intent: Stripe.PaymentIntent) {
       userId:            user?.id ?? null,
       tripId:            meta.tripId || null,
       orderRef,
-      transactionId:     orderRef,
+      transactionId:     txRef || orderRef,
       esimAccessOrderNo: esimOrderNo || null,
       destination:       meta.destination,
       destinationIso2:   meta.destinationIso2,
@@ -135,19 +147,20 @@ async function fulfillEsim(intent: Stripe.PaymentIntent) {
       smdpAddress:       smdpAddress || null,
       lpaString:         lpaString || null,
       status:            iccid ? 'active' : 'pending',
-      stripePaymentId:   intent.id,
+      stripePaymentId:   null,
       emailSent:         false,
     },
   })
 
-  if (user?.email) {
+  if (user?.email || meta.customerEmail) {
+    const toEmail = user?.email ?? meta.customerEmail
     try {
       await getResend().emails.send({
         from:    'Jade Connect <noreply@walztravels.com>',
-        to:      user.email,
+        to:      toEmail,
         subject: `📶 Your Jade Connect eSIM — ${meta.destination}`,
         html:    buildQrEmail({
-          name: user.name ?? 'Traveller', destination: meta.destination,
+          name: user?.name ?? 'Traveller', destination: meta.destination,
           plan: meta.packageName ?? meta.packageCode,
           duration: Number(meta.durationDays),
           dataLabel, qrUrl: qrCodeUrl,
@@ -157,32 +170,9 @@ async function fulfillEsim(intent: Stripe.PaymentIntent) {
         }),
       })
     } catch (e) {
-      console.error('[esim/webhook] email error:', e)
+      console.error('[esim/flw-webhook] email error:', e)
     }
   }
-}
 
-export async function POST(req: NextRequest) {
-  const payload = await req.text()
-  const sig     = req.headers.get('stripe-signature') ?? ''
-  const secret  = process.env.STRIPE_ESIM_WEBHOOK_SECRET ?? process.env.STRIPE_WEBHOOK_SECRET
-
-  let event: Stripe.Event
-  try {
-    if (secret) {
-      event = getStripe().webhooks.constructEvent(payload, sig, secret)
-    } else {
-      // No webhook secret configured — parse directly (development only)
-      event = JSON.parse(payload) as Stripe.Event
-    }
-  } catch (err) {
-    console.error('[esim/webhook] signature verification failed:', err)
-    return NextResponse.json({ error: 'Webhook signature failed' }, { status: 400 })
-  }
-
-  if (event.type === 'payment_intent.succeeded') {
-    await fulfillEsim(event.data.object as Stripe.PaymentIntent)
-  }
-
-  return NextResponse.json({ received: true })
+  return NextResponse.json({ status: 'ok' })
 }

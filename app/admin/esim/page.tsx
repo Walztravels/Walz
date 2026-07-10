@@ -3,8 +3,35 @@
 import { useEffect, useState, useCallback } from 'react'
 import {
   Signal, TrendingUp, DollarSign, ShoppingBag,
-  Download, RefreshCw, Search,
+  Download, RefreshCw, Search, UserPlus, ChevronDown, ChevronUp, Check, AlertCircle,
 } from 'lucide-react'
+
+interface AdminPkg {
+  packageCode:  string
+  name:         string
+  durationDays: number
+  dataLabel:    string
+  retailUsd:    number
+  wholesaleUsd: number
+  dataAmount:   number | null
+  dataUnit:     string
+}
+
+interface PlaceOrderForm {
+  clientEmail:    string
+  country:        string
+  packageCode:    string
+  customRetail:   string
+}
+
+interface PlaceOrderResult {
+  success: boolean
+  orderRef?: string
+  iccid?: string | null
+  qrCodeUrl?: string | null
+  status?: string
+  error?: string
+}
 
 interface EsimOrder {
   id:             string
@@ -49,6 +76,63 @@ export default function AdminEsimPage() {
   const [stats,   setStats]   = useState<Stats | null>(null)
   const [loading, setLoading] = useState(true)
   const [search,  setSearch]  = useState('')
+
+  // ── Place Order for Client ──────────────────────────────────────────────────
+  const [showOrderForm, setShowOrderForm]   = useState(false)
+  const [orderForm,     setOrderForm]       = useState<PlaceOrderForm>({ clientEmail: '', country: '', packageCode: '', customRetail: '' })
+  const [orderPkgs,     setOrderPkgs]       = useState<AdminPkg[]>([])
+  const [loadingPkgs,   setLoadingPkgs]     = useState(false)
+  const [placingOrder,  setPlacingOrder]    = useState(false)
+  const [orderResult,   setOrderResult]     = useState<PlaceOrderResult | null>(null)
+
+  async function loadPackages() {
+    const iso2 = orderForm.country.trim().toUpperCase()
+    if (iso2.length !== 2) return
+    setLoadingPkgs(true)
+    setOrderPkgs([])
+    setOrderForm(f => ({ ...f, packageCode: '' }))
+    try {
+      const res  = await fetch(`/api/esim/packages?country=${iso2}`)
+      const data = await res.json()
+      setOrderPkgs((data.packages ?? []) as AdminPkg[])
+    } finally {
+      setLoadingPkgs(false)
+    }
+  }
+
+  async function placeAdminOrder() {
+    const pkg = orderPkgs.find(p => p.packageCode === orderForm.packageCode)
+    if (!pkg || !orderForm.clientEmail) return
+    setPlacingOrder(true)
+    setOrderResult(null)
+    try {
+      const res  = await fetch('/api/admin/esim/order', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          clientEmail:    orderForm.clientEmail,
+          packageCode:    pkg.packageCode,
+          packageName:    pkg.name,
+          destination:    orderForm.country.toUpperCase(),
+          destinationIso2: orderForm.country.toUpperCase(),
+          durationDays:   pkg.durationDays,
+          dataAmount:     pkg.dataAmount,
+          dataUnit:       pkg.dataUnit,
+          wholesaleUsd:   pkg.wholesaleUsd,
+          retailUsd:      orderForm.customRetail ? Number(orderForm.customRetail) : pkg.retailUsd,
+        }),
+      })
+      const data = await res.json() as PlaceOrderResult
+      setOrderResult(data)
+      if (data.success) {
+        setOrderForm({ clientEmail: '', country: '', packageCode: '', customRetail: '' })
+        setOrderPkgs([])
+        load() // refresh table
+      }
+    } finally {
+      setPlacingOrder(false)
+    }
+  }
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -121,6 +205,118 @@ export default function AdminEsimPage() {
             Export CSV
           </button>
         </div>
+      </div>
+
+      {/* Place Order for Client panel */}
+      <div className="mb-8 bg-white rounded-2xl border border-[#E5E7EB] overflow-hidden">
+        <button
+          onClick={() => { setShowOrderForm(v => !v); setOrderResult(null) }}
+          className="w-full flex items-center justify-between px-6 py-4 hover:bg-[#F8F9FA] transition-colors">
+          <div className="flex items-center gap-3">
+            <div className="w-8 h-8 rounded-lg bg-[#C9A84C]/10 flex items-center justify-center">
+              <UserPlus className="w-4 h-4 text-[#C9A84C]" />
+            </div>
+            <span className="font-semibold text-[#0B1F3A] text-sm">Place Order for Client</span>
+          </div>
+          {showOrderForm ? <ChevronUp className="w-4 h-4 text-[#0B1F3A]/40" /> : <ChevronDown className="w-4 h-4 text-[#0B1F3A]/40" />}
+        </button>
+
+        {showOrderForm && (
+          <div className="border-t border-[#E5E7EB] p-6">
+            {orderResult && (
+              <div className={`mb-5 p-4 rounded-xl flex items-start gap-3 ${orderResult.success ? 'bg-green-50 border border-green-200' : 'bg-red-50 border border-red-200'}`}>
+                {orderResult.success
+                  ? <Check className="w-4 h-4 text-green-600 flex-shrink-0 mt-0.5" />
+                  : <AlertCircle className="w-4 h-4 text-red-500 flex-shrink-0 mt-0.5" />}
+                <div>
+                  <p className={`font-semibold text-sm ${orderResult.success ? 'text-green-700' : 'text-red-600'}`}>
+                    {orderResult.success ? `Order placed — Ref: ${orderResult.orderRef}` : orderResult.error}
+                  </p>
+                  {orderResult.success && (
+                    <p className="text-xs text-green-600 mt-1">
+                      Status: {orderResult.status} {orderResult.iccid ? `· ICCID: ${orderResult.iccid}` : '· eSIM QR emailed to client'}
+                    </p>
+                  )}
+                </div>
+              </div>
+            )}
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
+              <div>
+                <label className="block text-xs font-semibold text-[#0B1F3A]/50 uppercase tracking-wide mb-1.5">Client Email</label>
+                <input
+                  type="email"
+                  placeholder="client@example.com"
+                  value={orderForm.clientEmail}
+                  onChange={e => setOrderForm(f => ({ ...f, clientEmail: e.target.value }))}
+                  className="w-full h-10 px-3 border border-[#E5E7EB] rounded-lg text-sm outline-none focus:border-[#C9A84C]"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-[#0B1F3A]/50 uppercase tracking-wide mb-1.5">Country Code (ISO2)</label>
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    placeholder="e.g. GB, NG, AE"
+                    maxLength={2}
+                    value={orderForm.country}
+                    onChange={e => setOrderForm(f => ({ ...f, country: e.target.value.toUpperCase() }))}
+                    className="flex-1 h-10 px-3 border border-[#E5E7EB] rounded-lg text-sm outline-none focus:border-[#C9A84C] uppercase"
+                  />
+                  <button
+                    onClick={loadPackages}
+                    disabled={orderForm.country.length !== 2 || loadingPkgs}
+                    className="px-3 h-10 bg-[#0B1F3A] text-white text-xs font-semibold rounded-lg hover:bg-[#0d2345] transition-colors disabled:opacity-50">
+                    {loadingPkgs ? '…' : 'Load'}
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {orderPkgs.length > 0 && (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
+                <div>
+                  <label className="block text-xs font-semibold text-[#0B1F3A]/50 uppercase tracking-wide mb-1.5">
+                    Package ({orderPkgs.length} available)
+                  </label>
+                  <select
+                    value={orderForm.packageCode}
+                    onChange={e => setOrderForm(f => ({ ...f, packageCode: e.target.value }))}
+                    className="w-full h-10 px-3 border border-[#E5E7EB] rounded-lg text-sm outline-none focus:border-[#C9A84C] bg-white">
+                    <option value="">Select a package…</option>
+                    {orderPkgs.map(p => (
+                      <option key={p.packageCode} value={p.packageCode}>
+                        {p.name} — {p.durationDays}d · {p.dataLabel} · ${p.retailUsd.toFixed(2)}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-[#0B1F3A]/50 uppercase tracking-wide mb-1.5">
+                    Custom Retail Price (USD, optional)
+                  </label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    placeholder={orderPkgs.find(p => p.packageCode === orderForm.packageCode)?.retailUsd.toFixed(2) ?? ''}
+                    value={orderForm.customRetail}
+                    onChange={e => setOrderForm(f => ({ ...f, customRetail: e.target.value }))}
+                    className="w-full h-10 px-3 border border-[#E5E7EB] rounded-lg text-sm outline-none focus:border-[#C9A84C]"
+                  />
+                </div>
+              </div>
+            )}
+
+            <button
+              onClick={placeAdminOrder}
+              disabled={!orderForm.clientEmail || !orderForm.packageCode || placingOrder}
+              className="flex items-center gap-2 px-5 py-2.5 bg-[#C9A84C] text-[#0B1F3A] font-bold text-sm rounded-xl hover:opacity-90 transition-opacity disabled:opacity-40 disabled:cursor-not-allowed">
+              {placingOrder ? <RefreshCw className="w-4 h-4 animate-spin" /> : <UserPlus className="w-4 h-4" />}
+              {placingOrder ? 'Placing order…' : 'Place Order & Email Client'}
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Stats grid */}
