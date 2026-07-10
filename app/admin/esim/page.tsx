@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback } from 'react'
 import {
   Signal, TrendingUp, DollarSign, ShoppingBag,
   Download, RefreshCw, Search, UserPlus, ChevronDown, ChevronUp, Check, AlertCircle,
+  Wifi,
 } from 'lucide-react'
 
 interface AdminPkg {
@@ -77,7 +78,7 @@ export default function AdminEsimPage() {
   const [loading, setLoading] = useState(true)
   const [search,  setSearch]  = useState('')
 
-  // ── Place Order for Client ──────────────────────────────────────────────────
+  // ── Place Order via Airalo ─────────────────────────────────────────────────
   const [showOrderForm, setShowOrderForm]   = useState(false)
   const [orderForm,     setOrderForm]       = useState<PlaceOrderForm>({ clientEmail: '', country: '', packageCode: '', customRetail: '' })
   const [orderPkgs,     setOrderPkgs]       = useState<AdminPkg[]>([])
@@ -110,16 +111,16 @@ export default function AdminEsimPage() {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          clientEmail:    orderForm.clientEmail,
-          packageCode:    pkg.packageCode,
-          packageName:    pkg.name,
-          destination:    orderForm.country.toUpperCase(),
+          clientEmail:     orderForm.clientEmail,
+          packageCode:     pkg.packageCode,
+          packageName:     pkg.name,
+          destination:     orderForm.country.toUpperCase(),
           destinationIso2: orderForm.country.toUpperCase(),
-          durationDays:   pkg.durationDays,
-          dataAmount:     pkg.dataAmount,
-          dataUnit:       pkg.dataUnit,
-          wholesaleUsd:   pkg.wholesaleUsd,
-          retailUsd:      orderForm.customRetail ? Number(orderForm.customRetail) : pkg.retailUsd,
+          durationDays:    pkg.durationDays,
+          dataAmount:      pkg.dataAmount,
+          dataUnit:        pkg.dataUnit,
+          wholesaleUsd:    pkg.wholesaleUsd,
+          retailUsd:       orderForm.customRetail ? Number(orderForm.customRetail) : pkg.retailUsd,
         }),
       })
       const data = await res.json() as PlaceOrderResult
@@ -127,10 +128,67 @@ export default function AdminEsimPage() {
       if (data.success) {
         setOrderForm({ clientEmail: '', country: '', packageCode: '', customRetail: '' })
         setOrderPkgs([])
-        load() // refresh table
+        load()
       }
     } finally {
       setPlacingOrder(false)
+    }
+  }
+
+  // ── Place Order via eSIM Access ────────────────────────────────────────────
+  const [showAccessForm,    setShowAccessForm]    = useState(false)
+  const [accessForm,        setAccessForm]        = useState<PlaceOrderForm>({ clientEmail: '', country: '', packageCode: '', customRetail: '' })
+  const [accessPkgs,        setAccessPkgs]        = useState<AdminPkg[]>([])
+  const [loadingAccessPkgs, setLoadingAccessPkgs] = useState(false)
+  const [placingAccessOrder,setPlacingAccessOrder]= useState(false)
+  const [accessOrderResult, setAccessOrderResult] = useState<PlaceOrderResult | null>(null)
+
+  async function loadAccessPackages() {
+    const iso2 = accessForm.country.trim().toUpperCase()
+    if (iso2.length !== 2) return
+    setLoadingAccessPkgs(true)
+    setAccessPkgs([])
+    setAccessForm(f => ({ ...f, packageCode: '' }))
+    try {
+      const res  = await fetch(`/api/admin/esim/access-packages?iso2=${iso2}`)
+      const data = await res.json()
+      setAccessPkgs((data.packages ?? []) as AdminPkg[])
+    } finally {
+      setLoadingAccessPkgs(false)
+    }
+  }
+
+  async function placeAccessAdminOrder() {
+    const pkg = accessPkgs.find(p => p.packageCode === accessForm.packageCode)
+    if (!pkg || !accessForm.clientEmail) return
+    setPlacingAccessOrder(true)
+    setAccessOrderResult(null)
+    try {
+      const res  = await fetch('/api/admin/esim/access-order', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          clientEmail:     accessForm.clientEmail,
+          packageCode:     pkg.packageCode,
+          packageName:     pkg.name,
+          destination:     accessForm.country.toUpperCase(),
+          destinationIso2: accessForm.country.toUpperCase(),
+          durationDays:    pkg.durationDays,
+          dataAmount:      pkg.dataAmount,
+          dataUnit:        pkg.dataUnit,
+          wholesaleUsd:    pkg.wholesaleUsd,
+          retailUsd:       accessForm.customRetail ? Number(accessForm.customRetail) : pkg.retailUsd,
+        }),
+      })
+      const data = await res.json() as PlaceOrderResult
+      setAccessOrderResult(data)
+      if (data.success) {
+        setAccessForm({ clientEmail: '', country: '', packageCode: '', customRetail: '' })
+        setAccessPkgs([])
+        load()
+      }
+    } finally {
+      setPlacingAccessOrder(false)
     }
   }
 
@@ -207,116 +265,243 @@ export default function AdminEsimPage() {
         </div>
       </div>
 
-      {/* Place Order for Client panel */}
-      <div className="mb-8 bg-white rounded-2xl border border-[#E5E7EB] overflow-hidden">
-        <button
-          onClick={() => { setShowOrderForm(v => !v); setOrderResult(null) }}
-          className="w-full flex items-center justify-between px-6 py-4 hover:bg-[#F8F9FA] transition-colors">
-          <div className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded-lg bg-[#C9A84C]/10 flex items-center justify-center">
-              <UserPlus className="w-4 h-4 text-[#C9A84C]" />
-            </div>
-            <span className="font-semibold text-[#0B1F3A] text-sm">Place Order for Client</span>
-          </div>
-          {showOrderForm ? <ChevronUp className="w-4 h-4 text-[#0B1F3A]/40" /> : <ChevronDown className="w-4 h-4 text-[#0B1F3A]/40" />}
-        </button>
+      {/* Provider order panels */}
+      <div className="mb-8 grid grid-cols-1 lg:grid-cols-2 gap-4">
 
-        {showOrderForm && (
-          <div className="border-t border-[#E5E7EB] p-6">
-            {orderResult && (
-              <div className={`mb-5 p-4 rounded-xl flex items-start gap-3 ${orderResult.success ? 'bg-green-50 border border-green-200' : 'bg-red-50 border border-red-200'}`}>
-                {orderResult.success
-                  ? <Check className="w-4 h-4 text-green-600 flex-shrink-0 mt-0.5" />
-                  : <AlertCircle className="w-4 h-4 text-red-500 flex-shrink-0 mt-0.5" />}
-                <div>
-                  <p className={`font-semibold text-sm ${orderResult.success ? 'text-green-700' : 'text-red-600'}`}>
-                    {orderResult.success ? `Order placed — Ref: ${orderResult.orderRef}` : orderResult.error}
-                  </p>
-                  {orderResult.success && (
-                    <p className="text-xs text-green-600 mt-1">
-                      Status: {orderResult.status} {orderResult.iccid ? `· ICCID: ${orderResult.iccid}` : '· eSIM QR emailed to client'}
+        {/* ── Airalo Panel ── */}
+        <div className="bg-white rounded-2xl border border-[#E5E7EB] overflow-hidden">
+          <button
+            onClick={() => { setShowOrderForm(v => !v); setOrderResult(null) }}
+            className="w-full flex items-center justify-between px-6 py-4 hover:bg-[#F8F9FA] transition-colors">
+            <div className="flex items-center gap-3">
+              <div className="w-8 h-8 rounded-lg bg-[#C9A84C]/10 flex items-center justify-center">
+                <UserPlus className="w-4 h-4 text-[#C9A84C]" />
+              </div>
+              <div className="text-left">
+                <p className="font-semibold text-[#0B1F3A] text-sm">Place Order via Airalo</p>
+                <p className="text-[#0B1F3A]/40 text-xs">Primary provider · 215 countries</p>
+              </div>
+            </div>
+            {showOrderForm ? <ChevronUp className="w-4 h-4 text-[#0B1F3A]/40" /> : <ChevronDown className="w-4 h-4 text-[#0B1F3A]/40" />}
+          </button>
+
+          {showOrderForm && (
+            <div className="border-t border-[#E5E7EB] p-6">
+              {orderResult && (
+                <div className={`mb-5 p-4 rounded-xl flex items-start gap-3 ${orderResult.success ? 'bg-green-50 border border-green-200' : 'bg-red-50 border border-red-200'}`}>
+                  {orderResult.success
+                    ? <Check className="w-4 h-4 text-green-600 flex-shrink-0 mt-0.5" />
+                    : <AlertCircle className="w-4 h-4 text-red-500 flex-shrink-0 mt-0.5" />}
+                  <div>
+                    <p className={`font-semibold text-sm ${orderResult.success ? 'text-green-700' : 'text-red-600'}`}>
+                      {orderResult.success ? `Order placed — Ref: ${orderResult.orderRef}` : orderResult.error}
                     </p>
-                  )}
+                    {orderResult.success && (
+                      <p className="text-xs text-green-600 mt-1">
+                        Status: {orderResult.status} {orderResult.iccid ? `· ICCID: ${orderResult.iccid}` : '· QR emailed to client'}
+                      </p>
+                    )}
+                  </div>
                 </div>
-              </div>
-            )}
+              )}
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
-              <div>
-                <label className="block text-xs font-semibold text-[#0B1F3A]/50 uppercase tracking-wide mb-1.5">Client Email</label>
-                <input
-                  type="email"
-                  placeholder="client@example.com"
-                  value={orderForm.clientEmail}
-                  onChange={e => setOrderForm(f => ({ ...f, clientEmail: e.target.value }))}
-                  className="w-full h-10 px-3 border border-[#E5E7EB] rounded-lg text-sm outline-none focus:border-[#C9A84C]"
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-semibold text-[#0B1F3A]/50 uppercase tracking-wide mb-1.5">Country Code (ISO2)</label>
-                <div className="flex gap-2">
-                  <input
-                    type="text"
-                    placeholder="e.g. GB, NG, AE"
-                    maxLength={2}
-                    value={orderForm.country}
-                    onChange={e => setOrderForm(f => ({ ...f, country: e.target.value.toUpperCase() }))}
-                    className="flex-1 h-10 px-3 border border-[#E5E7EB] rounded-lg text-sm outline-none focus:border-[#C9A84C] uppercase"
-                  />
-                  <button
-                    onClick={loadPackages}
-                    disabled={orderForm.country.length !== 2 || loadingPkgs}
-                    className="px-3 h-10 bg-[#0B1F3A] text-white text-xs font-semibold rounded-lg hover:bg-[#0d2345] transition-colors disabled:opacity-50">
-                    {loadingPkgs ? '…' : 'Load'}
-                  </button>
-                </div>
-              </div>
-            </div>
-
-            {orderPkgs.length > 0 && (
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
                 <div>
-                  <label className="block text-xs font-semibold text-[#0B1F3A]/50 uppercase tracking-wide mb-1.5">
-                    Package ({orderPkgs.length} available)
-                  </label>
-                  <select
-                    value={orderForm.packageCode}
-                    onChange={e => setOrderForm(f => ({ ...f, packageCode: e.target.value }))}
-                    className="w-full h-10 px-3 border border-[#E5E7EB] rounded-lg text-sm outline-none focus:border-[#C9A84C] bg-white">
-                    <option value="">Select a package…</option>
-                    {orderPkgs.map(p => (
-                      <option key={p.packageCode} value={p.packageCode}>
-                        {p.name} — {p.durationDays}d · {p.dataLabel} · ${p.retailUsd.toFixed(2)}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-xs font-semibold text-[#0B1F3A]/50 uppercase tracking-wide mb-1.5">
-                    Custom Retail Price (USD, optional)
-                  </label>
+                  <label className="block text-xs font-semibold text-[#0B1F3A]/50 uppercase tracking-wide mb-1.5">Client Email</label>
                   <input
-                    type="number"
-                    step="0.01"
-                    min="0"
-                    placeholder={orderPkgs.find(p => p.packageCode === orderForm.packageCode)?.retailUsd.toFixed(2) ?? ''}
-                    value={orderForm.customRetail}
-                    onChange={e => setOrderForm(f => ({ ...f, customRetail: e.target.value }))}
+                    type="email"
+                    placeholder="client@example.com"
+                    value={orderForm.clientEmail}
+                    onChange={e => setOrderForm(f => ({ ...f, clientEmail: e.target.value }))}
                     className="w-full h-10 px-3 border border-[#E5E7EB] rounded-lg text-sm outline-none focus:border-[#C9A84C]"
                   />
                 </div>
+                <div>
+                  <label className="block text-xs font-semibold text-[#0B1F3A]/50 uppercase tracking-wide mb-1.5">Country (ISO2)</label>
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      placeholder="e.g. JP, GB, NG"
+                      maxLength={2}
+                      value={orderForm.country}
+                      onChange={e => setOrderForm(f => ({ ...f, country: e.target.value.toUpperCase() }))}
+                      className="flex-1 h-10 px-3 border border-[#E5E7EB] rounded-lg text-sm outline-none focus:border-[#C9A84C] uppercase"
+                    />
+                    <button
+                      onClick={loadPackages}
+                      disabled={orderForm.country.length !== 2 || loadingPkgs}
+                      className="px-3 h-10 bg-[#0B1F3A] text-white text-xs font-semibold rounded-lg hover:bg-[#0d2345] transition-colors disabled:opacity-50">
+                      {loadingPkgs ? '…' : 'Load'}
+                    </button>
+                  </div>
+                </div>
               </div>
-            )}
 
-            <button
-              onClick={placeAdminOrder}
-              disabled={!orderForm.clientEmail || !orderForm.packageCode || placingOrder}
-              className="flex items-center gap-2 px-5 py-2.5 bg-[#C9A84C] text-[#0B1F3A] font-bold text-sm rounded-xl hover:opacity-90 transition-opacity disabled:opacity-40 disabled:cursor-not-allowed">
-              {placingOrder ? <RefreshCw className="w-4 h-4 animate-spin" /> : <UserPlus className="w-4 h-4" />}
-              {placingOrder ? 'Placing order…' : 'Place Order & Email Client'}
-            </button>
-          </div>
-        )}
+              {orderPkgs.length > 0 && (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
+                  <div>
+                    <label className="block text-xs font-semibold text-[#0B1F3A]/50 uppercase tracking-wide mb-1.5">
+                      Package ({orderPkgs.length} available)
+                    </label>
+                    <select
+                      value={orderForm.packageCode}
+                      onChange={e => setOrderForm(f => ({ ...f, packageCode: e.target.value }))}
+                      className="w-full h-10 px-3 border border-[#E5E7EB] rounded-lg text-sm outline-none focus:border-[#C9A84C] bg-white">
+                      <option value="">Select a package…</option>
+                      {orderPkgs.map(p => (
+                        <option key={p.packageCode} value={p.packageCode}>
+                          {p.name} — {p.durationDays}d · {p.dataLabel} · ${p.retailUsd.toFixed(2)}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-[#0B1F3A]/50 uppercase tracking-wide mb-1.5">
+                      Custom Retail (USD, optional)
+                    </label>
+                    <input
+                      type="number" step="0.01" min="0"
+                      placeholder={orderPkgs.find(p => p.packageCode === orderForm.packageCode)?.retailUsd.toFixed(2) ?? ''}
+                      value={orderForm.customRetail}
+                      onChange={e => setOrderForm(f => ({ ...f, customRetail: e.target.value }))}
+                      className="w-full h-10 px-3 border border-[#E5E7EB] rounded-lg text-sm outline-none focus:border-[#C9A84C]"
+                    />
+                  </div>
+                </div>
+              )}
+
+              <button
+                onClick={placeAdminOrder}
+                disabled={!orderForm.clientEmail || !orderForm.packageCode || placingOrder}
+                className="flex items-center gap-2 px-5 py-2.5 bg-[#C9A84C] text-[#0B1F3A] font-bold text-sm rounded-xl hover:opacity-90 transition-opacity disabled:opacity-40 disabled:cursor-not-allowed">
+                {placingOrder ? <RefreshCw className="w-4 h-4 animate-spin" /> : <UserPlus className="w-4 h-4" />}
+                {placingOrder ? 'Placing order…' : 'Place Order & Email Client'}
+              </button>
+            </div>
+          )}
+        </div>
+
+        {/* ── eSIM Access Panel ── */}
+        <div className="bg-white rounded-2xl border border-[#E5E7EB] overflow-hidden">
+          <button
+            onClick={() => { setShowAccessForm(v => !v); setAccessOrderResult(null) }}
+            className="w-full flex items-center justify-between px-6 py-4 hover:bg-[#F8F9FA] transition-colors">
+            <div className="flex items-center gap-3">
+              <div className="w-8 h-8 rounded-lg bg-teal-50 flex items-center justify-center">
+                <Wifi className="w-4 h-4 text-teal-600" />
+              </div>
+              <div className="text-left">
+                <p className="font-semibold text-[#0B1F3A] text-sm">Place Order via eSIM Access</p>
+                <p className="text-[#0B1F3A]/40 text-xs">Backup provider · use when Airalo unavailable</p>
+              </div>
+            </div>
+            {showAccessForm ? <ChevronUp className="w-4 h-4 text-[#0B1F3A]/40" /> : <ChevronDown className="w-4 h-4 text-[#0B1F3A]/40" />}
+          </button>
+
+          {showAccessForm && (
+            <div className="border-t border-[#E5E7EB] p-6">
+              <div className="mb-4 p-3 rounded-lg bg-teal-50 border border-teal-100">
+                <p className="text-xs text-teal-700 font-medium">eSIM Access delivers QR code via email. No LPA/manual code — client scans QR only.</p>
+              </div>
+
+              {accessOrderResult && (
+                <div className={`mb-5 p-4 rounded-xl flex items-start gap-3 ${accessOrderResult.success ? 'bg-green-50 border border-green-200' : 'bg-red-50 border border-red-200'}`}>
+                  {accessOrderResult.success
+                    ? <Check className="w-4 h-4 text-green-600 flex-shrink-0 mt-0.5" />
+                    : <AlertCircle className="w-4 h-4 text-red-500 flex-shrink-0 mt-0.5" />}
+                  <div>
+                    <p className={`font-semibold text-sm ${accessOrderResult.success ? 'text-green-700' : 'text-red-600'}`}>
+                      {accessOrderResult.success ? `Order placed — Ref: ${accessOrderResult.orderRef}` : accessOrderResult.error}
+                    </p>
+                    {accessOrderResult.success && (
+                      <p className="text-xs text-green-600 mt-1">
+                        Status: {accessOrderResult.status} {accessOrderResult.iccid ? `· ICCID: ${accessOrderResult.iccid}` : '· QR emailed to client'}
+                      </p>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
+                <div>
+                  <label className="block text-xs font-semibold text-[#0B1F3A]/50 uppercase tracking-wide mb-1.5">Client Email</label>
+                  <input
+                    type="email"
+                    placeholder="client@example.com"
+                    value={accessForm.clientEmail}
+                    onChange={e => setAccessForm(f => ({ ...f, clientEmail: e.target.value }))}
+                    className="w-full h-10 px-3 border border-[#E5E7EB] rounded-lg text-sm outline-none focus:border-teal-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-[#0B1F3A]/50 uppercase tracking-wide mb-1.5">Country (ISO2)</label>
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      placeholder="e.g. JP, GB, NG"
+                      maxLength={2}
+                      value={accessForm.country}
+                      onChange={e => setAccessForm(f => ({ ...f, country: e.target.value.toUpperCase() }))}
+                      className="flex-1 h-10 px-3 border border-[#E5E7EB] rounded-lg text-sm outline-none focus:border-teal-500 uppercase"
+                    />
+                    <button
+                      onClick={loadAccessPackages}
+                      disabled={accessForm.country.length !== 2 || loadingAccessPkgs}
+                      className="px-3 h-10 bg-teal-600 text-white text-xs font-semibold rounded-lg hover:bg-teal-700 transition-colors disabled:opacity-50">
+                      {loadingAccessPkgs ? '…' : 'Load'}
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {accessPkgs.length > 0 && (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
+                  <div>
+                    <label className="block text-xs font-semibold text-[#0B1F3A]/50 uppercase tracking-wide mb-1.5">
+                      Package ({accessPkgs.length} available)
+                    </label>
+                    <select
+                      value={accessForm.packageCode}
+                      onChange={e => setAccessForm(f => ({ ...f, packageCode: e.target.value }))}
+                      className="w-full h-10 px-3 border border-[#E5E7EB] rounded-lg text-sm outline-none focus:border-teal-500 bg-white">
+                      <option value="">Select a package…</option>
+                      {accessPkgs.map(p => (
+                        <option key={p.packageCode} value={p.packageCode}>
+                          {p.name} — {p.durationDays}d · {p.dataLabel} · ${p.retailUsd.toFixed(2)}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-[#0B1F3A]/50 uppercase tracking-wide mb-1.5">
+                      Custom Retail (USD, optional)
+                    </label>
+                    <input
+                      type="number" step="0.01" min="0"
+                      placeholder={accessPkgs.find(p => p.packageCode === accessForm.packageCode)?.retailUsd.toFixed(2) ?? ''}
+                      value={accessForm.customRetail}
+                      onChange={e => setAccessForm(f => ({ ...f, customRetail: e.target.value }))}
+                      className="w-full h-10 px-3 border border-[#E5E7EB] rounded-lg text-sm outline-none focus:border-teal-500"
+                    />
+                  </div>
+                </div>
+              )}
+
+              {accessPkgs.length === 0 && accessForm.country.length === 2 && !loadingAccessPkgs && (
+                <p className="text-xs text-[#0B1F3A]/40 mb-4">No eSIM Access packages found for {accessForm.country}. Try a different country code.</p>
+              )}
+
+              <button
+                onClick={placeAccessAdminOrder}
+                disabled={!accessForm.clientEmail || !accessForm.packageCode || placingAccessOrder}
+                className="flex items-center gap-2 px-5 py-2.5 bg-teal-600 text-white font-bold text-sm rounded-xl hover:bg-teal-700 transition-colors disabled:opacity-40 disabled:cursor-not-allowed">
+                {placingAccessOrder ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Wifi className="w-4 h-4" />}
+                {placingAccessOrder ? 'Placing order…' : 'Place Order & Email Client'}
+              </button>
+            </div>
+          )}
+        </div>
+
       </div>
 
       {/* Stats grid */}

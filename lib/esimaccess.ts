@@ -141,9 +141,10 @@ function classifyAccessError(errorCode: string, errorMsg: string | null): Normal
  * Fetch all eSIM Access packages.
  * Each package's `price` field is an integer ×10,000 USD; parsePackage() divides by 10,000.
  */
-export async function fetchAllEsimAccessPackages(): Promise<ProviderPackage[]> {
+export async function fetchAllEsimAccessPackages(locationCode?: string): Promise<ProviderPackage[]> {
   try {
-    const res = await accessPost<unknown[]>('/open/package/list', {})
+    const body = locationCode ? { locationCode: locationCode.toUpperCase() } : {}
+    const res = await accessPost<unknown[]>('/open/package/list', body)
 
     if (!res.success && res.errorCode !== '0') {
       console.error('[esimaccess] package list error:', res.errorCode, res.errorMsg)
