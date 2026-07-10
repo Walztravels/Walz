@@ -70,6 +70,17 @@ function PassengerDropdown({ value, onChange, onClose }: { value: PassengerCount
   )
 }
 
+interface MCLeg {
+  from: string; fromCode: string
+  to: string;   toCode: string
+  depart: Date | undefined
+  fromSug: ApiAirport[]; toSug: ApiAirport[]
+}
+
+function emptyLeg(): MCLeg {
+  return { from: '', fromCode: '', to: '', toCode: '', depart: undefined, fromSug: [], toSug: [] }
+}
+
 export function FlightSearchWidget() {
   const router = useRouter()
   const [tripType, setTripType] = useState<TripType>('round-trip')
@@ -82,6 +93,11 @@ export function FlightSearchWidget() {
   const [toCode,   setToCode]   = useState('')
   const [depart,   setDepart]   = useState<Date | undefined>()
   const [ret,      setRet]      = useState<Date | undefined>()
+
+  // Multi-city legs state
+  const [mcLegs, setMcLegs] = useState<MCLeg[]>([emptyLeg(), emptyLeg()])
+  const mcFromDebounces = useRef<(ReturnType<typeof setTimeout> | undefined)[]>([])
+  const mcToDebounces   = useRef<(ReturnType<typeof setTimeout> | undefined)[]>([])
 
   const [fromSug,     setFromSug]     = useState<ApiAirport[]>([])
   const [toSug,       setToSug]       = useState<ApiAirport[]>([])
@@ -102,6 +118,40 @@ export function FlightSearchWidget() {
       const data = await res.json() as { data?: ApiAirport[] }
       setSug(data.data ?? [])
     } catch { setSug([]) }
+  }
+
+  async function fetchMcAirports(q: string, i: number, field: 'fromSug' | 'toSug') {
+    if (q.length < 2) { setMcLegs(prev => { const n=[...prev]; n[i]={...n[i],[field]:[]}; return n }); return }
+    try {
+      const res  = await fetch(`/api/places?q=${encodeURIComponent(q)}`)
+      const data = await res.json() as { data?: ApiAirport[] }
+      setMcLegs(prev => { const n=[...prev]; n[i]={...n[i],[field]:data.data??[]}; return n })
+    } catch { setMcLegs(prev => { const n=[...prev]; n[i]={...n[i],[field]:[]}; return n }) }
+  }
+
+  function updateMcLeg(i: number, patch: Partial<MCLeg>) {
+    setMcLegs(prev => {
+      const next = [...prev]
+      next[i] = { ...next[i], ...patch }
+      // Auto-fill next leg's departure when current destination is set
+      if (patch.toCode && i < prev.length - 1) {
+        next[i + 1] = { ...next[i + 1], from: next[i].to, fromCode: patch.toCode }
+      }
+      return next
+    })
+  }
+
+  function addMcLeg() {
+    if (mcLegs.length >= 5) return
+    setMcLegs(prev => {
+      const last = prev[prev.length - 1]
+      return [...prev, { ...emptyLeg(), from: last.to, fromCode: last.toCode }]
+    })
+  }
+
+  function removeMcLeg(i: number) {
+    if (mcLegs.length <= 2) return
+    setMcLegs(prev => prev.filter((_, idx) => idx !== i))
   }
 
   const { showCapture, setShowCapture, captureEmail } = useAbandonmentCapture({
@@ -136,16 +186,40 @@ export function FlightSearchWidget() {
   function validate() {
     setHasSubmitted(true)
     const e: Record<string, string> = {}
-    if (!fromCode) e.from   = 'Enter departure airport'
-    if (!toCode)   e.to     = 'Enter destination airport'
-    if (!depart)   e.depart = 'Select departure date'
-    if (tripType === 'round-trip' && !ret) e.return = 'Select return date'
+    if (tripType === 'multi-city') {
+      for (let i = 0; i < mcLegs.length; i++) {
+        if (!mcLegs[i].fromCode) { e[`mc_from_${i}`] = `Leg ${i + 1}: enter departure`; break }
+        if (!mcLegs[i].toCode)   { e[`mc_to_${i}`]   = `Leg ${i + 1}: enter destination`; break }
+        if (!mcLegs[i].depart)   { e[`mc_dep_${i}`]  = `Leg ${i + 1}: select date`; break }
+      }
+    } else {
+      if (!fromCode) e.from   = 'Enter departure airport'
+      if (!toCode)   e.to     = 'Enter destination airport'
+      if (!depart)   e.depart = 'Select departure date'
+      if (tripType === 'round-trip' && !ret) e.return = 'Select return date'
+    }
     setErrors(e)
     return Object.keys(e).length === 0
   }
 
   function handleSearch() {
     if (!validate()) return
+
+    if (tripType === 'multi-city') {
+      const firstLeg = mcLegs[0]
+      const lastLeg  = mcLegs[mcLegs.length - 1]
+      const segments = mcLegs.map(l => ({ from: l.fromCode, to: l.toCode, date: format(l.depart!, 'yyyy-MM-dd') }))
+      const payload = { trip: 'multi-city', segments, cabin, adults: pax.adults, children: pax.children, infants: pax.infants }
+      sessionStorage.setItem('mcSearch', JSON.stringify(payload))
+      const params = new URLSearchParams({
+        tripType: 'multi-city',
+        from: firstLeg.fromCode, to: lastLeg.toCode,
+        adults: String(pax.adults), children: String(pax.children), infants: String(pax.infants), cabin,
+      })
+      router.push(`/flights/search?${params.toString()}`)
+      return
+    }
+
     const params = new URLSearchParams({
       from: fromCode, to: toCode, depart: format(depart!, 'yyyy-MM-dd'),
       ...(tripType === 'round-trip' && ret ? { return: format(ret, 'yyyy-MM-dd') } : {}),
@@ -211,7 +285,120 @@ export function FlightSearchWidget() {
         </div>
       </div>
 
-      {/* Fields grid */}
+      {/* ── Multi-city legs ───────────────────────────────────────────────────── */}
+      {tripType === 'multi-city' ? (
+        <div className="px-5 lg:px-8 py-5 space-y-3">
+          {mcLegs.map((leg, i) => (
+            <div key={i} className="grid grid-cols-1 lg:grid-cols-[1fr_1fr_160px_auto] gap-3 items-end">
+              {/* FROM */}
+              <div className="relative">
+                {i === 0 && <label className="block text-xs font-semibold text-[#0B1F3A]/50 uppercase tracking-wider mb-1.5">From</label>}
+                <div className={fieldCls(errors[`mc_from_${i}`])}>
+                  <svg className="w-4 h-4 text-[#C9A84C] flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 19l14-7L5 5v5l9 2-9 2v5z" />
+                  </svg>
+                  <div className="flex-1 min-w-0">
+                    {leg.fromCode && <div className="text-[10px] text-[#0B1F3A]/40 leading-none mb-0.5">{leg.fromCode}</div>}
+                    <input type="text" placeholder="City or airport" value={leg.from}
+                      aria-label={`Leg ${i + 1} departure`}
+                      onChange={e => {
+                        const v = e.target.value
+                        updateMcLeg(i, { from: v, fromCode: '' })
+                        clearTimeout(mcFromDebounces.current[i])
+                        mcFromDebounces.current[i] = setTimeout(() => void fetchMcAirports(v, i, 'fromSug'), 200)
+                      }}
+                      className="w-full bg-transparent outline-none text-sm font-medium text-[#0B1F3A] placeholder:text-[#0B1F3A]/30" />
+                  </div>
+                </div>
+                {leg.fromSug.length > 0 && (
+                  <AirportDropdown airports={leg.fromSug} onSelect={a => {
+                    updateMcLeg(i, { from: `${a.city} (${a.code})`, fromCode: a.code, fromSug: [] })
+                  }} />
+                )}
+              </div>
+
+              {/* TO */}
+              <div className="relative">
+                {i === 0 && <label className="block text-xs font-semibold text-[#0B1F3A]/50 uppercase tracking-wider mb-1.5">To</label>}
+                <div className={fieldCls(errors[`mc_to_${i}`])}>
+                  <svg className="w-4 h-4 text-[#0B1F3A]/30 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657 13.414 20.9a1.998 1.998 0 0 1-2.827 0l-4.244-4.243a8 8 0 1 1 11.314 0z" />
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 1 1-6 0 3 3 0 0 1 6 0z" />
+                  </svg>
+                  <div className="flex-1 min-w-0">
+                    {leg.toCode && <div className="text-[10px] text-[#0B1F3A]/40 leading-none mb-0.5">{leg.toCode}</div>}
+                    <input type="text" placeholder="City or airport" value={leg.to}
+                      aria-label={`Leg ${i + 1} destination`}
+                      onChange={e => {
+                        const v = e.target.value
+                        updateMcLeg(i, { to: v, toCode: '' })
+                        clearTimeout(mcToDebounces.current[i])
+                        mcToDebounces.current[i] = setTimeout(() => void fetchMcAirports(v, i, 'toSug'), 200)
+                      }}
+                      className="w-full bg-transparent outline-none text-sm font-medium text-[#0B1F3A] placeholder:text-[#0B1F3A]/30" />
+                  </div>
+                </div>
+                {leg.toSug.length > 0 && (
+                  <AirportDropdown airports={leg.toSug} onSelect={a => {
+                    updateMcLeg(i, { to: `${a.city} (${a.code})`, toCode: a.code, toSug: [] })
+                  }} />
+                )}
+              </div>
+
+              {/* DEPART */}
+              <div>
+                <DatePickerField
+                  label={i === 0 ? 'Depart' : ''}
+                  value={leg.depart}
+                  onChange={d => updateMcLeg(i, { depart: d })}
+                  minDate={i === 0 ? new Date() : (mcLegs[i - 1].depart ?? new Date())}
+                  placeholder="Select date"
+                  error={errors[`mc_dep_${i}`]}
+                />
+              </div>
+
+              {/* REMOVE / placeholder */}
+              <div className={i === 0 ? 'mt-6' : ''}>
+                {mcLegs.length > 2 ? (
+                  <button type="button" onClick={() => removeMcLeg(i)}
+                    className="w-11 h-11 rounded-full border border-[#0B1F3A]/10 flex items-center justify-center text-[#0B1F3A]/40 hover:border-red-300 hover:text-red-500 transition-all"
+                    aria-label={`Remove leg ${i + 1}`}>
+                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18 18 6M6 6l12 12" />
+                    </svg>
+                  </button>
+                ) : <div className="w-11" />}
+              </div>
+            </div>
+          ))}
+
+          {/* Add leg + Search */}
+          <div className="flex items-center justify-between pt-1">
+            {mcLegs.length < 5 ? (
+              <button type="button" onClick={addMcLeg}
+                className="flex items-center gap-2 text-sm font-semibold text-[#C9A84C] hover:text-[#0B1F3A] transition-colors">
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                </svg>
+                Add another flight
+              </button>
+            ) : <div />}
+            <button type="button" onClick={handleSearch}
+              className="h-12 px-8 rounded-xl bg-[#C9A84C] text-[#0B1F3A] font-bold text-sm flex items-center gap-2 hover:bg-[#E8C87A] active:scale-[0.97] transition-all shadow-lg shadow-[#C9A84C]/25">
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 15.803a7.5 7.5 0 0 0 10.607 10.607z" />
+              </svg>
+              Search Flights
+            </button>
+          </div>
+
+          {/* Validation error summary */}
+          {Object.values(errors).some(Boolean) && (
+            <p className="text-red-500 text-xs">{Object.values(errors).find(Boolean)}</p>
+          )}
+        </div>
+      ) : (
+      /* ── Single-route grid (one-way / round-trip) ──────────────────────────── */
       <div className="px-5 lg:px-8 py-5 grid grid-cols-1 lg:grid-cols-12 gap-3">
         {/* FROM */}
         <div className="lg:col-span-3 relative">
@@ -304,6 +491,7 @@ export function FlightSearchWidget() {
           </button>
         </div>
       </div>
+      )}
 
       {/* Quick options strip */}
       <div className="px-5 lg:px-8 pb-4 flex flex-wrap items-center gap-4">

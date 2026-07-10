@@ -30,6 +30,7 @@ type Phase = 'loading' | 'summary' | 'results'
 
 function SearchContent() {
   const sp = useSearchParams()
+  const tripTypeParam = sp.get('tripType') // 'multi-city' for multicity searches
   const from     = sp.get('from')     ?? 'LHR'
   const to       = sp.get('to')       ?? 'LOS'
   const cabin    = sp.get('cabin')    ?? 'ECONOMY'
@@ -86,10 +87,24 @@ function SearchContent() {
     setSearching(true)
     setSearchError(null)
 
+    // Multi-city: payload is in sessionStorage
+    let body: Record<string, unknown>
+    if (tripTypeParam === 'multi-city') {
+      const stored = sessionStorage.getItem('mcSearch')
+      if (stored) {
+        sessionStorage.removeItem('mcSearch')
+        body = JSON.parse(stored) as Record<string, unknown>
+      } else {
+        body = { from, to, cabin, adults, children, infants, depart, return: returnD, trip }
+      }
+    } else {
+      body = { from, to, cabin, adults, children, infants, depart, return: returnD, trip }
+    }
+
     fetch('/api/flights/search', {
       method:  'POST',
       headers: { 'Content-Type': 'application/json' },
-      body:    JSON.stringify({ from, to, cabin, adults, children, infants, depart, return: returnD, trip }),
+      body:    JSON.stringify(body),
     })
       .then(r => r.json())
       .then(data => {
@@ -114,7 +129,7 @@ function SearchContent() {
       })
 
     return () => { stepTimers.forEach(clearTimeout) }
-  }, [from, to, cabin, adults, children, infants, depart, returnD, trip]) // eslint-disable-line
+  }, [from, to, cabin, adults, children, infants, depart, returnD, trip, tripTypeParam]) // eslint-disable-line
 
   // ── Sync stored results ────────────────────────────────────────────────────
   useEffect(() => {

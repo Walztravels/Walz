@@ -26,9 +26,11 @@ export async function POST(req: NextRequest) {
 
   try {
     const body = await req.json()
-    const { from, to, depart, return: ret, trip, cabin, adults, children, infants } = body
+    const { from, to, depart, return: ret, trip, cabin, adults, children, infants, segments } = body
 
-    if (!from || !to || !depart) {
+    const isMultiCity = trip === 'multi-city' && Array.isArray(segments) && segments.length >= 2
+
+    if (!isMultiCity && (!from || !to || !depart)) {
       return NextResponse.json({ error: 'Missing required fields: from, to, depart' }, { status: 400 })
     }
 
@@ -37,9 +39,11 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Flight search is temporarily unavailable', source: 'error' }, { status: 503 })
     }
 
-    const legs = trip === 'round-trip' && ret
-      ? [{ from, to, date: depart }, { from: to, to: from, date: ret }]
-      : [{ from, to, date: depart }]
+    const legs = isMultiCity
+      ? (segments as Array<{ from: string; to: string; date: string }>).map(s => ({ from: s.from, to: s.to, date: s.date }))
+      : trip === 'round-trip' && ret
+        ? [{ from, to, date: depart }, { from: to, to: from, date: ret }]
+        : [{ from, to, date: depart }]
 
     const params: FlightSearchParams = {
       tripType:   trip ?? 'one-way',
