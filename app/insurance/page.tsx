@@ -816,7 +816,7 @@ function InsurancePageInner() {
                   </button>
                 ) : (
                   <a
-                    href={`/login?redirect=/insurance`}
+                    href={`/login?callbackUrl=/insurance`}
                     className="inline-flex items-center gap-2.5 px-8 py-3.5 bg-[#C9A84C] hover:bg-[#d4b05a] text-[#0B1F3A] font-bold text-sm rounded-full transition-all duration-300 hover:scale-105"
                   >
                     Sign in to Purchase

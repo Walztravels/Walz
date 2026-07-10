@@ -257,7 +257,7 @@ export default function JadeMilesRegisterPage() {
 
             <p className="text-center text-[#0B1F3A]/30 text-xs">
               Already a member?{' '}
-              <a href="/auth/login" className="text-[#C9A84C] hover:underline">Sign in</a>
+              <a href="/login" className="text-[#C9A84C] hover:underline">Sign in</a>
             </p>
           </form>
         )}

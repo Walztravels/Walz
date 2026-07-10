@@ -300,7 +300,7 @@ function CheckoutModal({
   }
 
   async function pickStripe() {
-    if (!session?.user?.email) { router.push(`/auth/login?redirect=/esim/${code.toLowerCase()}`); return }
+    if (!session?.user?.email) { router.push(`/login?callbackUrl=${encodeURIComponent(`/esim/${code.toLowerCase()}`)}`); return }
     setStep('stripe'); setLoadingStripe(true); setCheckoutErr('')
     try {
       const res  = await fetch('/api/esim/checkout', {
@@ -315,7 +315,7 @@ function CheckoutModal({
   }
 
   async function pickFlutterwave() {
-    if (!session?.user?.email) { router.push(`/auth/login?redirect=/esim/${code.toLowerCase()}`); return }
+    if (!session?.user?.email) { router.push(`/login?callbackUrl=${encodeURIComponent(`/esim/${code.toLowerCase()}`)}`); return }
     setLoadingFlw(true); setCheckoutErr('')
     try {
       const res  = await fetch('/api/esim/checkout', {
@@ -574,7 +574,7 @@ export function EsimCountryPage({
   const handleBuy = useCallback((pkg: EsimPackage) => {
     if (!session?.user?.email) {
       const returnUrl = `/esim/${code.toLowerCase()}?buy=${encodeURIComponent(pkg.packageCode)}`
-      router.push(`/auth/login?redirect=${encodeURIComponent(returnUrl)}`)
+      router.push(`/login?callbackUrl=${encodeURIComponent(returnUrl)}`)
       return
     }
     setCheckoutPkg(pkg)
