@@ -232,3 +232,27 @@ export async function getInstallInstructions(iccid: string): Promise<AiraloInsta
     return null
   }
 }
+
+// ── SIM usage / status ────────────────────────────────────────────────────────
+
+export interface AiraloSimUsage {
+  iccid:          string
+  status:         string          // "active" | "inactive" | "expired" | "not_active"
+  remaining:      number | null   // bytes remaining
+  total:          number | null   // bytes total
+  expired_at:     string | null   // ISO date
+}
+
+/**
+ * Fetch live SIM status and usage from Airalo.
+ * Returns null (without throwing) if the ICCID is unknown or the call fails.
+ */
+export async function getSimDetails(iccid: string): Promise<AiraloSimUsage | null> {
+  try {
+    const res = await airaloGet<{ data: AiraloSimUsage }>(`/sims/${iccid}`)
+    return res.data ?? null
+  } catch (err) {
+    console.error(`[airalo] getSimDetails(${iccid}):`, err)
+    return null
+  }
+}

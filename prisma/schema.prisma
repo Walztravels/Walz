@@ -1404,8 +1404,9 @@ model EsimOrder {
   userId              String?
   tripId              String?
   orderRef            String    @unique   // JADE-ESIM-timestamp-random
-  transactionId       String?             // same as orderRef — sent to eSIM Access
-  esimAccessOrderNo   String?             // returned by eSIM Access
+  transactionId       String?             // Flutterwave tx_ref / payment reference
+  provider            String    @default("airalo")   // "airalo" | "esimaccess"
+  esimAccessOrderNo   String?             // provider order code (Airalo: order.code, eSIM Access: orderNo)
   destination         String
   destinationIso2     String
   packageCode         String
@@ -1422,7 +1423,7 @@ model EsimOrder {
   activationCode      String?             // AC code
   smdpAddress         String?             // SM-DP+ address
   lpaString           String?             // LPA:1:smdp:ac combined
-  status              String    @default("pending")  // pending | active | cancelled | expired
+  status              String    @default("pending")  // pending | active | cancelled | expired | failed
   stripePaymentId     String?   @unique
   emailSent           Boolean   @default(false)
   purchasedAt         DateTime  @default(now())
@@ -1436,9 +1437,29 @@ model EsimOrder {
 
   @@index([userId])
   @@index([status])
+  @@index([provider])
   @@index([destinationIso2])
   @@index([orderRef])
   @@index([iccid])
+}
+
+// Pre-computed Airalo ↔ eSIM Access package pairings (synced hourly).
+// Only rows with esimAccessPackageId non-null are fallback-eligible.
+// dataAmountMb uses -1 as sentinel for unlimited packages (avoids NULL in unique key).
+model EsimPackageMapping {
+  id                  String   @id @default(cuid())
+  locationCode        String   // ISO2 country code
+  dataAmountMb        Float    @default(-1)  // -1 = unlimited; otherwise MB
+  durationDays        Int
+  airaloPackageId     String
+  esimAccessPackageId String?  // null if no matching eSIM Access plan exists
+  wholesaleUsdAiralo  Float
+  wholesaleUsdAccess  Float?
+  lastSyncedAt        DateTime @default(now())
+
+  @@unique([locationCode, dataAmountMb, durationDays])
+  @@index([locationCode])
+  @@index([airaloPackageId])
 }
 
 model EsimTopup {

@@ -1,25 +1,3 @@
-/**
- * Jade Connect — eSIM Access API helpers and pricing logic.
- *
- * eSIM Access API facts (confirmed from live responses):
- *  - price          → wholesale cost in thousandths of USD (e.g. 5399 = $5.40, 9990 = $9.99)
- *  - wholesalePrice → same unit as price (divide by 1000 for USD)
- *  - volume         → data in BYTES (e.g. 104857600 = 100 MB, 1073741824 = 1 GB)
- *  - duration       → plan length in days (plain integer)
- *  - locationNetworkList → array of { locationName, locationLogo, operatorList }
- */
-
-// ── Auth headers ─────────────────────────────────────────────────────────────
-export function esimHeaders(): Record<string, string> {
-  return {
-    'Content-Type': 'application/json',
-    'RT-AccessCode': process.env.ESIM_ACCESS_CODE ?? '',
-    'RT-SecretKey':  process.env.ESIM_SECRET_KEY  ?? '',
-  }
-}
-
-export const ESIM_BASE = 'https://api.esimaccess.com/api/v1'
-
 // ── Pricing markups ───────────────────────────────────────────────────────────
 export function applyMarkup(wholesaleUsd: number): number {
   let retail: number
@@ -181,10 +159,10 @@ export function parsePackage(raw: Record<string, unknown>, countryCode: string):
   const code = String(raw.packageCode ?? raw.productCode ?? '')
   if (!code) return null
 
-  // API returns price in thousandths of USD — divide by 1000 to get actual USD
+  // eSIM Access returns price as integer ×10,000 USD (88000 = $8.80)
   const rawPrice = Number(raw.price ?? raw.retailPrice ?? 0)
   if (rawPrice <= 0) return null
-  const wholesale = rawPrice / 1000
+  const wholesale = rawPrice / 10000
 
   const retail = applyMarkup(wholesale)
 

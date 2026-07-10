@@ -4,9 +4,11 @@ import type Stripe from 'stripe'
 import prisma from '@/lib/db'
 import { getResend } from '@/lib/resend'
 import { calcMargin, generateOrderRef, formatData } from '@/lib/esim-pricing'
-import { getInstallInstructions } from '@/lib/airalo'
-import { placeAiraloOrder, alertStaffOfOrderFailure } from '@/lib/esim/airalo-error'
-import { sendEsimWhatsApp } from '@/lib/esim-whatsapp-message'
+import { getInstallInstructions }                     from '@/lib/airalo'
+import { alertStaffOfOrderFailure }                   from '@/lib/esim/airalo-error'
+import { fulfillEsimOrder }                           from '@/lib/esim/fallback'
+import { buildEsimAccessInstallInstructions }         from '@/lib/esimaccess'
+import { sendEsimWhatsApp }                           from '@/lib/esim-whatsapp-message'
 
 export const dynamic = 'force-dynamic'
 
@@ -89,24 +91,30 @@ async function fulfillEsim(intent: Stripe.PaymentIntent) {
     select: { id: true, name: true, email: true, phone: true },
   })
 
-  // Place order with Airalo — retry on 5xx/401, typed errors on 422
-  const airaloResult = await placeAiraloOrder(
-    meta.packageCode,
-    `Walz Travels — ${meta.destination} eSIM`,
+  // Place order — Airalo primary, eSIM Access fallback on supply-side failures
+  const result = await fulfillEsimOrder({
+    airaloPackageId: meta.packageCode,
+    locationCode:    meta.destinationIso2,
+    description:     `Walz Travels — ${meta.destination} eSIM`,
+    orderRef,
+    destination:     meta.destination,
+    retailUsd:       retail,
+    customerId:      user?.id,
+  })
+  console.log(
+    `[esim/webhook] fulfillment: ok=${result.ok} provider=${result.provider}`,
+    result.fallbackUsed ? '(fallback used)' : '',
+    result.errorCode ?? '',
   )
-  console.log('[esim/webhook] Airalo result:', airaloResult.ok, airaloResult.errorCode ?? '')
 
-  const airaloOrder    = airaloResult.data ?? null
-  const sim            = airaloOrder?.sims?.[0]
-  const iccid          = sim?.iccid                         ?? ''
-  const qrCodeUrl      = sim?.qrcode_url                    ?? ''
-  const activationCode = sim?.matching_id                   ?? ''
-  const smdpAddress    = sim?.lpa                           ?? ''
-  const lpaString      = sim?.qrcode                        ?? ''
-  const appleInstallUrl= sim?.direct_apple_installation_url ?? ''
-  const esimOrderNo    = airaloOrder?.code                  ?? ''
-  const actualWholesale= airaloOrder?.unit_paid_price       ?? wholesale
-  const orderStatus    = !airaloResult.ok ? 'failed' : iccid ? 'active' : 'pending'
+  const iccid          = result.iccid          ?? ''
+  const qrCodeUrl      = result.qrCodeUrl      ?? ''
+  const activationCode = result.activationCode ?? ''
+  const smdpAddress    = result.smdpAddress    ?? ''
+  const lpaString      = result.lpaString      ?? ''
+  const appleInstallUrl= result.appleInstallUrl ?? ''
+  const actualWholesale= result.wholesalePaid  ?? wholesale
+  const orderStatus    = !result.ok ? 'failed' : iccid ? 'active' : 'pending'
 
   // Write the order record — catch unique constraint on stripePaymentId to prevent
   // double-fulfilment when Stripe retries the webhook delivery concurrently.
@@ -117,7 +125,8 @@ async function fulfillEsim(intent: Stripe.PaymentIntent) {
         tripId:            meta.tripId || null,
         orderRef,
         transactionId:     orderRef,
-        esimAccessOrderNo: esimOrderNo || null,
+        provider:          result.provider ?? 'airalo',
+        esimAccessOrderNo: result.providerOrderId || null,
         destination:       meta.destination,
         destinationIso2:   meta.destinationIso2,
         packageCode:       meta.packageCode,
@@ -147,28 +156,30 @@ async function fulfillEsim(intent: Stripe.PaymentIntent) {
     throw dbErr
   }
 
-  // Staff alert if Airalo order failed AFTER payment was captured
-  if (!airaloResult.ok) {
-    console.error('[esim/webhook] Airalo order failed:', airaloResult.errorMsg)
-    await alertStaffOfOrderFailure({
-      orderRef,
-      packageCode: meta.packageCode,
-      destination: meta.destination,
-      retailUsd:   retail,
-      customerId:  user?.id,
-      reason:      airaloResult.customerMsg ?? airaloResult.errorMsg ?? 'Unknown error',
-      alertMsg:    airaloResult.alertMsg ?? airaloResult.errorMsg,
-    })
-    // Notify customer their order is being handled manually
-    if (user?.email) {
+  // Both providers failed after payment was captured
+  if (!result.ok) {
+    console.error('[esim/webhook] fulfillment failed:', result.errorMsg)
+    if (result.alertStaff) {
+      await alertStaffOfOrderFailure({
+        orderRef,
+        packageCode: meta.packageCode,
+        destination: meta.destination,
+        retailUsd:   retail,
+        customerId:  user?.id,
+        reason:      result.customerMsg ?? result.errorMsg ?? 'Unknown error',
+        alertMsg:    result.alertMsg ?? result.errorMsg,
+      })
+    }
+    const toEmail = user?.email ?? meta.customerEmail
+    if (toEmail) {
       try {
         await getResend().emails.send({
           from:    'Jade Connect <noreply@walztravels.com>',
-          to:      user.email,
+          to:      toEmail,
           subject: `Your Jade eSIM order is being processed — ${meta.destination}`,
-          html:    `<p>Hi ${user.name ?? 'Traveller'},</p>
+          html:    `<p>Hi ${user?.name ?? 'Traveller'},</p>
                     <p>Your payment for a <strong>${meta.destination}</strong> eSIM was received (Ref: ${orderRef}).</p>
-                    <p>${airaloResult.customerMsg ?? 'Our team is processing your order and will send your QR code shortly.'}</p>
+                    <p>${result.customerMsg ?? 'Our team is processing your order and will send your QR code shortly.'}</p>
                     <p>If you have any questions, WhatsApp us at <a href="https://wa.me/12317902336">+1 231 790 2336</a>.</p>`,
         })
       } catch { /* ignore */ }
@@ -176,8 +187,11 @@ async function fulfillEsim(intent: Stripe.PaymentIntent) {
     return
   }
 
-  // Fetch structured install instructions (not the HTML blobs from the order response)
-  const installInstructions = iccid ? await getInstallInstructions(iccid) : null
+  // Fetch structured install instructions (Airalo only — provider-aware WhatsApp formatting)
+  // eSIM Access orders fall back to the generic numbered-steps message in sendEsimWhatsApp.
+  const installInstructions = (result.provider === 'airalo' && iccid)
+    ? await getInstallInstructions(iccid)
+    : null
 
   if (user?.email) {
     try {
@@ -200,7 +214,7 @@ async function fulfillEsim(intent: Stripe.PaymentIntent) {
     }
   }
 
-  // WhatsApp delivery — use phone from metadata (set at checkout time from user profile)
+  // WhatsApp delivery
   const toPhone = (meta.customerPhone ?? user?.phone ?? '').trim()
   if (toPhone) {
     sendEsimWhatsApp({

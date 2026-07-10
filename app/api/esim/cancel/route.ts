@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getAdminSession } from '@/lib/admin-auth'
 import prisma from '@/lib/db'
-import { esimHeaders, ESIM_BASE } from '@/lib/esim-pricing'
 
 export const dynamic = 'force-dynamic'
 
@@ -15,24 +14,12 @@ export async function POST(req: NextRequest) {
   const order = await prisma.esimOrder.findUnique({ where: { orderRef } })
   if (!order) return NextResponse.json({ error: 'Order not found' }, { status: 404 })
 
-  try {
-    const res  = await fetch(`${ESIM_BASE}/open/esim/cancel`, {
-      method:  'POST',
-      headers: esimHeaders(),
-      body:    JSON.stringify({ orderNo: order.esimAccessOrderNo ?? orderRef }),
-    })
-    const json = await res.json()
+  // eSIMs are pre-provisioned digital goods — there is no Airalo API call to
+  // remotely cancel them. We mark the record cancelled in our DB only.
+  await prisma.esimOrder.update({
+    where: { orderRef },
+    data:  { status: 'cancelled' },
+  })
 
-    if (json?.success || json?.errorCode === '0') {
-      await prisma.esimOrder.update({
-        where: { orderRef },
-        data:  { status: 'cancelled' },
-      })
-      return NextResponse.json({ success: true })
-    }
-    return NextResponse.json({ error: json?.errorMsg ?? 'Cancel failed' }, { status: 400 })
-  } catch (err) {
-    console.error('[esim/cancel]', err)
-    return NextResponse.json({ error: 'Internal error' }, { status: 500 })
-  }
+  return NextResponse.json({ success: true })
 }
