@@ -189,9 +189,23 @@ export async function POST(req: NextRequest) {
           primaryBlock       = { type: 'text', text: `BANK STATEMENT TEXT (extracted from PDF):\n\n${truncated}` }
           usingExtractedText = true
           console.log(`[VF] PDF text extracted: ${rawText.length} chars → sent ${truncated.length} chars`)
+        } else {
+          console.log('[VF] pdf-parse returned no usable text — PDF appears to be image/scanned')
         }
       } catch (e) {
-        console.warn('[VF] pdf-parse skipped, using native document block:', e instanceof Error ? e.message : String(e))
+        console.warn('[VF] pdf-parse failed:', e instanceof Error ? e.message : String(e))
+      }
+
+      // Safety gate: if text extraction didn't work and the file is large,
+      // sending it as a native document block will exceed Claude's 1M token limit.
+      // PDFs > 1 MB that produce no extractable text are almost always image-rendered
+      // scans; block them early with a clear error rather than getting a 400 from Claude.
+      if (!usingExtractedText && buffer.length > 1_000_000) {
+        const sizeMB = (buffer.length / 1024 / 1024).toFixed(1)
+        return NextResponse.json({
+          success: false,
+          error: `This PDF (${sizeMB} MB) is too large to analyse directly — it appears to be a scanned or image-based statement with no extractable text. Please try one of these options:\n• Export a shorter date range (1–2 months) from your bank's app\n• Take screenshots of the key pages and upload as images\n• Switch to GPT-4o (which uses a text-extraction approach and handles most bank PDFs)`,
+        }, { status: 422 })
       }
     }
 
