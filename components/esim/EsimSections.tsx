@@ -72,7 +72,7 @@ export function EsimHowItWorks() {
             { num: '01', Icon: Globe,  title: 'Choose Your Plan',
               body: 'Search your destination. Jade shows every available data plan, filtered for your trip length and budget.' },
             { num: '02', Icon: Lock,   title: 'Pay Securely',
-              body: 'Stripe-secured checkout in seconds. Your QR code is generated and delivered to your email instantly.' },
+              body: 'Secure checkout via card or Flutterwave (mobile money & bank transfer). Your QR code is generated and emailed instantly.' },
             { num: '03', Icon: Signal, title: 'Activate and Go',
               body: 'Scan the QR code on your phone before you land. Connected before the plane door opens. No queues. No roaming bills.' },
           ].map((step, i) => (

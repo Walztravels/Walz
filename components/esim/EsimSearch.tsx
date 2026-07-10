@@ -1,19 +1,19 @@
 'use client'
 
-import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
-import Image from 'next/image'
+import { useState, useEffect, useRef, useMemo } from 'react'
 import { useSession }  from 'next-auth/react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { loadStripe }  from '@stripe/stripe-js'
 import { Elements, PaymentElement, useStripe, useElements } from '@stripe/react-stripe-js'
-import { Search, X, Clock, Wifi, Globe, Lock, Check, ArrowRight, RefreshCw, MessageCircle, ChevronDown } from 'lucide-react'
+import {
+  Search, X, Lock, Check, ArrowRight, RefreshCw, MessageCircle, Wifi,
+} from 'lucide-react'
 import type { EsimPackage, CountryGroup, Toast } from '@/lib/esim/types'
-import { groupByCountry, REGIONS, formatData } from '@/lib/esim/utils'
+import { groupByCountry, REGIONS } from '@/lib/esim/utils'
 
 const stripePromise = loadStripe(process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY!)
 
-const REGION_ORDER = ['All', 'Europe', 'Asia', 'Americas', 'Middle East', 'Africa', 'Oceania', 'Global']
-
+const REGION_ORDER  = ['All', 'Europe', 'Asia', 'Americas', 'Middle East', 'Africa', 'Oceania', 'Global']
 const POPULAR_CODES = ['GB', 'AE', 'CA', 'FR', 'US', 'JP', 'NG', 'GH', 'TH', 'DE']
 
 // ── Toast system ──────────────────────────────────────────────────────────────
@@ -36,106 +36,183 @@ function ToastContainer({ toasts, dismiss }: { toasts: Toast[]; dismiss: (id: st
           </button>
         </div>
       ))}
-      <style>{`@keyframes toastIn{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}`}</style>
+      <style>{`@keyframes toastIn{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:translateY(0)}}`}</style>
     </div>
   )
 }
 
-// ── Country card ──────────────────────────────────────────────────────────────
-function CountryCard({
-  group, currency, expanded, onToggle, onBuy,
-}: {
-  group:    CountryGroup
-  currency: Currency
-  expanded: boolean
-  onToggle: () => void
-  onBuy:    (pkg: EsimPackage, country: CountryGroup) => void
-}) {
-  return (
-    <div className="rounded-2xl overflow-hidden transition-all duration-300"
-      style={{ background: 'rgba(255,255,255,0.04)', border: expanded ? '1px solid rgba(201,168,76,0.4)' : '1px solid rgba(255,255,255,0.07)' }}>
-
-      {/* Card header — always visible */}
-      <button onClick={onToggle}
-        className="w-full text-left p-5 flex items-center gap-4 group"
-        style={{ background: expanded ? 'rgba(201,168,76,0.06)' : 'transparent' }}>
-        <span className="text-3xl flex-shrink-0 leading-none">{group.flag}</span>
-        <div className="flex-1 min-w-0">
-          <p className="font-bold text-white text-sm truncate">{group.name}</p>
-          <p className="text-white/40 text-xs mt-0.5">{group.packages.length} plan{group.packages.length !== 1 ? 's' : ''}</p>
-        </div>
-        <div className="text-right flex-shrink-0">
-          <p className="text-[#C9A84C] font-bold text-base">from {displayPrice(group.minPrice, currency)}</p>
-          <ChevronDown className={`w-4 h-4 text-white/30 ml-auto mt-1 transition-transform duration-300 ${expanded ? 'rotate-180 !text-[#C9A84C]' : ''}`} />
-        </div>
-      </button>
-
-      {/* Expanded packages */}
-      {expanded && (
-        <div className="border-t border-white/06 p-4 pt-3 grid grid-cols-1 sm:grid-cols-2 gap-3">
-          {group.packages.map(pkg => (
-            <PkgTile key={pkg.packageCode} pkg={pkg} country={group} currency={currency} onBuy={onBuy} />
-          ))}
-        </div>
-      )}
-    </div>
-  )
+// ── Data display helper ───────────────────────────────────────────────────────
+function parseData(label: string): { amount: string; unit: string } {
+  if (!label || label === 'Unlimited') return { amount: '∞', unit: 'Unlimited' }
+  const m = label.match(/^([\d.]+)\s*(GB|MB|TB)$/i)
+  if (m) return { amount: m[1], unit: m[2].toUpperCase() }
+  return { amount: label, unit: '' }
 }
 
-// ── Package tile (inside expanded country) ────────────────────────────────────
-function PkgTile({
-  pkg, country, currency, onBuy,
-}: {
-  pkg:      EsimPackage
-  country:  CountryGroup
-  currency: Currency
-  onBuy:    (pkg: EsimPackage, country: CountryGroup) => void
-}) {
+// ── Plan card (Airalo-style) ──────────────────────────────────────────────────
+function PlanCard({ pkg, onBuy }: { pkg: EsimPackage; onBuy: () => void }) {
+  const data = parseData(pkg.dataLabel)
   return (
-    <div className="rounded-xl p-4 transition-all duration-200 group/tile"
-      style={{ background: 'rgba(255,255,255,0.04)', border: '1px solid rgba(255,255,255,0.06)' }}
+    <div
+      className="bg-white rounded-2xl flex flex-col transition-all duration-200 overflow-hidden"
+      style={{ border: '1px solid #E9E6E0', boxShadow: '0 1px 3px rgba(0,0,0,0.05)' }}
       onMouseEnter={e => {
-        const el = e.currentTarget
-        el.style.border = '1px solid rgba(201,168,76,0.4)'
-        el.style.background = 'rgba(201,168,76,0.06)'
+        e.currentTarget.style.borderColor = '#C9A84C'
+        e.currentTarget.style.boxShadow = '0 4px 16px rgba(201,168,76,0.14)'
       }}
       onMouseLeave={e => {
-        const el = e.currentTarget
-        el.style.border = '1px solid rgba(255,255,255,0.06)'
-        el.style.background = 'rgba(255,255,255,0.04)'
-      }}>
-
-      {/* Data — prominent */}
-      <p className="text-[#C9A84C] font-bold text-3xl leading-none mb-1">{pkg.dataLabel || formatData(pkg.dataAmount, pkg.dataUnit)}</p>
-      <p className="text-white/30 text-[10px] mb-3">data included</p>
-
-      {/* Stats row */}
-      <div className="flex items-center gap-3 mb-4 flex-wrap">
-        {[
-          { Icon: Clock, val: `${pkg.durationDays} days` },
-          { Icon: Wifi,  val: pkg.speed                  },
-          { Icon: Globe, val: country.code               },
-        ].map(({ Icon, val }) => (
-          <span key={val} className="flex items-center gap-1 text-white/40 text-[11px]">
-            <Icon className="w-3 h-3 text-[#C9A84C]" /> {val}
-          </span>
-        ))}
+        e.currentTarget.style.borderColor = '#E9E6E0'
+        e.currentTarget.style.boxShadow = '0 1px 3px rgba(0,0,0,0.05)'
+      }}
+    >
+      {/* Speed badge */}
+      <div className="px-5 pt-4 pb-0 flex items-center justify-between">
+        <span className="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase tracking-wide bg-[#F5F4F0] text-[#6B7280]">
+          {pkg.speed || '4G'}
+        </span>
+        <span className="text-[10px] text-[#C9A84C] font-semibold">
+          {pkg.durationDays}d
+        </span>
       </div>
 
-      {/* Buy row */}
-      <div className="flex items-center justify-between gap-2">
-        <p className="text-white font-bold text-lg">
-          {displayPrice(pkg.retailUsd, currency)}
-        </p>
-        <button onClick={() => onBuy(pkg, country)}
-          className="flex items-center gap-1.5 px-4 py-2 rounded-full text-xs font-bold transition-all duration-200"
-          style={{ background: 'rgba(201,168,76,0.15)', border: '1px solid rgba(201,168,76,0.4)', color: '#C9A84C' }}
-          onMouseEnter={e => { e.currentTarget.style.background = '#C9A84C'; e.currentTarget.style.color = '#0B1F3A' }}
-          onMouseLeave={e => { e.currentTarget.style.background = 'rgba(201,168,76,0.15)'; e.currentTarget.style.color = '#C9A84C' }}>
-          Get Plan <ArrowRight className="w-3 h-3" />
+      {/* Data amount — Airalo big number */}
+      <div className="px-5 pt-3 pb-0">
+        <div className="flex items-baseline gap-1.5">
+          <span className="font-bold text-[#0D1B2A] leading-none"
+            style={{ fontSize: data.amount === '∞' ? '3.5rem' : 'clamp(2.2rem, 5vw, 3rem)' }}>
+            {data.amount}
+          </span>
+          {data.unit && data.unit !== 'Unlimited' && (
+            <span className="text-lg font-semibold text-[#6B7280] mb-0.5">{data.unit}</span>
+          )}
+        </div>
+        <p className="text-[11px] text-[#9CA3AF] mt-0.5">data</p>
+      </div>
+
+      {/* Divider */}
+      <div className="mx-5 mt-4 border-t border-[#F0EDE8]" />
+
+      {/* Duration row */}
+      <div className="px-5 pt-3 pb-0 flex items-center gap-2 text-[#6B7280]">
+        <Wifi className="w-3.5 h-3.5 text-[#C9A84C]" />
+        <span className="text-[13px] font-medium">{pkg.durationDays} days validity</span>
+      </div>
+
+      {/* Price + CTA */}
+      <div className="px-5 pt-4 pb-5 mt-auto flex items-center justify-between gap-3">
+        <div>
+          <p className="text-[1.35rem] font-bold text-[#0D1B2A] leading-none">${pkg.retailUsd.toFixed(2)}</p>
+          <p className="text-[10px] text-[#9CA3AF] mt-0.5">USD one-time</p>
+        </div>
+        <button
+          onClick={onBuy}
+          className="px-5 py-2.5 rounded-xl font-bold text-sm transition-all hover:brightness-110 active:scale-95 flex-shrink-0"
+          style={{ background: '#C9A84C', color: '#0B1F3A' }}
+        >
+          Get Plan
         </button>
       </div>
     </div>
+  )
+}
+
+// ── Country plans panel (slide-up overlay) ────────────────────────────────────
+function CountryPlansPanel({
+  group, onClose, onBuy,
+}: {
+  group:  CountryGroup
+  onClose: () => void
+  onBuy:  (pkg: EsimPackage, g: CountryGroup) => void
+}) {
+  useEffect(() => {
+    document.body.style.overflow = 'hidden'
+    return () => { document.body.style.overflow = '' }
+  }, [])
+
+  return (
+    <div
+      className="fixed inset-0 z-[90] flex items-end sm:items-center justify-center"
+      style={{ background: 'rgba(7,21,35,0.6)', backdropFilter: 'blur(6px)' }}
+      onClick={e => { if (e.target === e.currentTarget) onClose() }}
+    >
+      <div
+        className="bg-[#F5F4F0] w-full sm:max-w-3xl sm:mx-5 rounded-t-3xl sm:rounded-2xl flex flex-col overflow-hidden"
+        style={{ maxHeight: '88vh', animation: 'panelUp 0.32s cubic-bezier(0.22,1,0.36,1) both' }}
+      >
+        {/* Mobile drag handle */}
+        <div className="flex justify-center pt-3 pb-1 sm:hidden flex-shrink-0">
+          <div className="w-9 h-1 rounded-full bg-[#D1CBC0]" />
+        </div>
+
+        {/* Header */}
+        <div className="flex items-center justify-between px-6 py-4 bg-white border-b border-[#E9E6E0] flex-shrink-0">
+          <div className="flex items-center gap-3">
+            <span className="text-3xl leading-none">{group.flag}</span>
+            <div>
+              <h2 className="font-bold text-[#0D1B2A] text-lg leading-tight">{group.name}</h2>
+              <p className="text-[#9CA3AF] text-xs">
+                {group.packages.length} plan{group.packages.length !== 1 ? 's' : ''} available
+                &nbsp;·&nbsp;from&nbsp;${group.minPrice.toFixed(2)}
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={onClose}
+            className="w-8 h-8 rounded-full bg-[#F5F4F0] flex items-center justify-center text-[#6B7280] hover:bg-[#E9E6E0] transition-colors flex-shrink-0"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+
+        {/* Plans grid */}
+        <div className="overflow-y-auto flex-1 p-5">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+            {group.packages.map(pkg => (
+              <PlanCard
+                key={pkg.packageCode}
+                pkg={pkg}
+                onBuy={() => onBuy(pkg, group)}
+              />
+            ))}
+          </div>
+        </div>
+      </div>
+
+      <style>{`
+        @keyframes panelUp {
+          from { transform: translateY(28px); opacity: 0 }
+          to   { transform: translateY(0);    opacity: 1 }
+        }
+      `}</style>
+    </div>
+  )
+}
+
+// ── Country card (Airalo-style) ───────────────────────────────────────────────
+function CountryCard({ group, onSelect }: { group: CountryGroup; onSelect: (g: CountryGroup) => void }) {
+  return (
+    <button
+      onClick={() => onSelect(group)}
+      className="text-center p-5 rounded-2xl bg-white transition-all duration-200 group"
+      style={{ border: '1px solid #E9E6E0', boxShadow: '0 1px 4px rgba(0,0,0,0.05)' }}
+      onMouseEnter={e => {
+        e.currentTarget.style.borderColor = '#C9A84C'
+        e.currentTarget.style.boxShadow = '0 4px 16px rgba(201,168,76,0.14)'
+        e.currentTarget.style.transform = 'translateY(-2px)'
+      }}
+      onMouseLeave={e => {
+        e.currentTarget.style.borderColor = '#E9E6E0'
+        e.currentTarget.style.boxShadow = '0 1px 4px rgba(0,0,0,0.05)'
+        e.currentTarget.style.transform = 'translateY(0)'
+      }}
+    >
+      <span className="block text-4xl mb-3 leading-none">{group.flag}</span>
+      <p className="font-semibold text-[#0D1B2A] text-[13px] mb-1 leading-tight">{group.name}</p>
+      <p className="text-[#9CA3AF] text-[11px] mb-2">
+        {group.packages.length} plan{group.packages.length !== 1 ? 's' : ''}
+      </p>
+      <p className="font-bold text-[#C9A84C] text-[13px]">from ${group.minPrice.toFixed(2)}</p>
+    </button>
   )
 }
 
@@ -216,7 +293,7 @@ function CheckoutForm({
   )
 }
 
-// ── Checkout modal (outer — gateway picker then PaymentIntent or FLW redirect) ──
+// ── Checkout modal (gateway picker → PaymentIntent or Flutterwave redirect) ───
 function CheckoutModal({
   pkg, country, onClose, onDone,
 }: {
@@ -430,29 +507,25 @@ function SuccessOverlay({ onClose }: { onClose: () => void }) {
   )
 }
 
-// ── Currency helpers ──────────────────────────────────────────────────────────
-type Currency = 'USD' | 'GBP' | 'EUR' | 'CAD'
-
-const RATES:   Record<Currency, number> = { USD: 1, GBP: 0.79, EUR: 0.92, CAD: 1.37 }
-const SYMBOLS: Record<Currency, string> = { USD: '$', GBP: '£', EUR: '€', CAD: 'C$' }
-
-function displayPrice(usd: number, currency: Currency): string {
-  const amount = usd * RATES[currency]
-  const sym    = SYMBOLS[currency]
-  return sym + (amount % 1 === 0 ? amount.toFixed(0) : amount.toFixed(2))
-}
-
 // ── MAIN ESIM SEARCH ──────────────────────────────────────────────────────────
 export function EsimSearch({ packages }: { packages: EsimPackage[] }) {
   const searchParams = useSearchParams()
-  const [query,    setQuery]    = useState('')
-  const [region,   setRegion]   = useState('All')
-  const [currency, setCurrency] = useState<Currency>('USD')
-  const [expanded, setExpanded] = useState<string | null>(null)
+
+  const [query,           setQuery]           = useState('')
+  const [region,          setRegion]          = useState('All')
+  const [selectedCountry, setSelectedCountry] = useState<CountryGroup | null>(null)
   const [checkoutPkg,     setCheckoutPkg]     = useState<EsimPackage | null>(null)
   const [checkoutCountry, setCheckoutCountry] = useState<CountryGroup | null>(null)
   const [showSuccess,     setShowSuccess]     = useState(false)
   const [toasts,          setToasts]          = useState<Toast[]>([])
+  const [livePackages,    setLivePackages]    = useState<EsimPackage[]>(packages)
+  const fetchedRef = useRef(false)
+
+  // Read pre-filled query from hero search
+  useEffect(() => {
+    const q = sessionStorage.getItem('esim-hero-q')
+    if (q) { setQuery(q); sessionStorage.removeItem('esim-hero-q') }
+  }, [])
 
   // Show success overlay when returning from Flutterwave or 3DS redirect
   useEffect(() => {
@@ -460,13 +533,9 @@ export function EsimSearch({ packages }: { packages: EsimPackage[] }) {
   }, [searchParams])
 
   // Client-side fallback fetch (if ISR returned 0 packages)
-  const [livePackages, setLivePackages] = useState<EsimPackage[]>(packages)
-  const fetchedRef = useRef(false)
-
   useEffect(() => {
     if (packages.length > 0 || fetchedRef.current) return
     fetchedRef.current = true
-    // Fallback: fetch a popular set of countries client-side
     Promise.allSettled(
       POPULAR_CODES.map(iso2 =>
         fetch(`/api/esim/packages?country=${iso2}`)
@@ -497,20 +566,18 @@ export function EsimSearch({ packages }: { packages: EsimPackage[] }) {
     return groups
   }, [allGroups, region, query])
 
-  // Popular groups (shown before search)
   const popularGroups = useMemo(
     () => POPULAR_CODES.map(code => allGroups.find(g => g.code === code)).filter(Boolean) as CountryGroup[],
     [allGroups]
   )
 
+  const showingAll    = query !== '' || region !== 'All'
+  const displayGroups = showingAll ? filtered : popularGroups
+
   function addToast(message: string, type: Toast['type'] = 'info') {
     const id = Math.random().toString(36).slice(2)
     setToasts(prev => [...prev.slice(-2), { id, message, type }])
     setTimeout(() => setToasts(prev => prev.filter(t => t.id !== id)), 4000)
-  }
-
-  function dismissToast(id: string) {
-    setToasts(prev => prev.filter(t => t.id !== id))
   }
 
   function handleBuy(pkg: EsimPackage, country: CountryGroup) {
@@ -521,176 +588,133 @@ export function EsimSearch({ packages }: { packages: EsimPackage[] }) {
   function handleSuccess() {
     setCheckoutPkg(null)
     setCheckoutCountry(null)
+    setSelectedCountry(null)
     setShowSuccess(true)
     addToast('eSIM purchased! Check your email for the QR code.', 'success')
   }
 
-  const displayGroups = query || region !== 'All' ? filtered : popularGroups
-  const showingAll    = query !== '' || region !== 'All'
-
   return (
-    <section id="esim-search" className="relative py-20 px-5 sm:px-8"
-      style={{ background: 'linear-gradient(160deg,#0B1F3A 0%,#081528 100%)' }}>
-      <div className="max-w-6xl mx-auto">
+    <section id="esim-search" style={{ background: '#F5F4F0' }}>
 
-        {/* Section heading */}
-        <div className="text-center mb-12">
-          <p className="text-[#C9A84C] text-[11px] font-bold tracking-[0.25em] uppercase mb-4">Find Your Plan</p>
-          <h2 className="font-display font-bold text-white mb-4 leading-tight"
-            style={{ fontSize: 'clamp(2rem,5vw,3.5rem)' }}>
-            Where are you going?
-          </h2>
-          <p className="text-white/40 text-base leading-relaxed max-w-xl mx-auto">
-            Select your destination and Jade will find the perfect data plan for your trip.
-          </p>
-        </div>
+      {/* ── Sticky search + region tabs ── */}
+      <div className="sticky top-0 z-20 bg-white"
+        style={{ borderBottom: '1px solid #E9E6E0', boxShadow: '0 1px 0 rgba(0,0,0,0.03)' }}>
+        <div className="max-w-7xl mx-auto px-5 sm:px-8 pt-4 pb-0">
 
-        {/* Search + region filters */}
-        <div className="max-w-2xl mx-auto mb-10">
           {/* Search input */}
-          <div className="relative mb-5">
-            <div className="flex items-center gap-3 rounded-2xl px-5 py-4 transition-all duration-300"
-              style={{ background: 'rgba(255,255,255,0.05)', backdropFilter: 'blur(20px)', border: '1px solid rgba(201,168,76,0.3)' }}>
-              <Search className="w-5 h-5 text-[#C9A84C] flex-shrink-0" />
-              <input
-                type="text"
-                placeholder="Search destination…"
-                value={query}
-                onChange={e => { setQuery(e.target.value); setExpanded(null) }}
-                className="flex-1 outline-none bg-transparent text-white text-base placeholder:text-white/30"
-              />
-              {query && (
-                <button onClick={() => { setQuery(''); setExpanded(null) }} className="text-white/30 hover:text-white/60 transition-colors">
-                  <X className="w-4 h-4" />
-                </button>
-              )}
-            </div>
+          <div className="relative max-w-lg mb-3">
+            <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-[#9CA3AF] pointer-events-none" />
+            <input
+              type="text"
+              value={query}
+              onChange={e => setQuery(e.target.value)}
+              placeholder="Search destination or country code…"
+              className="w-full h-11 pl-10 pr-10 rounded-xl text-sm text-[#0D1B2A] placeholder:text-[#9CA3AF] outline-none transition-colors"
+              style={{ border: '1.5px solid #E9E6E0', background: '#F5F4F0' }}
+              onFocus={e => { e.currentTarget.style.borderColor = '#C9A84C'; e.currentTarget.style.background = '#fff' }}
+              onBlur={e  => { e.currentTarget.style.borderColor = '#E9E6E0'; e.currentTarget.style.background = '#F5F4F0' }}
+            />
+            {query && (
+              <button onClick={() => setQuery('')}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-[#9CA3AF] hover:text-[#6B7280] transition-colors">
+                <X className="w-4 h-4" />
+              </button>
+            )}
           </div>
 
-          {/* Region pills */}
-          <div className="flex flex-wrap gap-2 justify-center mb-4">
+          {/* Region tabs — scrollable row */}
+          <div className="flex gap-0.5 overflow-x-auto" style={{ scrollbarWidth: 'none', msOverflowStyle: 'none', paddingBottom: 1 }}>
             {REGION_ORDER.map(r => (
-              <button key={r} onClick={() => { setRegion(r); setExpanded(null) }}
-                className="px-4 py-2 rounded-full text-xs font-bold whitespace-nowrap transition-all duration-200"
+              <button key={r} onClick={() => setRegion(r)}
+                className="flex-shrink-0 px-3.5 py-2.5 rounded-t-lg text-xs font-semibold transition-all"
                 style={{
-                  background: region === r ? '#C9A84C' : 'rgba(255,255,255,0.05)',
-                  color:      region === r ? '#0B1F3A' : 'rgba(255,255,255,0.5)',
-                  border:     region === r ? '1px solid #C9A84C' : '1px solid rgba(255,255,255,0.08)',
+                  background:  region === r ? '#F5F4F0' : 'transparent',
+                  color:       region === r ? '#0B1F3A' : '#6B7280',
+                  borderBottom: region === r ? '2px solid #C9A84C' : '2px solid transparent',
                 }}>
                 {r}
               </button>
             ))}
           </div>
-
-          {/* Currency toggle */}
-          <div className="flex items-center justify-center gap-2">
-            <span className="text-white/30 text-xs mr-1">Currency:</span>
-            {(['USD', 'GBP', 'EUR', 'CAD'] as Currency[]).map(c => (
-              <button key={c} onClick={() => setCurrency(c)}
-                className="px-3 py-1 rounded-full text-xs font-bold transition-all duration-200"
-                style={{
-                  background: currency === c ? 'rgba(201,168,76,0.2)'  : 'transparent',
-                  color:      currency === c ? '#C9A84C'                : 'rgba(255,255,255,0.35)',
-                  border:     currency === c ? '1px solid rgba(201,168,76,0.5)' : '1px solid rgba(255,255,255,0.08)',
-                }}>
-                {SYMBOLS[c]}{c}
-              </button>
-            ))}
-          </div>
         </div>
+      </div>
 
-        {/* Results grid */}
+      {/* ── Country grid ── */}
+      <div className="max-w-7xl mx-auto px-5 sm:px-8 py-8">
         {livePackages.length === 0 ? (
-          <div className="text-center py-16">
-            <div className="w-16 h-16 rounded-full border-4 border-[#C9A84C]/30 border-t-[#C9A84C] animate-spin mx-auto mb-6" />
-            <p className="text-white/50 text-sm">Loading packages…</p>
+          <div className="flex items-center justify-center py-28">
+            <div className="w-10 h-10 rounded-full border-4 border-[#C9A84C]/30 border-t-[#C9A84C] animate-spin" />
+          </div>
+        ) : displayGroups.length === 0 ? (
+          <div className="text-center py-20">
+            <p className="text-[#6B7280] text-base mb-2">No destinations match &ldquo;{query}&rdquo;</p>
+            <p className="text-[#9CA3AF] text-sm mb-6">Try a different spelling or browse by region above</p>
+            <div className="flex flex-wrap gap-3 justify-center">
+              <button onClick={() => setQuery('')}
+                className="px-5 py-2.5 rounded-full text-[#0D1B2A] text-sm font-semibold transition-colors hover:bg-white"
+                style={{ border: '1.5px solid #E9E6E0' }}>
+                Clear search
+              </button>
+              <a href="https://wa.me/12317902336" target="_blank" rel="noopener noreferrer"
+                className="inline-flex items-center gap-2 px-5 py-2.5 rounded-full text-sm font-bold"
+                style={{ background: '#C9A84C', color: '#0B1F3A' }}>
+                <MessageCircle className="w-4 h-4" /> Ask Jade
+              </a>
+            </div>
           </div>
         ) : (
           <>
-            {!showingAll && (
-              <p className="text-white/30 text-xs font-semibold uppercase tracking-widest mb-5 text-center">
-                Popular destinations
-              </p>
-            )}
-            {showingAll && filtered.length === 0 ? (
-              <div className="text-center py-16">
-                <p className="text-white/40 mb-6 text-sm">No destinations match &ldquo;{query}&rdquo; in {region}.</p>
-                <div className="flex flex-wrap gap-3 justify-center">
-                  {query && <button onClick={() => setQuery('')}
-                    className="px-5 py-2.5 text-sm font-semibold rounded-full border border-white/20 text-white/60 hover:text-white transition-colors">
-                    Clear search
-                  </button>}
-                  <a href="https://wa.me/12317902336" target="_blank" rel="noopener noreferrer"
-                    className="inline-flex items-center gap-2 px-5 py-2.5 rounded-full text-sm font-bold"
-                    style={{ background: '#C9A84C', color: '#0B1F3A' }}>
-                    <MessageCircle className="w-4 h-4" /> WhatsApp us
-                  </a>
-                </div>
-              </div>
-            ) : (
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                {displayGroups.map(group => (
-                  <CountryCard
-                    key={group.code}
-                    group={group}
-                    currency={currency}
-                    expanded={expanded === group.code}
-                    onToggle={() => setExpanded(expanded === group.code ? null : group.code)}
-                    onBuy={handleBuy}
-                  />
-                ))}
-              </div>
-            )}
+            <p className="text-[11px] text-[#9CA3AF] font-semibold uppercase tracking-wider mb-5">
+              {showingAll
+                ? `${displayGroups.length} destination${displayGroups.length !== 1 ? 's' : ''}`
+                : 'Popular destinations'}
+            </p>
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
+              {displayGroups.map(group => (
+                <CountryCard key={group.code} group={group} onSelect={setSelectedCountry} />
+              ))}
+            </div>
 
             {!showingAll && allGroups.length > popularGroups.length && (
-              <div className="text-center mt-8">
+              <div className="text-center mt-10">
                 <button onClick={() => setRegion('All')}
-                  className="text-[#C9A84C] text-sm font-semibold hover:opacity-80 transition-opacity">
-                  View all {allGroups.length} countries →
+                  className="text-[#C9A84C] text-sm font-semibold hover:opacity-80 transition-opacity inline-flex items-center gap-1">
+                  View all {allGroups.length} countries <ArrowRight className="w-4 h-4" />
                 </button>
               </div>
             )}
           </>
         )}
+      </div>
 
-        {/* Jade phone mockup (decorative, desktop only) */}
-        <div className="hidden xl:flex items-center justify-center mt-16 pointer-events-none" aria-hidden>
-          <div className="relative" style={{ animation: 'sPhoneFloat 4s ease-in-out infinite' }}>
-            <div className="relative rounded-[36px] overflow-hidden"
-              style={{ width: 220, height: 440, background: '#111827', border: '2px solid rgba(255,255,255,0.12)',
-                boxShadow: '0 40px 80px rgba(0,0,0,0.6),inset 0 1px 0 rgba(255,255,255,0.08)' }}>
-              <div className="absolute inset-[3px] rounded-[34px] overflow-hidden bg-[#1a2535] flex flex-col">
-                <div className="flex items-center justify-between px-5 pt-3 pb-2">
-                  <p className="text-white text-[10px] font-semibold">9:41</p>
-                  <div className="flex items-center gap-1"><Wifi className="w-3 h-3 text-white" /></div>
-                </div>
-                <div className="flex-1 px-4 py-2">
-                  <p className="text-white font-bold text-base mb-3">Mobile Data</p>
-                  <div className="mt-4 p-3 rounded-xl" style={{ background: 'rgba(201,168,76,0.1)', border: '1px solid rgba(201,168,76,0.2)' }}>
-                    <p className="text-[#C9A84C] text-[10px] font-bold uppercase tracking-widest mb-2">Jade Connect</p>
-                    <div className="flex items-end gap-0.5 mb-2">
-                      {[3,5,7,9,7].map((h, i) => (
-                        <div key={i} className="w-2 rounded-sm" style={{ height: h, background: '#C9A84C', animation: `sBarFill 1.5s ease-in-out ${i * 0.15}s infinite alternate` }} />
-                      ))}
-                    </div>
-                    <p className="text-white/40 text-[9px]">Active · 5 GB remaining</p>
-                  </div>
-                  <div className="flex items-center gap-2 mt-4">
-                    <div className="w-5 h-5 rounded-full bg-green-500/20 flex items-center justify-center flex-shrink-0">
-                      <Check className="w-3 h-3 text-green-400" />
-                    </div>
-                    <p className="text-green-400/70 text-[10px] font-semibold">eSIM activated</p>
-                  </div>
-                </div>
-              </div>
+      {/* ── Trust strip ── */}
+      <div className="bg-white border-t border-[#E9E6E0] py-7">
+        <div className="max-w-7xl mx-auto px-5 sm:px-8 flex flex-wrap items-center justify-center gap-x-10 gap-y-4">
+          {[
+            ['30M+', 'travellers connected'],
+            ['215+', 'countries covered'],
+            ['4G/5G', 'high-speed data'],
+            ['Instant', 'eSIM delivery'],
+            ['24/7', 'Jade support'],
+          ].map(([val, label]) => (
+            <div key={val} className="text-center">
+              <p className="font-bold text-[#0D1B2A] text-lg leading-none mb-0.5">{val}</p>
+              <p className="text-[#9CA3AF] text-xs">{label}</p>
             </div>
-            <div className="absolute inset-0 rounded-[36px] blur-3xl -z-10"
-              style={{ background: 'radial-gradient(ellipse,rgba(201,168,76,0.12) 0%,transparent 70%)' }} />
-          </div>
+          ))}
         </div>
       </div>
 
-      {/* Modals */}
+      {/* ── Plans panel ── */}
+      {selectedCountry && !checkoutPkg && (
+        <CountryPlansPanel
+          group={selectedCountry}
+          onClose={() => setSelectedCountry(null)}
+          onBuy={handleBuy}
+        />
+      )}
+
+      {/* ── Checkout modal ── */}
       {checkoutPkg && checkoutCountry && !showSuccess && (
         <CheckoutModal
           pkg={checkoutPkg}
@@ -699,14 +723,10 @@ export function EsimSearch({ packages }: { packages: EsimPackage[] }) {
           onDone={handleSuccess}
         />
       )}
+
       {showSuccess && <SuccessOverlay onClose={() => setShowSuccess(false)} />}
 
-      <ToastContainer toasts={toasts} dismiss={dismissToast} />
-
-      <style>{`
-        @keyframes sPhoneFloat{ 0%,100%{transform:translateY(0) rotate(-1.5deg)} 50%{transform:translateY(-14px) rotate(0deg)} }
-        @keyframes sBarFill   { 0%{opacity:.4;transform:scaleY(.7)}             100%{opacity:1;transform:scaleY(1)} }
-      `}</style>
+      <ToastContainer toasts={toasts} dismiss={id => setToasts(prev => prev.filter(t => t.id !== id))} />
     </section>
   )
 }
