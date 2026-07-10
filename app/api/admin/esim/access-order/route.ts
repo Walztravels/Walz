@@ -9,7 +9,8 @@ export const dynamic = 'force-dynamic'
 
 function buildAccessQrEmail(p: {
   name: string; destination: string; plan: string; duration: number
-  dataLabel: string; qrUrl: string; lpaString?: string; orderRef: string; retailUsd: number
+  dataLabel: string; qrUrl: string; lpaString?: string; appleInstallUrl?: string
+  orderRef: string; retailUsd: number
 }) {
   return `<!DOCTYPE html>
 <html lang="en">
@@ -41,6 +42,11 @@ function buildAccessQrEmail(p: {
       <tr><td style="padding:10px 16px;color:#6B7280;font-size:12px;font-weight:600;text-transform:uppercase;">Order Ref</td>
           <td style="padding:10px 16px;color:#0B1F3A;font-size:13px;font-family:monospace;">${p.orderRef}</td></tr>
     </table>
+    ${p.appleInstallUrl ? `
+    <div style="text-align:center;margin:0 0 20px;">
+      <a href="${p.appleInstallUrl}" style="display:inline-block;background:#0B1F3A;color:#C9A84C;font-size:12px;font-weight:700;text-decoration:none;padding:10px 24px;border-radius:8px;">📱 Install on iPhone (one tap)</a>
+      <p style="margin:6px 0 0;color:#9CA3AF;font-size:10px;">Tap this button on your iPhone — iOS 17.4+</p>
+    </div>` : ''}
     ${p.qrUrl ? `
     <div style="text-align:center;margin:0 0 24px;">
       <img src="${p.qrUrl}" alt="eSIM QR Code" width="220" style="border:1px solid #E5E7EB;border-radius:8px;padding:8px;background:#fff;"/>
@@ -103,10 +109,11 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: result.customerMsg ?? result.errorMsg ?? 'eSIM Access order failed' }, { status: 500 })
   }
 
-  const iccid           = result.iccid          ?? ''
-  const qrCodeUrl       = result.qrCodeUrl      ?? ''
-  const lpaString       = result.lpaString      ?? ''
-  const activationCode  = result.activationCode ?? lpaString
+  const iccid           = result.iccid           ?? ''
+  const qrCodeUrl       = result.qrCodeUrl       ?? ''
+  const lpaString       = result.lpaString       ?? ''
+  const activationCode  = result.activationCode  ?? lpaString
+  const appleInstallUrl = result.appleInstallUrl ?? ''
   const providerOrderId = result.providerOrderId ?? ''
 
   const order = await prisma.esimOrder.create({
@@ -148,7 +155,8 @@ export async function POST(req: NextRequest) {
         plan: packageName ?? packageCode,
         duration: Number(durationDays ?? 0),
         dataLabel, qrUrl: qrCodeUrl,
-        lpaString: lpaString || undefined,
+        lpaString:       lpaString       || undefined,
+        appleInstallUrl: appleInstallUrl || undefined,
         orderRef, retailUsd: retail,
       }),
     })

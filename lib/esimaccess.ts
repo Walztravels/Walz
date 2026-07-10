@@ -28,6 +28,16 @@ async function lpaToQrDataUri(lpa: string): Promise<string> {
   return QRCode.toDataURL(lpa, { width: 300, margin: 2, errorCorrectionLevel: 'M' })
 }
 
+/**
+ * Build the iOS tap-to-install URL from an LPA string.
+ * Works on iOS 17.4+ (Settings → Mobile Data → Add eSIM taps this link).
+ * Format: https://esim.apple.com/esim-qr-code?apn=<url-encoded LPA string>
+ */
+function lpaToAppleInstallUrl(lpa: string): string {
+  if (!lpa.startsWith('LPA:')) return ''
+  return `https://esim.apple.com/esim-qr-code?apn=${encodeURIComponent(lpa)}`
+}
+
 const ESIM_ACCESS_BASE = 'https://api.esimaccess.com/api/v1'
 
 // ── Authentication ─────────────────────────────────────────────────────────────
@@ -226,12 +236,14 @@ export async function fetchAllEsimAccessPackages(locationCode?: string): Promise
 // ── ICCID polling after order placement ───────────────────────────────────────
 
 interface EsimAccessEsimItem {
-  iccid?:      string
-  qrCodeUrl?:  string
-  ac?:         string
-  esimTranNo?: string
-  smdpStatus?: string
-  esimStatus?: string
+  iccid?:             string
+  qrCodeUrl?:         string
+  ac?:                string   // LPA string: "LPA:1$smdp$code"
+  appleInstallUrl?:   string   // some API versions return this directly
+  iosInstallUrl?:     string
+  esimTranNo?:        string
+  smdpStatus?:        string
+  esimStatus?:        string
 }
 
 /**
@@ -245,7 +257,7 @@ async function pollForIccid(
   orderNo: string,
   maxAttempts = 5,
   delayMs = 3000,
-): Promise<{ iccid: string; qrCodeUrl: string; lpaString: string } | null> {
+): Promise<{ iccid: string; qrCodeUrl: string; lpaString: string; appleInstallUrl: string } | null> {
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
     if (attempt > 0) {
       await new Promise(resolve => setTimeout(resolve, delayMs))
@@ -263,13 +275,19 @@ async function pollForIccid(
       if (res.success || res.errorCode === '0') {
         const first = res.obj?.esimList?.[0]
         if (first?.iccid) {
-          const lpaString  = first.ac ?? ''
-          // Prefer the API-provided URL; fall back to generating our own QR from the LPA string
+          const lpaString = first.ac ?? ''
+
+          // QR code: use API URL if provided, otherwise generate from LPA string
           let qrCodeUrl = first.qrCodeUrl ?? ''
           if (!qrCodeUrl && lpaString) {
             try { qrCodeUrl = await lpaToQrDataUri(lpaString) } catch { /* keep empty */ }
           }
-          return { iccid: first.iccid, qrCodeUrl, lpaString }
+
+          // Apple tap-to-install: use API-provided URL if present, otherwise derive from LPA
+          const appleInstallUrl =
+            first.appleInstallUrl ?? first.iosInstallUrl ?? lpaToAppleInstallUrl(lpaString)
+
+          return { iccid: first.iccid, qrCodeUrl, lpaString, appleInstallUrl }
         }
       }
     } catch (e) {
@@ -341,13 +359,14 @@ export async function placeEsimAccessOrder(
     }
 
     return {
-      ok:             true,
-      provider:       'esimaccess',
+      ok:              true,
+      provider:        'esimaccess',
       providerOrderId: orderNo,
-      iccid:          provisioned.iccid      || undefined,
-      qrCodeUrl:      provisioned.qrCodeUrl  || undefined,
-      lpaString:      provisioned.lpaString  || undefined,
-      activationCode: provisioned.lpaString  || undefined,
+      iccid:           provisioned.iccid           || undefined,
+      qrCodeUrl:       provisioned.qrCodeUrl        || undefined,
+      lpaString:       provisioned.lpaString        || undefined,
+      activationCode:  provisioned.lpaString        || undefined,
+      appleInstallUrl: provisioned.appleInstallUrl  || undefined,
     }
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err)
