@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { esimHeaders, ESIM_BASE, parsePackage, EsimPackage } from '@/lib/esim-pricing'
+import { fetchCountryPackages } from '@/lib/esim/api'
+import type { EsimPackage } from '@/lib/esim/types'
 
 export const dynamic = 'force-dynamic'
 
@@ -22,35 +23,8 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    const res = await fetch(`${ESIM_BASE}/open/package/list`, {
-      method:  'POST',
-      headers: esimHeaders(),
-      // Exact body format per eSIM Access docs
-      body: JSON.stringify({
-        locationCode: country,
-        type:         null,
-        slug:         null,
-        packageCode:  null,
-        iccid:        null,
-      }),
-    })
-
-    const json = await res.json()
-
-    if (!json?.success && json?.errorCode !== '0') {
-      console.error('[esim/packages] API error:', json)
-      return NextResponse.json({ error: json?.errorMsg ?? 'Failed to fetch packages', packages: [] }, { status: 200 })
-    }
-
-    const raw: Record<string, unknown>[] = json?.obj?.packageList ?? []
-
-    const packages: EsimPackage[] = raw
-      .map(p => parsePackage(p, country))
-      .filter((p): p is EsimPackage => p !== null)
-      .sort((a, b) => a.retailUsd - b.retailUsd)
-
+    const packages = await fetchCountryPackages(country)
     _cache.set(country, { data: packages, expiresAt: Date.now() + CACHE_TTL })
-
     return NextResponse.json({ packages, country, count: packages.length, cached: false })
   } catch (err) {
     console.error('[esim/packages]', err)

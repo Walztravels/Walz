@@ -100,6 +100,68 @@ export interface EsimPackage {
   speed:         string
 }
 
+// ── Airalo package parser ─────────────────────────────────────────────────────
+/**
+ * Parse one Airalo package + its parent country into our EsimPackage shape.
+ * Airalo pricing: we get 25% off `pkg.price`, so our wholesale = price * 0.75.
+ * We then apply our own markup on the wholesale to get retailUsd.
+ */
+export function parseAiraloPackage(
+  pkg: {
+    id: string; title: string; price: number; day: number
+    is_unlimited: boolean; data: string
+  },
+  country: { slug: string; country_code: string; title: string },
+  discountPct = 25,
+  operatorInfo: string[] = [],
+): EsimPackage | null {
+  if (!pkg.id || !pkg.price) return null
+
+  const wholesaleUsd = Math.round(pkg.price * (1 - discountPct / 100) * 100) / 100
+  if (wholesaleUsd <= 0) return null
+
+  const retail = applyMarkup(wholesaleUsd)
+
+  // Parse data label → amount + unit
+  let dataLabel = pkg.is_unlimited ? 'Unlimited' : (pkg.data ?? 'Unlimited')
+  let dataAmount: number | null = null
+  let dataUnit   = 'Unlimited'
+
+  if (!pkg.is_unlimited && pkg.data) {
+    const gb = pkg.data.match(/^([\d.]+)\s*GB$/i)
+    const mb = pkg.data.match(/^([\d.]+)\s*MB$/i)
+    if (gb) {
+      dataAmount = parseFloat(gb[1]) * 1024  // store as MB for compat
+      dataUnit   = 'GB'
+      dataLabel  = `${gb[1]} GB`
+    } else if (mb) {
+      dataAmount = parseFloat(mb[1])
+      dataUnit   = 'MB'
+      dataLabel  = `${mb[1]} MB`
+    }
+  }
+
+  // Infer speed from operator info strings
+  const infoText = operatorInfo.join(' ').toUpperCase()
+  const speed    = infoText.includes('5G') ? '5G' : '4G/LTE'
+
+  return {
+    packageCode:  pkg.id,
+    name:         pkg.title,
+    slug:         country.slug,
+    locationCode: country.country_code,
+    locationName: country.title,
+    durationDays: pkg.day,
+    dataLabel,
+    dataAmount,
+    dataUnit,
+    wholesaleUsd,
+    retailUsd:    retail,
+    marginUsd:    calcMargin(wholesaleUsd, retail),
+    speed,
+  }
+}
+
 export function parsePackage(raw: Record<string, unknown>, countryCode: string): EsimPackage | null {
   const code = String(raw.packageCode ?? raw.productCode ?? '')
   if (!code) return null

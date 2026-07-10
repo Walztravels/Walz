@@ -3,7 +3,8 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import prisma from '@/lib/db'
 import { getResend } from '@/lib/resend'
-import { esimHeaders, ESIM_BASE, applyMarkup, calcMargin, generateOrderRef, formatData } from '@/lib/esim-pricing'
+import { applyMarkup, calcMargin, generateOrderRef, formatData } from '@/lib/esim-pricing'
+import { airaloPost, type AiraloOrderResponse } from '@/lib/airalo'
 
 export const dynamic = 'force-dynamic'
 
@@ -12,6 +13,7 @@ function buildQrEmail(p: {
   name: string; destination: string; plan: string; duration: number
   dataLabel: string; qrUrl: string; ac: string; smdp: string
   lpaString: string; orderRef: string; retailUsd: number
+  appleInstallUrl?: string
 }) {
   return `<!DOCTYPE html>
 <html lang="en">
@@ -46,6 +48,7 @@ function buildQrEmail(p: {
           <td style="padding:10px 16px;color:#0B1F3A;font-size:13px;font-family:monospace;">${p.orderRef}</td></tr>
     </table>
     ${p.qrUrl ? `<div style="text-align:center;margin:0 0 24px;"><img src="${p.qrUrl}" alt="eSIM QR Code" width="200" style="border:1px solid #E5E7EB;border-radius:8px;padding:8px;"/><p style="margin:8px 0 0;color:#9CA3AF;font-size:11px;">Scan this QR code to install your eSIM</p></div>` : ''}
+    ${p.appleInstallUrl ? `<div style="text-align:center;margin:0 0 20px;"><a href="${p.appleInstallUrl}" style="display:inline-block;background:#0B1F3A;color:#C9A84C;font-size:12px;font-weight:700;text-decoration:none;padding:10px 24px;border-radius:8px;">📱 Install on iPhone (one tap)</a></div>` : ''}
     ${p.lpaString ? `<div style="background:#F0F9FF;border:1px solid #BAE6FD;border-radius:8px;padding:16px;margin:0 0 24px;"><p style="margin:0 0 6px;font-weight:700;color:#0369A1;font-size:13px;">Manual installation code</p><p style="margin:0;font-size:11px;font-family:monospace;color:#374151;word-break:break-all;">${p.lpaString}</p></div>` : ''}
     <div style="background:#FFFBEB;border:1px solid #FDE68A;border-radius:8px;padding:14px;margin:0 0 24px;">
       <p style="margin:0 0 8px;font-weight:700;color:#92400E;font-size:13px;">📱 How to activate</p>
@@ -56,7 +59,7 @@ function buildQrEmail(p: {
     <p style="margin:0;color:#9CA3AF;font-size:11px;text-align:center;">Need help? WhatsApp <a href="https://wa.me/12317902336" style="color:#C9A84C;">+12317902336</a> any time.</p>
   </td></tr>
   <tr><td style="background:#0B1F3A;padding:14px 32px;text-align:center;">
-    <p style="margin:0;color:#8B9BAE;font-size:11px;">© ${new Date().getFullYear()} Walz Travels — Jade Connect eSIM</p>
+    <p style="margin:0;color:#8B9BAE;font-size:11px;">© ${new Date().getFullYear()} Walz Travels — Jade Connect eSIM powered by Airalo</p>
   </td></tr>
 </table>
 </td></tr>
@@ -78,87 +81,75 @@ export async function POST(req: NextRequest) {
 
   const body = await req.json().catch(() => null)
   const { packageCode, wholesaleUsd, retailUsd, destination, destinationIso2,
-          packageName, durationDays, dataAmount, dataUnit, speed,
+          packageName, durationDays, dataAmount, dataUnit,
           stripePaymentId, tripId } = body ?? {}
 
-  if (!packageCode || !wholesaleUsd || !destination) {
-    return NextResponse.json({ error: 'packageCode, wholesaleUsd, destination required' }, { status: 400 })
+  if (!packageCode || !destination) {
+    return NextResponse.json({ error: 'packageCode and destination are required' }, { status: 400 })
   }
 
-  const orderRef    = generateOrderRef()
-  const retail      = retailUsd   ?? applyMarkup(wholesaleUsd)
-  const wholesale   = wholesaleUsd
-  const margin      = calcMargin(wholesale, retail)
+  const orderRef  = generateOrderRef()
+  const wholesale = wholesaleUsd ?? 0
+  const retail    = retailUsd ?? applyMarkup(wholesale)
+  const margin    = calcMargin(wholesale, retail)
   const { label: dataLabel } = formatData(dataAmount)
 
-  // ── 1. Place order with eSIM Access ─────────────────────────────────────────
-  let esimData:  Record<string, unknown> = {}
+  // ── 1. Place order with Airalo ────────────────────────────────────────────────
+  let airaloOrder: AiraloOrderResponse['data'] | null = null
   let orderErr = ''
-  try {
-    const orderRes = await fetch(`${ESIM_BASE}/open/esim/order`, {
-      method:  'POST',
-      headers: esimHeaders(),
-      // Exact format per eSIM Access API docs
-      body: JSON.stringify({
-        transactionId:   orderRef,
-        packageInfoList: [{ packageCode, count: 1, price: wholesale }],
-        orderNo:         orderRef,
-        amount:          wholesale,
-        paymentMethod:   3,
-      }),
-    })
-    const orderJson = await orderRes.json()
-    console.log('[esim/order] API response:', JSON.stringify(orderJson).slice(0, 500))
 
-    if (orderJson?.success || orderJson?.errorCode === '0') {
-      esimData = orderJson?.obj ?? {}
-    } else {
-      orderErr = orderJson?.errorMsg ?? 'eSIM order API failed'
-      console.error('[esim/order] API error:', orderJson)
-    }
+  try {
+    const res = await airaloPost<AiraloOrderResponse>('/orders', {
+      package_id:  packageCode,
+      quantity:    1,
+      type:        'sim',
+      description: `Walz Travels — ${destination} eSIM`,
+    })
+    airaloOrder = res.data
+    console.log('[esim/order] Airalo response:', JSON.stringify(res).slice(0, 400))
   } catch (err) {
-    orderErr = String(err)
-    console.error('[esim/order] fetch error:', err)
+    orderErr = err instanceof Error ? err.message : String(err)
+    console.error('[esim/order] Airalo error:', err)
   }
 
-  // eSIM Access returns esimList array — extract first item
-  const esimList = Array.isArray(esimData?.esimList) ? esimData.esimList as Record<string, unknown>[] : []
-  const esim     = esimList[0] ?? {}
-
-  const iccid          = String(esim.iccid    ?? '')
-  const qrCodeUrl      = String(esim.qrCodeUrl ?? esim.shortUrl ?? '')
-  const activationCode = String(esim.ac        ?? '')
-  const smdpAddress    = String(esim.smdpAddress ?? '')
-  const lpaString      = smdpAddress && activationCode ? `LPA:1:${smdpAddress}:${activationCode}` : ''
-  const esimOrderNo    = String(esimData.orderNo ?? '')
+  // Extract eSIM fields from Airalo response
+  const sim            = airaloOrder?.sims?.[0]
+  const iccid          = sim?.iccid          ?? ''
+  const qrCodeUrl      = sim?.qrcode_url     ?? ''
+  const activationCode = sim?.matching_id    ?? ''
+  const smdpAddress    = sim?.lpa            ?? ''
+  const lpaString      = sim?.qrcode         ?? ''     // already "LPA:1$...$..."
+  const appleInstallUrl = sim?.direct_apple_installation_url ?? ''
+  const esimOrderNo    = airaloOrder?.code   ?? ''
+  const actualWholesale = airaloOrder?.unit_paid_price ?? wholesale
   const status         = iccid ? 'active' : (orderErr ? 'failed' : 'pending')
 
   // ── 2. Save to DB ────────────────────────────────────────────────────────────
   const order = await prisma.esimOrder.create({
     data: {
-      userId:           user.id,
-      tripId:           tripId ?? null,
+      userId:            user.id,
+      tripId:            tripId ?? null,
       orderRef,
-      transactionId:    orderRef,
+      transactionId:     orderRef,
       esimAccessOrderNo: esimOrderNo || null,
       destination,
-      destinationIso2:  destinationIso2 ?? '',
+      destinationIso2:   destinationIso2 ?? '',
       packageCode,
-      packageName:      packageName ?? packageCode,
-      durationDays:     Number(durationDays ?? 0),
-      dataAmount:       dataAmount ?? null,
-      dataUnit:         dataUnit   ?? null,
-      wholesaleCostUsd: wholesale,
-      retailPriceUsd:   retail,
-      marginUsd:        margin,
-      iccid:            iccid || null,
-      qrCodeUrl:        qrCodeUrl || null,
-      activationCode:   activationCode || null,
-      smdpAddress:      smdpAddress || null,
-      lpaString:        lpaString || null,
+      packageName:       packageName ?? packageCode,
+      durationDays:      Number(durationDays ?? 0),
+      dataAmount:        dataAmount ?? null,
+      dataUnit:          dataUnit   ?? null,
+      wholesaleCostUsd:  actualWholesale,
+      retailPriceUsd:    retail,
+      marginUsd:         calcMargin(actualWholesale, retail),
+      iccid:             iccid || null,
+      qrCodeUrl:         qrCodeUrl || null,
+      activationCode:    activationCode || null,
+      smdpAddress:       smdpAddress || null,
+      lpaString:         lpaString || null,
       status,
-      stripePaymentId:  stripePaymentId ?? null,
-      emailSent:        false,
+      stripePaymentId:   stripePaymentId ?? null,
+      emailSent:         false,
     },
   })
 
@@ -176,6 +167,7 @@ export async function POST(req: NextRequest) {
           dataLabel, qrUrl: qrCodeUrl,
           ac: activationCode, smdp: smdpAddress,
           lpaString, orderRef, retailUsd: retail,
+          appleInstallUrl,
         }),
       })
       await prisma.esimOrder.update({ where: { id: order.id }, data: { emailSent: true } })
@@ -188,13 +180,14 @@ export async function POST(req: NextRequest) {
   getResend().emails.send({
     from:    'Jade Connect <noreply@walztravels.com>',
     to:      'contact@walztravels.com',
-    subject: `[eSIM] ${destination} — ${packageName} — $${retail.toFixed(2)} (margin $${margin.toFixed(2)})`,
-    html:    `<p><strong>New eSIM sale</strong></p><ul>
+    subject: `[eSIM] ${destination} — ${packageName} — $${retail.toFixed(2)} (margin $${calcMargin(actualWholesale, retail).toFixed(2)})`,
+    html:    `<p><strong>New eSIM sale via Airalo</strong></p><ul>
       <li>Client: ${user.email}</li><li>Destination: ${destination}</li>
       <li>Plan: ${packageName} — ${durationDays}d — ${dataLabel}</li>
-      <li>Wholesale: $${wholesale.toFixed(3)}</li><li>Retail: $${retail.toFixed(2)}</li>
-      <li>Margin: $${margin.toFixed(2)}</li><li>Status: ${status}</li>
-      <li>ICCID: ${iccid || 'pending'}</li><li>Ref: ${orderRef}</li></ul>`,
+      <li>Airalo wholesale: $${actualWholesale.toFixed(3)}</li><li>Retail: $${retail.toFixed(2)}</li>
+      <li>Margin: $${calcMargin(actualWholesale, retail).toFixed(2)}</li><li>Status: ${status}</li>
+      <li>ICCID: ${iccid || 'pending'}</li><li>Airalo order: ${esimOrderNo || 'N/A'}</li>
+      <li>Ref: ${orderRef}</li></ul>`,
   }).catch(() => {})
 
   return NextResponse.json({
@@ -206,6 +199,7 @@ export async function POST(req: NextRequest) {
     activationCode: activationCode || null,
     smdpAddress: smdpAddress || null,
     lpaString: lpaString || null,
+    appleInstallUrl: appleInstallUrl || null,
     status,
     error:    orderErr || null,
   })
