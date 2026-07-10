@@ -118,6 +118,7 @@ export async function POST(req: NextRequest) {
       userId:            user?.id ?? null,
       orderRef,
       transactionId:     orderRef,
+      provider:          'airalo',
       esimAccessOrderNo: esimOrderNo || null,
       destination,
       destinationIso2:   destinationIso2 ?? '',
