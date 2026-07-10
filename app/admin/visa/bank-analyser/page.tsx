@@ -350,6 +350,7 @@ const STEPS = [
 ]
 
 type AppEntry = { id: string; label: string; email: string; name: string }
+type UploadedDoc = { id: string; source: string; docName: string; category: string; fileUrl: string; fileName: string; mimeType: string | null; uploadedAt: string; status: string }
 
 export default function BankAnalyserPage() {
   // ── Form state ──────────────────────────────────────────────────────────────
@@ -364,6 +365,7 @@ export default function BankAnalyserPage() {
   const [linkedAppId,   setLinkedAppId]   = useState('')
   const [bankStmtUrl,   setBankStmtUrl]   = useState<string | null>(null)
   const [bankStmtFetch, setBankStmtFetch] = useState(false)
+  const [uploadedDocs,  setUploadedDocs]  = useState<UploadedDoc[]>([])
 
   // ── AI model ─────────────────────────────────────────────────────────────────
   const [aiModel, setAiModel] = useState<'claude' | 'openai'>('claude')
@@ -411,6 +413,7 @@ export default function BankAnalyserPage() {
   function handleLinkApp(id: string) {
     setLinkedAppId(id)
     setBankStmtUrl(null)
+    setUploadedDocs([])
     if (!id) return
     const app = appList.find(a => a.id === id)
     if (app) {
@@ -419,23 +422,24 @@ export default function BankAnalyserPage() {
     }
     fetch(`/api/admin/visa-applications/${id}`)
       .then(r => r.ok ? r.json() : null)
-      .then((d: { application?: { bank_statement_url?: string; bank_statement_admin_url?: string } } | null) => {
-        const url = d?.application?.bank_statement_admin_url ?? d?.application?.bank_statement_url ?? null
+      .then((d: { application?: { bank_statement_url?: string; bank_statement_admin_url?: string; uploaded_documents?: UploadedDoc[] } } | null) => {
+        const url  = d?.application?.bank_statement_admin_url ?? d?.application?.bank_statement_url ?? null
+        const docs = d?.application?.uploaded_documents ?? []
         setBankStmtUrl(url)
+        setUploadedDocs(docs)
       })
       .catch(() => {})
   }
 
-  async function handleScanExistingDoc() {
-    if (!bankStmtUrl) return
+  async function handleScanDoc(url: string, name?: string) {
     setBankStmtFetch(true)
     setError('')
     try {
-      const res  = await fetch(bankStmtUrl)
+      const res  = await fetch(url)
       if (!res.ok) throw new Error(`Could not fetch document (${res.status})`)
       const blob = await res.blob()
-      const name = bankStmtUrl.split('/').pop()?.split('?')[0] ?? 'bank-statement.pdf'
-      setFile(new File([blob], name, { type: blob.type || 'application/pdf' }))
+      const fileName = name ?? url.split('/').pop()?.split('?')[0] ?? 'bank-statement.pdf'
+      setFile(new File([blob], fileName, { type: blob.type || 'application/pdf' }))
       setAnalysis(null)
       setLetter(null)
     } catch (e) {
@@ -443,6 +447,11 @@ export default function BankAnalyserPage() {
     } finally {
       setBankStmtFetch(false)
     }
+  }
+
+  async function handleScanExistingDoc() {
+    if (!bankStmtUrl) return
+    await handleScanDoc(bankStmtUrl)
   }
 
   // ── Drag handlers ───────────────────────────────────────────────────────────
@@ -577,7 +586,34 @@ export default function BankAnalyserPage() {
               </button>
             </div>
           )}
-          {linkedAppId && bankStmtUrl === null && (
+
+          {/* Documents uploaded via Request Documents flow */}
+          {linkedAppId && uploadedDocs.length > 0 && (
+            <div className="mt-3 space-y-2">
+              <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
+                Uploaded Documents ({uploadedDocs.length})
+              </p>
+              {uploadedDocs.map(doc => (
+                <div key={doc.id} className="flex items-center gap-3 p-3 bg-blue-50 border border-blue-200 rounded-xl">
+                  <span className="text-blue-600 text-lg flex-shrink-0">
+                    {doc.mimeType?.includes('pdf') ? '📄' : '🖼️'}
+                  </span>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs font-semibold text-blue-800 truncate">{doc.docName}</p>
+                    <p className="text-[10px] text-blue-600 truncate">{doc.fileName} · {doc.category}</p>
+                  </div>
+                  <button onClick={() => handleScanDoc(doc.fileUrl, doc.fileName)} disabled={bankStmtFetch}
+                    className="flex-shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-600 text-white text-xs font-bold hover:bg-blue-700 disabled:opacity-40 transition-colors">
+                    {bankStmtFetch
+                      ? <><span className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin" /> Loading…</>
+                      : '⚡ Scan'}
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {linkedAppId && bankStmtUrl === null && uploadedDocs.length === 0 && (
             <p className="mt-2 text-xs text-amber-600">⚠ No bank statement uploaded to this application yet.</p>
           )}
         </div>

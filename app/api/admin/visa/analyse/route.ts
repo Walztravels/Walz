@@ -167,6 +167,34 @@ export async function POST(req: NextRequest) {
       source: { type: 'base64', media_type: mediaType, data: base64 },
     } as Anthropic.ImageBlockParam | Anthropic.DocumentBlockParam
 
+    // For large PDFs, extract text first to avoid Claude's 1M token limit.
+    // Native PDF blocks can generate 1M+ tokens for multi-page statements.
+    // Text extraction caps the token cost and works for all text-based bank statements.
+    let primaryBlock: Anthropic.ContentBlockParam = docBlock
+    let usingExtractedText = false
+
+    if (!isImage) {
+      try {
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
+        const pdfParse = require('pdf-parse') as (b: Buffer, o?: unknown) => Promise<{ text: string }>
+        const parsed   = await pdfParse(buffer, { max: 0 })
+        const rawText  = parsed.text?.trim() ?? ''
+
+        if (rawText.replace(/\s/g, '').length > 200) {
+          // Truncate to 80K chars (≈ 20K tokens) — keep header + first months + last months (totals)
+          const MAX = 80_000
+          const truncated = rawText.length > MAX
+            ? rawText.slice(0, 55_000) + '\n\n[... middle section omitted — totals below ...]\n\n' + rawText.slice(-25_000)
+            : rawText
+          primaryBlock       = { type: 'text', text: `BANK STATEMENT TEXT (extracted from PDF):\n\n${truncated}` }
+          usingExtractedText = true
+          console.log(`[VF] PDF text extracted: ${rawText.length} chars → sent ${truncated.length} chars`)
+        }
+      } catch (e) {
+        console.warn('[VF] pdf-parse skipped, using native document block:', e instanceof Error ? e.message : String(e))
+      }
+    }
+
     const systemPrompt =
       `You are VisaFortress AI — a forensic financial analyst specialising in visa bank statement review ` +
       `for ${passport} applicants applying for a ${visaType} visa. ` +
@@ -192,12 +220,12 @@ export async function POST(req: NextRequest) {
         const claude = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
 
         // Pass 1: extract raw transaction data (non-fatal)
-        let txnContext = 'Document passed directly to analysis.'
+        let txnContext = usingExtractedText ? 'Text extracted from PDF — see statement text above.' : 'Document passed directly to analysis.'
         try {
           const e1 = await callWithRetry(() => claude.messages.create({
             model: 'claude-sonnet-4-6', max_tokens: 3000, temperature: 0,
             system: 'You are a precise document data extractor. Return only valid JSON — no prose.' + JSON_ONLY,
-            messages: [{ role: 'user', content: [docBlock, { type: 'text', text: EXTRACTION_PROMPT }] }],
+            messages: [{ role: 'user', content: [primaryBlock, { type: 'text', text: EXTRACTION_PROMPT }] }],
           }))
           const eText = e1.content[0]?.type === 'text' ? e1.content[0].text : ''
           const eData = extractJSON<Record<string, unknown>>(eText)
@@ -213,7 +241,7 @@ export async function POST(req: NextRequest) {
           messages: [{
             role: 'user',
             content: [
-              docBlock,
+              primaryBlock,
               {
                 type: 'text',
                 text: `CRITICAL INSTRUCTION: Your ENTIRE response must be a single valid JSON object. Start with { and end with }. No text before or after. No markdown. No backticks. No explanation.\n\n${userPrompt(txnContext)}`,

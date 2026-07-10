@@ -111,6 +111,41 @@ export async function GET(_req: NextRequest, { params }: Params) {
     .eq('id', id)
     .single()
 
+  // Fetch all documents uploaded via Request Documents flow for this visa application
+  const docRequests = await prisma.documentRequest.findMany({
+    where: { visaAppId: id },
+    select: {
+      id: true,
+      clientName: true,
+      uploads: {
+        select: {
+          id: true,
+          docName: true,
+          category: true,
+          fileUrl: true,
+          fileName: true,
+          mimeType: true,
+          uploadedAt: true,
+          status: true,
+        },
+      },
+    },
+  })
+
+  const requestDocuments = docRequests.flatMap(req =>
+    req.uploads.map(u => ({
+      id:          u.id,
+      source:      'request_documents' as const,
+      docName:     u.docName,
+      category:    u.category,
+      fileUrl:     u.fileUrl,
+      fileName:    u.fileName,
+      mimeType:    u.mimeType,
+      uploadedAt:  u.uploadedAt,
+      status:      u.status,
+    }))
+  )
+
   return NextResponse.json({
     application: {
       ...app,
@@ -119,6 +154,7 @@ export async function GET(_req: NextRequest, { params }: Params) {
       bank_statement_analysis:    bankData?.bank_statement_analysis    ?? null,
       bank_statement_analyzed_at: bankData?.bank_statement_analyzed_at ?? null,
       bank_statement_uploaded_by: bankData?.bank_statement_uploaded_by ?? null,
+      uploaded_documents:         requestDocuments,
     },
   })
 }
