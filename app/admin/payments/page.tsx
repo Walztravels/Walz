@@ -619,6 +619,21 @@ export default function AdminPaymentsPage() {
                   ))}
                 </div>
 
+                {/* Flutterwave NGN limit warning */}
+                {payLinkForm.provider === 'flutterwave' && payLinkForm.currency === 'NGN' && Number(payLinkForm.amount) > 2000000 && (
+                  <div className="mb-4 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-xs text-amber-300 space-y-1">
+                    <p className="font-bold text-amber-400">⚠️ Flutterwave NGN limit: ~₦2.4M per payment link</p>
+                    {Number(payLinkForm.amount) <= 7000000
+                      ? <p>Switch to <strong>Bank Transfer (Virtual Account)</strong> — higher limit, client sends directly to a dedicated account.</p>
+                      : <>
+                          <p>This amount exceeds the ₦7M account limit. Options:</p>
+                          <p>• Split into {Math.ceil(Number(payLinkForm.amount) / 2000000)} separate links of ₦{Math.floor(Number(payLinkForm.amount) / Math.ceil(Number(payLinkForm.amount) / 2000000)).toLocaleString()} each</p>
+                          <p>• Request direct bank transfer from client (no platform limit)</p>
+                        </>
+                    }
+                  </div>
+                )}
+
                 {/* Description */}
                 <div className="mb-3">
                   <label className="text-white/50 text-xs uppercase tracking-wider block mb-1.5">Description</label>
