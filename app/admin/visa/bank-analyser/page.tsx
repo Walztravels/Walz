@@ -127,7 +127,7 @@ function sanitizeVF(raw: unknown): VFAnalysis {
     summary: {
       accountHolder:                sum.accountHolder != null ? safeStr(sum.accountHolder) : null,
       bank:                         sum.bank          != null ? safeStr(sum.bank)          : null,
-      currency:                     safeStr(sum.currency, 'USD'),
+      currency:                     safeStr(sum.currency) || safeStr(r.statementCurrency) || 'Unknown',
       period:                       safeStr(sum.period,   'Unknown'),
       months:                       safeNum(sum.months,   0),
       openingBalance:               safeNum(sum.openingBalance),
