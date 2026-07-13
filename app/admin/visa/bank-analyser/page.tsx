@@ -354,7 +354,7 @@ type UploadedDoc = { id: string; source: string; docName: string; category: stri
 
 export default function BankAnalyserPage() {
   // ── Form state ──────────────────────────────────────────────────────────────
-  const [file,         setFile]         = useState<File | null>(null)
+  const [files,        setFiles]        = useState<File[]>([])
   const [visaType,     setVisaType]     = useState('UK Visitor')
   const [passport,     setPassport]     = useState('Nigerian')
   const [clientName,   setClientName]   = useState('')
@@ -439,7 +439,7 @@ export default function BankAnalyserPage() {
       if (!res.ok) throw new Error(`Could not fetch document (${res.status})`)
       const blob = await res.blob()
       const fileName = name ?? url.split('/').pop()?.split('?')[0] ?? 'bank-statement.pdf'
-      setFile(new File([blob], fileName, { type: blob.type || 'application/pdf' }))
+      setFiles([new File([blob], fileName, { type: blob.type || 'application/pdf' })])
       setAnalysis(null)
       setLetter(null)
     } catch (e) {
@@ -458,15 +458,15 @@ export default function BankAnalyserPage() {
   const onDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault()
     setDragging(false)
-    const f = e.dataTransfer.files[0]
-    if (f) { setFile(f); setAnalysis(null); setLetter(null); setError('') }
+    const dropped = Array.from(e.dataTransfer.files)
+    if (dropped.length) { setFiles(dropped); setAnalysis(null); setLetter(null); setError('') }
   }, [])
 
   // ── Analyse ─────────────────────────────────────────────────────────────────
   async function handleAnalyse() {
-    if (!file) { setError('Please upload a bank statement.'); return }
+    if (!files.length) { setError('Please upload a bank statement.'); return }
     if (!clientName.trim()) { setError('Please enter the client name.'); return }
-    if (file.size > 50 * 1024 * 1024) { setError('File too large — maximum 50 MB.'); return }
+    if (files.some(f => f.size > 50 * 1024 * 1024)) { setError('Each file must be under 50 MB.'); return }
 
     setLoading(true)
     setError('')
@@ -486,7 +486,7 @@ export default function BankAnalyserPage() {
 
     try {
       const fd = new FormData()
-      fd.append('file', file)
+      files.forEach(f => fd.append('file', f))
       fd.append('visaType', visaType)
       fd.append('passportCountry', passport)
       fd.append('applicantName', clientName)
@@ -662,23 +662,31 @@ export default function BankAnalyserPage() {
             onDragLeave={() => setDragging(false)}
             onDrop={onDrop}
             className={`flex flex-col items-center justify-center gap-2 cursor-pointer border-2 border-dashed rounded-2xl px-4 py-8 transition-all ${
-              dragging ? 'border-[#C9A84C] bg-amber-50' : file ? 'border-emerald-400 bg-emerald-50' : 'border-gray-200 hover:border-[#C9A84C] hover:bg-amber-50/30'
+              dragging ? 'border-[#C9A84C] bg-amber-50' : files.length ? 'border-emerald-400 bg-emerald-50' : 'border-gray-200 hover:border-[#C9A84C] hover:bg-amber-50/30'
             }`}>
-            <span className="text-3xl">{file ? '✅' : '📄'}</span>
+            <span className="text-3xl">{files.length ? '✅' : '📄'}</span>
             <div className="text-center">
-              <p className="text-sm font-semibold text-[#0B1F3A]">
-                {file ? file.name : 'Drag & drop or click to upload'}
-              </p>
-              <p className="text-xs text-gray-400 mt-0.5">
-                {file
-                  ? `${(file.size / 1024 / 1024).toFixed(1)} MB`
-                  : 'PDF, PNG, JPG, WEBP · Max 50 MB'}
-              </p>
+              {files.length === 0 ? (
+                <>
+                  <p className="text-sm font-semibold text-[#0B1F3A]">Drag &amp; drop or click to upload</p>
+                  <p className="text-xs text-gray-400 mt-0.5">PDF, PNG, JPG, WEBP · Max 50 MB · Multiple files OK</p>
+                </>
+              ) : files.length === 1 ? (
+                <>
+                  <p className="text-sm font-semibold text-[#0B1F3A]">{files[0].name}</p>
+                  <p className="text-xs text-gray-400 mt-0.5">{(files[0].size / 1024 / 1024).toFixed(1)} MB</p>
+                </>
+              ) : (
+                <>
+                  <p className="text-sm font-semibold text-[#0B1F3A]">{files.length} files selected</p>
+                  <p className="text-xs text-gray-400 mt-0.5 max-w-xs truncate">{files.map(f => f.name).join(', ')}</p>
+                </>
+              )}
             </div>
-            <input type="file" accept=".pdf,.png,.jpg,.jpeg,.webp" className="hidden"
+            <input type="file" accept=".pdf,.png,.jpg,.jpeg,.webp" className="hidden" multiple
               onChange={e => {
-                const f = e.target.files?.[0]
-                if (f) { setFile(f); setAnalysis(null); setLetter(null); setError('') }
+                const picked = Array.from(e.target.files ?? [])
+                if (picked.length) { setFiles(picked); setAnalysis(null); setLetter(null); setError('') }
               }} />
           </label>
         </div>
@@ -729,7 +737,7 @@ export default function BankAnalyserPage() {
         )}
 
         <button onClick={handleAnalyse}
-          disabled={loading || !file || !clientName.trim()}
+          disabled={loading || !files.length || !clientName.trim()}
           className="w-full py-3.5 rounded-xl font-bold text-sm transition-all disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center gap-2 bg-[#0B1F3A] hover:bg-[#132038] text-white">
           {loading
             ? <><span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" /> {progress || 'Running VisaFortress AI…'}</>
@@ -1385,7 +1393,7 @@ export default function BankAnalyserPage() {
           </div>
           {analysis && (
             <button
-              onClick={() => { setAnalysis(null); setFile(null); setLetter(null); setError(''); setSavedId(null); setSendSuccess(false); setReportError('') }}
+              onClick={() => { setAnalysis(null); setFiles([]); setLetter(null); setError(''); setSavedId(null); setSendSuccess(false); setReportError('') }}
               className="text-xs font-semibold px-4 py-2 rounded-lg bg-white/10 text-white hover:bg-white/20 transition-colors">
               + New Analysis
             </button>

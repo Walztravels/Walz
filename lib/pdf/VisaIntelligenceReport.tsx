@@ -130,7 +130,7 @@ function PageFooter({ applicantName, refId }: { applicantName: string; refId: st
   return (
     <View style={styles.pageFooter} fixed>
       <Text style={styles.footerText}>WALZ TRAVELS · CONFIDENTIAL · Ref: {refId}</Text>
-      <Text style={styles.footerText}>{applicantName} · Visa Financial Intelligence Report</Text>
+      <Text style={styles.footerText}>{applicantName} · Jade Financial Intelligence Report</Text>
       <Text
         style={styles.footerText}
         render={({ pageNumber, totalPages }: { pageNumber: number; totalPages: number }) =>
@@ -159,7 +159,7 @@ function CoverPage({
           WALZ TRAVELS
         </Text>
         <Text style={{ fontSize: 9, color: '#64748b', letterSpacing: 3 }}>
-          VISA INTELLIGENCE PLATFORM
+          JADE FINANCIAL INTELLIGENCE
         </Text>
       </View>
 
@@ -751,10 +751,10 @@ export function VisaIntelligenceReport({
 
   return (
     <Document
-      title={`Walz Travels Visa Intelligence Report — ${applicantName}`}
+      title={`Walz Travels Jade Financial Intelligence Report — ${applicantName}`}
       author="Walz Travels Ltd"
-      subject={`Visa Financial Intelligence Report — ${destName(destination)}`}
-      creator="Walz Travels Visa Intelligence Platform v2.0"
+      subject={`Jade Financial Intelligence Report — ${destName(destination)}`}
+      creator="Walz Travels Jade Financial Intelligence v2.0"
     >
       <CoverPage
         applicantName={applicantName}

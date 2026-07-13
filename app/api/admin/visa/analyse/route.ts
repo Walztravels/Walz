@@ -139,74 +139,83 @@ export async function POST(req: NextRequest) {
     if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
     const form          = await req.formData()
-    const file          = (form.get('file') ?? form.get('statement')) as File | null
+    const rawFiles      = (form.getAll('file') as File[]).filter(f => f instanceof File && f.size > 0)
+    const legacyFile    = form.get('statement') as File | null
+    if (!rawFiles.length && legacyFile) rawFiles.push(legacyFile)
+
     const visaType      = ((form.get('visaType')        as string) ?? 'UK Visitor').trim()
     const passport      = ((form.get('passportCountry') as string) ?? 'Nigerian').trim()
     const applicantName = ((form.get('applicantName')   as string) ?? 'Applicant').trim()
     const appId         = form.get('applicationId') as string | null
 
-    if (!file)                        return NextResponse.json({ error: 'No file provided' },   { status: 400 })
-    if (file.size > 50 * 1024 * 1024) return NextResponse.json({ error: 'File exceeds 50 MB' }, { status: 413 })
+    if (!rawFiles.length) return NextResponse.json({ error: 'No file provided' }, { status: 400 })
 
-    const aiModel   = ((form.get('aiModel') as string | null) ?? 'claude') as 'claude' | 'openai'
-    const buffer    = Buffer.from(await file.arrayBuffer())
-    const base64    = buffer.toString('base64')
-    const isImage   = file.type.startsWith('image/')
-    const mediaType = isImage
-      ? (file.type as 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp')
-      : 'application/pdf'
+    const aiModel = ((form.get('aiModel') as string | null) ?? 'claude') as 'claude' | 'openai'
 
     // Currency / requirements for this visa type
     const visaInfo: VisaInfo = VISA_CURRENCY[visaType] ?? {
       currency: 'GBP', symbol: '£', requirement: 'Sufficient funds for the intended visit.',
     }
 
-    // Anthropic document block — Claude reads PDFs and images natively
-    const docBlock = {
-      type:   isImage ? 'image' : 'document',
-      source: { type: 'base64', media_type: mediaType, data: base64 },
-    } as Anthropic.ImageBlockParam | Anthropic.DocumentBlockParam
-
-    // For large PDFs, extract text first to avoid Claude's 1M token limit.
-    // Native PDF blocks can generate 1M+ tokens for multi-page statements.
-    // Text extraction caps the token cost and works for all text-based bank statements.
-    let primaryBlock: Anthropic.ContentBlockParam = docBlock
+    // ── Build Anthropic content blocks from each uploaded file ────────────────
+    const primaryBlocks: Anthropic.ContentBlockParam[] = []
     let usingExtractedText = false
 
-    if (!isImage) {
+    for (const f of rawFiles.slice(0, 10)) {
+      if (f.size > 50 * 1024 * 1024) continue
+      const buf   = Buffer.from(await f.arrayBuffer())
+      const b64   = buf.toString('base64')
+      const isImg = f.type.startsWith('image/')
+
+      if (isImg) {
+        primaryBlocks.push({
+          type:   'image',
+          source: { type: 'base64', media_type: f.type as 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp', data: b64 },
+        } as Anthropic.ImageBlockParam)
+        continue
+      }
+
+      // PDF — try text extraction to stay within Claude's token limit
+      let addedAsText = false
       try {
         // eslint-disable-next-line @typescript-eslint/no-require-imports
         const pdfParse = require('pdf-parse') as (b: Buffer, o?: unknown) => Promise<{ text: string }>
-        const parsed   = await pdfParse(buffer, { max: 0 })
+        const parsed   = await pdfParse(buf, { max: 0 })
         const rawText  = parsed.text?.trim() ?? ''
-
         if (rawText.replace(/\s/g, '').length > 200) {
-          // Truncate to 80K chars (≈ 20K tokens) — keep header + first months + last months (totals)
           const MAX = 80_000
           const truncated = rawText.length > MAX
             ? rawText.slice(0, 55_000) + '\n\n[... middle section omitted — totals below ...]\n\n' + rawText.slice(-25_000)
             : rawText
-          primaryBlock       = { type: 'text', text: `BANK STATEMENT TEXT (extracted from PDF):\n\n${truncated}` }
+          primaryBlocks.push({ type: 'text', text: `BANK STATEMENT TEXT (${f.name}):\n\n${truncated}` })
           usingExtractedText = true
-          console.log(`[VF] PDF text extracted: ${rawText.length} chars → sent ${truncated.length} chars`)
+          addedAsText = true
+          console.log(`[VF] PDF text extracted (${f.name}): ${rawText.length} chars → sent ${truncated.length} chars`)
         } else {
-          console.log('[VF] pdf-parse returned no usable text — PDF appears to be image/scanned')
+          console.log('[VF] pdf-parse: no usable text — PDF appears image/scanned')
         }
       } catch (e) {
         console.warn('[VF] pdf-parse failed:', e instanceof Error ? e.message : String(e))
       }
 
-      // Safety gate: if text extraction didn't work and the file is large,
-      // sending it as a native document block will exceed Claude's 1M token limit.
-      // PDFs > 1 MB that produce no extractable text are almost always image-rendered
-      // scans; block them early with a clear error rather than getting a 400 from Claude.
-      if (!usingExtractedText && buffer.length > 1_000_000) {
-        const sizeMB = (buffer.length / 1024 / 1024).toFixed(1)
-        return NextResponse.json({
-          success: false,
-          error: `This PDF (${sizeMB} MB) is too large to analyse directly — it appears to be a scanned or image-based statement with no extractable text. Please try one of these options:\n• Export a shorter date range (1–2 months) from your bank's app\n• Take screenshots of the key pages and upload as images\n• Switch to GPT-4o (which uses a text-extraction approach and handles most bank PDFs)`,
-        }, { status: 422 })
+      if (!addedAsText) {
+        if (buf.length <= 1_000_000) {
+          primaryBlocks.push({
+            type:   'document',
+            source: { type: 'base64', media_type: 'application/pdf', data: b64 },
+          } as Anthropic.DocumentBlockParam)
+        } else if (rawFiles.length === 1) {
+          const sizeMB = (buf.length / 1024 / 1024).toFixed(1)
+          return NextResponse.json({
+            success: false,
+            error: `This PDF (${sizeMB} MB) is too large to analyse directly — it appears to be a scanned or image-based statement with no extractable text. Please try one of these options:\n• Export a shorter date range (1–2 months) from your bank's app\n• Take screenshots of the key pages and upload as images\n• Switch to GPT-4o (which uses a text-extraction approach and handles most bank PDFs)`,
+          }, { status: 422 })
+        }
       }
+    }
+
+    if (primaryBlocks.length === 0) {
+      return NextResponse.json({ success: false, error: 'No readable content found in the uploaded files.' }, { status: 422 })
     }
 
     const systemPrompt =
@@ -239,7 +248,7 @@ export async function POST(req: NextRequest) {
           const e1 = await callWithRetry(() => claude.messages.create({
             model: 'claude-sonnet-4-6', max_tokens: 3000, temperature: 0,
             system: 'You are a precise document data extractor. Return only valid JSON — no prose.' + JSON_ONLY,
-            messages: [{ role: 'user', content: [primaryBlock, { type: 'text', text: EXTRACTION_PROMPT }] }],
+            messages: [{ role: 'user', content: [...primaryBlocks, { type: 'text', text: EXTRACTION_PROMPT }] }],
           }))
           const eText = e1.content[0]?.type === 'text' ? e1.content[0].text : ''
           const eData = extractJSON<Record<string, unknown>>(eText)
@@ -255,7 +264,7 @@ export async function POST(req: NextRequest) {
           messages: [{
             role: 'user',
             content: [
-              primaryBlock,
+              ...primaryBlocks,
               {
                 type: 'text',
                 text: `CRITICAL INSTRUCTION: Your ENTIRE response must be a single valid JSON object. Start with { and end with }. No text before or after. No markdown. No backticks. No explanation.\n\n${userPrompt(txnContext)}`,
@@ -294,16 +303,22 @@ export async function POST(req: NextRequest) {
         type ImgPart = { type: 'image_url'; image_url: { url: string; detail: 'high' } }
         type TxtPart = { type: 'text'; text: string }
 
-        if (isImage) {
-          // Image input — send directly with json_object mode
+        const allImages = rawFiles.every(f => f.type.startsWith('image/'))
+        if (allImages) {
+          // All images — send as vision (supports multiple pages)
+          const imgParts: ImgPart[] = []
+          for (const f of rawFiles.slice(0, 10)) {
+            const buf = Buffer.from(await f.arrayBuffer())
+            imgParts.push({ type: 'image_url', image_url: { url: `data:${f.type};base64,${buf.toString('base64')}`, detail: 'high' } })
+          }
           const oRes = await openai.chat.completions.create({
             model: 'gpt-4o', max_tokens: 8000, temperature: 0,
             response_format: { type: 'json_object' },
             messages: [
               { role: 'system', content: systemPrompt.replace(JSON_ONLY, '') + '\n\nReturn only valid JSON.' },
               { role: 'user', content: [
-                { type: 'image_url', image_url: { url: `data:${mediaType};base64,${base64}`, detail: 'high' } } as ImgPart,
-                { type: 'text', text: userPrompt('Read directly from the image above.') } as TxtPart,
+                ...imgParts,
+                { type: 'text', text: userPrompt(`Read directly from the ${rawFiles.length > 1 ? rawFiles.length + ' images' : 'image'} above.`) } as TxtPart,
               ]},
             ],
           })
@@ -311,17 +326,20 @@ export async function POST(req: NextRequest) {
           console.log('[VF] Raw GPT-4o response (first 500):', iText.substring(0, 500))
           analysis = extractJSON<unknown>(iText)
         } else {
-          // PDF input — extract text first, then send as plain text to GPT-4o.
-          // GPT-4o cannot process PDFs natively; pdf2pic (ghostscript) is unavailable on Vercel.
-          console.log('[VF] Extracting PDF text for GPT-4o…')
+          // PDF input — use pre-extracted text from primaryBlocks processing above
+          console.log('[VF] Using pre-extracted PDF text for GPT-4o…')
+          const pdfFile = rawFiles.find(f => !f.type.startsWith('image/'))
           let statementText = ''
-          try {
-            // eslint-disable-next-line @typescript-eslint/no-require-imports
-            const pdfParse = require('pdf-parse') as (b: Buffer, o?: unknown) => Promise<{ text: string }>
-            const parsed   = await pdfParse(buffer, { max: 0 })
-            statementText  = parsed.text?.trim() ?? ''
-          } catch (e) {
-            console.error('[VF GPT] pdf-parse error:', e instanceof Error ? e.message : String(e))
+          if (pdfFile) {
+            const pdfBuf = Buffer.from(await pdfFile.arrayBuffer())
+            try {
+              // eslint-disable-next-line @typescript-eslint/no-require-imports
+              const pdfParse = require('pdf-parse') as (b: Buffer, o?: unknown) => Promise<{ text: string }>
+              const parsed   = await pdfParse(pdfBuf, { max: 0 })
+              statementText  = parsed.text?.trim() ?? ''
+            } catch (e) {
+              console.error('[VF GPT] pdf-parse error:', e instanceof Error ? e.message : String(e))
+            }
           }
 
           if (!statementText || statementText.replace(/\s/g, '').length < 100) {
@@ -333,7 +351,7 @@ export async function POST(req: NextRequest) {
             }, { status: 422 })
           }
 
-          console.log(`[VF] Extracted ${statementText.length} chars from PDF`)
+          console.log(`[VF] PDF text length for GPT-4o: ${statementText.length} chars`)
           const oRes = await openai.chat.completions.create({
             model: 'gpt-4o', max_tokens: 8000, temperature: 0,
             response_format: { type: 'json_object' },

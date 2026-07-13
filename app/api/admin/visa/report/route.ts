@@ -81,18 +81,18 @@ export async function POST(req: NextRequest) {
     await resend.emails.send({
       from:    'Walz Travels Visa Team <visa@walztravels.com>',
       to:      email,
-      subject: `Your Visa Financial Intelligence Report — ${name}`,
+      subject: `Your Jade Financial Intelligence Report — ${name}`,
       attachments: [{ filename: fileName, content: pdfBuffer }],
       html: `
         <div style="font-family:sans-serif;max-width:600px;margin:0 auto;background:#ffffff;">
           <div style="background:#0B1F3A;padding:32px 40px;text-align:center;">
             <p style="margin:0;color:#C9A84C;font-size:11px;letter-spacing:3px;text-transform:uppercase;font-weight:700;">WALZ TRAVELS</p>
-            <p style="margin:4px 0 0;color:#64748b;font-size:9px;letter-spacing:2px;">VISA INTELLIGENCE PLATFORM</p>
+            <p style="margin:4px 0 0;color:#64748b;font-size:9px;letter-spacing:2px;">JADE FINANCIAL INTELLIGENCE</p>
           </div>
           <div style="padding:36px 40px;">
             <p style="color:#0B1F3A;font-size:16px;margin:0 0 8px;">Dear ${name},</p>
             <p style="color:#475569;font-size:14px;line-height:1.7;margin:0 0 24px;">
-              Please find attached your personalised <strong>Visa Financial Intelligence Report</strong>
+              Please find attached your personalised <strong>Jade Financial Intelligence Report</strong>
               for your ${destLabel} visa application.
             </p>
             <p style="color:#475569;font-size:14px;line-height:1.7;margin:0 0 16px;">This report contains:</p>
@@ -122,7 +122,7 @@ export async function POST(req: NextRequest) {
               </a>
             </div>
             <p style="color:#94a3b8;font-size:12px;margin:0;line-height:1.6;">
-              This report has been prepared by Walz Travels Visa Intelligence Platform.
+              This report has been prepared by Walz Travels Jade Financial Intelligence.
               The financial analysis is AI-generated and should be reviewed by your consultant before submission.
               Reference: ${refId}
             </p>
