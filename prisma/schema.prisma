@@ -601,18 +601,19 @@ model TourListing {
 }
 
 model VisaService {
-  id             String   @id @default(cuid())
-  country        String
-  flag           String?
-  visaType       String
-  processingTime String
-  fee            Float
-  currency       String   @default("GBP")
-  requirements   String   @db.Text @default("[]")
-  imageUrl       String?
-  active         Boolean  @default(true)
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
+  id              String   @id @default(cuid())
+  country         String
+  flag            String?
+  visaType        String
+  processingTime  String
+  fee             Float
+  expressFeeUsd   Float?
+  currency        String   @default("GBP")
+  requirements    String   @db.Text @default("[]")
+  imageUrl        String?
+  active          Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
 
   @@unique([country, visaType])
 }
