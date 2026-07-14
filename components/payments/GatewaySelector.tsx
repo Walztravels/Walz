@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 
-export type Gateway = 'stripe' | 'flutterwave'
+export type Gateway = 'stripe' | 'flutterwave' | 'paga'
 
 interface Props {
   depositAmount: number
@@ -64,6 +64,7 @@ export default function GatewaySelector({ depositAmount, packageCurrency, onSele
   const handleSelectFlutterwave = () => {
     onSelect('flutterwave', fwCurrency)
   }
+  const handleSelectPaga = () => onSelect('paga', 'NGN')
 
   const cardBase =
     'relative border-2 rounded-2xl p-4 cursor-pointer transition-all duration-200 select-none'
@@ -187,6 +188,55 @@ export default function GatewaySelector({ depositAmount, packageCurrency, onSele
                   </span>
                 </p>
               </div>
+            )}
+          </div>
+        </div>
+      </div>
+      {/* Paga */}
+      <div
+        className={`${cardBase} ${selected === 'paga' ? cardActive : cardInactive}`}
+        onClick={handleSelectPaga}
+        role="radio"
+        aria-checked={selected === 'paga'}
+        tabIndex={0}
+        onKeyDown={e => e.key === 'Enter' && handleSelectPaga()}
+      >
+        <div className="flex items-start gap-3">
+          <div className="mt-0.5 flex-shrink-0">
+            <div
+              className="w-4 h-4 rounded-full border-2 flex items-center justify-center transition-colors"
+              style={{
+                borderColor: selected === 'paga' ? '#C9A84C' : '#D1D5DB',
+                backgroundColor: selected === 'paga' ? '#C9A84C' : 'transparent',
+              }}
+            >
+              {selected === 'paga' && (
+                <div className="w-1.5 h-1.5 rounded-full bg-white" />
+              )}
+            </div>
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center justify-between gap-2 mb-0.5">
+              <p className="font-semibold text-[#0B1F3A] text-sm">Pay via Paga (Nigeria)</p>
+              <span className="text-[10px] font-bold uppercase tracking-wider text-[#6B7280] bg-gray-100 px-2 py-0.5 rounded-full flex-shrink-0">
+                Paga
+              </span>
+            </div>
+            <p className="text-xs text-gray-500 mb-2">
+              NGN — Bank transfer · Card · Paga wallet
+            </p>
+            <div className="flex items-center gap-1.5">
+              <span className="text-xs text-gray-400">🇳🇬</span>
+              <span className="text-xs text-gray-500">Lower fees · Instant confirmation</span>
+            </div>
+            {selected === 'paga' && (
+              <p className="mt-2 text-sm font-semibold text-[#0B1F3A]">
+                Deposit:{' '}
+                <span style={{ color: '#C9A84C' }}>{fmtAmount(depositNGN, 'NGN')}</span>
+                <span className="text-xs text-gray-400 font-normal ml-1">
+                  (≈ {fmtAmount(depositAmount, packageCurrency)})
+                </span>
+              </p>
             )}
           </div>
         </div>

@@ -2459,13 +2459,15 @@ model PaymentLink {
   clientName    String?
   clientEmail   String?
   description   String?
-  type          String    @default("stripe")   // stripe | flutterwave | virtual_account
+  type          String    @default("stripe")   // stripe | flutterwave | virtual_account | paga_checkout | paga_dynamic | paga_persistent | paga_direct_debit
   status        String    @default("pending")  // pending | paid | expired | failed
   provider      String?
   paidAt        DateTime?
   payerName     String?
   payerBank     String?
   expiresAt     DateTime?
+  pagaMethod    String?                        // checkout | dynamic | persistent | direct_debit
+  feeChargedNgn Decimal?  @db.Decimal(10, 2)  // Paga processing fee in NGN
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 

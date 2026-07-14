@@ -114,6 +114,7 @@ export default function AdminPaymentsPage() {
   const [payLinkForm,    setPayLinkForm]    = useState({
     amount: '', currency: 'GBP', description: '', clientName: '', clientEmail: '', clientPhone: '',
     provider: 'stripe', isPermanent: true, paymentDeadline: '1', bvn: '', cardType: 'eu',
+    pagaMethod: 'checkout', sourceAccountNumber: '', bankCode: '',
   })
   const [generatedLink,  setGeneratedLink]  = useState<{
     url?: string; accountNumber?: string; bankName?: string; expiryDate?: string | null;
@@ -122,6 +123,7 @@ export default function AdminPaymentsPage() {
     amount: string | number; amountToPay?: number; requestedAmount?: number; fee?: number;
     baseAmount?: number; feeAmount?: number; totalCharge?: number; feeLabel?: string;
     currency: string; description: string;
+    pagaMethod?: string; accountReference?: string; mandateReferenceNumber?: string;
   } | null>(null)
   const [generating,     setGenerating]     = useState(false)
   const [linkSending,    setLinkSending]    = useState(false)
@@ -474,11 +476,13 @@ export default function AdminPaymentsPage() {
                     { id: 'stripe',          label: '💳 Stripe'        },
                     { id: 'flutterwave',     label: '🌍 Flutterwave'   },
                     { id: 'virtual_account', label: '🏦 Bank Transfer' },
-                  ] as { id: 'stripe' | 'flutterwave' | 'virtual_account'; label: string }[]).map(({ id: p, label }) => (
+                    { id: 'paga',            label: '🇳🇬 Paga'         },
+                  ] as { id: 'stripe' | 'flutterwave' | 'virtual_account' | 'paga'; label: string }[]).map(({ id: p, label }) => (
                     <button key={p} onClick={() => setPayLinkForm(prev => ({
                       ...prev, provider: p,
                       currency: p === 'stripe' ? 'GBP' : 'NGN',
                       cardType: 'eu',
+                      pagaMethod: 'checkout',
                     }))}
                       className={`flex-1 py-2 rounded-lg text-sm font-bold transition ${
                         payLinkForm.provider === p ? 'bg-amber-500 text-black' : 'text-white/50 hover:text-white'
@@ -492,8 +496,64 @@ export default function AdminPaymentsPage() {
                     ? '✓ Cards worldwide · GBP / USD / EUR · Best for UK & EU clients'
                     : payLinkForm.provider === 'virtual_account'
                     ? '✓ NGN only · Client sends bank transfer to a dedicated account · Expires in 1 hour'
+                    : payLinkForm.provider === 'paga'
+                    ? '✓ NGN · Checkout redirect, dedicated bank accounts, or direct debit · Lower fees than Flutterwave'
                     : '✓ Cards + Bank Transfer + USSD · NGN / GHS · Best for Africa clients'}
                 </p>
+
+                {/* ── Paga method sub-tabs ── */}
+                {payLinkForm.provider === 'paga' && (
+                  <div className="mb-4 space-y-3">
+                    <div className="grid grid-cols-2 gap-2">
+                      {([
+                        { id: 'checkout',    label: 'Checkout',       sub: '1.4% · max ₦2k'  },
+                        { id: 'dynamic',     label: 'Dynamic Account',sub: '0.75% · max ₦1k' },
+                        { id: 'persistent',  label: 'Persistent Acct',sub: '0.75% · max ₦500' },
+                        { id: 'direct_debit',label: 'Direct Debit',  sub: '0.1% + ₦50'       },
+                      ] as { id: string; label: string; sub: string }[]).map(({ id, label, sub }) => (
+                        <button key={id} type="button"
+                          onClick={() => setPayLinkForm(p => ({ ...p, pagaMethod: id }))}
+                          className={`py-2.5 px-3 rounded-xl text-xs text-left border transition ${
+                            payLinkForm.pagaMethod === id
+                              ? 'bg-amber-500/20 border-amber-500/50 text-amber-400'
+                              : 'bg-white/5 border-white/10 text-white/50 hover:text-white'
+                          }`}>
+                          <p className="font-bold">{label}</p>
+                          <p className="opacity-60 font-normal mt-0.5">{sub}</p>
+                        </button>
+                      ))}
+                    </div>
+                    {/* Method descriptions */}
+                    <div className="text-white/30 text-xs leading-relaxed">
+                      {payLinkForm.pagaMethod === 'checkout' && '→ Client is redirected to Paga\'s hosted payment page to pay by card or bank transfer.'}
+                      {payLinkForm.pagaMethod === 'dynamic'  && '→ One-time bank account created for this transaction. Cheapest option below ₦133k.'}
+                      {payLinkForm.pagaMethod === 'persistent' && '→ Reusable bank account permanently linked to this client. Fixed ₦500 fee — cheapest for repeat or large payments.'}
+                      {payLinkForm.pagaMethod === 'direct_debit' && '→ Tokenize client\'s account once; charge it any time after. Cheapest for amounts above ₦450k.'}
+                    </div>
+                    {/* Cost comparison — live when amount is set */}
+                    {payLinkForm.amount && Number(payLinkForm.amount) > 0 && (() => {
+                      const base = Number(payLinkForm.amount)
+                      const fees = {
+                        checkout:     Math.min(Math.ceil(base * 0.014), 2000),
+                        dynamic:      Math.min(Math.ceil(base * 0.0075), 1000),
+                        persistent:   Math.min(Math.ceil(base * 0.0075), 500),
+                        direct_debit: Math.ceil(base * 0.001) + 50,
+                      } as Record<string, number>
+                      const best = (Object.keys(fees) as string[]).reduce((a, b) => fees[a] <= fees[b] ? a : b)
+                      return (
+                        <div className="bg-white/5 rounded-xl p-3 space-y-1.5">
+                          <p className="text-white/40 text-[10px] uppercase tracking-wider font-bold mb-2">Fee comparison for ₦{Number(base).toLocaleString()}</p>
+                          {Object.entries(fees).map(([method, fee]) => (
+                            <div key={method} className={`flex justify-between text-xs ${method === payLinkForm.pagaMethod ? 'text-amber-400 font-bold' : 'text-white/40'}`}>
+                              <span className="capitalize">{method === 'direct_debit' ? 'Direct Debit' : method.charAt(0).toUpperCase() + method.slice(1)}</span>
+                              <span>₦{fee.toLocaleString()} {method === best ? '✓ cheapest' : ''}</span>
+                            </div>
+                          ))}
+                        </div>
+                      )
+                    })()}
+                  </div>
+                )}
 
                 {/* VA — recommendation tip */}
                 {payLinkForm.provider === 'virtual_account' && (
@@ -651,7 +711,7 @@ export default function AdminPaymentsPage() {
                 </div>
 
                 {/* Fee section — auto-applied, no manual override */}
-                {payLinkForm.provider !== 'virtual_account' && (
+                {payLinkForm.provider !== 'virtual_account' && payLinkForm.provider !== 'paga' && (
                   <div className="mb-4 space-y-3">
                     {/* EU / non-EU toggle — Stripe only */}
                     {payLinkForm.provider === 'stripe' && (
@@ -736,15 +796,54 @@ export default function AdminPaymentsPage() {
                       className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-amber-500/50 text-sm" />
                   </div>
                 </div>
-                {payLinkForm.provider === 'virtual_account' && (
-                  <div className="mb-5">
+                {(payLinkForm.provider === 'virtual_account' || payLinkForm.provider === 'paga') && (
+                  <div className="mb-4">
                     <label className="text-white/50 text-xs uppercase tracking-wider block mb-1.5">Phone Number <span className="font-normal text-white/30">(optional)</span></label>
                     <input type="tel" placeholder="+234 800 000 0000" value={payLinkForm.clientPhone}
                       onChange={e => setPayLinkForm(p => ({ ...p, clientPhone: e.target.value }))}
                       className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-amber-500/50 text-sm" />
                   </div>
                 )}
-                {payLinkForm.provider !== 'virtual_account' && <div className="mb-5" />}
+
+                {/* Paga persistent — BVN */}
+                {payLinkForm.provider === 'paga' && payLinkForm.pagaMethod === 'persistent' && (
+                  <div className="mb-4">
+                    <label className="text-white/50 text-xs uppercase tracking-wider block mb-1.5">
+                      Client BVN <span className="text-white/30 normal-case">(required by CBN for persistent accounts)</span>
+                    </label>
+                    <input type="text" placeholder="11-digit BVN" maxLength={11} value={payLinkForm.bvn}
+                      onChange={e => setPayLinkForm(p => ({ ...p, bvn: e.target.value }))}
+                      className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white text-sm focus:outline-none focus:border-amber-500/50" />
+                  </div>
+                )}
+
+                {/* Paga direct debit — source account + bank code */}
+                {payLinkForm.provider === 'paga' && payLinkForm.pagaMethod === 'direct_debit' && (
+                  <div className="mb-4 space-y-3">
+                    <div>
+                      <label className="text-white/50 text-xs uppercase tracking-wider block mb-1.5">
+                        Client Account Number <span className="text-red-400">*</span>
+                      </label>
+                      <input type="text" placeholder="10-digit NUBAN" maxLength={10} value={payLinkForm.sourceAccountNumber}
+                        onChange={e => setPayLinkForm(p => ({ ...p, sourceAccountNumber: e.target.value }))}
+                        className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white text-sm focus:outline-none focus:border-amber-500/50" />
+                    </div>
+                    <div>
+                      <label className="text-white/50 text-xs uppercase tracking-wider block mb-1.5">
+                        Bank Code <span className="text-red-400">*</span>
+                      </label>
+                      <input type="text" placeholder="e.g. 058 (GTBank)" maxLength={10} value={payLinkForm.bankCode}
+                        onChange={e => setPayLinkForm(p => ({ ...p, bankCode: e.target.value }))}
+                        className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white text-sm focus:outline-none focus:border-amber-500/50" />
+                      <p className="text-white/20 text-xs mt-1">CBN bank code — e.g. 011 (Access), 058 (GTBank), 033 (UBA)</p>
+                    </div>
+                    <div className="bg-amber-500/10 border border-amber-500/20 rounded-xl p-3 text-xs text-amber-300/70 leading-relaxed">
+                      The client will receive an authorization request to approve this direct debit mandate before any charge is made.
+                    </div>
+                  </div>
+                )}
+
+                {payLinkForm.provider !== 'virtual_account' && payLinkForm.provider !== 'paga' && <div className="mb-5" />}
 
                 {linkError && <p className="text-red-400 text-xs mb-3">{linkError}</p>}
 
@@ -755,11 +854,21 @@ export default function AdminPaymentsPage() {
                       setLinkError('Client name is required for bank transfer accounts')
                       return
                     }
+                    if (payLinkForm.provider === 'paga' && payLinkForm.pagaMethod === 'persistent' && !payLinkForm.clientName?.trim()) {
+                      setLinkError('Client name is required for persistent accounts')
+                      return
+                    }
+                    if (payLinkForm.provider === 'paga' && payLinkForm.pagaMethod === 'direct_debit' && (!payLinkForm.sourceAccountNumber?.trim() || !payLinkForm.bankCode?.trim())) {
+                      setLinkError('Account number and bank code are required for Direct Debit')
+                      return
+                    }
                     setGenerating(true)
                     setLinkError('')
                     try {
                       const endpoint = payLinkForm.provider === 'virtual_account'
                         ? '/api/admin/payment-links/virtual-account'
+                        : payLinkForm.provider === 'paga'
+                        ? '/api/admin/payment-links/paga'
                         : `/api/admin/payment-links/${payLinkForm.provider}`
                       const res  = await fetch(endpoint, {
                         method:  'POST',
@@ -785,18 +894,60 @@ export default function AdminPaymentsPage() {
                 <div className="bg-emerald-500/10 border border-emerald-500/30 rounded-xl p-5 mb-5 text-center">
                   <p className="text-emerald-400 text-2xl mb-1">✓</p>
                   <p className="text-white font-bold text-lg">
-                    {generatedLink.accountNumber ? 'Bank Account Ready' : 'Payment Link Ready'}
+                    {generatedLink.mandateReferenceNumber ? 'Direct Debit Authorised'
+                     : generatedLink.accountNumber ? 'Bank Account Ready'
+                     : 'Payment Link Ready'}
                   </p>
                   <p className="text-white/50 text-sm mt-1">
                     {generatedLink.currency} {Number(generatedLink.amount).toLocaleString()} · {generatedLink.description}
                   </p>
+                  {generatedLink.fee != null && generatedLink.fee > 0 && (
+                    <p className="text-white/30 text-xs mt-1">Paga fee: ₦{Number(generatedLink.fee).toLocaleString()}</p>
+                  )}
                 </div>
 
-                {generatedLink.accountNumber ? (
-                  /* Virtual account result */
+                {/* Paga Direct Debit result */}
+                {generatedLink.mandateReferenceNumber && (
+                  <div className="bg-white/5 rounded-xl p-5 mb-4 space-y-3">
+                    <div className="flex justify-between items-center">
+                      <span className="text-white/40 text-sm">Mandate Reference</span>
+                      <span className="text-amber-400 font-mono text-sm font-bold">{generatedLink.mandateReferenceNumber}</span>
+                    </div>
+                    <div className="flex justify-between items-center">
+                      <span className="text-white/40 text-sm">Amount</span>
+                      <span className="text-white font-semibold">₦{Number(generatedLink.amount).toLocaleString()}</span>
+                    </div>
+                    <div>
+                      <p className="text-white/40 text-xs mb-1">Reference</p>
+                      <p className="text-white/60 font-mono text-xs">{generatedLink.tx_ref}</p>
+                    </div>
+                    <div className="bg-amber-500/10 border border-amber-500/20 rounded-xl p-3 text-xs text-amber-300/70 leading-relaxed">
+                      The client has been sent an authorization request. Once approved, use the mandate reference to charge via the Paga API.
+                    </div>
+                    <button onClick={() => {
+                      navigator.clipboard.writeText(`Mandate Reference: ${generatedLink.mandateReferenceNumber}\nRef: ${generatedLink.tx_ref}`)
+                      setLinkCopied(true)
+                      setTimeout(() => setLinkCopied(false), 2000)
+                    }} className="w-full bg-white/10 hover:bg-white/20 text-white text-sm font-bold py-2.5 rounded-xl transition">
+                      {linkCopied ? '✓ Copied!' : '📋 Copy Mandate Reference'}
+                    </button>
+                  </div>
+                )}
+
+                {generatedLink.accountNumber && !generatedLink.mandateReferenceNumber ? (
+                  /* Virtual account / Paga bank account result */
                   <>
+                    {/* Persistent Paga account banner */}
+                    {generatedLink.pagaMethod === 'persistent' && (
+                      <div className="bg-purple-500/10 border border-purple-500/20 rounded-xl px-4 py-3 mb-4 text-center">
+                        <p className="text-purple-400 text-sm">♾ Persistent account — permanently assigned to this client</p>
+                        {generatedLink.accountReference && (
+                          <p className="text-purple-300/50 text-xs mt-1">Ref: {generatedLink.accountReference}</p>
+                        )}
+                      </div>
+                    )}
                     {/* Deadline / permanent banner */}
-                    {!generatedLink.isPermanent && generatedLink.expiresAt ? (
+                    {!generatedLink.isPermanent && generatedLink.expiresAt && generatedLink.pagaMethod !== 'persistent' ? (
                       <div className="bg-red-500/10 border border-red-500/30 rounded-xl px-4 py-3 mb-4">
                         <p className="text-red-400 text-xs font-bold uppercase tracking-wider mb-1">⏰ Payment Deadline</p>
                         <p className="text-red-300 font-bold text-sm">
@@ -987,9 +1138,13 @@ export default function AdminPaymentsPage() {
 
 function PLTypeBadge({ type }: { type: string }) {
   const map: Record<string, { label: string; cls: string }> = {
-    stripe:          { label: 'Stripe',       cls: 'bg-indigo-50 text-indigo-700' },
-    flutterwave:     { label: 'Flutterwave',  cls: 'bg-amber-50 text-amber-700'   },
-    virtual_account: { label: 'Bank Transfer', cls: 'bg-green-50 text-green-700'  },
+    stripe:              { label: 'Stripe',          cls: 'bg-indigo-50 text-indigo-700'   },
+    flutterwave:         { label: 'Flutterwave',     cls: 'bg-amber-50 text-amber-700'     },
+    virtual_account:     { label: 'Bank Transfer',   cls: 'bg-green-50 text-green-700'     },
+    paga_checkout:       { label: 'Paga Checkout',   cls: 'bg-purple-50 text-purple-700'   },
+    paga_dynamic:        { label: 'Paga Dynamic',    cls: 'bg-purple-50 text-purple-700'   },
+    paga_persistent:     { label: 'Paga Persistent', cls: 'bg-purple-50 text-purple-700'   },
+    paga_direct_debit:   { label: 'Paga Direct Dbt', cls: 'bg-purple-50 text-purple-700'   },
   }
   const { label, cls } = map[type] ?? { label: type, cls: 'bg-gray-100 text-gray-500' }
   return (
