@@ -160,18 +160,45 @@ export const VISA_CONFIGS: Record<string, VisaCountryConfig> = {
     purposeOptions: ['Tourism / Holiday', 'Visiting Family or Friends', 'Business', 'Transit through Canada', 'Medical Treatment', 'Other'],
     portOfEntryOptions: ['Toronto Pearson (YYZ)', 'Vancouver (YVR)', 'Montreal (YUL)', 'Calgary (YYC)', 'Ottawa (YOW)', 'Edmonton (YEG)', 'Halifax (YHZ)', 'Other'],
     extraFields: [
+      // ── Header / Application level (IMM 5257) ────────────────────────────
+      { key: 'uciNumber', label: 'UCI Number (from a previous IRCC application, if any)', type: 'text', placeholder: '8 or 10-digit number — leave blank if this is your first IRCC application', section: 'personal' },
+      { key: 'serviceLanguage', label: 'Preferred language of service', type: 'select', options: ['English', 'French'], required: true, section: 'personal' },
       // ── Personal (IMM 5257 Page 1) ────────────────────────────────────────
       { key: 'otherNamesUsed', label: 'Other names used (maiden name, alias, etc.)', type: 'text', placeholder: 'Leave blank if none', section: 'personal' },
       { key: 'countryOfBirth', label: 'Country of birth', type: 'text', placeholder: 'e.g. Nigeria', required: true, section: 'personal' },
+      // Section 7 — Current country/territory of residence
+      { key: 'currentResidenceStatus', label: 'Your status in your current country of residence', type: 'select', options: ['Citizen', 'Permanent Resident', 'Student', 'Worker (work permit)', 'Visitor', 'Refugee / Protected Person', 'Other'], required: true, section: 'personal' },
+      { key: 'currentResidenceFrom', label: 'Date you established your current residence (YYYY-MM-DD)', type: 'text', placeholder: 'e.g. 2018-03-01', required: true, section: 'personal' },
+      // Section 8 — Previous countries of residence (past 5 years)
+      { key: 'livedElsewherePast5Yrs', label: 'In the past 5 years, have you lived in any country (other than your country of citizenship or current residence) for more than 6 months?', type: 'boolean', section: 'personal' },
+      { key: 'previousResidencesDetails', label: 'Previous countries/territories of residence — last 5 years', type: 'textarea', placeholder: 'For each: Country | Status (e.g. Student, Worker) | From YYYY-MM-DD | To YYYY-MM-DD\n\nExample:\nUnited Kingdom | Student | 2018-09-01 | 2022-06-30\nGhana | Worker | 2016-04-01 | 2018-08-31', conditional: 'livedElsewherePast5Yrs', section: 'personal' },
+      // Section 9 — Country/territory where applying
+      { key: 'applyingFromCurrentCountry', label: 'Are you applying from your current country/territory of residence?', type: 'boolean', section: 'personal' },
+      { key: 'applyingFromCountryDetails', label: 'Country/territory you are applying from (if different from current residence)', type: 'text', placeholder: 'Country name where you are physically submitting this application', conditionalFalse: 'applyingFromCurrentCountry', section: 'personal' },
       { key: 'dualCitizenship', label: 'Are you a citizen of any other country besides your current nationality?', type: 'boolean', section: 'personal' },
       { key: 'dualCitizenshipCountry', label: 'Other citizenship country', type: 'text', placeholder: 'e.g. United Kingdom', conditional: 'dualCitizenship', section: 'personal' },
-      { key: 'usGreenCard', label: 'Do you hold a valid US Permanent Resident (green) card?', type: 'boolean', section: 'personal' },
-      { key: 'usGreenCardNumber', label: 'US green card number', type: 'text', placeholder: 'e.g. A123456789', conditional: 'usGreenCard', section: 'personal' },
-      { key: 'usGreenCardExpiry', label: 'US green card expiry date', type: 'text', placeholder: 'YYYY-MM-DD', conditional: 'usGreenCard', section: 'personal' },
-      { key: 'previousMarriages', label: 'Have you had any previous marriages or common-law partnerships?', type: 'boolean', section: 'personal' },
-      { key: 'previousMarriageDetails', label: 'Previous marriage / partnership details (name, date, end date)', type: 'textarea', placeholder: 'e.g. Jane Smith — married May 2010, divorced March 2015', conditional: 'previousMarriages', section: 'personal' },
+      // Marital status details
+      { key: 'spouseFamilyName', label: "Current spouse / common-law partner's family name", type: 'text', placeholder: 'Family name as on passport — leave blank if single/divorced/widowed', section: 'personal' },
+      { key: 'spouseGivenNames', label: "Current spouse / common-law partner's given name(s)", type: 'text', placeholder: 'All given names', section: 'personal' },
+      { key: 'dateOfUnion', label: 'Date of marriage / start of common-law relationship (YYYY-MM-DD)', type: 'text', placeholder: 'YYYY-MM-DD — leave blank if not applicable', section: 'personal' },
+      { key: 'previousMarriages', label: 'Have you previously been married or in a common-law relationship (before any current relationship)?', type: 'boolean', section: 'personal' },
+      { key: 'previousMarriageDetails', label: 'Previous marriage / partnership details', type: 'textarea', placeholder: 'For each: Full name | DOB | Type of relationship (married/common-law) | From YYYY-MM-DD | To YYYY-MM-DD\n\nExample:\nJane Smith | 1985-04-10 | Married | 2010-05-22 | 2015-03-01', conditional: 'previousMarriages', section: 'personal' },
+      // Languages (IMM 5257 Languages section)
       { key: 'nativeLanguage', label: 'Native language / mother tongue', type: 'text', placeholder: 'e.g. Yoruba, Igbo, Hausa', required: true, section: 'personal' },
-      { key: 'languagesSpoken', label: 'Official language(s) you can communicate in', type: 'select', options: ['English only', 'French only', 'Both English and French', 'Neither English nor French'], required: true, section: 'personal' },
+      { key: 'languagesSpoken', label: 'Ability to communicate in English and/or French', type: 'select', options: ['English only', 'French only', 'Both English and French', 'Neither English nor French'], required: true, section: 'personal' },
+      { key: 'languageMostAtEase', label: 'Language you are most at ease in', type: 'text', placeholder: 'e.g. Yoruba, English, French', required: true, section: 'personal' },
+      { key: 'proficiencyTestTaken', label: 'Have you taken an English or French proficiency test (IELTS, CELPIP, TEF, DALF, etc.)?', type: 'boolean', section: 'personal' },
+      { key: 'proficiencyTestDetails', label: 'Proficiency test — test name, score, and date taken', type: 'text', placeholder: 'e.g. IELTS — overall 7.0 — taken June 2023', conditional: 'proficiencyTestTaken', section: 'personal' },
+      // National Identity Document (IMM 5257 National Identity Document section)
+      { key: 'hasNationalId', label: 'Do you have a national identity document (other than your passport)?', type: 'boolean', section: 'personal' },
+      { key: 'nationalIdNumber', label: 'National ID — document number', type: 'text', placeholder: 'Document number', conditional: 'hasNationalId', section: 'personal' },
+      { key: 'nationalIdCountry', label: 'National ID — country or territory of issue', type: 'text', placeholder: 'e.g. Nigeria', conditional: 'hasNationalId', section: 'personal' },
+      { key: 'nationalIdIssueDate', label: 'National ID — issue date (YYYY-MM-DD)', type: 'text', placeholder: 'YYYY-MM-DD', conditional: 'hasNationalId', section: 'personal' },
+      { key: 'nationalIdExpiry', label: 'National ID — expiry date (YYYY-MM-DD)', type: 'text', placeholder: 'YYYY-MM-DD', conditional: 'hasNationalId', section: 'personal' },
+      // US PR Card
+      { key: 'usGreenCard', label: 'Are you a lawful Permanent Resident of the United States with a valid green card?', type: 'boolean', section: 'personal' },
+      { key: 'usGreenCardNumber', label: 'US green card number', type: 'text', placeholder: 'e.g. A123456789', conditional: 'usGreenCard', section: 'personal' },
+      { key: 'usGreenCardExpiry', label: 'US green card expiry date (YYYY-MM-DD)', type: 'text', placeholder: 'YYYY-MM-DD', conditional: 'usGreenCard', section: 'personal' },
       // ── Family Information (IMM 5707) ─────────────────────────────────────
       // Father
       { key: 'fatherFamilyName', label: "Father's family name (surname)", type: 'text', placeholder: 'As on birth certificate', required: true, section: 'family' },
@@ -212,13 +239,35 @@ export const VISA_CONFIGS: Record<string, VisaCountryConfig> = {
       { key: 'employmentHistory10yr', label: 'Employment / activity history for past 10 years — no time gaps allowed', type: 'textarea', required: true, placeholder: 'List all activities from most recent (employment, study, self-employment, unemployment). Example:\n\n2022–present: Software Engineer at XYZ Ltd, Lagos, Nigeria (full-time)\n2019–2022: BSc Computer Science, University of Lagos\n2017–2019: Unemployed (career break)', section: 'education' },
       // ── Background (IMM 5257 Page 4) ──────────────────────────────────────
       { key: 'biometricsGiven', label: 'Have you previously given biometrics for Canada?', type: 'boolean', section: 'background' },
-      { key: 'tbContact', label: 'Have you ever had tuberculosis (TB) or been in close contact with a TB patient?', type: 'boolean', section: 'background' },
-      { key: 'militaryService', label: 'Have you ever served in a military, paramilitary, or police force?', type: 'boolean', section: 'background' },
-      { key: 'militaryServiceDetails', label: 'Military / police service — organization, role/rank, dates', type: 'textarea', placeholder: 'Organization name, your role/rank, country, start and end dates', conditional: 'militaryService', section: 'background' },
-      { key: 'politicalOrg', label: 'Have you ever been a member of a group that used violence to achieve political or religious goals?', type: 'boolean', section: 'background' },
-      { key: 'civilIllTreatment', label: 'Have you ever witnessed or participated in the ill-treatment of prisoners or civilians?', type: 'boolean', section: 'background' },
+      // Q1a — TB
+      { key: 'tbContact', label: 'Q1a — Within the past two years, have you or a family member had tuberculosis of the lungs or been in close contact with a person with tuberculosis?', type: 'boolean', section: 'background' },
+      // Q1b — Physical/mental disorder
+      { key: 'physicalMentalDisorder', label: 'Q1b — Do you have any physical or mental disorder that would require social and/or health services (other than medication) during a stay in Canada?', type: 'boolean', section: 'background' },
+      { key: 'tbOrDisorderDetails', label: 'Q1c — If yes to Q1a or Q1b: provide details and family member name if applicable', type: 'textarea', placeholder: 'Describe the condition, relevant dates, and family member name if applicable', section: 'background' },
+      // Q2 — Status/immigration history
+      { key: 'overstayedStatus', label: 'Q2a — Have you ever remained beyond the validity of your status, attended school without authorization, or worked without authorization in Canada?', type: 'boolean', section: 'background' },
+      { key: 'deniedEntryOtherCountry', label: 'Q2b — Have you ever been refused a visa or permit, denied entry, or ordered to leave Canada or any other country?', type: 'boolean', section: 'background' },
+      { key: 'previouslyAppliedToCanada', label: 'Q2c — Have you previously applied to enter or remain in Canada?', type: 'boolean', section: 'background' },
+      { key: 'backgroundQ2Details', label: 'Q2d — Details for any "Yes" above (provide dates, countries, outcomes)', type: 'textarea', placeholder: 'Example:\n2b) UK visa refused in 2020 — insufficient funds\n2c) Applied for Canadian study permit in 2019 — approved', section: 'background' },
+      // Q3 — Criminal offences
+      { key: 'criminalOffenceDetails', label: 'Q3b — Criminal offence details (country, charges, conviction, dates)', type: 'textarea', placeholder: 'Describe: offence type, country, charges, conviction/outcome, and date', conditional: 'criminalRecord', section: 'background' },
+      // Q4 — Military/police
+      { key: 'militaryService', label: 'Q4a — Have you ever served in any military, militia, civil defence unit, security organization, or police force (including non-obligatory national service, reserve, or volunteer units)?', type: 'boolean', section: 'background' },
+      { key: 'militaryServiceDetails', label: 'Q4b — Military / police service — organization, role/rank, country, dates of service', type: 'textarea', placeholder: 'Organization name, your role/rank, country, start and end dates', conditional: 'militaryService', section: 'background' },
+      // Q5 — Political violence
+      { key: 'politicalOrg', label: 'Q5 — Have you ever been a member of or associated with any political party or other group/organization that has engaged in or advocated violence for political or religious objectives, or that has been associated with criminal activity?', type: 'boolean', section: 'background' },
+      // Q6 — Ill-treatment of persons
+      { key: 'civilIllTreatment', label: 'Q6 — Have you ever witnessed or participated in the ill-treatment of prisoners or civilians, looting, or desecration of religious buildings?', type: 'boolean', section: 'background' },
       { key: 'hasSponsor', label: 'Do you have a financial sponsor or host in Canada?', type: 'boolean', section: 'background' },
       { key: 'sponsorDetails', label: "Sponsor's name, Canadian address and immigration status", type: 'textarea', placeholder: 'Full name, Canadian address, immigration status (citizen / permanent resident / visitor)', conditional: 'hasSponsor', section: 'background' },
+      // ── Contact / Residential address (IMM 5257 Contact section) ─────────────
+      { key: 'residentialSameAsMailing', label: 'Is your residential address the same as your mailing/home address entered in the Contact step?', type: 'boolean', section: 'country' },
+      { key: 'residentialAddress', label: 'Residential address (if different from mailing address above)', type: 'textarea', placeholder: 'Apt/Unit — Street number and name\nCity, Province/State\nCountry, Postal code', conditionalFalse: 'residentialSameAsMailing', section: 'country' },
+      // ── Declaration / Signature (IMM 5257 Page 5) ────────────────────────────
+      { key: 'irccContactConsent', label: 'Consent: Do you consent to being contacted by IRCC, or an organisation at IRCC\'s request, in the future?', type: 'boolean', section: 'country' },
+      { key: 'signatureName', label: 'Declaration — Type your full legal name as your signature', type: 'text', placeholder: 'Type your full legal name exactly as it appears on your passport', required: true, section: 'country' },
+      { key: 'signatureDate', label: 'Signature date (YYYY-MM-DD)', type: 'text', placeholder: 'YYYY-MM-DD', required: true, section: 'country' },
+      { key: 'immFormEdition', label: 'IMM form edition (for IRCC tracking — do not change)', type: 'text', placeholder: 'IMM 5257 (06-2019) E', section: 'country' },
     ],
     notes: 'The Canadian government fee of CAD $100 is paid separately through IRCC when your application is ready for submission.',
   },

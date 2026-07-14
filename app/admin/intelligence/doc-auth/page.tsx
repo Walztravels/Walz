@@ -915,6 +915,7 @@ function DummyTicketTab() {
   const [retDate,     setRetDate]     = useState('')
   const [cabin,       setCabin]       = useState('economy')
   const [clientName,  setClientName]  = useState('')
+  const [clientTitle, setClientTitle] = useState('MR')
   const [passportNo,  setPassportNo]  = useState('')
   const [useHoldPnr,  setUseHoldPnr]  = useState(false)
   const [holdResult,  setHoldResult]  = useState<{ pnr: string; expires: string | null; orderId: string | null } | null>(null)
@@ -939,7 +940,8 @@ function DummyTicketTab() {
   const [mMessage,  setMMMessage] = useState('')
 
   // Multi-passenger state
-  const [passengers, setPassengers] = useState<Array<{ name: string; type: string }>>([])
+  const [passengers, setPassengers] = useState<Array<{ name: string; type: string; title: string }>>([])
+
 
   // Hotel fields
   const [hName,     setHName]     = useState('')
@@ -1010,6 +1012,7 @@ function DummyTicketTab() {
       const payload: Record<string, unknown> = {
         mode,
         applicationId:  appId || undefined,
+        clientTitle:    clientTitle,
         clientName:     clientName || undefined,
         passportNumber: passportNo || undefined,
       }
@@ -1018,7 +1021,7 @@ function DummyTicketTab() {
         Object.assign(payload, {
           originIata, destIata, departureDate: depDate, returnDate: retDate || undefined,
           cabinClass: cabin, holdPnr: useHoldPnr || undefined,
-          passengers: passengers.length > 0 ? [{ name: clientName, type: 'Adult' }, ...passengers] : undefined,
+          passengers: passengers.length > 0 ? [{ name: clientName, type: 'Adult', title: clientTitle }, ...passengers] : undefined,
         })
       } else if (mode === 'manual') {
         Object.assign(payload, {
@@ -1030,7 +1033,7 @@ function DummyTicketTab() {
           seat: mSeat, baggage: mBaggage,
           terminal: mTerminal, gate: mGate,
           pnr: mPNR, message: mMessage,
-          passengers: passengers.length > 0 ? [{ name: clientName, type: 'Adult' }, ...passengers] : undefined,
+          passengers: passengers.length > 0 ? [{ name: clientName, type: 'Adult', title: clientTitle }, ...passengers] : undefined,
         })
       } else {
         Object.assign(payload, { hotelName: hName, hotelAddress: hAddress, checkIn: hCheckIn, checkOut: hCheckOut, roomType: hRoomType, numGuests: hGuests })
@@ -1123,7 +1126,19 @@ function DummyTicketTab() {
           </div>
           <div>
             <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1 block">Passenger Name</label>
-            <input className={INPUT} value={clientName} onChange={e => setClientName(e.target.value)} placeholder="Full name (or auto-filled)" />
+            <div className="flex gap-2">
+              <select
+                value={clientTitle}
+                onChange={e => setClientTitle(e.target.value)}
+                className="h-10 px-2 border border-gray-200 rounded-lg text-xs text-[#0B1F3A] bg-white w-20 flex-shrink-0">
+                <option value="MR">Mr</option>
+                <option value="MRS">Mrs</option>
+                <option value="MISS">Miss</option>
+                <option value="MSTR">Mstr</option>
+                <option value="DR">Dr</option>
+              </select>
+              <input className={INPUT + ' flex-1'} value={clientName} onChange={e => setClientName(e.target.value)} placeholder="Full name (or auto-filled)" />
+            </div>
           </div>
           {(mode === 'live' || mode === 'manual') && (
             <div>
@@ -1137,6 +1152,16 @@ function DummyTicketTab() {
                 <div className="space-y-2 mb-2">
                   {passengers.map((p, i) => (
                     <div key={i} className="flex gap-2 items-center">
+                      <select
+                        className="h-10 px-2 border border-gray-200 rounded-lg text-xs text-[#0B1F3A] bg-white w-20 flex-shrink-0"
+                        value={p.title}
+                        onChange={e => setPassengers(prev => prev.map((x, j) => j === i ? { ...x, title: e.target.value } : x))}>
+                        <option value="MR">Mr</option>
+                        <option value="MRS">Mrs</option>
+                        <option value="MISS">Miss</option>
+                        <option value="MSTR">Mstr</option>
+                        <option value="DR">Dr</option>
+                      </select>
                       <input
                         className={INPUT + ' flex-1'}
                         value={p.name}
@@ -1164,7 +1189,7 @@ function DummyTicketTab() {
               {passengers.length < 8 && (
                 <button
                   type="button"
-                  onClick={() => setPassengers(prev => [...prev, { name: '', type: 'Adult' }])}
+                  onClick={() => setPassengers(prev => [...prev, { name: '', type: 'Adult', title: 'MR' }])}
                   className="text-xs text-[#C9A84C] font-semibold hover:text-[#0B1F3A] transition flex items-center gap-1">
                   + Add Passenger
                 </button>

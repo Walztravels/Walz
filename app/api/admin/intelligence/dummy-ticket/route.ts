@@ -312,9 +312,11 @@ export async function POST(req: NextRequest) {
     roomType?:     string
     numGuests?:    string
     // Multi-passenger
+    clientTitle?: string
     passengers?: Array<{
       name: string
       type?: string   // 'Adult' | 'Child' | 'Infant'
+      title?: string  // 'MR' | 'MRS' | 'MISS' | 'MSTR' | 'DR'
       seat?: string
       passport?: string
     }>
@@ -429,13 +431,13 @@ export async function POST(req: NextRequest) {
     }
 
     const bodyPax = body.passengers ?? []
-    const allPax  = bodyPax.length > 0 ? bodyPax : [{ name: clientName, type: 'Adult' }]
+    const allPax  = bodyPax.length > 0 ? bodyPax : [{ name: clientName, type: 'Adult', title: body.clientTitle || 'MR' }]
     const paxForPDF = allPax.map((p) => {
       const parts     = (p.name || 'PASSENGER').trim().split(' ')
       const firstName = parts[0]
       const lastName  = parts.slice(1).join(' ') || ''
       return {
-        title:         'MR',
+        title:         (p.title || 'MR').toUpperCase(),
         firstName:     firstName.toUpperCase(),
         lastName:      lastName.toUpperCase(),
         cabinClass:    safeUpper(body.cabin || 'ECONOMY'),

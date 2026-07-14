@@ -53,6 +53,22 @@ const EMPTY_FORM: VFormData = {
   declarationAccurate: false, declarationAuthorise: false, declarationFeePolicy: false,
 }
 
+// ─── Canada repeatable row types ─────────────────────────────────────────────
+
+interface CanadaRow { [key: string]: string }
+
+const EMPTY_EDU_ROW: CanadaRow = { from: '', to: '', fieldOfStudy: '', schoolName: '', city: '', country: '', provinceState: '' }
+const EMPTY_EMP_ROW: CanadaRow = { from: '', to: '', occupation: '', employerName: '', city: '', country: '', provinceState: '' }
+
+function parseCanadaRows(val: string | boolean | undefined, empty: CanadaRow): CanadaRow[] {
+  if (!val || typeof val !== 'string') return [{ ...empty }]
+  try {
+    const parsed = JSON.parse(val)
+    if (Array.isArray(parsed) && parsed.length > 0) return parsed
+  } catch { /* fall through */ }
+  return [{ ...empty }]
+}
+
 interface FamilyApplicant {
   id: string
   relationship: string
@@ -271,8 +287,111 @@ function StepContact({ form, update }: { form: VFormData; update: (k: string, v:
   )
 }
 
+// ─── Canada repeatable section ────────────────────────────────────────────────
+
+const EDU_FIELDS: { key: string; label: string; placeholder?: string; wide?: boolean }[] = [
+  { key: 'from',          label: 'From (YYYY-MM)',   placeholder: 'e.g. 2018-09' },
+  { key: 'to',            label: 'To (YYYY-MM)',     placeholder: 'e.g. 2022-06' },
+  { key: 'fieldOfStudy',  label: 'Field of study',   placeholder: 'e.g. Business Administration', wide: true },
+  { key: 'schoolName',    label: 'School / Facility name', placeholder: 'e.g. University of Lagos', wide: true },
+  { key: 'city',          label: 'City / Town',      placeholder: 'City' },
+  { key: 'country',       label: 'Country',          placeholder: 'e.g. Nigeria' },
+  { key: 'provinceState', label: 'Province / State', placeholder: 'If applicable' },
+]
+
+const EMP_FIELDS: { key: string; label: string; placeholder?: string; wide?: boolean }[] = [
+  { key: 'from',         label: 'From (YYYY-MM)',         placeholder: 'e.g. 2020-01' },
+  { key: 'to',           label: 'To (YYYY-MM)',           placeholder: 'e.g. 2024-12 or Present' },
+  { key: 'occupation',   label: 'Activity / Occupation',  placeholder: 'e.g. Software Engineer, Student, Unemployed', wide: true },
+  { key: 'employerName', label: 'Company / Employer / School', placeholder: 'e.g. XYZ Ltd, University of Lagos', wide: true },
+  { key: 'city',         label: 'City / Town',            placeholder: 'City' },
+  { key: 'country',      label: 'Country',                placeholder: 'e.g. Nigeria' },
+  { key: 'provinceState',label: 'Province / State',       placeholder: 'If applicable' },
+]
+
+const MAX_ROWS = 10
+
+function CanadaRepeatableSection({
+  title, rows, onChange, fields, rowLabel, hint,
+}: {
+  title:    string
+  rows:     CanadaRow[]
+  onChange: (rows: CanadaRow[]) => void
+  fields:   { key: string; label: string; placeholder?: string; wide?: boolean }[]
+  rowLabel: string
+  hint?:    string
+}) {
+  const INPUT = 'w-full px-3 py-2 border border-gray-200 rounded-xl text-sm outline-none focus:border-[#C9A84C] bg-white'
+
+  function updateRow(i: number, key: string, value: string) {
+    onChange(rows.map((r, j) => j === i ? { ...r, [key]: value } : r))
+  }
+
+  function addRow() {
+    if (rows.length >= MAX_ROWS) return
+    const empty: CanadaRow = {}
+    fields.forEach(f => { empty[f.key] = '' })
+    onChange([...rows, empty])
+  }
+
+  function removeRow(i: number) {
+    onChange(rows.filter((_, j) => j !== i))
+  }
+
+  return (
+    <div className="mt-6 pt-6 border-t border-gray-100">
+      <p className="text-xs font-bold text-[#C9A84C] uppercase tracking-wider mb-1">{title}</p>
+      {hint && <p className="text-xs text-gray-400 mb-4">{hint}</p>}
+      <div className="space-y-4">
+        {rows.map((row, i) => (
+          <div key={i} className="bg-gray-50 rounded-xl p-4">
+            <div className="flex items-center justify-between mb-3">
+              <span className="text-xs font-bold text-gray-500 uppercase tracking-wide">{rowLabel} {i + 1}</span>
+              {i > 0 && (
+                <button type="button" onClick={() => removeRow(i)}
+                  className="text-xs text-red-400 hover:text-red-600 font-semibold transition">
+                  Remove
+                </button>
+              )}
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              {fields.map(f => (
+                <div key={f.key} className={f.wide ? 'col-span-2' : ''}>
+                  <label className="text-[11px] font-semibold text-gray-500 uppercase tracking-wide mb-1 block">{f.label}</label>
+                  <input
+                    type="text"
+                    value={row[f.key] ?? ''}
+                    onChange={e => updateRow(i, f.key, e.target.value)}
+                    placeholder={f.placeholder}
+                    className={INPUT}
+                  />
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+      <div className="mt-3">
+        {rows.length < MAX_ROWS ? (
+          <button type="button" onClick={addRow}
+            className="text-xs text-[#C9A84C] font-semibold hover:text-[#0B1F3A] transition flex items-center gap-1">
+            + Add Another {rowLabel}
+          </button>
+        ) : (
+          <p className="text-xs text-gray-400 italic">Maximum {MAX_ROWS} entries reached.</p>
+        )}
+      </div>
+    </div>
+  )
+}
+
 function StepEmployment({ form, update, config }: { form: VFormData; update: (k: string, v: string | boolean) => void; config: VisaCountryConfig }) {
-  const status = form.employmentStatus
+  const status   = form.employmentStatus
+  const isCanada = config.destinationIso2 === 'CA'
+
+  const eduRows = parseCanadaRows(form['educationRows'] as string | undefined, EMPTY_EDU_ROW)
+  const empRows = parseCanadaRows(form['employmentRows'] as string | undefined, EMPTY_EMP_ROW)
+
   return (
     <div>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -296,7 +415,34 @@ function StepEmployment({ form, update, config }: { form: VFormData; update: (k:
           </Field>
         </div>
       </div>
-      <ExtraFields config={config} form={form} update={update} sections={['education']} />
+
+      {isCanada ? (
+        <>
+          {/* Education level is still a quick summary field */}
+          <ExtraFields config={config} form={form} update={update} sections={['education']}
+            label="🇨🇦 Education — Summary" />
+          {/* Structured education history rows */}
+          <CanadaRepeatableSection
+            title="Education History — Structured Entries (IMM 5257)"
+            hint="List every post-secondary education entry. Use YYYY-MM for dates (no day needed)."
+            rows={eduRows}
+            onChange={rows => update('educationRows', JSON.stringify(rows))}
+            fields={EDU_FIELDS}
+            rowLabel="Education Entry"
+          />
+          {/* Structured employment history rows */}
+          <CanadaRepeatableSection
+            title="Employment / Activity History — Last 10 Years (IMM 5257)"
+            hint="Cover all 10 years with no gaps: employment, self-employment, study, unemployment, homemaking, etc."
+            rows={empRows}
+            onChange={rows => update('employmentRows', JSON.stringify(rows))}
+            fields={EMP_FIELDS}
+            rowLabel="Employment Entry"
+          />
+        </>
+      ) : (
+        <ExtraFields config={config} form={form} update={update} sections={['education']} />
+      )}
     </div>
   )
 }
@@ -816,12 +962,36 @@ export function VisaApplicationForm({
   }
 
   function validate(): string | null {
+    const isCA = config.destinationIso2 === 'CA'
+    const str  = (k: string) => (form[k] as string | undefined)?.toString().trim() ?? ''
+
     if (step === 0) {
       if (!form.firstName.trim()) return 'First name is required'
       if (!form.lastName.trim()) return 'Last name is required'
       if (!form.dateOfBirth) return 'Date of birth is required'
       if (!form.sex) return 'Sex is required'
       if (!form.nationality.trim()) return 'Nationality is required'
+      if (isCA) {
+        if (!str('serviceLanguage')) return 'Preferred service language is required (IMM 5257 header)'
+        if (!str('countryOfBirth')) return 'Country of birth is required'
+        if (!str('currentResidenceStatus')) return 'Your status in current country of residence is required (IMM 5257 §7)'
+        if (!str('currentResidenceFrom')) return 'Date you established current residence is required (IMM 5257 §7)'
+        if (!str('nativeLanguage')) return 'Native language / mother tongue is required'
+        if (!str('languagesSpoken')) return 'Official language ability is required'
+        if (!str('languageMostAtEase')) return 'Language you are most at ease in is required'
+        if (form['livedElsewherePast5Yrs'] && !str('previousResidencesDetails'))
+          return 'Please provide details of previous countries of residence (IMM 5257 §8)'
+        if (form['applyingFromCurrentCountry'] === false && !str('applyingFromCountryDetails'))
+          return 'Please provide the country you are applying from (IMM 5257 §9)'
+        if (form['proficiencyTestTaken'] && !str('proficiencyTestDetails'))
+          return 'Please provide your proficiency test name, score, and date'
+        if (form['hasNationalId']) {
+          if (!str('nationalIdNumber')) return 'National ID document number is required'
+          if (!str('nationalIdCountry')) return 'National ID country of issue is required'
+        }
+        if (form['previousMarriages'] && !str('previousMarriageDetails'))
+          return 'Please provide details of your previous marriage(s) / partnership(s)'
+      }
     }
     if (step === 1) {
       if (!form.passportNumber.trim()) return 'Passport number is required'
@@ -833,10 +1003,30 @@ export function VisaApplicationForm({
       if (!form.homeAddress.trim()) return 'Home address is required'
       if (!form.country.trim()) return 'Country of residence is required'
     }
+    if (step === 3 && isCA) {
+      if (!str('educationLevel')) return 'Highest level of education is required'
+      const empRows = parseCanadaRows(form['employmentRows'] as string | undefined, EMPTY_EMP_ROW)
+      if (empRows.length === 0 || !empRows[0].occupation?.trim())
+        return 'At least one employment / activity entry is required (IMM 5257 requires 10-year history with no gaps)'
+    }
     if (step === 4) {
       if (!form.visaType) return 'Please select a visa type'
       if (!form.arrivalDate) return 'Arrival date is required'
       if (!form.purposeOfVisit) return 'Purpose of visit is required'
+      if (isCA) {
+        if (!str('tripPayor')) return 'Please select who is paying for your trip to Canada'
+        if (!str('fundsAvailableCAD')) return 'Funds available for your stay (CAD) is required'
+      }
+    }
+    if (step === 6 && isCA) {
+      if ((form['tbContact'] || form['physicalMentalDisorder']) && !str('tbOrDisorderDetails'))
+        return 'Please provide details for Q1 (TB contact or health condition) — IMM 5257 §1c'
+      if ((form['overstayedStatus'] || form['deniedEntryOtherCountry'] || form['previouslyAppliedToCanada']) && !str('backgroundQ2Details'))
+        return 'Please provide details for Q2 (immigration/status history) — IMM 5257 §2d'
+      if (form.criminalRecord && !str('criminalOffenceDetails'))
+        return 'Please provide criminal offence details — IMM 5257 Q3b'
+      if (!str('signatureName')) return 'Please type your full name as your declaration signature'
+      if (!str('signatureDate')) return 'Signature date is required'
     }
     if (step === 8) {
       if (!form.declarationAccurate || !form.declarationAuthorise || !form.declarationFeePolicy) {
