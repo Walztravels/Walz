@@ -46,9 +46,30 @@ function basicAuth(publicKey: string, secretKey: string) {
 export type PagaMethod = 'checkout' | 'dynamic' | 'persistent' | 'direct_debit'
 
 export interface PagaResponse {
-  responseCode: string | number
-  message?:     string
-  [key: string]: unknown
+  responseCode:    string | number | undefined
+  responseMessage?: string
+  message?:        string
+  error?:          string | Record<string, unknown>
+  [key: string]:   unknown
+}
+
+/**
+ * Normalise Paga's response across different endpoint shapes.
+ * Logs the raw response so we can debug unexpected formats in Vercel logs.
+ */
+function normalisePagaResponse(raw: unknown, endpoint: string): PagaResponse {
+  console.log(`[paga] ${endpoint} raw response:`, JSON.stringify(raw))
+  if (typeof raw !== 'object' || raw === null) {
+    return { responseCode: 'ERR', message: String(raw) }
+  }
+  const r = raw as Record<string, unknown>
+  // Paga sometimes wraps data inside a response_body or response key
+  const inner = (r.response_body ?? r.response ?? r.data ?? r) as Record<string, unknown>
+  return {
+    ...r,
+    responseCode:    (r.responseCode ?? r.response_code ?? inner.responseCode ?? inner.response_code) as string | number | undefined,
+    message:         (r.message ?? r.responseMessage ?? inner.message ?? inner.responseMessage ?? r.error) as string | undefined,
+  }
 }
 
 export interface PagaDynamicAccountResult {
@@ -78,7 +99,9 @@ export interface PagaVerifyResult {
 // ── Utility ───────────────────────────────────────────────────────────────────
 
 export function isPagaSuccess(res: PagaResponse) {
-  return String(res.responseCode) === '0'
+  const code = String(res.responseCode ?? '')
+  // Paga uses '0' or '00' for success depending on the endpoint
+  return code === '0' || code === '00'
 }
 
 // ── Fee calculation ───────────────────────────────────────────────────────────
@@ -192,17 +215,17 @@ export async function verifyPagaTransaction(referenceNumber: string): Promise<Pa
   const hash = sha512(referenceNumber, secretKey)
   const auth = basicAuth(publicKey, secretKey)
 
-  const res = await fetch(`${baseUrl}/api/v2/verifyTransaction`, {
+  const rawRes = await fetch(`${baseUrl}/api/v2/verifyTransaction`, {
     method:  'POST',
     headers: { 'Content-Type': 'application/json', Authorization: auth },
     body:    JSON.stringify({ referenceNumber, hash }),
   })
 
-  const data = (await res.json()) as PagaResponse
+  const data = normalisePagaResponse(await rawRes.json().catch(() => ({})), 'verifyTransaction')
   const isPaid = isPagaSuccess(data)
 
   return {
-    responseCode:     data.responseCode,
+    responseCode:     data.responseCode ?? '',
     isPaid,
     amount:           data.totalAmount as number | undefined,
     currency:         (data.currency as string | undefined) ?? 'NGN',
@@ -264,7 +287,7 @@ export async function createDynamicBankAccount(opts: {
   )
   const auth = basicAuth(publicKey, secretKey)
 
-  const res = await fetch(`${baseUrl}/api/v2/paymentRequest`, {
+  const rawRes = await fetch(`${baseUrl}/api/v2/paymentRequest`, {
     method:  'POST',
     headers: { 'Content-Type': 'application/json', Authorization: auth },
     body: JSON.stringify({
@@ -278,17 +301,19 @@ export async function createDynamicBankAccount(opts: {
     }),
   })
 
-  const data = (await res.json()) as PagaResponse
+  const data = normalisePagaResponse(await rawRes.json().catch(() => ({})), 'paymentRequest')
   if (!isPagaSuccess(data)) {
-    throw new Error(`Paga dynamic account error: ${data.message ?? data.responseCode}`)
+    const detail = data.message ?? String(data.responseCode ?? rawRes.status)
+    throw new Error(`Paga dynamic account error: ${detail}`)
   }
 
-  const acct = data.paymentAccount as Record<string, string> | undefined
+  // Paga returns the account inside paymentAccount, data, or at the top level
+  const acct = (data.paymentAccount ?? data.data ?? data) as Record<string, string>
   return {
-    accountNumber: (acct?.accountNumber ?? data.accountNumber) as string,
-    bankName:      (acct?.bankName      ?? data.bankName)      as string,
-    accountName:   (acct?.accountName   ?? data.accountName)   as string,
-    expiresAt:     (data.expirationTime ?? null) as string | null,
+    accountNumber: (acct.accountNumber ?? acct.account_number) as string,
+    bankName:      (acct.bankName      ?? acct.bank_name)      as string,
+    accountName:   (acct.accountName   ?? acct.account_name)   as string,
+    expiresAt:     (data.expirationTime ?? acct.expiresAt ?? null) as string | null,
   }
 }
 
@@ -315,7 +340,7 @@ export async function registerPersistentBankAccount(opts: {
   const hash = hmacSha512(hashData, hmacKey)
   const auth = basicAuth(publicKey, secretKey)
 
-  const res = await fetch(`${baseUrl}/api/v2/createPersistentPaymentAccount`, {
+  const rawRes1 = await fetch(`${baseUrl}/api/v2/createPersistentPaymentAccount`, {
     method:  'POST',
     headers: { 'Content-Type': 'application/json', Authorization: auth },
     body: JSON.stringify({
@@ -329,16 +354,17 @@ export async function registerPersistentBankAccount(opts: {
     }),
   })
 
-  const data = (await res.json()) as PagaResponse
-  if (!isPagaSuccess(data)) {
-    throw new Error(`Paga persistent account error: ${data.message ?? data.responseCode}`)
+  const data1 = normalisePagaResponse(await rawRes1.json().catch(() => ({})), 'createPersistentPaymentAccount')
+  if (!isPagaSuccess(data1)) {
+    throw new Error(`Paga persistent account error: ${data1.message ?? String(data1.responseCode ?? rawRes1.status)}`)
   }
 
+  const acct1 = (data1.paymentAccount ?? data1.data ?? data1) as Record<string, string>
   return {
-    accountReference:              data.accountReference as string,
-    accountNumber:                 data.accountNumber    as string,
-    bankName:                      data.bankName         as string,
-    accountName:                   data.accountName      as string,
+    accountReference:              (data1.accountReference ?? acct1.accountReference ?? opts.referenceNumber) as string,
+    accountNumber:                 (data1.accountNumber    ?? acct1.accountNumber    ?? acct1.account_number) as string,
+    bankName:                      (data1.bankName         ?? acct1.bankName         ?? acct1.bank_name)      as string,
+    accountName:                   (data1.accountName      ?? acct1.accountName      ?? opts.accountName)     as string,
     financialIdentificationNumber: fin,
   }
 }
@@ -351,22 +377,23 @@ export async function getPersistentBankAccount(accountReference: string): Promis
   const hash = hmacSha512(accountReference, hmacKey)
   const auth = basicAuth(publicKey, secretKey)
 
-  const res = await fetch(`${baseUrl}/api/v2/getPersistentPaymentAccount`, {
+  const rawRes2 = await fetch(`${baseUrl}/api/v2/getPersistentPaymentAccount`, {
     method:  'POST',
     headers: { 'Content-Type': 'application/json', Authorization: auth },
     body: JSON.stringify({ accountReference, hash }),
   })
 
-  const data = (await res.json()) as PagaResponse
-  if (!isPagaSuccess(data)) {
-    throw new Error(`Paga get persistent account error: ${data.message ?? data.responseCode}`)
+  const data2 = normalisePagaResponse(await rawRes2.json().catch(() => ({})), 'getPersistentPaymentAccount')
+  if (!isPagaSuccess(data2)) {
+    throw new Error(`Paga get persistent account error: ${data2.message ?? String(data2.responseCode ?? rawRes2.status)}`)
   }
 
+  const acct2 = (data2.paymentAccount ?? data2.data ?? data2) as Record<string, string>
   return {
     accountReference,
-    accountNumber: data.accountNumber as string,
-    bankName:      data.bankName      as string,
-    accountName:   data.accountName   as string,
+    accountNumber: (data2.accountNumber ?? acct2.accountNumber ?? acct2.account_number) as string,
+    bankName:      (data2.bankName      ?? acct2.bankName      ?? acct2.bank_name)      as string,
+    accountName:   (data2.accountName   ?? acct2.accountName   ?? acct2.account_name)   as string,
   }
 }
 
@@ -378,15 +405,15 @@ export async function deletePersistentBankAccount(accountReference: string): Pro
   const hash = hmacSha512(accountReference, hmacKey)
   const auth = basicAuth(publicKey, secretKey)
 
-  const res = await fetch(`${baseUrl}/api/v2/deletePersistentPaymentAccount`, {
+  const rawRes3 = await fetch(`${baseUrl}/api/v2/deletePersistentPaymentAccount`, {
     method:  'POST',
     headers: { 'Content-Type': 'application/json', Authorization: auth },
     body: JSON.stringify({ accountReference, hash }),
   })
 
-  const data = (await res.json()) as PagaResponse
-  if (!isPagaSuccess(data)) {
-    throw new Error(`Paga delete persistent account error: ${data.message ?? data.responseCode}`)
+  const data3 = normalisePagaResponse(await rawRes3.json().catch(() => ({})), 'deletePersistentPaymentAccount')
+  if (!isPagaSuccess(data3)) {
+    throw new Error(`Paga delete persistent account error: ${data3.message ?? String(data3.responseCode ?? rawRes3.status)}`)
   }
 }
 
@@ -429,7 +456,7 @@ export async function tokenizeDirectDebit(opts: {
   )
   const auth = basicAuth(publicKey, secretKey)
 
-  const res = await fetch(`${baseUrl}/api/v2/createDebitMandate`, {
+  const rawRes4 = await fetch(`${baseUrl}/api/v2/createDebitMandate`, {
     method:  'POST',
     headers: { 'Content-Type': 'application/json', Authorization: auth },
     body: JSON.stringify({
@@ -447,15 +474,16 @@ export async function tokenizeDirectDebit(opts: {
     }),
   })
 
-  const data = (await res.json()) as PagaResponse
-  if (!isPagaSuccess(data)) {
-    throw new Error(`Paga direct debit tokenize error: ${data.message ?? data.responseCode}`)
+  const data4 = normalisePagaResponse(await rawRes4.json().catch(() => ({})), 'createDebitMandate')
+  if (!isPagaSuccess(data4)) {
+    throw new Error(`Paga direct debit tokenize error: ${data4.message ?? String(data4.responseCode ?? rawRes4.status)}`)
   }
 
+  const mandate = (data4.data ?? data4) as Record<string, string>
   return {
-    mandateReferenceNumber: data.mandateReferenceNumber as string,
+    mandateReferenceNumber: (data4.mandateReferenceNumber ?? mandate.mandateReferenceNumber) as string,
     customerAccountNumber:  opts.sourceAccountNumber,
-    bankName:               data.bankName as string | undefined,
+    bankName:               (data4.bankName ?? mandate.bankName) as string | undefined,
   }
 }
 
@@ -484,7 +512,7 @@ export async function chargeDirectDebit(opts: {
   )
   const auth = basicAuth(publicKey, secretKey)
 
-  const res = await fetch(`${baseUrl}/api/v2/performDebitMandatePayment`, {
+  const rawRes5 = await fetch(`${baseUrl}/api/v2/performDebitMandatePayment`, {
     method:  'POST',
     headers: { 'Content-Type': 'application/json', Authorization: auth },
     body: JSON.stringify({
@@ -498,13 +526,13 @@ export async function chargeDirectDebit(opts: {
     }),
   })
 
-  const data = (await res.json()) as PagaResponse
-  if (!isPagaSuccess(data)) {
-    throw new Error(`Paga direct debit charge error: ${data.message ?? data.responseCode}`)
+  const data5 = normalisePagaResponse(await rawRes5.json().catch(() => ({})), 'performDebitMandatePayment')
+  if (!isPagaSuccess(data5)) {
+    throw new Error(`Paga direct debit charge error: ${data5.message ?? String(data5.responseCode ?? rawRes5.status)}`)
   }
 
   return {
-    transactionId: (data.transactionId ?? data.referenceNumber) as string,
-    message:       data.message ?? 'Success',
+    transactionId: (data5.transactionId ?? data5.referenceNumber) as string,
+    message:       data5.message ?? 'Success',
   }
 }
