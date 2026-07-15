@@ -5,7 +5,8 @@
  *   PAGA_PUBLIC_KEY      — your Paga merchant public key
  *   PAGA_SECRET_KEY      — your Paga merchant secret key
  *   PAGA_HMAC_KEY        — your Paga HMAC key (for persistent accounts + webhook)
- *   PAGA_COLLECT_URL     — base URL, defaults to https://collect.paga.com
+ *   PAGA_COLLECT_URL     — Collect API base URL, defaults to https://collect.paga.com
+ *   PAGA_CHECKOUT_URL    — hosted checkout base URL, defaults to https://checkout.paga.com
  *
  * SECURITY: Do not use in production until credentials have been confirmed rotated
  * after any prior exposure in chat / logs.
@@ -19,10 +20,11 @@ function cfg() {
   const publicKey = process.env.PAGA_PUBLIC_KEY
   const secretKey = process.env.PAGA_SECRET_KEY
   const hmacKey   = process.env.PAGA_HMAC_KEY
-  const baseUrl   = process.env.PAGA_COLLECT_URL ?? 'https://collect.paga.com'
+  const baseUrl     = process.env.PAGA_COLLECT_URL  ?? 'https://collect.paga.com'
+  const checkoutUrl = process.env.PAGA_CHECKOUT_URL ?? 'https://checkout.paga.com'
   if (!publicKey || !secretKey)
     throw new Error('PAGA_PUBLIC_KEY and PAGA_SECRET_KEY env vars are required')
-  return { publicKey, secretKey, hmacKey: hmacKey ?? '', baseUrl }
+  return { publicKey, secretKey, hmacKey: hmacKey ?? '', baseUrl, checkoutUrl }
 }
 
 // ── Hash helpers ──────────────────────────────────────────────────────────────
@@ -118,6 +120,40 @@ export function isPagaSuccess(res: PagaResponse) {
   return code === '200' || code === '0' || code === '00'
 }
 
+/**
+ * Fast-fail on Paga authentication errors.
+ * Throws immediately with an actionable message so callers do NOT retry.
+ *
+ * Credential mapping:
+ *   PAGA_PUBLIC_KEY  → Basic Auth username (UUID from Paga portal Developer Tools → API Key)
+ *   PAGA_SECRET_KEY  → Basic Auth password = sha512(PAGA_SECRET_KEY)
+ *                      Must match the live "API Secret Key" from the same portal page.
+ */
+function assertAuthOk(httpStatus: number, data: PagaResponse, context: string): void {
+  const msg = String(data.message ?? '')
+  const lc  = msg.toLowerCase()
+  const isAuthErr =
+    httpStatus === 401 ||
+    httpStatus === 403 ||
+    lc.includes('incorrect password') ||
+    lc.includes('locked') ||
+    lc.includes('invalid credential')
+
+  if (!isAuthErr) return
+
+  const isLocked = lc.includes('lock')
+  console.error(`[paga] ${context} auth failure (HTTP ${httpStatus}): ${msg}`)
+
+  throw new Error(
+    isLocked
+      ? `Paga API credential locked (too many failed attempts). ` +
+        `Reset API keys at business.paga.com → Developer Tools → API Key.`
+      : `Paga authentication failed (HTTP ${httpStatus}): ${msg}. ` +
+        `In Vercel: PAGA_PUBLIC_KEY must be your live API public key UUID; ` +
+        `PAGA_SECRET_KEY must be your live API secret key (from Paga portal → Developer Tools → API Key).`
+  )
+}
+
 // ── Fee calculation ───────────────────────────────────────────────────────────
 
 /**
@@ -183,38 +219,48 @@ export function cheapestPagaMethod(amountNgn: number): {
 // ── 1. Checkout ───────────────────────────────────────────────────────────────
 
 /**
- * Build a Paga Checkout redirect URL.
- * The client is redirected to this URL to complete payment on Paga's hosted page.
+ * Build a Paga Checkout redirect URL (browser-hosted payment page).
+ *
+ * Live endpoint: https://checkout.paga.com/checkout/params
+ * Required:  public_key, amount (decimal e.g. "200.00"), email
+ * Optional:  currency, payment_reference, charge_url, callback_url,
+ *            phone_number, display_image, funding_sources
+ *
+ * IMPORTANT: The checkout URL carries NO hash. The SHA-512 hash in the Paga
+ * checkout flow is only used to verify the INCOMING webhook callback Paga
+ * sends to callback_url — see verifyPagaWebhookHash() below.
+ *
+ * After payment Paga redirects to charge_url appending:
+ *   ?charge_reference=...&status_message=success&status_code=0
  */
 export function buildPagaCheckoutUrl(opts: {
-  referenceNumber: string
-  amountNgn:       number
-  callbackUrl:     string
-  displayName?:    string
+  referenceNumber: string   // → payment_reference
+  amountNgn:       number   // formatted as decimal string e.g. "200.00"
+  email:           string   // required by Paga
+  chargeUrl:       string   // → charge_url  (browser redirect after payment)
+  callbackUrl?:    string   // → callback_url (server webhook; use /api/paga/webhook)
+  phoneNumber?:    string
   currency?:       string
+  fundingSources?: string   // comma-separated: "CARD,PAGA,TRANSFER,AGENT,USSD"
 }): string {
-  const { publicKey, secretKey, baseUrl } = cfg()
+  const { publicKey, checkoutUrl } = cfg()
   const currency = opts.currency ?? 'NGN'
-
-  const hash = sha512(
-    opts.referenceNumber,
-    String(opts.amountNgn),
-    currency,
-    opts.callbackUrl,
-    secretKey,
-  )
+  // Paga requires amount in decimal form — integer amounts cause hash mismatches on verify
+  const amount = opts.amountNgn.toFixed(2)
 
   const params = new URLSearchParams({
-    reference:     opts.referenceNumber,
-    amount:        String(opts.amountNgn),
+    public_key:        publicKey,
+    amount,
     currency,
-    clientAccount: publicKey,
-    callbackUrl:   opts.callbackUrl,
-    hash,
-    ...(opts.displayName ? { displayName: opts.displayName } : {}),
+    email:             opts.email,
+    payment_reference: opts.referenceNumber,
+    charge_url:        opts.chargeUrl,
+    ...(opts.callbackUrl    ? { callback_url:    opts.callbackUrl }    : {}),
+    ...(opts.phoneNumber    ? { phone_number:    opts.phoneNumber }    : {}),
+    ...(opts.fundingSources ? { funding_sources: opts.fundingSources } : {}),
   })
 
-  return `${baseUrl}/pay?${params.toString()}`
+  return `${checkoutUrl}/checkout/params?${params.toString()}`
 }
 
 // ── 2. Verify Checkout / Transaction ─────────────────────────────────────────
@@ -236,6 +282,7 @@ export async function verifyPagaTransaction(referenceNumber: string): Promise<Pa
   })
 
   const data = normalisePagaResponse(await rawRes.json().catch(() => ({})), 'verifyTransaction')
+  assertAuthOk(rawRes.status, data, 'verifyTransaction')
   const isPaid = isPagaSuccess(data)
 
   return {
@@ -316,6 +363,7 @@ export async function createDynamicBankAccount(opts: {
   })
 
   const data = normalisePagaResponse(await rawRes.json().catch(() => ({})), 'paymentRequest')
+  assertAuthOk(rawRes.status, data, 'paymentRequest')
   if (!isPagaSuccess(data)) {
     const detail = data.message ?? String(data.responseCode ?? rawRes.status)
     throw new Error(`Paga dynamic account error: ${detail}`)
@@ -368,7 +416,8 @@ export async function registerPersistentBankAccount(opts: {
     }),
   })
 
-  const data1 = normalisePagaResponse(await rawRes1.json().catch(() => ({})), 'createPersistentPaymentAccount')
+  const data1 = normalisePagaResponse(await rawRes1.json().catch(() => ({})), 'registerPersistentPaymentAccount')
+  assertAuthOk(rawRes1.status, data1, 'registerPersistentPaymentAccount')
   if (!isPagaSuccess(data1)) {
     throw new Error(`Paga persistent account error: ${data1.message ?? String(data1.responseCode ?? rawRes1.status)}`)
   }
@@ -398,6 +447,7 @@ export async function getPersistentBankAccount(accountReference: string): Promis
   })
 
   const data2 = normalisePagaResponse(await rawRes2.json().catch(() => ({})), 'getPersistentPaymentAccount')
+  assertAuthOk(rawRes2.status, data2, 'getPersistentPaymentAccount')
   if (!isPagaSuccess(data2)) {
     throw new Error(`Paga get persistent account error: ${data2.message ?? String(data2.responseCode ?? rawRes2.status)}`)
   }
@@ -426,6 +476,7 @@ export async function deletePersistentBankAccount(accountReference: string): Pro
   })
 
   const data3 = normalisePagaResponse(await rawRes3.json().catch(() => ({})), 'deletePersistentPaymentAccount')
+  assertAuthOk(rawRes3.status, data3, 'deletePersistentPaymentAccount')
   if (!isPagaSuccess(data3)) {
     throw new Error(`Paga delete persistent account error: ${data3.message ?? String(data3.responseCode ?? rawRes3.status)}`)
   }
@@ -489,6 +540,7 @@ export async function tokenizeDirectDebit(opts: {
   })
 
   const data4 = normalisePagaResponse(await rawRes4.json().catch(() => ({})), 'createDebitMandate')
+  assertAuthOk(rawRes4.status, data4, 'createDebitMandate')
   if (!isPagaSuccess(data4)) {
     throw new Error(`Paga direct debit tokenize error: ${data4.message ?? String(data4.responseCode ?? rawRes4.status)}`)
   }
@@ -541,6 +593,7 @@ export async function chargeDirectDebit(opts: {
   })
 
   const data5 = normalisePagaResponse(await rawRes5.json().catch(() => ({})), 'performDebitMandatePayment')
+  assertAuthOk(rawRes5.status, data5, 'performDebitMandatePayment')
   if (!isPagaSuccess(data5)) {
     throw new Error(`Paga direct debit charge error: ${data5.message ?? String(data5.responseCode ?? rawRes5.status)}`)
   }

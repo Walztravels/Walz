@@ -49,6 +49,8 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Amount is required and must be positive' }, { status: 400 })
     if (!description?.trim())
       return NextResponse.json({ error: 'Description is required' }, { status: 400 })
+    if (pagaMethod === 'checkout' && !clientEmail?.trim())
+      return NextResponse.json({ error: 'Client email is required for Paga Checkout' }, { status: 400 })
 
     const amountNgn    = Math.round(Number(amount))
     const method       = pagaMethod as PagaMethod
@@ -60,11 +62,14 @@ export async function POST(req: NextRequest) {
 
     // ── Checkout ──────────────────────────────────────────────────────────────
     if (method === 'checkout') {
+      const appUrl = process.env.NEXTAUTH_URL ?? 'https://www.walztravels.com'
       const checkoutUrl = buildPagaCheckoutUrl({
         referenceNumber: ref,
         amountNgn,
-        callbackUrl,
-        displayName: clientName,
+        email:       clientEmail!.trim(),
+        chargeUrl:   callbackUrl,                            // browser redirect after payment
+        callbackUrl: `${appUrl}/api/paga/webhook`,           // server-side webhook
+        phoneNumber: clientPhone ?? undefined,
         currency,
       })
 

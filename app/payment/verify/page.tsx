@@ -7,18 +7,34 @@ type PageState = 'loading' | 'success' | 'pending' | 'failed'
 
 function VerifyContent() {
   const searchParams = useSearchParams()
-  const ref          = searchParams.get('ref')
-  const provider     = searchParams.get('provider') ?? ''
+  const ref         = searchParams.get('ref')
+  const provider    = searchParams.get('provider') ?? ''
+  // Paga checkout appends these to charge_url on redirect:
+  const statusCode  = searchParams.get('status_code')
+  const statusMsg   = searchParams.get('status_message')
+  const chargeRef   = searchParams.get('charge_reference')
 
   const [state,    setState]    = useState<PageState>('loading')
   const [amount,   setAmount]   = useState<number | null>(null)
   const [currency, setCurrency] = useState('NGN')
 
   useEffect(() => {
-    if (!ref) { setState('failed'); return }
+    // Paga checkout redirect — trust status_code=0 / status_message=success directly
+    if (statusCode === '0' || statusMsg === 'success') {
+      setState('success')
+      // Fire-and-forget: update DB via API (uses charge_reference or our original ref)
+      const lookupRef = chargeRef || ref
+      if (lookupRef) {
+        fetch(`/api/payments/paga/verify?ref=${encodeURIComponent(lookupRef)}`).catch(() => {})
+      }
+      return
+    }
+
+    if (!ref && !chargeRef) { setState('failed'); return }
 
     if (provider.startsWith('paga_')) {
-      fetch(`/api/payments/paga/verify?ref=${encodeURIComponent(ref)}`)
+      const lookupRef = chargeRef || ref!
+      fetch(`/api/payments/paga/verify?ref=${encodeURIComponent(lookupRef)}`)
         .then(r => r.json())
         .then(data => {
           if (data.verified) {
@@ -26,8 +42,8 @@ function VerifyContent() {
             if (data.currency) setCurrency(data.currency)
             setState('success')
           } else {
-            // API credential locked or other transient error — don't show "failed"
-            // because Paga only redirects to callbackUrl on success
+            // API credential locked or transient error — Paga only redirects on success,
+            // so show "pending" rather than "failed" when we can't confirm programmatically
             const msg = (data.error ?? '').toLowerCase()
             if (msg.includes('lock') || msg.includes('401') || msg.includes('500')) {
               setState('pending')
@@ -40,7 +56,7 @@ function VerifyContent() {
     } else {
       setState('failed')
     }
-  }, [ref, provider])
+  }, [ref, chargeRef, provider, statusCode, statusMsg])
 
   const fmtAmount = (n: number, cur: string) =>
     new Intl.NumberFormat('en-NG', { style: 'currency', currency: cur, minimumFractionDigits: 0 }).format(n)
