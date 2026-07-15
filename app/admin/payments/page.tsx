@@ -91,7 +91,12 @@ export default function AdminPaymentsPage() {
       if (data.paid) {
         setLinks(prev => prev.map(l => l.id === linkId ? { ...l, status: 'paid', paidAt: new Date().toISOString(), payerName: data.payer ?? l.payerName } : l))
       } else {
-        alert(data.found ? `Not paid yet. FLW status: ${data.flwStatus}` : 'Transaction not found on Flutterwave')
+        const isPaga = data.pagaCode !== undefined
+        alert(
+          isPaga
+            ? (data.found ? `Not paid yet. Paga status: ${data.pagaCode}${data.message ? ` — ${data.message}` : ''}` : 'Transaction not found on Paga')
+            : (data.found ? `Not paid yet. FLW status: ${data.flwStatus}` : 'Transaction not found on Flutterwave')
+        )
       }
     } catch {
       alert('Verification request failed')
