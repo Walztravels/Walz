@@ -354,7 +354,7 @@ export async function registerPersistentBankAccount(opts: {
   const hash = hmacSha512(hashData, hmacKey)
   const auth = basicAuth(publicKey, secretKey)
 
-  const rawRes1 = await fetch(`${baseUrl}/createPersistentPaymentAccount`, {
+  const rawRes1 = await fetch(`${baseUrl}/registerPersistentPaymentAccount`, {
     method:  'POST',
     headers: { 'Content-Type': 'application/json', Authorization: auth },
     body: JSON.stringify({
