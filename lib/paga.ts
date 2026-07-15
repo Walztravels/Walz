@@ -55,7 +55,13 @@ export interface PagaResponse {
 
 /**
  * Normalise Paga's response across different endpoint shapes.
- * Logs the raw response so we can debug unexpected formats in Vercel logs.
+ *
+ * Confirmed from Vercel logs — Paga Collect uses:
+ *   { statusCode: "200", message: "..." }  on success
+ *   { statusCode: "401", statusMessage: "..." }  on error
+ *
+ * We map statusCode → responseCode and statusMessage → message
+ * so the rest of the code can use a single shape.
  */
 function normalisePagaResponse(raw: unknown, endpoint: string): PagaResponse {
   console.log(`[paga] ${endpoint} raw response:`, JSON.stringify(raw))
@@ -63,13 +69,21 @@ function normalisePagaResponse(raw: unknown, endpoint: string): PagaResponse {
     return { responseCode: 'ERR', message: String(raw) }
   }
   const r = raw as Record<string, unknown>
-  // Paga sometimes wraps data inside a response_body or response key
   const inner = (r.response_body ?? r.response ?? r.data ?? r) as Record<string, unknown>
-  return {
-    ...r,
-    responseCode:    (r.responseCode ?? r.response_code ?? inner.responseCode ?? inner.response_code) as string | number | undefined,
-    message:         (r.message ?? r.responseMessage ?? inner.message ?? inner.responseMessage ?? r.error) as string | undefined,
-  }
+
+  // Paga Collect uses statusCode/statusMessage; older endpoints use responseCode/message
+  const responseCode = (
+    r.statusCode ?? r.responseCode ?? r.response_code ??
+    inner.statusCode ?? inner.responseCode ?? inner.response_code
+  ) as string | number | undefined
+
+  const message = (
+    r.statusMessage ?? r.message ?? r.responseMessage ??
+    inner.statusMessage ?? inner.message ?? inner.responseMessage ??
+    r.error
+  ) as string | undefined
+
+  return { ...r, responseCode, message }
 }
 
 export interface PagaDynamicAccountResult {
@@ -100,8 +114,8 @@ export interface PagaVerifyResult {
 
 export function isPagaSuccess(res: PagaResponse) {
   const code = String(res.responseCode ?? '')
-  // Paga uses '0' or '00' for success depending on the endpoint
-  return code === '0' || code === '00'
+  // Paga Collect uses statusCode "200"; older business endpoints use "0" or "00"
+  return code === '200' || code === '0' || code === '00'
 }
 
 // ── Fee calculation ───────────────────────────────────────────────────────────
