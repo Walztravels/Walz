@@ -215,7 +215,7 @@ export async function verifyPagaTransaction(referenceNumber: string): Promise<Pa
   const hash = sha512(referenceNumber, secretKey)
   const auth = basicAuth(publicKey, secretKey)
 
-  const rawRes = await fetch(`${baseUrl}/api/v2/verifyTransaction`, {
+  const rawRes = await fetch(`${baseUrl}/verifyTransaction`, {
     method:  'POST',
     headers: { 'Content-Type': 'application/json', Authorization: auth },
     body:    JSON.stringify({ referenceNumber, hash }),
@@ -287,7 +287,7 @@ export async function createDynamicBankAccount(opts: {
   )
   const auth = basicAuth(publicKey, secretKey)
 
-  const rawRes = await fetch(`${baseUrl}/api/v2/paymentRequest`, {
+  const rawRes = await fetch(`${baseUrl}/paymentRequest`, {
     method:  'POST',
     headers: { 'Content-Type': 'application/json', Authorization: auth },
     body: JSON.stringify({
@@ -340,7 +340,7 @@ export async function registerPersistentBankAccount(opts: {
   const hash = hmacSha512(hashData, hmacKey)
   const auth = basicAuth(publicKey, secretKey)
 
-  const rawRes1 = await fetch(`${baseUrl}/api/v2/createPersistentPaymentAccount`, {
+  const rawRes1 = await fetch(`${baseUrl}/createPersistentPaymentAccount`, {
     method:  'POST',
     headers: { 'Content-Type': 'application/json', Authorization: auth },
     body: JSON.stringify({
@@ -377,7 +377,7 @@ export async function getPersistentBankAccount(accountReference: string): Promis
   const hash = hmacSha512(accountReference, hmacKey)
   const auth = basicAuth(publicKey, secretKey)
 
-  const rawRes2 = await fetch(`${baseUrl}/api/v2/getPersistentPaymentAccount`, {
+  const rawRes2 = await fetch(`${baseUrl}/getPersistentPaymentAccount`, {
     method:  'POST',
     headers: { 'Content-Type': 'application/json', Authorization: auth },
     body: JSON.stringify({ accountReference, hash }),
@@ -405,7 +405,7 @@ export async function deletePersistentBankAccount(accountReference: string): Pro
   const hash = hmacSha512(accountReference, hmacKey)
   const auth = basicAuth(publicKey, secretKey)
 
-  const rawRes3 = await fetch(`${baseUrl}/api/v2/deletePersistentPaymentAccount`, {
+  const rawRes3 = await fetch(`${baseUrl}/deletePersistentPaymentAccount`, {
     method:  'POST',
     headers: { 'Content-Type': 'application/json', Authorization: auth },
     body: JSON.stringify({ accountReference, hash }),
@@ -456,7 +456,7 @@ export async function tokenizeDirectDebit(opts: {
   )
   const auth = basicAuth(publicKey, secretKey)
 
-  const rawRes4 = await fetch(`${baseUrl}/api/v2/createDebitMandate`, {
+  const rawRes4 = await fetch(`${baseUrl}/createDebitMandate`, {
     method:  'POST',
     headers: { 'Content-Type': 'application/json', Authorization: auth },
     body: JSON.stringify({
@@ -512,7 +512,7 @@ export async function chargeDirectDebit(opts: {
   )
   const auth = basicAuth(publicKey, secretKey)
 
-  const rawRes5 = await fetch(`${baseUrl}/api/v2/performDebitMandatePayment`, {
+  const rawRes5 = await fetch(`${baseUrl}/performDebitMandatePayment`, {
     method:  'POST',
     headers: { 'Content-Type': 'application/json', Authorization: auth },
     body: JSON.stringify({
