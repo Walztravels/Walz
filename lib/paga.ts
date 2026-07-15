@@ -37,9 +37,14 @@ function hmacSha512(data: string, key: string) {
   return crypto.createHmac('sha512', key).update(data).digest('hex')
 }
 
-/** Authorization header value: Basic base64(publicKey:sha512(secretKey)) */
+/**
+ * Authorization header: Basic base64(publicKey:secretKey)
+ *
+ * Paga Basic Auth uses the RAW secret key as the password — no hashing.
+ * SHA-512 is only for the `hash` field in the request body, not for auth.
+ */
 function basicAuth(publicKey: string, secretKey: string) {
-  const credentials = `${publicKey}:${sha512(secretKey)}`
+  const credentials = `${publicKey}:${secretKey}`
   return `Basic ${Buffer.from(credentials).toString('base64')}`
 }
 
@@ -285,6 +290,7 @@ export async function verifyPagaCheckout(opts: {
     headers: { 'Content-Type': 'application/json', Authorization: auth },
     body:    JSON.stringify({
       paymentReference: opts.paymentReference,
+      publicKey,                           // required by checkout verify endpoint
       amount:           opts.amount,
       currency:         opts.currency ?? 'NGN',
     }),
@@ -313,9 +319,10 @@ export async function verifyPagaCheckout(opts: {
  * Uses the Collect API: POST https://collect.paga.com/verifyTransaction
  */
 export async function verifyPagaTransaction(referenceNumber: string): Promise<PagaVerifyResult> {
-  const { publicKey, secretKey, baseUrl } = cfg()
+  const { publicKey, secretKey, hmacKey, baseUrl } = cfg()
 
-  const hash = sha512(referenceNumber, secretKey)
+  // Hash formula per Paga docs: SHA-512(referenceNumber + hashkey)
+  const hash = sha512(referenceNumber, hmacKey)
   const auth = basicAuth(publicKey, secretKey)
 
   const rawRes = await fetch(`${baseUrl}/verifyTransaction`, {
@@ -378,16 +385,17 @@ export async function createDynamicBankAccount(opts: {
   description?:    string
   currency?:       string
 }): Promise<PagaDynamicAccountResult> {
-  const { publicKey, secretKey, baseUrl } = cfg()
+  const { publicKey, secretKey, hmacKey, baseUrl } = cfg()
   const currency   = opts.currency   ?? 'NGN'
   const customerId = opts.customerId ?? opts.customerEmail ?? opts.referenceNumber
 
+  // Hash formula per Paga docs: SHA-512(referenceNumber + amount + currency + customerId + hashKey)
   const hash = sha512(
     opts.referenceNumber,
     String(opts.amountNgn),
     currency,
     customerId,
-    secretKey,
+    hmacKey,
   )
   const auth = basicAuth(publicKey, secretKey)
 
@@ -551,16 +559,17 @@ export async function tokenizeDirectDebit(opts: {
   startDate?:       string // YYYY-MM-DD
   endDate?:         string // YYYY-MM-DD
 }): Promise<PagaDirectDebitToken> {
-  const { publicKey, secretKey, baseUrl } = cfg()
+  const { publicKey, secretKey, hmacKey, baseUrl } = cfg()
   const currency = opts.currency ?? 'NGN'
 
+  // Hash formula per Paga docs: SHA-512(referenceNumber + clientAccount + amount + currency + sourceAccountNumber + hashKey)
   const hash = sha512(
     opts.referenceNumber,
     publicKey,
     String(opts.amountNgn),
     currency,
     opts.sourceAccountNumber,
-    secretKey,
+    hmacKey,
   )
   const auth = basicAuth(publicKey, secretKey)
 
@@ -608,16 +617,17 @@ export async function chargeDirectDebit(opts: {
   currency?:              string
   description?:           string
 }): Promise<{ transactionId: string; message: string }> {
-  const { publicKey, secretKey, baseUrl } = cfg()
+  const { publicKey, secretKey, hmacKey, baseUrl } = cfg()
   const currency = opts.currency ?? 'NGN'
 
+  // Hash formula per Paga docs: SHA-512(referenceNumber + clientAccount + amount + currency + mandateReferenceNumber + hashKey)
   const hash = sha512(
     opts.referenceNumber,
     publicKey,
     String(opts.amountNgn),
     currency,
     opts.mandateReferenceNumber,
-    secretKey,
+    hmacKey,
   )
   const auth = basicAuth(publicKey, secretKey)
 
