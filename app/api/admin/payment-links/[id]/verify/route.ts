@@ -1,7 +1,8 @@
-import { NextRequest, NextResponse } from 'next/server'
-import { getAdminSession }           from '@/lib/admin-auth'
-import { getFLWKey }                 from '@/lib/flutterwave-banks'
-import { prisma }                    from '@/lib/db'
+import { NextRequest, NextResponse }                    from 'next/server'
+import { getAdminSession }                               from '@/lib/admin-auth'
+import { getFLWKey }                                     from '@/lib/flutterwave-banks'
+import { verifyPagaCheckout, verifyPagaTransaction }     from '@/lib/paga'
+import { prisma }                                        from '@/lib/db'
 
 export const dynamic = 'force-dynamic'
 
@@ -19,6 +20,41 @@ export async function POST(
     const link = await prisma.paymentLink.findUnique({ where: { id: params.id } })
     if (!link) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
+    // ── Paga payments ─────────────────────────────────────────────────────────
+    if (link.type?.startsWith('paga_')) {
+      let result
+
+      if (link.type === 'paga_checkout') {
+        // Checkout uses a dedicated verify endpoint that requires the original amount
+        result = await verifyPagaCheckout({
+          paymentReference: link.txRef,
+          amount:           Number(link.amount),
+          currency:         link.currency ?? 'NGN',
+        })
+      } else {
+        // Dynamic / persistent — Collect API verify by reference number
+        result = await verifyPagaTransaction(link.txRef)
+      }
+
+      if (result.isPaid && link.status !== 'paid') {
+        await prisma.paymentLink.update({
+          where: { id: link.id },
+          data:  { status: 'paid', paidAt: new Date() },
+        })
+      }
+
+      return NextResponse.json({
+        paid:      result.isPaid,
+        pagaCode:  String(result.responseCode),
+        amount:    result.amount ?? Number(link.amount),
+        currency:  result.currency ?? link.currency,
+        reference: result.paymentReference ?? link.txRef,
+        message:   result.message ?? null,
+        found:     true,
+      })
+    }
+
+    // ── Flutterwave payments ──────────────────────────────────────────────────
     const FLW_KEY = getFLWKey()
 
     const res  = await fetch(
@@ -49,8 +85,8 @@ export async function POST(
       payer:     tx?.customer?.name ?? null,
       found:     !!tx,
     })
-  } catch (err: any) {
-    console.error('[payment-links/verify]', err.message)
-    return NextResponse.json({ error: err.message }, { status: 500 })
+  } catch (err: unknown) {
+    console.error('[payment-links/verify]', (err as Error).message)
+    return NextResponse.json({ error: (err as Error).message }, { status: 500 })
   }
 }

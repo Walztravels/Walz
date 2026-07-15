@@ -263,11 +263,54 @@ export function buildPagaCheckoutUrl(opts: {
   return `${checkoutUrl}/checkout/params?${params.toString()}`
 }
 
-// ── 2. Verify Checkout / Transaction ─────────────────────────────────────────
+// ── 2. Verify ─────────────────────────────────────────────────────────────────
 
 /**
- * Verify a Paga transaction by reference number.
- * Suitable for verifying both Checkout payments and Dynamic account payments.
+ * Verify a Paga Checkout payment.
+ *
+ * Uses the dedicated checkout endpoint: POST https://checkout.paga.com/checkout/transaction/verify
+ * Requires amount + currency because the checkout API validates them against the original charge.
+ * Response: { status_code: 0, status_message: "successful", chargeId, amount, currency }
+ */
+export async function verifyPagaCheckout(opts: {
+  paymentReference: string
+  amount:           number
+  currency?:        string
+}): Promise<PagaVerifyResult> {
+  const { publicKey, secretKey, checkoutUrl } = cfg()
+  const auth = basicAuth(publicKey, secretKey)
+
+  const rawRes = await fetch(`${checkoutUrl}/checkout/transaction/verify`, {
+    method:  'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: auth },
+    body:    JSON.stringify({
+      paymentReference: opts.paymentReference,
+      amount:           opts.amount,
+      currency:         opts.currency ?? 'NGN',
+    }),
+  })
+
+  const raw = await rawRes.json().catch(() => ({})) as Record<string, unknown>
+  console.log('[paga] checkout/transaction/verify raw response:', JSON.stringify(raw))
+
+  // Checkout verify uses { status_code: 0/1/2/401, status_message: "successful" }
+  const statusCode = raw.status_code ?? raw.statusCode
+  const isPaid     = statusCode === 0 || String(statusCode) === '0'
+
+  return {
+    responseCode:     String(statusCode ?? ''),
+    isPaid,
+    amount:           (raw.amount  ?? opts.amount)   as number,
+    currency:         (raw.currency ?? opts.currency ?? 'NGN') as string,
+    paymentReference: opts.paymentReference,
+    message:          raw.status_message as string | undefined,
+  }
+}
+
+/**
+ * Verify a Paga Collect transaction (dynamic or persistent bank account).
+ *
+ * Uses the Collect API: POST https://collect.paga.com/verifyTransaction
  */
 export async function verifyPagaTransaction(referenceNumber: string): Promise<PagaVerifyResult> {
   const { publicKey, secretKey, baseUrl } = cfg()
