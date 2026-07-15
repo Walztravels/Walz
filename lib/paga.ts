@@ -283,14 +283,14 @@ export async function verifyPagaCheckout(opts: {
   currency?:        string
 }): Promise<PagaVerifyResult> {
   const { publicKey, secretKey, checkoutUrl } = cfg()
-  const auth = basicAuth(publicKey, secretKey)
 
+  // checkout.paga.com verify does not use Basic Auth — publicKey in body is the credential
   const rawRes = await fetch(`${checkoutUrl}/checkout/transaction/verify`, {
     method:  'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: auth },
+    headers: { 'Content-Type': 'application/json' },
     body:    JSON.stringify({
       paymentReference: opts.paymentReference,
-      publicKey,                           // required by checkout verify endpoint
+      publicKey,
       amount:           opts.amount,
       currency:         opts.currency ?? 'NGN',
     }),
