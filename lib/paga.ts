@@ -285,13 +285,15 @@ export async function verifyPagaCheckout(opts: {
   const { publicKey, secretKey, checkoutUrl } = cfg()
 
   // checkout.paga.com verify does not use Basic Auth — publicKey in body is the credential
+  // Amount must be in decimal string format ("200.00") to match the original checkout URL
+  const amount = Number(opts.amount).toFixed(2)
   const rawRes = await fetch(`${checkoutUrl}/checkout/transaction/verify`, {
     method:  'POST',
     headers: { 'Content-Type': 'application/json' },
     body:    JSON.stringify({
       paymentReference: opts.paymentReference,
       publicKey,
-      amount:           opts.amount,
+      amount,
       currency:         opts.currency ?? 'NGN',
     }),
   })
