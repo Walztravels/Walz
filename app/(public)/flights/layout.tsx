@@ -3,8 +3,7 @@ import { StructuredData } from '@/components/StructuredData'
 
 export const metadata: Metadata = {
   title: 'Book Flights',
-  description:
-    'Search and book flights worldwide with Walz Travels. Direct access to Sabre GDS gives you real-time inventory across 400+ airlines and the lowest available fares.',
+  description: 'Search and book flights on 400+ airlines with Walz Travels. Real-time Sabre GDS inventory, 24/7 expert support and lowest available fares.',
   openGraph: {
     type: 'website',
     url: 'https://www.walztravels.com/flights',

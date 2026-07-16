@@ -37,7 +37,7 @@ export default function PaymentCancelPage() {
         <div className="mt-12 flex items-center justify-center gap-3">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
-            src="/logo.png"
+            src="/walz-logo.png"
             alt="Walz Travels"
             className="h-8 opacity-50"
             onError={e => { e.currentTarget.style.display = 'none' }}

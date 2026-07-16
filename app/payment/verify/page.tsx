@@ -189,7 +189,7 @@ function VerifyContent() {
 
         <div className="mt-12 flex items-center justify-center gap-3">
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/logo.png" alt="Walz Travels" className="h-8 opacity-50"
+          <img src="/walz-logo.png" alt="Walz Travels" className="h-8 opacity-50"
             onError={e => { e.currentTarget.style.display = 'none' }} />
           <p className="text-white/20 text-xs">Walz Travels · Secure Payment</p>
         </div>

@@ -633,6 +633,7 @@ export default function CheckoutPage() {
 
   return (
     <div className="min-h-screen bg-[#FAF7F2]">
+      <h1 className="sr-only">Complete Your Flight Booking — Secure Payment</h1>
       {/* Step header */}
       <div className="bg-[#0B1F3A]">
         <div className="container-walz py-5">

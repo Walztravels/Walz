@@ -31,7 +31,7 @@ const ROUTES: Record<string, RouteData> = {
     airlines: ['British Airways', 'Qatar Airways', 'Ethiopian Airlines', 'Emirates', 'Turkish Airlines'],
     flightTime: '6h 40m direct / 10–13h connecting',
     layover: 'Via Doha, Dubai, Addis Ababa or Istanbul',
-    description: 'Book flights from Lagos to London. Live fares from £364. British Airways direct service plus Qatar Airways, Ethiopian Airlines & more. IATA certified. Book with Walz Travels.',
+    description: 'Lagos–London flights from £364. British Airways direct, plus Qatar Airways & Ethiopian Airlines. IATA-certified agency — 24/7 expert support.',
     bodyParagraphs: [
       'The Lagos (LOS) to London Heathrow (LHR) route is one of the busiest between West Africa and Europe. British Airways operates the only direct service — approximately 6 hours 40 minutes with no layover. Connecting options via Doha (Qatar Airways), Dubai (Emirates), Addis Ababa (Ethiopian Airlines), and Istanbul (Turkish Airlines) typically take 10–13 hours total.',
       'Prices vary by season. The cheapest months are January and February, when economy fares can fall to £364. The most expensive period is June–August (UK summer) when fares rise to £680–£950. Walz Travels monitors live fares across all airlines and can alert you when prices drop.',
@@ -45,7 +45,7 @@ const ROUTES: Record<string, RouteData> = {
     airlines: ['Brussels Airlines', 'Royal Air Maroc', 'Ethiopian Airlines', 'British Airways', 'Turkish Airlines'],
     flightTime: '8–12h connecting',
     layover: 'Via Brussels, Casablanca, Addis Ababa or Istanbul',
-    description: 'Find cheap flights from Accra to London from £397 return. Compare Brussels Airlines, Royal Air Maroc, Ethiopian Airlines & British Airways. Book with Walz Travels.',
+    description: 'Cheap flights Accra to London from £397. Brussels Airlines, Royal Air Maroc, Ethiopian Airlines & British Airways. Book with Walz Travels.',
     titleOverride: 'Cheap Flights Accra to London (ACC–LHR) from £397 | Walz Travels',
     bodyParagraphs: [
       'Flights from Accra Kotoka International Airport (ACC) to London Heathrow (LHR) all connect through a hub — there is no direct service from Accra to London as of 2026. The most popular cheap Accra to London routes use Brussels Airlines (via Brussels), Royal Air Maroc (via Casablanca), Ethiopian Airlines (via Addis Ababa), and Turkish Airlines (via Istanbul). British Airways also operates Accra–London connections via other hubs.',

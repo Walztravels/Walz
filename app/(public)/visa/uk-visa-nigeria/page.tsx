@@ -4,7 +4,7 @@ import Script from 'next/script'
 
 export const metadata: Metadata = {
   title: 'UK Visa Nigeria: Requirements & How to Apply | Walz Travels',
-  description: 'Complete guide to UK visitor visa requirements for Nigerians in 2026. Documents checklist, bank statement requirements, processing times, and how to avoid refusals. 90%+ approval rate with Walz Travels.',
+  description: 'UK visitor visa requirements for Nigerians 2026. Documents checklist, bank statement guide, processing times and how to avoid refusals. 90%+ approval rate.',
   alternates: { canonical: 'https://www.walztravels.com/visa/uk-visa-nigeria' },
   openGraph: {
     title: 'UK Visa for Nigerians 2026 — Requirements & Documents',

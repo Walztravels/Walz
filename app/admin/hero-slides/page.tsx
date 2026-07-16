@@ -86,7 +86,7 @@ function SlidePreview({ slide }: { slide: Omit<HeroSlide, 'id'> }) {
         // eslint-disable-next-line @next/next/no-img-element
         <img
           src={slide.imageUrl}
-          alt=""
+          alt={slide.headline || 'Hero slide preview'}
           className="absolute inset-0 w-full h-full object-cover object-center"
           onError={() => {}}
         />
@@ -181,7 +181,7 @@ function SlideCard({
       <div className="relative w-[120px] h-[70px] rounded-lg overflow-hidden bg-[#0B1F3A] flex-shrink-0">
         {slide.imageUrl ? (
           // eslint-disable-next-line @next/next/no-img-element
-          <img src={slide.imageUrl} alt="" className="w-full h-full object-cover" />
+          <img src={slide.imageUrl} alt={slide.headline || 'Slide thumbnail'} className="w-full h-full object-cover" />
         ) : (
           <div className="w-full h-full flex items-center justify-center">
             <ImageIcon className="w-6 h-6 text-white/30" />
@@ -598,7 +598,7 @@ export default function HeroSlidesPage() {
                       ) : uploadPreview ? (
                         <div className="flex flex-col items-center gap-2">
                           {/* eslint-disable-next-line @next/next/no-img-element */}
-                          <img src={uploadPreview} alt="" className="w-32 h-20 object-cover rounded-lg" />
+                          <img src={uploadPreview} alt="Image upload preview" className="w-32 h-20 object-cover rounded-lg" />
                           <p className="text-xs text-green-600 font-semibold">Uploaded ✓ — click to change</p>
                         </div>
                       ) : (

@@ -67,7 +67,7 @@ export function EsimHero() {
           style={{ background: 'rgba(201,168,76,0.07)', border: '1px solid rgba(201,168,76,0.18)' }}>
           <div className="w-5 h-5 rounded-full overflow-hidden relative flex-shrink-0"
             style={{ border: '1px solid rgba(201,168,76,0.4)' }}>
-            <Image src="/jade-avatar.jpg" alt="" fill className="object-cover"
+            <Image src="/jade-avatar.jpg" alt="Jade AI travel assistant" fill className="object-cover"
               style={{ objectPosition: '50% 8%' }} sizes="20px" />
           </div>
           <span className="text-[#C9A84C] text-xs font-semibold tracking-[0.15em] uppercase">Jade Connect</span>

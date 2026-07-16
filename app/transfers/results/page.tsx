@@ -174,6 +174,7 @@ function ResultsContent() {
 
   return (
     <div className="min-h-screen bg-[#F5F2EE]">
+      <h1 className="sr-only">Available Transfers — {from} to {to}</h1>
       {/* Header */}
       <div className="bg-[#0B1F3A] px-5 py-4">
         <div className="max-w-4xl mx-auto flex items-center justify-between">

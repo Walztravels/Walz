@@ -4,7 +4,7 @@ import Script from 'next/script'
 
 export const metadata: Metadata = {
   title: 'How to Relocate to Canada from Nigeria 2026 | Walz Travels',
-  description: 'Complete guide to relocating from Nigeria to Canada in 2026. Express Entry, Provincial Nominee, study permit routes, costs, and how Walz Travels can help.',
+  description: 'How to relocate from Nigeria to Canada in 2026. Express Entry, Provincial Nominee, study permit routes, costs and timelines explained by Walz Travels.',
   alternates: { canonical: 'https://www.walztravels.com/visa/canada-relocation-guide-nigeria' },
   openGraph: {
     title: 'How to Relocate to Canada from Nigeria 2026',

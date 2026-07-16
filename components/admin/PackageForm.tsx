@@ -331,7 +331,7 @@ export default function PackageForm({ initialData, onSubmit, isLoading }: Props)
               {url && (
                 <>
                   {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={url} alt="" className="w-full h-full object-cover absolute inset-0" />
+                  <img src={url} alt="Package image preview" className="w-full h-full object-cover absolute inset-0" />
                   {/* drag handle */}
                   <div className="absolute top-2 right-2 z-10 cursor-grab active:cursor-grabbing bg-black/40 rounded p-0.5">
                     <GripVertical className="w-3.5 h-3.5 text-white" />

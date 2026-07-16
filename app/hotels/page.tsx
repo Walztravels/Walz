@@ -499,7 +499,7 @@ function HotelsPageContent() {
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
             src="https://images.unsplash.com/photo-1571896349842-33c89424de2d?w=1920&q=80"
-            alt=""
+            alt="Luxury hotel pool and accommodation"
             className="w-full h-full object-cover"
           />
           <div className="absolute inset-0 bg-gradient-to-b from-[#0B1F3A]/75 via-[#0B1F3A]/65 to-[#060f1e]" />

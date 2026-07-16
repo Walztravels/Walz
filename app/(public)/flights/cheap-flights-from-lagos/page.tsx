@@ -4,7 +4,7 @@ import Script from 'next/script'
 
 export const metadata: Metadata = {
   title: 'Cheap Flights from Lagos 2026 | Best Fares | Walz Travels',
-  description: 'Find cheap flights from Lagos (LOS) to London, Dubai, Toronto, New York and more. Compare fares from £280. IATA-certified agency — expert booking support.',
+  description: 'Cheap flights from Lagos (LOS) to London, Dubai, Toronto, New York and more. Best fares from £280. IATA-certified travel agency.',
   alternates: { canonical: 'https://www.walztravels.com/flights/cheap-flights-from-lagos' },
   openGraph: {
     title: 'Cheap Flights from Lagos 2026 — Best Fares',

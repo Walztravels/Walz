@@ -4,7 +4,7 @@ import Script from 'next/script'
 
 export const metadata: Metadata = {
   title: 'Schengen Visa Nigeria: Which Country to Apply | Walz Travels',
-  description: 'Complete guide to Schengen visa requirements for Nigerian passport holders in 2026. Which country to apply through, documents checklist, fees €90, and processing times. Apply with Walz Travels.',
+  description: 'Schengen visa for Nigerians 2026. Which country embassy to apply through, documents checklist, €90 fee and processing times. Apply with Walz Travels.',
   alternates: { canonical: 'https://www.walztravels.com/visa/schengen-visa-nigeria' },
   openGraph: {
     title: 'Schengen Visa for Nigerians 2026 — Which Country is Easiest?',

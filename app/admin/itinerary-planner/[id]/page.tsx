@@ -256,7 +256,7 @@ function ImageField({ value, onChange, label = 'Image URL', placeholder = 'https
       <label className="text-white/30 text-[10px] font-bold uppercase block mb-1">{label}</label>
       {value && (
         <div className="mb-2 rounded-lg overflow-hidden h-20 bg-white/5">
-          <img src={value} alt="" className="w-full h-full object-cover" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }} />
+          <img src={value} alt="Image field preview" className="w-full h-full object-cover" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }} />
         </div>
       )}
       <input value={value} onChange={e => onChange(e.target.value)} placeholder={placeholder} className={inp} />
@@ -540,7 +540,7 @@ function OverviewTab({ itin, onSave }: { itin: ItineraryData; onSave: (u: Record
             <label className="text-white/40 text-xs font-bold uppercase tracking-wider block mb-1.5">Cover Image URL</label>
             {form.coverImage && (
               <div className="mb-2 rounded-xl overflow-hidden h-32 bg-white/5">
-                <img src={form.coverImage} alt="" className="w-full h-full object-cover" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }} />
+                <img src={form.coverImage} alt="Itinerary cover image preview" className="w-full h-full object-cover" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }} />
               </div>
             )}
             <div className="flex gap-2">

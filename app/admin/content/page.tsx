@@ -524,7 +524,7 @@ export default function ContentManagerPage() {
                     {newMemberData.photoUrl ? (
                       <div className="flex items-center gap-2">
                         {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img src={newMemberData.photoUrl} alt="" className="w-10 h-10 rounded-lg object-cover" />
+                        <img src={newMemberData.photoUrl} alt="Team member photo preview" className="w-10 h-10 rounded-lg object-cover" />
                         <button onClick={() => setNewMemberData((m) => ({ ...m, photoUrl: null }))} className="text-red-400 text-xs">Remove</button>
                       </div>
                     ) : (

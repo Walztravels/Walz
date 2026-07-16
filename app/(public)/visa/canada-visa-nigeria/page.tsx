@@ -4,7 +4,7 @@ import Script from 'next/script'
 
 export const metadata: Metadata = {
   title: 'Canada Visa Nigeria: TRV Requirements 2026 | Walz Travels',
-  description: 'Complete guide to Canadian Temporary Resident Visa (TRV) requirements for Nigerians 2026. Documents checklist, biometrics, processing times, fees, and how to avoid refusals. Apply with Walz Travels.',
+  description: 'Canada TRV requirements for Nigerians 2026. Documents checklist, biometrics, processing times and fees. How to avoid refusals. Apply with Walz Travels.',
   alternates: { canonical: 'https://www.walztravels.com/visa/canada-visa-nigeria' },
   openGraph: {
     title: 'Canada Visa for Nigerians 2026 — Requirements & Documents',

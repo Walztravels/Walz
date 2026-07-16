@@ -4,7 +4,7 @@ import Script from 'next/script'
 
 export const metadata: Metadata = {
   title: 'Canada Visa Ghana: TRV Requirements 2026 | Walz Travels',
-  description: 'Complete guide to Canadian Temporary Resident Visa (TRV) requirements for Ghanaians 2026. Documents checklist, biometrics in Accra, processing times, and fees. Apply with Walz Travels.',
+  description: 'Canada TRV requirements for Ghanaians 2026. Documents checklist, biometrics in Accra, processing times and CAD $185 fee. Apply with Walz Travels.',
   alternates: { canonical: 'https://www.walztravels.com/visa/canada-visa-ghana' },
   openGraph: {
     title: 'Canada Visa for Ghanaians 2026 — Requirements & Documents',

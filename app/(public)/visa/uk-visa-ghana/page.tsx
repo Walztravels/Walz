@@ -4,7 +4,7 @@ import Script from 'next/script'
 
 export const metadata: Metadata = {
   title: 'UK Visa Ghana: Requirements & Documents 2026 | Walz Travels',
-  description: 'Complete guide to UK visitor visa requirements for Ghanaian passport holders in 2026. Documents checklist, bank statement guide, processing times, and how to avoid refusals. Apply with Walz Travels.',
+  description: 'UK visitor visa for Ghanaians 2026. Documents checklist, bank statement guide, processing times and how to avoid refusals. Apply with Walz Travels.',
   alternates: { canonical: 'https://www.walztravels.com/visa/uk-visa-ghana' },
   openGraph: {
     title: 'UK Visa for Ghanaians 2026 — Requirements & Documents',
