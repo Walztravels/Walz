@@ -60,6 +60,7 @@ export function HotelBookingModal({ hotel, checkIn, checkOut, adults, rooms, onC
           rateType:      'BOOKABLE',
           hotelCode:     hotel.hotelCode,
           hotelName:     hotel.name,
+          hotelAddress:  hotel.hotelAddress ?? [hotel.address?.lines?.[0], hotel.address?.city, hotel.address?.country].filter(Boolean).join(', '),
           checkIn, checkOut, adults, rooms,
           holderName:    name,
           holderEmail:   email,

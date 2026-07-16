@@ -33,8 +33,9 @@ export async function POST(req: NextRequest) {
   try {
     const {
       rateKey, rateType = 'BOOKABLE',
-      hotelCode, hotelName,
+      hotelCode, hotelName, hotelAddress,
       checkIn, checkOut, adults, rooms,
+      children = 0, childAges = [] as number[],
       holderName, holderEmail, holderPhone,
       totalAmount, currency,
       txRef, paymentGateway, transactionId,
@@ -54,10 +55,18 @@ export async function POST(req: NextRequest) {
     }
 
     // 2. Confirm booking (cert req 3.11 — 60s timeout)
-    const ref = generateBookingReference()
+    const ref      = generateBookingReference()
+    const roomCount = Math.max(1, Number(rooms) || 1)
+    // Cert 3.3 — child paxes with ages mandatory when children > 0
+    const childPaxes = (childAges as number[]).map((age, i) => ({
+      roomId: 1, type: 'CH', age, name: `Child${i + 1}`, surname: lastName,
+    }))
+    const leadPax = { roomId: 1, type: 'AD', name: firstName, surname: lastName }
+    const paxes   = [leadPax, ...childPaxes]
+
     const bd  = await hbPost('/bookings', {
       holder:          { name: firstName, surname: lastName },
-      rooms:           [{ rateKey: activeRateKey, paxes: [{ roomId: 1, type: 'AD', name: firstName, surname: lastName }] }],
+      rooms:           Array.from({ length: roomCount }, () => ({ rateKey: activeRateKey, paxes })),
       clientReference: ref,
       remark:          `Walz Travels · ${holderEmail} · ${paymentGateway} · ${txRef}`,
       tolerance:       2,
@@ -83,7 +92,9 @@ export async function POST(req: NextRequest) {
         passengers: [{
           holderName, holderEmail, holderPhone: holderPhone ?? null,
           hotelCode: String(hotelCode), hotelName,
+          hotelAddress: hotelAddress ?? null,
           checkIn, checkOut, adults: Number(adults), rooms: Number(rooms),
+          children: Number(children), childAges: childAges ?? [],
           roomName:             hbBooking.hotel?.rooms?.[0]?.name ?? null,
           boardName:            rate?.boardName ?? null,
           hotelbedsRef:         hbBooking.reference,

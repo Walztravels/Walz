@@ -127,6 +127,8 @@ export async function POST(request: NextRequest) {
       const addressLine = [h.address, h.zoneName].find(Boolean) ?? h.destinationName ?? ''
       const rateKey     = rate?.rateKey ?? ''
 
+      const addrParts = [addressLine, h.destinationName, h.countryCode].filter(Boolean)
+
       return {
         id:        String(h.code),
         rateKey,
@@ -152,6 +154,8 @@ export async function POST(request: NextRequest) {
         cancellationPolicy: policies[0]
           ? `Cancellation fee applies from ${new Date(policies[0].from).toLocaleDateString('en-GB')}`
           : 'Free cancellation',
+        rateCommentsId: rate?.rateCommentsId ?? undefined,
+        hotelAddress:   addrParts.join(', ') || undefined,
       } satisfies HotelResult
     })
 

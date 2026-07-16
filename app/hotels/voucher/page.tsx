@@ -52,6 +52,12 @@ async function VoucherContent({ ref }: { ref: string }) {
               <span className="text-gray-400">Hotel</span>
               <span className="font-semibold text-[#0B1F3A] text-right max-w-[60%]">{info?.hotelName}</span>
             </div>
+            {info?.hotelAddress && (
+              <div className="flex justify-between">
+                <span className="text-gray-400">Address</span>
+                <span className="text-right max-w-[60%] text-gray-600">{info.hotelAddress}</span>
+              </div>
+            )}
             {info?.roomName  && <div className="flex justify-between"><span className="text-gray-400">Room</span><span className="font-medium">{info.roomName}</span></div>}
             {info?.boardName && <div className="flex justify-between"><span className="text-gray-400">Board</span><span className="font-medium">{info.boardName}</span></div>}
           </div>
@@ -85,8 +91,8 @@ async function VoucherContent({ ref }: { ref: string }) {
           <p className="font-semibold text-[#0B1F3A] mb-1">Payment</p>
           <p className="text-gray-600">
             Payable through <strong>{info?.supplier?.name ?? 'HBX Group'}</strong>, acting as agent
-            for the service operating company. VAT: {info?.supplier?.vatNumber ?? 'N/A'}.
-            Reference: {info?.hotelbedsRef}.
+            for the service operating company, details of which can be provided upon request.
+            VAT: {info?.supplier?.vatNumber ?? 'N/A'}. Reference: {info?.hotelbedsRef}.
           </p>
           <p className="text-[#0B1F3A] font-bold mt-2 text-base">
             {booking.currency} {Number(booking.totalAmount).toLocaleString()} — PAID

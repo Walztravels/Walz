@@ -81,6 +81,8 @@ export interface HotelResult {
   roomType?: string
   mealPlan?: string
   cancellationPolicy?: string
+  rateCommentsId?: string
+  hotelAddress?: string
 }
 
 export interface BookingPassenger {

@@ -120,18 +120,27 @@ function Gallery({ images, name }: { images: string[]; name: string }) {
 type Step = 'details' | 'payment' | 'confirming' | 'confirmed'
 
 function BookingPanel({ hotel, meta, nights }: { hotel: HotelResult; meta: HotelSearchMeta; nights: number }) {
-  const [step,  setStep]  = useState<Step>('details')
-  const [name,  setName]  = useState('')
-  const [email, setEmail] = useState('')
-  const [phone, setPhone] = useState('')
-  const [error, setError] = useState<string | null>(null)
-  const [walzRef, setWalzRef] = useState('')
-  const [hbRef,   setHbRef]   = useState('')
+  const [step,         setStep]        = useState<Step>('details')
+  const [name,         setName]        = useState('')
+  const [email,        setEmail]       = useState('')
+  const [phone,        setPhone]       = useState('')
+  const [error,        setError]       = useState<string | null>(null)
+  const [walzRef,      setWalzRef]     = useState('')
+  const [hbRef,        setHbRef]       = useState('')
+  const [rateComments, setRateComments] = useState<string[]>([])
 
   const total    = hotel.totalPrice.amount
   const currency = hotel.totalPrice.currency
   const bookRef  = generateBookingReference()
   const txRef    = `WALZ-HTL-${bookRef}`
+
+  useEffect(() => {
+    if (!hotel.rateCommentsId) return
+    fetch(`/api/hotelbeds/ratecomments?id=${encodeURIComponent(hotel.rateCommentsId)}`)
+      .then(r => r.json())
+      .then(d => { if (Array.isArray(d.comments)) setRateComments(d.comments.map((c: any) => c.description ?? c).filter(Boolean)) })
+      .catch(() => {})
+  }, [hotel.rateCommentsId])
 
   function validate() {
     if (!name.trim())                                 { setError('Please enter your full name.'); return false }
@@ -152,6 +161,7 @@ function BookingPanel({ hotel, meta, nights }: { hotel: HotelResult; meta: Hotel
           rateType: 'BOOKABLE',
           hotelCode: hotel.hotelCode,
           hotelName: hotel.name,
+          hotelAddress: hotel.hotelAddress ?? [hotel.address.lines[0], hotel.address.city, hotel.address.country].filter(Boolean).join(', '),
           checkIn: meta.checkIn, checkOut: meta.checkOut,
           adults: meta.adults, rooms: meta.rooms,
           holderName: name, holderEmail: email, holderPhone: phone,
@@ -212,6 +222,16 @@ function BookingPanel({ hotel, meta, nights }: { hotel: HotelResult; meta: Hotel
           <span className="text-walz-gold text-lg">{formatPrice(total, currency)}</span>
         </div>
       </div>
+
+      {/* Cert 3.7 — rate comments mandatory before booking confirmation */}
+      {rateComments.length > 0 && (
+        <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 text-sm text-amber-800">
+          <p className="font-semibold mb-2">Important Rate Conditions</p>
+          <ul className="space-y-1 list-disc list-inside">
+            {rateComments.map((c, i) => <li key={i}>{c}</li>)}
+          </ul>
+        </div>
+      )}
 
       {error && <p className="text-walz-error text-xs bg-red-50 border border-red-100 rounded-xl p-3">{error}</p>}
 
