@@ -19,6 +19,8 @@ interface RouteData {
   layover: string | null
   description: string
   bodyParagraphs: string[]
+  faqs?: Array<{ q: string; a: string }>
+  titleOverride?: string
 }
 
 const ROUTES: Record<string, RouteData> = {
@@ -43,11 +45,35 @@ const ROUTES: Record<string, RouteData> = {
     airlines: ['Brussels Airlines', 'Royal Air Maroc', 'Ethiopian Airlines', 'British Airways', 'Turkish Airlines'],
     flightTime: '8–12h connecting',
     layover: 'Via Brussels, Casablanca, Addis Ababa or Istanbul',
-    description: 'Cheap flights Accra to London from £397. Brussels Airlines, Royal Air Maroc & Ethiopian Airlines. IATA certified travel agency. Book now with Walz Travels.',
+    description: 'Find cheap flights from Accra to London from £397 return. Compare Brussels Airlines, Royal Air Maroc, Ethiopian Airlines & British Airways. Book with Walz Travels.',
+    titleOverride: 'Cheap Flights Accra to London (ACC–LHR) from £397 | Walz Travels',
     bodyParagraphs: [
-      'Flights from Accra Kotoka International Airport (ACC) to London Heathrow (LHR) all connect through a hub — there is no direct service from Accra to London as of 2026. Popular connecting routes go through Brussels (Brussels Airlines), Casablanca (Royal Air Maroc), Addis Ababa (Ethiopian Airlines), and Istanbul (Turkish Airlines).',
-      'Economy fares from Accra to London typically start from £397 in the low season (January–February). Peak summer prices (June–August) rise significantly. The total journey time including connections is usually 9–12 hours.',
-      'Ghanaian passport holders require a UK visitor visa. Walz Travels processes UK visa applications for Ghanaian clients in Accra and Kumasi with a high approval rate.',
+      'Flights from Accra Kotoka International Airport (ACC) to London Heathrow (LHR) all connect through a hub — there is no direct service from Accra to London as of 2026. The most popular cheap Accra to London routes use Brussels Airlines (via Brussels), Royal Air Maroc (via Casablanca), Ethiopian Airlines (via Addis Ababa), and Turkish Airlines (via Istanbul). British Airways also operates Accra–London connections via other hubs.',
+      'The cheapest Accra to London flights are typically found between January and March. Economy return fares start from approximately £397 during the low season. Peak travel in June–August (UK summer holidays) and December–January (Christmas/New Year) pushes fares to £650–£900+. Booking 8–12 weeks ahead and flying mid-week (Tuesday/Wednesday) secures the best prices. Walz Travels monitors live fares and sends price alerts on request.',
+      'Ghanaian passport holders require a UK Standard Visitor Visa before boarding any Accra to London flight. Applications are submitted online and biometrics are collected at VFS Global in Accra. Walz Travels processes UK visa applications for Ghanaian clients end-to-end — document review, covering letter, and submission — with a strong approval rate. Book your Accra to London flights and UK visa together for a streamlined experience.',
+      'The total journey time from Accra to London varies by connection. Brussels Airlines via Brussels (BRU) takes approximately 9–10 hours. Royal Air Maroc via Casablanca (CMN) takes 9–11 hours. Ethiopian Airlines via Addis Ababa (ADD) takes 11–13 hours. Istanbul connections (Turkish Airlines) take approximately 10–12 hours.',
+    ],
+    faqs: [
+      {
+        q: 'What are the cheapest flights from Accra to London?',
+        a: 'The cheapest Accra to London flights typically operate via Brussels (Brussels Airlines), Casablanca (Royal Air Maroc), or Addis Ababa (Ethiopian Airlines). Economy return fares start from around £397 in the low season (January–March). Walz Travels monitors live fares across all airlines on this route.',
+      },
+      {
+        q: 'Is there a direct flight from Accra to London?',
+        a: 'There is currently no direct (non-stop) flight from Accra (ACC) to London (LHR) as of 2026. All Accra to London flights connect through at least one hub. Brussels, Casablanca, Addis Ababa, and Istanbul are the most common connection cities.',
+      },
+      {
+        q: 'How long is the flight from Accra to London?',
+        a: 'The total journey from Accra to London takes 9–13 hours depending on the connection. Brussels Airlines via Brussels is one of the quickest at around 9–10 hours. Ethiopian Airlines via Addis Ababa takes approximately 11–13 hours.',
+      },
+      {
+        q: 'Do Ghanaians need a visa to fly to London from Accra?',
+        a: 'Yes. Ghanaian passport holders require a UK Standard Visitor Visa to enter the United Kingdom. Applications are submitted online through the UKVI portal and biometrics are collected at VFS Global in Accra. Walz Travels processes UK visas for Ghanaians with expert document preparation.',
+      },
+      {
+        q: 'Which airlines fly from Accra to London?',
+        a: 'Airlines operating connecting flights from Accra (ACC) to London Heathrow (LHR) include Brussels Airlines (via Brussels), Royal Air Maroc (via Casablanca), Ethiopian Airlines (via Addis Ababa), Turkish Airlines (via Istanbul), and British Airways (via various connections). Fares and schedules vary by season.',
+      },
     ],
   },
   'los-dxb': {
@@ -287,8 +313,10 @@ export async function generateStaticParams() {
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const data = ROUTES[params.route]
   if (!data) return { title: 'Flights — Walz Travels' }
+  const title = data.titleOverride ??
+    `Flights ${data.from} to ${data.to} (${data.fromIata}–${data.toIata}) from ${data.estimatedFrom} | Walz Travels`
   return {
-    title: `Flights ${data.from} to ${data.to} (${data.fromIata}–${data.toIata}) from ${data.estimatedFrom} | Walz Travels`,
+    title,
     description: data.description,
     alternates: { canonical: `https://www.walztravels.com/flights/${params.route}` },
     openGraph: {
@@ -336,6 +364,16 @@ export default function FlightRoutePage({ params }: Props) {
     },
   }
 
+  const faqSchema = data.faqs?.length ? {
+    '@context': 'https://schema.org',
+    '@type': 'FAQPage',
+    mainEntity: data.faqs.map(f => ({
+      '@type': 'Question',
+      name: f.q,
+      acceptedAnswer: { '@type': 'Answer', text: f.a },
+    })),
+  } : null
+
   return (
     <>
       <Script
@@ -348,6 +386,13 @@ export default function FlightRoutePage({ params }: Props) {
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(offerSchema) }}
       />
+      {faqSchema && (
+        <Script
+          id="faq-schema"
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{ __html: JSON.stringify(faqSchema) }}
+        />
+      )}
 
       <main className="min-h-screen bg-[#FAF7F2]">
         {/* Hero */}
@@ -473,6 +518,23 @@ export default function FlightRoutePage({ params }: Props) {
               </a>
             </div>
           </div>
+
+          {/* FAQ section — rendered only for routes that have faqs data */}
+          {data.faqs && data.faqs.length > 0 && (
+            <div className="bg-white rounded-2xl border border-gray-100 p-6">
+              <h2 className="text-lg font-bold text-[#0B1F3A] mb-5">
+                Frequently Asked Questions — {data.from} to {data.to} Flights
+              </h2>
+              <div className="space-y-4">
+                {data.faqs.map((faq, i) => (
+                  <div key={i} className="border-b border-gray-100 last:border-0 pb-4 last:pb-0">
+                    <p className="text-sm font-semibold text-[#0B1F3A] mb-1">{faq.q}</p>
+                    <p className="text-sm text-gray-600 leading-relaxed">{faq.a}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* Related routes */}
           <div className="bg-white rounded-2xl border border-gray-100 p-6">

@@ -6,7 +6,7 @@ export const metadata: Metadata = {
   description: '90%+ visa approval rate. Expert visa processing for UK, Canada, UAE, USA and Schengen visas.',
   openGraph: {
     type: 'website',
-    url: 'https://walztravels.com/visa',
+    url: 'https://www.walztravels.com/visa',
     title: 'Visa Intelligence | Walz Travels',
     description:
       'Check visa requirements for any passport and destination instantly. 90%+ approval rate with expert preparation and document coaching.',

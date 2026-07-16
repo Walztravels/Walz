@@ -5,7 +5,7 @@ export const metadata: Metadata = {
   description: 'Book tours, excursions, and activities worldwide with Walz Travels. Discover experiences at your destination — from city tours to adventure sports.',
   openGraph: {
     type:        'website',
-    url:         'https://walztravels.com/activities',
+    url:         'https://www.walztravels.com/activities',
     title:       'Activities & Tours | Walz Travels',
     description: 'Book tours, excursions, and activities worldwide with Walz Travels.',
   },

@@ -306,7 +306,7 @@ export default function TripRequestFormPage() {
         <p className="text-white/40 text-sm mb-8 leading-relaxed">
           This link may have expired or is invalid. Please contact your Walz Travels agent for a new one.
         </p>
-        <a href="https://walztravels.com" className="bg-amber-500 text-black font-bold px-6 py-3 rounded-xl text-sm hover:bg-amber-400 transition inline-block">
+        <a href="/" className="bg-amber-500 text-black font-bold px-6 py-3 rounded-xl text-sm hover:bg-amber-400 transition inline-block">
           Visit Walz Travels
         </a>
       </div>
@@ -328,7 +328,7 @@ export default function TripRequestFormPage() {
           className="block w-full bg-green-500 hover:bg-green-400 text-white font-bold px-6 py-4 rounded-2xl text-base transition text-center mb-3">
           💬 Message Us on WhatsApp
         </a>
-        <a href="https://walztravels.com" className="text-white/30 text-sm hover:text-white transition">
+        <a href="/" className="text-white/30 text-sm hover:text-white transition">
           Visit Walz Travels
         </a>
       </div>
@@ -359,7 +359,7 @@ export default function TripRequestFormPage() {
             className="flex items-center justify-center gap-2 w-full bg-green-500 hover:bg-green-400 text-white font-bold px-6 py-4 rounded-2xl text-base transition">
             💬 Message Us on WhatsApp
           </a>
-          <a href="https://walztravels.com"
+          <a href="/"
             className="flex items-center justify-center w-full border border-white/10 text-white/40 font-medium px-6 py-3 rounded-2xl text-sm hover:text-white transition">
             Visit Walz Travels
           </a>

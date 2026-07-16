@@ -20,13 +20,19 @@ const VISA_DESTINATIONS = [
   'netherlands', 'turkey', 'india', 'china', 'south-africa', 'brazil',
 ]
 
-// 5 programmatic SEO visa landing pages — nationality-specific, high intent
+// 7 programmatic SEO visa landing pages — nationality-specific, high intent
 const VISA_SEO_PAGES = [
   'uk-visa-nigeria',
   'uk-visa-ghana',
   'canada-visa-nigeria',
   'canada-visa-ghana',
   'schengen-visa-nigeria',
+  'canada-relocation-guide-nigeria',
+]
+
+// Non-route SEO flight hub pages
+const FLIGHT_HUB_PAGES = [
+  'cheap-flights-from-lagos',
 ]
 
 export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
@@ -60,13 +66,28 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
       changeFrequency: 'daily' as const,
       priority:        0.85,
     })),
-    // 5 nationality-specific visa SEO pages — priority 0.90 (high commercial intent)
+    // 7 nationality-specific visa SEO pages — priority 0.90 (high commercial intent)
     ...VISA_SEO_PAGES.map(slug => ({
       url:             `${BASE}/visa/${slug}`,
       lastModified:    new Date(),
       changeFrequency: 'monthly' as const,
       priority:        0.90,
     })),
+    // Flight hub SEO pages (non-route)
+    ...FLIGHT_HUB_PAGES.map(slug => ({
+      url:             `${BASE}/flights/${slug}`,
+      lastModified:    new Date(),
+      changeFrequency: 'weekly' as const,
+      priority:        0.85,
+    })),
+    // Additional high-value pages
+    { url: `${BASE}/insurance`,     lastModified: new Date(), changeFrequency: 'monthly', priority: 0.7 },
+    { url: `${BASE}/transfers`,     lastModified: new Date(), changeFrequency: 'monthly', priority: 0.6 },
+    { url: `${BASE}/gift`,          lastModified: new Date(), changeFrequency: 'monthly', priority: 0.5 },
+    { url: `${BASE}/partners`,      lastModified: new Date(), changeFrequency: 'monthly', priority: 0.4 },
+    { url: `${BASE}/press`,         lastModified: new Date(), changeFrequency: 'monthly', priority: 0.4 },
+    { url: `${BASE}/careers`,       lastModified: new Date(), changeFrequency: 'monthly', priority: 0.4 },
+    { url: `${BASE}/accessibility`, lastModified: new Date(), changeFrequency: 'yearly',  priority: 0.2 },
   ]
 
   let blogPages: MetadataRoute.Sitemap = []

@@ -3,7 +3,7 @@ import Link from 'next/link'
 import Script from 'next/script'
 
 export const metadata: Metadata = {
-  title: 'Canada Visa for Ghanaians 2026: Requirements, Documents & How to Apply | Walz Travels',
+  title: 'Canada Visa Ghana: TRV Requirements 2026 | Walz Travels',
   description: 'Complete guide to Canadian Temporary Resident Visa (TRV) requirements for Ghanaians 2026. Documents checklist, biometrics in Accra, processing times, and fees. Apply with Walz Travels.',
   alternates: { canonical: 'https://www.walztravels.com/visa/canada-visa-ghana' },
   openGraph: {
@@ -64,6 +64,21 @@ const articleSchema = {
   url: 'https://www.walztravels.com/visa/canada-visa-ghana',
 }
 
+const serviceSchema = {
+  '@context': 'https://schema.org',
+  '@type': 'Service',
+  name: 'Canada Visa Processing for Ghanaians',
+  description: 'End-to-end Canadian Temporary Resident Visa (TRV) application service for Ghanaian passport holders. Document review, biometrics guidance, and submission from Accra.',
+  provider: {
+    '@type': 'TravelAgency',
+    name: 'Walz Travels',
+    url: 'https://www.walztravels.com',
+  },
+  areaServed: { '@type': 'Country', name: 'Ghana' },
+  serviceType: 'Visa Application Assistance',
+  url: 'https://www.walztravels.com/visa/canada-visa-ghana',
+}
+
 export default function CanadaVisaGhanaPage() {
   return (
     <>
@@ -76,6 +91,11 @@ export default function CanadaVisaGhanaPage() {
         id="article-schema"
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(articleSchema) }}
+      />
+      <Script
+        id="service-schema"
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(serviceSchema) }}
       />
 
       <main className="min-h-screen bg-[#F4F6F9]">

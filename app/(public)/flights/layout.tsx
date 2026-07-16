@@ -7,7 +7,7 @@ export const metadata: Metadata = {
     'Search and book flights worldwide with Walz Travels. Direct access to Sabre GDS gives you real-time inventory across 400+ airlines and the lowest available fares.',
   openGraph: {
     type: 'website',
-    url: 'https://walztravels.com/flights',
+    url: 'https://www.walztravels.com/flights',
     title: 'Book Flights | Walz Travels',
     description:
       'Search and book flights worldwide with Walz Travels. Direct access to Sabre GDS gives you real-time inventory across 400+ airlines and the lowest available fares.',

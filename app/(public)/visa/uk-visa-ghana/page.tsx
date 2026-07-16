@@ -3,7 +3,7 @@ import Link from 'next/link'
 import Script from 'next/script'
 
 export const metadata: Metadata = {
-  title: 'UK Visa for Ghanaians 2026: Requirements, Documents & How to Apply | Walz Travels',
+  title: 'UK Visa Ghana: Requirements & Documents 2026 | Walz Travels',
   description: 'Complete guide to UK visitor visa requirements for Ghanaian passport holders in 2026. Documents checklist, bank statement guide, processing times, and how to avoid refusals. Apply with Walz Travels.',
   alternates: { canonical: 'https://www.walztravels.com/visa/uk-visa-ghana' },
   openGraph: {
@@ -64,6 +64,21 @@ const articleSchema = {
   url: 'https://www.walztravels.com/visa/uk-visa-ghana',
 }
 
+const serviceSchema = {
+  '@context': 'https://schema.org',
+  '@type': 'Service',
+  name: 'UK Visa Processing for Ghanaians',
+  description: 'End-to-end UK Standard Visitor Visa application service for Ghanaian passport holders. Document review, covering letter, VFS Accra biometrics guidance, and submission.',
+  provider: {
+    '@type': 'TravelAgency',
+    name: 'Walz Travels',
+    url: 'https://www.walztravels.com',
+  },
+  areaServed: { '@type': 'Country', name: 'Ghana' },
+  serviceType: 'Visa Application Assistance',
+  url: 'https://www.walztravels.com/visa/uk-visa-ghana',
+}
+
 export default function UkVisaGhanaPage() {
   return (
     <>
@@ -76,6 +91,11 @@ export default function UkVisaGhanaPage() {
         id="article-schema"
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(articleSchema) }}
+      />
+      <Script
+        id="service-schema"
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(serviceSchema) }}
       />
 
       <main className="min-h-screen bg-[#F4F6F9]">

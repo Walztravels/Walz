@@ -5,7 +5,7 @@ export const metadata: Metadata = {
   description: 'Walz Travels is a premium travel agency. Flights, hotels, visas and private tours across six global markets.',
   openGraph: {
     type: 'website',
-    url: 'https://walztravels.com/about',
+    url: 'https://www.walztravels.com/about',
     title: 'About Walz Travels',
     description:
       'Connecting the African diaspora to every destination on earth since 2019.',

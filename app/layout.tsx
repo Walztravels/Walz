@@ -74,14 +74,7 @@ export const metadata: Metadata = {
   creator: 'Walz Travels Ltd',
   publisher: 'Walz Travels Ltd',
   alternates: {
-    languages: {
-      'en-GB':    'https://www.walztravels.com',
-      'en-CA':    'https://www.walztravels.com',
-      'en-NG':    'https://www.walztravels.com',
-      'en-GH':    'https://www.walztravels.com',
-      'en-AE':    'https://www.walztravels.com',
-      'x-default':'https://www.walztravels.com',
-    },
+    canonical: 'https://www.walztravels.com',
   },
   openGraph: {
     type: 'website',

@@ -37,7 +37,7 @@ const CATEGORY_COLORS: Record<string, string> = {
 
 async function getPost(slug: string): Promise<{ post: Post; related: RelatedPost[] } | null> {
   try {
-    const baseUrl = process.env.NEXT_PUBLIC_SITE_URL || 'https://walztravels.com'
+    const baseUrl = process.env.NEXT_PUBLIC_SITE_URL || 'https://www.walztravels.com'
     const res = await fetch(`${baseUrl}/api/blog/${slug}`, { next: { revalidate: 60 } })
     if (!res.ok) return null
     return res.json()

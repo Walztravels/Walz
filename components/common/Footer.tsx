@@ -44,6 +44,7 @@ function FooterLogo() {
 const footerLinks = {
   services: [
     { label: 'Flight Booking', href: '/flights' },
+    { label: 'Cheap Flights from Lagos', href: '/flights/cheap-flights-from-lagos' },
     { label: 'Hotel Booking', href: '/hotels' },
     { label: 'Private Tours', href: '/tours' },
     { label: 'Visa Assistance', href: '/visa' },
@@ -51,6 +52,14 @@ const footerLinks = {
     { label: 'Travel Insurance', href: '/insurance' },
     { label: 'Airport Transfers', href: '/transfers' },
     { label: 'Exchange Rates', href: '/currency' },
+  ],
+  visaGuides: [
+    { label: 'UK Visa — Nigeria', href: '/visa/uk-visa-nigeria' },
+    { label: 'UK Visa — Ghana', href: '/visa/uk-visa-ghana' },
+    { label: 'Canada Visa — Nigeria', href: '/visa/canada-visa-nigeria' },
+    { label: 'Canada Visa — Ghana', href: '/visa/canada-visa-ghana' },
+    { label: 'Schengen Visa — Nigeria', href: '/visa/schengen-visa-nigeria' },
+    { label: 'Relocate to Canada from Nigeria', href: '/visa/canada-relocation-guide-nigeria' },
   ],
   company: [
     { label: 'About Walz Travels', href: '/about' },
@@ -155,7 +164,7 @@ export function Footer() {
     <footer className="bg-walz-deep-navy text-walz-off-white pb-[100px] sm:pb-0">
       {/* Main Footer */}
       <div className="container-walz py-16 lg:py-20">
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-10 lg:gap-8">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-10 lg:gap-8">
 
           {/* Brand Column */}
           <div className="lg:col-span-2">
@@ -253,6 +262,23 @@ export function Footer() {
             </h3>
             <ul className="space-y-2.5">
               {footerLinks.services.map(({ label, href }) => (
+                <li key={href}>
+                  <Link href={href} className="text-sm text-walz-muted hover:text-walz-gold transition-colors">
+                    {label}
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          </div>
+
+          {/* Visa Guides */}
+          <div>
+            <h3 className="text-walz-white font-semibold text-sm tracking-wide uppercase mb-4 flex items-center gap-2">
+              <span className="w-4 h-0.5 bg-walz-gold" />
+              Visa Guides
+            </h3>
+            <ul className="space-y-2.5">
+              {footerLinks.visaGuides.map(({ label, href }) => (
                 <li key={href}>
                   <Link href={href} className="text-sm text-walz-muted hover:text-walz-gold transition-colors">
                     {label}

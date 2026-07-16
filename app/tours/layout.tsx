@@ -5,7 +5,7 @@ export const metadata: Metadata = {
   description: 'Exclusive private tours and group packages with expert local guides worldwide.',
   openGraph: {
     type: 'website',
-    url: 'https://walztravels.com/tours',
+    url: 'https://www.walztravels.com/tours',
     title: 'Private Tours | Walz Travels',
     description:
       'Discover and book private tours around the world with Walz Travels. Curated itineraries, expert guides and bespoke experiences tailored to your group.',
