@@ -1,3 +1,82 @@
+// Maps Hotelbeds destination codes to IANA timezones.
+// These are Hotelbeds zone codes (not IATA) used in the /hotels availability request.
+// Covers all common Walz Travel destinations.
+const DESTINATION_TZ: Record<string, string> = {
+  // Middle East
+  DXB: 'Asia/Dubai',
+  ABD: 'Asia/Dubai',       // Abu Dhabi
+  SHJ: 'Asia/Dubai',       // Sharjah
+  DOH: 'Asia/Qatar',
+  RUH: 'Asia/Riyadh',
+  JED: 'Asia/Riyadh',
+  AMM: 'Asia/Amman',
+  BEY: 'Asia/Beirut',
+  // Africa
+  LOS: 'Africa/Lagos',
+  ABV: 'Africa/Lagos',     // Abuja
+  ACC: 'Africa/Accra',
+  NBO: 'Africa/Nairobi',
+  ADD: 'Africa/Addis_Ababa',
+  KGL: 'Africa/Kigali',
+  JNB: 'Africa/Johannesburg',
+  CPT: 'Africa/Johannesburg',
+  DKR: 'Africa/Dakar',
+  ABJ: 'Africa/Abidjan',
+  CMN: 'Africa/Casablanca',
+  CAI: 'Africa/Cairo',
+  DAR: 'Africa/Dar_es_Salaam',
+  // Europe
+  LON: 'Europe/London',
+  LHR: 'Europe/London',
+  EDI: 'Europe/London',
+  BCN: 'Europe/Madrid',
+  MAD: 'Europe/Madrid',
+  PMI: 'Europe/Madrid',
+  PAR: 'Europe/Paris',
+  CDG: 'Europe/Paris',
+  NCE: 'Europe/Paris',
+  ROM: 'Europe/Rome',
+  MIL: 'Europe/Rome',
+  VCE: 'Europe/Rome',
+  BER: 'Europe/Berlin',
+  MUC: 'Europe/Berlin',
+  IST: 'Europe/Istanbul',
+  ATH: 'Europe/Athens',
+  AMS: 'Europe/Amsterdam',
+  LIS: 'Europe/Lisbon',
+  VIE: 'Europe/Vienna',
+  ZRH: 'Europe/Zurich',
+  DUB: 'Europe/Dublin',
+  CPH: 'Europe/Copenhagen',
+  STO: 'Europe/Stockholm',
+  WAW: 'Europe/Warsaw',
+  // Asia
+  SIN: 'Asia/Singapore',
+  BKK: 'Asia/Bangkok',
+  KUL: 'Asia/Kuala_Lumpur',
+  HKG: 'Asia/Hong_Kong',
+  TYO: 'Asia/Tokyo',
+  DEL: 'Asia/Kolkata',
+  BOM: 'Asia/Kolkata',
+  // Indian Ocean / Tropics
+  MLE: 'Indian/Maldives',
+  // Americas
+  NYC: 'America/New_York',
+  MIA: 'America/New_York',
+  LAX: 'America/Los_Angeles',
+  CHI: 'America/Chicago',
+  TOR: 'America/Toronto',
+  MEX: 'America/Mexico_City',
+  SAO: 'America/Sao_Paulo',
+  // Oceania
+  SYD: 'Australia/Sydney',
+  MEL: 'Australia/Sydney',
+}
+
+export function destinationToTimezone(destCode: string): string {
+  return DESTINATION_TZ[destCode?.toUpperCase()] ?? 'UTC'
+}
+
 // Maps ISO 3166-1 alpha-2 country codes to their primary IANA timezone.
 // Used to display Hotelbeds cancellation deadlines in the hotel's local time
 // rather than the customer's browser timezone — per HBX Group cert requirement.

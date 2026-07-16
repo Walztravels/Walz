@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { hotelbedsRequest } from '@/lib/hotelbeds'
-import { countryToTimezone } from '@/lib/timezones'
+import { countryToTimezone, destinationToTimezone } from '@/lib/timezones'
 import type { HotelResult } from '@/types/booking'
 
 export async function POST(request: NextRequest) {
@@ -91,6 +91,9 @@ export async function POST(request: NextRequest) {
     }
 
     const rawHotels = data.hotels?.hotels ?? []
+    // Destination timezone applies to all hotels in the result — derive once from the
+    // destination code the user searched for rather than per-hotel (content API unreliable).
+    const destTimezone = destinationToTimezone(String(destination))
 
     // Fetch images + country from content API — non-critical, bail after 8 s
     // countryCode is not in the availability response; content API supplies it
@@ -177,7 +180,9 @@ export async function POST(request: NextRequest) {
           : 'Free cancellation',
         rateCommentsId:      rate?.rateCommentsId ?? undefined,
         hotelAddress:        addrParts.join(', ') || undefined,
-        destinationTimezone: countryCode ? countryToTimezone(countryCode) : 'UTC',
+        destinationTimezone: destTimezone !== 'UTC'
+          ? destTimezone
+          : countryCode ? countryToTimezone(countryCode) : 'UTC',
       } satisfies HotelResult
     })
 
