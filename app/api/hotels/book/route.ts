@@ -25,7 +25,7 @@ async function hbPost(path: string, body: unknown) {
   const res = await fetch(`${base}${path}`, {
     method: 'POST', headers: hotelbedsHeaders(), body: JSON.stringify(body),
   })
-  if (!res.ok) throw new Error(`Hotelbeds ${path} ${res.status}: ${(await res.text()).slice(0, 200)}`)
+  if (!res.ok) throw new Error(`Hotelbeds ${path} ${res.status}: ${(await res.text()).slice(0, 1000)}`)
   return res.json()
 }
 
