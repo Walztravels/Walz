@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server'
+import { isAxaConfigured } from '@/lib/axa'
 
 export const dynamic = 'force-dynamic'
 
@@ -15,9 +16,20 @@ function bfHeaders() {
 /**
  * GET /api/insurance/products
  * Public — no auth required.
- * Fetches available insurance products from Battleface and caches for 24 h.
+ *
+ * AXA Partners: products are embedded in the quote response — no separate
+ * products endpoint. Returns a lightweight availability signal so the
+ * insurance page knows the feature is live.
+ *
+ * Battleface: fetches product list and caches for 24 h.
  */
 export async function GET() {
+  // AXA configured — signal availability without a separate products call
+  if (isAxaConfigured()) {
+    return NextResponse.json({ provider: 'axa', available: true, products: [] })
+  }
+
+  // Battleface path
   if (cache && cache.expires > Date.now()) {
     return NextResponse.json(cache.data)
   }

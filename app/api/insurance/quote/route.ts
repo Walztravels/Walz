@@ -3,6 +3,7 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import prisma from '@/lib/db'
 import { z } from 'zod'
+import { isAxaConfigured, getAxaQuote } from '@/lib/axa'
 
 export const dynamic = 'force-dynamic'
 
@@ -30,8 +31,12 @@ function bfHeaders() {
 
 /**
  * POST /api/insurance/quote
- * Open — no auth required (auth optional, used to link quote to user).
- * Creates a Battleface quote and stores it in insurance_quotes.
+ * Open — no auth required (session used only to link quote to user).
+ *
+ * Provider priority:
+ *   1. AXA Partners  — when AXA_CLIENT_ID + AXA_CLIENT_SECRET are set
+ *   2. Battleface    — when BATTLEFACE_API_URL + BATTLEFACE_BEARER_TOKEN are set
+ *   3. 503           — neither configured
  */
 export async function POST(req: NextRequest) {
   const session = await getServerSession(authOptions).catch(() => null)
@@ -45,13 +50,97 @@ export async function POST(req: NextRequest) {
     )
   }
 
-  const d       = parsed.data
+  const d = parsed.data
+
+  // ── AXA Partners path ──────────────────────────────────────────────────────
+  if (isAxaConfigured()) {
+    const leadTraveller = d.travellers.find(t => t.is_primary) ?? d.travellers[0]
+
+    let axaResult
+    try {
+      axaResult = await getAxaQuote({
+        destinationCountry: d.destination_country,
+        originCountry:      d.origin_country,
+        departureDate:      d.trip_start_date,
+        returnDate:         d.trip_end_date,
+        travellers:         d.travellers.length,
+        leadTravellerDob:   leadTraveller.date_of_birth,
+        tripCostUsd:        d.trip_cost,
+      })
+    } catch (err) {
+      console.error('[POST /api/insurance/quote] AXA error:', (err as Error).message)
+      return NextResponse.json(
+        { error: 'Quote service is temporarily unavailable. Please try again shortly.' },
+        { status: 502 },
+      )
+    }
+
+    // Pick the first plan (cheapest if sorted by AXA, otherwise first returned)
+    const plan     = axaResult.plans[0]
+    const expiresAt = new Date(axaResult.expiresAt ?? Date.now() + 30 * 60 * 1000)
+
+    let quoteDbId: string | null = null
+    try {
+      const rows = await prisma.$queryRawUnsafe<Array<{ id: string }>>(`
+        INSERT INTO insurance_quotes (
+          client_id, battleface_quote_id, product_id, plan_name,
+          premium, currency,
+          destination_country, origin_country,
+          trip_start_date, trip_end_date,
+          travellers, trip_cost,
+          quote_expires_at, coverage_details, policy_wording_url, raw_response
+        ) VALUES (
+          $1, $2, $3, $4,
+          $5, $6,
+          $7, $8,
+          $9::date, $10::date,
+          $11::jsonb, $12,
+          $13, $14::jsonb, $15, $16::jsonb
+        ) RETURNING id
+      `,
+        session?.user?.id ?? null,
+        axaResult.quoteRequestId,           // stored in battleface_quote_id column
+        plan?.planId     ?? null,
+        plan?.planName   ?? 'AXA Travel Insurance',
+        plan?.premium    ?? 0,
+        plan?.currency   ?? d.currency,
+        d.destination_country,
+        d.origin_country,
+        d.trip_start_date,
+        d.trip_end_date,
+        JSON.stringify(d.travellers),
+        d.trip_cost ?? null,
+        expiresAt.toISOString(),
+        JSON.stringify(plan?.coverages ?? {}),
+        plan?.termsUrl ?? null,
+        JSON.stringify(axaResult.raw),
+      )
+      quoteDbId = rows[0]?.id ?? null
+    } catch (err) {
+      console.error('[POST /api/insurance/quote] AXA DB write error:', err)
+    }
+
+    return NextResponse.json({
+      quote_id:            quoteDbId,
+      battleface_quote_id: axaResult.quoteRequestId,   // AXA quoteRequestId stored here
+      product_id:          plan?.planId     ?? null,   // AXA planId stored here
+      plan_name:           plan?.planName   ?? 'AXA Travel Insurance',
+      premium:             plan?.premium    ?? 0,
+      currency:            plan?.currency   ?? d.currency,
+      coverage_details:    plan?.coverages  ?? {},
+      policy_wording_url:  plan?.termsUrl   ?? null,
+      expires_at:          expiresAt.toISOString(),
+      provider:            'axa',
+      axa_plans:           axaResult.plans,            // all plans for optional plan picker
+    })
+  }
+
+  // ── Battleface fallback path ───────────────────────────────────────────────
   const baseUrl = process.env.BATTLEFACE_API_URL
   if (!baseUrl || !process.env.BATTLEFACE_BEARER_TOKEN) {
     return NextResponse.json({ error: 'Insurance API not configured' }, { status: 503 })
   }
 
-  // ── Call Battleface ────────────────────────────────────────────────────────
   let bfData: Record<string, unknown> = {}
   try {
     const bfRes = await fetch(`${baseUrl}/quotes`, {
@@ -86,16 +175,14 @@ export async function POST(req: NextRequest) {
     )
   }
 
-  // ── Normalise response fields (handles various bf field name conventions) ──
-  const bfQuoteId  = (bfData.quote_id ?? bfData.id ?? null) as string | null
+  const bfQuoteId   = (bfData.quote_id ?? bfData.id ?? null) as string | null
   const bfProductId = (bfData.product_id ?? bfData.productId ?? null) as string | null
-  const premium    = Number(bfData.premium ?? bfData.total_premium ?? bfData.amount ?? 0)
-  const planName   = String(bfData.plan_name ?? bfData.product_name ?? bfData.name ?? 'Walz Travel Shield')
-  const policyUrl  = (bfData.policy_wording_url ?? bfData.wording_url ?? null) as string | null
-  const coverage   = (bfData.coverage_details ?? bfData.coverage ?? bfData.benefits ?? {}) as object
-  const expiresAt  = new Date(Date.now() + 30 * 60 * 1000)
+  const premium     = Number(bfData.premium ?? bfData.total_premium ?? bfData.amount ?? 0)
+  const planName    = String(bfData.plan_name ?? bfData.product_name ?? bfData.name ?? 'Walz Travel Shield')
+  const policyUrl   = (bfData.policy_wording_url ?? bfData.wording_url ?? null) as string | null
+  const coverage    = (bfData.coverage_details ?? bfData.coverage ?? bfData.benefits ?? {}) as object
+  const expiresAt   = new Date(Date.now() + 30 * 60 * 1000)
 
-  // ── Persist quote ──────────────────────────────────────────────────────────
   let quoteDbId: string | null = null
   try {
     const rows = await prisma.$queryRawUnsafe<Array<{ id: string }>>(`
@@ -115,7 +202,7 @@ export async function POST(req: NextRequest) {
         $13, $14::jsonb, $15, $16::jsonb
       ) RETURNING id
     `,
-      session?.user?.id    ?? null,
+      session?.user?.id ?? null,
       bfQuoteId,
       bfProductId,
       planName,
@@ -134,7 +221,6 @@ export async function POST(req: NextRequest) {
     )
     quoteDbId = rows[0]?.id ?? null
   } catch (err) {
-    // Non-fatal — DB persistence failure doesn't block the user
     console.error('[POST /api/insurance/quote] DB write error:', err)
   }
 
@@ -148,5 +234,6 @@ export async function POST(req: NextRequest) {
     coverage_details:    coverage,
     policy_wording_url:  policyUrl,
     expires_at:          expiresAt.toISOString(),
+    provider:            'battleface',
   })
 }
