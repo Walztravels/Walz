@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
-import crypto from 'crypto'
-import prisma from '@/lib/db'
+import crypto                        from 'crypto'
+import prisma                        from '@/lib/db'
+import { getSupabaseAdmin }          from '@/lib/supabase'
 
 export const dynamic = 'force-dynamic'
 
@@ -83,21 +84,24 @@ export async function POST(req: NextRequest) {
   const isFullyPaid    = payment_status === 'finished'
   const isPartiallyPaid = payment_status === 'partially_paid'
 
-  // ── 3. Update booking (if order_id matches a booking reference) ──────────
+  // ── 3. Update booking ────────────────────────────────────────────────────
+  // Try Prisma first (tour / hotel bookings). If not found, fall back to the
+  // Supabase FlightBooking table (flight crypto bookings use a separate table).
+  let updatedViaPrisma = false
   try {
     await prisma.booking.update({
       where: { bookingReference: order_id },
       data: {
-        paymentStatus:       paymentStatus as any,
-        cryptoPaidCurrency:  pay_currency   ?? undefined,
-        cryptoAmountReceived: actually_paid ?? undefined,
-        ...(isFullyPaid    ? { status: 'CONFIRMED' as any } : {}),
-        // partially_paid: leave status PENDING — ops will review manually
+        paymentStatus:        paymentStatus as any,
+        cryptoPaidCurrency:   pay_currency   ?? undefined,
+        cryptoAmountReceived: actually_paid  ?? undefined,
+        ...(isFullyPaid     ? { status: 'CONFIRMED' as any } : {}),
         ...(isPartiallyPaid ? {
           notes: `⚠️ Underpayment: received ${actually_paid} ${pay_currency}. Manual review required.`,
         } : {}),
       },
     })
+    updatedViaPrisma = true
 
     if (isPartiallyPaid) {
       console.warn(
@@ -106,7 +110,35 @@ export async function POST(req: NextRequest) {
       )
     }
   } catch {
-    // No matching booking — may be an admin-generated ad-hoc link; non-fatal
+    // Not a Prisma booking — try FlightBooking (Supabase)
+  }
+
+  if (!updatedViaPrisma) {
+    const supabase = getSupabaseAdmin()
+    const flightStatus =
+      isFullyPaid                                              ? 'confirmed'
+      : payment_status === 'failed' || payment_status === 'expired' ? 'cancelled'
+      : 'pending_review'
+
+    const { error: sbError } = await supabase
+      .from('FlightBooking')
+      .update({
+        status: flightStatus,
+        ...(isFullyPaid ? { paidAmount: String(actually_paid ?? '') } : {}),
+        ...(isPartiallyPaid ? {
+          notes: `⚠️ Underpayment: received ${actually_paid} ${pay_currency}. Manual review required.`,
+        } : {}),
+      })
+      .eq('reference', order_id)
+
+    if (sbError) {
+      console.error('[NOWPayments IPN] FlightBooking update failed:', sbError, 'order_id:', order_id)
+    } else if (isPartiallyPaid) {
+      console.warn(
+        `[NOWPayments IPN] UNDERPAYMENT on flight booking ${order_id}: ` +
+        `received ${actually_paid} ${pay_currency} — NOT auto-confirmed`
+      )
+    }
   }
 
   // ── 4. Update AdminPaymentLink if one matches this order_id ───────────────

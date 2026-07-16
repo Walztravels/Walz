@@ -350,20 +350,36 @@ function CryptoCheckout({ grand }: { grand: number }) {
   async function handlePay() {
     setPaying(true)
     setError(null)
-    const ref = `WLZ-FLT-${Date.now()}`
-    const route = segs.length
-      ? `${segs[0]?.departureIata} → ${segs[segs.length - 1]?.arrivalIata}`
-      : 'Flight'
 
     try {
       const res = await fetch('/api/flights/crypto-invoice', {
-        method: 'POST',
+        method:  'POST',
         headers: { 'Content-Type': 'application/json' },
+        // Send the full booking payload so the invoice endpoint can create the
+        // FlightBooking record before redirecting. This avoids losing the booking
+        // if sessionStorage is wiped during the cross-origin payment redirect.
         body: JSON.stringify({
-          amount:      grand,
-          currency:    'GBP',
-          ref,
-          description: `Walz Travels: ${route} for ${lead?.firstName ?? 'traveller'} ${lead?.lastName ?? ''}`.trim(),
+          amount:         grand,
+          currency:       'GBP',
+          offerId:        selected?.id ?? '',
+          passengers:     passengers.map((p, i) => ({
+            id:           `pax_${i + 1}`,
+            given_name:   p.firstName,
+            family_name:  p.lastName,
+            born_on:      p.dob,
+            gender:       'm',
+            title:        p.title.toLowerCase(),
+            email:        p.email   ?? '',
+            phone_number: p.phone   ?? '',
+          })),
+          clientName:     `${lead?.firstName ?? ''} ${lead?.lastName ?? ''}`.trim(),
+          clientEmail:    lead?.email  ?? '',
+          clientPhone:    lead?.phone  ?? '',
+          searchedOrigin: segs[0]?.departureIata ?? '',
+          searchedDest:   segs[segs.length - 1]?.arrivalIata ?? '',
+          departDate:     segs[0]?.departureTime?.split('T')[0] ?? '',
+          cabinClass:     segs[0]?.cabinClass?.toLowerCase() ?? 'economy',
+          tripType:       selected?.returnSegments?.length ? 'round_trip' : 'one_way',
         }),
       })
       const data = await res.json()
