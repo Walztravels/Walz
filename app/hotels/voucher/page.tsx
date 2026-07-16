@@ -31,9 +31,14 @@ async function VoucherContent({ bookingRef }: { bookingRef: string }) {
         'content',
         `/ratecomments?language=ENG&date=${today}&rateCommentsId=${encodeURIComponent(info.rateCommentsId)}`,
       )
-      rateComments = (rc.rateComments ?? [])
-        .map((c: any) => c.description ?? '')
-        .filter(Boolean)
+      const top: any[] = rc.rateComments ?? []
+      const flat = top.map((c: any) => c.description ?? c.comment ?? '').filter(Boolean)
+      const nested = top.flatMap((g: any) =>
+        (g.rateComments ?? []).flatMap((d: any) =>
+          (d.rateComments ?? []).map((r: any) => r.comment ?? r.description ?? '').filter(Boolean)
+        )
+      )
+      rateComments = flat.length ? flat : nested
     } catch { /* non-critical — best effort */ }
   }
 
