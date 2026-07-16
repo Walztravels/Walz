@@ -13,6 +13,7 @@ export async function POST(request: NextRequest) {
       rooms      = 1,
       adults     = 2,
       children   = 0,
+      childAges,
       currency   = 'GBP',
       maxResults = 20,
       starRating,
@@ -43,13 +44,24 @@ export async function POST(request: NextRequest) {
       filter.maxCategory = Math.max(...starRating)
     }
 
+    // Hotelbeds requires paxes[] per child in occupancies when children >= 1
+    const ages: number[] = Array.isArray(childAges) ? childAges : []
+    const childPaxes = children > 0
+      ? (ages.length === children
+          ? ages.map((age: number) => ({ type: 'CH', age }))
+          : Array.from({ length: children }, (_, i) => ({ type: 'CH', age: ages[i] ?? 8 })))
+      : undefined
+
+    const occupancy: Record<string, unknown> = { rooms, adults, children }
+    if (childPaxes) occupancy.paxes = childPaxes
+
     let data: any
     try {
       data = await hotelbedsRequest('hotel', '/hotels', {
         method: 'POST',
         body: {
           stay:         { checkIn, checkOut },
-          occupancies:  [{ rooms, adults, children }],
+          occupancies:  [occupancy],
           destination:  { code: String(destination).toUpperCase() },
           filter,
           currency,
@@ -67,8 +79,11 @@ export async function POST(request: NextRequest) {
         )
       }
       if (msg.includes('400')) {
+        const noResults = msg.toLowerCase().includes('no results') || msg.toLowerCase().includes('not found')
         return NextResponse.json(
-          { error: 'No hotels found for this destination. Please try a different location or dates.' },
+          { error: noResults
+              ? 'No hotels found for this destination. Please try a different location or dates.'
+              : 'Hotel search failed. Please check your search details and try again.' },
           { status: 400 }
         )
       }
