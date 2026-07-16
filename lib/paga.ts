@@ -125,18 +125,22 @@ export function isPagaSuccess(res: PagaResponse) {
   return code === '200' || code === '0' || code === '00'
 }
 
-/**
- * Fast-fail on Paga authentication errors.
- * Throws immediately with an actionable message so callers do NOT retry.
- *
- * Credential mapping:
- *   PAGA_PUBLIC_KEY  → Basic Auth username (UUID from Paga portal Developer Tools → API Key)
- *   PAGA_SECRET_KEY  → Basic Auth password = sha512(PAGA_SECRET_KEY)
- *                      Must match the live "API Secret Key" from the same portal page.
- */
 function assertAuthOk(httpStatus: number, data: PagaResponse, context: string): void {
   const msg = String(data.message ?? '')
   const lc  = msg.toLowerCase()
+
+  // Hash errors: Paga returns 401 for body-hash mismatches too — distinct from credential failures.
+  // Must check this BEFORE the generic 401 branch so the user gets the right action to take.
+  if (lc.includes('invalid request hash') || lc.includes('request hash')) {
+    console.error(`[paga] ${context} hash failure (HTTP ${httpStatus}): ${msg}`)
+    throw new Error(
+      `Paga hash validation failed (HTTP ${httpStatus}): ${msg}. ` +
+      `In Vercel: PAGA_HMAC_KEY must be the "Credential Hash" / HMAC key from ` +
+      `Paga portal → Developer Tools (NOT the API secret key). ` +
+      `Also confirm the amount is sent as a decimal string (e.g. "200.00", not "200").`
+    )
+  }
+
   const isAuthErr =
     httpStatus === 401 ||
     httpStatus === 403 ||
@@ -390,11 +394,13 @@ export async function createDynamicBankAccount(opts: {
   const { publicKey, secretKey, hmacKey, baseUrl } = cfg()
   const currency   = opts.currency   ?? 'NGN'
   const customerId = opts.customerId ?? opts.customerEmail ?? opts.referenceNumber
+  // Paga treats amount as a decimal — hash and body must use the same decimal string
+  const amount     = opts.amountNgn.toFixed(2)
 
   // Hash formula per Paga docs: SHA-512(referenceNumber + amount + currency + customerId + hashKey)
   const hash = sha512(
     opts.referenceNumber,
-    String(opts.amountNgn),
+    amount,
     currency,
     customerId,
     hmacKey,
@@ -406,7 +412,7 @@ export async function createDynamicBankAccount(opts: {
     headers: { 'Content-Type': 'application/json', Authorization: auth },
     body: JSON.stringify({
       referenceNumber:  opts.referenceNumber,
-      amount:           opts.amountNgn,
+      amount,
       currency,
       paymentMethod:    'BANK_TRANSFER',
       customerId,
@@ -563,12 +569,13 @@ export async function tokenizeDirectDebit(opts: {
 }): Promise<PagaDirectDebitToken> {
   const { publicKey, secretKey, hmacKey, baseUrl } = cfg()
   const currency = opts.currency ?? 'NGN'
+  const amount   = opts.amountNgn.toFixed(2)
 
   // Hash formula per Paga docs: SHA-512(referenceNumber + clientAccount + amount + currency + sourceAccountNumber + hashKey)
   const hash = sha512(
     opts.referenceNumber,
     publicKey,
-    String(opts.amountNgn),
+    amount,
     currency,
     opts.sourceAccountNumber,
     hmacKey,
@@ -581,7 +588,7 @@ export async function tokenizeDirectDebit(opts: {
     body: JSON.stringify({
       referenceNumber:      opts.referenceNumber,
       clientAccount:        publicKey,
-      amount:               opts.amountNgn,
+      amount,
       currency,
       sourceAccountNumber:  opts.sourceAccountNumber,
       bankCode:             opts.bankCode,
@@ -621,12 +628,13 @@ export async function chargeDirectDebit(opts: {
 }): Promise<{ transactionId: string; message: string }> {
   const { publicKey, secretKey, hmacKey, baseUrl } = cfg()
   const currency = opts.currency ?? 'NGN'
+  const amount   = opts.amountNgn.toFixed(2)
 
   // Hash formula per Paga docs: SHA-512(referenceNumber + clientAccount + amount + currency + mandateReferenceNumber + hashKey)
   const hash = sha512(
     opts.referenceNumber,
     publicKey,
-    String(opts.amountNgn),
+    amount,
     currency,
     opts.mandateReferenceNumber,
     hmacKey,
@@ -639,7 +647,7 @@ export async function chargeDirectDebit(opts: {
     body: JSON.stringify({
       referenceNumber:        opts.referenceNumber,
       clientAccount:          publicKey,
-      amount:                 opts.amountNgn,
+      amount,
       currency,
       mandateReferenceNumber: opts.mandateReferenceNumber,
       ...(opts.description ? { description: opts.description } : {}),
