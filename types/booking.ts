@@ -83,6 +83,7 @@ export interface HotelResult {
   cancellationPolicy?: string
   rateCommentsId?: string
   hotelAddress?: string
+  destinationTimezone?: string
 }
 
 export interface BookingPassenger {

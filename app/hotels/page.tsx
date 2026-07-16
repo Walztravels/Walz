@@ -358,7 +358,7 @@ function HotelsPageContent() {
   const [hasSearched, setHasSearched] = useState(false)
   const [sort,        setSort]        = useState<Sort>('price_asc')
   const [showFilters, setShowFilters] = useState(false)
-  const [meta,        setMeta]        = useState({ checkIn: '', checkOut: '', adults: 2, rooms: 1 })
+  const [meta,        setMeta]        = useState({ checkIn: '', checkOut: '', adults: 2, rooms: 1, children: 0, childAges: [] as number[] })
 
   const priceMax = useMemo(() => {
     const mx = Math.max(0, ...hotels.map(h => h.pricePerNight.amount))
@@ -404,7 +404,7 @@ function HotelsPageContent() {
       setCheckOut(new Date(cout + 'T00:00:00'))
       setGuests(adl)
       setRooms(rms)
-      setMeta({ checkIn: cin, checkOut: cout, adults: adl, rooms: rms })
+      setMeta({ checkIn: cin, checkOut: cout, adults: adl, rooms: rms, children: chl, childAges: [] })
       doSearch({ destination: dest, checkIn: cin, checkOut: cout, rooms: rms, adults: adl, children: chl })
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -467,7 +467,7 @@ function HotelsPageContent() {
     if (!checkOut) { setFormError('Please select a check-out date'); return }
     const cin  = format(checkIn,  'yyyy-MM-dd')
     const cout = format(checkOut, 'yyyy-MM-dd')
-    setMeta({ checkIn: cin, checkOut: cout, adults: guests, rooms })
+    setMeta({ checkIn: cin, checkOut: cout, adults: guests, rooms, children: 0, childAges: [] })
     await doSearch({ destination: code, checkIn: cin, checkOut: cout, rooms, adults: guests, children: 0 })
     setTimeout(() => document.getElementById('hotel-results')?.scrollIntoView({ behavior: 'smooth' }), 100)
   }

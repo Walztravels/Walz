@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { hotelbedsRequest } from '@/lib/hotelbeds'
+import { countryToTimezone } from '@/lib/timezones'
 import type { HotelResult } from '@/types/booking'
 
 export async function POST(request: NextRequest) {
@@ -42,18 +43,18 @@ export async function POST(request: NextRequest) {
       filter.maxCategory = Math.max(...starRating)
     }
 
-    // Minimum required fields only — sourceMarket and reviews are optional and can cause failures
     let data: any
     try {
       data = await hotelbedsRequest('hotel', '/hotels', {
         method: 'POST',
         body: {
-          stay:        { checkIn, checkOut },
-          occupancies: [{ rooms, adults, children }],
-          destination: { code: String(destination).toUpperCase() },
+          stay:         { checkIn, checkOut },
+          occupancies:  [{ rooms, adults, children }],
+          destination:  { code: String(destination).toUpperCase() },
           filter,
           currency,
-          language: 'ENG',
+          language:     'ENG',
+          sourceMarket: 'GB',
         },
       })
     } catch (err: any) {
@@ -154,8 +155,9 @@ export async function POST(request: NextRequest) {
         cancellationPolicy: policies[0]
           ? `Cancellation fee applies from ${new Date(policies[0].from).toLocaleDateString('en-GB')}`
           : 'Free cancellation',
-        rateCommentsId: rate?.rateCommentsId ?? undefined,
-        hotelAddress:   addrParts.join(', ') || undefined,
+        rateCommentsId:      rate?.rateCommentsId ?? undefined,
+        hotelAddress:        addrParts.join(', ') || undefined,
+        destinationTimezone: h.countryCode ? countryToTimezone(h.countryCode) : 'UTC',
       } satisfies HotelResult
     })
 

@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
-import { Search, Loader2, Plus, Minus } from 'lucide-react'
+import { Search, Loader2, Plus, Minus, Users } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import type { HotelResult } from '@/types/booking'
@@ -115,6 +115,8 @@ export interface HotelSearchMeta {
   checkOut: string
   adults: number
   rooms: number
+  children?: number
+  childAges?: number[]
 }
 
 interface HotelSearchFormProps {
@@ -129,6 +131,7 @@ export function HotelSearchForm({ onResults, initialValues }: HotelSearchFormPro
   const [destQuery, setDestQuery] = useState('')
   const [isDestOpen, setIsDestOpen] = useState(false)
   const [resolvedCode, setResolvedCode] = useState<string | null>(null)
+  const [childAges, setChildAges] = useState<number[]>([])
 
   const {
     register,
@@ -185,12 +188,19 @@ export function HotelSearchForm({ onResults, initialValues }: HotelSearchFormPro
       }
     }
 
+    // Validate child ages when children > 0 (cert §3.3 — mandatory)
+    if (data.children > 0 && childAges.length !== data.children) {
+      setError(`Please enter the age for each child (${data.children} required).`)
+      setIsLoading(false)
+      return
+    }
+
     try {
       if (onResults) {
         const response = await fetch('/api/search/hotels', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ ...data, destination: destCode }),
+          body: JSON.stringify({ ...data, destination: destCode, childAges }),
         })
 
         if (!response.ok) {
@@ -199,7 +209,11 @@ export function HotelSearchForm({ onResults, initialValues }: HotelSearchFormPro
         }
 
         const results = await response.json() as HotelResult[]
-        onResults(results, { checkIn: data.checkIn, checkOut: data.checkOut, adults: data.adults, rooms: data.rooms })
+        onResults(results, {
+          checkIn: data.checkIn, checkOut: data.checkOut,
+          adults: data.adults, rooms: data.rooms,
+          children: data.children, childAges,
+        })
       } else {
         const params = new URLSearchParams({
           destination: destCode,
@@ -317,20 +331,61 @@ export function HotelSearchForm({ onResults, initialValues }: HotelSearchFormPro
           />
         </div>
 
-        {/* Guests */}
-        <div className="lg:col-span-2">
-          <label className="label-walz">Guests</label>
-          <div className="flex items-center gap-1">
-            <CounterField
-              value={adults}
-              min={1}
-              max={20}
-              onChange={(v) => setValue('adults', v)}
-              label="Adult"
-            />
-          </div>
+        {/* Adults */}
+        <div className="lg:col-span-1">
+          <label className="label-walz">Adults</label>
+          <CounterField
+            value={adults}
+            min={1}
+            max={20}
+            onChange={(v) => setValue('adults', v)}
+            label="Adult"
+          />
+        </div>
+
+        {/* Children */}
+        <div className="lg:col-span-1">
+          <label className="label-walz">Children</label>
+          <CounterField
+            value={children}
+            min={0}
+            max={10}
+            onChange={(v) => {
+              setValue('children', v)
+              setChildAges(prev => {
+                if (v > prev.length) return [...prev, ...Array(v - prev.length).fill(7)]
+                return prev.slice(0, v)
+              })
+            }}
+            label="Child"
+          />
         </div>
       </div>
+
+      {/* Child age inputs — cert §3.3 mandatory when children > 0 */}
+      {children > 0 && (
+        <div className="mt-3 p-3 bg-amber-50 border border-amber-200 rounded-xl">
+          <p className="text-xs font-semibold text-amber-800 mb-2 flex items-center gap-1">
+            <Users className="w-3 h-3" /> Child ages required (at time of travel)
+          </p>
+          <div className="flex flex-wrap gap-2">
+            {childAges.map((age, i) => (
+              <div key={i} className="flex items-center gap-1">
+                <label className="text-xs text-amber-700">Child {i + 1}:</label>
+                <select
+                  value={age}
+                  onChange={e => setChildAges(prev => prev.map((a, j) => j === i ? Number(e.target.value) : a))}
+                  className="border border-amber-300 rounded-lg px-2 py-1 text-sm bg-white outline-none focus:border-amber-500"
+                >
+                  {Array.from({ length: 17 }, (_, k) => k + 1).map(a => (
+                    <option key={a} value={a}>{a} yr{a !== 1 ? 's' : ''}</option>
+                  ))}
+                </select>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {error && (
         <div className="mt-4 p-3 bg-red-50 border border-walz-error/20 rounded-lg text-walz-error text-sm">
