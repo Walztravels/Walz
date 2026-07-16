@@ -32,11 +32,13 @@ function ratingLabel(r: number) {
   if (r >= 6) return 'Good'
   return 'Pleasant'
 }
+// Append T00:00:00 to parse as local midnight — new Date("2026-07-25") parses UTC
+// midnight, which displays one day earlier in any timezone ahead of UTC (Lagos +1, Dubai +4).
 function fmtDate(d: string) {
-  return d ? new Date(d).toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'long', year: 'numeric' }) : ''
+  return d ? new Date(d + 'T00:00:00').toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'long', year: 'numeric' }) : ''
 }
 function fmtShort(d: string) {
-  return d ? new Date(d).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) : ''
+  return d ? new Date(d + 'T00:00:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) : ''
 }
 
 // ─── photo gallery ────────────────────────────────────────────────────────────
@@ -472,7 +474,11 @@ function HotelBookPageContent() {
                     <p className={cn('font-semibold', hotel.isRefundable ? 'text-walz-success' : 'text-walz-deep-navy')}>
                       {hotel.isRefundable ? 'Free Cancellation' : 'Non-refundable'}
                     </p>
-                    <p className="text-sm text-walz-muted">{hotel.cancellationPolicy ?? (hotel.isRefundable ? 'Cancel any time for free' : 'No refund if cancelled')}</p>
+                    <p className="text-sm text-walz-muted">
+                      {hotel.isRefundable
+                        ? (hotel.cancellationPolicy ?? 'Cancel any time for free')
+                        : 'Non-refundable — no free cancellation period'}
+                    </p>
                   </div>
                 </div>
               </div>

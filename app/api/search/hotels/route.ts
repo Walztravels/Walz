@@ -175,9 +175,16 @@ export async function POST(request: NextRequest) {
         isRefundable,
         roomType:   h.rooms?.[0]?.name  ?? undefined,
         mealPlan:   rate?.boardName      ?? undefined,
-        cancellationPolicy: policies[0]
-          ? `Cancellation fee applies from ${new Date(policies[0].from).toLocaleDateString('en-GB')}`
-          : 'Free cancellation',
+        cancellationPolicy: (() => {
+          if (!policies[0]) return 'Free cancellation'
+          const deadline = new Date(policies[0].from)
+          // Only show a meaningful deadline when the grace period is still in the future.
+          // NRF rates have a policy from = today/past; returning undefined lets the UI
+          // fall back to its isRefundable-based copy ("Non-refundable").
+          return deadline > new Date()
+            ? `Free cancellation until ${deadline.toLocaleDateString('en-GB')}`
+            : undefined
+        })(),
         rateCommentsId:      rate?.rateCommentsId ?? undefined,
         hotelAddress:        addrParts.join(', ') || undefined,
         destinationTimezone: destTimezone !== 'UTC'

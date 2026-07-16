@@ -219,8 +219,8 @@ function HotelCard({ hotel, nights, onBook }: { hotel: HotelResult; nights: numb
           </span>
         </div>
         {hotel.isRefundable
-          ? <div className="flex items-center gap-1 text-[11px] text-walz-success font-semibold"><Shield className="w-3 h-3" /> Free cancellation</div>
-          : <div className="text-[11px] text-walz-muted">{hotel.cancellationPolicy ?? 'Non-refundable rate'}</div>}
+          ? <div className="flex items-center gap-1 text-[11px] text-walz-success font-semibold"><Shield className="w-3 h-3" /> {hotel.cancellationPolicy ?? 'Free cancellation'}</div>
+          : <div className="text-[11px] text-walz-muted">Non-refundable</div>}
         <div className="flex items-end justify-between mt-auto pt-3 border-t border-walz-border">
           <div>
             <p className="text-[10px] text-walz-muted uppercase tracking-wider">{nights} night{nights !== 1 ? 's' : ''}</p>
@@ -483,7 +483,7 @@ function HotelsPageContent() {
     router.push('/hotels/book')
   }
 
-  const fmtDate          = (d: string) => d ? new Date(d).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) : ''
+  const fmtDate          = (d: string) => d ? new Date(d + 'T00:00:00').toLocaleDateString('en-GB', { day: 'numeric', month: 'short' }) : ''
   const activeFilterCount = filters.stars.length + (filters.freeCancel ? 1 : 0) + filters.mealPlans.length
 
   // ── Render ─────────────────────────────────────────────────────────────────
