@@ -22,10 +22,23 @@ export async function POST(
 
     // ── Paga payments ─────────────────────────────────────────────────────────
     if (link.type?.startsWith('paga_')) {
+      // If already marked paid in DB (e.g. by the customer redirect), return immediately
+      if (link.status === 'paid') {
+        return NextResponse.json({
+          paid:      true,
+          pagaCode:  '0',
+          amount:    Number(link.amount),
+          currency:  link.currency ?? 'NGN',
+          reference: link.txRef,
+          message:   'Payment confirmed',
+          found:     true,
+        })
+      }
+
       let result
 
       if (link.type === 'paga_checkout') {
-        // Checkout uses a dedicated verify endpoint that requires the original amount
+        // Checkout verify via Paga API (best-effort — DB check above is the primary path)
         result = await verifyPagaCheckout({
           paymentReference: link.txRef,
           amount:           Number(link.amount),

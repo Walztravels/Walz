@@ -22,10 +22,11 @@ function VerifyContent() {
     // Paga checkout redirect — trust status_code=0 / status_message=success directly
     if (statusCode === '0' || statusMsg === 'success') {
       setState('success')
-      // Fire-and-forget: update DB via API (uses charge_reference or our original ref)
-      const lookupRef = chargeRef || ref
-      if (lookupRef) {
-        fetch(`/api/payments/paga/verify?ref=${encodeURIComponent(lookupRef)}`).catch(() => {})
+      // Fire-and-forget: mark paid in DB and send confirmation email
+      if (ref) {
+        const params = new URLSearchParams({ ref, confirmed: 'true' })
+        if (chargeRef) params.set('chargeRef', chargeRef)
+        fetch(`/api/payments/paga/verify?${params.toString()}`).catch(() => {})
       }
       return
     }
