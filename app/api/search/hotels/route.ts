@@ -92,13 +92,15 @@ export async function POST(request: NextRequest) {
 
     const rawHotels = data.hotels?.hotels ?? []
 
-    // Fetch images from content API — non-critical, bail after 8 s
+    // Fetch images + country from content API — non-critical, bail after 8 s
+    // countryCode is not in the availability response; content API supplies it
     const hotelCodes = rawHotels.map((h: any) => String(h.code)).join(',')
-    let imagesByCode: Record<string, string[]> = {}
+    let imagesByCode:   Record<string, string[]> = {}
+    let countryByCode:  Record<string, string>   = {}
     if (hotelCodes) {
       try {
         const imagePromise = hotelbedsRequest('content', '/hotels', {
-          params: { codes: hotelCodes, fields: 'images', language: 'ENG' },
+          params: { codes: hotelCodes, fields: 'images,country', language: 'ENG' },
         })
         const timeoutPromise = new Promise<null>((_, reject) =>
           setTimeout(() => reject(new Error('images timeout')), 8000)
@@ -116,11 +118,12 @@ export async function POST(request: NextRequest) {
               const bp = bi === -1 ? 99 : bi
               return ap !== bp ? ap - bp : (a.visualOrder ?? 999) - (b.visualOrder ?? 999)
             })
-            imagesByCode[String(ch.code)] = sorted.slice(0, 5).map((img: any) => IMAGE_CDN + img.path)
+            imagesByCode[String(ch.code)]  = sorted.slice(0, 5).map((img: any) => IMAGE_CDN + img.path)
+            countryByCode[String(ch.code)] = ch.country?.code ?? ''
           }
         }
       } catch {
-        // Images are non-critical — proceed without them
+        // Images/country are non-critical — proceed without them
       }
     }
 
@@ -143,7 +146,9 @@ export async function POST(request: NextRequest) {
       const addressLine = [h.address, h.zoneName].find(Boolean) ?? h.destinationName ?? ''
       const rateKey     = rate?.rateKey ?? ''
 
-      const addrParts = [addressLine, h.destinationName, h.countryCode].filter(Boolean)
+      // countryCode comes from content API (not availability response)
+      const countryCode = countryByCode[String(h.code)] || h.countryCode || ''
+      const addrParts   = [addressLine, h.destinationName, countryCode].filter(Boolean)
 
       return {
         id:        String(h.code),
@@ -154,8 +159,8 @@ export async function POST(request: NextRequest) {
         address: {
           lines:    [addressLine].filter(Boolean),
           city:     h.destinationName ?? '',
-          country:  h.countryCode    ?? '',
-          postcode: h.postalCode     ?? undefined,
+          country:  countryCode,
+          postcode: h.postalCode      ?? undefined,
         },
         stars,
         pricePerNight: { amount: pricePerNight, currency },
@@ -172,7 +177,7 @@ export async function POST(request: NextRequest) {
           : 'Free cancellation',
         rateCommentsId:      rate?.rateCommentsId ?? undefined,
         hotelAddress:        addrParts.join(', ') || undefined,
-        destinationTimezone: h.countryCode ? countryToTimezone(h.countryCode) : 'UTC',
+        destinationTimezone: countryCode ? countryToTimezone(countryCode) : 'UTC',
       } satisfies HotelResult
     })
 
