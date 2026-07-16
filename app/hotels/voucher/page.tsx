@@ -8,9 +8,9 @@ import { PrintButton } from '@/components/hotels/PrintButton'
 
 export const dynamic = 'force-dynamic'
 
-async function VoucherContent({ ref }: { ref: string }) {
+async function VoucherContent({ bookingRef }: { bookingRef: string }) {
   const booking = await prisma.booking.findFirst({
-    where: { bookingReference: ref, type: 'HOTEL' },
+    where: { bookingReference: bookingRef, type: 'HOTEL' },
   })
   if (!booking) notFound()
 
@@ -28,7 +28,7 @@ async function VoucherContent({ ref }: { ref: string }) {
     try {
       const today = new Date().toISOString().split('T')[0]
       const rc = await hotelbedsRequest(
-        'hotel',
+        'content',
         `/ratecomments?language=ENG&date=${today}&rateCommentsId=${encodeURIComponent(info.rateCommentsId)}`,
       )
       rateComments = (rc.rateComments ?? [])
@@ -164,7 +164,7 @@ export default function HotelVoucherPage({ searchParams }: { searchParams: { ref
   if (!searchParams.ref) notFound()
   return (
     <Suspense fallback={<div className="min-h-screen flex items-center justify-center"><div className="w-8 h-8 border-4 border-[#C9A84C] border-t-transparent rounded-full animate-spin" /></div>}>
-      <VoucherContent ref={searchParams.ref} />
+      <VoucherContent bookingRef={searchParams.ref} />
     </Suspense>
   )
 }
