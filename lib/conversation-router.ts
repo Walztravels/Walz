@@ -1,4 +1,5 @@
 import { getSupabaseAdmin } from '@/lib/supabase'
+import { sendConversationAssignedEmail } from '@/lib/email-staff-notification'
 
 const CHATWOOT_BASE  = process.env.CHATWOOT_BASE_URL  ?? 'https://chat.walztravels.com'
 const CHATWOOT_TOKEN = process.env.CHATWOOT_API_TOKEN ?? '1rnd6Rp9GNVKtbJ8238Vg2S1'
@@ -7,6 +8,7 @@ const ACCOUNT_ID     = process.env.CHATWOOT_ACCOUNT_ID ?? '1'
 export interface RoutingDecision {
   agentId:    string
   agentName:  string
+  agentEmail: string | null
   chatwootId: number | null
   aircallId:  number | null
   reason:     string
@@ -79,6 +81,7 @@ function decision(agent: RoutingAgent, reason: string): RoutingDecision {
   return {
     agentId:    agent.id,
     agentName:  agent.name,
+    agentEmail: agent.email ?? null,
     chatwootId: agent.chatwootAgentId ?? null,
     aircallId:  agent.aircallUserId ?? null,
     reason,
@@ -103,6 +106,7 @@ export async function routeConversation(
     return {
       agentId:    existing.assignedTo,
       agentName:  existing.assignedToName ?? '',
+      agentEmail: null,
       chatwootId: null,
       aircallId:  null,
       reason:     'previously_routed',
@@ -147,15 +151,28 @@ export async function applyRouting(
   const supabase = getSupabaseAdmin()
 
   // Assign in Chatwoot
+  let assignmentSucceeded = false
   if (dec.chatwootId) {
-    await fetch(
+    const assignRes = await fetch(
       `${CHATWOOT_BASE}/api/v1/accounts/${ACCOUNT_ID}/conversations/${conversationId}/assignments`,
       {
         method:  'POST',
         headers: { 'api_access_token': CHATWOOT_TOKEN, 'Content-Type': 'application/json' },
         body:    JSON.stringify({ assignee_id: dec.chatwootId }),
       },
-    ).catch((e) => console.error('[router] Chatwoot assignment error:', e))
+    ).catch((e) => { console.error('[router] Chatwoot assignment error:', e); return null })
+    assignmentSucceeded = !!assignRes?.ok
+  }
+
+  // Email the agent only when Chatwoot assignment succeeded
+  if (assignmentSucceeded && dec.agentEmail) {
+    sendConversationAssignedEmail({
+      agentName:      dec.agentName,
+      agentEmail:     dec.agentEmail,
+      conversationId,
+      messagePreview: messagePreview,
+      assignedBy:     'Jade AI',
+    }).catch((e) => console.error('[router] assignment email error:', e))
   }
 
   // Record in ConversationRoute
