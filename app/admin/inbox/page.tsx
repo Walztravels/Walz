@@ -223,6 +223,11 @@ export default function InboxPage() {
     setMessages([])
     fetchMessages(conv.id)
     setMobileView('chat')
+    // Clear unread badge immediately in state, then tell Chatwoot to mark as read
+    if ((conv.unread_count ?? 0) > 0) {
+      setConvs(prev => prev.map(c => c.id === conv.id ? { ...c, unread_count: 0 } : c))
+    }
+    fetch(`/api/admin/conversations/${conv.id}/read`, { method: 'POST' }).catch(() => {})
   }
 
   // ── Actions ─────────────────────────────────────────────────────────────────

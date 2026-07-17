@@ -33,5 +33,16 @@ export async function POST(
     console.error('[reply] Chatwoot error:', res.status, JSON.stringify(data))
     return NextResponse.json({ error: data?.message ?? data?.error ?? 'Chatwoot send failed', chatwoot: data }, { status: res.status })
   }
+  // Detect token misconfiguration: if Chatwoot stored the message as incoming (type 0)
+  // instead of outgoing (type 1), CHATWOOT_ADMIN_TOKEN is wrong (e.g. set to the website
+  // widget token instead of a user API access token from Chatwoot → Profile → Access Token).
+  if (data?.message_type === 0) {
+    console.error(
+      '[reply] ⚠️  Message stored as INCOMING (type 0) — should be OUTGOING (type 1). ' +
+      'CHATWOOT_ADMIN_TOKEN is likely incorrect. ' +
+      'Fix: in Vercel, set CHATWOOT_ADMIN_TOKEN to the API Access Token from ' +
+      'Chatwoot → Profile Settings → Access Token (NOT the website/inbox token).'
+    )
+  }
   return NextResponse.json(data)
 }

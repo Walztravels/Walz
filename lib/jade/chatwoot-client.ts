@@ -64,7 +64,7 @@ export async function sendReply(conversationId: number, content: string) {
     const res = await fetch(api(`/conversations/${conversationId}/messages`), {
       method: "POST",
       headers,
-      body: JSON.stringify({ content: chunk, message_type: "outgoing" }),
+      body: JSON.stringify({ content: chunk, message_type: "outgoing", content_attributes: { jade_ai: true } }),
     });
     if (!res.ok) {
       console.error(
