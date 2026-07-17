@@ -135,9 +135,11 @@ function assertAuthOk(httpStatus: number, data: PagaResponse, context: string): 
     console.error(`[paga] ${context} hash failure (HTTP ${httpStatus}): ${msg}`)
     throw new Error(
       `Paga hash validation failed (HTTP ${httpStatus}): ${msg}. ` +
-      `In Vercel: PAGA_HMAC_KEY must be the "Credential Hash" / HMAC key from ` +
+      `Check: (1) PAGA_HMAC_KEY in Vercel must be the "Credential Hash" from ` +
       `Paga portal → Developer Tools (NOT the API secret key). ` +
-      `Also confirm the amount is sent as a decimal string (e.g. "200.00", not "200").`
+      `(2) For paymentRequest, payer.phoneNumber must match exactly how Paga has it ` +
+      `(local format e.g. "08012345678"). ` +
+      `(3) Hash inputs are logged to Vercel runtime logs for debugging.`
     )
   }
 
@@ -398,8 +400,9 @@ export async function createDynamicBankAccount(opts: {
 }): Promise<PagaDynamicAccountResult> {
   const { publicKey, secretKey, hmacKey, baseUrl } = cfg()
   const currency = opts.currency ?? 'NGN'
-  // Amount as integer string in both hash and body (matches Paga support sample)
-  const amountStr = String(opts.amountNgn)
+  // Body uses integer (Qudus/Paga support sample: "amount": 100).
+  // Hash uses decimal string — consistent with all other Paga endpoints (debitMandate, etc.)
+  const amountStr = opts.amountNgn.toFixed(2)
 
   // Hash formula per Paga support: SHA-512(referenceNumber + amount + currency + payer.phoneNumber + hashKey)
   const hash = sha512(
@@ -409,6 +412,13 @@ export async function createDynamicBankAccount(opts: {
     opts.payerPhone,
     hmacKey,
   )
+  console.log('[paga/paymentRequest] hash inputs:', {
+    referenceNumber: opts.referenceNumber,
+    amountStr,
+    currency,
+    payerPhone: opts.payerPhone,
+    hmacKeyLen: hmacKey.length,
+  })
   const auth = basicAuth(publicKey, secretKey)
 
   const rawRes = await fetch(`${baseUrl}/paymentRequest`, {
