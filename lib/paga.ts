@@ -414,8 +414,8 @@ export async function createDynamicBankAccount(opts: {
   const hashB_int = hmacSha512(preHash_hmac_int, hmacKey)
   const hashB_dec = hmacSha512(preHash_hmac_dec, hmacKey)
 
-  // Currently sending: HMAC-SHA512 with integer amount
-  const hash = hashB_int
+  // Qudus (Paga support) confirmed: SHA-512, integer amount, key concatenated at end
+  const hash = hashA_int
 
   const payload = {
     referenceNumber: opts.referenceNumber,
