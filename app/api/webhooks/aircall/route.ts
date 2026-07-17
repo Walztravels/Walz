@@ -50,8 +50,9 @@ async function handleInboundCall(call: AircallCall): Promise<void> {
     ? {
         agentId:    previous.assignedTo as string,
         agentName:  previous.assignedToName as string ?? '',
-        chatwootId: null as null,
-        aircallId:  null as null,
+        agentEmail: null as string | null,
+        chatwootId: null as number | null,
+        aircallId:  null as number | null,
         reason:     'known_caller',
       }
     : await routeConversation(routeKey, `Inbound call from ${callerNum}`, 'voice')
