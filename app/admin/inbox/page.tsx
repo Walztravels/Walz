@@ -155,7 +155,14 @@ export default function InboxPage() {
       prevConvIdsRef.current = newIds
 
       setAllPayload(conversations)
-      setConvs(Array.isArray(filtered) ? filtered : [])
+
+      // While a conversation is open the user is reading it — don't let the poll
+      // re-stamp an unread badge on it before Chatwoot has acknowledged the read.
+      const selId = selectedRef.current?.id
+      const displayFiltered = selId
+        ? filtered.map(c => c.id === selId ? { ...c, unread_count: 0 } : c)
+        : filtered
+      setConvs(Array.isArray(displayFiltered) ? displayFiltered : [])
 
       // Auto-select from ?lead= URL param on first load
       const urlId = searchParams.get('lead')
@@ -164,10 +171,10 @@ export default function InboxPage() {
         if (match) doSelectConv(match)
       }
 
-      // Keep selected conv data fresh
+      // Keep selected conv data fresh — preserve the zeroed unread_count
       if (selectedRef.current) {
         const updated = conversations.find(c => c.id === selectedRef.current!.id)
-        if (updated) setSelected(updated)
+        if (updated) setSelected({ ...updated, unread_count: 0 })
       }
     } finally {
       if (showLoad) setLoading(false)
