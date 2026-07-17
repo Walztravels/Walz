@@ -419,6 +419,7 @@ export async function createDynamicBankAccount(opts: {
   })
 
   const preHash_sha_int  = `${opts.referenceNumber}${amountInt}${currency}${opts.payerPhone}${hmacKey}`
+  const preHash_sha_dec  = `${opts.referenceNumber}${amountDec}${currency}${opts.payerPhone}${hmacKey}`
   const preHash_hmac_int = `${opts.referenceNumber}${amountInt}${currency}${opts.payerPhone}`
   const preHash_hmac_dec = `${opts.referenceNumber}${amountDec}${currency}${opts.payerPhone}`
 
