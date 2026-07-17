@@ -400,12 +400,25 @@ export async function createDynamicBankAccount(opts: {
 }): Promise<PagaDynamicAccountResult> {
   const { publicKey, secretKey, hmacKey, baseUrl } = cfg()
   const currency   = opts.currency ?? 'NGN'
-  const amountInt  = String(opts.amountNgn)    // "500"
-  const amountDec  = opts.amountNgn.toFixed(2) // "500.00"
+  const amountInt  = String(opts.amountNgn)
+  const amountDec  = opts.amountNgn.toFixed(2)
 
-  // Pre-hash strings (log these so Paga support can verify the exact input)
+  // Key diagnostics — never logs the full key, only enough to identify it
+  const keyFirst8 = hmacKey.slice(0, 8)
+  const keyLast4  = hmacKey.slice(-4)
+  const keyHasWhitespace = /\s/.test(hmacKey)
+  const keyIsHex = /^[0-9a-fA-F]+$/.test(hmacKey)
+  console.log('[paga] HMAC key diagnostics:', {
+    len: hmacKey.length,
+    first8: keyFirst8,
+    last4:  keyLast4,
+    hasWhitespace: keyHasWhitespace,
+    isHex: keyIsHex,
+    sameAsSecretKey: hmacKey === secretKey,
+    sameAsPublicKey: hmacKey === publicKey,
+  })
+
   const preHash_sha_int  = `${opts.referenceNumber}${amountInt}${currency}${opts.payerPhone}${hmacKey}`
-  const preHash_sha_dec  = `${opts.referenceNumber}${amountDec}${currency}${opts.payerPhone}${hmacKey}`
   const preHash_hmac_int = `${opts.referenceNumber}${amountInt}${currency}${opts.payerPhone}`
   const preHash_hmac_dec = `${opts.referenceNumber}${amountDec}${currency}${opts.payerPhone}`
 
