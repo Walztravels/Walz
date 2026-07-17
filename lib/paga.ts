@@ -381,28 +381,32 @@ export function verifyPagaWebhookHash(opts: {
  * Create a Dynamic Payment Identifier — a one-time bank account tied to
  * a specific transaction. Expires after ~24 hours or once the payment is made.
  *
+ * Hash formula confirmed by Paga support (Qudus Yusuf):
+ *   SHA-512(referenceNumber + amount + currency + payer.phoneNumber + hashKey)
+ *
  * Fee: 0.75% capped at ₦1,000
  */
 export async function createDynamicBankAccount(opts: {
   referenceNumber: string
   amountNgn:       number
-  customerId?:     string
-  customerEmail?:  string
-  description?:    string
+  payerName:       string
+  payerPhone:      string
+  payeeName?:      string
   currency?:       string
+  callBackUrl?:    string
+  expiryDateTimeUTC?: string
 }): Promise<PagaDynamicAccountResult> {
   const { publicKey, secretKey, hmacKey, baseUrl } = cfg()
-  const currency   = opts.currency   ?? 'NGN'
-  const customerId = opts.customerId ?? opts.customerEmail ?? opts.referenceNumber
-  // Paga treats amount as a decimal — hash and body must use the same decimal string
-  const amount     = opts.amountNgn.toFixed(2)
+  const currency = opts.currency ?? 'NGN'
+  // Amount as integer string in both hash and body (matches Paga support sample)
+  const amountStr = String(opts.amountNgn)
 
-  // Hash formula per Paga docs: SHA-512(referenceNumber + amount + currency + customerId + hashKey)
+  // Hash formula per Paga support: SHA-512(referenceNumber + amount + currency + payer.phoneNumber + hashKey)
   const hash = sha512(
     opts.referenceNumber,
-    amount,
+    amountStr,
     currency,
-    customerId,
+    opts.payerPhone,
     hmacKey,
   )
   const auth = basicAuth(publicKey, secretKey)
@@ -411,12 +415,25 @@ export async function createDynamicBankAccount(opts: {
     method:  'POST',
     headers: { 'Content-Type': 'application/json', Authorization: auth },
     body: JSON.stringify({
-      referenceNumber:  opts.referenceNumber,
-      amount,
+      referenceNumber: opts.referenceNumber,
+      amount:          opts.amountNgn,
       currency,
-      paymentMethod:    'BANK_TRANSFER',
-      customerId,
-      description:      opts.description ?? 'Payment',
+      payer: {
+        name:        opts.payerName,
+        phoneNumber: opts.payerPhone,
+      },
+      payee: {
+        name: opts.payeeName ?? 'Walz Travels',
+      },
+      expiryDateTimeUTC:        opts.expiryDateTimeUTC ?? null,
+      isSuppressMessages:       false,
+      payerCollectionFeeShare:  1.0,
+      payeeCollectionFeeShare:  0.0,
+      isAllowPartialPayments:   false,
+      isAllowOverPayments:      false,
+      callBackUrl:              opts.callBackUrl ?? null,
+      paymentMethods:           ['BANK_TRANSFER', 'REQUEST_MONEY'],
+      displayBankDetailToPayer: false,
       hash,
     }),
   })
