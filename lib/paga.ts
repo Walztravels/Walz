@@ -399,25 +399,28 @@ export async function createDynamicBankAccount(opts: {
   expiryDateTimeUTC?: string
 }): Promise<PagaDynamicAccountResult> {
   const { publicKey, secretKey, hmacKey, baseUrl } = cfg()
-  const currency = opts.currency ?? 'NGN'
-  // Body uses integer (Qudus/Paga support sample: "amount": 100).
-  // Hash uses decimal string — consistent with all other Paga endpoints (debitMandate, etc.)
-  const amountStr = opts.amountNgn.toFixed(2)
+  const currency   = opts.currency ?? 'NGN'
+  const amountInt  = String(opts.amountNgn)           // "500"
+  const amountDec  = opts.amountNgn.toFixed(2)        // "500.00"
 
-  // Hash formula per Paga support: SHA-512(referenceNumber + amount + currency + payer.phoneNumber + hashKey)
-  const hash = sha512(
-    opts.referenceNumber,
-    amountStr,
-    currency,
-    opts.payerPhone,
-    hmacKey,
-  )
-  console.log('[paga/paymentRequest] hash inputs:', {
-    referenceNumber: opts.referenceNumber,
-    amountStr,
-    currency,
-    payerPhone: opts.payerPhone,
-    hmacKeyLen: hmacKey.length,
+  // Four candidate hashes — log all, use the HMAC+integer variant (most
+  // consistent with Qudus's integer body sample and registerPersistentAccount pattern).
+  // Switch to whichever candidate Paga accepts once we know.
+  const hashA_int = sha512(opts.referenceNumber, amountInt, currency, opts.payerPhone, hmacKey)
+  const hashA_dec = sha512(opts.referenceNumber, amountDec, currency, opts.payerPhone, hmacKey)
+  const hashB_int = hmacSha512(`${opts.referenceNumber}${amountInt}${currency}${opts.payerPhone}`, hmacKey)
+  const hashB_dec = hmacSha512(`${opts.referenceNumber}${amountDec}${currency}${opts.payerPhone}`, hmacKey)
+  // Currently sending: HMAC-SHA512 with integer amount
+  const hash = hashB_int
+
+  console.log('[paga/paymentRequest] hash candidates (int/dec × sha/hmac):', {
+    sha512_int:  hashA_int.slice(0, 16) + '…',
+    sha512_dec:  hashA_dec.slice(0, 16) + '…',
+    hmac_int:    hashB_int.slice(0, 16) + '…',
+    hmac_dec:    hashB_dec.slice(0, 16) + '…',
+    sending:     'hmac_int',
+    payerPhone:  opts.payerPhone,
+    hmacKeyLen:  hmacKey.length,
   })
   const auth = basicAuth(publicKey, secretKey)
 
