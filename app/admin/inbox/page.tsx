@@ -46,9 +46,30 @@ export default function InboxPage() {
   const prevConvIdsRef    = useRef<Set<number>>(new Set())
   const selectedRef       = useRef<CWConversation | null>(null)
   selectedRef.current     = selected
-  // Track conversations explicitly opened this session — keep their unread count
-  // zeroed even after deselection, until Chatwoot itself confirms unread_count = 0.
+  // Track conversations explicitly opened — keep their unread count zeroed
+  // until Chatwoot itself confirms unread_count = 0. Persisted to localStorage
+  // so a page refresh doesn't re-show badges that were already cleared.
   const manuallyReadIdsRef = useRef<Set<number>>(new Set())
+
+  // Restore read-IDs from localStorage on mount
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem('walz_read_conv_ids')
+      if (raw) {
+        const ids: number[] = JSON.parse(raw)
+        ids.forEach(id => manuallyReadIdsRef.current.add(id))
+      }
+    } catch { /* non-fatal */ }
+  }, [])
+
+  function syncReadIds() {
+    try {
+      localStorage.setItem(
+        'walz_read_conv_ids',
+        JSON.stringify([...manuallyReadIdsRef.current]),
+      )
+    } catch { /* non-fatal */ }
+  }
 
   // ── Auth ────────────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -163,10 +184,15 @@ export default function InboxPage() {
       // zero until Chatwoot itself confirms unread_count = 0 on its end.
       // This prevents polling from reinstating the badge after deselection.
       const readIds = manuallyReadIdsRef.current
+      let readIdsChanged = false
       conversations.forEach(c => {
-        // Server caught up — remove from our override set so we stop forcing zero
-        if ((c.unread_count ?? 0) === 0 && readIds.has(c.id)) readIds.delete(c.id)
+        // Server caught up — remove from override set so we stop forcing zero
+        if ((c.unread_count ?? 0) === 0 && readIds.has(c.id)) {
+          readIds.delete(c.id)
+          readIdsChanged = true
+        }
       })
+      if (readIdsChanged) syncReadIds()
       const displayFiltered = readIds.size > 0
         ? filtered.map(c => readIds.has(c.id) ? { ...c, unread_count: 0 } : c)
         : filtered
@@ -239,8 +265,9 @@ export default function InboxPage() {
     fetchMessages(conv.id)
     setMobileView('chat')
     // Mark as read — suppress the badge for this conversation on every future poll
-    // until Chatwoot itself confirms unread_count = 0.
+    // until Chatwoot itself confirms unread_count = 0. Persisted so refresh survives.
     manuallyReadIdsRef.current.add(conv.id)
+    syncReadIds()
     if ((conv.unread_count ?? 0) > 0) {
       setConvs(prev => prev.map(c => c.id === conv.id ? { ...c, unread_count: 0 } : c))
     }
