@@ -400,55 +400,60 @@ export async function createDynamicBankAccount(opts: {
 }): Promise<PagaDynamicAccountResult> {
   const { publicKey, secretKey, hmacKey, baseUrl } = cfg()
   const currency   = opts.currency ?? 'NGN'
-  const amountInt  = String(opts.amountNgn)           // "500"
-  const amountDec  = opts.amountNgn.toFixed(2)        // "500.00"
+  const amountInt  = String(opts.amountNgn)    // "500"
+  const amountDec  = opts.amountNgn.toFixed(2) // "500.00"
 
-  // Four candidate hashes — log all, use the HMAC+integer variant (most
-  // consistent with Qudus's integer body sample and registerPersistentAccount pattern).
-  // Switch to whichever candidate Paga accepts once we know.
+  // Pre-hash strings (log these so Paga support can verify the exact input)
+  const preHash_sha_int  = `${opts.referenceNumber}${amountInt}${currency}${opts.payerPhone}${hmacKey}`
+  const preHash_sha_dec  = `${opts.referenceNumber}${amountDec}${currency}${opts.payerPhone}${hmacKey}`
+  const preHash_hmac_int = `${opts.referenceNumber}${amountInt}${currency}${opts.payerPhone}`
+  const preHash_hmac_dec = `${opts.referenceNumber}${amountDec}${currency}${opts.payerPhone}`
+
   const hashA_int = sha512(opts.referenceNumber, amountInt, currency, opts.payerPhone, hmacKey)
   const hashA_dec = sha512(opts.referenceNumber, amountDec, currency, opts.payerPhone, hmacKey)
-  const hashB_int = hmacSha512(`${opts.referenceNumber}${amountInt}${currency}${opts.payerPhone}`, hmacKey)
-  const hashB_dec = hmacSha512(`${opts.referenceNumber}${amountDec}${currency}${opts.payerPhone}`, hmacKey)
+  const hashB_int = hmacSha512(preHash_hmac_int, hmacKey)
+  const hashB_dec = hmacSha512(preHash_hmac_dec, hmacKey)
+
   // Currently sending: HMAC-SHA512 with integer amount
   const hash = hashB_int
 
-  console.log('[paga/paymentRequest] hash candidates (int/dec × sha/hmac):', {
-    sha512_int:  hashA_int.slice(0, 16) + '…',
-    sha512_dec:  hashA_dec.slice(0, 16) + '…',
-    hmac_int:    hashB_int.slice(0, 16) + '…',
-    hmac_dec:    hashB_dec.slice(0, 16) + '…',
-    sending:     'hmac_int',
-    payerPhone:  opts.payerPhone,
-    hmacKeyLen:  hmacKey.length,
-  })
+  const payload = {
+    referenceNumber: opts.referenceNumber,
+    amount:          opts.amountNgn,
+    currency,
+    payer: { name: opts.payerName, phoneNumber: opts.payerPhone },
+    payee: { name: opts.payeeName ?? 'Walz Travels' },
+    expiryDateTimeUTC:        opts.expiryDateTimeUTC ?? null,
+    isSuppressMessages:       false,
+    payerCollectionFeeShare:  1.0,
+    payeeCollectionFeeShare:  0.0,
+    isAllowPartialPayments:   false,
+    isAllowOverPayments:      false,
+    callBackUrl:              opts.callBackUrl ?? null,
+    paymentMethods:           ['BANK_TRANSFER', 'REQUEST_MONEY'],
+    displayBankDetailToPayer: false,
+    hash,
+  }
+
+  console.log('[paga/paymentRequest] PAYLOAD:', JSON.stringify(payload, null, 2))
+  console.log('[paga/paymentRequest] PRE-HASH STRINGS:')
+  console.log('  sha512_int  preHash:', preHash_sha_int.replace(hmacKey, '<HMAC_KEY>'))
+  console.log('  sha512_dec  preHash:', preHash_sha_dec.replace(hmacKey, '<HMAC_KEY>'))
+  console.log('  hmac_int    data:   ', preHash_hmac_int)
+  console.log('  hmac_dec    data:   ', preHash_hmac_dec)
+  console.log('[paga/paymentRequest] ALL HASHES:')
+  console.log('  sha512_int :', hashA_int)
+  console.log('  sha512_dec :', hashA_dec)
+  console.log('  hmac_int   :', hashB_int)
+  console.log('  hmac_dec   :', hashB_dec)
+  console.log('[paga/paymentRequest] SENDING: hmac_int')
+
   const auth = basicAuth(publicKey, secretKey)
 
   const rawRes = await fetch(`${baseUrl}/paymentRequest`, {
     method:  'POST',
     headers: { 'Content-Type': 'application/json', Authorization: auth },
-    body: JSON.stringify({
-      referenceNumber: opts.referenceNumber,
-      amount:          opts.amountNgn,
-      currency,
-      payer: {
-        name:        opts.payerName,
-        phoneNumber: opts.payerPhone,
-      },
-      payee: {
-        name: opts.payeeName ?? 'Walz Travels',
-      },
-      expiryDateTimeUTC:        opts.expiryDateTimeUTC ?? null,
-      isSuppressMessages:       false,
-      payerCollectionFeeShare:  1.0,
-      payeeCollectionFeeShare:  0.0,
-      isAllowPartialPayments:   false,
-      isAllowOverPayments:      false,
-      callBackUrl:              opts.callBackUrl ?? null,
-      paymentMethods:           ['BANK_TRANSFER', 'REQUEST_MONEY'],
-      displayBankDetailToPayer: false,
-      hash,
-    }),
+    body:    JSON.stringify(payload),
   })
 
   const data = normalisePagaResponse(await rawRes.json().catch(() => ({})), 'paymentRequest')
@@ -488,21 +493,28 @@ export async function registerPersistentBankAccount(opts: {
   const fin = opts.financialIdentificationNumber ?? ''
 
   const hashData = `${opts.referenceNumber}${fin}${opts.accountName}`
-  const hash = hmacSha512(hashData, hmacKey)
-  const auth = basicAuth(publicKey, secretKey)
+  const hash     = hmacSha512(hashData, hmacKey)
+  const auth     = basicAuth(publicKey, secretKey)
+
+  const persistPayload = {
+    referenceNumber:               opts.referenceNumber,
+    accountName:                   opts.accountName,
+    financialIdentificationNumber: fin,
+    accountReference:              opts.referenceNumber,
+    ...(opts.customerEmail ? { customerEmail: opts.customerEmail } : {}),
+    ...(opts.customerPhone ? { customerPhone: opts.customerPhone } : {}),
+    hash,
+  }
+
+  console.log('[paga/persistent] PAYLOAD:', JSON.stringify(persistPayload, null, 2))
+  console.log('[paga/persistent] PRE-HASH DATA (hmacSha512):', hashData)
+  console.log('[paga/persistent] HASH:', hash)
+  console.log('[paga/persistent] hmacKeyLen:', hmacKey.length)
 
   const rawRes1 = await fetch(`${baseUrl}/registerPersistentPaymentAccount`, {
     method:  'POST',
     headers: { 'Content-Type': 'application/json', Authorization: auth },
-    body: JSON.stringify({
-      referenceNumber:               opts.referenceNumber,
-      accountName:                   opts.accountName,
-      financialIdentificationNumber: fin,
-      accountReference:              opts.referenceNumber,
-      ...(opts.customerEmail ? { customerEmail: opts.customerEmail } : {}),
-      ...(opts.customerPhone ? { customerPhone: opts.customerPhone } : {}),
-      hash,
-    }),
+    body:    JSON.stringify(persistPayload),
   })
 
   const data1 = normalisePagaResponse(await rawRes1.json().catch(() => ({})), 'registerPersistentPaymentAccount')
