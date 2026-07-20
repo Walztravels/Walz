@@ -401,7 +401,6 @@ export async function createDynamicBankAccount(opts: {
   const { publicKey, secretKey, hmacKey, baseUrl } = cfg()
   const currency   = opts.currency ?? 'NGN'
   const amountInt  = String(opts.amountNgn)
-  const amountDec  = opts.amountNgn.toFixed(2)
 
   // Key diagnostics — never logs the full key, only enough to identify it
   const keyFirst8 = hmacKey.slice(0, 8)
@@ -418,16 +417,14 @@ export async function createDynamicBankAccount(opts: {
     sameAsPublicKey: hmacKey === publicKey,
   })
 
-  // Paga paymentRequest uses double SHA-512:
-  // Round 1: h1 = SHA-512(ref + amount + currency + phone + portalHashKey)
-  // Round 2: hash = SHA-512(ref + amount + currency + phone + h1)
-  // Confirmed by Qudus (Paga support) via sha512.online demo.
-  const preHashPrefix = `${opts.referenceNumber}${amountInt}${currency}${opts.payerPhone}`
-  const h1   = sha512(opts.referenceNumber, amountInt, currency, opts.payerPhone, hmacKey)
-  const hash = sha512(opts.referenceNumber, amountInt, currency, opts.payerPhone, h1)
+  // Paga paymentRequest hash (official docs):
+  // SHA-512(ref + amount + currency + payer.phoneNumber + payer.email +
+  //         payee.accountNumber + payee.phoneNumber + payee.bankId +
+  //         payee.bankAccountNumber + hashKey)
+  // Empty/absent optional fields contribute empty string (no separator).
+  const hash = sha512(opts.referenceNumber, amountInt, currency, opts.payerPhone, hmacKey)
 
-  console.log('[paga/paymentRequest] pre-hash-prefix (no key):', preHashPrefix)
-  console.log('[paga/paymentRequest] h1 (full):', h1)
+  console.log('[paga/paymentRequest] hash-prefix (no key):', `${opts.referenceNumber}${amountInt}${currency}${opts.payerPhone}`)
   console.log('[paga/paymentRequest] hash (full):', hash)
 
   const payload = {
@@ -492,24 +489,36 @@ export async function registerPersistentBankAccount(opts: {
   const { publicKey, secretKey, hmacKey, baseUrl } = cfg()
   const fin = opts.financialIdentificationNumber ?? ''
 
-  const hashData = `${opts.referenceNumber}${fin}${opts.accountName}`
-  const hash     = hmacSha512(hashData, hmacKey)
-  const auth     = basicAuth(publicKey, secretKey)
+  // accountReference must be 12–30 chars and different from referenceNumber
+  const acctRefBase = opts.referenceNumber.replace(/^WALZ-PAGA-PERSISTENT-/, '').slice(0, 24)
+  const accountRef  = `ACCT-${acctRefBase}`.slice(0, 30)
+
+  // Split accountName into first/last for required Paga fields
+  const nameParts = opts.accountName.trim().split(/\s+/)
+  const firstName = nameParts[0] ?? opts.accountName
+  const lastName  = nameParts.slice(1).join(' ') || firstName
+
+  // SHA-512(ref + accountReference + financialIdentificationNumber +
+  //         creditBankId + creditBankAccountNumber + callbackUrl + hashKey)
+  // creditBankId, creditBankAccountNumber, callbackUrl are all empty
+  const hash = sha512(opts.referenceNumber, accountRef, fin, hmacKey)
+  const auth = basicAuth(publicKey, secretKey)
 
   const persistPayload = {
     referenceNumber:               opts.referenceNumber,
     accountName:                   opts.accountName,
+    firstName,
+    lastName,
     financialIdentificationNumber: fin,
-    accountReference:              opts.referenceNumber,
-    ...(opts.customerEmail ? { customerEmail: opts.customerEmail } : {}),
-    ...(opts.customerPhone ? { customerPhone: opts.customerPhone } : {}),
+    accountReference:              accountRef,
+    ...(opts.customerEmail ? { email: opts.customerEmail } : {}),
+    ...(opts.customerPhone ? { phoneNumber: opts.customerPhone } : {}),
     hash,
   }
 
   console.log('[paga/persistent] PAYLOAD:', JSON.stringify(persistPayload, null, 2))
-  console.log('[paga/persistent] PRE-HASH DATA (hmacSha512):', hashData)
+  console.log('[paga/persistent] hash-data:', `${opts.referenceNumber}${accountRef}${fin}<key>`)
   console.log('[paga/persistent] HASH:', hash)
-  console.log('[paga/persistent] hmacKeyLen:', hmacKey.length)
 
   const rawRes1 = await fetch(`${baseUrl}/registerPersistentPaymentAccount`, {
     method:  'POST',
