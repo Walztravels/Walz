@@ -1,12 +1,16 @@
 /**
- * Paga Collect API integration
+ * Paga Collect API + Merchant Service API integration
  *
  * Environment variables required:
- *   PAGA_PUBLIC_KEY      — your Paga merchant public key
- *   PAGA_SECRET_KEY      — your Paga merchant secret key
- *   PAGA_HMAC_KEY        — your Paga HMAC key (for persistent accounts + webhook)
- *   PAGA_COLLECT_URL     — Collect API base URL, defaults to https://collect.paga.com
- *   PAGA_CHECKOUT_URL    — hosted checkout base URL, defaults to https://checkout.paga.com
+ *   PAGA_PUBLIC_KEY           — Paga merchant public key (Collect + Merchant principal)
+ *   PAGA_SECRET_KEY           — Paga merchant secret key (Collect + Merchant credential)
+ *   PAGA_HMAC_KEY             — Paga hash key from portal (Collect hashes + Merchant API key)
+ *   PAGA_COLLECT_URL          — Collect API base URL, defaults to https://collect.paga.com
+ *   PAGA_CHECKOUT_URL         — Hosted checkout base URL, defaults to https://checkout.paga.com
+ *   PAGA_MERCHANT_URL         — Merchant Service base URL (optional override)
+ *   PAGA_MERCHANT_PRINCIPAL   — Override for Merchant principal (defaults to PAGA_PUBLIC_KEY)
+ *   PAGA_MERCHANT_CREDENTIAL  — Override for Merchant credential (defaults to PAGA_SECRET_KEY)
+ *   PAGA_MERCHANT_API_KEY     — Override for Merchant hash key (defaults to PAGA_HMAC_KEY)
  *
  * SECURITY: Do not use in production until credentials have been confirmed rotated
  * after any prior exposure in chat / logs.
@@ -716,4 +720,222 @@ export async function chargeDirectDebit(opts: {
     transactionId: (data5.transactionId ?? data5.referenceNumber) as string,
     message:       data5.message ?? 'Success',
   }
+}
+
+// ── 7. Merchant Service ───────────────────────────────────────────────────────
+//
+// Base URL (live): https://www.mypaga.com/paga-webservices/merchant-rest/secured
+// Base URL (test): https://beta.mypaga.com/paga-webservices/merchant-rest/secured
+//
+// Auth: Basic base64(principal:credential)
+// Hash: SHA-512(fields… + apiKey)  — plain SHA-512, same helper as Collect
+//
+// By default the Collect API credentials are reused (same Paga account).
+// Set PAGA_MERCHANT_* env vars to override if your Merchant Service account
+// uses different credentials.
+
+function merchantCfg() {
+  const principal  = process.env.PAGA_MERCHANT_PRINCIPAL  ?? process.env.PAGA_PUBLIC_KEY
+  const credential = process.env.PAGA_MERCHANT_CREDENTIAL ?? process.env.PAGA_SECRET_KEY
+  const apiKey     = process.env.PAGA_MERCHANT_API_KEY    ?? process.env.PAGA_HMAC_KEY
+  const baseUrl    = process.env.PAGA_MERCHANT_URL
+    ?? 'https://www.mypaga.com/paga-webservices/merchant-rest/secured'
+  if (!principal || !credential)
+    throw new Error('PAGA_PUBLIC_KEY and PAGA_SECRET_KEY (or PAGA_MERCHANT_PRINCIPAL/CREDENTIAL) are required')
+  return { principal, credential, apiKey: apiKey ?? '', baseUrl }
+}
+
+export interface PagaTransactionDetail {
+  referenceNumber:      string
+  status?:              string
+  amount?:              number
+  currency?:            string
+  message?:             string
+  payerPhoneNumber?:    string
+  payerEmail?:          string
+  transactionDateTime?: string
+  [key: string]:        unknown
+}
+
+export interface PagaReconciliationItem {
+  referenceNumber:      string
+  amount:               number
+  currency:             string
+  status:               string
+  transactionDateTime?: string
+  [key: string]:        unknown
+}
+
+export interface PagaFxRate {
+  baseCurrency:    string
+  foreignCurrency: string
+  rate:            number
+  [key: string]:   unknown
+}
+
+/**
+ * Verify the status and details of a transaction by its reference number.
+ * Hash: SHA-512(referenceNumber + apiKey)
+ */
+export async function getTransactionDetails(referenceNumber: string): Promise<PagaTransactionDetail> {
+  const { principal, credential, apiKey, baseUrl } = merchantCfg()
+  const hash = sha512(referenceNumber, apiKey)
+  const auth = basicAuth(principal, credential)
+
+  const raw = await fetch(`${baseUrl}/getTransactionDetails`, {
+    method:  'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: auth },
+    body:    JSON.stringify({ referenceNumber, hash }),
+  })
+  const data = normalisePagaResponse(await raw.json().catch(() => ({})), 'getTransactionDetails')
+  assertAuthOk(raw.status, data, 'getTransactionDetails')
+  if (!isPagaSuccess(data))
+    throw new Error(`Paga getTransactionDetails error: ${data.message ?? String(data.responseCode ?? raw.status)}`)
+  return data as unknown as PagaTransactionDetail
+}
+
+/**
+ * Verify a transaction by invoice number.
+ * Hash: SHA-512(invoiceNumber + apiKey)
+ */
+export async function getTransactionDetailsByInvoiceNumber(invoiceNumber: string): Promise<PagaTransactionDetail> {
+  const { principal, credential, apiKey, baseUrl } = merchantCfg()
+  const hash = sha512(invoiceNumber, apiKey)
+  const auth = basicAuth(principal, credential)
+
+  const raw = await fetch(`${baseUrl}/getTransactionDetailsByInvoiceNumber`, {
+    method:  'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: auth },
+    body:    JSON.stringify({ invoiceNumber, hash }),
+  })
+  const data = normalisePagaResponse(await raw.json().catch(() => ({})), 'getTransactionDetailsByInvoiceNumber')
+  assertAuthOk(raw.status, data, 'getTransactionDetailsByInvoiceNumber')
+  if (!isPagaSuccess(data))
+    throw new Error(`Paga getTransactionDetailsByInvoiceNumber error: ${data.message ?? String(data.responseCode ?? raw.status)}`)
+  return data as unknown as PagaTransactionDetail
+}
+
+/**
+ * Get details of a process by its process code.
+ * Hash: SHA-512(processCode + apiKey)
+ */
+export async function getProcessDetails(processCode: string): Promise<Record<string, unknown>> {
+  const { principal, credential, apiKey, baseUrl } = merchantCfg()
+  const hash = sha512(processCode, apiKey)
+  const auth = basicAuth(principal, credential)
+
+  const raw = await fetch(`${baseUrl}/getProcessDetails`, {
+    method:  'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: auth },
+    body:    JSON.stringify({ processCode, hash }),
+  })
+  const data = normalisePagaResponse(await raw.json().catch(() => ({})), 'getProcessDetails')
+  assertAuthOk(raw.status, data, 'getProcessDetails')
+  if (!isPagaSuccess(data))
+    throw new Error(`Paga getProcessDetails error: ${data.message ?? String(data.responseCode ?? raw.status)}`)
+  return data as Record<string, unknown>
+}
+
+/**
+ * Retrieve reconciled reports for a date range.
+ * Hash: SHA-512(referenceNumber + periodStartDateTimeUTC + periodEndDateTimeUTC + apiKey)
+ *
+ * @param referenceNumber Unique reference for this API call (generate per request)
+ * @param periodStartDateTimeUTC ISO-8601 UTC, e.g. "2024-01-01T00:00:00"
+ * @param periodEndDateTimeUTC   ISO-8601 UTC
+ */
+export async function getReconciliationReport(opts: {
+  referenceNumber:        string
+  periodStartDateTimeUTC: string
+  periodEndDateTimeUTC:   string
+}): Promise<PagaReconciliationItem[]> {
+  const { principal, credential, apiKey, baseUrl } = merchantCfg()
+  const hash = sha512(opts.referenceNumber, opts.periodStartDateTimeUTC, opts.periodEndDateTimeUTC, apiKey)
+  const auth = basicAuth(principal, credential)
+
+  const raw = await fetch(`${baseUrl}/getReconcilationReport`, {
+    method:  'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: auth },
+    body:    JSON.stringify({
+      referenceNumber:        opts.referenceNumber,
+      periodStartDateTimeUTC: opts.periodStartDateTimeUTC,
+      periodEndDateTimeUTC:   opts.periodEndDateTimeUTC,
+      hash,
+    }),
+  })
+  const data = normalisePagaResponse(await raw.json().catch(() => ({})), 'getReconcilationReport')
+  assertAuthOk(raw.status, data, 'getReconcilationReport')
+  if (!isPagaSuccess(data))
+    throw new Error(`Paga getReconcilationReport error: ${data.message ?? String(data.responseCode ?? raw.status)}`)
+  const items = (data.items ?? data.data ?? data.transactions ?? []) as PagaReconciliationItem[]
+  return Array.isArray(items) ? items : []
+}
+
+/**
+ * Get the exchange rate between two currencies.
+ * Hash: SHA-512(referenceNumber + baseCurrency + foreignCurrency + apiKey)
+ */
+export async function getForeignExchangeRate(opts: {
+  referenceNumber: string
+  baseCurrency:    string  // e.g. "NGN"
+  foreignCurrency: string  // e.g. "USD"
+}): Promise<PagaFxRate> {
+  const { principal, credential, apiKey, baseUrl } = merchantCfg()
+  const hash = sha512(opts.referenceNumber, opts.baseCurrency, opts.foreignCurrency, apiKey)
+  const auth = basicAuth(principal, credential)
+
+  const raw = await fetch(`${baseUrl}/getForeignExchangeRate`, {
+    method:  'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: auth },
+    body:    JSON.stringify({
+      referenceNumber: opts.referenceNumber,
+      baseCurrency:    opts.baseCurrency,
+      foreignCurrency: opts.foreignCurrency,
+      hash,
+    }),
+  })
+  const data = normalisePagaResponse(await raw.json().catch(() => ({})), 'getForeignExchangeRate')
+  assertAuthOk(raw.status, data, 'getForeignExchangeRate')
+  if (!isPagaSuccess(data))
+    throw new Error(`Paga getForeignExchangeRate error: ${data.message ?? String(data.responseCode ?? raw.status)}`)
+  return data as unknown as PagaFxRate
+}
+
+/**
+ * Fully or partially refund a bill payment.
+ * Hash: SHA-512(referenceNumber + refundAmount + currency + apiKey)
+ */
+export async function refundBillPay(opts: {
+  referenceNumber:      string
+  customerPhoneNumber:  string
+  refundAmount:         number   // NGN
+  currency?:            string   // defaults to "NGN"
+  fullRefund?:          boolean  // true = full refund regardless of refundAmount
+  includesCustomerFee?: boolean
+  reason?:              string
+}): Promise<{ message: string; responseCode: string | number }> {
+  const { principal, credential, apiKey, baseUrl } = merchantCfg()
+  const currency = opts.currency ?? 'NGN'
+  const hash = sha512(opts.referenceNumber, String(opts.refundAmount), currency, apiKey)
+  const auth = basicAuth(principal, credential)
+
+  const raw = await fetch(`${baseUrl}/refundBillPay`, {
+    method:  'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: auth },
+    body:    JSON.stringify({
+      referenceNumber:     opts.referenceNumber,
+      customerPhoneNumber: opts.customerPhoneNumber,
+      refundAmount:        opts.refundAmount,
+      currency,
+      fullRefund:          opts.fullRefund          ?? false,
+      includesCustomerFee: opts.includesCustomerFee ?? false,
+      reason:              opts.reason              ?? '',
+      hash,
+    }),
+  })
+  const data = normalisePagaResponse(await raw.json().catch(() => ({})), 'refundBillPay')
+  assertAuthOk(raw.status, data, 'refundBillPay')
+  if (!isPagaSuccess(data))
+    throw new Error(`Paga refundBillPay error: ${data.message ?? String(data.responseCode ?? raw.status)}`)
+  return { message: data.message ?? 'Success', responseCode: data.responseCode ?? '0' }
 }
