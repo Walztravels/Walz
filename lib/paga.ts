@@ -403,8 +403,13 @@ export async function createDynamicBankAccount(opts: {
   expiryDateTimeUTC?: string
 }): Promise<PagaDynamicAccountResult> {
   const { publicKey, secretKey, hmacKey, baseUrl } = cfg()
-  const currency   = opts.currency ?? 'NGN'
-  const amountInt  = String(opts.amountNgn)
+  const currency    = opts.currency ?? 'NGN'
+  const amountInt   = String(opts.amountNgn)          // "5000"
+  const amountDec2  = opts.amountNgn.toFixed(2)       // "5000.00"
+  const phoneLocal  = opts.payerPhone                 // as provided, e.g. "07033387807"
+  const phoneIntl   = opts.payerPhone.startsWith('0') // "2347033387807" (no + prefix)
+    ? `234${opts.payerPhone.slice(1)}`
+    : opts.payerPhone
 
   // Key diagnostics — never logs the full key, only enough to identify it
   const keyFirst8 = hmacKey.slice(0, 8)
@@ -421,15 +426,21 @@ export async function createDynamicBankAccount(opts: {
     sameAsPublicKey: hmacKey === publicKey,
   })
 
-  // Paga paymentRequest hash (official docs):
-  // SHA-512(ref + amount + currency + payer.phoneNumber + payer.email +
-  //         payee.accountNumber + payee.phoneNumber + payee.bankId +
-  //         payee.bankAccountNumber + hashKey)
-  // Empty/absent optional fields contribute empty string (no separator).
-  const hash = sha512(opts.referenceNumber, amountInt, currency, opts.payerPhone, hmacKey)
+  // Log all 4 candidate hash prefixes so we can compare against Paga's expected value
+  console.log('[paga/paymentRequest] candidates (no key):')
+  console.log('  A int+local :', `${opts.referenceNumber}${amountInt}${currency}${phoneLocal}`)
+  console.log('  B dec+local :', `${opts.referenceNumber}${amountDec2}${currency}${phoneLocal}`)
+  console.log('  C int+intl  :', `${opts.referenceNumber}${amountInt}${currency}${phoneIntl}`)
+  console.log('  D dec+intl  :', `${opts.referenceNumber}${amountDec2}${currency}${phoneIntl}`)
+  console.log('[paga/paymentRequest] hashes:')
+  console.log('  A SHA512(int+local):', sha512(opts.referenceNumber, amountInt,  currency, phoneLocal, hmacKey))
+  console.log('  B SHA512(dec+local):', sha512(opts.referenceNumber, amountDec2, currency, phoneLocal, hmacKey))
+  console.log('  C SHA512(int+intl) :', sha512(opts.referenceNumber, amountInt,  currency, phoneIntl,  hmacKey))
+  console.log('  D SHA512(dec+intl) :', sha512(opts.referenceNumber, amountDec2, currency, phoneIntl,  hmacKey))
 
-  console.log('[paga/paymentRequest] hash-prefix (no key):', `${opts.referenceNumber}${amountInt}${currency}${opts.payerPhone}`)
-  console.log('[paga/paymentRequest] hash (full):', hash)
+  // Currently sending B (decimal amount, local phone) — change the variable to try others
+  const hash = sha512(opts.referenceNumber, amountDec2, currency, phoneLocal, hmacKey)
+  console.log('[paga/paymentRequest] sending hash B (dec+local):', hash)
 
   const payload = {
     referenceNumber: opts.referenceNumber,
