@@ -422,10 +422,13 @@ export async function createDynamicBankAccount(opts: {
   // Round 1: h1 = SHA-512(ref + amount + currency + phone + portalHashKey)
   // Round 2: hash = SHA-512(ref + amount + currency + phone + h1)
   // Confirmed by Qudus (Paga support) via sha512.online demo.
+  const preHashPrefix = `${opts.referenceNumber}${amountInt}${currency}${opts.payerPhone}`
   const h1   = sha512(opts.referenceNumber, amountInt, currency, opts.payerPhone, hmacKey)
   const hash = sha512(opts.referenceNumber, amountInt, currency, opts.payerPhone, h1)
 
-  console.log('[paga/paymentRequest] double-SHA512: h1=', h1.slice(0, 16) + '...', 'hash=', hash.slice(0, 16) + '...')
+  console.log('[paga/paymentRequest] pre-hash-prefix (no key):', preHashPrefix)
+  console.log('[paga/paymentRequest] h1 (full):', h1)
+  console.log('[paga/paymentRequest] hash (full):', hash)
 
   const payload = {
     referenceNumber: opts.referenceNumber,
