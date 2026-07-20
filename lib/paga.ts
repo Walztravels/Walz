@@ -418,18 +418,14 @@ export async function createDynamicBankAccount(opts: {
     sameAsPublicKey: hmacKey === publicKey,
   })
 
-  const preHash_sha_int  = `${opts.referenceNumber}${amountInt}${currency}${opts.payerPhone}${hmacKey}`
-  const preHash_sha_dec  = `${opts.referenceNumber}${amountDec}${currency}${opts.payerPhone}${hmacKey}`
-  const preHash_hmac_int = `${opts.referenceNumber}${amountInt}${currency}${opts.payerPhone}`
-  const preHash_hmac_dec = `${opts.referenceNumber}${amountDec}${currency}${opts.payerPhone}`
+  // Paga paymentRequest uses double SHA-512:
+  // Round 1: h1 = SHA-512(ref + amount + currency + phone + portalHashKey)
+  // Round 2: hash = SHA-512(ref + amount + currency + phone + h1)
+  // Confirmed by Qudus (Paga support) via sha512.online demo.
+  const h1   = sha512(opts.referenceNumber, amountInt, currency, opts.payerPhone, hmacKey)
+  const hash = sha512(opts.referenceNumber, amountInt, currency, opts.payerPhone, h1)
 
-  const hashA_int = sha512(opts.referenceNumber, amountInt, currency, opts.payerPhone, hmacKey)
-  const hashA_dec = sha512(opts.referenceNumber, amountDec, currency, opts.payerPhone, hmacKey)
-  const hashB_int = hmacSha512(preHash_hmac_int, hmacKey)
-  const hashB_dec = hmacSha512(preHash_hmac_dec, hmacKey)
-
-  // Qudus (Paga support) confirmed: SHA-512, integer amount, key concatenated at end
-  const hash = hashA_int
+  console.log('[paga/paymentRequest] double-SHA512: h1=', h1.slice(0, 16) + '...', 'hash=', hash.slice(0, 16) + '...')
 
   const payload = {
     referenceNumber: opts.referenceNumber,
@@ -448,19 +444,6 @@ export async function createDynamicBankAccount(opts: {
     displayBankDetailToPayer: false,
     hash,
   }
-
-  console.log('[paga/paymentRequest] PAYLOAD:', JSON.stringify(payload, null, 2))
-  console.log('[paga/paymentRequest] PRE-HASH STRINGS:')
-  console.log('  sha512_int  preHash:', preHash_sha_int.replace(hmacKey, '<HMAC_KEY>'))
-  console.log('  sha512_dec  preHash:', preHash_sha_dec.replace(hmacKey, '<HMAC_KEY>'))
-  console.log('  hmac_int    data:   ', preHash_hmac_int)
-  console.log('  hmac_dec    data:   ', preHash_hmac_dec)
-  console.log('[paga/paymentRequest] ALL HASHES:')
-  console.log('  sha512_int :', hashA_int)
-  console.log('  sha512_dec :', hashA_dec)
-  console.log('  hmac_int   :', hashB_int)
-  console.log('  hmac_dec   :', hashB_dec)
-  console.log('[paga/paymentRequest] SENDING: hmac_int')
 
   const auth = basicAuth(publicKey, secretKey)
 
