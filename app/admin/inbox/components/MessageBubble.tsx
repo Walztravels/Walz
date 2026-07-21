@@ -68,14 +68,56 @@ export function MessageBubble({ msg, prevMsg }: Props) {
               <p className="text-sm text-amber-100 whitespace-pre-wrap">{msg.content}</p>
             </div>
           ) : (
-            <div
-              className={`rounded-2xl px-3.5 py-2.5 ${
-                isIncoming
-                  ? 'bg-[#1e3a5f] text-white rounded-tl-sm'
-                  : 'bg-[#C9A84C] text-[#0B1F3A] rounded-tr-sm'
-              }`}
-            >
-              <p className="text-sm whitespace-pre-wrap">{msg.content}</p>
+            <div className="flex flex-col gap-1.5">
+              {/* Image attachments */}
+              {msg.attachments?.filter(a => a.file_type === 'image' || a.file_type === 'sticker').map(att => (
+                <a key={att.id} href={att.data_url} target="_blank" rel="noopener noreferrer">
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={att.data_url}
+                    alt={att.file_name ?? 'image'}
+                    className="max-w-[260px] max-h-[320px] rounded-xl object-cover cursor-pointer hover:opacity-90 transition-opacity"
+                  />
+                </a>
+              ))}
+
+              {/* Audio attachments */}
+              {msg.attachments?.filter(a => a.file_type === 'audio').map(att => (
+                <audio key={att.id} controls src={att.data_url} className="max-w-[260px] rounded-lg" />
+              ))}
+
+              {/* Video attachments */}
+              {msg.attachments?.filter(a => a.file_type === 'video').map(att => (
+                <video key={att.id} controls src={att.data_url} className="max-w-[260px] rounded-xl" />
+              ))}
+
+              {/* File / document attachments */}
+              {msg.attachments?.filter(a => !['image','sticker','audio','video'].includes(a.file_type)).map(att => (
+                <a
+                  key={att.id}
+                  href={att.data_url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className={`flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-medium underline-offset-2 hover:underline ${
+                    isIncoming ? 'bg-[#1e3a5f] text-blue-300' : 'bg-[#b8903f] text-[#0B1F3A]'
+                  }`}
+                >
+                  📎 {att.file_name ?? 'Download file'}
+                </a>
+              ))}
+
+              {/* Text content (skip if empty and there are attachments) */}
+              {msg.content?.trim() && (
+                <div
+                  className={`rounded-2xl px-3.5 py-2.5 ${
+                    isIncoming
+                      ? 'bg-[#1e3a5f] text-white rounded-tl-sm'
+                      : 'bg-[#C9A84C] text-[#0B1F3A] rounded-tr-sm'
+                  }`}
+                >
+                  <p className="text-sm whitespace-pre-wrap">{msg.content}</p>
+                </div>
+              )}
             </div>
           )}
           <div className={`flex items-center gap-1 mt-0.5 ${isIncoming ? '' : 'justify-end'}`}>
