@@ -235,13 +235,19 @@ export async function POST(req: NextRequest) {
 
   const lang = decision.language ?? prevLang
 
-  // ── Stage 3: DB write (fire-and-forget, timed separately) ───────────────────
+  // ── Stage 3: DB write (fire-and-forget) ──────────────────────────────────────
+  // RISK: if a future turn's DB-read fires before this write lands, it reads stale
+  // history. Observed in production: one write took 12.5 s (Supabase cold-start).
+  // To eliminate the race, convert to `await` here and remove the fire-and-forget —
+  // adds ~10–50 ms to server-total but is safe. Keep as-is only while latency is
+  // the bigger concern and the 12.5 s write is confirmed anomalous, not systematic.
   const tWrite0 = Date.now()
   supabase
     .from('CallLog')
     .update({ jadeHistory: history, detectedLanguage: lang })
     .eq('callSid', callSid)
     .then(() => console.log(`[voice-jade] ${callSid} DB-write=${Date.now() - tWrite0}ms`))
+    .catch(err => console.error(`[voice-jade] ${callSid} DB-write-error=`, err))
 
   // ── Total server time (excludes Twilio STT + TTS, which happen outside) ──────
   console.log(`[voice-jade] ${callSid} server-total=${Date.now() - t0}ms`)
@@ -283,11 +289,16 @@ export async function POST(req: NextRequest) {
 
     // action + method="POST" are REQUIRED — without them Twilio falls back to
     // the phone number's Voice URL using GET, causing a 405 and dropping the call.
+    // statusCallbackMethod="POST" prevents the same GET fallback on individual leg
+    // status events (Client no-answer, Sip ring complete) which Twilio fires separately
+    // from the outer action and defaults to GET if not explicitly set.
     const afterUrl = `${BASE_URL}/api/twilio/voice-jade?after=true`
 
     return twiml(
       say(response, lang) +
-      `<Dial callerId="${VOICE_NUMBER}" timeout="30" action="${afterUrl}" method="POST">` +
+      `<Dial callerId="${VOICE_NUMBER}" timeout="25" ` +
+      `action="${afterUrl}" method="POST" ` +
+      `statusCallback="${BASE_URL}/api/twilio/voice/status" statusCallbackMethod="POST">` +
       dialTargets +
       `</Dial>`,
     )
