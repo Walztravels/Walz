@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { routeConversation } from '@/lib/conversation-router'
 import { getSupabaseAdmin } from '@/lib/supabase'
 
 export const dynamic = 'force-dynamic'
@@ -34,46 +33,20 @@ export async function POST(req: NextRequest) {
     return twiml(`<Dial callerId="${VOICE_NUMBER}"><Number>${to}</Number></Dial>`)
   }
 
-  // ── Inbound: real phone call to Twilio number — route to an agent ─────────
-  const routeKey = `twilio_${callSid}`
-  const decision = await routeConversation(routeKey, `Inbound call from ${from}`, 'voice')
-
+  // ── Inbound: Jade answers first, transfers to agent if needed ──────────────
   await supabase.from('CallLog').upsert(
-    {
-      callSid,
-      direction:      'inbound',
-      from,
-      to,
-      status:         decision ? 'ringing' : 'missed',
-      assignedTo:     decision?.agentEmail  ?? null,
-      assignedToName: decision?.agentName   ?? null,
-    },
+    { callSid, direction: 'inbound', from, to, status: 'jade-handling' },
     { onConflict: 'callSid' },
   )
 
-  if (!decision) {
-    return twiml(
-      `<Say voice="Polly.Joanna">` +
-      `Sorry, our team is currently unavailable. ` +
-      `Please send us a WhatsApp message and we will call you back shortly.` +
-      `</Say><Hangup/>`,
-    )
-  }
-
-  // Fetch the assigned agent's SIP address for simultaneous ring
-  const { data: agentRow } = await supabase
-    .from('RoutingAgent')
-    .select('sipAddress')
-    .eq('email', decision.agentEmail ?? '')
-    .maybeSingle()
-
-  const clientId = decision.agentEmail ?? decision.agentName
-  const agentSip = (agentRow as { sipAddress?: string } | null)?.sipAddress
-
-  // Dial browser/mobile SDK client + SIP softphone simultaneously; first to answer wins
-  const dialTargets = agentSip
-    ? `<Client>${clientId}</Client><Sip>${agentSip}</Sip>`
-    : `<Client>${clientId}</Client>`
-
-  return twiml(`<Dial callerId="${VOICE_NUMBER}" timeout="30">${dialTargets}</Dial>`)
+  return twiml(
+    `<Gather input="speech" action="https://www.walztravels.com/api/twilio/voice-jade" method="POST" ` +
+    `speechTimeout="auto" language="en-GB" ` +
+    `hints="flight,visa,hotel,booking,passport,Schengen,Canada,USA,Australia,airline,insurance,tour,package">` +
+    `<Say voice="Polly.Joanna">` +
+    `Welcome to Walz Travels. I'm Jade, your virtual travel assistant. How can I help you today?` +
+    `</Say>` +
+    `</Gather>` +
+    `<Redirect method="POST">https://www.walztravels.com/api/twilio/voice-jade?noInput=true</Redirect>`,
+  )
 }
