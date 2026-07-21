@@ -283,24 +283,29 @@ export async function POST(req: NextRequest) {
       .eq('email', matched.agentEmail ?? '')
       .maybeSingle()
 
-    const agentSip    = (agentRow as { sipAddress?: string } | null)?.sipAddress
+    const rawSip   = (agentRow as { sipAddress?: string } | null)?.sipAddress
+    // Ensure RFC 3261 URI scheme — DB may store with or without "sip:" prefix
+    const agentSip = rawSip
+      ? (rawSip.startsWith('sip:') ? rawSip : `sip:${rawSip}`)
+      : null
     const clientId    = matched.agentEmail ?? matched.agentName
     const dialTargets = agentSip
       ? `<Client>${clientId}</Client><Sip>${agentSip}</Sip>`
       : `<Client>${clientId}</Client>`
 
+    console.log(`[voice-jade] ${callSid} transfer clientId="${clientId}" agentSip="${agentSip ?? 'none'}"`)
+
     // action + method="POST" are REQUIRED — without them Twilio falls back to
     // the phone number's Voice URL using GET, causing a 405 and dropping the call.
-    // statusCallbackMethod="POST" prevents the same GET fallback on individual leg
-    // status events (Client no-answer, Sip ring complete) which Twilio fires separately
-    // from the outer action and defaults to GET if not explicitly set.
+    // Do NOT add statusCallback here — it is only documented for <Number> nouns.
+    // With <Client>/<Sip> simultaneous ring, statusCallback fires undefined leg-level
+    // events that can corrupt parent-call state mid-call.
     const afterUrl = `${BASE_URL}/api/twilio/voice-jade?after=true`
 
     return twiml(
       say(response, lang) +
-      `<Dial callerId="${VOICE_NUMBER}" timeout="25" ` +
-      `action="${afterUrl}" method="POST" ` +
-      `statusCallback="${BASE_URL}/api/twilio/voice/status" statusCallbackMethod="POST">` +
+      `<Dial callerId="${VOICE_NUMBER}" timeout="30" ` +
+      `action="${afterUrl}" method="POST">` +
       dialTargets +
       `</Dial>`,
     )
