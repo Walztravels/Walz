@@ -42,10 +42,8 @@ export async function POST(req: NextRequest) {
   return twiml(
     `<Gather input="speech" action="https://www.walztravels.com/api/twilio/voice-jade" method="POST" ` +
     `speechTimeout="auto" language="en-GB" ` +
-    `hints="flight,visa,hotel,booking,passport,Schengen,Canada,USA,Australia,airline,insurance,tour,package">` +
-    `<Say voice="Polly.Joanna">` +
-    `Welcome to Walz Travels. I'm Jade, your virtual travel assistant. How can I help you today?` +
-    `</Say>` +
+    `hints="flight,visa,hotel,booking,passport,Schengen,Canada,USA,Australia,UAE,airline,insurance,tour,package,eSIM,refund,cancel">` +
+    `<Say voice="Polly.Amy-Neural">Walz Travels, Jade speaking — how can I help?</Say>` +
     `</Gather>` +
     `<Redirect method="POST">https://www.walztravels.com/api/twilio/voice-jade?noInput=true</Redirect>`,
   )
