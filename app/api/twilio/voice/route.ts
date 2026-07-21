@@ -17,16 +17,16 @@ function twiml(inner: string) {
 }
 
 export async function POST(req: NextRequest) {
-  const form     = await req.formData()
-  const from     = form.get('From')?.toString()    ?? ''
-  const to       = form.get('To')?.toString()      ?? ''
-  const callSid  = form.get('CallSid')?.toString() ?? ''
+  const form      = await req.formData()
+  const from      = form.get('From')?.toString()      ?? ''
+  const to        = form.get('To')?.toString()        ?? ''
+  const callSid   = form.get('CallSid')?.toString()   ?? ''
+  const direction = form.get('Direction')?.toString()  ?? ''
 
   const supabase = getSupabaseAdmin()
 
-  // ── Outbound: call from browser SDK ──────────────────────────────────────
-  // From is "client:<staff-email>" when initiated via device.connect()
-  if (from.startsWith('client:')) {
+  // ── Outbound: browser SDK (From = "client:<email>") or REST API (Direction = "outbound-api")
+  if (from.startsWith('client:') || direction === 'outbound-api') {
     await supabase.from('CallLog').upsert(
       { callSid, direction: 'outbound', from: from.replace('client:', ''), to, status: 'initiated' },
       { onConflict: 'callSid' },
