@@ -60,7 +60,20 @@ export async function POST(req: NextRequest) {
     )
   }
 
-  // Agent's Twilio Client identity = their email (set when the access token is issued)
+  // Fetch the assigned agent's SIP address for simultaneous ring
+  const { data: agentRow } = await supabase
+    .from('RoutingAgent')
+    .select('sipAddress')
+    .eq('email', decision.agentEmail ?? '')
+    .maybeSingle()
+
   const clientId = decision.agentEmail ?? decision.agentName
-  return twiml(`<Dial timeout="20"><Client>${clientId}</Client></Dial>`)
+  const agentSip = (agentRow as { sipAddress?: string } | null)?.sipAddress
+
+  // Dial browser/mobile SDK client + SIP softphone simultaneously; first to answer wins
+  const dialTargets = agentSip
+    ? `<Client>${clientId}</Client><Sip>${agentSip}</Sip>`
+    : `<Client>${clientId}</Client>`
+
+  return twiml(`<Dial callerId="${VOICE_NUMBER}" timeout="30">${dialTargets}</Dial>`)
 }
