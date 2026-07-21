@@ -62,7 +62,9 @@ async function handleAfterDial(req: NextRequest): Promise<NextResponse> {
     .from('CallLog')
     .update({ status: termStatus, ...(duration ? { duration } : {}) })
     .eq('callSid', callSid)
-    .catch(err => console.error(`[voice-sip-outbound] ${callSid} DB after-dial error:`, err))
+    .then(({ error }) => {
+      if (error) console.error(`[voice-sip-outbound] ${callSid} DB after-dial error:`, error)
+    })
 
   console.log(`[voice-sip-outbound] after-dial callSid=${callSid} DialCallStatus=${dialStatus}`)
 
@@ -102,7 +104,9 @@ export async function POST(req: NextRequest) {
       { callSid, direction: 'outbound', from: agentId, to: destination, status: 'initiated' },
       { onConflict: 'callSid' },
     )
-    .catch(err => console.error(`[voice-sip-outbound] ${callSid} DB error:`, err))
+    .then(({ error }) => {
+      if (error) console.error(`[voice-sip-outbound] ${callSid} DB error:`, error)
+    })
 
   const afterUrl = `${BASE_URL}/api/twilio/voice-sip-outbound?after=true`
 

@@ -246,8 +246,10 @@ export async function POST(req: NextRequest) {
     .from('CallLog')
     .update({ jadeHistory: history, detectedLanguage: lang })
     .eq('callSid', callSid)
-    .then(() => console.log(`[voice-jade] ${callSid} DB-write=${Date.now() - tWrite0}ms`))
-    .catch(err => console.error(`[voice-jade] ${callSid} DB-write-error=`, err))
+    .then(({ error }) => {
+      if (error) console.error(`[voice-jade] ${callSid} DB-write-error=`, error)
+      else console.log(`[voice-jade] ${callSid} DB-write=${Date.now() - tWrite0}ms`)
+    })
 
   // ── Total server time (excludes Twilio STT + TTS, which happen outside) ──────
   console.log(`[voice-jade] ${callSid} server-total=${Date.now() - t0}ms`)
