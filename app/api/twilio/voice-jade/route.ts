@@ -174,18 +174,6 @@ export async function POST(req: NextRequest) {
     return handleAfterDial(req)
   }
 
-  // No-agent fallback — Twilio fires this URL when agent's REST-API outbound
-  // call ends without being answered (agent-join redirects the caller here).
-  if (req.nextUrl.searchParams.get('noAgent') === 'true') {
-    const lang  = req.nextUrl.searchParams.get('lang') ?? 'en'
-    const retry =
-      lang === 'fr' ? 'Notre agent n\'a pas pu prendre votre appel. Puis-je vous aider autrement ?'
-      : lang === 'es' ? 'Nuestro agente no pudo atenderte. ¿Puedo ayudarte en algo más?'
-      : lang === 'ar' ? 'لم يتمكن وكيلنا من الرد. هل يمكنني مساعدتك بطريقة أخرى؟'
-      : 'Our agent wasn\'t able to pick up just now. Is there anything I can help you with in the meantime?'
-    return gather(retry, lang)
-  }
-
   const form    = await req.formData()
   const speech  = form.get('SpeechResult')?.toString() ?? ''
   const callSid = form.get('CallSid')?.toString()      ?? ''
@@ -303,43 +291,49 @@ export async function POST(req: NextRequest) {
     const agentSip = rawSip
       ? (rawSip.startsWith('sip:') ? rawSip : `sip:${rawSip}`)
       : null
-    const clientId    = matched.agentEmail ?? matched.agentName
-    // Prefer SIP (Zoiper on phone) — fall back to browser SDK client
-    const agentTarget = agentSip ?? `client:${clientId}`
+    const clientId = matched.agentEmail ?? matched.agentName
 
-    console.log(`[voice-jade] ${callSid} transfer target="${agentTarget}"`)
+    console.log(`[voice-jade] ${callSid} transfer clientId="${clientId}" agentSip="${agentSip ?? 'none'}"`)
 
-    // ── Conference room for this call ────────────────────────────────────────
-    // Caller enters the room with startConferenceOnEnter="false" → hears hold
-    // music via waitUrl. The agent is called directly via REST API; when they
-    // answer, they join with startConferenceOnEnter="true" → music stops.
-    const roomName    = `walz-${callSid}`
-    const afterUrl    = `${BASE_URL}/api/twilio/voice-jade?after=true`
+    // ── Conference room ───────────────────────────────────────────────────────
+    // Caller enters with startConferenceOnEnter="false" → hears hold music.
+    // Agent joins (from either outbound call) with startConferenceOnEnter="true"
+    // → music stops, bridge formed.
+    //
+    // No-answer is handled by the hold-music loop: after ~60 s it issues
+    // <Leave/> which fires the <Dial action> URL → handleAfterDial → retry.
+    // No statusCallback coordination needed, so no race condition.
+    const roomName     = `walz-${callSid}`
+    const afterUrl     = `${BASE_URL}/api/twilio/voice-jade?after=true`
     const agentJoinUrl = `${BASE_URL}/api/twilio/agent-join?room=${encodeURIComponent(roomName)}`
-    const noAnswerCb  =
-      `${BASE_URL}/api/twilio/agent-join` +
-      `?noAnswer=true` +
-      `&parentCallSid=${encodeURIComponent(callSid)}` +
-      `&lang=${encodeURIComponent(lang)}`
 
-    // Place outbound call to agent — fire-and-forget so TwiML response isn't held up
     if (ACCOUNT_SID && AUTH_TOKEN) {
-      Twilio(ACCOUNT_SID, AUTH_TOKEN)
-        .calls.create({
-          to:                    agentTarget,
-          from:                  VOICE_NUMBER,
-          url:                   agentJoinUrl,
-          method:                'POST' as const,
-          statusCallback:        noAnswerCb,
-          statusCallbackMethod:  'POST' as const,
-          statusCallbackEvent:   ['completed'] as const,
-          timeout:               30,
-        })
+      const twilioClient = Twilio(ACCOUNT_SID, AUTH_TOKEN)
+      const outboundBase = {
+        url:     agentJoinUrl,
+        method:  'POST' as const,
+        timeout: 30,
+      }
+
+      // 1. Browser client — rings admin panel phone widget
+      twilioClient.calls
+        .create({ ...outboundBase, to: `client:${clientId}`, from: VOICE_NUMBER })
         .catch((err: unknown) =>
-          console.error(`[voice-jade] ${callSid} REST-call-agent error:`, err),
+          console.error(`[voice-jade] ${callSid} browser-ring error:`, err),
         )
+
+      // 2. SIP / Zoiper — rings agent's mobile SIP device
+      // maxParticipants="2" on the conference means the first to answer wins;
+      // the second is rejected (conference full) and its call ends cleanly.
+      if (agentSip) {
+        twilioClient.calls
+          .create({ ...outboundBase, to: agentSip, from: VOICE_NUMBER })
+          .catch((err: unknown) =>
+            console.error(`[voice-jade] ${callSid} sip-ring error:`, err),
+          )
+      }
     } else {
-      console.error(`[voice-jade] ${callSid} TWILIO_ACCOUNT_SID or TWILIO_AUTH_TOKEN missing — cannot call agent`)
+      console.error(`[voice-jade] ${callSid} TWILIO_ACCOUNT_SID or TWILIO_AUTH_TOKEN not set`)
     }
 
     // Caller enters conference and hears Walz Travels hold music until agent joins
@@ -349,7 +343,7 @@ export async function POST(req: NextRequest) {
       `<Conference ` +
       `waitUrl="${BASE_URL}/api/twilio/hold-music" waitMethod="GET" ` +
       `startConferenceOnEnter="false" endConferenceOnExit="true" ` +
-      `beep="false" maxParticipants="3">` +
+      `beep="false" maxParticipants="2">` +
       `${roomName}` +
       `</Conference>` +
       `</Dial>`,
