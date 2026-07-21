@@ -30,7 +30,8 @@ export async function POST(req: NextRequest) {
       { callSid, direction: 'outbound', from: from.replace('client:', ''), to, status: 'initiated' },
       { onConflict: 'callSid' },
     )
-    return twiml(`<Dial callerId="${VOICE_NUMBER}"><Number>${to}</Number></Dial>`)
+    // action + method="POST" prevent Twilio falling back to Voice URL with GET → 405
+    return twiml(`<Dial callerId="${VOICE_NUMBER}" action="https://www.walztravels.com/api/twilio/voice" method="POST"><Number>${to}</Number></Dial>`)
   }
 
   // ── Inbound: Jade answers first, transfers to agent if needed ──────────────

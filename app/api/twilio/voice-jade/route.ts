@@ -8,7 +8,7 @@ export const dynamic = 'force-dynamic'
 const VOICE_NUMBER = process.env.TWILIO_VOICE_NUMBER ?? ''
 const BASE_URL     = 'https://www.walztravels.com'
 
-type History     = Array<{ role: 'user' | 'assistant'; content: string }>
+type History      = Array<{ role: 'user' | 'assistant'; content: string }>
 type JadeDecision = {
   response:    string
   action:      'continue' | 'transfer' | 'end'
@@ -16,9 +16,8 @@ type JadeDecision = {
   specialism?: string
 }
 
-// Neural voices — human-quality, low-latency
 const VOICE: Record<string, string> = {
-  en: 'Polly.Amy-Neural',     // British English
+  en: 'Polly.Amy-Neural',
   fr: 'Polly.Lea-Neural',
   es: 'Polly.Lucia-Neural',
   de: 'Polly.Vicki-Neural',
@@ -30,7 +29,6 @@ const VOICE: Record<string, string> = {
   ko: 'Polly.Seoyeon-Neural',
 }
 
-// Twilio STT language codes
 const STT: Record<string, string> = {
   en: 'en-GB',
   fr: 'fr-FR',
@@ -71,7 +69,48 @@ function gather(text: string, lang = 'en') {
   )
 }
 
-// ─── Jade's persona and intelligence ──────────────────────────────────────────
+// ── After-transfer callback ───────────────────────────────────────────────────
+// Twilio POSTs here when <Dial> completes (agent hung up, no-answer, busy, failed).
+// Without this explicit action, Twilio falls back to the phone number Voice URL
+// using GET → 405 → call dropped.
+async function handleAfterDial(req: NextRequest): Promise<NextResponse> {
+  const form       = await req.formData()
+  const callSid    = form.get('CallSid')?.toString()        ?? ''
+  const dialStatus = form.get('DialCallStatus')?.toString() ?? ''
+
+  const supabase = getSupabaseAdmin()
+  const { data: logRow } = await supabase
+    .from('CallLog')
+    .select('detectedLanguage')
+    .eq('callSid', callSid)
+    .maybeSingle()
+
+  const lang = (logRow as { detectedLanguage?: string } | null)?.detectedLanguage ?? 'en'
+
+  console.log(`[voice-jade] after-dial callSid=${callSid} DialCallStatus=${dialStatus} lang=${lang}`)
+
+  // Agent answered and call completed normally → hang up
+  if (dialStatus === 'completed') {
+    return twiml(say(
+      lang === 'fr' ? 'Merci d\'avoir appelé Walz Travels. Au revoir.'
+      : lang === 'es' ? 'Gracias por llamar a Walz Travels. Hasta luego.'
+      : lang === 'ar' ? 'شكراً لاتصالك بـ Walz Travels. مع السلامة.'
+      : 'Thanks for calling Walz Travels. Take care, bye.',
+      lang,
+    ) + '<Hangup/>')
+  }
+
+  // Agent didn't answer (no-answer, busy, failed, canceled) → return caller to Jade
+  const retry =
+    lang === 'fr' ? 'Notre agent n\'a pas pu prendre votre appel. Puis-je vous aider autrement ?'
+    : lang === 'es' ? 'Nuestro agente no pudo atenderte. ¿Puedo ayudarte en algo más?'
+    : lang === 'ar' ? 'لم يتمكن وكيلنا من الرد. هل يمكنني مساعدتك بطريقة أخرى؟'
+    : 'Our agent wasn\'t able to pick up. Is there anything I can help you with in the meantime?'
+
+  return gather(retry, lang)
+}
+
+// ─── System prompt ────────────────────────────────────────────────────────────
 const SYSTEM = `You are Jade — a senior travel consultant at Walz Travels, London. You have been taking calls for over a decade. You are on a live phone call right now.
 
 VOICE AND PERSONALITY
@@ -115,7 +154,6 @@ If asked whether you're human, say "I'm Jade from the Walz Travels team" and mov
 
 OUTPUT FORMAT — respond with valid JSON only. No other text, no markdown, no explanation:
 {"response":"what you say on the call","action":"continue","language":"en"}
-
 For transfer: {"response":"what you say before transferring","action":"transfer","language":"en","specialism":"visa"}
 For end: {"response":"goodbye","action":"end","language":"en"}
 
@@ -123,26 +161,36 @@ action: "continue" | "transfer" | "end"
 language: ISO 639-1 code of the language the caller used (en, fr, es, ar, de, pt, it, nl, ja, ko — or any other)
 specialism (only when action is transfer): "flight" | "visa" | "hotel" | "tour" | "support"`
 
-// ─── Handler ───────────────────────────────────────────────────────────────────
+// ─── Main handler ─────────────────────────────────────────────────────────────
 export async function POST(req: NextRequest) {
+  const t0 = Date.now()
+
+  // Post-dial callback — must be handled before reading form data again
+  if (req.nextUrl.searchParams.get('after') === 'true') {
+    return handleAfterDial(req)
+  }
+
   const form    = await req.formData()
   const speech  = form.get('SpeechResult')?.toString() ?? ''
   const callSid = form.get('CallSid')?.toString()      ?? ''
   const from    = form.get('From')?.toString()         ?? ''
   const noInput = req.nextUrl.searchParams.get('noInput')
 
-  const supabase = getSupabaseAdmin()
-
   if (noInput || !speech.trim()) {
+    console.log(`[voice-jade] ${callSid} no-input prompt`)
     return gather("Take your time — I'm here. What can I help you with?")
   }
 
-  // Fetch history + detected language in one query
+  const supabase = getSupabaseAdmin()
+
+  // ── Stage 1: DB read ─────────────────────────────────────────────────────────
+  const tDbRead0 = Date.now()
   const { data: logRow } = await supabase
     .from('CallLog')
     .select('jadeHistory, detectedLanguage')
     .eq('callSid', callSid)
     .maybeSingle()
+  const tDbRead1 = Date.now()
 
   const history: History =
     (logRow as { jadeHistory?: History } | null)?.jadeHistory ?? []
@@ -151,7 +199,9 @@ export async function POST(req: NextRequest) {
 
   history.push({ role: 'user', content: speech })
 
-  // Jade thinks — Claude Haiku for minimum latency
+  console.log(`[voice-jade] ${callSid} DB-read=${tDbRead1 - tDbRead0}ms turns=${history.length}`)
+
+  // ── Stage 2: Claude (Haiku — minimum latency) ────────────────────────────────
   const anthropic = new Anthropic()
   let decision: JadeDecision = {
     response:   "Let me get someone from the team for you right now.",
@@ -160,6 +210,7 @@ export async function POST(req: NextRequest) {
     specialism: 'support',
   }
 
+  const tClaude0 = Date.now()
   try {
     const msg = await anthropic.messages.create({
       model:      'claude-haiku-4-5-20251001',
@@ -167,42 +218,53 @@ export async function POST(req: NextRequest) {
       system:     SYSTEM,
       messages:   history,
     })
-    const raw   = msg.content[0]?.type === 'text' ? msg.content[0].text.trim() : ''
-    const match = raw.match(/\{[\s\S]*?\}/)
+    const tClaude1 = Date.now()
+    const raw      = msg.content[0]?.type === 'text' ? msg.content[0].text.trim() : ''
+    const match    = raw.match(/\{[\s\S]*?\}/)
     if (match) decision = { ...decision, ...JSON.parse(match[0]) }
     history.push({ role: 'assistant', content: raw })
-  } catch {
+    console.log(
+      `[voice-jade] ${callSid} claude=${tClaude1 - tClaude0}ms` +
+      ` in=${msg.usage.input_tokens}tok out=${msg.usage.output_tokens}tok` +
+      ` action=${decision.action} lang=${decision.language}`,
+    )
+  } catch (err) {
+    console.error(`[voice-jade] ${callSid} claude-error=${Date.now() - tClaude0}ms`, err)
     history.push({ role: 'assistant', content: JSON.stringify(decision) })
   }
 
   const lang = decision.language ?? prevLang
 
-  // Persist conversation state — don't block the response
+  // ── Stage 3: DB write (fire-and-forget, timed separately) ───────────────────
+  const tWrite0 = Date.now()
   supabase
     .from('CallLog')
     .update({ jadeHistory: history, detectedLanguage: lang })
     .eq('callSid', callSid)
-    .then(() => {/* fire and forget */})
+    .then(() => console.log(`[voice-jade] ${callSid} DB-write=${Date.now() - tWrite0}ms`))
+
+  // ── Total server time (excludes Twilio STT + TTS, which happen outside) ──────
+  console.log(`[voice-jade] ${callSid} server-total=${Date.now() - t0}ms`)
 
   const { response, action, specialism } = decision
 
-  // ── End call ────────────────────────────────────────────────────────────────
+  // ── End call ─────────────────────────────────────────────────────────────────
   if (action === 'end') {
     return twiml(say(response, lang) + '<Hangup/>')
   }
 
-  // ── Transfer to live agent ───────────────────────────────────────────────────
+  // ── Transfer to live agent ────────────────────────────────────────────────────
   if (action === 'transfer') {
-    const routeMsg  = `Voice call from ${from}. Caller: "${speech}". Needs: ${specialism ?? 'support'}`
-    const matched   = await routeConversation(`twilio_jade_${callSid}`, routeMsg, 'voice')
+    const tRoute0  = Date.now()
+    const routeMsg = `Voice call from ${from}. Caller: "${speech}". Needs: ${specialism ?? 'support'}`
+    const matched  = await routeConversation(`twilio_jade_${callSid}`, routeMsg, 'voice')
+    console.log(`[voice-jade] ${callSid} route=${Date.now() - tRoute0}ms agent=${matched?.agentEmail ?? 'none'}`)
 
     if (!matched) {
-      const unavailable = lang === 'fr'
-        ? `${response} Notre équipe est actuellement occupée. Nous vous enverrons un message WhatsApp dans quelques instants.`
-        : lang === 'es'
-        ? `${response} Nuestro equipo está ocupado ahora mismo. Le enviaremos un mensaje de WhatsApp en breve.`
-        : lang === 'ar'
-        ? `${response} فريقنا مشغول الآن. سنرسل لك رسالة واتساب في أقرب وقت.`
+      const unavailable =
+        lang === 'fr' ? `${response} Notre équipe est occupée — nous vous enverrons un WhatsApp dans quelques instants.`
+        : lang === 'es' ? `${response} Nuestro equipo está ocupado — le enviaremos un WhatsApp enseguida.`
+        : lang === 'ar' ? `${response} فريقنا مشغول — سنرسل لك واتساب في أقرب وقت.`
         : `${response} Our team's all on calls right now — we'll drop you a WhatsApp and follow up straight away.`
       return twiml(say(unavailable, lang) + '<Hangup/>')
     }
@@ -219,12 +281,18 @@ export async function POST(req: NextRequest) {
       ? `<Client>${clientId}</Client><Sip>${agentSip}</Sip>`
       : `<Client>${clientId}</Client>`
 
+    // action + method="POST" are REQUIRED — without them Twilio falls back to
+    // the phone number's Voice URL using GET, causing a 405 and dropping the call.
+    const afterUrl = `${BASE_URL}/api/twilio/voice-jade?after=true`
+
     return twiml(
       say(response, lang) +
-      `<Dial callerId="${VOICE_NUMBER}" timeout="30">${dialTargets}</Dial>`,
+      `<Dial callerId="${VOICE_NUMBER}" timeout="30" action="${afterUrl}" method="POST">` +
+      dialTargets +
+      `</Dial>`,
     )
   }
 
-  // ── Continue ─────────────────────────────────────────────────────────────────
+  // ── Continue conversation ─────────────────────────────────────────────────────
   return gather(response, lang)
 }
