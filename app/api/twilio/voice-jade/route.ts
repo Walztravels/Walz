@@ -315,23 +315,28 @@ export async function POST(req: NextRequest) {
         timeout: 30,
       }
 
-      // 1. Browser client — rings admin panel phone widget
-      twilioClient.calls
-        .create({ ...outboundBase, to: `client:${clientId}`, from: VOICE_NUMBER })
-        .catch((err: unknown) =>
-          console.error(`[voice-jade] ${callSid} browser-ring error:`, err),
-        )
-
-      // 2. SIP / Zoiper — rings agent's mobile SIP device
-      // maxParticipants="2" on the conference means the first to answer wins;
+      // Await both calls before returning TwiML — serverless runtimes can
+      // terminate the function immediately after response is committed, so
+      // fire-and-forget never reaches Twilio's API.
+      // Both run in parallel; ~200-400 ms added to the transfer response.
+      // maxParticipants="2" on the conference ensures the first to answer wins;
       // the second is rejected (conference full) and its call ends cleanly.
-      if (agentSip) {
+      await Promise.all([
         twilioClient.calls
-          .create({ ...outboundBase, to: agentSip, from: VOICE_NUMBER })
+          .create({ ...outboundBase, to: `client:${clientId}`, from: VOICE_NUMBER })
+          .then(c => console.log(`[voice-jade] ${callSid} browser-ring created sid=${c.sid}`))
           .catch((err: unknown) =>
-            console.error(`[voice-jade] ${callSid} sip-ring error:`, err),
-          )
-      }
+            console.error(`[voice-jade] ${callSid} browser-ring error:`, err),
+          ),
+        agentSip
+          ? twilioClient.calls
+              .create({ ...outboundBase, to: agentSip, from: VOICE_NUMBER })
+              .then(c => console.log(`[voice-jade] ${callSid} sip-ring created sid=${c.sid}`))
+              .catch((err: unknown) =>
+                console.error(`[voice-jade] ${callSid} sip-ring error:`, err),
+              )
+          : Promise.resolve(),
+      ])
     } else {
       console.error(`[voice-jade] ${callSid} TWILIO_ACCOUNT_SID or TWILIO_AUTH_TOKEN not set`)
     }

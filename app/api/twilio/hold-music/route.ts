@@ -41,7 +41,11 @@ export async function GET(req: NextRequest) {
     )
   }
 
-  // ── Loop 0 — first ~30 s ─────────────────────────────────────────────────
+  // Twilio royalty-free hold music (publicly available, no attribution required)
+  const MUSIC_1 = 'https://com.twilio.music.classical.s3.amazonaws.com/ClockworkWaltz.mp3'
+  const MUSIC_2 = 'https://com.twilio.music.classical.s3.amazonaws.com/BusyStrings.mp3'
+
+  // ── Loop 0 — ad then music ────────────────────────────────────────────────
   if (loops === 0) {
     return xml(
       `<Say voice="Polly.Amy-Neural">` +
@@ -49,30 +53,19 @@ export async function GET(req: NextRequest) {
       `your expert travel partner for flights, visas, hotels, and tailor-made holiday packages. ` +
       `One of our specialists is on their way to take your call.` +
       `</Say>` +
-      `<Pause length="3"/>` +
-      `<Say voice="Polly.Amy-Neural">` +
-      `Did you know Walz Travels handles Schengen visas, US B1-B2, Canada, Australia, UAE, ` +
-      `and UK visitor visas — often with some of the fastest turnaround times in London? ` +
-      `We also offer group travel, corporate bookings, and complete holiday packages. ` +
-      `We'll be right with you.` +
-      `</Say>` +
-      `<Pause length="3"/>` +
+      `<Play>${MUSIC_1}</Play>` +
       `<Redirect method="GET">${nextUrl}</Redirect>`,
     )
   }
 
-  // ── Loop 1 — second ~30 s ────────────────────────────────────────────────
+  // ── Loop 1 — second ad then music ────────────────────────────────────────
   return xml(
     `<Say voice="Polly.Amy-Neural">` +
-    `Thank you so much for your patience. You're still in the queue for Walz Travels. ` +
-    `Our specialist will be with you very shortly.` +
+    `Thank you so much for your patience — we will be with you in just a moment. ` +
+    `Walz Travels: visas, flights, hotels, and tailor-made holidays. ` +
+    `Your specialist is almost with you.` +
     `</Say>` +
-    `<Pause length="4"/>` +
-    `<Say voice="Polly.Amy-Neural">` +
-    `Whether you need a visa, a flight, a hotel, or a full holiday package — ` +
-    `Walz Travels has you covered. We appreciate your patience.` +
-    `</Say>` +
-    `<Pause length="3"/>` +
+    `<Play>${MUSIC_2}</Play>` +
     `<Redirect method="GET">${nextUrl}</Redirect>`,
   )
 }
