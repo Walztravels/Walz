@@ -92,9 +92,9 @@ export function AdminHeader({ adminEmail }: Props) {
       {/* Right — user + actions */}
       <div className="flex items-center gap-3 flex-shrink-0">
 
-        {/* Phone — desktop only; opens AircallWidget via custom event */}
+        {/* Phone — desktop only; opens Twilio phone panel */}
         <button
-          onClick={() => window.dispatchEvent(new CustomEvent('openAircallWidget'))}
+          onClick={() => window.dispatchEvent(new CustomEvent('openPhonePanel'))}
           className="hidden md:flex items-center gap-1.5 px-3 py-1.5 rounded-lg hover:bg-gray-100 transition-colors text-gray-500 hover:text-gray-700 text-sm"
           title="Open phone"
         >

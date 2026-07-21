@@ -3,7 +3,7 @@ import { getAdminSession } from '@/lib/admin-auth'
 import { AdminSidebar } from '@/components/admin/AdminSidebar'
 import { AdminHeader } from '@/components/admin/AdminHeader'
 import { AdminMobilePWA } from '@/components/admin/AdminMobilePWA'
-import { AircallWidget } from '@/components/admin/AircallWidget'
+import { TwilioPhonePanel } from '@/components/admin/TwilioPhonePanel'
 import { JadeStaffWidget } from './components/JadeStaffWidget'
 
 export const dynamic = 'force-dynamic'
@@ -67,8 +67,8 @@ export default async function AdminLayout({ children }: { children: React.ReactN
       {/* Mobile PWA: bottom nav + drawer + SW + install prompt */}
       <AdminMobilePWA />
 
-      {/* Aircall phone widget — floating FAB + slide-up panel */}
-      <AircallWidget />
+      {/* Twilio browser phone — floating panel + mobile FAB */}
+      <TwilioPhonePanel />
 
       {/* Jade Staff Assistant — floating widget on all pages except itinerary builder */}
       <JadeStaffWidget />

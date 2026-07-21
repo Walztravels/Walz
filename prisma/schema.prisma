@@ -2876,6 +2876,30 @@ model WalzMilesTransaction {
 }
 
 // ===========================
+// Twilio Call Log
+// Created via Supabase SQL editor — NEVER run prisma db push for this model.
+// To add columns: ALTER TABLE "CallLog" ... in Supabase SQL editor, then npx prisma generate.
+// ===========================
+
+model CallLog {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  callSid        String   @unique
+  direction      String   // 'inbound' | 'outbound'
+  from           String?
+  to             String?
+  status         String?  // 'initiated' | 'ringing' | 'active' | 'completed' | 'missed' | 'failed'
+  duration       Int?     // seconds
+  assignedTo     String?  // agent email
+  assignedToName String?
+  recordingUrl   String?
+  createdAt      DateTime @default(now()) @db.Timestamptz
+  updatedAt      DateTime @default(now()) @db.Timestamptz
+
+  @@index([assignedTo])
+  @@index([createdAt])
+}
+
+// ===========================
 // Admin Payment Links
 // ===========================
 
