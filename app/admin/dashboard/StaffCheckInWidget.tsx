@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { CheckSquare, AlertTriangle, Clock, ChevronDown, ChevronUp, X } from 'lucide-react'
+import { CheckSquare, Clock, ChevronDown, ChevronUp, X } from 'lucide-react'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 interface SlotInfo {
@@ -410,19 +410,6 @@ export function StaffCheckInWidget() {
               </div>
             </div>
 
-            {/* Report issue on any missed slot */}
-            {todaySlots.some(s => s.flagged && !s.waived && s.disputeStatus !== 'pending' && s.id) && (
-              <button
-                onClick={() => {
-                  const missed = todaySlots.find(s => s.flagged && !s.waived && s.disputeStatus !== 'pending' && s.id)
-                  if (missed) setDisputeSlot(missed)
-                }}
-                className="w-full py-3 rounded-xl text-sm text-white/50 ring-1 ring-white/10 hover:bg-white/5 hover:text-white/80 transition-all flex items-center justify-center gap-2"
-              >
-                <AlertTriangle size={14} />
-                Report an issue with a check-in
-              </button>
-            )}
 
           </div>
         )}
