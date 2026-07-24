@@ -484,7 +484,8 @@ model Staff {
   // branches: nigeria | uk | canada | ghana | uae | remote
   branch       String    @default("nigeria")
   managerId    String?   // who this staff member reports to
-  permissions  Json      @default("{}")         // per-staff overrides (empty = use role defaults)
+  permissions          Json      @default("{}")  // per-staff overrides (empty = use role defaults)
+  webAuthnCredentials  Json      @default("[]") // stored passkey/biometric credentials
   portalAccess Boolean   @default(false)        // can also log into client portal at /portal
   country      String?
   whatsapp     String?
@@ -493,7 +494,10 @@ model Staff {
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
 
+  checkInTracked Boolean @default(false)
+
   activityLogs ActivityLog[]
+  checkIns     CheckInRecord[]
   manager      Staff?    @relation("StaffManager", fields: [managerId], references: [id])
   reports      Staff[]   @relation("StaffManager")
 
@@ -503,6 +507,39 @@ model Staff {
   @@index([role])
   @@index([branch])
   @@index([department])
+}
+
+model CheckInRecord {
+  id            String    @id @default(cuid())
+  staffId       String
+  staff         Staff     @relation(fields: [staffId], references: [id], onDelete: Cascade)
+  windowStart   DateTime
+  present       Boolean   @default(false)
+  autoDetected  Boolean   @default(false)
+  manualCheckin Boolean   @default(false)
+  flagged       Boolean   @default(false)
+  waived        Boolean   @default(false)
+  deductionAmt  Float     @default(0)
+  waivedById    String?
+  waivedAt      DateTime?
+  dispute       String?   @db.Text
+  disputeStatus String?
+  createdAt     DateTime  @default(now())
+
+  @@unique([staffId, windowStart])
+  @@index([staffId])
+  @@index([windowStart])
+  @@index([flagged])
+}
+
+model CheckInSettings {
+  id               String   @id @default("singleton")
+  enabled          Boolean  @default(false)
+  workStartHour    Int      @default(8)
+  workEndHour      Int      @default(18)
+  deductionPerMiss Float    @default(0)
+  trackedRoles     String   @default("coordinator,sales_rep,sales_agent,flight_staff,tours_staff,hotel_staff,visa_officer,customer_support,accountant")
+  updatedAt        DateTime @updatedAt
 }
 
 model ActivityLog {

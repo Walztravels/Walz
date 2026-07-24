@@ -112,6 +112,8 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: 'Client phone number is required for dynamic bank transfer' }, { status: 400 })
       if (!clientName && !clientEmail)
         return NextResponse.json({ error: 'Client name or email is required for dynamic account' }, { status: 400 })
+      if (amountNgn < 100)
+        return NextResponse.json({ error: 'Minimum amount for dynamic bank transfer is ₦100' }, { status: 400 })
 
       const appUrl = process.env.NEXTAUTH_URL ?? 'https://walztravels.com'
       const acct = await createDynamicBankAccount({
@@ -119,6 +121,7 @@ export async function POST(req: NextRequest) {
         amountNgn,
         payerName:       clientName || clientEmail || 'Customer',
         payerPhone:      clientPhone.trim(),
+        payerEmail:      clientEmail?.trim() || undefined,
         currency,
         callBackUrl:     `${appUrl}/api/paga/webhook`,
       })

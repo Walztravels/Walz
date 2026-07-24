@@ -92,14 +92,14 @@ export function AdminHeader({ adminEmail }: Props) {
       {/* Right — user + actions */}
       <div className="flex items-center gap-3 flex-shrink-0">
 
-        {/* Phone — desktop only; opens Twilio phone panel */}
+        {/* Phone — opens Twilio phone panel (icon-only on mobile, icon+label on desktop) */}
         <button
           onClick={() => window.dispatchEvent(new CustomEvent('openPhonePanel'))}
-          className="hidden md:flex items-center gap-1.5 px-3 py-1.5 rounded-lg hover:bg-gray-100 transition-colors text-gray-500 hover:text-gray-700 text-sm"
+          className="flex items-center gap-1.5 px-2 py-1.5 md:px-3 rounded-lg hover:bg-gray-100 transition-colors text-gray-500 hover:text-gray-700 text-sm"
           title="Open phone"
         >
           <Phone className="w-4 h-4" strokeWidth={1.5} />
-          Phone
+          <span className="hidden md:inline">Phone</span>
         </button>
 
         {/* Notifications */}

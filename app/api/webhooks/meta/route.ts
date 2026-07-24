@@ -17,6 +17,7 @@ import prisma from '@/lib/db'
 import { getResend } from '@/lib/email-internal'
 import { loadJadeSession, saveJadeSession } from '@/lib/jade-session'
 import { getSupabaseAdmin } from '@/lib/supabase'
+import { resolveInstagramPostContext } from '@/lib/instagram-post'
 
 const CHATWOOT_BASE  = 'https://chat.walztravels.com'
 const CHATWOOT_TOKEN = process.env.CHATWOOT_API_TOKEN ?? '1rnd6Rp9GNVKtbJ8238Vg2S1'
@@ -131,6 +132,12 @@ async function handleInstagramMessage(
   const messageText = msg.text ?? '[attachment]'
   const timestamp   = new Date(parseInt(msg.timestamp ?? '0') * 1000).toISOString()
 
+  // Resolve post context from attachment or ad referral (non-blocking, best-effort)
+  const postCtx = await resolveInstagramPostContext(
+    msg.attachments,
+    msg.referral ?? value.referral,
+  ).catch(() => null)
+
   await upsertLead({
     source:            'instagram',
     sourceId:          senderId,
@@ -139,6 +146,7 @@ async function handleInstagramMessage(
     message:           messageText,
     timestamp,
     platform:          'Instagram',
+    postContext:       postCtx?.summary ?? undefined,
   })
 }
 
@@ -151,8 +159,9 @@ async function upsertLead(params: {
   message:            string
   timestamp:          string
   platform:           string
+  postContext?:       string
 }) {
-  const { source, sourceId, name, instagramUsername, message, timestamp, platform } = params
+  const { source, sourceId, name, instagramUsername, message, timestamp, platform, postContext } = params
 
   const newMsg: ConversationMessage = { role: 'client', message, timestamp }
 
@@ -177,7 +186,7 @@ async function upsertLead(params: {
       },
     })
 
-    await sendJadeReply(lead as Lead, message, source)
+    await sendJadeReply(lead as Lead, message, source, postContext)
 
   } else {
     lead = await prisma.lead.create({
@@ -200,7 +209,7 @@ async function upsertLead(params: {
       },
     })
 
-    await sendJadeReply(lead as Lead, message, source)
+    await sendJadeReply(lead as Lead, message, source, postContext)
   }
 
   // Admin notification (non-fatal if it fails)
@@ -318,7 +327,7 @@ async function hasAgentRepliedInChatwoot(sourceId: string): Promise<boolean> {
 }
 
 // ── Jade auto-reply ───────────────────────────────────────────────────────────
-async function sendJadeReply(lead: Lead, userMessage: string, source: string) {
+async function sendJadeReply(lead: Lead, userMessage: string, source: string, postContext?: string) {
   if (lead.jadeActive === false) return
 
   // Check shared JadeSession signal (set by bot route, Chatwoot webhook, or silenceJadeOnIgAgent)
@@ -371,6 +380,7 @@ async function sendJadeReply(lead: Lead, userMessage: string, source: string) {
       (lead.conversation as ConversationMessage[]) ?? [],
       source === 'instagram' ? 'Instagram' : 'Facebook Messenger',
       lead.name,
+      postContext,
     )
 
     // B2B: tag lead + notify the business development team
@@ -453,16 +463,42 @@ interface MessagePayload {
 }
 
 interface IGMessage {
-  from?:      { id?: string; username?: string }
-  to?:        { data?: Array<{ id: string }> }
-  text?:      string
-  timestamp?: string
+  from?:        { id?: string; username?: string }
+  to?:          { data?: Array<{ id: string }> }
+  text?:        string
+  timestamp?:   string
+  attachments?: Array<{
+    type:    string
+    payload: { url?: string; title?: string; id?: string }
+  }>
+  referral?: {
+    ref?:    string
+    source?: string
+    type?:   string
+    ad_id?:  string
+    ads_context_data?: {
+      photo_url?:    string
+      product_name?: string
+      ad_title?:     string
+    }
+  }
 }
 
 interface IGValue {
   id?:           string
   recipient_id?: string
   messages?:     IGMessage[]
+  referral?: {
+    ref?:    string
+    source?: string
+    type?:   string
+    ad_id?:  string
+    ads_context_data?: {
+      photo_url?:    string
+      product_name?: string
+      ad_title?:     string
+    }
+  }
 }
 
 interface ConversationMessage {

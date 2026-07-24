@@ -35,5 +35,6 @@ export async function POST(_req: NextRequest) {
     incomingAllow: true,
   }))
 
+  console.log(`[twilio/token] device registered identity="${identity}"`)
   return NextResponse.json({ token: token.toJwt(), identity })
 }

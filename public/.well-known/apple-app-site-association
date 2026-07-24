@@ -1,0 +1,15 @@
+{
+  "webcredentials": {
+    "apps": ["ZA439Y8T3N.com.walztravels.staffios"]
+  },
+  "applinks": {
+    "details": [
+      {
+        "appIDs": ["ZA439Y8T3N.com.walztravels.staffios"],
+        "components": [
+          { "/": "/admin/*" }
+        ]
+      }
+    ]
+  }
+}

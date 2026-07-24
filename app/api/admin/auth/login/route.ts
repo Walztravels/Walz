@@ -154,102 +154,170 @@ export async function POST(req: NextRequest) {
     )
   }
 
-  const body = await req.json().catch(() => null)
-  const parsed = schema.safeParse(body)
-  if (!parsed.success) {
-    return NextResponse.json({ error: 'Invalid credentials' }, { status: 400 })
-  }
-
-  const { email, password } = parsed.data
-  const normalizedEmail = email.toLowerCase()
-
-  // Extract request metadata
-  const ua        = req.headers.get('user-agent') ?? ''
-  const ipAddress = ip
-  const { browser, operatingSystem } = parseUserAgent(ua)
-  const loginAt = new Date()
-
-  // ── 1. Check Staff table (database accounts) ─────────────────────────────
-  const staffMember = await prisma.staff.findUnique({ where: { email: normalizedEmail } })
-  if (staffMember) {
-    if (!staffMember.isActive) {
-      return NextResponse.json(
-        { error: 'Account is deactivated. Contact your administrator.' },
-        { status: 403 }
-      )
+  try {
+    const body = await req.json().catch(() => null)
+    const parsed = schema.safeParse(body)
+    if (!parsed.success) {
+      return NextResponse.json({ error: 'Invalid credentials' }, { status: 400 })
     }
 
-    const valid = await bcrypt.compare(password, staffMember.passwordHash)
-    if (!valid) {
+    const { email, password } = parsed.data
+    const normalizedEmail = email.toLowerCase()
+
+    // Extract request metadata
+    const ua        = req.headers.get('user-agent') ?? ''
+    const ipAddress = ip
+    const { browser, operatingSystem } = parseUserAgent(ua)
+    const loginAt = new Date()
+
+    // ── 1. Check Staff table (database accounts) ─────────────────────────────
+    const staffMember = await prisma.staff.findUnique({
+      where:  { email: normalizedEmail },
+      select: {
+        id:           true,
+        name:         true,
+        email:        true,
+        passwordHash: true,
+        role:         true,
+        accessLevel:  true,
+        isActive:     true,
+      },
+    })
+    if (staffMember) {
+      if (!staffMember.isActive) {
+        return NextResponse.json(
+          { error: 'Account is deactivated. Contact your administrator.' },
+          { status: 403 }
+        )
+      }
+
+      const valid = await bcrypt.compare(password, staffMember.passwordHash)
+      if (!valid) {
+        return NextResponse.json({ error: 'Invalid credentials' }, { status: 401 })
+      }
+
+      const staffName    = staffMember.name
+      const staffRole    = staffMember.accessLevel
+      const staffRbacRole = staffMember.role ?? staffMember.accessLevel
+
+      // Update last login timestamp
+      await prisma.staff.update({
+        where:  { id: staffMember.id },
+        data:   { lastLoginAt: new Date() },
+        select: { id: true },
+      }).catch((e: unknown) => console.error('lastLoginAt update failed:', e))
+
+      // Log to StaffLoginLog
+      await prisma.staffLoginLog.create({
+        data: {
+          staffId:         staffMember.id,
+          staffName,
+          staffEmail:      normalizedEmail,
+          staffRole,
+          ipAddress,
+          userAgent:       ua,
+          browser,
+          operatingSystem,
+          loginAt,
+        },
+      }).catch((e: unknown) => console.error('StaffLoginLog create failed:', e))
+
+      // Log to ActivityLog
+      await prisma.activityLog.create({
+        data: {
+          staffId:   staffMember.id,
+          staffName,
+          action:    'Staff Login',
+          detail:    `${staffName} signed in (${staffRbacRole})${ipAddress ? ` from ${ipAddress}` : ''}`,
+        },
+      }).catch((e: unknown) => console.error('ActivityLog create failed:', e))
+
+      // Send login alert — skip for Admin role
+      if (!SILENT_ROLES.includes(staffRole)) {
+        const resend = getResend()
+        if (resend) {
+          const subject = `Staff Login Alert — ${staffName} — ${fmtDateTime(loginAt)}`
+          const html    = buildLoginAlertHtml(staffName, staffRbacRole, normalizedEmail, ipAddress, browser, operatingSystem, loginAt)
+          await Promise.all([
+            resend.emails.send({
+              from:    'Walz Travels <noreply@walztravels.com>',
+              to:      'contact@walztravels.com',
+              subject,
+              html,
+            }).catch(e => console.error('Login alert to contact failed:', e)),
+            resend.emails.send({
+              from:    'Walz Travels <noreply@walztravels.com>',
+              to:      'joseph@walztravels.com',
+              subject,
+              html,
+            }).catch(e => console.error('Login alert to joseph failed:', e)),
+          ])
+        }
+      }
+
+      const token = await signAdminToken(normalizedEmail, staffMember.role ?? staffMember.accessLevel ?? 'sales_rep', staffMember.id)
+      const response = NextResponse.json({
+        success:     true,
+        email:       normalizedEmail,
+        staffName,
+        accessLevel: staffRole,
+        role:        staffMember.role,
+      })
+      response.cookies.set(COOKIE_NAME, token, {
+        httpOnly: true,
+        secure:   process.env.NODE_ENV === 'production',
+        sameSite: 'strict',
+        path:     '/',
+        maxAge:   60 * 60 * 12,
+      })
+      return response
+    }
+
+    // ── 2. Fall back to env-var super-admin ───────────────────────────────────
+    if (!ALLOWED_EMAILS.includes(normalizedEmail)) {
+      return NextResponse.json({ error: 'Access denied' }, { status: 403 })
+    }
+
+    const adminPassword     = process.env.ADMIN_PASSWORD ?? ''
+    const adminPasswordHash = process.env.ADMIN_PASSWORD_HASH ?? ''
+
+    let passwordValid = false
+    if (adminPasswordHash) {
+      passwordValid = await bcrypt.compare(password, adminPasswordHash)
+    } else if (adminPassword) {
+      passwordValid = password === adminPassword
+    }
+
+    if (!passwordValid) {
       return NextResponse.json({ error: 'Invalid credentials' }, { status: 401 })
     }
 
-    const staffName    = staffMember.name
-    const staffRole    = staffMember.accessLevel
-    const staffRbacRole = staffMember.role ?? staffMember.accessLevel
-
-    // Update last login timestamp
-    await prisma.staff.update({
-      where: { id: staffMember.id },
-      data:  { lastLoginAt: new Date() },
-    })
-
-    // Log to StaffLoginLog
+    // Log super-admin login (env-var account = Admin role → no alert email)
     await prisma.staffLoginLog.create({
       data: {
-        staffId:         staffMember.id,
-        staffName,
+        staffId:         null,
+        staffName:       normalizedEmail.split('@')[0],
         staffEmail:      normalizedEmail,
-        staffRole,
+        staffRole:       'Admin',
         ipAddress,
         userAgent:       ua,
         browser,
         operatingSystem,
         loginAt,
       },
-    }).catch((e: unknown) => console.error('StaffLoginLog create failed:', e))
+    }).catch((e: unknown) => console.error('StaffLoginLog create (env admin) failed:', e))
 
-    // Log to ActivityLog
     await prisma.activityLog.create({
       data: {
-        staffId:   staffMember.id,
-        staffName,
+        staffId:   null,
+        staffName: normalizedEmail.split('@')[0],
         action:    'Staff Login',
-        detail:    `${staffName} signed in (${staffRbacRole})${ipAddress ? ` from ${ipAddress}` : ''}`,
+        detail:    `Admin signed in via env credentials${ipAddress ? ` from ${ipAddress}` : ''}`,
       },
-    }).catch((e: unknown) => console.error('ActivityLog create failed:', e))
+    }).catch((e: unknown) => console.error('ActivityLog create (env admin) failed:', e))
 
-    // Send login alert — skip for Admin role
-    if (!SILENT_ROLES.includes(staffRole)) {
-      const resend = getResend()
-      if (resend) {
-        const subject = `Staff Login Alert — ${staffName} — ${fmtDateTime(loginAt)}`
-        const html    = buildLoginAlertHtml(staffName, staffRbacRole, normalizedEmail, ipAddress, browser, operatingSystem, loginAt)
-        await Promise.all([
-          resend.emails.send({
-            from:    'Walz Travels <noreply@walztravels.com>',
-            to:      'contact@walztravels.com',
-            subject,
-            html,
-          }).catch(e => console.error('Login alert to contact failed:', e)),
-          resend.emails.send({
-            from:    'Walz Travels <noreply@walztravels.com>',
-            to:      'joseph@walztravels.com',
-            subject,
-            html,
-          }).catch(e => console.error('Login alert to joseph failed:', e)),
-        ])
-      }
-    }
-
-    const token = await signAdminToken(normalizedEmail, staffMember.role ?? staffMember.accessLevel ?? 'sales_rep', staffMember.id)
-    const response = NextResponse.json({
-      success:     true,
-      email:       normalizedEmail,
-      staffName,
-      accessLevel: staffRole,
-      role:        staffMember.role,
-    })
+    const token = await signAdminToken(normalizedEmail)
+    const response = NextResponse.json({ success: true, email: normalizedEmail })
     response.cookies.set(COOKIE_NAME, token, {
       httpOnly: true,
       secure:   process.env.NODE_ENV === 'production',
@@ -258,59 +326,8 @@ export async function POST(req: NextRequest) {
       maxAge:   60 * 60 * 12,
     })
     return response
+  } catch (err) {
+    console.error('[login POST]', err)
+    return NextResponse.json({ error: 'Login failed. Please try again.' }, { status: 500 })
   }
-
-  // ── 2. Fall back to env-var super-admin ───────────────────────────────────
-  if (!ALLOWED_EMAILS.includes(normalizedEmail)) {
-    return NextResponse.json({ error: 'Access denied' }, { status: 403 })
-  }
-
-  const adminPassword     = process.env.ADMIN_PASSWORD ?? ''
-  const adminPasswordHash = process.env.ADMIN_PASSWORD_HASH ?? ''
-
-  let passwordValid = false
-  if (adminPasswordHash) {
-    passwordValid = await bcrypt.compare(password, adminPasswordHash)
-  } else if (adminPassword) {
-    passwordValid = password === adminPassword
-  }
-
-  if (!passwordValid) {
-    return NextResponse.json({ error: 'Invalid credentials' }, { status: 401 })
-  }
-
-  // Log super-admin login (env-var account = Admin role → no alert email)
-  await prisma.staffLoginLog.create({
-    data: {
-      staffId:         null,
-      staffName:       normalizedEmail.split('@')[0],
-      staffEmail:      normalizedEmail,
-      staffRole:       'Admin',
-      ipAddress,
-      userAgent:       ua,
-      browser,
-      operatingSystem,
-      loginAt,
-    },
-  }).catch((e: unknown) => console.error('StaffLoginLog create (env admin) failed:', e))
-
-  await prisma.activityLog.create({
-    data: {
-      staffId:   null,
-      staffName: normalizedEmail.split('@')[0],
-      action:    'Staff Login',
-      detail:    `Admin signed in via env credentials${ipAddress ? ` from ${ipAddress}` : ''}`,
-    },
-  }).catch((e: unknown) => console.error('ActivityLog create (env admin) failed:', e))
-
-  const token = await signAdminToken(normalizedEmail)
-  const response = NextResponse.json({ success: true, email: normalizedEmail })
-  response.cookies.set(COOKIE_NAME, token, {
-    httpOnly: true,
-    secure:   process.env.NODE_ENV === 'production',
-    sameSite: 'strict',
-    path:     '/',
-    maxAge:   60 * 60 * 12,
-  })
-  return response
 }

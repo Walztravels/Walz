@@ -36,7 +36,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
   }
 
   return (
-    <div className="flex h-[100dvh] bg-[#0a1628] overflow-hidden" style={{ cursor: 'default' }}>
+    <div className="flex h-[100dvh] bg-[#0a1628] overflow-hidden" data-admin-layout style={{ cursor: 'default' }}>
 
       {/* Sidebar — desktop only */}
       <div className="hidden md:flex flex-shrink-0">
@@ -50,7 +50,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
         <AdminHeader adminEmail={session.email} />
 
         {/* Scrollable page content — extra bottom padding on mobile for nav bar */}
-        <main className="flex-1 overflow-y-auto overscroll-contain p-4 md:p-6 lg:p-8 pb-24 md:pb-6 lg:pb-8">
+        <main className="flex-1 min-h-0 overflow-y-auto p-4 md:p-6 lg:p-8 pb-24 md:pb-6 lg:pb-8">
           {children}
         </main>
 

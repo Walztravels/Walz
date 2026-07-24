@@ -5,10 +5,11 @@ import { useRouter } from 'next/navigation'
 import {
   UserPlus, RefreshCw, ShieldCheck, Eye, EyeOff, Pencil,
   Trash2, RotateCcw, CheckCircle, XCircle, X, Users, Activity,
-  Globe, ChevronDown,
+  Globe, ChevronDown, Clock,
 } from 'lucide-react'
 import { useStaffPermissions } from '@/hooks/useStaffPermissions'
 import { cn } from '@/lib/utils'
+import { CheckInsTab } from './CheckInsTab'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 type RbacRole =
@@ -502,12 +503,13 @@ function ResetPasswordModal({
 // ── Main Page ─────────────────────────────────────────────────────────────────
 export default function StaffPage() {
   const router = useRouter()
-  const { can, loading: permLoading } = useStaffPermissions()
+  const { can, loading: permLoading, role: callerRole } = useStaffPermissions()
+  const canSeeCheckIns = callerRole === 'super_admin' || callerRole === 'senior_manager'
 
   const [staff,      setStaff]      = useState<StaffMember[]>([])
   const [activity,   setActivity]   = useState<ActivityEntry[]>([])
   const [loading,    setLoading]    = useState(true)
-  const [tab,        setTab]        = useState<'staff' | 'activity'>('staff')
+  const [tab,        setTab]        = useState<'staff' | 'activity' | 'check-ins'>('staff')
   const [showAdd,    setShowAdd]    = useState(false)
   const [editing,    setEditing]    = useState<StaffMember | null>(null)
   const [resetting,  setResetting]  = useState<StaffMember | null>(null)
@@ -594,8 +596,8 @@ export default function StaffPage() {
 
       {/* Tabs */}
       <div className="flex gap-1 mb-6 bg-gray-100 p-1 rounded-xl w-fit">
-        {([['staff', Users, 'Team'], ['activity', Activity, 'Activity Log']] as const).map(([id, Icon, label]) => (
-          <button key={id} onClick={() => setTab(id)}
+        {(([['staff', Users, 'Team'], ['activity', Activity, 'Activity Log'], ...(canSeeCheckIns ? [['check-ins', Clock, 'Check-ins']] : [])] as const) as [string, React.ElementType, string][]).map(([id, Icon, label]) => (
+          <button key={id} onClick={() => setTab(id as 'staff' | 'activity' | 'check-ins')}
             className={cn(
               'flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-all',
               tab === id ? 'bg-white text-[#0B1F3A] shadow-sm' : 'text-gray-500 hover:text-gray-700'
@@ -780,6 +782,9 @@ export default function StaffPage() {
           )}
         </div>
       )}
+
+      {/* Check-ins tab */}
+      {tab === 'check-ins' && <CheckInsTab />}
 
       {/* Role reference card */}
       {tab === 'staff' && (

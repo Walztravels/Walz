@@ -18,6 +18,7 @@ import {
   Ticket, Receipt, GitBranch, Phone,
   LogOut,
   Link2,
+  ChevronRight,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useStaffPermissions } from '@/hooks/useStaffPermissions'
@@ -26,7 +27,6 @@ import {
   ROLE_BADGE_CLASSES,
   ROLE_LABELS,
   type AdminRole,
-  type Permission,
 } from '@/lib/admin/permissions'
 
 // ── Icon map: string name → Lucide component ──────────────────────────────────
@@ -90,6 +90,18 @@ const ICON_MAP: Record<string, React.ElementType> = {
 const LOGO_CACHE_KEY = 'walz_logo_url'
 const LOGO_CACHE_TTL  = 60 * 60 * 1000
 
+// Sections that are always visible and cannot be collapsed
+const ALWAYS_OPEN = new Set(['OVERVIEW'])
+
+const MARKETING_ITEMS = [
+  { href: '/admin/marketing/captions',     label: 'Caption Generator',  Icon: Sparkles      },
+  { href: '/admin/marketing/calendar',     label: 'Content Calendar',   Icon: CalendarDays  },
+  { href: '/admin/marketing/media',        label: 'Media Library',      Icon: Image         },
+  { href: '/admin/marketing/whatsapp',     label: 'WhatsApp Broadcast', Icon: MessageSquare },
+  { href: '/admin/marketing/analytics',    label: 'Analytics',          Icon: BarChart2     },
+  { href: '/admin/marketing/brand-memory', label: 'Brand Memory',       Icon: Brain         },
+]
+
 export function AdminSidebar() {
   const pathname  = usePathname()
   const router    = useRouter()
@@ -98,6 +110,7 @@ export function AdminSidebar() {
   const [logoUrl,          setLogoUrl]          = useState('/walz-logo.svg')
   const [unreadCount,      setUnreadCount]      = useState(0)
   const [pendingLinkCount, setPendingLinkCount] = useState(0)
+  const [expanded,         setExpanded]         = useState<Set<string>>(() => new Set(['OVERVIEW']))
 
   // ── Logo loader ──────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -161,10 +174,40 @@ export function AdminSidebar() {
     return () => { sb.removeChannel(channel); clearInterval(linkInterval) }
   }, [])
 
-  function isActive(href: string, exact?: boolean) {
+  // ── Auto-expand the section containing the active route ───────────────────
+  useEffect(() => {
+    if (!profile) return
+    const sections = getNavForStaff({ role: profile.role, permissions: profile.permissions })
+    setExpanded(prev => {
+      const next = new Set(prev)
+      sections.forEach(({ section, items }) => {
+        if (items.some(({ href }) => {
+          const path = href.split('?')[0]
+          return pathname === path || pathname.startsWith(path + '/')
+        })) {
+          next.add(section)
+        }
+      })
+      if (MARKETING_ITEMS.some(({ href }) => pathname === href || pathname.startsWith(href + '/'))) {
+        next.add('MARKETING')
+      }
+      return next
+    })
+  }, [pathname, profile])
+
+  function isActive(href: string) {
     const path = href.split('?')[0]
-    if (exact) return pathname === path
     return pathname === path || pathname.startsWith(path + '/')
+  }
+
+  function toggleSection(section: string) {
+    if (ALWAYS_OPEN.has(section)) return
+    setExpanded(prev => {
+      const next = new Set(prev)
+      if (next.has(section)) next.delete(section)
+      else next.add(section)
+      return next
+    })
   }
 
   async function handleLogout() {
@@ -172,17 +215,20 @@ export function AdminSidebar() {
     router.push('/admin/login')
   }
 
-  // ── Build nav from new RBAC system ──────────────────────────────────────────
   const staffForNav = profile
     ? { role: profile.role, permissions: profile.permissions }
     : { role: '', permissions: {} }
 
   const navSections = getNavForStaff(staffForNav)
 
-  // ── Role display ─────────────────────────────────────────────────────────────
   const roleKey    = (profile?.role ?? '') as AdminRole
   const badgeClass = ROLE_BADGE_CLASSES[roleKey] ?? 'bg-gray-500 text-white'
   const roleLabel  = ROLE_LABELS[roleKey]        ?? profile?.roleLabel ?? profile?.role ?? ''
+
+  const showMarketing = !navSections.some(s => s.section === 'MARKETING') &&
+    (profile?.role === 'super_admin' ||
+     profile?.role === 'operations_manager' ||
+     profile?.permissions?.manage_marketing === true)
 
   return (
     <aside className="flex flex-col w-60 h-full bg-[#0B1F3A] flex-shrink-0 border-r border-white/5">
@@ -217,83 +263,132 @@ export function AdminSidebar() {
         </div>
       )}
 
-      {/* Navigation — built from new RBAC system */}
+      {/* Navigation */}
       <nav className="flex-1 overflow-y-auto py-3 px-3 space-y-4">
-        {navSections.map(({ section, items }) => (
-          <Fragment key={section}>
-            <div>
-              <p className="px-3 mb-1 text-[10px] font-bold text-white/30 uppercase tracking-[0.15em]">
-                {section}
-              </p>
-              <div className="space-y-0.5">
-                {items.map(({ href, label, icon }) => {
-                  const Icon   = ICON_MAP[icon]
-                  const active = isActive(href)
-                  return (
-                    <Link
-                      key={href}
-                      href={href}
-                      className={cn(
-                        'flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium transition-all',
-                        active
-                          ? 'bg-[#C9A84C] text-[#0B1F3A]'
-                          : 'text-white/65 hover:bg-white/8 hover:text-white',
-                      )}
-                    >
-                      {Icon && <Icon className="w-4 h-4 flex-shrink-0" />}
-                      <span className="flex-1">{label}</span>
-                      {href === '/admin/inbox' && unreadCount > 0 && (
-                        <span className="min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center">
-                          {unreadCount > 99 ? '99+' : unreadCount}
-                        </span>
-                      )}
-                      {href === '/admin/clients/link-applications' && pendingLinkCount > 0 && (
-                        <span className="min-w-[18px] h-[18px] px-1 rounded-full bg-amber-500 text-white text-[10px] font-bold flex items-center justify-center">
-                          {pendingLinkCount}
-                        </span>
-                      )}
-                    </Link>
-                  )
-                })}
-              </div>
-            </div>
+        {navSections.map(({ section, items }) => {
+          const alwaysOpen   = ALWAYS_OPEN.has(section)
+          const isOpen       = alwaysOpen || expanded.has(section)
+          const hasActive    = items.some(({ href }) => isActive(href))
 
-            {/* Inject Marketing after INTELLIGENCE if not already in navSections */}
-            {section === 'INTELLIGENCE' &&
-             !navSections.some(s => s.section === 'MARKETING') &&
-             (profile?.role === 'super_admin' ||
-              profile?.role === 'operations_manager' ||
-              profile?.permissions?.manage_marketing === true) && (
+          return (
+            <Fragment key={section}>
               <div>
-                <p className="px-3 mb-1 text-[10px] font-bold text-white/30 uppercase tracking-[0.15em]">MARKETING</p>
-                <div className="space-y-0.5">
-                  {([
-                    { href: '/admin/marketing/captions',     label: 'Caption Generator',  Icon: Sparkles      },
-                    { href: '/admin/marketing/calendar',     label: 'Content Calendar',   Icon: CalendarDays  },
-                    { href: '/admin/marketing/media',        label: 'Media Library',      Icon: Image         },
-                    { href: '/admin/marketing/whatsapp',     label: 'WhatsApp Broadcast', Icon: MessageSquare },
-                    { href: '/admin/marketing/analytics',    label: 'Analytics',          Icon: BarChart2     },
-                    { href: '/admin/marketing/brand-memory', label: 'Brand Memory',       Icon: Brain         },
-                  ]).map(({ href, label, Icon }) => (
-                    <Link
-                      key={href}
-                      href={href}
-                      className={cn(
-                        'flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium transition-all',
-                        isActive(href)
-                          ? 'bg-[#C9A84C] text-[#0B1F3A]'
-                          : 'text-white/65 hover:bg-white/8 hover:text-white',
-                      )}
-                    >
-                      <Icon className="w-4 h-4 flex-shrink-0" />
-                      <span className="flex-1">{label}</span>
-                    </Link>
-                  ))}
+                {/* Section header */}
+                {alwaysOpen ? (
+                  <p className="px-3 mb-1 text-[10px] font-bold text-white/30 uppercase tracking-[0.15em]">
+                    {section}
+                  </p>
+                ) : (
+                  <button
+                    onClick={() => toggleSection(section)}
+                    className="w-full flex items-center justify-between px-3 py-1 mb-0.5 group"
+                  >
+                    <span className={cn(
+                      'text-[10px] font-bold uppercase tracking-[0.15em] transition-colors',
+                      hasActive ? 'text-[#C9A84C]/60' : 'text-white/30 group-hover:text-white/50',
+                    )}>
+                      {section}
+                    </span>
+                    <ChevronRight className={cn(
+                      'w-3 h-3 transition-transform duration-200 flex-shrink-0',
+                      hasActive ? 'text-[#C9A84C]/40' : 'text-white/20 group-hover:text-white/40',
+                      isOpen && 'rotate-90',
+                    )} />
+                  </button>
+                )}
+
+                {/* Collapsible items */}
+                <div style={{
+                  display: 'grid',
+                  gridTemplateRows: isOpen ? '1fr' : '0fr',
+                  transition: 'grid-template-rows 0.2s ease-in-out',
+                }}>
+                  <div className="overflow-hidden">
+                    <div className="space-y-0.5 pb-1">
+                      {items.map(({ href, label, icon }) => {
+                        const Icon   = ICON_MAP[icon]
+                        const active = isActive(href)
+                        return (
+                          <Link
+                            key={href}
+                            href={href}
+                            className={cn(
+                              'flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium transition-all',
+                              active
+                                ? 'bg-[#C9A84C] text-[#0B1F3A]'
+                                : 'text-white/65 hover:bg-white/8 hover:text-white',
+                            )}
+                          >
+                            {Icon && <Icon className="w-4 h-4 flex-shrink-0" />}
+                            <span className="flex-1">{label}</span>
+                            {href === '/admin/inbox' && unreadCount > 0 && (
+                              <span className="min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center">
+                                {unreadCount > 99 ? '99+' : unreadCount}
+                              </span>
+                            )}
+                            {href === '/admin/clients/link-applications' && pendingLinkCount > 0 && (
+                              <span className="min-w-[18px] h-[18px] px-1 rounded-full bg-amber-500 text-white text-[10px] font-bold flex items-center justify-center">
+                                {pendingLinkCount}
+                              </span>
+                            )}
+                          </Link>
+                        )
+                      })}
+                    </div>
+                  </div>
                 </div>
               </div>
-            )}
-          </Fragment>
-        ))}
+
+              {/* Inline MARKETING section after INTELLIGENCE */}
+              {section === 'INTELLIGENCE' && showMarketing && (
+                <div>
+                  <button
+                    onClick={() => toggleSection('MARKETING')}
+                    className="w-full flex items-center justify-between px-3 py-1 mb-0.5 group"
+                  >
+                    <span className={cn(
+                      'text-[10px] font-bold uppercase tracking-[0.15em] transition-colors',
+                      MARKETING_ITEMS.some(i => isActive(i.href)) ? 'text-[#C9A84C]/60' : 'text-white/30 group-hover:text-white/50',
+                    )}>
+                      MARKETING
+                    </span>
+                    <ChevronRight className={cn(
+                      'w-3 h-3 transition-transform duration-200 flex-shrink-0',
+                      MARKETING_ITEMS.some(i => isActive(i.href)) ? 'text-[#C9A84C]/40' : 'text-white/20 group-hover:text-white/40',
+                      expanded.has('MARKETING') && 'rotate-90',
+                    )} />
+                  </button>
+
+                  <div style={{
+                    display: 'grid',
+                    gridTemplateRows: expanded.has('MARKETING') ? '1fr' : '0fr',
+                    transition: 'grid-template-rows 0.2s ease-in-out',
+                  }}>
+                    <div className="overflow-hidden">
+                      <div className="space-y-0.5 pb-1">
+                        {MARKETING_ITEMS.map(({ href, label, Icon }) => (
+                          <Link
+                            key={href}
+                            href={href}
+                            className={cn(
+                              'flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium transition-all',
+                              isActive(href)
+                                ? 'bg-[#C9A84C] text-[#0B1F3A]'
+                                : 'text-white/65 hover:bg-white/8 hover:text-white',
+                            )}
+                          >
+                            <Icon className="w-4 h-4 flex-shrink-0" />
+                            <span className="flex-1">{label}</span>
+                          </Link>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </Fragment>
+          )
+        })}
       </nav>
 
       {/* Sign out */}

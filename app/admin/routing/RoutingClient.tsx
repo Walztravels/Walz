@@ -11,6 +11,7 @@ type RoutingAgent = {
   id:               string
   name:             string
   email:            string
+  sipAddress?:      string | null
   role?:            string | null
   chatwootAgentId?: number | null
   aircallUserId?:   number | null
@@ -101,6 +102,13 @@ function AgentCard({
         </div>
       )}
 
+      {agent.sipAddress && (
+        <div className="flex items-center gap-1 text-[10px] text-emerald-600 bg-emerald-50 rounded-md px-2 py-1 mb-2 font-mono truncate">
+          <Phone className="w-3 h-3 flex-shrink-0" />
+          {agent.sipAddress}
+        </div>
+      )}
+
       <div className="flex items-center gap-1.5 text-[10px] text-gray-400 mb-3">
         {agent.chatwootAgentId ? (
           <span className="flex items-center gap-0.5">
@@ -115,7 +123,7 @@ function AgentCard({
             <Phone className="w-3 h-3" /> {agent.aircallUserId}
           </span>
         ) : (
-          <span className="text-gray-300">No Aircall ID</span>
+          <span className="text-gray-300">No Aircall</span>
         )}
         {(agent.callsToday ?? 0) > 0 && (
           <>
@@ -156,6 +164,7 @@ function AgentModal({
 }) {
   const [name,             setName]             = useState(agent?.name ?? '')
   const [email,            setEmail]            = useState(agent?.email ?? '')
+  const [sipAddress,       setSipAddress]       = useState(agent?.sipAddress ?? '')
   const [role,             setRole]             = useState(agent?.role ?? '')
   const [cwId,             setCwId]             = useState<number | ''>(agent?.chatwootAgentId ?? '')
   const [acId,             setAcId]             = useState<number | ''>(agent?.aircallUserId ?? '')
@@ -191,6 +200,7 @@ function AgentModal({
     const body = {
       name: name.trim(),
       email: email.trim(),
+      sipAddress: sipAddress.trim() || null,
       role: role.trim() || null,
       chatwootAgentId: cwId !== '' ? Number(cwId) : null,
       aircallUserId:   acId !== '' ? Number(acId) : null,
@@ -240,6 +250,14 @@ function AgentModal({
                 className="mt-1 w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#C9A84C]/50" />
             </label>
           </div>
+
+          <label className="block">
+            <span className="text-xs font-medium text-gray-600">SIP Address <span className="text-gray-400 font-normal">(for Zoiper / physical phone)</span></span>
+            <input value={sipAddress} onChange={e => setSipAddress(e.target.value)}
+              placeholder="e.g. gloryn@walzteam.sip.twilio.com"
+              className="mt-1 w-full border border-gray-200 rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-[#C9A84C]/50" />
+            <p className="text-[10px] text-gray-400 mt-0.5">Without sip: prefix. Leave blank for browser-only agents.</p>
+          </label>
 
           <label className="block">
             <span className="text-xs font-medium text-gray-600">Role</span>

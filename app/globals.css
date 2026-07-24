@@ -77,6 +77,11 @@
     scroll-behavior: smooth;
   }
 
+  /* Disable smooth-scroll in admin — it conflicts with trackpad momentum on overflow containers */
+  html:has([data-admin-layout]) {
+    scroll-behavior: auto;
+  }
+
   body {
     font-family: var(--font-dm-sans), system-ui, -apple-system, sans-serif;
     background-color: var(--walz-off-white);

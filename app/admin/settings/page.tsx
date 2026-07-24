@@ -5,6 +5,7 @@ import {
   Save, RefreshCw, CheckCircle, Building2, Mail, Phone,
   Share2, MapPin, DollarSign, Bell, CreditCard,
 } from 'lucide-react'
+import { BiometricRegistration } from '@/app/admin/components/BiometricRegistration'
 
 interface Setting {
   label: string
@@ -274,6 +275,9 @@ export default function SettingsPage() {
           )
         })}
       </div>
+
+      {/* Biometric login registration */}
+      <BiometricRegistration />
 
       {/* Usage note */}
       <div className="mt-8 max-w-2xl p-4 bg-[#0B1F3A]/4 rounded-xl border border-[#0B1F3A]/10">

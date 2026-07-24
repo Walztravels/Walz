@@ -69,7 +69,7 @@ export async function PUT(
     return NextResponse.json({ error: 'Cannot edit a Super Admin account' }, { status: 403 })
   }
 
-  const { name, roleTitle, role, portalAccess, isActive } =
+  const { name, roleTitle, role, portalAccess, isActive, checkInTracked } =
     body as Record<string, string | boolean>
 
   if (role !== undefined) {
@@ -90,8 +90,9 @@ export async function PUT(
     updateData.role        = String(role)
     updateData.accessLevel = ROLE_TO_ACCESS[String(role)] ?? 'Sales'
   }
-  if (portalAccess !== undefined) updateData.portalAccess = Boolean(portalAccess)
-  if (isActive     !== undefined) updateData.isActive     = Boolean(isActive)
+  if (portalAccess    !== undefined) updateData.portalAccess    = Boolean(portalAccess)
+  if (isActive        !== undefined) updateData.isActive        = Boolean(isActive)
+  if (checkInTracked  !== undefined) updateData.checkInTracked  = Boolean(checkInTracked)
 
   const staff = await prisma.staff.update({
     where: { id: params.id },

@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import Anthropic from '@anthropic-ai/sdk'
 import { getSupabaseAdmin } from '@/lib/supabase'
-import { routeConversation } from '@/lib/conversation-router'
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const Twilio = require('twilio') as (sid: string, token: string) => import('twilio').Twilio
 
@@ -165,6 +164,30 @@ action: "continue" | "transfer" | "end"
 language: ISO 639-1 code of the language the caller used (en, fr, es, ar, de, pt, it, nl, ja, ko — or any other)
 specialism (only when action is transfer): "flight" | "visa" | "hotel" | "tour" | "support"`
 
+// ── Voice-only routing ───────────────────────────────────────────────────────
+// Returns ALL active agents who have a SIP address — caller goes to whoever
+// answers first. Completely separate from Chatwoot/chat routing.
+type VoiceAgent = {
+  id:         string
+  name:       string
+  email:      string
+  sipAddress: string
+}
+
+async function getVoiceAgents(): Promise<VoiceAgent[]> {
+  const supabase = getSupabaseAdmin()
+  const { data: agents, error } = await supabase
+    .from('RoutingAgent')
+    .select('id, name, email, sipAddress')
+    .eq('active', true)
+    .eq('isEscalation', false)
+    .not('sipAddress', 'is', null)
+    .order('roundRobinPosition', { ascending: true })
+
+  if (error) console.error('[voice-routing] error fetching agents:', error?.message)
+  return (agents ?? []) as VoiceAgent[]
+}
+
 // ─── Main handler ─────────────────────────────────────────────────────────────
 export async function POST(req: NextRequest) {
   const t0 = Date.now()
@@ -258,7 +281,7 @@ export async function POST(req: NextRequest) {
   // ── Total server time (excludes Twilio STT + TTS, which happen outside) ──────
   console.log(`[voice-jade] ${callSid} server-total=${Date.now() - t0}ms`)
 
-  const { response, action, specialism } = decision
+  const { response, action } = decision
 
   // ── End call ─────────────────────────────────────────────────────────────────
   if (action === 'end') {
@@ -267,12 +290,11 @@ export async function POST(req: NextRequest) {
 
   // ── Transfer to live agent ────────────────────────────────────────────────────
   if (action === 'transfer') {
-    const tRoute0  = Date.now()
-    const routeMsg = `Voice call from ${from}. Caller: "${speech}". Needs: ${specialism ?? 'support'}`
-    const matched  = await routeConversation(`twilio_jade_${callSid}`, routeMsg, 'voice')
-    console.log(`[voice-jade] ${callSid} route=${Date.now() - tRoute0}ms agent=${matched?.agentEmail ?? 'none'}`)
+    const tRoute0 = Date.now()
+    const agents  = await getVoiceAgents()
+    console.log(`[voice-jade] ${callSid} route=${Date.now() - tRoute0}ms pool=${agents.length} agents=[${agents.map(a => a.name).join(', ')}]`)
 
-    if (!matched) {
+    if (!agents.length) {
       const unavailable =
         lang === 'fr' ? `${response} Notre équipe est occupée — nous vous enverrons un WhatsApp dans quelques instants.`
         : lang === 'es' ? `${response} Nuestro equipo está ocupado — le enviaremos un WhatsApp enseguida.`
@@ -281,78 +303,54 @@ export async function POST(req: NextRequest) {
       return twiml(say(unavailable, lang) + '<Hangup/>')
     }
 
-    const { data: agentRow } = await supabase
-      .from('RoutingAgent')
-      .select('sipAddress')
-      .eq('email', matched.agentEmail ?? '')
-      .maybeSingle()
-
-    const rawSip   = (agentRow as { sipAddress?: string } | null)?.sipAddress
-    const agentSip = rawSip
-      ? (rawSip.startsWith('sip:') ? rawSip : `sip:${rawSip}`)
-      : null
-    const clientId = matched.agentEmail ?? matched.agentName
-
-    console.log(`[voice-jade] ${callSid} transfer clientId="${clientId}" agentSip="${agentSip ?? 'none'}"`)
-
-    // ── Conference room ───────────────────────────────────────────────────────
-    // Caller enters with startConferenceOnEnter="false" → hears hold music.
-    // Agent joins (from either outbound call) with startConferenceOnEnter="true"
-    // → music stops, bridge formed.
-    //
-    // No-answer is handled by the hold-music loop: after ~60 s it issues
-    // <Leave/> which fires the <Dial action> URL → handleAfterDial → retry.
-    // No statusCallback coordination needed, so no race condition.
+    // ── Conference room + hold Gather loop ───────────────────────────────────
+    // ALL agents are called simultaneously via REST API. Whoever answers first
+    // gets connected to the caller. The conference maxParticipants cap ensures
+    // only one agent joins; any other agent who answers late hears a brief
+    // "conference full" tone and their leg ends automatically.
     const roomName     = `walz-${callSid}`
-    const afterUrl     = `${BASE_URL}/api/twilio/voice-jade?after=true`
-    const agentJoinUrl = `${BASE_URL}/api/twilio/agent-join?room=${encodeURIComponent(roomName)}`
+    const agentJoinUrl = `${BASE_URL}/api/twilio/agent-join?room=${encodeURIComponent(roomName)}&callerSid=${encodeURIComponent(callSid)}&caller=${encodeURIComponent(from)}`
 
     if (ACCOUNT_SID && AUTH_TOKEN) {
-      const twilioClient = Twilio(ACCOUNT_SID, AUTH_TOKEN)
-      const outboundBase = {
-        url:     agentJoinUrl,
-        method:  'POST' as const,
-        timeout: 30,
+      const twilioClient   = Twilio(ACCOUNT_SID, AUTH_TOKEN)
+      const statusCallback = `${BASE_URL}/api/twilio/agent-ring-status`
+      const outboundBase   = {
+        url:                  agentJoinUrl,
+        method:               'POST' as const,
+        timeout:              30,
+        statusCallback,
+        statusCallbackMethod: 'POST' as const,
+        statusCallbackEvent:  ['initiated', 'ringing', 'answered', 'completed', 'failed', 'no-answer', 'busy', 'canceled'] as string[],
       }
 
-      // Await both calls before returning TwiML — serverless runtimes can
-      // terminate the function immediately after response is committed, so
-      // fire-and-forget never reaches Twilio's API.
-      // Both run in parallel; ~200-400 ms added to the transfer response.
-      // maxParticipants="2" on the conference ensures the first to answer wins;
-      // the second is rejected (conference full) and its call ends cleanly.
-      await Promise.all([
-        twilioClient.calls
-          .create({ ...outboundBase, to: `client:${clientId}`, from: VOICE_NUMBER })
-          .then(c => console.log(`[voice-jade] ${callSid} browser-ring created sid=${c.sid}`))
-          .catch((err: unknown) =>
-            console.error(`[voice-jade] ${callSid} browser-ring error:`, err),
-          ),
-        agentSip
-          ? twilioClient.calls
-              .create({ ...outboundBase, to: agentSip, from: VOICE_NUMBER })
-              .then(c => console.log(`[voice-jade] ${callSid} sip-ring created sid=${c.sid}`))
-              .catch((err: unknown) =>
-                console.error(`[voice-jade] ${callSid} sip-ring error:`, err),
-              )
-          : Promise.resolve(),
-      ])
+      // Ring every agent's SIP phone AND browser panel at the same time
+      const ringCalls = agents.flatMap(agent => {
+        const agentSip = agent.sipAddress.startsWith('sip:')
+          ? agent.sipAddress
+          : `sip:${agent.sipAddress}`
+
+        return [
+          twilioClient.calls
+            .create({ ...outboundBase, to: `client:${agent.email}`, from: VOICE_NUMBER })
+            .then(c => console.log(`[voice-jade] ${callSid} browser-ring sid=${c.sid} to=client:${agent.email} (${agent.name})`))
+            .catch((err: unknown) => console.error(`[voice-jade] ${callSid} browser-ring error ${agent.name}:`, err)),
+          twilioClient.calls
+            .create({ ...outboundBase, to: agentSip, from: VOICE_NUMBER })
+            .then(c => console.log(`[voice-jade] ${callSid} sip-ring sid=${c.sid} to=${agentSip} (${agent.name})`))
+            .catch((err: unknown) => console.error(`[voice-jade] ${callSid} sip-ring error ${agent.name}:`, err)),
+        ]
+      })
+
+      await Promise.all(ringCalls)
     } else {
       console.error(`[voice-jade] ${callSid} TWILIO_ACCOUNT_SID or TWILIO_AUTH_TOKEN not set`)
     }
 
-    // Caller enters conference and hears Walz Travels hold music until agent joins
-    return twiml(
-      say(response, lang) +
-      `<Dial action="${afterUrl}" method="POST">` +
-      `<Conference ` +
-      `waitUrl="${BASE_URL}/api/twilio/hold-music" waitMethod="GET" ` +
-      `startConferenceOnEnter="false" endConferenceOnExit="true" ` +
-      `beep="false" maxParticipants="2">` +
-      `${roomName}` +
-      `</Conference>` +
-      `</Dial>`,
-    )
+    // Redirect caller into the hold Gather loop — they hear music + ads and can
+    // press a key at any time to choose hold or callback.
+    // & in XML must be &amp; — Twilio's XML parser rejects raw & in URLs
+    const holdUrl = `${BASE_URL}/api/twilio/hold-music?callSid=${encodeURIComponent(callSid)}&amp;room=${encodeURIComponent(roomName)}&amp;l=0`
+    return twiml(say(response, lang) + `<Redirect method="GET">${holdUrl}</Redirect>`)
   }
 
   // ── Continue conversation ─────────────────────────────────────────────────────

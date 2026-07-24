@@ -1,8 +1,8 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
-import { Eye, EyeOff, Lock } from 'lucide-react'
+import { Eye, EyeOff, Lock, Fingerprint } from 'lucide-react'
 import Image from 'next/image'
 
 export default function AdminLoginPage() {
@@ -10,37 +10,87 @@ export default function AdminLoginPage() {
   const searchParams = useSearchParams()
   const from = searchParams.get('from') ?? '/admin/dashboard'
 
-  const [email, setEmail] = useState('')
+  const [email, setEmail]       = useState('')
   const [password, setPassword] = useState('')
-  const [showPw, setShowPw] = useState(false)
-  const [error, setError] = useState('')
-  const [loading, setLoading] = useState(false)
+  const [showPw, setShowPw]     = useState(false)
+  const [error, setError]       = useState('')
+  const [loading, setLoading]   = useState(false)
+  const [bioLoading, setBioLoading] = useState(false)
+  const [supportsBio, setSupportsBio] = useState(false)
+
+  useEffect(() => {
+    // Check platform authenticator support (Face ID / fingerprint)
+    if (typeof window !== 'undefined' && window.PublicKeyCredential) {
+      window.PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable()
+        .then(setSupportsBio)
+        .catch(() => setSupportsBio(false))
+    }
+  }, [])
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     setError('')
     setLoading(true)
-
     try {
-      const res = await fetch('/api/admin/auth/login', {
+      const res  = await fetch('/api/admin/auth/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, password }),
       })
-
       const data = await res.json()
-
-      if (!res.ok) {
-        setError(data.error ?? 'Login failed')
-        return
-      }
-
+      if (!res.ok) { setError(data.error ?? 'Login failed'); return }
       router.push(from)
       router.refresh()
     } catch {
       setError('Network error. Please try again.')
     } finally {
       setLoading(false)
+    }
+  }
+
+  async function handleBiometric() {
+    if (!email.trim()) {
+      setError('Enter your email address first, then tap the biometric button.')
+      return
+    }
+    setError('')
+    setBioLoading(true)
+    try {
+      const { startAuthentication } = await import('@simplewebauthn/browser')
+
+      // Get authentication options for this email
+      const optRes = await fetch(
+        `/api/admin/auth/webauthn/authenticate?email=${encodeURIComponent(email.trim())}`,
+      )
+      if (!optRes.ok) {
+        const d = await optRes.json()
+        setError(d.error ?? 'No biometric registered for this account')
+        return
+      }
+      const opts = await optRes.json()
+
+      // Trigger Face ID / fingerprint prompt
+      const credential = await startAuthentication(opts)
+
+      // Verify on server + get session cookie
+      const verRes = await fetch('/api/admin/auth/webauthn/authenticate', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ credential }),
+      })
+      const verData = await verRes.json()
+      if (!verRes.ok) { setError(verData.error ?? 'Biometric login failed'); return }
+
+      router.push(from)
+      router.refresh()
+    } catch (err: unknown) {
+      // User cancelled the biometric prompt — not an error worth surfacing
+      const msg = err instanceof Error ? err.message : String(err)
+      if (!msg.includes('cancelled') && !msg.includes('AbortError') && !msg.includes('NotAllowedError')) {
+        setError('Biometric login failed. Try your password instead.')
+      }
+    } finally {
+      setBioLoading(false)
     }
   }
 
@@ -127,6 +177,26 @@ export default function AdminLoginPage() {
               {loading ? 'Signing in…' : 'Sign In'}
             </button>
           </form>
+
+          {/* Biometric login — shown only on supported devices */}
+          {supportsBio && (
+            <div className="mt-4">
+              <div className="relative flex items-center gap-3 my-3">
+                <div className="flex-1 h-px bg-white/10" />
+                <span className="text-white/25 text-xs">or</span>
+                <div className="flex-1 h-px bg-white/10" />
+              </div>
+              <button
+                type="button"
+                onClick={handleBiometric}
+                disabled={bioLoading}
+                className="w-full flex items-center justify-center gap-2 border border-white/20 hover:border-[#C9A84C]/50 bg-white/3 hover:bg-white/5 text-white/70 hover:text-white py-3 rounded-xl transition-all disabled:opacity-50 disabled:cursor-not-allowed text-sm font-medium"
+              >
+                <Fingerprint className="w-4 h-4 text-[#C9A84C]" />
+                {bioLoading ? 'Verifying…' : 'Sign in with Face ID / Fingerprint'}
+              </button>
+            </div>
+          )}
 
         </div>
 

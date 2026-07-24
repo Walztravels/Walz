@@ -17,14 +17,5 @@ export function AircallWidget() {
     return () => window.removeEventListener('openAircallWidget', handler)
   }, [])
 
-  return (
-    // Mobile FAB — desktop uses the header Phone button via the event above
-    <button
-      onClick={openWorkspace}
-      className="md:hidden fixed bottom-20 right-4 z-40 w-12 h-12 rounded-full bg-amber-500 shadow-lg flex items-center justify-center active:scale-95 transition-transform"
-      aria-label="Open Aircall"
-    >
-      <Phone className="w-5 h-5 text-black" strokeWidth={1.5} />
-    </button>
-  )
+  return null
 }

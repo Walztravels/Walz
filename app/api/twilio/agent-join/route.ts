@@ -1,21 +1,26 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { getSupabaseAdmin } from '@/lib/supabase'
 
 export const dynamic = 'force-dynamic'
 
-// ── Agent Conference Join ─────────────────────────────────────────────────────
+// ── Agent conference join + caller bridge ────────────────────────────────────
 //
 // Called by Twilio when an outbound REST API call to the agent is answered.
-// Returns TwiML placing the agent into the named conference room.
 //
-// The conference room was created by the caller's <Dial><Conference> in
-// voice-jade. The caller entered with startConferenceOnEnter="false" and
-// is hearing hold music. When the agent joins here with
-// startConferenceOnEnter="true", the conference starts and music stops.
+// With blast-ring (all agents called simultaneously), multiple agents may
+// answer the same call. We use VoiceCallClaim as an atomic "first-wins" lock:
+//   • First agent to INSERT into VoiceCallClaim wins the call
+//   • Every other agent who answers gets a polite hangup
 //
-// No-answer / timeout handling is done entirely by the hold-music loop:
-// after ~60 s the waitUrl issues <Leave/> → <Dial action> fires in voice-jade
-// → handleAfterDial returns the caller to Jade for a retry. No statusCallback
-// coordination needed.
+// The winning agent:
+//   1. Redirects the caller out of the hold Gather loop into the conference
+//   2. Returns TwiML that puts themselves into the same conference
+
+// eslint-disable-next-line @typescript-eslint/no-require-imports
+const Twilio      = require('twilio') as (sid: string, token: string) => import('twilio').Twilio
+const ACCOUNT_SID = process.env.TWILIO_ACCOUNT_SID ?? ''
+const AUTH_TOKEN  = process.env.TWILIO_AUTH_TOKEN  ?? ''
+const BASE_URL    = 'https://www.walztravels.com'
 
 function twiml(inner: string) {
   return new NextResponse(
@@ -25,21 +30,60 @@ function twiml(inner: string) {
 }
 
 export async function POST(req: NextRequest) {
-  const room = req.nextUrl.searchParams.get('room') ?? ''
+  const room      = req.nextUrl.searchParams.get('room')      ?? ''
+  const callerSid = req.nextUrl.searchParams.get('callerSid') ?? ''
+  const caller    = req.nextUrl.searchParams.get('caller')    ?? ''
 
   if (!room) {
     console.error('[agent-join] missing ?room param')
     return twiml('<Hangup/>')
   }
 
-  console.log(`[agent-join] agent answered — joining conference room="${room}"`)
+  console.log(`[agent-join] agent answered — room="${room}" callerSid="${callerSid}" caller="${caller}"`)
 
-  // startConferenceOnEnter="true"  → conference starts, hold music stops for caller
-  // endConferenceOnExit="true"     → conference ends when agent hangs up
-  // beep="false"                   → no jarring join tone for the caller
+  // ── Atomic first-wins claim ────────────────────────────────────────────────
+  // VoiceCallClaim has callSid as PRIMARY KEY so only one INSERT succeeds.
+  // Any other agent who answers gets a duplicate-key error → polite hangup.
+  if (callerSid) {
+    const supabase = getSupabaseAdmin()
+    const { error: claimError } = await supabase
+      .from('VoiceCallClaim')
+      .insert({ callSid: callerSid })
+
+    if (claimError) {
+      // Duplicate key = another agent already claimed this call
+      console.log(`[agent-join] call ${callerSid} already claimed — declining this agent`)
+      return twiml(
+        '<Say voice="Polly.Amy-Neural">Your colleague has answered this call. Goodbye.</Say>' +
+        '<Hangup/>',
+      )
+    }
+
+    console.log(`[agent-join] claimed call ${callerSid}`)
+  }
+
+  // ── Bridge the caller into the conference ─────────────────────────────────
+  // twilio.calls.update() interrupts whatever TwiML the caller is executing
+  // (the hold Gather loop) and redirects them to join the same conference room.
+  if (callerSid && ACCOUNT_SID && AUTH_TOKEN) {
+    const twilioClient  = Twilio(ACCOUNT_SID, AUTH_TOKEN)
+    const callerJoinUrl = `${BASE_URL}/api/twilio/caller-join?room=${encodeURIComponent(room)}`
+
+    await twilioClient.calls(callerSid)
+      .update({ url: callerJoinUrl, method: 'POST' })
+      .then(() => console.log(`[agent-join] redirected caller ${callerSid} into conference`))
+      .catch((e: unknown) => console.error(`[agent-join] failed to redirect caller ${callerSid}:`, e))
+  }
+
+  // ── Whisper + conference TwiML for the agent ──────────────────────────────
+  const whisper = caller
+    ? `<Say voice="Polly.Amy-Neural">Transfer from ${caller}</Say>`
+    : ''
+
   return twiml(
-    `<Dial>` +
-    `<Conference startConferenceOnEnter="true" endConferenceOnExit="true" beep="false">` +
+    whisper +
+    `<Dial action="${BASE_URL}/api/twilio/voice-jade?after=true" method="POST">` +
+    `<Conference startConferenceOnEnter="true" endConferenceOnExit="true" beep="false" maxParticipants="2">` +
     `${room}` +
     `</Conference>` +
     `</Dial>`,

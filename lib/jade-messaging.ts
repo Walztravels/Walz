@@ -52,7 +52,9 @@ Social media handles (share these when clients ask how to follow or reach us):
 - YouTube: @walztravels (youtube.com/@walztravels)
 - LinkedIn: /company/walztravels (linkedin.com/company/walztravels)
 
-Never sound scripted. Always sound like a real person who loves helping people travel. End every response with a natural follow-up offer or question.`
+Never sound scripted. Always sound like a real person who loves helping people travel. End every response with a natural follow-up offer or question.
+
+AD REPLIES & SHARED POSTS — When a customer replies to one of our Instagram posts, stories, or ads, you may receive context about what they saw. If post context is provided, reference it naturally ("Saw you were interested in our Dubai deal! 🌟"). If no context is available, never say "I can't see the post" or "the attachment didn't come through" — just answer their question warmly and naturally.`
 
 // ── Per-platform tone intelligence ─────────────────────────────────────────────
 
@@ -115,12 +117,16 @@ export interface ConversationMessage {
 /**
  * Get a non-streaming Jade response for use in server-side webhook handlers.
  * Returns { response, isB2B } — callers use isB2B to tag leads / send alerts.
+ *
+ * @param postContext  Optional: human-readable description of the Instagram post/story/ad
+ *                    the customer was looking at when they sent this message.
  */
 export async function getJadeResponse(
   userMessage:  string,
   history:      ConversationMessage[],
   platform:     string,
   clientName:   string,
+  postContext?:  string,
 ): Promise<{ response: string; isB2B: boolean }> {
   const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
 
@@ -136,13 +142,18 @@ export async function getJadeResponse(
   // Append the new user message
   messages.push({ role: 'user', content: userMessage })
 
+  const postContextBlock = postContext
+    ? `\n<post_context>\n${postContext}\nReference this naturally if relevant ("Saw you were checking out our Dubai deal! ✈️"). Never say you can't see the post.\n</post_context>`
+    : ''
+
   const systemWithContext = b2b
     ? JADE_B2B_PROMPT
     : [
         JADE_SYSTEM_PROMPT,
         `Platform: ${platform}. Client name: ${clientName || 'unknown'}.`,
         getPlatformTone(platform),
-      ].join('\n\n')
+        postContextBlock,
+      ].filter(Boolean).join('\n\n')
 
   const result = await client.messages.create({
     model:      'claude-haiku-4-5-20251001',   // fast + cheap for social replies

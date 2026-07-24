@@ -29,9 +29,49 @@ function pkgTypeLabel(p: AdminPkg): string {
   return '📶 Data only'
 }
 
+// Common travel destinations — country name + ISO2 for autocomplete
+const COUNTRY_LIST = [
+  ['Afghanistan','AF'],['Albania','AL'],['Algeria','DZ'],['Angola','AO'],['Argentina','AR'],
+  ['Armenia','AM'],['Australia','AU'],['Austria','AT'],['Azerbaijan','AZ'],['Bahrain','BH'],
+  ['Bangladesh','BD'],['Belgium','BE'],['Bolivia','BO'],['Bosnia','BA'],['Brazil','BR'],
+  ['Bulgaria','BG'],['Cambodia','KH'],['Cameroon','CM'],['Canada','CA'],['Chile','CL'],
+  ['China','CN'],['Colombia','CO'],['Costa Rica','CR'],['Croatia','HR'],['Cuba','CU'],
+  ['Cyprus','CY'],['Czech Republic','CZ'],['Denmark','DK'],['Ecuador','EC'],['Egypt','EG'],
+  ['El Salvador','SV'],['Estonia','EE'],['Ethiopia','ET'],['Finland','FI'],['France','FR'],
+  ['Georgia','GE'],['Germany','DE'],['Ghana','GH'],['Greece','GR'],['Guatemala','GT'],
+  ['Honduras','HN'],['Hong Kong','HK'],['Hungary','HU'],['Iceland','IS'],['India','IN'],
+  ['Indonesia','ID'],['Iran','IR'],['Iraq','IQ'],['Ireland','IE'],['Israel','IL'],
+  ['Italy','IT'],['Jamaica','JM'],['Japan','JP'],['Jordan','JO'],['Kazakhstan','KZ'],
+  ['Kenya','KE'],['Kuwait','KW'],['Kyrgyzstan','KG'],['Latvia','LV'],['Lebanon','LB'],
+  ['Lithuania','LT'],['Luxembourg','LU'],['Macau','MO'],['Malaysia','MY'],['Maldives','MV'],
+  ['Malta','MT'],['Mexico','MX'],['Moldova','MD'],['Mongolia','MN'],['Montenegro','ME'],
+  ['Morocco','MA'],['Mozambique','MZ'],['Myanmar','MM'],['Nepal','NP'],['Netherlands','NL'],
+  ['New Zealand','NZ'],['Nicaragua','NI'],['Nigeria','NG'],['Norway','NO'],['Oman','OM'],
+  ['Pakistan','PK'],['Panama','PA'],['Paraguay','PY'],['Peru','PE'],['Philippines','PH'],
+  ['Poland','PL'],['Portugal','PT'],['Qatar','QA'],['Romania','RO'],['Russia','RU'],
+  ['Rwanda','RW'],['Saudi Arabia','SA'],['Senegal','SN'],['Serbia','RS'],['Singapore','SG'],
+  ['Slovakia','SK'],['Slovenia','SI'],['South Africa','ZA'],['South Korea','KR'],['Spain','ES'],
+  ['Sri Lanka','LK'],['Sweden','SE'],['Switzerland','CH'],['Taiwan','TW'],['Tajikistan','TJ'],
+  ['Tanzania','TZ'],['Thailand','TH'],['Tunisia','TN'],['Turkey','TR'],['Uganda','UG'],
+  ['Ukraine','UA'],['United Arab Emirates','AE'],['United Kingdom','GB'],['United States','US'],
+  ['Uruguay','UY'],['Uzbekistan','UZ'],['Venezuela','VE'],['Vietnam','VN'],['Zimbabwe','ZW'],
+] as const
+
+function nameToIso2(input: string): string {
+  const upper = input.trim().toUpperCase()
+  // Direct ISO2 input
+  if (upper.length === 2) return upper
+  // Match from list
+  const found = COUNTRY_LIST.find(([name]) =>
+    name.toUpperCase() === upper ||
+    name.toUpperCase().startsWith(upper)
+  )
+  return found ? found[1] : upper.slice(0, 2)
+}
+
 interface PlaceOrderForm {
   clientEmail:    string
-  country:        string
+  country:        string   // country name or ISO2
   packageCode:    string
   customRetail:   string
 }
@@ -96,13 +136,22 @@ export default function AdminEsimPage() {
   const [loadingPkgs,   setLoadingPkgs]     = useState(false)
   const [placingOrder,  setPlacingOrder]    = useState(false)
   const [orderResult,   setOrderResult]     = useState<PlaceOrderResult | null>(null)
+  const [pkgFilter,     setPkgFilter]       = useState<'all' | 'unlimited' | 'voice'>('all')
 
-  async function loadPackages() {
-    const iso2 = orderForm.country.trim().toUpperCase()
-    if (iso2.length !== 2) return
+  const filteredOrderPkgs = orderPkgs.filter(p => {
+    if (pkgFilter === 'unlimited') return p.dataAmount === null || p.dataAmount === 0
+    if (pkgFilter === 'voice')     return !!p.voice
+    return true
+  })
+
+  async function loadPackages(iso2Override?: string) {
+    const raw  = iso2Override ?? orderForm.country.trim()
+    const iso2 = raw.toUpperCase() === 'GLOBAL' ? 'GLOBAL' : nameToIso2(raw)
+    if (!iso2) return
     setLoadingPkgs(true)
     setOrderPkgs([])
-    setOrderForm(f => ({ ...f, packageCode: '' }))
+    setPkgFilter('all')
+    setOrderForm(f => ({ ...f, packageCode: '', country: iso2Override === 'GLOBAL' ? 'Global eSIM' : f.country }))
     try {
       const res  = await fetch(`/api/esim/packages?country=${iso2}`)
       const data = await res.json()
@@ -113,7 +162,7 @@ export default function AdminEsimPage() {
   }
 
   async function placeAdminOrder() {
-    const pkg = orderPkgs.find(p => p.packageCode === orderForm.packageCode)
+    const pkg = filteredOrderPkgs.find(p => p.packageCode === orderForm.packageCode)
     if (!pkg || !orderForm.clientEmail) return
     setPlacingOrder(true)
     setOrderResult(null)
@@ -326,6 +375,13 @@ export default function AdminEsimPage() {
                 </div>
               )}
 
+              {/* datalist for country autocomplete */}
+              <datalist id="country-list">
+                {COUNTRY_LIST.map(([name, iso2]) => (
+                  <option key={iso2} value={`${name} (${iso2})`} />
+                ))}
+              </datalist>
+
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
                 <div>
                   <label className="block text-xs font-semibold text-[#0B1F3A]/50 uppercase tracking-wide mb-1.5">Client Email</label>
@@ -338,57 +394,83 @@ export default function AdminEsimPage() {
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-semibold text-[#0B1F3A]/50 uppercase tracking-wide mb-1.5">Country (ISO2)</label>
+                  <label className="block text-xs font-semibold text-[#0B1F3A]/50 uppercase tracking-wide mb-1.5">Country</label>
                   <div className="flex gap-2">
                     <input
                       type="text"
-                      placeholder="e.g. JP, GB, NG"
-                      maxLength={2}
+                      list="country-list"
+                      placeholder="e.g. Canada, Japan, GB, NG…"
                       value={orderForm.country}
-                      onChange={e => setOrderForm(f => ({ ...f, country: e.target.value.toUpperCase() }))}
-                      className="flex-1 h-10 px-3 border border-[#E5E7EB] rounded-lg text-sm outline-none focus:border-[#C9A84C] uppercase"
+                      onChange={e => setOrderForm(f => ({ ...f, country: e.target.value, packageCode: '' }))}
+                      className="flex-1 h-10 px-3 border border-[#E5E7EB] rounded-lg text-sm outline-none focus:border-[#C9A84C]"
                     />
                     <button
-                      onClick={loadPackages}
-                      disabled={orderForm.country.length !== 2 || loadingPkgs}
+                      onClick={() => loadPackages()}
+                      disabled={!orderForm.country.trim() || loadingPkgs}
                       className="px-3 h-10 bg-[#0B1F3A] text-white text-xs font-semibold rounded-lg hover:bg-[#0d2345] transition-colors disabled:opacity-50">
                       {loadingPkgs ? '…' : 'Load'}
                     </button>
                   </div>
+                  <button
+                    onClick={() => loadPackages('GLOBAL')}
+                    disabled={loadingPkgs}
+                    className="mt-2 text-xs text-[#C9A84C] font-semibold hover:underline disabled:opacity-50">
+                    🌍 Load Global eSIMs (multi-country &amp; regional)
+                  </button>
                 </div>
               </div>
 
               {orderPkgs.length > 0 && (
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
-                  <div>
-                    <label className="block text-xs font-semibold text-[#0B1F3A]/50 uppercase tracking-wide mb-1.5">
-                      Package ({orderPkgs.length} available)
-                    </label>
-                    <select
-                      value={orderForm.packageCode}
-                      onChange={e => setOrderForm(f => ({ ...f, packageCode: e.target.value }))}
-                      className="w-full h-10 px-3 border border-[#E5E7EB] rounded-lg text-sm outline-none focus:border-[#C9A84C] bg-white">
-                      <option value="">Select a package…</option>
-                      {orderPkgs.map(p => (
-                        <option key={p.packageCode} value={p.packageCode}>
-                          {p.name} — {p.durationDays}d · {p.dataLabel} · {pkgTypeLabel(p)} · ${p.retailUsd.toFixed(2)}
-                        </option>
-                      ))}
-                    </select>
+                <>
+                  {/* Filter tabs */}
+                  <div className="flex gap-2 mb-3">
+                    {(['all', 'unlimited', 'voice'] as const).map(f => (
+                      <button
+                        key={f}
+                        onClick={() => { setPkgFilter(f); setOrderForm(p => ({ ...p, packageCode: '' })) }}
+                        className={`px-3 py-1 rounded-full text-xs font-semibold transition-colors ${
+                          pkgFilter === f
+                            ? 'bg-[#0B1F3A] text-white'
+                            : 'bg-[#F3F4F6] text-[#0B1F3A]/60 hover:bg-[#E5E7EB]'
+                        }`}>
+                        {f === 'all'       ? `All (${orderPkgs.length})`                                        : ''}
+                        {f === 'unlimited' ? `Unlimited (${orderPkgs.filter(p => !p.dataAmount || p.dataAmount === 0).length})` : ''}
+                        {f === 'voice'     ? `📞 Call+Data (${orderPkgs.filter(p => !!p.voice).length})`         : ''}
+                      </button>
+                    ))}
                   </div>
-                  <div>
-                    <label className="block text-xs font-semibold text-[#0B1F3A]/50 uppercase tracking-wide mb-1.5">
-                      Custom Retail (USD, optional)
-                    </label>
-                    <input
-                      type="number" step="0.01" min="0"
-                      placeholder={orderPkgs.find(p => p.packageCode === orderForm.packageCode)?.retailUsd.toFixed(2) ?? ''}
-                      value={orderForm.customRetail}
-                      onChange={e => setOrderForm(f => ({ ...f, customRetail: e.target.value }))}
-                      className="w-full h-10 px-3 border border-[#E5E7EB] rounded-lg text-sm outline-none focus:border-[#C9A84C]"
-                    />
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
+                    <div>
+                      <label className="block text-xs font-semibold text-[#0B1F3A]/50 uppercase tracking-wide mb-1.5">
+                        Package ({filteredOrderPkgs.length} shown)
+                      </label>
+                      <select
+                        value={orderForm.packageCode}
+                        onChange={e => setOrderForm(f => ({ ...f, packageCode: e.target.value }))}
+                        className="w-full h-10 px-3 border border-[#E5E7EB] rounded-lg text-sm outline-none focus:border-[#C9A84C] bg-white">
+                        <option value="">Select a package…</option>
+                        {filteredOrderPkgs.map(p => (
+                          <option key={p.packageCode} value={p.packageCode}>
+                            {p.name} — {p.durationDays}d · {p.dataLabel} · {pkgTypeLabel(p)} · ${p.retailUsd.toFixed(2)}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-[#0B1F3A]/50 uppercase tracking-wide mb-1.5">
+                        Custom Retail (USD, optional)
+                      </label>
+                      <input
+                        type="number" step="0.01" min="0"
+                        placeholder={filteredOrderPkgs.find(p => p.packageCode === orderForm.packageCode)?.retailUsd.toFixed(2) ?? ''}
+                        value={orderForm.customRetail}
+                        onChange={e => setOrderForm(f => ({ ...f, customRetail: e.target.value }))}
+                        className="w-full h-10 px-3 border border-[#E5E7EB] rounded-lg text-sm outline-none focus:border-[#C9A84C]"
+                      />
+                    </div>
                   </div>
-                </div>
+                </>
               )}
 
               <button

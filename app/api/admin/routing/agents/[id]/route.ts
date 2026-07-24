@@ -15,6 +15,7 @@ export async function PATCH(
   const body    = await req.json() as Partial<{
     name:             string
     email:            string
+    sipAddress:       string | null
     chatwootAgentId:  number | null
     aircallUserId:    number | null
     role:             string | null

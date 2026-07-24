@@ -27,14 +27,15 @@ export async function POST(req: NextRequest) {
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const body = await req.json() as {
-    name:             string
-    email:            string
-    chatwootAgentId?: number | null
-    aircallUserId?:   number | null
-    role?:            string
-    specialisms?:     string[]
-    active?:          boolean
-    isEscalation?:    boolean
+    name:              string
+    email:             string
+    sipAddress?:       string | null
+    chatwootAgentId?:  number | null
+    aircallUserId?:    number | null
+    role?:             string
+    specialisms?:      string[]
+    active?:           boolean
+    isEscalation?:     boolean
     maxConversations?: number
   }
 
@@ -55,6 +56,7 @@ export async function POST(req: NextRequest) {
     .insert({
       name:               body.name.trim(),
       email:              body.email.trim().toLowerCase(),
+      sipAddress:         body.sipAddress?.trim() || null,
       chatwootAgentId:    body.chatwootAgentId ?? null,
       aircallUserId:      body.aircallUserId ?? null,
       role:               body.role?.trim() ?? null,

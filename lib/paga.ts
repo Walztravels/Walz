@@ -37,8 +37,39 @@ function sha512(...parts: string[]) {
   return crypto.createHash('sha512').update(parts.join('')).digest('hex')
 }
 
-function hmacSha512(data: string, key: string) {
-  return crypto.createHmac('sha512', key).update(data).digest('hex')
+// ── Collect API HTTP helper ───────────────────────────────────────────────────
+// Per Paga's official Postman collection (Qudus, 2026):
+//   • Hash is sent as HTTP header "hash", NOT inside the JSON body
+//   • Basic Auth (publicKey:secretKey) is required on every request alongside the hash header
+async function collectPost(
+  url:    string,
+  auth:   string,
+  hash:   string,
+  body:   object,
+): Promise<{ httpStatus: number; data: Record<string, unknown> }> {
+  const rawBody = JSON.stringify(body)
+  // Wire-level request log — captures exact URL, headers, and body as sent
+  console.log('[paga/wire] REQUEST >>>',
+    '\n  URL:', url,
+    '\n  Authorization:', auth,
+    '\n  hash:', hash,
+    '\n  Content-Type: application/json',
+    '\n  body:', rawBody,
+  )
+  const rawRes = await fetch(url, {
+    method:  'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: auth, hash },
+    body:    rawBody,
+  })
+  const responseHeaders: Record<string, string> = {}
+  rawRes.headers.forEach((v, k) => { responseHeaders[k] = v })
+  const data = await rawRes.json().catch(() => ({})) as Record<string, unknown>
+  console.log('[paga/wire] RESPONSE <<<',
+    '\n  status:', rawRes.status,
+    '\n  headers:', JSON.stringify(responseHeaders),
+    '\n  body:', JSON.stringify(data),
+  )
+  return { httpStatus: rawRes.status, data }
 }
 
 /**
@@ -333,18 +364,17 @@ export async function verifyPagaCheckout(opts: {
 export async function verifyPagaTransaction(referenceNumber: string): Promise<PagaVerifyResult> {
   const { publicKey, secretKey, hmacKey, baseUrl } = cfg()
 
-  // Hash formula per Paga docs: SHA-512(referenceNumber + hashkey)
+  // Hash formula (Postman /status endpoint): SHA-512(referenceNumber + hmacKey)
+  // Hash sent as HTTP header "hash", not in body
   const hash = sha512(referenceNumber, hmacKey)
   const auth = basicAuth(publicKey, secretKey)
 
-  const rawRes = await fetch(`${baseUrl}/verifyTransaction`, {
-    method:  'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: auth },
-    body:    JSON.stringify({ referenceNumber, hash }),
-  })
+  const { httpStatus, data: rawData } = await collectPost(
+    `${baseUrl}/verifyTransaction`, auth, hash, { referenceNumber },
+  )
 
-  const data = normalisePagaResponse(await rawRes.json().catch(() => ({})), 'verifyTransaction')
-  assertAuthOk(rawRes.status, data, 'verifyTransaction')
+  const data = normalisePagaResponse(rawData, 'verifyTransaction')
+  assertAuthOk(httpStatus, data, 'verifyTransaction')
   const isPaid = isPagaSuccess(data)
 
   return {
@@ -393,86 +423,56 @@ export function verifyPagaWebhookHash(opts: {
  * Fee: 0.75% capped at ₦1,000
  */
 export async function createDynamicBankAccount(opts: {
-  referenceNumber: string
-  amountNgn:       number
-  payerName:       string
-  payerPhone:      string
-  payeeName?:      string
-  currency?:       string
-  callBackUrl?:    string
+  referenceNumber:    string
+  amountNgn:          number
+  payerName:          string
+  payerPhone:         string
+  payerEmail?:        string   // included in Paga hash — confirmed by Qudus (Paga support)
+  payeeName?:         string
+  currency?:          string
+  callBackUrl?:       string
   expiryDateTimeUTC?: string
 }): Promise<PagaDynamicAccountResult> {
   const { publicKey, secretKey, hmacKey, baseUrl } = cfg()
-  const currency    = opts.currency ?? 'NGN'
-  const amountInt   = String(opts.amountNgn)          // "5000"
-  const amountDec2  = opts.amountNgn.toFixed(2)       // "5000.00"
-  const phoneLocal  = opts.payerPhone                 // as provided, e.g. "07033387807"
-  const phoneIntl   = opts.payerPhone.startsWith('0') // "2347033387807" (no + prefix)
-    ? `234${opts.payerPhone.slice(1)}`
-    : opts.payerPhone
+  const currency   = opts.currency ?? 'NGN'
+  // Hash uses integer amount as a string ("5000"), matching Paga's Postman collection
+  const amountStr  = String(opts.amountNgn)
+  const payerEmail = opts.payerEmail?.trim() ?? ''
 
-  // Key diagnostics — never logs the full key, only enough to identify it
-  const keyFirst8 = hmacKey.slice(0, 8)
-  const keyLast4  = hmacKey.slice(-4)
-  const keyHasWhitespace = /\s/.test(hmacKey)
-  const keyIsHex = /^[0-9a-fA-F]+$/.test(hmacKey)
-  console.log('[paga] HMAC key diagnostics:', {
-    len: hmacKey.length,
-    first8: keyFirst8,
-    last4:  keyLast4,
-    hasWhitespace: keyHasWhitespace,
-    isHex: keyIsHex,
-    sameAsSecretKey: hmacKey === secretKey,
-    sameAsPublicKey: hmacKey === publicKey,
-  })
-
-  // Log all 4 candidate hash prefixes so we can compare against Paga's expected value
-  console.log('[paga/paymentRequest] candidates (no key):')
-  console.log('  A int+local :', `${opts.referenceNumber}${amountInt}${currency}${phoneLocal}`)
-  console.log('  B dec+local :', `${opts.referenceNumber}${amountDec2}${currency}${phoneLocal}`)
-  console.log('  C int+intl  :', `${opts.referenceNumber}${amountInt}${currency}${phoneIntl}`)
-  console.log('  D dec+intl  :', `${opts.referenceNumber}${amountDec2}${currency}${phoneIntl}`)
-  console.log('[paga/paymentRequest] hashes:')
-  console.log('  A SHA512(int+local):', sha512(opts.referenceNumber, amountInt,  currency, phoneLocal, hmacKey))
-  console.log('  B SHA512(dec+local):', sha512(opts.referenceNumber, amountDec2, currency, phoneLocal, hmacKey))
-  console.log('  C SHA512(int+intl) :', sha512(opts.referenceNumber, amountInt,  currency, phoneIntl,  hmacKey))
-  console.log('  D SHA512(dec+intl) :', sha512(opts.referenceNumber, amountDec2, currency, phoneIntl,  hmacKey))
-
-  // Currently sending B (decimal amount, local phone) — change the variable to try others
-  const hash = sha512(opts.referenceNumber, amountDec2, currency, phoneLocal, hmacKey)
-  console.log('[paga/paymentRequest] sending hash B (dec+local):', hash)
-
-  const payload = {
-    referenceNumber: opts.referenceNumber,
-    amount:          opts.amountNgn,
-    currency,
-    payer: { name: opts.payerName, phoneNumber: opts.payerPhone },
-    payee: { name: opts.payeeName ?? 'Walz Travels' },
-    expiryDateTimeUTC:        opts.expiryDateTimeUTC ?? null,
-    isSuppressMessages:       false,
-    payerCollectionFeeShare:  1.0,
-    payeeCollectionFeeShare:  0.0,
-    isAllowPartialPayments:   false,
-    isAllowOverPayments:      false,
-    callBackUrl:              opts.callBackUrl ?? null,
-    paymentMethods:           ['BANK_TRANSFER', 'REQUEST_MONEY'],
-    displayBankDetailToPayer: false,
-    hash,
-  }
+  // Hash formula per Qudus (Paga support) confirmed working template:
+  // SHA-512(referenceNumber + amount + currency + payer.phoneNumber + hmacKey)
+  // payer.email and payee.phoneNumber omitted — not sent in body, not in hash
+  // Hash sent as HTTP header "hash", not in body
+  const hash = sha512(opts.referenceNumber, amountStr, currency, opts.payerPhone, hmacKey)
+  console.log('[paga/paymentRequest] hash-data (no key):', `${opts.referenceNumber}${amountStr}${currency}${opts.payerPhone}`)
 
   const auth = basicAuth(publicKey, secretKey)
+  // Payload matches official Paga docs sample exactly.
+  // displayBankDetailToPayer removed — not in official docs, may cause strict JSON deserialization failure.
+  // callBackUrl omitted — optional per docs; include only if needed.
+  const payload: Record<string, unknown> = {
+    referenceNumber:         opts.referenceNumber,
+    amount:                  opts.amountNgn,
+    currency,
+    payer: {
+      name:        opts.payerName,
+      phoneNumber: opts.payerPhone,
+    },
+    payee: { name: opts.payeeName ?? 'Walz Travels' },
+    isSuppressMessages:      false,
+    payerCollectionFeeShare: 1.0,
+    payeeCollectionFeeShare: 0.0,
+    isAllowPartialPayments:  false,
+    isAllowOverPayments:     false,
+    paymentMethods:          ['BANK_TRANSFER', 'REQUEST_MONEY'],
+  }
+  if (opts.callBackUrl) payload.callBackUrl = opts.callBackUrl
 
-  const rawRes = await fetch(`${baseUrl}/paymentRequest`, {
-    method:  'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: auth },
-    body:    JSON.stringify(payload),
-  })
-
-  const data = normalisePagaResponse(await rawRes.json().catch(() => ({})), 'paymentRequest')
-  assertAuthOk(rawRes.status, data, 'paymentRequest')
+  const { httpStatus, data: rawData } = await collectPost(`${baseUrl}/paymentRequest`, auth, hash, payload)
+  const data = normalisePagaResponse(rawData, 'paymentRequest')
+  assertAuthOk(httpStatus, data, 'paymentRequest')
   if (!isPagaSuccess(data)) {
-    const detail = data.message ?? String(data.responseCode ?? rawRes.status)
-    throw new Error(`Paga dynamic account error: ${detail}`)
+    throw new Error(`Paga dynamic account error: ${data.message ?? String(data.responseCode ?? httpStatus)}`)
   }
 
   // Paga returns the account inside paymentAccount, data, or at the top level
@@ -499,7 +499,8 @@ export async function registerPersistentBankAccount(opts: {
   accountName:      string
   customerEmail?:   string
   customerPhone?:   string
-  financialIdentificationNumber?: string // BVN or NIN (required for NGN persistent)
+  financialIdentificationNumber?: string // BVN or NIN (body only — not part of hash)
+  callbackUrl?:     string               // included in hash + body if provided
 }): Promise<PagaPersistentAccountResult> {
   const { publicKey, secretKey, hmacKey, baseUrl } = cfg()
   const fin = opts.financialIdentificationNumber ?? ''
@@ -513,38 +514,36 @@ export async function registerPersistentBankAccount(opts: {
   const firstName = nameParts[0] ?? opts.accountName
   const lastName  = nameParts.slice(1).join(' ') || firstName
 
-  // SHA-512(ref + accountReference + financialIdentificationNumber +
-  //         creditBankId + creditBankAccountNumber + callbackUrl + hashKey)
-  // creditBankId, creditBankAccountNumber, callbackUrl are all empty
-  const hash = sha512(opts.referenceNumber, accountRef, fin, hmacKey)
+  // Hash formula: SHA-512(referenceNumber + accountReference + financialIdentificationNumber + creditBankId + creditBankAccountNumber + callbackUrl + hmacKey)
+  // financialIdentificationNumber (BVN/NIN) is included in hash when present in body — Paga uses whatever is in the body
+  // creditBankId and creditBankAccountNumber are empty (no split-settlement bank)
+  // Hash sent as HTTP header "hash", not in body
+  const callbackUrl = opts.callbackUrl ?? ''
+  const hash = sha512(opts.referenceNumber, accountRef, fin, '', '', callbackUrl, hmacKey)
   const auth = basicAuth(publicKey, secretKey)
+
+  console.log('[paga/persistent] hash-data (no key):', `${opts.referenceNumber}${accountRef}${fin}${callbackUrl}`)
 
   const persistPayload = {
     referenceNumber:               opts.referenceNumber,
     accountName:                   opts.accountName,
     firstName,
     lastName,
-    financialIdentificationNumber: fin,
+    financialIdentificationNumber: fin || undefined,
     accountReference:              accountRef,
-    ...(opts.customerEmail ? { email: opts.customerEmail } : {}),
-    ...(opts.customerPhone ? { phoneNumber: opts.customerPhone } : {}),
-    hash,
+    ...(callbackUrl               ? { callbackUrl }                          : {}),
+    ...(opts.customerEmail        ? { email:       opts.customerEmail }      : {}),
+    ...(opts.customerPhone        ? { phoneNumber: opts.customerPhone }      : {}),
   }
 
-  console.log('[paga/persistent] PAYLOAD:', JSON.stringify(persistPayload, null, 2))
-  console.log('[paga/persistent] hash-data:', `${opts.referenceNumber}${accountRef}${fin}<key>`)
-  console.log('[paga/persistent] HASH:', hash)
 
-  const rawRes1 = await fetch(`${baseUrl}/registerPersistentPaymentAccount`, {
-    method:  'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: auth },
-    body:    JSON.stringify(persistPayload),
-  })
-
-  const data1 = normalisePagaResponse(await rawRes1.json().catch(() => ({})), 'registerPersistentPaymentAccount')
-  assertAuthOk(rawRes1.status, data1, 'registerPersistentPaymentAccount')
+  const { httpStatus: hs1, data: rawData1 } = await collectPost(
+    `${baseUrl}/registerPersistentPaymentAccount`, auth, hash, persistPayload,
+  )
+  const data1 = normalisePagaResponse(rawData1, 'registerPersistentPaymentAccount')
+  assertAuthOk(hs1, data1, 'registerPersistentPaymentAccount')
   if (!isPagaSuccess(data1)) {
-    throw new Error(`Paga persistent account error: ${data1.message ?? String(data1.responseCode ?? rawRes1.status)}`)
+    throw new Error(`Paga persistent account error: ${data1.message ?? String(data1.responseCode ?? hs1)}`)
   }
 
   const acct1 = (data1.paymentAccount ?? data1.data ?? data1) as Record<string, string>
@@ -558,52 +557,63 @@ export async function registerPersistentBankAccount(opts: {
 }
 
 /**
- * Retrieve a previously-created Persistent Payment Account by its account reference.
+ * Retrieve a previously-created Persistent Payment Account by its identifier.
+ *
+ * Hash formula (Postman): SHA-512(referenceNumber + accountIdentifier + hmacKey)
+ * Note: Paga's Postman collection shows this endpoint URL as updatePersistentPaymentAccount
+ * (likely a copy-paste error). Using /getPersistentPaymentAccount per Paga docs.
  */
-export async function getPersistentBankAccount(accountReference: string): Promise<PagaPersistentAccountResult> {
+export async function getPersistentBankAccount(opts: {
+  referenceNumber:   string
+  accountIdentifier: string  // accountReference from when it was created
+}): Promise<PagaPersistentAccountResult> {
   const { publicKey, secretKey, hmacKey, baseUrl } = cfg()
-  const hash = hmacSha512(accountReference, hmacKey)
+  const hash = sha512(opts.referenceNumber, opts.accountIdentifier, hmacKey)
   const auth = basicAuth(publicKey, secretKey)
 
-  const rawRes2 = await fetch(`${baseUrl}/getPersistentPaymentAccount`, {
-    method:  'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: auth },
-    body: JSON.stringify({ accountReference, hash }),
-  })
+  const { httpStatus, data: rawData } = await collectPost(
+    `${baseUrl}/getPersistentPaymentAccount`, auth, hash,
+    { referenceNumber: opts.referenceNumber, accountIdentifier: opts.accountIdentifier },
+  )
 
-  const data2 = normalisePagaResponse(await rawRes2.json().catch(() => ({})), 'getPersistentPaymentAccount')
-  assertAuthOk(rawRes2.status, data2, 'getPersistentPaymentAccount')
-  if (!isPagaSuccess(data2)) {
-    throw new Error(`Paga get persistent account error: ${data2.message ?? String(data2.responseCode ?? rawRes2.status)}`)
+  const data = normalisePagaResponse(rawData, 'getPersistentPaymentAccount')
+  assertAuthOk(httpStatus, data, 'getPersistentPaymentAccount')
+  if (!isPagaSuccess(data)) {
+    throw new Error(`Paga get persistent account error: ${data.message ?? String(data.responseCode ?? httpStatus)}`)
   }
 
-  const acct2 = (data2.paymentAccount ?? data2.data ?? data2) as Record<string, string>
+  const acct = (data.paymentAccount ?? data.data ?? data) as Record<string, string>
   return {
-    accountReference,
-    accountNumber: (data2.accountNumber ?? acct2.accountNumber ?? acct2.account_number) as string,
-    bankName:      (data2.bankName      ?? acct2.bankName      ?? acct2.bank_name)      as string,
-    accountName:   (data2.accountName   ?? acct2.accountName   ?? acct2.account_name)   as string,
+    accountReference:  opts.accountIdentifier,
+    accountNumber:     (data.accountNumber ?? acct.accountNumber ?? acct.account_number) as string,
+    bankName:          (data.bankName      ?? acct.bankName      ?? acct.bank_name)      as string,
+    accountName:       (data.accountName   ?? acct.accountName   ?? acct.account_name)   as string,
   }
 }
 
 /**
  * Delete / deactivate a Persistent Payment Account.
+ *
+ * Hash formula (Postman): SHA-512(referenceNumber + accountIdentifier + hmacKey)
  */
-export async function deletePersistentBankAccount(accountReference: string): Promise<void> {
+export async function deletePersistentBankAccount(opts: {
+  referenceNumber:   string  // unique ref for this delete request
+  accountIdentifier: string  // accountReference from when it was created
+  reason?:           string
+}): Promise<void> {
   const { publicKey, secretKey, hmacKey, baseUrl } = cfg()
-  const hash = hmacSha512(accountReference, hmacKey)
+  const hash = sha512(opts.referenceNumber, opts.accountIdentifier, hmacKey)
   const auth = basicAuth(publicKey, secretKey)
 
-  const rawRes3 = await fetch(`${baseUrl}/deletePersistentPaymentAccount`, {
-    method:  'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: auth },
-    body: JSON.stringify({ accountReference, hash }),
-  })
+  const { httpStatus, data: rawData } = await collectPost(
+    `${baseUrl}/deletePersistentPaymentAccount`, auth, hash,
+    { referenceNumber: opts.referenceNumber, accountIdentifier: opts.accountIdentifier, reason: opts.reason ?? '' },
+  )
 
-  const data3 = normalisePagaResponse(await rawRes3.json().catch(() => ({})), 'deletePersistentPaymentAccount')
-  assertAuthOk(rawRes3.status, data3, 'deletePersistentPaymentAccount')
-  if (!isPagaSuccess(data3)) {
-    throw new Error(`Paga delete persistent account error: ${data3.message ?? String(data3.responseCode ?? rawRes3.status)}`)
+  const data = normalisePagaResponse(rawData, 'deletePersistentPaymentAccount')
+  assertAuthOk(httpStatus, data, 'deletePersistentPaymentAccount')
+  if (!isPagaSuccess(data)) {
+    throw new Error(`Paga delete persistent account error: ${data.message ?? String(data.responseCode ?? httpStatus)}`)
   }
 }
 
@@ -648,28 +658,26 @@ export async function tokenizeDirectDebit(opts: {
   )
   const auth = basicAuth(publicKey, secretKey)
 
-  const rawRes4 = await fetch(`${baseUrl}/createDebitMandate`, {
-    method:  'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: auth },
-    body: JSON.stringify({
-      referenceNumber:      opts.referenceNumber,
-      clientAccount:        publicKey,
+  const { httpStatus: hs4, data: rawData4 } = await collectPost(
+    `${baseUrl}/createDebitMandate`, auth, hash,
+    {
+      referenceNumber:     opts.referenceNumber,
+      clientAccount:       publicKey,
       amount,
       currency,
-      sourceAccountNumber:  opts.sourceAccountNumber,
-      bankCode:             opts.bankCode,
-      customerName:         opts.customerName,
+      sourceAccountNumber: opts.sourceAccountNumber,
+      bankCode:            opts.bankCode,
+      customerName:        opts.customerName,
       ...(opts.customerEmail ? { customerEmail: opts.customerEmail } : {}),
-      ...(opts.startDate    ? { startDate: opts.startDate }         : {}),
-      ...(opts.endDate      ? { endDate:   opts.endDate }           : {}),
-      hash,
-    }),
-  })
+      ...(opts.startDate     ? { startDate: opts.startDate }         : {}),
+      ...(opts.endDate       ? { endDate:   opts.endDate }           : {}),
+    },
+  )
 
-  const data4 = normalisePagaResponse(await rawRes4.json().catch(() => ({})), 'createDebitMandate')
-  assertAuthOk(rawRes4.status, data4, 'createDebitMandate')
+  const data4 = normalisePagaResponse(rawData4, 'createDebitMandate')
+  assertAuthOk(hs4, data4, 'createDebitMandate')
   if (!isPagaSuccess(data4)) {
-    throw new Error(`Paga direct debit tokenize error: ${data4.message ?? String(data4.responseCode ?? rawRes4.status)}`)
+    throw new Error(`Paga direct debit tokenize error: ${data4.message ?? String(data4.responseCode ?? hs4)}`)
   }
 
   const mandate = (data4.data ?? data4) as Record<string, string>

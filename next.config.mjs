@@ -174,6 +174,15 @@ const nextConfig = {
           { key: 'Cache-Control',               value: 'public, max-age=3600' },
         ],
       },
+      // ── Apple App Site Association for iOS Associated Domains (WebAuthn) ──
+      {
+        source: '/.well-known/apple-app-site-association',
+        headers: [
+          { key: 'Content-Type',                value: 'application/json' },
+          { key: 'Access-Control-Allow-Origin', value: '*' },
+          { key: 'Cache-Control',               value: 'public, max-age=3600' },
+        ],
+      },
       // ── CORS: public API only — admin and cron routes excluded ────────────
       {
         source: '/api/((?!admin|cron).)*',

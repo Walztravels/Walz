@@ -62,20 +62,46 @@ export async function fetchAllEsimPackages(): Promise<EsimPackage[]> {
  * Used by /api/esim/packages?country=XX.
  */
 export async function fetchCountryPackages(iso2: string): Promise<EsimPackage[]> {
+  const isGlobal = iso2.toUpperCase() === 'GLOBAL'
   try {
-    const res = await airaloGet<AiraloPackagesResponse>('/packages', { limit: 300, page: 1 })
-    const discountPct = res.pricing?.discount_percentage ?? 25
-
-    const country = res.data.find(
-      c => c.country_code.toUpperCase() === iso2.toUpperCase(),
-    )
-    if (!country) return []
+    const pages: AiraloPackagesResponse[] = []
+    const first = await airaloGet<AiraloPackagesResponse>('/packages', { limit: 100, page: 1 })
+    pages.push(first)
+    const lastPage = first.meta?.last_page ?? 1
+    if (lastPage > 1) {
+      const rest = await Promise.all(
+        Array.from({ length: lastPage - 1 }, (_, i) =>
+          airaloGet<AiraloPackagesResponse>('/packages', { limit: 100, page: i + 2 }),
+        ),
+      )
+      pages.push(...rest)
+    }
+    const discountPct = first.pricing?.discount_percentage ?? 25
 
     const packages: EsimPackage[] = []
-    for (const operator of country.operators ?? []) {
-      for (const pkg of operator.packages ?? []) {
-        const parsed = parseAiraloPackage(pkg, country, discountPct, operator.info ?? [])
-        if (parsed) packages.push(parsed)
+    const seen = new Set<string>()
+
+    for (const page of pages) {
+      for (const country of page.data) {
+        // For global search: only include regional/global operators
+        // For country search: match the specific country_code
+        const matchesCountry = isGlobal
+          ? true
+          : country.country_code.toUpperCase() === iso2.toUpperCase()
+
+        if (!matchesCountry) continue
+
+        for (const operator of country.operators ?? []) {
+          // For global search: only include regional/global plan types
+          if (isGlobal && operator.type === 'local') continue
+
+          for (const pkg of operator.packages ?? []) {
+            if (seen.has(pkg.id)) continue
+            seen.add(pkg.id)
+            const parsed = parseAiraloPackage(pkg, country, discountPct, operator.info ?? [], operator.plan_type)
+            if (parsed) packages.push(parsed)
+          }
+        }
       }
     }
 

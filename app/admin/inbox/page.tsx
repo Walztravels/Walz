@@ -275,12 +275,20 @@ export default function InboxPage() {
   }
 
   // ── Actions ─────────────────────────────────────────────────────────────────
-  async function handleSend(content: string, isPrivate: boolean) {
+  async function handleSend(content: string, isPrivate: boolean, file?: File) {
     if (!selected) return
-    await fetch(`/api/admin/conversations/${selected.id}/reply`, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ content, private: isPrivate }),
-    })
+    if (file) {
+      const form = new FormData()
+      if (content) form.append('content', content)
+      form.append('private', String(isPrivate))
+      form.append('file', file, file.name)
+      await fetch(`/api/admin/conversations/${selected.id}/reply`, { method: 'POST', body: form })
+    } else {
+      await fetch(`/api/admin/conversations/${selected.id}/reply`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content, private: isPrivate }),
+      })
+    }
     await fetchMessages(selected.id)
   }
 

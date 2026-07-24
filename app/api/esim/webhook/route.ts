@@ -193,14 +193,15 @@ async function fulfillEsim(intent: Stripe.PaymentIntent) {
     ? await getInstallInstructions(iccid)
     : null
 
-  if (user?.email) {
+  const deliverToEmail = user?.email ?? meta.customerEmail
+  if (deliverToEmail) {
     try {
       await getResend().emails.send({
         from:    'Jade Connect <noreply@walztravels.com>',
-        to:      user.email,
+        to:      deliverToEmail,
         subject: `📶 Your Jade Connect eSIM — ${meta.destination}`,
         html:    buildQrEmail({
-          name: user.name ?? 'Traveller', destination: meta.destination,
+          name: user?.name ?? 'Traveller', destination: meta.destination,
           plan: meta.packageName ?? meta.packageCode,
           duration: Number(meta.durationDays),
           dataLabel, qrUrl: qrCodeUrl,
@@ -229,17 +230,68 @@ async function fulfillEsim(intent: Stripe.PaymentIntent) {
   }
 }
 
+// ── eSIM Access status notifications ─────────────────────────────────────────
+// eSIM Access sends ESIM_STATUS / SMDP_EVENT callbacks to this same endpoint.
+// They have no stripe-signature header — detect by notifyType field.
+async function handleEsimAccessNotification(body: {
+  notifyType: string
+  notifyId?:  string
+  content?: {
+    transactionId?: string
+    iccid?:         string
+    esimStatus?:    string
+    smdpStatus?:    string
+    orderNo?:       string
+  }
+}) {
+  const { transactionId, iccid, esimStatus } = body.content ?? {}
+  console.log(`[esim/webhook] eSIM Access ${body.notifyType}: transactionId=${transactionId} esimStatus=${esimStatus} iccid=${iccid}`)
+
+  if (!transactionId) return
+
+  const order = await prisma.esimOrder.findFirst({ where: { orderRef: transactionId } })
+  if (!order) {
+    console.warn('[esim/webhook] eSIM Access notification for unknown order:', transactionId)
+    return
+  }
+
+  const statusMap: Record<string, string> = {
+    IN_USE:      'active',
+    NOT_ACTIVE:  'pending',
+    EXPIRED:     'expired',
+    DEACTIVATED: 'expired',
+  }
+  const newStatus = esimStatus ? (statusMap[esimStatus] ?? order.status) : order.status
+
+  await prisma.esimOrder.update({
+    where: { id: order.id },
+    data:  { status: newStatus, iccid: iccid ?? order.iccid ?? null },
+  })
+}
+
 export async function POST(req: NextRequest) {
   const payload = await req.text()
   const sig     = req.headers.get('stripe-signature') ?? ''
-  const secret  = process.env.STRIPE_ESIM_WEBHOOK_SECRET ?? process.env.STRIPE_WEBHOOK_SECRET
+
+  // eSIM Access notifications arrive without a stripe-signature header.
+  // Detect them by the notifyType field before attempting Stripe verification.
+  if (!sig) {
+    try {
+      const body = JSON.parse(payload)
+      if (body?.notifyType) {
+        await handleEsimAccessNotification(body)
+        return NextResponse.json({ received: true })
+      }
+    } catch { /* not JSON — fall through to Stripe handling */ }
+  }
+
+  const secret = process.env.STRIPE_ESIM_WEBHOOK_SECRET ?? process.env.STRIPE_WEBHOOK_SECRET
 
   let event: Stripe.Event
   try {
     if (secret) {
       event = getStripe().webhooks.constructEvent(payload, sig, secret)
     } else {
-      // No webhook secret configured — parse directly (development only)
       event = JSON.parse(payload) as Stripe.Event
     }
   } catch (err) {

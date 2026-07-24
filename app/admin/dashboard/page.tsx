@@ -8,6 +8,7 @@ import {
 import { format } from 'date-fns'
 import Link from 'next/link'
 import { cn } from '@/lib/utils'
+import { StaffCheckInWidget } from './StaffCheckInWidget'
 
 export const dynamic = 'force-dynamic'
 
@@ -230,6 +231,9 @@ export default async function DashboardPage() {
         <h1 className="text-2xl font-bold text-white">Dashboard</h1>
         <p className="text-white/40 text-sm mt-1">{greetings[staffRole] ?? 'Welcome back.'}</p>
       </div>
+
+      {/* ── Staff Check-In Widget (only renders for tracked staff) ──────────── */}
+      <StaffCheckInWidget />
 
       {/* ── Stats Grid ─────────────────────────────────────────────────────── */}
       <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 mb-8">

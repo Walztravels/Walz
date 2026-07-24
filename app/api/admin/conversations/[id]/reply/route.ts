@@ -14,35 +14,53 @@ export async function POST(
   const session = await getAdminSession()
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const body = await req.json() as { content: string; message_type?: string; private?: boolean }
+  const ct = req.headers.get('content-type') ?? ''
 
-  const res = await fetch(
-    `${CW_BASE}/api/v1/accounts/${CW_ACCOUNT}/conversations/${params.id}/messages`,
-    {
-      method:  'POST',
-      headers: { 'Content-Type': 'application/json', api_access_token: CW_TOKEN },
-      body:    JSON.stringify({
-        content:      body.content,
-        message_type: 1,           // 1 = outgoing agent message (numeric, not string)
-        private:      body.private ?? false,
-      }),
-    }
-  )
+  let content   = ''
+  let isPrivate = false
+  let file: File | null = null
+
+  if (ct.includes('multipart/form-data')) {
+    const form = await req.formData()
+    content   = (form.get('content') as string | null) ?? ''
+    isPrivate = (form.get('private') as string | null) === 'true'
+    file      = (form.get('file') as File | null)
+  } else {
+    const body = await req.json() as { content: string; private?: boolean }
+    content   = body.content
+    isPrivate = body.private ?? false
+  }
+
+  const cwUrl = `${CW_BASE}/api/v1/accounts/${CW_ACCOUNT}/conversations/${params.id}/messages`
+  const cwHeaders: Record<string, string> = { api_access_token: CW_TOKEN }
+
+  let cwBody: BodyInit
+  if (file) {
+    const cwForm = new FormData()
+    if (content) cwForm.append('content', content)
+    cwForm.append('message_type', '1')
+    cwForm.append('private', String(isPrivate))
+    cwForm.append('attachments[]', file, file.name)
+    cwBody = cwForm
+  } else {
+    cwHeaders['Content-Type'] = 'application/json'
+    cwBody = JSON.stringify({ content, message_type: 1, private: isPrivate })
+  }
+
+  const res = await fetch(cwUrl, { method: 'POST', headers: cwHeaders, body: cwBody })
   const data = await res.json()
+
   if (!res.ok) {
     console.error('[reply] Chatwoot error:', res.status, JSON.stringify(data))
     return NextResponse.json({ error: data?.message ?? data?.error ?? 'Chatwoot send failed', chatwoot: data }, { status: res.status })
   }
-  // Detect token misconfiguration: if Chatwoot stored the message as incoming (type 0)
-  // instead of outgoing (type 1), CHATWOOT_ADMIN_TOKEN is wrong (e.g. set to the website
-  // widget token instead of a user API access token from Chatwoot → Profile → Access Token).
+
   if (data?.message_type === 0) {
     console.error(
-      '[reply] ⚠️  Message stored as INCOMING (type 0) — should be OUTGOING (type 1). ' +
-      'CHATWOOT_ADMIN_TOKEN is likely incorrect. ' +
-      'Fix: in Vercel, set CHATWOOT_ADMIN_TOKEN to the API Access Token from ' +
-      'Chatwoot → Profile Settings → Access Token (NOT the website/inbox token).'
+      '[reply] ⚠️  Message stored as INCOMING (type 0) — CHATWOOT_ADMIN_TOKEN is likely wrong. ' +
+      'Fix: use a user API Access Token from Chatwoot → Profile Settings → Access Token.'
     )
   }
+
   return NextResponse.json(data)
 }
