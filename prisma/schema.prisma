@@ -495,6 +495,7 @@ model Staff {
   updatedAt    DateTime  @updatedAt
 
   checkInTracked Boolean @default(false)
+  timezone       String  @default("Africa/Lagos") // IANA timezone e.g. "Africa/Accra" for Ghana
 
   activityLogs ActivityLog[]
   checkIns     CheckInRecord[]

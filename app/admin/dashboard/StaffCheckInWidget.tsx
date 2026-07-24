@@ -329,9 +329,13 @@ export function StaffCheckInWidget() {
             )}
 
             {/* Today's timeline */}
-            {todaySlots.length > 0 && (
-              <div>
-                <p className="text-xs font-semibold text-white/30 uppercase tracking-widest mb-2">Today</p>
+            <div>
+              <p className="text-xs font-semibold text-white/30 uppercase tracking-widest mb-2">Today</p>
+              {todaySlots.length === 0 ? (
+                <p className="text-xs text-white/30 py-2">
+                  Today&apos;s check-in history will appear here once the system processes your first working day.
+                </p>
+              ) : (
                 <div className="space-y-1">
                   {todaySlots.map((slot) => {
                     const isPresent  = slot.present
@@ -339,56 +343,53 @@ export function StaffCheckInWidget() {
                     const isWaived   = slot.waived
                     const isDisputed = slot.disputeStatus === 'pending'
 
-                    let dotColor  = 'bg-white/20'
-                    let timeColor = 'text-white/40'
-                    let badge: React.ReactNode = null
+                    let dotColor  = 'bg-white/10'
+                    let timeColor = 'text-white/50'
+                    let statusLabel: React.ReactNode = <span className="ml-auto text-xs text-white/20">Pending</span>
 
                     if (isPresent) {
                       const src = slot.activitySource
-                      dotColor  = src === 'call' ? 'bg-blue-400' : src === 'manual' ? 'bg-amber-400' : 'bg-emerald-400'
-                      timeColor = 'text-white'
-                      badge     = (
-                        <span className="text-xs text-white/30 ml-auto">
+                      dotColor     = src === 'call' ? 'bg-blue-400' : src === 'manual' ? 'bg-amber-400' : 'bg-emerald-400'
+                      timeColor    = 'text-white'
+                      statusLabel  = (
+                        <span className={`ml-auto text-xs font-medium ${src === 'call' ? 'text-blue-400' : src === 'manual' ? 'text-amber-400' : 'text-emerald-400'}`}>
                           {src === 'call' ? 'On call' : src === 'manual' ? 'Manual' : 'Admin panel'}
                         </span>
                       )
                     } else if (isWaived) {
-                      dotColor  = 'bg-blue-400'
-                      timeColor = 'text-white/60'
-                      badge     = <span className="ml-auto text-xs text-blue-400">Waived</span>
+                      dotColor     = 'bg-blue-400'
+                      timeColor    = 'text-white/70'
+                      statusLabel  = <span className="ml-auto text-xs font-medium text-blue-400">Waived</span>
                     } else if (isDisputed) {
-                      dotColor  = 'bg-amber-400'
-                      timeColor = 'text-white/60'
-                      badge     = <span className="ml-auto text-xs text-amber-400">Under review</span>
+                      dotColor     = 'bg-amber-400'
+                      timeColor    = 'text-white/70'
+                      statusLabel  = <span className="ml-auto text-xs font-medium text-amber-400">Under review</span>
                     } else if (isMissed) {
-                      dotColor  = 'bg-red-400'
-                      timeColor = 'text-white/60'
-                      badge     = (
+                      dotColor     = 'bg-red-400'
+                      timeColor    = 'text-white/70'
+                      statusLabel  = (
                         <button
                           onClick={() => setDisputeSlot(slot)}
-                          className="ml-auto text-xs text-white/30 hover:text-amber-400 underline underline-offset-2 transition-colors"
+                          className="ml-auto text-xs font-medium text-red-400 hover:text-amber-400 underline underline-offset-2 transition-colors"
                         >
-                          Report issue
+                          Missed — report
                         </button>
                       )
-                    } else {
-                      // No record yet (current or pending cron)
-                      badge = <span className="ml-auto text-xs text-white/20">–</span>
                     }
 
                     return (
                       <div key={slot.windowStart} className="flex items-center gap-3 py-1.5">
                         <div className={`w-2 h-2 rounded-full flex-shrink-0 ${dotColor}`} />
-                        <span className={`text-sm font-medium w-20 flex-shrink-0 ${timeColor}`}>
+                        <span className={`text-sm font-medium w-24 flex-shrink-0 ${timeColor}`}>
                           {fmt12(slot.lagosHour)}
                         </span>
-                        {badge}
+                        {statusLabel}
                       </div>
                     )
                   })}
                 </div>
-              </div>
-            )}
+              )}
+            </div>
 
             {/* This week */}
             <div>

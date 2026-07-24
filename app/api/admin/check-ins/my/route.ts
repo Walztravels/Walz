@@ -2,15 +2,19 @@ import { NextResponse } from 'next/server'
 import { getAdminSession } from '@/lib/admin-auth'
 import { prisma } from '@/lib/db'
 
-const TZ_OFFSET_HOURS = 1 // Africa/Lagos = UTC+1
-
-function lagosNow(): Date {
-  const utc = new Date()
-  return new Date(utc.getTime() + TZ_OFFSET_HOURS * 60 * 60 * 1000)
+function tzOffsetHours(tz: string): number {
+  const now   = new Date()
+  const local = new Date(now.toLocaleString('en-US', { timeZone: tz }))
+  const utc   = new Date(now.toLocaleString('en-US', { timeZone: 'UTC' }))
+  return Math.round((local.getTime() - utc.getTime()) / 3_600_000)
 }
 
-function lagosToUtc(d: Date): Date {
-  return new Date(d.getTime() - TZ_OFFSET_HOURS * 60 * 60 * 1000)
+function localNow(offsetHours: number): Date {
+  return new Date(new Date().getTime() + offsetHours * 60 * 60 * 1000)
+}
+
+function localToUtc(d: Date, offsetHours: number): Date {
+  return new Date(d.getTime() - offsetHours * 60 * 60 * 1000)
 }
 
 // Roles that are never subject to check-in tracking regardless of toggle
@@ -32,7 +36,7 @@ export async function GET() {
     const [staffRow, settings] = await Promise.all([
       prisma.staff.findUnique({
         where:  { id: staffId },
-        select: { checkInTracked: true, name: true },
+        select: { checkInTracked: true, name: true, timezone: true },
       }),
       prisma.checkInSettings.findUnique({ where: { id: 'singleton' } }).catch(() => null),
     ])
@@ -41,29 +45,31 @@ export async function GET() {
       return NextResponse.json({ tracked: false })
     }
 
-    const workStart = settings?.workStartHour ?? 8
-    const workEnd   = settings?.workEndHour   ?? 18
+    const tz         = staffRow.timezone ?? 'Africa/Lagos'
+    const tzOffset   = tzOffsetHours(tz)
+    const workStart  = settings?.workStartHour ?? 8
+    const workEnd    = settings?.workEndHour   ?? 18
 
-    // Current Lagos time
-    const nowLagos   = lagosNow()
-    const hourLagos  = nowLagos.getUTCHours()
-    const todayLagos = new Date(Date.UTC(nowLagos.getUTCFullYear(), nowLagos.getUTCMonth(), nowLagos.getUTCDate()))
+    // Current local time for this staff member
+    const nowLocal   = localNow(tzOffset)
+    const hourLocal  = nowLocal.getUTCHours()
+    const todayLocal = new Date(Date.UTC(nowLocal.getUTCFullYear(), nowLocal.getUTCMonth(), nowLocal.getUTCDate()))
 
     // Day boundaries in UTC
-    const dayStartUtc = lagosToUtc(todayLagos)
+    const dayStartUtc = localToUtc(todayLocal, tzOffset)
     const dayEndUtc   = new Date(dayStartUtc.getTime() + 24 * 60 * 60 * 1000)
 
     // Build all work-hour slot windowStarts for today (in UTC)
     const allSlots: Date[] = []
     for (let h = workStart; h < workEnd; h++) {
-      const lagosSlot = new Date(Date.UTC(todayLagos.getUTCFullYear(), todayLagos.getUTCMonth(), todayLagos.getUTCDate(), h, 0, 0, 0))
-      allSlots.push(lagosToUtc(lagosSlot))
+      const localSlot = new Date(Date.UTC(todayLocal.getUTCFullYear(), todayLocal.getUTCMonth(), todayLocal.getUTCDate(), h, 0, 0, 0))
+      allSlots.push(localToUtc(localSlot, tzOffset))
     }
 
     // Fetch today's records and week summary in parallel
-    const weekStartLagos = new Date(todayLagos)
-    weekStartLagos.setUTCDate(todayLagos.getUTCDate() - todayLagos.getUTCDay()) // Sunday
-    const weekStartUtc = lagosToUtc(weekStartLagos)
+    const weekStartLocal = new Date(todayLocal)
+    weekStartLocal.setUTCDate(todayLocal.getUTCDate() - todayLocal.getUTCDay()) // Sunday
+    const weekStartUtc = localToUtc(weekStartLocal, tzOffset)
 
     const [todayRecords, weekRecords, todayCallLogs] = await Promise.all([
       prisma.checkInRecord.findMany({
@@ -85,11 +91,12 @@ export async function GET() {
     const recordBySlot = new Map(todayRecords.map(r => [r.windowStart.getTime(), r]))
 
     // Build todaySlots (only past/current slots up to now)
-    const pastSlots = allSlots.filter(s => s.getTime() <= lagosToUtc(nowLagos).getTime())
+    const nowUtcMs      = new Date().getTime()
+    const pastSlots     = allSlots.filter(s => s.getTime() <= nowUtcMs)
     const todaySlotsOut = pastSlots.map(slotUtc => {
-      const rec          = recordBySlot.get(slotUtc.getTime())
-      const slotEnd      = new Date(slotUtc.getTime() + 60 * 60 * 1000)
-      const lagosSlot    = new Date(slotUtc.getTime() + TZ_OFFSET_HOURS * 60 * 60 * 1000)
+      const rec       = recordBySlot.get(slotUtc.getTime())
+      const slotEnd   = new Date(slotUtc.getTime() + 60 * 60 * 1000)
+      const lagosSlot = new Date(slotUtc.getTime() + tzOffset * 60 * 60 * 1000)
       const hasCall      = todayCallLogs.some(l => l.createdAt >= slotUtc && l.createdAt < slotEnd)
       const activitySource: 'call' | 'admin' | 'manual' | null =
         rec?.manualCheckin ? 'manual' :
@@ -117,15 +124,15 @@ export async function GET() {
     const weekDeductions = weekRecords.reduce((s, r) => s + r.deductionAmt, 0)
 
     // Current slot
-    const isWorkHours = hourLagos >= workStart && hourLagos < workEnd
-    let currentSlot = null
+    const isWorkHours = hourLocal >= workStart && hourLocal < workEnd
+    let currentSlot   = null
 
     if (isWorkHours) {
-      const currentLagosSlotDate = new Date(Date.UTC(
-        todayLagos.getUTCFullYear(), todayLagos.getUTCMonth(), todayLagos.getUTCDate(),
-        hourLagos, 0, 0, 0,
+      const currentLocalSlotDate = new Date(Date.UTC(
+        todayLocal.getUTCFullYear(), todayLocal.getUTCMonth(), todayLocal.getUTCDate(),
+        hourLocal, 0, 0, 0,
       ))
-      const currentSlotUtc = lagosToUtc(currentLagosSlotDate)
+      const currentSlotUtc = localToUtc(currentLocalSlotDate, tzOffset)
       const windowEndUtc   = new Date(currentSlotUtc.getTime() + 60 * 60 * 1000)
 
       const rec = recordBySlot.get(currentSlotUtc.getTime())
@@ -141,14 +148,14 @@ export async function GET() {
       ])
 
       const hasActivityThisSlot = activityCount > 0 || callCount > 0
-      const minutesElapsed      = nowLagos.getUTCMinutes()
+      const minutesElapsed      = nowLocal.getUTCMinutes()
       const minutesRemaining    = 60 - minutesElapsed
 
       currentSlot = {
         id:                    rec?.id ?? null,
         windowStart:           currentSlotUtc.toISOString(),
         windowEnd:             windowEndUtc.toISOString(),
-        lagosHour:             hourLagos,
+        lagosHour:             hourLocal,
         present:               (rec?.present ?? false) || callCount > 0,
         manualCheckin:         rec?.manualCheckin ?? false,
         autoDetected:          rec?.autoDetected  ?? false,

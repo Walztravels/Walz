@@ -4,11 +4,15 @@ import { getResend } from '@/lib/resend'
 
 const CRON_SECRET = process.env.CRON_SECRET
 
-// Nigeria is UTC+1 (Africa/Lagos)
-const TZ_OFFSET_HOURS = 1
+function tzOffsetHours(tz: string): number {
+  const now   = new Date()
+  const local = new Date(now.toLocaleString('en-US', { timeZone: tz }))
+  const utc   = new Date(now.toLocaleString('en-US', { timeZone: 'UTC' }))
+  return Math.round((local.getTime() - utc.getTime()) / 3_600_000)
+}
 
-function toLocalHour(utcDate: Date) {
-  return (utcDate.getUTCHours() + TZ_OFFSET_HOURS) % 24
+function toLocalHour(utcDate: Date, offsetHours: number) {
+  return (utcDate.getUTCHours() + offsetHours) % 24
 }
 
 function fmt12h(localHour: number) {
@@ -94,45 +98,49 @@ export async function GET(req: Request) {
     return NextResponse.json({ ok: true, skipped: true, reason: 'Check-in tracking disabled' })
   }
 
-  // Run at 17:00 UTC = 18:00 Lagos — process today's full work day
-  const nowUtc = new Date()
-
-  // Build the list of work-hour windows for today (in UTC, offset-corrected)
-  const todayWindows: { windowStart: Date; windowEnd: Date; localHour: number }[] = []
-  for (let h = settings.workStartHour; h < settings.workEndHour; h++) {
-    // h is a local (Lagos) hour; convert to UTC for the window boundary
-    const utcHour = (h - TZ_OFFSET_HOURS + 24) % 24
-    const windowStart = new Date(nowUtc)
-    windowStart.setUTCHours(utcHour, 0, 0, 0)
-
-    // If this window is in the future (cron ran before end of that hour) skip it
-    if (windowStart >= nowUtc) continue
-
-    const windowEnd = new Date(windowStart)
-    windowEnd.setUTCHours(windowEnd.getUTCHours() + 1)
-
-    todayWindows.push({ windowStart, windowEnd, localHour: h })
-  }
-
-  if (todayWindows.length === 0) {
-    return NextResponse.json({ ok: true, skipped: true, reason: 'No work windows to process' })
-  }
-
   const trackedStaff = await prisma.staff.findMany({
     where: {
       isActive:       true,
       checkInTracked: true,
     },
-    select: { id: true, name: true, email: true },
+    select: { id: true, name: true, email: true, timezone: true },
   })
 
   if (trackedStaff.length === 0) {
     return NextResponse.json({ ok: true, processed: 0, message: 'No tracked staff' })
   }
 
-  // Fetch all activity AND call presence for today in one pass
-  const dayStart    = todayWindows[0].windowStart
-  const dayEnd      = todayWindows[todayWindows.length - 1].windowEnd
+  // Build per-staff windows (each staff may have a different timezone)
+  type StaffWindow = { windowStart: Date; windowEnd: Date; localHour: number }
+  const staffWindows = new Map<string, StaffWindow[]>()
+
+  for (const staff of trackedStaff) {
+    const offset  = tzOffsetHours(staff.timezone ?? 'Africa/Lagos')
+    const nowUtc  = new Date()
+    // "today" in staff's local timezone
+    const nowLocal   = new Date(nowUtc.getTime() + offset * 60 * 60 * 1000)
+    const todayLocal = new Date(Date.UTC(nowLocal.getUTCFullYear(), nowLocal.getUTCMonth(), nowLocal.getUTCDate()))
+    const windows: StaffWindow[] = []
+
+    for (let h = settings.workStartHour; h < settings.workEndHour; h++) {
+      const utcHour      = (h - offset + 24) % 24
+      const windowStart  = new Date(todayLocal.getTime() - offset * 60 * 60 * 1000)
+      windowStart.setUTCHours(utcHour, 0, 0, 0)
+      if (windowStart >= nowUtc) continue
+      const windowEnd = new Date(windowStart.getTime() + 60 * 60 * 1000)
+      windows.push({ windowStart, windowEnd, localHour: h })
+    }
+    staffWindows.set(staff.id, windows)
+  }
+
+  // Global day range for bulk fetching logs (span all staff windows)
+  const allWindowStarts = Array.from(staffWindows.values()).flat().map(w => w.windowStart)
+  const allWindowEnds   = Array.from(staffWindows.values()).flat().map(w => w.windowEnd)
+  if (allWindowStarts.length === 0) {
+    return NextResponse.json({ ok: true, skipped: true, reason: 'No work windows to process' })
+  }
+  const dayStart    = new Date(Math.min(...allWindowStarts.map(d => d.getTime())))
+  const dayEnd      = new Date(Math.max(...allWindowEnds.map(d => d.getTime())))
   const staffEmails = trackedStaff.map(s => s.email).filter(Boolean)
 
   const [allLogs, allCallLogs] = await Promise.all([
@@ -166,8 +174,9 @@ export async function GET(req: Request) {
     const staffLogs     = allLogs.filter(l => l.staffId === staff.id)
     const staffCallLogs = allCallLogs.filter(l => l.assignedTo === staff.email)
     const missedWindows: { localHour: number; windowStart: Date }[] = []
+    const myWindows     = staffWindows.get(staff.id) ?? []
 
-    for (const { windowStart, windowEnd, localHour } of todayWindows) {
+    for (const { windowStart, windowEnd, localHour } of myWindows) {
       const hasActivity = staffLogs.some(l => l.createdAt >= windowStart && l.createdAt < windowEnd)
       const hasCall     = staffCallLogs.some(l => l.createdAt >= windowStart && l.createdAt < windowEnd)
       const present     = hasActivity || hasCall
