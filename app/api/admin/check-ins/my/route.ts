@@ -166,14 +166,17 @@ export async function GET() {
       }
     }
 
+    const currencySymbol = tz === 'Africa/Accra' ? 'GH₵' : '₦'
+
     return NextResponse.json({
       tracked: true,
-      name:        staffRow.name,
+      name:          staffRow.name,
       workStart,
       workEnd,
       currentSlot,
-      todaySlots:  todaySlotsOut,
-      weekSummary: { missed: weekMissed, waived: weekWaived, totalDeductions: weekDeductions },
+      todaySlots:    todaySlotsOut,
+      weekSummary:   { missed: weekMissed, waived: weekWaived, totalDeductions: weekDeductions },
+      currencySymbol,
     })
   } catch (err) {
     console.error('[check-ins/my GET]', err)

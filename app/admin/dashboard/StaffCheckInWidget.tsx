@@ -1,63 +1,165 @@
 'use client'
 
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { CheckSquare, Clock, ChevronDown, ChevronUp, X } from 'lucide-react'
 
-// ── Types ─────────────────────────────────────────────────────────────────────
-interface SlotInfo {
-  id: string | null
+// ── Types (match the definitive reference interface exactly) ──────────────────
+
+type SlotStatus = 'admin_panel' | 'call_presence' | 'manual' | 'missed' | 'pending'
+
+interface CheckInSlot {
+  id:          string | null
+  hour:        string
   windowStart: string
-  lagosHour: number
-  present: boolean
-  autoDetected: boolean
-  manualCheckin: boolean
-  flagged: boolean
-  waived: boolean
-  dispute: string | null
-  disputeStatus: string | null
+  status:      SlotStatus
+  disputed:    boolean
+}
+
+interface CheckInData {
+  currentSlotLabel:        string
+  currentSlotStatus:       'checked_in' | 'pending' | 'outside_hours'
+  currentSlotDetail:       string
+  todaySlots:              CheckInSlot[]
+  weekMissed:              number
+  weekDeductions:          number
+  currencySymbol:          string
+  minutesLeftInSlot:       number | null
+  showManualCheckInButton: boolean
+}
+
+const STATUS_COLOR: Record<SlotStatus, string> = {
+  admin_panel:   '#4ade80',
+  call_presence: '#60a5fa',
+  manual:        '#f0b040',
+  missed:        '#f87171',
+  pending:       '#3a4a68',
+}
+
+const STATUS_LABEL: Record<SlotStatus, string> = {
+  admin_panel:   'Admin panel',
+  call_presence: 'On a call',
+  manual:        'Manual check-in',
+  missed:        'Missed',
+  pending:       'Pending',
+}
+
+// ── Raw API shapes ────────────────────────────────────────────────────────────
+
+interface RawSlot {
+  id:             string | null
+  windowStart:    string
+  lagosHour:      number
+  present:        boolean
+  autoDetected:   boolean
+  manualCheckin:  boolean
+  flagged:        boolean
+  waived:         boolean
+  dispute:        string | null
+  disputeStatus:  string | null
   activitySource: 'call' | 'admin' | 'manual' | null
 }
 
-interface CurrentSlot extends SlotInfo {
-  windowEnd: string
-  minutesRemaining: number
-  hasActivityThisSlot: boolean
+interface RawCurrentSlot extends RawSlot {
+  windowEnd:            string
+  minutesRemaining:     number
+  hasActivityThisSlot:  boolean
 }
 
-interface MyData {
-  tracked: boolean
-  name?: string
-  workStart?: number
-  workEnd?: number
-  currentSlot: CurrentSlot | null
-  todaySlots: SlotInfo[]
-  weekSummary: { missed: number; waived: number; totalDeductions: number }
+interface RawApiResponse {
+  tracked:        boolean
+  name?:          string
+  workStart?:     number
+  workEnd?:       number
+  currentSlot:    RawCurrentSlot | null
+  todaySlots:     RawSlot[]
+  weekSummary:    { missed: number; waived: number; totalDeductions: number }
+  currencySymbol?: string
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
+
 function fmt12(h: number) {
   const suffix = h >= 12 ? 'PM' : 'AM'
   const hour   = h % 12 === 0 ? 12 : h % 12
   return `${hour}:00 ${suffix}`
 }
 
-function fmtNaira(n: number) {
-  return `₦${n.toLocaleString('en-NG', { minimumFractionDigits: 0 })}`
+function toSlotStatus(s: RawSlot): SlotStatus {
+  if (s.present) {
+    if (s.activitySource === 'call')   return 'call_presence'
+    if (s.activitySource === 'manual') return 'manual'
+    return 'admin_panel'
+  }
+  if (s.flagged && !s.waived) return 'missed'
+  return 'pending'
+}
+
+function buildCheckInData(raw: RawApiResponse): CheckInData {
+  const { currentSlot, todaySlots, weekSummary, currencySymbol = '₦', workStart = 8, workEnd = 18 } = raw
+
+  const mappedSlots: CheckInSlot[] = todaySlots.map(s => ({
+    id:          s.id,
+    hour:        fmt12(s.lagosHour),
+    windowStart: s.windowStart,
+    status:      toSlotStatus(s),
+    disputed:    s.disputeStatus !== null && s.disputeStatus !== undefined,
+  }))
+
+  let currentSlotLabel:        string                              = 'Work hours'
+  let currentSlotStatus:       CheckInData['currentSlotStatus']   = 'outside_hours'
+  let currentSlotDetail:       string                              = `Work hours are ${fmt12(workStart)} – ${fmt12(workEnd)}`
+  let minutesLeftInSlot:       number | null                       = null
+  let showManualCheckInButton: boolean                             = false
+
+  if (currentSlot) {
+    currentSlotLabel = `${fmt12(currentSlot.lagosHour)} slot`
+    const isPresent  = currentSlot.present || currentSlot.hasActivityThisSlot
+
+    if (isPresent) {
+      currentSlotStatus = 'checked_in'
+      if      (currentSlot.activitySource === 'call')   currentSlotDetail = 'Detected via call presence'
+      else if (currentSlot.activitySource === 'manual') currentSlotDetail = 'Manual check-in recorded'
+      else                                               currentSlotDetail = 'Detected via admin panel activity'
+    } else {
+      currentSlotStatus = 'pending'
+      currentSlotDetail = 'No activity detected yet for this slot'
+      if (currentSlot.minutesRemaining <= 15) {
+        minutesLeftInSlot = currentSlot.minutesRemaining
+      } else {
+        showManualCheckInButton = true
+      }
+    }
+  }
+
+  return {
+    currentSlotLabel,
+    currentSlotStatus,
+    currentSlotDetail,
+    todaySlots:              mappedSlots,
+    weekMissed:              weekSummary.missed,
+    weekDeductions:          weekSummary.totalDeductions,
+    currencySymbol,
+    minutesLeftInSlot,
+    showManualCheckInButton,
+  }
 }
 
 // ── Dispute modal ─────────────────────────────────────────────────────────────
-function DisputeModal({ recordId, slotHour, onClose, onDone }: {
-  recordId: string; slotHour: number; onClose: () => void; onDone: () => void
+
+function DisputeModal({ slot, onClose, onDone }: {
+  slot:    CheckInSlot
+  onClose: () => void
+  onDone:  () => void
 }) {
-  const [note, setNote]       = useState('')
-  const [busy, setBusy]       = useState(false)
-  const [err,  setErr]        = useState('')
+  const [note, setNote] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [err,  setErr]  = useState('')
 
   async function submit() {
     if (!note.trim()) { setErr('Please describe the issue.'); return }
+    if (!slot.id)     { setErr('No record to dispute yet — try again after the hour ends.'); return }
     setBusy(true)
     try {
-      const res = await fetch(`/api/admin/check-ins/${recordId}`, {
+      const res = await fetch(`/api/admin/check-ins/${slot.id}`, {
         method:  'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body:    JSON.stringify({ action: 'dispute', note: note.trim() }),
@@ -73,34 +175,49 @@ function DisputeModal({ recordId, slotHour, onClose, onDone }: {
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
-      <div className="bg-[#0d1e35] rounded-2xl ring-1 ring-white/10 p-6 w-full max-w-sm">
-        <div className="flex items-center justify-between mb-4">
-          <h3 className="font-semibold text-white">Report Issue — {fmt12(slotHour)}</h3>
-          <button onClick={onClose} className="text-white/40 hover:text-white transition-colors">
-            <X size={18} />
-          </button>
-        </div>
-        <p className="text-sm text-white/50 mb-3">
+    <div style={{
+      position: 'fixed', inset: 0, zIndex: 50,
+      display: 'flex', alignItems: 'center', justifyContent: 'center',
+      padding: 16, background: 'rgba(0,0,0,0.6)', backdropFilter: 'blur(4px)',
+    }}>
+      <div style={{
+        background: '#0d1526', borderRadius: 12,
+        border: '0.5px solid #1f2b42',
+        padding: 24, width: '100%', maxWidth: 360,
+      }}>
+        <p style={{ margin: '0 0 4px', color: '#ffffff', fontWeight: 500, fontSize: 14 }}>
+          Report issue — {slot.hour}
+        </p>
+        <p style={{ margin: '0 0 12px', color: '#7a8aa8', fontSize: 12 }}>
           Describe why this slot should not count as a miss. An admin will review it.
         </p>
         <textarea
-          className="w-full bg-white/5 rounded-xl ring-1 ring-white/10 text-white text-sm px-3 py-2.5 resize-none focus:outline-none focus:ring-amber-400/40 placeholder-white/20"
-          rows={4}
-          placeholder="e.g. I was on a client call outside the system"
           value={note}
           onChange={e => { setNote(e.target.value); setErr('') }}
+          placeholder="e.g. I was on a client call outside the system"
+          rows={4}
+          style={{
+            width: '100%', boxSizing: 'border-box',
+            background: '#16213a', border: '0.5px solid #1f2b42',
+            borderRadius: 8, color: '#ffffff', fontSize: 12,
+            padding: '10px 12px', resize: 'none', outline: 'none',
+          }}
         />
-        {err && <p className="text-red-400 text-xs mt-1">{err}</p>}
-        <div className="flex gap-2 mt-4">
-          <button onClick={onClose} className="flex-1 py-2 rounded-xl text-sm text-white/50 ring-1 ring-white/10 hover:bg-white/5 transition-colors">
+        {err && <p style={{ color: '#f87171', fontSize: 11, margin: '4px 0 0' }}>{err}</p>}
+        <div style={{ display: 'flex', gap: 8, marginTop: 12 }}>
+          <button onClick={onClose} style={{
+            flex: 1, padding: 10, fontSize: 12,
+            background: '#16213a', color: '#7a8aa8',
+            border: '0.5px solid #1f2b42', borderRadius: 8, cursor: 'pointer',
+          }}>
             Cancel
           </button>
-          <button
-            onClick={submit}
-            disabled={busy}
-            className="flex-1 py-2 rounded-xl text-sm font-semibold bg-amber-500 text-[#0a1628] hover:bg-amber-400 disabled:opacity-50 transition-colors"
-          >
+          <button onClick={submit} disabled={busy} style={{
+            flex: 1, padding: 10, fontSize: 12, fontWeight: 500,
+            background: '#c9962f', color: '#0d1526',
+            border: 'none', borderRadius: 8,
+            cursor: busy ? 'not-allowed' : 'pointer', opacity: busy ? 0.6 : 1,
+          }}>
             {busy ? 'Submitting…' : 'Submit'}
           </button>
         </div>
@@ -109,105 +226,23 @@ function DisputeModal({ recordId, slotHour, onClose, onDone }: {
   )
 }
 
-// ── Urgent check-in prompt (floating overlay) ─────────────────────────────────
-function UrgentPrompt({ slot, onCheckedIn }: {
-  slot: CurrentSlot; onCheckedIn: () => void
-}) {
-  const [busy,      setBusy]      = useState(false)
-  const [dismissed, setDismissed] = useState(false)
-  const [mins,      setMins]      = useState(slot.minutesRemaining)
-
-  // live countdown
-  useEffect(() => {
-    const id = setInterval(() => {
-      const now     = new Date()
-      const end     = new Date(slot.windowEnd)
-      const diffMs  = end.getTime() - now.getTime()
-      setMins(Math.max(0, Math.ceil(diffMs / 60000)))
-    }, 30000)
-    return () => clearInterval(id)
-  }, [slot.windowEnd])
-
-  if (dismissed) return null
-
-  async function checkIn() {
-    setBusy(true)
-    try {
-      const res = await fetch('/api/admin/check-ins/manual', { method: 'POST' })
-      if (res.ok) { onCheckedIn(); setDismissed(true) }
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  const isUrgent = mins <= 5
-
-  return (
-    <div className={`fixed bottom-24 md:bottom-8 left-1/2 -translate-x-1/2 z-40 w-[calc(100%-2rem)] max-w-sm rounded-2xl shadow-2xl ring-1 transition-all
-      ${isUrgent
-        ? 'bg-[#2d1208] ring-red-500/30'
-        : 'bg-[#0d1e35] ring-amber-400/20'
-      }`}>
-      <div className="p-5">
-        <button
-          onClick={() => setDismissed(true)}
-          className="absolute top-3 right-3 text-white/30 hover:text-white/70 transition-colors"
-        >
-          <X size={16} />
-        </button>
-
-        <div className="flex items-start gap-3 mb-4">
-          <div className={`w-9 h-9 rounded-full flex items-center justify-center flex-shrink-0 mt-0.5
-            ${isUrgent ? 'bg-red-500/20' : 'bg-amber-500/20'}`}>
-            <Clock size={16} className={isUrgent ? 'text-red-400' : 'text-amber-400'} />
-          </div>
-          <div>
-            <p className="font-semibold text-white text-sm">
-              No activity detected for the {fmt12(slot.lagosHour)} slot
-            </p>
-            <p className={`text-xs font-medium mt-0.5 ${isUrgent ? 'text-red-400' : 'text-amber-400'}`}>
-              Check in within {mins} minute{mins !== 1 ? 's' : ''}
-            </p>
-          </div>
-        </div>
-
-        <button
-          onClick={checkIn}
-          disabled={busy}
-          className={`w-full py-3 rounded-xl font-semibold text-sm transition-all active:scale-95 disabled:opacity-60
-            ${isUrgent
-              ? 'bg-red-500 text-white hover:bg-red-400'
-              : 'bg-amber-500 text-[#0a1628] hover:bg-amber-400'
-            }`}
-        >
-          {busy ? 'Checking in…' : 'Check in now'}
-        </button>
-
-        <p className="text-white/30 text-xs text-center mt-3 leading-relaxed">
-          Being active on a call or in the admin panel checks you in automatically.
-          This appears only when neither has been detected.
-        </p>
-      </div>
-    </div>
-  )
-}
-
 // ── Main widget ───────────────────────────────────────────────────────────────
+
 export function StaffCheckInWidget() {
-  const [data,        setData]        = useState<MyData | null>(null)
-  const [expanded,    setExpanded]    = useState(true)
+  const [data,        setData]        = useState<CheckInData | null>(null)
+  const [disputeSlot, setDisputeSlot] = useState<CheckInSlot | null>(null)
   const [checkingIn,  setCheckingIn]  = useState(false)
-  const [disputeSlot, setDisputeSlot] = useState<SlotInfo | null>(null)
   const intervalRef = useRef<NodeJS.Timeout | null>(null)
 
   const load = useCallback(async () => {
     try {
       const res = await fetch('/api/admin/check-ins/my')
       if (!res.ok) return
-      const json = await res.json() as MyData
-      setData(json)
+      const raw = await res.json() as RawApiResponse
+      if (!raw.tracked) { setData(null); return }
+      setData(buildCheckInData(raw))
     } catch {
-      // silently ignore — widget just won't show
+      // silent — widget stays hidden
     }
   }, [])
 
@@ -220,200 +255,218 @@ export function StaffCheckInWidget() {
   async function handleManualCheckIn() {
     setCheckingIn(true)
     try {
-      const res = await fetch('/api/admin/check-ins/manual', { method: 'POST' })
-      if (res.ok) await load()
+      await fetch('/api/admin/check-ins/manual', { method: 'POST' })
+      await load()
     } finally {
       setCheckingIn(false)
     }
   }
 
-  if (!data || !data.tracked) return null
-
-  const { currentSlot, todaySlots, weekSummary } = data
-
-  // Show urgent prompt when < 15 min left, not checked in, no auto-detection
-  const showUrgentPrompt = !!(
-    currentSlot &&
-    !currentSlot.present &&
-    !currentSlot.hasActivityThisSlot &&
-    currentSlot.minutesRemaining <= 15
-  )
-
-  // Current slot label/colour
-  function currentSlotBadge() {
-    if (!currentSlot) return null
-    if (currentSlot.present || currentSlot.hasActivityThisSlot) {
-      return (
-        <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-500/15 text-emerald-400 text-xs font-medium">
-          <CheckSquare size={12} />
-          Checked in for the {fmt12(currentSlot.lagosHour)} slot
-        </span>
-      )
-    }
-    return (
-      <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-amber-500/15 text-amber-400 text-xs font-medium">
-        <Clock size={12} />
-        {currentSlot.minutesRemaining} min left in {fmt12(currentSlot.lagosHour)} slot
-      </span>
-    )
-  }
-
-  // Next slot time
-  function nextSlotLabel() {
-    if (!currentSlot) return null
-    const nextHour = currentSlot.lagosHour + 1
-    if (!data?.workEnd || nextHour >= data.workEnd) return null
-    return `Next check-in due by ${fmt12(nextHour)}`
-  }
+  // Renders null for untracked staff — never fetches again once null is confirmed
+  if (!data) return null
 
   return (
     <>
-      {/* Urgent floating prompt */}
-      {showUrgentPrompt && currentSlot && (
-        <UrgentPrompt slot={currentSlot} onCheckedIn={load} />
-      )}
+      <div style={{
+        background: '#0d1526',
+        borderRadius: 12,
+        overflow: 'hidden',
+        fontFamily: 'var(--font-sans)',
+        position: 'relative',
+        marginBottom: 24,
+      }}>
+        <div style={{ padding: '16px 20px 0' }}>
+          <p style={{
+            margin: '0 0 4px', fontSize: 11, color: '#7a8aa8',
+            textTransform: 'uppercase', letterSpacing: '0.03em',
+          }}>
+            My check-ins
+          </p>
+        </div>
 
-      {/* Dispute modal */}
-      {disputeSlot?.id && (
+        <div style={{ padding: '12px 20px 20px' }}>
+
+          {/* ── Current slot ──────────────────────────────────────── */}
+          <div style={{
+            background: '#16213a', borderRadius: 12,
+            padding: 18, marginBottom: 16,
+          }}>
+            <div style={{
+              display: 'flex', alignItems: 'center',
+              justifyContent: 'space-between', marginBottom: 4,
+            }}>
+              <span style={{ fontSize: 13, color: '#ffffff', fontWeight: 500 }}>
+                {data.currentSlotLabel}
+              </span>
+
+              {data.currentSlotStatus === 'checked_in' && (
+                <span style={{
+                  display: 'flex', alignItems: 'center', gap: 5,
+                  background: '#16331f', color: '#4ade80',
+                  fontSize: 11, padding: '3px 10px', borderRadius: 6,
+                }}>
+                  Checked in
+                </span>
+              )}
+              {data.currentSlotStatus === 'outside_hours' && (
+                <span style={{ fontSize: 11, color: '#7a8aa8' }}>
+                  Outside work hours
+                </span>
+              )}
+              {data.currentSlotStatus === 'pending' && (
+                <span style={{
+                  fontSize: 11, color: '#f0b040',
+                  background: '#4a2b0a', padding: '3px 10px', borderRadius: 6,
+                }}>
+                  Awaiting activity
+                </span>
+              )}
+            </div>
+
+            <p style={{ margin: 0, fontSize: 11, color: '#7a8aa8' }}>
+              {data.currentSlotDetail}
+            </p>
+
+            {data.showManualCheckInButton && (
+              <button
+                onClick={handleManualCheckIn}
+                disabled={checkingIn}
+                style={{
+                  marginTop: 12, width: '100%', padding: 10,
+                  fontSize: 13, fontWeight: 500,
+                  background: '#c9962f', color: '#0d1526',
+                  border: 'none', borderRadius: 8,
+                  cursor: checkingIn ? 'not-allowed' : 'pointer',
+                  opacity: checkingIn ? 0.6 : 1,
+                }}
+              >
+                {checkingIn ? 'Checking in…' : 'Check in now'}
+              </button>
+            )}
+          </div>
+
+          {/* ── Today's timeline ──────────────────────────────────── */}
+          <p style={{
+            fontSize: 11, color: '#7a8aa8', margin: '0 0 8px',
+            textTransform: 'uppercase', letterSpacing: '0.03em',
+          }}>
+            Today
+          </p>
+          <div style={{
+            background: '#16213a', borderRadius: 12,
+            padding: '4px 16px', marginBottom: 16,
+          }}>
+            {data.todaySlots.length === 0 ? (
+              <p style={{ fontSize: 11, color: '#7a8aa8', padding: '12px 0', margin: 0 }}>
+                Today&apos;s history will appear here after the first work-hour slot is processed.
+              </p>
+            ) : (
+              data.todaySlots.map((slot, i) => (
+                <div
+                  key={slot.windowStart}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: 10,
+                    padding: '9px 0',
+                    borderBottom: i < data.todaySlots.length - 1 ? '0.5px solid #1f2b42' : 'none',
+                  }}
+                >
+                  <div style={{
+                    width: 8, height: 8, borderRadius: '50%',
+                    background: STATUS_COLOR[slot.status], flexShrink: 0,
+                  }} />
+                  <span style={{ fontSize: 12, color: '#ffffff', flex: 1 }}>
+                    {slot.hour}
+                  </span>
+                  <span style={{
+                    fontSize: 11,
+                    color: slot.status === 'missed' ? '#d99999' : '#7a8aa8',
+                    display: 'flex', alignItems: 'center', gap: 4,
+                  }}>
+                    {STATUS_LABEL[slot.status]}
+                    {slot.status === 'missed' && !slot.disputed && (
+                      <button
+                        onClick={() => setDisputeSlot(slot)}
+                        style={{
+                          color: '#f0b040', textDecoration: 'underline',
+                          background: 'none', border: 'none',
+                          fontSize: 11, cursor: 'pointer', padding: 0,
+                        }}
+                      >
+                        Report
+                      </button>
+                    )}
+                    {slot.disputed && (
+                      <span style={{ color: '#f0b040' }}>Disputed</span>
+                    )}
+                  </span>
+                </div>
+              ))
+            )}
+          </div>
+
+          {/* ── Weekly summary ────────────────────────────────────── */}
+          <p style={{
+            fontSize: 11, color: '#7a8aa8', margin: '0 0 8px',
+            textTransform: 'uppercase', letterSpacing: '0.03em',
+          }}>
+            This week
+          </p>
+          <div style={{
+            background: '#16213a', borderRadius: 12, padding: '14px 16px',
+          }}>
+            <div style={{
+              display: 'flex', alignItems: 'center',
+              justifyContent: 'space-between', marginBottom: 6,
+            }}>
+              <span style={{ fontSize: 12, color: '#7a8aa8' }}>Check-ins missed</span>
+              <span style={{ fontSize: 12, color: '#ffffff' }}>{data.weekMissed}</span>
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <span style={{ fontSize: 12, color: '#7a8aa8' }}>Deductions</span>
+              <span style={{ fontSize: 12, color: '#ffffff' }}>
+                {data.currencySymbol}{data.weekDeductions.toLocaleString()}
+              </span>
+            </div>
+          </div>
+
+        </div>
+
+        {/* ── Urgent prompt (≤ 15 min, no activity) ────────────────── */}
+        {data.minutesLeftInSlot !== null && (
+          <div style={{
+            margin: '0 16px 16px',
+            background: '#4a2b0a', border: '0.5px solid #6b4515',
+            borderRadius: 10, padding: '12px 14px',
+            display: 'flex', alignItems: 'center', gap: 10,
+          }}>
+            <span style={{ fontSize: 12, color: '#f0b040', flex: 1 }}>
+              {data.minutesLeftInSlot} min left in this slot — no activity yet
+            </span>
+            <button
+              onClick={handleManualCheckIn}
+              disabled={checkingIn}
+              style={{
+                fontSize: 12, padding: '6px 12px',
+                background: '#c9962f', color: '#0d1526',
+                border: 'none', borderRadius: 6,
+                fontWeight: 500, flexShrink: 0,
+                cursor: checkingIn ? 'not-allowed' : 'pointer',
+                opacity: checkingIn ? 0.6 : 1,
+              }}
+            >
+              {checkingIn ? '…' : 'Check in'}
+            </button>
+          </div>
+        )}
+      </div>
+
+      {disputeSlot && (
         <DisputeModal
-          recordId={disputeSlot.id}
-          slotHour={disputeSlot.lagosHour}
+          slot={disputeSlot}
           onClose={() => setDisputeSlot(null)}
           onDone={load}
         />
       )}
-
-      {/* Main card */}
-      <div className="mb-6 bg-[#112240] rounded-2xl ring-1 ring-white/5">
-
-        {/* Header */}
-        <div className="px-5 py-4 flex items-center justify-between border-b border-white/5">
-          <div className="flex items-center gap-2.5">
-            <div className="w-7 h-7 rounded-lg bg-amber-500/15 flex items-center justify-center flex-shrink-0">
-              <CheckSquare size={14} className="text-amber-400" />
-            </div>
-            <span className="font-semibold text-white text-sm">My Check-Ins</span>
-          </div>
-          <button
-            onClick={() => setExpanded(e => !e)}
-            className="text-white/30 hover:text-white/70 transition-colors"
-          >
-            {expanded ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
-          </button>
-        </div>
-
-        {expanded && (
-          <div className="p-5 space-y-5">
-
-            {/* Current status */}
-            {currentSlot ? (
-              <div className="bg-white/3 rounded-xl p-4 space-y-2">
-                {currentSlotBadge()}
-                {nextSlotLabel() && (
-                  <p className="text-xs text-white/40 pt-0.5">{nextSlotLabel()}</p>
-                )}
-
-                {/* Manual check-in button — only when no auto-detection */}
-                {!currentSlot.present && !currentSlot.hasActivityThisSlot && (
-                  <button
-                    onClick={handleManualCheckIn}
-                    disabled={checkingIn}
-                    className="mt-2 w-full py-2.5 rounded-xl text-sm font-semibold bg-amber-500 text-[#0a1628] hover:bg-amber-400 disabled:opacity-60 transition-all active:scale-95"
-                  >
-                    {checkingIn ? 'Checking in…' : 'Check in now'}
-                  </button>
-                )}
-              </div>
-            ) : (
-              <p className="text-sm text-white/40 text-center py-2">Outside work hours</p>
-            )}
-
-            {/* Today's timeline */}
-            <div>
-              <p className="text-xs font-semibold text-white/30 uppercase tracking-widest mb-2">Today</p>
-              {todaySlots.length === 0 ? (
-                <p className="text-xs text-white/30 py-2">
-                  Today&apos;s check-in history will appear here once the system processes your first working day.
-                </p>
-              ) : (
-                <div className="space-y-1">
-                  {todaySlots.map((slot) => {
-                    const isPresent  = slot.present
-                    const isMissed   = slot.flagged && !slot.waived
-                    const isWaived   = slot.waived
-                    const isDisputed = slot.disputeStatus === 'pending'
-
-                    let dotColor  = 'bg-white/10'
-                    let timeColor = 'text-white/50'
-                    let statusLabel: React.ReactNode = <span className="ml-auto text-xs text-white/20">Pending</span>
-
-                    if (isPresent) {
-                      const src = slot.activitySource
-                      dotColor     = src === 'call' ? 'bg-blue-400' : src === 'manual' ? 'bg-amber-400' : 'bg-emerald-400'
-                      timeColor    = 'text-white'
-                      statusLabel  = (
-                        <span className={`ml-auto text-xs font-medium ${src === 'call' ? 'text-blue-400' : src === 'manual' ? 'text-amber-400' : 'text-emerald-400'}`}>
-                          {src === 'call' ? 'On call' : src === 'manual' ? 'Manual' : 'Admin panel'}
-                        </span>
-                      )
-                    } else if (isWaived) {
-                      dotColor     = 'bg-blue-400'
-                      timeColor    = 'text-white/70'
-                      statusLabel  = <span className="ml-auto text-xs font-medium text-blue-400">Waived</span>
-                    } else if (isDisputed) {
-                      dotColor     = 'bg-amber-400'
-                      timeColor    = 'text-white/70'
-                      statusLabel  = <span className="ml-auto text-xs font-medium text-amber-400">Under review</span>
-                    } else if (isMissed) {
-                      dotColor     = 'bg-red-400'
-                      timeColor    = 'text-white/70'
-                      statusLabel  = (
-                        <button
-                          onClick={() => setDisputeSlot(slot)}
-                          className="ml-auto text-xs font-medium text-red-400 hover:text-amber-400 underline underline-offset-2 transition-colors"
-                        >
-                          Missed — report
-                        </button>
-                      )
-                    }
-
-                    return (
-                      <div key={slot.windowStart} className="flex items-center gap-3 py-1.5">
-                        <div className={`w-2 h-2 rounded-full flex-shrink-0 ${dotColor}`} />
-                        <span className={`text-sm font-medium w-24 flex-shrink-0 ${timeColor}`}>
-                          {fmt12(slot.lagosHour)}
-                        </span>
-                        {statusLabel}
-                      </div>
-                    )
-                  })}
-                </div>
-              )}
-            </div>
-
-            {/* This week */}
-            <div>
-              <p className="text-xs font-semibold text-white/30 uppercase tracking-widest mb-2">This Week</p>
-              <div className="bg-white/3 rounded-xl divide-y divide-white/5">
-                <div className="flex justify-between items-center px-4 py-2.5">
-                  <span className="text-sm text-white/60">Check-ins missed</span>
-                  <span className={`text-sm font-semibold ${weekSummary.missed > 0 ? 'text-red-400' : 'text-white'}`}>
-                    {weekSummary.missed}
-                  </span>
-                </div>
-                <div className="flex justify-between items-center px-4 py-2.5">
-                  <span className="text-sm text-white/60">Deductions</span>
-                  <span className={`text-sm font-semibold ${weekSummary.totalDeductions > 0 ? 'text-red-400' : 'text-white'}`}>
-                    {fmtNaira(weekSummary.totalDeductions)}
-                  </span>
-                </div>
-              </div>
-            </div>
-
-
-          </div>
-        )}
-      </div>
     </>
   )
 }
