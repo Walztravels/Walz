@@ -31,9 +31,5 @@
       "path": "/api/cron/publish-scheduled-posts",
       "schedule": "0 9 * * *"
     },
-    {
-      "path": "/api/cron/check-ins",
-      "schedule": "0 17 * * *"
-    }
   ]
 }

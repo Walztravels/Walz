@@ -1,0 +1,46 @@
+name: Hourly Staff Check-In Cron
+
+# Runs every hour Mon–Fri, 7am–6pm UTC.
+# This covers 8am–7pm Lagos (UTC+1) and 7am–6pm Accra/Ghana (UTC+0),
+# ensuring every work-hour slot for all tracked staff is processed.
+# The endpoint itself decides which windows to act on based on each
+# staff member's local timezone — this workflow is just the trigger.
+
+on:
+  schedule:
+    - cron: '0 7-18 * * 1-5'
+  workflow_dispatch: # enables "Run workflow" button in GitHub UI for testing
+
+jobs:
+  trigger-checkins:
+    name: Trigger check-in processing
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Call check-in endpoint
+        run: |
+          echo "Calling check-in endpoint at $(date -u '+%Y-%m-%dT%H:%M:%SZ')"
+
+          RESPONSE=$(curl -s -w "\n%{http_code}" \
+            --max-time 60 \
+            -H "Authorization: Bearer ${{ secrets.CHECKIN_CRON_SECRET }}" \
+            "https://www.walztravels.com/api/cron/check-ins")
+
+          HTTP_CODE=$(echo "$RESPONSE" | tail -n1)
+          BODY=$(echo "$RESPONSE" | head -n-1)
+
+          echo "HTTP status: $HTTP_CODE"
+          echo "Response body: $BODY"
+
+          if [ "$HTTP_CODE" != "200" ]; then
+            echo "::error::Check-in endpoint returned unexpected status $HTTP_CODE"
+            exit 1
+          fi
+
+          # Confirm the response signals success (not a silent failure)
+          if echo "$BODY" | grep -q '"ok":true'; then
+            echo "Check-in run completed successfully."
+          else
+            echo "::warning::Response did not contain ok:true — check body above"
+          fi

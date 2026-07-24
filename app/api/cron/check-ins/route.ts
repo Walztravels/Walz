@@ -93,6 +93,7 @@ export async function GET(req: Request) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
+  const nowUtc  = new Date()
   const settings = await prisma.checkInSettings.findUnique({ where: { id: 'singleton' } })
   if (!settings?.enabled) {
     return NextResponse.json({ ok: true, skipped: true, reason: 'Check-in tracking disabled' })
@@ -116,7 +117,6 @@ export async function GET(req: Request) {
 
   for (const staff of trackedStaff) {
     const offset  = tzOffsetHours(staff.timezone ?? 'Africa/Lagos')
-    const nowUtc  = new Date()
     // "today" in staff's local timezone
     const nowLocal   = new Date(nowUtc.getTime() + offset * 60 * 60 * 1000)
     const todayLocal = new Date(Date.UTC(nowLocal.getUTCFullYear(), nowLocal.getUTCMonth(), nowLocal.getUTCDate()))
@@ -195,7 +195,8 @@ export async function GET(req: Request) {
             },
           })
           totalUpdated++
-          if (!present && !existing.waived) missedWindows.push({ localHour, windowStart })
+          // Do NOT re-add to missedWindows — email was sent when the record was first created.
+          // Re-adding here would spam the same alert every hour for an already-flagged window.
         }
       } else {
         await prisma.checkInRecord.create({
@@ -245,11 +246,13 @@ export async function GET(req: Request) {
     }
   }
 
+  const totalWindowsProcessed = Array.from(staffWindows.values()).reduce((n, w) => n + w.length, 0)
+
   return NextResponse.json({
-    ok:           true,
-    date:         dateLabel,
-    windowsProcessed: todayWindows.length,
-    tracked:      trackedStaff.length,
+    ok:               true,
+    date:             dateLabel,
+    windowsProcessed: totalWindowsProcessed,
+    tracked:          trackedStaff.length,
     totalCreated,
     totalUpdated,
     emailed,
