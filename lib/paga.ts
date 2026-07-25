@@ -427,8 +427,10 @@ export function verifyPagaWebhookHash(opts: {
  * Create a Dynamic Payment Identifier — a one-time bank account tied to
  * a specific transaction. Expires after ~24 hours or once the payment is made.
  *
- * Hash formula confirmed by Paga support (Qudus Yusuf):
- *   SHA-512(referenceNumber + amount + currency + payer.phoneNumber + hashKey)
+ * Hash formula (6 fields, per Paga docs and Qudus Yusuf confirmation):
+ *   SHA-512(referenceNumber + amount + currency + payer.phoneNumber
+ *           + payer.email + payee.phoneNumber + hmacKey)
+ *   payer.email / payee.phoneNumber are empty string when not supplied.
  *
  * Fee: 0.75% capped at ₦1,000
  */
