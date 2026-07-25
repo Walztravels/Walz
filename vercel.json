@@ -4,7 +4,10 @@
     "app/api/public/group/[param]/lock/route.ts": { "maxDuration": 120 },
     "app/api/admin/visa/analyse/route.ts":         { "maxDuration": 300 },
     "app/api/admin/payroll/transfer/route.ts":     { "maxDuration": 60  },
-    "app/api/admin/payroll/auto-run/route.ts":     { "maxDuration": 60  }
+    "app/api/admin/payroll/auto-run/route.ts":     { "maxDuration": 60  },
+    "app/api/jade/cron/price-guardian/route.ts":   { "maxDuration": 60  },
+    "app/api/jade/cron/journey-companion/route.ts": { "maxDuration": 60 },
+    "app/api/jade/cron/whisper/route.ts":           { "maxDuration": 60 }
   },
   "crons": [
     {
@@ -30,6 +33,18 @@
     {
       "path": "/api/cron/publish-scheduled-posts",
       "schedule": "0 9 * * *"
+    },
+    {
+      "path": "/api/jade/cron/price-guardian",
+      "schedule": "0 */2 * * *"
+    },
+    {
+      "path": "/api/jade/cron/journey-companion",
+      "schedule": "*/15 * * * *"
+    },
+    {
+      "path": "/api/jade/cron/whisper",
+      "schedule": "0 */3 * * *"
     }
   ]
 }
