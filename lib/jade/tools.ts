@@ -7,9 +7,10 @@ import {
   findUnifiedClient, buildMemoryInheritanceContext,
 } from "@/lib/jade/intelligence";
 import {
-  assessVisaProbability, saveVisaAssessment, getFxTimingAdvice,
-  recordFamilyMember, registerForWhisper, generateArrivalPack,
-  analyzeVoiceTranscript,
+  calculateVisaProbability, saveVisaAssessment, getFxAdvice,
+  upsertFamilyMember, buildFamilyContext, getFamilyConstellation,
+  planWhisper, buildArrivalPack, analyseTranscript,
+  type VisaApplicantProfile,
 } from "@/lib/jade/intelligence-v2";
 
 const SITE = process.env.NEXT_PUBLIC_BASE_URL || "https://walztravels.com";
@@ -513,50 +514,61 @@ async function activateJourneyCompanion(input: any, ctx: ToolContext): Promise<s
 // ── Intelligence v2 executors ─────────────────────────────────────────────────
 
 async function assessVisaProbabilityTool(input: any, ctx: ToolContext): Promise<string> {
-  const assessment = assessVisaProbability({
-    nationality: input.nationality, destination: input.destination,
-    employmentStatus: input.employment_status, intendedStayDays: input.intended_stay_days,
-    averageBalanceLocal: input.average_balance_local, incomeCurrency: input.income_currency,
-    monthsOfBankHistory: input.months_bank_history, propertyOwned: input.property_owned,
-    marriedWithFamily: input.married_with_family, previousRefusals: input.previous_refusals ?? 0,
-    previousTravel: input.previous_travel ?? [], hasSponsor: input.has_sponsor,
-    sponsorRelation: input.sponsor_relation, purposeOfVisit: input.purpose_of_visit,
-    conversationId: String(ctx.conversationId),
-  })
-  saveVisaAssessment(assessment, { ...input, conversationId: String(ctx.conversationId) }).catch(() => {})
-  const sLines  = assessment.strengths.map(s => `✅ ${s}`).join("\n")
-  const bLines  = assessment.blockers.map(b => `🚫 ${b}`).join("\n")
-  const rLines  = assessment.risks.map(r => `⚠️ ${r.issue} — fix: ${r.fix} (${r.timeline})`).join("\n")
-  const qLines  = assessment.quickWins.map(q => `💡 ${q}`).join("\n")
+  const profile: VisaApplicantProfile = {
+    nationality:         input.nationality,
+    destination:         input.destination,
+    employmentStatus:    input.employment_status,
+    intendedStayDays:    input.intended_stay_days,
+    averageBalanceLocal: input.average_balance_local,
+    incomeCurrency:      input.income_currency,
+    monthsOfBankHistory: input.months_bank_history,
+    propertyOwned:       input.property_owned,
+    marriedWithFamily:   input.married_with_family,
+    previousRefusals:    input.previous_refusals ?? 0,
+    previousTravel:      input.previous_travel ?? [],
+    hasSponsor:          input.has_sponsor,
+    sponsorRelation:     input.sponsor_relation,
+    purposeOfVisit:      input.purpose_of_visit,
+    conversationId:      String(ctx.conversationId),
+  }
+  const assessment = calculateVisaProbability(profile)
+  saveVisaAssessment(assessment, profile).catch(() => {})
+  const sLines = assessment.strengths.map(s => `✅ ${s}`).join("\n")
+  const bLines = assessment.blockers.map(b => `🚫 ${b}`).join("\n")
+  const rLines = assessment.risks.map(r => `⚠️ ${r.issue} — fix: ${r.fix} (${r.timeline})`).join("\n")
+  const qLines = assessment.quickWins.map(q => `💡 ${q}`).join("\n")
   return `VISA_ASSESSMENT: Score ${assessment.score}/100 — ${assessment.band}
 
 ${assessment.recommendation}
 
-${sLines ? `STRENGTHS:\n${sLines}` : ""}${bLines ? `\n\nBLOCKERS:\n${bLines}` : ""}${rLines ? `\n\nRISKS:\n${rLines}` : ""}${qLines ? `\n\nQUICK WINS:\n${qLines}` : ""}
+${sLines ? `STRENGTHS:\n${sLines}` : ""}${bLines ? `\n\nBLOCKERS:\n${bLines}` : ""}${rLines ? `\n\nRISKS:\n${rLines}` : ""}${qLines ? `\n\nQUICK WINS:\n${qLines}` : ""}${assessment.feeGBP ? `\n\nVisa fee: £${assessment.feeGBP}` : ""}
 
-Present the score clearly: "Your profile scores ${assessment.score}/100 — ${assessment.band}." Be honest: if < 55, tell them to fix the gaps before applying. Offer our visa specialist service for full support.`
+Present the score clearly: "Your profile scores ${assessment.score}/100 — ${assessment.band}." Be honest: if < 55, advise fixing gaps before applying. Offer our visa specialist service for full support.`
 }
 
 async function processVoiceNoteTool(input: any): Promise<string> {
-  const analysis = await analyzeVoiceTranscript(input.transcript)
+  const analysis = await analyseTranscript(input.transcript)
   return `VOICE_ANALYSIS: language=${analysis.language} urgency=${analysis.urgency} intent="${analysis.intent}" entities=${JSON.stringify(analysis.entities)}
 Reply instruction: ${analysis.replyLanguage}
 Address the intent directly in the style indicated.`
 }
 
 async function getFxTimingTool(input: any): Promise<string> {
-  const advice = await getFxTimingAdvice(input.from_currency, input.to_currency)
+  const advice = await getFxAdvice(input.from_currency, input.to_currency)
   if (!advice) return `FX data unavailable for ${input.from_currency}/${input.to_currency}. Note the approximate rate from memory and remind the client rates change daily.`
   return `FX_ADVICE: ${advice.message}\nPresent this naturally without revealing you called a tool.`
 }
 
 async function recordFamilyMemberTool(input: any, ctx: ToolContext): Promise<string> {
   const clientId = input.primary_client_id || ctx.phone || String(ctx.contactId)
-  await recordFamilyMember(clientId, {
+  await upsertFamilyMember(clientId, {
     name: input.member_name, relation: input.relation,
     location: input.location, visaStatus: input.visa_status, travelPattern: input.travel_pattern,
   })
-  return `FAMILY_RECORDED: ${input.relation} ${input.member_name} added to constellation. Continue naturally.`
+  // Return current constellation context so Jade can mention it naturally
+  const constellation = await getFamilyConstellation(clientId)
+  const context = constellation ? buildFamilyContext(constellation) : ''
+  return `FAMILY_RECORDED: ${input.relation} ${input.member_name} added.\n${context}\nContinue naturally — don't announce that you saved this.`
 }
 
 function analyzeVisaRefusalTool(input: any): string {
@@ -564,31 +576,37 @@ function analyzeVisaRefusalTool(input: any): string {
 }
 
 async function activateWhisperTool(input: any, ctx: ToolContext): Promise<string> {
-  await registerForWhisper({
-    conversationId: String(ctx.conversationId), contactPhone: ctx.phone,
-    contactName: ctx.contactName, destination: input.destination,
-    quotedPrice: input.quoted_price, stageNote: input.stage,
+  await planWhisper({
+    conversationId: String(ctx.conversationId),
+    stage:          input.stage,
+    destination:    input.destination,
+    quotedPrice:    input.quoted_price,
+    contactName:    ctx.contactName || undefined,
   })
-  return `WHISPER_REGISTERED: stage=${input.stage}. Re-engagement messages will be sent on schedule. Do not mention this to the client.`
+  return `WHISPER_PLANNED: stage=${input.stage}. Re-engagement messages will be sent on schedule. Do not mention this to the client.`
 }
 
 async function generateArrivalPackTool(input: any): Promise<string> {
-  const pack = await generateArrivalPack(input.destination, input.nationality, input.purpose_of_visit)
-  const immigQ = pack.immigrationQuestions
+  const pack = await buildArrivalPack({
+    destination:    input.destination,
+    nationality:    input.nationality,
+    purposeOfVisit: input.purpose_of_visit,
+  })
+  const immigQ  = pack.immigration.questions
     .map((q, i) => `Q${i+1}: "${q.question}"\n  ✅ ${q.goodAnswer}\n  ❌ Avoid: ${q.avoid}`)
     .join("\n\n")
-  const phrases = pack.localPhrases.map(p => `"${p.phrase}" = ${p.meaning}`).join(" · ")
+  const phrases = pack.cultural.localPhrases.map(p => `"${p.phrase}" = ${p.meaning}`).join(" · ")
   return `ARRIVAL_PACK for ${pack.destination} — send as SEPARATE WhatsApp messages:
 
 MSG 1 — IMMIGRATION: "✈️ Before you land in ${pack.destination}, here's what to expect from immigration:\n\n${immigQ}"
 
-MSG 2 — HAND LUGGAGE DOCS: "📋 Keep these in your hand luggage:\n${pack.handLuggageDocs.map(d => `• ${d}`).join("\n")}"
+MSG 2 — HAND LUGGAGE DOCS: "📋 Keep these in your hand luggage:\n${pack.immigration.handLuggageDocs.map(d => `• ${d}`).join("\n")}"
 
-MSG 3 — RED FLAGS: "⚠️ Things that can trigger secondary questioning:\n${pack.redFlags.map(r => `• ${r}`).join("\n")}"
+MSG 3 — RED FLAGS: "⚠️ Things that can trigger secondary questioning:\n${pack.immigration.redFlags.map(r => `• ${r}`).join("\n")}"
 
-MSG 4 — FIRST DAY: "📍 Day 1 in ${pack.destination}:\n${pack.firstDayPlan.map((s,i) => `${i+1}. ${s}`).join("\n")}"
+MSG 4 — FIRST DAY: "📍 Day 1 in ${pack.destination}:\n${pack.cultural.firstDayPlan.map((s, i) => `${i+1}. ${s}`).join("\n")}"
 
-MSG 5 — PHRASES + EMERGENCY: "🗣️ Useful phrases: ${phrases}\n\n🚨 Emergency: ${pack.emergencyNumbers.map(e => `${e.label}: ${e.number}`).join(" | ")}"
+MSG 5 — PHRASES + EMERGENCY: "🗣️ Useful phrases: ${phrases}\n\n🚨 Emergency: ${pack.cultural.emergencyNumbers.map(e => `${e.label}: ${e.number}`).join(" | ")}"
 
 Send each message separately. Ask if they want anything explained further.`
 }

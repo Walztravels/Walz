@@ -3,7 +3,7 @@
 // Powers both Jade tool calls and a future public visa calculator page
 
 import { NextRequest, NextResponse } from 'next/server'
-import { assessVisaProbability, saveVisaAssessment } from '@/lib/jade/intelligence-v2'
+import { calculateVisaProbability, saveVisaAssessment } from '@/lib/jade/intelligence-v2'
 
 export const dynamic = 'force-dynamic'
 
@@ -36,7 +36,7 @@ export async function POST(req: NextRequest) {
       conversationId:      body.conversationId ?? undefined,
     }
 
-    const assessment = assessVisaProbability(input)
+    const assessment = calculateVisaProbability(input)
     await saveVisaAssessment(assessment, input).catch(() => {})
 
     return NextResponse.json({ ok: true, assessment })

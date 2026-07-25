@@ -3,7 +3,7 @@
 // Accepts: multipart/form-data { audio: File } or JSON { url: string }
 
 import { NextRequest, NextResponse } from 'next/server'
-import { transcribeVoiceNote, analyzeVoiceTranscript } from '@/lib/jade/intelligence-v2'
+import { analyseVoiceNote } from '@/lib/jade/intelligence-v2'
 
 export const maxDuration = 30
 export const dynamic = 'force-dynamic'
@@ -37,10 +37,9 @@ export async function POST(req: NextRequest) {
       audioBuffer = Buffer.from(await res.arrayBuffer())
     }
 
-    const transcript = await transcribeVoiceNote(audioBuffer, mimeType)
-    const analysis   = await analyzeVoiceTranscript(transcript)
+    const analysis = await analyseVoiceNote(audioBuffer, mimeType)
 
-    return NextResponse.json({ ok: true, transcript, analysis })
+    return NextResponse.json({ ok: true, transcript: analysis.transcript, analysis })
   } catch (e: any) {
     console.error('[jade/voice]', e)
     return NextResponse.json({ error: e.message }, { status: 500 })

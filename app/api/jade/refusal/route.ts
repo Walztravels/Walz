@@ -3,7 +3,7 @@
 // Accepts: multipart/form-data { image: File } or JSON { url: string }
 
 import { NextRequest, NextResponse } from 'next/server'
-import { analyzeVisaRefusal } from '@/lib/jade/intelligence-v2'
+import { analyseRefusalLetter } from '@/lib/jade/intelligence-v2'
 
 export const maxDuration = 30
 export const dynamic = 'force-dynamic'
@@ -40,7 +40,7 @@ export async function POST(req: NextRequest) {
       mediaType   = mt as typeof mediaType
     }
 
-    const analysis = await analyzeVisaRefusal(imageBase64, mediaType)
+    const analysis = await analyseRefusalLetter(imageBase64, mediaType)
     return NextResponse.json({ ok: true, analysis })
   } catch (e: any) {
     console.error('[jade/refusal]', e)
