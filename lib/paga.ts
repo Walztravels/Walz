@@ -444,17 +444,17 @@ export async function createDynamicBankAccount(opts: {
   expiryDateTimeUTC?: string
 }): Promise<PagaDynamicAccountResult> {
   const { publicKey, secretKey, hmacKey, baseUrl } = cfg()
-  const currency   = opts.currency ?? 'NGN'
-  // Hash uses integer amount as a string ("5000"), matching Paga's Postman collection
-  const amountStr  = String(opts.amountNgn)
-  const payerEmail = opts.payerEmail?.trim() ?? ''
+  const currency       = opts.currency ?? 'NGN'
+  const amountStr      = String(opts.amountNgn)
+  const payerEmail     = opts.payerEmail?.trim() ?? ''
+  // Compute expiry once so hash and payload use the identical string value
+  const expiryDateTimeUTC = opts.expiryDateTimeUTC ?? pagaExpiryUTC(24)
 
-  // Hash formula per Qudus (Paga support) confirmed working template:
-  // SHA-512(referenceNumber + amount + currency + payer.phoneNumber + hmacKey)
-  // payer.email and payee.phoneNumber omitted — not sent in body, not in hash
-  // Hash sent as HTTP header "hash", not in body
-  const hash = sha512(opts.referenceNumber, amountStr, currency, opts.payerPhone, hmacKey)
-  console.log('[paga/paymentRequest] hash-data (no key):', `${opts.referenceNumber}${amountStr}${currency}${opts.payerPhone}`)
+  // Hash formula: SHA-512(referenceNumber + amount + currency + expiryDateTimeUTC + payer.phoneNumber + hmacKey)
+  // expiryDateTimeUTC must be in the hash now that it is sent in the body — Paga validates both together.
+  const hash = sha512(opts.referenceNumber, amountStr, currency, expiryDateTimeUTC, opts.payerPhone, hmacKey)
+  console.log('[paga/paymentRequest] hash-data (no key):',
+    `${opts.referenceNumber}${amountStr}${currency}${expiryDateTimeUTC}${opts.payerPhone}`)
 
   const auth = basicAuth(publicKey, secretKey)
   const payer: Record<string, string> = {
@@ -464,10 +464,10 @@ export async function createDynamicBankAccount(opts: {
   if (payerEmail) payer.email = payerEmail
 
   const payload: Record<string, unknown> = {
-    referenceNumber:         opts.referenceNumber,
-    amount:                  opts.amountNgn,
+    referenceNumber: opts.referenceNumber,
+    amount:          opts.amountNgn,
     currency,
-    expiryDateTimeUTC:       opts.expiryDateTimeUTC ?? pagaExpiryUTC(24),
+    expiryDateTimeUTC,
     payer,
     payee:                   { name: opts.payeeName ?? 'Walz Travels' },
     isSuppressMessages:      false,
