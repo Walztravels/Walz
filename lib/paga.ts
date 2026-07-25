@@ -447,12 +447,10 @@ export async function createDynamicBankAccount(opts: {
   const currency          = opts.currency ?? 'NGN'
   const amountStr         = String(opts.amountNgn)
   const payerEmail        = opts.payerEmail?.trim() ?? ''
-  // Compute expiry once so the same string goes into the payload every time
   const expiryDateTimeUTC = opts.expiryDateTimeUTC ?? pagaExpiryUTC(24)
 
   // Hash formula confirmed by Qudus (Paga support):
   // SHA-512(referenceNumber + amount + currency + payer.phoneNumber + hmacKey)
-  // expiryDateTimeUTC is a body-only parameter — Paga does NOT include it in the hash.
   const hash = sha512(opts.referenceNumber, amountStr, currency, opts.payerPhone, hmacKey)
   console.log('[paga/paymentRequest] hash-data (no key):',
     `${opts.referenceNumber}${amountStr}${currency}${opts.payerPhone}`)
@@ -465,18 +463,19 @@ export async function createDynamicBankAccount(opts: {
   if (payerEmail) payer.email = payerEmail
 
   const payload: Record<string, unknown> = {
-    referenceNumber: opts.referenceNumber,
-    amount:          opts.amountNgn,
+    referenceNumber:          opts.referenceNumber,
+    amount:                   opts.amountNgn,
     currency,
     expiryDateTimeUTC,
     payer,
-    payee:                   { name: opts.payeeName ?? 'Walz Travels' },
-    isSuppressMessages:      false,
-    payerCollectionFeeShare: 1.0,
-    payeeCollectionFeeShare: 0.0,
-    isAllowPartialPayments:  false,
-    isAllowOverPayments:     false,
-    paymentMethods:          ['BANK_TRANSFER', 'REQUEST_MONEY'],
+    payee:                    { name: opts.payeeName ?? 'Walz Travels' },
+    displayBankDetailToPayer: true,
+    isSuppressMessages:       false,
+    payerCollectionFeeShare:  1.0,
+    payeeCollectionFeeShare:  0.0,
+    isAllowPartialPayments:   false,
+    isAllowOverPayments:      false,
+    paymentMethods:           ['BANK_TRANSFER'],
   }
   if (opts.callBackUrl) payload.callBackUrl = opts.callBackUrl
 
