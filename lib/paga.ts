@@ -465,6 +465,10 @@ export async function createDynamicBankAccount(opts: {
   }
   if (payerEmail) payer.email = payerEmail
 
+  // Minimal payload matching Paga's own Postman example — only confirmed fields.
+  // isSuppressMessages / payerCollectionFeeShare / payeeCollectionFeeShare /
+  // isAllowPartialPayments / isAllowOverPayments are NOT in Paga's documented
+  // /paymentRequest example and have been removed to isolate the system error.
   const payload: Record<string, unknown> = {
     referenceNumber:          opts.referenceNumber,
     amount:                   opts.amountNgn,
@@ -473,11 +477,6 @@ export async function createDynamicBankAccount(opts: {
     payer,
     payee:                    { name: opts.payeeName ?? 'Walz Travels' },
     displayBankDetailToPayer: true,
-    isSuppressMessages:       false,
-    payerCollectionFeeShare:  1.0,
-    payeeCollectionFeeShare:  0.0,
-    isAllowPartialPayments:   false,
-    isAllowOverPayments:      false,
     paymentMethods:           ['BANK_TRANSFER'],
   }
   if (opts.callBackUrl) payload.callBackUrl = opts.callBackUrl
