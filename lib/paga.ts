@@ -37,12 +37,12 @@ function sha512(...parts: string[]) {
   return crypto.createHash('sha512').update(parts.join('')).digest('hex')
 }
 
-// Paga requires expiryDateTimeUTC in "YYYY-MM-DD HH:MM:SS" format (UTC, space not T)
+// Paga expiryDateTimeUTC — ISO 8601 with T separator, matching Paga's own example
 function pagaExpiryUTC(hoursFromNow = 24): string {
   const d   = new Date(Date.now() + hoursFromNow * 3_600_000)
   const pad = (n: number) => String(n).padStart(2, '0')
   return (
-    `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())} ` +
+    `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())}T` +
     `${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}:${pad(d.getUTCSeconds())}`
   )
 }
@@ -449,11 +449,12 @@ export async function createDynamicBankAccount(opts: {
   const payerEmail        = opts.payerEmail?.trim() ?? ''
   const expiryDateTimeUTC = opts.expiryDateTimeUTC ?? pagaExpiryUTC(24)
 
-  // Hash formula confirmed by Qudus (Paga support):
-  // SHA-512(referenceNumber + amount + currency + payer.phoneNumber + hmacKey)
-  const hash = sha512(opts.referenceNumber, amountStr, currency, opts.payerPhone, hmacKey)
+  // Hash: SHA-512(referenceNumber + amount + currency + payer.phoneNumber + payer.email + payee.phoneNumber + hmacKey)
+  // All 6 documented fields in order; payee.phoneNumber and payer.email are empty string when absent.
+  const payeePhone = ''
+  const hash = sha512(opts.referenceNumber, amountStr, currency, opts.payerPhone, payerEmail, payeePhone, hmacKey)
   console.log('[paga/paymentRequest] hash-data (no key):',
-    `${opts.referenceNumber}${amountStr}${currency}${opts.payerPhone}`)
+    `${opts.referenceNumber}${amountStr}${currency}${opts.payerPhone}${payerEmail}${payeePhone}`)
 
   const auth = basicAuth(publicKey, secretKey)
   const payer: Record<string, string> = {
