@@ -37,6 +37,16 @@ function sha512(...parts: string[]) {
   return crypto.createHash('sha512').update(parts.join('')).digest('hex')
 }
 
+// Paga requires expiryDateTimeUTC in "YYYY-MM-DD HH:MM:SS" format (UTC, space not T)
+function pagaExpiryUTC(hoursFromNow = 24): string {
+  const d   = new Date(Date.now() + hoursFromNow * 3_600_000)
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return (
+    `${d.getUTCFullYear()}-${pad(d.getUTCMonth() + 1)}-${pad(d.getUTCDate())} ` +
+    `${pad(d.getUTCHours())}:${pad(d.getUTCMinutes())}:${pad(d.getUTCSeconds())}`
+  )
+}
+
 // ── Collect API HTTP helper ───────────────────────────────────────────────────
 // Per Paga's official Postman collection (Qudus, 2026):
 //   • Hash is sent as HTTP header "hash", NOT inside the JSON body
@@ -447,18 +457,19 @@ export async function createDynamicBankAccount(opts: {
   console.log('[paga/paymentRequest] hash-data (no key):', `${opts.referenceNumber}${amountStr}${currency}${opts.payerPhone}`)
 
   const auth = basicAuth(publicKey, secretKey)
-  // Payload matches official Paga docs sample exactly.
-  // displayBankDetailToPayer removed — not in official docs, may cause strict JSON deserialization failure.
-  // callBackUrl omitted — optional per docs; include only if needed.
+  const payer: Record<string, string> = {
+    name:        opts.payerName,
+    phoneNumber: opts.payerPhone,
+  }
+  if (payerEmail) payer.email = payerEmail
+
   const payload: Record<string, unknown> = {
     referenceNumber:         opts.referenceNumber,
     amount:                  opts.amountNgn,
     currency,
-    payer: {
-      name:        opts.payerName,
-      phoneNumber: opts.payerPhone,
-    },
-    payee: { name: opts.payeeName ?? 'Walz Travels' },
+    expiryDateTimeUTC:       opts.expiryDateTimeUTC ?? pagaExpiryUTC(24),
+    payer,
+    payee:                   { name: opts.payeeName ?? 'Walz Travels' },
     isSuppressMessages:      false,
     payerCollectionFeeShare: 1.0,
     payeeCollectionFeeShare: 0.0,
