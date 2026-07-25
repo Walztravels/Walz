@@ -3,10 +3,18 @@
 
 import Anthropic from '@anthropic-ai/sdk'
 import { getSupabaseAdmin } from '@/lib/supabase'
-import { sendReply } from '@/lib/jade/chatwoot-client'
-import db from '@/lib/db'
 
 const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY! })
+
+async function sendToConversation(conversationId: string | number, content: string): Promise<void> {
+  const base  = process.env.CW_BASE!
+  const token = process.env.CW_TOKEN!
+  await fetch(`${base}/api/v1/accounts/1/conversations/${conversationId}/messages`, {
+    method:  'POST',
+    headers: { api_access_token: token, 'Content-Type': 'application/json' },
+    body:    JSON.stringify({ content, message_type: 'outgoing', private: false }),
+  })
+}
 
 // ═══════════════════════════════════════════════════════════════════════════
 // FEATURE 8 — VISA APPROVAL PROBABILITY ENGINE
@@ -554,11 +562,7 @@ export async function planWhisper(opts: {
   quotedPrice?:   string
   contactName?:   string
 }): Promise<void> {
-  const existing = await db.jadeSession.findFirst({
-    where: { chatwootConversationId: opts.conversationId },
-    select: { id: true, state: true },
-  })
-
+  const supabase = getSupabaseAdmin()
   const whisperState: WhisperState = {
     whisperStage:  opts.stage,
     whisperCount:  0,
@@ -568,18 +572,21 @@ export async function planWhisper(opts: {
     contactName:   opts.contactName,
   }
 
+  const { data: existing } = await supabase
+    .from('JadeSession')
+    .select('id, state')
+    .eq('chatwootConversationId', opts.conversationId)
+    .maybeSingle()
+
   if (existing) {
     const currentState = (existing.state as Record<string, unknown>) || {}
-    await db.jadeSession.update({
-      where: { id: existing.id },
-      data:  { state: { ...currentState, ...whisperState } as any },
-    })
+    await supabase.from('JadeSession')
+      .update({ state: { ...currentState, ...whisperState } })
+      .eq('id', existing.id)
   } else {
-    await db.jadeSession.create({
-      data: {
-        chatwootConversationId: opts.conversationId,
-        state: whisperState as any,
-      },
+    await supabase.from('JadeSession').insert({
+      chatwootConversationId: opts.conversationId,
+      state: whisperState,
     })
   }
 }
@@ -669,21 +676,19 @@ export async function runWhisperSweep(): Promise<{ processed: number; sent: numb
       })
 
       if (msg) {
-        await sendReply(Number(session.chatwootConversationId), msg)
+        await sendToConversation(session.chatwootConversationId, msg)
 
         const newCount = whisperCount + 1
         const newState: WhisperState = {
           ...(state as unknown as WhisperState),
           whisperCount:  newCount,
           lastWhisperAt: now.toISOString(),
-          // Clear the stage once all whispers are exhausted
           ...(newCount >= schedule.length ? { whisperStage: null as unknown as WhisperStage } : {}),
         }
 
-        await db.jadeSession.updateMany({
-          where: { chatwootConversationId: session.chatwootConversationId },
-          data:  { state: newState as any },
-        })
+        await supabase.from('JadeSession')
+          .update({ state: newState })
+          .eq('chatwootConversationId', session.chatwootConversationId)
 
         sent++
       }

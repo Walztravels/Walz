@@ -7,7 +7,9 @@
     "app/api/admin/payroll/auto-run/route.ts":     { "maxDuration": 60  },
     "app/api/jade/cron/price-guardian/route.ts":   { "maxDuration": 60  },
     "app/api/jade/cron/journey-companion/route.ts": { "maxDuration": 60 },
-    "app/api/jade/cron/whisper/route.ts":           { "maxDuration": 60 }
+    "app/api/jade/cron/whisper/route.ts":           { "maxDuration": 120 },
+    "app/api/jade/voice/route.ts":                  { "maxDuration": 45  },
+    "app/api/jade/refusal/route.ts":                { "maxDuration": 60  }
   },
   "crons": [
     {

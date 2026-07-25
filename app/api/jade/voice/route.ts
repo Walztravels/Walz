@@ -5,7 +5,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { analyseVoiceNote } from '@/lib/jade/intelligence-v2'
 
-export const maxDuration = 30
+export const maxDuration = 45
 export const dynamic = 'force-dynamic'
 
 const ALLOWED_AUDIO = ['audio/ogg', 'audio/mpeg', 'audio/mp4', 'audio/webm', 'audio/wav', 'audio/x-m4a']
