@@ -164,11 +164,18 @@ async function processTurn(
     // Strip bare attachment/ad labels that arrive when customers reply to Instagram/Facebook ads
     // (e.g. "Shared post", "Ad response", "Story reply") — they carry no useful content and
     // caused Jade to say "I can't see the post."
+    // IMPORTANT: we still TRACK whether an ad label was present so the system prompt can
+    // tell Jade the conversation started from an Instagram/Facebook ad click.
     const AD_LABEL_RE = /^(shared post|ad response|story reply|story mention|post reply|reel reply|reels reply|\[.*?\])$/i;
     const messages: Anthropic.MessageParam[] = [];
+    let isAdReferral = false;
     for (const m of history) {
       const raw = (m.content ?? "").trim();
-      if (!raw || AD_LABEL_RE.test(raw)) continue; // skip empty/attachment-only messages
+      if (!raw) continue;
+      if (AD_LABEL_RE.test(raw)) {
+        isAdReferral = true; // conversation started from an Instagram/Facebook ad click
+        continue;            // still skip adding this as a message to Claude
+      }
       const role = m.message_type === 0 ? "user" : "assistant";
       const last = messages[messages.length - 1];
       if (last && last.role === role && typeof last.content === "string") {
@@ -186,6 +193,7 @@ async function processTurn(
       channel,
       memory: contactMemory,
       today: new Date().toISOString().slice(0, 10),
+      isAdReferral,
     });
 
     const toolCtx: ToolContext = { conversationId, contactId, phone, contactName };

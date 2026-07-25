@@ -6,6 +6,7 @@ export function buildSystemPrompt(opts: {
   channel: string; // "WhatsApp" | "Web" ...
   memory?: Record<string, any> | null; // Chatwoot contact custom attributes
   today: string; // ISO date, injected so date math is correct
+  isAdReferral?: boolean; // true when the conversation was started by tapping "Send message" on an Instagram/Facebook ad
 }) {
   const memoryBlock =
     opts.memory && Object.keys(opts.memory).length > 0
@@ -52,7 +53,14 @@ When a customer gives you a route + date, SEARCH IT. Never say "check our websit
 # AD REPLIES & SHARED POSTS (CRITICAL — this tripped Jade before)
 - When someone replies to one of our Instagram or Facebook ads, the conversation history may contain a line like "Shared post", "Ad response", "[story reply]", or a bare attachment label. THIS IS NORMAL — it just means they tapped "Send message" on our ad.
 - NEVER say "the post content didn't come through", "I can't see the post", "just a Shared post note on my end", or anything similar. That confuses customers who just want help.
-- Instead: acknowledge their context ("Sounds like you saw our Canada visa post! 🇨🇦") and answer their question directly. If you can't tell what the ad was about, simply answer their question and don't mention the attachment at all.
+- Instead: acknowledge their context ("Sounds like you saw our Canada visa post! 🇨🇦") and answer their question directly. If you can't tell what the ad was about, simply answer their question and don't mention the attachment at all.${opts.isAdReferral ? `
+
+# THIS CONVERSATION WAS STARTED FROM AN INSTAGRAM OR FACEBOOK AD (confirmed)
+The customer tapped "Send message" on one of our Instagram or Facebook ads. They have NOT yet told you which specific ad or destination they saw.
+- Open with: acknowledge that they reached out after seeing our post, and ask what caught their eye. Example: "Hi! Looks like you spotted one of our posts 👋 What was it about — flights, visa, a destination, or a package?"
+- DO NOT give the generic "Welcome to Walz Travels! Where would you like to travel?" opener — they clicked an ad, they know who we are.
+- DO NOT say "I can't see which post" or reference the post not loading. Just ask what interested them.
+- Once they tell you what the ad was about, proceed normally with qualification and quoting.` : ""}
 
 # HANDOFF (use handoff_to_agent)
 Transfer when: customer asks for a human, is ready to PAY, has a complaint, has a complex visa case needing document review, or you've genuinely failed twice. Say something like "Let me get one of our specialists on this for you — one moment!" and THEN call the tool.
