@@ -494,8 +494,11 @@ model Staff {
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
 
-  checkInTracked Boolean @default(false)
-  timezone       String  @default("Africa/Lagos") // IANA timezone e.g. "Africa/Accra" for Ghana
+  checkInTracked    Boolean @default(false)
+  timezone          String  @default("Africa/Lagos") // IANA timezone e.g. "Africa/Accra" for Ghana
+  breakStartHour    Int     @default(13)             // Local hour break begins  (13=1PM Lagos, 12=12PM Accra)
+  breakEndHour      Int     @default(14)             // Local hour break ends    (14=2PM Lagos, 13=1PM  Accra)
+  deductionOverride Float?                           // Per-staff override for deductionPerMiss (stored in local currency)
 
   activityLogs ActivityLog[]
   checkIns     CheckInRecord[]
@@ -541,6 +544,18 @@ model CheckInSettings {
   deductionPerMiss Float    @default(0)
   trackedRoles     String   @default("coordinator,sales_rep,sales_agent,flight_staff,tours_staff,hotel_staff,visa_officer,customer_support,accountant")
   updatedAt        DateTime @updatedAt
+}
+
+model NotificationLog {
+  id      String   @id @default(cuid())
+  staffId String
+  type    String   // 'reminder' | 'pre_break' | 'post_break' | 'miss' | 'mgmt_miss' | 'confirmed'
+  slotUtc DateTime
+  sentAt  DateTime @default(now())
+
+  @@unique([staffId, type, slotUtc])
+  @@index([staffId])
+  @@index([sentAt])
 }
 
 model ActivityLog {
@@ -2957,4 +2972,207 @@ model AdminPaymentLink {
 
   @@index([status])
   @@index([createdAt])
+}
+
+// =============================================================================
+// Walz Concierge Core — Prisma stubs
+// These models map to tables created via Supabase SQL editor (add_concierge_core.sql).
+// NEVER run prisma db push or prisma migrate for these models.
+// Schema changes → ALTER TABLE in Supabase SQL editor, then npx prisma generate only.
+// =============================================================================
+
+model ConciergeCategory {
+  id              String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  slug            String   @unique
+  name            String
+  description     String?
+  icon            String?
+  fulfilmentModes String[] @map("fulfilment_modes")
+  requiredFields  Json     @default("[]") @map("required_fields")
+  isActive        Boolean  @default(true) @map("is_active")
+  displayOrder    Int      @default(0) @map("display_order")
+  metadata        Json     @default("{}")
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt       DateTime @default(now()) @map("updated_at") @db.Timestamptz
+
+  products  ConciergeProduct[]
+  requests  ConciergeRequest[]
+
+  @@index([slug])
+  @@index([isActive, displayOrder])
+  @@map("concierge_categories")
+}
+
+model ConciergeSupplier {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  slug           String   @unique
+  name           String
+  adapterType    String   @default("manual") @map("adapter_type")
+  contactEmail   String?  @map("contact_email")
+  contactPhone   String?  @map("contact_phone")
+  categorySlugs  String[] @map("category_slugs")
+  isActive       Boolean  @default(true) @map("is_active")
+  metadata       Json     @default("{}")
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt      DateTime @default(now()) @map("updated_at") @db.Timestamptz
+
+  products   ConciergeProduct[]
+  quotes     ConciergeQuote[]
+  inventory  ConciergeInventory[]
+
+  @@index([isActive])
+  @@map("concierge_suppliers")
+}
+
+model ConciergeProduct {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  categoryId  String   @map("category_id") @db.Uuid
+  supplierId  String?  @map("supplier_id") @db.Uuid
+  name        String
+  description String?
+  basePrice   Json     @default("{}") @map("base_price")
+  attributes  Json     @default("{}")
+  isActive    Boolean  @default(true) @map("is_active")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt   DateTime @default(now()) @map("updated_at") @db.Timestamptz
+
+  category  ConciergeCategory  @relation(fields: [categoryId], references: [id])
+  supplier  ConciergeSupplier? @relation(fields: [supplierId], references: [id])
+  quotes    ConciergeQuote[]
+  inventory ConciergeInventory[]
+
+  @@index([categoryId])
+  @@index([supplierId])
+  @@map("concierge_products")
+}
+
+model ConciergePricingRule {
+  id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  appliesTo   String    @map("applies_to")
+  targetId    String?   @map("target_id") @db.Uuid
+  ruleType    String    @map("rule_type")
+  conditions  Json      @default("{}")
+  modifier    Json      @default("{}")
+  priority    Int       @default(0)
+  isActive    Boolean   @default(true) @map("is_active")
+  validFrom   DateTime? @map("valid_from") @db.Timestamptz
+  validUntil  DateTime? @map("valid_until") @db.Timestamptz
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz
+
+  @@index([isActive, priority])
+  @@map("concierge_pricing_rules")
+}
+
+model ConciergeInventory {
+  id              String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  productId       String   @map("product_id") @db.Uuid
+  supplierId      String   @map("supplier_id") @db.Uuid
+  date            DateTime @db.Date
+  availableUnits  Int      @default(-1) @map("available_units")
+  reservedUnits   Int      @default(0) @map("reserved_units")
+  notes           String?
+  updatedAt       DateTime @default(now()) @map("updated_at") @db.Timestamptz
+
+  product  ConciergeProduct  @relation(fields: [productId], references: [id])
+  supplier ConciergeSupplier @relation(fields: [supplierId], references: [id])
+
+  @@unique([productId, supplierId, date])
+  @@index([date])
+  @@map("concierge_inventory")
+}
+
+model ConciergeRequest {
+  id             String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  reference      String    @unique
+  jadeSessionId  String    @map("jade_session_id")
+  chatwootConvId BigInt?   @map("chatwoot_conv_id")
+  categoryId     String    @map("category_id") @db.Uuid
+  fulfilmentMode String    @map("fulfilment_mode")
+  status         String    @default("pending")
+  intentFields   Json      @default("{}") @map("intent_fields")
+  clientName     String?   @map("client_name")
+  clientEmail    String?   @map("client_email")
+  clientPhone    String?   @map("client_phone")
+  slaDeadline    DateTime? @map("sla_deadline") @db.Timestamptz
+  assignedTo     String?   @map("assigned_to")
+  internalNotes  String?   @map("internal_notes")
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt      DateTime  @default(now()) @map("updated_at") @db.Timestamptz
+
+  category    ConciergeCategory  @relation(fields: [categoryId], references: [id])
+  quotes      ConciergeQuote[]
+  bookings    ConciergeBooking[]
+  fulfilments ConciergeFulfilment[]
+
+  @@index([jadeSessionId])
+  @@index([status])
+  @@index([createdAt(sort: Desc)])
+  @@index([categoryId])
+  @@map("concierge_requests")
+}
+
+model ConciergeQuote {
+  id                String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  requestId         String    @map("request_id") @db.Uuid
+  productId         String?   @map("product_id") @db.Uuid
+  supplierId        String?   @map("supplier_id") @db.Uuid
+  quotedPrice       Json      @default("{}") @map("quoted_price")
+  pricingBreakdown  Json      @default("{}") @map("pricing_breakdown")
+  validUntil        DateTime? @map("valid_until") @db.Timestamptz
+  status            String    @default("draft")
+  createdAt         DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt         DateTime  @default(now()) @map("updated_at") @db.Timestamptz
+
+  request  ConciergeRequest   @relation(fields: [requestId], references: [id])
+  product  ConciergeProduct?  @relation(fields: [productId], references: [id])
+  supplier ConciergeSupplier? @relation(fields: [supplierId], references: [id])
+  bookings ConciergeBooking[]
+
+  @@index([requestId])
+  @@index([status])
+  @@map("concierge_quotes")
+}
+
+model ConciergeBooking {
+  id              String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  quoteId         String?   @map("quote_id") @db.Uuid
+  requestId       String    @map("request_id") @db.Uuid
+  confirmationRef String?   @map("confirmation_ref")
+  status          String    @default("confirmed")
+  bookedAt        DateTime  @default(now()) @map("booked_at") @db.Timestamptz
+  serviceDate     DateTime? @map("service_date") @db.Timestamptz
+  notes           String?
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt       DateTime  @default(now()) @map("updated_at") @db.Timestamptz
+
+  quote       ConciergeQuote?   @relation(fields: [quoteId], references: [id])
+  request     ConciergeRequest  @relation(fields: [requestId], references: [id])
+  fulfilments ConciergeFulfilment[]
+
+  @@index([requestId])
+  @@index([status])
+  @@map("concierge_bookings")
+}
+
+model ConciergeFulfilment {
+  id               String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  requestId        String    @map("request_id") @db.Uuid
+  bookingId        String?   @map("booking_id") @db.Uuid
+  supplierId       String    @map("supplier_id")
+  adapterType      String    @default("manual") @map("adapter_type")
+  dispatchStatus   String    @default("pending") @map("dispatch_status")
+  supplierRef      String?   @map("supplier_ref")
+  dispatchPayload  Json      @default("{}") @map("dispatch_payload")
+  dispatchResponse Json      @default("{}") @map("dispatch_response")
+  dispatchedAt     DateTime? @map("dispatched_at") @db.Timestamptz
+  acknowledgedAt   DateTime? @map("acknowledged_at") @db.Timestamptz
+  completedAt      DateTime? @map("completed_at") @db.Timestamptz
+  createdAt        DateTime  @default(now()) @map("created_at") @db.Timestamptz
+
+  request ConciergeRequest  @relation(fields: [requestId], references: [id])
+  booking ConciergeBooking? @relation(fields: [bookingId], references: [id])
+
+  @@index([requestId])
+  @@index([dispatchStatus])
+  @@map("concierge_fulfilment")
 }
