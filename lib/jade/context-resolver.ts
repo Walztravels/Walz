@@ -14,6 +14,9 @@ export type JadeMode =
   | 'general' | 'flights' | 'hotels' | 'activities'
   | 'visa' | 'transfers' | 'packages' | 'concierge'
 
+// Airport service sub-types (used for category in concierge mode)
+export type AirportServiceType = 'lounge' | 'meet-greet' | 'transfer' | 'sleeping-pod' | 'baggage'
+
 export interface QuickAction {
   label: string
   value: string
@@ -171,9 +174,101 @@ export async function resolveContext(rawPathname: string): Promise<JadeContext> 
   }
 }
 
+// ── Airport service synthetic categories ─────────────────────────────────────
+// These mirror the real concierge_categories rows but are synthetic so that
+// Jade gets the right field list even without a DB hit.
+
+const AIRPORT_SERVICE_FIELDS: Record<string, ConciergeCategory['requiredFields']> = {
+  'lounge': [
+    { key: 'airport_code',  label: 'Airport',            type: 'text',   required: true  },
+    { key: 'date',          label: 'Date',               type: 'date',   required: true  },
+    { key: 'time',          label: 'Flight time (HH:MM)',type: 'text',   required: true  },
+    { key: 'flight_number', label: 'Flight number',      type: 'text',   required: true  },
+    { key: 'passenger_count', label: 'Passengers',       type: 'number', required: true  },
+  ],
+  'meet-greet': [
+    { key: 'airport_code',  label: 'Airport',            type: 'text',   required: true  },
+    { key: 'date',          label: 'Date',               type: 'date',   required: true  },
+    { key: 'time',          label: 'Flight time (HH:MM)',type: 'text',   required: true  },
+    { key: 'flight_number', label: 'Flight number',      type: 'text',   required: true  },
+    { key: 'passenger_count', label: 'Passengers',       type: 'number', required: true  },
+  ],
+  'transfer': [
+    { key: 'airport_code',  label: 'Airport',            type: 'text',   required: true  },
+    { key: 'date',          label: 'Date',               type: 'date',   required: true  },
+    { key: 'passenger_count', label: 'Passengers',       type: 'number', required: true  },
+    { key: 'destination',   label: 'Destination address',type: 'text',   required: true  },
+    { key: 'flight_number', label: 'Flight number',      type: 'text',   required: false },
+  ],
+  'sleeping-pod': [
+    { key: 'airport_code',  label: 'Airport',            type: 'text',   required: true  },
+    { key: 'date',          label: 'Date',               type: 'date',   required: true  },
+    { key: 'passenger_count', label: 'Guests',           type: 'number', required: true  },
+  ],
+  'baggage': [
+    { key: 'airport_code',  label: 'Airport',            type: 'text',   required: true  },
+    { key: 'date',          label: 'Collection date',    type: 'date',   required: true  },
+    { key: 'bag_count',     label: 'Number of bags',     type: 'number', required: true  },
+    { key: 'delivery_address', label: 'Delivery address',type: 'text',   required: true  },
+  ],
+}
+
+const AIRPORT_SERVICE_LABELS: Record<string, string> = {
+  'lounge':       'Airport Lounge',
+  'meet-greet':   'Meet & Greet',
+  'transfer':     'Airport Transfer',
+  'sleeping-pod': 'Sleeping Pods',
+  'baggage':      'Baggage Delivery',
+}
+
+function makeSyntheticAirportCategory(subType: string): ConciergeCategory {
+  return {
+    id:              `synthetic-airport-${subType}`,
+    slug:            `airport-services/${subType}`,
+    name:            AIRPORT_SERVICE_LABELS[subType] ?? 'Airport Service',
+    description:     `Book ${AIRPORT_SERVICE_LABELS[subType] ?? 'an airport service'} through Walz Concierge.`,
+    fulfilmentModes: ['instant'],
+    requiredFields:  AIRPORT_SERVICE_FIELDS[subType] ?? [],
+    isActive:        true,
+    displayOrder:    0,
+    metadata:        { airportServiceType: subType, selfServiceBooking: true },
+  }
+}
+
 // ── Concierge resolution (DB-aware) ──────────────────────────────────────────
 
 async function resolveConciergeContext(pathname: string): Promise<JadeContext> {
+  // Airport service sub-paths get synthetic contexts — no DB needed
+  if (pathname.startsWith('concierge/airport-services/')) {
+    const subType = pathname.replace('concierge/airport-services/', '').split('/')[0]
+    const category = makeSyntheticAirportCategory(subType)
+    return {
+      mode:         'concierge',
+      category,
+      label:        `Concierge — ${category.name}`,
+      allowedTools: TOOLS_BY_MODE.concierge,
+      quickActions: [
+        { label: `Book ${category.name}`, value: `I'd like to book ${category.name.toLowerCase()} at an airport`, type: 'message' },
+        { label: 'Check availability',    value: `What airports offer ${category.name.toLowerCase()}?`,            type: 'message' },
+        { label: "What's included",       value: `What's included with the ${category.name.toLowerCase()}?`,       type: 'message' },
+      ],
+    }
+  }
+
+  if (pathname === 'concierge/airport-services') {
+    return {
+      mode:         'concierge',
+      label:        'Concierge — Airport Services',
+      allowedTools: TOOLS_BY_MODE.concierge,
+      quickActions: [
+        { label: 'Lounge access',   value: "I'd like airport lounge access",          type: 'message' },
+        { label: 'Meet & Greet',    value: "I need a meet and greet at the airport",  type: 'message' },
+        { label: 'Airport transfer',value: "I need an airport transfer",              type: 'message' },
+        { label: 'Baggage delivery',value: "I need baggage delivery",                 type: 'message' },
+      ],
+    }
+  }
+
   const categorySlug = pathname === 'concierge' ? null : pathname.replace('concierge/', '')
 
   // Load live categories (60-second cache in catalogue module)

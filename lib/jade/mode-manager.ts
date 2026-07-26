@@ -103,6 +103,27 @@ export function getModeConfig(ctx: JadeContext): ModeConfig {
   }
 }
 
+// ── Airport service addendum extension ───────────────────────────────────────
+// Appended when Jade is in a concierge/airport-services/* context.
+
+const AIRPORT_SERVICE_ADDENDUM = `
+## AIRPORT SERVICES — SELF-SERVICE BOOKING AVAILABLE
+
+The customer is on the Walz Airport Services booking page. They can book directly on this page WITHOUT needing Jade to submit a request. The booking form is right in front of them.
+
+**Your role here:**
+1. Help them choose the right service type if they're unsure
+2. Answer questions about what's included, accessibility, or suitability
+3. Provide general travel guidance related to the airport
+4. If they prefer to go through Jade: collect the required fields and call submit_concierge_intent
+
+**Do NOT:**
+- Push them to use Jade if the self-service form suits their needs better
+- Reveal specific ComfortPass service codes, internal references, or pricing structure
+- Guarantee specific lounge names, greeter companies, or vehicle types — these are confirmed after booking
+
+**Tone:** Calm, expert, helpful. Like a seasoned travel concierge pointing someone in the right direction.`
+
 // ── Concierge addendum builder ────────────────────────────────────────────────
 
 function buildConciergeAddendum(category?: ConciergeCategory): string {
@@ -118,6 +139,10 @@ function buildConciergeAddendum(category?: ConciergeCategory): string {
     .map(f => `- ${f.label}`)
     .join('\n')
 
+  // Airport service synthetic categories get the airport addendum appended
+  const isAirportService = (category.metadata as Record<string, unknown>)?.airportServiceType !== undefined
+  const airportExtension = isAirportService ? AIRPORT_SERVICE_ADDENDUM : ''
+
   return `${CONCIERGE_BASE_ADDENDUM}
 
 ## SPECIFIC SERVICE: ${category.name.toUpperCase()}
@@ -129,7 +154,7 @@ ${fieldList || '(collect the core details: who, what, when, where, how many)'}
 
 ${optionalList ? `Optional details to gather if the client mentions them:\n${optionalList}` : ''}
 
-Fulfilment: ${category.fulfilmentModes.join(' / ')}. Once submitted, the reference and SLA will be returned — share both with the client.`
+Fulfilment: ${category.fulfilmentModes.join(' / ')}. Once submitted, the reference and SLA will be returned — share both with the client.${airportExtension}`
 }
 
 // ── Concierge welcome builder ─────────────────────────────────────────────────

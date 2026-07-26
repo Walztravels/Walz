@@ -42,8 +42,8 @@ export default async function ConciergePage() {
           <span className="text-[#C9A84C]">was meant to be.</span>
         </h1>
         <p className="text-white/60 text-lg max-w-xl mx-auto mb-10 leading-relaxed">
-          Every Walz Concierge request is handled personally — not by an algorithm.
-          Tell Jade what you need. We take care of the rest.
+          Every Walz Concierge request receives personal attention.
+          Tell Jade what you need, and our concierge specialists will handle the details from start to finish.
         </p>
         <button
           onClick={undefined}
