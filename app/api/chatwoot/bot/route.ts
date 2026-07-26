@@ -71,7 +71,8 @@ export async function POST(req: NextRequest) {
     messageType === "outgoing" &&
     !isPrivate &&
     conversationId &&
-    conversation?.status === "pending"
+    conversation?.status === "pending" &&
+    payload.sender?.type !== "agent_bot"
   ) {
     // Run in background — don't block the ACK
     waitUntil(
