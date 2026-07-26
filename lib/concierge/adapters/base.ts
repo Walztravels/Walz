@@ -7,7 +7,7 @@
 import type { DispatchPayload, DispatchResult, AvailabilityQuery, AvailabilityResult } from '../types'
 
 export interface SupplierAdapter {
-  readonly type: 'manual' | 'api' | 'gds' | 'comfortpass'
+  readonly type: 'manual' | 'api' | 'gds' | 'comfortpass' | 'aviapages'
 
   /**
    * Dispatch a concierge request to the supplier.

@@ -5,7 +5,7 @@
 // ── Enumerations ──────────────────────────────────────────────────────────────
 
 export type FulfilmentMode  = 'instant' | 'request_to_book' | 'bespoke'
-export type AdapterType     = 'manual' | 'api' | 'gds' | 'comfortpass'
+export type AdapterType     = 'manual' | 'api' | 'gds' | 'comfortpass' | 'aviapages'
 export type RequestStatus   = 'pending' | 'quoted' | 'confirmed' | 'in_progress' | 'completed' | 'cancelled'
 export type QuoteStatus     = 'draft' | 'sent' | 'accepted' | 'rejected' | 'expired'
 export type BookingStatus   = 'confirmed' | 'in_progress' | 'completed' | 'cancelled'
