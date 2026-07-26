@@ -48,6 +48,8 @@ const footerLinks = {
     { label: 'Hotel Booking', href: '/hotels' },
     { label: 'Private Tours', href: '/tours' },
     { label: 'Visa Assistance', href: '/visa' },
+    { label: 'Walz Concierge', href: '/concierge' },
+    { label: 'eSIM', href: '/esim' },
     { label: 'Gift Vouchers', href: '/gift' },
     { label: 'Travel Insurance', href: '/insurance' },
     { label: 'Airport Transfers', href: '/transfers' },

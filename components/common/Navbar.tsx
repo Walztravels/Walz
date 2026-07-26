@@ -24,19 +24,19 @@ const LOGO_CACHE_TTL = 60 * 60 * 1000 // 1 hour
 const navLinks = [
   { href: '/flights',    label: 'Flights',       icon: Plane     },
   { href: '/hotels',     label: 'Hotels',        icon: Building2 },
-  { href: '/concierge',  label: 'Concierge',     icon: Sparkles  },
   { href: '/blog',       label: 'Blog',          icon: BookOpen  },
-  { href: '/esim',       label: 'Jade Connect',  icon: Wifi      },
+  { href: '/esim',       label: 'eSIM',          icon: Wifi      },
   { href: '/about',      label: 'About',         icon: Users     },
   { href: '/gift',       label: 'Gift Vouchers', icon: Gift      },
 ]
 
 const experienceLinks = [
-  { href: '/group/create', label: 'Group Trips', sub: 'Plan together with Jade',                   icon: Users   },
-  { href: '/activities',   label: 'Activities',  sub: 'Things to do in 100+ destinations',         icon: MapPin  },
-  { href: '/transfers',    label: 'Transfers',   sub: 'Airport & hotel transfers worldwide',        icon: Car     },
-  { href: '/tours',        label: 'Tours',       sub: 'Private guided tours with local experts',   icon: Map     },
-  { href: '/packages',     label: 'Packages',    sub: 'All-inclusive group packages & bundles',    icon: Package },
+  { href: '/concierge',    label: 'Concierge',    sub: 'White-glove travel services',               icon: Sparkles },
+  { href: '/group/create', label: 'Group Trips',  sub: 'Plan together with Jade',                   icon: Users   },
+  { href: '/activities',   label: 'Activities',   sub: 'Things to do in 100+ destinations',         icon: MapPin  },
+  { href: '/transfers',    label: 'Transfers',    sub: 'Airport & hotel transfers worldwide',        icon: Car     },
+  { href: '/tours',        label: 'Tours',        sub: 'Private guided tours with local experts',   icon: Map     },
+  { href: '/packages',     label: 'Packages',     sub: 'All-inclusive group packages & bundles',    icon: Package },
 ]
 
 const visaDropdownLinks = [

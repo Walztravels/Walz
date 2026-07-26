@@ -15,6 +15,7 @@ interface Slide {
   sub: string
   cta1Label: string
   cta1Href: string
+  cta1JadeOpen?: boolean   // when true, dispatches jade:open instead of navigating
   cta2Label: string
   cta2Href: string
 }
@@ -34,6 +35,19 @@ const FALLBACK_SLIDES: Slide[] = [
     cta2Href: '#jade',
   },
   {
+    id: 'hotels',
+    bg: 'https://images.unsplash.com/photo-1571896349842-33c89424de2d?w=1200&q=65&auto=format&fit=crop',
+    pill: 'HILTON · MARRIOTT · HYATT · IHG',
+    line1: 'Every Hotel.',
+    line2: 'Every City.',
+    line3: 'Every Budget.',
+    sub: '500,000+ hotels worldwide. Best rate guarantee. Free cancellation.',
+    cta1Label: 'Browse Hotels →',
+    cta1Href: '/hotels',
+    cta2Label: 'Get a Deal',
+    cta2Href: '/hotels',
+  },
+  {
     id: 'visas',
     bg: 'https://images.unsplash.com/photo-1513635269975-59663e0ac1ad?w=1200&q=65&auto=format&fit=crop',
     pill: 'UK · CANADA · SCHENGEN · UAE · USA',
@@ -47,17 +61,31 @@ const FALLBACK_SLIDES: Slide[] = [
     cta2Href: '/visa',
   },
   {
-    id: 'hotels',
-    bg: 'https://images.unsplash.com/photo-1571896349842-33c89424de2d?w=1200&q=65&auto=format&fit=crop',
-    pill: 'HILTON · MARRIOTT · HYATT · IHG',
-    line1: 'Every Hotel.',
-    line2: 'Every City.',
-    line3: 'Every Budget.',
-    sub: '500,000+ hotels worldwide. Best rate guarantee. Free cancellation.',
-    cta1Label: 'Browse Hotels →',
-    cta1Href: '/hotels',
-    cta2Label: 'Get a Deal',
-    cta2Href: '/hotels',
+    id: 'jade',
+    bg: 'https://images.unsplash.com/photo-1488085061387-422e29b40080?w=1200&q=65&auto=format&fit=crop',
+    pill: 'AI TRAVEL ASSISTANT · 24/7 · EVERY QUESTION',
+    line1: 'Meet Jade.',
+    line2: 'Your Personal',
+    line3: 'Travel Expert.',
+    sub: 'Ask anything — flights, visas, hotels, concierge. Jade knows travel inside out and never sleeps.',
+    cta1Label: 'Chat with Jade ✦',
+    cta1Href: '#',
+    cta1JadeOpen: true,
+    cta2Label: 'Walz Concierge →',
+    cta2Href: '/concierge',
+  },
+  {
+    id: 'esim',
+    bg: 'https://images.unsplash.com/photo-1451187580459-43490279c0fa?w=1200&q=65&auto=format&fit=crop',
+    pill: '190+ COUNTRIES · NO ROAMING FEES · INSTANT ACTIVATION',
+    line1: 'Stay Connected.',
+    line2: 'Everywhere.',
+    line3: 'Instantly.',
+    sub: 'Walz eSIM — instant data in 190+ countries. No physical SIM. No roaming charges. Ready in seconds.',
+    cta1Label: 'Get Your eSIM →',
+    cta1Href: '/esim',
+    cta2Label: 'How It Works',
+    cta2Href: '/esim#how-it-works',
   },
 ]
 
@@ -175,15 +203,27 @@ export function MultiSlideHero() {
 
         {/* CTAs */}
         <div className="flex flex-col sm:flex-row gap-3 justify-center mb-12">
-          <Link
-            href={slide.cta1Href}
-            className="inline-flex items-center justify-center gap-2
-              bg-amber-500 hover:bg-amber-400 text-black font-semibold text-sm
-              px-8 py-4 rounded-xl transition-all duration-150
-              shadow-xl shadow-amber-500/30 active:scale-[0.97]"
-          >
-            {slide.cta1Label}
-          </Link>
+          {slide.cta1JadeOpen ? (
+            <button
+              onClick={() => window.dispatchEvent(new CustomEvent('jade:open', { detail: { prefill: 'Hi Jade, I need help planning my travel.' } }))}
+              className="inline-flex items-center justify-center gap-2
+                bg-amber-500 hover:bg-amber-400 text-black font-semibold text-sm
+                px-8 py-4 rounded-xl transition-all duration-150
+                shadow-xl shadow-amber-500/30 active:scale-[0.97]"
+            >
+              {slide.cta1Label}
+            </button>
+          ) : (
+            <Link
+              href={slide.cta1Href}
+              className="inline-flex items-center justify-center gap-2
+                bg-amber-500 hover:bg-amber-400 text-black font-semibold text-sm
+                px-8 py-4 rounded-xl transition-all duration-150
+                shadow-xl shadow-amber-500/30 active:scale-[0.97]"
+            >
+              {slide.cta1Label}
+            </Link>
+          )}
           <Link
             href={slide.cta2Href}
             className="inline-flex items-center justify-center gap-2
