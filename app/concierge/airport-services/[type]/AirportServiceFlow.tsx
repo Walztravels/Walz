@@ -7,7 +7,7 @@ import { ArrowLeft, Search, Loader2, Users, Calendar, Clock, Plane, Check, Plus,
 // ── Local types (mirrors server types — no server imports in client) ──────────
 
 interface WalzAirport { code: string; name: string; city: string; country: string }
-interface WalzService { code: string; name: string; type: string; airportCode: string; terminal?: string; description?: string; amenities?: string[] }
+interface WalzService { code: string; name: string; type: string; airportCode: string; terminal?: string; description?: string; imageUrl?: string; amenities?: string[] }
 interface BaggageOption { code: string; label: string; description: string; displayPrice: string; perPerson: boolean }
 interface Passenger { firstName: string; lastName: string; type: 'adult' | 'child' | 'infant' }
 
@@ -363,27 +363,40 @@ function StandardFlow({ type, info }: { type: string; info: typeof SERVICE_INFO[
         )}
 
         {services.map(svc => (
-          <div key={svc.code} className="bg-white/5 border border-white/10 rounded-2xl p-5 hover:border-[#C9A84C]/30 transition-all">
-            <div className="flex items-start justify-between gap-4">
-              <div className="flex-1 min-w-0">
-                <h3 className="text-white font-bold text-base mb-1">{svc.name}</h3>
-                {svc.terminal && <p className="text-[#C9A84C]/70 text-xs font-semibold mb-1">Terminal {svc.terminal}</p>}
-                {svc.description && <p className="text-white/50 text-sm leading-relaxed">{svc.description}</p>}
-                {svc.amenities && svc.amenities.length > 0 && (
-                  <div className="flex flex-wrap gap-1.5 mt-2">
-                    {svc.amenities.slice(0, 4).map(a => (
-                      <span key={a} className="text-[10px] bg-white/5 border border-white/10 text-white/50 px-2 py-0.5 rounded-full">{a}</span>
-                    ))}
-                  </div>
-                )}
+          <div key={svc.code} className="bg-white/5 border border-white/10 rounded-2xl overflow-hidden hover:border-[#C9A84C]/30 transition-all">
+            {svc.imageUrl && (
+              <div className="w-full h-36 overflow-hidden">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={svc.imageUrl}
+                  alt={svc.name}
+                  className="w-full h-full object-cover"
+                  onError={e => { (e.currentTarget as HTMLImageElement).style.display = 'none' }}
+                />
               </div>
-              <button
-                onClick={() => void selectService(svc)}
-                disabled={priceLoading}
-                className="flex-shrink-0 bg-[#C9A84C] text-[#0B1F3A] font-bold text-sm px-5 py-2.5 rounded-full
-                  hover:bg-[#d4b86e] transition-colors disabled:opacity-40">
-                Select →
-              </button>
+            )}
+            <div className="p-5">
+              <div className="flex items-start justify-between gap-4">
+                <div className="flex-1 min-w-0">
+                  <h3 className="text-white font-bold text-base mb-1">{svc.name || 'Unnamed Service'}</h3>
+                  {svc.terminal && <p className="text-[#C9A84C]/70 text-xs font-semibold mb-1">Terminal {svc.terminal}</p>}
+                  {svc.description && <p className="text-white/50 text-sm leading-relaxed">{svc.description}</p>}
+                  {svc.amenities && svc.amenities.length > 0 && (
+                    <div className="flex flex-wrap gap-1.5 mt-2">
+                      {svc.amenities.slice(0, 4).map(a => (
+                        <span key={a} className="text-[10px] bg-white/5 border border-white/10 text-white/50 px-2 py-0.5 rounded-full">{a}</span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                <button
+                  onClick={() => void selectService(svc)}
+                  disabled={priceLoading}
+                  className="flex-shrink-0 bg-[#C9A84C] text-[#0B1F3A] font-bold text-sm px-5 py-2.5 rounded-full
+                    hover:bg-[#d4b86e] transition-colors disabled:opacity-40">
+                  Select →
+                </button>
+              </div>
             </div>
           </div>
         ))}

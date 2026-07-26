@@ -164,6 +164,7 @@ export interface WalzService {
   airportCode:  string
   terminal?:    string
   description?: string
+  imageUrl?:    string
   amenities?:   string[]
 }
 

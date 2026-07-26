@@ -19,14 +19,25 @@ export function toWalzAirport(cp: CPAirport): WalzAirport {
 }
 
 export function toWalzService(cp: CPService): WalzService {
+  // CP API returns snake_case fields; our type uses camelCase.
+  // Read both variants defensively so either convention works.
+  const raw = cp as unknown as Record<string, unknown>
+
+  const code        = cp.code        ?? (raw.id           as string) ?? (raw.service_code as string) ?? ''
+  const name        = cp.name        ?? (raw.title        as string) ?? (raw.service_name as string) ?? (raw.lounge_name as string) ?? ''
+  const airportCode = cp.airportCode ?? (raw.airport_code as string) ?? (raw.airport      as string) ?? ''
+  const imageUrl    = cp.imageUrl    ?? (raw.image_url    as string) ?? (raw.image        as string) ?? (raw.logo as string) ?? (raw.thumbnail as string)
+  const amenities   = cp.amenities   ?? (raw.facilities   as string[]) ?? (raw.features as string[])
+
   return {
-    code:         cp.code,
-    name:         cp.name,
-    type:         cp.type,
-    airportCode:  cp.airportCode,
-    terminal:     cp.terminal,
-    description:  cp.description,
-    amenities:    cp.amenities,
+    code,
+    name,
+    type:        cp.type,
+    airportCode,
+    terminal:    cp.terminal ?? (raw.terminal_code as string),
+    description: cp.description ?? (raw.info as string) ?? (raw.details as string),
+    imageUrl,
+    amenities,
   }
 }
 
