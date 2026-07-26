@@ -29,7 +29,6 @@ import {
   updateContactMemory,
   isLatestIncoming,
   markAsRead,
-  openConversation,
 } from "@/lib/jade/chatwoot-client";
 import { JADE_TOOLS, executeTool, type ToolContext } from "@/lib/jade/tools";
 import { buildSystemPrompt } from "@/lib/jade/prompt";
@@ -61,26 +60,21 @@ export async function POST(req: NextRequest) {
   // Strip bare Instagram/Facebook ad attachment labels — they're not real customer messages
   const AD_LABEL_RE = /^(shared post|ad response|story reply|story mention|post reply|reel reply|reels reply|\[.*?\])$/i;
 
-  // ---- Human staff replied in a pending/bot-owned conversation ------------
-  // When a staff member sends a message while the bot still "owns" the convo
-  // (status: pending), Chatwoot sometimes fails to auto-clear the unread badge.
-  // Fix: when we see an outgoing (staff) message on a pending conversation,
-  // explicitly move it to "open" and mark as read so the inbox reflects reality.
+  // ---- Human staff replied — just mark as read to clear the unread badge ----
+  // Do NOT call openConversation() here. Chatwoot auto-assigns conversations
+  // via routing rules, so "assigned to a human" ≠ "human has taken over".
+  // Only an actual human-sent message is the handover signal (checked inside
+  // processTurn via conversation history). We just clear the unread badge.
   if (
     event === "message_created" &&
     messageType === "outgoing" &&
     !isPrivate &&
     conversationId &&
-    conversation?.status === "pending" &&
     payload.sender?.type !== "agent_bot"
   ) {
-    // Run in background — don't block the ACK
     waitUntil(
-      Promise.all([
-        openConversation(conversationId),
-        markAsRead(conversationId),
-      ]).catch((e) =>
-        console.error(`[jade] staff-reply cleanup conv=${conversationId}:`, e)
+      markAsRead(conversationId).catch((e) =>
+        console.error(`[jade] markAsRead conv=${conversationId}:`, e)
       )
     );
     return NextResponse.json({ ok: true, handled: "staff-reply-cleanup" });
@@ -97,16 +91,13 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: true, skipped: true });
   }
 
-  // Reply unless a human agent is explicitly assigned OR the conversation is resolved.
-  // NOTE: Chatwoot auto-flips pending→open when the agent bot sends any reply, so
-  // checking status==="pending" would silently drop every message after the first.
-  // The real signal for human takeover is meta.assignee being set to a real agent.
+  // Only skip resolved conversations at this stage.
+  // Auto-assignment by Chatwoot routing rules does NOT mean a human has taken
+  // over — the real check (did a human actually send a message?) happens inside
+  // processTurn after loading the conversation history.
   const status = conversation?.status;
-  const humanAssignee = conversation?.meta?.assignee;
-  if (status === "resolved" || humanAssignee?.id) {
-    const who = humanAssignee?.name || "resolved";
-    console.log(`[jade] conv=${conversationId} skipped: status=${status} assignee=${who}`);
-    return NextResponse.json({ ok: true, skipped: "human-owned" });
+  if (status === "resolved") {
+    return NextResponse.json({ ok: true, skipped: "resolved" });
   }
 
   console.log(`[jade] incoming conv=${conversationId} msg=${messageId}: "${content.slice(0, 80)}"`);
@@ -146,6 +137,19 @@ async function processTurn(
       getConversationHistory(conversationId, 30),
       getConversation(conversationId),
     ]);
+
+    // Human takeover check: if any human agent (sender.type === "user") has
+    // sent a non-private outgoing message, they've taken over — Jade defers.
+    // This fires AFTER auto-assignment without a human reply, so Jade keeps
+    // responding even when Chatwoot routing assigns the conversation to a staff
+    // member automatically.
+    const humanHasReplied = history.some(
+      (m) => m.message_type === 1 && !m.private && m.sender?.type === "user"
+    );
+    if (humanHasReplied) {
+      console.log(`[jade] conv=${conversationId} deferring — human agent has replied`);
+      return;
+    }
 
     const contactId: number | null =
       convDetail?.meta?.sender?.id ?? payload.sender?.id ?? null;
@@ -240,12 +244,13 @@ async function processTurn(
       messages.push({ role: "user", content: toolResults });
     }
 
-    // ---- 6. Guard: re-check before replying (race: human took over while Jade was thinking)
-    const latestConv = await getConversation(conversationId);
-    const latestStatus = latestConv?.status;
-    const latestAssignee = latestConv?.meta?.assignee;
-    if (latestStatus === "resolved" || latestAssignee?.id) {
-      console.log(`[jade] conv=${conversationId} aborting reply — human took over (status="${latestStatus}", assignee=${latestAssignee?.name || "none"})`);
+    // ---- 6. Guard: re-check before replying (race: human replied while Jade was thinking)
+    const latestHistory = await getConversationHistory(conversationId, 30);
+    const humanRepliedSince = latestHistory.some(
+      (m) => m.message_type === 1 && !m.private && m.sender?.type === "user"
+    );
+    if (humanRepliedSince) {
+      console.log(`[jade] conv=${conversationId} aborting reply — human replied while processing`);
       return;
     }
 
