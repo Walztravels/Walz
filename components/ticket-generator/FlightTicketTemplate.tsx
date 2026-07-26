@@ -620,7 +620,7 @@ export function FlightTicketTemplate({
                 'Carry a printed or digital copy of this ticket at all times'],
               ['Ensure your passport is valid for at least 6 months beyond your travel date',
                 'Check visa requirements for your destination and all transit countries'],
-              ['For any changes or issues contact Walz Travels on WhatsApp: +44 7398 753797',
+              ['For any changes or issues contact Walz Travels on WhatsApp: +1 231 790 2336',
                 'Baggage allowances may differ per leg — confirm with each airline'],
             ].map(([left, right], i) => (
               <tr key={i}>
@@ -678,7 +678,7 @@ export function FlightTicketTemplate({
               />
               <span style={{ display: 'inline-block', borderLeft: '1px solid rgba(255,255,255,0.2)', paddingLeft: 12, verticalAlign: 'middle' }}>
                 <p style={{ color: 'rgba(255,255,255,0.55)', fontSize: 8, margin: '0 0 2px' }}>
-                  WhatsApp UK: +44 7398 753797
+                  WhatsApp: +1 231 790 2336
                 </p>
                 <p style={{ color: 'rgba(255,255,255,0.55)', fontSize: 8, margin: 0 }}>
                   contact@walztravels.com · walztravels.com

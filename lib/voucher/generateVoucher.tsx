@@ -147,7 +147,7 @@ function VoucherDocument({ data }: { data: VoucherData }) {
         <View style={styles.important}>
           <Text style={styles.importantText}>
             Please present this voucher (digital or printed) at the point of service.
-            For assistance: WhatsApp +44 7398 753797 or email contact@walztravels.com
+            For assistance: WhatsApp +1 231 790 2336 or email contact@walztravels.com
           </Text>
         </View>
 

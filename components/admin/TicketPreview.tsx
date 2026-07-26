@@ -161,7 +161,7 @@ function TermsSection() {
         <p>5. Walz Travels acts as an agent for airlines, hotels and other travel suppliers. We are not liable for delays, cancellations, overbooking, or service failures by third-party suppliers.</p>
         <p>6. Travel insurance is strongly recommended for all journeys. Walz Travels is not responsible for losses arising from medical emergencies, trip interruptions or personal property loss.</p>
         <p>7. By proceeding with this booking, the passenger confirms acceptance of these terms. For full terms visit walztravels.com/terms or contact support@walztravels.com.</p>
-        <p className="mt-2 font-medium text-gray-500">WhatsApp: +44 7398 753797 · contact@walztravels.com · walztravels.com</p>
+        <p className="mt-2 font-medium text-gray-500">WhatsApp: +1 231 790 2336 · contact@walztravels.com · walztravels.com</p>
       </div>
     </div>
   )
@@ -583,7 +583,7 @@ export function TicketPreview({ data }: { data: TicketPreviewData }) {
       {/* Footer */}
       <div className="px-7 py-4 border-t border-gray-100" style={{ backgroundColor: '#F3F4F6' }}>
         <div className="flex items-center justify-between">
-          <div className="text-[9px] text-gray-400">WhatsApp: +44 7398 753797 · contact@walztravels.com · walztravels.com</div>
+          <div className="text-[9px] text-gray-400">WhatsApp: +1 231 790 2336 · contact@walztravels.com · walztravels.com</div>
           <div className="text-[9px] font-bold" style={{ color: GOLD }}>Powered by Jade</div>
         </div>
       </div>

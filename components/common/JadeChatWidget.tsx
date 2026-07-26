@@ -559,7 +559,7 @@ export function JadeChatWidget() {
         return
       }
 
-      const reply: string = data.reply ?? "I'm just a moment away — if you need immediate help, WhatsApp us on **+44 7398 753797** ✈"
+      const reply: string = data.reply ?? "I'm just a moment away — if you need immediate help, WhatsApp us on **+1 231 790 2336** ✈"
 
       historyRef.current = [
         ...historyRef.current,
@@ -580,7 +580,7 @@ export function JadeChatWidget() {
       setMessages(prev => [...prev, {
         id:        (Date.now() + 1).toString(),
         role:      'assistant',
-        content:   "I'm having a brief technical issue. For instant help, WhatsApp us on **+44 7398 753797** — we respond within minutes! ✈",
+        content:   "I'm having a brief technical issue. For instant help, WhatsApp us on **+1 231 790 2336** — we respond within minutes! ✈",
         timestamp: new Date(),
       }])
     } finally {

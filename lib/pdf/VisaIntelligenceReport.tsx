@@ -714,7 +714,7 @@ function ActionPlanPage({ a, applicantName, refId }: { a: BankStatementAnalysis;
       <View style={{ backgroundColor: NAVY, borderRadius: 8, padding: '14 18', marginHorizontal: 16 }}>
         <Text style={{ fontSize: 10, fontFamily: 'Helvetica-Bold', color: GOLD, marginBottom: 8 }}>Contact Your Walz Travels Team</Text>
         {[
-          ['WhatsApp UK',  '+44 7398 753797'],
+          ['WhatsApp',     '+1 231 790 2336'],
           ['WhatsApp US',  '+1 984 388 0110'],
           ['Email',        'contact@walztravels.com'],
           ['Website',      'www.walztravels.com'],

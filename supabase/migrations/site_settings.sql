@@ -21,10 +21,10 @@ CREATE POLICY IF NOT EXISTS "service_role_all" ON "SiteSetting"
 
 -- Seed default contact values (safe to re-run — does nothing if keys exist)
 INSERT INTO "SiteSetting" ("id", "key", "value", "label") VALUES
-  (gen_random_uuid()::text, 'whatsapp_header',         '+447398753797',         'WhatsApp – Header (raw)'),
-  (gen_random_uuid()::text, 'whatsapp_header_display', '+44 7398 753797',        'WhatsApp – Header (display)'),
-  (gen_random_uuid()::text, 'whatsapp_cta',            '+447398753797',         'WhatsApp – Homepage CTA (raw)'),
-  (gen_random_uuid()::text, 'whatsapp_cta_display',    '+447398753797',         'WhatsApp – Homepage CTA (display)'),
+  (gen_random_uuid()::text, 'whatsapp_header',         '+12317902336',         'WhatsApp – Header (raw)'),
+  (gen_random_uuid()::text, 'whatsapp_header_display', '+1 231 790 2336',        'WhatsApp – Header (display)'),
+  (gen_random_uuid()::text, 'whatsapp_cta',            '+12317902336',         'WhatsApp – Homepage CTA (raw)'),
+  (gen_random_uuid()::text, 'whatsapp_cta_display',    '+12317902336',         'WhatsApp – Homepage CTA (display)'),
   (gen_random_uuid()::text, 'phone_canada',            '+13657200865',          'Phone Canada'),
   (gen_random_uuid()::text, 'phone_uae',               '+971000000000',         'Phone UAE'),
   (gen_random_uuid()::text, 'phone_nigeria',           '+2340000000000',        'Phone Nigeria'),

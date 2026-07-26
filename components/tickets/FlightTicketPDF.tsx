@@ -510,7 +510,7 @@ function Footer({ reference }: { reference: string }) {
   return (
     <View style={s.footer} fixed>
       <Text style={s.footerLeft}>
-        Walz Travels  ·  contact@walztravels.com  ·  walztravels.com  ·  WhatsApp UK: +44 7398 753797  ·  Ref: {reference}
+        Walz Travels  ·  contact@walztravels.com  ·  walztravels.com  ·  WhatsApp: +1 231 790 2336  ·  Ref: {reference}
       </Text>
       <Text style={s.footerRight}>Powered by Jade — Walz Travels AI</Text>
     </View>
@@ -705,7 +705,7 @@ export function FlightTicketPDF(props: FlightTicketEmailProps) {
         <View style={s.noticeBox}>
           <Text style={s.noticeTitle}>Need help? We're available 24/7</Text>
           <Text style={s.noticeText}>
-            WhatsApp UK: +44 7398 753797  ·  WhatsApp US/Canada: +1 555 710 7823
+            WhatsApp: +1 231 790 2336  ·  WhatsApp US/Canada: +1 555 710 7823
             {'\n'}Email: contact@walztravels.com  ·  Chat with Jade at walztravels.com
           </Text>
         </View>

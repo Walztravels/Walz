@@ -538,7 +538,7 @@ export function HotelVoucherTemplate({ voucher: v, mode }: HotelVoucherTemplateP
             </tbody>
           </table>
           <div style={{ fontSize: 9, color: '#9CA3AF', marginTop: 10, fontWeight: 500 }}>
-            WhatsApp: +44 7398 753797  ·  contact@walztravels.com  ·  walztravels.com
+            WhatsApp: +1 231 790 2336  ·  contact@walztravels.com  ·  walztravels.com
           </div>
         </div>
 
@@ -550,7 +550,7 @@ export function HotelVoucherTemplate({ voucher: v, mode }: HotelVoucherTemplateP
           <tr>
             <td style={{ padding: '14px 28px', verticalAlign: 'middle' }}>
               <div style={{ fontSize: 9, color: '#94A3B8' }}>
-                WhatsApp: +44 7398 753797  ·  contact@walztravels.com  ·  walztravels.com
+                WhatsApp: +1 231 790 2336  ·  contact@walztravels.com  ·  walztravels.com
               </div>
             </td>
             <td style={{ padding: '14px 28px', verticalAlign: 'middle', textAlign: 'right' }}>

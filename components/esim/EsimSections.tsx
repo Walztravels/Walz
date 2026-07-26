@@ -175,7 +175,7 @@ const FAQ_ITEMS = [
   { q: 'What if I need more data?',
     a: 'You can top up directly from your portal at /portal/esims. We offer top-up packages for every destination.' },
   { q: 'What if it does not work?',
-    a: 'Our team is available 24/7 on WhatsApp at +44 7398 753797. We will resolve any activation issue within minutes.' },
+    a: 'Our team is available 24/7 on WhatsApp at +1 231 790 2336. We will resolve any activation issue within minutes.' },
   { q: 'Which phones are compatible?',
     a: 'iPhone XS and later, Samsung Galaxy S20+, Google Pixel 3a+, and most Android phones from 2020. Check Settings → General → About → look for EID number.' },
 ]
@@ -328,7 +328,7 @@ export function EsimCTA() {
             <a href="https://wa.me/12317902336" target="_blank" rel="noopener noreferrer"
               className="flex items-center gap-2 text-white/50 text-sm hover:text-white transition-colors">
               <MessageCircle className="w-4 h-4" />
-              Or WhatsApp Jade — +44 7398 753797
+              Or WhatsApp Jade — +1 231 790 2336
             </a>
           </div>
         </div>

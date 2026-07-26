@@ -439,7 +439,7 @@ export function JadeChat() {
       if (data.dna)      setDna(data.dna)
       if (data.handover) setHandover(data.handover as HandoverInfo)
 
-      const reply: string = data.reply ?? "I'm having a brief issue — WhatsApp us on +44 7398 753797 for instant help!"
+      const reply: string = data.reply ?? "I'm having a brief issue — WhatsApp us on +1 231 790 2336 for instant help!"
 
       historyRef.current = [
         ...historyRef.current,
@@ -464,7 +464,7 @@ export function JadeChat() {
       setMessages(prev => [...prev, {
         id:        (Date.now() + 1).toString(),
         role:      'assistant',
-        content:   "I'm having a brief technical issue. For instant help, WhatsApp us on **+44 7398 753797** ✈",
+        content:   "I'm having a brief technical issue. For instant help, WhatsApp us on **+1 231 790 2336** ✈",
         timestamp: new Date(),
       }])
     } finally {

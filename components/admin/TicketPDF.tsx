@@ -394,7 +394,7 @@ function Footer({ reference }: { reference: string }) {
   return (
     <View style={s.footer} fixed>
       <View style={s.footerRow}>
-        <Text style={s.footerText}>WhatsApp: +44 7398 753797  ·  contact@walztravels.com  ·  walztravels.com</Text>
+        <Text style={s.footerText}>WhatsApp: +1 231 790 2336  ·  contact@walztravels.com  ·  walztravels.com</Text>
       </View>
       <View style={[s.footerRow, { marginTop: 4 }]}>
         <Text style={s.footerText}>Ref: {reference}</Text>

@@ -448,7 +448,7 @@ export function FlightTicketEmail({
                           'Carry this confirmation at all times during travel',
                           'Check visa and entry requirements for your destination before travel',
                           'Baggage allowance may differ for connecting flights — confirm with the airline directly',
-                          'For changes contact Walz Travels immediately on WhatsApp: +44 7398 753797',
+                          'For changes contact Walz Travels immediately on WhatsApp: +1 231 790 2336',
                         ].map((item, i) => (
                           <div key={i} style={{ display: 'flex', alignItems: 'flex-start', gap: 8, marginBottom: 8 }}>
                             <span style={{ color: '#C9A84C', fontSize: 12, marginTop: 1, flexShrink: 0 }}>•</span>
@@ -481,7 +481,7 @@ export function FlightTicketEmail({
                           <tbody>
                             <tr>
                               <td style={{ fontSize: 11, color: 'rgba(255,255,255,0.6)', fontFamily: 'Arial, sans-serif', paddingRight: 16 }}>📞 +1 984 388 0110</td>
-                              <td style={{ fontSize: 11, color: 'rgba(255,255,255,0.6)', fontFamily: 'Arial, sans-serif', paddingRight: 16 }}>💬 +44 7398 753797</td>
+                              <td style={{ fontSize: 11, color: 'rgba(255,255,255,0.6)', fontFamily: 'Arial, sans-serif', paddingRight: 16 }}>💬 +1 231 790 2336</td>
                               <td style={{ fontSize: 11, color: 'rgba(255,255,255,0.6)', fontFamily: 'Arial, sans-serif', paddingRight: 16 }}>✉️ contact@walztravels.com</td>
                               <td style={{ fontSize: 11, color: 'rgba(255,255,255,0.6)', fontFamily: 'Arial, sans-serif' }}>🌐 walztravels.com</td>
                             </tr>
@@ -512,7 +512,7 @@ export function FlightTicketEmail({
                           <br /><br />
                           © 2026 THE WALZ TRAVELS INC. All rights reserved.
                           <br />
-                          Do not reply to this email. For support contact Jade on WhatsApp: +44 7398 753797
+                          Do not reply to this email. For support contact Jade on WhatsApp: +1 231 790 2336
                         </div>
                       </td>
                     </tr>
