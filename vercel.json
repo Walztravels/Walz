@@ -61,15 +61,15 @@
     },
     {
       "path": "/api/jade/cron/price-guardian",
-      "schedule": "0 */2 * * *"
+      "schedule": "0 6 * * *"
     },
     {
       "path": "/api/jade/cron/journey-companion",
-      "schedule": "*/15 * * * *"
+      "schedule": "0 7 * * *"
     },
     {
       "path": "/api/jade/cron/whisper",
-      "schedule": "0 */3 * * *"
+      "schedule": "0 8 * * *"
     }
   ]
 }
