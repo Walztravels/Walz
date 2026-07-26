@@ -23,6 +23,7 @@ export interface ChatwootMessage {
   private: boolean;
   created_at: number;
   sender?: { name?: string; type?: string };
+  content_attributes?: { jade_ai?: boolean; [key: string]: unknown };
 }
 
 /**

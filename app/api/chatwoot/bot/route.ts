@@ -138,14 +138,23 @@ async function processTurn(
       getConversation(conversationId),
     ]);
 
-    // Human takeover check: if any human agent (sender.type === "user") has
-    // sent a non-private outgoing message, they've taken over — Jade defers.
-    // This fires AFTER auto-assignment without a human reply, so Jade keeps
-    // responding even when Chatwoot routing assigns the conversation to a staff
-    // member automatically.
-    const humanHasReplied = history.some(
-      (m) => m.message_type === 1 && !m.private && m.sender?.type === "user"
+    // Human takeover check.
+    // We stamp every Jade reply with content_attributes.jade_ai=true in sendReply().
+    // Any outgoing non-private message WITHOUT that marker was sent by a human agent.
+    // This is more reliable than sender.type, which varies based on whether the API
+    // token is a bot token or a user token.
+    const outgoing = history.filter((m) => m.message_type === 1 && !m.private);
+    // Diagnostic: log sender info so we can verify content_attributes are returned
+    console.log(
+      `[jade] conv=${conversationId} outgoing_msgs:`,
+      JSON.stringify(outgoing.slice(-3).map((m) => ({
+        id: m.id,
+        senderType: m.sender?.type,
+        senderName: m.sender?.name,
+        jadeAi: m.content_attributes?.jade_ai,
+      })))
     );
+    const humanHasReplied = outgoing.some((m) => !m.content_attributes?.jade_ai);
     if (humanHasReplied) {
       console.log(`[jade] conv=${conversationId} deferring — human agent has replied`);
       return;
@@ -247,7 +256,7 @@ async function processTurn(
     // ---- 6. Guard: re-check before replying (race: human replied while Jade was thinking)
     const latestHistory = await getConversationHistory(conversationId, 30);
     const humanRepliedSince = latestHistory.some(
-      (m) => m.message_type === 1 && !m.private && m.sender?.type === "user"
+      (m) => m.message_type === 1 && !m.private && !m.content_attributes?.jade_ai
     );
     if (humanRepliedSince) {
       console.log(`[jade] conv=${conversationId} aborting reply — human replied while processing`);
