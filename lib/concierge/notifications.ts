@@ -5,6 +5,41 @@
 
 import { getResend } from '@/lib/resend'
 
+// ── Internal notification on request creation (web form path) ─────────────────
+
+export interface RequestNotification {
+  reference:    string
+  categoryName: string
+  clientName?:  string
+  clientEmail?: string
+  fields:       Record<string, unknown>
+}
+
+/**
+ * Logs internally and attempts a Supabase insert into concierge_notifications.
+ * Non-throwing — errors are swallowed. The table is optional.
+ */
+export async function notifyNewRequest(n: RequestNotification): Promise<void> {
+  console.info(`[Concierge] New request: ${n.reference} (${n.categoryName})`)
+
+  try {
+    const { getSupabaseAdmin } = await import('@/lib/supabase')
+    const supabase = getSupabaseAdmin()
+
+    await supabase.from('concierge_notifications').insert({
+      reference:     n.reference,
+      category_name: n.categoryName,
+      client_name:   n.clientName   ?? null,
+      client_email:  n.clientEmail  ?? null,
+      fields:        n.fields,
+      created_at:    new Date().toISOString(),
+    })
+    // Intentionally not checking error — table may not exist yet.
+  } catch {
+    // Swallow all errors. The concierge_notifications table is optional.
+  }
+}
+
 const FROM = 'Walz Concierge <contact@walztravels.com>'
 
 const STATUS_LABELS: Record<string, { subject: string; headline: string; body: string; color: string }> = {
