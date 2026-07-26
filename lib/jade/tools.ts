@@ -363,6 +363,28 @@ export const JADE_TOOLS = [
       required: ["destination", "nationality"],
     },
   },
+
+  // ── CONCIERGE: submit_concierge_intent ───────────────────────────────────────
+  // The single Concierge tool — only available in concierge mode.
+  // Execution is handled by the chatwoot route (needs session context).
+  {
+    name: 'submit_concierge_intent',
+    description: 'Submit a completed concierge service request once you have collected ALL required fields from the client. Returns a reference number and SLA. Call this ONLY when every required field is present — never guess or fill in missing fields yourself.',
+    input_schema: {
+      type: 'object' as const,
+      properties: {
+        categorySlug: {
+          type: 'string',
+          description: 'The concierge category slug, e.g. "airport-services", "private-aviation", "executive-transport"',
+        },
+        fields: {
+          type: 'object',
+          description: 'All required fields collected from the client as key-value pairs',
+        },
+      },
+      required: ['categorySlug', 'fields'],
+    },
+  },
 ] as const;
 
 // ---------------------------------------------------------------------------
@@ -410,6 +432,9 @@ export async function executeTool(
         // Actual handoff is performed by the route after the loop ends,
         // so the customer still receives Jade's final "connecting you" message.
         return "HANDOFF_REQUESTED";
+      case "submit_concierge_intent":
+        // Executed in the chatwoot route — needs jade session context not available here.
+        return JSON.stringify({ error: "submit_concierge_intent must be handled by the route handler" });
       default:
         return `Unknown tool: ${name}`;
     }

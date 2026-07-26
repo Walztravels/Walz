@@ -10,6 +10,11 @@ import { saveJadeSession, loadJadeSession } from '@/lib/jade-session'
 import type { JadeSessionState } from '@/lib/jade-session'
 import { searchFlights, assignBadges } from '@/lib/flights/duffel'
 import type { FlightSearchParams, FlightItinerary } from '@/lib/flights/types'
+import { resolveContext } from '@/lib/jade/context-resolver'
+import { getModeConfig }  from '@/lib/jade/mode-manager'
+import { conciergeCore }    from '@/lib/concierge/core'
+import { getCategoryBySlug } from '@/lib/concierge/catalogue'
+import { sendClientConfirmation } from '@/lib/concierge/notifications'
 
 export const maxDuration = 60
 export const dynamic     = 'force-dynamic'
@@ -741,6 +746,84 @@ Say exactly: "Let me connect you with one of our specialist consultants who can 
 - Never mention competitor travel agencies
 - If asked if you're AI: "I'm Jade — Walz Travels' AI travel consultant. I'm here to make planning effortless, and there's always a human specialist available whenever you need one."`
 
+// ─── Concierge tool definition ────────────────────────────────────────────────
+
+const SUBMIT_CONCIERGE_INTENT = {
+  name: 'submit_concierge_intent',
+  description: 'Submit a completed concierge service request once you have collected ALL required fields from the client. Returns a reference number and SLA to share with the client. Call this ONLY when every required field is present — never guess missing fields.',
+  input_schema: {
+    type: 'object' as const,
+    properties: {
+      categorySlug: {
+        type: 'string',
+        description: 'The concierge category slug, e.g. "airport-services", "private-aviation"',
+      },
+      fields: {
+        type: 'object',
+        description: 'All required fields collected from the client as key-value pairs',
+      },
+    },
+    required: ['categorySlug', 'fields'],
+  },
+}
+
+// ─── Concierge tool executor ───────────────────────────────────────────────────
+// Called by jadeReply() when Claude invokes submit_concierge_intent.
+// Returns a JSON string that Claude reads and uses to compose its reply.
+
+async function executeConciergeIntent(
+  input:          Record<string, unknown>,
+  jadeSessionId:  string,
+  clientName?:    string,
+  clientEmail?:   string,
+  chatwootConvId?: number | null,
+): Promise<string> {
+  const categorySlug = typeof input.categorySlug === 'string' ? input.categorySlug : null
+  const fields       = input.fields && typeof input.fields === 'object'
+    ? (input.fields as Record<string, unknown>)
+    : {}
+
+  if (!categorySlug) {
+    return JSON.stringify({ success: false, error: 'categorySlug is required' })
+  }
+
+  const category = await getCategoryBySlug(categorySlug)
+  if (!category) {
+    return JSON.stringify({ success: false, error: `Category "${categorySlug}" not found. Use the slug from the page context.` })
+  }
+
+  const validation = conciergeCore.validateFields(category, fields)
+  if (!validation.valid) {
+    return JSON.stringify({ success: false, missingFields: validation.missing })
+  }
+
+  const result = await conciergeCore.createRequest({
+    jadeSessionId,
+    categorySlug,
+    intentFields:    fields,
+    clientName:      clientName  || undefined,
+    clientEmail:     clientEmail || undefined,
+    chatwootConvId:  chatwootConvId ?? undefined,
+  })
+
+  if (!result) {
+    return JSON.stringify({ success: false, error: 'Request could not be created. Offer to connect a human agent.' })
+  }
+
+  // Fire client confirmation email — non-blocking, must not delay Jade's reply
+  if (clientEmail) {
+    void sendClientConfirmation({
+      clientEmail,
+      clientName:  clientName || undefined,
+      reference:   result.reference,
+      categoryName: category.name,
+      sla:         result.sla,
+    })
+  }
+
+  return JSON.stringify({ success: true, reference: result.reference, sla: result.sla, status: result.status })
+}
+
 // ─── System prompt builder ────────────────────────────────────────────────────
 
 interface Msg { role: 'user' | 'assistant'; content: string }
@@ -760,6 +843,7 @@ function buildSystemPrompt(
   isResuming:  boolean,
   profile:     ClientProfile | null,
   lang =       'en',
+  modeAddendum = '',
 ): string {
   const today = new Date().toLocaleDateString('en-GB', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' })
   let extra = `\n\nToday's date is ${today}. When a user says 'next Friday', 'this weekend', 'tomorrow' etc, calculate the exact date yourself and confirm it back to the user. Never ask the user what today's date is.`
@@ -829,7 +913,7 @@ function buildSystemPrompt(
     extra += `\n\n## LANGUAGE RULE\nRespond ENTIRELY in ${langName}. The client is writing in ${langName}. Use ${langName} for every sentence. English is only permitted for: prices, IATA airport codes, and the brand names "Walz Travels" and "Jade".`
   }
 
-  return JADE_MASTER + extra
+  return JADE_MASTER + extra + modeAddendum
 }
 
 // ─── AI reply ─────────────────────────────────────────────────────────────────
@@ -842,13 +926,67 @@ async function jadeReply(
   profile:         ClientProfile | null,
   systemOverride?: string,
   lang =           'en',
+  modeAddendum =   '',
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  toolDefs:        any[]  = [],
+  onToolUse?:      (name: string, input: Record<string, unknown>) => Promise<string>,
 ): Promise<string> {
-  const system = systemOverride ?? buildSystemPrompt(messages.length, pageContext, dna, isResuming, profile, lang)
+  const system = systemOverride ?? buildSystemPrompt(messages.length, pageContext, dna, isResuming, profile, lang, modeAddendum)
   // Sonnet for early relationship-building (messages 1–10), Haiku for speed+cost on long chats
   const model  = messages.length > 10 ? 'claude-haiku-4-5-20251001' : 'claude-sonnet-4-6'
 
   try {
-    const res = await getAnthropic().messages.create({
+    const anthropic = getAnthropic()
+
+    // ── Agentic tool-calling loop (concierge mode only) ──────────────────────
+    if (toolDefs.length > 0 && onToolUse) {
+      const loop: Anthropic.MessageParam[] = [...(messages as Anthropic.MessageParam[])]
+
+      for (let iter = 0; iter < 3; iter++) {
+        const res = await anthropic.messages.create({
+          model, max_tokens: 1024, system,
+          tools:    toolDefs,
+          messages: loop,
+        })
+
+        const toolBlocks = res.content.filter(
+          (b): b is Anthropic.ToolUseBlock => b.type === 'tool_use'
+        )
+
+        // No tool calls — return the text reply
+        if (toolBlocks.length === 0 || res.stop_reason !== 'tool_use') {
+          const text = res.content.find(
+            (b): b is Anthropic.TextBlock => b.type === 'text'
+          )
+          return text?.text ?? ''
+        }
+
+        // Execute each tool call and collect results
+        const toolResults = await Promise.all(
+          toolBlocks.map(async b => ({
+            type:        'tool_result' as const,
+            tool_use_id: b.id,
+            content:     await onToolUse(b.name, b.input as Record<string, unknown>),
+          }))
+        )
+
+        // Append assistant turn (with tool_use) + user turn (with tool_result)
+        loop.push({ role: 'assistant', content: res.content })
+        loop.push({ role: 'user',      content: toolResults })
+      }
+
+      // Max iterations reached — get a final plain-text reply
+      const final = await anthropic.messages.create({
+        model, max_tokens: 800, system, messages: loop,
+      })
+      const finalText = final.content.find(
+        (b): b is Anthropic.TextBlock => b.type === 'text'
+      )
+      return finalText?.text ?? ''
+    }
+
+    // ── Standard (no-tool) path ───────────────────────────────────────────────
+    const res = await anthropic.messages.create({
       model, max_tokens: 600, system,
       messages: messages as Anthropic.MessageParam[],
     })
@@ -1509,6 +1647,10 @@ export async function POST(req: NextRequest) {
   const convId = conversationId ?? null
   const sid    = sessionId ?? `web-${Date.now()}`
 
+  // ── Context resolver + mode config (server-side; client pathname is never trusted) ─
+  const jadeCtx    = await resolveContext(pageContext)
+  const modeConfig = getModeConfig(jadeCtx)
+
   // ── Silence check — non-blocking with short timeout ─────────────────────────
   let silenced     = false
   let shouldResume = false
@@ -1638,23 +1780,53 @@ export async function POST(req: NextRequest) {
     })()
 
     return NextResponse.json({
-      reply:           flowResult.reply,
-      conversationId:  actualConvId,
+      reply:            flowResult.reply,
+      conversationId:   actualConvId,
       dna,
-      intent:          activeIntent,
-      quickReplies:    flowResult.quickReplies,
+      intent:           activeIntent,
+      quickReplies:     flowResult.quickReplies,
       extractedProfile: undefined,
-      handover:        null,
-      resumed:         shouldResume,
+      handover:         null,
+      resumed:          shouldResume,
+      mode:             jadeCtx.mode,
+      welcomeMessage:   modeConfig.welcomeMessage,
+      quickActions:     modeConfig.quickActions,
     })
   }
 
   // ── Standard path: full AI reply + profile extraction ─────────────────────────
+  // Concierge tools are only active when: mode is concierge, flag is on, and not a B2B override
+  const conciergeToolActive = jadeCtx.mode === 'concierge' && modeConfig.isEnabled && !b2b
+
+  // Capture the concierge request result so we can include it in the JSON response
+  let capturedConciergeRequest: { reference: string; sla: string } | null = null
+
+  const conciergeExecutor = conciergeToolActive
+    ? async (name: string, input: Record<string, unknown>): Promise<string> => {
+        if (name === 'submit_concierge_intent') {
+          const result = await executeConciergeIntent(
+            input, convKey, customerName, customerEmail, actualConvId,
+          )
+          try {
+            const parsed = JSON.parse(result) as { success?: boolean; reference?: string; sla?: string }
+            if (parsed.success && parsed.reference) {
+              capturedConciergeRequest = { reference: parsed.reference, sla: parsed.sla ?? '' }
+            }
+          } catch {}
+          return result
+        }
+        return JSON.stringify({ error: `Unknown tool in concierge mode: ${name}` })
+      }
+    : undefined
+
   const [reply, extractedProfile] = await Promise.all([
     jadeReply(
       messages, pageContext, dna, shouldResume, profile,
       b2b ? JADE_B2B_PROMPT : undefined,
       clientLanguage,
+      modeConfig.systemAddendum,
+      conciergeToolActive ? [SUBMIT_CONCIERGE_INTENT] : [],
+      conciergeExecutor,
     ),
     extractProfileWithClaude(messages).catch(() => ({})),
   ])
@@ -1684,12 +1856,16 @@ export async function POST(req: NextRequest) {
 
   return NextResponse.json({
     reply,
-    conversationId:  actualConvId,
+    conversationId:    actualConvId,
     dna,
     intent,
-    quickReplies:    [],
-    extractedProfile: Object.keys(extractedProfile).length > 0 ? extractedProfile : undefined,
-    handover:         handover.needed ? handover : null,
-    resumed:          shouldResume,
+    quickReplies:      [],
+    extractedProfile:  Object.keys(extractedProfile).length > 0 ? extractedProfile : undefined,
+    handover:          handover.needed ? handover : null,
+    resumed:           shouldResume,
+    mode:              jadeCtx.mode,
+    welcomeMessage:    modeConfig.welcomeMessage,
+    quickActions:      modeConfig.quickActions,
+    conciergeRequest:  capturedConciergeRequest ?? undefined,
   })
 }
