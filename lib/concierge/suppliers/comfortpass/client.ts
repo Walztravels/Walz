@@ -80,9 +80,42 @@ export class ComfortPassClient {
     if (params.date)       qs.set('date',       params.date)
     if (params.passengers) qs.set('passengers', String(params.passengers))
     const raw = await this.get<unknown>(`/services?${qs.toString()}`)
-    const list = unwrapList<CPService>(raw, 'services', 'packages')
+
+    // Try flat unwrap first
+    let list = unwrapList<CPService>(raw, 'services', 'packages')
+
+    // ComfortPass /services returns { services: { meetgreet:[...], lounge:[...], ... } }
+    // The 'services' key exists but its value is a grouped object, not a flat array.
+    // Detect and flatten it here.
+    if (list.length === 0 && raw && typeof raw === 'object') {
+      const obj = raw as Record<string, unknown>
+      const grouped = obj['services']
+      if (grouped && typeof grouped === 'object' && !Array.isArray(grouped)) {
+        const TYPE_MAP: Record<string, string> = {
+          meetgreet:    'meet_greet',
+          lounge:       'lounge',
+          transfer:     'transfer',
+          sleepingpods: 'sleeping_pod',
+          fast_track:   'fast_track',
+          baggage:      'baggage_delivery',
+        }
+        list = Object.entries(grouped as Record<string, unknown>).flatMap(
+          ([key, val]) => {
+            if (!Array.isArray(val)) return []
+            return (val as Record<string, unknown>[]).map(svc => ({
+              ...svc,
+              type: TYPE_MAP[key] ?? key,
+            } as CPService))
+          },
+        )
+      }
+    }
+
     if (list.length === 0) {
-      console.warn(`[ComfortPass] searchServices: empty result for params=${JSON.stringify(params)} — check envelope shape`, raw)
+      console.warn(
+        `[ComfortPass] searchServices: empty result for params=${JSON.stringify(params)} — check envelope shape`,
+        raw,
+      )
     }
     return list
   }
