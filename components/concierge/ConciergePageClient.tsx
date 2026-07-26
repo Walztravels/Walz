@@ -244,11 +244,7 @@ export function ConciergePageClient({
           className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4"
         >
           {categories.map((cat, i) => (
-            /* First tile spans 2 columns on desktop for visual hierarchy */
-            <div
-              key={cat.slug}
-              className={i === 0 ? 'sm:col-span-2 lg:col-span-2' : ''}
-            >
+            <div key={cat.slug}>
               <CategoryTile
                 slug={cat.slug}
                 name={cat.name}
