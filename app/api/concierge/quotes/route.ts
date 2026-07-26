@@ -24,7 +24,7 @@ export async function GET(req: NextRequest) {
   const adapter = new ComfortPassAdapter()
 
   try {
-    const price = await adapter.getServicePrice(serviceCode, { passengers: pax, date })
+    const price = await adapter.getServicePrice(serviceCode)
     // WalzServicePrice only contains displayPrice — no raw amount
     return NextResponse.json({ price })
   } catch (err) {

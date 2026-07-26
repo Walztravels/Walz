@@ -182,11 +182,8 @@ export class ComfortPassAdapter implements SupplierAdapter {
     return services.map(toWalzService)
   }
 
-  async getServicePrice(
-    serviceCode: string,
-    params: { passengers?: number; date?: string },
-  ): Promise<WalzServicePrice> {
-    const price = await this.getClient().getPrice(serviceCode, params)
+  async getServicePrice(serviceCode: string): Promise<WalzServicePrice> {
+    const price = await this.getClient().getPrice(serviceCode)
     return toWalzServicePrice(price)
   }
 

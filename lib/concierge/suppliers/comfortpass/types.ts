@@ -111,25 +111,41 @@ export interface CPBalance {
 
 // ── Baggage ────────────────────────────────────────────────────────────────────
 
-export interface CPBaggageOption {
-  code:        string
-  label:       string
-  description: string
-  price:       number
-  currency:    string
-  perPerson:   boolean
+// ── Baggage delivery catalogue ─────────────────────────────────────────────────
+// GET /baggage/catalog — returns the full lookup tree for building a quote query.
+// Not scoped to a service code; contains all countries/cities/types available.
+
+export interface CPBaggageCatalogueEntry { id: string; name: string }
+export interface CPBaggageCatalogueCity  { id: string; name: string; countryId: string }
+
+export interface CPBaggageCatalogue {
+  countries:    CPBaggageCatalogueEntry[]
+  cities:       CPBaggageCatalogueCity[]
+  serviceTypes: CPBaggageCatalogueEntry[]   // e.g. "Express", "Standard"
+  deliveryTypes: CPBaggageCatalogueEntry[]  // e.g. "Door to door", "Terminal pickup"
 }
 
+// GET /baggage/quote — query params (not a POST body)
 export interface CPBaggageQuoteRequest {
-  serviceCode: string
-  passengers:  CPPassenger[]
-  baggage:     { code: string; quantity: number }[]
+  countryId:      string
+  cityId:         string
+  serviceTypeId:  string
+  deliveryTypeId: string
+  bags:           number
 }
 
 export interface CPBaggageQuote {
   total:    number
   currency: string
   items:    { code: string; label: string; amount: number; quantity: number }[]
+}
+
+// Legacy type kept for backward compatibility in checkout route (maps to the above)
+/** @deprecated Use CPBaggageQuoteRequest */
+export interface CPBaggageQuoteRequestLegacy {
+  serviceCode: string
+  passengers:  CPPassenger[]
+  baggage:     { code: string; quantity: number }[]
 }
 
 // ── Normalised Walz models (safe to pass through the stack) ───────────────────

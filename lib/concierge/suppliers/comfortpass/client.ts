@@ -13,11 +13,36 @@ import type {
   CPAirport, CPService, CPPrice,
   CPBookingRequest, CPBookingResponse,
   CPVoucher, CPBalance,
-  CPBaggageOption, CPBaggageQuoteRequest, CPBaggageQuote,
+  CPBaggageCatalogue, CPBaggageQuoteRequest, CPBaggageQuote,
 } from './types'
 
 const MAX_GET_RETRIES = 3
 const RETRY_BACKOFF_BASE_MS = 500
+
+/**
+ * ComfortPass responses are inconsistently enveloped. Unwrap a list from
+ * whatever shape arrives rather than assuming one key. Exported for unit tests.
+ */
+export function unwrapList<T>(payload: unknown, ...keys: string[]): T[] {
+  if (Array.isArray(payload)) return payload as T[]
+  if (payload && typeof payload === 'object') {
+    const obj = payload as Record<string, unknown>
+    // Check preferred keys first, then common generic envelope keys
+    for (const k of [...keys, 'data', 'results', 'items', 'payload', 'list']) {
+      if (Array.isArray(obj[k])) return obj[k] as T[]
+    }
+    // One level of nesting: { data: { airports: [...] } }
+    for (const v of Object.values(obj)) {
+      if (v && typeof v === 'object' && !Array.isArray(v)) {
+        for (const k of keys) {
+          const nested = (v as Record<string, unknown>)[k]
+          if (Array.isArray(nested)) return nested as T[]
+        }
+      }
+    }
+  }
+  return []
+}
 
 export class ComfortPassClient {
   private readonly baseUrl:   string
@@ -33,10 +58,12 @@ export class ComfortPassClient {
   // ── Airport search ──────────────────────────────────────────────────────────
 
   async searchAirports(query: string): Promise<CPAirport[]> {
-    const data = await this.get<{ airports: CPAirport[] }>(
-      `/airports?q=${encodeURIComponent(query)}`,
-    )
-    return data.airports ?? []
+    const raw = await this.get<unknown>(`/airports?q=${encodeURIComponent(query)}`)
+    const list = unwrapList<CPAirport>(raw, 'airports')
+    if (list.length === 0) {
+      console.warn(`[ComfortPass] searchAirports: empty result for query="${query}" — check envelope shape`, raw)
+    }
+    return list
   }
 
   // ── Service search ──────────────────────────────────────────────────────────
@@ -52,39 +79,37 @@ export class ComfortPassClient {
     if (params.airport)    qs.set('airport',    params.airport)
     if (params.date)       qs.set('date',       params.date)
     if (params.passengers) qs.set('passengers', String(params.passengers))
-    const data = await this.get<{ services: CPService[] }>(`/services?${qs.toString()}`)
-    return data.services ?? []
+    const raw = await this.get<unknown>(`/services?${qs.toString()}`)
+    const list = unwrapList<CPService>(raw, 'services', 'packages')
+    if (list.length === 0) {
+      console.warn(`[ComfortPass] searchServices: empty result for params=${JSON.stringify(params)} — check envelope shape`, raw)
+    }
+    return list
   }
 
-  async getService(serviceCode: string): Promise<CPService> {
-    return this.get<CPService>(`/services/${encodeURIComponent(serviceCode)}`)
-  }
+  // getService removed: no such endpoint in the ComfortPass API
 
   // ── Pricing ─────────────────────────────────────────────────────────────────
 
-  async getPrice(serviceCode: string, params: {
-    passengers?: number
-    date?:       string
-  }): Promise<CPPrice> {
-    const qs = new URLSearchParams()
-    if (params.passengers) qs.set('passengers', String(params.passengers))
-    if (params.date)       qs.set('date',       params.date)
-    return this.get<CPPrice>(
-      `/services/${encodeURIComponent(serviceCode)}/price?${qs.toString()}`,
-    )
+  async getPrice(serviceCode: string): Promise<CPPrice> {
+    return this.get<CPPrice>(`/prices?code=${encodeURIComponent(serviceCode)}`)
   }
 
   // ── Baggage ─────────────────────────────────────────────────────────────────
 
-  async getBaggageCatalogue(serviceCode: string): Promise<CPBaggageOption[]> {
-    const data = await this.get<{ options: CPBaggageOption[] }>(
-      `/services/${encodeURIComponent(serviceCode)}/baggage`,
-    )
-    return data.options ?? []
+  async getBaggageCatalogue(): Promise<CPBaggageCatalogue> {
+    return this.get<CPBaggageCatalogue>('/baggage/catalog')
   }
 
-  async getBaggageQuote(body: CPBaggageQuoteRequest): Promise<CPBaggageQuote> {
-    return this.post<CPBaggageQuote>('/baggage/quote', body)
+  async getBaggageQuote(params: CPBaggageQuoteRequest): Promise<CPBaggageQuote> {
+    const qs = new URLSearchParams({
+      countryId:      params.countryId,
+      cityId:         params.cityId,
+      serviceTypeId:  params.serviceTypeId,
+      deliveryTypeId: params.deliveryTypeId,
+      bags:           String(params.bags),
+    })
+    return this.get<CPBaggageQuote>(`/baggage/quote?${qs.toString()}`)
   }
 
   // ── Bookings ────────────────────────────────────────────────────────────────

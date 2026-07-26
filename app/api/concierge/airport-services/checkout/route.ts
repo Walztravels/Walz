@@ -28,9 +28,12 @@ interface PassengerInput {
   type:      'adult' | 'child' | 'infant'
 }
 
-interface BaggageItem {
-  code:     string
-  quantity: number
+interface BaggageQuoteParams {
+  countryId:      string
+  cityId:         string
+  serviceTypeId:  string
+  deliveryTypeId: string
+  bags:           number
 }
 
 export async function POST(req: NextRequest) {
@@ -56,7 +59,7 @@ export async function POST(req: NextRequest) {
     passengers,
     leadEmail,
     leadPhone,
-    baggageItems,
+    baggageQuote,
   } = body as {
     type:         string
     serviceCode:  string
@@ -65,9 +68,9 @@ export async function POST(req: NextRequest) {
     time?:        string
     flightNumber?: string
     passengers:   PassengerInput[]
-    leadEmail:    string
-    leadPhone?:   string
-    baggageItems?: BaggageItem[]
+    leadEmail:     string
+    leadPhone?:    string
+    baggageQuote?: BaggageQuoteParams
   }
 
   // Validation
@@ -93,19 +96,15 @@ export async function POST(req: NextRequest) {
   let displayPrice: string
 
   try {
-    if (type === 'baggage' && Array.isArray(baggageItems) && baggageItems.length > 0) {
-      const quote = await client.getBaggageQuote({
-        serviceCode,
-        passengers: passengers.map(p => ({ type: p.type, firstName: p.firstName, lastName: p.lastName })),
-        baggage:    baggageItems,
-      })
+    if (type === 'baggage' && baggageQuote) {
+      const quote = await client.getBaggageQuote(baggageQuote)
       const { walzAmount, currency: curr } = await applyWalzMarkup(quote.total, quote.currency)
       currency     = curr
       displayPrice = formatDisplayPrice(walzAmount, currency, false)
       unitAmount   = Math.round(walzAmount * 100)
       quantity     = 1
     } else {
-      const cpPrice = await client.getPrice(serviceCode, { passengers: passengers.length, date })
+      const cpPrice = await client.getPrice(serviceCode)
       const { walzAmount, currency: curr } = await applyWalzMarkup(cpPrice.amount, cpPrice.currency)
       currency     = curr
       displayPrice = formatDisplayPrice(walzAmount, currency, cpPrice.perPerson)
@@ -147,7 +146,7 @@ export async function POST(req: NextRequest) {
     time:          time ?? '00:00',
     flight_number: flightNumber ?? '',
     passengers,
-    baggage_items: baggageItems ?? null,
+    baggage_quote: baggageQuote ?? null,
     lead_email:    leadEmail,
     lead_phone:    leadPhone ?? null,
     display_price: displayPrice,

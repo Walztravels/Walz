@@ -17,8 +17,6 @@ export async function GET(req: NextRequest) {
 
   const { searchParams } = new URL(req.url)
   const serviceCode = searchParams.get('serviceCode')
-  const pax  = searchParams.get('pax')  ? Number(searchParams.get('pax'))  : 1
-  const date = searchParams.get('date') ?? undefined
 
   if (!serviceCode) {
     return NextResponse.json({ error: 'serviceCode is required' }, { status: 400 })
@@ -27,7 +25,7 @@ export async function GET(req: NextRequest) {
   const client = new ComfortPassClient(config)
 
   try {
-    const cpPrice = await client.getPrice(serviceCode, { passengers: pax, date })
+    const cpPrice = await client.getPrice(serviceCode)
     const { walzAmount, currency } = await applyWalzMarkup(cpPrice.amount, cpPrice.currency)
 
     return NextResponse.json({
