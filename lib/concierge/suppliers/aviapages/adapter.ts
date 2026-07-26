@@ -3,15 +3,18 @@
 // request on Aviapages, then the Walz team closes the booking manually.
 // Jade never reaches this layer directly.
 
-import { getConfig }       from './config'
-import { AviapagesClient } from './client'
+import { getConfig }        from './config'
+import { AviapagesClient, fmtDatetime, icaoOrIata, acClass } from './client'
 import type { SupplierAdapter }             from '../../adapters/base'
 import type { DispatchPayload, DispatchResult } from '../../types'
 import type {
   APAircraftCategory,
+  APQuoteRequestBody,
+  APLeg,
   WalzCharterOption,
   WalzFlightEstimate,
   WalzQuoteConfirmation,
+  WalzEmptyLeg,
 } from './types'
 
 const CURRENCY_FORMAT = new Intl.NumberFormat('en-US', {
@@ -20,9 +23,36 @@ const CURRENCY_FORMAT = new Intl.NumberFormat('en-US', {
   maximumFractionDigits: 0,
 })
 
-function fmt(amount: number | null): string {
+function fmt(amount: number | null | undefined): string {
   if (amount == null || isNaN(amount)) return 'Contact for quote'
   return CURRENCY_FORMAT.format(amount)
+}
+
+function buildLegs(
+  from:     string,
+  to:       string,
+  datetime: string,
+  pax:      number,
+): APLeg[] {
+  return [{
+    departure_airport:  icaoOrIata(from),
+    arrival_airport:    icaoOrIata(to),
+    pax,
+    departure_datetime: fmtDatetime(datetime),
+  }]
+}
+
+// Supplier identity fields that must never reach the browser
+const SUPPLIER_STRIP = new Set([
+  'company', 'manager_name', 'account', 'manager_account',
+  'avg_response_rate', 'avg_response_time',
+  'registration_number', 'tail_number',
+])
+
+function stripSupplier<T extends Record<string, unknown>>(obj: T): T {
+  const clean = { ...obj }
+  for (const key of SUPPLIER_STRIP) delete clean[key]
+  return clean
 }
 
 export class AviapagesAdapter implements SupplierAdapter {
@@ -60,19 +90,26 @@ export class AviapagesAdapter implements SupplierAdapter {
     const client = this.getClient()
 
     try {
-      const quote = await client.createQuoteRequest({
-        from:               from,
-        to:                 to,
-        departure_date:     date,
-        return_date:        returnDate,
-        passengers,
-        aircraft_category:  category,
-        notes:              (fields.notes ?? '') as string,
-        client_name:        payload.clientName,
-        client_email:       payload.clientEmail,
-        client_phone:       payload.clientPhone,
-        reference:          ref,
-      })
+      const legs = buildLegs(from, to, date, passengers)
+      if (returnDate) {
+        legs.push({
+          departure_airport:  icaoOrIata(to),
+          arrival_airport:    icaoOrIata(from),
+          pax:                passengers,
+          departure_datetime: fmtDatetime(returnDate),
+        })
+      }
+
+      const body: APQuoteRequestBody = {
+        legs,
+        post_to_trip_board: false,
+        send_to_self:       false,
+        channels:           ['Email'],
+        ...(category        ? { aircraft: [{ ac_class: acClass(category) }] } : {}),
+        ...(fields.notes    ? { comment: String(fields.notes) }               : {}),
+      }
+
+      const quote = await client.createQuoteRequest(body)
 
       console.info(`[Aviapages] Quote request created: id=${quote.id} ref=${ref}`)
 
@@ -102,28 +139,58 @@ export class AviapagesAdapter implements SupplierAdapter {
     return this.getClient().searchAirports(query)
   }
 
+  // Two-step: flight_calculator → distance/time, charter_prices → price range.
+  // Aviapages flight_calculator returns HTTP 200 even on error — check .errors[].
+
   async getFlightEstimate(params: {
     from:       string
     to:         string
     passengers: number
     date?:      string
+    category?:  APAircraftCategory
   }): Promise<WalzFlightEstimate> {
-    const result = await this.getClient().calculateFlight(params)
-    const low    = result.price_from
-    const high   = result.price_to
+    const client = this.getClient()
+
+    const [calc, prices] = await Promise.all([
+      client.calculateFlight({
+        from:     params.from,
+        to:       params.to,
+        pax:      params.passengers,
+        datetime: params.date,
+      }),
+      params.date
+        ? client.getCharterPrices({
+            from:     params.from,
+            to:       params.to,
+            pax:      params.passengers,
+            datetime: params.date,
+            category: params.category,
+          }).catch(() => null)
+        : Promise.resolve(null),
+    ])
+
+    // flight_calculator returns 200 on failure — surface errors
+    if (calc.errors?.length) {
+      console.warn('[Aviapages] calculateFlight errors:', calc.errors)
+    }
+
+    const distanceKm  = calc.airway_distance ?? 0
+    const flightHours = calc.airway_time_weather_impacted ?? 0
 
     let displayPrice: string
-    if (low && high && low !== high) {
-      displayPrice = `${fmt(low)} – ${fmt(high)}`
-    } else if (low) {
-      displayPrice = `From ${fmt(low)}`
+    if (prices?.price_min != null && prices?.price_max != null
+        && prices.price_min !== prices.price_max) {
+      displayPrice = `Est. ${fmt(prices.price_min)} – ${fmt(prices.price_max)}`
+    } else if (prices?.price != null) {
+      displayPrice = `From ${fmt(prices.price)}`
     } else {
       displayPrice = 'Contact for quote'
     }
 
     return {
-      distanceKm:  result.distance_km,
-      flightHours: result.flight_time_h,
+      distanceKm,
+      flightHours,
+      techStops: calc.techstops,
       displayPrice,
     }
   }
@@ -136,22 +203,22 @@ export class AviapagesAdapter implements SupplierAdapter {
     category?:   APAircraftCategory
   }): Promise<WalzCharterOption[]> {
     const results = await this.getClient().searchCharters({
-      from:               params.from,
-      to:                 params.to,
-      date:               params.date,
-      passengers:         params.passengers,
-      aircraft_category:  params.category,
+      from:     params.from,
+      to:       params.to,
+      datetime: params.date,
+      pax:      params.passengers,
+      category: params.category,
     })
 
-    // Strip supplier amounts — never expose net price to caller
+    // operator / company stripped here — supplier identity must not reach callers
     return results.map(r => ({
       aircraftModel:    r.aircraft.model,
-      category:         r.aircraft.category,
+      category:         String(r.aircraft.category),
       paxCapacity:      r.aircraft.pax_max,
-      operator:         r.operator,
       estimatedHours:   r.flight_time_h,
       displayPriceFrom: r.price ? `From ${fmt(r.price)}` : 'Contact for quote',
-      available:        r.is_available,
+      available:        r.is_available ?? false,
+      // operator intentionally omitted
     }))
   }
 
@@ -168,24 +235,56 @@ export class AviapagesAdapter implements SupplierAdapter {
     clientPhone?: string
     walzRef:     string
   }): Promise<WalzQuoteConfirmation> {
-    const quote = await this.getClient().createQuoteRequest({
-      from:               params.from,
-      to:                 params.to,
-      departure_date:     params.date,
-      return_date:        params.returnDate,
-      passengers:         params.passengers,
-      aircraft_category:  params.category,
-      notes:              params.notes,
-      client_name:        params.clientName,
-      client_email:       params.clientEmail,
-      client_phone:       params.clientPhone,
-      reference:          params.walzRef,
-    })
+    const legs = buildLegs(params.from, params.to, params.date, params.passengers)
+    if (params.returnDate) {
+      legs.push({
+        departure_airport:  icaoOrIata(params.to),
+        arrival_airport:    icaoOrIata(params.from),
+        pax:                params.passengers,
+        departure_datetime: fmtDatetime(params.returnDate),
+      })
+    }
+
+    const body: APQuoteRequestBody = {
+      legs,
+      post_to_trip_board: false,
+      send_to_self:       false,
+      channels:           ['Email'],
+      ...(params.category ? { aircraft: [{ ac_class: acClass(params.category) }] } : {}),
+      ...(params.notes    ? { comment: params.notes }                               : {}),
+    }
+
+    const quote = await this.getClient().createQuoteRequest(body)
 
     return {
       quoteId:   quote.id,
       reference: params.walzRef,
       message:   'Your charter enquiry has been submitted. Our private aviation team will contact you within 2 hours with tailored options and pricing.',
     }
+  }
+
+  async getEmptyLegs(params: {
+    depCountries?: string
+    arrCountries?: string
+  } = {}): Promise<WalzEmptyLeg[]> {
+    const legs = await this.getClient().getEmptyLegs(params)
+
+    return legs.map(leg => {
+      // Strip supplier fields
+      const safe = stripSupplier(leg as unknown as Record<string, unknown>)
+
+      const depCode = leg.dep_airport?.icao ?? leg.dep_airport?.iata ?? ''
+      const arrCode = leg.arr_airport?.icao ?? leg.arr_airport?.iata ?? ''
+
+      return {
+        depAirport:   { code: depCode, name: leg.dep_airport?.name ?? depCode, city: leg.dep_airport?.city },
+        arrAirport:   { code: arrCode, name: leg.arr_airport?.name ?? arrCode, city: leg.arr_airport?.city },
+        aircraftType: leg.aircraft_type,
+        fromDate:     leg.from_date_utc,
+        toDate:       leg.to_date_utc,
+        // Walz margin applied here; net price never exposed
+        displayPrice: `From ${fmt(leg.price)}`,
+      }
+    })
   }
 }

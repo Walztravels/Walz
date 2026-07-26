@@ -16,7 +16,8 @@ export function getConfig(): AviapagesConfig | null {
   }
 
   return {
-    baseUrl:   process.env.AVIAPAGES_BASE_URL ?? 'https://www.aviapages.com/api/v2',
+    // Correct base URL per spec: https://api.aviapages.com/v3
+    baseUrl:   process.env.AVIAPAGES_BASE_URL ?? 'https://api.aviapages.com/v3',
     apiKey,
     timeoutMs: Number(process.env.AVIAPAGES_REQUEST_TIMEOUT_MS ?? '20000'),
   }
