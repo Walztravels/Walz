@@ -17,9 +17,15 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const { slug } = await params
   const cat = await getCategoryBySlug(slug).catch(() => null)
   if (!cat) return { title: 'Walz Concierge' }
+  const title       = `${cat.name} — Walz Concierge`
+  const description = cat.description ?? `Bespoke ${cat.name} service arranged by Walz Travels.`
+  const url         = `https://www.walztravels.com/concierge/${slug}`
   return {
-    title: `${cat.name} — Walz Concierge`,
-    description: cat.description ?? `Bespoke ${cat.name} service arranged by Walz Travels.`,
+    title,
+    description,
+    alternates: { canonical: url },
+    openGraph: { title, description, url, type: 'website', siteName: 'Walz Travels' },
+    twitter:   { card: 'summary_large_image', title, description },
   }
 }
 

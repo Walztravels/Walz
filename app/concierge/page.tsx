@@ -5,6 +5,19 @@ import { getActiveCategories } from '@/lib/concierge/catalogue'
 export const metadata: Metadata = {
   title: 'Walz Concierge — White-Glove Travel Services',
   description: 'Bespoke travel services handled by personal specialists. Private aviation, yacht charters, airport VIP, and more — all arranged by Jade.',
+  alternates: { canonical: 'https://www.walztravels.com/concierge' },
+  openGraph: {
+    title: 'Walz Concierge — White-Glove Travel Services',
+    description: 'Private aviation, yacht charters, airport VIP and more — arranged by your personal specialist.',
+    url: 'https://www.walztravels.com/concierge',
+    type: 'website',
+    siteName: 'Walz Travels',
+  },
+  twitter: {
+    card: 'summary_large_image',
+    title: 'Walz Concierge — White-Glove Travel Services',
+    description: 'Private aviation, yacht charters, airport VIP and more.',
+  },
 }
 
 // Fallback icon map for when the DB is unavailable
@@ -79,7 +92,9 @@ export default async function ConciergePage() {
                   key={cat.slug}
                   href={`/concierge/${cat.slug}`}
                   className="group relative bg-white/5 hover:bg-white/10 border border-white/10 hover:border-[#C9A84C]/40
-                    rounded-2xl p-6 transition-all duration-300 cursor-pointer">
+                    rounded-2xl p-6 transition-all duration-300 cursor-pointer
+                    focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#C9A84C]
+                    focus-visible:ring-offset-2 focus-visible:ring-offset-[#0B1F3A]">
                   <span className="text-3xl mb-4 block">
                     {CATEGORY_ICONS[cat.slug] ?? '✦'}
                   </span>
@@ -95,13 +110,20 @@ export default async function ConciergePage() {
                 </Link>
               ))
             : FALLBACK_SERVICES.map(svc => (
-                <div
+                <Link
                   key={svc.slug}
-                  className="bg-white/5 border border-white/10 rounded-2xl p-6">
+                  href={`/concierge/${svc.slug}`}
+                  className="group relative bg-white/5 hover:bg-white/10 border border-white/10 hover:border-[#C9A84C]/40
+                    rounded-2xl p-6 transition-all duration-300 cursor-pointer
+                    focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#C9A84C]
+                    focus-visible:ring-offset-2 focus-visible:ring-offset-[#0B1F3A]">
                   <span className="text-3xl mb-4 block">{svc.icon}</span>
-                  <h3 className="text-white font-bold text-lg mb-2">{svc.name}</h3>
-                  <p className="text-white/50 text-sm leading-relaxed">{svc.description}</p>
-                </div>
+                  <h3 className="text-white font-bold text-lg mb-2 group-hover:text-[#C9A84C] transition-colors">{svc.name}</h3>
+                  <p className="text-white/50 text-sm leading-relaxed line-clamp-2">{svc.description}</p>
+                  <span className="absolute bottom-5 right-5 text-[#C9A84C]/40 group-hover:text-[#C9A84C] transition-colors text-lg">
+                    →
+                  </span>
+                </Link>
               ))
           }
         </div>

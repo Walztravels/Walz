@@ -5,6 +5,19 @@ import { ArrowLeft } from 'lucide-react'
 export const metadata: Metadata = {
   title: 'Airport Services — Walz Concierge',
   description: 'Lounge access, meet & greet, transfers, sleeping pods and baggage delivery — book instantly through Walz Concierge.',
+  alternates: { canonical: 'https://www.walztravels.com/concierge/airport-services' },
+  openGraph: {
+    title: 'Airport Services — Walz Concierge',
+    description: 'Lounge access, meet & greet, transfers, sleeping pods and baggage delivery — book instantly.',
+    url: 'https://www.walztravels.com/concierge/airport-services',
+    type: 'website',
+    siteName: 'Walz Travels',
+  },
+  twitter: {
+    card: 'summary_large_image',
+    title: 'Airport Services — Walz Concierge',
+    description: 'Lounge access, meet & greet, transfers, sleeping pods and baggage delivery.',
+  },
 }
 
 const SERVICES = [
