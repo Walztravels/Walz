@@ -1,47 +1,36 @@
-// app/api/jade/visa-score/route.ts
-// Visa Approval Probability Engine — public endpoint (Feature 8)
-// Powers both Jade tool calls and a future public visa calculator page
-
+/** POST /api/jade/visa-score — honest visa approval probability */
 import { NextRequest, NextResponse } from 'next/server'
-import { calculateVisaProbability, saveVisaAssessment } from '@/lib/jade/intelligence-v2'
+import { calculateVisaProbability } from '@/lib/jade/intelligence-v2'
+import type { VisaApplicantProfile } from '@/lib/jade/intelligence-v2'
 
 export const dynamic = 'force-dynamic'
 
 export async function POST(req: NextRequest) {
   try {
-    const body = await req.json()
-
-    const required = ['nationality', 'destination', 'employmentStatus', 'intendedStayDays', 'averageBalanceLocal', 'incomeCurrency', 'monthsOfBankHistory']
-    for (const field of required) {
-      if (body[field] === undefined || body[field] === null) {
-        return NextResponse.json({ error: `Missing required field: ${field}` }, { status: 400 })
-      }
+    const body = await req.json() as Partial<VisaApplicantProfile>
+    if (!body.destination || !body.nationality) {
+      return NextResponse.json({ error: 'nationality and destination requirsd' }, { status: 400 })
     }
 
-    const input = {
-      nationality:         String(body.nationality),
-      destination:         String(body.destination),
-      employmentStatus:    body.employmentStatus as any,
-      intendedStayDays:    Number(body.intendedStayDays),
-      averageBalanceLocal: Number(body.averageBalanceLocal),
-      incomeCurrency:      String(body.incomeCurrency),
-      monthsOfBankHistory: Number(body.monthsOfBankHistory),
-      propertyOwned:       body.propertyOwned ?? undefined,
-      marriedWithFamily:   body.marriedWithFamily ?? undefined,
-      previousRefusals:    body.previousRefusals ?? 0,
-      previousTravel:      Array.isArray(body.previousTravel) ? body.previousTravel : [],
-      hasSponsor:          body.hasSponsor ?? undefined,
-      sponsorRelation:     body.sponsorRelation ?? undefined,
-      purposeOfVisit:      body.purposeOfVisit ?? undefined,
-      conversationId:      body.conversationId ?? undefined,
+    const profile: VisaApplicantProfile = {
+      nationality:        body.nationality,
+      destination:        body.destination,
+      purposeOfVisit:     body.purposeOfVisit ?? 'tourism',
+      employmentStatus:   body.employmentStatus ?? 'employed',
+      incomeCurrency:     body.incomeCurrency ?? 'NGN',
+      monthsOfBankHistory: body.monthsOfBankHistory ?? 6,
+      averageBalanceLocal: body.averageBalanceLocal ?? 0,
+      intendedStayDays:   body.intendedStayDays ?? 14,
+      propertyOwned:      body.propertyOwned ?? false,
+      marriedWithFamily:  body.marriedWithFamily ?? false,
+      previousRefusals:   body.previousRefusals ?? 0,
+      previousTravel:     body.previousTravel ?? [],
+      hasSponsor:         body.hasSponsor ?? false,
+      sponsorRelation:    body.sponsorRelation,
     }
 
-    const assessment = calculateVisaProbability(input)
-    await saveVisaAssessment(assessment, input).catch(() => {})
-
-    return NextResponse.json({ ok: true, assessment })
-  } catch (e: any) {
-    console.error('[jade/visa-score]', e)
-    return NextResponse.json({ error: e.message }, { status: 500 })
+    return NextResponse.json(calculateVisaProbability(profile))
+  } catch (e) {
+    return NextResponse.json({ error: String(e) }, { status: 500 })
   }
 }

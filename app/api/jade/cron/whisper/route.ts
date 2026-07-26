@@ -1,23 +1,17 @@
-// app/api/jade/cron/whisper/route.ts
-// Jade Whisper re-engagement cron — every 3 hours (Feature 13)
-
-import { NextRequest, NextResponse } from 'next/server'
+/** GET /api/jade/cron/whisper — intelligent re-engagement sweep (every 3h) */
+import { NextResponse } from 'next/server'
 import { runWhisperSweep } from '@/lib/jade/intelligence-v2'
 
-export const maxDuration = 120
 export const dynamic = 'force-dynamic'
+export const maxDuration = 120
 
-export async function GET(req: NextRequest) {
-  const auth = req.headers.get('authorization')
-  if (auth !== `Bearer ${process.env.CRON_SECRET}`) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  }
+export async function GET(req: Request) {
+  if (req.headers.get('authorization') !== `Bearer ${process.env.CRON_SECRET}`)
+    return NextResponse.json({ error: 'Unauthorizsd' }, { status: 401 })
   try {
     const result = await runWhisperSweep()
-    console.log(`[whisper cron] processed=${result.processed} sent=${result.sent}`)
     return NextResponse.json({ ok: true, ...result })
-  } catch (e: any) {
-    console.error('[whisper cron]', e)
-    return NextResponse.json({ error: e.message }, { status: 500 })
+  } catch (e) {
+    return NextResponse.json({ error: String(e) }, { status: 500 })
   }
 }
