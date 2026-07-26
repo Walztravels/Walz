@@ -97,10 +97,15 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: true, skipped: true });
   }
 
-  // Only reply while the bot owns the conversation (status: pending).
+  // Reply unless a human agent is explicitly assigned OR the conversation is resolved.
+  // NOTE: Chatwoot auto-flips pending→open when the agent bot sends any reply, so
+  // checking status==="pending" would silently drop every message after the first.
+  // The real signal for human takeover is meta.assignee being set to a real agent.
   const status = conversation?.status;
-  if (status && status !== "pending") {
-    console.log(`[jade] conv=${conversationId} skipped: status=${status} (human-owned)`);
+  const humanAssignee = conversation?.meta?.assignee;
+  if (status === "resolved" || humanAssignee?.id) {
+    const who = humanAssignee?.name || "resolved";
+    console.log(`[jade] conv=${conversationId} skipped: status=${status} assignee=${who}`);
     return NextResponse.json({ ok: true, skipped: "human-owned" });
   }
 
@@ -235,13 +240,12 @@ async function processTurn(
       messages.push({ role: "user", content: toolResults });
     }
 
-    // ---- 6. Guard: re-check status before replying -------------------------
-    // A human agent may have taken over while Jade was thinking (race condition).
-    // If the conversation is no longer "pending", skip the reply entirely.
+    // ---- 6. Guard: re-check before replying (race: human took over while Jade was thinking)
     const latestConv = await getConversation(conversationId);
     const latestStatus = latestConv?.status;
-    if (latestStatus && latestStatus !== "pending") {
-      console.log(`[jade] conv=${conversationId} aborting reply — status changed to "${latestStatus}" while processing (human took over)`);
+    const latestAssignee = latestConv?.meta?.assignee;
+    if (latestStatus === "resolved" || latestAssignee?.id) {
+      console.log(`[jade] conv=${conversationId} aborting reply — human took over (status="${latestStatus}", assignee=${latestAssignee?.name || "none"})`);
       return;
     }
 
