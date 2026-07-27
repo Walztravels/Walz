@@ -1,6 +1,6 @@
 import type { Metadata } from 'next'
 import { getActiveCategories } from '@/lib/concierge/catalogue'
-import { CATEGORY_IMAGERY, getImagery } from '@/lib/concierge/imagery'
+import { getImagery, getImageryWithOverrides } from '@/lib/concierge/imagery'
 import { ConciergePageClient } from '@/components/concierge/ConciergePageClient'
 
 export const dynamic = 'force-dynamic'
@@ -46,12 +46,8 @@ export default async function ConciergePage() {
   const dbCategories = await getActiveCategories().catch(() => [])
   const categories   = dbCategories.length > 0 ? dbCategories : FALLBACK_SERVICES
 
-  // Build a plain-object imagery lookup — Maps are not serialisable across
-  // the server/client boundary, so we use Record<slug, CategoryImagery>.
-  const allImagery: Record<string, typeof CATEGORY_IMAGERY[number]> = {}
-  for (const img of CATEGORY_IMAGERY) {
-    allImagery[img.slug] = img
-  }
+  // Build a plain-object imagery lookup — reads DB overrides, falls back to Unsplash.
+  const allImagery = await getImageryWithOverrides()
 
   // Hero imagery: lifestyle-concierge (warm, dark-capable)
   const heroImagery = getImagery('lifestyle-concierge')!

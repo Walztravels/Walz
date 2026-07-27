@@ -67,3 +67,34 @@ export const CATEGORY_IMAGERY: CategoryImagery[] = [
 export function getImagery(slug: string): CategoryImagery | null {
   return CATEGORY_IMAGERY.find(img => img.slug === slug) ?? null
 }
+
+// Server-only: reads concierge_images table and merges custom URLs over Unsplash defaults.
+// Returns a Record<slug, CategoryImagery> with custom images applied where available.
+export async function getImageryWithOverrides(): Promise<Record<string, CategoryImagery>> {
+  const result: Record<string, CategoryImagery> = {}
+  for (const img of CATEGORY_IMAGERY) {
+    result[img.slug] = img
+  }
+
+  try {
+    // Dynamic import keeps Prisma out of the client bundle
+    const { prisma } = await import('@/lib/db')
+    const rows = await prisma.$queryRawUnsafe<Array<{ slug: string; custom_url: string }>>(
+      `SELECT slug, custom_url FROM concierge_images WHERE custom_url IS NOT NULL`,
+    ).catch(() => [] as Array<{ slug: string; custom_url: string }>)
+
+    for (const row of rows) {
+      if (result[row.slug] && row.custom_url) {
+        result[row.slug] = {
+          ...result[row.slug],
+          hero: row.custom_url,
+          card: row.custom_url,
+        }
+      }
+    }
+  } catch {
+    // DB unavailable — fall through with Unsplash defaults
+  }
+
+  return result
+}

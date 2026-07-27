@@ -92,6 +92,10 @@ export type Permission =
   | 'marketing.whatsapp'
   | 'marketing.tenants'
   | 'link_applications'
+  // ── Concierge ────────────────────────────────────────────────────────────────
+  | 'concierge'
+  | 'concierge.book'
+  | 'concierge.images'
 
 // ── All permissions (super_admin gets all automatically) ─────────────────────
 
@@ -122,6 +126,7 @@ export const ALL_PERMISSIONS: Permission[] = [
   'jade.staff',
   'marketing', 'marketing.publish', 'marketing.analytics', 'marketing.whatsapp', 'marketing.tenants',
   'link_applications',
+  'concierge', 'concierge.book', 'concierge.images',
 ]
 
 export const ROLE_PERMISSIONS: Record<AdminRole, Permission[]> = {
@@ -146,6 +151,7 @@ export const ROLE_PERMISSIONS: Record<AdminRole, Permission[]> = {
     'intelligence.conversation', 'intelligence.lifecycle',
     'jade.staff',
     'marketing', 'marketing.publish', 'marketing.analytics', 'marketing.whatsapp',
+    'concierge', 'concierge.book', 'concierge.images',
   ],
 
   visa_officer: [
@@ -170,6 +176,7 @@ export const ROLE_PERMISSIONS: Record<AdminRole, Permission[]> = {
     'intelligence.doc_centre', 'intelligence.doc_upload',
     'intelligence.form_check', 'intelligence.letters', 'intelligence.tickets',
     'jade.staff',
+    'concierge',
   ],
 
   flight_staff: [
@@ -199,6 +206,7 @@ export const ROLE_PERMISSIONS: Record<AdminRole, Permission[]> = {
     'leads', 'clients', 'clients.create',
     'bookings.create', 'commissions', 'approvals',
     'jade.staff',
+    'concierge',
   ],
 
   accountant: [
@@ -213,6 +221,7 @@ export const ROLE_PERMISSIONS: Record<AdminRole, Permission[]> = {
     'dashboard', 'inbox',
     'clients', 'bookings', 'visa', 'leads', 'approvals',
     'jade.staff',
+    'concierge',
   ],
 
   // ── Backward-compatible aliases ──────────────────────────────────────────
@@ -236,6 +245,7 @@ export const ROLE_PERMISSIONS: Record<AdminRole, Permission[]> = {
     'intelligence.diaspora', 'intelligence.staff_perf',
     'intelligence.conversation', 'intelligence.lifecycle',
     'jade.staff',
+    'concierge', 'concierge.book', 'concierge.images',
   ],
 
   senior_manager: [
@@ -249,6 +259,7 @@ export const ROLE_PERMISSIONS: Record<AdminRole, Permission[]> = {
     'intelligence.doc_centre', 'intelligence.letters', 'intelligence.tickets',
     'intelligence.cris', 'intelligence.revenue',
     'jade.staff',
+    'concierge',
   ],
 
   sales_rep: [
@@ -267,18 +278,21 @@ export const ROLE_PERMISSIONS: Record<AdminRole, Permission[]> = {
  * corresponding sidebar section ('payments'), bridging the two permission systems.
  */
 const PERMISSION_TO_RBAC: Partial<Record<Permission, string[]>> = {
-  payments:         ['payments_view'],
-  'payments.all':   ['payments_view_all'],
-  'payments.refund':['payments_refund'],
-  reports:          ['reports_view'],
-  'reports.all':    ['reports_all'],
-  payroll:          ['payroll'],
-  commissions:      ['commissions'],
-  staff:            ['staff_view'],
-  'staff.create':   ['staff_create'],
-  'staff.edit':     ['staff_edit'],
-  'staff.delete':   ['staff_delete'],
-  settings:         ['settings_view'],
+  payments:              ['payments_view'],
+  'payments.all':        ['payments_view_all'],
+  'payments.refund':     ['payments_refund'],
+  reports:               ['reports_view'],
+  'reports.all':         ['reports_all'],
+  payroll:               ['payroll'],
+  commissions:           ['commissions'],
+  staff:                 ['staff_view'],
+  'staff.create':        ['staff_create'],
+  'staff.edit':          ['staff_edit'],
+  'staff.delete':        ['staff_delete'],
+  settings:              ['settings_view'],
+  concierge:             ['concierge_view'],
+  'concierge.book':      ['concierge_book'],
+  'concierge.images':    ['concierge_manage_images'],
 }
 
 export function hasPermission(
@@ -406,9 +420,9 @@ export const NAV_ITEMS: NavSection[] = [
   {
     section: 'CONCIERGE',
     items: [
-      { href: '/admin/concierge',            label: 'Requests',   icon: 'Sparkles',  permission: 'bookings'  },
-      { href: '/admin/concierge/categories', label: 'Categories', icon: 'Tag',       permission: 'settings'  },
-      { href: '/admin/concierge/suppliers',  label: 'Suppliers',  icon: 'Building2', permission: 'settings'  },
+      { href: '/admin/concierge',            label: 'Requests',   icon: 'Sparkles',  permission: 'concierge'        },
+      { href: '/admin/concierge/categories', label: 'Categories', icon: 'Tag',       permission: 'concierge.images' },
+      { href: '/admin/concierge/suppliers',  label: 'Suppliers',  icon: 'Building2', permission: 'concierge.images' },
     ],
   },
   {

@@ -90,6 +90,9 @@ const PERM_META: Record<Permission, PermMeta> = {
   'marketing.whatsapp':   { label: 'WhatsApp Broadcast',            desc: 'Send WhatsApp broadcasts to clients' },
   'marketing.tenants':    { label: 'TravelPost Tenants',            desc: 'Manage white-label TravelPost agency tenants' },
   link_applications:      { label: 'Link Applications',             desc: 'Link unlinked applications to client portal accounts' },
+  concierge:              { label: 'View Concierge',                desc: 'See concierge requests and service history' },
+  'concierge.book':       { label: 'Book Concierge Services',       desc: 'Place bookings for private aviation and airport services on behalf of clients' },
+  'concierge.images':     { label: 'Manage Page Images',            desc: 'Upload and update hero images on the public concierge page' },
 }
 
 const PERM_GROUPS: { label: string; perms: Permission[] }[] = [
@@ -103,6 +106,7 @@ const PERM_GROUPS: { label: string; perms: Permission[] }[] = [
   { label: 'Intelligence Hub',     perms: ['intelligence', 'intelligence.financial_dna', 'intelligence.officer_sim', 'intelligence.embassy_feed', 'intelligence.doc_centre', 'intelligence.doc_upload', 'intelligence.form_check', 'intelligence.letters', 'intelligence.tickets', 'intelligence.cris', 'intelligence.revenue', 'intelligence.diaspora', 'intelligence.staff_perf', 'intelligence.conversation', 'intelligence.lifecycle'] },
   { label: 'Jade AI',              perms: ['jade.staff'] },
   { label: 'Marketing',           perms: ['marketing', 'marketing.publish', 'marketing.analytics', 'marketing.whatsapp', 'marketing.tenants'] },
+  { label: 'Concierge',          perms: ['concierge', 'concierge.book', 'concierge.images'] },
 ]
 
 const ROLE_META: Record<AdminRole, { label: string; color: string; desc: string }> = {
