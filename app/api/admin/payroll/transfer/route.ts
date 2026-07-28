@@ -70,7 +70,7 @@ async function sendTransfer(
     })
     const data = await res.json()
     const txStatus = data.data?.status
-    console.log('[transfer] FLW response:', { status: data.status, message: data.message, txStatus, id: data.data?.id })
+    console.log('[transfer] FLW response:', { status: data.status, message: data.message, txStatus, id: data.data?.id, complete_message: data.data?.complete_message })
 
     // Fully settled synchronously (rare but possible)
     if (data.status === 'success' && txStatus === 'SUCCESSFUL') {
