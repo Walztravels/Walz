@@ -204,7 +204,9 @@ export async function POST(req: NextRequest) {
         continue
       }
 
-      const reference = `WALZ-${payYear}-${String(payMonth).padStart(2, '0')}-${staff.id.slice(0, 8).toUpperCase()}`
+      // Include a short timestamp suffix so retries don't collide with FLW's dedup
+      const suffix    = Date.now().toString(36).slice(-4).toUpperCase()
+      const reference = `WALZ-${payYear}${String(payMonth).padStart(2, '0')}-${staff.id.slice(0, 6).toUpperCase()}-${suffix}`
       const transfer  = await sendTransfer(staff, staff.netPay, reference)
 
       const base = { grossPay: staff.grossPay, netPay: staff.netPay, currency: staff.currency, transferReference: reference, paidVia: 'flutterwave' }
