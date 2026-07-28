@@ -1,15 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { cookies } from 'next/headers'
-
-async function isAdmin() {
-  const c = await cookies()
-  return !!(c.get('admin_token')?.value)
-}
+import { getAdminSession } from '@/lib/admin-auth'
 
 export const maxDuration = 60
 
 export async function POST(req: NextRequest) {
-  if (!await isAdmin()) return NextResponse.json({ error: 'Unauthorised' }, { status: 401 })
+  const session = await getAdminSession()
+  if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const { destination, destinations, duration, tripType, numberOfTravellers, budget, notes } = await req.json()
 

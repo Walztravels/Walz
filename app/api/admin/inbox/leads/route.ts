@@ -1,11 +1,15 @@
 import { NextResponse } from 'next/server'
 import { getSupabaseAdmin } from '@/lib/supabase'
+import { getAdminSession } from '@/lib/admin-auth'
 
 export const dynamic = 'force-dynamic'
 
 // GET /api/admin/inbox/leads
 // Returns leads that have at least one message, ordered by last_message_at DESC
 export async function GET(req: Request) {
+  const session = await getAdminSession()
+  if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
   const { searchParams } = new URL(req.url)
   const channel = searchParams.get('channel') // whatsapp | instagram | null=all
   const unread  = searchParams.get('unread') === 'true'
@@ -34,6 +38,9 @@ export async function GET(req: Request) {
 
 // GET /api/admin/inbox/leads/unread-count — total unread badge
 export async function HEAD() {
+  const session = await getAdminSession()
+  if (!session) return new Response(null, { status: 401 })
+
   const supabase = getSupabaseAdmin()
   const { data } = await supabase
     .from('leads')

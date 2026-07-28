@@ -38,7 +38,7 @@ export async function ensureClientAccount({ email, name, phone, applicationId }:
     }
 
     const password  = tempPassword()
-    const hash      = await bcrypt.hash(password, 10)
+    const hash      = await bcrypt.hash(password, 12)
     const firstName = name.split(' ')[0] ?? name
 
     const account = await prisma.clientAccount.create({

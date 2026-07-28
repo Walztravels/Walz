@@ -3,6 +3,7 @@ import bcrypt from 'bcryptjs'
 import crypto from 'crypto'
 import prisma from '@/lib/db'
 import { Resend } from 'resend'
+import { signupRateLimit } from '@/lib/rate-limit'
 
 const FROM  = 'Walz Travels <noreply@walztravels.com>'
 const ADMIN = 'contact@walztravels.com'
@@ -14,6 +15,22 @@ function getResend() {
 
 function fmt(date: Date) {
   return date.toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })
+}
+
+async function isBreachedPassword(pw: string): Promise<boolean> {
+  try {
+    const { createHash } = await import('crypto')
+    const hash   = createHash('sha1').update(pw).digest('hex').toUpperCase()
+    const prefix = hash.slice(0, 5)
+    const suffix = hash.slice(5)
+    const res    = await fetch(`https://api.pwnedpasswords.com/range/${prefix}`, {
+      headers: { 'Add-Padding': 'true', 'User-Agent': 'WalzTravels-Security/1.0' },
+      signal: AbortSignal.timeout(3000),
+    })
+    if (!res.ok) return false // fail open on HIBP outage
+    const text = await res.text()
+    return text.split('\n').some(line => line.toUpperCase().startsWith(suffix))
+  } catch { return false }
 }
 
 // Helper: find all unlinked applications for an email
@@ -57,13 +74,23 @@ async function findUnlinkedApplications(email: string) {
 
 export async function POST(req: NextRequest) {
   try {
+    const ip = req.headers.get('x-forwarded-for')?.split(',')[0].trim() ?? req.headers.get('x-real-ip') ?? '127.0.0.1'
+    const rl = signupRateLimit(ip)
+    if (!rl.allowed) return NextResponse.json({ error: 'Too many requests. Try again later.' }, { status: 429 })
+
     const { name, email, password } = await req.json()
 
     if (!email || !password) {
       return NextResponse.json({ error: 'Email and password are required.' }, { status: 400 })
     }
-    if (password.length < 8) {
-      return NextResponse.json({ error: 'Password must be at least 8 characters.' }, { status: 400 })
+    if (password.length < 12) {
+      return NextResponse.json({ error: 'Password must be at least 12 characters.' }, { status: 400 })
+    }
+    if (password.length > 128) {
+      return NextResponse.json({ error: 'Password too long.' }, { status: 400 })
+    }
+    if (await isBreachedPassword(password)) {
+      return NextResponse.json({ error: 'This password has appeared in a data breach. Please choose a different one.' }, { status: 400 })
     }
 
     const normalised = email.toLowerCase().trim()

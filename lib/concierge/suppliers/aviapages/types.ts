@@ -8,8 +8,9 @@ export interface APAirport {
   icao:      string
   iata?:     string
   name:      string
-  city?:     string
-  country?:  string
+  // API returns these as objects — extract .name before rendering
+  city?:     string | { id?: number; name?: string }
+  country?:  string | { id?: number; name?: string; iso_alpha2?: string; iso_alpha3?: string }
 }
 
 // ── Aircraft ───────────────────────────────────────────────────────────────────
@@ -81,23 +82,26 @@ export interface APFlightCalculatorRequest {
   advise_techstops?:                         boolean  // critical for long routes
 }
 
+// API returns nested objects, not flat fields — despite what the OpenAPI spec docs say.
+// Confirmed against live API: { time: { airway_weather_impacted: 350 }, distance: { airway: 5029 } }
+// time.airway_weather_impacted is in MINUTES (divide by 60 for hours).
 export interface APFlightCalculatorResult {
-  // Present when airway_distance: true
-  airway_distance?: number
-  // Present when airway_time_weather_impacted: true (hours)
-  airway_time_weather_impacted?: number
+  time?: {
+    airway_weather_impacted?: number   // minutes
+  }
+  distance?: {
+    airway?: number   // km
+  }
   // Present when arrival_datetime: true
   arrival_datetime?: string
-  // Present when advise_techstops: true
+  // Present when advise_techstops: true (may appear at top level or inside airport)
   techstops?: string[]
-  // Airport — spec declares departure/arrival but examples show departure_airport/arrival_airport.
-  // Read both keys defensively.
   airport?: {
     departure?:          string
     arrival?:            string
     departure_airport?:  string
     arrival_airport?:    string
-    techstops?:          string[]
+    techstop?:           string[]   // singular key — array of ICAO codes for suggested fuel stops
   }
   // 200 does NOT mean success — check this array
   errors?: { code: number; message: string }[]

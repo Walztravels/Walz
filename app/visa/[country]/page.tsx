@@ -6,35 +6,9 @@ import { ADVISORY_CONFIG, RULE_TYPE_CONFIG } from '@/lib/countries'
 import type { Metadata } from 'next'
 import { Price } from '@/components/common/Price'
 import { JadeChatButton } from '@/components/ui/JadeChatButton'
+import { SLUG_TO_ISO2 } from '@/lib/visa-config'
 
 export const dynamic = 'force-dynamic'
-
-// ─── Slug → ISO2 map ─────────────────────────────────────────────────────────
-// Covers old static slugs, new friendly slugs, and raw ISO2 codes
-const SLUG_TO_ISO2: Record<string, string> = {
-  // Friendly slugs
-  uk:             'GB',
-  'great-britain': 'GB',
-  gb:             'GB',
-  canada:         'CA',
-  uae:            'AE',
-  'united-arab-emirates': 'AE',
-  schengen:       'FR',
-  france:         'FR',
-  usa:            'US',
-  'united-states': 'US',
-  america:        'US',
-  australia:      'AU',
-  vietnam:        'VN',
-  india:          'IN',
-  turkey:         'TR',
-  kenya:          'KE',
-  egypt:          'EG',
-  philippines:    'PH',
-  morocco:        'MA',
-  'new-zealand':  'NZ',
-  'south-africa': 'ZA',
-}
 
 interface Props {
   params: { country: string }

@@ -70,9 +70,6 @@ export async function GET(req: Request) {
     nowUtc.getUTCFullYear(), nowUtc.getUTCMonth(), nowUtc.getUTCDate(), nextUtcH,
   ))
 
-  const workStart = settings.workStartHour ?? 8
-  const workEnd   = settings.workEndHour   ?? 17
-
   let sent = 0
   let skipped = 0
   const errors: string[] = []
@@ -82,6 +79,25 @@ export async function GET(req: Request) {
     const nextLocal   = (nextUtcH + tzOffset + 24) % 24   // next slot hour in staff's local time
     const breakStart  = staff.breakStartHour ?? 13
     const breakEnd    = staff.breakEndHour   ?? 14
+
+    // Determine local day-of-week for the next slot (0=Sun, 6=Sat)
+    const nextSlotLocal = new Date(nextSlotUtc.getTime() + tzOffset * 3_600_000)
+    const localDow      = nextSlotLocal.getUTCDay()
+
+    let workStart: number
+    let workEnd:   number
+    if (localDow === 0) {
+      if (!settings.sunEnabled) { skipped++; continue }
+      workStart = settings.workStartHour ?? 8
+      workEnd   = settings.workEndHour   ?? 17
+    } else if (localDow === 6) {
+      if (!settings.satEnabled) { skipped++; continue }
+      workStart = settings.satStartHour ?? 9
+      workEnd   = settings.satEndHour   ?? 14
+    } else {
+      workStart = settings.workStartHour ?? 8
+      workEnd   = settings.workEndHour   ?? 17
+    }
 
     // Is next slot a valid work slot?
     const isDuringBreak  = nextLocal >= breakStart && nextLocal < breakEnd
@@ -110,7 +126,7 @@ export async function GET(req: Request) {
     let afterNextLocal = nextLocal + 1
     if (afterNextLocal >= breakStart && afterNextLocal < breakEnd) afterNextLocal = breakEnd
     const nextSlotLabel = fmt12(nextLocal)
-    const afterLabel    = afterNextLocal < workEnd ? fmt12(afterNextLocal) : null
+    const afterLabel    = (afterNextLocal < workEnd) ? fmt12(afterNextLocal) : null
 
     let emailPayload: { subject: string; html: string }
 

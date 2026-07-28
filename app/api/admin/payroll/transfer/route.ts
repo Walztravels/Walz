@@ -33,15 +33,15 @@ async function sendTransfer(
   if (currency === 'NGN') {
     const bankCode = getNGNBankCode(staff.bankName || '')
     if (!bankCode) return { success: false, error: `Bank "${staff.bankName}" not recognised — add code manually` }
-    payload.bank_code = bankCode
+    payload.account_bank = bankCode
   } else if (currency === 'GHS') {
     const { isMobile, code } = getGHSNetwork(staff.bankName || '')
-    if (isMobile) { payload.type = 'mobile_money_ghana'; payload.network = code }
-    else { payload.bank_code = code }
+    if (!code) return { success: false, error: `Ghana bank/network "${staff.bankName}" not recognised — update staff bank name` }
+    payload.account_bank = code   // FLW v3: account_bank works for both mobile money and bank; no type/network fields needed
   } else if (currency === 'KES') {
     payload.type = 'mpesa'
   } else if (currency === 'GBP') {
-    payload.bank_code = (staff as any).sortCode || ''
+    payload.account_bank = (staff as any).sortCode || ''
   }
 
   try {

@@ -2,11 +2,16 @@ import { NextRequest, NextResponse } from 'next/server'
 import crypto from 'crypto'
 import prisma from '@/lib/db'
 import { getResend } from '@/lib/resend'
+import { forgotPasswordRateLimit } from '@/lib/rate-limit'
 
 const FROM = 'Walz Travels <noreply@walztravels.com>'
 
 export async function POST(req: NextRequest) {
   try {
+    const ip = req.headers.get('x-forwarded-for')?.split(',')[0].trim() ?? req.headers.get('x-real-ip') ?? '127.0.0.1'
+    const rl = forgotPasswordRateLimit(ip)
+    if (!rl.allowed) return NextResponse.json({ error: 'Too many requests. Try again later.' }, { status: 429 })
+
     const { email } = await req.json()
     if (!email) return NextResponse.json({ error: 'Email is required' }, { status: 400 })
 

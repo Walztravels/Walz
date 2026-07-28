@@ -36,8 +36,9 @@ export async function GET(req: NextRequest) {
           icao:    a.icao,
           iata:    a.iata,
           name:    a.name,
-          city:    a.city,
-          country: a.country,
+          // API returns city/country as objects — extract the name string
+          city:    typeof a.city    === 'object' ? (a.city as { name?: string })?.name    ?? '' : (a.city    ?? ''),
+          country: typeof a.country === 'object' ? (a.country as { name?: string })?.name ?? '' : (a.country ?? ''),
         })),
       })
     }

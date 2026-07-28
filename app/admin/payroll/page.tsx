@@ -374,6 +374,10 @@ export default function PayrollPage() {
   const [payrollResult, setPayrollResult] = useState<any>(null)
   const [processing,    setProcessing]    = useState(false)
 
+  // Individual staff selection
+  const [selectedIds,       setSelectedIds]       = useState<Set<string>>(new Set())
+  const [currentMonthSlips, setCurrentMonthSlips] = useState<Record<string, Payslip>>({})
+
   // Auto-run toggle
   const [autoRun,        setAutoRun]        = useState(false)
   const [autoRunLoading, setAutoRunLoading] = useState(false)
@@ -383,14 +387,24 @@ export default function PayrollPage() {
   const loadStaff = useCallback(async () => {
     setLoading(true)
     try {
-      const res  = await fetch('/api/admin/payroll/staff')
-      const text = await res.text().catch(() => '')
-      if (!res.ok || !text) {
-        console.error('[payroll] staff API error', res.status, text?.slice(0, 200))
+      const now2 = new Date()
+      const [staffRes, slipsRes] = await Promise.all([
+        fetch('/api/admin/payroll/staff'),
+        fetch(`/api/admin/payroll/payslips?month=${now2.getMonth() + 1}&year=${now2.getFullYear()}`),
+      ])
+      const text = await staffRes.text().catch(() => '')
+      if (!staffRes.ok || !text) {
+        console.error('[payroll] staff API error', staffRes.status, text?.slice(0, 200))
         return // don't clear existing list on error
       }
       const d = JSON.parse(text)
       setStaff(d.staff ?? [])
+      if (slipsRes.ok) {
+        const sd = await slipsRes.json()
+        const slipMap: Record<string, Payslip> = {}
+        for (const slip of (sd.payslips ?? [])) slipMap[slip.staffMemberId] = slip
+        setCurrentMonthSlips(slipMap)
+      }
     } catch (err: any) {
       console.error('[payroll] loadStaff error', err)
     } finally { setLoading(false) }
@@ -526,12 +540,25 @@ export default function PayrollPage() {
     } finally { setSendingAll(false) }
   }
 
+  function toggleSelect(id: string) {
+    setSelectedIds(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id); else next.add(id)
+      return next
+    })
+  }
+
+  function selectAll() { setSelectedIds(new Set(staff.map(s => s.id))) }
+  function clearSelection() { setSelectedIds(new Set()) }
+
   async function handlePreview() {
     setProcessing(true)
     try {
+      const body: any = { dryRun: true }
+      if (selectedIds.size > 0) body.staffIds = [...selectedIds]
       const res  = await fetch('/api/admin/payroll/transfer', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ dryRun: true }),
+        body: JSON.stringify(body),
       })
       const data = await res.json()
       if (data.error) throw new Error(data.error)
@@ -544,9 +571,11 @@ export default function PayrollPage() {
   async function handleRunPayroll() {
     setProcessing(true)
     try {
+      const body: any = { dryRun: false }
+      if (selectedIds.size > 0) body.staffIds = [...selectedIds]
       const res  = await fetch('/api/admin/payroll/transfer', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ dryRun: false }),
+        body: JSON.stringify(body),
       })
       const data = await res.json()
       setPayrollResult(data)
@@ -580,10 +609,22 @@ export default function PayrollPage() {
         </div>
         {tab === 'staff' && (
           <div className="flex items-center gap-2">
+            {selectedIds.size > 0 && (
+              <button onClick={clearSelection}
+                className="text-xs text-gray-400 hover:text-gray-600 px-2 py-1 rounded-lg border border-gray-200 transition-colors">
+                ✕ Clear ({selectedIds.size})
+              </button>
+            )}
+            {selectedIds.size === 0 && staff.length > 0 && (
+              <button onClick={selectAll}
+                className="text-xs text-gray-400 hover:text-gray-600 px-2 py-1 rounded-lg border border-gray-200 transition-colors">
+                Select All
+              </button>
+            )}
             <button onClick={handlePreview} disabled={processing || !staff.length}
               className="flex items-center gap-2 bg-green-500 hover:bg-green-400 disabled:opacity-40 text-black font-bold text-sm px-4 py-2.5 rounded-xl transition-colors">
               {processing ? <Loader2 className="w-4 h-4 animate-spin" /> : '💸'}
-              {processing ? 'Processing…' : 'Run Payroll'}
+              {processing ? 'Processing…' : selectedIds.size > 0 ? `Pay ${selectedIds.size} Selected` : 'Pay All'}
             </button>
             <button onClick={() => setShowAdd(true)}
               className="flex items-center gap-2 bg-[#C9A84C] hover:bg-[#d4b05a] text-[#0B1F3A] font-bold text-sm px-4 py-2.5 rounded-xl transition-colors">
@@ -676,11 +717,21 @@ export default function PayrollPage() {
                 No staff members yet. Add your first.
               </div>
             )}
-            {staff.map(s => (
+            {staff.map(s => {
+              const slip    = currentMonthSlips[s.id]
+              const isSelected = selectedIds.has(s.id)
+              const txStatus = slip?.transferStatus
+              return (
               <div
                 key={s.id}
                 onClick={() => openEdit(s)}
-                className="bg-white border border-gray-100 rounded-2xl px-5 py-4 flex items-center gap-4 shadow-sm cursor-pointer hover:border-amber-300 hover:shadow-md transition-all">
+                className={`bg-white border rounded-2xl px-5 py-4 flex items-center gap-3 shadow-sm cursor-pointer hover:border-amber-300 hover:shadow-md transition-all ${isSelected ? 'border-amber-400 ring-1 ring-amber-300' : 'border-gray-100'}`}>
+                {/* Checkbox */}
+                <div
+                  onClick={e => { e.stopPropagation(); toggleSelect(s.id) }}
+                  className={`w-5 h-5 rounded border-2 flex items-center justify-center flex-shrink-0 cursor-pointer transition-colors ${isSelected ? 'bg-amber-500 border-amber-500' : 'border-gray-300 hover:border-amber-400'}`}>
+                  {isSelected && <svg className="w-3 h-3 text-white" fill="none" viewBox="0 0 12 12"><path d="M2 6l3 3 5-5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>}
+                </div>
                 <div className="w-10 h-10 rounded-full bg-[#0B1F3A] flex items-center justify-center flex-shrink-0 font-bold text-[#C9A84C]">
                   {s.name[0]}
                 </div>
@@ -693,7 +744,13 @@ export default function PayrollPage() {
                 </div>
                 <div className="text-right flex-shrink-0">
                   <p className="font-bold text-[#C9A84C]">{fmtCurrency(s.baseSalary, s.currency)}</p>
-                  <p className="text-gray-400 text-xs">Pay day: {s.payDay}</p>
+                  <div className="flex items-center justify-end gap-1.5 mt-0.5">
+                    {txStatus === 'SUCCESSFUL' && <span className="text-[10px] font-semibold text-green-600 bg-green-50 border border-green-200 rounded-full px-2 py-0.5">✓ Paid</span>}
+                    {txStatus === 'PROCESSING' && <span className="text-[10px] font-semibold text-yellow-600 bg-yellow-50 border border-yellow-200 rounded-full px-2 py-0.5">⏳ Processing</span>}
+                    {txStatus === 'FAILED'     && <span className="text-[10px] font-semibold text-red-600 bg-red-50 border border-red-200 rounded-full px-2 py-0.5">✗ Failed</span>}
+                    {!txStatus && slip?.status === 'PAID' && <span className="text-[10px] font-semibold text-green-600 bg-green-50 border border-green-200 rounded-full px-2 py-0.5">✓ Paid</span>}
+                    {!slip && <span className="text-gray-400 text-xs">Pay day: {s.payDay}</span>}
+                  </div>
                 </div>
                 <div className="flex items-center gap-2 flex-shrink-0" onClick={e => e.stopPropagation()}>
                   <button
@@ -714,8 +771,9 @@ export default function PayrollPage() {
                   </button>
                 </div>
               </div>
-            ))}
-            <p className="text-center text-xs text-gray-400 pt-1">Click a card to edit salary details</p>
+              )
+            })}
+            <p className="text-center text-xs text-gray-400 pt-1">Click a card to edit salary details · Tap checkbox to select for individual payment</p>
           </div>
         ) : (
           <div className="space-y-3">
@@ -1052,7 +1110,7 @@ export default function PayrollPage() {
                 <button onClick={handleRunPayroll} disabled={processing}
                   className="flex-1 bg-green-500 hover:bg-green-400 disabled:opacity-50 text-black font-bold py-3.5 rounded-xl transition text-sm flex items-center justify-center gap-2">
                   {processing ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
-                  {processing ? 'Sending…' : '✓ Confirm & Pay All'}
+                  {processing ? 'Sending…' : selectedIds.size > 0 ? `✓ Confirm & Pay ${selectedIds.size}` : '✓ Confirm & Pay All'}
                 </button>
                 <button onClick={() => { setShowPayroll(false); setDryRun(null) }} disabled={processing}
                   className="px-5 bg-white/5 hover:bg-white/10 text-white py-3.5 rounded-xl transition text-sm">
@@ -1060,7 +1118,7 @@ export default function PayrollPage() {
                 </button>
               </div>
             ) : (
-              <button onClick={() => { setShowPayroll(false); setDryRun(null); setPayrollResult(null); loadStaff() }}
+              <button onClick={() => { setShowPayroll(false); setDryRun(null); setPayrollResult(null); clearSelection(); loadStaff() }}
                 className="w-full bg-amber-500 hover:bg-amber-400 text-black font-bold py-3.5 rounded-xl transition text-sm">
                 Done
               </button>

@@ -76,7 +76,7 @@ export function getGHSNetwork(bankName: string): { isMobile: boolean; code: stri
   for (const [key, code] of Object.entries(GHS_BANK_CODES)) {
     if (lower.includes(key)) return { isMobile: false, code }
   }
-  return { isMobile: true, code: 'MTN' }
+  return { isMobile: false, code: '' }
 }
 
 export function getFLWKey(): string {

@@ -1,20 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { cookies } from 'next/headers'
 import { prisma } from '@/lib/db'
 import { sendApplicationFormLink } from '@/lib/email-visa'
 import { ISO2_TO_SLUG } from '@/lib/visa-config'
-
-async function isAdmin() {
-  const c = await cookies()
-  return !!(c.get('admin_token')?.value)
-}
+import { getAdminSession } from '@/lib/admin-auth'
 
 type Params = { params: Promise<{ id: string }> }
 
 // POST /api/admin/visa-applications/[id]/token
 // Generate a form-link token for an existing draft and email it to the client
 export async function POST(req: NextRequest, { params }: Params) {
-  if (!await isAdmin()) return NextResponse.json({ error: 'Unauthorised' }, { status: 401 })
+  const session = await getAdminSession()
+  if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const { id } = await params
   const { clientEmail, clientName, personalMessage } = await req.json()

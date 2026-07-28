@@ -20,7 +20,7 @@ export async function GET(req: NextRequest) {
   // Guard 2 — prevent double-run: check if any payslip was successfully transferred this month
   const now = new Date()
   const alreadyRan = await prisma.payslip.findFirst({
-    where: { month: now.getMonth() + 1, year: now.getFullYear(), transferStatus: 'SUCCESS' },
+    where: { month: now.getMonth() + 1, year: now.getFullYear(), transferStatus: 'SUCCESSFUL' },
   })
   if (alreadyRan) {
     console.log('[auto-run] Payroll already ran this month — skipping')

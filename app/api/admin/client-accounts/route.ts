@@ -1,7 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
+import { getAdminSession } from '@/lib/admin-auth'
 
 export async function GET(req: NextRequest) {
+  const session = await getAdminSession()
+  if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
   const url    = new URL(req.url)
   const search = url.searchParams.get('q') ?? ''
   const skip   = parseInt(url.searchParams.get('skip') ?? '0', 10)

@@ -1,11 +1,15 @@
 import { NextResponse } from 'next/server'
 import { getSupabaseAdmin } from '@/lib/supabase'
+import { getAdminSession } from '@/lib/admin-auth'
 
 export const dynamic = 'force-dynamic'
 
 // GET /api/admin/messages?lead_id=xxx
 // Returns all messages for a lead, marks lead as read
 export async function GET(req: Request) {
+  const session = await getAdminSession()
+  if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
   const { searchParams } = new URL(req.url)
   const lead_id = searchParams.get('lead_id')
 

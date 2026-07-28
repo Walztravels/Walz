@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse }       from 'next/server'
 import { getSupabaseAdmin }                from '@/lib/supabase'
 import { duffelPostWithRetry, DuffelApiError } from '@/lib/duffel/client'
+import { getAdminSession }                 from '@/lib/admin-auth'
 
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
@@ -10,6 +11,9 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> },
 ) {
   try {
+    const session = await getAdminSession()
+    if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
     const { id }   = await params
     const body     = await req.json()
     const { passengers, adminNote, bookedBy } = body

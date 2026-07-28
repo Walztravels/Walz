@@ -1,13 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { cookies } from 'next/headers'
 import { prisma } from '@/lib/db'
 import { getResend } from '@/lib/email-internal'
+import { getAdminSession } from '@/lib/admin-auth'
 import crypto from 'crypto'
-
-async function isAdmin() {
-  const c = await cookies()
-  return !!(c.get('admin_token')?.value)
-}
 
 function generateToken() {
   return crypto.randomBytes(32).toString('hex')
@@ -21,7 +16,8 @@ function generateRef() {
 }
 
 export async function GET(req: NextRequest) {
-  if (!await isAdmin()) return NextResponse.json({ error: 'Unauthorised' }, { status: 401 })
+  const session = await getAdminSession()
+  if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   const { searchParams } = new URL(req.url)
   const status = searchParams.get('status')
   const search = searchParams.get('search')
@@ -39,7 +35,8 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-  if (!await isAdmin()) return NextResponse.json({ error: 'Unauthorised' }, { status: 401 })
+  const session = await getAdminSession()
+  if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   const body = await req.json()
   const { clientEmail, clientName, clientPhone, message } = body
   if (!clientEmail && !clientPhone) return NextResponse.json({ error: 'Email or phone required' }, { status: 400 })

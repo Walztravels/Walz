@@ -1,11 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { cookies } from 'next/headers'
 import { prisma } from '@/lib/db'
-
-async function isAdmin() {
-  const c = await cookies()
-  return !!(c.get('admin_token')?.value)
-}
+import { getAdminSession } from '@/lib/admin-auth'
 
 export const maxDuration = 60
 
@@ -253,7 +248,8 @@ function resolveCoverImage(keyword: string): string {
 // ─── Route ────────────────────────────────────────────────────────────────────
 
 export async function POST(req: NextRequest) {
-  if (!await isAdmin()) return NextResponse.json({ error: 'Unauthorised' }, { status: 401 })
+  const session = await getAdminSession()
+  if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const { prompt, itineraryId, conversationHistory, mode } = await req.json()
 

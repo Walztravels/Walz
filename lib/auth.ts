@@ -25,6 +25,10 @@ export const authOptions: NextAuthOptions = {
         const valid = await bcrypt.compare(credentials.password, user.password)
         if (!valid) return null
 
+        if (!user.emailVerified) {
+          throw new Error('Please verify your email address before signing in.')
+        }
+
         return {
           id:    user.id,
           email: user.email,
@@ -79,7 +83,7 @@ export const authOptions: NextAuthOptions = {
     },
     callbackUrl: {
       name:    'next-auth.callback-url',
-      options: { sameSite: 'lax', path: '/', secure: true, domain: '.walztravels.com' },
+      options: { httpOnly: true, sameSite: 'lax', path: '/', secure: true, domain: '.walztravels.com' },
     },
     csrfToken: {
       name:    'next-auth.csrf-token',

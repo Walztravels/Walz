@@ -1,19 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { cookies } from 'next/headers'
 import prisma from '@/lib/db'
 import { sendVisaStatusUpdateEmail } from '@/lib/email-visa'
+import { getAdminSession } from '@/lib/admin-auth'
 
 const BASE_URL = 'https://walztravels.com'
-
-async function isAdmin() {
-  const c = await cookies()
-  return !!(c.get('admin_token')?.value)
-}
 
 type Params = { params: Promise<{ id: string }> }
 
 export async function PATCH(req: NextRequest, { params }: Params) {
-  if (!await isAdmin()) return NextResponse.json({ error: 'Unauthorised' }, { status: 401 })
+  const session = await getAdminSession()
+  if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const { id }           = await params
   const { status, message } = await req.json() as { status: string; message?: string }

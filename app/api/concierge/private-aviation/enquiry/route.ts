@@ -60,6 +60,31 @@ export async function POST(req: NextRequest) {
     if (data) walzRef = data as string
   } catch { /* fallback ref used */ }
 
+  // Record the lead in Supabase first — this always succeeds regardless of Aviapages state
+  const intentFields: Record<string, unknown> = {
+    service_type:      'private-aviation',
+    from_airport:      from,
+    to_airport:        to,
+    date,
+    return_date:       returnDate ?? null,
+    passengers,
+    aircraft_category: category ?? null,
+    notes:             notes ?? null,
+    lead_email:        clientEmail,
+    lead_phone:        clientPhone ?? null,
+    client_name:       clientName,
+  }
+
+  await supabase.from('concierge_requests').insert({
+    reference:    walzRef,
+    status:       'pending',
+    intent_fields: intentFields,
+    client_name:  clientName,
+    client_email: clientEmail,
+    client_phone: clientPhone ?? null,
+  }).select('id').single()
+
+  // Submit to Aviapages — if this fails the lead is still saved and team can follow up
   try {
     const adapter = new AviapagesAdapter()
     const confirmation = await adapter.submitQuoteRequest({
@@ -68,34 +93,33 @@ export async function POST(req: NextRequest) {
       walzRef,
     })
 
-    // Record enquiry in concierge_requests as a lead
-    await supabase.from('concierge_requests').insert({
-      reference:    walzRef,
-      status:       'pending',
-      intent_fields: {
-        service_type:      'private-aviation',
-        from_airport:      from,
-        to_airport:        to,
-        date,
-        return_date:       returnDate ?? null,
-        passengers,
-        aircraft_category: category ?? null,
-        notes:             notes ?? null,
-        lead_email:        clientEmail,
-        lead_phone:        clientPhone ?? null,
-        ap_quote_id:       confirmation.quoteId,
-      },
-    }).select('id').single()
+    // Update the record with the Aviapages quote ID
+    await supabase.from('concierge_requests')
+      .update({ intent_fields: { ...intentFields, ap_quote_id: confirmation.quoteId } })
+      .eq('reference', walzRef)
 
     return NextResponse.json({
-      reference:   walzRef,
-      quoteId:     confirmation.quoteId,
-      message:     confirmation.message,
+      reference: walzRef,
+      quoteId:   confirmation.quoteId,
+      message:   confirmation.message,
     })
   } catch (err) {
-    console.error('[PrivateAviation/enquiry]', (err as Error).message)
+    const msg = (err as Error).message ?? ''
+    console.error('[PrivateAviation/enquiry] Aviapages submission failed:', msg)
+
+    // Profile incomplete on Aviapages account — lead is saved, team follows up manually
+    if (msg.includes('400') || msg.includes('given_name') || msg.includes('family_name')) {
+      console.warn('[PrivateAviation/enquiry] Aviapages account profile incomplete — enquiry saved for manual follow-up')
+      return NextResponse.json({
+        reference: walzRef,
+        message:   'Your charter enquiry has been received. Our private aviation team will contact you within 2 hours with tailored options and pricing.',
+      })
+    }
+
+    // Any other Aviapages error — lead is still saved
     return NextResponse.json({
-      error: 'Could not submit your enquiry. Please contact us on WhatsApp or try again.',
-    }, { status: 502 })
+      reference: walzRef,
+      message:   'Your charter enquiry has been received. Our private aviation team will contact you within 2 hours with tailored options and pricing.',
+    })
   }
 }

@@ -29,9 +29,13 @@ export async function PUT(req: Request) {
     }
 
     const body = await req.json() as {
-      enabled?:       boolean
-      workStartHour?: number
-      workEndHour?:   number
+      enabled?:          boolean
+      workStartHour?:    number
+      workEndHour?:      number
+      satEnabled?:       boolean
+      satStartHour?:     number
+      satEndHour?:       number
+      sunEnabled?:       boolean
       deductionPerMiss?: number
     }
 

@@ -42,6 +42,13 @@ function buildLegs(
   }]
 }
 
+// API returns city as an object { id, name } — extract the string safely
+function cityName(city: string | { name?: string } | undefined): string | undefined {
+  if (!city) return undefined
+  if (typeof city === 'string') return city
+  return city.name ?? undefined
+}
+
 // Supplier identity fields that must never reach the browser
 const SUPPLIER_STRIP = new Set([
   'company', 'manager_name', 'account', 'manager_account',
@@ -174,8 +181,9 @@ export class AviapagesAdapter implements SupplierAdapter {
       console.warn('[Aviapages] calculateFlight errors:', calc.errors)
     }
 
-    const distanceKm  = calc.airway_distance ?? 0
-    const flightHours = calc.airway_time_weather_impacted ?? 0
+    // API returns nested objects; time is in minutes, convert to hours
+    const distanceKm  = calc.distance?.airway ?? 0
+    const flightHours = (calc.time?.airway_weather_impacted ?? 0) / 60
 
     let displayPrice: string
     if (prices?.price_min != null && prices?.price_max != null
@@ -190,7 +198,7 @@ export class AviapagesAdapter implements SupplierAdapter {
     return {
       distanceKm,
       flightHours,
-      techStops: calc.techstops,
+      techStops: calc.airport?.techstop ?? calc.techstops,
       displayPrice,
     }
   }
@@ -277,8 +285,8 @@ export class AviapagesAdapter implements SupplierAdapter {
       const arrCode = leg.arr_airport?.icao ?? leg.arr_airport?.iata ?? ''
 
       return {
-        depAirport:   { code: depCode, name: leg.dep_airport?.name ?? depCode, city: leg.dep_airport?.city },
-        arrAirport:   { code: arrCode, name: leg.arr_airport?.name ?? arrCode, city: leg.arr_airport?.city },
+        depAirport:   { code: depCode, name: leg.dep_airport?.name ?? depCode, city: cityName(leg.dep_airport?.city) },
+        arrAirport:   { code: arrCode, name: leg.arr_airport?.name ?? arrCode, city: cityName(leg.arr_airport?.city) },
         aircraftType: leg.aircraft_type,
         fromDate:     leg.from_date_utc,
         toDate:       leg.to_date_utc,

@@ -1,14 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { cookies } from 'next/headers'
 import { prisma } from '@/lib/db'
-
-async function isAdmin() {
-  const c = await cookies()
-  return !!(c.get('admin_token')?.value)
-}
+import { getAdminSession } from '@/lib/admin-auth'
 
 export async function GET() {
-  if (!await isAdmin()) return NextResponse.json({ error: 'Unauthorised' }, { status: 401 })
+  const session = await getAdminSession()
+  if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   const [portals, advisories] = await Promise.all([
     prisma.countryPortal.findMany({ orderBy: { countryName: 'asc' } }),
     prisma.travelAdvisory.findMany({ orderBy: { destinationIso2: 'asc' } }),
@@ -17,7 +13,8 @@ export async function GET() {
 }
 
 export async function PATCH(req: NextRequest) {
-  if (!await isAdmin()) return NextResponse.json({ error: 'Unauthorised' }, { status: 401 })
+  const session = await getAdminSession()
+  if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   try {
     const body = await req.json()
     const { type, iso2, ...data } = body

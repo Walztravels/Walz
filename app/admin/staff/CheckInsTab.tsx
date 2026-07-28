@@ -46,6 +46,10 @@ interface CheckInSettingsData {
   enabled:          boolean
   workStartHour:    number
   workEndHour:      number
+  satEnabled:       boolean
+  satStartHour:     number
+  satEndHour:       number
+  sunEnabled:       boolean
   deductionPerMiss: number
 }
 
@@ -215,27 +219,82 @@ function SettingsPanel({ onClose, onSaved }: { onClose: () => void; onSaved: () 
             </span>
           </div>
 
-          <div className="grid grid-cols-3 gap-4 mb-5">
-            {(['workStartHour', 'workEndHour'] as const).map(field => (
-              <div key={field}>
-                <label className="block text-xs font-semibold text-white/40 uppercase tracking-wider mb-1.5">
-                  {field === 'workStartHour' ? 'Work start' : 'Work end'}
-                </label>
-                <select value={settings[field]}
-                  onChange={e => setSettings(s => s ? { ...s, [field]: Number(e.target.value) } : s)}
-                  className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 text-sm text-white focus:outline-none focus:border-amber-400/50">
-                  {Array.from({ length: 24 }, (_, i) => (
-                    <option key={i} value={i} className="bg-[#0d1e35]">{String(i).padStart(2, '0')}:00</option>
-                  ))}
-                </select>
+          {/* Per-day schedule */}
+          <div className="space-y-3 mb-5">
+            <p className="text-xs font-semibold text-white/40 uppercase tracking-wider">Work Schedule</p>
+
+            {/* Mon–Fri */}
+            <div className="bg-white/3 rounded-xl px-4 py-3">
+              <p className="text-xs font-semibold text-white/60 mb-2">Mon – Fri</p>
+              <div className="grid grid-cols-2 gap-3">
+                {(['workStartHour', 'workEndHour'] as const).map(field => (
+                  <div key={field}>
+                    <label className="block text-xs text-white/30 mb-1">{field === 'workStartHour' ? 'Start' : 'End'}</label>
+                    <select value={settings[field]}
+                      onChange={e => setSettings(s => s ? { ...s, [field]: Number(e.target.value) } : s)}
+                      className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-amber-400/50">
+                      {Array.from({ length: 24 }, (_, i) => (
+                        <option key={i} value={i} className="bg-[#0d1e35]">{String(i).padStart(2, '0')}:00</option>
+                      ))}
+                    </select>
+                  </div>
+                ))}
               </div>
-            ))}
-            <div>
-              <label className="block text-xs font-semibold text-white/40 uppercase tracking-wider mb-1.5">Deduction / miss (₦)</label>
-              <input type="number" min={0} value={settings.deductionPerMiss}
-                onChange={e => setSettings(s => s ? { ...s, deductionPerMiss: Number(e.target.value) } : s)}
-                className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 text-sm text-white focus:outline-none focus:border-amber-400/50" />
             </div>
+
+            {/* Saturday */}
+            <div className="bg-white/3 rounded-xl px-4 py-3">
+              <div className="flex items-center justify-between mb-2">
+                <p className="text-xs font-semibold text-white/60">Saturday</p>
+                <button onClick={() => setSettings(s => s ? { ...s, satEnabled: !s.satEnabled } : s)}
+                  className={cn('relative inline-flex h-5 w-9 items-center rounded-full transition-colors',
+                    settings.satEnabled ? 'bg-amber-500' : 'bg-white/10')}>
+                  <span className={cn('inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow-sm transition-transform',
+                    settings.satEnabled ? 'translate-x-5' : 'translate-x-0.5')} />
+                </button>
+              </div>
+              {settings.satEnabled ? (
+                <div className="grid grid-cols-2 gap-3">
+                  {(['satStartHour', 'satEndHour'] as const).map(field => (
+                    <div key={field}>
+                      <label className="block text-xs text-white/30 mb-1">{field === 'satStartHour' ? 'Start' : 'End'}</label>
+                      <select value={settings[field]}
+                        onChange={e => setSettings(s => s ? { ...s, [field]: Number(e.target.value) } : s)}
+                        className="w-full bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-amber-400/50">
+                        {Array.from({ length: 24 }, (_, i) => (
+                          <option key={i} value={i} className="bg-[#0d1e35]">{String(i).padStart(2, '0')}:00</option>
+                        ))}
+                      </select>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-xs text-white/20 italic">Off — no check-ins on Saturday</p>
+              )}
+            </div>
+
+            {/* Sunday */}
+            <div className="bg-white/3 rounded-xl px-4 py-3">
+              <div className="flex items-center justify-between">
+                <p className="text-xs font-semibold text-white/60">Sunday</p>
+                <button onClick={() => setSettings(s => s ? { ...s, sunEnabled: !s.sunEnabled } : s)}
+                  className={cn('relative inline-flex h-5 w-9 items-center rounded-full transition-colors',
+                    settings.sunEnabled ? 'bg-amber-500' : 'bg-white/10')}>
+                  <span className={cn('inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow-sm transition-transform',
+                    settings.sunEnabled ? 'translate-x-5' : 'translate-x-0.5')} />
+                </button>
+              </div>
+              {!settings.sunEnabled && (
+                <p className="text-xs text-white/20 italic mt-1">Off — no check-ins on Sunday</p>
+              )}
+            </div>
+          </div>
+
+          <div className="mb-5">
+            <label className="block text-xs font-semibold text-white/40 uppercase tracking-wider mb-1.5">Deduction / miss (₦)</label>
+            <input type="number" min={0} value={settings.deductionPerMiss}
+              onChange={e => setSettings(s => s ? { ...s, deductionPerMiss: Number(e.target.value) } : s)}
+              className="w-full bg-white/5 border border-white/10 rounded-xl px-3 py-2.5 text-sm text-white focus:outline-none focus:border-amber-400/50" />
           </div>
 
           <button onClick={saveSettings} disabled={saving}

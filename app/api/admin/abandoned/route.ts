@@ -1,7 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
 import prisma from '@/lib/db'
+import { getAdminSession } from '@/lib/admin-auth'
 
 export async function GET(req: NextRequest) {
+  const session = await getAdminSession()
+  if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
   const url  = new URL(req.url)
   const type = url.searchParams.get('type')
   const skip = parseInt(url.searchParams.get('skip') ?? '0', 10)
@@ -22,6 +26,9 @@ export async function GET(req: NextRequest) {
 }
 
 export async function PATCH(req: NextRequest) {
+  const session = await getAdminSession()
+  if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
   const { id, converted } = await req.json() as { id: string; converted?: boolean }
   if (!id) return NextResponse.json({ error: 'id required' }, { status: 400 })
 

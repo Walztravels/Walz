@@ -1,9 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import prisma from '@/lib/db'
+import { getAdminSession } from '@/lib/admin-auth'
 
 // GET /api/admin/leads — list all leads with optional filters
 export async function GET(request: NextRequest) {
+  const session = await getAdminSession()
+  if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
   const { searchParams } = new URL(request.url)
   const status        = searchParams.get('status')
   const service       = searchParams.get('service')
@@ -39,6 +43,9 @@ export async function GET(request: NextRequest) {
 
 // POST /api/admin/leads — create a new lead
 export async function POST(request: NextRequest) {
+  const session = await getAdminSession()
+  if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
   let body: unknown
   try { body = await request.json() } catch {
     return NextResponse.json({ error: 'Invalid body' }, { status: 400 })
@@ -67,6 +74,9 @@ const patchSchema = z.object({
 })
 
 export async function PATCH(request: NextRequest) {
+  const session = await getAdminSession()
+  if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
   let body: unknown
   try {
     body = await request.json()

@@ -1,18 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { cookies } from 'next/headers'
 import { prisma } from '@/lib/db'
 import { generateVisaRef, ISO2_TO_SLUG } from '@/lib/visa-config'
 import { sendApplicationFormLink } from '@/lib/email-visa'
-
-async function isAdmin() {
-  const c = await cookies()
-  return !!(c.get('admin_token')?.value)
-}
+import { getAdminSession } from '@/lib/admin-auth'
 
 // POST /api/admin/visa-applications/send-form
 // Create a new draft application (admin-initiated) + token, then email the client
 export async function POST(req: NextRequest) {
-  if (!await isAdmin()) return NextResponse.json({ error: 'Unauthorised' }, { status: 401 })
+  const session = await getAdminSession()
+  if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const { clientEmail, clientName, destinationIso2, visaType, personalMessage, walzFee, feeCurrency, paymentChoice, govtFee, govtCurrency, showGovtFee } = await req.json()
 

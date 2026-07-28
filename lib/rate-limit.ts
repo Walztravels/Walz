@@ -59,3 +59,11 @@ export function ticketGeneratorRateLimit(email: string): RateLimitResult {
 export function flightSearchRateLimit(ip: string): RateLimitResult {
   return rateLimit({ key: `flight-search:${ip}`, limit: 50, windowMs: 10 * 60 * 1000 })
 }
+
+export function signupRateLimit(ip: string): RateLimitResult {
+  return rateLimit({ key: `signup:${ip}`, limit: 10, windowMs: 60 * 60 * 1000 })
+}
+
+export function forgotPasswordRateLimit(ip: string): RateLimitResult {
+  return rateLimit({ key: `forgot:${ip}`, limit: 5, windowMs: 60 * 60 * 1000 })
+}

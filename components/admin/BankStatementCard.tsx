@@ -3,7 +3,6 @@
 import { useState, useEffect } from 'react'
 
 const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!
-const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 const MAX_FILE_SIZE = 25 * 1024 * 1024
 
 interface Analysis {
@@ -40,6 +39,8 @@ interface Props {
   applicantPhone?: string
   passportCountry?: string
 }
+
+const SUPABASE_ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 
 async function sbFetch(path: string, opts?: RequestInit) {
   return fetch(`${SUPABASE_URL}/rest/v1${path}`, {
@@ -97,18 +98,15 @@ export default function BankStatementCard({
     setError(null)
     try {
       const storagePath = `${applicationId}/bank-statement-admin.pdf`
-      const up = await fetch(`${SUPABASE_URL}/storage/v1/object/visa-documents/${storagePath}`, {
-        method: 'POST',
-        headers: {
-          apikey: SUPABASE_ANON_KEY,
-          Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
-          'Content-Type': 'application/pdf',
-          'x-upsert': 'true',
-        },
-        body: file,
-      })
+      const fd = new FormData()
+      fd.append('file', file)
+      fd.append('bucket', 'visa-documents')
+      fd.append('path', storagePath)
+      const up = await fetch('/api/admin/storage/upload', { method: 'POST', body: fd })
       if (!up.ok) throw new Error('Upload failed')
-      const fileUrl = `${SUPABASE_URL}/storage/v1/object/public/visa-documents/${storagePath}`
+      const upData = await up.json()
+      if (upData.error) throw new Error(upData.error)
+      const fileUrl = upData.url as string
 
       await sbFetch('/bank_statement_analyses', {
         method: 'POST',

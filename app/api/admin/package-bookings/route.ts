@@ -1,7 +1,11 @@
 import { NextResponse } from 'next/server'
 import prisma from '@/lib/db'
+import { getAdminSession } from '@/lib/admin-auth'
 
 export async function GET() {
+  const session = await getAdminSession()
+  if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
   try {
     const bookings = await prisma.$queryRawUnsafe<Record<string, unknown>[]>(`
       SELECT

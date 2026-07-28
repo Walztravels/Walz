@@ -1,6 +1,10 @@
 import { NextResponse } from 'next/server'
+import { getAdminSession } from '@/lib/admin-auth'
 
 export async function GET() {
+  const session = await getAdminSession()
+  if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
   try {
     const [res1, res2] = await Promise.all([
       fetch('https://api.ipify.org?format=json'),

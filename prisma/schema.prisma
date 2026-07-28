@@ -539,8 +539,12 @@ model CheckInRecord {
 model CheckInSettings {
   id               String   @id @default("singleton")
   enabled          Boolean  @default(false)
-  workStartHour    Int      @default(8)
-  workEndHour      Int      @default(18)
+  workStartHour    Int      @default(8)    // Mon–Fri start (local hour)
+  workEndHour      Int      @default(17)   // Mon–Fri end   (exclusive — no slot AT this hour)
+  satEnabled       Boolean  @default(true)
+  satStartHour     Int      @default(9)    // Saturday start
+  satEndHour       Int      @default(14)   // Saturday end  (2 PM)
+  sunEnabled       Boolean  @default(false)
   deductionPerMiss Float    @default(0)
   trackedRoles     String   @default("coordinator,sales_rep,sales_agent,flight_staff,tours_staff,hotel_staff,visa_officer,customer_support,accountant")
   updatedAt        DateTime @updatedAt

@@ -28,6 +28,12 @@ function airportCode(ap: APEmptyLeg['dep_airport']): string {
   return ap?.icao ?? ap?.iata ?? ''
 }
 
+function cityStr(city: string | { name?: string } | undefined): string | undefined {
+  if (!city) return undefined
+  if (typeof city === 'string') return city
+  return city.name ?? undefined
+}
+
 function padDate(d: Date): string {
   return d.toISOString().slice(0, 10)
 }
@@ -75,8 +81,8 @@ export async function GET(req: NextRequest) {
 
       return {
         id:          `${depCode}-${arrCode}-${leg.from_date_utc}`,
-        depAirport:  { code: depCode, name: leg.dep_airport?.name ?? depCode, city: leg.dep_airport?.city },
-        arrAirport:  { code: arrCode, name: leg.arr_airport?.name ?? arrCode, city: leg.arr_airport?.city },
+        depAirport:  { code: depCode, name: leg.dep_airport?.name ?? depCode, city: cityStr(leg.dep_airport?.city) },
+        arrAirport:  { code: arrCode, name: leg.arr_airport?.name ?? arrCode, city: cityStr(leg.arr_airport?.city) },
         aircraftType: leg.aircraft_type ?? 'Private Jet',
         fromDate:    leg.from_date_utc,
         toDate:      leg.to_date_utc,

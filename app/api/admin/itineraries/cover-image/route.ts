@@ -1,10 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { cookies } from 'next/headers'
-
-async function isAdmin() {
-  const c = await cookies()
-  return !!(c.get('admin_token')?.value)
-}
+import { getAdminSession } from '@/lib/admin-auth'
 
 const DESTINATION_IMAGES: Record<string, string> = {
   // Middle East
@@ -73,7 +68,8 @@ const FALLBACKS = [
 ]
 
 export async function POST(req: NextRequest) {
-  if (!await isAdmin()) return NextResponse.json({ error: 'Unauthorised' }, { status: 401 })
+  const session = await getAdminSession()
+  if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   const { destination, destinations } = await req.json()
 
   const dests: string[] = destinations && Array.isArray(destinations) && destinations.length > 0

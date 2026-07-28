@@ -1,10 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { cookies } from 'next/headers'
-
-async function isAdmin() {
-  const c = await cookies()
-  return !!(c.get('admin_token')?.value)
-}
+import { getAdminSession } from '@/lib/admin-auth'
 
 const HOTEL_FALLBACKS = [
   'https://images.unsplash.com/photo-1566073771259-6a8506099945?w=1200&q=90&fit=crop',
@@ -14,7 +9,8 @@ const HOTEL_FALLBACKS = [
 ]
 
 export async function POST(req: NextRequest) {
-  if (!await isAdmin()) return NextResponse.json({ error: 'Unauthorised' }, { status: 401 })
+  const session = await getAdminSession()
+  if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   const { url } = await req.json()
 
   if (url) {

@@ -1,20 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { cookies } from 'next/headers'
 import prisma from '@/lib/db'
 import { getSupabaseAdmin } from '@/lib/supabase'
 import { generateVisaReference } from '@/lib/visa-reference'
 import { sendClientWelcomeEmail, sendVisaTrackingEmail } from '@/lib/email-visa'
 import bcrypt from 'bcryptjs'
+import { getAdminSession } from '@/lib/admin-auth'
 
 const BASE_URL = 'https://walztravels.com'
 
-async function isAdmin() {
-  const c = await cookies()
-  return !!(c.get('admin_token')?.value)
-}
-
 export async function POST(req: NextRequest) {
-  if (!await isAdmin()) return NextResponse.json({ error: 'Unauthorised' }, { status: 401 })
+  const session = await getAdminSession()
+  if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const body = await req.json() as {
     clientEmail:   string

@@ -1,18 +1,25 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { cacheGet, cacheSet } from '@/lib/redis'
 import { DEFAULT_EXTRAS, type FlightExtra } from '@/lib/flights/extras'
+import { getAdminSession } from '@/lib/admin-auth'
 
 export const dynamic = 'force-dynamic'
 
 const REDIS_KEY = 'walz:flight-extras:config'
 
 export async function GET() {
+  const session = await getAdminSession()
+  if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
   const cached = await cacheGet<FlightExtra[]>(REDIS_KEY)
   const extras = cached ?? DEFAULT_EXTRAS
   return NextResponse.json({ extras })
 }
 
 export async function POST(req: NextRequest) {
+  const session = await getAdminSession()
+  if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
   try {
     const body = await req.json()
 

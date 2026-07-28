@@ -63,9 +63,6 @@ export async function GET(req: Request) {
     return NextResponse.json({ ok: true, processed: 0, message: 'no tracked staff' })
   }
 
-  const workStart = settings.workStartHour ?? 8
-  const workEnd   = settings.workEndHour   ?? 17  // 5PM close — no check-in slot AT workEnd
-
   // Build per-staff completed windows (only past windows, break excluded)
   type StaffWindow = { windowStart: Date; windowEnd: Date; localHour: number }
   const staffWindows = new Map<string, StaffWindow[]>()
@@ -76,6 +73,27 @@ export async function GET(req: Request) {
     const todayLocal  = new Date(Date.UTC(nowLocal.getUTCFullYear(), nowLocal.getUTCMonth(), nowLocal.getUTCDate()))
     const breakStart  = staff.breakStartHour ?? 13
     const breakEnd    = staff.breakEndHour   ?? 14
+
+    // Determine hours for today based on local day-of-week (0=Sun,6=Sat)
+    const localDow = nowLocal.getUTCDay()
+    let workStart: number
+    let workEnd:   number
+    if (localDow === 0) {
+      // Sunday — off unless explicitly enabled
+      if (!settings.sunEnabled) { staffWindows.set(staff.id, []); continue }
+      workStart = settings.workStartHour ?? 8
+      workEnd   = settings.workEndHour   ?? 17
+    } else if (localDow === 6) {
+      // Saturday
+      if (!settings.satEnabled) { staffWindows.set(staff.id, []); continue }
+      workStart = settings.satStartHour ?? 9
+      workEnd   = settings.satEndHour   ?? 14
+    } else {
+      // Mon–Fri
+      workStart = settings.workStartHour ?? 8
+      workEnd   = settings.workEndHour   ?? 17
+    }
+
     const windows: StaffWindow[] = []
 
     for (let h = workStart; h < workEnd; h++) {

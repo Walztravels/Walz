@@ -1,5 +1,6 @@
 import { MetadataRoute } from 'next'
 import prisma from '@/lib/db'
+import { ISO2_TO_SLUG } from '@/lib/visa-config'
 
 export const dynamic = 'force-dynamic'
 
@@ -105,6 +106,22 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     }))
   } catch {}
 
+  // Visa info pages — only include destinations that have portal data in the DB
+  let visaInfoPages: MetadataRoute.Sitemap = []
+  try {
+    const portals = await prisma.countryPortal.findMany({
+      select: { destinationIso2: true, updatedAt: true },
+    })
+    visaInfoPages = portals
+      .filter(p => ISO2_TO_SLUG[p.destinationIso2])
+      .map(p => ({
+        url:             `${BASE}/visa/${ISO2_TO_SLUG[p.destinationIso2]}`,
+        lastModified:    p.updatedAt,
+        changeFrequency: 'monthly' as const,
+        priority:        0.80,
+      }))
+  } catch {}
+
   let tourPages: MetadataRoute.Sitemap = []
   let packagePages: MetadataRoute.Sitemap = []
   try {
@@ -130,5 +147,5 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
       }))
   } catch {}
 
-  return [...staticPages, ...blogPages, ...tourPages, ...packagePages]
+  return [...staticPages, ...visaInfoPages, ...blogPages, ...tourPages, ...packagePages]
 }
