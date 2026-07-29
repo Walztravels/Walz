@@ -387,7 +387,8 @@ async function pushToCharwoot(
   sessionId: string, customerName: string,
   userMessage: string, agentReply: string,
   existingConvId: number | null, dna: TravelDNA,
-  handover: HandoverResult, profile: ClientProfile | null
+  handover: HandoverResult, profile: ClientProfile | null,
+  recentMessages: { role: string; content: string }[] = [],
 ): Promise<number | null> {
   const contactId = await getOrCreateContact(sessionId, customerName || profile?.name || '')
   if (!contactId) return null
@@ -434,6 +435,19 @@ async function pushToCharwoot(
     if (profile?.isReturning)   lines.push(`↩ Returning client`)
     lines.push(`Sentiment: ${dna.sentiment} | Messages: ${dna.msgCount}`)
     if (handover.needed) lines.push(`\n⚡ HANDOVER: ${handover.reason}`)
+
+    // On handover, append the last 8 messages verbatim so the agent
+    // doesn't re-ask what the client already said.
+    if (handover.needed && recentMessages.length > 0) {
+      const tail = recentMessages.slice(-8)
+      lines.push('\n─── Conversation so far ───')
+      for (const m of tail) {
+        const who  = m.role === 'user' ? '👤 Client' : '🤖 Jade'
+        const text = m.content.length > 400 ? m.content.slice(0, 400) + '…' : m.content
+        lines.push(`${who}: ${text}`)
+      }
+    }
+
     await addCwNote(convId, lines.filter(Boolean).join('\n'))
   }
 
@@ -1772,7 +1786,7 @@ export async function POST(req: NextRequest) {
     void (async () => {
       try {
         await pushToCharwoot(
-          sid, customerName, message, flowResult.reply, actualConvId, dna, handover, profile
+          sid, customerName, message, flowResult.reply, actualConvId, dna, handover, profile, messages
         )
       } catch (e) {
         console.error('[Jade→CW] Flow push failed:', String(e).slice(0, 100))
@@ -1837,7 +1851,7 @@ export async function POST(req: NextRequest) {
   void (async () => {
     try {
       await pushToCharwoot(
-        sid, customerName, message, reply, actualConvId, dna, handover, profile
+        sid, customerName, message, reply, actualConvId, dna, handover, profile, messages
       )
       if (b2b) {
         if (actualConvId) void addCwLabel(actualConvId, 'b2b-inquiry')

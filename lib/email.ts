@@ -1,4 +1,5 @@
 import { Resend } from 'resend'
+import { createHmac } from 'crypto'
 import type { BookingPassenger, BookingAddon } from '@/types/booking'
 import { TRUSTPILOT_AFS_EMAIL } from '@/lib/email-visa'
 
@@ -552,6 +553,97 @@ export async function sendPasswordResetEmail(email: string, resetUrl: string) {
     from: FROM_ADDRESS,
     to: email,
     subject: 'Reset Your Password — Walz Travels',
+    html,
+  })
+}
+
+// ── Birthday emails ──────────────────────────────────────────────────────────
+
+function getUnsubscribeSecret(): string {
+  const s = process.env.NEXTAUTH_SECRET || process.env.UNSUBSCRIBE_SECRET
+  if (!s) throw new Error('NEXTAUTH_SECRET is not set')
+  return s
+}
+
+export function makeUnsubscribeToken(id: string): string {
+  const sig = createHmac('sha256', getUnsubscribeSecret()).update(id).digest('hex')
+  return `${id}.${sig}`
+}
+
+export function verifyUnsubscribeToken(token: string): string | null {
+  const dot = token.lastIndexOf('.')
+  if (dot === -1) return null
+  const id  = token.slice(0, dot)
+  const sig = token.slice(dot + 1)
+  const expected = createHmac('sha256', getUnsubscribeSecret()).update(id).digest('hex')
+  if (expected !== sig) return null
+  return id
+}
+
+const GLORY_FROM = 'Glory at Walz Travels <contact@walztravels.com>'
+
+export async function sendBirthdayEmail({
+  to,
+  firstName,
+  visaApplicationId,
+}: {
+  to: string
+  firstName: string
+  visaApplicationId: string
+}): Promise<void> {
+  const baseUrl = process.env.NEXTAUTH_URL || 'https://walztravels.com'
+  const token = makeUnsubscribeToken(visaApplicationId)
+  const unsubscribeUrl = `${baseUrl}/api/unsubscribe?token=${token}`
+
+  const html = `
+    <!DOCTYPE html>
+    <html>
+    <head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
+    <body style="margin:0;padding:0;background:#F7F4EF;font-family:Georgia,'Times New Roman',serif;">
+      <div style="max-width:600px;margin:32px auto;background:#ffffff;border-radius:4px;overflow:hidden;">
+
+        <div style="background:#0B1F3A;padding:28px 40px;">
+          <p style="margin:0;color:#C9A84C;font-size:11px;letter-spacing:3px;text-transform:uppercase;">Walz Travels</p>
+        </div>
+
+        <div style="background:#C9A84C;padding:20px 40px;">
+          <h1 style="margin:0;color:#0B1F3A;font-size:28px;font-weight:400;letter-spacing:1px;">Happy Birthday, ${firstName}!</h1>
+        </div>
+
+        <div style="padding:40px 40px 32px;">
+          <p style="margin:0 0 20px;color:#1a2a3a;font-size:16px;line-height:1.8;">
+            On behalf of everyone at Walz Travels, we wanted to stop by and wish you a very happy birthday.
+          </p>
+          <p style="margin:0 0 20px;color:#1a2a3a;font-size:16px;line-height:1.8;">
+            We hope your day is filled with joy, good company, and everything that makes you smile. It has been a real pleasure being part of your travel journey, and we look forward to creating even more wonderful memories with you.
+          </p>
+          <p style="margin:0 0 32px;color:#1a2a3a;font-size:16px;line-height:1.8;">
+            Wishing you all the best on your special day.
+          </p>
+
+          <div style="border-top:1px solid #e0d8cc;padding-top:24px;">
+            <p style="margin:0;color:#1a2a3a;font-size:15px;line-height:1.6;">Warmly,</p>
+            <p style="margin:4px 0 0;color:#0B1F3A;font-size:16px;font-weight:bold;">Glory</p>
+            <p style="margin:2px 0 0;color:#8B9BAE;font-size:13px;">Walz Travels</p>
+          </div>
+        </div>
+
+        <div style="padding:20px 40px 24px;background:#F7F4EF;border-top:1px solid #e0d8cc;text-align:center;">
+          <p style="margin:0;color:#8B9BAE;font-size:11px;">
+            © ${new Date().getFullYear()} Walz Travels Ltd. &nbsp;·&nbsp;
+            <a href="${unsubscribeUrl}" style="color:#8B9BAE;text-decoration:underline;">Unsubscribe from birthday emails</a>
+          </p>
+        </div>
+
+      </div>
+    </body>
+    </html>
+  `
+
+  await getResend().emails.send({
+    from:    GLORY_FROM,
+    to,
+    subject: `Happy Birthday, ${firstName}! 🎂`,
     html,
   })
 }

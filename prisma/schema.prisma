@@ -305,6 +305,8 @@ model VisaApplication {
   appointmentNotes    String?
   appointmentLocation String?
   lastEmailSentAt     DateTime?
+  birthdayEmailSentAt DateTime?
+  marketingOptOut     Boolean   @default(false)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -438,6 +440,16 @@ model Lead {
   platform          String?   // Facebook | Instagram | WhatsApp | Website
   // ── CSV import tracking ────────────────────────────────────────────────
   importBatchId String?  // shared ID for all leads from one CSV upload
+  // ── Birthday ───────────────────────────────────────────────────────────
+  dateOfBirth         DateTime?
+  birthdayEmailSentAt DateTime?
+  marketingOptOut     Boolean   @default(false)
+  // ── Follow-up tracking ─────────────────────────────────────────────────
+  nextFollowUpAt  DateTime?
+  lastContactedAt DateTime?
+  followUpNote    String?   @db.Text
+  followUpCount   Int       @default(0)
+  interestLevel   String?   // 'hot' | 'warm' | 'cold'
   // ──────────────────────────────────────────────────────────────────────
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -449,6 +461,7 @@ model Lead {
   @@index([sourceId])
   @@index([isRead])
   @@index([assignedToId])
+  @@index([assignedToId, nextFollowUpAt])
   @@index([branch])
   @@index([importBatchId])
 }
@@ -2445,6 +2458,9 @@ model ClientAccount {
   phone        String?
   passwordHash String?
   isVerified   Boolean  @default(false)
+  dateOfBirth         DateTime?
+  birthdayEmailSentAt DateTime?
+  marketingOptOut     Boolean   @default(false)
   createdAt    DateTime @default(now()) @db.Timestamptz
   updatedAt    DateTime @default(now()) @db.Timestamptz
 

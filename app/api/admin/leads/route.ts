@@ -69,8 +69,10 @@ export async function POST(request: NextRequest) {
 
 // PATCH /api/admin/leads — update lead status
 const patchSchema = z.object({
-  id:     z.string().cuid(),
-  status: z.enum(['New', 'Contacted', 'Deposit Paid', 'In Progress', 'Closed']),
+  id:             z.string().cuid(),
+  status:         z.enum(['New', 'Contacted', 'Deposit Paid', 'In Progress', 'Closed']),
+  assignedToId:   z.string().optional(),
+  nextFollowUpAt: z.string().datetime({ offset: true }).optional(),
 })
 
 export async function PATCH(request: NextRequest) {
@@ -89,9 +91,37 @@ export async function PATCH(request: NextRequest) {
     return NextResponse.json({ error: 'Validation failed' }, { status: 422 })
   }
 
+  const { id, status, assignedToId, nextFollowUpAt } = parsed.data
+
+  // Gate: moving to Contacted requires an owner and a follow-up date
+  if (status === 'Contacted') {
+    const existing = await prisma.lead.findUnique({
+      where:  { id },
+      select: { assignedToId: true, nextFollowUpAt: true },
+    })
+    const hasOwner      = assignedToId || existing?.assignedToId
+    const hasFollowUp   = nextFollowUpAt || existing?.nextFollowUpAt
+    if (!hasOwner) {
+      return NextResponse.json(
+        { error: 'Assign this lead to a team member before marking as Contacted.' },
+        { status: 422 },
+      )
+    }
+    if (!hasFollowUp) {
+      return NextResponse.json(
+        { error: 'Set a follow-up date before marking as Contacted.' },
+        { status: 422 },
+      )
+    }
+  }
+
   const lead = await prisma.lead.update({
-    where: { id: parsed.data.id },
-    data:  { status: parsed.data.status },
+    where: { id },
+    data:  {
+      status,
+      ...(assignedToId   ? { assignedToId }                           : {}),
+      ...(nextFollowUpAt ? { nextFollowUpAt: new Date(nextFollowUpAt) } : {}),
+    },
   })
 
   return NextResponse.json({ success: true, lead })

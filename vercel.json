@@ -74,6 +74,14 @@
     {
       "path": "/api/cron/payroll-reconcile",
       "schedule": "*/15 * * * *"
+    },
+    {
+      "path": "/api/cron/birthdays",
+      "schedule": "0 8 * * *"
+    },
+    {
+      "path": "/api/cron/follow-up-nudge",
+      "schedule": "0 8 * * 1-5"
     }
   ]
 }

@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { LayoutDashboard, MessageSquare, Users, Calendar, MoreHorizontal } from 'lucide-react'
+import { LayoutDashboard, MessageSquare, Users, Calendar, MoreHorizontal, ListChecks } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useState, useEffect } from 'react'
 
@@ -11,10 +11,10 @@ interface MobileNavProps {
 }
 
 const TABS = [
-  { href: '/admin/dashboard', label: 'Home',     icon: LayoutDashboard },
-  { href: '/admin/inbox',     label: 'Inbox',    icon: MessageSquare, badge: true },
-  { href: '/admin/clients',   label: 'Clients',  icon: Users },
-  { href: '/admin/bookings',  label: 'Bookings', icon: Calendar },
+  { href: '/admin/my-followups', label: 'Follow-ups', icon: ListChecks },
+  { href: '/admin/dashboard',    label: 'Home',        icon: LayoutDashboard },
+  { href: '/admin/inbox',        label: 'Inbox',       icon: MessageSquare, badge: true },
+  { href: '/admin/clients',      label: 'Clients',     icon: Users },
 ]
 
 export function MobileNav({ onOpenDrawer }: MobileNavProps) {
