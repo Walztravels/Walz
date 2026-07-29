@@ -211,6 +211,7 @@ export default function MyFollowupsPage() {
     setLoading(true)
     try {
       const res = await fetch('/api/admin/leads/my-followups')
+      if (!res.ok) throw new Error('Failed to load')
       setData(await res.json() as FollowUps)
     } finally {
       setLoading(false)

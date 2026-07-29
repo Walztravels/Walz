@@ -4,7 +4,8 @@ import { getAdminSession } from '@/lib/admin-auth'
 
 export const dynamic = 'force-dynamic'
 
-const ACTIVE_STATUSES = ['New', 'Contacted', 'In Progress']
+const ACTIVE_STATUSES  = ['New', 'Contacted', 'In Progress']
+const MANAGER_ROLES    = new Set(['super_admin', 'manager', 'admin', 'accounts'])
 
 export async function GET(req: NextRequest) {
   const session = await getAdminSession()
@@ -14,9 +15,17 @@ export async function GET(req: NextRequest) {
   const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
   const week  = new Date(today.getTime() + 7 * 24 * 60 * 60 * 1000)
 
+  const isManager = MANAGER_ROLES.has(session.role)
+
+  // Managers see all leads; reps see only their own.
+  // staffId query param lets managers filter to a specific rep — derived
+  // from the session role, never blindly trusted for reps.
+  const staffIdParam = req.nextUrl.searchParams.get('staffId')
+  const scopedId     = isManager ? (staffIdParam ?? undefined) : session.id
+
   const base = {
-    assignedToId: session.id,
-    status:       { in: ACTIVE_STATUSES },
+    ...(scopedId ? { assignedToId: scopedId } : {}),
+    status: { in: ACTIVE_STATUSES },
   }
 
   const [overdue, todayLeads, upcoming, noDate] = await Promise.all([
