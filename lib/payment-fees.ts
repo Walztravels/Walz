@@ -3,6 +3,7 @@ export type Provider =
   | 'stripe_non_eu'
   | 'flutterwave'
   | 'virtual_account'
+  | 'paystack_va'
   | 'paga_checkout'
   | 'paga_dynamic'
   | 'paga_persistent'
@@ -55,6 +56,19 @@ export function calculateFee(
       feePercent  = 1.4
       feeFixed    = 0
       description = 'Bank transfer processing fee'
+      break
+
+    case 'paystack_va':
+      // Paystack dedicated NUBAN (Wema Bank).
+      // IMPORTANT: verify these figures against your Paystack dashboard —
+      // pricing is negotiable and your negotiated rate may differ.
+      // ₦100 flat fee is waived on transactions below ₦2,500.
+      feePercent  = 1.5
+      feeFixed    = baseAmount >= 2500 ? 100 : 0
+      capNgn      = 2000
+      description = baseAmount >= 2500
+        ? 'Paystack bank transfer fee (1.5% + ₦100, max ₦2,000)'
+        : 'Paystack bank transfer fee (1.5%, max ₦2,000)'
       break
 
     // ── Paga (NGN only) ──────────────────────────────────────────────────────

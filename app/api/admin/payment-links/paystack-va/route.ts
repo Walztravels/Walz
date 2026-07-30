@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getAdminSession }          from '@/lib/admin-auth'
 import { prisma }                   from '@/lib/db'
+import { calculateFee, formatFeeLabel } from '@/lib/payment-fees'
 
 export const dynamic = 'force-dynamic'
 
@@ -45,6 +46,10 @@ export async function POST(req: NextRequest) {
     }
 
     const phone = normalizePhone(String(clientPhone).trim())
+
+    // ── Fee calculation ──────────────────────────────────────────────────────
+    const fee      = calculateFee(Number(amount), 'NGN', 'paystack_va')
+    const feeLabel = formatFeeLabel(fee, '₦')
 
     const nameParts  = (clientName as string).trim().split(' ')
     const first_name = nameParts[0]
@@ -136,14 +141,15 @@ export async function POST(req: NextRequest) {
           txRef,
           accountNumber: account_number,
           bankName,
-          amount:      Number(amount) || null,
-          currency:    'NGN',
+          amount:        fee.baseAmount,   // requested amount (excl. fee)
+          currency:      'NGN',
+          feeChargedNgn: fee.feeTotal,     // fee we pass on to the client
           clientEmail,
-          clientName:  clientName || '',
-          description: description || '',
-          type:        'paystack_va',
-          provider:    'paystack',
-          status:      'pending',
+          clientName:    clientName || '',
+          description:   description || '',
+          type:          'paystack_va',
+          provider:      'paystack',
+          status:        'pending',
         },
       })
     } catch (dbErr: unknown) {
@@ -155,12 +161,17 @@ export async function POST(req: NextRequest) {
       provider:          'paystack',
       accountNumber:     account_number,
       bankName,
-      amount:            Number(amount) || 0,
-      amountToPay:       Number(amount) || 0,
+      // Fee breakdown — mirrors Flutterwave route shape
+      baseAmount:        fee.baseAmount,   // booking amount (excl. fee)
+      feeAmount:         fee.feeTotal,     // Paystack processing fee
+      feeLabel,                            // e.g. "1.5% + ₦100.00 (max ₦2,000)"
+      totalCharge:       fee.totalCharge,  // client transfers this exact amount
+      amount:            fee.baseAmount,
+      amountToPay:       fee.totalCharge,
       currency:          'NGN',
       description:       description || '',
       tx_ref:            txRef,
-      isPermanent:       true,   // Paystack dedicated accounts are always permanent
+      isPermanent:       true,
       expiresAt:         null,
       deadlineFormatted: null,
     })
