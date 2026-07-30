@@ -6,6 +6,19 @@ export const dynamic = 'force-dynamic'
 
 const PS_BASE = 'https://api.paystack.co'
 
+function normalizePhone(raw: string): string {
+  // Strip whitespace, hyphens, parentheses, dots (but keep +)
+  let s = raw.replace(/[\s\-\(\)\.]/g, '')
+  // Leading 0 with at least 10 digits → Nigerian local number
+  if (/^0\d{9,}$/.test(s)) {
+    s = '+234' + s.slice(1)
+  } else if (!s.startsWith('+') && /^\d{10,}$/.test(s)) {
+    // Has digits but no +
+    s = '+' + s
+  }
+  return s
+}
+
 export async function POST(req: NextRequest) {
   try {
     const session = await getAdminSession()
@@ -27,6 +40,11 @@ export async function POST(req: NextRequest) {
     if (!clientName?.trim()) {
       return NextResponse.json({ error: 'Client name is required' }, { status: 400 })
     }
+    if (!clientPhone?.trim()) {
+      return NextResponse.json({ error: 'Phone number is required for Paystack virtual accounts' }, { status: 400 })
+    }
+
+    const phone = normalizePhone(String(clientPhone).trim())
 
     const nameParts  = (clientName as string).trim().split(' ')
     const first_name = nameParts[0]
@@ -42,7 +60,7 @@ export async function POST(req: NextRequest) {
         email:      clientEmail,
         first_name,
         last_name,
-        ...(clientPhone ? { phone: clientPhone } : {}),
+        phone,
         metadata: { walz_tx_ref: txRef, walz_amount: amount ? String(amount) : null },
       }),
     })
@@ -56,7 +74,7 @@ export async function POST(req: NextRequest) {
 
     if (!custData.status || !custData.data?.customer_code) {
       return NextResponse.json(
-        { error: custData.message || 'Failed to create Paystack customer', details: custData },
+        { error: custData.message || 'Failed to create Paystack customer' },
         { status: 400 },
       )
     }
@@ -80,7 +98,7 @@ export async function POST(req: NextRequest) {
 
     if (!vaData.status || !vaData.data?.account_number) {
       return NextResponse.json(
-        { error: vaData.message || 'Failed to create dedicated account', details: vaData },
+        { error: vaData.message || 'Failed to create dedicated account' },
         { status: 400 },
       )
     }

@@ -6,12 +6,14 @@ import { loadStripe } from '@stripe/stripe-js'
 import { Elements, PaymentElement, useStripe, useElements } from '@stripe/react-stripe-js'
 import { useFlightStore } from '@/store/flightStore'
 import { formatDuration, formatTime } from '@/lib/flights/utils'
+import { processorsFor } from '@/lib/payments/processors'
+import type { Processor } from '@/lib/payments/processors'
 
 const stripePromise = process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY
   ? loadStripe(process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY)
   : null
 
-type PaymentMethod = 'stripe' | 'flutterwave' | 'nowpayments'
+type PaymentMethodId = Processor['id']
 
 // ── Inner payment form ──────────────────────────────────────────────────────
 function PaymentForm({ grand, intentId }: { grand: number; intentId: string }) {
@@ -456,6 +458,110 @@ function CryptoCheckout({ grand }: { grand: number }) {
   )
 }
 
+// ── Paystack checkout ────────────────────────────────────────────────────────
+function PaystackCheckout({ grand, currency }: { grand: number; currency: string }) {
+  const router  = useRouter()
+  const { setConfirmed, selected, passengers } = useFlightStore()
+  const [processing, setProcessing] = useState(false)
+  const [error,      setError]      = useState<string | null>(null)
+
+  const lead = passengers[0]
+
+  async function handlePay() {
+    setProcessing(true)
+    setError(null)
+    try {
+      const origin    = window.location.origin
+      const callbackUrl = `${origin}/flights/checkout?ps_ref=WALZ_PS_REF`
+
+      const res = await fetch('/api/payments/paystack/initialize', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email:       lead?.email || 'customer@walztravels.com',
+          amount:      grand,
+          currency,
+          callbackUrl,
+          metadata: {
+            flight_offer_id: selected?.id ?? '',
+            client_name: `${lead?.firstName ?? ''} ${lead?.lastName ?? ''}`.trim(),
+          },
+        }),
+      })
+      const data = await res.json()
+      if (data.url) {
+        // Store the reference so on-return the page can verify + book
+        sessionStorage.setItem('ps_pending_ref', data.reference)
+        window.location.href = data.url.replace('WALZ_PS_REF', data.reference)
+      } else {
+        setError(data.error ?? 'Unable to initialise Paystack payment')
+        setProcessing(false)
+      }
+    } catch {
+      setError('Payment service unavailable. Please try another method.')
+      setProcessing(false)
+    }
+  }
+
+  return (
+    <div className="space-y-5">
+      <div className="bg-white rounded-2xl border border-black/5 p-5 space-y-4">
+        <h2 className="font-display font-bold text-[#0B1F3A]">Pay with Paystack</h2>
+        <p className="text-sm text-[#0B1F3A]/60 leading-relaxed">
+          Secure payment powered by Paystack. Pay with card, bank transfer, or USSD.
+          You'll be redirected to complete payment securely.
+        </p>
+        <div className="bg-[#FAF7F2] rounded-xl p-4 flex items-center justify-between">
+          <div>
+            <p className="text-xs text-[#0B1F3A]/40 uppercase tracking-wider mb-0.5">Amount Due</p>
+            <p className="font-display text-2xl font-bold text-[#0B1F3A]">
+              {currency} {grand.toLocaleString()}
+            </p>
+          </div>
+          <div className="flex gap-2">
+            {['💳', '🏦', '#'].map((icon, i) => (
+              <div key={i} className="w-9 h-9 rounded-lg bg-white border border-black/10 flex items-center justify-center text-base">{icon}</div>
+            ))}
+          </div>
+        </div>
+        <div>
+          <p className="text-xs text-[#0B1F3A]/40 mb-2">Accepted payment methods</p>
+          <div className="flex flex-wrap gap-2">
+            {['Visa', 'Mastercard', 'Bank Transfer', 'USSD', 'Mobile Money'].map(m => (
+              <span key={m} className="text-xs px-2.5 py-1 rounded-lg bg-[#0B1F3A]/5 text-[#0B1F3A]/60 font-medium">{m}</span>
+            ))}
+          </div>
+        </div>
+      </div>
+      {error && (
+        <div className="bg-red-50 border border-red-200 rounded-xl p-4">
+          <p className="text-sm text-red-700 font-medium">{error}</p>
+        </div>
+      )}
+      <button type="button" disabled={processing} onClick={handlePay}
+        className="w-full py-4 rounded-xl font-bold text-base transition-all disabled:opacity-50 flex items-center justify-center gap-3"
+        style={{ background: 'linear-gradient(135deg, #00B09B 0%, #00C853 100%)', color: '#fff' }}>
+        {processing ? (
+          <>
+            <div className="w-5 h-5 rounded-full border-2 border-white/30 border-t-white animate-spin" />
+            Redirecting to Paystack…
+          </>
+        ) : (
+          <>
+            <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
+            </svg>
+            Continue to Paystack
+          </>
+        )}
+      </button>
+      <p className="text-center text-[10px] text-[#0B1F3A]/30">
+        Secured by Paystack · PCI DSS Compliant · Your data is encrypted
+      </p>
+    </div>
+  )
+}
+
 // ── Mock checkout (no Stripe key) ────────────────────────────────────────────
 function MockCheckout({ grand }: { grand: number }) {
   const router  = useRouter()
@@ -515,9 +621,23 @@ export default function CheckoutPage() {
   const [clientSecret,        setClientSecret]        = useState<string | null>(null)
   const [intentId,            setIntentId]            = useState<string>('')
   const [loadingIntent,       setLoadingIntent]       = useState(true)
-  const [payMethod,           setPayMethod]           = useState<PaymentMethod>('flutterwave')
+  const [payMethod,           setPayMethod]           = useState<PaymentMethodId>(() => {
+    const initCurrency = useFlightStore.getState().selected?.price.currency ?? 'GBP'
+    return processorsFor(initCurrency, 0)[0]?.id ?? 'flutterwave'
+  })
   const [stripeReturnLoading, setStripeReturnLoading] = useState(false)
   const [stripeReturnError,   setStripeReturnError]   = useState<string | null>(null)
+  const [psReturnLoading,     setPsReturnLoading]     = useState(false)
+  const [psReturnError,       setPsReturnError]       = useState<string | null>(null)
+
+  // Keep selected method in sync with what the resolved currency allows
+  const selectedCurrency = selected?.price.currency ?? 'GBP'
+  useEffect(() => {
+    const processors = processorsFor(selectedCurrency, grand)
+    if (processors.length > 0 && !processors.find(p => p.id === payMethod)) {
+      setPayMethod(processors[0].id)
+    }
+  }, [selectedCurrency]) // eslint-disable-line
 
   const grand = totalPrice()
 
@@ -595,6 +715,75 @@ export default function CheckoutPage() {
       return
     }
 
+    // Handle return from Paystack redirect
+    const psRef = sp.get('ps_ref')
+    if (psRef) {
+      setLoadingIntent(false)
+      setPayMethod('paystack')
+      setPsReturnLoading(true)
+
+      fetch('/api/payments/paystack/verify', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ reference: psRef }),
+      })
+        .then(r => r.json())
+        .then(async (vd) => {
+          if (!vd.verified) {
+            setPsReturnError(vd.error ?? 'Paystack payment could not be confirmed. Please contact us on WhatsApp.')
+            setPsReturnLoading(false)
+            return
+          }
+          const st   = useFlightStore.getState()
+          const lead = st.passengers[0]
+          const sel  = st.selected
+          const total = st.totalPrice()
+          const segs  = sel?.segments ?? []
+          const res = await fetch('/api/flights/book', {
+            method:  'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              offerId:        sel?.id ?? '',
+              clientName:     `${lead?.firstName ?? ''} ${lead?.lastName ?? ''}`.trim(),
+              clientEmail:    lead?.email ?? '',
+              clientPhone:    lead?.phone ?? '',
+              passengers:     st.passengers.map((p, i) => ({
+                id:           `pax_${i + 1}`,
+                given_name:   p.firstName,
+                family_name:  p.lastName,
+                born_on:      p.dob,
+                gender:       'm',
+                title:        p.title.toLowerCase(),
+                email:        p.email ?? '',
+                phone_number: p.phone ?? '',
+              })),
+              paidAmount:    String(total),
+              currency:      'GBP',
+              paymentMethod: 'paystack',
+              paymentRef:    psRef,
+              searchedOrigin: segs[0]?.departureIata ?? '',
+              searchedDest:   segs[segs.length - 1]?.arrivalIata ?? '',
+              departDate:     segs[0]?.departureTime?.split('T')[0] ?? '',
+              cabinClass:     segs[0]?.cabinClass?.toLowerCase() ?? 'economy',
+              tripType:       sel?.returnSegments?.length ? 'round_trip' : 'one_way',
+            }),
+          })
+          const data = await res.json()
+          if (data.reference) {
+            st.setConfirmed(data.reference, data.bookingId ?? '')
+            router.push(`/flights/confirmation?ref=${data.reference}`)
+          } else {
+            setPsReturnError(data.error ?? 'Booking failed after payment. Please contact us on WhatsApp.')
+            setPsReturnLoading(false)
+          }
+        })
+        .catch(() => {
+          setPsReturnError('Booking failed after payment. Please contact us on WhatsApp.')
+          setPsReturnLoading(false)
+        })
+      return
+    }
+
     // Normal flow: create a new payment intent
     fetch('/api/flights/checkout/intent', {
       method: 'POST',
@@ -634,6 +823,20 @@ export default function CheckoutPage() {
         colorBackground: '#ffffff',
       },
     },
+  }
+
+  const CURRENCY = selected?.price.currency ?? 'GBP'
+  const available = processorsFor(CURRENCY, grand)
+
+  if (psReturnLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-[#FAF7F2]">
+        <div className="text-center">
+          <div className="w-10 h-10 rounded-full border-4 border-[#C9A84C]/30 border-t-[#C9A84C] animate-spin mx-auto mb-4" />
+          <p className="text-[#0B1F3A]/60 text-sm">Confirming your Paystack payment…</p>
+        </div>
+      </div>
+    )
   }
 
   if (stripeReturnLoading) {
@@ -688,30 +891,55 @@ export default function CheckoutPage() {
                    className="text-xs text-red-600 underline mt-1 block">Contact us on WhatsApp →</a>
               </div>
             )}
+            {psReturnError && (
+              <div className="bg-red-50 border border-red-200 rounded-xl p-4">
+                <p className="text-sm text-red-700 font-medium">{psReturnError}</p>
+                <a href="https://wa.me/12317902336" target="_blank" rel="noopener noreferrer"
+                   className="text-xs text-red-600 underline mt-1 block">Contact us on WhatsApp →</a>
+              </div>
+            )}
             {/* Payment method selector */}
             <div className="bg-white rounded-2xl border border-black/5 p-4">
               <p className="text-xs font-semibold text-[#0B1F3A]/50 uppercase tracking-wider mb-3">Choose payment method</p>
-              <div className="grid grid-cols-3 gap-2">
-                {([
-                  { id: 'stripe'      as PaymentMethod, label: 'Card / Wallet',   sub: 'Visa · Apple Pay · Google Pay', badge: 'Popular',  badgeCls: 'bg-blue-50 text-blue-600' },
-                  { id: 'flutterwave' as PaymentMethod, label: 'Flutterwave',     sub: 'Card · Bank · USSD · Mobile',  badge: 'Africa',   badgeCls: 'bg-orange-50 text-orange-600' },
-                  { id: 'nowpayments' as PaymentMethod, label: 'Crypto',          sub: 'USDC · USDT · BTC · ETH',      badge: 'Crypto',   badgeCls: 'bg-purple-50 text-purple-600' },
-                ] as { id: PaymentMethod; label: string; sub: string; badge: string; badgeCls: string }[]).map(m => (
-                  <button key={m.id} type="button" onClick={() => setPayMethod(m.id)}
-                    className={`text-left p-3 rounded-xl border-2 transition-all ${payMethod === m.id ? 'border-[#C9A84C] bg-[#C9A84C]/5' : 'border-[#0B1F3A]/8 hover:border-[#0B1F3A]/20'}`}>
-                    <div className="flex items-start justify-between gap-1 mb-1">
-                      <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center mt-0.5 flex-shrink-0 ${payMethod === m.id ? 'border-[#C9A84C]' : 'border-[#0B1F3A]/20'}`}>
-                        {payMethod === m.id && <div className="w-2 h-2 rounded-full bg-[#C9A84C]" />}
-                      </div>
-                      <span className={`text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-full flex-shrink-0 ${m.badgeCls}`}>
-                        {m.badge}
-                      </span>
-                    </div>
-                    <p className="font-semibold text-xs text-[#0B1F3A] mt-1">{m.label}</p>
-                    <p className="text-[10px] text-[#0B1F3A]/40 mt-0.5 leading-relaxed">{m.sub}</p>
-                  </button>
-                ))}
-              </div>
+              {available.length === 0 ? (
+                <div className="text-center py-6 space-y-3">
+                  <p className="text-sm text-[#0B1F3A]/60">No payment methods available for {CURRENCY}.</p>
+                  <a href="https://wa.me/12317902336" target="_blank" rel="noopener noreferrer"
+                     className="inline-block text-xs font-semibold text-[#C9A84C] underline">
+                    Contact us on WhatsApp →
+                  </a>
+                </div>
+              ) : (
+                <div className={`grid gap-2 ${available.length <= 3 ? 'grid-cols-3' : 'grid-cols-2 sm:grid-cols-4'}`}>
+                  {available.map((p, idx) => {
+                    const badgeMap: Record<string, { badge: string; badgeCls: string; sub: string }> = {
+                      stripe:      { badge: 'Recommended', badgeCls: 'bg-blue-50 text-blue-600',   sub: 'Visa · Apple Pay · Google Pay' },
+                      flutterwave: { badge: 'Africa',      badgeCls: 'bg-orange-50 text-orange-600', sub: 'Card · Bank · USSD · Mobile' },
+                      paystack:    { badge: 'Recommended', badgeCls: 'bg-green-50 text-green-600',  sub: 'Card · Bank · USSD' },
+                      nowpayments: { badge: 'Crypto',      badgeCls: 'bg-purple-50 text-purple-600', sub: 'USDC · USDT · BTC · ETH' },
+                    }
+                    const meta = badgeMap[p.id] ?? { badge: '', badgeCls: 'bg-gray-50 text-gray-500', sub: p.blurb }
+                    const isFirst = idx === 0
+                    return (
+                      <button key={p.id} type="button" onClick={() => setPayMethod(p.id)}
+                        className={`text-left p-3 rounded-xl border-2 transition-all ${payMethod === p.id ? 'border-[#C9A84C] bg-[#C9A84C]/5' : 'border-[#0B1F3A]/8 hover:border-[#0B1F3A]/20'}`}>
+                        <div className="flex items-start justify-between gap-1 mb-1">
+                          <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center mt-0.5 flex-shrink-0 ${payMethod === p.id ? 'border-[#C9A84C]' : 'border-[#0B1F3A]/20'}`}>
+                            {payMethod === p.id && <div className="w-2 h-2 rounded-full bg-[#C9A84C]" />}
+                          </div>
+                          {(meta.badge || isFirst) && (
+                            <span className={`text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-full flex-shrink-0 ${meta.badgeCls}`}>
+                              {isFirst ? 'Recommended' : meta.badge}
+                            </span>
+                          )}
+                        </div>
+                        <p className="font-semibold text-xs text-[#0B1F3A] mt-1">{p.label}</p>
+                        <p className="text-[10px] text-[#0B1F3A]/40 mt-0.5 leading-relaxed">{meta.sub}</p>
+                      </button>
+                    )
+                  })}
+                </div>
+              )}
             </div>
 
             {/* Payment form */}
@@ -719,6 +947,8 @@ export default function CheckoutPage() {
               <CryptoCheckout grand={grand} />
             ) : payMethod === 'flutterwave' ? (
               <FlutterwaveCheckout grand={grand} />
+            ) : payMethod === 'paystack' ? (
+              <PaystackCheckout grand={grand} currency={CURRENCY} />
             ) : loadingIntent ? (
               <div className="bg-white rounded-2xl border border-black/5 p-8 flex items-center justify-center">
                 <div className="text-center">

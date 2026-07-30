@@ -844,10 +844,19 @@ export default function AdminPaymentsPage() {
                 </div>
                 {(payLinkForm.provider === 'virtual_account' || payLinkForm.provider === 'paga') && (
                   <div className="mb-4">
-                    <label className="text-white/50 text-xs uppercase tracking-wider block mb-1.5">Phone Number <span className="font-normal text-white/30">(optional)</span></label>
+                    <label className="text-white/50 text-xs uppercase tracking-wider block mb-1.5">
+                      Phone Number{' '}
+                      {payLinkForm.provider === 'virtual_account' && payLinkForm.vaProvider === 'paystack'
+                        ? <span className="text-red-400">*</span>
+                        : <span className="font-normal text-white/30">(optional)</span>
+                      }
+                    </label>
                     <input type="tel" placeholder="+234 800 000 0000" value={payLinkForm.clientPhone}
                       onChange={e => setPayLinkForm(p => ({ ...p, clientPhone: e.target.value }))}
                       className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-3 text-white focus:outline-none focus:border-amber-500/50 text-sm" />
+                    {payLinkForm.provider === 'virtual_account' && payLinkForm.vaProvider === 'paystack' && (
+                      <p className="text-white/30 text-xs mt-1">Required by Paystack · Format: +2348012345678 or 08012345678</p>
+                    )}
                   </div>
                 )}
 
@@ -898,6 +907,10 @@ export default function AdminPaymentsPage() {
                     if (!payLinkForm.amount || !payLinkForm.description) return
                     if (payLinkForm.provider === 'virtual_account' && !payLinkForm.clientName?.trim()) {
                       setLinkError('Client name is required for bank transfer accounts')
+                      return
+                    }
+                    if (payLinkForm.provider === 'virtual_account' && payLinkForm.vaProvider === 'paystack' && !payLinkForm.clientPhone?.trim()) {
+                      setLinkError('Phone number is required for Paystack virtual accounts')
                       return
                     }
                     if (payLinkForm.provider === 'paga' && payLinkForm.pagaMethod === 'persistent' && !payLinkForm.clientName?.trim()) {
