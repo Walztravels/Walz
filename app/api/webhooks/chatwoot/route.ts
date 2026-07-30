@@ -281,12 +281,53 @@ async function onConversationUpdated(payload: CWPayload, supabase: SupabaseAdmin
     pending:  'New',
   }
   const newStatus = payload.status ? statusMap[payload.status] : undefined
+  if (!newStatus) return
 
-  if (newStatus) {
-    await supabase
+  const update: Record<string, unknown> = { status: newStatus }
+
+  if (newStatus === 'Contacted') {
+    update.lastContactedAt = new Date().toISOString()
+
+    // Sync Chatwoot assignee → Staff row so assignedToId is never left null
+    const assigneeCwId = payload.conversation?.meta?.assignee?.id
+    if (assigneeCwId) {
+      const staff = await prisma.staff.findFirst({
+        where:  { chatwootAgentId: assigneeCwId },
+        select: { id: true, name: true },
+      })
+      if (staff) {
+        update.assignedToId = staff.id
+        console.log(`[chatwoot-webhook] conv=${payload.id} → Contacted, assigned to "${staff.name}" (cwAgent=${assigneeCwId})`)
+      } else {
+        console.warn(`[chatwoot-webhook] conv=${payload.id} → Contacted but cwAgent=${assigneeCwId} has no staff mapping — run chatwootAgentId SQL`)
+      }
+    } else {
+      console.warn(`[chatwoot-webhook] conv=${payload.id} → Contacted with no assignee in payload`)
+    }
+
+    // Set a default follow-up 2 days out at 9am if none already exists
+    const { data: existing } = await supabase
       .from('leads')
-      .update({ status: newStatus })
+      .select('nextFollowUpAt')
       .eq('chatwoot_conversation_id', payload.id)
+      .single()
+    if (existing && !existing.nextFollowUpAt) {
+      const d = new Date()
+      d.setDate(d.getDate() + 2)
+      d.setHours(9, 0, 0, 0)
+      update.nextFollowUpAt = d.toISOString()
+    }
+  }
+
+  const { error } = await supabase
+    .from('leads')
+    .update(update)
+    .eq('chatwoot_conversation_id', payload.id)
+
+  if (error) {
+    console.error('[chatwoot-webhook] onConversationUpdated error:', error)
+  } else {
+    console.log(`[chatwoot-webhook] conv=${payload.id} status → ${newStatus}`)
   }
 }
 

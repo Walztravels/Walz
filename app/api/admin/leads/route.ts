@@ -93,8 +93,10 @@ export async function PATCH(request: NextRequest) {
 
   const { id, status, assignedToId, nextFollowUpAt } = parsed.data
 
-  // Gate: moving to Contacted requires an owner and a follow-up date
-  if (status === 'Contacted') {
+  const REQUIRES_OWNER = new Set(['Contacted', 'In Progress', 'Deposit Paid'])
+
+  // Gate: moving to a gated status requires an owner and a follow-up date
+  if (REQUIRES_OWNER.has(status)) {
     const existing = await prisma.lead.findUnique({
       where:  { id },
       select: { assignedToId: true, nextFollowUpAt: true },

@@ -3,7 +3,8 @@ import { z }                        from 'zod'
 import { prisma }                   from '@/lib/db'
 import { getAdminSession }          from '@/lib/admin-auth'
 
-const MANAGER_ROLES = new Set(['super_admin', 'manager', 'admin', 'accounts'])
+const MANAGER_ROLES  = new Set(['super_admin', 'manager', 'admin', 'accounts'])
+const REQUIRES_OWNER = new Set(['Contacted', 'In Progress', 'Deposit Paid'])
 
 const patchSchema = z.object({
   nextFollowUpAt: z.string().datetime({ offset: true }).optional().nullable(),
@@ -43,6 +44,26 @@ export async function PATCH(
   }
 
   const { nextFollowUpAt, followUpNote, interestLevel, status } = parsed.data
+
+  // Gate: certain status transitions require an assigned owner and a follow-up date
+  if (status !== undefined && REQUIRES_OWNER.has(status)) {
+    const gateCheck = await prisma.lead.findUnique({
+      where:  { id: leadId },
+      select: { assignedToId: true, nextFollowUpAt: true },
+    })
+    if (!gateCheck?.assignedToId) {
+      return NextResponse.json(
+        { error: 'Assign this lead to a team member before setting this status.' },
+        { status: 422 },
+      )
+    }
+    if (!nextFollowUpAt && !gateCheck.nextFollowUpAt) {
+      return NextResponse.json(
+        { error: 'Set a follow-up date before setting this status.' },
+        { status: 422 },
+      )
+    }
+  }
 
   const lead = await prisma.lead.update({
     where: { id: leadId },
