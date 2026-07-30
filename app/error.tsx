@@ -21,12 +21,18 @@ export default function Error({
           <AlertTriangle className="w-8 h-8 text-red-400" />
         </div>
         <h1 className="text-xl font-bold text-[#0B1F3A] mb-2">Something went wrong</h1>
-        <p className="text-gray-400 text-sm mb-8">
+        <p className="text-gray-400 text-sm mb-4">
           We encountered an unexpected error. Our team has been notified.
           {error.digest && (
             <span className="block mt-1 font-mono text-xs">Error ID: {error.digest}</span>
           )}
         </p>
+        {error.message && (
+          <details className="mb-6 text-left">
+            <summary className="text-xs text-gray-400 cursor-pointer hover:text-gray-600">Error details</summary>
+            <pre className="mt-2 text-[10px] text-red-500 bg-red-50 rounded-xl p-3 overflow-auto max-h-32 whitespace-pre-wrap break-all">{error.message}</pre>
+          </details>
+        )}
         <div className="flex gap-3">
           <button
             onClick={reset}

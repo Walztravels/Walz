@@ -5,7 +5,7 @@ import { useEffect, useState } from 'react'
 import { useFlightStore } from '@/store/flightStore'
 import type { Ancillary } from '@/lib/flights/types'
 import type { FlightExtra } from '@/lib/flights/extras'
-import type { CPExtraPrice, CPExtrasResult } from '@/app/api/flights/extras/comfortpass/route'
+import type { CPExtraPrice, CPExtrasResult } from '@/lib/flights/comfortpass-types'
 
 // CP_EXTRA_IDS kept for currency lookup on add; livePriced flag on each extra drives display logic.
 const CP_EXTRA_IDS = new Set(['lounge', 'fasttrack', 'transfer', 'meetgreet'])

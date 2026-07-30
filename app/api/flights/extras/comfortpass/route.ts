@@ -7,8 +7,11 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getConfig }         from '@/lib/concierge/suppliers/comfortpass/config'
 import { ComfortPassClient } from '@/lib/concierge/suppliers/comfortpass/client'
 import { cacheGet, cacheSet } from '@/lib/redis'
+import type { CPExtraPrice, CPExtrasResult } from '@/lib/flights/comfortpass-types'
 
 export const dynamic = 'force-dynamic'
+
+export type { CPExtraPrice, CPExtrasResult }
 
 const CACHE_TTL_SECONDS = 15 * 60  // 15 minutes
 
@@ -18,20 +21,6 @@ const CP_TYPE_TO_EXTRA_ID: Record<string, string> = {
   fast_track: 'fasttrack',
   transfer:   'transfer',
   meet_greet: 'meetgreet',
-}
-
-export interface CPExtraPrice {
-  extraId:     string    // our ID: 'lounge' | 'fasttrack' | 'transfer' | 'meetgreet'
-  serviceCode: string    // ComfortPass service code
-  name:        string
-  price:       number    // raw amount in `currency`
-  currency:    string
-  perPerson:   boolean
-}
-
-export interface CPExtrasResult {
-  airport:  string
-  services: CPExtraPrice[]
 }
 
 export async function GET(req: NextRequest) {
