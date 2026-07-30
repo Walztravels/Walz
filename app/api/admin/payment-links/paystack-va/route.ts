@@ -84,11 +84,23 @@ export async function POST(req: NextRequest) {
     // does NOT update it. If that record has no phone, POST /dedicated_account
     // will fail with "Customer phone number required". Patch it explicitly.
     if (!custData.data.phone) {
-      await fetch(`${PS_BASE}/customer/${custData.data.customer_code}`, {
+      const patchRes  = await fetch(`${PS_BASE}/customer/${custData.data.customer_code}`, {
         method:  'PUT',
         headers: { Authorization: `Bearer ${PS_SECRET}`, 'Content-Type': 'application/json' },
         body:    JSON.stringify({ phone }),
       })
+      const patchData = await patchRes.json()
+      console.log('[paystack-va] customer phone patch:', {
+        status:  patchData.status,
+        message: patchData.message,
+        phone:   patchData.data?.phone,
+      })
+      if (!patchData.status) {
+        return NextResponse.json(
+          { error: patchData.message || 'Failed to set phone on Paystack customer' },
+          { status: 400 },
+        )
+      }
     }
 
     // ── 2 · Create dedicated virtual account on Wema Bank ───────────────────
