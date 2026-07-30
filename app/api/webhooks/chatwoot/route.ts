@@ -158,8 +158,10 @@ async function cwSendMessage(conversationId: number, content: string): Promise<v
 export async function POST(req: Request) {
   try {
     const rawBody = await req.text()
+    console.log('[cw-hook] RECV', rawBody.slice(0, 2000))
 
     if (!await verifySignature(req, rawBody)) {
+      console.warn('[cw-hook] BLOCKED: signature mismatch')
       return new Response('Forbidden', { status: 403 })
     }
 
@@ -285,14 +287,16 @@ async function onConversationCreated(payload: CWPayload, supabase: SupabaseAdmin
 }
 
 async function onConversationUpdated(payload: CWPayload, supabase: SupabaseAdmin) {
+  const convId      = payload.id
+  const assigneeCwId = payload.conversation?.meta?.assignee?.id ?? null
+  const senderPhone  = payload.conversation?.meta?.sender?.phone_number ?? null
+  const sourceId     = payload.conversation?.contact_inbox?.source_id ?? null
+
   console.log('[cw-hook] conv_updated entry', {
-    payloadId:  payload.id,
-    convId:     payload.conversation?.id,
-    status:     payload.status,
-    assigneeId: payload.conversation?.meta?.assignee?.id ?? null,
+    convId, status: payload.status, assigneeCwId, senderPhone, sourceId,
   })
 
-  if (!payload.id) {
+  if (!convId) {
     console.warn('[cw-hook] conv_updated exit: no payload.id')
     return
   }
@@ -310,59 +314,97 @@ async function onConversationUpdated(payload: CWPayload, supabase: SupabaseAdmin
 
   const update: Record<string, unknown> = { status: newStatus }
 
+  // Resolve staff from Chatwoot assignee
+  let staffId: string | null = null
   if (newStatus === 'Contacted') {
     update.lastContactedAt = new Date().toISOString()
-
-    // Sync Chatwoot assignee → Staff row so assignedToId is never left null
-    const assigneeCwId = payload.conversation?.meta?.assignee?.id
     if (assigneeCwId) {
       const staff = await prisma.staff.findFirst({
         where:  { chatwootAgentId: assigneeCwId },
         select: { id: true, name: true },
       })
-      if (staff) {
-        update.assignedToId = staff.id
-      }
+      staffId = staff?.id ?? null
+      if (staffId) update.assignedToId = staffId
       console.log('[cw-hook] assign staff lookup', {
-        assigneeCwId,
-        matchedStaff: staff?.id ?? 'NO_MATCH',
-        staffName:    staff?.name ?? null,
+        assigneeCwId, staffId, staffName: staff?.name ?? null,
       })
     } else {
       console.warn('[cw-hook] assign: no assignee in payload')
     }
+  }
 
-    // Set a default follow-up 2 days out at 9am if none already exists
+  // ── Primary lookup: chatwoot_conversation_id (fast path for linked leads) ─
+  let { data: updatedRows, error } = await supabase
+    .from('leads')
+    .update(update)
+    .eq('chatwoot_conversation_id', convId)
+    .select('id')
+
+  console.log('[cw-hook] primary lookup', {
+    convId, leadsUpdated: updatedRows?.length ?? 0, error: error?.message ?? null,
+  })
+
+  // ── Fallback: match by phone / PSID, then backfill chatwoot_conversation_id ─
+  // Existing leads created before this column was populated have it NULL.
+  // They must be found by whatsapp number (WhatsApp channel) or PSID
+  // (Instagram/Facebook channel, stored with a leading '+' in the whatsapp column).
+  if (!updatedRows?.length) {
+    const phoneNorm = senderPhone ? ('+' + senderPhone.replace(/\D/g, '')) : null
+    const psidKey   = sourceId    ? ('+' + sourceId)                        : null
+    let fallbackId: string | null = null
+
+    for (const candidate of [senderPhone, phoneNorm, psidKey].filter(Boolean) as string[]) {
+      const { data } = await supabase
+        .from('leads')
+        .select('id')
+        .eq('whatsapp', candidate)
+        .maybeSingle()
+      if (data?.id) { fallbackId = data.id; break }
+    }
+
+    console.log('[cw-hook] fallback lookup', {
+      senderPhone, phoneNorm, psidKey, fallbackId: fallbackId ?? 'NO_LEAD',
+    })
+
+    if (fallbackId) {
+      // Write chatwoot_conversation_id so future events use the fast path
+      const { data: fallbackRows, error: fErr } = await supabase
+        .from('leads')
+        .update({ ...update, chatwoot_conversation_id: convId })
+        .eq('id', fallbackId)
+        .select('id')
+      updatedRows = fallbackRows
+      console.log('[cw-hook] fallback update', {
+        leadId: fallbackId, leadsUpdated: fallbackRows?.length ?? 0, error: fErr?.message ?? null,
+      })
+    }
+  }
+
+  // Set a default +2-day follow-up for newly Contacted leads that have none
+  if (newStatus === 'Contacted' && updatedRows?.length) {
     const { data: existing } = await supabase
       .from('leads')
       .select('nextFollowUpAt')
-      .eq('chatwoot_conversation_id', payload.id)
+      .eq('id', updatedRows[0].id)
       .single()
     if (existing && !existing.nextFollowUpAt) {
       const d = new Date()
       d.setDate(d.getDate() + 2)
       d.setHours(9, 0, 0, 0)
-      update.nextFollowUpAt = d.toISOString()
+      await supabase.from('leads')
+        .update({ nextFollowUpAt: d.toISOString() })
+        .eq('id', updatedRows[0].id)
     }
-    console.log('[cw-hook] lead lookup by chatwoot_conversation_id', {
-      payloadId: payload.id,
-      found:     existing !== null,
-    })
   }
 
-  const { data: updatedRows, error } = await supabase
-    .from('leads')
-    .update(update)
-    .eq('chatwoot_conversation_id', payload.id)
-    .select('id')
-
-  console.log('[cw-hook] assign', {
-    payloadId:    payload.id,
+  console.log('[cw-hook] resolve', {
+    event:        'conversation_updated',
+    convId,
     newStatus,
-    assigneeCwId: payload.conversation?.meta?.assignee?.id ?? null,
-    matchedStaff: update.assignedToId ?? 'none',
+    assigneeCwId,
+    staffFound:   staffId ?? 'NO_STAFF',
+    leadFound:    updatedRows?.length ? updatedRows[0].id : 'NO_LEAD',
     leadsUpdated: updatedRows?.length ?? 0,
-    error:        error?.message ?? null,
   })
 }
 
