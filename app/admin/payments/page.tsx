@@ -119,7 +119,7 @@ export default function AdminPaymentsPage() {
   const [payLinkForm,    setPayLinkForm]    = useState({
     amount: '', currency: 'GBP', description: '', clientName: '', clientEmail: '', clientPhone: '',
     provider: 'stripe', isPermanent: true, paymentDeadline: '1', bvn: '', cardType: 'eu',
-    pagaMethod: 'checkout', sourceAccountNumber: '', bankCode: '',
+    pagaMethod: 'checkout', sourceAccountNumber: '', bankCode: '', vaProvider: 'flutterwave',
   })
   const [generatedLink,  setGeneratedLink]  = useState<{
     url?: string; accountNumber?: string; bankName?: string; expiryDate?: string | null;
@@ -416,7 +416,14 @@ export default function AdminPaymentsPage() {
                       {link.currency} {Number(link.amount ?? 0).toLocaleString()}
                     </td>
                     <td className="px-4 py-3">
-                      <PLTypeBadge type={link.type} />
+                      <div className="flex items-center gap-1.5 flex-wrap">
+                        <PLTypeBadge type={link.type} />
+                        {link.provider && (
+                          <span className="text-[9px] text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded-full font-semibold uppercase tracking-wider">
+                            {link.provider}
+                          </span>
+                        )}
+                      </div>
                     </td>
                     <td className="px-4 py-3">
                       <PLStatusBadge status={link.status} />
@@ -488,6 +495,7 @@ export default function AdminPaymentsPage() {
                       currency: p === 'stripe' ? 'GBP' : 'NGN',
                       cardType: 'eu',
                       pagaMethod: 'checkout',
+                      vaProvider: 'flutterwave',
                     }))}
                       className={`flex-1 py-2 rounded-lg text-sm font-bold transition ${
                         payLinkForm.provider === p ? 'bg-amber-500 text-black' : 'text-white/50 hover:text-white'
@@ -500,7 +508,9 @@ export default function AdminPaymentsPage() {
                   {payLinkForm.provider === 'stripe'
                     ? '✓ Cards worldwide · GBP / USD / EUR · Best for UK & EU clients'
                     : payLinkForm.provider === 'virtual_account'
-                    ? '✓ NGN only · Client sends bank transfer to a dedicated account · Expires in 1 hour'
+                    ? payLinkForm.vaProvider === 'paystack'
+                      ? '✓ NGN only · Wema Bank dedicated account · Accepts any amount — verify the transfer matches before confirming'
+                      : '✓ NGN only · Providus Bank dedicated account · Flutterwave'
                     : payLinkForm.provider === 'paga'
                     ? '✓ NGN · Checkout redirect, dedicated bank accounts, or direct debit · Lower fees than Flutterwave'
                     : '✓ Cards + Bank Transfer + USSD · NGN / GHS · Best for Africa clients'}
@@ -560,8 +570,39 @@ export default function AdminPaymentsPage() {
                   </div>
                 )}
 
-                {/* VA — recommendation tip */}
+                {/* VA — bank network sub-selector */}
                 {payLinkForm.provider === 'virtual_account' && (
+                  <div className="mb-4">
+                    <label className="text-white/50 text-xs uppercase tracking-wider block mb-2">Bank Network</label>
+                    <div className="grid grid-cols-2 gap-2">
+                      <button
+                        type="button"
+                        onClick={() => setPayLinkForm(p => ({ ...p, vaProvider: 'flutterwave', isPermanent: true }))}
+                        className={`py-3 px-4 rounded-xl text-sm font-bold transition border text-left ${
+                          payLinkForm.vaProvider !== 'paystack'
+                            ? 'bg-amber-500/20 border-amber-500/50 text-amber-400'
+                            : 'bg-white/5 border-white/10 text-white/50 hover:text-white'
+                        }`}>
+                        <p className="font-bold mb-0.5">Flutterwave</p>
+                        <p className="text-xs opacity-70 font-normal">Providus · default</p>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setPayLinkForm(p => ({ ...p, vaProvider: 'paystack', isPermanent: true }))}
+                        className={`py-3 px-4 rounded-xl text-sm font-bold transition border text-left ${
+                          payLinkForm.vaProvider === 'paystack'
+                            ? 'bg-amber-500/20 border-amber-500/50 text-amber-400'
+                            : 'bg-white/5 border-white/10 text-white/50 hover:text-white'
+                        }`}>
+                        <p className="font-bold mb-0.5">Paystack</p>
+                        <p className="text-xs opacity-70 font-normal">Wema Bank</p>
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {/* VA — recommendation tip (FLW only — Paystack accounts are always permanent) */}
+                {payLinkForm.provider === 'virtual_account' && payLinkForm.vaProvider !== 'paystack' && (
                   <div className="bg-blue-500/10 border border-blue-500/20 rounded-xl p-3 mb-4">
                     <p className="text-blue-400 text-xs font-semibold mb-1">💡 Recommendation</p>
                     <p className="text-blue-300/70 text-xs leading-relaxed">
@@ -571,8 +612,8 @@ export default function AdminPaymentsPage() {
                   </div>
                 )}
 
-                {/* VA — Permanent vs Temporary toggle */}
-                {payLinkForm.provider === 'virtual_account' && (
+                {/* VA — Permanent vs Temporary toggle (FLW only — Paystack is always permanent) */}
+                {payLinkForm.provider === 'virtual_account' && payLinkForm.vaProvider !== 'paystack' && (
                   <div className="mb-4">
                     <label className="text-white/50 text-xs uppercase tracking-wider block mb-2">Account Type</label>
                     <div className="grid grid-cols-2 gap-2">
@@ -637,8 +678,8 @@ export default function AdminPaymentsPage() {
                       </div>
                     )}
 
-                    {/* BVN — permanent NGN only */}
-                    {payLinkForm.isPermanent && payLinkForm.currency === 'NGN' && (
+                    {/* BVN — FLW permanent NGN only (Paystack does not require BVN at account creation) */}
+                    {payLinkForm.isPermanent && payLinkForm.currency === 'NGN' && payLinkForm.vaProvider !== 'paystack' && (
                       <div className="mt-3">
                         <label className="text-white/50 text-xs uppercase tracking-wider block mb-1.5">
                           Client BVN <span className="text-white/30 normal-case">(required for permanent accounts)</span>
@@ -871,7 +912,9 @@ export default function AdminPaymentsPage() {
                     setLinkError('')
                     try {
                       const endpoint = payLinkForm.provider === 'virtual_account'
-                        ? '/api/admin/payment-links/virtual-account'
+                        ? payLinkForm.vaProvider === 'paystack'
+                          ? '/api/admin/payment-links/paystack-va'
+                          : '/api/admin/payment-links/virtual-account'
                         : payLinkForm.provider === 'paga'
                         ? '/api/admin/payment-links/paga'
                         : `/api/admin/payment-links/${payLinkForm.provider}`
@@ -967,6 +1010,9 @@ export default function AdminPaymentsPage() {
                     ) : generatedLink.isPermanent ? (
                       <div className="bg-green-500/10 border border-green-500/20 rounded-xl px-4 py-3 mb-4 text-center">
                         <p className="text-green-400 text-sm">♾ Permanent account — never expires</p>
+                        {generatedLink.provider === 'paystack' && (
+                          <p className="text-green-400/60 text-xs mt-1">Accepts any amount — verify the transfer matches before confirming</p>
+                        )}
                       </div>
                     ) : null}
 
@@ -1146,6 +1192,7 @@ function PLTypeBadge({ type }: { type: string }) {
     stripe:              { label: 'Stripe',          cls: 'bg-indigo-50 text-indigo-700'   },
     flutterwave:         { label: 'Flutterwave',     cls: 'bg-amber-50 text-amber-700'     },
     virtual_account:     { label: 'Bank Transfer',   cls: 'bg-green-50 text-green-700'     },
+    paystack_va:         { label: 'Paystack VA',     cls: 'bg-teal-50 text-teal-700'       },
     paga_checkout:       { label: 'Paga Checkout',   cls: 'bg-purple-50 text-purple-700'   },
     paga_dynamic:        { label: 'Paga Dynamic',    cls: 'bg-purple-50 text-purple-700'   },
     paga_persistent:     { label: 'Paga Persistent', cls: 'bg-purple-50 text-purple-700'   },
