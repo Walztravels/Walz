@@ -36,11 +36,14 @@ export async function POST(
 
   let cwBody: BodyInit
   if (file) {
+    // Read file into memory so Vercel's Node runtime can forward it correctly
+    const bytes  = await file.arrayBuffer()
+    const blob   = new Blob([bytes], { type: file.type || 'application/octet-stream' })
     const cwForm = new FormData()
     if (content) cwForm.append('content', content)
     cwForm.append('message_type', '1')
     cwForm.append('private', String(isPrivate))
-    cwForm.append('attachments[]', file, file.name)
+    cwForm.append('attachments[]', blob, file.name)
     cwBody = cwForm
   } else {
     cwHeaders['Content-Type'] = 'application/json'
