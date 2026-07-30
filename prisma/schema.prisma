@@ -507,6 +507,8 @@ model Staff {
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
 
+  chatwootAgentId   Int?                             // Chatwoot agent ID for auto-assign from webhook
+
   checkInTracked    Boolean @default(false)
   timezone          String  @default("Africa/Lagos") // IANA timezone e.g. "Africa/Accra" for Ghana
   breakStartHour    Int     @default(13)             // Local hour break begins  (13=1PM Lagos, 12=12PM Accra)
