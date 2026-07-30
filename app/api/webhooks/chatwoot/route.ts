@@ -164,6 +164,18 @@ export async function POST(req: Request) {
     }
 
     const payload = JSON.parse(rawBody) as CWPayload
+
+    console.log('[cw-hook] IN', {
+      event:      payload.event,
+      id:         payload.id,
+      convId:     payload.conversation?.id,
+      status:     payload.status,
+      assigneeId: payload.conversation?.meta?.assignee?.id ?? null,
+      sourceId:   payload.conversation?.meta?.sender?.identifier
+                  ?? payload.conversation?.contact_inbox?.source_id ?? null,
+      sender:     payload.sender?.type ?? null,
+    })
+
     const supabase = getSupabaseAdmin()
 
     switch (payload.event) {
@@ -273,7 +285,17 @@ async function onConversationCreated(payload: CWPayload, supabase: SupabaseAdmin
 }
 
 async function onConversationUpdated(payload: CWPayload, supabase: SupabaseAdmin) {
-  if (!payload.id) return
+  console.log('[cw-hook] conv_updated entry', {
+    payloadId:  payload.id,
+    convId:     payload.conversation?.id,
+    status:     payload.status,
+    assigneeId: payload.conversation?.meta?.assignee?.id ?? null,
+  })
+
+  if (!payload.id) {
+    console.warn('[cw-hook] conv_updated exit: no payload.id')
+    return
+  }
 
   const statusMap: Record<string, string> = {
     open:     'Contacted',
@@ -281,7 +303,10 @@ async function onConversationUpdated(payload: CWPayload, supabase: SupabaseAdmin
     pending:  'New',
   }
   const newStatus = payload.status ? statusMap[payload.status] : undefined
-  if (!newStatus) return
+  if (!newStatus) {
+    console.log('[cw-hook] conv_updated exit: status not mapped →', payload.status)
+    return
+  }
 
   const update: Record<string, unknown> = { status: newStatus }
 
@@ -297,12 +322,14 @@ async function onConversationUpdated(payload: CWPayload, supabase: SupabaseAdmin
       })
       if (staff) {
         update.assignedToId = staff.id
-        console.log(`[chatwoot-webhook] conv=${payload.id} → Contacted, assigned to "${staff.name}" (cwAgent=${assigneeCwId})`)
-      } else {
-        console.warn(`[chatwoot-webhook] conv=${payload.id} → Contacted but cwAgent=${assigneeCwId} has no staff mapping — run chatwootAgentId SQL`)
       }
+      console.log('[cw-hook] assign staff lookup', {
+        assigneeCwId,
+        matchedStaff: staff?.id ?? 'NO_MATCH',
+        staffName:    staff?.name ?? null,
+      })
     } else {
-      console.warn(`[chatwoot-webhook] conv=${payload.id} → Contacted with no assignee in payload`)
+      console.warn('[cw-hook] assign: no assignee in payload')
     }
 
     // Set a default follow-up 2 days out at 9am if none already exists
@@ -317,18 +344,26 @@ async function onConversationUpdated(payload: CWPayload, supabase: SupabaseAdmin
       d.setHours(9, 0, 0, 0)
       update.nextFollowUpAt = d.toISOString()
     }
+    console.log('[cw-hook] lead lookup by chatwoot_conversation_id', {
+      payloadId: payload.id,
+      found:     existing !== null,
+    })
   }
 
-  const { error } = await supabase
+  const { data: updatedRows, error } = await supabase
     .from('leads')
     .update(update)
     .eq('chatwoot_conversation_id', payload.id)
+    .select('id')
 
-  if (error) {
-    console.error('[chatwoot-webhook] onConversationUpdated error:', error)
-  } else {
-    console.log(`[chatwoot-webhook] conv=${payload.id} status → ${newStatus}`)
-  }
+  console.log('[cw-hook] assign', {
+    payloadId:    payload.id,
+    newStatus,
+    assigneeCwId: payload.conversation?.meta?.assignee?.id ?? null,
+    matchedStaff: update.assignedToId ?? 'none',
+    leadsUpdated: updatedRows?.length ?? 0,
+    error:        error?.message ?? null,
+  })
 }
 
 async function onConversationResolved(payload: CWPayload, supabase: SupabaseAdmin) {
