@@ -79,6 +79,18 @@ export async function POST(req: NextRequest) {
       )
     }
 
+    // ── 1b · Ensure phone is set on the customer ─────────────────────────────
+    // POST /customer returns an existing record if the email already exists but
+    // does NOT update it. If that record has no phone, POST /dedicated_account
+    // will fail with "Customer phone number required". Patch it explicitly.
+    if (!custData.data.phone) {
+      await fetch(`${PS_BASE}/customer/${custData.data.customer_code}`, {
+        method:  'PUT',
+        headers: { Authorization: `Bearer ${PS_SECRET}`, 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ phone }),
+      })
+    }
+
     // ── 2 · Create dedicated virtual account on Wema Bank ───────────────────
     const vaRes  = await fetch(`${PS_BASE}/dedicated_account`, {
       method:  'POST',
