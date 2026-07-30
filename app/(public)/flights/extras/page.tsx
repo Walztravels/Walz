@@ -75,10 +75,12 @@ export default function ExtrasPage() {
 
   function extraPrice(extra: FlightExtra): number {
     if (extra.livePriced) {
-      const cp = cpPrices.get(extra.id)!
-      return cp.perPerson ? cp.price * paxCount : cp.price
+      const cp = cpPrices.get(extra.id)
+      if (!cp) return 0
+      const p = cp.price ?? 0
+      return cp.perPerson ? p * paxCount : p
     }
-    return extra.price
+    return extra.price ?? 0
   }
 
   const isAdded = (id: string) => extras.some(e => e.id === id)
@@ -196,7 +198,7 @@ export default function ExtrasPage() {
                           +£{price.toFixed(0)}
                         </p>
                         {isLive && cpEntry?.perPerson && paxCount > 1 && (
-                          <p className="text-[10px] text-[#0B1F3A]/40">£{cpEntry.price.toFixed(0)} × {paxCount} pax</p>
+                          <p className="text-[10px] text-[#0B1F3A]/40">£{(cpEntry.price ?? 0).toFixed(0)} × {paxCount} pax</p>
                         )}
                       </div>
                       <button type="button" onClick={() => toggle(extra)}
@@ -221,7 +223,7 @@ export default function ExtrasPage() {
             {extras.length > 0 ? (
               <>
                 <p className="font-semibold text-[#0B1F3A]">{extras.length} extra{extras.length !== 1 ? 's' : ''} added</p>
-                <p className="text-sm text-[#0B1F3A]/50">+£{total.toFixed(0)} to your booking</p>
+                <p className="text-sm text-[#0B1F3A]/50">+£{(total ?? 0).toFixed(0)} to your booking</p>
               </>
             ) : (
               <p className="text-[#0B1F3A]/40 text-sm">No extras selected</p>

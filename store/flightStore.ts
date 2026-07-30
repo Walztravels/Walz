@@ -239,7 +239,7 @@ export const useFlightStore = create<FlightStoreState & FlightStoreActions>()(
         return base + st.extrasTotal() + st.seatsTotal() - st.discountGBP
       },
       seatsTotal: () => get().seats.reduce((s, seat) => s + seat.priceGBP, 0),
-      extrasTotal: () => get().extras.reduce((s, e) => s + e.price, 0),
+      extrasTotal: () => get().extras.reduce((s, e) => s + (e.price ?? 0), 0),
       passengerCount: () => {
         const st = get()
         return st.search.adults + st.search.children + st.search.infants || 1
