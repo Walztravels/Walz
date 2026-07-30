@@ -41,7 +41,7 @@ export async function POST(
     const blob   = new Blob([bytes], { type: file.type || 'application/octet-stream' })
     const cwForm = new FormData()
     if (content) cwForm.append('content', content)
-    cwForm.append('message_type', '1')
+    cwForm.append('message_type', 'outgoing')
     cwForm.append('private', String(isPrivate))
     cwForm.append('attachments[]', blob, file.name)
     cwBody = cwForm
