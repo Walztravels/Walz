@@ -1,113 +1,117 @@
 'use client'
 
 import { useState, useRef, useEffect, useCallback } from 'react'
-
-const DEFAULT_EXTRAS = [
-  { id: 'transfer',  name: 'Airport Transfer',     category: 'Transport',   price: 45,  bookings: 312, revenue: 14040, enabled: true,  photo: 'https://images.unsplash.com/photo-1544620347-c4fd4a3d5957?w=400&h=300&fit=crop&q=80' },
-  { id: 'lounge',    name: 'Airport Lounge',       category: 'Comfort',     price: 35,  bookings: 248, revenue: 8680,  enabled: true,  photo: 'https://images.unsplash.com/photo-1436491865332-7a61a109cc05?w=400&h=300&fit=crop&q=80' },
-  { id: 'insurance', name: 'Travel Insurance',     category: 'Protection',  price: 24,  bookings: 193, revenue: 4632,  enabled: true,  photo: 'https://images.unsplash.com/photo-1559827260-dc66d52bef19?w=400&h=300&fit=crop&q=80' },
-  { id: 'upgrade',   name: 'Cabin Upgrade',        category: 'Comfort',     price: 189, bookings: 87,  revenue: 16443, enabled: true,  photo: 'https://images.unsplash.com/photo-1540962351504-03099e0a754b?w=400&h=300&fit=crop&q=80' },
-  { id: 'fasttrack', name: 'Fast Track Security',  category: 'Convenience', price: 18,  bookings: 156, revenue: 2808,  enabled: true,  photo: 'https://images.unsplash.com/photo-1474302770737-173ee21bab63?w=400&h=300&fit=crop&q=80' },
-  { id: 'baggage',   name: 'Extra Baggage (23kg)', category: 'Baggage',     price: 55,  bookings: 289, revenue: 15895, enabled: true,  photo: 'https://images.unsplash.com/photo-1553361371-9b22f78e8b1d?w=400&h=300&fit=crop&q=80' },
-  { id: 'esim',      name: 'Jade Connect eSIM',    category: 'Technology',  price: 9,   bookings: 412, revenue: 3708,  enabled: true,  photo: 'https://images.unsplash.com/photo-1601972599720-36938d4ecd31?w=400&h=300&fit=crop&q=80' },
-  { id: 'visa',      name: 'Visa Service',         category: 'Documents',   price: 99,  bookings: 64,  revenue: 6336,  enabled: false, photo: 'https://images.unsplash.com/photo-1590099033615-be195f8d575c?w=400&h=300&fit=crop&q=80' },
-]
+import { DEFAULT_EXTRAS, type FlightExtra } from '@/lib/flights/extras'
 
 const CATEGORIES = ['All', 'Transport', 'Comfort', 'Protection', 'Convenience', 'Baggage', 'Technology', 'Documents']
 
-type Extra = typeof DEFAULT_EXTRAS[number]
-
 interface EditModal {
-  extra: Extra
-  name:  string
-  price: string
-  photo: string
+  extra:    FlightExtra
+  name:     string
+  price:    string
+  photoUrl: string
 }
 
 export default function FlightExtrasAdminPage() {
-  const [extras, setExtras]     = useState(DEFAULT_EXTRAS)
+  const [extras, setExtras]     = useState<FlightExtra[]>(DEFAULT_EXTRAS)
   const [filter, setFilter]     = useState('All')
   const [saving, setSaving]     = useState(false)
   const [saved,  setSaved]      = useState(false)
 
-  // Load from API on mount
   useEffect(() => {
     fetch('/api/admin/extras')
       .then(r => r.json())
       .then(data => {
-        if (Array.isArray(data.extras)) {
-          // Merge API data with local bookings/revenue (API doesn't store those)
-          setExtras(prev => prev.map(p => {
-            const api = data.extras.find((e: Extra) => e.id === p.id)
-            return api ? { ...p, ...api } : p
-          }))
+        if (Array.isArray(data.extras) && data.extras.length > 0) {
+          setExtras(data.extras)
         }
       })
       .catch(() => {})
   }, [])
 
-  const persistToApi = useCallback(async (updated: Extra[]) => {
+  const [modal,      setModal]      = useState<EditModal | null>(null)
+  const [photoMode,  setPhotoMode]  = useState<'url' | 'upload'>('url')
+  const [photoError, setPhotoError] = useState(false)
+  const [uploading,  setUploading]  = useState(false)
+  const fileRef = useRef<HTMLInputElement>(null)
+
+  const filtered    = filter === 'All' ? extras : extras.filter(e => e.category === filter)
+  const activeCount = extras.filter(e => e.enabled).length
+
+  async function patchExtra(id: string, updates: Partial<Omit<FlightExtra, 'id'>>) {
     setSaving(true)
     setSaved(false)
     try {
-      await fetch('/api/admin/extras', {
-        method: 'POST',
+      const res = await fetch('/api/admin/extras', {
+        method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(updated),
+        body: JSON.stringify({ id, ...updates }),
       })
-      setSaved(true)
-      setTimeout(() => setSaved(false), 3000)
+      if (res.ok) {
+        const data = await res.json()
+        if (data.extra) {
+          setExtras(prev => prev.map(e => e.id === id ? data.extra : e))
+        }
+        setSaved(true)
+        setTimeout(() => setSaved(false), 3000)
+      }
     } catch { /* silent */ } finally {
       setSaving(false)
     }
-  }, [])
-  const [modal, setModal]       = useState<EditModal | null>(null)
-  const [photoMode, setPhotoMode] = useState<'url' | 'upload'>('url')
-  const [photoError, setPhotoError] = useState(false)
-  const fileRef = useRef<HTMLInputElement>(null)
+  }
 
-  const filtered = filter === 'All' ? extras : extras.filter(e => e.category === filter)
-
-  const totalRevenue = extras.reduce((s, e) => s + e.revenue, 0)
-  const totalBookings = extras.reduce((s, e) => s + e.bookings, 0)
-  const activeCount = extras.filter(e => e.enabled).length
-
-  function openEdit(extra: Extra) {
-    setModal({ extra, name: extra.name, price: String(extra.price), photo: extra.photo })
+  function openEdit(extra: FlightExtra) {
+    setModal({ extra, name: extra.name, price: String(extra.price), photoUrl: extra.photoUrl })
     setPhotoMode('url')
     setPhotoError(false)
   }
 
-  function saveEdit() {
+  async function saveEdit() {
     if (!modal) return
-    const price = Number(modal.price)
-    if (isNaN(price) || price <= 0) return
-    const updated = extras.map(e => e.id === modal.extra.id
-      ? { ...e, name: modal.name.trim() || e.name, price, photo: modal.photo || e.photo }
-      : e
-    )
-    setExtras(updated)
-    persistToApi(updated)
+    const isLive = modal.extra.livePriced
+    const price  = isLive ? modal.extra.price : Number(modal.price)
+    if (!isLive && (isNaN(price) || price <= 0)) return
+
+    await patchExtra(modal.extra.id, {
+      name:     modal.name.trim() || modal.extra.name,
+      price:    price,
+      photoUrl: modal.photoUrl || modal.extra.photoUrl,
+    })
     setModal(null)
   }
 
   function toggleEnabled(id: string) {
-    const updated = extras.map(e => e.id === id ? { ...e, enabled: !e.enabled } : e)
-    setExtras(updated)
-    persistToApi(updated)
+    const extra = extras.find(e => e.id === id)
+    if (!extra) return
+    patchExtra(id, { enabled: !extra.enabled })
   }
 
-  function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+  async function handleFileUpload(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
     if (!file || !modal) return
-    const reader = new FileReader()
-    reader.onload = ev => {
-      if (ev.target?.result) {
-        setModal(m => m ? { ...m, photo: ev.target!.result as string } : m)
+
+    setUploading(true)
+    try {
+      const formData = new FormData()
+      formData.append('file', file)
+      const res = await fetch(`/api/admin/extras/${modal.extra.id}/photo`, {
+        method: 'POST',
+        body: formData,
+      })
+      const data = await res.json()
+      if (data.photoUrl) {
+        setModal(m => m ? { ...m, photoUrl: data.photoUrl } : m)
         setPhotoError(false)
+      } else {
+        alert('Upload failed: ' + (data.error ?? 'Unknown error'))
       }
+    } catch (err) {
+      alert('Upload failed — check your connection and try again.')
+      console.error('[extras-photo]', err)
+    } finally {
+      setUploading(false)
+      if (fileRef.current) fileRef.current.value = ''
     }
-    reader.readAsDataURL(file)
   }
 
   return (
@@ -140,18 +144,12 @@ export default function FlightExtrasAdminPage() {
       </div>
 
       {/* Stats */}
-      <div className="grid grid-cols-3 gap-4">
-        {[
-          { label: 'Total Revenue', value: `£${(totalRevenue / 1000).toFixed(1)}k`, sub: 'from all extras' },
-          { label: 'Total Add-ons', value: totalBookings.toLocaleString(), sub: 'across all services' },
-          { label: 'Active Services', value: `${activeCount} / ${extras.length}`, sub: 'currently showing' },
-        ].map(s => (
-          <div key={s.label} className="bg-white rounded-xl border border-gray-200 p-4">
-            <p className="text-xs text-gray-400 mb-1">{s.label}</p>
-            <p className="text-2xl font-bold text-[#0B1F3A]">{s.value}</p>
-            <p className="text-xs text-gray-400 mt-0.5">{s.sub}</p>
-          </div>
-        ))}
+      <div className="grid grid-cols-1 gap-4 max-w-xs">
+        <div className="bg-white rounded-xl border border-gray-200 p-4">
+          <p className="text-xs text-gray-400 mb-1">Active Services</p>
+          <p className="text-2xl font-bold text-[#0B1F3A]">{activeCount} / {extras.length}</p>
+          <p className="text-xs text-gray-400 mt-0.5">currently showing to customers</p>
+        </div>
       </div>
 
       {/* Category filter */}
@@ -172,8 +170,6 @@ export default function FlightExtrasAdminPage() {
               <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Service</th>
               <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Category</th>
               <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Price</th>
-              <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Add-ons</th>
-              <th className="text-right px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Revenue</th>
               <th className="text-center px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wider">Active</th>
               <th className="px-4 py-3" />
             </tr>
@@ -183,7 +179,6 @@ export default function FlightExtrasAdminPage() {
               <tr key={extra.id} className={`transition-colors hover:bg-gray-50 ${!extra.enabled ? 'opacity-50' : ''}`}>
                 <td className="px-4 py-3">
                   <div className="flex items-center gap-3">
-                    {/* Clickable photo thumbnail */}
                     <button
                       type="button"
                       onClick={() => openEdit(extra)}
@@ -191,7 +186,7 @@ export default function FlightExtrasAdminPage() {
                       title="Click to change photo"
                     >
                       {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img src={extra.photo} alt={extra.name} className="w-12 h-9 object-cover" />
+                      <img src={extra.photoUrl} alt={extra.name} className="w-12 h-9 object-cover" />
                       <div className="absolute inset-0 bg-black/50 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
                         <svg className="w-4 h-4 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
@@ -199,17 +194,23 @@ export default function FlightExtrasAdminPage() {
                         </svg>
                       </div>
                     </button>
-                    <span className="font-medium text-[#0B1F3A]">{extra.name}</span>
+                    <div>
+                      <span className="font-medium text-[#0B1F3A]">{extra.name}</span>
+                      {extra.livePriced && (
+                        <span className="ml-2 text-[10px] font-semibold uppercase tracking-wider px-1.5 py-0.5 rounded bg-blue-50 text-blue-600">Live pricing</span>
+                      )}
+                    </div>
                   </div>
                 </td>
                 <td className="px-4 py-3">
                   <span className="text-xs px-2 py-0.5 rounded-full bg-[#0B1F3A]/5 text-[#0B1F3A]/60 font-medium">{extra.category}</span>
                 </td>
                 <td className="px-4 py-3 text-right">
-                  <span className="font-bold text-[#0B1F3A]">£{extra.price}</span>
+                  {extra.livePriced
+                    ? <span className="text-xs text-gray-400">via ComfortPass</span>
+                    : <span className="font-bold text-[#0B1F3A]">£{extra.price}</span>
+                  }
                 </td>
-                <td className="px-4 py-3 text-right text-gray-600">{extra.bookings.toLocaleString()}</td>
-                <td className="px-4 py-3 text-right font-semibold text-[#0B1F3A]">£{extra.revenue.toLocaleString()}</td>
                 <td className="px-4 py-3 text-center">
                   <button onClick={() => toggleEnabled(extra.id)}
                     className={`relative w-9 h-5 rounded-full transition-colors ${extra.enabled ? 'bg-[#C9A84C]' : 'bg-gray-200'}`}>
@@ -226,7 +227,8 @@ export default function FlightExtrasAdminPage() {
       </div>
 
       <p className="text-xs text-gray-400">
-        Click any photo or the Edit button to update the image, name, or price of an extra.
+        Lounge, Fast Track, Transfer, and Meet &amp; Greet are priced live via ComfortPass per departure airport — the price shown to customers comes from the API, not this table.
+        Click any photo or Edit to update the image or name.
       </p>
 
       {/* Edit modal */}
@@ -248,19 +250,17 @@ export default function FlightExtrasAdminPage() {
             <div>
               <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Photo</label>
 
-              {/* Preview */}
               <div className="relative w-full h-40 rounded-xl overflow-hidden bg-gray-100 mb-3">
-                {modal.photo ? (
+                {modal.photoUrl && !photoError ? (
                   // eslint-disable-next-line @next/next/no-img-element
                   <img
-                    src={modal.photo}
+                    src={modal.photoUrl}
                     alt="Preview"
                     className="w-full h-full object-cover"
                     onError={() => setPhotoError(true)}
                     onLoad={() => setPhotoError(false)}
                   />
-                ) : null}
-                {(photoError || !modal.photo) && (
+                ) : (
                   <div className="absolute inset-0 flex flex-col items-center justify-center text-gray-300 gap-1">
                     <svg className="w-8 h-8" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
@@ -270,7 +270,6 @@ export default function FlightExtrasAdminPage() {
                 )}
               </div>
 
-              {/* Mode toggle */}
               <div className="flex rounded-lg border border-gray-200 overflow-hidden mb-3 text-xs font-semibold">
                 {(['url', 'upload'] as const).map(mode => (
                   <button key={mode} onClick={() => setPhotoMode(mode)}
@@ -284,25 +283,38 @@ export default function FlightExtrasAdminPage() {
                 <input
                   type="url"
                   placeholder="https://images.unsplash.com/..."
-                  value={modal.photo.startsWith('data:') ? '' : modal.photo}
-                  onChange={e => { setModal(m => m ? { ...m, photo: e.target.value } : m); setPhotoError(false) }}
+                  value={modal.photoUrl}
+                  onChange={e => { setModal(m => m ? { ...m, photoUrl: e.target.value } : m); setPhotoError(false) }}
                   className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#C9A84C] placeholder:text-gray-300"
                 />
               ) : (
                 <div>
-                  <input ref={fileRef} type="file" accept="image/*" onChange={handleFileChange} className="hidden" />
+                  <input ref={fileRef} type="file" accept="image/*" onChange={handleFileUpload} className="hidden" />
                   <button
                     type="button"
                     onClick={() => fileRef.current?.click()}
-                    className="w-full border-2 border-dashed border-gray-200 rounded-lg py-4 text-sm text-gray-400 hover:border-[#C9A84C] hover:text-[#C9A84C] transition-colors flex items-center justify-center gap-2"
+                    disabled={uploading}
+                    className="w-full border-2 border-dashed border-gray-200 rounded-lg py-4 text-sm text-gray-400 hover:border-[#C9A84C] hover:text-[#C9A84C] transition-colors flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
                   >
-                    <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
-                    </svg>
-                    Click to choose image
+                    {uploading ? (
+                      <>
+                        <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                        </svg>
+                        Uploading…
+                      </>
+                    ) : (
+                      <>
+                        <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+                        </svg>
+                        Click to choose image
+                      </>
+                    )}
                   </button>
-                  {modal.photo.startsWith('data:') && (
-                    <p className="text-xs text-green-600 mt-1.5 text-center">Image loaded — save to apply</p>
+                  {modal.photoUrl && !uploading && (
+                    <p className="text-xs text-green-600 mt-1.5 text-center">Photo saved to storage</p>
                   )}
                 </div>
               )}
@@ -319,17 +331,24 @@ export default function FlightExtrasAdminPage() {
               />
             </div>
 
-            {/* Price */}
-            <div>
-              <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Price (£)</label>
-              <input
-                type="number"
-                value={modal.price}
-                min={1}
-                onChange={e => setModal(m => m ? { ...m, price: e.target.value } : m)}
-                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#C9A84C]"
-              />
-            </div>
+            {/* Price — only editable for manual extras */}
+            {!modal.extra.livePriced && (
+              <div>
+                <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Price (£)</label>
+                <input
+                  type="number"
+                  value={modal.price}
+                  min={1}
+                  onChange={e => setModal(m => m ? { ...m, price: e.target.value } : m)}
+                  className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#C9A84C]"
+                />
+              </div>
+            )}
+            {modal.extra.livePriced && (
+              <p className="text-xs text-blue-600 bg-blue-50 rounded-lg px-3 py-2">
+                Price is set live by ComfortPass per departure airport — not editable here.
+              </p>
+            )}
 
             {/* Actions */}
             <div className="flex gap-3 pt-1">

@@ -8,6 +8,7 @@ import { useFlightStore } from '@/store/flightStore'
 import { formatDuration, formatTime } from '@/lib/flights/utils'
 import { processorsFor } from '@/lib/payments/processors'
 import type { Processor } from '@/lib/payments/processors'
+import { useCurrency } from '@/lib/context/CurrencyContext'
 
 const stripePromise = process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY
   ? loadStripe(process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY)
@@ -67,7 +68,7 @@ function PaymentForm({ grand, intentId }: { grand: number; intentId: string }) {
               phone_number: p.phone ?? '',
             })),
             paidAmount:    String(grand),
-            currency:      'GBP',
+            currency:      selected?.price.currency ?? 'GBP',
             paymentMethod: 'stripe',
             paymentRef:    paymentIntent?.id ?? intentId,
             searchedOrigin: segs[0]?.departureIata ?? '',
@@ -207,7 +208,7 @@ function FlutterwaveCheckout({ grand }: { grand: number }) {
         public_key:      flwKey,
         tx_ref:          txRef,
         amount:          Math.round(grand * 100) / 100,
-        currency:        'GBP',
+        currency:        selected?.price.currency ?? 'GBP',
         payment_options: 'card,banktransfer,ussd,mobilemoney',
         customer: {
           email:        customerEmail,
@@ -243,7 +244,7 @@ function FlutterwaveCheckout({ grand }: { grand: number }) {
                     phone_number: p.phone ?? '',
                   })),
                   paidAmount:     String(grand),
-                  currency:       'GBP',
+                  currency:       selected?.price.currency ?? 'GBP',
                   paymentMethod:  'flutterwave',
                   paymentRef:     String(response.transaction_id),
                   searchedOrigin: segs[0]?.departureIata ?? '',
@@ -284,7 +285,7 @@ function FlutterwaveCheckout({ grand }: { grand: number }) {
         <h2 className="font-display font-bold text-[#0B1F3A]">Pay with Flutterwave</h2>
         <p className="text-sm text-[#0B1F3A]/60 leading-relaxed">
           Secure payment powered by Flutterwave. Pay with debit/credit card, bank transfer, or mobile money.
-          Your payment is processed in GBP.
+          Your payment is processed in {selected?.price.currency ?? 'GBP'}.
         </p>
 
         <div className="bg-[#FAF7F2] rounded-xl p-4 flex items-center justify-between">
@@ -362,7 +363,7 @@ function CryptoCheckout({ grand }: { grand: number }) {
         // if sessionStorage is wiped during the cross-origin payment redirect.
         body: JSON.stringify({
           amount:         grand,
-          currency:       'GBP',
+          currency:       selected?.price.currency ?? 'GBP',
           offerId:        selected?.id ?? '',
           passengers:     passengers.map((p, i) => ({
             id:           `pax_${i + 1}`,
@@ -640,6 +641,8 @@ export default function CheckoutPage() {
   }, [selectedCurrency]) // eslint-disable-line
 
   const grand = totalPrice()
+  const CURRENCY = selected?.price.currency ?? 'GBP'
+  const { convert, format: formatCurrency, selectedCurrency: displayCurrency } = useCurrency()
 
   useEffect(() => {
     // Handle return from Stripe 3DS redirect
@@ -685,7 +688,7 @@ export default function CheckoutPage() {
                   phone_number: p.phone ?? '',
                 })),
                 paidAmount:    String(total),
-                currency:      'GBP',
+                currency:      sel?.price.currency ?? 'GBP',
                 paymentMethod: 'stripe',
                 paymentRef:    paymentIntent.id,
                 searchedOrigin: segs[0]?.departureIata ?? '',
@@ -758,7 +761,7 @@ export default function CheckoutPage() {
                 phone_number: p.phone ?? '',
               })),
               paidAmount:    String(total),
-              currency:      'GBP',
+              currency:      sel?.price.currency ?? 'GBP',
               paymentMethod: 'paystack',
               paymentRef:    psRef,
               searchedOrigin: segs[0]?.departureIata ?? '',
@@ -790,7 +793,7 @@ export default function CheckoutPage() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         amount: Math.round(grand * 100),
-        currency: 'gbp',
+        currency: (selected?.price.currency ?? 'GBP').toLowerCase(),
         metadata: {
           itinerary_id: selected?.id ?? '',
           airline:      selected?.segments[0]?.airlineName ?? '',
@@ -825,7 +828,6 @@ export default function CheckoutPage() {
     },
   }
 
-  const CURRENCY = selected?.price.currency ?? 'GBP'
   const available = processorsFor(CURRENCY, grand)
 
   if (psReturnLoading) {
@@ -1004,11 +1006,22 @@ export default function CheckoutPage() {
                     <span>-£{discountGBP.toFixed(0)}</span>
                   </div>
                 )}
-                <div className="border-t border-black/5 pt-2 flex justify-between items-center">
+                <div className="border-t border-black/5 pt-2 flex justify-between items-baseline">
                   <span className="font-bold text-[#0B1F3A]">Total</span>
-                  <span className="text-xl font-bold text-[#0B1F3A]">£{grand.toFixed(0)}</span>
+                  <div className="text-right">
+                    <div className="text-xl font-bold text-[#0B1F3A]">£{grand.toFixed(2)}</div>
+                    {displayCurrency !== CURRENCY && (
+                      <div className="text-xs text-[#0B1F3A]/50">≈ {formatCurrency(convert(grand, CURRENCY))}</div>
+                    )}
+                  </div>
                 </div>
               </div>
+
+              {displayCurrency !== CURRENCY && (
+                <p className="text-xs text-[#0B1F3A]/40 text-center">
+                  Charged in {CURRENCY} · shown amount is approximate
+                </p>
+              )}
 
               <div className="bg-green-50 rounded-xl p-3">
                 <p className="text-xs font-semibold text-green-800">✅ ATOL Protected</p>

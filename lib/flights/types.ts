@@ -2,7 +2,7 @@ export type TripType   = 'round-trip' | 'one-way' | 'multi-city'
 export type CabinClass = 'ECONOMY' | 'PREMIUM_ECONOMY' | 'BUSINESS' | 'FIRST'
 export type SortOption = 'recommended' | 'cheapest' | 'fastest' | 'premium'
 export type PassengerType = 'adult' | 'child' | 'infant'
-export type AncillaryType = 'transfer' | 'hotel' | 'insurance' | 'esim' | 'visa' | 'lounge' | 'fast-track' | 'extra-baggage'
+export type AncillaryType = 'transfer' | 'hotel' | 'insurance' | 'esim' | 'visa' | 'lounge' | 'fast-track' | 'extra-baggage' | 'meetgreet'
 export type FareType   = 'lite' | 'standard' | 'flex' | 'business' | 'first'
 
 export interface PassengerCount {

@@ -1,42 +1,63 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { cacheGet, cacheSet } from '@/lib/redis'
+import prisma from '@/lib/db'
 import { DEFAULT_EXTRAS, type FlightExtra } from '@/lib/flights/extras'
 import { getAdminSession } from '@/lib/admin-auth'
+import type { FlightExtra as DbRow } from '@prisma/client'
 
 export const dynamic = 'force-dynamic'
 
-const REDIS_KEY = 'walz:flight-extras:config'
-
-export async function GET() {
-  const session = await getAdminSession()
-  if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-
-  const cached = await cacheGet<FlightExtra[]>(REDIS_KEY)
-  const extras = cached ?? DEFAULT_EXTRAS
-  return NextResponse.json({ extras })
+function rowToExtra(row: DbRow): FlightExtra {
+  return {
+    id:          row.id,
+    name:        row.name,
+    category:    row.category,
+    description: row.description ?? '',
+    price:       Number(row.price ?? 0),
+    currency:    row.currency,
+    photoUrl:    row.photoUrl ?? '',
+    enabled:     row.enabled,
+    popular:     row.popular,
+    perPerson:   row.perPerson,
+    livePriced:  row.livePriced,
+    sortOrder:   row.sortOrder,
+  }
 }
 
-export async function POST(req: NextRequest) {
+export async function GET() {
+  try {
+    const rows = await prisma.flightExtra.findMany({ orderBy: { sortOrder: 'asc' } })
+    return NextResponse.json({ extras: rows.map(rowToExtra) })
+  } catch (err) {
+    console.error('[extras] DB read failed, falling back to defaults:', err)
+    return NextResponse.json({ extras: DEFAULT_EXTRAS })
+  }
+}
+
+export async function PATCH(req: NextRequest) {
   const session = await getAdminSession()
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   try {
     const body = await req.json()
-
-    if (Array.isArray(body)) {
-      await cacheSet(REDIS_KEY, body, 60 * 60 * 24 * 365)
-      return NextResponse.json({ ok: true, extras: body })
-    }
-
-    const { id, ...updates } = body as { id: string } & Partial<FlightExtra>
+    const { id, ...updates } = body as { id: string } & Partial<Omit<FlightExtra, 'id'>>
     if (!id) return NextResponse.json({ error: 'id required' }, { status: 400 })
 
-    const current = await cacheGet<FlightExtra[]>(REDIS_KEY) ?? DEFAULT_EXTRAS
-    const updated = current.map(e => e.id === id ? { ...e, ...updates } : e)
-    await cacheSet(REDIS_KEY, updated, 60 * 60 * 24 * 365)
-    return NextResponse.json({ ok: true, extras: updated })
+    const data: Record<string, unknown> = {}
+    if (updates.name        !== undefined) data.name        = updates.name
+    if (updates.category    !== undefined) data.category    = updates.category
+    if (updates.description !== undefined) data.description = updates.description
+    if (updates.price       !== undefined) data.price       = updates.price
+    if (updates.currency    !== undefined) data.currency    = updates.currency
+    if (updates.photoUrl    !== undefined) data.photoUrl    = updates.photoUrl
+    if (updates.enabled     !== undefined) data.enabled     = updates.enabled
+    if (updates.popular     !== undefined) data.popular     = updates.popular
+    if (updates.perPerson   !== undefined) data.perPerson   = updates.perPerson
+    if (updates.sortOrder   !== undefined) data.sortOrder   = updates.sortOrder
+
+    const row = await prisma.flightExtra.update({ where: { id }, data })
+    return NextResponse.json({ ok: true, extra: rowToExtra(row) })
   } catch (err) {
-    console.error('[extras] POST error:', err)
+    console.error('[extras] PATCH error:', err)
     return NextResponse.json({ error: 'Failed to update' }, { status: 500 })
   }
 }

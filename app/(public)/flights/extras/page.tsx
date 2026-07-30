@@ -1,20 +1,33 @@
 'use client'
 
-import { useRouter } from 'next/navigation'
+import { useRouter }      from 'next/navigation'
 import { useEffect, useState } from 'react'
 import { useFlightStore } from '@/store/flightStore'
 import type { Ancillary } from '@/lib/flights/types'
 import type { FlightExtra } from '@/lib/flights/extras'
+import type { CPExtraPrice, CPExtrasResult } from '@/app/api/flights/extras/comfortpass/route'
+
+// CP_EXTRA_IDS kept for currency lookup on add; livePriced flag on each extra drives display logic.
+const CP_EXTRA_IDS = new Set(['lounge', 'fasttrack', 'transfer', 'meetgreet'])
 
 const STEPS = ['Search', 'Seats', 'Travellers', 'Extras', 'Review', 'Pay']
 
 export default function ExtrasPage() {
   const router = useRouter()
-  const { extras, addExtra, removeExtra, setStep, extrasTotal } = useFlightStore()
+  const { extras, addExtra, removeExtra, setStep, extrasTotal, selected, passengerCount } = useFlightStore()
+
   const [extrasData, setExtrasData] = useState<FlightExtra[]>([])
-  const [loading, setLoading] = useState(true)
+  const [loading,    setLoading]    = useState(true)
+
+  // ComfortPass live prices indexed by extraId
+  const [cpPrices,   setCpPrices]   = useState<Map<string, CPExtraPrice>>(new Map())
+  const [cpLoading,  setCpLoading]  = useState(false)
+
+  const departureAirport = selected?.segments[0]?.departureIata ?? ''
+  console.log('[extras] selected:', selected?.id ?? 'null', '| departureAirport:', departureAirport || '(empty — CP fetch will be skipped)')
 
   useEffect(() => {
+    // Admin config (enabled/disabled, names, photos for manual extras)
     fetch('/api/admin/extras')
       .then(r => r.json())
       .then(data => setExtrasData(data.extras ?? []))
@@ -22,26 +35,72 @@ export default function ExtrasPage() {
       .finally(() => setLoading(false))
   }, [])
 
-  const enabled = extrasData.filter(e => e.enabled)
+  useEffect(() => {
+    if (!departureAirport) {
+      console.log('[extras] CP fetch skipped — no departure airport (is selected null?)')
+      return
+    }
+
+    console.log('[extras] fetching ComfortPass prices for airport:', departureAirport)
+    setCpLoading(true)
+    fetch(`/api/flights/extras/comfortpass?airport=${departureAirport}`)
+      .then(r => r.json())
+      .then((data: CPExtrasResult) => {
+        console.log('[extras] CP response:', JSON.stringify(data))
+        const map = new Map<string, CPExtraPrice>()
+        for (const svc of data.services ?? []) {
+          map.set(svc.extraId, svc)
+        }
+        console.log('[extras] CP prices mapped:', [...map.keys()])
+        setCpPrices(map)
+      })
+      .catch((err) => {
+        console.error('[extras] CP fetch error:', err)
+        setCpPrices(new Map())
+      })
+      .finally(() => setCpLoading(false))
+  }, [departureAirport])
+
+  // Extras ready to display (CP extras only shown when price is known)
+  const paxCount = passengerCount()
+  const enabled  = (extrasData as FlightExtra[]).filter(e => {
+    if (!e.enabled) return false
+    if (e.livePriced) {
+      // Hide while loading, hide if not available for this airport
+      if (cpLoading) return false
+      return cpPrices.has(e.id)
+    }
+    return true
+  })
+
+  function extraPrice(extra: FlightExtra): number {
+    if (extra.livePriced) {
+      const cp = cpPrices.get(extra.id)!
+      return cp.perPerson ? cp.price * paxCount : cp.price
+    }
+    return extra.price
+  }
 
   const isAdded = (id: string) => extras.some(e => e.id === id)
 
   function toggle(extra: FlightExtra) {
     if (isAdded(extra.id)) {
       removeExtra(extra.id)
-    } else {
-      const anc: Ancillary = {
-        id:          extra.id,
-        type:        extra.id as Ancillary['type'],
-        icon:        '',
-        name:        extra.name,
-        description: extra.description,
-        price:       extra.price,
-        currency:    'GBP',
-        popular:     extra.popular,
-      }
-      addExtra(anc)
+      return
     }
+    const anc: Ancillary = {
+      id:          extra.id,
+      type:        extra.id as Ancillary['type'],
+      icon:        '',
+      name:        extra.name,
+      description: extra.description,
+      price:       extraPrice(extra),
+      currency:    extra.livePriced
+        ? (cpPrices.get(extra.id)?.currency ?? 'GBP')
+        : (extra.currency ?? 'GBP'),
+      popular:     extra.popular,
+    }
+    addExtra(anc)
   }
 
   function handleContinue() {
@@ -76,7 +135,7 @@ export default function ExtrasPage() {
         <h1 className="font-display text-2xl font-bold text-[#0B1F3A] mb-1">Enhance your trip</h1>
         <p className="text-[#0B1F3A]/50 text-sm mb-6">Add services to make your journey smoother.</p>
 
-        {loading ? (
+        {(loading || cpLoading) ? (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 mb-8">
             {Array.from({ length: 6 }).map((_, i) => (
               <div key={i} className="bg-white rounded-2xl border border-black/5 overflow-hidden animate-pulse">
@@ -93,6 +152,9 @@ export default function ExtrasPage() {
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 mb-8">
             {enabled.map(extra => {
               const added = isAdded(extra.id)
+              const price = extraPrice(extra)
+              const cpEntry = cpPrices.get(extra.id)
+              const isLive  = extra.livePriced
               return (
                 <div key={extra.id}
                   className={`bg-white rounded-2xl border overflow-hidden transition-all ${
@@ -102,7 +164,7 @@ export default function ExtrasPage() {
                   <div className="relative h-40 overflow-hidden">
                     {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img
-                      src={extra.photo}
+                      src={extra.photoUrl}
                       alt={extra.name}
                       className="w-full h-full object-cover transition-transform duration-500 hover:scale-105"
                       loading="lazy"
@@ -125,9 +187,18 @@ export default function ExtrasPage() {
                   {/* Content */}
                   <div className="p-4">
                     <p className="font-semibold text-[#0B1F3A] mb-1 text-sm">{extra.name}</p>
-                    <p className="text-xs text-[#0B1F3A]/50 mb-4 leading-relaxed">{extra.description}</p>
+                    <p className="text-xs text-[#0B1F3A]/50 mb-4 leading-relaxed">
+                      {isLive ? (cpEntry?.name ?? extra.description) : extra.description}
+                    </p>
                     <div className="flex items-center justify-between">
-                      <p className="font-bold text-[#0B1F3A]">+£{extra.price}</p>
+                      <div>
+                        <p className="font-bold text-[#0B1F3A]">
+                          +£{price.toFixed(0)}
+                        </p>
+                        {isLive && cpEntry?.perPerson && paxCount > 1 && (
+                          <p className="text-[10px] text-[#0B1F3A]/40">£{cpEntry.price.toFixed(0)} × {paxCount} pax</p>
+                        )}
+                      </div>
                       <button type="button" onClick={() => toggle(extra)}
                         className={`px-4 py-1.5 rounded-lg text-xs font-bold transition-all ${
                           added

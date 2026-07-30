@@ -3198,3 +3198,21 @@ model ConciergeFulfilment {
   @@index([dispatchStatus])
   @@map("concierge_fulfilment")
 }
+
+model FlightExtra {
+  id          String   @id
+  name        String
+  category    String
+  description String?
+  price       Decimal? @db.Decimal(10, 2)
+  currency    String   @default("GBP")
+  photoUrl    String?  @map("photo_url")
+  enabled     Boolean  @default(true)
+  popular     Boolean  @default(false)
+  perPerson   Boolean  @default(false) @map("per_person")
+  livePriced  Boolean  @default(false) @map("live_priced")
+  sortOrder   Int      @default(0)     @map("sort_order")
+  updatedAt   DateTime @updatedAt      @map("updated_at")
+
+  @@map("flight_extras")
+}

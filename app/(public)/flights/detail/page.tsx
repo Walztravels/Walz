@@ -47,7 +47,6 @@ function DetailContent() {
     { label: 'Lounge access',  getValue: f => f.lounge                                                                         },
     { label: 'Meals',          getValue: f => f.meals                                                                          },
   ]
-  const [addedAnc,     setAdded] = useState<string[]>([])
 
   // Ensure store has this itinerary selected
   if (!selected) setSelected(it)
@@ -420,15 +419,15 @@ function DetailContent() {
               </div>
             </div>
 
-            {/* Ancillary marketplace */}
+            {/* Ancillary preview — informational only; selection happens at the Extras step */}
             <div className="bg-white rounded-2xl overflow-hidden border border-black/5">
               <div className="p-5 border-b border-black/5">
-                <h2 className="font-display font-bold text-[#0B1F3A]">Complete Your Trip</h2>
-                <p className="text-[#0B1F3A]/50 text-sm">Save up to 30% vs booking separately</p>
+                <h2 className="font-display font-bold text-[#0B1F3A]">Available Extras</h2>
+                <p className="text-[#0B1F3A]/50 text-sm">You&apos;ll choose and price these after selecting your seats.</p>
               </div>
               <div className="divide-y divide-black/5">
                 {ANCILLARIES.map(item => (
-                  <div key={item.id} className="flex items-center gap-4 p-4 hover:bg-[#FAF7F2] transition-colors">
+                  <div key={item.id} className="flex items-center gap-4 p-4">
                     <span className="text-2xl flex-shrink-0">{item.icon}</span>
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2">
@@ -437,19 +436,11 @@ function DetailContent() {
                       </div>
                       <p className="text-xs text-[#0B1F3A]/40">{item.desc}</p>
                     </div>
-                    <div className="flex items-center gap-3 flex-shrink-0">
-                      {item.price > 0 && <p className="text-sm font-semibold text-[#0B1F3A]">+£{item.price}</p>}
-                      {item.link ? (
-                        <a href={item.link} className="text-xs font-semibold px-3 py-1.5 rounded-lg border border-[#0B1F3A]/10 text-[#0B1F3A]/60 hover:border-[#C9A84C] hover:text-[#C9A84C] transition-all">
-                          View →
-                        </a>
-                      ) : (
-                        <button onClick={() => setAdded(a => a.includes(item.id) ? a.filter(x => x !== item.id) : [...a, item.id])}
-                          className={`text-xs font-semibold px-3 py-1.5 rounded-lg transition-all ${addedAnc.includes(item.id) ? 'bg-green-600 text-white' : 'bg-[#0B1F3A] text-white hover:bg-[#C9A84C] hover:text-[#0B1F3A]'}`}>
-                          {addedAnc.includes(item.id) ? '✓ Added' : 'Add'}
-                        </button>
-                      )}
-                    </div>
+                    {item.link && (
+                      <a href={item.link} className="text-xs font-semibold px-3 py-1.5 rounded-lg border border-[#0B1F3A]/10 text-[#0B1F3A]/60 hover:border-[#C9A84C] hover:text-[#C9A84C] transition-all flex-shrink-0">
+                        View →
+                      </a>
+                    )}
                   </div>
                 ))}
               </div>
