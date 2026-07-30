@@ -8,6 +8,118 @@ import GatewaySelector, { type Gateway } from '@/components/payments/GatewaySele
 const StripePaymentStep = dynamic(() => import('@/components/payments/StripePaymentStep'), { ssr: false })
 const FlutterwavePaymentStep = dynamic(() => import('@/components/payments/FlutterwavePaymentStep'), { ssr: false })
 
+// ── Paystack redirect step ────────────────────────────────────────────────────
+function PaystackRedirect({
+  email, amount, currency, bookingRef, onBack,
+}: { email: string; amount: number; currency: string; bookingRef: string; onBack: () => void }) {
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
+
+  async function redirect() {
+    setLoading(true)
+    setError('')
+    try {
+      const res = await fetch('/api/payments/paystack/initialize', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, amount, currency, bookingRef }),
+      })
+      const data = await res.json()
+      if (!res.ok || !data.url) throw new Error(data.error ?? 'Failed to initialize Paystack')
+      window.location.href = data.url
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not start payment. Please try again.')
+      setLoading(false)
+    }
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="rounded-xl px-4 py-3 space-y-1" style={{ background: '#F7F4EF', borderLeft: '4px solid #C9A84C' }}>
+        <p className="text-xs text-gray-500 uppercase tracking-wide font-semibold">Amount to pay</p>
+        <p className="font-display text-2xl font-bold" style={{ color: '#C9A84C' }}>
+          {new Intl.NumberFormat('en-US', { style: 'currency', currency, minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(amount)}
+        </p>
+        <p className="text-xs text-gray-500">Card, bank transfer, or USSD via Paystack</p>
+      </div>
+      {error && (
+        <div className="rounded-xl px-4 py-3 text-sm" style={{ background: '#FEF2F2', color: '#C0392B', border: '1px solid #FECACA' }}>
+          {error}
+        </div>
+      )}
+      <button type="button" onClick={redirect} disabled={loading}
+        className="w-full py-4 rounded-xl font-bold text-base transition-opacity hover:opacity-90 disabled:opacity-60"
+        style={{ backgroundColor: '#00C46F', color: '#fff' }}>
+        {loading ? 'Redirecting to Paystack…' : 'Pay with Paystack →'}
+      </button>
+      <p className="text-center text-xs text-gray-400">Secured by Paystack · PCI DSS Compliant</p>
+      <button type="button" onClick={onBack}
+        className="w-full py-3 rounded-xl font-medium text-sm border transition-colors duration-150"
+        style={{ borderColor: '#E2D9CC', color: '#1C3557', background: '#fff' }}>
+        ← Change payment method
+      </button>
+    </div>
+  )
+}
+
+// ── Crypto redirect step ──────────────────────────────────────────────────────
+function CryptoRedirect({
+  email, amount, currency, bookingRef, packageTitle, onBack,
+}: { email: string; amount: number; currency: string; bookingRef: string; packageTitle: string; onBack: () => void }) {
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
+
+  async function redirect() {
+    setLoading(true)
+    setError('')
+    try {
+      const res = await fetch('/api/payments/crypto/create-invoice', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email, totalAmount: amount, currency, bookingRef,
+          packageTitle, tourName: packageTitle,
+          firstName: '', lastName: '',
+        }),
+      })
+      const data = await res.json()
+      if (!res.ok || !data.invoiceUrl) throw new Error(data.error ?? 'Failed to create crypto invoice')
+      window.location.href = data.invoiceUrl
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not start payment. Please try again.')
+      setLoading(false)
+    }
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="rounded-xl px-4 py-3 space-y-1" style={{ background: '#F7F4EF', borderLeft: '4px solid #C9A84C' }}>
+        <p className="text-xs text-gray-500 uppercase tracking-wide font-semibold">Amount to pay</p>
+        <p className="font-display text-2xl font-bold" style={{ color: '#C9A84C' }}>
+          {new Intl.NumberFormat('en-US', { style: 'currency', currency, minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(amount)}
+        </p>
+        <p className="text-xs text-gray-500">USDT · BTC · ETH and others via NOWPayments</p>
+      </div>
+      {error && (
+        <div className="rounded-xl px-4 py-3 text-sm" style={{ background: '#FEF2F2', color: '#C0392B', border: '1px solid #FECACA' }}>
+          {error}
+        </div>
+      )}
+      <button type="button" onClick={redirect} disabled={loading}
+        className="w-full py-4 rounded-xl font-bold text-base transition-opacity hover:opacity-90 disabled:opacity-60"
+        style={{ backgroundColor: '#0B1F3A', color: '#C9A84C' }}>
+        {loading ? 'Generating invoice…' : 'Pay with Crypto →'}
+      </button>
+      <p className="text-center text-xs text-gray-400">Powered by NOWPayments · Non-custodial</p>
+      <button type="button" onClick={onBack}
+        className="w-full py-3 rounded-xl font-medium text-sm border transition-colors duration-150"
+        style={{ borderColor: '#E2D9CC', color: '#1C3557', background: '#fff' }}>
+        ← Change payment method
+      </button>
+    </div>
+  )
+}
+
 interface PackageInfo {
   id: string
   slug: string
@@ -77,8 +189,8 @@ export default function PackageBookingModal({ pkg: initialPkg, isOpen: controlle
   const totalPrice = numTravellers * (pkg.price_per_person || 0)
   const depositDue = pkg.deposit_amount ? pkg.deposit_amount * numTravellers : null
 
-  // For FW, convert deposit to local currency (handled inside GatewaySelector)
-  // The FW deposit amount in local currency is computed in the step 4 component
+  // For FW, the local (NGN/GHS) amount is computed when the gateway is selected
+  // and passed to FlutterwavePaymentStep which charges in that currency.
   const [fwDepositLocal, setFwDepositLocal] = useState<number>(0)
 
   const resetModal = useCallback(() => {
@@ -492,13 +604,12 @@ export default function PackageBookingModal({ pkg: initialPkg, isOpen: controlle
               </p>
 
               <GatewaySelector
-                depositAmount={depositDue!}
-                packageCurrency={pkg.currency || 'USD'}
+                currency={pkg.currency || 'USD'}
+                amount={depositDue!}
                 selected={selectedGateway}
                 onSelect={(gateway, currency) => {
                   setSelectedGateway(gateway)
                   setSelectedCurrency(currency)
-                  // Estimate FW local amount for display (actual calc in GatewaySelector)
                   if (gateway === 'flutterwave') {
                     const depositUSD =
                       pkg.currency === 'USD' ? depositDue!
@@ -569,6 +680,25 @@ export default function PackageBookingModal({ pkg: initialPkg, isOpen: controlle
                   clientName={clientName}
                   clientPhone={phone ? dialCode + phone : undefined}
                   onSuccess={() => setStep(5)}
+                  onBack={() => setStep(3)}
+                />
+              )}
+              {selectedGateway === 'paystack' && (
+                <PaystackRedirect
+                  email={clientEmail}
+                  amount={stripeDepositAmount}
+                  currency={selectedCurrency}
+                  bookingRef={bookingRef}
+                  onBack={() => setStep(3)}
+                />
+              )}
+              {selectedGateway === 'nowpayments' && (
+                <CryptoRedirect
+                  email={clientEmail}
+                  amount={stripeDepositAmount}
+                  currency={pkg.currency || 'USD'}
+                  bookingRef={bookingRef}
+                  packageTitle={pkg.title}
                   onBack={() => setStep(3)}
                 />
               )}

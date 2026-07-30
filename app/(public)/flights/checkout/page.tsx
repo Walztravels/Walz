@@ -8,6 +8,7 @@ import { useFlightStore } from '@/store/flightStore'
 import { formatDuration, formatTime } from '@/lib/flights/utils'
 import { processorsFor } from '@/lib/payments/processors'
 import type { Processor } from '@/lib/payments/processors'
+import GatewaySelector from '@/components/payments/GatewaySelector'
 import { useCurrency } from '@/lib/context/CurrencyContext'
 
 const stripePromise = process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY
@@ -828,8 +829,6 @@ export default function CheckoutPage() {
     },
   }
 
-  const available = processorsFor(CURRENCY, grand)
-
   if (psReturnLoading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-[#FAF7F2]">
@@ -901,48 +900,12 @@ export default function CheckoutPage() {
               </div>
             )}
             {/* Payment method selector */}
-            <div className="bg-white rounded-2xl border border-black/5 p-4">
-              <p className="text-xs font-semibold text-[#0B1F3A]/50 uppercase tracking-wider mb-3">Choose payment method</p>
-              {available.length === 0 ? (
-                <div className="text-center py-6 space-y-3">
-                  <p className="text-sm text-[#0B1F3A]/60">No payment methods available for {CURRENCY}.</p>
-                  <a href="https://wa.me/12317902336" target="_blank" rel="noopener noreferrer"
-                     className="inline-block text-xs font-semibold text-[#C9A84C] underline">
-                    Contact us on WhatsApp →
-                  </a>
-                </div>
-              ) : (
-                <div className={`grid gap-2 ${available.length <= 3 ? 'grid-cols-3' : 'grid-cols-2 sm:grid-cols-4'}`}>
-                  {available.map((p, idx) => {
-                    const badgeMap: Record<string, { badge: string; badgeCls: string; sub: string }> = {
-                      stripe:      { badge: 'Recommended', badgeCls: 'bg-blue-50 text-blue-600',   sub: 'Visa · Apple Pay · Google Pay' },
-                      flutterwave: { badge: 'Africa',      badgeCls: 'bg-orange-50 text-orange-600', sub: 'Card · Bank · USSD · Mobile' },
-                      paystack:    { badge: 'Recommended', badgeCls: 'bg-green-50 text-green-600',  sub: 'Card · Bank · USSD' },
-                      nowpayments: { badge: 'Crypto',      badgeCls: 'bg-purple-50 text-purple-600', sub: 'USDC · USDT · BTC · ETH' },
-                    }
-                    const meta = badgeMap[p.id] ?? { badge: '', badgeCls: 'bg-gray-50 text-gray-500', sub: p.blurb }
-                    const isFirst = idx === 0
-                    return (
-                      <button key={p.id} type="button" onClick={() => setPayMethod(p.id)}
-                        className={`text-left p-3 rounded-xl border-2 transition-all ${payMethod === p.id ? 'border-[#C9A84C] bg-[#C9A84C]/5' : 'border-[#0B1F3A]/8 hover:border-[#0B1F3A]/20'}`}>
-                        <div className="flex items-start justify-between gap-1 mb-1">
-                          <div className={`w-4 h-4 rounded-full border-2 flex items-center justify-center mt-0.5 flex-shrink-0 ${payMethod === p.id ? 'border-[#C9A84C]' : 'border-[#0B1F3A]/20'}`}>
-                            {payMethod === p.id && <div className="w-2 h-2 rounded-full bg-[#C9A84C]" />}
-                          </div>
-                          {(meta.badge || isFirst) && (
-                            <span className={`text-[9px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-full flex-shrink-0 ${meta.badgeCls}`}>
-                              {isFirst ? 'Recommended' : meta.badge}
-                            </span>
-                          )}
-                        </div>
-                        <p className="font-semibold text-xs text-[#0B1F3A] mt-1">{p.label}</p>
-                        <p className="text-[10px] text-[#0B1F3A]/40 mt-0.5 leading-relaxed">{meta.sub}</p>
-                      </button>
-                    )
-                  })}
-                </div>
-              )}
-            </div>
+            <GatewaySelector
+              currency={CURRENCY}
+              amount={grand}
+              selected={payMethod}
+              onSelect={(id) => setPayMethod(id)}
+            />
 
             {/* Payment form */}
             {payMethod === 'nowpayments' ? (

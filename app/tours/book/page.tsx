@@ -5,8 +5,10 @@ import { useSearchParams } from 'next/navigation'
 import {
   Check, ChevronRight, ChevronLeft, Calendar, Users, Plus, Minus,
   Star, MapPin, Clock, Shield, Loader2, CheckCircle, AlertCircle,
-  CreditCard, Smartphone, MessageSquare, Image as ImageIcon, Coins,
+  CreditCard, Smartphone, MessageSquare, Image as ImageIcon,
 } from 'lucide-react'
+import GatewaySelector, { type Gateway } from '@/components/payments/GatewaySelector'
+import { processorsFor } from '@/lib/payments/processors'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -403,7 +405,9 @@ function StepThree({ tour, date, groupSize, addons, details, onBack, onSuccess }
   const [agreed, setAgreed] = useState(false)
   const [paying, setPaying] = useState(false)
   const [error, setError] = useState('')
-  const [gateway, setGateway] = useState<'stripe' | 'flutterwave' | 'nowpayments'>('stripe')
+  const [gateway, setGateway] = useState<Gateway>(() =>
+    processorsFor(tour.currency, tour.price)[0]?.id ?? 'stripe'
+  )
 
   const currency = tour.currency
   const basePrice = tour.price * groupSize
@@ -563,16 +567,50 @@ function StepThree({ tour, date, groupSize, addons, details, onBack, onSuccess }
     }
   }
 
+  // ── Paystack (hosted checkout redirect) ──────────────────────────────────
+  async function handlePaystackPay() {
+    setPaying(true)
+    setError('')
+    try {
+      const res = await fetch('/api/payments/paystack/initialize', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: details.email,
+          amount: total,
+          currency,
+          metadata: {
+            tourId: tour.id, tourName: tour.name, tourSlug: tour.slug,
+            tourLocation: tour.location,
+            date, groupSize, currency,
+            addons: selectedAddons.map(a => ({ id: a.id, name: a.name, price: a.price })),
+            basePrice, addonsTotal, totalAmount: total,
+            firstName: details.firstName, lastName: details.lastName,
+            email: details.email,
+            whatsapp: `${details.countryCode}${details.whatsapp}`,
+            country: details.country,
+          },
+        }),
+      })
+      const data = await res.json() as { url?: string; error?: string }
+      if (!res.ok || !data.url) throw new Error(data.error ?? 'Failed to initialize Paystack checkout')
+      window.location.href = data.url
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not start Paystack payment. Please try again.')
+      setPaying(false)
+    }
+  }
+
   function handlePay() {
     if (!agreed) {
       setError('Please accept the terms and conditions to proceed.')
-      // On mobile the error is in the scrolled content; scroll it into view
       document.querySelector('[data-terms-error]')?.scrollIntoView({ behavior: 'smooth', block: 'center' })
       return
     }
     if (gateway === 'stripe') { handleStripePay() }
     else if (gateway === 'flutterwave') { handleFlutterwavePay() }
     else if (gateway === 'nowpayments') { handleNOWPaymentsPay() }
+    else if (gateway === 'paystack') { handlePaystackPay() }
   }
 
   return (
@@ -715,39 +753,24 @@ function StepThree({ tour, date, groupSize, addons, details, onBack, onSuccess }
 
             {/* Gateway selector */}
             <p className="text-white/50 text-[11px] uppercase tracking-wider mb-2 font-medium">Choose payment method</p>
-            <div className="grid grid-cols-3 gap-1.5 mb-4">
-              {([
-                ['stripe',       CreditCard, 'Stripe',      'Apple/Google Pay'],
-                ['flutterwave',  Smartphone, 'Flutterwave', 'Mobile · USSD'],
-                ['nowpayments',  Coins,      'Crypto',      'USDC · USDT'],
-              ] as const).map(([id, Icon, label, sub]) => (
-                <button
-                  key={id}
-                  type="button"
-                  onClick={() => setGateway(id)}
-                  className={`flex flex-col items-center gap-1 p-2.5 rounded-xl border-2 transition-all
-                    ${gateway === id
-                      ? 'border-[#C9A84C] bg-[#C9A84C]/10'
-                      : 'border-white/10 hover:border-white/25 bg-white/5'}`}
-                >
-                  <Icon className={`w-4 h-4 ${gateway === id ? 'text-[#C9A84C]' : 'text-white/60'}`} />
-                  <span className={`text-[10px] font-bold leading-none ${gateway === id ? 'text-white' : 'text-white/60'}`}>{label}</span>
-                  <span className={`text-[9px] leading-none text-center ${gateway === id ? 'text-[#C9A84C]' : 'text-white/30'}`}>{sub}</span>
-                </button>
-              ))}
+            <div className="mb-4">
+              <GatewaySelector
+                currency={currency}
+                amount={total}
+                selected={gateway}
+                onSelect={(id) => setGateway(id)}
+              />
             </div>
 
             {/* Pay button */}
             <button
               onClick={handlePay}
-              disabled={paying}
+              disabled={paying || !gateway}
               className="w-full bg-[#C9A84C] hover:bg-[#d4b45f] disabled:opacity-60 disabled:cursor-not-allowed text-[#0B1F3A] font-bold py-4 rounded-xl transition-colors flex items-center justify-center gap-2 text-base"
             >
               {paying
-                ? <><Loader2 className="w-4 h-4 animate-spin" /> {gateway === 'stripe' || gateway === 'nowpayments' ? 'Redirecting…' : 'Processing…'}</>
-                : gateway === 'nowpayments'
-                  ? <><Coins className="w-4 h-4" /> Pay with Crypto</>
-                  : <><CreditCard className="w-4 h-4" /> Pay {fmt(total, currency)}</>
+                ? <><Loader2 className="w-4 h-4 animate-spin" /> Redirecting…</>
+                : <><CreditCard className="w-4 h-4" /> Pay {fmt(total, currency)}</>
               }
             </button>
           </div>
@@ -763,33 +786,14 @@ function StepThree({ tour, date, groupSize, addons, details, onBack, onSuccess }
 
       {/* Mobile sticky pay bar */}
       <div className="lg:hidden fixed bottom-0 left-0 right-0 bg-white border-t border-gray-200 px-4 py-3 z-40 shadow-lg">
-        <div className="grid grid-cols-3 gap-1.5 mb-2">
-          {([
-            ['stripe',      '🃏', 'Stripe'],
-            ['flutterwave', '📱', 'Flutterwave'],
-            ['nowpayments', '🪙', 'Crypto'],
-          ] as const).map(([gw, icon, label]) => (
-            <button
-              key={gw}
-              type="button"
-              onClick={() => setGateway(gw)}
-              className={`py-1.5 rounded-lg text-[10px] font-bold border-2 transition-all
-                ${gateway === gw ? 'border-[#C9A84C] bg-[#C9A84C]/10 text-[#0B1F3A]' : 'border-gray-200 text-gray-400'}`}
-            >
-              {icon} {label}
-            </button>
-          ))}
-        </div>
         <button
           onClick={handlePay}
           disabled={paying}
           className="w-full bg-[#C9A84C] hover:bg-[#d4b45f] disabled:opacity-60 text-[#0B1F3A] font-bold py-3.5 rounded-xl transition-colors flex items-center justify-center gap-2"
         >
           {paying
-            ? <><Loader2 className="w-4 h-4 animate-spin" /> {gateway === 'stripe' || gateway === 'nowpayments' ? 'Redirecting…' : 'Processing…'}</>
-            : gateway === 'nowpayments'
-              ? <><Coins className="w-4 h-4" /> Pay with Crypto (USDC · USDT)</>
-              : `Pay ${fmt(total, currency)}`}
+            ? <><Loader2 className="w-4 h-4 animate-spin" /> Redirecting…</>
+            : <><CreditCard className="w-4 h-4" /> Pay {fmt(total, currency)}</>}
         </button>
       </div>
     </div>
