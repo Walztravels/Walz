@@ -1079,7 +1079,7 @@ function DummyTicketTab() {
           passengers: passengers.length > 0 ? [{ name: clientName, type: 'Adult', title: clientTitle }, ...passengers] : undefined,
         })
       } else {
-        Object.assign(payload, { hotelName: hName, hotelAddress: hAddress, checkIn: hCheckIn, checkOut: hCheckOut, roomType: hRoomType, numGuests: hGuests })
+        Object.assign(payload, { hotelName: hName, hotelAddress: hAddress, checkIn: hCheckIn, checkOut: hCheckOut, roomType: hRoomType, numGuests: hGuests, destIso2: hDestIso2 || undefined })
       }
 
       const res  = await fetch('/api/admin/intelligence/dummy-ticket', {
@@ -1335,7 +1335,7 @@ function DummyTicketTab() {
                       className={INPUT}
                       defaultValue=""
                       onChange={e => {
-                        const h = hotelResults.find(h => h.code === e.target.value)
+                        const h = hotelResults.find(h => String(h.code) === e.target.value)
                         if (h) { setHName(h.name); setHAddress(h.address) }
                       }}>
                       <option value="">— Pick a hotel —</option>

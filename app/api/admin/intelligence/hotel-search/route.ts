@@ -47,7 +47,7 @@ export async function GET(req: NextRequest) {
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const hotels = (data.hotels?.hotels ?? []).map((h: any) => ({
-      code:         h.code,
+      code:         String(h.code),
       name:         h.name,
       stars:        h.categoryCode ? String(h.categoryCode).replace(/\D/g, '') : '',
       address:      h.zoneName ? `${h.zoneName}, ${h.destinationName}` : (h.destinationName ?? ''),

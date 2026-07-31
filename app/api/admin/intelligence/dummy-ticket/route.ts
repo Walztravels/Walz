@@ -439,6 +439,7 @@ export async function POST(req: NextRequest) {
     checkOut?:     string
     roomType?:     string
     numGuests?:    string
+    destIso2?:     string   // override destination when no applicationId is linked
     // Multi-passenger
     clientTitle?: string
     passengers?: Array<{
@@ -504,7 +505,8 @@ export async function POST(req: NextRequest) {
     let hotelAddrResolved  = body.hotelAddress || ''
     let realBooking        = false
 
-    const hbDestCode = appDestIso2 ? ISO2_TO_HOTELBEDS_DEST[appDestIso2] : null
+    const effectiveIso2 = appDestIso2 || (body.destIso2 ?? '')
+    const hbDestCode = effectiveIso2 ? ISO2_TO_HOTELBEDS_DEST[effectiveIso2] : null
     if (hbDestCode && checkIn && checkOut && process.env.HOTELBEDS_HOTEL_API_KEY) {
       try {
         const hbResult = await Promise.race([
