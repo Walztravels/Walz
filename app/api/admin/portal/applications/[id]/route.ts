@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getAdminSession } from '@/lib/admin-auth'
+import { getAdminSession }  from '@/lib/admin-auth'
+import { getSupabaseAdmin } from '@/lib/supabase'
 import prisma from '@/lib/db'
 import { getResend } from '@/lib/resend'
 import { z } from 'zod'
@@ -87,6 +88,20 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
         `,
       })
     } catch { /* non-fatal */ }
+  }
+
+  // When a case reaches a final outcome, surface any un-cancelled holds
+  const FINAL_STAGES = ['APPROVED', 'REJECTED', 'COMPLETED']
+  if (parsed.data.stage && FINAL_STAGES.includes(parsed.data.stage)) {
+    const holdsQuery = await getSupabaseAdmin()
+      .from('dummy_bookings')
+      .select('id, type, provider, provider_ref, hotel_name, route, check_in, check_out, expires_at')
+      .eq('application_id', params.id)
+      .is('cancelled_at', null)
+    const holds = holdsQuery.data
+    if (holds?.length) {
+      return NextResponse.json({ application, pending_holds: holds })
+    }
   }
 
   return NextResponse.json({ application })

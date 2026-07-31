@@ -5,6 +5,7 @@ import { duffelPost } from '@/lib/duffel/client'
 import prisma from '@/lib/db'
 import { renderToBuffer } from '@react-pdf/renderer'
 import { getSupabaseAdmin } from '@/lib/supabase'
+import { hotelbedsRequest } from '@/lib/hotelbeds'
 import React from 'react'
 import { TicketPDFDocument, type TicketData } from '@/components/admin/TicketPDF'
 
@@ -261,6 +262,133 @@ interface FlightDetails {
   returnStops?:        number
 }
 
+// ─── ISO-2 → Hotelbeds destination code ──────────────────────────────────────
+const ISO2_TO_HOTELBEDS_DEST: Record<string, string> = {
+  GB: 'LON', IE: 'DUB', FR: 'PAR', DE: 'BER', ES: 'MAD', IT: 'ROM',
+  NL: 'AMS', PT: 'LIS', BE: 'BRU', AT: 'VIE', CH: 'ZRH', SE: 'STO',
+  DK: 'CPH', NO: 'OSL', PL: 'WAW', GR: 'ATH', CZ: 'PRG', HU: 'BUD',
+  US: 'NYC', CA: 'TOR', AU: 'SYD', NZ: 'AKL',
+  AE: 'DXB', QA: 'DOH', SA: 'RUH', BH: 'BAH', KW: 'KWI', OM: 'MCT',
+  TR: 'IST', EG: 'CAI', MA: 'CAS', ZA: 'JNB', KE: 'NBI', GH: 'ACC',
+  NG: 'LOS', ET: 'ADD', SN: 'DKR', CI: 'ABJ',
+  IN: 'BOM', SG: 'SIN', JP: 'TYO', CN: 'BJS', KR: 'SEL', TH: 'BKK',
+  MY: 'KUL', PH: 'MNL', BR: 'RIO', MX: 'MEX', AR: 'BUE', CO: 'BOG',
+}
+
+// ─── Persist a dummy hold to Supabase dummy_bookings ─────────────────────────
+async function saveDummyBooking(data: {
+  applicationId: string
+  type:          'HOTEL' | 'FLIGHT'
+  provider:      string
+  providerRef:   string
+  orderId?:      string | null
+  expiresAt?:    string | null
+  hotelName?:    string | null
+  checkIn?:      string | null
+  checkOut?:     string | null
+  route?:        string | null
+  createdBy:     string
+}): Promise<void> {
+  try {
+    await getSupabaseAdmin()
+      .from('dummy_bookings')
+      .insert({
+        application_id: data.applicationId,
+        type:           data.type,
+        provider:       data.provider,
+        provider_ref:   data.providerRef,
+        order_id:       data.orderId   ?? data.providerRef,
+        expires_at:     data.expiresAt ?? null,
+        hotel_name:     data.hotelName ?? null,
+        check_in:       data.checkIn   ?? null,
+        check_out:      data.checkOut  ?? null,
+        route:          data.route     ?? null,
+        created_by:     data.createdBy,
+      })
+  } catch (e) {
+    console.warn('[dummy-ticket] saveDummyBooking failed:', e)
+  }
+}
+
+// ─── Search Hotelbeds, pick cheapest free-cancel rate, and book ───────────────
+async function bookHotelbedsFreeCancelRate(opts: {
+  destination: string
+  checkIn:     string
+  checkOut:    string
+  holderName:  string
+  numGuests:   number
+}): Promise<{ reference: string; hotelName?: string; address?: string } | null> {
+  const { destination, checkIn, checkOut, holderName, numGuests } = opts
+
+  const searchData = await hotelbedsRequest('hotel', '/hotels', {
+    method: 'POST',
+    body: {
+      sourceMarket:  'GB',
+      stay:          { checkIn, checkOut },
+      occupancies:   [{ rooms: 1, adults: Math.max(1, numGuests), children: 0 }],
+      destination:   { code: destination },
+      filter:        { maxHotels: 10, minCategory: 3, maxRatesPerRoom: 3 },
+      currency:      'GBP',
+      language:      'ENG',
+    },
+  })
+
+  const hotels: Array<{
+    code:            string
+    name:            string
+    destinationName: string
+    zoneName?:       string
+    rooms?:          Array<{ rates?: Array<{ rateKey: string; rateClass: string; net: string }> }>
+  }> = searchData.hotels?.hotels ?? []
+
+  if (!hotels.length) return null
+
+  // Cheapest free-cancel (non-NRF) rate across all returned hotels
+  let bestRateKey: string | null = null
+  let bestNet    = Infinity
+  let bestHotel: typeof hotels[0] | null = null
+
+  for (const hotel of hotels) {
+    for (const room of (hotel.rooms ?? [])) {
+      for (const rate of (room.rates ?? [])) {
+        if (rate.rateClass === 'NRF') continue
+        const net = parseFloat(rate.net)
+        if (net < bestNet) {
+          bestNet     = net
+          bestRateKey = rate.rateKey
+          bestHotel   = hotel
+        }
+      }
+    }
+  }
+
+  if (!bestRateKey || !bestHotel) return null
+
+  const [firstName, ...rest] = holderName.split(' ')
+  const lastName             = rest.join(' ') || firstName
+  const bookData = await hotelbedsRequest('hotel', '/bookings', {
+    method: 'POST',
+    body: {
+      holder:          { name: firstName, surname: lastName },
+      rooms:           [{ rateKey: bestRateKey, paxes: [{ roomId: 1, type: 'AD', name: firstName, surname: lastName }] }],
+      clientReference: `WLZ-VISA-${Date.now()}`,
+      remark:          'Visa application hotel hold — Walz Travels. Free-cancel rate.',
+      tolerance:       2,
+    },
+  })
+
+  const booking = bookData.booking
+  if (!booking?.reference) return null
+
+  return {
+    reference: booking.reference,
+    hotelName: bestHotel.name,
+    address:   bestHotel.zoneName
+      ? `${bestHotel.zoneName}, ${bestHotel.destinationName}`
+      : bestHotel.destinationName,
+  }
+}
+
 // ─── POST handler ─────────────────────────────────────────────────────────────
 export async function POST(req: NextRequest) {
   const session = await getAdminSession()
@@ -360,7 +488,7 @@ export async function POST(req: NextRequest) {
   const reference = makeRef()
 
   // ───────────────────────────────────────────────────────────────────────────
-  // HOTEL MODE
+  // HOTEL MODE — real Hotelbeds free-cancel booking, fabricated fallback
   // ───────────────────────────────────────────────────────────────────────────
   if (body.mode === 'hotel') {
     const clientName = body.clientName || appName || 'PASSENGER NAME'
@@ -370,12 +498,55 @@ export async function POST(req: NextRequest) {
       ? Math.round((new Date(checkOut).getTime() - new Date(checkIn).getTime()) / 86400000)
       : 0
 
+    // Attempt a real Hotelbeds free-cancel booking
+    let confirmationNumber = `HTL${Math.floor(100000 + Math.random() * 900000)}`
+    let hotelNameResolved  = body.hotelName    || 'Hotel Accommodation'
+    let hotelAddrResolved  = body.hotelAddress || ''
+    let realBooking        = false
+
+    const hbDestCode = appDestIso2 ? ISO2_TO_HOTELBEDS_DEST[appDestIso2] : null
+    if (hbDestCode && checkIn && checkOut && process.env.HOTELBEDS_HOTEL_API_KEY) {
+      try {
+        const hbResult = await Promise.race([
+          bookHotelbedsFreeCancelRate({
+            destination: hbDestCode,
+            checkIn,
+            checkOut,
+            holderName:  clientName,
+            numGuests:   parseInt(body.numGuests ?? '1') || 1,
+          }),
+          new Promise<null>(resolve => setTimeout(() => resolve(null), 25000)),
+        ])
+        if (hbResult) {
+          confirmationNumber = hbResult.reference
+          hotelNameResolved  = hbResult.hotelName ?? hotelNameResolved
+          hotelAddrResolved  = hbResult.address   ?? hotelAddrResolved
+          realBooking        = true
+          if (body.applicationId) {
+            await saveDummyBooking({
+              applicationId: body.applicationId,
+              type:          'HOTEL',
+              provider:      'hotelbeds',
+              providerRef:   hbResult.reference,
+              orderId:       hbResult.reference,
+              hotelName:     hotelNameResolved,
+              checkIn,
+              checkOut,
+              createdBy:     session.email,
+            })
+          }
+        }
+      } catch (e) {
+        console.warn('[dummy-ticket/hotel] Hotelbeds booking failed, using fabricated:', e)
+      }
+    }
+
     const ticketData: TicketData = {
       ticket_type:         'hotel',
       ticket_reference:    reference,
       client_name:         clientName,
-      hotel_name:          body.hotelName    || 'Hotel Accommodation',
-      hotel_address:       body.hotelAddress || '',
+      hotel_name:          hotelNameResolved,
+      hotel_address:       hotelAddrResolved,
       checkin_date:        checkIn,
       checkout_date:       checkOut,
       checkin_time:        '14:00',
@@ -383,13 +554,16 @@ export async function POST(req: NextRequest) {
       num_nights:          String(nights),
       room_type:           body.roomType  || 'Standard Double Room',
       num_guests:          body.numGuests || '1',
-      confirmation_number: `HTL${Math.floor(100000 + Math.random() * 900000)}`,
+      confirmation_number: confirmationNumber,
     }
 
     try {
       const buf    = await renderTicketPDF(ticketData)
       const pdfUrl = await uploadPDF(buf, reference)
-      return NextResponse.json({ mode: 'hotel', reference, pdfUrl, pdf_base64: buf.toString('base64'), ticketData })
+      return NextResponse.json({
+        mode: 'hotel', reference, pdfUrl, pdf_base64: buf.toString('base64'), ticketData,
+        real_booking: realBooking,
+      })
     } catch (e) {
       return NextResponse.json({ error: `PDF error: ${String(e)}` }, { status: 500 })
     }
@@ -713,7 +887,19 @@ export async function POST(req: NextRequest) {
           holdPNR     = holdResp.data.booking_reference
           holdOrderId = holdResp.data.id
           holdExpires = holdResp.data.payment_status?.payment_required_by ?? null
-          flightDetails.pnr = holdPNR  // overwrite generated PNR with real one
+          flightDetails.pnr = holdPNR
+          if (body.applicationId) {
+            await saveDummyBooking({
+              applicationId: body.applicationId,
+              type:          'FLIGHT',
+              provider:      'duffel',
+              providerRef:   holdPNR,
+              orderId:       holdOrderId,
+              expiresAt:     holdExpires,
+              route:         `${origin}→${destination}`,
+              createdBy:     session.email,
+            })
+          }
         } else {
           holdFailed = true
         }

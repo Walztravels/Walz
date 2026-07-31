@@ -6,7 +6,7 @@ import {
   CheckCircle, AlertTriangle, XCircle, Loader2,
   Copy, Check, Printer, ChevronDown, Eye,
   ShieldCheck, FileSearch, MailOpen, Plane, Hotel,
-  ArrowRight, Send,
+  ArrowRight, Send, Search,
 } from 'lucide-react'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -894,6 +894,30 @@ function AirportSearch({ value, onChange, placeholder }: {
   )
 }
 
+const VISA_DESTINATIONS = [
+  { iso2: 'GB', name: 'United Kingdom' }, { iso2: 'IE', name: 'Ireland' },
+  { iso2: 'FR', name: 'France' },         { iso2: 'DE', name: 'Germany' },
+  { iso2: 'ES', name: 'Spain' },          { iso2: 'IT', name: 'Italy' },
+  { iso2: 'NL', name: 'Netherlands' },    { iso2: 'PT', name: 'Portugal' },
+  { iso2: 'BE', name: 'Belgium' },        { iso2: 'AT', name: 'Austria' },
+  { iso2: 'CH', name: 'Switzerland' },    { iso2: 'GR', name: 'Greece' },
+  { iso2: 'SE', name: 'Sweden' },         { iso2: 'DK', name: 'Denmark' },
+  { iso2: 'NO', name: 'Norway' },         { iso2: 'PL', name: 'Poland' },
+  { iso2: 'CZ', name: 'Czech Republic' }, { iso2: 'HU', name: 'Hungary' },
+  { iso2: 'US', name: 'United States' },  { iso2: 'CA', name: 'Canada' },
+  { iso2: 'AU', name: 'Australia' },      { iso2: 'NZ', name: 'New Zealand' },
+  { iso2: 'AE', name: 'UAE' },            { iso2: 'QA', name: 'Qatar' },
+  { iso2: 'SA', name: 'Saudi Arabia' },   { iso2: 'BH', name: 'Bahrain' },
+  { iso2: 'KW', name: 'Kuwait' },         { iso2: 'OM', name: 'Oman' },
+  { iso2: 'TR', name: 'Turkey' },         { iso2: 'EG', name: 'Egypt' },
+  { iso2: 'MA', name: 'Morocco' },        { iso2: 'ZA', name: 'South Africa' },
+  { iso2: 'SG', name: 'Singapore' },      { iso2: 'JP', name: 'Japan' },
+  { iso2: 'IN', name: 'India' },          { iso2: 'TH', name: 'Thailand' },
+  { iso2: 'MY', name: 'Malaysia' },       { iso2: 'KR', name: 'South Korea' },
+  { iso2: 'CN', name: 'China' },          { iso2: 'BR', name: 'Brazil' },
+  { iso2: 'MX', name: 'Mexico' },
+]
+
 function DummyTicketTab() {
   type TicketMode = 'live' | 'manual' | 'hotel'
   const [mode,          setMode]          = useState<TicketMode>('live')
@@ -950,6 +974,11 @@ function DummyTicketTab() {
   const [hCheckOut, setHCheckOut] = useState('')
   const [hRoomType, setHRoomType] = useState('Standard Double Room')
   const [hGuests,   setHGuests]   = useState('1')
+  // Hotel search
+  const [hDestIso2,     setHDestIso2]     = useState('')
+  const [hotelResults,  setHotelResults]  = useState<Array<{ code: string; name: string; stars: string; address: string; minRate: string | null; currency: string; hasFreeCanel: boolean }>>([])
+  const [hotelLoading,  setHotelLoading]  = useState(false)
+  const [hotelSearchErr,setHotelSearchErr]= useState('')
 
   // ── Revoke blob URL on cleanup ────────────────────────────────────────────
   useEffect(() => {
@@ -976,6 +1005,7 @@ function DummyTicketTab() {
         }
         const branchCode = app.branch ? (BRANCH_IATA[String(app.branch).toLowerCase()] ?? '') : ''
         if (branchCode) { setOriginIata(branchCode); setMFromCode(branchCode) }
+        if (app.destinationIso2) setHDestIso2(app.destinationIso2)
         if (app.arrivalDate) {
           const d = String(app.arrivalDate).slice(0, 10)
           setDepDate(d); setMDepDT(d + 'T08:00')
@@ -996,6 +1026,19 @@ function DummyTicketTab() {
     if (name) setClientName(name)
     const destCode = app.destinationIso2 ? (COUNTRY_IATA[app.destinationIso2] ?? '') : ''
     if (destCode) { setDestIata(destCode); setMToCode(destCode) }
+  }
+
+  const searchHotels = async () => {
+    if (!hDestIso2 || !hCheckIn || !hCheckOut) return
+    setHotelLoading(true); setHotelSearchErr(''); setHotelResults([])
+    try {
+      const res  = await fetch(`/api/admin/intelligence/hotel-search?iso2=${hDestIso2}&checkIn=${hCheckIn}&checkOut=${hCheckOut}&guests=${hGuests}`)
+      const data = await res.json() as { hotels?: typeof hotelResults; error?: string }
+      if (!res.ok) { setHotelSearchErr(data.error ?? 'Search failed'); return }
+      setHotelResults(data.hotels ?? [])
+      if (!data.hotels?.length) setHotelSearchErr('No hotels found for these dates and destination.')
+    } catch (e) { setHotelSearchErr(String(e)) }
+    finally { setHotelLoading(false) }
   }
 
   const resetOutput = () => {
@@ -1254,12 +1297,65 @@ function DummyTicketTab() {
         {/* HOTEL MODE fields */}
         {mode === 'hotel' && (
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 mb-5">
+
+            {/* Row 1: dates + guests (needed before search) */}
+            <div><label className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1 block">Check-In Date</label><input className={INPUT} type="date" value={hCheckIn} onChange={e => { setHCheckIn(e.target.value); setHotelResults([]) }} /></div>
+            <div><label className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1 block">Check-Out Date</label><input className={INPUT} type="date" value={hCheckOut} onChange={e => { setHCheckOut(e.target.value); setHotelResults([]) }} /></div>
+            <div><label className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1 block">Number of Guests</label><input className={INPUT} type="number" min="1" value={hGuests} onChange={e => setHGuests(e.target.value)} /></div>
+
+            {/* Row 2: destination + search button */}
+            <div className="sm:col-span-2">
+              <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1 block">Destination Country</label>
+              <select className={INPUT} value={hDestIso2} onChange={e => { setHDestIso2(e.target.value); setHotelResults([]); setHName(''); setHAddress('') }}>
+                <option value="">— Select country —</option>
+                {VISA_DESTINATIONS.map(d => <option key={d.iso2} value={d.iso2}>{d.name}</option>)}
+              </select>
+            </div>
+            <div className="flex items-end">
+              <button
+                type="button"
+                onClick={() => void searchHotels()}
+                disabled={hotelLoading || !hDestIso2 || !hCheckIn || !hCheckOut}
+                className="w-full h-10 px-4 bg-[#C9A84C] hover:bg-[#b8943d] disabled:opacity-40 text-white text-sm font-semibold rounded-xl transition-colors flex items-center justify-center gap-2">
+                {hotelLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />}
+                {hotelLoading ? 'Searching…' : 'Search Hotels'}
+              </button>
+            </div>
+
+            {/* Hotel results picker */}
+            {(hotelResults.length > 0 || hotelSearchErr) && (
+              <div className="sm:col-span-3">
+                {hotelSearchErr && <p className="text-xs text-red-500 mb-1">{hotelSearchErr}</p>}
+                {hotelResults.length > 0 && (
+                  <>
+                    <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1 block">
+                      Select Hotel ({hotelResults.length} found — free-cancel options shown first)
+                    </label>
+                    <select
+                      className={INPUT}
+                      defaultValue=""
+                      onChange={e => {
+                        const h = hotelResults.find(h => h.code === e.target.value)
+                        if (h) { setHName(h.name); setHAddress(h.address) }
+                      }}>
+                      <option value="">— Pick a hotel —</option>
+                      {[...hotelResults]
+                        .sort((a, b) => (b.hasFreeCanel ? 1 : 0) - (a.hasFreeCanel ? 1 : 0))
+                        .map(h => (
+                          <option key={h.code} value={h.code}>
+                            {h.hasFreeCanel ? '✓ ' : ''}{h.name}{h.stars ? ` (${h.stars}★)` : ''}{h.minRate ? ` — £${h.minRate}` : ''}
+                          </option>
+                        ))}
+                    </select>
+                  </>
+                )}
+              </div>
+            )}
+
+            {/* Hotel name + address (auto-filled from selection or manual) */}
             <div className="sm:col-span-2"><label className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1 block">Hotel Name</label><input className={INPUT} value={hName} onChange={e => setHName(e.target.value)} placeholder="Hilton London Metropole" /></div>
             <div className="sm:col-span-3"><label className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1 block">Hotel Address</label><input className={INPUT} value={hAddress} onChange={e => setHAddress(e.target.value)} placeholder="225 Edgware Road, London W2 1JU" /></div>
-            <div><label className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1 block">Check-In Date</label><input className={INPUT} type="date" value={hCheckIn} onChange={e => setHCheckIn(e.target.value)} /></div>
-            <div><label className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1 block">Check-Out Date</label><input className={INPUT} type="date" value={hCheckOut} onChange={e => setHCheckOut(e.target.value)} /></div>
             <div><label className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1 block">Room Type</label><input className={INPUT} value={hRoomType} onChange={e => setHRoomType(e.target.value)} /></div>
-            <div><label className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1 block">Number of Guests</label><input className={INPUT} type="number" min="1" value={hGuests} onChange={e => setHGuests(e.target.value)} /></div>
           </div>
         )}
 
