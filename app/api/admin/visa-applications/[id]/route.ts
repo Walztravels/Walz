@@ -202,11 +202,17 @@ export async function PATCH(req: NextRequest, { params }: Params) {
   // When status changes away from draft, mark isDraft=false
   if (data.status && data.status !== 'draft') data.isDraft = false
 
-  const updated = await prisma.visaApplication.update({
-    where:  { id },
-    data:   { ...data, updatedAt: new Date() },
-    select: APP_SELECT,
-  })
+  let updated
+  try {
+    updated = await prisma.visaApplication.update({
+      where:  { id },
+      data:   { ...data, updatedAt: new Date() },
+      select: APP_SELECT,
+    })
+  } catch (e) {
+    console.error('[VisaApp PATCH] Prisma error:', e)
+    return NextResponse.json({ error: String(e) }, { status: 500 })
+  }
 
   // If status changed, send email notification to client
   if (fields.status && fields.status !== 'draft') {

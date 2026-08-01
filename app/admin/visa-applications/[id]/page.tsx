@@ -978,20 +978,29 @@ export default function AdminVisaDetailPage() {
   async function saveEdits() {
     if (!app) return
     setSaving(true)
-    const res = await fetch(`/api/admin/visa-applications/${app.id}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(edits),
-    })
-    const d = await res.json()
-    setSaving(false)
-    if (!res.ok) {
-      alert(d.error ?? 'Save failed — please try again')
-      return
+    try {
+      const res = await fetch(`/api/admin/visa-applications/${app.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(edits),
+      })
+      const d = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        alert((d as { error?: string }).error ?? `Save failed (${res.status}) — please try again`)
+        return
+      }
+      if ((d as { application?: unknown }).application) {
+        setApp((d as { application: VisaApp }).application)
+        setEditing(false)
+      }
+      setSaveMsg('Saved')
+      setTimeout(() => setSaveMsg(''), 2500)
+    } catch (err) {
+      alert('Network error — please check your connection and try again')
+      console.error('[saveEdits]', err)
+    } finally {
+      setSaving(false)
     }
-    if (d.application) { setApp(d.application); setEditing(false) }
-    setSaveMsg('Saved')
-    setTimeout(() => setSaveMsg(''), 2500)
   }
 
   async function sendReviewRequest() {
