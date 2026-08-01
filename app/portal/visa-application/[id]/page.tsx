@@ -6,9 +6,9 @@ import Link from 'next/link'
 import {
   ArrowLeft, CheckCircle, Clock, Loader2, MessageCircle,
   Upload, Globe, AlertTriangle, FileText, Shield,
-  ChevronRight, Plane, Hotel,
+  ChevronRight, Plane, Hotel, Copy,
 } from 'lucide-react'
-import { getVisaConfig, STATUS_CONFIG, STATUS_TIMELINE } from '@/lib/visa-config'
+import { getVisaConfig, STATUS_CONFIG, STATUS_TIMELINE, VISA_CONFIGS } from '@/lib/visa-config'
 
 interface VisaApp {
   id: string; referenceNumber: string; destinationIso2: string; visaType: string
@@ -76,6 +76,35 @@ export default function PortalVisaApplicationPage() {
   const [app, setApp] = useState<VisaApp | null>(null)
   const [loading, setLoading] = useState(true)
   const [markingGovt, setMarkingGovt] = useState(false)
+
+  // Duplicate to new destination
+  const [showDup, setShowDup] = useState(false)
+  const [dupDest, setDupDest] = useState('')
+  const [dupVisaType, setDupVisaType] = useState('tourist')
+  const [dupConsent, setDupConsent] = useState(false)
+  const [dupLoading, setDupLoading] = useState(false)
+  const [dupResult, setDupResult] = useState<{ referenceNumber: string; id: string; added: string[]; removed: string[]; documentsCarried: number } | null>(null)
+  const [dupErr, setDupErr] = useState('')
+
+  async function submitDuplicate() {
+    if (!app || !dupDest || !dupConsent) return
+    setDupLoading(true); setDupErr('')
+    const res = await fetch(`/api/portal/visa-applications/${app.id}/duplicate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ destinationIso2: dupDest, visaType: dupVisaType, consent: true }),
+    })
+    const d = await res.json()
+    setDupLoading(false)
+    if (!res.ok) { setDupErr(d.error ?? 'Something went wrong'); return }
+    setDupResult({
+      referenceNumber: d.newApp.referenceNumber,
+      id: d.newApp.id,
+      added: d.requirementsDelta.added,
+      removed: d.requirementsDelta.removed,
+      documentsCarried: d.documentsCarried,
+    })
+  }
 
   useEffect(() => {
     fetch(`/api/visa-application/${id}`)
@@ -269,6 +298,98 @@ export default function PortalVisaApplicationPage() {
           </Link>
         </div>
       )}
+
+      {/* Apply for another destination */}
+      <div className="bg-white rounded-2xl border border-gray-100 p-6">
+        <div className="flex items-center gap-3 mb-3">
+          <div className="w-9 h-9 rounded-full bg-purple-100 flex items-center justify-center">
+            <Copy className="w-4 h-4 text-purple-600" />
+          </div>
+          <div>
+            <p className="font-bold text-[#0B1F3A] text-sm">Apply for Another Destination</p>
+            <p className="text-xs text-gray-400">Re-use your details for a different country</p>
+          </div>
+        </div>
+        {!showDup && !dupResult && (
+          <button onClick={() => setShowDup(true)}
+            className="w-full py-2.5 border border-purple-300 text-purple-700 rounded-xl text-sm font-semibold hover:bg-purple-50 transition-colors">
+            Duplicate to New Destination
+          </button>
+        )}
+        {showDup && !dupResult && (
+          <div className="space-y-3">
+            <div>
+              <label className="text-xs font-semibold text-gray-600 block mb-1">New Destination *</label>
+              <select value={dupDest} onChange={e => setDupDest(e.target.value)}
+                className="w-full h-10 px-3 border border-gray-200 rounded-xl text-sm outline-none focus:border-purple-400 bg-white">
+                <option value="">Select destination…</option>
+                {Object.entries(VISA_CONFIGS)
+                  .filter(([iso2]) => iso2 !== app.destinationIso2 && iso2.length === 2)
+                  .sort((a, b) => a[1].name.localeCompare(b[1].name))
+                  .map(([iso2, cfg]) => (
+                    <option key={iso2} value={iso2}>{cfg.flag} {cfg.name}</option>
+                  ))}
+              </select>
+            </div>
+            <div>
+              <label className="text-xs font-semibold text-gray-600 block mb-1">Visa Type</label>
+              <select value={dupVisaType} onChange={e => setDupVisaType(e.target.value)}
+                className="w-full h-10 px-3 border border-gray-200 rounded-xl text-sm outline-none focus:border-purple-400 bg-white">
+                <option value="tourist">Tourist</option>
+                <option value="business">Business</option>
+                <option value="student">Student</option>
+                <option value="work">Work</option>
+                <option value="transit">Transit</option>
+                <option value="family">Family</option>
+                <option value="medical">Medical</option>
+              </select>
+            </div>
+            <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 text-xs text-amber-700">
+              Your personal details and supporting documents will be carried over. Travel dates, accommodation, and cover letters will <strong>not</strong> be copied — they are destination-specific.
+            </div>
+            <label className="flex items-start gap-2 cursor-pointer">
+              <input type="checkbox" checked={dupConsent} onChange={e => setDupConsent(e.target.checked)}
+                className="mt-0.5 accent-purple-600" />
+              <span className="text-xs text-gray-600">
+                I confirm I want to create a new separate application for a different destination using my existing personal details. I understand this does not replace my current application.
+              </span>
+            </label>
+            {dupErr && <p className="text-red-500 text-xs">{dupErr}</p>}
+            <div className="flex gap-3">
+              <button onClick={() => { setShowDup(false); setDupDest(''); setDupConsent(false); setDupErr('') }}
+                className="flex-1 py-2.5 border border-gray-200 rounded-xl text-sm text-gray-600 hover:bg-gray-50">Cancel</button>
+              <button onClick={submitDuplicate} disabled={dupLoading || !dupDest || !dupConsent}
+                className="flex-1 py-2.5 bg-purple-600 text-white rounded-xl text-sm font-bold flex items-center justify-center gap-2 disabled:opacity-50">
+                {dupLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Copy className="w-4 h-4" />}
+                Create Application
+              </button>
+            </div>
+          </div>
+        )}
+        {dupResult && (
+          <div className="space-y-3">
+            <div className="flex items-center gap-2">
+              <CheckCircle className="w-5 h-5 text-green-500" />
+              <p className="text-sm font-semibold text-green-700">New application created!</p>
+            </div>
+            <p className="text-xs text-gray-500">
+              Reference: <span className="font-mono font-bold text-[#C9A84C]">{dupResult.referenceNumber}</span> · {dupResult.documentsCarried} document(s) carried over
+            </p>
+            {dupResult.added.length > 0 && (
+              <div className="bg-blue-50 border border-blue-200 rounded-xl p-3 text-xs text-blue-700">
+                <p className="font-semibold mb-1">New documents needed for this destination:</p>
+                <ul className="list-disc list-inside space-y-0.5">
+                  {dupResult.added.map(d => <li key={d}>{d}</li>)}
+                </ul>
+              </div>
+            )}
+            <Link href={`/portal/visa-application/${dupResult.id}`}
+              className="block w-full py-2.5 bg-[#0B1F3A] text-white rounded-xl text-sm font-bold text-center">
+              View New Application →
+            </Link>
+          </div>
+        )}
+      </div>
     </div>
   )
 }

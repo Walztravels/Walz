@@ -330,6 +330,133 @@ function SendFormModal({ app, onClose }: { app: VisaApp; onClose: () => void }) 
   )
 }
 
+// ─── Duplicate Modal ──────────────────────────────────────────────────────────
+function DuplicateModal({ app, onClose, onDone }: { app: VisaApp; onClose: () => void; onDone: (newId: string, newRef: string) => void }) {
+  const destinations = Object.entries(VISA_CONFIGS)
+    .filter(([iso2]) => iso2 !== app.destinationIso2 && iso2.length === 2)
+    .map(([iso2, cfg]) => ({ iso2, name: cfg.name, flag: cfg.flag }))
+    .sort((a, b) => a.name.localeCompare(b.name))
+
+  const [destIso2, setDestIso2] = useState('')
+  const [visaType, setVisaType] = useState('tourist')
+  const [loading, setLoading] = useState(false)
+  const [result, setResult] = useState<{
+    newApp: { id: string; referenceNumber: string; destinationIso2: string }
+    requirementsDelta: { added: string[]; removed: string[] }
+    documentsCarried: number
+  } | null>(null)
+  const [err, setErr] = useState('')
+
+  async function submit() {
+    if (!destIso2) { setErr('Please select a destination'); return }
+    setLoading(true); setErr('')
+    const res = await fetch(`/api/admin/visa-applications/${app.id}/duplicate`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ destinationIso2: destIso2, visaType }),
+    })
+    const d = await res.json()
+    setLoading(false)
+    if (!res.ok) { setErr(d.error ?? 'Duplication failed'); return }
+    setResult(d)
+  }
+
+  if (result) {
+    const { added, removed } = result.requirementsDelta
+    return (
+      <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+        <div className="bg-white rounded-2xl p-8 max-w-md w-full">
+          <CheckCircle className="w-12 h-12 text-green-500 mx-auto mb-4" />
+          <h3 className="font-bold text-[#0B1F3A] text-xl mb-1 text-center">Application Duplicated</h3>
+          <p className="text-gray-500 text-sm text-center mb-4">
+            New ref: <span className="font-mono font-bold text-[#C9A84C]">{result.newApp.referenceNumber}</span>
+          </p>
+          <p className="text-gray-500 text-xs text-center mb-4">{result.documentsCarried} document(s) carried over (destination-specific documents excluded)</p>
+          {(added.length > 0 || removed.length > 0) && (
+            <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 mb-4 space-y-2">
+              <p className="text-xs font-bold text-amber-800">Requirements delta for {destIso2}:</p>
+              {added.length > 0 && (
+                <div>
+                  <p className="text-xs font-semibold text-green-700 mb-1">+ New requirements:</p>
+                  <ul className="text-xs text-green-700 space-y-0.5 list-disc list-inside">
+                    {added.map(d => <li key={d}>{d}</li>)}
+                  </ul>
+                </div>
+              )}
+              {removed.length > 0 && (
+                <div>
+                  <p className="text-xs font-semibold text-gray-500 mb-1">− No longer required:</p>
+                  <ul className="text-xs text-gray-500 space-y-0.5 list-disc list-inside">
+                    {removed.map(d => <li key={d}>{d}</li>)}
+                  </ul>
+                </div>
+              )}
+            </div>
+          )}
+          <div className="flex gap-3">
+            <button onClick={onClose} className="flex-1 py-2.5 border border-gray-200 rounded-xl text-sm font-semibold text-gray-600 hover:bg-gray-50">Close</button>
+            <button onClick={() => onDone(result.newApp.id, result.newApp.referenceNumber)}
+              className="flex-1 py-2.5 bg-[#0B1F3A] text-white rounded-xl text-sm font-bold">Open New Application</button>
+          </div>
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl">
+        <div className="flex items-center justify-between p-6 border-b border-gray-100">
+          <div>
+            <h3 className="font-bold text-[#0B1F3A] text-lg">Duplicate Application</h3>
+            <p className="text-xs text-gray-500 mt-0.5">Copy {[app.firstName, app.lastName].filter(Boolean).join(' ')} to a new destination</p>
+          </div>
+          <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-gray-100"><X className="w-4 h-4" /></button>
+        </div>
+        <div className="p-6 space-y-4">
+          <div>
+            <label className="text-xs font-semibold text-gray-600 block mb-1">New Destination *</label>
+            <select value={destIso2} onChange={e => setDestIso2(e.target.value)}
+              className="w-full h-10 px-3 border border-gray-200 rounded-xl text-sm outline-none focus:border-[#C9A84C] bg-white">
+              <option value="">Select destination…</option>
+              {destinations.map(d => (
+                <option key={d.iso2} value={d.iso2}>{d.flag} {d.name} ({d.iso2})</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="text-xs font-semibold text-gray-600 block mb-1">Visa Type</label>
+            <select value={visaType} onChange={e => setVisaType(e.target.value)}
+              className="w-full h-10 px-3 border border-gray-200 rounded-xl text-sm outline-none focus:border-[#C9A84C] bg-white">
+              <option value="tourist">Tourist</option>
+              <option value="business">Business</option>
+              <option value="student">Student</option>
+              <option value="work">Work</option>
+              <option value="transit">Transit</option>
+              <option value="family">Family</option>
+              <option value="medical">Medical</option>
+            </select>
+          </div>
+          <div className="bg-blue-50 border border-blue-200 rounded-xl p-3 text-xs text-blue-700 space-y-1">
+            <p className="font-semibold">What gets copied:</p>
+            <p>✓ Personal details, passport info, contact & employment</p>
+            <p>✗ Travel dates, accommodation, cover letters, visa scores</p>
+          </div>
+          {err && <p className="text-red-500 text-xs">{err}</p>}
+          <div className="flex gap-3 pt-1">
+            <button onClick={onClose} className="flex-1 py-2.5 border border-gray-200 rounded-xl text-sm font-semibold text-gray-600 hover:bg-gray-50">Cancel</button>
+            <button onClick={submit} disabled={loading || !destIso2}
+              className="flex-1 py-2.5 bg-[#C9A84C] text-[#0B1F3A] rounded-xl text-sm font-bold flex items-center justify-center gap-2 disabled:opacity-60">
+              {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Globe className="w-4 h-4" />}
+              Duplicate
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ─── Document Checklist ───────────────────────────────────────────────────────
 const DEFAULT_CHECKLIST = [
   'Passport (valid for 6+ months, with blank pages)',
@@ -761,6 +888,7 @@ export default function AdminVisaDetailPage() {
   const [editing, setEditing] = useState(false)
   const [showSendForm, setShowSendForm] = useState(false)
   const [showRequestInfo, setShowRequestInfo] = useState(false)
+  const [showDuplicate, setShowDuplicate] = useState(false)
 
   // Editable form state (mirrors app fields)
   const [edits, setEdits] = useState<Partial<VisaApp>>({})
@@ -1218,6 +1346,13 @@ export default function AdminVisaDetailPage() {
     <div className="p-4 md:p-6 max-w-7xl mx-auto">
       {showSendForm && <SendFormModal app={app} onClose={() => setShowSendForm(false)} />}
       {showRequestInfo && <RequestInfoModal app={app} onClose={() => { setShowRequestInfo(false); load() }} />}
+      {showDuplicate && (
+        <DuplicateModal
+          app={app}
+          onClose={() => setShowDuplicate(false)}
+          onDone={(newId) => { setShowDuplicate(false); router.push(`/admin/visa-applications/${newId}`) }}
+        />
+      )}
 
       {/* Header */}
       <div className="flex flex-wrap items-start gap-3 mb-6">
@@ -1232,6 +1367,10 @@ export default function AdminVisaDetailPage() {
               <CheckCircle className="w-3.5 h-3.5" /> {saveMsg}
             </span>
           )}
+          <button onClick={() => setShowDuplicate(true)}
+            className="flex items-center gap-2 px-3 py-2 border border-purple-300 text-purple-600 rounded-xl text-sm font-semibold hover:bg-purple-50 transition-colors">
+            <Globe className="w-4 h-4" /> Duplicate to New Destination
+          </button>
           <button onClick={() => setShowRequestInfo(true)}
             className="flex items-center gap-2 px-3 py-2 border border-orange-300 text-orange-600 rounded-xl text-sm font-semibold hover:bg-orange-50 transition-colors">
             <AlertCircle className="w-4 h-4" /> Request More Info
