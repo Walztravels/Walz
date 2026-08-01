@@ -177,22 +177,39 @@ export async function PATCH(req: NextRequest, { params }: Params) {
     return NextResponse.json({ ok: true })
   }
 
-  const dateFields = [
+  // Explicit whitelist — only known Prisma scalar columns reach the DB.
+  // Anything not listed here (relations, bank_statement_*, duplicatedFrom, etc.) is silently dropped.
+  const SCALAR_FIELDS = new Set([
+    'destinationIso2', 'visaType',
+    'firstName', 'middleName', 'lastName', 'dateOfBirth', 'sex', 'placeOfBirth', 'nationality', 'maritalStatus',
+    'passportNumber', 'passportType', 'passportIssueDate', 'passportExpiryDate', 'issuingAuthority', 'issuingCountry',
+    'phone', 'email', 'homeAddress', 'homeAddress2', 'city', 'stateRegion', 'country', 'postalCode',
+    'employmentStatus', 'employerName', 'jobTitle', 'employerAddress', 'monthlyIncome',
+    'arrivalDate', 'returnDate', 'purposeOfVisit', 'accommodationName', 'accommodationAddress', 'portOfEntry',
+    'previousRefusal', 'previousRefusalDetails', 'previousVisits', 'previousVisitDetails',
+    'criminalRecord', 'communicableDisease', 'deportedBefore',
+    'countrySpecific',
+    'declarationAccurate', 'declarationAuthorise', 'declarationFeePolicy',
+    'status', 'statusMessage', 'isDraft', 'initiatedBy',
+    'assignedTo', 'assignedOfficerId', 'branch', 'embassyReference',
+    'appointmentDate', 'appointmentLocation', 'appointmentNotes', 'lastEmailSentAt',
+    'submissionDate', 'decisionDate', 'decisionNotes', 'govtFeeInstructions',
+    'serviceFeePaid', 'serviceFeeAmount', 'serviceFeeCurrency', 'stripePaymentIntentId',
+    'govtFeePaid', 'govtFeeAmount',
+    'pdfUrl', 'familyGroupId', 'relationship', 'isMinor', 'guardianId',
+    'openedAt', 'startedAt', 'viewCount', 'birthdayEmailSentAt', 'marketingOptOut',
+    'duplicatedFromId',
+  ])
+  const DATE_FIELDS = new Set([
     'dateOfBirth', 'passportIssueDate', 'passportExpiryDate',
     'arrivalDate', 'returnDate', 'submissionDate', 'decisionDate',
-  ]
-  // Non-scalar / non-updatable keys — relations and read-only fields sent by the UI
-  const skipKeys = new Set([
-    'id', 'userId', 'referenceNumber', 'createdAt', 'updatedAt',
-    'user', 'notes', 'tokens', 'clientAccount', 'duplicatedFrom', 'duplicates',
-    'bank_statement_url', 'bank_statement_admin_url', 'bank_statement_analysis',
-    'bank_statement_analyzed_at', 'bank_statement_uploaded_by',
+    'appointmentDate', 'lastEmailSentAt', 'birthdayEmailSentAt', 'openedAt', 'startedAt',
   ])
   const data: Record<string, unknown> = {}
 
   for (const [key, value] of Object.entries(fields)) {
-    if (skipKeys.has(key)) continue
-    if (dateFields.includes(key)) {
+    if (!SCALAR_FIELDS.has(key)) continue
+    if (DATE_FIELDS.has(key)) {
       data[key] = value ? new Date(value as string) : null
     } else {
       data[key] = value
@@ -211,7 +228,7 @@ export async function PATCH(req: NextRequest, { params }: Params) {
     })
   } catch (e) {
     console.error('[VisaApp PATCH] Prisma error:', e)
-    return NextResponse.json({ error: String(e) }, { status: 500 })
+    return NextResponse.json({ error: 'Failed to save — please try again or contact support' }, { status: 500 })
   }
 
   // If status changed, send email notification to client
