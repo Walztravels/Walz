@@ -181,10 +181,17 @@ export async function PATCH(req: NextRequest, { params }: Params) {
     'dateOfBirth', 'passportIssueDate', 'passportExpiryDate',
     'arrivalDate', 'returnDate', 'submissionDate', 'decisionDate',
   ]
+  // Non-scalar / non-updatable keys — relations and read-only fields sent by the UI
+  const skipKeys = new Set([
+    'id', 'userId', 'referenceNumber', 'createdAt', 'updatedAt',
+    'user', 'notes', 'tokens', 'clientAccount', 'duplicatedFrom', 'duplicates',
+    'bank_statement_url', 'bank_statement_admin_url', 'bank_statement_analysis',
+    'bank_statement_analyzed_at', 'bank_statement_uploaded_by',
+  ])
   const data: Record<string, unknown> = {}
 
   for (const [key, value] of Object.entries(fields)) {
-    if (key === 'id' || key === 'userId' || key === 'referenceNumber') continue
+    if (skipKeys.has(key)) continue
     if (dateFields.includes(key)) {
       data[key] = value ? new Date(value as string) : null
     } else {

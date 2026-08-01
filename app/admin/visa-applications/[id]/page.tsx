@@ -984,10 +984,14 @@ export default function AdminVisaDetailPage() {
       body: JSON.stringify(edits),
     })
     const d = await res.json()
+    setSaving(false)
+    if (!res.ok) {
+      alert(d.error ?? 'Save failed — please try again')
+      return
+    }
     if (d.application) { setApp(d.application); setEditing(false) }
     setSaveMsg('Saved')
     setTimeout(() => setSaveMsg(''), 2500)
-    setSaving(false)
   }
 
   async function sendReviewRequest() {
