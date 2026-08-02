@@ -1,7 +1,14 @@
 'use client'
 
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { X, Send, Loader2, MessageCircle, Phone, RefreshCw, ExternalLink, GripHorizontal, AlertCircle } from 'lucide-react'
+import { X, Send, Loader2, MessageCircle, Phone, RefreshCw, ExternalLink, GripHorizontal, AlertCircle, ImagePlus } from 'lucide-react'
+
+interface CWAttachment {
+  id: number
+  file_type: string
+  data_url: string
+  thumb_url?: string
+}
 
 interface CWMessage {
   id:           number
@@ -10,6 +17,7 @@ interface CWMessage {
   created_at:   number
   private:      boolean
   sender?: { name: string; type: string }
+  attachments?: CWAttachment[]
 }
 
 interface Props {
@@ -50,10 +58,28 @@ export function WhatsAppDrawer({
   const [sendError, setSendError] = useState<string | null>(null)
   const [loading, setLoading]     = useState(true)
   const [pos, setPos]             = useState<{ x: number; y: number } | null>(null)
+  const [imageFile, setImageFile] = useState<File | null>(null)
+  const [imagePreview, setImagePreview] = useState<string | null>(null)
+  const fileInputRef              = useRef<HTMLInputElement>(null)
   const bottomRef                 = useRef<HTMLDivElement>(null)
   const dragging                  = useRef(false)
   const dragOffset                = useRef({ x: 0, y: 0 })
   const dept                      = DEPT_LABELS[applicationType] ?? DEPT_LABELS.OTHER
+
+  function handleImagePick(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0] ?? null
+    if (!file) return
+    setImageFile(file)
+    const reader = new FileReader()
+    reader.onload = ev => setImagePreview(ev.target?.result as string)
+    reader.readAsDataURL(file)
+    e.target.value = ''
+  }
+
+  function clearImage() {
+    setImageFile(null)
+    setImagePreview(null)
+  }
 
   // Warn if inbox doesn't look like a real WhatsApp channel
   const inboxWarning = channelType && channelType !== 'Channel::TwilioSms' && channelType !== 'Channel::Whatsapp'
@@ -113,20 +139,34 @@ export function WhatsAppDrawer({
   }, [messages])
 
   async function handleSend() {
-    if (!text.trim() || sending) return
+    if (!text.trim() && !imageFile) return
+    if (sending) return
     setSending(true)
     setSendError(null)
     try {
-      const res  = await fetch(`/api/admin/conversations/${conversationId}/reply`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ content: text.trim(), private: false }),
-      })
+      let res: Response
+      if (imageFile) {
+        const form = new FormData()
+        if (text.trim()) form.append('content', text.trim())
+        form.append('private', 'false')
+        form.append('file', imageFile, imageFile.name)
+        res = await fetch(`/api/admin/conversations/${conversationId}/reply`, {
+          method: 'POST',
+          body: form,
+        })
+      } else {
+        res = await fetch(`/api/admin/conversations/${conversationId}/reply`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ content: text.trim(), private: false }),
+        })
+      }
       const data = await res.json() as { error?: string; id?: number }
       if (!res.ok || data.error) {
         setSendError(data.error ?? 'Message failed to send')
       } else {
         setText('')
+        clearImage()
         await fetchMessages()
       }
     } catch {
@@ -234,7 +274,14 @@ export function WhatsAppDrawer({
                     ? 'bg-[#0B1F3A] text-white rounded-tr-sm'
                     : 'bg-white text-gray-800 rounded-tl-sm'
                 }`}>
-                  <p className="whitespace-pre-wrap leading-snug">{msg.content}</p>
+                  {/* Image attachments */}
+                  {(msg.attachments ?? []).filter(a => a.file_type === 'image').map(a => (
+                    <a key={a.id} href={a.data_url} target="_blank" rel="noopener noreferrer" className="block mb-1.5">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src={a.thumb_url ?? a.data_url} alt="attachment" className="rounded-xl max-w-full max-h-40 object-cover" />
+                    </a>
+                  ))}
+                  {msg.content && <p className="whitespace-pre-wrap leading-snug">{msg.content}</p>}
                   <p className={`text-[9px] mt-1 text-right ${isOutgoing ? 'text-white/50' : 'text-gray-400'}`}>
                     {timeStr(msg.created_at)}
                     {msg.sender?.name && !isOutgoing && ` · ${msg.sender.name}`}
@@ -267,18 +314,51 @@ export function WhatsAppDrawer({
             <span>{sendError}</span>
           </div>
         )}
+
+        {/* Image preview */}
+        {imagePreview && (
+          <div className="mb-2 relative inline-block">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={imagePreview} alt="upload preview" className="h-20 rounded-xl border border-gray-200 object-cover" />
+            <button
+              onClick={clearImage}
+              className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-red-500 text-white flex items-center justify-center shadow"
+            >
+              <X className="w-3 h-3" />
+            </button>
+            <p className="text-[9px] text-gray-400 mt-0.5 truncate max-w-[160px]">{imageFile?.name}</p>
+          </div>
+        )}
+
         <div className="flex gap-2 items-end">
+          {/* Hidden file input */}
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/*"
+            className="hidden"
+            onChange={handleImagePick}
+          />
+          {/* Photo button */}
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            onMouseDown={e => e.stopPropagation()}
+            title="Attach photo"
+            className="flex-shrink-0 w-9 h-9 rounded-xl border border-gray-200 text-gray-400 hover:text-green-600 hover:border-green-300 flex items-center justify-center transition-colors"
+          >
+            <ImagePlus className="w-4 h-4" />
+          </button>
           <textarea
             value={text}
             onChange={e => { setText(e.target.value); setSendError(null) }}
             onKeyDown={handleKeyDown}
-            placeholder="Type a message… (Enter to send)"
+            placeholder={imageFile ? 'Add a caption… (optional)' : 'Type a message… (Enter to send)'}
             rows={2}
             className={`flex-1 resize-none px-2.5 py-2 border rounded-xl text-xs outline-none transition-colors ${sendError ? 'border-red-300 focus:border-red-400' : 'border-gray-200 focus:border-[#C9A84C]'}`}
           />
           <button
             onClick={() => void handleSend()}
-            disabled={!text.trim() || sending}
+            disabled={(!text.trim() && !imageFile) || sending}
             className="flex-shrink-0 w-9 h-9 rounded-xl bg-green-500 hover:bg-green-600 text-white flex items-center justify-center disabled:opacity-40 transition-colors"
           >
             {sending ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Send className="w-3.5 h-3.5" />}
