@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { X, Send, Loader2, MessageCircle, Phone, RefreshCw, ExternalLink, GripHorizontal, AlertCircle, ImagePlus } from 'lucide-react'
+import { X, Send, Loader2, MessageCircle, Phone, RefreshCw, ExternalLink, GripHorizontal, AlertCircle, Paperclip, FileText } from 'lucide-react'
 
 interface CWAttachment {
   id: number
@@ -70,9 +70,13 @@ export function WhatsAppDrawer({
     const file = e.target.files?.[0] ?? null
     if (!file) return
     setImageFile(file)
-    const reader = new FileReader()
-    reader.onload = ev => setImagePreview(ev.target?.result as string)
-    reader.readAsDataURL(file)
+    if (file.type.startsWith('image/')) {
+      const reader = new FileReader()
+      reader.onload = ev => setImagePreview(ev.target?.result as string)
+      reader.readAsDataURL(file)
+    } else {
+      setImagePreview(null) // PDF — show file name only
+    }
     e.target.value = ''
   }
 
@@ -315,18 +319,25 @@ export function WhatsAppDrawer({
           </div>
         )}
 
-        {/* Image preview */}
-        {imagePreview && (
+        {/* File preview */}
+        {imageFile && (
           <div className="mb-2 relative inline-block">
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={imagePreview} alt="upload preview" className="h-20 rounded-xl border border-gray-200 object-cover" />
+            {imagePreview ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={imagePreview} alt="upload preview" className="h-20 rounded-xl border border-gray-200 object-cover" />
+            ) : (
+              <div className="flex items-center gap-2 px-3 py-2 bg-red-50 border border-red-200 rounded-xl">
+                <FileText className="w-5 h-5 text-red-500 flex-shrink-0" />
+                <span className="text-xs text-red-700 font-semibold truncate max-w-[180px]">{imageFile.name}</span>
+              </div>
+            )}
             <button
               onClick={clearImage}
               className="absolute -top-1.5 -right-1.5 w-5 h-5 rounded-full bg-red-500 text-white flex items-center justify-center shadow"
             >
               <X className="w-3 h-3" />
             </button>
-            <p className="text-[9px] text-gray-400 mt-0.5 truncate max-w-[160px]">{imageFile?.name}</p>
+            {imagePreview && <p className="text-[9px] text-gray-400 mt-0.5 truncate max-w-[160px]">{imageFile.name}</p>}
           </div>
         )}
 
@@ -335,24 +346,24 @@ export function WhatsAppDrawer({
           <input
             ref={fileInputRef}
             type="file"
-            accept="image/*"
+            accept="image/*,application/pdf"
             className="hidden"
             onChange={handleImagePick}
           />
-          {/* Photo button */}
+          {/* Attach button */}
           <button
             onClick={() => fileInputRef.current?.click()}
             onMouseDown={e => e.stopPropagation()}
-            title="Attach photo"
+            title="Attach photo or PDF"
             className="flex-shrink-0 w-9 h-9 rounded-xl border border-gray-200 text-gray-400 hover:text-green-600 hover:border-green-300 flex items-center justify-center transition-colors"
           >
-            <ImagePlus className="w-4 h-4" />
+            <Paperclip className="w-4 h-4" />
           </button>
           <textarea
             value={text}
             onChange={e => { setText(e.target.value); setSendError(null) }}
             onKeyDown={handleKeyDown}
-            placeholder={imageFile ? 'Add a caption… (optional)' : 'Type a message… (Enter to send)'}
+            placeholder={imageFile ? 'Add a message… (optional)' : 'Type a message… (Enter to send)'}
             rows={2}
             className={`flex-1 resize-none px-2.5 py-2 border rounded-xl text-xs outline-none transition-colors ${sendError ? 'border-red-300 focus:border-red-400' : 'border-gray-200 focus:border-[#C9A84C]'}`}
           />
