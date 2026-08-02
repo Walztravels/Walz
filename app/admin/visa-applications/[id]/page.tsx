@@ -330,6 +330,199 @@ function SendFormModal({ app, onClose }: { app: VisaApp; onClose: () => void }) 
   )
 }
 
+// ─── Email Client Modal ───────────────────────────────────────────────────────
+const EMAIL_TEMPLATES = [
+  {
+    label: 'Document request',
+    subject: (ref: string, dest: string) => `${dest} Visa — Documents Required · ${ref}`,
+    body: (name: string, ref: string, dest: string) =>
+      `Dear ${name},\n\nThank you for choosing Walz Travels for your ${dest} visa application (Ref: ${ref}).\n\nTo proceed with your application, we kindly request the following documents:\n\n• [LIST DOCUMENTS HERE]\n\nPlease send your documents via the portal or reply to this email.\n\nShould you have any questions, please don't hesitate to reach out.\n\nWarm regards,\nThe Walz Travels Visa Team`,
+  },
+  {
+    label: 'Application update',
+    subject: (ref: string, dest: string) => `${dest} Visa Application Update · ${ref}`,
+    body: (name: string, ref: string, dest: string) =>
+      `Dear ${name},\n\nWe're writing to update you on the status of your ${dest} visa application (Ref: ${ref}).\n\n[YOUR UPDATE HERE]\n\nWe will keep you informed of any further developments. Please feel free to contact us if you have any questions.\n\nWarm regards,\nThe Walz Travels Visa Team`,
+  },
+  {
+    label: 'Appointment confirmed',
+    subject: (ref: string, dest: string) => `${dest} Visa — Appointment Confirmed · ${ref}`,
+    body: (name: string, ref: string, dest: string) =>
+      `Dear ${name},\n\nWe are pleased to confirm your visa appointment for your ${dest} visa application (Ref: ${ref}).\n\nAppointment details:\n• Date: [DATE]\n• Time: [TIME]\n• Location: [EMBASSY/CONSULATE ADDRESS]\n\nPlease arrive 15 minutes early with all original documents.\n\nIf you need to reschedule, please contact us immediately.\n\nWarm regards,\nThe Walz Travels Visa Team`,
+  },
+  {
+    label: 'Visa approved',
+    subject: (ref: string, dest: string) => `🎉 ${dest} Visa Approved! · ${ref}`,
+    body: (name: string, ref: string, dest: string) =>
+      `Dear ${name},\n\nCongratulations! We are delighted to inform you that your ${dest} visa application (Ref: ${ref}) has been APPROVED!\n\nPlease find your visa document attached.\n\n[COLLECTION/DELIVERY INSTRUCTIONS]\n\nThank you for trusting Walz Travels. We wish you a wonderful trip!\n\nWarm regards,\nThe Walz Travels Visa Team`,
+  },
+]
+
+function EmailClientModal({ app, onClose, onSent }: { app: VisaApp; onClose: () => void; onSent: () => void }) {
+  const clientName = [app.firstName, app.lastName].filter(Boolean).join(' ') || app.user?.name || 'Client'
+  const config     = getVisaConfig(app.destinationIso2)
+  const destName   = config?.name ?? app.destinationIso2
+
+  const [to,      setTo]      = useState(app.email ?? app.user?.email ?? '')
+  const [subject, setSubject] = useState(`${destName} Visa Application · ${app.referenceNumber}`)
+  const [body,    setBody]    = useState('')
+  const [files,   setFiles]   = useState<File[]>([])
+  const [sending, setSending] = useState(false)
+  const [err,     setErr]     = useState('')
+  const [sent,    setSent]    = useState(false)
+  const fileRef = useRef<HTMLInputElement>(null)
+
+  function applyTemplate(tpl: typeof EMAIL_TEMPLATES[0]) {
+    setSubject(tpl.subject(app.referenceNumber, destName))
+    setBody(tpl.body(clientName, app.referenceNumber, destName))
+  }
+
+  function addFiles(incoming: FileList | null) {
+    if (!incoming) return
+    setFiles(prev => [...prev, ...Array.from(incoming)])
+    if (fileRef.current) fileRef.current.value = ''
+  }
+
+  function removeFile(idx: number) {
+    setFiles(prev => prev.filter((_, i) => i !== idx))
+  }
+
+  async function send() {
+    if (!to || !subject || !body) { setErr('To, Subject and Body are required'); return }
+    setSending(true); setErr('')
+    const form = new FormData()
+    form.append('to',      to)
+    form.append('subject', subject)
+    form.append('body',    body)
+    files.forEach((f, i) => form.append(`attachment_${i}`, f, f.name))
+
+    const res = await fetch(`/api/admin/visa-applications/${app.id}/email-client`, {
+      method: 'POST', body: form,
+    })
+    const d = await res.json()
+    setSending(false)
+    if (!res.ok) { setErr(d.error ?? 'Failed to send'); return }
+    setSent(true)
+    setTimeout(onSent, 1200)
+  }
+
+  if (sent) return (
+    <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-2xl p-8 max-w-sm w-full text-center">
+        <CheckCircle className="w-12 h-12 text-green-500 mx-auto mb-3" />
+        <h3 className="font-bold text-[#0B1F3A] text-xl mb-1">Email Sent!</h3>
+        <p className="text-gray-500 text-sm">Delivered to <strong>{to}</strong></p>
+      </div>
+    </div>
+  )
+
+  return (
+    <div className="fixed inset-0 bg-black/60 flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-2xl w-full max-w-2xl shadow-2xl flex flex-col max-h-[92vh]">
+
+        {/* Header */}
+        <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100 flex-shrink-0">
+          <div className="flex items-center gap-2.5">
+            <Mail className="w-5 h-5 text-[#C9A84C]" />
+            <div>
+              <h3 className="font-bold text-[#0B1F3A] text-lg">Email Client</h3>
+              <p className="text-xs text-gray-400">{app.referenceNumber} · {destName}</p>
+            </div>
+          </div>
+          <button onClick={onClose} className="p-1.5 rounded-lg hover:bg-gray-100"><X className="w-4 h-4" /></button>
+        </div>
+
+        <div className="overflow-y-auto flex-1 px-6 py-4 space-y-4">
+
+          {/* Quick templates */}
+          <div>
+            <p className="text-xs font-semibold text-gray-500 mb-2">Quick templates</p>
+            <div className="flex flex-wrap gap-2">
+              {EMAIL_TEMPLATES.map(tpl => (
+                <button key={tpl.label} onClick={() => applyTemplate(tpl)}
+                  className="text-xs px-3 py-1.5 rounded-full border border-[#C9A84C]/40 text-[#C9A84C] hover:bg-[#C9A84C]/10 transition-colors font-semibold">
+                  {tpl.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* To */}
+          <div>
+            <label className="text-xs font-semibold text-gray-600 block mb-1">To</label>
+            <input value={to} onChange={e => setTo(e.target.value)} type="email"
+              className="w-full h-9 px-3 border border-gray-200 rounded-xl text-sm outline-none focus:border-[#C9A84C]"
+              placeholder="client@email.com" />
+          </div>
+
+          {/* Subject */}
+          <div>
+            <label className="text-xs font-semibold text-gray-600 block mb-1">Subject</label>
+            <input value={subject} onChange={e => setSubject(e.target.value)}
+              className="w-full h-9 px-3 border border-gray-200 rounded-xl text-sm outline-none focus:border-[#C9A84C]" />
+          </div>
+
+          {/* Body */}
+          <div>
+            <label className="text-xs font-semibold text-gray-600 block mb-1">Message</label>
+            <textarea value={body} onChange={e => setBody(e.target.value)} rows={10}
+              className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm outline-none focus:border-[#C9A84C] resize-y font-mono leading-relaxed"
+              placeholder="Type your message here, or pick a template above…" />
+          </div>
+
+          {/* Attachments */}
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <label className="text-xs font-semibold text-gray-600">Attachments</label>
+              <button onClick={() => fileRef.current?.click()}
+                className="text-xs px-3 py-1.5 rounded-full bg-gray-100 hover:bg-gray-200 text-gray-600 font-semibold transition-colors flex items-center gap-1.5">
+                <Upload className="w-3 h-3" /> Add files
+              </button>
+            </div>
+            <input ref={fileRef} type="file" multiple className="hidden" onChange={e => addFiles(e.target.files)} />
+            {files.length === 0 ? (
+              <button onClick={() => fileRef.current?.click()}
+                className="w-full border-2 border-dashed border-gray-200 rounded-xl p-4 text-xs text-gray-400 hover:border-[#C9A84C]/40 hover:text-[#C9A84C] transition-colors text-center">
+                Drop files here or click to browse
+              </button>
+            ) : (
+              <div className="space-y-1.5">
+                {files.map((f, i) => (
+                  <div key={i} className="flex items-center gap-2 p-2 bg-gray-50 rounded-xl border border-gray-100">
+                    <FileText className="w-3.5 h-3.5 text-[#C9A84C] flex-shrink-0" />
+                    <span className="text-xs text-gray-700 flex-1 truncate">{f.name}</span>
+                    <span className="text-[10px] text-gray-400">{(f.size / 1024).toFixed(0)} KB</span>
+                    <button onClick={() => removeFile(i)} className="text-gray-300 hover:text-red-400 transition-colors">
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                ))}
+                <button onClick={() => fileRef.current?.click()}
+                  className="text-xs text-[#C9A84C] hover:underline ml-1">+ Add more</button>
+              </div>
+            )}
+          </div>
+
+          {err && <p className="text-red-500 text-xs">{err}</p>}
+        </div>
+
+        {/* Footer */}
+        <div className="flex items-center gap-3 px-6 py-4 border-t border-gray-100 flex-shrink-0 bg-gray-50 rounded-b-2xl">
+          <button onClick={onClose}
+            className="flex-1 py-2.5 border border-gray-200 rounded-xl text-sm font-semibold text-gray-600 hover:bg-white transition-colors">
+            Cancel
+          </button>
+          <button onClick={send} disabled={sending || !to || !subject || !body}
+            className="flex-1 py-2.5 bg-[#0B1F3A] text-white rounded-xl text-sm font-bold flex items-center justify-center gap-2 disabled:opacity-60 hover:bg-[#162d52] transition-colors">
+            {sending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+            {sending ? 'Sending…' : `Send Email${files.length > 0 ? ` + ${files.length} file${files.length > 1 ? 's' : ''}` : ''}`}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ─── Duplicate Modal ──────────────────────────────────────────────────────────
 function DuplicateModal({ app, onClose, onDone }: { app: VisaApp; onClose: () => void; onDone: (newId: string, newRef: string) => void }) {
   const destinations = Object.entries(VISA_CONFIGS)
@@ -889,6 +1082,7 @@ export default function AdminVisaDetailPage() {
   const [showSendForm, setShowSendForm] = useState(false)
   const [showRequestInfo, setShowRequestInfo] = useState(false)
   const [showDuplicate, setShowDuplicate] = useState(false)
+  const [showEmailClient, setShowEmailClient] = useState(false)
 
   // Editable form state (mirrors app fields)
   const [edits, setEdits] = useState<Partial<VisaApp>>({})
@@ -2037,14 +2231,24 @@ export default function AdminVisaDetailPage() {
                 <CallButton phoneNumber={app.phone} />
               </div>
             )}
-            <a href={`mailto:${app.email}`}
-              className="flex items-center justify-between p-2.5 rounded-xl hover:bg-gray-50 border border-gray-100 transition-colors">
+            <button
+              onClick={() => setShowEmailClient(true)}
+              className="w-full flex items-center justify-between p-2.5 rounded-xl hover:bg-gray-50 border border-gray-100 transition-colors text-left">
               <span className="text-sm text-[#0B1F3A] font-semibold">Email Client</span>
               <Mail className="w-4 h-4 text-gray-400" />
-            </a>
+            </button>
           </div>
         </div>
       </div>
+
+      {/* Email Client Modal */}
+      {showEmailClient && app && (
+        <EmailClientModal
+          app={app}
+          onClose={() => setShowEmailClient(false)}
+          onSent={() => { setShowEmailClient(false); load() }}
+        />
+      )}
 
       {/* Request Documents Modal */}
       {showDocModal && app && (() => {
