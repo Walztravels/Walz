@@ -655,11 +655,11 @@ function FlightBody({ d }: { d: Record<string, unknown> }) {
     return (
       <View style={s.body}>
         <PassengerStrip name={str(d.client_name)} passport={str(d.passport_number)} bookingRef={str(d.booking_reference || d.pnr)} />
-        <LegCard direction="OUTBOUND" shade={NAVY} airline={str(d.airline)} flightNumber={str(d.flight_number)} fromCode={str(d.from_code)} fromCity={str(d.from_city)} toCode={str(d.to_code)} toCity={str(d.to_city)} departureDate={str(d.departure_date)} departureTime={str(d.departure_time)} arrivalDate={str(d.arrival_date)} arrivalTime={str(d.arrival_time)} duration={str(d.duration)} stops={0} cabin={str(d.cabin_class)} seat={str(d.seat_number)} baggage={str(d.baggage_allowance)} pnr={pnr} />
+        <LegCard direction="OUTBOUND" shade={NAVY} airline={str(d.airline)} flightNumber={str(d.flight_number)} fromCode={str(d.from_code)} fromCity={str(d.from_city)} toCode={str(d.to_code)} toCity={str(d.to_city)} departureDate={str(d.departure_date)} departureTime={str(d.departure_time)} arrivalDate={str(d.arrival_date)} arrivalTime={str(d.arrival_time)} duration={str(d.duration)} stops={parseInt(str(d.stops)) || 0} cabin={str(d.cabin_class)} seat={str(d.seat_number)} baggage={str(d.baggage_allowance)} pnr={pnr} />
         {hasReturn && (
           <>
             <TearoffDivider />
-            <LegCard direction="RETURN" shade={NAVY2} airline={str(d.return_airline || d.airline)} flightNumber={str(d.return_flight)} fromCode={str(d.to_code)} fromCity={str(d.to_city)} toCode={str(d.from_code)} toCity={str(d.from_city)} departureDate={str(d.return_date)} departureTime={str(d.return_time)} arrivalDate={str(d.return_arrival_date)} arrivalTime={str(d.return_arrival_time)} duration={str(d.return_duration)} stops={0} cabin={str(d.cabin_class)} seat={str(d.return_seat_number || d.seat_number)} baggage={str(d.baggage_allowance)} pnr={pnr} />
+            <LegCard direction="RETURN" shade={NAVY2} airline={str(d.return_airline || d.airline)} flightNumber={str(d.return_flight)} fromCode={str(d.to_code)} fromCity={str(d.to_city)} toCode={str(d.from_code)} toCity={str(d.from_city)} departureDate={str(d.return_date)} departureTime={str(d.return_time)} arrivalDate={str(d.return_arrival_date)} arrivalTime={str(d.return_arrival_time)} duration={str(d.return_duration)} stops={parseInt(str(d.return_stops)) || 0} cabin={str(d.cabin_class)} seat={str(d.return_seat_number || d.seat_number)} baggage={str(d.baggage_allowance)} pnr={pnr} />
           </>
         )}
         {d.message && <GoldBox title="Message from Walz Travels" text={str(d.message)} />}
