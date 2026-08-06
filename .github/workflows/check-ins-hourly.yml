@@ -11,11 +11,15 @@ on:
     - cron: '0 7-18 * * 1-5'
   workflow_dispatch: # enables "Run workflow" button in GitHub UI for testing
 
+concurrency:
+  group: check-ins-hourly
+  cancel-in-progress: true   # if a run is still going when the next hour fires, cancel and restart
+
 jobs:
   trigger-checkins:
     name: Trigger check-in processing
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 3
 
     steps:
       - name: Call check-in endpoint

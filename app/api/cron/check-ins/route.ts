@@ -17,6 +17,9 @@ import {
 } from '@/lib/check-ins/emails'
 import { randomUUID } from 'crypto'
 
+export const dynamic     = 'force-dynamic'
+export const maxDuration = 60
+
 const CRON_SECRET          = process.env.CRON_SECRET
 const PORTAL_URL           = 'https://www.walztravels.com/admin/staff?tab=check-ins'
 const MANAGEMENT_EMAIL     = 'contact@walztravels.com'  // receives every miss alert
