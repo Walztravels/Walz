@@ -1,5 +1,6 @@
 import type { Metadata } from 'next'
 import Link from 'next/link'
+import { LEGAL_ENTITIES } from '@/lib/config/legal-entities'
 
 export const metadata: Metadata = {
   title: 'Privacy Policy',
@@ -10,7 +11,7 @@ export const metadata: Metadata = {
 const SECTIONS = [
   {
     title: '1. Who We Are',
-    body: `Walz Travels Ltd ("Walz Travels", "we", "us" or "our") is a travel agency incorporated in the United Kingdom (Company registration pending). Our registered office is at 1 Commercial Street, London, E1 6RF.
+    body: `Walz Travels Ltd ("Walz Travels", "we", "us" or "our") is a travel agency operating in the United Kingdom.${LEGAL_ENTITIES.uk.registeredOffice ? ` Our registered office is at ${LEGAL_ENTITIES.uk.registeredOffice}.` : ''}
 
 We operate the website walztravels.com and related services including flight booking, hotel booking, private tours, visa assistance and gift vouchers.
 
@@ -123,7 +124,7 @@ You can control non-essential cookies through your browser settings. Disabling e
 
 Email: contact@walztravels.com
 WhatsApp: +12317902336
-Post: Walz Travels Ltd, 1 Commercial Street, London, E1 6RF
+Post: ${['Walz Travels Ltd', LEGAL_ENTITIES.uk.tradingAddress].filter(Boolean).join(', ')}
 
 If you are unsatisfied with our response, you have the right to lodge a complaint with the Information Commissioner's Office (ICO) at ico.org.uk.`,
   },

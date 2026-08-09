@@ -81,7 +81,7 @@ export async function sendBookingConfirmationEmail({
           </p>
         </div>
         <div style="padding:20px 40px;text-align:center;border-top:1px solid #E2D9CC;">
-          <p style="margin:0;color:#8B9BAE;font-size:12px;">© ${new Date().getFullYear()} Walz Travels Ltd. All rights reserved. IATA Certified.</p>
+          <p style="margin:0;color:#8B9BAE;font-size:12px;">© ${new Date().getFullYear()} Walz Travels Ltd. All rights reserved.</p>
         </div>
       </div>
     </body>

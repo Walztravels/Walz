@@ -1,6 +1,7 @@
 import type { Metadata } from 'next'
 import Link from 'next/link'
 import Script from 'next/script'
+import { UK_VISA_FEES } from '@/lib/config/visa-fees'
 
 export const metadata: Metadata = {
   title: 'UK Visa Nigeria: Requirements & How to Apply | Walz Travels',
@@ -24,7 +25,7 @@ const faqs = [
   },
   {
     q: 'How long does UK visa processing take from Nigeria?',
-    a: 'Standard processing takes approximately 3 weeks. Priority service (£500 extra) takes 5 working days. Super Priority (£800 extra) is decided the next working day after biometrics. Walz Travels handles all tiers.',
+    a: `Standard processing takes approximately 3 weeks. Priority service (+£${UK_VISA_FEES.priorityService.amount}) takes ${UK_VISA_FEES.priorityService.turnaround}. Super Priority (+£${UK_VISA_FEES.superPriorityService.amount}) is decided the ${UK_VISA_FEES.superPriorityService.turnaround.toLowerCase()}. Fees verified ${UK_VISA_FEES.superPriorityService.lastVerified}. Walz Travels handles all tiers.`,
   },
   {
     q: 'What is the UK visa refusal rate for Nigerians?',
@@ -121,7 +122,7 @@ export default function UkVisaNigeriaPage() {
           <div className="bg-white rounded-2xl border border-gray-100 p-6">
             <h2 className="text-xl font-bold text-[#0B1F3A] mb-4">Do Nigerians Need a UK Visa?</h2>
             <p className="text-sm text-gray-700 leading-relaxed mb-3">
-              Yes. Nigerian passport holders must obtain a <strong>UK Standard Visitor Visa</strong> before travelling to the United Kingdom. There is no visa on arrival, and no e-visa option as of 2026. Applications are submitted online through the UKVI portal, and biometrics are taken at a VFS Global centre in Lagos or Abuja.
+              Yes. Nigerian passport holders must obtain a <strong>UK Standard Visitor Visa</strong> before travelling to the United Kingdom. There is no visa on arrival. Applications are submitted online through the UKVI portal, and biometrics (fingerprints and a photo) are taken at a VFS Global centre in Lagos or Abuja. Successful applicants now receive an <strong>eVisa</strong> — a digital immigration status — accessed through a UKVI account. Physical vignette stickers are no longer issued for new grants.
             </p>
             <p className="text-sm text-gray-700 leading-relaxed">
               A UK visitor visa allows you to stay for up to 6 months per visit and can be issued as a multiple-entry visa valid for 2, 5, or 10 years. The type you receive depends on your profile and the discretion of the visa officer.
@@ -205,8 +206,8 @@ export default function UkVisaNigeriaPage() {
             <div className="space-y-3">
               {[
                 { tier: 'Standard', time: 'Approximately 3 weeks', cost: 'Included in visa fee' },
-                { tier: 'Priority', time: '5 working days', cost: '+£500' },
-                { tier: 'Super Priority', time: 'Next working day (after biometrics)', cost: '+£800' },
+                { tier: 'Priority', time: `${UK_VISA_FEES.priorityService.turnaround}`, cost: `+£${UK_VISA_FEES.priorityService.amount}` },
+                { tier: 'Super Priority', time: `${UK_VISA_FEES.superPriorityService.turnaround}`, cost: `+£${UK_VISA_FEES.superPriorityService.amount}` },
               ].map((row, i) => (
                 <div key={i} className="flex items-start gap-3 p-4 border border-gray-100 rounded-xl">
                   <div className="w-2 h-2 rounded-full bg-amber-500 mt-2 flex-shrink-0" />
@@ -219,6 +220,9 @@ export default function UkVisaNigeriaPage() {
             </div>
             <p className="text-sm text-gray-600 mt-4">
               Apply at least 3 months before your travel date for standard processing. Walz Travels manages all processing tiers and tracks your application.
+            </p>
+            <p className="text-xs text-gray-400 mt-2">
+              Priority fees verified against <a href={UK_VISA_FEES.priorityService.source} target="_blank" rel="noopener noreferrer" className="underline">gov.uk/faster-decision-visa-settlement</a> on {UK_VISA_FEES.priorityService.lastVerified}.
             </p>
           </div>
 
@@ -311,9 +315,11 @@ export default function UkVisaNigeriaPage() {
             </div>
           </div>
 
-          <p className="text-xs text-gray-400 text-center leading-relaxed pb-6">
-            Visa information is sourced from UKVI and updated regularly. Entry decisions are made solely by UK immigration authorities. Walz Travels is not liable for refused applications or denied entry.
-          </p>
+          <div className="bg-amber-50 border border-amber-200 rounded-xl p-4">
+            <p className="text-xs text-amber-900 leading-relaxed">
+              <strong>Important:</strong> Government fees, service availability and immigration requirements may change at any time. Final eligibility and visa decisions are made solely by UK Visas and Immigration (UKVI). Walz Travels is not liable for refused applications or denied entry.
+            </p>
+          </div>
         </div>
       </main>
     </>

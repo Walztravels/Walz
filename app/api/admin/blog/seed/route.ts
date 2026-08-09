@@ -204,7 +204,7 @@ Our **90%+ approval rate** is built on a rigorous document review process. We ca
     readTime: 6,
     tags: ['Lagos', 'London', 'Flights', 'LOS-LHR', '2026'],
     excerpt: 'Find the cheapest flights from Lagos (LOS) to London (LHR/LGW) in 2026. Compare Qatar Airways, British Airways, Ethiopian Airlines and more — with tips on the best time to book.',
-    metaDescription: 'Cheapest flights Lagos to London 2026. Compare airlines, find the best booking window, and discover which routes offer the lowest fares. Book with Walz Travels — IATA certified.',
+    metaDescription: 'Cheapest flights Lagos to London 2026. Compare airlines, find the best booking window, and discover which routes offer the lowest fares. Book with Walz Travels.',
     content: `# Cheapest Flights from Lagos to London 2026: Best Airlines, Routes & Booking Tips
 
 The Lagos–London route is one of the busiest routes between Africa and Europe — and prices vary enormously depending on when you book, which airline you choose, and which London airport you fly into. This guide gives you everything you need to find the cheapest fare.

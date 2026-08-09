@@ -343,12 +343,9 @@ export function Footer() {
           <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
             <div className="flex items-center gap-2 flex-wrap justify-center sm:justify-start">
               {[
-                { icon: '✈', label: 'IATA Certified' },
                 { icon: '🔒', label: 'SSL Secured' },
                 { icon: '💳', label: 'Stripe Payments' },
                 { icon: '🏦', label: 'Flutterwave' },
-                { icon: '🇬🇧', label: 'Registered in England & Wales' },
-                { icon: '🇨🇦', label: 'Incorporated in Ontario, Canada' },
               ].map(({ icon, label }) => (
                 <div
                   key={label}

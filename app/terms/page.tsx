@@ -1,5 +1,6 @@
 import type { Metadata } from 'next'
 import Link from 'next/link'
+import { LEGAL_ENTITIES } from '@/lib/config/legal-entities'
 
 export const metadata: Metadata = {
   title: 'Terms of Service',
@@ -100,10 +101,12 @@ If you have a complaint, please contact us first at contact@walztravels.com. We 
   },
   {
     title: '13. Contact',
-    body: `Walz Travels Ltd
-1 Commercial Street, London, E1 6RF
-Email: contact@walztravels.com
-WhatsApp: +12317902336`,
+    body: [
+      'Walz Travels Ltd',
+      LEGAL_ENTITIES.uk.tradingAddress,
+      'Email: contact@walztravels.com',
+      'WhatsApp: +12317902336',
+    ].filter(Boolean).join('\n'),
   },
 ]
 

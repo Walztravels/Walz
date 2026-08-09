@@ -166,7 +166,7 @@ function buildClientEmailHtml(params: {
     </div>
     <div style="padding:16px 40px;text-align:center;border-top:1px solid #E2D9CC;">
       <p style="margin:0;color:#8B9BAE;font-size:11px;">
-        &copy; ${new Date().getFullYear()} Walz Travels Ltd. All rights reserved. IATA Certified.
+        &copy; ${new Date().getFullYear()} Walz Travels Ltd. All rights reserved.
       </p>
     </div>
 

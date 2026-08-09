@@ -132,7 +132,7 @@ export function FlightsHero() {
           {/* Trust badges */}
           <div className="mt-10 flex flex-wrap items-center gap-6">
             {[
-              { label: 'IATA Certified' },
+              { label: '900+ Airlines' },
               { label: '900+ Airlines' },
               { label: 'Price Guarantee' },
               { label: '24/7 Concierge' },

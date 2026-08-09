@@ -4,7 +4,7 @@ import Script from 'next/script'
 
 export const metadata: Metadata = {
   title: 'Cheap Flights from Lagos 2026 | Best Fares | Walz Travels',
-  description: 'Cheap flights from Lagos (LOS) to London, Dubai, Toronto, New York and more. Best fares from £280. IATA-certified travel agency.',
+  description: 'Cheap flights from Lagos (LOS) to London, Dubai, Toronto, New York and more. Best fares from £280. 24/7 expert support.',
   alternates: { canonical: 'https://www.walztravels.com/flights/cheap-flights-from-lagos' },
   openGraph: {
     title: 'Cheap Flights from Lagos 2026 — Best Fares',
@@ -237,7 +237,7 @@ export default function CheapFlightsFromLagosPage() {
           {/* CTA */}
           <div className="bg-[#0B1F3A] rounded-2xl p-8 text-center">
             <p className="text-amber-400 text-sm font-semibold uppercase tracking-wider mb-2">
-              400+ Airlines · Sabre GDS · IATA Certified
+              400+ Airlines · Sabre GDS · 24/7 Support
             </p>
             <h2 className="text-2xl font-bold text-white mb-3">Search Cheap Flights from Lagos</h2>
             <p className="text-white/60 text-sm mb-6">
@@ -262,7 +262,7 @@ export default function CheapFlightsFromLagosPage() {
           </div>
 
           <p className="text-xs text-gray-400 text-center leading-relaxed pb-6">
-            Fares shown are estimates based on historical pricing and are subject to availability at time of booking. Walz Travels is IATA registered. All prices in GBP unless stated.
+            Fares shown are estimates based on historical pricing and are subject to availability at time of booking. All prices in GBP unless stated.
           </p>
         </div>
       </main>

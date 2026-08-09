@@ -489,7 +489,7 @@ export default function ReviewPage() {
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
               {[
                 { icon: '🔒', label: 'SSL Encrypted',         sub: '256-bit TLS'           },
-                { icon: '✈',  label: 'IATA Accredited',   sub: 'Official partner'       },
+                { icon: '✈',  label: 'Live Fare Search',   sub: '900+ airlines'          },
                 { icon: '💳', label: 'Stripe & Flutterwave', sub: 'PCI DSS payments'   },
                 { icon: '💬', label: '24/7 Support',          sub: 'WhatsApp & phone'  },
               ].map(t => (

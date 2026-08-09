@@ -77,7 +77,7 @@ export default function PressPage() {
           <h2 className="font-display text-xl font-bold text-[#0B1F3A] mb-4">About Walz Travels</h2>
           <div className="bg-white rounded-2xl border border-[#E2D9CC] p-8 text-[#0B1F3A]/65 text-sm leading-relaxed space-y-4">
             <p>
-              Walz Travels is an IATA-certified luxury travel agency headquartered in London, UK, with operations across Nigeria, Canada, the UAE and beyond. Founded in 2022, we help clients book flights, hotels, private tours, visas and travel insurance with expert guidance and 24/7 WhatsApp support.
+              Walz Travels is a luxury travel agency headquartered in London, UK, with operations across Nigeria, Canada, the UAE and beyond. Founded in 2022, we help clients book flights, hotels, private tours, visas and travel insurance with expert guidance and 24/7 WhatsApp support.
             </p>
             <p>
               Unlike online travel agencies, every booking is handled by a real travel expert — someone who has first-hand experience of the destinations they recommend. Our direct access to Sabre GDS gives clients real-time inventory across 400+ airlines and the lowest available fares.

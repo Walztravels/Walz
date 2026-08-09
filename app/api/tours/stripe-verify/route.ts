@@ -157,7 +157,7 @@ export async function GET(req: NextRequest) {
     <p style="color:#8B9BAE;font-size:13px;">Questions? <a href="https://wa.me/12317902336" style="color:#C9A84C;">WhatsApp: +12317902336</a> · <a href="mailto:contact@walztravels.com" style="color:#C9A84C;">contact@walztravels.com</a></p>
   </div>
   <div style="padding:24px 40px;background:#F7F4EF;text-align:center;">
-    <p style="margin:0;color:#8B9BAE;font-size:12px;">© ${new Date().getFullYear()} Walz Travels Ltd. IATA Certified</p>
+    <p style="margin:0;color:#8B9BAE;font-size:12px;">© ${new Date().getFullYear()} Walz Travels Ltd.</p>
   </div>
 </div></body></html>`
 

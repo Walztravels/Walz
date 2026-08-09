@@ -10,7 +10,7 @@ import { AiAssistantTeaser }  from '@/components/flights/AiAssistantTeaser'
 
 export const metadata: Metadata = {
   title:       'Book Flights Worldwide | Walz Travels',
-  description: 'Search and book flights on 900+ airlines. Business class, first class and economy fares with 24/7 expert support and Jade AI concierge. IATA partner.',
+  description: 'Search and book flights on 900+ airlines. Business class, first class and economy fares with 24/7 expert support and Jade AI concierge.',
   keywords: [
     'cheap flights Lagos London', 'flights Accra London', 'Nigeria UK flights',
     'Ghana UK flights', 'book flights Nigeria', 'book flights Ghana',

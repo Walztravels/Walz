@@ -127,7 +127,7 @@ function PaymentForm({ grand, intentId }: { grand: number; intentId: string }) {
       </button>
 
       <div className="flex items-center justify-center gap-6 text-[11px] text-[#0B1F3A]/30">
-        {['🔒 SSL Secured', '✈️ IATA Certified', '💰 Price Match'].map(b => (
+        {['🔒 SSL Secured', '✈️ Live Fare Search', '💰 Price Match'].map(b => (
           <span key={b}>{b}</span>
         ))}
       </div>

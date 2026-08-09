@@ -31,7 +31,7 @@ const ROUTES: Record<string, RouteData> = {
     airlines: ['British Airways', 'Qatar Airways', 'Ethiopian Airlines', 'Emirates', 'Turkish Airlines'],
     flightTime: '6h 40m direct / 10–13h connecting',
     layover: 'Via Doha, Dubai, Addis Ababa or Istanbul',
-    description: 'Lagos–London flights from £364. British Airways direct, plus Qatar Airways & Ethiopian Airlines. IATA-certified agency — 24/7 expert support.',
+    description: 'Lagos–London flights from £364. British Airways direct, plus Qatar Airways & Ethiopian Airlines. 24/7 expert support.',
     bodyParagraphs: [
       'The Lagos (LOS) to London Heathrow (LHR) route is one of the busiest between West Africa and Europe. British Airways operates the only direct service — approximately 6 hours 40 minutes with no layover. Connecting options via Doha (Qatar Airways), Dubai (Emirates), Addis Ababa (Ethiopian Airlines), and Istanbul (Turkish Airlines) typically take 10–13 hours total.',
       'Prices vary by season. The cheapest months are January and February, when economy fares can fall to £364. The most expensive period is June–August (UK summer) when fares rise to £680–£950. Walz Travels monitors live fares across all airlines and can alert you when prices drop.',
@@ -111,7 +111,7 @@ const ROUTES: Record<string, RouteData> = {
     airlines: ['Delta', 'United', 'Ethiopian Airlines', 'Brussels Airlines'],
     flightTime: '13–17h connecting',
     layover: 'Via Brussels, Addis Ababa, London or Amsterdam',
-    description: 'Flights Accra to New York from £580. Delta, United, Ethiopian Airlines via multiple hubs. IATA certified. Book with Walz Travels.',
+    description: 'Flights Accra to New York from £580. Delta, United, Ethiopian Airlines via multiple hubs. Book with Walz Travels.',
     bodyParagraphs: [
       'Accra to New York flights connect through European and African hubs. Key routing options include Accra → Brussels → New York (Brussels Airlines + Delta/United codeshare), Accra → Addis Ababa → Washington (Ethiopian Airlines), and Accra → Amsterdam → New York (KLM).',
       'Delta Air Lines operates a nonstop service from Accra to New York JFK — check the current schedule with Walz Travels as frequencies and availability may vary by season.',
@@ -139,7 +139,7 @@ const ROUTES: Record<string, RouteData> = {
     airlines: ['Air Canada', 'Brussels Airlines', 'Ethiopian Airlines', 'KLM'],
     flightTime: '15–18h connecting',
     layover: 'Via Brussels, Amsterdam or Addis Ababa',
-    description: 'Flights Accra to Toronto from £610. Air Canada, Brussels Airlines, KLM, Ethiopian Airlines. Book with Walz Travels — IATA certified.',
+    description: 'Flights Accra to Toronto from £610. Air Canada, Brussels Airlines, KLM, Ethiopian Airlines. Book with Walz Travels.',
     bodyParagraphs: [
       'All Accra to Toronto flights connect through European or African hubs. Brussels Airlines connects to Air Canada through Brussels (BRU). KLM connects through Amsterdam (AMS). Ethiopian Airlines offers Addis Ababa connections.',
       'Ghanaian passport holders require a Canadian visitor visa. Walz Travels processes Canada visa applications for Ghanaian clients in Accra.',
@@ -493,7 +493,7 @@ export default function FlightRoutePage({ params }: Props) {
           {/* CTA */}
           <div className="bg-[#0B1F3A] rounded-2xl p-8 text-center">
             <p className="text-amber-400 text-sm font-semibold uppercase tracking-wider mb-2">
-              Live Fares · 400+ Airlines · IATA Certified
+              Live Fares · 400+ Airlines · 24/7 Support
             </p>
             <h2 className="text-2xl font-bold text-white mb-2">
               Search {data.from}–{data.to} Flights
@@ -559,7 +559,7 @@ export default function FlightRoutePage({ params }: Props) {
           {/* Disclaimer */}
           <p className="text-xs text-gray-400 text-center leading-relaxed pb-6">
             Fares shown are estimates based on historical pricing and are subject to change. Live pricing is
-            available on the search page. Walz Travels is IATA registered. All fares are subject to
+            available on the search page. All fares are subject to
             availability at time of booking.
           </p>
         </div>

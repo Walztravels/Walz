@@ -1,6 +1,7 @@
 import type { Metadata } from 'next'
 import Link from 'next/link'
 import Script from 'next/script'
+import { IRPA_DISCLAIMER } from '@/lib/config/credentials'
 
 export const metadata: Metadata = {
   title: 'How to Relocate to Canada from Nigeria 2026 | Walz Travels',
@@ -24,11 +25,11 @@ const faqs = [
   },
   {
     q: 'How long does it take to relocate from Nigeria to Canada?',
-    a: 'Timelines vary by pathway. Express Entry PR (after receiving an ITA) takes approximately 6 months. Provincial Nominee Programs take 12–18 months. Study permits typically take 4–8 weeks. A Temporary Resident Visa (visitor visa) for initial travel takes 8–12 weeks from Nigeria. Walz Travels helps you choose the fastest route for your profile.',
+    a: 'Timelines vary by pathway. Express Entry PR (after receiving an ITA) takes approximately 6 months. Provincial Nominee Programs take 12–18 months. Study permits typically take 4–8 weeks. A Temporary Resident Visa (visitor visa) for initial travel takes 8–12 weeks from Nigeria. The fastest route depends on your education, work experience, and language scores.',
   },
   {
     q: 'How much does it cost to relocate from Nigeria to Canada?',
-    a: 'Key costs include: IRCC application fees (CAD $1,365 for Express Entry PR including right of permanent residence fee), IELTS test (approx £200), credential assessment (CAD $200–$300), biometrics (CAD $85), and settlement funds (CAD $13,310 for a single applicant, more for families). Total out-of-pocket costs before arrival typically range from CAD $15,000–$20,000. Walz Travels advises on all fees as part of our consultation.',
+    a: 'Key costs include: IRCC application fees (CAD $1,365 for Express Entry PR including right of permanent residence fee), IELTS test (approx £200), credential assessment (CAD $200–$300), biometrics (CAD $85), and settlement funds (CAD $13,310 for a single applicant, more for families). Total out-of-pocket costs before arrival typically range from CAD $15,000–$20,000. Always verify current government fees directly on the IRCC website.',
   },
   {
     q: 'What English test score do I need for Canadian immigration?',
@@ -102,7 +103,16 @@ export default function CanadaRelocationGuideNigeriaPage() {
               How to Relocate to Canada from Nigeria in 2026
             </h1>
             <p className="text-white/70 text-base max-w-2xl">
-              A complete, up-to-date guide covering every pathway to move from Nigeria to Canada — Express Entry, Provincial Nominee, study permits, and family sponsorship. Walz Travels guides you through the full process.
+              A general information guide covering the main pathways to move from Nigeria to Canada — Express Entry, Provincial Nominee, study permits, and family sponsorship.
+            </p>
+          </div>
+        </div>
+
+        {/* IRPA Legal Disclaimer — must appear prominently, not in footer */}
+        <div className="bg-amber-50 border-l-4 border-amber-500 px-4 py-4">
+          <div className="max-w-3xl mx-auto">
+            <p className="text-sm text-amber-900 font-medium leading-relaxed">
+              <strong>Important notice:</strong> {IRPA_DISCLAIMER}
             </p>
           </div>
         </div>
@@ -116,7 +126,7 @@ export default function CanadaRelocationGuideNigeriaPage() {
               Yes. Nigerians are among the most successful applicants for Canadian permanent residence. Canada accepts over 400,000 new permanent residents each year under its multi-stream immigration system, and Nigerian applicants with strong English language scores and professional qualifications have a realistic pathway to PR.
             </p>
             <p className="text-sm text-gray-700 leading-relaxed">
-              The key is choosing the right pathway for your profile and preparing a strong application. Walz Travels advises clients on every step — from initial profile assessment to departure flights to Toronto, Calgary, or Vancouver.
+              The key is choosing the right pathway for your profile and preparing a strong application. This guide outlines each pathway — from eligibility requirements through to booking your departure flight to Toronto, Calgary, or Vancouver.
             </p>
           </div>
 
@@ -185,7 +195,7 @@ export default function CanadaRelocationGuideNigeriaPage() {
                 </div>
               ))}
             </div>
-            <p className="text-xs text-gray-400 mt-3">All figures as at 2026. Government fees are subject to change. Walz Travels provides a personalised cost breakdown during consultation.</p>
+            <p className="text-xs text-gray-400 mt-3">All figures as at 2026. Government fees are subject to change. Always verify current fees with IRCC before applying.</p>
           </div>
 
           {/* Steps */}
@@ -198,7 +208,7 @@ export default function CanadaRelocationGuideNigeriaPage() {
                 { step: '3', title: 'Get your credentials assessed', desc: 'Have your Nigerian educational credentials assessed by a Designated Organization (WES is the most widely accepted). This is mandatory for Express Entry FSW.' },
                 { step: '4', title: 'Create your Express Entry profile', desc: 'Submit your profile on the IRCC portal with your language scores, work experience, education, and other CRS-boosting factors. Profiles are ranked against other candidates in the pool.' },
                 { step: '5', title: 'Receive an Invitation to Apply (ITA)', desc: 'IRCC runs regular Express Entry draws. The lowest accepted CRS score fluctuates — typically 480–550 for general draws. Scores drop in category-based selection draws targeting specific occupations.' },
-                { step: '6', title: 'Submit PR application within 60 days', desc: 'Once you receive an ITA, you have 60 days to submit a complete PR application with police certificates, medical results, and reference letters. Walz Travels supports clients through this final critical stage.' },
+                { step: '6', title: 'Submit PR application within 60 days', desc: 'Once you receive an ITA, you have 60 days to submit a complete PR application with police certificates, medical results, and reference letters. This stage must be handled by you directly or by a licensed immigration professional (RCIC or lawyer).' },
                 { step: '7', title: 'Book your flight to Canada', desc: 'Once you receive your Confirmation of Permanent Residence (COPR), book your Lagos to Toronto/Vancouver/Montreal flight. You must land in Canada before your COPR expiry date to activate your PR status.' },
               ].map(item => (
                 <div key={item.step} className="flex items-start gap-4">
@@ -232,9 +242,9 @@ export default function CanadaRelocationGuideNigeriaPage() {
             <p className="text-amber-400 text-sm font-semibold uppercase tracking-wider mb-2">
               Toronto · Vancouver · Calgary · Montreal
             </p>
-            <h2 className="text-2xl font-bold text-white mb-3">Start Your Canada Relocation with Walz Travels</h2>
+            <h2 className="text-2xl font-bold text-white mb-3">Canada Visitor Visas &amp; Flights — Walz Travels</h2>
             <p className="text-white/60 text-sm mb-6">
-              From visa applications to departure flights, Walz Travels guides Nigerian clients through every step of the Canada relocation process.
+              Walz Travels books flights from Lagos to Canada and processes Canadian visitor visas for Nigerians. For immigration advice or PR applications, consult a licensed RCIC or Canadian immigration lawyer.
             </p>
             <div className="flex flex-col sm:flex-row gap-3 justify-center">
               <Link

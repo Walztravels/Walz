@@ -80,8 +80,7 @@ function emailFooter(): string {
     </div>
     <div style="padding: 24px 40px; text-align: center; border-top: 1px solid #E2D9CC;">
       <p style="margin: 0; color: #8B9BAE; font-size: 12px;">
-        © ${new Date().getFullYear()} Walz Travels Ltd. All rights reserved.<br>
-        IATA Certified
+        © ${new Date().getFullYear()} Walz Travels Ltd. All rights reserved.
       </p>
     </div>
   `
@@ -457,7 +456,7 @@ export async function sendVisaApplicationReceived(email: string, country: string
           </p>
         </div>
         <div style="padding: 24px 40px; background: #F7F4EF; text-align: center;">
-          <p style="margin: 0; color: #8B9BAE; font-size: 12px;">© ${new Date().getFullYear()} Walz Travels Ltd. IATA Certified</p>
+          <p style="margin: 0; color: #8B9BAE; font-size: 12px;">© ${new Date().getFullYear()} Walz Travels Ltd.</p>
         </div>
       </div>
     </body>
@@ -503,7 +502,7 @@ export async function sendTourEnquiryConfirmation(email: string, tourName: strin
           </p>
         </div>
         <div style="padding: 24px 40px; background: #F7F4EF; text-align: center;">
-          <p style="margin: 0; color: #8B9BAE; font-size: 12px;">© ${new Date().getFullYear()} Walz Travels Ltd. IATA Certified</p>
+          <p style="margin: 0; color: #8B9BAE; font-size: 12px;">© ${new Date().getFullYear()} Walz Travels Ltd.</p>
         </div>
       </div>
     </body>

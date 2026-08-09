@@ -23,7 +23,7 @@ const WALZ_DEFAULTS = {
     '90%+ UK visa approval rate',
     'Jade AI travel assistant',
     'WhatsApp support always available',
-    'IATA accreditation in progress',
+    'Trusted by clients across UK, Canada, UAE, Nigeria and Ghana',
     'Serving UK, Canada, UAE, Nigeria, Ghana',
     'Real Duffel flight bookings',
     'Client success stories',

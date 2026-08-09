@@ -1,7 +1,7 @@
 'use client'
 
 const ITEMS = [
-  { icon: '✈️', label: 'IATA Accredited',     sub: 'Official travel partner'  },
+  { icon: '✈️', label: 'Live Fare Search',     sub: 'Real-time airline pricing' },
   { icon: '🔒', label: 'SSL Encrypted',         sub: '256-bit TLS payment security' },
   { icon: '💬', label: '24/7 Expert Support',   sub: 'WhatsApp & phone'          },
   { icon: '💰', label: 'Price Guarantee',        sub: 'We match any fare'         },

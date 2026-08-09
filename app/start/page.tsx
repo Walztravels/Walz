@@ -139,7 +139,7 @@ export default function StartPage() {
         {/* Trust badges */}
         <div className="mt-8 flex flex-wrap items-center justify-center gap-6 text-[#0B1F3A]/40 text-xs">
           {[
-            { icon: Shield, text: 'IATA Certified Agency' },
+            { icon: Shield, text: 'SSL Secured Payments' },
             { icon: Shield, text: 'Stripe Secured Payments' },
             { icon: Shield, text: '24/7 WhatsApp Support' },
           ].map(({ icon: Icon, text }) => (

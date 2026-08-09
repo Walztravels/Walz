@@ -1,6 +1,7 @@
 import type { Metadata } from 'next'
 import Link from 'next/link'
 import Script from 'next/script'
+import { UK_VISA_FEES } from '@/lib/config/visa-fees'
 
 export const metadata: Metadata = {
   title: 'UK Visa Ghana: Requirements & Documents 2026 | Walz Travels',
@@ -127,7 +128,7 @@ export default function UkVisaGhanaPage() {
           <div className="bg-white rounded-2xl border border-gray-100 p-6">
             <h2 className="text-xl font-bold text-[#0B1F3A] mb-4">Do Ghanaians Need a UK Visa?</h2>
             <p className="text-sm text-gray-700 leading-relaxed mb-3">
-              Yes. Ghanaian passport holders must obtain a <strong>UK Standard Visitor Visa</strong> before travelling to the United Kingdom. Applications are submitted online through the UKVI portal and biometrics are taken at the VFS Global centre in Accra.
+              Yes. Ghanaian passport holders must obtain a <strong>UK Standard Visitor Visa</strong> before travelling to the United Kingdom. Applications are submitted online through the UKVI portal and biometrics (fingerprints and a photo) are taken at the VFS Global centre in Accra. Successful applicants receive an <strong>eVisa</strong> — a digital immigration status accessed through a UKVI account. Physical vignette stickers are no longer issued for new grants.
             </p>
             <p className="text-sm text-gray-700 leading-relaxed">
               A UK visitor visa allows stays of up to 6 months per visit. Multiple-entry visas can be issued for 2, 5, or 10 years depending on your travel profile and the visa officer's assessment.
@@ -210,8 +211,8 @@ export default function UkVisaGhanaPage() {
             <div className="space-y-3">
               {[
                 { tier: 'Standard', time: 'Approximately 3 weeks', cost: 'Included in visa fee' },
-                { tier: 'Priority', time: '5 working days', cost: '+£500' },
-                { tier: 'Super Priority', time: 'Next working day (after biometrics)', cost: '+£800' },
+                { tier: 'Priority', time: `${UK_VISA_FEES.priorityService.turnaround}`, cost: `+£${UK_VISA_FEES.priorityService.amount}` },
+                { tier: 'Super Priority', time: `${UK_VISA_FEES.superPriorityService.turnaround}`, cost: `+£${UK_VISA_FEES.superPriorityService.amount}` },
               ].map((row, i) => (
                 <div key={i} className="flex items-start gap-3 p-4 border border-gray-100 rounded-xl">
                   <div className="w-2 h-2 rounded-full bg-amber-500 mt-2 flex-shrink-0" />
@@ -316,9 +317,11 @@ export default function UkVisaGhanaPage() {
             </div>
           </div>
 
-          <p className="text-xs text-gray-400 text-center leading-relaxed pb-6">
-            Visa information is sourced from UKVI and updated regularly. Entry decisions are made solely by UK immigration authorities. Walz Travels is not liable for refused applications or denied entry.
-          </p>
+          <div className="bg-amber-50 border border-amber-200 rounded-xl p-4">
+            <p className="text-xs text-amber-900 leading-relaxed">
+              <strong>Important:</strong> Government fees, service availability and immigration requirements may change at any time. Final eligibility and visa decisions are made solely by UK Visas and Immigration (UKVI). Walz Travels is not liable for refused applications or denied entry.
+            </p>
+          </div>
         </div>
       </main>
     </>

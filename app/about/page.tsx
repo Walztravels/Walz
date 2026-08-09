@@ -51,7 +51,7 @@ const STATS = [
 
 const SERVICES = [
   { Icon: Shield,    title: 'Visa Processing',    body: 'Expert preparation for UK, Canada, UAE, Schengen, USA and more. 90%+ approval rate.',                              href: '/visa'                     },
-  { Icon: Plane,     title: 'Flight Bookings',    body: 'Live prices across hundreds of airlines. IATA certified booking with expert support.',                               href: '/flights'                  },
+  { Icon: Plane,     title: 'Flight Bookings',    body: 'Live prices across hundreds of airlines with 24/7 expert support.',                                              href: '/flights'                  },
   { Icon: Building2, title: 'Hotel Reservations', body: 'Best available rates worldwide. Expert recommendations for every destination and budget.',                            href: '/hotels'                   },
   { Icon: MapPin,    title: 'Private Tours',       body: 'Exclusive guided experiences in Niagara Falls, London, Dublin and beyond.',                                          href: '/tours'                    },
   { Icon: Briefcase, title: 'Corporate Travel',   body: 'Reliable travel coordination for businesses, conferences and executive trips worldwide.',                              href: 'https://wa.me/12317902336' },
@@ -67,11 +67,8 @@ const MARKETS = [
 ]
 
 const CREDENTIALS = [
-  'IATA Certified Travel Agency',
   'Stripe Secured Payments',
   'Data Protection Compliant',
-  'Incorporated in Ontario, Canada',
-  'Registered in the United Kingdom',
 ]
 
 const JADE_CAPS = [
@@ -398,7 +395,7 @@ export default function AboutPage() {
       <section className="bg-[#060f1e] py-12 px-5 border-b border-white/5">
         <div className="max-w-5xl mx-auto grid grid-cols-2 md:grid-cols-4 gap-4">
           {[
-            { icon: '✈', title: 'IATA Accredited', desc: 'International Air Transport Association member agency' },
+            { icon: '✈', title: 'Expert Booking', desc: 'Flight, hotel, visa and tour bookings with 24/7 support' },
             { icon: '🔒', title: 'SSL Encrypted Payments', desc: 'Secured by Stripe and Flutterwave with 256-bit TLS' },
             { icon: '⭐', title: '5+ Years', desc: 'Serving clients across six global markets since 2019' },
             { icon: '💬', title: '24/7 Support', desc: 'Expert help via WhatsApp and email around the clock' },
