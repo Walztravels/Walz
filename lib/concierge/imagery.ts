@@ -45,13 +45,13 @@ export const CATEGORY_IMAGERY: CategoryImagery[] = [
     position: 'center 30%',
   },
   {
-    slug: 'lifestyle-concierge',
+    slug: 'lifestyle',
     ...buildUrls('photo-1414235077428-338989a2e8c0'),
     alt:      'Intimate restaurant with warm evening light',
     position: 'center center',
   },
   {
-    slug: 'tickets-entertainment',
+    slug: 'tickets',
     ...buildUrls('photo-1470229722913-7c0e2dbbafd3'),
     alt:      'Concert stage with dramatic lighting from the audience',
     position: 'center top',

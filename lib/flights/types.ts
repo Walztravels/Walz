@@ -98,6 +98,7 @@ export interface FlightItinerary {
   co2Kg?:          number
   badge?:          'recommended' | 'cheapest' | 'fastest' | 'luxury' | 'best-value'
   badgeLabel?:     string
+  expiresAt?:      string             // ISO timestamp from Duffel
 }
 
 export interface FareOption {

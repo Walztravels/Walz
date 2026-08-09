@@ -399,7 +399,7 @@ export default function AboutPage() {
         <div className="max-w-5xl mx-auto grid grid-cols-2 md:grid-cols-4 gap-4">
           {[
             { icon: '✈', title: 'IATA Accredited', desc: 'International Air Transport Association member agency' },
-            { icon: '🛡', title: 'ATOL Protected', desc: 'Your money is protected under UK Civil Aviation Authority' },
+            { icon: '🔒', title: 'SSL Encrypted Payments', desc: 'Secured by Stripe and Flutterwave with 256-bit TLS' },
             { icon: '⭐', title: '5+ Years', desc: 'Serving clients across six global markets since 2019' },
             { icon: '💬', title: '24/7 Support', desc: 'Expert help via WhatsApp and email around the clock' },
           ].map((item) => (

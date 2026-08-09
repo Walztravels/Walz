@@ -6,9 +6,9 @@ export async function PATCH(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
-  if (!(await getAdminSession())) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  }
+  const session = await getAdminSession()
+  if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  if (session.role !== 'super_admin') return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
   const { id } = await params
   const body = await req.json() as Record<string, unknown>
@@ -43,21 +43,20 @@ export async function DELETE(
   _req: NextRequest,
   { params }: { params: Promise<{ id: string }> },
 ) {
-  if (!(await getAdminSession())) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  }
+  const session = await getAdminSession()
+  if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  if (session.role !== 'super_admin') return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
   const { id } = await params
   const supabase = getSupabaseAdmin()
 
-  // Soft-delete: mark inactive rather than destroying data
   const { error } = await supabase
     .from('concierge_categories')
-    .update({ is_active: false })
+    .delete()
     .eq('id', id)
 
   if (error) {
-    return NextResponse.json({ error: 'Failed to deactivate category' }, { status: 500 })
+    return NextResponse.json({ error: 'Failed to delete category' }, { status: 500 })
   }
 
   return NextResponse.json({ success: true })

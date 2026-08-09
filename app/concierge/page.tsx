@@ -1,6 +1,6 @@
 import type { Metadata } from 'next'
 import { getActiveCategories } from '@/lib/concierge/catalogue'
-import { getImagery, getImageryWithOverrides } from '@/lib/concierge/imagery'
+import { getImageryWithOverrides } from '@/lib/concierge/imagery'
 import { ConciergePageClient } from '@/components/concierge/ConciergePageClient'
 
 export const dynamic = 'force-dynamic'
@@ -44,13 +44,18 @@ const FALLBACK_SERVICES = [
 
 export default async function ConciergePage() {
   const dbCategories = await getActiveCategories().catch(() => [])
-  const categories   = dbCategories.length > 0 ? dbCategories : FALLBACK_SERVICES
+
+  // Deduplicate by slug — guards against duplicate rows in concierge_categories
+  const seen = new Set<string>()
+  const unique = dbCategories.filter(c => { if (seen.has(c.slug)) return false; seen.add(c.slug); return true })
+
+  const categories = unique.length > 0 ? unique : FALLBACK_SERVICES
 
   // Build a plain-object imagery lookup — reads DB overrides, falls back to Unsplash.
   const allImagery = await getImageryWithOverrides()
 
-  // Hero imagery: lifestyle-concierge (warm, dark-capable)
-  const heroImagery = getImagery('lifestyle-concierge')!
+  // Hero imagery: lifestyle-concierge, using DB override if one has been uploaded.
+  const heroImagery = allImagery['lifestyle']!
 
   return (
     <ConciergePageClient

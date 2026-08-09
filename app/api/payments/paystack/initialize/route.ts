@@ -19,20 +19,33 @@ export async function POST(req: NextRequest) {
       bookingRef,
       callbackUrl,
       metadata: extraMeta,
+      // FX fields — present when client is paying in a converted currency
+      fareCurrency,
+      fareAmount,
+      fxRate,
+      fxMargin,
+      fxSource,
+      fxQuotedAt,
     } = await req.json() as {
-      email:        string
-      amount:       number
-      currency?:    string
-      bookingRef?:  string
-      callbackUrl?: string
-      metadata?:    Record<string, unknown>
+      email:          string
+      amount:         number
+      currency?:      string
+      bookingRef?:    string
+      callbackUrl?:   string
+      metadata?:      Record<string, unknown>
+      fareCurrency?:  string
+      fareAmount?:    number
+      fxRate?:        number
+      fxMargin?:      number
+      fxSource?:      string
+      fxQuotedAt?:    string
     }
 
     if (!email || !amount) {
       return NextResponse.json({ error: 'email and amount are required' }, { status: 400 })
     }
 
-    const txRef      = `WALZ-PS-${Date.now()}-${Math.random().toString(36).substring(2, 7).toUpperCase()}`
+    const txRef = `WALZ-PS-${Date.now()}-${Math.random().toString(36).substring(2, 7).toUpperCase()}`
     // Paystack requires amount in minor units (kobo for NGN, pesewas for GHS, etc.)
     const amountMinor = Math.round(Number(amount) * 100)
 
@@ -67,15 +80,24 @@ export async function POST(req: NextRequest) {
       await prisma.paymentLink.create({
         data: {
           txRef,
-          paymentUrl:  data.data.authorization_url,
-          amount:      Number(amount),
+          paymentUrl:    data.data.authorization_url,
+          amount:        Number(amount),
           currency,
-          clientEmail: email,
-          clientName:  '',
-          description: bookingRef ? `Booking ${bookingRef}` : 'Paystack checkout',
-          type:        'paystack',
-          provider:    'paystack',
-          status:      'pending',
+          clientEmail:   email,
+          clientName:    '',
+          description:   bookingRef ? `Booking ${bookingRef}` : 'Paystack checkout',
+          type:          'paystack',
+          provider:      'paystack',
+          status:        'pending',
+          // FX tracking
+          ...(fareCurrency  ? { fareCurrency  }                          : {}),
+          ...(fareAmount    ? { fareAmount:   fareAmount                  } : {}),
+          chargeCurrency:    currency,
+          chargeAmount:      Number(amount),
+          ...(fxRate        ? { fxRate:       fxRate                      } : {}),
+          ...(fxMargin      ? { fxMargin:     fxMargin                    } : {}),
+          ...(fxSource      ? { fxSource                                  } : {}),
+          ...(fxQuotedAt    ? { fxQuotedAt:   new Date(fxQuotedAt)       } : {}),
         },
       })
     } catch (dbErr: unknown) {

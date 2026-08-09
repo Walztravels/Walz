@@ -11,13 +11,13 @@ const BUCKET = 'walz-images'
 
 // Default Unsplash images (same as lib/concierge/imagery.ts)
 const DEFAULTS: Record<string, string> = {
-  'airport-services':      'https://images.unsplash.com/photo-1570710891163-6d3b5c47248b?w=800&q=75&auto=format&fit=crop',
-  'executive-transport':   'https://images.unsplash.com/photo-1558980664-2cd663cf8dde?w=800&q=75&auto=format&fit=crop',
-  'private-aviation':      'https://images.unsplash.com/photo-1540339832862-474599807836?w=800&q=75&auto=format&fit=crop',
-  'yacht-marine':          'https://images.unsplash.com/photo-1505118380757-91f5f5632de0?w=800&q=75&auto=format&fit=crop',
-  'lifestyle-concierge':   'https://images.unsplash.com/photo-1414235077428-338989a2e8c0?w=800&q=75&auto=format&fit=crop',
-  'tickets-entertainment': 'https://images.unsplash.com/photo-1470229722913-7c0e2dbbafd3?w=800&q=75&auto=format&fit=crop',
-  'vip-experiences':       'https://images.unsplash.com/photo-1464822759023-fed622ff2c3b?w=800&q=75&auto=format&fit=crop',
+  'airport-services':    'https://images.unsplash.com/photo-1570710891163-6d3b5c47248b?w=800&q=75&auto=format&fit=crop',
+  'executive-transport': 'https://images.unsplash.com/photo-1558980664-2cd663cf8dde?w=800&q=75&auto=format&fit=crop',
+  'private-aviation':    'https://images.unsplash.com/photo-1540339832862-474599807836?w=800&q=75&auto=format&fit=crop',
+  'yacht-marine':        'https://images.unsplash.com/photo-1505118380757-91f5f5632de0?w=800&q=75&auto=format&fit=crop',
+  'lifestyle':           'https://images.unsplash.com/photo-1414235077428-338989a2e8c0?w=800&q=75&auto=format&fit=crop',
+  'tickets':             'https://images.unsplash.com/photo-1470229722913-7c0e2dbbafd3?w=800&q=75&auto=format&fit=crop',
+  'vip-experiences':     'https://images.unsplash.com/photo-1464822759023-fed622ff2c3b?w=800&q=75&auto=format&fit=crop',
 }
 
 interface ConciergeImageRow {
@@ -64,6 +64,7 @@ export async function GET() {
 export async function POST(req: NextRequest) {
   const session = await getAdminSession()
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  if (session.role !== 'super_admin') return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
   const formData = await req.formData().catch(() => null)
   if (!formData) return NextResponse.json({ error: 'Invalid form data' }, { status: 400 })
@@ -123,6 +124,7 @@ export async function POST(req: NextRequest) {
 export async function DELETE(req: NextRequest) {
   const session = await getAdminSession()
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  if (session.role !== 'super_admin') return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
   const body = await req.json().catch(() => ({})) as { slug?: string }
   if (!body.slug || !DEFAULTS[body.slug]) {
@@ -139,13 +141,13 @@ export async function DELETE(req: NextRequest) {
 
 function slugToLabel(slug: string): string {
   const labels: Record<string, string> = {
-    'airport-services':      'Airport Services',
-    'executive-transport':   'Executive Transport',
-    'private-aviation':      'Private Aviation',
-    'yacht-marine':          'Yacht & Marine',
-    'lifestyle-concierge':   'Lifestyle Concierge',
-    'tickets-entertainment': 'Tickets & Entertainment',
-    'vip-experiences':       'VIP Experiences',
+    'airport-services':    'Airport Services',
+    'executive-transport': 'Executive Transport',
+    'private-aviation':    'Private Aviation',
+    'yacht-marine':        'Yacht & Marine',
+    'lifestyle':           'Lifestyle Concierge',
+    'tickets':             'Tickets & Entertainment',
+    'vip-experiences':     'VIP Experiences',
   }
   return labels[slug] ?? slug
 }

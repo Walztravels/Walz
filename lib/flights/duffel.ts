@@ -167,6 +167,7 @@ export function duffelOfferToItinerary(offer: any, paxCount: number): FlightItin
     refundable: false,
     changeable: false,
     baggageInfo,
+    expiresAt:  offer.expires_at ?? undefined,
   }
 }
 

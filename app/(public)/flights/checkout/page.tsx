@@ -10,6 +10,7 @@ import { processorsFor } from '@/lib/payments/processors'
 import type { Processor } from '@/lib/payments/processors'
 import GatewaySelector from '@/components/payments/GatewaySelector'
 import { useCurrency } from '@/lib/context/CurrencyContext'
+import type { FxQuote } from '@/lib/payments/fx'
 
 const stripePromise = process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY
   ? loadStripe(process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY)
@@ -126,7 +127,7 @@ function PaymentForm({ grand, intentId }: { grand: number; intentId: string }) {
       </button>
 
       <div className="flex items-center justify-center gap-6 text-[11px] text-[#0B1F3A]/30">
-        {['🔒 SSL Secured', '✈️ IATA Certified', '💰 Price Match', '✅ ATOL Protected'].map(b => (
+        {['🔒 SSL Secured', '✈️ IATA Certified', '💰 Price Match'].map(b => (
           <span key={b}>{b}</span>
         ))}
       </div>
@@ -135,7 +136,19 @@ function PaymentForm({ grand, intentId }: { grand: number; intentId: string }) {
 }
 
 // ── Flutterwave checkout ─────────────────────────────────────────────────────
-function FlutterwaveCheckout({ grand }: { grand: number }) {
+function FlutterwaveCheckout({
+  grand,
+  chargeCurrency,
+  chargeAmount,
+  validateOffer,
+  disabled,
+}: {
+  grand:           number
+  chargeCurrency:  string
+  chargeAmount:    number
+  validateOffer:   () => Promise<boolean>
+  disabled?:       boolean
+}) {
   const router   = useRouter()
   const { setConfirmed, selected, passengers } = useFlightStore()
   const [processing, setProcessing] = useState(false)
@@ -144,12 +157,14 @@ function FlutterwaveCheckout({ grand }: { grand: number }) {
   const lead = passengers[0]
 
   async function handlePayment() {
+    if (disabled) return
+    if (!(await validateOffer())) return
     const flwKey = process.env.NEXT_PUBLIC_FLW_PUBLIC_KEY
     if (!flwKey) {
       setError('Flutterwave is not configured. Please choose another payment method.')
       return
     }
-    if (!grand || grand <= 0) {
+    if (!chargeAmount || chargeAmount <= 0) {
       setError('No payment amount — please go back and select a flight.')
       return
     }
@@ -205,11 +220,12 @@ function FlutterwaveCheckout({ grand }: { grand: number }) {
 
       setProcessing(false)
 
+      console.log('[FLW] popup config:', { amount: chargeAmount, currency: chargeCurrency })
       ;(win.FlutterwaveCheckout as (config: unknown) => void)({
         public_key:      flwKey,
         tx_ref:          txRef,
-        amount:          Math.round(grand * 100) / 100,
-        currency:        selected?.price.currency ?? 'GBP',
+        amount:          chargeAmount,
+        currency:        chargeCurrency,
         payment_options: 'card,banktransfer,ussd,mobilemoney',
         customer: {
           email:        customerEmail,
@@ -244,15 +260,17 @@ function FlutterwaveCheckout({ grand }: { grand: number }) {
                     email:        p.email ?? '',
                     phone_number: p.phone ?? '',
                   })),
-                  paidAmount:     String(grand),
-                  currency:       selected?.price.currency ?? 'GBP',
-                  paymentMethod:  'flutterwave',
-                  paymentRef:     String(response.transaction_id),
-                  searchedOrigin: segs[0]?.departureIata ?? '',
-                  searchedDest:   segs[segs.length - 1]?.arrivalIata ?? '',
-                  departDate:     segs[0]?.departureTime?.split('T')[0] ?? '',
-                  cabinClass:     segs[0]?.cabinClass?.toLowerCase() ?? 'economy',
-                  tripType:       selected?.returnSegments?.length ? 'round_trip' : 'one_way',
+                  paidAmount:      String(chargeAmount),
+                  currency:        chargeCurrency,
+                  fareCurrency:    selected?.price.currency ?? 'GBP',
+                  fareAmount:      String(grand),
+                  paymentMethod:   'flutterwave',
+                  paymentRef:      String(response.transaction_id),
+                  searchedOrigin:  segs[0]?.departureIata ?? '',
+                  searchedDest:    segs[segs.length - 1]?.arrivalIata ?? '',
+                  departDate:      segs[0]?.departureTime?.split('T')[0] ?? '',
+                  cabinClass:      segs[0]?.cabinClass?.toLowerCase() ?? 'economy',
+                  tripType:        selected?.returnSegments?.length ? 'round_trip' : 'one_way',
                 }),
               })
               const data = await res.json()
@@ -292,7 +310,11 @@ function FlutterwaveCheckout({ grand }: { grand: number }) {
         <div className="bg-[#FAF7F2] rounded-xl p-4 flex items-center justify-between">
           <div>
             <p className="text-xs text-[#0B1F3A]/40 uppercase tracking-wider mb-0.5">Amount Due</p>
-            <p className="font-display text-2xl font-bold text-[#0B1F3A]">£{grand.toFixed(0)}</p>
+            <p className="font-display text-2xl font-bold text-[#0B1F3A]">
+              {chargeCurrency === 'NGN'
+                ? `₦${chargeAmount.toLocaleString()}`
+                : `£${chargeAmount.toFixed(0)}`}
+            </p>
           </div>
           <div className="flex gap-2">
             {['💳', '🏦', '📱'].map((icon, i) => (
@@ -317,7 +339,7 @@ function FlutterwaveCheckout({ grand }: { grand: number }) {
         </div>
       )}
 
-      <button type="button" disabled={processing} onClick={handlePayment}
+      <button type="button" disabled={processing || disabled} onClick={handlePayment}
         className="w-full py-4 rounded-xl font-bold text-base transition-all disabled:opacity-50 flex items-center justify-center gap-3"
         style={{ background: 'linear-gradient(135deg, #F5A623 0%, #F7630C 100%)', color: '#fff' }}>
         {processing ? (
@@ -330,7 +352,7 @@ function FlutterwaveCheckout({ grand }: { grand: number }) {
             <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
             </svg>
-            Pay £{grand.toFixed(0)} with Flutterwave
+            Pay {chargeCurrency === 'NGN' ? `₦${chargeAmount.toLocaleString()}` : `£${chargeAmount.toFixed(0)}`} with Flutterwave
           </>
         )}
       </button>
@@ -343,7 +365,11 @@ function FlutterwaveCheckout({ grand }: { grand: number }) {
 }
 
 // ── Crypto checkout ──────────────────────────────────────────────────────────
-function CryptoCheckout({ grand }: { grand: number }) {
+function CryptoCheckout({ grand, validateOffer, disabled }: {
+  grand:          number
+  validateOffer:  () => Promise<boolean>
+  disabled?:      boolean
+}) {
   const { selected, passengers } = useFlightStore()
   const [paying, setPaying]   = useState(false)
   const [error,  setError]    = useState<string | null>(null)
@@ -352,6 +378,8 @@ function CryptoCheckout({ grand }: { grand: number }) {
   const segs = selected?.segments ?? []
 
   async function handlePay() {
+    if (disabled) return
+    if (!(await validateOffer())) return
     setPaying(true)
     setError(null)
 
@@ -436,7 +464,7 @@ function CryptoCheckout({ grand }: { grand: number }) {
         </div>
       )}
 
-      <button type="button" disabled={paying} onClick={handlePay}
+      <button type="button" disabled={paying || disabled} onClick={handlePay}
         className="w-full py-4 rounded-xl font-bold text-base transition-all disabled:opacity-50 flex items-center justify-center gap-3 bg-[#0B1F3A] text-[#C9A84C] hover:bg-[#1a3358]">
         {paying ? (
           <>
@@ -461,7 +489,23 @@ function CryptoCheckout({ grand }: { grand: number }) {
 }
 
 // ── Paystack checkout ────────────────────────────────────────────────────────
-function PaystackCheckout({ grand, currency }: { grand: number; currency: string }) {
+function PaystackCheckout({
+  grand,
+  currency,
+  chargeCurrency,
+  chargeAmount,
+  fxQuote,
+  validateOffer,
+  disabled,
+}: {
+  grand:           number
+  currency:        string
+  chargeCurrency:  string
+  chargeAmount:    number
+  fxQuote:         FxQuote | null
+  validateOffer:   () => Promise<boolean>
+  disabled?:       boolean
+}) {
   const router  = useRouter()
   const { setConfirmed, selected, passengers } = useFlightStore()
   const [processing, setProcessing] = useState(false)
@@ -470,10 +514,12 @@ function PaystackCheckout({ grand, currency }: { grand: number; currency: string
   const lead = passengers[0]
 
   async function handlePay() {
+    if (disabled) return
+    if (!(await validateOffer())) return
     setProcessing(true)
     setError(null)
     try {
-      const origin    = window.location.origin
+      const origin      = window.location.origin
       const callbackUrl = `${origin}/flights/checkout?ps_ref=WALZ_PS_REF`
 
       const res = await fetch('/api/payments/paystack/initialize', {
@@ -481,13 +527,23 @@ function PaystackCheckout({ grand, currency }: { grand: number; currency: string
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           email:       lead?.email || 'customer@walztravels.com',
-          amount:      grand,
-          currency,
+          // chargeAmount is in Naira (whole number); route multiplies by 100 for kobo
+          amount:      chargeAmount,
+          currency:    chargeCurrency,
           callbackUrl,
           metadata: {
             flight_offer_id: selected?.id ?? '',
             client_name: `${lead?.firstName ?? ''} ${lead?.lastName ?? ''}`.trim(),
           },
+          // FX tracking
+          fareCurrency: currency,
+          fareAmount:   grand,
+          ...(fxQuote ? {
+            fxRate:      fxQuote.rate,
+            fxMargin:    fxQuote.marginRate / fxQuote.rate - 1,
+            fxSource:    fxQuote.source,
+            fxQuotedAt:  fxQuote.fetchedAt,
+          } : {}),
         }),
       })
       const data = await res.json()
@@ -517,7 +573,9 @@ function PaystackCheckout({ grand, currency }: { grand: number; currency: string
           <div>
             <p className="text-xs text-[#0B1F3A]/40 uppercase tracking-wider mb-0.5">Amount Due</p>
             <p className="font-display text-2xl font-bold text-[#0B1F3A]">
-              {currency} {grand.toLocaleString()}
+              {chargeCurrency === 'NGN'
+                ? `₦${chargeAmount.toLocaleString()}`
+                : `${chargeCurrency} ${chargeAmount.toLocaleString()}`}
             </p>
           </div>
           <div className="flex gap-2">
@@ -540,7 +598,7 @@ function PaystackCheckout({ grand, currency }: { grand: number; currency: string
           <p className="text-sm text-red-700 font-medium">{error}</p>
         </div>
       )}
-      <button type="button" disabled={processing} onClick={handlePay}
+      <button type="button" disabled={processing || disabled} onClick={handlePay}
         className="w-full py-4 rounded-xl font-bold text-base transition-all disabled:opacity-50 flex items-center justify-center gap-3"
         style={{ background: 'linear-gradient(135deg, #00B09B 0%, #00C853 100%)', color: '#fff' }}>
         {processing ? (
@@ -553,7 +611,7 @@ function PaystackCheckout({ grand, currency }: { grand: number; currency: string
             <svg className="w-5 h-5" viewBox="0 0 24 24" fill="none" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
             </svg>
-            Continue to Paystack
+            Pay {chargeCurrency === 'NGN' ? `₦${chargeAmount.toLocaleString()}` : `${chargeCurrency} ${chargeAmount.toLocaleString()}`} via Paystack
           </>
         )}
       </button>
@@ -618,7 +676,7 @@ const STEPS = ['Search', 'Seats', 'Travellers', 'Extras', 'Review', 'Pay']
 export default function CheckoutPage() {
   const router  = useRouter()
   const store   = useFlightStore()
-  const { selected, totalPrice, extrasTotal, seatsTotal, discountGBP } = store
+  const { selected, setSelected, totalPrice, extrasTotal, seatsTotal, discountGBP } = store
 
   const [clientSecret,        setClientSecret]        = useState<string | null>(null)
   const [intentId,            setIntentId]            = useState<string>('')
@@ -632,18 +690,86 @@ export default function CheckoutPage() {
   const [psReturnLoading,     setPsReturnLoading]     = useState(false)
   const [psReturnError,       setPsReturnError]       = useState<string | null>(null)
 
-  // Keep selected method in sync with what the resolved currency allows
-  const selectedCurrency = selected?.price.currency ?? 'GBP'
-  useEffect(() => {
-    const processors = processorsFor(selectedCurrency, grand)
-    if (processors.length > 0 && !processors.find(p => p.id === payMethod)) {
-      setPayMethod(processors[0].id)
-    }
-  }, [selectedCurrency]) // eslint-disable-line
+  // FX — Naira option
+  const [fxQuote,        setFxQuote]        = useState<FxQuote | null>(null)
+  const [fxLoading,      setFxLoading]      = useState(false)
+  const [chargeCurrency, setChargeCurrency] = useState<'GBP' | 'NGN'>('GBP')
+
+  // Offer expiry
+  const [offerSecsLeft,   setOfferSecsLeft]   = useState<number | null>(null)
+  const [offerExpired,    setOfferExpired]     = useState(false)
+  const [priceChanged,    setPriceChanged]     = useState<{ amount: number; currency: string } | null>(null)
+  const [offerValidating, setOfferValidating] = useState(false)
 
   const grand = totalPrice()
   const CURRENCY = selected?.price.currency ?? 'GBP'
   const { convert, format: formatCurrency, selectedCurrency: displayCurrency } = useCurrency()
+
+  // Effective charge values — NGN when opted in, GBP otherwise
+  const effectiveCurrency = chargeCurrency === 'NGN' && fxQuote ? 'NGN' : CURRENCY
+  const effectiveAmount   = chargeCurrency === 'NGN' && fxQuote ? fxQuote.amountTo : grand
+
+  // Keep selected method in sync with the effective charge currency
+  useEffect(() => {
+    const processors = processorsFor(effectiveCurrency, effectiveAmount)
+    if (processors.length > 0 && !processors.find(p => p.id === payMethod)) {
+      setPayMethod(processors[0].id)
+    }
+  }, [effectiveCurrency]) // eslint-disable-line
+
+  // Fetch FX quote when fare currency is GBP (only currency we convert from Duffel)
+  useEffect(() => {
+    if (CURRENCY !== 'GBP' || grand <= 0) return
+    setFxLoading(true)
+    fetch(`/api/flights/fx-quote?from=GBP&to=NGN&amount=${grand}`)
+      .then(r => r.ok ? r.json() : null)
+      .then(data => {
+        if (data?.available && data.quote) {
+          setFxQuote(data.quote as FxQuote)
+        }
+      })
+      .catch(() => {})
+      .finally(() => setFxLoading(false))
+  }, [grand, CURRENCY]) // eslint-disable-line
+
+  // Offer expiry countdown
+  useEffect(() => {
+    if (!selected?.expiresAt) return
+    const expiresMs = new Date(selected.expiresAt).getTime()
+    if (isNaN(expiresMs)) return
+    const tick = () => {
+      const secs = Math.floor((expiresMs - Date.now()) / 1000)
+      if (secs <= 0) { setOfferSecsLeft(0); setOfferExpired(true) }
+      else setOfferSecsLeft(secs)
+    }
+    tick()
+    const id = setInterval(tick, 1000)
+    return () => clearInterval(id)
+  }, [selected?.expiresAt]) // eslint-disable-line
+
+  async function validateOffer(): Promise<boolean> {
+    if (!selected?.id?.startsWith('off_')) return true
+    setOfferValidating(true)
+    try {
+      const res = await fetch(`/api/flights/offers/${selected.id}`)
+      if (!res.ok) return true  // network issue — don't block, let downstream fail
+      const data = await res.json()
+      if (new Date(data.expires_at).getTime() < Date.now()) {
+        setOfferExpired(true)
+        return false
+      }
+      const freshTotal = parseFloat(data.total_amount)
+      if (Math.abs(freshTotal - selected.price.total) > 0.01) {
+        setPriceChanged({ amount: freshTotal, currency: data.total_currency })
+        return false
+      }
+      return true
+    } catch {
+      return true  // network issue — don't block
+    } finally {
+      setOfferValidating(false)
+    }
+  }
 
   useEffect(() => {
     // Handle return from Stripe 3DS redirect
@@ -899,21 +1025,97 @@ export default function CheckoutPage() {
                    className="text-xs text-red-600 underline mt-1 block">Contact us on WhatsApp →</a>
               </div>
             )}
+            {/* Currency picker — Naira option (Tasks 2 & 3) */}
+            {CURRENCY === 'GBP' && !fxLoading && fxQuote && (
+              <div className="bg-white rounded-2xl border border-[#E2D9CC] p-4 space-y-3">
+                <p className="text-xs font-semibold text-[#0B1F3A]/50 uppercase tracking-wider">Choose your payment currency</p>
+                <div className="grid grid-cols-2 gap-2">
+                  {/* GBP option */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setChargeCurrency('GBP')
+                      const procs = processorsFor(CURRENCY, grand)
+                      if (procs.length > 0) setPayMethod(procs[0].id)
+                    }}
+                    className={`flex flex-col items-start p-3 rounded-xl border-2 transition-all text-left ${
+                      chargeCurrency === 'GBP'
+                        ? 'border-[#C9A84C] bg-[#FFF8E6]'
+                        : 'border-[#E2D9CC] hover:border-[#C9A84C]/50'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2 mb-1">
+                      <div className={`w-3.5 h-3.5 rounded-full border-2 flex items-center justify-center ${chargeCurrency === 'GBP' ? 'border-[#C9A84C] bg-[#C9A84C]' : 'border-gray-300'}`}>
+                        {chargeCurrency === 'GBP' && <div className="w-1.5 h-1.5 rounded-full bg-white" />}
+                      </div>
+                      <span className="text-xs font-bold text-[#0B1F3A]">Pay £{grand.toFixed(0)}</span>
+                    </div>
+                    <p className="text-[10px] text-[#0B1F3A]/40 ml-5">Stripe · Flutterwave</p>
+                  </button>
+                  {/* NGN option */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setChargeCurrency('NGN')
+                      const procs = processorsFor('NGN', fxQuote.amountTo)
+                      if (procs.length > 0) setPayMethod(procs[0].id)
+                    }}
+                    className={`flex flex-col items-start p-3 rounded-xl border-2 transition-all text-left ${
+                      chargeCurrency === 'NGN'
+                        ? 'border-[#C9A84C] bg-[#FFF8E6]'
+                        : 'border-[#E2D9CC] hover:border-[#C9A84C]/50'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2 mb-1">
+                      <div className={`w-3.5 h-3.5 rounded-full border-2 flex items-center justify-center ${chargeCurrency === 'NGN' ? 'border-[#C9A84C] bg-[#C9A84C]' : 'border-gray-300'}`}>
+                        {chargeCurrency === 'NGN' && <div className="w-1.5 h-1.5 rounded-full bg-white" />}
+                      </div>
+                      <span className="text-xs font-bold text-[#0B1F3A]">Pay ₦{fxQuote.amountTo.toLocaleString()}</span>
+                    </div>
+                    <p className="text-[10px] text-[#0B1F3A]/40 ml-5">Flutterwave · Paystack</p>
+                  </button>
+                </div>
+                {chargeCurrency === 'NGN' && (
+                  <p className="text-[10px] text-[#0B1F3A]/40 text-center">
+                    Rate includes FX margin · Settled in NGN · No hidden bank charges
+                  </p>
+                )}
+              </div>
+            )}
+
             {/* Payment method selector */}
             <GatewaySelector
-              currency={CURRENCY}
-              amount={grand}
+              currency={effectiveCurrency}
+              amount={effectiveAmount}
               selected={payMethod}
-              onSelect={(id) => setPayMethod(id)}
+              onSelect={(id, cur) => {
+                setPayMethod(id)
+                if (cur === 'NGN' && fxQuote) setChargeCurrency('NGN')
+                else if (cur !== 'NGN') setChargeCurrency('GBP')
+              }}
             />
 
             {/* Payment form */}
             {payMethod === 'nowpayments' ? (
-              <CryptoCheckout grand={grand} />
+              <CryptoCheckout grand={grand} validateOffer={validateOffer} disabled={offerExpired} />
             ) : payMethod === 'flutterwave' ? (
-              <FlutterwaveCheckout grand={grand} />
+              <FlutterwaveCheckout
+                grand={grand}
+                chargeCurrency={effectiveCurrency}
+                chargeAmount={effectiveAmount}
+                validateOffer={validateOffer}
+                disabled={offerExpired}
+              />
             ) : payMethod === 'paystack' ? (
-              <PaystackCheckout grand={grand} currency={CURRENCY} />
+              <PaystackCheckout
+                grand={grand}
+                currency={CURRENCY}
+                chargeCurrency={effectiveCurrency}
+                chargeAmount={effectiveAmount}
+                fxQuote={fxQuote}
+                validateOffer={validateOffer}
+                disabled={offerExpired}
+              />
             ) : loadingIntent ? (
               <div className="bg-white rounded-2xl border border-black/5 p-8 flex items-center justify-center">
                 <div className="text-center">
@@ -972,23 +1174,87 @@ export default function CheckoutPage() {
                 <div className="border-t border-black/5 pt-2 flex justify-between items-baseline">
                   <span className="font-bold text-[#0B1F3A]">Total</span>
                   <div className="text-right">
-                    <div className="text-xl font-bold text-[#0B1F3A]">£{grand.toFixed(2)}</div>
-                    {displayCurrency !== CURRENCY && (
+                    <div className="text-xl font-bold text-[#0B1F3A]">£{grand.toFixed(0)}</div>
+                    {displayCurrency !== CURRENCY && !(CURRENCY === 'GBP' && fxQuote) && (
                       <div className="text-xs text-[#0B1F3A]/50">≈ {formatCurrency(convert(grand, CURRENCY))}</div>
                     )}
                   </div>
                 </div>
+                {/* Naira equivalent — exact Flutterwave rate so the number matches the payment page */}
+                {CURRENCY === 'GBP' && fxQuote && chargeCurrency !== 'NGN' && (
+                  <div className="flex justify-between items-baseline pt-1">
+                    <span className="text-xs text-[#0B1F3A]/50">Or pay in Naira</span>
+                    <span className="text-sm font-semibold text-[#0B1F3A]">
+                      ₦{fxQuote.amountTo.toLocaleString()}
+                    </span>
+                  </div>
+                )}
               </div>
 
-              {displayCurrency !== CURRENCY && (
+              {displayCurrency !== CURRENCY && chargeCurrency !== 'NGN' && (
                 <p className="text-xs text-[#0B1F3A]/40 text-center">
                   Charged in {CURRENCY} · shown amount is approximate
                 </p>
               )}
 
-              <div className="bg-green-50 rounded-xl p-3">
-                <p className="text-xs font-semibold text-green-800">✅ ATOL Protected</p>
-                <p className="text-xs text-green-600 mt-0.5">Your money is 100% protected</p>
+              {/* Offer expiry countdown */}
+              {offerSecsLeft !== null && !offerExpired && (
+                <div className={`rounded-xl px-3 py-2 flex items-center justify-between text-xs border ${
+                  offerSecsLeft <= 300
+                    ? 'bg-amber-50 border-amber-200 text-amber-800'
+                    : 'bg-[#F7F5F2] border-[#E2D9CC] text-[#0B1F3A]/50'
+                }`}>
+                  <span>{offerSecsLeft <= 300 ? '⚠️ Price expires soon' : '⏱ Price held for'}</span>
+                  <span className="font-mono font-semibold tabular-nums">
+                    {String(Math.floor(offerSecsLeft / 60)).padStart(2, '0')}:{String(offerSecsLeft % 60).padStart(2, '0')}
+                  </span>
+                </div>
+              )}
+
+              {/* Offer expired */}
+              {offerExpired && (
+                <div className="bg-red-50 border border-red-200 rounded-xl p-4 text-center space-y-2">
+                  <p className="text-sm font-semibold text-red-700">This price has expired</p>
+                  <p className="text-xs text-red-500">Fares change in real time. Re-check to see the latest price.</p>
+                  <button
+                    type="button"
+                    onClick={() => { setSelected(null); router.push('/flights/search') }}
+                    className="text-xs font-bold text-red-700 underline underline-offset-2"
+                  >
+                    Re-check price →
+                  </button>
+                </div>
+              )}
+
+              {/* Price changed */}
+              {priceChanged && !offerExpired && (
+                <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 space-y-2">
+                  <p className="text-sm font-semibold text-amber-800">Price has changed</p>
+                  <p className="text-xs text-amber-700">
+                    New price: <span className="font-bold">{priceChanged.currency} {priceChanged.amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+                  </p>
+                  <div className="flex gap-2 pt-1">
+                    <button
+                      type="button"
+                      onClick={() => setPriceChanged(null)}
+                      className="flex-1 py-1.5 rounded-lg bg-amber-700 text-white text-xs font-bold"
+                    >
+                      Accept & continue
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => { setSelected(null); router.push('/flights/search') }}
+                      className="flex-1 py-1.5 rounded-lg border border-amber-400 text-amber-800 text-xs font-bold"
+                    >
+                      Re-search
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              <div className="bg-[#F7F5F2] rounded-xl p-3">
+                <p className="text-xs font-semibold text-[#0B1F3A]">🔒 SSL Encrypted · Stripe & Flutterwave</p>
+                <p className="text-xs text-[#0B1F3A]/50 mt-0.5">Your payment is secured with 256-bit TLS</p>
               </div>
             </div>
           </aside>

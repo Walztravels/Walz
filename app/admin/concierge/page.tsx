@@ -5,8 +5,10 @@ import {
   Sparkles, Search, ChevronDown, ChevronUp, Clock,
   CheckCircle, XCircle, AlertCircle, Loader2, User, FileText,
   Plus, Upload, RotateCcw, ImageIcon, ArrowLeft,
-  Plane, Briefcase, Car, Moon, Luggage, Star,
+  Plane, Briefcase, Car, Moon, Luggage, Star, Lock,
+  Pencil, Trash2, ToggleLeft, ToggleRight, LayoutGrid, AlertTriangle,
 } from 'lucide-react'
+import { useStaffPermissions } from '@/hooks/useStaffPermissions'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -523,6 +525,9 @@ function NewRequestPanel() {
 // ── Image manager ─────────────────────────────────────────────────────────────
 
 function ImageManagerPanel() {
+  const { role, loading: permLoading } = useStaffPermissions()
+  const isSuperAdmin = role === 'super_admin'
+
   const [images,    setImages]    = useState<ConciergeImage[]>([])
   const [loading,   setLoading]   = useState(true)
   const [dragging,  setDragging]  = useState<string | null>(null)
@@ -598,10 +603,22 @@ function ImageManagerPanel() {
     e.target.value = ''
   }
 
-  if (loading) {
+  if (permLoading || loading) {
     return (
       <div className="flex items-center justify-center py-20">
         <Loader2 className="w-7 h-7 text-[#C9A84C] animate-spin" />
+      </div>
+    )
+  }
+
+  if (!isSuperAdmin) {
+    return (
+      <div className="flex flex-col items-center justify-center py-20 gap-4 text-center">
+        <div className="w-14 h-14 rounded-full bg-gray-50 border border-gray-200 flex items-center justify-center">
+          <Lock className="w-6 h-6 text-gray-300" />
+        </div>
+        <p className="text-sm font-semibold text-gray-400">Super Admin access required</p>
+        <p className="text-xs text-gray-300 max-w-xs">Only Super Admins can edit concierge page images.</p>
       </div>
     )
   }
@@ -930,17 +947,300 @@ function RequestsPanel() {
   )
 }
 
+// ── Categories panel ─────────────────────────────────────────────────────────
+
+interface AdminCategory {
+  id:               string
+  slug:             string
+  name:             string
+  description:      string | null
+  icon:             string | null
+  fulfilment_modes: string[]
+  required_fields:  unknown[]
+  is_active:        boolean
+  sort_order:       number
+}
+
+function CategoriesPanel() {
+  const { role, loading: permLoading } = useStaffPermissions()
+  const isSuperAdmin = role === 'super_admin'
+
+  const [categories, setCategories] = useState<AdminCategory[]>([])
+  const [loading,    setLoading]    = useState(true)
+  const [saving,     setSaving]     = useState<string | null>(null)
+  const [deleting,   setDeleting]   = useState<string | null>(null)
+  const [editId,     setEditId]     = useState<string | null>(null)
+  const [editDraft,  setEditDraft]  = useState<Partial<AdminCategory>>({})
+  const [toast,      setToast]      = useState<{ msg: string; ok: boolean } | null>(null)
+
+  const showToast = (msg: string, ok = true) => {
+    setToast({ msg, ok })
+    setTimeout(() => setToast(null), 3500)
+  }
+
+  const load = useCallback(async () => {
+    setLoading(true)
+    try {
+      const res  = await fetch('/api/admin/concierge/categories')
+      const data = await res.json() as { categories?: AdminCategory[] }
+      setCategories(data.categories ?? [])
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  useEffect(() => { void load() }, [load])
+
+  // Find slugs that appear more than once
+  const slugCounts = categories.reduce<Record<string, number>>((acc, c) => {
+    acc[c.slug] = (acc[c.slug] ?? 0) + 1
+    return acc
+  }, {})
+  const duplicateSlugs = new Set(Object.entries(slugCounts).filter(([, n]) => n > 1).map(([s]) => s))
+
+  const startEdit = (cat: AdminCategory) => {
+    setEditId(cat.id)
+    setEditDraft({ name: cat.name, description: cat.description ?? '', icon: cat.icon ?? '' })
+  }
+
+  const cancelEdit = () => { setEditId(null); setEditDraft({}) }
+
+  const saveEdit = async (id: string) => {
+    setSaving(id)
+    try {
+      const res = await fetch(`/api/admin/concierge/categories/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(editDraft),
+      })
+      if (res.ok) {
+        const { category } = await res.json() as { category: AdminCategory }
+        setCategories(prev => prev.map(c => c.id === id ? category : c))
+        setEditId(null)
+        showToast('Saved')
+      } else {
+        showToast('Save failed', false)
+      }
+    } catch {
+      showToast('Network error', false)
+    } finally {
+      setSaving(null)
+    }
+  }
+
+  const toggleActive = async (cat: AdminCategory) => {
+    setSaving(cat.id)
+    try {
+      const res = await fetch(`/api/admin/concierge/categories/${cat.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ is_active: !cat.is_active }),
+      })
+      if (res.ok) {
+        const { category } = await res.json() as { category: AdminCategory }
+        setCategories(prev => prev.map(c => c.id === cat.id ? category : c))
+        showToast(category.is_active ? 'Shown on page' : 'Hidden from page')
+      }
+    } finally {
+      setSaving(null)
+    }
+  }
+
+  const deleteCategory = async (cat: AdminCategory) => {
+    if (!confirm(`Permanently delete "${cat.name}"? This cannot be undone.`)) return
+    setDeleting(cat.id)
+    try {
+      const res = await fetch(`/api/admin/concierge/categories/${cat.id}`, { method: 'DELETE' })
+      if (res.ok) {
+        setCategories(prev => prev.filter(c => c.id !== cat.id))
+        showToast(`"${cat.name}" deleted`)
+      } else {
+        showToast('Delete failed', false)
+      }
+    } catch {
+      showToast('Network error', false)
+    } finally {
+      setDeleting(null)
+    }
+  }
+
+  if (permLoading || loading) {
+    return (
+      <div className="flex items-center justify-center py-20">
+        <Loader2 className="w-7 h-7 text-[#C9A84C] animate-spin" />
+      </div>
+    )
+  }
+
+  if (!isSuperAdmin) {
+    return (
+      <div className="flex flex-col items-center justify-center py-20 gap-4 text-center">
+        <div className="w-14 h-14 rounded-full bg-gray-50 border border-gray-200 flex items-center justify-center">
+          <Lock className="w-6 h-6 text-gray-300" />
+        </div>
+        <p className="text-sm font-semibold text-gray-400">Super Admin access required</p>
+        <p className="text-xs text-gray-300 max-w-xs">Only Super Admins can edit or delete concierge categories.</p>
+      </div>
+    )
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between">
+        <div>
+          <h3 className="text-base font-bold text-[#0B1F3A]">Concierge Categories</h3>
+          <p className="text-xs text-gray-500 mt-0.5">{categories.length} total · {categories.filter(c => c.is_active).length} active on page</p>
+        </div>
+      </div>
+
+      {/* Toast */}
+      {toast && (
+        <div className={`text-xs px-4 py-2 rounded-lg font-semibold inline-flex items-center gap-2 ${toast.ok ? 'bg-green-50 text-green-700 border border-green-200' : 'bg-red-50 text-red-700 border border-red-200'}`}>
+          {toast.ok ? <CheckCircle className="w-3.5 h-3.5" /> : <XCircle className="w-3.5 h-3.5" />}
+          {toast.msg}
+        </div>
+      )}
+
+      {/* Duplicate warning */}
+      {duplicateSlugs.size > 0 && (
+        <div className="flex items-start gap-3 p-4 bg-amber-50 border border-amber-200 rounded-xl text-xs text-amber-800">
+          <AlertTriangle className="w-4 h-4 flex-shrink-0 mt-0.5" />
+          <div>
+            <p className="font-bold mb-0.5">Duplicate slugs detected</p>
+            <p>These slugs appear more than once: <span className="font-mono">{[...duplicateSlugs].join(', ')}</span>. Delete the extras below — only the first will show on the public page.</p>
+          </div>
+        </div>
+      )}
+
+      <div className="space-y-2">
+        {categories.map(cat => {
+          const isDuplicate = duplicateSlugs.has(cat.slug)
+          const isEditing   = editId === cat.id
+          const isSaving    = saving === cat.id
+          const isDeleting  = deleting === cat.id
+
+          return (
+            <div
+              key={cat.id}
+              className={`bg-white rounded-xl border overflow-hidden shadow-sm transition-all ${isDuplicate ? 'border-amber-300' : 'border-gray-100'}`}
+            >
+              {/* Row */}
+              <div className="flex items-center gap-3 px-4 py-3">
+                <span className="text-xl w-8 text-center flex-shrink-0">{cat.icon ?? '✦'}</span>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <p className="text-sm font-bold text-[#0B1F3A]">{cat.name}</p>
+                    {isDuplicate && (
+                      <span className="text-[10px] font-bold px-1.5 py-0.5 bg-amber-100 text-amber-700 border border-amber-200 rounded-full">Duplicate</span>
+                    )}
+                  </div>
+                  <p className="text-xs text-gray-400 font-mono">{cat.slug}</p>
+                  {cat.description && <p className="text-xs text-gray-400 mt-0.5 truncate max-w-sm">{cat.description}</p>}
+                </div>
+
+                <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full flex-shrink-0 ${cat.is_active ? 'bg-green-50 text-green-700' : 'bg-gray-100 text-gray-400'}`}>
+                  {cat.is_active ? 'Visible' : 'Hidden'}
+                </span>
+
+                {/* Toggle */}
+                <button
+                  onClick={() => void toggleActive(cat)}
+                  disabled={isSaving || isDeleting}
+                  title={cat.is_active ? 'Hide from page' : 'Show on page'}
+                  className="text-gray-400 hover:text-[#0B1F3A] transition-colors disabled:opacity-40 flex-shrink-0"
+                >
+                  {isSaving
+                    ? <Loader2 className="w-4 h-4 animate-spin" />
+                    : cat.is_active
+                      ? <ToggleRight className="w-5 h-5 text-green-500" />
+                      : <ToggleLeft className="w-5 h-5" />
+                  }
+                </button>
+
+                {/* Edit */}
+                <button
+                  onClick={() => isEditing ? cancelEdit() : startEdit(cat)}
+                  disabled={isDeleting}
+                  className="flex-shrink-0 p-1.5 rounded-lg border border-gray-200 hover:border-[#C9A84C] text-gray-400 hover:text-[#C9A84C] transition-colors disabled:opacity-40"
+                >
+                  {isEditing ? <XCircle className="w-4 h-4" /> : <Pencil className="w-4 h-4" />}
+                </button>
+
+                {/* Delete */}
+                <button
+                  onClick={() => void deleteCategory(cat)}
+                  disabled={isSaving || isDeleting}
+                  className="flex-shrink-0 p-1.5 rounded-lg border border-red-100 hover:border-red-300 text-red-300 hover:text-red-600 transition-colors disabled:opacity-40"
+                >
+                  {isDeleting ? <Loader2 className="w-4 h-4 animate-spin text-red-500" /> : <Trash2 className="w-4 h-4" />}
+                </button>
+              </div>
+
+              {/* Inline edit panel */}
+              {isEditing && (
+                <div className="px-4 pb-4 border-t border-gray-50 bg-gray-50/40 pt-3 space-y-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    <input
+                      placeholder="Display name"
+                      value={editDraft.name ?? ''}
+                      onChange={e => setEditDraft(p => ({ ...p, name: e.target.value }))}
+                      className="sm:col-span-2 text-sm px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:border-[#C9A84C] bg-white text-[#0B1F3A]"
+                    />
+                    <input
+                      placeholder="Icon emoji"
+                      value={editDraft.icon ?? ''}
+                      onChange={e => setEditDraft(p => ({ ...p, icon: e.target.value }))}
+                      className="text-sm px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:border-[#C9A84C] bg-white text-[#0B1F3A]"
+                    />
+                    <input
+                      placeholder="Description"
+                      value={editDraft.description ?? ''}
+                      onChange={e => setEditDraft(p => ({ ...p, description: e.target.value }))}
+                      className="sm:col-span-3 text-sm px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:border-[#C9A84C] bg-white text-[#0B1F3A]"
+                    />
+                  </div>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => void saveEdit(cat.id)}
+                      disabled={isSaving}
+                      className="flex items-center gap-1.5 px-4 py-2 bg-[#0B1F3A] text-[#C9A84C] text-xs font-bold rounded-lg hover:bg-[#162d52] disabled:opacity-50 transition-colors"
+                    >
+                      {isSaving ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <CheckCircle className="w-3.5 h-3.5" />}
+                      Save
+                    </button>
+                    <button
+                      onClick={cancelEdit}
+                      className="px-4 py-2 border border-gray-200 text-gray-500 text-xs rounded-lg hover:bg-gray-50 transition-colors"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          )
+        })}
+      </div>
+
+      {categories.length === 0 && (
+        <div className="text-center py-12 text-gray-400 text-sm">No categories found</div>
+      )}
+    </div>
+  )
+}
+
 // ── Page ──────────────────────────────────────────────────────────────────────
 
-type Tab = 'requests' | 'new' | 'media'
+type Tab = 'requests' | 'new' | 'media' | 'categories'
 
 export default function AdminConciergePage() {
   const [tab, setTab] = useState<Tab>('requests')
 
   const tabs: { key: Tab; label: string; icon: React.ReactNode }[] = [
-    { key: 'requests', label: 'Requests',    icon: <FileText  className="w-4 h-4" /> },
-    { key: 'new',      label: 'New Request', icon: <Plus      className="w-4 h-4" /> },
-    { key: 'media',    label: 'Page Images', icon: <ImageIcon className="w-4 h-4" /> },
+    { key: 'requests',   label: 'Requests',    icon: <FileText    className="w-4 h-4" /> },
+    { key: 'new',        label: 'New Request', icon: <Plus        className="w-4 h-4" /> },
+    { key: 'categories', label: 'Categories',  icon: <LayoutGrid  className="w-4 h-4" /> },
+    { key: 'media',      label: 'Page Images', icon: <ImageIcon   className="w-4 h-4" /> },
   ]
 
   return (
@@ -978,6 +1278,11 @@ export default function AdminConciergePage() {
       {tab === 'new'      && (
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
           <NewRequestPanel />
+        </div>
+      )}
+      {tab === 'categories' && (
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
+          <CategoriesPanel />
         </div>
       )}
       {tab === 'media'    && (
