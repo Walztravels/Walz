@@ -165,12 +165,15 @@ function AirportCombobox({ value, onChange, placeholder, error }: AirportCombobo
   return (
     <div className="relative">
       <div
+        role="button"
+        tabIndex={isOpen ? -1 : 0}
         className={cn(
-          'flex items-center gap-2 h-12 px-4 rounded-lg border bg-white cursor-text transition-all',
+          'flex items-center gap-2 h-12 px-4 rounded-lg border bg-white cursor-text transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#C9A84C] focus-visible:ring-offset-2',
           isOpen ? 'border-walz-gold ring-2 ring-walz-gold/20' : 'border-walz-border',
           error && 'border-walz-error'
         )}
         onClick={() => { setIsOpen(true); setQuery('') }}
+        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setIsOpen(true); setQuery('') } }}
       >
         {selected && !isOpen ? (
           <div className="flex items-center gap-2 flex-1 min-w-0">
@@ -195,7 +198,14 @@ function AirportCombobox({ value, onChange, placeholder, error }: AirportCombobo
 
       {isOpen && (
         <>
-          <div className="fixed inset-0 z-10" onClick={() => setIsOpen(false)} />
+          <div
+            role="button"
+            tabIndex={0}
+            aria-label="Close airport dropdown"
+            className="fixed inset-0 z-10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#C9A84C] focus-visible:ring-offset-2"
+            onClick={() => setIsOpen(false)}
+            onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setIsOpen(false) } }}
+          />
           <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-walz-border rounded-xl shadow-luxury z-20 overflow-hidden max-h-56 overflow-y-auto">
             {isFetching ? (
               <div className="px-4 py-3 text-sm text-walz-muted text-center">Searching airports…</div>

@@ -283,9 +283,15 @@ function SearchContent() {
 
       {/* Mobile filter sheet */}
       {showMobileFilters && (
-        <div className="lg:hidden fixed inset-0 z-50 bg-black/50" onClick={() => setShowMobileFilters(false)}>
-          <div className="absolute bottom-0 left-0 right-0 bg-white rounded-t-2xl max-h-[80vh] overflow-y-auto"
-            onClick={e => e.stopPropagation()}>
+        <div
+          role="button"
+          tabIndex={0}
+          aria-label="Close dialog"
+          onClick={(e) => { if (e.target === e.currentTarget) setShowMobileFilters(false) }}
+          onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setShowMobileFilters(false) } }}
+          className="lg:hidden fixed inset-0 z-50 bg-black/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#C9A84C] focus-visible:ring-offset-2"
+        >
+          <div className="absolute bottom-0 left-0 right-0 bg-white rounded-t-2xl max-h-[80vh] overflow-y-auto">
             <div className="sticky top-0 bg-white px-5 pt-4 pb-3 border-b border-black/5 flex items-center justify-between">
               <p className="font-semibold text-[#0B1F3A]">Filters</p>
               <button type="button" onClick={() => setShowMobileFilters(false)}

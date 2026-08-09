@@ -137,16 +137,16 @@ const nextConfig = {
         source:  '/:file(.*\\.(?:ico|png|jpg|jpeg|gif|webp|svg|woff2|woff|ttf))',
         headers: [{ key: 'Cache-Control', value: 'public, max-age=604800, stale-while-revalidate=2592000' }],
       },
-      // ── Admin: permissive iframe policy for Aircall widget ───────────────
-      // X-Frame-Options ALLOWALL lets the admin page embed cross-origin iframes.
-      // CSP here is broader than the public site — admin is authenticated only.
-      // Next.js uses last-matching-rule value for same-key headers, so this
-      // overrides the SAMEORIGIN + restrictive CSP set by the global rule above.
+      // ── Admin: Aircall widget policy ─────────────────────────────────────
+      // Walz EMBEDS Aircall iframes — X-Frame-Options on our domain controls who
+      // can frame walztravels.com, not what we can embed. ALLOWALL was wrong here.
+      // Removing it lets the global SAMEORIGIN rule apply (admin is never framed).
+      // Aircall iframes need microphone from phone.aircall.io / workspace.aircall.io.
+      // hid (USB HID) has no use case here and is removed.
       {
         source: '/admin/:path*',
         headers: [
-          { key: 'X-Frame-Options', value: 'ALLOWALL' },
-          { key: 'Permissions-Policy', value: 'microphone=*, camera=*, clipboard-read=*, clipboard-write=*, hid=*, geolocation=(self), payment=(self)' },
+          { key: 'Permissions-Policy', value: 'microphone=(self "https://phone.aircall.io" "https://workspace.aircall.io"), camera=(self), clipboard-read=(self), clipboard-write=(self), geolocation=(self), payment=(self)' },
           {
             key:   'Content-Security-Policy',
             value: [

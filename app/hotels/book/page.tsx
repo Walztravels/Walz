@@ -1,5 +1,6 @@
 'use client'
 
+import Image from 'next/image'
 import { useEffect, useState, Suspense } from 'react'
 import { useRouter } from 'next/navigation'
 import {
@@ -56,9 +57,9 @@ function Gallery({ images, name }: { images: string[]; name: string }) {
         {/* Main image */}
         <div className="col-span-4 sm:col-span-2 row-span-2 relative overflow-hidden group cursor-pointer bg-walz-off-white"
           onClick={() => setLightbox(main)}>
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={safe(main)} alt={name} onError={e => { (e.currentTarget as HTMLImageElement).src = FALLBACK }}
-            className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-105" />
+          <Image src={safe(main)} alt={name} fill
+            onError={e => { (e.currentTarget as HTMLImageElement).src = FALLBACK }}
+            className="object-cover transition-transform duration-500 group-hover:scale-105" />
           <div className="absolute inset-0 bg-black/0 group-hover:bg-black/10 transition-colors" />
         </div>
         {/* Thumbnails (up to 4) */}
@@ -67,10 +68,9 @@ function Gallery({ images, name }: { images: string[]; name: string }) {
             onClick={() => { if (images[i]) { setMain(i); setLightbox(i) } }}>
             {images[i] && (
               <>
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={safe(i)} alt={`${name} ${i + 1}`}
+                <Image src={safe(i)} alt={`${name} ${i + 1}`} fill
                   onError={e => { (e.currentTarget as HTMLImageElement).src = FALLBACK }}
-                  className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-110" />
+                  className="object-cover transition-transform duration-300 group-hover:scale-110" />
                 {i === 4 && images.length > 5 && (
                   <div className="absolute inset-0 bg-black/50 flex items-center justify-center">
                     <span className="text-white font-bold text-sm">+{images.length - 5} photos</span>
@@ -104,8 +104,8 @@ function Gallery({ images, name }: { images: string[]; name: string }) {
             onClick={e => { e.stopPropagation(); setLightbox(l => Math.min(images.length - 1, (l ?? 0) + 1)) }}>
             <ChevronRight className="w-6 h-6" />
           </button>
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={safe(lightbox)} alt={name} onClick={e => e.stopPropagation()}
+          <Image src={safe(lightbox)} alt={name} width={1200} height={800}
+            onClick={e => e.stopPropagation()}
             onError={e => { (e.currentTarget as HTMLImageElement).src = FALLBACK }}
             className="max-h-[90vh] max-w-[90vw] object-contain rounded-xl" />
           <p className="absolute bottom-4 left-0 right-0 text-center text-white/50 text-sm">
@@ -533,11 +533,10 @@ function HotelBookPageContent() {
                 <h2 className="font-display font-bold text-walz-deep-navy text-xl mb-3">Photos</h2>
                 <div className="grid grid-cols-3 gap-2">
                   {hotel.images.slice(0, 6).map((img, i) => (
-                    <div key={i} className="aspect-square rounded-xl overflow-hidden bg-walz-off-white">
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img src={img} alt={`${hotel.name} ${i + 1}`}
+                    <div key={i} className="relative aspect-square rounded-xl overflow-hidden bg-walz-off-white">
+                      <Image src={img} alt={`${hotel.name} ${i + 1}`} fill
                         onError={e => { (e.currentTarget as HTMLImageElement).src = FALLBACK }}
-                        className="w-full h-full object-cover" />
+                        className="object-cover" />
                     </div>
                   ))}
                 </div>

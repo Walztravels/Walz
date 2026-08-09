@@ -62,7 +62,14 @@ function Lightbox({ photos, index, onClose, onNav }: LightboxProps) {
   }, [handleKey])
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/95" onClick={onClose}>
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#C9A84C] focus-visible:ring-offset-2"
+      role="button"
+      tabIndex={0}
+      aria-label="Close lightbox"
+      onClick={onClose}
+      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClose() } }}
+    >
       {/* Close */}
       <button
         className="absolute top-4 right-4 text-white/70 hover:text-white z-10"
@@ -87,7 +94,14 @@ function Lightbox({ photos, index, onClose, onNav }: LightboxProps) {
       )}
 
       {/* Image */}
-      <div className="max-w-5xl max-h-[80vh] px-16" onClick={(e) => e.stopPropagation()}>
+      <div
+        className="max-w-5xl max-h-[80vh] px-16 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#C9A84C] focus-visible:ring-offset-2"
+        role="button"
+        tabIndex={0}
+        aria-label="View photo"
+        onClick={(e) => e.stopPropagation()}
+        onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation() } }}
+      >
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
           src={photos[index]}

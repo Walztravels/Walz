@@ -85,7 +85,12 @@ function CoverLetterModal({ sessionId, memberId, memberName, onClose }: {
 
   return (
     <>
-      <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50" onClick={onClose} />
+      <button
+        type="button"
+        aria-label="Close"
+        onClick={onClose}
+        className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 text-left w-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#C9A84C] focus-visible:ring-offset-2"
+      />
       <div className="fixed inset-4 top-12 bottom-12 max-w-2xl mx-auto z-50 bg-white rounded-3xl shadow-2xl flex flex-col overflow-hidden">
         <div className="bg-[#0B1F3A] px-5 py-4 flex items-center justify-between flex-shrink-0">
           <div>

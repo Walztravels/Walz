@@ -87,7 +87,14 @@ export function HotelBookingModal({ hotel, checkIn, checkOut, adults, rooms, onC
 
   return (
     <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4">
-      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={step === 'confirmed' ? onClose : undefined} />
+      <div
+        role="button"
+        tabIndex={step === 'confirmed' ? 0 : -1}
+        aria-label="Close dialog"
+        onClick={step === 'confirmed' ? onClose : undefined}
+        onKeyDown={(e) => { if ((e.key === 'Enter' || e.key === ' ') && step === 'confirmed') { e.preventDefault(); onClose() } }}
+        className="absolute inset-0 bg-black/60 backdrop-blur-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#C9A84C] focus-visible:ring-offset-2"
+      />
 
       <div className="relative bg-white w-full sm:max-w-lg rounded-t-3xl sm:rounded-2xl shadow-2xl max-h-[95vh] flex flex-col">
 

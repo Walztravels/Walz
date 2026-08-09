@@ -1,5 +1,6 @@
 'use client'
 
+import Image from 'next/image'
 import { useState, useEffect, useMemo, Suspense } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
 import {
@@ -146,10 +147,9 @@ function HotelImage({ images, name }: { images: string[]; name: string }) {
 
   return (
     <div className="relative w-60 flex-shrink-0 overflow-hidden group bg-walz-off-white">
-      {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img key={src} src={src} alt={name}
+      <Image key={src} src={src} alt={name} fill
         onError={() => setOk(false)} onLoad={() => setOk(true)}
-        className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105" />
+        className="object-cover transition-transform duration-300 group-hover:scale-105" />
       {images.length > 1 && (
         <>
           <button onClick={e => { e.stopPropagation(); setIdx(i => (i - 1 + images.length) % images.length); setOk(true) }}
@@ -496,11 +496,11 @@ function HotelsPageContent() {
       <section id="hotel-search" className="relative overflow-hidden flex flex-col">
         {/* Background image */}
         <div className="absolute inset-0">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
+          <Image
             src="https://images.unsplash.com/photo-1571896349842-33c89424de2d?w=1920&q=80"
             alt="Luxury hotel pool and accommodation"
-            className="w-full h-full object-cover"
+            fill
+            className="object-cover"
           />
           <div className="absolute inset-0 bg-gradient-to-b from-[#0B1F3A]/75 via-[#0B1F3A]/65 to-[#060f1e]" />
         </div>
@@ -542,7 +542,12 @@ function HotelsPageContent() {
               />
               {showDestDrop && destSugs.length > 0 && (
                 <>
-                  <div className="fixed inset-0 z-10" onClick={() => setShowDestDrop(false)} />
+                  <button
+                    type="button"
+                    aria-label="Close suggestions"
+                    onClick={() => setShowDestDrop(false)}
+                    className="fixed inset-0 z-10 text-left w-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#C9A84C] focus-visible:ring-offset-2"
+                  />
                   <div className="absolute top-full left-0 right-0 mt-1 bg-[#112240] border border-white/10 rounded-xl shadow-2xl z-20 overflow-hidden max-h-56 overflow-y-auto">
                     {destSugs.map(d => (
                       <button key={d.code} type="button" onClick={() => selectDest(d)}
@@ -655,9 +660,8 @@ function HotelsPageContent() {
                     className="relative rounded-2xl overflow-hidden aspect-square group cursor-pointer text-left">
                     <div className="absolute inset-0 bg-gradient-to-br from-[#112240] to-[#0a1628]" />
                     {dest.imageUrl && (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img src={dest.imageUrl} alt={dest.city}
-                        className="absolute inset-0 w-full h-full object-cover opacity-60 group-hover:opacity-75 group-hover:scale-105 transition-all duration-500" />
+                      <Image src={dest.imageUrl} alt={dest.city} fill
+                        className="object-cover opacity-60 group-hover:opacity-75 group-hover:scale-105 transition-all duration-500" />
                     )}
                     <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent" />
                     <div className="absolute top-3 left-3 bg-amber-500 text-black text-[10px] font-bold uppercase tracking-wider px-2 py-1 rounded-full">
@@ -827,7 +831,12 @@ function HotelsPageContent() {
       {/* Mobile filter drawer */}
       {showFilters && (
         <>
-          <div className="fixed inset-0 z-40 bg-black/40" onClick={() => setShowFilters(false)} />
+          <button
+            type="button"
+            aria-label="Close filters"
+            onClick={() => setShowFilters(false)}
+            className="fixed inset-0 z-40 bg-black/40 text-left w-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#C9A84C] focus-visible:ring-offset-2"
+          />
           <div className="fixed inset-y-0 left-0 z-50 w-72 bg-white shadow-luxury p-5 overflow-y-auto">
             <FilterPanel filters={filters} setFilters={setFilters} priceMax={priceMax} onClose={() => setShowFilters(false)} />
             <button onClick={() => setShowFilters(false)}

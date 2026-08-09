@@ -87,7 +87,12 @@ function EnquiryModal({ tourName, onClose }: { tourName: string; onClose: () => 
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
+      <button
+        type="button"
+        aria-label="Close"
+        onClick={onClose}
+        className="absolute inset-0 bg-black/60 backdrop-blur-sm text-left w-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#C9A84C] focus-visible:ring-offset-2"
+      />
       <div className="relative bg-white rounded-2xl shadow-luxury w-full max-w-lg max-h-[90vh] overflow-y-auto">
         <div className="sticky top-0 bg-walz-deep-navy p-5 rounded-t-2xl flex items-center justify-between">
           <div>

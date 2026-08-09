@@ -260,7 +260,14 @@ export function HotelSearchForm({ onResults, initialValues }: HotelSearchFormPro
 
             {isDestOpen && (
               <>
-                <div className="fixed inset-0 z-10" onClick={() => setIsDestOpen(false)} />
+                <div
+                  role="button"
+                  tabIndex={0}
+                  aria-label="Close destination dropdown"
+                  className="fixed inset-0 z-10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#C9A84C] focus-visible:ring-offset-2"
+                  onClick={() => setIsDestOpen(false)}
+                  onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setIsDestOpen(false) } }}
+                />
                 <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-walz-border rounded-xl shadow-luxury z-20 overflow-hidden max-h-56 overflow-y-auto">
                   {filteredDests.length === 0 ? (
                     <div className="px-4 py-3 text-sm text-walz-muted text-center">No destinations found</div>

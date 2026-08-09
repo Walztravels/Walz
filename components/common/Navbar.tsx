@@ -432,7 +432,14 @@ export function Navbar() {
         'fixed inset-0 z-[60] lg:hidden transition-opacity duration-300',
         isMobileOpen ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none',
       )}>
-        <div className="absolute inset-0 bg-black/60" onClick={() => setIsMobileOpen(false)} />
+        <div
+          role="button"
+          tabIndex={0}
+          aria-label="Close menu"
+          className="absolute inset-0 bg-black/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#C9A84C] focus-visible:ring-offset-2"
+          onClick={() => setIsMobileOpen(false)}
+          onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setIsMobileOpen(false) } }}
+        />
         <div
           className={cn(
             'absolute right-0 top-0 bottom-0 w-72 bg-walz-deep-navy shadow-luxury transition-transform duration-300 flex flex-col',

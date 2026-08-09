@@ -1,5 +1,6 @@
 'use client'
 
+import Image from 'next/image'
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useFlightStore } from '@/store/flightStore'
@@ -46,8 +47,9 @@ function LegCard({ label, segments, layovers, duration, returnLeg = false }: {
       {/* Card header — airline stripe */}
       <div className="bg-[#0B1F3A] px-5 py-3 flex items-center gap-3">
         <div className="w-9 h-9 rounded-xl bg-white/10 border border-white/10 flex items-center justify-center flex-shrink-0 overflow-hidden">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={first.airlineLogo} alt={first.airline}
+          <Image src={first.airlineLogo} alt={first.airline}
+            width={24}
+            height={24}
             className="w-6 h-6 object-contain"
             onError={e => {
               const img = e.currentTarget as HTMLImageElement
@@ -252,8 +254,9 @@ export default function ReviewPage() {
           <div className="flex flex-col sm:flex-row sm:items-center gap-5 pb-2">
             <div className="flex items-center gap-4 flex-1 min-w-0">
               <div className="w-16 h-16 rounded-2xl bg-white/10 border border-white/10 flex items-center justify-center flex-shrink-0 overflow-hidden">
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={seg0.airlineLogo} alt={seg0.airlineName}
+                <Image src={seg0.airlineLogo} alt={seg0.airlineName}
+                  width={40}
+                  height={40}
                   className="w-10 h-10 object-contain"
                   onError={e => {
                     const img = e.currentTarget as HTMLImageElement
@@ -485,10 +488,10 @@ export default function ReviewPage() {
             {/* Trust badges */}
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
               {[
-                { icon: '🔒', label: 'SSL Encrypted',     sub: '256-bit TLS'           },
+                { icon: '🔒', label: 'SSL Encrypted',         sub: '256-bit TLS'           },
                 { icon: '✈',  label: 'IATA Accredited',   sub: 'Official partner'       },
-                { icon: '🛡',  label: 'ATOL Protected',    sub: 'Your money is safe'     },
-                { icon: '💬', label: '24/7 Support',      sub: 'WhatsApp & phone'       },
+                { icon: '💳', label: 'Stripe & Flutterwave', sub: 'PCI DSS payments'   },
+                { icon: '💬', label: '24/7 Support',          sub: 'WhatsApp & phone'  },
               ].map(t => (
                 <div key={t.label} className="bg-white rounded-xl border border-black/5 p-3 text-center">
                   <p className="text-xl mb-1.5">{t.icon}</p>

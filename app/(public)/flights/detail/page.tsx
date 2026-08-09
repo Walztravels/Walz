@@ -1,6 +1,7 @@
 'use client'
 
-import { useState, Suspense } from 'react'
+import Image from 'next/image'
+import { useState, useEffect, Suspense } from 'react'
 import { useRouter } from 'next/navigation'
 import { MOCK_ITINERARY }    from '@/lib/flights/mockData'
 import { formatDuration, formatTime } from '@/lib/flights/utils'
@@ -29,6 +30,26 @@ const ANCILLARIES = [
   { id: 'fasttrack',  icon: '⚡', name: 'Fast Track Security',  desc: 'Skip the queues at security',       price: 18,  popular: false, link: ''       },
 ]
 
+interface CabinProfile {
+  cabinClass:  string
+  label:       string
+  headline:    string
+  subheadline: string
+  imageUrl:    string
+  badgeText:   string
+  badgeColor:  string
+  features:    string[]
+}
+
+function cabinKeyFromFare(fareName: string, segCabin: string): string {
+  const lower = fareName.toLowerCase()
+  if (lower.includes('first')) return 'FIRST'
+  if (lower.includes('business')) return 'BUSINESS'
+  if (segCabin === 'FIRST') return 'FIRST'
+  if (segCabin === 'BUSINESS') return 'BUSINESS'
+  return 'ECONOMY'
+}
+
 function DetailContent() {
   const router = useRouter()
   const { selected, setSelected, setStep } = useFlightStore()
@@ -37,6 +58,18 @@ function DetailContent() {
 
   const FARE_OPTIONS = buildFareOptions(it.price.total)
   const [selectedFare, setFare] = useState<FareOption>(FARE_OPTIONS[1])
+  const [cabinProfile, setCabinProfile] = useState<CabinProfile | null>(null)
+
+  const seg     = it.segments[0]
+  const segLast = it.segments[it.segments.length - 1]
+
+  useEffect(() => {
+    const key = cabinKeyFromFare(selectedFare.name, seg.cabinClass)
+    fetch(`/api/flights/cabin-profile?cabin=${key}`)
+      .then(r => r.ok ? r.json() : null)
+      .then(data => { if (data) setCabinProfile(data) })
+      .catch(() => {})
+  }, [selectedFare.name, seg.cabinClass])
 
   const TABLE_ROWS: { label: string; getValue: (f: FareOption) => string | boolean }[] = [
     { label: 'Price',          getValue: f => fp(f.price, f.currency)                                                          },
@@ -50,9 +83,6 @@ function DetailContent() {
 
   // Ensure store has this itinerary selected
   if (!selected) setSelected(it)
-
-  const seg     = it.segments[0]
-  const segLast = it.segments[it.segments.length - 1]
 
   const included = [
     { ok: true,                              label: selectedFare.baggage,                                                                              icon: '🧳' },
@@ -92,10 +122,11 @@ function DetailContent() {
               {/* Airline badge */}
               <div className="flex items-center gap-3 mb-5">
                 <div className="w-14 h-14 rounded-2xl bg-white/10 border border-white/10 flex items-center justify-center flex-shrink-0">
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img
+                  <Image
                     src={seg.airlineLogo}
                     alt={seg.airlineName}
+                    width={36}
+                    height={36}
                     className="w-9 h-9 object-contain"
                     onError={e => {
                       (e.currentTarget as HTMLImageElement).style.display = 'none';
@@ -296,63 +327,54 @@ function DetailContent() {
               </div>
             </div>
 
-            {/* Cabin gallery */}
-            {(() => {
-              const isBC = selectedFare.name.toLowerCase().includes('business')
-              const cabinPhotos = isBC ? [
-                { src: 'https://images.unsplash.com/photo-1540962351504-03099e0a754b?w=1200&h=700&fit=crop&q=85', label: 'Business Suite',  span2: true  },
-                { src: 'https://images.unsplash.com/photo-1436491865332-7a61a109cc05?w=600&h=380&fit=crop&q=85',  label: 'Business Lounge', span2: false },
-                { src: 'https://images.unsplash.com/photo-1607344645866-009c320b63e0?w=600&h=380&fit=crop&q=85',  label: 'Fine Dining',     span2: false },
-                { src: 'https://images.unsplash.com/photo-1559117207-f5157de3c88e?w=600&h=380&fit=crop&q=85',     label: 'Entertainment',   span2: false },
-                { src: 'https://images.unsplash.com/photo-1566073771259-6a8506099945?w=600&h=380&fit=crop&q=85',  label: 'Amenity Kit',     span2: false },
-              ] : [
-                { src: 'https://images.unsplash.com/photo-1542296332-2e4473faf563?w=1200&h=700&fit=crop&q=85',   label: 'Economy Cabin',   span2: true  },
-                { src: 'https://images.unsplash.com/photo-1502877338535-766e1452684a?w=600&h=380&fit=crop&q=85',  label: 'Window View',     span2: false },
-                { src: 'https://images.unsplash.com/photo-1474302770737-173ee21bab63?w=600&h=380&fit=crop&q=85',  label: 'In-Flight Meal',  span2: false },
-                { src: 'https://images.unsplash.com/photo-1559117207-f5157de3c88e?w=600&h=380&fit=crop&q=85',     label: 'Entertainment',   span2: false },
-                { src: 'https://images.unsplash.com/photo-1436491865332-7a61a109cc05?w=600&h=380&fit=crop&q=85',  label: 'Terminal Lounge', span2: false },
-              ]
-              return (
-                <div className="bg-white rounded-2xl overflow-hidden border border-black/5">
-                  <div className="p-5 border-b border-black/5 flex items-center justify-between">
-                    <div>
-                      <h2 className="font-display font-bold text-[#0B1F3A]">Cabin Experience</h2>
-                      <p className="text-[#0B1F3A]/50 text-sm">{seg.airlineName} · {selectedFare.name}</p>
-                    </div>
-                    <span className={`text-[10px] font-bold uppercase tracking-wider px-3 py-1 rounded-full ${isBC ? 'bg-[#C9A84C]/15 text-[#8B6914]' : 'bg-[#0B1F3A]/5 text-[#0B1F3A]/60'}`}>
-                      {isBC ? '★ Premium' : 'Economy'}
-                    </span>
+            {/* Cabin Experience — DB-driven */}
+            {cabinProfile && (
+              <div className="bg-white rounded-2xl overflow-hidden border border-black/5">
+                <div className="p-5 border-b border-black/5 flex items-center justify-between">
+                  <div>
+                    <h2 className="font-display font-bold text-[#0B1F3A]">Cabin Experience</h2>
+                    <p className="text-[#0B1F3A]/50 text-sm">{seg.airlineName} · {selectedFare.name}</p>
                   </div>
-                  <div className="p-4 grid grid-cols-2 gap-2">
-                    {cabinPhotos.map(({ src, label, span2 }) => (
-                      <div key={label} className={`relative rounded-xl overflow-hidden group ${span2 ? 'col-span-2 h-56' : 'h-36'}`}>
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img src={src} alt={label}
-                          className="absolute inset-0 w-full h-full object-cover transition-transform duration-500 group-hover:scale-105"
-                          loading="lazy" />
-                        <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent" />
-                        <p className="absolute bottom-3 left-3 text-white text-xs font-semibold">{label}</p>
+                  <span
+                    className="text-[10px] font-bold uppercase tracking-wider px-3 py-1 rounded-full text-white"
+                    style={{ backgroundColor: cabinProfile.badgeColor }}
+                  >
+                    {cabinProfile.badgeText}
+                  </span>
+                </div>
+
+                {/* Hero image */}
+                {cabinProfile.imageUrl && (
+                  <div className="relative h-56 overflow-hidden group">
+                      <Image
+                      src={cabinProfile.imageUrl}
+                      alt={cabinProfile.label}
+                      fill
+                      className="object-cover transition-transform duration-700 group-hover:scale-105"
+                    />
+                    <div className="absolute inset-0 bg-gradient-to-t from-[#0B1F3A]/70 via-transparent to-transparent" />
+                    <div className="absolute bottom-0 left-0 p-5 text-white">
+                      <p className="text-xl font-bold leading-tight">{cabinProfile.headline}</p>
+                      {cabinProfile.subheadline && (
+                        <p className="text-sm text-white/70 mt-1">{cabinProfile.subheadline}</p>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* Feature bullets */}
+                {(cabinProfile.features ?? []).length > 0 && (
+                  <div className="p-5 grid grid-cols-2 gap-2">
+                    {(cabinProfile.features as string[]).map((f, i) => (
+                      <div key={i} className="flex items-center gap-2 bg-[#FAF7F2] rounded-xl px-3 py-2.5">
+                        <span className="text-[#C9A84C] font-bold flex-shrink-0">✓</span>
+                        <span className="text-sm text-[#0B1F3A]">{f}</span>
                       </div>
                     ))}
                   </div>
-                  {isBC && (
-                    <div className="px-5 pb-5 grid grid-cols-3 gap-3">
-                      {[
-                        { icon: '↔', label: 'Lie-flat bed',   sub: 'Up to 78"'       },
-                        { icon: '⟳', label: 'Aisle access',   sub: 'All seats'        },
-                        { icon: '⌁', label: 'Privacy suite',  sub: 'Door included'    },
-                      ].map(f => (
-                        <div key={f.label} className="bg-[#FAF7F2] rounded-xl p-3 text-center">
-                          <p className="text-lg text-[#C9A84C] font-bold mb-0.5">{f.icon}</p>
-                          <p className="text-xs font-semibold text-[#0B1F3A]">{f.label}</p>
-                          <p className="text-[10px] text-[#0B1F3A]/40">{f.sub}</p>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              )
-            })()}
+                )}
+              </div>
+            )}
 
             {/* What's included */}
             <div className="bg-white rounded-2xl p-5 border border-black/5">
