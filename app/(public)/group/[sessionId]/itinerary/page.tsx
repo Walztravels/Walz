@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { BUSINESS, waLink } from '@/lib/config/business'
 import { useParams }           from 'next/navigation'
 import type { VisaRule } from '@/lib/visa-lookup'
 
@@ -503,7 +504,7 @@ export default function ItineraryPage() {
 
                         {v.rule.canWalzHelp && (
                           <div className="mt-3 pt-3 border-t border-white/10">
-                            <a href="https://wa.me/447459327417" target="_blank" rel="noopener noreferrer"
+                            <a href={waLink(BUSINESS.contacts.globalWhatsapp.e164)} target="_blank" rel="noopener noreferrer"
                               className="inline-flex items-center gap-1.5 bg-[#C9A84C] text-[#0B1F3A] text-[11px] font-bold px-3 py-1.5 rounded-lg hover:bg-[#E8C87A] transition">
                               Apply with Walz Travels →
                             </a>
@@ -794,7 +795,7 @@ export default function ItineraryPage() {
                   ))}
                 </div>
 
-                <a href="https://wa.me/447459327417?text=Hi%20Walz!%20I%20want%20to%20book%20a%20group%20trip%20to%20" target="_blank" rel="noopener noreferrer"
+                <a href={waLink(BUSINESS.contacts.globalWhatsapp.e164, 'Hi Walz! I want to book a group trip to ')} target="_blank" rel="noopener noreferrer"
                   className="inline-flex items-center gap-2 px-6 py-3 rounded-xl bg-[#0B1F3A] text-white text-sm font-bold hover:bg-[#132038] transition">
                   💬 WhatsApp us to start planning
                 </a>

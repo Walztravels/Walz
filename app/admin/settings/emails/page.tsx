@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { BUSINESS } from '@/lib/config/business'
 import { Save, Loader2, CheckCircle, Mail, Bell, ChevronDown, ChevronUp, Info } from 'lucide-react'
 
 // ── Email templates config ────────────────────────────────────────────────────
@@ -18,7 +19,7 @@ Welcome to Walz Travels! Your client portal is now active.
 Portal: https://walztravels.com/portal
 Reference: [reference]
 
-If you need help, WhatsApp Jade at +1 786 797 7884.
+If you need help, WhatsApp Jade at ${BUSINESS.contacts.globalWhatsapp.display}.
 
 Warm regards,
 The Walz Travels Team`,
@@ -38,7 +39,7 @@ Status: [status]
 
 Jade will review your application and contact you within 24 hours.
 
-If you have questions, WhatsApp us at +1 786 797 7884.
+If you have questions, WhatsApp us at ${BUSINESS.contacts.globalWhatsapp.display}.
 
 Best regards,
 Walz Travels`,
@@ -114,7 +115,7 @@ Instructions: [notes]
 
 Please complete the payment as soon as possible to avoid delays.
 
-WhatsApp Jade at +1 786 797 7884 if you have any questions.
+WhatsApp Jade at ${BUSINESS.contacts.globalWhatsapp.display} if you have any questions.
 
 Walz Travels`,
   },

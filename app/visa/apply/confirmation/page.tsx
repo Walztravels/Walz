@@ -1,6 +1,7 @@
 'use client'
 
 import { Suspense } from 'react'
+import { BUSINESS } from '@/lib/config/business'
 import { useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { CheckCircle, MessageCircle, LayoutDashboard, Clock, Mail, FileCheck, PhoneCall, Loader2 } from 'lucide-react'
@@ -15,7 +16,7 @@ function ConfirmationContent() {
   const whatsappMsg = encodeURIComponent(
     `Hi Jade! I just submitted my visa application. Reference: ${ref}. Please let me know if you need anything else.`
   )
-  const whatsappUrl = `https://wa.me/17867977884?text=${whatsappMsg}`
+  const whatsappUrl = `https://wa.me/${BUSINESS.contacts.globalWhatsapp.e164}?text=${whatsappMsg}`
 
   return (
     <div className="w-full max-w-lg">

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getAdminSession } from '@/lib/admin-auth'
 import { prisma } from '@/lib/db'
+import { BUSINESS } from '@/lib/config/business'
 import bcrypt from 'bcryptjs'
 import crypto from 'crypto'
 import { Resend } from 'resend'
@@ -215,7 +216,7 @@ export async function POST(req: NextRequest) {
     </div>
 
     <p style="margin:0;color:#9ca3af;font-size:12px;line-height:1.6;">
-      If you have any questions, WhatsApp Jade directly at <strong>+1 786 797 7884</strong>.
+      If you have any questions, WhatsApp Jade directly at <strong>${BUSINESS.contacts.globalWhatsapp.display}</strong>.
     </p>
   </td></tr>
 

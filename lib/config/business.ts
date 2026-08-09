@@ -1,15 +1,5 @@
 // Central business configuration — single source of truth for contact details,
 // office locations, and brand identity.
-//
-// THREE UNKNOWN NUMBERS REQUIRE OWNER DECISION BEFORE DEPLOYMENT:
-//   +1 786 797 7884 — app/admin/settings/emails/page.tsx (×3), app/visa/apply/confirmation/page.tsx,
-//                     app/api/admin/clients/route.ts (email template). Appears to be Jade AI line.
-//   +44 7389 753787 — app/payment/cancel/page.tsx, app/api/admin/payment-links/send/route.ts.
-//                     Appears in payment-failure client journey.
-//   +44 7459 327417 — app/(public)/group/[sessionId]/itinerary/page.tsx (×2).
-//                     Appears in group booking WhatsApp CTAs.
-//
-// Do NOT update those files until Seyi confirms ownership of each number.
 
 export const BUSINESS = {
   brand: 'Walz Travels',

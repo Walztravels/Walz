@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getAdminSession }           from '@/lib/admin-auth'
 import { Resend }                    from 'resend'
+import { BUSINESS } from '@/lib/config/business'
 
 export const dynamic = 'force-dynamic'
 
@@ -120,7 +121,7 @@ body{font-family:Arial,sans-serif;background:#f5f5f5;margin:0;padding:20px}
       </ol>
     </div>
     <p style="font-size:12px;color:#9CA3AF;margin-top:16px;text-align:center">
-      Questions? <a href="https://wa.me/447389753787" style="color:#C9A84C">WhatsApp us</a> or email
+      Questions? <a href="https://wa.me/${BUSINESS.contacts.globalWhatsapp.e164}" style="color:#C9A84C">WhatsApp us</a> or email
       <a href="mailto:contact@walztravels.com" style="color:#C9A84C">contact@walztravels.com</a>
     </p>
   </div>

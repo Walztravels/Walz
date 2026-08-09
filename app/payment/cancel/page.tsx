@@ -1,5 +1,6 @@
 'use client'
 import Link from 'next/link'
+import { BUSINESS, waLink } from '@/lib/config/business'
 
 export default function PaymentCancelPage() {
   return (
@@ -25,7 +26,7 @@ export default function PaymentCancelPage() {
             Back to Walz Travels
           </Link>
           <a
-            href="https://wa.me/447389753787"
+            href={waLink(BUSINESS.contacts.globalWhatsapp.e164)}
             target="_blank"
             rel="noopener noreferrer"
             className="border border-white/20 hover:border-white/40 text-white px-8 py-3.5 rounded-xl transition text-sm"
