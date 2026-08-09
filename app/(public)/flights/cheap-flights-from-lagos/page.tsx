@@ -28,7 +28,7 @@ const faqs = [
   },
   {
     q: 'How can I find cheap international flights from Lagos?',
-    a: 'To find cheap flights from Lagos: (1) Book 8–12 weeks ahead; (2) Fly mid-week (Tuesday or Wednesday); (3) Consider connecting flights via Addis Ababa, Doha, or Dubai; (4) Set price alerts with Walz Travels; (5) Be flexible on dates by ±3 days. Walz Travels has direct access to Sabre GDS for real-time pricing across 400+ airlines.',
+    a: 'To find cheap flights from Lagos: (1) Book 8–12 weeks ahead; (2) Fly mid-week (Tuesday or Wednesday); (3) Consider connecting flights via Addis Ababa, Doha, or Dubai; (4) Set price alerts with Walz Travels; (5) Be flexible on dates by ±3 days. Walz Travels has direct access to Sabre GDS for real-time pricing across hundreds of airlines.',
   },
   {
     q: 'Do I need a visa to fly from Lagos to London?',
@@ -95,13 +95,13 @@ export default function CheapFlightsFromLagosPage() {
               <span className="text-white/80">Cheap Flights from Lagos</span>
             </nav>
             <p className="text-amber-400 text-sm font-semibold uppercase tracking-wider mb-2">
-              Lagos (LOS) · 400+ Airlines · Live Fares
+              Lagos (LOS) · Global Airlines · Live Fares
             </p>
             <h1 className="text-3xl sm:text-4xl font-bold mb-4">
               Cheap Flights from Lagos 2026
             </h1>
             <p className="text-white/70 text-base max-w-2xl">
-              Find the best cheap international flights from Lagos Murtala Muhammed Airport (LOS) to London, Dubai, Toronto, New York and beyond. Walz Travels compares live fares across 400+ airlines.
+              Find the best cheap international flights from Lagos Murtala Muhammed Airport (LOS) to London, Dubai, Toronto, New York and beyond. Walz Travels compares live fares across hundreds of airlines.
             </p>
           </div>
         </div>
@@ -241,7 +241,7 @@ export default function CheapFlightsFromLagosPage() {
             </p>
             <h2 className="text-2xl font-bold text-white mb-3">Search Cheap Flights from Lagos</h2>
             <p className="text-white/60 text-sm mb-6">
-              Walz Travels searches live fares across 400+ airlines. WhatsApp us your route and travel dates for a personalised quote.
+              Walz Travels searches live fares across hundreds of airlines. WhatsApp us your route and travel dates for a personalised quote.
             </p>
             <div className="flex flex-col sm:flex-row gap-3 justify-center">
               <Link

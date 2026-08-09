@@ -3,13 +3,13 @@ import { StructuredData } from '@/components/StructuredData'
 
 export const metadata: Metadata = {
   title: 'Book Flights',
-  description: 'Search and book flights on 400+ airlines with Walz Travels. Real-time Sabre GDS inventory, 24/7 expert support and lowest available fares.',
+  description: 'Search and book flights on hundreds of airlines with Walz Travels. Real-time Sabre GDS inventory, 24/7 expert support and lowest available fares.',
   openGraph: {
     type: 'website',
     url: 'https://www.walztravels.com/flights',
     title: 'Book Flights | Walz Travels',
     description:
-      'Search and book flights worldwide with Walz Travels. Direct access to Sabre GDS gives you real-time inventory across 400+ airlines and the lowest available fares.',
+      'Search and book flights worldwide with Walz Travels. Direct access to Sabre GDS gives you real-time inventory across hundreds of airlines and the lowest available fares.',
     images: [
       {
         url: 'https://images.unsplash.com/photo-1436491865332-7a61a109cc05?w=1200&q=80',
@@ -23,7 +23,7 @@ export const metadata: Metadata = {
     card: 'summary_large_image',
     title: 'Book Flights | Walz Travels',
     description:
-      'Search 400+ airlines with Sabre GDS — best available fares, expert support.',
+      'Search hundreds of airlines with Sabre GDS — best available fares, expert support.',
   },
   alternates: {
     canonical: 'https://www.walztravels.com/flights',

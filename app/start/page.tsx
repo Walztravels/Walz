@@ -18,7 +18,7 @@ const SERVICES = [
   {
     icon: Plane,
     title: 'Book a Flight',
-    description: 'Search 400+ airlines via Sabre GDS for the best available fares. Economy, business and first class.',
+    description: 'Search hundreds of airlines via Sabre GDS for the best available fares. Economy, business and first class.',
     href: '/flights',
     cta: 'Search Flights',
     colour: 'from-[#0B3D7A] to-[#0B1F3A]',

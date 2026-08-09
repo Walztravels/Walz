@@ -80,7 +80,7 @@ export default function PressPage() {
               Walz Travels is a luxury travel agency headquartered in London, UK, with operations across Nigeria, Canada, the UAE and beyond. Founded in 2022, we help clients book flights, hotels, private tours, visas and travel insurance with expert guidance and 24/7 WhatsApp support.
             </p>
             <p>
-              Unlike online travel agencies, every booking is handled by a real travel expert — someone who has first-hand experience of the destinations they recommend. Our direct access to Sabre GDS gives clients real-time inventory across 400+ airlines and the lowest available fares.
+              Unlike online travel agencies, every booking is handled by a real travel expert — someone who has first-hand experience of the destinations they recommend. Our direct access to Sabre GDS gives clients real-time inventory across hundreds of airlines and the lowest available fares.
             </p>
             <p>
               Our visa team achieves a 90%+ approval rate by preparing every document meticulously, coaching clients through embassy interviews and following up proactively — a track record built on thousands of successful applications.

@@ -28,7 +28,7 @@ const FALLBACK_SLIDES: Slide[] = [
     line1: 'Fly Higher.',
     line2: 'Fly Further.',
     line3: 'Fly Smarter.',
-    sub: '900+ airlines. Business to economy. Real-time fares. Instant ticketing.',
+    sub: 'Hundreds of airlines. Business to economy. Real-time fares. Instant ticketing.',
     cta1Label: 'Search Flights →',
     cta1Href: '/flights',
     cta2Label: 'Ask Jade ✦',
@@ -256,7 +256,7 @@ export function MultiSlideHero() {
 
         {/* Trust line */}
         <p className="text-white/50 text-xs tracking-wider">
-          90%+ visa approval · 900+ airlines · 500K+ hotels · 24/7 expert support
+          90%+ visa approval · global airlines · 500K+ hotels · 24/7 expert support
         </p>
       </div>
 

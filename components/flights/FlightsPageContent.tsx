@@ -231,7 +231,7 @@ export function FlightsPageContent() {
             Search Flights Worldwide
           </h1>
           <p className="text-walz-muted text-sm mb-4">
-            400+ airlines · Sabre GDS · Best available fares
+            Global airlines · Sabre GDS · Best available fares
           </p>
         </div>
         <div data-search-form className="container-walz pb-6">

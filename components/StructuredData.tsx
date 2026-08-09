@@ -85,7 +85,7 @@ const schemas: Record<string, object> = {
         itemOffered: {
           '@type':       'Service',
           name:          'International Flight Booking',
-          description:   'Book flights on 900+ airlines with real-time fares from Lagos, Accra and beyond',
+          description:   'Book flights with real-time fares from Lagos, Accra and beyond',
         },
       }],
     },

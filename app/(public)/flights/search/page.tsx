@@ -203,7 +203,7 @@ function SearchContent() {
           <span className="text-5xl font-display font-bold text-white">{to}</span>
         </div>
 
-        <p className="text-[#C9A84C] text-sm font-semibold mb-1">Walz Travels · Searching 900+ airlines...</p>
+        <p className="text-[#C9A84C] text-sm font-semibold mb-1">Walz Travels · Searching all airlines...</p>
         <p className="text-white/30 text-xs mb-8">Comparing prices in real time</p>
 
         <div className="bg-white/5 rounded-2xl p-6 space-y-3 w-full max-w-lg mb-6">

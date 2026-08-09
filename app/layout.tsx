@@ -241,7 +241,7 @@ export default async function RootLayout({
                       name: 'What are the cheapest flights from Lagos to London?',
                       acceptedAnswer: {
                         '@type': 'Answer',
-                        text: 'The cheapest flights from Lagos (LOS) to London (LHR) typically route via Addis Ababa on Ethiopian Airlines, Dubai on Emirates, or Doha on Qatar Airways. Return economy fares start from approximately £400–£600. Walz Travels compares 400+ airlines to find the best available fare — search our flights page for live prices.',
+                        text: 'The cheapest flights from Lagos (LOS) to London (LHR) typically route via Addis Ababa on Ethiopian Airlines, Dubai on Emirates, or Doha on Qatar Airways. Return economy fares start from approximately £400–£600. Walz Travels compares hundreds of airlines to find the best available fare — search our flights page for live prices.',
                       },
                     },
                     {

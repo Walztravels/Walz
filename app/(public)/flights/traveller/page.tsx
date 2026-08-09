@@ -539,7 +539,7 @@ export default function TravellerPage() {
             <div className="bg-white rounded-2xl border border-black/5 p-4 grid grid-cols-2 gap-3">
               {[
                 { icon: '🔒', label: 'SSL Encrypted' },
-                { icon: '✈', label: '900+ Airlines' },
+                { icon: '✈', label: 'Global Airlines' },
                 { icon: '💬', label: '24/7 Support' },
                 { icon: '💰', label: 'Price Match' },
               ].map(({ icon, label }) => (

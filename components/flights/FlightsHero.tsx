@@ -99,7 +99,7 @@ export function FlightsHero() {
           </h1>
 
           <p className="text-white/55 text-base lg:text-lg max-w-md leading-relaxed mb-8">
-            900+ airlines. Business class to economy. Real-time fares.
+            Hundreds of airlines. Business class to economy. Real-time fares.
             Managed by Walz Travels&apos; expert concierge team — 24/7.
           </p>
 
@@ -132,8 +132,8 @@ export function FlightsHero() {
           {/* Trust badges */}
           <div className="mt-10 flex flex-wrap items-center gap-6">
             {[
-              { label: '900+ Airlines' },
-              { label: '900+ Airlines' },
+              { label: 'Global Airlines' },
+              { label: 'Price Guarantee' },
               { label: 'Price Guarantee' },
               { label: '24/7 Concierge' },
             ].map(({ label }) => (

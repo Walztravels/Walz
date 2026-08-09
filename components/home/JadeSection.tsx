@@ -16,7 +16,7 @@ const CAPABILITIES = [
   {
     icon: Search,
     title: 'Flight Search',
-    desc: 'Live prices from 400+ airlines. Jade finds the best fares in seconds.',
+    desc: 'Live prices across hundreds of airlines. Jade finds the best fares in seconds.',
   },
   {
     icon: Map,

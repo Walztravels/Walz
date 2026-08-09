@@ -493,7 +493,7 @@ export default function FlightRoutePage({ params }: Props) {
           {/* CTA */}
           <div className="bg-[#0B1F3A] rounded-2xl p-8 text-center">
             <p className="text-amber-400 text-sm font-semibold uppercase tracking-wider mb-2">
-              Live Fares · 400+ Airlines · 24/7 Support
+              Live Fares · Global Airlines · 24/7 Support
             </p>
             <h2 className="text-2xl font-bold text-white mb-2">
               Search {data.from}–{data.to} Flights

@@ -7,7 +7,7 @@ import { Globe, Lock, Signal, Check, MessageCircle, ChevronDown, ArrowRight } fr
 // ── Ticker ────────────────────────────────────────────────────────────────────
 export function EsimTicker() {
   const items = [
-    '📶 150+ COUNTRIES', '⚡ INSTANT ACTIVATION', '🔒 SECURE CONNECTION',
+    '📶 GLOBAL COVERAGE', '⚡ INSTANT ACTIVATION', '🔒 SECURE CONNECTION',
     '💳 NO CONTRACTS',   '📱 ALL ESIM PHONES',    '🌍 GLOBAL COVERAGE',
     '💰 FROM USD $9.99', '🎯 POWERED BY JADE',
   ]
@@ -225,7 +225,8 @@ export function EsimFAQ() {
 
 // ── CTA ───────────────────────────────────────────────────────────────────────
 function CountUpStat({ end, suffix, label }: { end: number; suffix: string; label: string }) {
-  const [current, setCurrent] = useState(0)
+  // Initialize to `end` so SSR and crawlers see the real value; animation overwrites on mount.
+  const [current, setCurrent] = useState(end)
   const divRef  = useRef<HTMLDivElement>(null)
   const firedRef = useRef(false)
 

@@ -497,7 +497,7 @@ function DetailContent() {
                 Skip seat selection
               </button>
               <div className="grid grid-cols-2 gap-2">
-                {['🔒 SSL Secured', '✈️ 900+ Airlines', '💬 24/7 Support', '💰 Price Match'].map(t => (
+                {['🔒 SSL Secured', '✈️ Global Airlines', '💬 24/7 Support', '💰 Price Match'].map(t => (
                   <div key={t} className="text-xs text-[#0B1F3A]/40">{t}</div>
                 ))}
               </div>

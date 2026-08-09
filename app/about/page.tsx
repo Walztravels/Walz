@@ -4,6 +4,7 @@ import { useState, useEffect, useRef } from 'react'
 import Link from 'next/link'
 import gsap from 'gsap'
 import ScrollTrigger from 'gsap/ScrollTrigger'
+import { BUSINESS } from '@/lib/config/business'
 import {
   Plane, Building2, Leaf, Globe, CheckCircle, MessageCircle,
   ArrowRight, ChevronDown, MapPin, ShieldCheck, Briefcase,
@@ -39,11 +40,11 @@ const TIMELINE_FALLBACK: TimelineItem[] = [
   { id: '1', icon: 'plane',    title: 'Where It Began',     order: 0, description: 'Walz Travels launched as a boutique travel consultancy in Dubai — serving the African diaspora in the UAE and building a reputation for expert visa processing and travel support.' },
   { id: '2', icon: 'landmark', title: 'Expanding to Europe', order: 1, description: 'Formally registered in the United Kingdom. Expanded visa processing and travel services for Nigerian and Ghanaian diaspora across the UK and Europe.' },
   { id: '3', icon: 'leaf',     title: 'North America',        order: 2, description: 'Opened Canadian operations in Ontario. Launched Niagara Falls private tours and Canada visa processing for diaspora clients across North America.' },
-  { id: '4', icon: 'globe',    title: 'Global Platform',     order: 3, description: 'THE WALZ TRAVELS INC incorporated in Ontario, Canada. Full global travel platform launched at walztravels.com — serving clients across six markets worldwide.' },
+  { id: '4', icon: 'globe',    title: 'Global Platform',     order: 3, description: 'THE WALZ TRAVELS INC incorporated in Ontario, Canada. Full global travel platform launched at walztravels.com — serving clients across five markets worldwide.' },
 ]
 
 const STATS = [
-  { to: 6,   suffix: '',   label: 'Markets Served'     },
+  { to: BUSINESS.offices.filter(o => o.active).length, suffix: '',   label: 'Markets Served'     },
   { to: 90,  suffix: '%+', label: 'Visa Approval Rate' },
   { to: 199, suffix: '',   label: 'Countries Covered'  },
   { to: 24,  suffix: '/7', label: 'Expert Support'     },
@@ -84,6 +85,8 @@ const ICON_MAP: Record<string, React.ElementType> = {
 // ── Component ─────────────────────────────────────────────────────────────────
 
 export default function AboutPage() {
+  const activeMarketCount = BUSINESS.offices.filter(o => o.active).length
+
   // Hero state
   const [bgIndex, setBgIndex]         = useState(0)
   const [heroImages, setHeroImages]   = useState(HERO_IMAGES)
@@ -358,7 +361,7 @@ export default function AboutPage() {
             ref={sublineRef}
             className="text-white/75 text-lg sm:text-xl mb-10 max-w-lg"
           >
-            Six markets. One trusted team.<br />Every destination on earth.
+            {activeMarketCount} markets. One trusted team.<br />Every destination on earth.
           </p>
 
           {/* CTAs */}
@@ -465,7 +468,7 @@ export default function AboutPage() {
               A Global Travel Brand
             </h2>
             <div className="space-y-4 text-white/70 text-[15px] leading-relaxed">
-              <p>Walz Travels is a global travel and visa consultancy built for the modern international traveller. What began as a boutique consultancy in Dubai has grown into a full service travel platform serving clients across six markets — Canada, United Kingdom, UAE, Nigeria, Ghana and beyond.</p>
+              <p>Walz Travels is a global travel and visa consultancy built for the modern international traveller. What began as a boutique consultancy in Dubai has grown into a full service travel platform serving clients across {activeMarketCount} markets — Canada, United Kingdom, UAE, Nigeria, Ghana and beyond.</p>
               <p>Formally registered in London, United Kingdom — Walz Travels expanded its reach across the African diaspora community in the UK, Europe and West Africa.</p>
               <p>THE WALZ TRAVELS INC was incorporated in Ontario, Canada, marking a new chapter as a truly global travel platform with operations across three continents.</p>
               <p>Today Walz Travels handles everything from visa applications and flight bookings to private tours, hotel reservations and corporate travel management — all under one trusted global brand.</p>
@@ -507,7 +510,9 @@ export default function AboutPage() {
           {STATS.map((stat, i) => (
             <div key={stat.label} className="flex flex-col items-center text-center px-4">
               <div className="font-display font-black text-[#C9A84C] leading-none mb-2" style={{ fontSize: 'clamp(2.8rem, 6vw, 4.5rem)' }}>
-                <span ref={(el) => { statNumRefs.current[i] = el }}>0{stat.suffix}</span>
+                {/* aria-hidden: GSAP overwrites textContent; sr-only sibling gives crawlers/AT the real value */}
+                <span aria-hidden="true" ref={(el) => { statNumRefs.current[i] = el }}>{stat.to}{stat.suffix}</span>
+                <span className="sr-only">{stat.to}{stat.suffix}</span>
               </div>
               <div className="text-white/60 text-sm font-medium tracking-wide">{stat.label}</div>
             </div>
@@ -605,7 +610,7 @@ export default function AboutPage() {
           <div className="text-center mb-14">
             <p className="text-[#C9A84C] text-xs font-bold tracking-[0.3em] uppercase mb-4">Our Markets</p>
             <h2 className="font-display text-3xl lg:text-4xl font-bold text-white mb-3">Where We Serve</h2>
-            <p className="text-white/55 max-w-md mx-auto">Six markets. One team.</p>
+            <p className="text-white/55 max-w-md mx-auto">{activeMarketCount} markets. One team.</p>
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">

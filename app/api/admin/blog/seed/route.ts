@@ -283,7 +283,7 @@ A: Yes. Contact us on WhatsApp to discuss instalment booking options.
 
 ## Book Lagos to London Flights with Walz Travels
 
-We search live fares across 400+ airlines through the Sabre Global Distribution System — the same technology used by major travel agencies worldwide.
+We search live fares across hundreds of airlines through the Sabre Global Distribution System — the same technology used by major travel agencies worldwide.
 
 [Search live fares →](https://www.walztravels.com/flights)
 

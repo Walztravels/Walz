@@ -450,7 +450,7 @@ export function JadeChatWidget() {
         msgs.push({
           id:        'flight-context',
           role:      'assistant',
-          content:   `✈️ I can see you're coming from our **Flight Concierge**. I'm ready to help you search 900+ airlines, compare fares, check visa requirements, and find the best route for your budget. Where would you like to fly?`,
+          content:   `✈️ I can see you're coming from our **Flight Concierge**. I'm ready to help you search across hundreds of airlines, compare fares, check visa requirements, and find the best route for your budget. Where would you like to fly?`,
           timestamp: new Date(),
         })
       }

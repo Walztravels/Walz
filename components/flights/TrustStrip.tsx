@@ -5,7 +5,7 @@ const ITEMS = [
   { icon: '🔒', label: 'SSL Encrypted',         sub: '256-bit TLS payment security' },
   { icon: '💬', label: '24/7 Expert Support',   sub: 'WhatsApp & phone'          },
   { icon: '💰', label: 'Price Guarantee',        sub: 'We match any fare'         },
-  { icon: '🌍', label: '900+ Airlines',          sub: 'Global GDS access'         },
+  { icon: '🌍', label: 'Global Airlines',          sub: 'Sabre GDS access'          },
   { icon: '⚡', label: 'Instant Ticketing',      sub: 'E-tickets in minutes'      },
 ]
 

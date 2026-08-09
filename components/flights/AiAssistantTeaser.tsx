@@ -78,7 +78,7 @@ export function AiAssistantTeaser() {
             </h2>
 
             <p className="text-[#0B1F3A]/55 text-base leading-relaxed mb-8 max-w-md">
-              Jade searches 900+ airlines, compares fares in real time, checks visa requirements,
+              Jade searches hundreds of airlines, compares fares in real time, checks visa requirements,
               and recommends the best route for your budget — all in a single conversation.
             </p>
 
