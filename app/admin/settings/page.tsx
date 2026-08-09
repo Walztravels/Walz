@@ -5,6 +5,7 @@ import {
   Save, RefreshCw, CheckCircle, Building2, Mail, Phone,
   Share2, MapPin, DollarSign, Bell, CreditCard,
 } from 'lucide-react'
+import { BUSINESS } from '@/lib/config/business'
 import { BiometricRegistration } from '@/app/admin/components/BiometricRegistration'
 
 interface Setting {
@@ -46,13 +47,13 @@ const GROUPS = [
     icon: Phone,
     description: 'Include full international code. Header/CTA numbers control the navbar and homepage button.',
     keys: [
-      { key: 'whatsapp_header',         type: 'tel',  hint: 'Raw number, no spaces — used in the wa.me link (e.g. +12317902336)' },
-      { key: 'whatsapp_header_display', type: 'text', hint: 'Displayed in the navbar button (e.g. +12317902336)' },
+      { key: 'whatsapp_header',         type: 'tel',  hint: `Raw number, no spaces — used in the wa.me link (e.g. ${BUSINESS.contacts.globalWhatsapp.display})` },
+      { key: 'whatsapp_header_display', type: 'text', hint: `Displayed in the navbar button (e.g. ${BUSINESS.contacts.globalWhatsapp.display})` },
       { key: 'whatsapp_cta',            type: 'tel',  hint: 'Raw number for the homepage "WhatsApp us" button' },
       { key: 'whatsapp_cta_display',    type: 'text', hint: 'Text shown on the homepage CTA button' },
-      { key: 'phone_uk',      type: 'tel', hint: 'e.g. +12317902336' },
+      { key: 'phone_uk',      type: 'tel', hint: `e.g. ${BUSINESS.contacts.globalWhatsapp.display}` },
       { key: 'phone_canada',  type: 'tel', hint: 'e.g. +13657200865' },
-      { key: 'phone_nigeria', type: 'tel', hint: 'e.g. +2347077691701' },
+      { key: 'phone_nigeria', type: 'tel', hint: `e.g. ${BUSINESS.contacts.nigeriaWhatsapp.display}` },
       { key: 'phone_ghana',   type: 'tel', hint: 'e.g. +233201234567' },
     ],
   },
@@ -63,11 +64,11 @@ const GROUPS = [
     description: 'Up to 4 WhatsApp numbers in the footer. Leave a slot blank to hide it. Change label + number to switch regions.',
     keys: [
       { key: 'footer_wa_1_label',  type: 'text', hint: 'e.g. WhatsApp Nigeria' },
-      { key: 'footer_wa_1_number', type: 'tel',  hint: 'e.g. +2347077691701' },
+      { key: 'footer_wa_1_number', type: 'tel',  hint: `e.g. ${BUSINESS.contacts.nigeriaWhatsapp.display}` },
       { key: 'footer_wa_2_label',  type: 'text', hint: 'e.g. WhatsApp Canada' },
       { key: 'footer_wa_2_number', type: 'tel',  hint: 'e.g. +13657200865' },
       { key: 'footer_wa_3_label',  type: 'text', hint: 'e.g. WhatsApp UK (leave blank to hide)' },
-      { key: 'footer_wa_3_number', type: 'tel',  hint: 'e.g. +12317902336' },
+      { key: 'footer_wa_3_number', type: 'tel',  hint: `e.g. ${BUSINESS.contacts.globalWhatsapp.display}` },
       { key: 'footer_wa_4_label',  type: 'text', hint: 'e.g. WhatsApp Ghana (leave blank to hide)' },
       { key: 'footer_wa_4_number', type: 'tel',  hint: 'e.g. +233201234567' },
     ],

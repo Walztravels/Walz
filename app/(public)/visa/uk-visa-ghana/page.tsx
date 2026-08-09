@@ -2,6 +2,7 @@ import type { Metadata } from 'next'
 import Link from 'next/link'
 import Script from 'next/script'
 import { UK_VISA_FEES } from '@/lib/config/visa-fees'
+import { BUSINESS, waLink } from '@/lib/config/business'
 
 export const metadata: Metadata = {
   title: 'UK Visa Ghana: Requirements & Documents 2026 | Walz Travels',
@@ -233,7 +234,7 @@ export default function UkVisaGhanaPage() {
             </p>
             <div className="space-y-4">
               {[
-                { step: '1', title: 'WhatsApp consultation', desc: 'Contact us on +12317902336. We assess your profile and identify any risk factors.' },
+                { step: '1', title: 'WhatsApp consultation', desc: `Contact us on ${BUSINESS.contacts.globalWhatsapp.display}. We assess your profile and identify any risk factors.` },
                 { step: '2', title: 'Personalised document checklist', desc: 'Based on your employment status, finances, and travel history.' },
                 { step: '3', title: 'Document review', desc: 'Our visa specialists review every document for accuracy, consistency, and completeness.' },
                 { step: '4', title: 'Custom covering letter', desc: 'We write a tailored covering letter that addresses your specific situation and any potential concerns.' },
@@ -283,12 +284,12 @@ export default function UkVisaGhanaPage() {
                 Apply for UK Visa →
               </Link>
               <a
-                href="https://wa.me/12317902336"
+                href={waLink(BUSINESS.contacts.globalWhatsapp.e164)}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="inline-flex items-center justify-center px-8 py-3 border-2 border-white/20 hover:border-white/40 text-white font-semibold rounded-xl transition-colors text-sm"
               >
-                WhatsApp +12317902336
+                WhatsApp {BUSINESS.contacts.globalWhatsapp.display}
               </a>
             </div>
           </div>

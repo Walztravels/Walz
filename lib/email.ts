@@ -2,6 +2,7 @@ import { Resend } from 'resend'
 import { createHmac } from 'crypto'
 import type { BookingPassenger, BookingAddon } from '@/types/booking'
 import { TRUSTPILOT_AFS_EMAIL } from '@/lib/email-visa'
+import { BUSINESS } from '@/lib/config/business'
 
 // Lazy init — avoids crashing at build time when RESEND_API_KEY is not set
 function getResend(): Resend {
@@ -75,7 +76,7 @@ function emailFooter(): string {
       <p style="margin: 0 0 8px; color: #0A1628; font-weight: 600; font-size: 14px;">Need help?</p>
       <p style="margin: 0; color: #8B9BAE; font-size: 13px;">
         📧 <a href="mailto:info@walztravels.com" style="color: #C9A84C; text-decoration: none;">info@walztravels.com</a>&nbsp;&nbsp;
-        📱 <a href="https://wa.me/12317902336" style="color: #C9A84C; text-decoration: none;">+12317902336</a>
+        📱 <a href="https://wa.me/${BUSINESS.contacts.globalWhatsapp.e164}" style="color: #C9A84C; text-decoration: none;">${BUSINESS.contacts.globalWhatsapp.display}</a>
       </p>
     </div>
     <div style="padding: 24px 40px; text-align: center; border-top: 1px solid #E2D9CC;">
@@ -452,7 +453,7 @@ export async function sendVisaApplicationReceived(email: string, country: string
           </div>
           <p style="color: #8B9BAE; font-size: 13px;">
             Questions? Email us at <a href="mailto:visa@walztravels.com" style="color: #C9A84C;">visa@walztravels.com</a>
-            or WhatsApp: <a href="https://wa.me/12317902336" style="color: #C9A84C;">+12317902336</a>
+            or WhatsApp: <a href="https://wa.me/${BUSINESS.contacts.globalWhatsapp.e164}" style="color: #C9A84C;">${BUSINESS.contacts.globalWhatsapp.display}</a>
           </p>
         </div>
         <div style="padding: 24px 40px; background: #F7F4EF; text-align: center;">
@@ -498,7 +499,7 @@ export async function sendTourEnquiryConfirmation(email: string, tourName: strin
           <p style="color: #8B9BAE; font-size: 13px;">
             Can't wait? Contact us directly:<br>
             📧 <a href="mailto:tours@walztravels.com" style="color: #C9A84C;">tours@walztravels.com</a><br>
-            📱 <a href="https://wa.me/12317902336" style="color: #C9A84C;">+12317902336</a>
+            📱 <a href="https://wa.me/${BUSINESS.contacts.globalWhatsapp.e164}" style="color: #C9A84C;">${BUSINESS.contacts.globalWhatsapp.display}</a>
           </p>
         </div>
         <div style="padding: 24px 40px; background: #F7F4EF; text-align: center;">

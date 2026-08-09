@@ -5,6 +5,7 @@ import Link from 'next/link'
 import gsap from 'gsap'
 import ScrollTrigger from 'gsap/ScrollTrigger'
 import { Search, ArrowRight, MessageCircle, CheckCircle, AlertCircle, Monitor, Globe, ChevronDown, X } from 'lucide-react'
+import { BUSINESS, waLink } from '@/lib/config/business'
 
 // ── Country list ──────────────────────────────────────────────────────────────
 const COUNTRIES = [
@@ -307,7 +308,7 @@ function ResultCard({ result, cardRef }: { result: VisaResult; cardRef: React.Re
           </Link>
         )}
         <a
-          href="https://wa.me/12317902336"
+          href={waLink(BUSINESS.contacts.globalWhatsapp.e164)}
           target="_blank"
           rel="noopener noreferrer"
           className="flex-1 flex items-center justify-center gap-2 px-5 py-3 border border-white/20 hover:border-[#C9A84C] text-white hover:text-[#C9A84C] font-semibold text-sm rounded-xl transition-colors"

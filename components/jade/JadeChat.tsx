@@ -8,6 +8,7 @@ import {
   Phone, Mail, Loader2, RotateCcw, UserCheck, Shield, Globe, Mic, MicOff,
 } from 'lucide-react'
 import type { TravelDNA } from '@/app/api/jade/chatwoot/route'
+import { BUSINESS, waLink } from '@/lib/config/business'
 
 // ─── Browser types for Web Speech API ─────────────────────────────────────────
 
@@ -210,7 +211,7 @@ function HandoverCard({ handover }: { handover: HandoverInfo }) {
       <div className="bg-[#F7F4EF] px-4 py-3">
         <p className="text-xs text-[#0B1F3A]">{handover.reason}</p>
         <div className="flex items-center gap-3 mt-2">
-          <a href="https://wa.me/12317902336" className="flex items-center gap-1.5 text-xs font-semibold text-[#25D366] hover:underline">
+          <a href={waLink(BUSINESS.contacts.globalWhatsapp.e164)} className="flex items-center gap-1.5 text-xs font-semibold text-[#25D366] hover:underline">
             <Phone className="w-3 h-3" /> WhatsApp now
           </a>
           <a href="mailto:contact@walztravels.com" className="flex items-center gap-1.5 text-xs font-semibold text-[#C9A84C] hover:underline">
@@ -599,7 +600,7 @@ export function JadeChat() {
               )}
             </div>
 
-            <a href="https://wa.me/12317902336?text=Hi%20Jade%2C%20I%20need%20help%20with%20my%20travel%20plans"
+            <a href={waLink(BUSINESS.contacts.globalWhatsapp.e164, 'Hi Jade, I need help with my travel plans')}
               target="_blank" rel="noopener noreferrer" title="WhatsApp"
               className="w-8 h-8 rounded-full flex items-center justify-center text-white/60 hover:text-[#25D366] hover:bg-white/10 transition-all">
               <Phone className="w-3.5 h-3.5" />
@@ -780,7 +781,7 @@ export function JadeChat() {
               {/* High-urgency handover buttons */}
               {handover?.urgency === 'high' && (
                 <div className="px-4 pb-4 pt-2 bg-white border-t border-gray-100 flex-shrink-0 space-y-2">
-                  <a href="https://wa.me/12317902336?text=Hi%2C%20Jade%20connected%20me%20for%20travel%20help"
+                  <a href={waLink(BUSINESS.contacts.globalWhatsapp.e164, 'Hi, Jade connected me for travel help')}
                     target="_blank" rel="noopener noreferrer"
                     className="flex items-center justify-center gap-2 w-full py-2.5 rounded-xl
                       bg-[#25D366] text-white text-xs font-bold hover:bg-[#20ba5a] transition-colors">

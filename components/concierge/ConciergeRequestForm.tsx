@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useCallback } from 'react'
+import { BUSINESS, waLink } from '@/lib/config/business'
 import type { FormField, FieldGroup } from '@/lib/concierge/form-schema'
 import { STEP_ORDER, groupFields } from '@/lib/concierge/form-schema'
 
@@ -237,7 +238,7 @@ export function ConciergeRequestForm({
 
         <div>
           <a
-            href={`https://wa.me/12317902336?text=Hi%2C%20my%20concierge%20reference%20is%20${confirmation.reference}`}
+            href={waLink(BUSINESS.contacts.globalWhatsapp.e164, `Hi, my concierge reference is ${confirmation.reference}`)}
             target="_blank"
             rel="noopener noreferrer"
             className="inline-block border border-[#C9A84C]/50 text-[#C9A84C] font-semibold

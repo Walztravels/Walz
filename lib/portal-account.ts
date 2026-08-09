@@ -1,6 +1,7 @@
 import crypto from 'crypto'
 import { prisma } from '@/lib/db'
 import { Resend } from 'resend'
+import { BUSINESS } from '@/lib/config/business'
 
 function getResend() {
   if (!process.env.RESEND_API_KEY) return null
@@ -103,7 +104,7 @@ export async function ensurePortalAccount(
 
     <div style="background:#F8F9FA;border-radius:12px;padding:16px 20px;">
       <p style="margin:0;color:#6b7280;font-size:13px;">
-        Need help? WhatsApp us: <strong>+12317902336</strong><br/>
+        Need help? WhatsApp us: <strong>${BUSINESS.contacts.globalWhatsapp.display}</strong><br/>
         contact@walztravels.com
       </p>
     </div>

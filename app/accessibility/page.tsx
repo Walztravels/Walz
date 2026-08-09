@@ -1,5 +1,6 @@
 import type { Metadata } from 'next'
 import Link from 'next/link'
+import { BUSINESS, waLink } from '@/lib/config/business'
 
 export const metadata: Metadata = {
   title: 'Accessibility | Walz Travels',
@@ -62,8 +63,8 @@ export default function AccessibilityPage() {
           </li>
           <li>
             WhatsApp:{' '}
-            <a href="https://wa.me/12317902336" className="text-amber-600 hover:text-amber-700">
-              +12317902336
+            <a href={waLink(BUSINESS.contacts.globalWhatsapp.e164)} className="text-amber-600 hover:text-amber-700">
+              {BUSINESS.contacts.globalWhatsapp.display}
             </a>
           </li>
           <li>

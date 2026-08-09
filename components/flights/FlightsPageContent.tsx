@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
 import { Plane, SortAsc, AlertCircle } from 'lucide-react'
+import { BUSINESS, waLink } from '@/lib/config/business'
 import { FlightSearchForm } from '@/components/search/FlightSearchForm'
 import { FlightPromos } from '@/components/promos/FlightPromos'
 import { FlightCard } from '@/components/flights/FlightCard'
@@ -119,7 +120,7 @@ function WhatsAppFallback() {
           </div>
         </div>
         <a
-          href={`https://wa.me/12317902336?text=${encodeURIComponent(msg)}`}
+          href={waLink(BUSINESS.contacts.globalWhatsapp.e164, msg)}
           target="_blank" rel="noopener noreferrer"
           className="block w-full text-center bg-green-500 hover:bg-green-600 text-white font-semibold rounded-xl py-3 transition-colors"
         >

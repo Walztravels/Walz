@@ -6,6 +6,7 @@ import { MOCK_ITINERARY } from '@/lib/flights/mockData'
 import { formatDuration, formatTime } from '@/lib/flights/utils'
 import { useFlightStore } from '@/store/flightStore'
 import { LoyaltyDashboard } from '@/components/flights/loyalty/LoyaltyDashboard'
+import { BUSINESS, waLink } from '@/lib/config/business'
 
 const NEXT_STEPS = [
   { icon: '📧', title: 'Confirmation email',    desc: 'Your e-ticket will arrive within 5 minutes. Check spam if not received.' },
@@ -263,7 +264,7 @@ function ConfirmationContent() {
                 <span className="text-xs font-medium text-[#0B1F3A]/60 text-center leading-tight">Add to Calendar</span>
               </button>
 
-              <button onClick={() => window.open('https://wa.me/12317902336', '_blank')}
+              <button onClick={() => window.open(waLink(BUSINESS.contacts.globalWhatsapp.e164), '_blank')}
                 className="flex flex-col items-center gap-2 p-4 rounded-2xl bg-white border border-black/5 hover:border-[#C9A84C]/30 hover:shadow-sm transition-all">
                 <span className="text-2xl">💬</span>
                 <span className="text-xs font-medium text-[#0B1F3A]/60 text-center leading-tight">Contact Support</span>

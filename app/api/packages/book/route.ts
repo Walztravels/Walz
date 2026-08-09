@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import prisma from '@/lib/db'
 import { getResend } from '@/lib/resend'
+import { BUSINESS } from '@/lib/config/business'
 
 const FROM_ADDRESS = 'Walz Travels <noreply@walztravels.com>'
 const TEAM_EMAILS = ['contact@walztravels.com', 'reservations@walztravels.com']
@@ -149,7 +150,7 @@ function buildClientEmailHtml(params: {
           href="https://wa.me/12317902336"
           style="display:inline-block;background:#25D366;color:#ffffff;font-weight:600;padding:12px 28px;border-radius:10px;text-decoration:none;font-size:14px;"
         >
-          WhatsApp us: +12317902336
+          WhatsApp us: ${BUSINESS.contacts.globalWhatsapp.display}
         </a>
       </div>
 

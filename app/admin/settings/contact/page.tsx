@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import { Save, CheckCircle, Phone, MapPin, Globe, AlertCircle, Mail } from 'lucide-react'
+import { BUSINESS } from '@/lib/config/business'
 
 interface Field {
   key:    string
@@ -16,8 +17,8 @@ const GROUPS: Array<{ title: string; description: string; icon: 'phone' | 'globe
     description: 'Main WhatsApp number shown in the top bar on every page',
     icon:        'phone',
     fields: [
-      { key: 'whatsapp_header',         label: 'Raw number (wa.me link)',  hint: 'No spaces — e.g. +12317902336. This is the number the link dials.',       type: 'tel'  },
-      { key: 'whatsapp_header_display', label: 'Display text (button)',    hint: 'What visitors see on the button — e.g. +12317902336 or "Chat with us".',  type: 'text' },
+      { key: 'whatsapp_header',         label: 'Raw number (wa.me link)',  hint: `No spaces — e.g. ${BUSINESS.contacts.globalWhatsapp.display}. This is the number the link dials.`,       type: 'tel'  },
+      { key: 'whatsapp_header_display', label: 'Display text (button)',    hint: `What visitors see on the button — e.g. ${BUSINESS.contacts.globalWhatsapp.display} or "Chat with us".`,  type: 'text' },
     ],
   },
   {
@@ -25,7 +26,7 @@ const GROUPS: Array<{ title: string; description: string; icon: 'phone' | 'globe
     description: 'The "WhatsApp us" button at the bottom of the homepage',
     icon:        'phone',
     fields: [
-      { key: 'whatsapp_cta',         label: 'Raw number (wa.me link)',  hint: 'No spaces — e.g. +12317902336.',             type: 'tel'  },
+      { key: 'whatsapp_cta',         label: 'Raw number (wa.me link)',  hint: `No spaces — e.g. ${BUSINESS.contacts.globalWhatsapp.display}.`,             type: 'tel'  },
       { key: 'whatsapp_cta_display', label: 'Display text (button)',    hint: 'Text shown on the homepage button.',          type: 'text' },
     ],
   },
@@ -34,12 +35,12 @@ const GROUPS: Array<{ title: string; description: string; icon: 'phone' | 'globe
     description: 'Per-region numbers used in the footer contact section and region selectors',
     icon:        'globe',
     fields: [
-      { key: 'phone_uk',      label: 'UK',      hint: 'e.g. +12317902336',  type: 'tel' },
+      { key: 'phone_uk',      label: 'UK',      hint: `e.g. ${BUSINESS.contacts.globalWhatsapp.display}`,  type: 'tel' },
       { key: 'phone_canada',  label: 'Canada',  hint: 'e.g. +13657200865',  type: 'tel' },
       { key: 'phone_uae',     label: 'UAE',     hint: 'e.g. +971500000000', type: 'tel' },
-      { key: 'phone_nigeria', label: 'Nigeria', hint: 'e.g. +2347077691701', type: 'tel' },
+      { key: 'phone_nigeria', label: 'Nigeria', hint: `e.g. ${BUSINESS.contacts.nigeriaWhatsapp.display}`, type: 'tel' },
       { key: 'phone_ghana',   label: 'Ghana',   hint: 'e.g. +233201234567', type: 'tel' },
-      { key: 'call_jade',     label: 'Call line (phone)',  hint: 'Shown as "Call Jade" — e.g. +19843880110', type: 'tel' },
+      { key: 'call_jade',     label: 'Call line (phone)',  hint: `Shown as "Call Jade" — e.g. ${BUSINESS.contacts.emergencyPhone.display}`, type: 'tel' },
     ],
   },
   {
@@ -48,11 +49,11 @@ const GROUPS: Array<{ title: string; description: string; icon: 'phone' | 'globe
     icon:        'phone',
     fields: [
       { key: 'footer_wa_1_label',  label: 'Slot 1 – Label',  hint: 'e.g. WhatsApp UK — leave blank to hide', type: 'text' },
-      { key: 'footer_wa_1_number', label: 'Slot 1 – Number', hint: 'e.g. +12317902336',                      type: 'tel'  },
+      { key: 'footer_wa_1_number', label: 'Slot 1 – Number', hint: `e.g. ${BUSINESS.contacts.globalWhatsapp.display}`,                      type: 'tel'  },
       { key: 'footer_wa_2_label',  label: 'Slot 2 – Label',  hint: 'e.g. WhatsApp Canada',                   type: 'text' },
       { key: 'footer_wa_2_number', label: 'Slot 2 – Number', hint: 'e.g. +13657200865',                      type: 'tel'  },
       { key: 'footer_wa_3_label',  label: 'Slot 3 – Label',  hint: 'e.g. WhatsApp Nigeria — leave blank to hide', type: 'text' },
-      { key: 'footer_wa_3_number', label: 'Slot 3 – Number', hint: 'e.g. +2347077691701',                    type: 'tel'  },
+      { key: 'footer_wa_3_number', label: 'Slot 3 – Number', hint: `e.g. ${BUSINESS.contacts.nigeriaWhatsapp.display}`,                    type: 'tel'  },
       { key: 'footer_wa_4_label',  label: 'Slot 4 – Label',  hint: 'e.g. WhatsApp Ghana — leave blank to hide',  type: 'text' },
       { key: 'footer_wa_4_number', label: 'Slot 4 – Number', hint: 'e.g. +233201234567',                     type: 'tel'  },
     ],

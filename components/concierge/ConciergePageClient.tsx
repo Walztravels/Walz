@@ -2,6 +2,7 @@
 
 import { useEffect, useRef } from 'react'
 import Image from 'next/image'
+import { BUSINESS, waLink } from '@/lib/config/business'
 import gsap from 'gsap'
 import ScrollTrigger from 'gsap/ScrollTrigger'
 import type { CategoryImagery } from '@/lib/concierge/imagery'
@@ -293,7 +294,7 @@ export function ConciergePageClient({
           Have something in mind that&apos;s not listed? We handle anything. Just ask.
         </p>
         <a
-          href="https://wa.me/12317902336?text=Hi%2C%20I%27m%20interested%20in%20Walz%20Concierge"
+          href={waLink(BUSINESS.contacts.globalWhatsapp.e164, "Hi, I'm interested in Walz Concierge")}
           target="_blank"
           rel="noopener noreferrer"
           className="inline-block border border-[#C9A84C]/50 text-[#C9A84C] font-semibold px-6 py-3

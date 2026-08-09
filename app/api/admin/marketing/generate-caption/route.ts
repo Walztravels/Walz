@@ -3,6 +3,7 @@ import Anthropic from '@anthropic-ai/sdk'
 import { getAdminSession } from '@/lib/admin-auth'
 import { can } from '@/lib/permissions-registry'
 import prisma from '@/lib/db'
+import { BUSINESS } from '@/lib/config/business'
 
 export const maxDuration = 60
 
@@ -43,7 +44,7 @@ KEY BRAND THEMES:
 ${themes.map((t: string) => `- ${t}`).join('\n')}
 
 ALWAYS INCLUDE:
-- WhatsApp CTA: +12317902336
+- WhatsApp CTA: ${BUSINESS.contacts.globalWhatsapp.display}
 - 1-2 relevant emojis per paragraph
 - Call to action (DM, WhatsApp, link in bio)
 - Hashtags from our brand list

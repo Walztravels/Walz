@@ -3,6 +3,7 @@ import Anthropic from '@anthropic-ai/sdk'
 import { getAdminSession } from '@/lib/admin-auth'
 import { can } from '@/lib/permissions-registry'
 import prisma from '@/lib/db'
+import { BUSINESS } from '@/lib/config/business'
 
 export const maxDuration = 90
 
@@ -45,7 +46,7 @@ ${audiences.map((a: Audience) => `- ${a.name}: ${a.description}`).join('\n') || 
 
 BRAND HASHTAGS: ${hashtags.join(' ') || '#walztravels #africandiapora #travelagency'}
 
-WhatsApp CTA to include: +12317902336
+WhatsApp CTA to include: ${BUSINESS.contacts.globalWhatsapp.display}
 
 Generate a themed content week. Return ONLY valid JSON (no markdown):
 {

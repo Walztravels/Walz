@@ -1,4 +1,5 @@
 import { PrismaClient } from '@prisma/client'
+import { BUSINESS } from '../lib/config/business'
 const prisma = new PrismaClient()
 
 async function main() {
@@ -189,9 +190,9 @@ async function main() {
 
   // ── Site Settings ──────────────────────────────────────────────────────────
   const settings = [
-    { key: 'whatsapp_uk',       value: '+12317902336', label: 'WhatsApp UK' },
+    { key: 'whatsapp_uk',       value: BUSINESS.contacts.globalWhatsapp.display, label: 'WhatsApp UK' },
     { key: 'whatsapp_us',       value: '+15557107823',  label: 'WhatsApp US' },
-    { key: 'call_jade',         value: '+19843880110',  label: 'Call Jade' },
+    { key: 'call_jade',         value: BUSINESS.contacts.emergencyPhone.display, label: 'Call Jade' },
     { key: 'email',             value: 'contact@walztravels.com', label: 'Email' },
     { key: 'visa_email',        value: 'visa@walztravels.com',    label: 'Visa Email' },
     { key: 'visa_fee_uk',       value: '188', label: 'UK Visa Fee USD' },

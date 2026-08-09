@@ -3,6 +3,7 @@ import { getSupabaseAdmin }          from '@/lib/supabase'
 import { duffelGet }                 from '@/lib/duffel/client'
 import { getResend }                 from '@/lib/resend'
 import { getAdminSession }           from '@/lib/admin-auth'
+import { BUSINESS } from '@/lib/config/business'
 
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
@@ -221,7 +222,7 @@ async function sendTicketEmail(booking: any, ticket: any) {
           </div>
 
           <div style="background:#0B1F3A;padding:16px;text-align:center;">
-            <p style="color:#C9A84C;margin:0;font-size:12px;">Questions? WhatsApp: +12317902336</p>
+            <p style="color:#C9A84C;margin:0;font-size:12px;">Questions? WhatsApp: ${BUSINESS.contacts.globalWhatsapp.display}</p>
             <p style="color:#9ca3af;margin:4px 0 0;font-size:11px;">bookings@walztravels.com · walztravels.com</p>
           </div>
         </div>

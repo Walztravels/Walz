@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { FileText, Plane, Clock, CheckCircle, XCircle, AlertCircle, ChevronRight, Loader2, Plus } from 'lucide-react'
+import { BUSINESS, waLink } from '@/lib/config/business'
 
 interface VisaApp {
   id: string
@@ -160,9 +161,9 @@ export default function PortalApplicationsPage() {
           <span className="text-2xl">💬</span>
           <div>
             <p className="text-sm font-medium text-green-800">Need an update on your application?</p>
-            <a href="https://wa.me/12317902336" target="_blank" rel="noopener noreferrer"
+            <a href={waLink(BUSINESS.contacts.globalWhatsapp.e164)} target="_blank" rel="noopener noreferrer"
               className="text-xs text-green-600 hover:underline">
-              WhatsApp us: +12317902336 →
+              WhatsApp us: {BUSINESS.contacts.globalWhatsapp.display} →
             </a>
           </div>
         </div>

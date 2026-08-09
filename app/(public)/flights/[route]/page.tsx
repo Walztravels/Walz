@@ -2,6 +2,7 @@ import type { Metadata } from 'next'
 import { notFound } from 'next/navigation'
 import Link from 'next/link'
 import Script from 'next/script'
+import { BUSINESS, waLink } from '@/lib/config/business'
 
 export const revalidate = 86400
 
@@ -509,12 +510,12 @@ export default function FlightRoutePage({ params }: Props) {
                 Search live fares →
               </Link>
               <a
-                href="https://wa.me/12317902336"
+                href={waLink(BUSINESS.contacts.globalWhatsapp.e164)}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="inline-flex items-center justify-center px-8 py-3 border-2 border-white/20 hover:border-white/40 text-white font-semibold rounded-xl transition-colors text-sm"
               >
-                WhatsApp +12317902336
+                WhatsApp {BUSINESS.contacts.globalWhatsapp.display}
               </a>
             </div>
           </div>

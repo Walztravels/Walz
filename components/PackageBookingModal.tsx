@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState, useCallback } from 'react'
 import { X, MessageCircle } from 'lucide-react'
+import { BUSINESS, waLink } from '@/lib/config/business'
 import dynamic from 'next/dynamic'
 import GatewaySelector, { type Gateway } from '@/components/payments/GatewaySelector'
 
@@ -324,7 +325,7 @@ export default function PackageBookingModal({ pkg: initialPkg, isOpen: controlle
   }
 
   const waText = encodeURIComponent(`Hi, I just booked ${pkg.title} ref ${bookingRef}`)
-  const waUrl = `https://wa.me/12317902336?text=${waText}`
+  const waUrl = waLink(BUSINESS.contacts.globalWhatsapp.e164, decodeURIComponent(waText))
 
   const fmtCurrency = (amount: number, currency: string) => {
     try {

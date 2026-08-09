@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback } from 'react'
 import { useParams } from 'next/navigation'
+import { BUSINESS, waLink } from '@/lib/config/business'
 
 type SessionInfo = {
   groupName:     string
@@ -115,8 +116,8 @@ export default function GroupHivePage() {
         <div className="text-4xl mb-4">🔍</div>
         <h1 className="text-xl font-bold text-gray-900 mb-2">Session not found</h1>
         <p className="text-gray-500 text-sm">This link may be expired or incorrect. Contact Walz Travels for help.</p>
-        <a href="https://wa.me/12317902336" className="mt-4 inline-block text-sm text-amber-600 font-medium">
-          WhatsApp +12317902336 →
+        <a href={waLink(BUSINESS.contacts.globalWhatsapp.e164)} className="mt-4 inline-block text-sm text-amber-600 font-medium">
+          WhatsApp {BUSINESS.contacts.globalWhatsapp.display} →
         </a>
       </div>
     </div>
@@ -159,7 +160,7 @@ export default function GroupHivePage() {
                 All {info.memberCount} members have submitted! Walz Travels is now reviewing your group application.
               </p>
               <a
-                href="https://wa.me/12317902336"
+                href={waLink(BUSINESS.contacts.globalWhatsapp.e164)}
                 className="inline-flex items-center gap-2 bg-green-500 text-white px-5 py-2.5 rounded-xl text-sm font-semibold hover:bg-green-600 transition-colors"
               >
                 📱 WhatsApp for updates
@@ -182,10 +183,10 @@ export default function GroupHivePage() {
             Your group visa application is now being reviewed by Walz Travels.
           </p>
           <a
-            href="https://wa.me/12317902336"
+            href={waLink(BUSINESS.contacts.globalWhatsapp.e164)}
             className="inline-flex items-center gap-2 bg-green-500 text-white px-5 py-2.5 rounded-xl text-sm font-semibold hover:bg-green-600 transition-colors"
           >
-            📱 WhatsApp +12317902336 for updates
+            📱 WhatsApp {BUSINESS.contacts.globalWhatsapp.display} for updates
           </a>
         </div>
       </div>

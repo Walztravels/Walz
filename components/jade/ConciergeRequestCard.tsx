@@ -1,6 +1,7 @@
 'use client'
 
 import { CheckCircle, Clock, MessageSquare } from 'lucide-react'
+import { BUSINESS, waLink } from '@/lib/config/business'
 
 interface Props {
   reference: string
@@ -37,7 +38,7 @@ export function ConciergeRequestCard({ reference, sla }: Props) {
         </p>
 
         <a
-          href="https://wa.me/12317902336?text=Hi%2C%20I%20have%20a%20concierge%20request%20and%20my%20reference%20is%20"
+          href={waLink(BUSINESS.contacts.globalWhatsapp.e164, 'Hi, I have a concierge request and my reference is ')}
           target="_blank"
           rel="noopener noreferrer"
           className="flex items-center justify-center gap-1.5 w-full py-2 rounded-lg bg-[#C9A84C]/10 border border-[#C9A84C]/30

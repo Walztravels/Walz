@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { CallButton } from '@/components/admin/CallButton'
+import { BUSINESS } from '@/lib/config/business'
 import {
   ArrowLeft, Save, RefreshCw, Loader2, CheckCircle, AlertTriangle,
   FileText, User, Globe, Briefcase, Plane, Shield, MessageCircle,
@@ -2222,7 +2223,7 @@ export default function AdminVisaDetailPage() {
 
             {/* WhatsApp note: business-initiated delivery depends on client having messaged first */}
             <div className="px-2.5 py-2 bg-blue-50 border border-blue-200 rounded-xl text-[10px] text-blue-700 leading-snug">
-              💬 Opening message sent via Chatwoot. If the client has already messaged your WhatsApp it will deliver instantly. If not, ask them to WhatsApp <strong>+2347077691701</strong> first.
+              💬 Opening message sent via Chatwoot. If the client has already messaged your WhatsApp it will deliver instantly. If not, ask them to WhatsApp <strong>+{BUSINESS.contacts.nigeriaWhatsapp.e164}</strong> first.
             </div>
 
             {app.phone && (

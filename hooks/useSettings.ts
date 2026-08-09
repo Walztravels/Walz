@@ -1,5 +1,6 @@
 'use client'
 import { useState, useEffect } from 'react'
+import { BUSINESS } from '@/lib/config/business'
 
 interface SiteSettings {
   whatsapp_uk:     string
@@ -18,8 +19,8 @@ interface SiteSettings {
 }
 
 const DEFAULTS: SiteSettings = {
-  whatsapp_uk:     '+12317902336',
-  whatsapp_us:     '+19843880110',
+  whatsapp_uk:     BUSINESS.contacts.globalWhatsapp.display,
+  whatsapp_us:     BUSINESS.contacts.emergencyPhone.display,
   whatsapp_canada: '+15557107823',
   business_name:   'Walz Travels',
   office_address:  '1 Commercial Street, London, E1 6RF',

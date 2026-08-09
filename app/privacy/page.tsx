@@ -1,6 +1,7 @@
 import type { Metadata } from 'next'
 import Link from 'next/link'
 import { LEGAL_ENTITIES } from '@/lib/config/legal-entities'
+import { BUSINESS } from '@/lib/config/business'
 
 export const metadata: Metadata = {
   title: 'Privacy Policy',
@@ -123,7 +124,7 @@ You can control non-essential cookies through your browser settings. Disabling e
     body: `For any privacy-related questions, requests or complaints:
 
 Email: contact@walztravels.com
-WhatsApp: +12317902336
+WhatsApp: ${BUSINESS.contacts.globalWhatsapp.display}
 Post: ${['Walz Travels Ltd', LEGAL_ENTITIES.uk.tradingAddress].filter(Boolean).join(', ')}
 
 If you are unsatisfied with our response, you have the right to lodge a complaint with the Information Commissioner's Office (ICO) at ico.org.uk.`,

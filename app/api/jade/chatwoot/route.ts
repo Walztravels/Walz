@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import Anthropic from '@anthropic-ai/sdk'
 import OpenAI   from 'openai'
 import { getResend } from '@/lib/email-internal'
+import { BUSINESS } from '@/lib/config/business'
 import { getSupabaseAdmin } from '@/lib/supabase'
 import { fetchClientMemory } from '@/lib/jade-memory'
 import type { ClientProfile } from '@/lib/jade-memory'
@@ -625,7 +626,7 @@ When a client asks how to follow us or find us on social media, share the correc
 - LinkedIn: /company/walztravels (linkedin.com/company/walztravels)
 
 Contact:
-- WhatsApp UK: wa.me/12317902336
+- WhatsApp UK: wa.me/${BUSINESS.contacts.globalWhatsapp.e164}
 - WhatsApp Canada: wa.me/15557107823
 - Email: contact@walztravels.com
 - Call Jade: +1 984 388 0110
@@ -1018,7 +1019,7 @@ async function jadeReply(
     return res.choices[0]?.message?.content ?? ''
   } catch (e) { console.error('[Jade] OpenAI failed:', e) }
 
-  return "I'm having a brief technical issue. For immediate help, WhatsApp us on +12317902336 or email contact@walztravels.com ✈"
+  return `I'm having a brief technical issue. For immediate help, WhatsApp us on ${BUSINESS.contacts.globalWhatsapp.display} or email contact@walztravels.com ✈`
 }
 
 // ─── Flow types ────────────────────────────────────────────────────────────────

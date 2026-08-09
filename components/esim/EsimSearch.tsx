@@ -4,6 +4,7 @@ import { useState, useEffect, useRef, useMemo } from 'react'
 import Link from 'next/link'
 import { useSearchParams } from 'next/navigation'
 import { Search, X, ArrowRight, MessageCircle, Check } from 'lucide-react'
+import { BUSINESS, waLink } from '@/lib/config/business'
 import type { EsimPackage, CountryGroup } from '@/lib/esim/types'
 import { groupByCountry, REGIONS } from '@/lib/esim/utils'
 
@@ -207,7 +208,7 @@ export function EsimSearch({ packages }: { packages: EsimPackage[] }) {
                 style={{ border: '1.5px solid #E9E6E0' }}>
                 Clear search
               </button>
-              <a href="https://wa.me/12317902336" target="_blank" rel="noopener noreferrer"
+              <a href={waLink(BUSINESS.contacts.globalWhatsapp.e164)} target="_blank" rel="noopener noreferrer"
                 className="inline-flex items-center gap-2 px-5 py-2.5 rounded-full text-sm font-bold"
                 style={{ background: '#C9A84C', color: '#0B1F3A' }}>
                 <MessageCircle className="w-4 h-4" /> Ask Jade

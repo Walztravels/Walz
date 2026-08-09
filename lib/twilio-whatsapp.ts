@@ -27,6 +27,8 @@
  *   CHATWOOT_WHATSAPP_INBOX_ID       — legacy fallback (single inbox mode)
  */
 
+import { BUSINESS } from '@/lib/config/business'
+
 const TWILIO_SID      = process.env.TWILIO_ACCOUNT_SID
 const TWILIO_TOKEN    = process.env.TWILIO_AUTH_TOKEN
 const TEMPLATE_SID    = process.env.TWILIO_CONTENT_TEMPLATE_SID
@@ -34,8 +36,8 @@ const TEMPLATE_SID    = process.env.TWILIO_CONTENT_TEMPLATE_SID
 // Use MessagingServiceSid instead of From so Twilio routes via the correct WhatsApp sender.
 const MESSAGING_SVC   = process.env.TWILIO_MESSAGING_SERVICE_SID || 'MGd179b68a408e4fea5a366a8505030401'
 
-const NG_FROM   = process.env.TWILIO_WHATSAPP_NUMBER_NG   || '+2347077691701'
-const INTL_FROM = process.env.TWILIO_WHATSAPP_NUMBER_INTL || '+12317902336'
+const NG_FROM   = process.env.TWILIO_WHATSAPP_NUMBER_NG   || `+${BUSINESS.contacts.nigeriaWhatsapp.e164}`
+const INTL_FROM = process.env.TWILIO_WHATSAPP_NUMBER_INTL || `+${BUSINESS.contacts.globalWhatsapp.e164}`
 
 /** Returns true if the phone belongs to Nigeria (starts with +234, 234, 0 local) */
 export function isNigeriaPhone(phone: string): boolean {

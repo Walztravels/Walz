@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import prisma from '@/lib/db'
 import { getResend } from '@/lib/resend'
+import { BUSINESS } from '@/lib/config/business'
 
 const FROM = 'Jade at Walz Travels <jade@walztravels.com>'
 
@@ -97,7 +98,7 @@ function buildEmail(
       Complete My Booking →
     </a>
     <p style="color:#9CA3AF;font-size:11px;margin:20px 0 0">
-      Need help? Call us: <a href="tel:+19843880110" style="color:#C9A84C">+1 984-388-0110</a>
+      Need help? Call us: <a href="tel:+${BUSINESS.contacts.emergencyPhone.e164}" style="color:#C9A84C">${BUSINESS.contacts.emergencyPhone.display}</a>
     </p>
   </div>
 </div>

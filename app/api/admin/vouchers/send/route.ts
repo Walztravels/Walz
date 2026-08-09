@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getAdminSession } from '@/lib/admin-auth'
 import prisma from '@/lib/db'
 import { getResend } from '@/lib/email-internal'
+import { BUSINESS } from '@/lib/config/business'
 
 export const dynamic = 'force-dynamic'
 
@@ -149,7 +150,7 @@ export async function POST(req: NextRequest) {
             line-height:1.6;margin:0;">
             Need help? WhatsApp us on
             <a href="https://wa.me/12317902336" style="color:#C9A84C;">
-              +12317902336</a>
+              ${BUSINESS.contacts.globalWhatsapp.display}</a>
             or email
             <a href="mailto:contact@walztravels.com" style="color:#C9A84C;">
               contact@walztravels.com</a>

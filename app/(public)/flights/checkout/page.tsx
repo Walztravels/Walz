@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
+import { BUSINESS, waLink } from '@/lib/config/business'
 import { loadStripe } from '@stripe/stripe-js'
 import { Elements, PaymentElement, useStripe, useElements } from '@stripe/react-stripe-js'
 import { useFlightStore } from '@/store/flightStore'
@@ -1014,14 +1015,14 @@ export default function CheckoutPage() {
             {stripeReturnError && (
               <div className="bg-red-50 border border-red-200 rounded-xl p-4">
                 <p className="text-sm text-red-700 font-medium">{stripeReturnError}</p>
-                <a href="https://wa.me/12317902336" target="_blank" rel="noopener noreferrer"
+                <a href={waLink(BUSINESS.contacts.globalWhatsapp.e164)} target="_blank" rel="noopener noreferrer"
                    className="text-xs text-red-600 underline mt-1 block">Contact us on WhatsApp →</a>
               </div>
             )}
             {psReturnError && (
               <div className="bg-red-50 border border-red-200 rounded-xl p-4">
                 <p className="text-sm text-red-700 font-medium">{psReturnError}</p>
-                <a href="https://wa.me/12317902336" target="_blank" rel="noopener noreferrer"
+                <a href={waLink(BUSINESS.contacts.globalWhatsapp.e164)} target="_blank" rel="noopener noreferrer"
                    className="text-xs text-red-600 underline mt-1 block">Contact us on WhatsApp →</a>
               </div>
             )}

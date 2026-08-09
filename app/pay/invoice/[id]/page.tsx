@@ -1,5 +1,6 @@
 import { notFound } from 'next/navigation'
 import prisma from '@/lib/db'
+import { BUSINESS } from '@/lib/config/business'
 
 interface LineItem {
   description: string
@@ -154,7 +155,7 @@ export default async function PublicInvoicePage({ params }: { params: Promise<{ 
 
         {/* Footer */}
         <div style={{ background: '#0B1F3A', padding: '16px 32px', textAlign: 'center', fontSize: 11, color: 'rgba(255,255,255,0.4)' }}>
-          © {new Date().getFullYear()} Walz Travels Ltd · walztravels.com · contact@walztravels.com · +12317902336
+          © {new Date().getFullYear()} Walz Travels Ltd · walztravels.com · contact@walztravels.com · {BUSINESS.contacts.globalWhatsapp.display}
         </div>
       </div>
     </div>

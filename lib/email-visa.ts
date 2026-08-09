@@ -1,5 +1,6 @@
 import { getResend } from '@/lib/email-internal'
 import { getVisaConfig, STATUS_CONFIG } from '@/lib/visa-config'
+import { BUSINESS } from '@/lib/config/business'
 
 const FROM = 'Jade at Walz Travels <jade@walztravels.com>'
 const ADMIN = 'contact@walztravels.com'
@@ -8,8 +9,8 @@ const BASE_URL = 'https://walztravels.com'
 export const TRUSTPILOT_AFS_EMAIL = 'walztravels.com+2491559753@invite.trustpilot.com'
 
 const LOGO_URL = `${BASE_URL}/walz-logo.png`
-const WA_NUMBER = '+12317902336'
-const WA_LINK = 'https://wa.me/12317902336'
+const WA_NUMBER = BUSINESS.contacts.globalWhatsapp.display
+const WA_LINK = `https://wa.me/${BUSINESS.contacts.globalWhatsapp.e164}`
 
 function header() {
   return `<div style="background:#ffffff;padding:24px 40px 16px;text-align:center;border-bottom:3px solid #C9A84C;">
@@ -290,7 +291,7 @@ export async function sendApplicationFormLink(
         </a>
         <div style="background:#0B1F3A;border-radius:10px;padding:16px 20px;">
           <p style="margin:0;color:#C9A84C;font-size:12px;text-transform:uppercase;letter-spacing:1px;margin:0 0 4px;">Questions? WhatsApp Jade</p>
-          <p style="margin:0;color:#ffffff;font-size:15px;font-weight:600;">+12317902336</p>
+          <p style="margin:0;color:#ffffff;font-size:15px;font-weight:600;">${WA_NUMBER}</p>
         </div>
       </div>
       ${footer()}
@@ -335,7 +336,7 @@ export async function sendClientWelcomeEmail({
         </a>
         <div style="background:#0B1F3A;border-radius:10px;padding:16px 20px;">
           <p style="margin:0;color:#C9A84C;font-size:12px;text-transform:uppercase;letter-spacing:1px;margin:0 0 4px;">Need help?</p>
-          <p style="margin:0;color:#ffffff;font-size:14px;">WhatsApp us on <strong>+12317902336</strong> or email <a href="mailto:contact@walztravels.com" style="color:#C9A84C;">contact@walztravels.com</a></p>
+          <p style="margin:0;color:#ffffff;font-size:14px;">WhatsApp us on <strong>${WA_NUMBER}</strong> or email <a href="mailto:contact@walztravels.com" style="color:#C9A84C;">contact@walztravels.com</a></p>
         </div>
       </div>
       ${footer()}
@@ -446,7 +447,7 @@ export async function sendVisaStatusUpdateEmail({
         </a>
         <div style="background:#0B1F3A;border-radius:10px;padding:16px 20px;">
           <p style="margin:0;color:#C9A84C;font-size:12px;text-transform:uppercase;letter-spacing:1px;margin:0 0 4px;">Questions?</p>
-          <p style="margin:0;color:#ffffff;font-size:14px;">WhatsApp <strong>+12317902336</strong> or <a href="mailto:contact@walztravels.com" style="color:#C9A84C;">contact@walztravels.com</a></p>
+          <p style="margin:0;color:#ffffff;font-size:14px;">WhatsApp <strong>${WA_NUMBER}</strong> or <a href="mailto:contact@walztravels.com" style="color:#C9A84C;">contact@walztravels.com</a></p>
         </div>
       </div>
       ${footer()}

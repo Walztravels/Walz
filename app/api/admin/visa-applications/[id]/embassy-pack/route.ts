@@ -3,6 +3,7 @@ import { prisma } from '@/lib/db'
 import { getResend } from '@/lib/email-internal'
 import { getVisaConfig } from '@/lib/visa-config'
 import { getAdminSession } from '@/lib/admin-auth'
+import { BUSINESS } from '@/lib/config/business'
 
 const BASE_URL = 'https://walztravels.com'
 
@@ -224,7 +225,7 @@ export async function POST(
         </p>
         <p style="margin:0;color:#64748b;font-size:13px;">
           💬 <a href="https://wa.me/12317902336" style="color:#C9A84C;">
-            WhatsApp +12317902336</a>
+            WhatsApp ${BUSINESS.contacts.globalWhatsapp.display}</a>
           &nbsp;|&nbsp;
           ✉️ <a href="mailto:contact@walztravels.com" style="color:#C9A84C;">
             contact@walztravels.com</a>

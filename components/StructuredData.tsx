@@ -1,6 +1,7 @@
 // Schema.org structured data for Walz Travels pages.
 // Renders <script type="application/ld+json"> — never adds visible HTML.
 import type { BreadcrumbItem } from '@/lib/types/structured-data'
+import { BUSINESS } from '@/lib/config/business'
 
 const BASE = 'https://www.walztravels.com'
 
@@ -12,7 +13,7 @@ const baseOrg = {
   logo:        `${BASE}/walz-logo.png`,
   description:
     'Expert visa processing, flight bookings, private tours and hotel reservations. UK, Canada, Schengen, UAE and USA visas.',
-  telephone:          '+19843880110',
+  telephone:          `+${BUSINESS.contacts.emergencyPhone.e164}`,
   email:              'contact@walztravels.com',
   priceRange:         '££',
   currenciesAccepted: 'GBP, USD, EUR, NGN, GHS',

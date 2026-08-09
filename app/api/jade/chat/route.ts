@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import Anthropic from '@anthropic-ai/sdk'
 import OpenAI from 'openai'
+import { BUSINESS } from '@/lib/config/business'
 
 export const maxDuration = 60
 export const dynamic     = 'force-dynamic'
@@ -60,7 +61,7 @@ When a customer seems ready or asks to book:
 ## ESCALATION
 If the customer is angry, has a complaint, or needs urgent help:
 - "Let me connect you with our team right away"
-- Provide: WhatsApp +12317902336 | contact@walztravels.com
+- Provide: WhatsApp ${BUSINESS.contacts.globalWhatsapp.display} | contact@walztravels.com
 - Never argue. Empathise. Escalate.
 
 ## FORBIDDEN
@@ -195,7 +196,7 @@ export async function POST(req: NextRequest) {
       reply = await callOpenAI(messages, systemPrompt)
     } catch (openaiErr) {
       console.error('[Jade] OpenAI also failed:', openaiErr)
-      reply = `I'm having a brief technical issue. For immediate help, WhatsApp us on **+12317902336** or email **contact@walztravels.com** — our team responds within minutes! ✈`
+      reply = `I'm having a brief technical issue. For immediate help, WhatsApp us on **${BUSINESS.contacts.globalWhatsapp.display}** or email **contact@walztravels.com** — our team responds within minutes! ✈`
     }
   }
 

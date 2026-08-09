@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getAdminSession } from '@/lib/admin-auth'
 import prisma from '@/lib/db'
 import { Resend } from 'resend'
+import { BUSINESS } from '@/lib/config/business'
 import { renderToBuffer } from '@react-pdf/renderer'
 import React from 'react'
 import { TicketPDFDocument } from '@/components/admin/TicketPDF'
@@ -312,7 +313,7 @@ export async function POST(req: NextRequest) {
         <div style="margin-top:32px;padding-top:20px;border-top:1px solid #E5E7EB">
           <p style="font-size:11px;color:#9CA3AF;text-align:center;margin:0;line-height:1.8">
             Walz Travels Ltd · contact@walztravels.com · walztravels.com<br>
-            WhatsApp UK: +12317902336 · WhatsApp Canada: +1 555 710 7823<br>
+            WhatsApp UK: ${BUSINESS.contacts.globalWhatsapp.display} · WhatsApp Canada: +1 555 710 7823<br>
             Powered by Jade — Walz Travels AI
           </p>
         </div>

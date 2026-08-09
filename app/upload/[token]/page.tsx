@@ -6,6 +6,7 @@ import {
   Upload, CheckCircle, AlertCircle, FileText,
   Clock, Loader2, X, CloudUpload,
 } from 'lucide-react'
+import { BUSINESS, waLink } from '@/lib/config/business'
 
 interface RequestedDoc {
   name:         string
@@ -279,9 +280,9 @@ export default function ClientUploadPage() {
         {/* Help footer */}
         <div className="bg-white rounded-2xl p-4 text-center shadow-sm">
           <p className="text-gray-400 text-sm mb-2">Having trouble uploading?</p>
-          <a href="https://wa.me/12317902336"
+          <a href={waLink(BUSINESS.contacts.globalWhatsapp.e164)}
             className="text-[#C9A84C] font-semibold text-sm hover:underline">
-            💬 WhatsApp us: +12317902336
+            💬 WhatsApp us: {BUSINESS.contacts.globalWhatsapp.display}
           </a>
           <p className="text-gray-300 text-xs mt-2">
             Link expires {new Date(data.expiresAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}

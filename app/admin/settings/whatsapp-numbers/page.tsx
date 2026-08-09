@@ -1,6 +1,7 @@
 'use client'
 
 import { MessageSquare, ExternalLink, AlertCircle, Clock } from 'lucide-react'
+import { BUSINESS } from '@/lib/config/business'
 
 // ─── Static data ─────────────────────────────────────────────────────────────
 
@@ -8,7 +9,7 @@ const NUMBERS = [
   {
     flag: '🇬🇧',
     label: 'United Kingdom',
-    number: '+12317902336',
+    number: `+${BUSINESS.contacts.globalWhatsapp.e164}`,
     status: 'expired',
     statusLabel: 'Token expired',
     statusColor: 'bg-red-100 text-red-700',

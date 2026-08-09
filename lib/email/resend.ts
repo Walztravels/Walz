@@ -1,3 +1,5 @@
+import { BUSINESS } from '@/lib/config/business'
+
 const RESEND_API = 'https://api.resend.com'
 const FROM       = 'Walz Travels <bookings@walztravels.com>'
 
@@ -77,7 +79,7 @@ export async function sendBookingConfirmationEmail({
           <p style="margin:0 0 8px;color:#0B1F3A;font-weight:600;font-size:14px;">Need help?</p>
           <p style="margin:0;color:#8B9BAE;font-size:13px;">
             📧 <a href="mailto:info@walztravels.com" style="color:#C9A84C;text-decoration:none;">info@walztravels.com</a>&nbsp;&nbsp;
-            📱 <a href="https://wa.me/12317902336" style="color:#C9A84C;text-decoration:none;">+12317902336</a>
+            📱 <a href="https://wa.me/${BUSINESS.contacts.globalWhatsapp.e164}" style="color:#C9A84C;text-decoration:none;">${BUSINESS.contacts.globalWhatsapp.display}</a>
           </p>
         </div>
         <div style="padding:20px 40px;text-align:center;border-top:1px solid #E2D9CC;">
@@ -145,7 +147,7 @@ export async function sendMilesEarnedEmail({
         <div style="padding:24px 40px;background:#F7F4EF;border-top:1px solid #E2D9CC;">
           <p style="margin:0;color:#8B9BAE;font-size:13px;">
             📧 <a href="mailto:info@walztravels.com" style="color:#C9A84C;text-decoration:none;">info@walztravels.com</a>&nbsp;&nbsp;
-            📱 <a href="https://wa.me/12317902336" style="color:#C9A84C;text-decoration:none;">+12317902336</a>
+            📱 <a href="https://wa.me/${BUSINESS.contacts.globalWhatsapp.e164}" style="color:#C9A84C;text-decoration:none;">${BUSINESS.contacts.globalWhatsapp.display}</a>
           </p>
         </div>
         <div style="padding:20px 40px;text-align:center;border-top:1px solid #E2D9CC;">

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getAnthropic } from '@/lib/anthropic'
+import { BUSINESS } from '@/lib/config/business'
 
 
 export const maxDuration = 60
@@ -35,7 +36,7 @@ For bookings, direct customers to these pages (use the exact path so they become
 
 Keep responses friendly, professional and concise. Use emojis sparingly.
 Always clarify that exact prices depend on travel dates and availability.
-Company contact: contact@walztravels.com | WhatsApp: +12317902336`
+Company contact: contact@walztravels.com | WhatsApp: ${BUSINESS.contacts.globalWhatsapp.display}`
 
 interface Message {
   role:    'user' | 'assistant'
@@ -74,7 +75,7 @@ export async function POST(req: NextRequest) {
   } catch (err: unknown) {
     console.error('[Jade search]', err)
     return NextResponse.json(
-      { reply: "I'm having trouble right now. WhatsApp us on +12317902336 for instant help." },
+      { reply: `I'm having trouble right now. WhatsApp us on ${BUSINESS.contacts.globalWhatsapp.display} for instant help.` },
       { status: 200 }
     )
   }

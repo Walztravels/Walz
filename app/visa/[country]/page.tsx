@@ -4,6 +4,7 @@ import { Clock, CheckCircle, AlertTriangle, ArrowLeft, MessageCircle, Plane, Hot
 import { prisma } from '@/lib/db'
 import { ADVISORY_CONFIG, RULE_TYPE_CONFIG } from '@/lib/countries'
 import type { Metadata } from 'next'
+import { BUSINESS } from '@/lib/config/business'
 import { Price } from '@/components/common/Price'
 import { JadeChatButton } from '@/components/ui/JadeChatButton'
 import { SLUG_TO_ISO2 } from '@/lib/visa-config'
@@ -360,7 +361,7 @@ export default async function VisaCountryPage({ params }: Props) {
           </div>
           <div className="mt-4 p-4 bg-green-50 rounded-xl border border-green-100">
             <p className="text-sm text-green-800 font-medium">💬 WhatsApp Support Available</p>
-            <p className="text-xs text-green-700 mt-0.5">+12317902336 — Mon–Sat 8am–8pm (UK time)</p>
+            <p className="text-xs text-green-700 mt-0.5">{BUSINESS.contacts.globalWhatsapp.display} — Mon–Sat 8am–8pm (UK time)</p>
           </div>
         </div>
 

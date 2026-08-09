@@ -1,6 +1,7 @@
 import type { Metadata } from 'next'
 import { Playfair_Display, DM_Sans } from 'next/font/google'
 import Script from 'next/script'
+import { BUSINESS } from '@/lib/config/business'
 import './globals.css'
 import { PublicShell } from '@/components/common/PublicShell'
 import { JadeChatWidget } from '@/components/common/JadeChatWidget'
@@ -160,7 +161,7 @@ export default async function RootLayout({
                   image: 'https://www.walztravels.com/og-image.png',
                   description:
                     'Walz Travels is a premium global travel and visa consultancy offering international flight bookings, visa processing for UK, Canada, Schengen, USA and UAE, luxury tour packages, hotel bookings and bespoke travel itineraries for individuals, families and corporate clients worldwide.',
-                  telephone: '+12317902336',
+                  telephone: `+${BUSINESS.contacts.globalWhatsapp.e164}`,
                   email: 'contact@walztravels.com',
                   address: {
                     '@type': 'PostalAddress',
@@ -202,7 +203,7 @@ export default async function RootLayout({
                   ],
                   contactPoint: {
                     '@type': 'ContactPoint',
-                    telephone: '+12317902336',
+                    telephone: `+${BUSINESS.contacts.globalWhatsapp.e164}`,
                     contactType: 'customer service',
                     availableLanguage: ['English'],
                     areaServed: ['CA', 'GB', 'AE', 'NG', 'GH', 'US'],

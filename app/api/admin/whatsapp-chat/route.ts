@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { getAdminSession } from '@/lib/admin-auth'
 import prisma from '@/lib/db'
 import { sendWhatsAppViaTwilio, twilioConfigured, twilioTemplateConfigured, isNigeriaPhone, normalisePhone } from '@/lib/twilio-whatsapp'
+import { BUSINESS } from '@/lib/config/business'
 
 export const dynamic = 'force-dynamic'
 
@@ -68,7 +69,7 @@ export async function GET() {
     pinned:            pinned ?? null,
     twilioConfigured:  twilioConfigured(),
     templateConfigured: twilioTemplateConfigured(),
-    twilioNumber:      process.env.TWILIO_WHATSAPP_NUMBER || '+2347077691701',
+    twilioNumber:      process.env.TWILIO_WHATSAPP_NUMBER || `+${BUSINESS.contacts.nigeriaWhatsapp.e164}`,
   })
 }
 

@@ -1,5 +1,6 @@
 import React from 'react'
 import type { FlightTicketEmailProps, FlightLeg } from '@/types/flight-ticket'
+import { BUSINESS, waLink } from '@/lib/config/business'
 
 // Helper to format date like "Mon 15 Jan 2025"
 function fmtDate(iso: string): string {
@@ -255,7 +256,7 @@ export function FlightTicketEmail({
                               {[
                                 { icon: '📋', label: 'Manage', sub: 'Booking', href: 'https://www.walztravels.com/portal/dashboard' },
                                 { icon: '📅', label: 'Add to', sub: 'Calendar', href: `https://www.walztravels.com/api/tickets/calendar?ref=${reference}` },
-                                { icon: '💬', label: 'WhatsApp', sub: 'Support', href: 'https://wa.me/12317902336' },
+                                { icon: '💬', label: 'WhatsApp', sub: 'Support', href: waLink(BUSINESS.contacts.globalWhatsapp.e164) },
                                 { icon: '🌐', label: 'View', sub: 'Online', href: 'https://www.walztravels.com' },
                               ].map(({ icon, label, sub, href }) => (
                                 <td key={label} align="center" style={{ padding: '0 6px' }}>
@@ -480,8 +481,8 @@ export function FlightTicketEmail({
                         <table width="100%" cellPadding={0} cellSpacing={0} border={0} style={{ marginTop: 20, marginBottom: 20 }}>
                           <tbody>
                             <tr>
-                              <td style={{ fontSize: 11, color: 'rgba(255,255,255,0.6)', fontFamily: 'Arial, sans-serif', paddingRight: 16 }}>📞 +1 984 388 0110</td>
-                              <td style={{ fontSize: 11, color: 'rgba(255,255,255,0.6)', fontFamily: 'Arial, sans-serif', paddingRight: 16 }}>💬 +1 231 790 2336</td>
+                              <td style={{ fontSize: 11, color: 'rgba(255,255,255,0.6)', fontFamily: 'Arial, sans-serif', paddingRight: 16 }}>📞 {BUSINESS.contacts.emergencyPhone.display}</td>
+                              <td style={{ fontSize: 11, color: 'rgba(255,255,255,0.6)', fontFamily: 'Arial, sans-serif', paddingRight: 16 }}>💬 {BUSINESS.contacts.globalWhatsapp.display}</td>
                               <td style={{ fontSize: 11, color: 'rgba(255,255,255,0.6)', fontFamily: 'Arial, sans-serif', paddingRight: 16 }}>✉️ contact@walztravels.com</td>
                               <td style={{ fontSize: 11, color: 'rgba(255,255,255,0.6)', fontFamily: 'Arial, sans-serif' }}>🌐 walztravels.com</td>
                             </tr>

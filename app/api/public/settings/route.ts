@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import prisma from '@/lib/db'
+import { BUSINESS } from '@/lib/config/business'
 
 export const dynamic = 'force-dynamic'
 
@@ -12,8 +13,8 @@ const PUBLIC_KEYS = [
 ]
 
 const DEFAULTS: Record<string, string> = {
-  whatsapp_uk:     '+12317902336',
-  whatsapp_us:     '+19843880110',
+  whatsapp_uk:     `+${BUSINESS.contacts.globalWhatsapp.e164}`,
+  whatsapp_us:     `+${BUSINESS.contacts.emergencyPhone.e164}`,
   whatsapp_canada: '+15557107823',
   business_name:   'Walz Travels',
   office_address:  '1 Commercial Street, London, E1 6RF',

@@ -1,4 +1,5 @@
 import type { FlightLeg } from '@/types/flight-ticket'
+import { BUSINESS } from '@/lib/config/business'
 
 /**
  * Generates an iCalendar (.ics) string for all flight legs.
@@ -39,7 +40,7 @@ export function generateFlightICS(
       `Baggage: ${leg.baggage}`,
       leg.seat ? `Seat: ${leg.seat}` : '',
       '',
-      'Support: https://wa.me/12317902336',
+      `Support: https://wa.me/${BUSINESS.contacts.globalWhatsapp.e164}`,
       'Portal: https://www.walztravels.com/portal',
     ].filter(l => l !== null).join('\\n')
 

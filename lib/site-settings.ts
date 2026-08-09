@@ -1,6 +1,7 @@
 // lib/site-settings.ts
 import db from '@/lib/db'
 import { cache } from 'react'
+import { BUSINESS } from '@/lib/config/business'
 import { unstable_noStore as noStore } from 'next/cache'
 
 export type SiteSettings = {
@@ -27,17 +28,17 @@ export type SiteSettings = {
 }
 
 export const SETTING_DEFAULTS: SiteSettings = {
-  whatsapp_header:         '+12317902336',
-  whatsapp_header_display: '+12317902336',
-  whatsapp_cta:            '+12317902336',
-  whatsapp_cta_display:    '+12317902336',
-  phone_uk:                '+12317902336',
+  whatsapp_header:         BUSINESS.contacts.globalWhatsapp.display,
+  whatsapp_header_display: BUSINESS.contacts.globalWhatsapp.display,
+  whatsapp_cta:            BUSINESS.contacts.globalWhatsapp.display,
+  whatsapp_cta_display:    BUSINESS.contacts.globalWhatsapp.display,
+  phone_uk:                BUSINESS.contacts.globalWhatsapp.display,
   phone_canada:            '+13657200865',
   phone_uae:               '+971000000000',
-  phone_nigeria:           '+2347077691701',
+  phone_nigeria:           BUSINESS.contacts.nigeriaWhatsapp.display,
   phone_ghana:             '+2330000000000',
   footer_wa_1_label:       'WhatsApp UK',
-  footer_wa_1_number:      '+12317902336',
+  footer_wa_1_number:      BUSINESS.contacts.globalWhatsapp.display,
   footer_wa_2_label:       'WhatsApp Canada',
   footer_wa_2_number:      '+13657200865',
   footer_wa_3_label:       '',

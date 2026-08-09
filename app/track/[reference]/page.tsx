@@ -3,6 +3,7 @@ import Link from 'next/link'
 import type { Metadata } from 'next'
 import prisma from '@/lib/db'
 import { Phone, Mail, MessageCircle, CheckCircle2, Clock, Loader2, XCircle } from 'lucide-react'
+import { BUSINESS, waLink } from '@/lib/config/business'
 
 const BASE_URL = 'https://walztravels.com'
 
@@ -216,14 +217,14 @@ export default async function TrackPage({ params }: Params) {
           <p className="text-xs font-bold uppercase tracking-widest text-gray-500 mb-4">Questions?</p>
           <div className="flex flex-col sm:flex-row gap-3">
             <a
-              href="https://wa.me/12317902336"
+              href={waLink(BUSINESS.contacts.globalWhatsapp.e164)}
               target="_blank" rel="noopener noreferrer"
               className="flex items-center gap-2 flex-1 justify-center py-2.5 rounded-xl bg-[#25D366] text-white text-sm font-bold hover:bg-[#20ba5a] transition-colors"
             >
               <MessageCircle className="w-4 h-4" /> WhatsApp us
             </a>
             <a
-              href="tel:+19843880110"
+              href={`tel:+${BUSINESS.contacts.emergencyPhone.e164}`}
               className="flex items-center gap-2 flex-1 justify-center py-2.5 rounded-xl bg-[#0B1F3A] text-[#C9A84C] text-sm font-bold hover:bg-[#162d52] transition-colors"
             >
               <Phone className="w-4 h-4" /> +1 984-388-0110

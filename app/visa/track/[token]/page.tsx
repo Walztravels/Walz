@@ -1,6 +1,7 @@
 import { notFound } from 'next/navigation'
 import { CheckCircle, Clock, Download } from 'lucide-react'
 import prisma from '@/lib/db'
+import { BUSINESS } from '@/lib/config/business'
 
 export const dynamic = 'force-dynamic'
 
@@ -180,7 +181,7 @@ export default async function TrackApplicationPage({ params }: { params: { token
         </div>
 
         <p className="text-center text-xs text-gray-400 pb-4">
-          Walz Travels · visa@walztravels.com · +12317902336
+          Walz Travels · visa@walztravels.com · {BUSINESS.contacts.globalWhatsapp.display}
         </p>
       </div>
     </div>

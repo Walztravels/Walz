@@ -4,6 +4,7 @@
 // No internal costs, supplier details, or admin notes are ever included.
 
 import { getResend } from '@/lib/resend'
+import { BUSINESS } from '@/lib/config/business'
 
 // ── Internal notification on request creation (web form path) ─────────────────
 
@@ -108,7 +109,7 @@ export async function sendClientConfirmation(opts: {
         </p>
 
         <div style="text-align:center;margin-bottom:20px">
-          <a href="https://wa.me/12317902336?text=Hi%2C%20my%20concierge%20reference%20is%20${opts.reference}"
+          <a href="https://wa.me/${BUSINESS.contacts.globalWhatsapp.e164}?text=Hi%2C%20my%20concierge%20reference%20is%20${opts.reference}"
             style="display:inline-block;background:#25D366;color:#ffffff;padding:12px 28px;border-radius:999px;text-decoration:none;font-weight:700;font-size:13px">
             Message us on WhatsApp
           </a>
@@ -170,7 +171,7 @@ export async function sendClientStatusUpdate(opts: {
         </div>
 
         <div style="text-align:center;margin-bottom:16px">
-          <a href="https://wa.me/12317902336?text=Hi%2C%20my%20concierge%20reference%20is%20${opts.reference}"
+          <a href="https://wa.me/${BUSINESS.contacts.globalWhatsapp.e164}?text=Hi%2C%20my%20concierge%20reference%20is%20${opts.reference}"
             style="display:inline-block;background:#0B1F3A;color:#C9A84C;padding:12px 28px;border-radius:999px;text-decoration:none;font-weight:700;font-size:13px">
             Chat with your specialist
           </a>

@@ -9,6 +9,7 @@ import { Elements, PaymentElement, useStripe, useElements } from '@stripe/react-
 import {
   ArrowLeft, Wifi, Clock, Check, X, Lock, RefreshCw, ChevronDown,
 } from 'lucide-react'
+import { BUSINESS, waLink } from '@/lib/config/business'
 import type { EsimPackage } from '@/lib/esim/types'
 
 const stripePromise = loadStripe(process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY!)
@@ -730,7 +731,7 @@ export function EsimCountryPage({
           Get {name} eSIM — from ${minPrice.toFixed(2)}
         </button>
         <p className="text-white/25 text-xs mt-4">
-          Need help? <a href="https://wa.me/12317902336" target="_blank" rel="noopener noreferrer" className="text-[#C9A84C] hover:opacity-80">WhatsApp Jade</a>
+          Need help? <a href={waLink(BUSINESS.contacts.globalWhatsapp.e164)} target="_blank" rel="noopener noreferrer" className="text-[#C9A84C] hover:opacity-80">WhatsApp Jade</a>
         </p>
       </div>
 

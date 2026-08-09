@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react'
 import dynamic from 'next/dynamic'
 import Image from 'next/image'
+import { BUSINESS } from '@/lib/config/business'
 import Link from 'next/link'
 import Script from 'next/script'
 import { ArrowRight, Check, Mail, Gift, Rss } from 'lucide-react'
@@ -164,7 +165,7 @@ export default function HomePage() {
                   "height": 100
                 },
                 "description": "Expert visa processing, flight bookings, hotels and private tours across UK, Canada, UAE, Nigeria and Ghana.",
-                "telephone": "+12317902336",
+                "telephone": `+${BUSINESS.contacts.globalWhatsapp.e164}`,
                 "email": "contact@walztravels.com",
                 "areaServed": ["GB", "CA", "AE", "NG", "GH"],
                 "serviceType": ["Visa Processing", "Flight Booking", "Hotel Booking", "Private Tours"],
@@ -176,7 +177,7 @@ export default function HomePage() {
                 ],
                 "contactPoint": {
                   "@type": "ContactPoint",
-                  "telephone": "+12317902336",
+                  "telephone": `+${BUSINESS.contacts.globalWhatsapp.e164}`,
                   "contactType": "customer service",
                   "availableLanguage": ["English"]
                 }

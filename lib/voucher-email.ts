@@ -1,4 +1,5 @@
 import { Resend } from 'resend'
+import { BUSINESS } from '@/lib/config/business'
 
 function getResend() {
   if (!process.env.RESEND_API_KEY) throw new Error('RESEND_API_KEY not set')
@@ -31,7 +32,7 @@ function footer() {
   <div style="background:#0B1F3A;padding:24px 40px;text-align:center;border-top:2px solid #C9A84C;">
     <p style="margin:0 0 8px;color:#8B9BAE;font-size:13px;">Need help redeeming your voucher?</p>
     <p style="margin:0;font-size:13px;">
-      <a href="https://wa.me/12317902336" style="color:#C9A84C;text-decoration:none;font-weight:600;">💬 WhatsApp: +12317902336</a>
+      <a href="https://wa.me/${BUSINESS.contacts.globalWhatsapp.e164}" style="color:#C9A84C;text-decoration:none;font-weight:600;">💬 WhatsApp: ${BUSINESS.contacts.globalWhatsapp.display}</a>
       &nbsp;&nbsp;|&nbsp;&nbsp;
       <a href="mailto:contact@walztravels.com" style="color:#C9A84C;text-decoration:none;font-weight:600;">✉️ contact@walztravels.com</a>
     </p>
@@ -117,7 +118,7 @@ export async function sendVoucherEmail(data: {
             ${redeemInstructions[data.serviceType] ?? 'Contact our team with your voucher code to apply it to your booking.'}
           </p>
           <div style="display:flex;gap:12px;flex-wrap:wrap;">
-            <a href="https://wa.me/12317902336?text=Hi%2C%20I%20have%20a%20gift%20voucher%20code%3A%20${data.code}"
+            <a href="https://wa.me/${BUSINESS.contacts.globalWhatsapp.e164}?text=Hi%2C%20I%20have%20a%20gift%20voucher%20code%3A%20${data.code}"
                style="display:inline-block;background:#25D366;color:#fff;padding:12px 20px;border-radius:10px;text-decoration:none;font-size:14px;font-weight:600;">
               💬 WhatsApp Us
             </a>
@@ -225,7 +226,7 @@ export async function sendTravelCreditEmail(data: {
             Our team will deduct the full credit value from your new booking total. Partial use is allowed; any remaining balance stays on your voucher.
           </p>
           <div style="display:flex;gap:12px;flex-wrap:wrap;">
-            <a href="https://wa.me/12317902336?text=Hi%2C%20I%20have%20a%20travel%20credit%20voucher%3A%20${data.code}"
+            <a href="https://wa.me/${BUSINESS.contacts.globalWhatsapp.e164}?text=Hi%2C%20I%20have%20a%20travel%20credit%20voucher%3A%20${data.code}"
                style="display:inline-block;background:#25D366;color:#fff;padding:12px 20px;border-radius:10px;text-decoration:none;font-size:14px;font-weight:600;">
               💬 WhatsApp Us
             </a>

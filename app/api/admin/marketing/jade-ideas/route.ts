@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import Anthropic from '@anthropic-ai/sdk'
 import { getAdminSession } from '@/lib/admin-auth'
+import { BUSINESS } from '@/lib/config/business'
 
 export async function POST(req: NextRequest) {
   const session = await getAdminSession()
@@ -25,7 +26,7 @@ lifestyle content, client success stories, tour packages, immigration news.
 
 Target audiences: Nigerians in UK, Ghanaians in Canada, Africans in UAE, Japa travellers.
 
-Always end content ideas with a WhatsApp CTA mention (+12317902336).
+Always end content ideas with a WhatsApp CTA mention (${BUSINESS.contacts.globalWhatsapp.display}).
 
 Respond with 3-5 short, punchy content ideas — no fluff, no headers. Each idea should be
 1-2 sentences that a social media manager can immediately act on. Be specific and topical.`,

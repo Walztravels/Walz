@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getAdminSession } from '@/lib/admin-auth'
 import prisma from '@/lib/db'
+import { BUSINESS } from '@/lib/config/business'
 
 export const dynamic = 'force-dynamic'
 
@@ -103,7 +104,7 @@ function buildProposalHtml(
     ${daysHtml}
   </div>
   <div style="background:#0B1F3A;padding:20px 32px;text-align:center">
-    <div style="color:rgba(255,255,255,0.5);font-size:11px">Walz Travels · walztravels.com · contact@walztravels.com · +12317902336</div>
+    <div style="color:rgba(255,255,255,0.5);font-size:11px">Walz Travels · walztravels.com · contact@walztravels.com · ${BUSINESS.contacts.globalWhatsapp.display}</div>
   </div>
 </div>
 </body>

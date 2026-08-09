@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getAdminSession } from '@/lib/admin-auth'
 import prisma from '@/lib/db'
 import { getResend } from '@/lib/resend'
+import { BUSINESS } from '@/lib/config/business'
 
 
 const STAGE_ACCENT: Record<string, string> = {
@@ -104,7 +105,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
         Track My Application →
       </a>
     </div>
-    <p style="color:#999;font-size:12px;text-align:center;margin:20px 0 0;">Questions? Reply to this email or WhatsApp us at +12317902336</p>
+    <p style="color:#999;font-size:12px;text-align:center;margin:20px 0 0;">Questions? Reply to this email or WhatsApp us at ${BUSINESS.contacts.globalWhatsapp.display}</p>
   </div>
   <div style="background:#0B1F3A;border-radius:0 0 16px 16px;padding:16px;text-align:center;">
     <p style="color:rgba(255,255,255,0.4);font-size:11px;margin:0;">Walz Travels · contact@walztravels.com · walztravels.com</p>

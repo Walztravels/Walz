@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getAdminSession } from '@/lib/admin-auth'
 import prisma from '@/lib/db'
 import { revalidateSiteSettings } from '@/lib/site-settings'
+import { BUSINESS } from '@/lib/config/business'
 
 // ── Hard-coded default settings (used as fallbacks if DB has no value) ──────
 const DEFAULT_SETTINGS: Record<string, { label: string; value: string; group: string }> = {
@@ -18,17 +19,17 @@ const DEFAULT_SETTINGS: Record<string, { label: string; value: string; group: st
   booking_email:   { label: 'Booking Email',        value: 'contact@walztravels.com',              group: 'emails' },
 
   // Phone & WhatsApp — these keys are consumed by lib/site-settings.ts → components
-  whatsapp_header:         { label: 'WhatsApp (Navbar – raw number)',    value: '+12317902336',  group: 'phones' },
-  whatsapp_header_display: { label: 'WhatsApp (Navbar – display text)',  value: '+12317902336',group: 'phones' },
-  whatsapp_cta:            { label: 'WhatsApp (Homepage CTA – raw number)',    value: '+12317902336',  group: 'phones' },
-  whatsapp_cta_display:    { label: 'WhatsApp (Homepage CTA – display text)',  value: '+12317902336',  group: 'phones' },
-  phone_uk:        { label: 'WhatsApp UK',      value: '+12317902336',  group: 'phones' },
+  whatsapp_header:         { label: 'WhatsApp (Navbar – raw number)',    value: `+${BUSINESS.contacts.globalWhatsapp.e164}`,  group: 'phones' },
+  whatsapp_header_display: { label: 'WhatsApp (Navbar – display text)',  value: `+${BUSINESS.contacts.globalWhatsapp.e164}`,group: 'phones' },
+  whatsapp_cta:            { label: 'WhatsApp (Homepage CTA – raw number)',    value: `+${BUSINESS.contacts.globalWhatsapp.e164}`,  group: 'phones' },
+  whatsapp_cta_display:    { label: 'WhatsApp (Homepage CTA – display text)',  value: `+${BUSINESS.contacts.globalWhatsapp.e164}`,  group: 'phones' },
+  phone_uk:        { label: 'WhatsApp UK',      value: `+${BUSINESS.contacts.globalWhatsapp.e164}`,  group: 'phones' },
   phone_canada:    { label: 'WhatsApp Canada',  value: '+13657200865',   group: 'phones' },
   phone_uae:       { label: 'WhatsApp UAE',     value: '+971000000000',  group: 'phones' },
-  phone_nigeria:   { label: 'WhatsApp Nigeria', value: '+2347077691701', group: 'phones' },
+  phone_nigeria:   { label: 'WhatsApp Nigeria', value: `+${BUSINESS.contacts.nigeriaWhatsapp.e164}`, group: 'phones' },
   phone_ghana:     { label: 'WhatsApp Ghana',   value: '+2330000000000', group: 'phones' },
   footer_wa_1_label:  { label: 'Footer Slot 1 – Label',  value: 'WhatsApp UK',     group: 'phones' },
-  footer_wa_1_number: { label: 'Footer Slot 1 – Number', value: '+12317902336',   group: 'phones' },
+  footer_wa_1_number: { label: 'Footer Slot 1 – Number', value: `+${BUSINESS.contacts.globalWhatsapp.e164}`,   group: 'phones' },
   footer_wa_2_label:  { label: 'Footer Slot 2 – Label',  value: 'WhatsApp Canada', group: 'phones' },
   footer_wa_2_number: { label: 'Footer Slot 2 – Number', value: '+13657200865',    group: 'phones' },
   footer_wa_3_label:  { label: 'Footer Slot 3 – Label',  value: '',                group: 'phones' },
@@ -36,10 +37,10 @@ const DEFAULT_SETTINGS: Record<string, { label: string; value: string; group: st
   footer_wa_4_label:  { label: 'Footer Slot 4 – Label',  value: '',                group: 'phones' },
   footer_wa_4_number: { label: 'Footer Slot 4 – Number', value: '',                group: 'phones' },
   // Legacy keys kept for backwards compat
-  whatsapp_uk:     { label: 'WhatsApp UK (legacy)', value: '+12317902336',                        group: 'phones' },
-  whatsapp_us:     { label: 'WhatsApp US',          value: '+19843880110',                         group: 'phones' },
+  whatsapp_uk:     { label: 'WhatsApp UK (legacy)', value: `+${BUSINESS.contacts.globalWhatsapp.e164}`,                        group: 'phones' },
+  whatsapp_us:     { label: 'WhatsApp US',          value: `+${BUSINESS.contacts.emergencyPhone.e164}`,                         group: 'phones' },
   whatsapp_canada: { label: 'WhatsApp Canada',      value: '+15557107823',                         group: 'phones' },
-  call_jade:       { label: 'Call Jade (Phone)',     value: '+19843880110',                         group: 'phones' },
+  call_jade:       { label: 'Call Jade (Phone)',     value: `+${BUSINESS.contacts.emergencyPhone.e164}`,                         group: 'phones' },
 
   // Visa Service Fees
   visa_fee_uk:       { label: 'UK Visa Fee',           value: '£149',                               group: 'visa_fees' },

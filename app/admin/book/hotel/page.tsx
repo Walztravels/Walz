@@ -3,8 +3,9 @@
 import { useState } from 'react'
 import { Hotel, ArrowLeft, Search } from 'lucide-react'
 import Link from 'next/link'
+import { BUSINESS } from '@/lib/config/business'
 
-const WA = '12317902336'
+const WA = BUSINESS.contacts.globalWhatsapp.e164
 
 export default function AdminHotelBookingPage() {
   const [destination, setDestination] = useState('')

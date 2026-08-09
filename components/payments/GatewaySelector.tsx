@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { processorsFor } from '@/lib/payments/processors'
 import type { Processor } from '@/lib/payments/processors'
+import { BUSINESS, waLink } from '@/lib/config/business'
 
 export type Gateway = Processor['id']
 
@@ -79,7 +80,7 @@ export default function GatewaySelector({ currency, amount, selected, onSelect }
           No payment methods available for {currency}.
         </p>
         <a
-          href="https://wa.me/12317902336"
+          href={waLink(BUSINESS.contacts.globalWhatsapp.e164)}
           target="_blank"
           rel="noreferrer"
           className="inline-flex items-center gap-2 px-4 py-2 rounded-xl bg-[#25D366] text-white text-sm font-semibold"

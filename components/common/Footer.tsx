@@ -5,6 +5,7 @@ import { useState, useEffect } from 'react'
 import { Mail, MapPin, MessageCircle, Award, Lock } from 'lucide-react'
 import { useSettings } from '@/lib/settings-context'
 import { whatsappLink } from '@/lib/site-settings'
+import { BUSINESS } from '@/lib/config/business'
 
 const LOGO_CACHE_KEY = 'walz_logo_url'
 const LOGO_CACHE_TTL  = 60 * 60 * 1000
@@ -235,7 +236,7 @@ export function Footer() {
                 <div className="text-walz-off-white font-medium text-[11px] uppercase tracking-wide mb-2">Enquiries</div>
                 <div>📄 Visa enquiries: <a href="mailto:visa@walztravels.com" className="hover:text-walz-gold transition-colors">visa@walztravels.com</a></div>
                 <div>✈️ Group &amp; corporate travel: <a href={whatsappLink(settings.whatsapp_header)} target="_blank" rel="noopener noreferrer" className="hover:text-walz-gold transition-colors">WhatsApp us</a></div>
-                <div>🚨 Emergency support: <a href="tel:+19843880110" className="hover:text-walz-gold transition-colors">+1 984 388 0110</a></div>
+                <div>🚨 Emergency support: <a href={`tel:+${BUSINESS.contacts.emergencyPhone.e164}`} className="hover:text-walz-gold transition-colors">{BUSINESS.contacts.emergencyPhone.display}</a></div>
               </div>
             </div>
 
@@ -327,10 +328,10 @@ export function Footer() {
             <div className="mt-6 p-3 rounded-xl bg-walz-slate/50 border border-walz-slate">
               <p className="text-walz-gold text-xs font-semibold mb-1">Call Jade — 24/7</p>
               <a
-                href="tel:+19843880110"
+                href={`tel:+${BUSINESS.contacts.emergencyPhone.e164}`}
                 className="text-walz-off-white text-sm font-medium hover:text-walz-gold transition-colors"
               >
-                +1 984 388 0110
+                {BUSINESS.contacts.emergencyPhone.display}
               </a>
             </div>
           </div>

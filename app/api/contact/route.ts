@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getResend } from '@/lib/resend'
+import { BUSINESS } from '@/lib/config/business'
 
 export async function POST(req: NextRequest) {
   const { name, email, phone, subject, message } = await req.json()
@@ -36,7 +37,7 @@ export async function POST(req: NextRequest) {
       <p>Thank you for reaching out to Walz Travels. We&apos;ve received your enquiry about
       <strong>${subject}</strong> and will respond within 2 hours.</p>
       <p>In the meantime, you can reach us on WhatsApp for urgent matters:
-      <strong>+12317902336</strong></p>
+      <strong>${BUSINESS.contacts.globalWhatsapp.display}</strong></p>
       <p>— Walz Travels Team</p>
     `,
   })

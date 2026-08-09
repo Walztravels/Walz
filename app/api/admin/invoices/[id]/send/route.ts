@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getAdminSession } from '@/lib/admin-auth'
 import { getResend } from '@/lib/email-internal'
 import prisma from '@/lib/db'
+import { BUSINESS } from '@/lib/config/business'
 
 export const dynamic = 'force-dynamic'
 
@@ -89,7 +90,7 @@ td{padding:10px 12px;border-bottom:1px solid #f0f0f0;font-size:13px}
   </div>
   <div style="background:#f8f9fa;padding:20px 32px;text-align:center;font-size:11px;color:#999">
     © ${new Date().getFullYear()} Walz Travels Ltd · walztravels.com<br>
-    contact@walztravels.com · +12317902336
+    contact@walztravels.com · ${BUSINESS.contacts.globalWhatsapp.display}
   </div>
 </div>
 </body>

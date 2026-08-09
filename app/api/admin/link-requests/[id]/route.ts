@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getAdminSession } from '@/lib/admin-auth'
 import prisma from '@/lib/db'
 import { Resend } from 'resend'
+import { BUSINESS } from '@/lib/config/business'
 
 export const dynamic = 'force-dynamic'
 
@@ -80,7 +81,7 @@ export async function PATCH(
     View My Dashboard →
   </a>
   <p style="color:#888;font-size:13px;margin-top:32px;">
-    Walz Travels · contact@walztravels.com · +12317902336
+    Walz Travels · contact@walztravels.com · ${BUSINESS.contacts.globalWhatsapp.display}
   </p>
 </div>`,
       }).catch(() => {})

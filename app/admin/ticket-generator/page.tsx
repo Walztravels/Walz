@@ -9,6 +9,7 @@ import {
   Plus, Trash2, AlertCircle, RefreshCw, Copy, Check, Printer,
 } from 'lucide-react'
 import { TicketPreview } from '@/components/admin/TicketPreview'
+import { BUSINESS } from '@/lib/config/business'
 import { FlightTicketTemplate } from '@/components/ticket-generator/FlightTicketTemplate'
 import { HotelVoucherTemplate } from '@/components/ticket-generator/HotelVoucherTemplate'
 import type { HotelVoucher } from '@/components/ticket-generator/HotelVoucherTemplate'
@@ -848,7 +849,7 @@ function VisaStep({ d, set }: { d: VisaData; set: (v: VisaData) => void }) {
         <F label="VFS / Embassy Address"><input className={base} placeholder="66-68 Hammersmith Rd, London W14 8UD" value={d.vfs_address} onChange={e => set({ ...d, vfs_address: e.target.value })} /></F>
         <Row>
           <F label="Contact Person"><input className={base} placeholder="Walz Travels" value={d.contact_person} onChange={e => set({ ...d, contact_person: e.target.value })} /></F>
-          <F label="Contact Phone"><input className={base} placeholder="+12317902336" value={d.contact_phone} onChange={e => set({ ...d, contact_phone: e.target.value })} /></F>
+          <F label="Contact Phone"><input className={base} placeholder={`+${BUSINESS.contacts.globalWhatsapp.e164}`} value={d.contact_phone} onChange={e => set({ ...d, contact_phone: e.target.value })} /></F>
         </Row>
       </Section>
       <Section title="Documents to Bring">

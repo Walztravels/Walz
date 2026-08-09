@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useRef } from 'react'
+import { BUSINESS, waLink } from '@/lib/config/business'
 import { loadStripe } from '@stripe/stripe-js'
 import {
   Elements,
@@ -216,7 +217,7 @@ export function BookingCard({
           Book this Package
         </button>
         <a
-          href={`https://wa.me/12317902336?text=${waText}`}
+          href={waLink(BUSINESS.contacts.globalWhatsapp.e164, decodeURIComponent(waText))}
           target="_blank"
           rel="noopener noreferrer"
           className="block w-full text-center py-3 rounded-xl font-semibold text-sm border border-[#0B1F3A] text-[#0B1F3A] hover:bg-[#0B1F3A] hover:text-white transition-colors mb-3"

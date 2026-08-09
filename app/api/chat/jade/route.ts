@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import Anthropic from '@anthropic-ai/sdk'
+import { BUSINESS } from '@/lib/config/business'
 
 export const maxDuration = 60
 
@@ -46,9 +47,9 @@ Important links to mention:
 For complex bookings or urgent queries, always offer WhatsApp and mention the UK number. If the client is in Canada or North America, offer the Canada number too.
 
 Contact details:
-- WhatsApp UK: +12317902336 (wa.me/12317902336)
+- WhatsApp UK: ${BUSINESS.contacts.globalWhatsapp.display} (wa.me/${BUSINESS.contacts.globalWhatsapp.e164})
 - WhatsApp Canada: +15557107823
-- Call Jade: +19843880110
+- Call Jade: ${BUSINESS.contacts.emergencyPhone.display}
 - Email: contact@walztravels.com
 - Website: walztravels.com
 - Instagram / Facebook / Snapchat: @walztravels
