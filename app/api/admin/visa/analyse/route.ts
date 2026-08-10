@@ -199,18 +199,13 @@ export async function POST(req: NextRequest) {
       }
 
       if (!addedAsText) {
-        if (buf.length <= 1_000_000) {
-          primaryBlocks.push({
-            type:   'document',
-            source: { type: 'base64', media_type: 'application/pdf', data: b64 },
-          } as Anthropic.DocumentBlockParam)
-        } else if (rawFiles.length === 1) {
-          const sizeMB = (buf.length / 1024 / 1024).toFixed(1)
-          return NextResponse.json({
-            success: false,
-            error: `This PDF (${sizeMB} MB) is too large to analyse directly — it appears to be a scanned or image-based statement with no extractable text. Please try one of these options:\n• Export a shorter date range (1–2 months) from your bank's app\n• Take screenshots of the key pages and upload as images\n• Switch to GPT-4o (which uses a text-extraction approach and handles most bank PDFs)`,
-          }, { status: 422 })
-        }
+        // Scanned/image-based PDF — send as native document block for Claude vision.
+        // No size cap here: the 50 MB guard above already excludes truly oversized files,
+        // and Claude handles scanned PDFs via vision regardless of extractable text.
+        primaryBlocks.push({
+          type:   'document',
+          source: { type: 'base64', media_type: 'application/pdf', data: b64 },
+        } as Anthropic.DocumentBlockParam)
       }
     }
 
