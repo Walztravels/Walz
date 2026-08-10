@@ -15,27 +15,38 @@ CRITICAL OUTPUT RULES:
 - Start your response with { and end with }
 - If analysis is impossible return: {"error": "reason", "analysable": false}
 
-Return a JSON object with EXACTLY these fields (replace example values with your real analysis):
+Return a JSON object with EXACTLY these fields:
 {
-  "summary": "Two to three sentence summary of account health",
-  "averageMonthlyBalance": 5000.00,
-  "totalCredits": 15000.00,
-  "totalDebits": 14200.00,
-  "salaryCredits": true,
-  "regularIncome": true,
-  "incomeFrequency": "Monthly",
-  "largeUnexplainedDeposits": false,
-  "gamblingTransactions": false,
-  "overdrafts": false,
-  "approvalScore": 72,
-  "riskLevel": "medium",
-  "redFlags": ["Example red flag description"],
-  "strengths": ["Example strength description"],
-  "recommendation": "Single paragraph recommendation.",
-  "visaReadiness": "borderline"
+  "status": "PASS",
+  "currency": "NGN",
+  "statementPeriod": "Jan 2024 – Mar 2024",
+  "averageMonthlyBalance": 850000.00,
+  "lowestBalance": 120000.00,
+  "closingBalance": 1100000.00,
+  "estimatedMonthlyIncome": 500000.00,
+  "salaryCreditsDetected": true,
+  "embassyThresholdMet": true,
+  "embassyMinimumRequired": 500000,
+  "embassyCurrency": "NGN",
+  "suspiciousTransactions": [
+    { "date": "2024-02-14", "description": "CASH DEPOSIT", "amount": 2000000, "reason": "Large unexplained cash deposit", "severity": "high" }
+  ],
+  "largeUnexplainedWithdrawals": [
+    { "date": "2024-01-30", "amount": 1500000, "description": "TRF TO UNKNOWN" }
+  ],
+  "recommendations": ["Request explanation for February cash deposit"],
+  "agentNotes": "Two to three paragraph assessment of account health, income stability, and visa risk.",
+  "confidence": "high",
+  "warnings": ["Statement shows end-of-period balance inflation"]
 }
 
-Rules: riskLevel must be one of: low medium high. visaReadiness must be one of: strong borderline weak.`
+Rules:
+- status must be one of: PASS REVIEW FLAG
+- PASS = strong finances, embassy threshold met, no red flags; REVIEW = minor concerns; FLAG = significant red flags
+- confidence must be one of: high medium low
+- severity must be one of: high medium low
+- embassyMinimumRequired is the minimum the destination embassy typically requires for this nationality
+- All monetary amounts in the statement's native currency`
 
 // ─── Robust JSON extractor (bracket-counting to handle nested arrays/objects) ─
 
@@ -74,6 +85,28 @@ async function extractPdfText(buffer: Buffer): Promise<string> {
   } catch {
     return ''
   }
+}
+
+// ─── Markdown converter — preserves tabular structure for bank statements ─────
+// Collapses whitespace-aligned columns into pipe-delimited rows so Claude reads
+// the transaction table as structured data rather than a wall of numbers.
+
+function toMarkdown(text: string): string {
+  const DATE_RE   = /\b\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{2,4}\b|\b(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\.?\s+\d{1,2}/i
+  const AMOUNT_RE = /[\d,]{1,10}\.\d{2}/
+
+  return text
+    .split('\n')
+    .map(line => {
+      const trimmed = line.trim()
+      if (!trimmed) return ''
+      const cells = trimmed.replace(/\s{2,}/g, '\t').split('\t').map(c => c.trim()).filter(Boolean)
+      if (cells.length >= 3 && DATE_RE.test(trimmed) && AMOUNT_RE.test(trimmed)) {
+        return '| ' + cells.join(' | ') + ' |'
+      }
+      return cells.join(' ')
+    })
+    .join('\n')
 }
 
 // ─── POST handler ─────────────────────────────────────────────────────────────
@@ -128,6 +161,23 @@ export async function POST(req: NextRequest) {
   const pdfBuffer = Buffer.from(arrayBuffer)
   const userText  = `Analyse this bank statement for ${applicantName} (${passportCountry}) applying for a ${destination} visa. Return only the JSON object.`
 
+  // ── Markdown fast-path: extract text first; send as markdown if text-based ──
+  // Avoids expensive base64 document tokens for machine-generated PDFs.
+  // Never send near-empty text to Claude — it will confidently hallucinate.
+
+  const rawExtracted   = await extractPdfText(pdfBuffer)
+  const nonWsChars     = rawExtracted.replace(/\s/g, '').length
+  let markdownText: string | null = null
+  let extractionPath: 'markdown' | 'native' = 'native'
+
+  if (nonWsChars > 200) {
+    markdownText   = toMarkdown(rawExtracted)
+    extractionPath = 'markdown'
+    console.log(`[analyse-v2] path: markdown chars: ${nonWsChars}`)
+  } else {
+    console.log(`[analyse-v2] path: native chars: ${nonWsChars}`)
+  }
+
   // ── Try Claude ───────────────────────────────────────────────────────────────
 
   let analysis: unknown | null = null
@@ -135,22 +185,24 @@ export async function POST(req: NextRequest) {
 
   if (process.env.ANTHROPIC_API_KEY) {
     try {
-      const claude   = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
-      const response = await claude.messages.create({
-        model:       'claude-sonnet-4-6',
-        max_tokens:  2000,
-        temperature: 0,
-        system:      SYSTEM_PROMPT,
-        messages: [{
-          role: 'user',
-          content: [
+      const claude = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
+
+      const userContent: Anthropic.MessageParam['content'] = markdownText
+        ? [{ type: 'text', text: `${userText}\n\nBank statement (text extracted):\n\n${markdownText}` }]
+        : [
             {
               type:   'document',
               source: { type: 'base64', media_type: 'application/pdf', data: pdfBuffer.toString('base64') },
             } as Anthropic.DocumentBlockParam,
             { type: 'text', text: userText },
-          ],
-        }],
+          ]
+
+      const response = await claude.messages.create({
+        model:       'claude-sonnet-4-6',
+        max_tokens:  2000,
+        temperature: 0,
+        system:      SYSTEM_PROMPT,
+        messages: [{ role: 'user', content: userContent }],
       })
       const raw = response.content[0]?.type === 'text' ? response.content[0].text : ''
       analysis  = cleanAndParse(raw)
@@ -174,8 +226,9 @@ export async function POST(req: NextRequest) {
     }
 
     try {
-      const pdfText = await extractPdfText(pdfBuffer)
-      if (!pdfText || pdfText.length < 50) {
+      // Reuse already-extracted text — avoid a second pdf-parse call
+      const pdfText = markdownText ?? rawExtracted
+      if (!pdfText || pdfText.replace(/\s/g, '').length < 50) {
         return NextResponse.json(
           { error: 'Could not extract text from PDF. Please upload a digital (not scanned) bank statement.' },
           { status: 422 },
@@ -223,6 +276,9 @@ export async function POST(req: NextRequest) {
             analysis_result: analysis,
             analysis_engine: 'v2.1',
             uploaded_by:     'admin',
+            extracted_text:  markdownText ?? null,
+            extraction_path: extractionPath,
+            char_count:      nonWsChars,
           },
           { onConflict: 'application_id' },
         )

@@ -38,64 +38,77 @@ export function BankStatementPanel({
   const [scanned, setScanned]         = useState(false)
   const [showConfirm, setShowConfirm] = useState(false)
   const [copied, setCopied]           = useState(false)
-  const [adminFileUrl, setAdminFileUrl] = useState<string | null>(null)
+  const [adminFileUrl, setAdminFileUrl]       = useState<string | null>(null)
+  const [adminStoragePath, setAdminStoragePath] = useState<string | null>(null)
+
+  function storagePathFromUrl(url: string): string | null {
+    const marker = '/storage/v1/object/public/visa-documents/'
+    const idx = url.indexOf(marker)
+    return idx !== -1 ? url.slice(idx + marker.length) : null
+  }
 
   async function doUploadAndAnalyze() {
     if (!file) return
     setUploading(true)
     setScanned(false)
-    const fd = new FormData()
-    fd.append('file', file)
-    fd.append('uploadedBy', 'admin')
-    const upRes = await fetch(`/api/visa-application/${applicationId}/upload-bank-statement`, { method: 'POST', body: fd })
-    if (!upRes.ok) { setUploading(false); return }
-    const { fileUrl } = await upRes.json()
-    setAdminFileUrl(fileUrl)
-    setUploading(false)
-    setAnalyzing(true)
-    const anRes = await fetch('/api/analyze-bank-statement', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        applicationId,
-        fileUrl,
-        destination,
-        applicantName,
-        passportCountry,
-        uploadedBy: 'admin',
-      }),
-    })
-    const anData = await anRes.json()
-    setAnalyzing(false)
-    if (anData.scanned) { setScanned(true); return }
-    if (anData.analysis) {
-      setAnalysis(anData.analysis)
-      setAnalyzedAt(new Date().toISOString())
+
+    try {
+      // 1. Presign — get a signed upload URL directly to Supabase Storage
+      const presignRes = await fetch('/api/admin/bank-analyser/presign', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fileSize: file.size }),
+      })
+      if (!presignRes.ok) { setUploading(false); return }
+      const { storagePath, uploadUrl } = await presignRes.json() as { storagePath: string; uploadUrl: string }
+
+      // 2. PUT file directly to Supabase Storage (bypasses Vercel 4.5MB limit)
+      const putRes = await fetch(uploadUrl, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/pdf' },
+        body: file,
+      })
+      if (!putRes.ok) { setUploading(false); return }
+
+      setAdminStoragePath(storagePath)
+      setAdminFileUrl(uploadUrl)
+      setUploading(false)
+      setAnalyzing(true)
+
+      // 3. Call analyse-v2 with the storage path
+      const anRes = await fetch('/api/admin/bank-analyser/analyse-v2', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ storagePath, destination, applicantName, passportCountry, applicationId }),
+      })
+      const anData = await anRes.json()
+      setAnalyzing(false)
+      if (anRes.status === 422) { setScanned(true); return }
+      if (anRes.ok) {
+        setAnalysis(anData as BankStatementAnalysis)
+        setAnalyzedAt(new Date().toISOString())
+      }
+      setFile(null)
+      setShowConfirm(false)
+    } catch {
+      setUploading(false)
+      setAnalyzing(false)
     }
-    setFile(null)
-    setShowConfirm(false)
   }
 
   async function reAnalyze() {
-    const url = adminFileUrl ?? clientFileUrl
-    if (!url) return
+    const sp = adminStoragePath ?? storagePathFromUrl(clientFileUrl ?? '')
+    if (!sp) return
     setAnalyzing(true)
-    const anRes = await fetch('/api/analyze-bank-statement', {
+    const anRes = await fetch('/api/admin/bank-analyser/analyse-v2', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        applicationId,
-        fileUrl: url,
-        destination,
-        applicantName,
-        passportCountry,
-        uploadedBy: 'admin',
-      }),
+      body: JSON.stringify({ storagePath: sp, destination, applicantName, passportCountry, applicationId }),
     })
     const anData = await anRes.json()
     setAnalyzing(false)
-    if (anData.analysis) {
-      setAnalysis(anData.analysis)
+    if (anRes.ok) {
+      setAnalysis(anData as BankStatementAnalysis)
       setAnalyzedAt(new Date().toISOString())
     }
   }

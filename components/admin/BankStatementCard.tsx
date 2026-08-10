@@ -97,40 +97,43 @@ export default function BankStatementCard({
     setUploading(true)
     setError(null)
     try {
-      const storagePath = `${applicationId}/bank-statement-admin.pdf`
-      const fd = new FormData()
-      fd.append('file', file)
-      fd.append('bucket', 'visa-documents')
-      fd.append('path', storagePath)
-      const up = await fetch('/api/admin/storage/upload', { method: 'POST', body: fd })
-      if (!up.ok) throw new Error('Upload failed')
-      const upData = await up.json()
-      if (upData.error) throw new Error(upData.error)
-      const fileUrl = upData.url as string
-
-      await sbFetch('/bank_statement_analyses', {
+      // 1. Presign — get a signed upload URL directly to Supabase Storage
+      const presignRes = await fetch('/api/admin/bank-analyser/presign', {
         method: 'POST',
-        headers: { Prefer: 'resolution=merge-duplicates' },
-        body: JSON.stringify({ application_id: applicationId, admin_file_url: fileUrl, uploaded_by: 'admin' }),
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fileSize: file.size }),
       })
+      if (!presignRes.ok) {
+        const err = await presignRes.json().catch(() => ({}))
+        throw new Error((err as { error?: string }).error ?? 'Presign failed')
+      }
+      const { storagePath, uploadUrl } = await presignRes.json() as { storagePath: string; uploadUrl: string }
 
-      setRecord(p => ({ ...p, admin_file_url: fileUrl }))
+      // 2. PUT the file directly to Supabase Storage (bypasses Vercel 4.5MB limit)
+      const putRes = await fetch(uploadUrl, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/pdf' },
+        body: file,
+      })
+      if (!putRes.ok) throw new Error('Upload failed')
+
       setUploading(false)
       setAnalyzing(true)
 
-      const res = await fetch('/api/analyze-bank-statement', {
+      // 3. Call analyse-v2 with the storage path
+      const res = await fetch('/api/admin/bank-analyser/analyse-v2', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-target-table': 'bank_statement_analyses' },
-        body: JSON.stringify({ applicationId, fileUrl, destination, applicantName, passportCountry, uploadedBy: 'admin' }),
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ storagePath, destination, applicantName, passportCountry, applicationId }),
       })
       const data = await res.json()
-      if (data.success) {
-        setRecord(p => ({ ...p, analysis: data.analysis, analyzed_at: new Date().toISOString() }))
+      if (res.ok) {
+        setRecord(p => ({ ...p, analysis: data, analyzed_at: new Date().toISOString() }))
       } else {
         setError(
-          data.scanned
+          res.status === 422
             ? 'Scanned PDF — text could not be extracted. Ask client for a digital statement.'
-            : data.error ?? 'Analysis failed.'
+            : (data as { error?: string }).error ?? 'Analysis failed.'
         )
       }
     } catch (e: unknown) {
