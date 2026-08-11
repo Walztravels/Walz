@@ -2,6 +2,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useParams } from 'next/navigation'
 import { JadeCopilot } from './JadeCopilot'
+import { JadeTripAuditor } from '@/components/admin/JadeTripAuditor'
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -1713,6 +1714,7 @@ function PreviewTab({
   const [sentMsg, setSentMsg] = useState('')
   const [copied, setCopied] = useState(false)
   const [statusSaving, setStatusSaving] = useState(false)
+  const [auditBlocks, setAuditBlocks] = useState(false)
 
   const sym = CURRENCY_SYM[itin.currency] || ''
   const days = safeParse<Day[]>(itin.days, [])
@@ -1938,6 +1940,8 @@ function PreviewTab({
           </div>
         </div>
 
+        <JadeTripAuditor itinId={itin.id} onBlocksSend={setAuditBlocks} />
+
         <div className="bg-white/5 border border-white/[0.08] rounded-2xl p-5">
           <h3 className="text-white font-bold text-sm mb-1">Send to Client</h3>
           <p className="text-white/40 text-xs mb-4">
@@ -1950,9 +1954,15 @@ function PreviewTab({
             </div>
           )}
 
+          {auditBlocks && (
+            <div className="bg-red-500/10 border border-red-500/30 rounded-xl p-3 mb-4">
+              <p className="text-red-400 text-xs font-semibold">🚫 Audit found critical issues — fix them before sending.</p>
+            </div>
+          )}
+
           <button
             onClick={handleSend}
-            disabled={sending}
+            disabled={sending || auditBlocks}
             className="w-full bg-amber-500 hover:bg-amber-400 text-black font-bold py-3 rounded-xl transition flex items-center justify-center gap-2 disabled:opacity-50"
           >
             {sending

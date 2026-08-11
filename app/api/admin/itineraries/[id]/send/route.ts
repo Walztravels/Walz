@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
 import { getResend } from '@/lib/email-internal'
 import { getAdminSession } from '@/lib/admin-auth'
+import { BUSINESS } from '@/lib/config/business'
 
 const BASE = 'https://walztravels.com'
 
@@ -11,6 +12,13 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   const { id } = await params
   const itin = await prisma.itinerary.findUnique({ where: { id } })
   if (!itin) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+
+  if (!itin.clientEmail || itin.clientEmail.includes('pending@walztravels')) {
+    return NextResponse.json({ error: 'Client email is a placeholder — update it before sending.' }, { status: 422 })
+  }
+  if (!itin.destination || itin.destination.trim().toUpperCase() === 'TBD') {
+    return NextResponse.json({ error: 'Destination is set to "TBD" — update it before sending.' }, { status: 422 })
+  }
 
   let days: Array<{ day: number; title: string; description?: string; activities?: string[]; accommodation?: string; meals?: string; notes?: string }> = []
   try { days = JSON.parse(itin.days) } catch { days = [] }
@@ -87,7 +95,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     </div>
     <div style="background:#f8fafc;padding:24px 40px;text-align:center;border-top:1px solid #e2e8f0;">
       <p style="color:#0B1F3A;font-weight:600;font-size:13px;margin:0 0 6px;">Questions? We're here.</p>
-      <p style="color:#64748b;font-size:13px;margin:0;">💬 <a href="https://wa.me/12317902336" style="color:#C9A84C;">WhatsApp</a> | ✉️ <a href="mailto:contact@walztravels.com" style="color:#C9A84C;">contact@walztravels.com</a></p>
+      <p style="color:#64748b;font-size:13px;margin:0;">💬 <a href="https://wa.me/${BUSINESS.contacts.globalWhatsapp.e164}" style="color:#C9A84C;">WhatsApp</a> | ✉️ <a href="mailto:${BUSINESS.contacts.email}" style="color:#C9A84C;">${BUSINESS.contacts.email}</a></p>
       <p style="color:#94a3b8;font-size:11px;margin:12px 0 0;">Ref: ${itin.referenceNumber} · Walz Travels</p>
     </div>
   </div>`
