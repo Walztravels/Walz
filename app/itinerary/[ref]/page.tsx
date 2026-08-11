@@ -6,7 +6,8 @@ export const dynamic = 'force-dynamic'
 
 interface ItinDay {
   day: number; title: string; description?: string;
-  activities?: string[]; meals?: string; accommodation?: string; notes?: string;
+  activities?: string[]; meals?: string; accommodation?: string;
+  clientNotes?: string; notes?: string; // notes is legacy, clientNotes is canonical
 }
 interface ItinFlight {
   from?: string; to?: string; airline?: string; flightNumber?: string;
@@ -139,6 +140,7 @@ export default async function ClientItineraryPage({ params }: { params: Promise<
                       <div className="flex flex-wrap gap-4 text-xs text-gray-500">
                         {d.accommodation && <span>🏨 {d.accommodation}</span>}
                         {d.meals && <span>🍽 {d.meals}</span>}
+                        {d.clientNotes && <span>📌 {d.clientNotes}</span>}
                       </div>
                     </div>
                   </div>

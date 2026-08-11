@@ -36,6 +36,16 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   const dateFields = ['startDate', 'endDate', 'depositDue', 'balanceDue', 'sentAt', 'approvedAt', 'viewedAt']
   for (const f of dateFields) if (f in body) data[f] = body[f] ? new Date(body[f]) : null
   const itinerary = await prisma.itinerary.update({ where: { id }, data })
+
+  // Phase 3: fire-and-forget sync to normalized tables when booking arrays change
+  const syncTriggers = ['days', 'flights', 'hotels', 'transfers', 'tours', 'trains', 'ferries']
+  if (syncTriggers.some(f => f in body)) {
+    fetch(`${process.env.NEXT_PUBLIC_APP_URL ?? 'https://walztravels.com'}/api/admin/itineraries/${id}/sync`, {
+      method: 'POST',
+      headers: { Cookie: req.headers.get('cookie') ?? '' },
+    }).catch(() => {})
+  }
+
   return NextResponse.json({ itinerary })
 }
 

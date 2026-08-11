@@ -16,7 +16,9 @@ interface Day {
   destination: string
   weather: string
   dressCode: string
-  notes: string
+  notes: string          // legacy — kept for backwards compat
+  clientNotes: string    // shown to client on the public page
+  internalNotes: string  // admin-only, never shown to client
 }
 
 interface Flight {
@@ -31,9 +33,12 @@ interface Flight {
   arrivalTime: string
   class: string
   pnr: string
-  cost: number | null
+  cost: number | null         // client price (shown in pricing breakdown)
+  supplierCost: number | null // internal — never shown to client
   status: string
   notes: string
+  supplierId: string          // FK to Supplier
+  duffelOrderId: string       // links to confirmed Duffel booking
 }
 
 interface Hotel {
@@ -45,10 +50,13 @@ interface Hotel {
   checkOut: string
   roomType: string
   nights: number
-  cost: number | null
+  cost: number | null         // client price
+  supplierCost: number | null // internal
   status: string
   notes: string
   image: string
+  supplierId: string
+  hotelbedsCancellationReference: string
 }
 
 interface Transfer {
@@ -61,8 +69,10 @@ interface Transfer {
   vehicle: string
   provider: string
   cost: number | null
+  supplierCost: number | null
   notes: string
   image: string
+  supplierId: string
 }
 
 interface Tour {
@@ -74,8 +84,10 @@ interface Tour {
   duration: string
   provider: string
   cost: number | null
+  supplierCost: number | null
   notes: string
   image: string
+  supplierId: string
 }
 
 interface Train {
@@ -90,8 +102,10 @@ interface Train {
   provider: string
   pnr: string
   cost: number | null
+  supplierCost: number | null
   notes: string
   image: string
+  supplierId: string
 }
 
 interface Ferry {
@@ -105,8 +119,10 @@ interface Ferry {
   class: string
   vessel: string
   cost: number | null
+  supplierCost: number | null
   notes: string
   image: string
+  supplierId: string
 }
 
 interface PriceRow {
@@ -214,6 +230,7 @@ const TABS = [
   { id: 'days',      label: '📅 Day by Day' },
   { id: 'bookings',  label: '🗂️ Bookings' },
   { id: 'pricing',   label: '💰 Pricing' },
+  { id: 'margin',    label: '📊 Margin' },
   { id: 'preview',   label: '👁 Preview & Send' },
 ]
 
@@ -386,6 +403,7 @@ export default function ItineraryBuilderPage() {
         {activeTab === 'days'      && <DaysTab      itin={itin} onSave={save} />}
         {activeTab === 'bookings'  && <BookingsTab  itin={itin} onSave={save} />}
         {activeTab === 'pricing'   && <PricingTab   itin={itin} onSave={save} />}
+        {activeTab === 'margin'    && <MarginTab    itin={itin} />}
         {activeTab === 'preview'   && (
           <PreviewTab
             itin={itin}
@@ -705,7 +723,8 @@ function DaysTab({ itin, onSave }: { itin: ItineraryData; onSave: (u: Record<str
     const next = days.length > 0 ? Math.max(...days.map(d => d.day)) + 1 : 1
     const newDay: Day = {
       day: next, title: `Day ${next}`, description: '', activities: [],
-      meals: '', accommodation: '', destination: '', weather: '', dressCode: '', notes: '',
+      meals: '', accommodation: '', destination: '', weather: '', dressCode: '',
+      notes: '', clientNotes: '', internalNotes: '',
     }
     setDays(prev => [...prev, newDay])
     setExpanded(next)
@@ -897,7 +916,7 @@ function DaysTab({ itin, onSave }: { itin: ItineraryData; onSave: (u: Record<str
                       )}
                     </div>
                   </div>
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div>
                       <label className="text-white/40 text-xs font-bold uppercase tracking-wider block mb-1.5">Accommodation</label>
                       <input value={day.accommodation} onChange={e => updDay(day.day, 'accommodation', e.target.value)} placeholder="Hotel name" className={inp} />
@@ -906,9 +925,15 @@ function DaysTab({ itin, onSave }: { itin: ItineraryData; onSave: (u: Record<str
                       <label className="text-white/40 text-xs font-bold uppercase tracking-wider block mb-1.5">Meals</label>
                       <input value={day.meals} onChange={e => updDay(day.day, 'meals', e.target.value)} placeholder="B / L / D" className={inp} />
                     </div>
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div>
-                      <label className="text-white/40 text-xs font-bold uppercase tracking-wider block mb-1.5">Notes</label>
-                      <input value={day.notes} onChange={e => updDay(day.day, 'notes', e.target.value)} placeholder="Tips, warnings…" className={inp} />
+                      <label className="text-green-400/70 text-xs font-bold uppercase tracking-wider block mb-1.5">Client Notes <span className="text-white/20 font-normal normal-case">(shown to client)</span></label>
+                      <input value={day.clientNotes || ''} onChange={e => updDay(day.day, 'clientNotes', e.target.value)} placeholder="Tips, highlights shown on the client page…" className={inp} />
+                    </div>
+                    <div>
+                      <label className="text-amber-400/70 text-xs font-bold uppercase tracking-wider block mb-1.5">Internal Notes <span className="text-white/20 font-normal normal-case">(admin only)</span></label>
+                      <input value={day.internalNotes || ''} onChange={e => updDay(day.day, 'internalNotes', e.target.value)} placeholder="Supplier instructions, margins, internal reminders…" className={inp} />
                     </div>
                   </div>
                 </div>
@@ -986,7 +1011,9 @@ function BookingsTab({ itin, onSave }: { itin: ItineraryData; onSave: (u: Record
 
   const addFlight = () => setFlights(prev => [...prev, {
     id: uid(), from: '', to: '', airline: '', iataCode: '', flightNumber: '',
-    date: '', time: '', arrivalTime: '', class: 'Economy', pnr: '', cost: null, status: 'confirmed', notes: '',
+    date: '', time: '', arrivalTime: '', class: 'Economy', pnr: '',
+    cost: null, supplierCost: null, status: 'confirmed', notes: '',
+    supplierId: '', duffelOrderId: '',
   }])
   const updFlight = (id: string, f: keyof Flight, v: unknown) => setFlights(prev => prev.map(fl => fl.id === id ? { ...fl, [f]: v } : fl))
   const rmFlight = (id: string) => setFlights(prev => prev.filter(f => f.id !== id))
@@ -995,7 +1022,8 @@ function BookingsTab({ itin, onSave }: { itin: ItineraryData; onSave: (u: Record
 
   const addHotel = () => setHotels(prev => [...prev, {
     id: uid(), name: '', location: '', websiteUrl: '', checkIn: '', checkOut: '',
-    roomType: '', nights: 1, cost: null, status: 'confirmed', notes: '', image: '',
+    roomType: '', nights: 1, cost: null, supplierCost: null, status: 'confirmed',
+    notes: '', image: '', supplierId: '', hotelbedsCancellationReference: '',
   }])
   const updHotel = (id: string, f: keyof Hotel, v: unknown) => setHotels(prev => prev.map(h => h.id === id ? { ...h, [f]: v } : h))
   const rmHotel = (id: string) => setHotels(prev => prev.filter(h => h.id !== id))
@@ -1004,7 +1032,7 @@ function BookingsTab({ itin, onSave }: { itin: ItineraryData; onSave: (u: Record
 
   const addTransfer = () => setTransfers(prev => [...prev, {
     id: uid(), type: 'Private Car', from: '', to: '', date: '', time: '',
-    vehicle: '', provider: '', cost: null, notes: '', image: '',
+    vehicle: '', provider: '', cost: null, supplierCost: null, notes: '', image: '', supplierId: '',
   }])
   const updTransfer = (id: string, f: keyof Transfer, v: unknown) => setTransfers(prev => prev.map(t => t.id === id ? { ...t, [f]: v } : t))
   const rmTransfer = (id: string) => setTransfers(prev => prev.filter(t => t.id !== id))
@@ -1013,7 +1041,7 @@ function BookingsTab({ itin, onSave }: { itin: ItineraryData; onSave: (u: Record
 
   const addTour = () => setTours(prev => [...prev, {
     id: uid(), name: '', location: '', date: '', time: '',
-    duration: '', provider: '', cost: null, notes: '', image: '',
+    duration: '', provider: '', cost: null, supplierCost: null, notes: '', image: '', supplierId: '',
   }])
   const updTour = (id: string, f: keyof Tour, v: unknown) => setTours(prev => prev.map(t => t.id === id ? { ...t, [f]: v } : t))
   const rmTour = (id: string) => setTours(prev => prev.filter(t => t.id !== id))
@@ -1022,7 +1050,8 @@ function BookingsTab({ itin, onSave }: { itin: ItineraryData; onSave: (u: Record
 
   const addTrain = () => setTrains(prev => [...prev, {
     id: uid(), from: '', to: '', date: '', departureTime: '', arrivalTime: '',
-    trainNumber: '', class: 'Standard', provider: '', pnr: '', cost: null, notes: '', image: '',
+    trainNumber: '', class: 'Standard', provider: '', pnr: '',
+    cost: null, supplierCost: null, notes: '', image: '', supplierId: '',
   }])
   const updTrain = (id: string, f: keyof Train, v: unknown) => setTrains(prev => prev.map(t => t.id === id ? { ...t, [f]: v } : t))
   const rmTrain = (id: string) => setTrains(prev => prev.filter(t => t.id !== id))
@@ -1031,7 +1060,8 @@ function BookingsTab({ itin, onSave }: { itin: ItineraryData; onSave: (u: Record
 
   const addFerry = () => setFerries(prev => [...prev, {
     id: uid(), from: '', to: '', date: '', departureTime: '', arrivalTime: '',
-    operator: '', class: 'Standard', vessel: '', cost: null, notes: '', image: '',
+    operator: '', class: 'Standard', vessel: '',
+    cost: null, supplierCost: null, notes: '', image: '', supplierId: '',
   }])
   const updFerry = (id: string, f: keyof Ferry, v: unknown) => setFerries(prev => prev.map(fe => fe.id === id ? { ...fe, [f]: v } : fe))
   const rmFerry = (id: string) => setFerries(prev => prev.filter(fe => fe.id !== id))
@@ -1140,20 +1170,32 @@ function BookingsTab({ itin, onSave }: { itin: ItineraryData; onSave: (u: Record
                       </select>
                     </div>
                   </div>
-                  <div className="grid grid-cols-3 gap-3">
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                     <div>
                       <label className="text-white/30 text-[10px] font-bold uppercase block mb-1">PNR</label>
                       <input value={f.pnr} onChange={e => updFlight(f.id, 'pnr', e.target.value)} placeholder="ABC123" className={inp} />
                     </div>
                     <div>
-                      <label className="text-white/30 text-[10px] font-bold uppercase block mb-1">Cost ({sym})</label>
+                      <label className="text-green-400/70 text-[10px] font-bold uppercase block mb-1">Client Price ({sym})</label>
                       <input type="number" value={f.cost ?? ''} onChange={e => updFlight(f.id, 'cost', e.target.value ? Number(e.target.value) : null)} placeholder="0.00" className={inp} />
+                    </div>
+                    <div>
+                      <label className="text-amber-400/70 text-[10px] font-bold uppercase block mb-1">Supplier Cost ({sym}) <span className="text-white/20 font-normal normal-case">internal</span></label>
+                      <input type="number" value={f.supplierCost ?? ''} onChange={e => updFlight(f.id, 'supplierCost', e.target.value ? Number(e.target.value) : null)} placeholder="0.00" className={inp} />
                     </div>
                     <div>
                       <label className="text-white/30 text-[10px] font-bold uppercase block mb-1">Notes</label>
                       <input value={f.notes} onChange={e => updFlight(f.id, 'notes', e.target.value)} placeholder="Baggage, meals…" className={inp} />
                     </div>
                   </div>
+                  {(f.cost != null && f.supplierCost != null && f.cost > 0 && f.supplierCost > 0) && (
+                    <div className="mt-2 px-3 py-2 bg-white/[0.03] rounded-lg flex items-center gap-4 text-xs">
+                      <span className="text-white/40">Margin:</span>
+                      <span className={`font-bold ${(f.cost - f.supplierCost) >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                        {sym}{(f.cost - f.supplierCost).toLocaleString()} ({f.supplierCost > 0 ? Math.round(((f.cost - f.supplierCost) / f.cost) * 100) : 0}%)
+                      </span>
+                    </div>
+                  )}
                 </div>
               ))}
             </div>
@@ -1235,16 +1277,28 @@ function BookingsTab({ itin, onSave }: { itin: ItineraryData; onSave: (u: Record
                       <input value={h.roomType} onChange={e => updHotel(h.id, 'roomType', e.target.value)} placeholder="Deluxe Suite" className={inp} />
                     </div>
                   </div>
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
                     <div>
-                      <label className="text-white/30 text-[10px] font-bold uppercase block mb-1">Cost ({sym})</label>
+                      <label className="text-green-400/70 text-[10px] font-bold uppercase block mb-1">Client Price ({sym})</label>
                       <input type="number" value={h.cost ?? ''} onChange={e => updHotel(h.id, 'cost', e.target.value ? Number(e.target.value) : null)} placeholder="0.00" className={inp} />
+                    </div>
+                    <div>
+                      <label className="text-amber-400/70 text-[10px] font-bold uppercase block mb-1">Supplier Cost ({sym}) <span className="text-white/20 font-normal normal-case">internal</span></label>
+                      <input type="number" value={h.supplierCost ?? ''} onChange={e => updHotel(h.id, 'supplierCost', e.target.value ? Number(e.target.value) : null)} placeholder="0.00" className={inp} />
                     </div>
                     <div>
                       <label className="text-white/30 text-[10px] font-bold uppercase block mb-1">Notes</label>
                       <input value={h.notes} onChange={e => updHotel(h.id, 'notes', e.target.value)} placeholder="Breakfast included, pool view…" className={inp} />
                     </div>
                   </div>
+                  {(h.cost != null && h.supplierCost != null && h.cost > 0 && h.supplierCost > 0) && (
+                    <div className="mt-2 px-3 py-2 bg-white/[0.03] rounded-lg flex items-center gap-4 text-xs">
+                      <span className="text-white/40">Margin:</span>
+                      <span className={`font-bold ${(h.cost - h.supplierCost) >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                        {sym}{(h.cost - h.supplierCost).toLocaleString()} ({h.cost > 0 ? Math.round(((h.cost - h.supplierCost) / h.cost) * 100) : 0}%)
+                      </span>
+                    </div>
+                  )}
                 </div>
               ))}
             </div>
@@ -1313,11 +1367,15 @@ function BookingsTab({ itin, onSave }: { itin: ItineraryData; onSave: (u: Record
                       <input value={t.provider} onChange={e => updTransfer(t.id, 'provider', e.target.value)} placeholder="Company name" className={inp} />
                     </div>
                     <div>
-                      <label className="text-white/30 text-[10px] font-bold uppercase block mb-1">Cost ({sym})</label>
+                      <label className="text-green-400/70 text-[10px] font-bold uppercase block mb-1">Client Price ({sym})</label>
                       <input type="number" value={t.cost ?? ''} onChange={e => updTransfer(t.id, 'cost', e.target.value ? Number(e.target.value) : null)} placeholder="0.00" className={inp} />
                     </div>
                   </div>
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                    <div>
+                      <label className="text-amber-400/70 text-[10px] font-bold uppercase block mb-1">Supplier Cost ({sym}) <span className="text-white/20 font-normal normal-case">internal</span></label>
+                      <input type="number" value={t.supplierCost ?? ''} onChange={e => updTransfer(t.id, 'supplierCost', e.target.value ? Number(e.target.value) : null)} placeholder="0.00" className={inp} />
+                    </div>
                     <ImageField value={t.image} onChange={v => updTransfer(t.id, 'image', v)} label="Image URL" placeholder="https://…" />
                     <div>
                       <label className="text-white/30 text-[10px] font-bold uppercase block mb-1">Notes</label>
@@ -1376,16 +1434,20 @@ function BookingsTab({ itin, onSave }: { itin: ItineraryData; onSave: (u: Record
                       <input value={t.duration} onChange={e => updTour(t.id, 'duration', e.target.value)} placeholder="3 hours" className={inp} />
                     </div>
                     <div>
-                      <label className="text-white/30 text-[10px] font-bold uppercase block mb-1">Cost ({sym})</label>
+                      <label className="text-green-400/70 text-[10px] font-bold uppercase block mb-1">Client Price ({sym})</label>
                       <input type="number" value={t.cost ?? ''} onChange={e => updTour(t.id, 'cost', e.target.value ? Number(e.target.value) : null)} placeholder="0.00" className={inp} />
                     </div>
                   </div>
-                  <div className="grid grid-cols-2 gap-3 mb-3">
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-3">
                     <div>
                       <label className="text-white/30 text-[10px] font-bold uppercase block mb-1">Provider</label>
                       <input value={t.provider} onChange={e => updTour(t.id, 'provider', e.target.value)} placeholder="Tour operator" className={inp} />
                     </div>
                     <div>
+                      <label className="text-amber-400/70 text-[10px] font-bold uppercase block mb-1">Supplier Cost ({sym}) <span className="text-white/20 font-normal normal-case">internal</span></label>
+                      <input type="number" value={t.supplierCost ?? ''} onChange={e => updTour(t.id, 'supplierCost', e.target.value ? Number(e.target.value) : null)} placeholder="0.00" className={inp} />
+                    </div>
+                    <div className="col-span-2">
                       <label className="text-white/30 text-[10px] font-bold uppercase block mb-1">Notes</label>
                       <input value={t.notes} onChange={e => updTour(t.id, 'notes', e.target.value)} placeholder="What's included…" className={inp} />
                     </div>
@@ -1464,10 +1526,14 @@ function BookingsTab({ itin, onSave }: { itin: ItineraryData; onSave: (u: Record
                       <input value={t.pnr} onChange={e => updTrain(t.id, 'pnr', e.target.value)} placeholder="Booking ref" className={inp} />
                     </div>
                   </div>
-                  <div className="grid grid-cols-2 gap-3 mb-3">
+                  <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mb-3">
                     <div>
-                      <label className="text-white/30 text-[10px] font-bold uppercase block mb-1">Cost ({sym})</label>
+                      <label className="text-green-400/70 text-[10px] font-bold uppercase block mb-1">Client Price ({sym})</label>
                       <input type="number" value={t.cost ?? ''} onChange={e => updTrain(t.id, 'cost', e.target.value ? Number(e.target.value) : null)} placeholder="0.00" className={inp} />
+                    </div>
+                    <div>
+                      <label className="text-amber-400/70 text-[10px] font-bold uppercase block mb-1">Supplier Cost ({sym}) <span className="text-white/20 font-normal normal-case">internal</span></label>
+                      <input type="number" value={t.supplierCost ?? ''} onChange={e => updTrain(t.id, 'supplierCost', e.target.value ? Number(e.target.value) : null)} placeholder="0.00" className={inp} />
                     </div>
                     <div>
                       <label className="text-white/30 text-[10px] font-bold uppercase block mb-1">Notes</label>
@@ -1544,10 +1610,14 @@ function BookingsTab({ itin, onSave }: { itin: ItineraryData; onSave: (u: Record
                       </select>
                     </div>
                   </div>
-                  <div className="grid grid-cols-2 gap-3 mb-3">
+                  <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mb-3">
                     <div>
-                      <label className="text-white/30 text-[10px] font-bold uppercase block mb-1">Cost ({sym})</label>
+                      <label className="text-green-400/70 text-[10px] font-bold uppercase block mb-1">Client Price ({sym})</label>
                       <input type="number" value={fe.cost ?? ''} onChange={e => updFerry(fe.id, 'cost', e.target.value ? Number(e.target.value) : null)} placeholder="0.00" className={inp} />
+                    </div>
+                    <div>
+                      <label className="text-amber-400/70 text-[10px] font-bold uppercase block mb-1">Supplier Cost ({sym}) <span className="text-white/20 font-normal normal-case">internal</span></label>
+                      <input type="number" value={fe.supplierCost ?? ''} onChange={e => updFerry(fe.id, 'supplierCost', e.target.value ? Number(e.target.value) : null)} placeholder="0.00" className={inp} />
                     </div>
                     <div>
                       <label className="text-white/30 text-[10px] font-bold uppercase block mb-1">Notes</label>
@@ -1699,6 +1769,128 @@ function PricingTab({ itin, onSave }: { itin: ItineraryData; onSave: (u: Record<
   )
 }
 
+// ─── Margin Tab ───────────────────────────────────────────────────────────────
+
+type MarginRow = {
+  category: string
+  description: string
+  client_price: number | null
+  supplier_cost: number | null
+}
+
+function MarginTab({ itin }: { itin: ItineraryData }) {
+  const [rows, setRows]       = useState<MarginRow[]>([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError]     = useState('')
+  const sym = CURRENCY_SYM[itin.currency] || ''
+
+  useEffect(() => {
+    fetch(`/api/admin/itineraries/${itin.id}/margin`)
+      .then(r => r.json())
+      .then((d: { rows?: MarginRow[]; error?: string }) => {
+        if (d.rows) setRows(d.rows)
+        else setError(d.error ?? 'Failed to load margin data')
+      })
+      .catch(() => setError('Network error'))
+      .finally(() => setLoading(false))
+  }, [itin.id])
+
+  const totalClient   = rows.reduce((s, r) => s + (r.client_price  ?? 0), 0)
+  const totalSupplier = rows.reduce((s, r) => s + (r.supplier_cost ?? 0), 0)
+  const totalMargin   = totalClient - totalSupplier
+  const marginPct     = totalClient > 0 ? Math.round((totalMargin / totalClient) * 100) : 0
+
+  const fmt = (n: number | null) => n == null ? '—' : `${sym}${n.toLocaleString()}`
+
+  if (loading) return (
+    <div className="flex items-center justify-center py-24 text-white/30">
+      <div className="w-6 h-6 border-2 border-white/20 border-t-white/60 rounded-full animate-spin mr-3" /> Loading…
+    </div>
+  )
+
+  if (error) return (
+    <div className="bg-red-500/10 border border-red-500/20 rounded-2xl p-6 text-red-400 text-sm">{error}</div>
+  )
+
+  return (
+    <div className="max-w-4xl">
+      {/* Summary cards */}
+      <div className="grid grid-cols-3 gap-4 mb-8">
+        {[
+          { label: 'Client Revenue', value: totalClient,   color: 'text-amber-400' },
+          { label: 'Supplier Cost',  value: totalSupplier, color: 'text-red-400' },
+          { label: 'Gross Margin',   value: totalMargin,   color: totalMargin >= 0 ? 'text-green-400' : 'text-red-400' },
+        ].map(({ label, value, color }) => (
+          <div key={label} className="bg-white/5 border border-white/[0.08] rounded-2xl p-5">
+            <p className="text-white/40 text-xs uppercase tracking-wider mb-1">{label}</p>
+            <p className={`text-2xl font-bold ${color}`}>{sym}{value.toLocaleString()}</p>
+            {label === 'Gross Margin' && <p className="text-white/30 text-xs mt-1">{marginPct}% of revenue</p>}
+          </div>
+        ))}
+      </div>
+
+      {rows.length === 0 ? (
+        <div className="bg-white/5 border border-white/[0.08] rounded-2xl p-10 text-center">
+          <p className="text-white/30 text-sm">No booking costs recorded yet.</p>
+          <p className="text-white/20 text-xs mt-1">Add supplier costs to your flights, hotels, transfers, tours, trains and ferries to see margins here.</p>
+        </div>
+      ) : (
+        <div className="bg-white/5 border border-white/[0.08] rounded-2xl overflow-hidden">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-white/[0.08]">
+                <th className="text-left text-white/30 text-xs uppercase tracking-wider px-5 py-3 font-normal">Category</th>
+                <th className="text-left text-white/30 text-xs uppercase tracking-wider px-5 py-3 font-normal">Description</th>
+                <th className="text-right text-white/30 text-xs uppercase tracking-wider px-5 py-3 font-normal">Client Price</th>
+                <th className="text-right text-white/30 text-xs uppercase tracking-wider px-5 py-3 font-normal">Supplier Cost</th>
+                <th className="text-right text-white/30 text-xs uppercase tracking-wider px-5 py-3 font-normal">Margin</th>
+                <th className="text-right text-white/30 text-xs uppercase tracking-wider px-5 py-3 font-normal">%</th>
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((r, i) => {
+                const cp = r.client_price  ?? 0
+                const sc = r.supplier_cost ?? 0
+                const mg = cp - sc
+                const pct = cp > 0 ? Math.round((mg / cp) * 100) : null
+                return (
+                  <tr key={i} className="border-b border-white/[0.04] hover:bg-white/[0.02]">
+                    <td className="px-5 py-3">
+                      <span className="text-xs font-bold uppercase tracking-wider text-amber-400/70">{r.category}</span>
+                    </td>
+                    <td className="px-5 py-3 text-white/70">{r.description || '—'}</td>
+                    <td className="px-5 py-3 text-right text-white font-mono">{fmt(r.client_price)}</td>
+                    <td className="px-5 py-3 text-right text-white/50 font-mono">{fmt(r.supplier_cost)}</td>
+                    <td className={`px-5 py-3 text-right font-mono font-bold ${mg >= 0 ? 'text-green-400' : 'text-red-400'}`}>
+                      {cp > 0 || sc > 0 ? `${sym}${mg.toLocaleString()}` : '—'}
+                    </td>
+                    <td className={`px-5 py-3 text-right font-mono text-xs ${pct == null ? 'text-white/20' : pct >= 0 ? 'text-green-400/70' : 'text-red-400/70'}`}>
+                      {pct == null ? '—' : `${pct}%`}
+                    </td>
+                  </tr>
+                )
+              })}
+            </tbody>
+            <tfoot>
+              <tr className="border-t border-white/[0.12] bg-white/[0.03]">
+                <td colSpan={2} className="px-5 py-3 text-white/40 text-xs font-bold uppercase">Total</td>
+                <td className="px-5 py-3 text-right text-amber-400 font-bold font-mono">{sym}{totalClient.toLocaleString()}</td>
+                <td className="px-5 py-3 text-right text-white/50 font-bold font-mono">{sym}{totalSupplier.toLocaleString()}</td>
+                <td className={`px-5 py-3 text-right font-bold font-mono ${totalMargin >= 0 ? 'text-green-400' : 'text-red-400'}`}>{sym}{totalMargin.toLocaleString()}</td>
+                <td className={`px-5 py-3 text-right font-bold font-mono text-xs ${marginPct >= 0 ? 'text-green-400/70' : 'text-red-400/70'}`}>{marginPct}%</td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      )}
+
+      <p className="text-white/20 text-xs mt-4">
+        Data is read from the normalized booking tables. Save your itinerary to sync the latest data.
+      </p>
+    </div>
+  )
+}
+
 // ─── Preview Tab ──────────────────────────────────────────────────────────────
 
 function PreviewTab({
@@ -1715,6 +1907,9 @@ function PreviewTab({
   const [copied, setCopied] = useState(false)
   const [statusSaving, setStatusSaving] = useState(false)
   const [auditBlocks, setAuditBlocks] = useState(false)
+  const [genningToken, setGenningToken] = useState(false)
+  const [approvalUrl, setApprovalUrl] = useState('')
+  const [approvalCopied, setApprovalCopied] = useState(false)
 
   const sym = CURRENCY_SYM[itin.currency] || ''
   const days = safeParse<Day[]>(itin.days, [])
@@ -1751,6 +1946,26 @@ function PreviewTab({
     void navigator.clipboard.writeText(publicUrl)
     setCopied(true)
     setTimeout(() => setCopied(false), 2000)
+  }
+
+  const handleGenApprovalLink = async () => {
+    setGenningToken(true)
+    try {
+      const res  = await fetch(`/api/admin/itineraries/${itin.id}/approve-token`, { method: 'POST' })
+      const data = await res.json() as { url?: string; error?: string }
+      if (data.url) setApprovalUrl(data.url)
+      else alert(data.error ?? 'Could not generate approval link')
+    } catch {
+      alert('Network error generating approval link')
+    }
+    setGenningToken(false)
+  }
+
+  const handleCopyApproval = () => {
+    if (!approvalUrl) return
+    void navigator.clipboard.writeText(approvalUrl)
+    setApprovalCopied(true)
+    setTimeout(() => setApprovalCopied(false), 2000)
   }
 
   const handleStatusChange = async (newStatus: string) => {
@@ -1974,6 +2189,49 @@ function PreviewTab({
             <p className={`text-sm mt-3 text-center ${sentMsg.startsWith('✅') ? 'text-green-400' : 'text-red-400'}`}>
               {sentMsg}
             </p>
+          )}
+        </div>
+
+        <div className="bg-white/5 border border-white/[0.08] rounded-2xl p-5">
+          <h3 className="text-white font-bold text-sm mb-1">Client Approval Link</h3>
+          <p className="text-white/40 text-xs mb-4">
+            Generate a one-time link for {itin.clientName || 'the client'} to digitally sign and approve this itinerary.
+          </p>
+
+          {itin.status === 'approved' ? (
+            <div className="bg-green-500/10 border border-green-500/20 rounded-xl p-3">
+              <p className="text-green-400 text-xs font-semibold">✅ This itinerary has already been approved.</p>
+              {itin.approvedAt && <p className="text-green-400/60 text-xs mt-0.5">{fmtDateTime(itin.approvedAt)}</p>}
+            </div>
+          ) : (
+            <>
+              {!approvalUrl ? (
+                <button
+                  onClick={handleGenApprovalLink}
+                  disabled={genningToken}
+                  className="w-full bg-white/5 hover:bg-white/10 border border-white/10 text-white font-bold py-3 rounded-xl transition flex items-center justify-center gap-2 disabled:opacity-50 text-sm"
+                >
+                  {genningToken
+                    ? <><div className="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin" /> Generating…</>
+                    : '🔐 Generate Approval Link'}
+                </button>
+              ) : (
+                <div className="space-y-2">
+                  <div className="bg-white/5 rounded-xl px-3 py-2.5">
+                    <p className="text-white/50 text-xs font-mono truncate">{approvalUrl}</p>
+                  </div>
+                  <div className="flex gap-2">
+                    <button onClick={handleCopyApproval} className="flex-1 bg-amber-500 hover:bg-amber-400 text-black font-bold py-2.5 rounded-xl text-sm transition">
+                      {approvalCopied ? '✓ Copied!' : '📋 Copy Link'}
+                    </button>
+                    <button onClick={handleGenApprovalLink} disabled={genningToken} className="flex-1 bg-white/5 hover:bg-white/10 border border-white/10 text-white/60 font-bold py-2.5 rounded-xl text-xs transition disabled:opacity-50">
+                      {genningToken ? '…' : '↻ Regenerate'}
+                    </button>
+                  </div>
+                  <p className="text-white/20 text-[10px] text-center">Send this link to {itin.clientName || 'the client'} — it expires once used.</p>
+                </div>
+              )}
+            </>
           )}
         </div>
 
