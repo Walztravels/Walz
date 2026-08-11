@@ -8,6 +8,8 @@ import TasksTab from '@/components/admin/itinerary/TasksTab'
 import EsimTab from '@/components/admin/itinerary/EsimTab'
 import { NotesTab } from '@/components/admin/itinerary/NotesTab'
 import { PaymentScheduleEditor, PackageOptionsEditor } from '@/components/admin/itinerary/PricingExtras'
+import ResearchTab from '@/components/admin/itinerary/ResearchTab'
+import VersionHistory from '@/components/admin/itinerary/VersionHistory'
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -239,6 +241,8 @@ const TABS = [
   { id: 'esim',       label: '📶 eSIM' },
   { id: 'pricing',    label: '💰 Pricing' },
   { id: 'margin',     label: '📊 Margin' },
+  { id: 'research',   label: '🔍 Research' },
+  { id: 'versions',   label: '🕓 Versions' },
   { id: 'notes',      label: '📝 Notes' },
   { id: 'preview',    label: '👁 Preview & Send' },
 ]
@@ -444,6 +448,23 @@ export default function ItineraryBuilderPage() {
         )}
         {activeTab === 'pricing'    && <PricingTab   itin={itin} onSave={save} />}
         {activeTab === 'margin'     && <MarginTab    itin={itin} />}
+        {activeTab === 'research'   && (
+          <ResearchTab
+            itinId={itin.id}
+            destination={itin.destination}
+            startDate={itin.startDate}
+            endDate={itin.endDate}
+            numberOfTravellers={itin.numberOfTravellers}
+          />
+        )}
+        {activeTab === 'versions'   && (
+          <VersionHistory
+            itinId={itin.id}
+            onRestore={(snapshot) => {
+              setItin(prev => prev ? { ...prev, ...snapshot } as typeof prev : prev)
+            }}
+          />
+        )}
         {activeTab === 'notes'      && <NotesTab     itinId={itin.id} />}
         {activeTab === 'preview'    && (
           <PreviewTab
@@ -1002,6 +1023,31 @@ function DaysTab({ itin, onSave }: { itin: ItineraryData; onSave: (u: Record<str
 
 // ─── Bookings Tab ─────────────────────────────────────────────────────────────
 
+interface SupplierOption { id: string; name: string; type: string }
+
+function SupplierPicker({ value, onChange }: { value: string; onChange: (id: string, name: string) => void }) {
+  const [suppliers, setSuppliers] = useState<SupplierOption[]>([])
+  useEffect(() => {
+    fetch('/api/admin/suppliers')
+      .then(r => r.json())
+      .then((d: { suppliers?: SupplierOption[] }) => setSuppliers(d.suppliers ?? []))
+      .catch(() => {})
+  }, [])
+  return (
+    <select
+      value={value}
+      onChange={e => {
+        const s = suppliers.find(s => s.id === e.target.value)
+        onChange(e.target.value, s?.name ?? '')
+      }}
+      className="w-full bg-white/5 border border-white/[0.08] rounded-xl px-3 py-2 text-white text-xs focus:outline-none focus:border-amber-400"
+    >
+      <option value="">— No supplier —</option>
+      {suppliers.map(s => <option key={s.id} value={s.id}>{s.name} ({s.type})</option>)}
+    </select>
+  )
+}
+
 function BookingsTab({ itin, onSave }: { itin: ItineraryData; onSave: (u: Record<string, unknown>) => Promise<void> }) {
   const [bookingTab, setBookingTab] = useState('flights')
   const [flights, setFlights] = useState<Flight[]>(safeParse<Flight[]>(itin.flights, []))
@@ -1229,6 +1275,10 @@ function BookingsTab({ itin, onSave }: { itin: ItineraryData; onSave: (u: Record
                       <input value={f.notes} onChange={e => updFlight(f.id, 'notes', e.target.value)} placeholder="Baggage, meals…" className={inp} />
                     </div>
                   </div>
+                  <div className="mt-2">
+                    <label className="text-white/30 text-[10px] font-bold uppercase block mb-1">Supplier</label>
+                    <SupplierPicker value={f.supplierId} onChange={(id, name) => { updFlight(f.id, 'supplierId', id); updFlight(f.id, 'airline', name || f.airline) }} />
+                  </div>
                   {(f.cost != null && f.supplierCost != null && f.cost > 0 && f.supplierCost > 0) && (
                     <div className="mt-2 px-3 py-2 bg-white/[0.03] rounded-lg flex items-center gap-4 text-xs">
                       <span className="text-white/40">Margin:</span>
@@ -1332,6 +1382,10 @@ function BookingsTab({ itin, onSave }: { itin: ItineraryData; onSave: (u: Record
                       <input value={h.notes} onChange={e => updHotel(h.id, 'notes', e.target.value)} placeholder="Breakfast included, pool view…" className={inp} />
                     </div>
                   </div>
+                  <div className="mt-2">
+                    <label className="text-white/30 text-[10px] font-bold uppercase block mb-1">Supplier</label>
+                    <SupplierPicker value={h.supplierId} onChange={(id) => updHotel(h.id, 'supplierId', id)} />
+                  </div>
                   {(h.cost != null && h.supplierCost != null && h.cost > 0 && h.supplierCost > 0) && (
                     <div className="mt-2 px-3 py-2 bg-white/[0.03] rounded-lg flex items-center gap-4 text-xs">
                       <span className="text-white/40">Margin:</span>
@@ -1423,6 +1477,10 @@ function BookingsTab({ itin, onSave }: { itin: ItineraryData; onSave: (u: Record
                       <input value={t.notes} onChange={e => updTransfer(t.id, 'notes', e.target.value)} placeholder="Meet & greet, sign…" className={inp} />
                     </div>
                   </div>
+                  <div className="mt-2">
+                    <label className="text-white/30 text-[10px] font-bold uppercase block mb-1">Supplier</label>
+                    <SupplierPicker value={t.supplierId} onChange={(id) => updTransfer(t.id, 'supplierId', id)} />
+                  </div>
                 </div>
               ))}
             </div>
@@ -1492,6 +1550,10 @@ function BookingsTab({ itin, onSave }: { itin: ItineraryData; onSave: (u: Record
                       <label className="text-white/30 text-[10px] font-bold uppercase block mb-1">Notes</label>
                       <input value={t.notes} onChange={e => updTour(t.id, 'notes', e.target.value)} placeholder="What's included…" className={inp} />
                     </div>
+                  </div>
+                  <div className="mt-2">
+                    <label className="text-white/30 text-[10px] font-bold uppercase block mb-1">Supplier</label>
+                    <SupplierPicker value={t.supplierId} onChange={(id) => updTour(t.id, 'supplierId', id)} />
                   </div>
                   <ImageField value={t.image} onChange={v => updTour(t.id, 'image', v)} />
                 </div>

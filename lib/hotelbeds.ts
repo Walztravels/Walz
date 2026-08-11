@@ -52,7 +52,7 @@ function makeSignature(api: HotelbedsAPI): string {
 export async function hotelbedsRequest(
   api: HotelbedsAPI,
   path: string,
-  opts: { method?: string; body?: unknown; params?: Record<string, string | number | string[] | undefined> } = {},
+  opts: { method?: string; body?: unknown; params?: Record<string, string | number | string[] | undefined>; timeoutMs?: number } = {},
 ): Promise<any> {
   const { key } = CREDENTIALS[api]
   const signature = makeSignature(api)
@@ -68,22 +68,37 @@ export async function hotelbedsRequest(
     url += `?${qs.toString()}`
   }
 
-  const res = await fetch(url, {
-    method,
-    headers: {
-      'Api-key':         key,
-      'X-Signature':     signature,
-      'Accept':          'application/json',
-      'Accept-Encoding': 'gzip',
-      'Content-Type':    'application/json',
-    },
-    ...(opts.body ? { body: JSON.stringify(opts.body) } : {}),
-  })
+  const controller = new AbortController()
+  const timeoutMs = opts.timeoutMs ?? 12_000
+  const tid = setTimeout(() => controller.abort(), timeoutMs)
 
-  if (!res.ok) {
-    const text = await res.text()
-    throw new Error(`Hotelbeds ${api} ${method} ${path} → ${res.status}: ${text}`)
+  try {
+    const res = await fetch(url, {
+      method,
+      signal: controller.signal,
+      headers: {
+        'Api-key':         key,
+        'X-Signature':     signature,
+        'Accept':          'application/json',
+        'Accept-Encoding': 'gzip',
+        'Content-Type':    'application/json',
+      },
+      ...(opts.body ? { body: JSON.stringify(opts.body) } : {}),
+    })
+
+    clearTimeout(tid)
+
+    if (!res.ok) {
+      const text = await res.text()
+      throw new Error(`Hotelbeds ${api} ${method} ${path} → ${res.status}: ${text}`)
+    }
+
+    return res.json()
+  } catch (err) {
+    clearTimeout(tid)
+    if ((err as Error).name === 'AbortError') {
+      throw new Error(`Hotelbeds ${api} ${method} ${path} timed out after ${timeoutMs}ms`)
+    }
+    throw err
   }
-
-  return res.json()
 }

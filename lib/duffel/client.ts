@@ -93,6 +93,16 @@ const delay = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
 // ── Public API ────────────────────────────────────────────────────────────────
 
+const DEFAULT_TIMEOUT_MS = 15_000
+
+function withTimeout(signal?: AbortSignal): { signal: AbortSignal; clear: () => void } {
+  const controller = new AbortController()
+  const tid = setTimeout(() => controller.abort(), DEFAULT_TIMEOUT_MS)
+  // If caller passed their own signal, propagate its abort
+  signal?.addEventListener('abort', () => controller.abort())
+  return { signal: controller.signal, clear: () => clearTimeout(tid) }
+}
+
 export async function duffelGet<T>(
   path: string,
   query?: Record<string, string>
@@ -100,9 +110,17 @@ export async function duffelGet<T>(
   const url = new URL(`${BASE}${path}`)
   if (query) for (const [k, v] of Object.entries(query)) url.searchParams.set(k, v)
 
-  const res = await fetch(url.toString(), { headers: getHeaders() })
-  await throwIfError(res, 'GET', path)
-  return res.json() as Promise<T>
+  const { signal, clear } = withTimeout()
+  try {
+    const res = await fetch(url.toString(), { headers: getHeaders(), signal })
+    clear()
+    await throwIfError(res, 'GET', path)
+    return res.json() as Promise<T>
+  } catch (err) {
+    clear()
+    if ((err as Error).name === 'AbortError') throw new Error(`Duffel GET ${path} timed out`)
+    throw err
+  }
 }
 
 export async function duffelPost<T>(
@@ -113,26 +131,44 @@ export async function duffelPost<T>(
   const url = new URL(`${BASE}${path}`)
   if (query) for (const [k, v] of Object.entries(query)) url.searchParams.set(k, v)
 
-  const res = await fetch(url.toString(), {
-    method: 'POST',
-    headers: getHeaders(),
-    body: JSON.stringify(body),
-  })
-  await throwIfError(res, 'POST', path)
-  return res.json() as Promise<T>
+  const { signal, clear } = withTimeout()
+  try {
+    const res = await fetch(url.toString(), {
+      method: 'POST',
+      headers: getHeaders(),
+      body: JSON.stringify(body),
+      signal,
+    })
+    clear()
+    await throwIfError(res, 'POST', path)
+    return res.json() as Promise<T>
+  } catch (err) {
+    clear()
+    if ((err as Error).name === 'AbortError') throw new Error(`Duffel POST ${path} timed out`)
+    throw err
+  }
 }
 
 export async function duffelPatch<T>(
   path: string,
   body: unknown
 ): Promise<T> {
-  const res = await fetch(`${BASE}${path}`, {
-    method: 'PATCH',
-    headers: getHeaders(),
-    body: JSON.stringify(body),
-  })
-  await throwIfError(res, 'PATCH', path)
-  return res.json() as Promise<T>
+  const { signal, clear } = withTimeout()
+  try {
+    const res = await fetch(`${BASE}${path}`, {
+      method: 'PATCH',
+      headers: getHeaders(),
+      body: JSON.stringify(body),
+      signal,
+    })
+    clear()
+    await throwIfError(res, 'PATCH', path)
+    return res.json() as Promise<T>
+  } catch (err) {
+    clear()
+    if ((err as Error).name === 'AbortError') throw new Error(`Duffel PATCH ${path} timed out`)
+    throw err
+  }
 }
 
 /**
