@@ -278,14 +278,16 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Access denied' }, { status: 403 })
     }
 
-    const adminPassword     = process.env.ADMIN_PASSWORD ?? ''
     const adminPasswordHash = process.env.ADMIN_PASSWORD_HASH ?? ''
+
+    if (!adminPasswordHash && process.env.NODE_ENV === 'production') {
+      console.error('[auth/login] ADMIN_PASSWORD_HASH is not set in production — super-admin login disabled')
+      return NextResponse.json({ error: 'Server configuration error' }, { status: 500 })
+    }
 
     let passwordValid = false
     if (adminPasswordHash) {
       passwordValid = await bcrypt.compare(password, adminPasswordHash)
-    } else if (adminPassword) {
-      passwordValid = password === adminPassword
     }
 
     if (!passwordValid) {

@@ -3,6 +3,11 @@ import { useState, useEffect, useCallback } from 'react'
 import { useParams } from 'next/navigation'
 import { JadeCopilot } from './JadeCopilot'
 import { JadeTripAuditor } from '@/components/admin/JadeTripAuditor'
+import TravelersTab from '@/components/admin/itinerary/TravelersTab'
+import TasksTab from '@/components/admin/itinerary/TasksTab'
+import EsimTab from '@/components/admin/itinerary/EsimTab'
+import { NotesTab } from '@/components/admin/itinerary/NotesTab'
+import { PaymentScheduleEditor, PackageOptionsEditor } from '@/components/admin/itinerary/PricingExtras'
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -226,12 +231,16 @@ By approving this itinerary, you confirm you have read, understood, and agreed t
 Walz Travels Ltd | thewalztechs@gmail.com | walztravels.com`
 
 const TABS = [
-  { id: 'overview',  label: '📋 Overview' },
-  { id: 'days',      label: '📅 Day by Day' },
-  { id: 'bookings',  label: '🗂️ Bookings' },
-  { id: 'pricing',   label: '💰 Pricing' },
-  { id: 'margin',    label: '📊 Margin' },
-  { id: 'preview',   label: '👁 Preview & Send' },
+  { id: 'overview',   label: '📋 Overview' },
+  { id: 'days',       label: '📅 Day by Day' },
+  { id: 'bookings',   label: '🗂️ Bookings' },
+  { id: 'travelers',  label: '👥 Travelers' },
+  { id: 'tasks',      label: '✅ Tasks' },
+  { id: 'esim',       label: '📶 eSIM' },
+  { id: 'pricing',    label: '💰 Pricing' },
+  { id: 'margin',     label: '📊 Margin' },
+  { id: 'notes',      label: '📝 Notes' },
+  { id: 'preview',    label: '👁 Preview & Send' },
 ]
 
 const BOOKING_TABS = [
@@ -399,12 +408,44 @@ export default function ItineraryBuilderPage() {
       </div>
 
       <div className="max-w-7xl mx-auto px-6 py-8">
-        {activeTab === 'overview'  && <OverviewTab  itin={itin} onSave={save} />}
-        {activeTab === 'days'      && <DaysTab      itin={itin} onSave={save} />}
-        {activeTab === 'bookings'  && <BookingsTab  itin={itin} onSave={save} />}
-        {activeTab === 'pricing'   && <PricingTab   itin={itin} onSave={save} />}
-        {activeTab === 'margin'    && <MarginTab    itin={itin} />}
-        {activeTab === 'preview'   && (
+        {activeTab === 'overview'   && <OverviewTab  itin={itin} onSave={save} />}
+        {activeTab === 'days'       && <DaysTab      itin={itin} onSave={save} />}
+        {activeTab === 'bookings'   && <BookingsTab  itin={itin} onSave={save} />}
+        {activeTab === 'travelers'  && (
+          <TravelersTab
+            itinId={itin.id}
+            currency={itin.currency || 'GBP'}
+            destination={itin.destination}
+            startDate={itin.startDate}
+            numberOfTravellers={itin.numberOfTravellers}
+          />
+        )}
+        {activeTab === 'tasks' && (
+          <TasksTab
+            itinId={itin.id}
+            itinSummary={{
+              destination: itin.destination,
+              startDate: itin.startDate,
+              endDate: itin.endDate,
+              numberOfTravellers: itin.numberOfTravellers,
+            }}
+          />
+        )}
+        {activeTab === 'esim' && (
+          <EsimTab
+            itinId={itin.id}
+            destination={itin.destination}
+            destinations={itin.destinations || '[]'}
+            numberOfTravellers={itin.numberOfTravellers}
+            startDate={itin.startDate}
+            endDate={itin.endDate}
+            currency={itin.currency || 'GBP'}
+          />
+        )}
+        {activeTab === 'pricing'    && <PricingTab   itin={itin} onSave={save} />}
+        {activeTab === 'margin'     && <MarginTab    itin={itin} />}
+        {activeTab === 'notes'      && <NotesTab     itinId={itin.id} />}
+        {activeTab === 'preview'    && (
           <PreviewTab
             itin={itin}
             onSave={save}
@@ -1765,6 +1806,9 @@ function PricingTab({ itin, onSave }: { itin: ItineraryData; onSave: (u: Record<
           {saving ? <><div className="w-4 h-4 border-2 border-black border-t-transparent rounded-full animate-spin" /> Saving…</> : 'Save Pricing'}
         </button>
       </div>
+
+      <PackageOptionsEditor itinId={itin.id} currency={itin.currency || 'GBP'} />
+      <PaymentScheduleEditor itinId={itin.id} currency={itin.currency || 'GBP'} />
     </div>
   )
 }
