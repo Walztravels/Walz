@@ -258,7 +258,12 @@ async function searchHotelsAmadeus(
   }
 }
 
-// ── Orchestrated hotel search: Hotelbeds → Amadeus → fallback ─────────────────
+// ── Deduplicate hotels by normalised name ──────────────────────────────────────
+function normaliseName(name: string) {
+  return name.toLowerCase().replace(/[^a-z0-9]/g, '')
+}
+
+// ── Parallel hotel search: Hotelbeds + Amadeus simultaneously ─────────────────
 async function searchHotels(
   destination: string,
   checkIn: string,
@@ -268,20 +273,41 @@ async function searchHotels(
   childAges: number[],
   rooms: number,
 ) {
-  // Try Hotelbeds first
-  const hbResult = await searchHotelsHotelbeds(destination, checkIn, checkOut, adults, children, childAges, rooms)
-  if (hbResult !== null) {
-    return { hotels: hbResult, source: 'hotelbeds' as const, fallback: hbResult.length === 0 }
+  const args = [destination, checkIn, checkOut, adults, children, childAges, rooms] as const
+
+  const [hbResult, amResult] = await Promise.all([
+    searchHotelsHotelbeds(...args),
+    searchHotelsAmadeus(...args),
+  ])
+
+  const hbHotels = hbResult ?? []
+  const amHotels = amResult ?? []
+
+  if (hbHotels.length === 0 && amHotels.length === 0) {
+    const neitherConfigured = hbResult === null && amResult === null
+    return { hotels: [], source: 'unavailable' as const, fallback: neitherConfigured ? true : false }
   }
 
-  // Fallback to Amadeus
-  const amResult = await searchHotelsAmadeus(destination, checkIn, checkOut, adults, children, childAges, rooms)
-  if (amResult !== null) {
-    return { hotels: amResult, source: 'amadeus' as const, fallback: amResult.length === 0 }
-  }
+  // Merge: start with Hotelbeds (has images), add Amadeus entries not already present
+  const seen = new Set(hbHotels.map((h) => normaliseName(h.name)))
+  const merged = [
+    ...hbHotels,
+    ...amHotels.filter((h) => !seen.has(normaliseName(h.name))),
+  ]
 
-  // Neither provider configured or both failed
-  return { hotels: [], source: 'unavailable' as const, fallback: true }
+  // Sort by price ascending (0 = unknown, push to bottom)
+  merged.sort((a, b) => {
+    if (a.price === 0) return 1
+    if (b.price === 0) return -1
+    return a.price - b.price
+  })
+
+  const sources = [
+    hbHotels.length > 0 ? 'hotelbeds' : null,
+    amHotels.length > 0 ? 'amadeus' : null,
+  ].filter(Boolean).join('+')
+
+  return { hotels: merged, source: sources, fallback: false }
 }
 
 // ── Flight search ─────────────────────────────────────────────────────────────

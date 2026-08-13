@@ -274,7 +274,14 @@ function HotelSearch({
       {/* Source badge */}
       {!fallback && source && hotels.length > 0 && (
         <p className="text-white/30 text-xs mb-3">
-          {source === 'hotelbeds' ? '📡 Live results via Hotelbeds' : source === 'amadeus' ? '📡 Live results via Amadeus' : ''}
+          📡 Live results via{' '}
+          {source === 'hotelbeds+amadeus'
+            ? 'Hotelbeds + Amadeus'
+            : source === 'hotelbeds'
+            ? 'Hotelbeds'
+            : source === 'amadeus'
+            ? 'Amadeus'
+            : source}
         </p>
       )}
 
