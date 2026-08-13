@@ -777,6 +777,15 @@ function DaysTab({ itin, onSave }: { itin: ItineraryData; onSave: (u: Record<str
   const [generating, setGenerating] = useState(false)
   const [genMsg, setGenMsg] = useState('')
 
+  // Sync when Jade Copilot (or any external save) updates itin.days in the parent
+  useEffect(() => {
+    if (!generating) {
+      const fresh = safeParse<Day[]>(itin.days, [])
+      setDays(fresh)
+      if (fresh.length > 0) setExpanded(1)
+    }
+  }, [itin.days]) // eslint-disable-line react-hooks/exhaustive-deps
+
   const updDay = (dayNum: number, field: keyof Day, value: unknown) => {
     setDays(prev => prev.map(d => d.day === dayNum ? { ...d, [field]: value } : d))
   }

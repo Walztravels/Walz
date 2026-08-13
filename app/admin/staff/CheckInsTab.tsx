@@ -24,6 +24,7 @@ interface FlaggedRecord {
   staffId:       string
   windowStart:   string
   deductionAmt:  number
+  waived:        boolean
   disputeStatus: string | null
   dispute:       string | null
   staff: { id: string; name: string; roleTitle: string }
