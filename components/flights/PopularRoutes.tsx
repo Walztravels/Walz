@@ -94,6 +94,7 @@ export function PopularRoutes() {
             <p className="text-[#0B1F3A]/40 text-sm mt-2">Hand-picked from our most booked destinations</p>
           </div>
           <a href="/flights/search?from=LHR&to=LOS&adults=1&cabin=ECONOMY&trip=one-way"
+            rel="nofollow"
             className="hidden sm:inline-flex items-center gap-2 text-sm font-semibold text-[#0B1F3A] hover:text-[#C9A84C] transition-colors group">
             All routes
             <svg className="w-4 h-4 group-hover:translate-x-1 transition-transform" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -111,6 +112,7 @@ export function PopularRoutes() {
               <a
                 key={key}
                 href={routeHref(route.from, route.to, route.daysOut, route.duration)}
+                rel="nofollow"
                 className="relative rounded-2xl overflow-hidden block cursor-pointer group"
                 style={{ height: '320px' }}
                 onMouseEnter={() => setHovered(key)}
@@ -174,6 +176,7 @@ export function PopularRoutes() {
         {/* Mobile view all */}
         <div className="mt-8 text-center sm:hidden">
           <a href="/flights/search?from=LHR&to=LOS&adults=1&cabin=ECONOMY&trip=one-way"
+            rel="nofollow"
             className="inline-flex items-center gap-2 px-6 py-3 rounded-xl border border-[#0B1F3A]/15 text-sm font-semibold text-[#0B1F3A] hover:border-[#C9A84C] hover:text-[#C9A84C] transition-all">
             View all routes →
           </a>

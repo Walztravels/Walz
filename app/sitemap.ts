@@ -6,6 +6,22 @@ export const dynamic = 'force-dynamic'
 
 const BASE = 'https://www.walztravels.com'
 
+// Concierge hub + dedicated sub-pages (all verified 200 on production)
+const CONCIERGE_STATIC = [
+  { path: '/concierge',                  priority: 0.80 as const },
+  { path: '/concierge/airport-services', priority: 0.75 as const },
+  { path: '/concierge/private-aviation', priority: 0.75 as const },
+]
+
+// [slug] pages — verified 200 on production before being added
+const CONCIERGE_SLUGS = [
+  'executive-transport',
+  'yacht-marine',
+  'lifestyle-concierge',
+  'tickets-entertainment',
+  'vip-experiences',
+]
+
 // 19 programmatic flight route pages — declared now, built out as programmatic SEO pages
 const FLIGHT_ROUTES = [
   'los-lhr', 'acc-lhr', 'los-dxb', 'los-jfk', 'acc-jfk',
@@ -80,6 +96,20 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
       lastModified:    new Date(),
       changeFrequency: 'weekly' as const,
       priority:        0.85,
+    })),
+    // Concierge hub + dedicated sub-pages
+    ...CONCIERGE_STATIC.map(({ path, priority }) => ({
+      url:             `${BASE}${path}`,
+      lastModified:    new Date(),
+      changeFrequency: 'weekly' as const,
+      priority,
+    })),
+    // Concierge [slug] category pages — verified 200 in production
+    ...CONCIERGE_SLUGS.map(slug => ({
+      url:             `${BASE}/concierge/${slug}`,
+      lastModified:    new Date(),
+      changeFrequency: 'monthly' as const,
+      priority:        0.70,
     })),
     // Additional high-value pages
     { url: `${BASE}/insurance`,     lastModified: new Date(), changeFrequency: 'monthly', priority: 0.7 },

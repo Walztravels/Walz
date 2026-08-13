@@ -5,6 +5,8 @@ const BLOCKED = [
   '/portal/',
   '/api/',
   '/auth/',
+  // Flight search — rolling-date query strings produce an unbounded crawl surface
+  '/flights/search',
   // Concierge transactional pages — booking refs and vouchers must never be indexed
   '/concierge/bookings/',
   '/concierge/airport-services/lounge/checkout',
