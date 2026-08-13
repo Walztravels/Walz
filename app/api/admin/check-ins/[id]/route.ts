@@ -12,10 +12,21 @@ export async function PATCH(req: Request, { params }: Params) {
     if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
     const { id } = await params
-    const body   = await req.json() as { action: 'waive' | 'dispute' | 'resolve'; note?: string; approved?: boolean }
+    const body   = await req.json() as { action: 'apply' | 'waive' | 'dispute' | 'resolve'; note?: string; approved?: boolean }
 
     const record = await prisma.checkInRecord.findUnique({ where: { id } })
     if (!record) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+
+    if (body.action === 'apply') {
+      if (!ADMIN_ROLES.has(session.role)) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+      const settings = await prisma.checkInSettings.findUnique({ where: { id: 'singleton' } })
+      const amt = settings?.deductionPerMiss ?? 0
+      const updated = await prisma.checkInRecord.update({
+        where: { id },
+        data: { deductionAmt: amt, flagged: true, waived: false },
+      })
+      return NextResponse.json({ record: updated })
+    }
 
     if (body.action === 'waive') {
       if (!ADMIN_ROLES.has(session.role)) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })

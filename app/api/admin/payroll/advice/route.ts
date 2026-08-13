@@ -86,8 +86,8 @@ export async function POST(req: NextRequest) {
     where: { staffMemberId: staffId, month, year },
   })
 
-  const allowance  = payslip?.allowance      ?? 0
-  const deductions = payslip?.otherDeduction ?? 0
+  const allowance  = payslip?.allowance          ?? 0
+  const deductions = (payslip?.attendanceDeduction ?? 0) + (payslip?.otherDeduction ?? 0)
   const grossPay   = staff.baseSalary + allowance
   const netPay     = grossPay - deductions
 

@@ -393,12 +393,10 @@ export function CheckInsTab() {
   }
 
   async function applyDeduction(id: string) {
-    // Mark as flagged/confirmed deduction — currently "resolve" with approved=false keeps it flagged
-    // For now this is a visual confirmation; deduction is already set by the cron
     setApplyingDeduct(id)
     await fetch(`/api/admin/check-ins/${id}`, {
       method: 'PATCH', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'resolve', approved: false }),
+      body: JSON.stringify({ action: 'apply' }),
     })
     setApplyingDeduct(null)
     load()
