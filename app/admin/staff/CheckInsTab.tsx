@@ -558,7 +558,7 @@ export function CheckInsTab() {
                     >
                       {waiving === rec.id ? 'Waiving…' : 'Waive'}
                     </button>
-                    {rec.deductionAmt > 0 && rec.disputeStatus !== 'pending' && (
+                    {rec.deductionAmt === 0 && !rec.waived && rec.disputeStatus !== 'pending' && (
                       <button
                         onClick={() => applyDeduction(rec.id)}
                         disabled={applyingDeduct === rec.id}
