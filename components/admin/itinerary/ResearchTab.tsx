@@ -165,6 +165,7 @@ function HotelSearch({
   const [rooms, setRooms] = useState('1')
   const [loading, setLoading] = useState(false)
   const [hotels, setHotels] = useState<HotelResult[]>([])
+  const [source, setSource] = useState<string | null>(null)
   const [fallback, setFallback] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [searched, setSearched] = useState(false)
@@ -176,6 +177,7 @@ function HotelSearch({
     setLoading(true)
     setError(null)
     setFallback(false)
+    setSource(null)
     setSearched(true)
     try {
       const qs = new URLSearchParams({
@@ -194,6 +196,7 @@ function HotelSearch({
       const data = await res.json()
       if (!res.ok) throw new Error(data.error ?? 'Search failed')
       setHotels(data.hotels ?? [])
+      setSource(data.source ?? null)
       setFallback(data.fallback === true)
     } catch (err) {
       setError((err as Error).message)
@@ -266,6 +269,13 @@ function HotelSearch({
             />
           </Field>
         </div>
+      )}
+
+      {/* Source badge */}
+      {!fallback && source && hotels.length > 0 && (
+        <p className="text-white/30 text-xs mb-3">
+          {source === 'hotelbeds' ? '📡 Live results via Hotelbeds' : source === 'amadeus' ? '📡 Live results via Amadeus' : ''}
+        </p>
       )}
 
       {/* Fallback banner */}
