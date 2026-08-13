@@ -1,5 +1,5 @@
 'use client'
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { useParams } from 'next/navigation'
 import { JadeCopilot } from './JadeCopilot'
 import { JadeTripAuditor } from '@/components/admin/JadeTripAuditor'
@@ -516,6 +516,10 @@ function OverviewTab({ itin, onSave }: { itin: ItineraryData; onSave: (u: Record
   const [newExc, setNewExc] = useState('')
   const [saving, setSaving] = useState(false)
   const [fetchingCover, setFetchingCover] = useState(false)
+  const [uploadingCover, setUploadingCover] = useState(false)
+  const [uploadCoverErr, setUploadCoverErr] = useState('')
+  const [dragOver, setDragOver] = useState(false)
+  const coverFileRef = useRef<HTMLInputElement>(null)
 
   const upd = (k: string, v: unknown) => setForm(f => ({ ...f, [k]: v }))
 
@@ -547,6 +551,36 @@ function OverviewTab({ itin, onSave }: { itin: ItineraryData; onSave: (u: Record
       if (data.url) upd('coverImage', data.url)
     } catch {}
     setFetchingCover(false)
+  }
+
+  const handleCoverUpload = async (file: File) => {
+    setUploadCoverErr('')
+    setUploadingCover(true)
+    const fd = new FormData()
+    fd.append('file', file)
+    try {
+      const res = await fetch(`/api/admin/itineraries/${itin.id}/upload-image`, {
+        method: 'POST',
+        body: fd,
+      })
+      const data = await res.json() as { url?: string; error?: string }
+      if (data.url) {
+        upd('coverImage', data.url)
+        await onSave({ coverImage: data.url })
+      } else {
+        setUploadCoverErr(data.error || 'Upload failed')
+      }
+    } catch {
+      setUploadCoverErr('Network error during upload')
+    }
+    setUploadingCover(false)
+  }
+
+  const onCoverDrop = (e: React.DragEvent) => {
+    e.preventDefault()
+    setDragOver(false)
+    const file = e.dataTransfer.files[0]
+    if (file) void handleCoverUpload(file)
   }
 
   const addDest = () => {
@@ -616,16 +650,70 @@ function OverviewTab({ itin, onSave }: { itin: ItineraryData; onSave: (u: Record
             <input value={form.destination} onChange={e => upd('destination', e.target.value)} placeholder="e.g. Dubai, UAE" className={inp} />
           </div>
 
-          {/* Cover Image */}
+          {/* Cover Image — drag & drop or URL */}
           <div>
-            <label className="text-white/40 text-xs font-bold uppercase tracking-wider block mb-1.5">Cover Image URL</label>
-            {form.coverImage && (
-              <div className="mb-2 rounded-xl overflow-hidden h-32 bg-white/5">
-                <img src={form.coverImage} alt="Itinerary cover image preview" className="w-full h-full object-cover" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }} />
-              </div>
-            )}
+            <label className="text-white/40 text-xs font-bold uppercase tracking-wider block mb-1.5">Cover Image</label>
+
+            {/* Drop zone / preview */}
+            <div
+              onDragOver={e => { e.preventDefault(); setDragOver(true) }}
+              onDragLeave={() => setDragOver(false)}
+              onDrop={onCoverDrop}
+              onClick={() => coverFileRef.current?.click()}
+              className={`relative mb-2 rounded-xl overflow-hidden cursor-pointer transition-all border-2 border-dashed
+                ${dragOver ? 'border-amber-400 bg-amber-500/10' : 'border-white/15 hover:border-white/30'}
+                ${form.coverImage ? 'h-36' : 'h-24'}`}
+            >
+              {form.coverImage ? (
+                <>
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    src={form.coverImage}
+                    alt="Cover"
+                    className="w-full h-full object-cover"
+                    onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }}
+                  />
+                  <div className="absolute inset-0 bg-black/50 opacity-0 hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
+                    <span className="text-white text-xs font-semibold">🖼 Replace image</span>
+                  </div>
+                </>
+              ) : (
+                <div className="flex flex-col items-center justify-center h-full gap-1.5 select-none">
+                  {uploadingCover
+                    ? <div className="w-5 h-5 border-2 border-amber-400 border-t-transparent rounded-full animate-spin" />
+                    : <span className="text-2xl">{dragOver ? '📂' : '🖼'}</span>}
+                  <p className="text-white/40 text-xs font-medium">
+                    {uploadingCover ? 'Uploading…' : dragOver ? 'Drop to upload' : 'Drag & drop or click to upload'}
+                  </p>
+                  <p className="text-white/20 text-[10px]">JPEG · PNG · WebP · up to 8 MB</p>
+                </div>
+              )}
+              {uploadingCover && form.coverImage && (
+                <div className="absolute inset-0 bg-black/60 flex items-center justify-center">
+                  <div className="w-6 h-6 border-2 border-amber-400 border-t-transparent rounded-full animate-spin" />
+                </div>
+              )}
+            </div>
+
+            {/* Hidden file input */}
+            <input
+              ref={coverFileRef}
+              type="file"
+              accept="image/jpeg,image/png,image/webp,image/avif"
+              className="hidden"
+              onChange={e => { const f = e.target.files?.[0]; if (f) void handleCoverUpload(f); e.target.value = '' }}
+            />
+
+            {uploadCoverErr && <p className="text-red-400 text-xs mb-2">{uploadCoverErr}</p>}
+
+            {/* URL input fallback + Auto */}
             <div className="flex gap-2">
-              <input value={form.coverImage} onChange={e => upd('coverImage', e.target.value)} placeholder="https://…" className={inp + ' flex-1'} />
+              <input
+                value={form.coverImage}
+                onChange={e => upd('coverImage', e.target.value)}
+                placeholder="Or paste an image URL…"
+                className={inp + ' flex-1 text-xs'}
+              />
               <button
                 onClick={handleAutoCover}
                 disabled={fetchingCover}

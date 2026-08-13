@@ -498,3 +498,39 @@
     gap: 28px !important;
   }
 }
+
+/* ── Print / PDF styles for client itinerary page ─────────────── */
+@media print {
+  /* Force white background and dark text everywhere */
+  * {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  /* Navy sections: convert to white bg + dark text */
+  [class*="bg-\[#0B1F3A\]"],
+  [class*="bg-\[#060f1e\]"],
+  [class*="from-\[#0B1F3A\]"] {
+    background-color: #fff !important;
+    color: #111 !important;
+  }
+
+  /* Amber / gold accent text should stay readable */
+  [class*="text-amber"],
+  [class*="text-\[#C9A84C\]"] {
+    color: #92700c !important;
+  }
+
+  /* White text on dark bg → becomes dark text */
+  .text-white,
+  [class*="text-white"] {
+    color: #111827 !important;
+  }
+
+  /* Remove shadows and sticky positioning */
+  header { position: static !important; box-shadow: none !important; }
+
+  /* Page breaks */
+  h2, h3 { page-break-after: avoid; }
+  .bg-gray-50, .bg-white { break-inside: avoid; }
+}

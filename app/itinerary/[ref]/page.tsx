@@ -100,11 +100,11 @@ export default async function ClientItineraryPage({ params }: { params: Promise<
       />
 
       {/* ── Header ──────────────────────────────────────────────────────────── */}
-      <header className="bg-[#0B1F3A] py-4 px-6 sticky top-0 z-10 shadow-lg print:static print:shadow-none">
+      <header className="bg-[#0B1F3A] py-4 px-6 sticky top-0 z-10 shadow-lg print:static print:shadow-none print:bg-white print:border-b print:border-gray-200">
         <div className="max-w-4xl mx-auto flex items-center justify-between">
           <img src="/walz-logo.png" alt="Walz Travels" className="h-8" />
           <div className="flex items-center gap-3">
-            <span className="text-white/40 text-xs font-mono">{itin.referenceNumber}</span>
+            <span className="text-white/40 text-xs font-mono print:text-gray-400">{itin.referenceNumber}</span>
             {itin.status === 'approved' && (
               <span className="bg-green-500/20 text-green-400 text-xs font-bold px-3 py-1 rounded-full">Approved</span>
             )}
