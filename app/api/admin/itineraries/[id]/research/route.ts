@@ -61,14 +61,24 @@ async function searchHotels(
   checkIn: string,
   checkOut: string,
   adults: number,
+  children: number,
+  childAges: number[],
+  rooms: number,
 ) {
   if (!process.env.HOTELBEDS_HOTEL_API_KEY || !process.env.HOTELBEDS_HOTEL_SECRET) {
     return { hotels: [], source: 'unavailable' as const, fallback: true }
   }
 
   const destCode = resolveDestCode(destination)
-  const controller = new AbortController()
-  const tid = setTimeout(() => controller.abort(), 8000)
+
+  const occupancy: Record<string, unknown> = {
+    rooms: Math.max(1, rooms),
+    adults: Math.max(1, adults),
+    children: Math.max(0, children),
+  }
+  if (children > 0 && childAges.length > 0) {
+    occupancy.paxes = childAges.map((age) => ({ type: 'CH', age }))
+  }
 
   try {
     // hotelbedsRequest internally uses its own fetch — we wrap in a race-condition
@@ -79,7 +89,7 @@ async function searchHotels(
         body: {
           sourceMarket: 'GB',
           stay: { checkIn, checkOut },
-          occupancies: [{ rooms: 1, adults: Math.max(1, adults), children: 0 }],
+          occupancies: [occupancy],
           destination: { code: destCode },
           filter: { maxHotels: 10, minCategory: 3, maxRatesPerRoom: 1 },
           currency: 'GBP',
@@ -90,8 +100,6 @@ async function searchHotels(
         setTimeout(() => reject(new Error('HotelbedsTimeout')), 8000),
       ),
     ])
-
-    clearTimeout(tid)
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const hotels = (data.hotels?.hotels ?? []).slice(0, 10).map((h: any) => {
@@ -116,7 +124,6 @@ async function searchHotels(
 
     return { hotels, source: 'hotelbeds' as const }
   } catch (err) {
-    clearTimeout(tid)
     const msg = err instanceof Error ? err.message : String(err)
     console.warn('[itinerary/research/hotels]', msg)
     return { hotels: [], source: 'unavailable' as const, fallback: true }
@@ -124,11 +131,12 @@ async function searchHotels(
 }
 
 // ── Flight search ─────────────────────────────────────────────────────────────
+interface LegParam { from: string; to: string; date: string }
+
 async function searchFlights(
-  from: string,
-  to: string,
-  date: string,
+  legs: LegParam[],
   adults: number,
+  children: number,
   cabin: string,
 ) {
   if (!process.env.DUFFEL_ACCESS_TOKEN) {
@@ -142,7 +150,17 @@ async function searchFlights(
     FIRST: 'first',
   }
   const duffelCabin = cabinMap[cabin.toUpperCase()] ?? 'economy'
-  const passengers = Array.from({ length: Math.max(1, adults) }, () => ({ type: 'adult' as const }))
+
+  const passengers: { type: 'adult' | 'child' }[] = [
+    ...Array.from({ length: Math.max(1, adults) }, () => ({ type: 'adult' as const })),
+    ...Array.from({ length: Math.max(0, children) }, () => ({ type: 'child' as const })),
+  ]
+
+  const slices = legs.map((l) => ({
+    origin: l.from.toUpperCase().trim(),
+    destination: l.to.toUpperCase().trim(),
+    departure_date: l.date,
+  }))
 
   const controller = new AbortController()
   const tid = setTimeout(() => controller.abort(), 8000)
@@ -159,19 +177,7 @@ async function searchFlights(
           'Content-Type': 'application/json',
           Accept: 'application/json',
         },
-        body: JSON.stringify({
-          data: {
-            slices: [
-              {
-                origin: from.toUpperCase().trim(),
-                destination: to.toUpperCase().trim(),
-                departure_date: date,
-              },
-            ],
-            passengers,
-            cabin_class: duffelCabin,
-          },
-        }),
+        body: JSON.stringify({ data: { slices, passengers, cabin_class: duffelCabin } }),
       },
     )
 
@@ -187,22 +193,37 @@ async function searchFlights(
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const flights = (json.data?.offers ?? []).slice(0, 6).map((o: any) => {
-      const slice = o.slices?.[0]
-      const firstSeg = slice?.segments?.[0]
-      const lastSeg = slice?.segments?.at(-1)
-      const stops = Math.max(0, (slice?.segments?.length ?? 1) - 1)
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const sliceResults = (o.slices ?? []).map((slice: any) => {
+        const firstSeg = slice?.segments?.[0]
+        const lastSeg = slice?.segments?.at(-1)
+        const stops = Math.max(0, (slice?.segments?.length ?? 1) - 1)
+        return {
+          airline:
+            firstSeg?.marketing_carrier?.name ??
+            firstSeg?.operating_carrier?.name ??
+            'Unknown Airline',
+          flightNumber: firstSeg
+            ? `${firstSeg.marketing_carrier?.iata_code ?? ''}${firstSeg.marketing_carrier_flight_number ?? ''}`
+            : '',
+          departure: firstSeg?.departing_at ?? '',
+          arrival: lastSeg?.arriving_at ?? '',
+          duration: formatIsoDuration(slice?.duration ?? ''),
+          stops,
+        }
+      })
+
+      const first = sliceResults[0] ?? {}
       return {
-        airline:
-          firstSeg?.marketing_carrier?.name ??
-          firstSeg?.operating_carrier?.name ??
-          'Unknown Airline',
-        flightNumber: firstSeg
-          ? `${firstSeg.marketing_carrier?.iata_code ?? ''}${firstSeg.marketing_carrier_flight_number ?? ''}`
-          : '',
-        departure: firstSeg?.departing_at ?? '',
-        arrival: lastSeg?.arriving_at ?? '',
-        duration: formatIsoDuration(slice?.duration ?? ''),
-        stops,
+        // top-level fields from first slice (backward-compat)
+        airline: first.airline ?? 'Unknown Airline',
+        flightNumber: first.flightNumber ?? '',
+        departure: first.departure ?? '',
+        arrival: first.arrival ?? '',
+        duration: first.duration ?? '',
+        stops: first.stops ?? 0,
+        // all slices for multi-leg display
+        slices: sliceResults,
         price: parseFloat(o.total_amount) || 0,
         currency: o.total_currency ?? 'GBP',
       }
@@ -235,6 +256,12 @@ export async function GET(
     const checkIn = sp.get('checkIn') ?? ''
     const checkOut = sp.get('checkOut') ?? ''
     const adults = Math.max(1, parseInt(sp.get('adults') ?? '2') || 2)
+    const children = Math.max(0, parseInt(sp.get('children') ?? '0') || 0)
+    const rooms = Math.max(1, parseInt(sp.get('rooms') ?? '1') || 1)
+    const childAgesRaw = sp.get('childAges') ?? ''
+    const childAges = childAgesRaw
+      ? childAgesRaw.split(',').map((s) => parseInt(s.trim())).filter((n) => !isNaN(n))
+      : []
 
     if (!destination || !checkIn || !checkOut) {
       return NextResponse.json(
@@ -243,25 +270,29 @@ export async function GET(
       )
     }
 
-    const result = await searchHotels(destination, checkIn, checkOut, adults)
+    const result = await searchHotels(destination, checkIn, checkOut, adults, children, childAges, rooms)
     return NextResponse.json(result)
   }
 
   if (type === 'flights') {
-    const from = sp.get('from') ?? ''
-    const to = sp.get('to') ?? ''
-    const date = sp.get('date') ?? ''
+    const legsRaw = sp.get('legs') ?? ''
     const adults = Math.max(1, parseInt(sp.get('adults') ?? '1') || 1)
+    const children = Math.max(0, parseInt(sp.get('children') ?? '0') || 0)
     const cabin = sp.get('cabin') ?? 'ECONOMY'
 
-    if (!from || !to || !date) {
+    let legs: LegParam[]
+    try {
+      legs = JSON.parse(legsRaw)
+      if (!Array.isArray(legs) || legs.length === 0) throw new Error('empty')
+      if (legs.some((l) => !l.from || !l.to || !l.date)) throw new Error('invalid')
+    } catch {
       return NextResponse.json(
-        { error: 'from, to and date are required' },
+        { error: 'legs must be a JSON array of {from, to, date} objects' },
         { status: 400 },
       )
     }
 
-    const result = await searchFlights(from, to, date, adults, cabin)
+    const result = await searchFlights(legs, adults, children, cabin)
     return NextResponse.json(result)
   }
 

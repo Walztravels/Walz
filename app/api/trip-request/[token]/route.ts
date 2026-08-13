@@ -100,21 +100,15 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ tok
     }
   }
 
-  // Notify staff
-  if (request.sentBy) {
-    try {
-      const resend = getResend()
-      await resend.emails.send({
-        from: 'Walz Travels <contact@walztravels.com>',
-        to: request.sentBy,
-        subject: `🔔 New Trip Request from ${body.firstName || ''} ${body.lastName || ''} — ${body.destination || 'Unknown'}`,
-        html: `<div style="font-family:Arial,sans-serif;max-width:500px;margin:0 auto;padding:20px">
+  // Build notification email HTML
+  const clientName = `${body.firstName || ''} ${body.lastName || ''}`.trim() || 'Client'
+  const notifyHtml = `<div style="font-family:Arial,sans-serif;max-width:500px;margin:0 auto;padding:20px">
 <div style="background:#060f1e;border-radius:12px;padding:20px;text-align:center;margin-bottom:16px">
 <p style="color:#F59E0B;font-weight:900;font-size:18px;margin:0">✈️ New Trip Request</p>
 <p style="color:rgba(255,255,255,.4);font-size:12px;margin:4px 0 0">${updated.referenceNumber}</p>
 </div>
 <div style="background:#F9FAFB;border-radius:12px;padding:16px;margin-bottom:16px">
-<p style="font-weight:700;color:#111;margin:0 0 12px">${body.firstName || ''} ${body.lastName || ''}</p>
+<p style="font-weight:700;color:#111;margin:0 0 12px">${clientName}</p>
 <table style="width:100%;font-size:13px;border-collapse:collapse">
 <tr><td style="color:#9CA3AF;padding:4px 0;width:40%">Destination</td><td style="color:#111;font-weight:600">${body.destination || '—'}</td></tr>
 <tr><td style="color:#9CA3AF;padding:4px 0">Dates</td><td style="color:#111;font-weight:600">${body.departureDate || '—'} → ${body.returnDate || '—'}</td></tr>
@@ -125,10 +119,48 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ tok
 </table>
 </div>
 <a href="https://walztravels.com/admin/trip-requests/${updated.id}" style="display:block;background:#F59E0B;color:#000;font-weight:900;text-align:center;padding:14px;border-radius:10px;text-decoration:none;font-size:14px">View Full Request & Build Itinerary →</a>
-</div>`,
+</div>`
+
+  const notifySubject = `🔔 New Trip Request from ${clientName} — ${body.destination || 'Unknown'}`
+
+  // Notify the agent who sent the form
+  if (request.sentBy) {
+    try {
+      const resend = getResend()
+      await resend.emails.send({
+        from: 'Walz Travels <contact@walztravels.com>',
+        to: request.sentBy,
+        subject: notifySubject,
+        html: notifyHtml,
       })
     } catch { /* non-fatal */ }
   }
+
+  // Notify super admins and managers (excluding the agent who already got one)
+  try {
+    const managers = await prisma.staffMember.findMany({
+      where: {
+        role: { in: ['super_admin', 'general_manager', 'senior_manager'] },
+      },
+      select: { email: true },
+    })
+    const recipients = managers
+      .map((m) => m.email)
+      .filter((e): e is string => !!e && e !== request.sentBy)
+    if (recipients.length > 0) {
+      const resend = getResend()
+      await Promise.allSettled(
+        recipients.map((to) =>
+          resend.emails.send({
+            from: 'Walz Travels <contact@walztravels.com>',
+            to,
+            subject: notifySubject,
+            html: notifyHtml,
+          }),
+        ),
+      )
+    }
+  } catch { /* non-fatal */ }
 
   return NextResponse.json({ success: true, referenceNumber: updated.referenceNumber })
 }
