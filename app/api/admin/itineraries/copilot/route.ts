@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
 import { getAdminSession } from '@/lib/admin-auth'
+import { resolveHotelImages } from '@/lib/hotel-images'
 
 export const maxDuration = 60
 
@@ -141,20 +142,25 @@ function normaliseFlights(flights: unknown[]) {
 }
 
 function normaliseHotels(hotels: unknown[]) {
-  return (hotels as Array<Record<string, unknown>>).map(h => ({
-    id: uid(),
-    name: String(h.name || ''),
-    location: String(h.location || ''),
-    websiteUrl: '',
-    checkIn: String(h.checkIn || ''),
-    checkOut: String(h.checkOut || ''),
-    roomType: String(h.roomType || ''),
-    nights: Number(h.nights) || 1,
-    cost: h.cost != null ? Number(h.cost) : null,
-    status: 'confirmed',
-    notes: h.boardBasis ? String(h.boardBasis) : String(h.notes || ''),
-    image: '',
-  }))
+  return (hotels as Array<Record<string, unknown>>).map(h => {
+    const name     = String(h.name     || '')
+    const location = String(h.location || '')
+    return {
+      id: uid(),
+      name,
+      location,
+      websiteUrl: '',
+      checkIn:  String(h.checkIn  || ''),
+      checkOut: String(h.checkOut || ''),
+      roomType: String(h.roomType || ''),
+      nights:   Number(h.nights) || 1,
+      cost:     h.cost != null ? Number(h.cost) : null,
+      status:   'confirmed',
+      notes:    h.boardBasis ? String(h.boardBasis) : String(h.notes || ''),
+      image:    '',
+      images:   resolveHotelImages(name, location, 4),
+    }
+  })
 }
 
 function normaliseTours(tours: unknown[]) {

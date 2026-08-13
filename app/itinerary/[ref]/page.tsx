@@ -18,6 +18,7 @@ interface ItinFlight {
 interface ItinHotel {
   name?: string; location?: string; checkIn?: string; checkOut?: string;
   roomType?: string; nights?: number; cost?: number;
+  images?: string[]
 }
 interface PriceRow { item: string; description?: string; cost: number }
 
@@ -293,10 +294,39 @@ export default async function ClientItineraryPage({ params }: { params: Promise<
             <h2 className="font-bold text-gray-900 text-lg mb-4">🏨 Accommodation</h2>
             <div className="space-y-3">
               {hotels.map((h, i) => (
-                <div key={i} className="bg-gray-50 rounded-xl p-4">
-                  <p className="font-bold text-gray-900">{h.name || ''}</p>
-                  {h.location && <p className="text-gray-500 text-sm">📍 {h.location}</p>}
-                  {h.checkIn && <p className="text-gray-600 text-sm">{fmtDate(h.checkIn)} — {fmtDate(h.checkOut)} · {h.nights || ''} nights · {h.roomType || ''}</p>}
+                <div key={i} className="bg-gray-50 rounded-xl overflow-hidden">
+                  {/* Hotel image gallery */}
+                  {h.images && h.images.length > 0 && (
+                    <div className="flex gap-1 h-36 overflow-hidden">
+                      {h.images.slice(0, 4).map((src, idx) => (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img
+                          key={idx}
+                          src={src}
+                          alt={`${h.name || 'Hotel'} photo ${idx + 1}`}
+                          className={`object-cover flex-shrink-0 ${
+                            idx === 0
+                              ? 'w-1/2 h-full'
+                              : h.images!.length === 2
+                              ? 'w-1/2 h-full'
+                              : 'w-1/6 h-full flex-1'
+                          }`}
+                          loading="lazy"
+                        />
+                      ))}
+                    </div>
+                  )}
+                  <div className="p-4">
+                    <p className="font-bold text-gray-900">{h.name || ''}</p>
+                    {h.location && <p className="text-gray-500 text-sm">📍 {h.location}</p>}
+                    {h.checkIn && (
+                      <p className="text-gray-600 text-sm mt-1">
+                        {fmtDate(h.checkIn)} — {fmtDate(h.checkOut)}
+                        {h.nights ? ` · ${h.nights} nights` : ''}
+                        {h.roomType ? ` · ${h.roomType}` : ''}
+                      </p>
+                    )}
+                  </div>
                 </div>
               ))}
             </div>
