@@ -27,7 +27,7 @@ export async function GET(
       issues: {
         orderBy: [{ severity: 'asc' }, { createdAt: 'asc' }],
         select: {
-          id: true, pageId: true, severity: true, checkName: true,
+          id: true, pageId: true, url: true, severity: true, checkName: true,
           title: true, description: true, evidence: true, fixPreview: true,
           status: true, approvedBy: true, approvedAt: true,
         },

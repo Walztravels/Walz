@@ -7,6 +7,7 @@ import Link from 'next/link'
 interface Issue {
   id: string
   pageId: string | null
+  url: string | null
   severity: string
   checkName: string
   title: string
@@ -240,6 +241,11 @@ export default function AuditDetailPage() {
                     </span>
                   </div>
                   <p className="text-sm text-gray-200 font-medium">{issue.title}</p>
+                  {issue.url && (
+                    <p className="text-xs text-indigo-400 font-mono truncate" title={issue.url}>
+                      {issue.url.replace(/^https?:\/\/[^/]+/, '') || '/'}
+                    </p>
+                  )}
                   <p className="text-xs text-gray-500">{issue.description}</p>
                   {issue.evidence && (
                     <p className="text-xs text-gray-500 font-mono bg-gray-950 rounded px-3 py-2 break-all">

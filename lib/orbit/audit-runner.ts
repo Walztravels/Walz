@@ -612,8 +612,37 @@ export async function runAudit(auditId: string): Promise<void> {
       totalHigh++
     }
 
-    // ── Sitemap coverage: are all crawled pages in the sitemap? ──────────────
-    // (already handled per-page via not_in_sitemap check above)
+    // ── Sitemap coverage: known important pages that must appear in sitemap ──
+    // These pages are live and indexable but may be absent from the sitemap.
+    // We verify they are present; if not, we fetch them to confirm they exist (200)
+    // before flagging — avoids false positives for pages that were removed.
+    const REQUIRED_IN_SITEMAP = [
+      '/concierge/airport-services/lounge',
+      '/concierge/airport-services/meet-greet',
+      '/concierge/airport-services/transfer',
+      '/concierge/airport-services/sleeping-pod',
+      '/concierge/airport-services/baggage',
+    ]
+    for (const path of REQUIRED_IN_SITEMAP) {
+      if (sitemapSet.has(path)) continue
+      // Confirm the page is actually live before flagging
+      try {
+        const checkRes = await fetchWithTimeout(`${siteUrl}${path}`, { headers: { 'User-Agent': 'OrbitBot/1.0' } }, 8000)
+        if (checkRes.status !== 200) continue
+      } catch { continue }
+      await prisma.orbitAuditIssue.create({
+        data: {
+          auditId,
+          url: `${siteUrl}${path}`,
+          checkName: 'important_page_missing_from_sitemap',
+          severity: 'medium',
+          title: `Live page missing from sitemap: ${path}`,
+          description: `This page returns 200 and is important for SEO discoverability, but is not listed in sitemap.xml. Search engines rely on the sitemap to find and index pages.`,
+          fixPreview: `Add <url><loc>${siteUrl}${path}</loc></url> to sitemap.xml`,
+        },
+      })
+      totalMedium++
+    }
 
     // ── Finalise ─────────────────────────────────────────────────────────────
     const score = calcScore(totalCritical, totalHigh, totalMedium, totalLow)
