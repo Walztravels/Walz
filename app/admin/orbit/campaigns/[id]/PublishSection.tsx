@@ -19,6 +19,25 @@ interface Props {
   onPublished: () => void
 }
 
+// Maps DB platform names (long form from the campaign form) → Buffer keys
+const TO_KEY: Record<string, string> = {
+  'Instagram':       'instagram',
+  'Meta (Facebook)': 'facebook',
+  'LinkedIn':        'linkedin',
+  'X (Twitter)':     'twitter',
+  instagram: 'instagram',
+  facebook:  'facebook',
+  linkedin:  'linkedin',
+  twitter:   'twitter',
+}
+
+const PLATFORM_LABEL: Record<string, string> = {
+  instagram: 'Instagram',
+  facebook:  'Meta (Facebook)',
+  linkedin:  'LinkedIn',
+  twitter:   'X (Twitter)',
+}
+
 const PLATFORM_ICON: Record<string, string> = {
   instagram: '📸',
   facebook:  '👍',
@@ -32,10 +51,15 @@ const STATUS_STYLE: Record<string, string> = {
   error:   'bg-red-900 text-red-300',
 }
 
+// Deduplicated list of Buffer-supported keys from whatever the campaign has
+function toBufferKeys(platforms: string[]): string[] {
+  return [...new Set(platforms.map(p => TO_KEY[p]).filter(Boolean))]
+}
+
 export function PublishSection({ campaignId, platforms, campaignStatus, onPublished }: Props) {
   const [logs, setLogs]           = useState<PublishLog[]>([])
   const [logsLoaded, setLogsLoaded] = useState(false)
-  const [selected, setSelected]   = useState<string[]>(platforms.filter(p => ['instagram','facebook','linkedin','twitter'].includes(p)))
+  const [selected, setSelected]   = useState<string[]>(toBufferKeys(platforms))
   const [publishing, setPublishing] = useState(false)
   const [error, setError]         = useState<string | null>(null)
   const [result, setResult]       = useState<string | null>(null)
@@ -118,20 +142,23 @@ export function PublishSection({ campaignId, platforms, campaignStatus, onPublis
         <div>
           <p className="text-xs text-gray-500 mb-2">Select platforms to queue:</p>
           <div className="flex flex-wrap gap-2">
-            {platforms.filter(p => PLATFORM_ICON[p]).map(p => (
+            {toBufferKeys(platforms).map(key => (
               <button
-                key={p}
-                onClick={() => togglePlatform(p)}
-                className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border transition-colors capitalize ${
-                  selected.includes(p)
+                key={key}
+                onClick={() => togglePlatform(key)}
+                className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border transition-colors ${
+                  selected.includes(key)
                     ? 'bg-indigo-900/60 border-indigo-600 text-indigo-200'
                     : 'bg-gray-800 border-gray-700 text-gray-400 hover:border-gray-500'
                 }`}
               >
-                <span>{PLATFORM_ICON[p]}</span> {p}
+                <span>{PLATFORM_ICON[key]}</span> {PLATFORM_LABEL[key]}
               </button>
             ))}
           </div>
+          {toBufferKeys(platforms).length === 0 && (
+            <p className="text-xs text-gray-600">No supported platforms on this campaign (Instagram, Meta, LinkedIn, X).</p>
+          )}
         </div>
       )}
 

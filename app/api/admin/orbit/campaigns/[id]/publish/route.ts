@@ -8,7 +8,19 @@ const SUPER_ADMIN = 'super_admin'
 export const dynamic = 'force-dynamic'
 export const maxDuration = 30
 
-// Maps campaign platforms → content extractor from the content JSON blob
+// Maps DB platform display names → Buffer short keys
+const TO_KEY: Record<string, string> = {
+  'Instagram':       'instagram',
+  'Meta (Facebook)': 'facebook',
+  'LinkedIn':        'linkedin',
+  'X (Twitter)':     'twitter',
+  instagram: 'instagram',
+  facebook:  'facebook',
+  linkedin:  'linkedin',
+  twitter:   'twitter',
+}
+
+// Maps Buffer short keys → content extractor from the content JSON blob
 const EXTRACT: Record<string, (c: Record<string, unknown>) => string> = {
   instagram: (c) => {
     const caps = c.instagram_captions as string[] | undefined
@@ -68,9 +80,10 @@ export async function POST(
   const accessToken = meta.accessToken as string
   const channels = (meta.channels ?? {}) as Record<string, string>
 
-  // Which platforms to publish
+  // Which platforms to publish — normalize display names to Buffer short keys
   const body = await req.json().catch(() => ({})) as { platforms?: string[] }
-  const platforms = (body.platforms ?? campaign.platforms).filter(p => EXTRACT[p])
+  const rawPlatforms = body.platforms ?? campaign.platforms
+  const platforms = [...new Set(rawPlatforms.map(p => TO_KEY[p] ?? p).filter(p => EXTRACT[p]))]
 
   const content = campaign.content as Record<string, unknown>
 

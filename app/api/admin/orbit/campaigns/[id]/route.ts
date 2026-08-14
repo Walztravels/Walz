@@ -8,7 +8,19 @@ const SUPER_ADMIN = 'super_admin'
 export const dynamic = 'force-dynamic'
 export const maxDuration = 30
 
-// Maps campaign platforms → content extractor from the content JSON blob
+// Maps DB platform display names → Buffer short keys
+const TO_KEY: Record<string, string> = {
+  'Instagram':       'instagram',
+  'Meta (Facebook)': 'facebook',
+  'LinkedIn':        'linkedin',
+  'X (Twitter)':     'twitter',
+  instagram: 'instagram',
+  facebook:  'facebook',
+  linkedin:  'linkedin',
+  twitter:   'twitter',
+}
+
+// Maps Buffer short keys → content extractor
 const EXTRACT: Record<string, (c: Record<string, unknown>) => string> = {
   instagram: (c) => { const caps = c.instagram_captions as string[] | undefined; return caps?.[0] ?? '' },
   facebook:  (c) => { const ads = c.meta_ads as Array<{ headline: string; body: string }> | undefined; const ad = ads?.[0]; return ad ? `${ad.headline}\n\n${ad.body}` : '' },
@@ -101,7 +113,8 @@ export async function PATCH(
         type LogResult = { platform: string; status: string; bufferUpdateId?: string; error?: string }
         const results: LogResult[] = []
 
-        for (const platform of campaign.platforms.filter(p => EXTRACT[p])) {
+        const bufferPlatforms = [...new Set(campaign.platforms.map(p => TO_KEY[p]).filter(Boolean))]
+        for (const platform of bufferPlatforms.filter(p => EXTRACT[p])) {
           const channelId = channels[platform]
           const text      = EXTRACT[platform]?.(content) ?? ''
 
