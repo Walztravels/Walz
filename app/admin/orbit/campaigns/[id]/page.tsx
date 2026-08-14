@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { useParams } from 'next/navigation'
 import Link from 'next/link'
+import { ImagesSection } from './ImagesSection'
 
 interface Campaign {
   id: string
@@ -358,6 +359,14 @@ export default function CampaignDetailPage() {
           ) : null}
         </div>
       )}
+
+      {/* Campaign Images */}
+      <ImagesSection campaignId={campaign.id} campaignContext={{
+        destination: campaign.destination,
+        objective: campaign.objective,
+        cta: campaign.cta,
+        promotionDetails: campaign.promotionDetails,
+      }} />
     </div>
   )
 }

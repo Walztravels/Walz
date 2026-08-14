@@ -371,10 +371,11 @@ export const ROLE_BADGE_CLASSES: Record<AdminRole, string> = {
 // ── Nav definition ─────────────────────────────────────────────────────────────
 
 export interface NavItem {
-  href:       string
-  label:      string
-  icon:       string
-  permission: Permission
+  href:           string
+  label:          string
+  icon:           string
+  permission:     Permission
+  superAdminOnly?: boolean
 }
 
 export interface NavSection {
@@ -505,6 +506,7 @@ export const NAV_ITEMS: NavSection[] = [
       { href: '/admin/marketing/whatsapp',     label: 'WhatsApp Broadcast', icon: 'MessageSquare', permission: 'marketing.whatsapp'  },
       { href: '/admin/marketing/analytics',    label: 'Analytics',          icon: 'BarChart2',     permission: 'marketing.analytics' },
       { href: '/admin/marketing/brand-memory', label: 'Brand Memory',       icon: 'Brain',         permission: 'marketing.publish'   },
+      { href: '/admin/orbit',                  label: 'Orbit SEO',          icon: 'Globe',         permission: 'marketing',          superAdminOnly: true },
     ],
   },
   {
@@ -537,7 +539,9 @@ export function getNavForStaff(staff: { role: string; permissions: unknown }): N
   return NAV_ITEMS
     .map(section => ({
       ...section,
-      items: section.items.filter(item => hasPermission(staff, item.permission)),
+      items: section.items.filter(item =>
+        !item.superAdminOnly && hasPermission(staff, item.permission)
+      ),
     }))
     .filter(section => section.items.length > 0)
 }
