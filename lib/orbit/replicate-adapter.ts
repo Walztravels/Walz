@@ -174,13 +174,14 @@ export async function generateBackground(
   }
 
   const { w, h } = FLUX_FORMATS[format]
+  const finalPrompt = `${prompt}, ${NO_TEXT_SUFFIX}`
 
   // Create + poll prediction
-  const predictionId = await createPrediction(prompt, w, h)
+  const predictionId = await createPrediction(finalPrompt, w, h)
   const replicateUrl = await pollPrediction(predictionId)
 
   // Persist to Supabase storage
   const { storagePath, publicUrl } = await uploadToStorage(replicateUrl, mediaId)
 
-  return { storagePath, publicUrl, prompt, costUsd: FLUX_COST_USD }
+  return { storagePath, publicUrl, prompt: finalPrompt, costUsd: FLUX_COST_USD }
 }
