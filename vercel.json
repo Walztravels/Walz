@@ -32,6 +32,9 @@
     },
     "app/api/jade/refusal/route.ts": {
       "maxDuration": 60
+    },
+    "app/api/admin/orbit/audits/[id]/process/route.ts": {
+      "maxDuration": 60
     }
   },
   "crons": [

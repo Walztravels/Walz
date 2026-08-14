@@ -3257,3 +3257,120 @@ model CabinProfile {
 
   @@map("cabin_profiles")
 }
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ORBIT — Internal Marketing & SEO Platform
+// ─────────────────────────────────────────────────────────────────────────────
+
+model OrbitSettings {
+  id          String   @id @default("singleton")
+  siteUrl     String   @default("https://www.walztravels.com") @map("site_url")
+  brandName   String   @default("Walz Travels") @map("brand_name")
+  brandSuffix String   @default("| Walz Travels") @map("brand_suffix")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @default(now()) @updatedAt @map("updated_at")
+
+  @@map("orbit_settings")
+}
+
+model OrbitIntegration {
+  id              String    @id
+  connected       Boolean   @default(false)
+  credentialsSet  Boolean   @default(false) @map("credentials_set")
+  lastSyncedAt    DateTime? @map("last_synced_at")
+  error           String?
+  meta            Json      @default("{}")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @default(now()) @updatedAt @map("updated_at")
+
+  @@map("orbit_integrations")
+}
+
+model OrbitAudit {
+  id              String    @id @default(cuid())
+  siteUrl         String    @map("site_url")
+  status          String    @default("queued")  // queued|running|complete|failed
+  pagesTotal      Int       @default(0) @map("pages_total")
+  pagesDone       Int       @default(0) @map("pages_done")
+  issuesCritical  Int       @default(0) @map("issues_critical")
+  issuesHigh      Int       @default(0) @map("issues_high")
+  issuesMedium    Int       @default(0) @map("issues_medium")
+  issuesLow       Int       @default(0) @map("issues_low")
+  score           Int?
+  triggeredBy     String?   @map("triggered_by")
+  error           String?
+  startedAt       DateTime? @map("started_at")
+  completedAt     DateTime? @map("completed_at")
+  createdAt       DateTime  @default(now()) @map("created_at")
+
+  pages  OrbitAuditPage[]
+  issues OrbitAuditIssue[]
+  logs   OrbitAuditLog[]
+
+  @@map("orbit_audits")
+}
+
+model OrbitAuditPage {
+  id                String   @id @default(cuid())
+  auditId           String   @map("audit_id")
+  url               String
+  statusCode        Int?     @map("status_code")
+  responseTimeMs    Int?     @map("response_time_ms")
+  title             String?
+  metaDescription   String?  @map("meta_description")
+  canonical         String?
+  robotsMeta        String?  @map("robots_meta")
+  h1Count           Int      @default(0) @map("h1_count")
+  hasOg             Boolean  @default(false) @map("has_og")
+  hasTwitterCard    Boolean  @default(false) @map("has_twitter_card")
+  hasStructuredData Boolean  @default(false) @map("has_structured_data")
+  isIndexed         Boolean  @default(true) @map("is_indexed")
+  inSitemap         Boolean  @default(false) @map("in_sitemap")
+  imageMissingAlt   Int      @default(0) @map("image_missing_alt")
+  internalLinks     String[] @map("internal_links")
+  createdAt         DateTime @default(now()) @map("created_at")
+
+  audit  OrbitAudit        @relation(fields: [auditId], references: [id], onDelete: Cascade)
+  issues OrbitAuditIssue[]
+
+  @@map("orbit_audit_pages")
+}
+
+model OrbitAuditIssue {
+  id          String    @id @default(cuid())
+  auditId     String    @map("audit_id")
+  pageId      String?   @map("page_id")
+  url         String
+  checkName   String    @map("check_name")
+  severity    String    // critical|high|medium|low
+  title       String
+  description String
+  evidence    String?
+  fixPreview  String?   @map("fix_preview")
+  status      String    @default("open")  // open|task_created|fix_applied|dismissed
+  approvedBy  String?   @map("approved_by")
+  approvedAt  DateTime? @map("approved_at")
+  fixedAt     DateTime? @map("fixed_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+
+  audit OrbitAudit      @relation(fields: [auditId], references: [id], onDelete: Cascade)
+  page  OrbitAuditPage? @relation(fields: [pageId], references: [id], onDelete: Cascade)
+  logs  OrbitAuditLog[]
+
+  @@map("orbit_audit_issues")
+}
+
+model OrbitAuditLog {
+  id       String   @id @default(cuid())
+  auditId  String?  @map("audit_id")
+  issueId  String?  @map("issue_id")
+  action   String
+  actor    String
+  detail   Json     @default("{}")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  audit OrbitAudit?      @relation(fields: [auditId], references: [id], onDelete: SetNull)
+  issue OrbitAuditIssue? @relation(fields: [issueId], references: [id], onDelete: SetNull)
+
+  @@map("orbit_audit_logs")
+}
