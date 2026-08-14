@@ -114,7 +114,9 @@ async function pollPrediction(id: string): Promise<string> {
     })
     if (!res.ok) continue
     const data = await res.json() as Prediction
-    if (data.status === 'succeeded' && data.output?.[0]) return data.output[0]
+    // Replicate returns output as string or string[] depending on model version
+    const url = Array.isArray(data.output) ? data.output[0] : (data.output as unknown as string | undefined)
+    if (data.status === 'succeeded' && url) return url
     if (data.status === 'failed') throw new Error(`Replicate prediction failed: ${data.error ?? 'unknown'}`)
   }
   throw new Error('Replicate prediction timed out after 60s')
