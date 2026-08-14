@@ -42,13 +42,16 @@ export function PublishSection({ campaignId, platforms, campaignStatus, onPublis
 
   const canPublish = campaignStatus === 'approved' || campaignStatus === 'published'
 
-  useEffect(() => {
+  function loadLogs() {
     fetch(`/api/admin/orbit/campaigns/${campaignId}/publish`)
       .then(r => r.json())
       .then(d => { if (d.logs) setLogs(d.logs) })
       .catch(() => {})
       .finally(() => setLogsLoaded(true))
-  }, [campaignId])
+  }
+
+  // Re-fetch logs whenever the campaign status changes (e.g. after header Publish button fires)
+  useEffect(() => { loadLogs() }, [campaignId, campaignStatus]) // eslint-disable-line react-hooks/exhaustive-deps
 
   function togglePlatform(p: string) {
     setSelected(prev => prev.includes(p) ? prev.filter(x => x !== p) : [...prev, p])
@@ -79,9 +82,7 @@ export function PublishSection({ campaignId, platforms, campaignStatus, onPublis
       }
 
       // Refresh log
-      const logsRes = await fetch(`/api/admin/orbit/campaigns/${campaignId}/publish`)
-      const logsData = await logsRes.json() as { logs?: PublishLog[] }
-      if (logsData.logs) setLogs(logsData.logs)
+      loadLogs()
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Unknown error')
     } finally {

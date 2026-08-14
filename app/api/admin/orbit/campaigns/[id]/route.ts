@@ -1,10 +1,20 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getAdminSession } from '@/lib/admin-auth'
 import { prisma } from '@/lib/db'
-import { notifyCampaignNeedsApproval } from '@/lib/orbit/notify'
+import { notifyCampaignNeedsApproval, notifyPublishComplete } from '@/lib/orbit/notify'
+import { publishToBuffer, isBufferConfigured } from '@/lib/orbit/buffer-publisher'
 
 const SUPER_ADMIN = 'super_admin'
 export const dynamic = 'force-dynamic'
+export const maxDuration = 30
+
+// Maps campaign platforms → content extractor from the content JSON blob
+const EXTRACT: Record<string, (c: Record<string, unknown>) => string> = {
+  instagram: (c) => { const caps = c.instagram_captions as string[] | undefined; return caps?.[0] ?? '' },
+  facebook:  (c) => { const ads = c.meta_ads as Array<{ headline: string; body: string }> | undefined; const ad = ads?.[0]; return ad ? `${ad.headline}\n\n${ad.body}` : '' },
+  linkedin:  (c) => String(c.linkedin_post ?? ''),
+  twitter:   (c) => String(c.x_post ?? ''),
+}
 
 export async function GET(
   _req: NextRequest,
@@ -67,10 +77,78 @@ export async function PATCH(
     if (!campaign.approvedBy) {
       return NextResponse.json({ error: 'No approver recorded — cannot publish' }, { status: 400 })
     }
+
+    // Mark published in DB
     await prisma.orbitCampaign.update({
       where: { id: params.id },
       data: { status: 'published', publishedAt: now },
     })
+
+    // Push to Buffer if configured (non-fatal — DB status already saved)
+    try {
+      const integration = await prisma.orbitIntegration.findUnique({ where: { id: 'buffer' } })
+      const bufMeta = (integration?.meta ?? {}) as Record<string, unknown>
+      if (integration?.connected && isBufferConfigured(bufMeta)) {
+        const accessToken  = bufMeta.accessToken as string
+        const channels     = (bufMeta.channels ?? {}) as Record<string, string>
+        const content      = campaign.content as Record<string, unknown>
+        const approvedMedia = await prisma.orbitMedia.findFirst({
+          where: { campaignId: params.id, status: 'approved' },
+          orderBy: { createdAt: 'asc' },
+        })
+        const mediaUrl = approvedMedia?.publicUrl ?? undefined
+
+        type LogResult = { platform: string; status: string; bufferUpdateId?: string; error?: string }
+        const results: LogResult[] = []
+
+        for (const platform of campaign.platforms.filter(p => EXTRACT[p])) {
+          const channelId = channels[platform]
+          const text      = EXTRACT[platform]?.(content) ?? ''
+
+          if (!text.trim() || !channelId) {
+            const reason = !text.trim() ? 'No content for platform' : 'No Buffer channel ID configured'
+            results.push({ platform, status: 'skipped', error: reason })
+            await prisma.orbitPublishLog.create({
+              data: { campaignId: params.id, platform, status: 'skipped', error: reason, createdBy: session.email },
+            })
+            continue
+          }
+
+          try {
+            const res = await publishToBuffer(
+              { accessToken, channels },
+              { channelId, text, mediaUrls: mediaUrl ? [mediaUrl] : undefined, postNow: true },
+            )
+            results.push({ platform, status: 'sent', bufferUpdateId: res.bufferUpdateId })
+            await prisma.orbitPublishLog.create({
+              data: { campaignId: params.id, platform, bufferUpdateId: res.bufferUpdateId, status: 'sent', createdBy: session.email },
+            })
+          } catch (err) {
+            const msg = err instanceof Error ? err.message : String(err)
+            results.push({ platform, status: 'error', error: msg })
+            await prisma.orbitPublishLog.create({
+              data: { campaignId: params.id, platform, status: 'error', error: msg, createdBy: session.email },
+            })
+          }
+        }
+
+        const anySucceeded = results.some(r => r.status === 'sent')
+        if (anySucceeded) {
+          const settings = await prisma.orbitSettings.findUnique({ where: { id: 'singleton' } })
+          if (settings?.notificationsEmail) {
+            notifyPublishComplete({
+              email: settings.notificationsEmail,
+              campaignId: params.id,
+              destination: campaign.destination,
+              platforms: results.filter(r => r.status === 'sent').map(r => r.platform),
+              publishedBy: session.email,
+            })
+          }
+        }
+      }
+    } catch {
+      // Buffer publish failed — campaign is still marked published in DB
+    }
   } else if (action === 'draft') {
     await prisma.orbitCampaign.update({
       where: { id: params.id },

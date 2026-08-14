@@ -188,7 +188,7 @@ export default function CampaignDetailPage() {
           {campaign.status === 'approved' && (
             <button onClick={() => action('publish')} disabled={actioning}
               className="bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors">
-              Publish
+              {actioning ? 'Publishing…' : 'Publish to Buffer →'}
             </button>
           )}
           {hasContent && (campaign.status === 'draft' || campaign.status === 'review') && (
