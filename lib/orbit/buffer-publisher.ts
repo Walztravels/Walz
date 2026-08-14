@@ -9,7 +9,7 @@
  *   meta.channels      — { instagram, facebook, linkedin, twitter } channel IDs
  */
 
-const BUFFER_GRAPHQL = 'https://api.bufferapp.com/graphql'
+const BUFFER_GRAPHQL = 'https://api.buffer.com/graphql'
 
 const CREATE_POST_MUTATION = `
   mutation CreatePost($input: CreatePostInput!) {
