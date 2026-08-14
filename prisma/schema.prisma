@@ -3283,6 +3283,7 @@ model OrbitSettings {
   automationLevel      String   @default("generate_drafts") @map("automation_level")
   notificationsEmail   String   @default("") @map("notifications_email")
   tokenCapPerCampaign  Int      @default(4000) @map("token_cap_per_campaign")
+  imageCapPerCampaign  Int      @default(8) @map("image_cap_per_campaign")
   createdAt            DateTime @default(now()) @map("created_at")
   updatedAt            DateTime @default(now()) @updatedAt @map("updated_at")
 
@@ -3318,31 +3319,34 @@ model OrbitCampaign {
   createdAt        DateTime  @default(now()) @map("created_at")
   updatedAt        DateTime  @default(now()) @updatedAt @map("updated_at")
 
-  images OrbitCampaignImage[]
+  media OrbitMedia[]
 
   @@map("orbit_campaigns")
 }
 
-model OrbitCampaignImage {
-  id             String    @id @default(cuid())
-  campaignId     String    @map("campaign_id")
-  format         String    // square_1024 | feed_1080x1350 | story_1080x1920 | ad_1200x628
-  status         String    @default("draft")  // draft|approved|rejected
-  canvaDesignId  String?   @map("canva_design_id")
-  exportUrl      String?   @map("export_url")
-  thumbnailUrl   String?   @map("thumbnail_url")
-  altText        String    @default("") @map("alt_text")
-  textLayers     Json      @default("{}") @map("text_layers")
-  version        Int       @default(1)
-  approvedBy     String?   @map("approved_by")
-  approvedAt     DateTime? @map("approved_at")
-  createdBy      String?   @map("created_by")
-  createdAt      DateTime  @default(now()) @map("created_at")
-  updatedAt      DateTime  @default(now()) @updatedAt @map("updated_at")
+model OrbitMedia {
+  id           String    @id @default(cuid())
+  source       String    // 'generated' | 'uploaded'
+  storagePath  String    @map("storage_path")   // path inside orbit-media bucket
+  publicUrl    String?   @map("public_url")     // cached public URL
+  format       String    // '1080x1350' | '1080x1920' | '1200x628' | '1024x1024'
+  destination  String?                          // 'lagos' | 'dubai' | 'harare' …
+  campaignType String?   @map("campaign_type")  // 'december_flights' | 'visa' …
+  prompt       String?                          // generation prompt (generated only)
+  altText      String    @default("") @map("alt_text")
+  costUsd      Decimal   @default(0) @map("cost_usd") @db.Decimal(10, 4)
+  status       String    @default("draft")      // draft | approved | rejected
+  approvedBy   String?   @map("approved_by")
+  approvedAt   DateTime? @map("approved_at")
+  campaignId   String?   @map("campaign_id")
+  createdBy    String?   @map("created_by")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @default(now()) @updatedAt @map("updated_at")
 
-  campaign OrbitCampaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  campaign OrbitCampaign? @relation(fields: [campaignId], references: [id], onDelete: SetNull)
 
-  @@map("orbit_campaign_images")
+  @@index([destination, campaignType], name: "idx_orbit_media_dest")
+  @@map("orbit_media")
 }
 
 model OrbitIntegration {

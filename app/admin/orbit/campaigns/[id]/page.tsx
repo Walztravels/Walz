@@ -72,18 +72,22 @@ function StringField({ value }: { value: unknown }) {
 export default function CampaignDetailPage() {
   const params = useParams()
   const id = params.id as string
-  const [campaign, setCampaign] = useState<Campaign | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [generating, setGenerating] = useState(false)
-  const [actioning, setActioning] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const [genError, setGenError] = useState<string | null>(null)
+  const [campaign, setCampaign]       = useState<Campaign | null>(null)
+  const [imageCostUsd, setImageCostUsd] = useState<string>('0')
+  const [imageCount, setImageCount]   = useState(0)
+  const [loading, setLoading]         = useState(true)
+  const [generating, setGenerating]   = useState(false)
+  const [actioning, setActioning]     = useState(false)
+  const [error, setError]             = useState<string | null>(null)
+  const [genError, setGenError]       = useState<string | null>(null)
 
   async function load() {
     try {
       const res = await fetch(`/api/admin/orbit/campaigns/${id}`)
       const data = await res.json()
       if (data.campaign) setCampaign(data.campaign)
+      if (data.imageCostUsd !== undefined) setImageCostUsd(String(data.imageCostUsd))
+      if (data.imageCount  !== undefined) setImageCount(data.imageCount)
     } catch { /* non-fatal */ }
     finally { setLoading(false) }
   }
@@ -153,7 +157,8 @@ export default function CampaignDetailPage() {
             </p>
             {campaign.tokensUsed > 0 && (
               <p className="text-xs text-gray-600 mt-0.5">
-                {campaign.tokensUsed.toLocaleString()} tokens · ${Number(campaign.costUsd).toFixed(4)} USD
+                {campaign.tokensUsed.toLocaleString()} tokens · ${Number(campaign.costUsd).toFixed(4)} text
+                {imageCount > 0 && ` · $${Number(imageCostUsd).toFixed(4)} images (${imageCount})`}
               </p>
             )}
           </div>

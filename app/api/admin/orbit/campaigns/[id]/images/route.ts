@@ -2,31 +2,78 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getAdminSession } from '@/lib/admin-auth'
 import { prisma } from '@/lib/db'
 import {
-  createDesignFromTemplate,
-  exportDesign,
-  isCanvaConfigured,
-  type CanvaFormat,
-  type TextLayers,
-} from '@/lib/orbit/canva-adapter'
+  buildPrompt,
+  generateBackground,
+  isReplicateConfigured,
+  type FluxFormat,
+} from '@/lib/orbit/replicate-adapter'
+import { assertContentSafe } from '@/lib/orbit/content-filter'
+import Anthropic from '@anthropic-ai/sdk'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 60
 
+const anthropic = new Anthropic()
+
+// ── GET — campaign media + library matches + cap status ───────────────────────
+
 export async function GET(
-  _req: NextRequest,
+  req: NextRequest,
   { params }: { params: { id: string } },
 ) {
   const session = await getAdminSession()
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   if (session.role !== 'super_admin') return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
-  const images = await prisma.orbitCampaignImage.findMany({
+  const campaign = await prisma.orbitCampaign.findUnique({ where: { id: params.id } })
+  if (!campaign) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+
+  const format = req.nextUrl.searchParams.get('format') ?? null
+
+  // Media already attached to this campaign
+  const media = await prisma.orbitMedia.findMany({
     where: { campaignId: params.id },
     orderBy: { createdAt: 'desc' },
   })
 
-  return NextResponse.json({ images, canvaConfigured: isCanvaConfigured() })
+  // Library matches: same destination + format, not already in this campaign
+  const libraryMatches = format && campaign.destination
+    ? await prisma.orbitMedia.findMany({
+        where: {
+          destination: { equals: campaign.destination, mode: 'insensitive' },
+          format,
+          campaignId: null,      // not yet attached to a campaign
+          status: { in: ['draft', 'approved'] },
+        },
+        orderBy: { createdAt: 'desc' },
+        take: 6,
+      })
+    : []
+
+  // Cap
+  const settings = await prisma.orbitSettings.findUnique({ where: { id: 'singleton' } })
+  const cap = settings?.imageCapPerCampaign ?? 8
+  const used = media.length
+
+  // Per-campaign image cost
+  const costAgg = await prisma.orbitMedia.aggregate({
+    where: { campaignId: params.id },
+    _sum: { costUsd: true },
+  })
+  const imageCostUsd = costAgg._sum.costUsd ?? 0
+
+  return NextResponse.json({
+    media,
+    libraryMatches,
+    cap,
+    used,
+    capReached: used >= cap,
+    imageCostUsd,
+    replicateConfigured: isReplicateConfigured(),
+  })
 }
+
+// ── POST — generate a new image ───────────────────────────────────────────────
 
 export async function POST(
   req: NextRequest,
@@ -36,9 +83,9 @@ export async function POST(
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   if (session.role !== 'super_admin') return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
-  if (!isCanvaConfigured()) {
+  if (!isReplicateConfigured()) {
     return NextResponse.json({
-      error: 'Canva is not configured. Add CANVA_CLIENT_ID, CANVA_CLIENT_SECRET, and CANVA_BRAND_TEMPLATE_ID to environment variables.',
+      error: 'Replicate is not configured. Add REPLICATE_API_TOKEN and SUPABASE_SERVICE_ROLE_KEY.',
       notConfigured: true,
     }, { status: 503 })
   }
@@ -47,41 +94,84 @@ export async function POST(
   if (!campaign) return NextResponse.json({ error: 'Campaign not found' }, { status: 404 })
 
   const body = await req.json().catch(() => ({})) as {
-    format: CanvaFormat
-    textLayers: TextLayers
-    altText?: string
+    format: FluxFormat
+    promptHint?: string
   }
-
   if (!body.format) return NextResponse.json({ error: 'format is required' }, { status: 400 })
 
-  // Create record as draft immediately so UI can show progress
-  const image = await prisma.orbitCampaignImage.create({
+  // ── Cap check ────────────────────────────────────────────────────────────────
+  const settings = await prisma.orbitSettings.findUnique({ where: { id: 'singleton' } })
+  const cap = settings?.imageCapPerCampaign ?? 8
+  const used = await prisma.orbitMedia.count({ where: { campaignId: params.id } })
+
+  if (used >= cap) {
+    return NextResponse.json({
+      error: `Image cap of ${cap} reached for this campaign. Discard existing images to generate more.`,
+      capReached: true,
+      used,
+      cap,
+    }, { status: 429 })
+  }
+
+  // ── Build prompt (no-text suffix enforced here, not by caller) ───────────────
+  const prompt = buildPrompt(
+    campaign.destination,
+    campaign.objective,
+    body.promptHint ?? campaign.promotionDetails,
+  )
+
+  // ── Create placeholder record ─────────────────────────────────────────────────
+  const placeholder = await prisma.orbitMedia.create({
     data: {
-      campaignId: params.id,
+      source: 'generated',
+      storagePath: '',  // filled after generation
       format: body.format,
-      textLayers: body.textLayers as unknown as import('@prisma/client').Prisma.InputJsonValue,
-      altText: body.altText ?? '',
+      destination: campaign.destination || null,
+      campaignType: campaign.objective || null,
+      prompt,
+      campaignId: params.id,
       createdBy: session.email,
     },
   })
 
   try {
-    // 1. Create design in Canva from brand template
-    const { designId, editUrl } = await createDesignFromTemplate(body.textLayers, body.format)
+    // ── Generate image ────────────────────────────────────────────────────────
+    const result = await generateBackground(prompt, body.format, placeholder.id)
 
-    // 2. Export to PNG
-    const { exportUrl } = await exportDesign(designId)
+    // ── Alt text — one Claude call per generation ─────────────────────────────
+    let altText = ''
+    try {
+      const dest = campaign.destination || 'travel destination'
+      const altMsg = await anthropic.messages.create({
+        model: 'claude-sonnet-4-6',
+        max_tokens: 120,
+        messages: [{
+          role: 'user',
+          content: `Write a concise, factual alt text (max 100 chars) for a travel background image of ${dest} ` +
+            `used in a ${campaign.objective} campaign. No marketing language. Describe what a viewer would see.`,
+        }],
+      })
+      const raw = altMsg.content[0].type === 'text' ? altMsg.content[0].text.trim() : ''
+      // Apply content filter to alt text
+      try { assertContentSafe(raw); altText = raw } catch { altText = `Travel scene of ${dest}` }
+    } catch { altText = `Travel scene of ${campaign.destination || 'destination'}` }
 
-    // 3. Update record with Canva design ID and export URL
-    const updated = await prisma.orbitCampaignImage.update({
-      where: { id: image.id },
-      data: { canvaDesignId: designId, exportUrl, thumbnailUrl: exportUrl },
+    // ── Update record ─────────────────────────────────────────────────────────
+    const media = await prisma.orbitMedia.update({
+      where: { id: placeholder.id },
+      data: {
+        storagePath: result.storagePath,
+        publicUrl: result.publicUrl,
+        altText,
+        costUsd: result.costUsd,
+      },
     })
 
-    return NextResponse.json({ image: updated, editUrl })
+    return NextResponse.json({ media, prompt })
+
   } catch (err) {
-    // Clean up the pending record on failure
-    await prisma.orbitCampaignImage.delete({ where: { id: image.id } }).catch(() => {})
+    // Clean up placeholder on failure
+    await prisma.orbitMedia.delete({ where: { id: placeholder.id } }).catch(() => {})
     const msg = err instanceof Error ? err.message : String(err)
     return NextResponse.json({ error: msg }, { status: 500 })
   }

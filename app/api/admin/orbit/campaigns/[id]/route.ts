@@ -16,7 +16,18 @@ export async function GET(
   const campaign = await prisma.orbitCampaign.findUnique({ where: { id: params.id } })
   if (!campaign) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
-  return NextResponse.json({ campaign })
+  // Per-campaign image cost (sum of orbit_media.cost_usd)
+  const imageAgg = await prisma.orbitMedia.aggregate({
+    where: { campaignId: params.id },
+    _sum: { costUsd: true },
+    _count: true,
+  })
+
+  return NextResponse.json({
+    campaign,
+    imageCostUsd: imageAgg._sum.costUsd ?? 0,
+    imageCount: imageAgg._count,
+  })
 }
 
 export async function PATCH(
