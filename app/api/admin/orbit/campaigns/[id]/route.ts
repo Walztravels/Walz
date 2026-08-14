@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getAdminSession } from '@/lib/admin-auth'
 import { prisma } from '@/lib/db'
+import { notifyCampaignNeedsApproval } from '@/lib/orbit/notify'
 
 const SUPER_ADMIN = 'super_admin'
 export const dynamic = 'force-dynamic'
@@ -80,5 +81,21 @@ export async function PATCH(
   }
 
   const updated = await prisma.orbitCampaign.findUnique({ where: { id: params.id } })
+
+  // Notify on review (non-blocking)
+  if (action === 'review' && updated) {
+    const settings = await prisma.orbitSettings.findUnique({ where: { id: 'singleton' } })
+    if (settings?.notificationsEmail) {
+      notifyCampaignNeedsApproval({
+        email:       settings.notificationsEmail,
+        campaignId:  params.id,
+        destination: updated.destination,
+        objective:   updated.objective,
+        platforms:   updated.platforms,
+        generatedBy: updated.generatedBy ?? session.email,
+      })
+    }
+  }
+
   return NextResponse.json({ campaign: updated })
 }

@@ -24,6 +24,7 @@ const DEFAULTS = {
   automationLevel: 'generate_drafts',
   notificationsEmail: '',
   tokenCapPerCampaign: 4000,
+  imageCapPerCampaign: 8,
 }
 
 export async function GET() {
@@ -31,8 +32,19 @@ export async function GET() {
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   if (session.role !== SUPER_ADMIN) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
-  const settings = await prisma.orbitSettings.findUnique({ where: { id: 'singleton' } })
-  return NextResponse.json({ settings: settings ?? DEFAULTS })
+  const [settings, bufferInt] = await Promise.all([
+    prisma.orbitSettings.findUnique({ where: { id: 'singleton' } }),
+    prisma.orbitIntegration.findUnique({ where: { id: 'buffer' } }),
+  ])
+  const bufferMeta = (bufferInt?.meta ?? {}) as Record<string, unknown>
+  const base = settings ?? DEFAULTS
+  return NextResponse.json({
+    settings: {
+      ...base,
+      bufferAccessToken: bufferMeta.accessToken ? '••••••••' : '',
+      bufferChannels: (bufferMeta.channels ?? {}),
+    },
+  })
 }
 
 export async function PUT(req: Request) {
@@ -70,6 +82,7 @@ export async function PUT(req: Request) {
     automationLevel:      automationLevel ?? DEFAULTS.automationLevel,
     notificationsEmail:   (body.notificationsEmail as string) ?? '',
     tokenCapPerCampaign:  typeof body.tokenCapPerCampaign === 'number' ? body.tokenCapPerCampaign : DEFAULTS.tokenCapPerCampaign,
+    imageCapPerCampaign:  typeof body.imageCapPerCampaign === 'number' ? body.imageCapPerCampaign : DEFAULTS.imageCapPerCampaign,
   }
 
   const settings = await prisma.orbitSettings.upsert({
@@ -78,5 +91,33 @@ export async function PUT(req: Request) {
     update: data,
   })
 
-  return NextResponse.json({ settings })
+  // Persist Buffer credentials to orbit_integrations (kept separate from settings for security)
+  const bufferToken    = body.bufferAccessToken as string | undefined
+  const bufferChannels = body.bufferChannels as Record<string, string> | undefined
+  if (bufferToken !== undefined || bufferChannels !== undefined) {
+    const existing = await prisma.orbitIntegration.findUnique({ where: { id: 'buffer' } })
+    const existingMeta = (existing?.meta ?? {}) as Record<string, unknown>
+    const newMeta: Record<string, unknown> = { ...existingMeta }
+    if (bufferToken !== undefined) newMeta.accessToken = bufferToken
+    if (bufferChannels !== undefined) newMeta.channels = bufferChannels
+    const isConnected = typeof newMeta.accessToken === 'string' && (newMeta.accessToken as string).length > 10
+    await prisma.orbitIntegration.upsert({
+      where: { id: 'buffer' },
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      create: { id: 'buffer', connected: isConnected, credentialsSet: isConnected, meta: newMeta as any },
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      update: { connected: isConnected, credentialsSet: isConnected, meta: newMeta as any },
+    })
+  }
+
+  // Re-fetch settings and merge buffer config for the UI (access token masked)
+  const bufferInt = await prisma.orbitIntegration.findUnique({ where: { id: 'buffer' } })
+  const bufferMeta = (bufferInt?.meta ?? {}) as Record<string, unknown>
+  const settingsWithBuffer = {
+    ...settings,
+    bufferAccessToken: bufferMeta.accessToken ? '••••••••' : '',
+    bufferChannels: (bufferMeta.channels ?? {}) as Record<string, string>,
+  }
+
+  return NextResponse.json({ settings: settingsWithBuffer })
 }

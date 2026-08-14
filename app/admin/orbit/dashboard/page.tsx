@@ -1,6 +1,7 @@
 import { getAdminSession } from '@/lib/admin-auth'
 import { prisma } from '@/lib/db'
 import Link from 'next/link'
+import { SEKeywordWidget } from './SEKeywordWidget'
 
 export const dynamic = 'force-dynamic'
 
@@ -148,6 +149,9 @@ export default async function OrbitDashboard() {
           </table>
         )}
       </div>
+
+      {/* SE Ranking keyword widget */}
+      <SEKeywordWidget />
 
       {/* Settings quick-view */}
       <div className="bg-gray-900 border border-gray-800 rounded-xl p-5 space-y-2">

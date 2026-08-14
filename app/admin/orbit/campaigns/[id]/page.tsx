@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { useParams } from 'next/navigation'
 import Link from 'next/link'
 import { ImagesSection } from './ImagesSection'
+import { PublishSection } from './PublishSection'
 
 interface Campaign {
   id: string
@@ -372,6 +373,16 @@ export default function CampaignDetailPage() {
         cta: campaign.cta,
         promotionDetails: campaign.promotionDetails,
       }} />
+
+      {/* Buffer Publishing */}
+      {hasContent && (
+        <PublishSection
+          campaignId={campaign.id}
+          platforms={campaign.platforms}
+          campaignStatus={campaign.status}
+          onPublished={load}
+        />
+      )}
     </div>
   )
 }

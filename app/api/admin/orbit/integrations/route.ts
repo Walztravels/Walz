@@ -7,9 +7,10 @@ const SUPER_ADMIN = 'super_admin'
 export const dynamic = 'force-dynamic'
 
 const KNOWN_INTEGRATIONS = [
-  { key: 'se_ranking', label: 'SE Ranking', description: 'SEO rank tracking and site audit data' },
-  { key: 'google_search_console', label: 'Google Search Console', description: 'Impressions, clicks, and index coverage' },
-  { key: 'google_analytics', label: 'Google Analytics 4', description: 'Traffic and conversion metrics' },
+  { key: 'buffer',                label: 'Buffer',                  description: 'Publish approved campaigns to social channels' },
+  { key: 'se_ranking',            label: 'SE Ranking',              description: 'SEO rank tracking and keyword position data' },
+  { key: 'google_search_console', label: 'Google Search Console',   description: 'Impressions, clicks, and index coverage per page' },
+  { key: 'google_analytics',      label: 'Google Analytics 4',      description: 'Traffic and conversion metrics' },
 ]
 
 export async function GET() {

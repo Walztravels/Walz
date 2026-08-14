@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { runAudit } from '@/lib/orbit/audit-runner'
+import { prisma } from '@/lib/db'
+import { notifyAuditComplete } from '@/lib/orbit/notify'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 60
@@ -18,6 +20,25 @@ export async function POST(
 
   try {
     await runAudit(params.id)
+
+    // Send email notification if configured (non-blocking)
+    const [audit, settings] = await Promise.all([
+      prisma.orbitAudit.findUnique({ where: { id: params.id } }),
+      prisma.orbitSettings.findUnique({ where: { id: 'singleton' } }),
+    ])
+    if (settings?.notificationsEmail && audit?.status === 'complete') {
+      notifyAuditComplete({
+        email:          settings.notificationsEmail,
+        auditId:        params.id,
+        siteUrl:        audit.siteUrl,
+        score:          audit.score,
+        issuesCritical: audit.issuesCritical,
+        issuesHigh:     audit.issuesHigh,
+        issuesMedium:   audit.issuesMedium,
+        issuesLow:      audit.issuesLow,
+      })
+    }
+
     return NextResponse.json({ ok: true })
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err)

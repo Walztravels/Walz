@@ -66,10 +66,13 @@ export default function OrbitSettingsPage() {
     if (!settings) return
     setSaving(true); setError(null); setSaved(false)
     try {
+      // Don't re-send the masked token placeholder back to the server
+      const payload = { ...settings }
+      if (payload.bufferAccessToken === '••••••••') delete payload.bufferAccessToken
       const res = await fetch('/api/admin/orbit/settings', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(settings),
+        body: JSON.stringify(payload),
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error ?? 'Failed to save')
@@ -216,10 +219,44 @@ export default function OrbitSettingsPage() {
       <section className="bg-gray-900 border border-gray-800 rounded-xl p-6 space-y-4">
         <h2 className="font-semibold text-white mb-1">Notifications</h2>
         <div>
-          <label className="block text-xs text-gray-400 mb-1">Nightly summary email (leave blank to disable)</label>
+          <label className="block text-xs text-gray-400 mb-1">Notification email (audit complete, campaign ready for approval)</label>
           <input type="email" value={(s.notificationsEmail as string) ?? ''} onChange={e => set('notificationsEmail', e.target.value)}
             placeholder="e.g. admin@walztravels.com"
             className="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-indigo-500" />
+          <p className="text-xs text-gray-600 mt-1">Sent when an audit finishes or a campaign moves to review. Leave blank to disable.</p>
+        </div>
+      </section>
+
+      {/* Buffer Integration */}
+      <section className="bg-gray-900 border border-gray-800 rounded-xl p-6 space-y-4">
+        <div className="flex items-center gap-2 mb-1">
+          <h2 className="font-semibold text-white">Buffer Integration</h2>
+          <span className="text-xs bg-indigo-900 text-indigo-300 px-2 py-0.5 rounded-full">Phase 2</span>
+        </div>
+        <p className="text-xs text-gray-500">
+          Connect Buffer to publish approved campaigns directly from Orbit.
+          Get your access token at <span className="text-indigo-400">publish.buffer.com → Settings → API</span>.
+        </p>
+        <div>
+          <label className="block text-xs text-gray-400 mb-1">Buffer Access Token</label>
+          <input type="password" value={(s.bufferAccessToken as string) ?? ''} onChange={e => set('bufferAccessToken', e.target.value)}
+            placeholder="Enter Buffer personal access token"
+            className="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-indigo-500 font-mono" />
+          <p className="text-xs text-gray-600 mt-1">Stored encrypted. Never exposed in browser code.</p>
+        </div>
+        <p className="text-xs text-gray-400 font-medium">Channel IDs (from Buffer → Channels → copy channel ID from URL)</p>
+        <div className="grid grid-cols-2 gap-3">
+          {(['instagram', 'facebook', 'linkedin', 'twitter'] as const).map(platform => (
+            <div key={platform}>
+              <label className="block text-xs text-gray-400 mb-1 capitalize">{platform} Channel ID</label>
+              <input
+                value={((s.bufferChannels as Record<string, string> | undefined)?.[platform]) ?? ''}
+                onChange={e => set('bufferChannels', { ...(s.bufferChannels as object ?? {}), [platform]: e.target.value })}
+                placeholder={`e.g. 6...${platform.slice(0, 3)}`}
+                className="w-full bg-gray-800 border border-gray-700 rounded px-3 py-1.5 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-indigo-500 font-mono text-xs"
+              />
+            </div>
+          ))}
         </div>
       </section>
 

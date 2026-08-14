@@ -3283,9 +3283,10 @@ model OrbitSettings {
   automationLevel      String   @default("generate_drafts") @map("automation_level")
   notificationsEmail   String   @default("") @map("notifications_email")
   tokenCapPerCampaign  Int      @default(4000) @map("token_cap_per_campaign")
-  imageCapPerCampaign  Int      @default(8) @map("image_cap_per_campaign")
-  createdAt            DateTime @default(now()) @map("created_at")
-  updatedAt            DateTime @default(now()) @updatedAt @map("updated_at")
+  imageCapPerCampaign  Int       @default(8) @map("image_cap_per_campaign")
+  lastAutoAuditAt      DateTime? @map("last_auto_audit_at")
+  createdAt            DateTime  @default(now()) @map("created_at")
+  updatedAt            DateTime  @default(now()) @updatedAt @map("updated_at")
 
   @@map("orbit_settings")
 }
@@ -3319,7 +3320,8 @@ model OrbitCampaign {
   createdAt        DateTime  @default(now()) @map("created_at")
   updatedAt        DateTime  @default(now()) @updatedAt @map("updated_at")
 
-  media OrbitMedia[]
+  media       OrbitMedia[]
+  publishLogs OrbitPublishLog[]
 
   @@map("orbit_campaigns")
 }
@@ -3347,6 +3349,22 @@ model OrbitMedia {
 
   @@index([destination, campaignType], name: "idx_orbit_media_dest")
   @@map("orbit_media")
+}
+
+model OrbitPublishLog {
+  id             String   @id @default(cuid())
+  campaignId     String   @map("campaign_id")
+  platform       String
+  bufferUpdateId String?  @map("buffer_update_id")
+  status         String   @default("sent")   // sent | skipped | error
+  error          String?
+  sentAt         DateTime @default(now()) @map("sent_at")
+  createdBy      String   @map("created_by")
+
+  campaign OrbitCampaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+  @@index([campaignId])
+  @@map("orbit_publish_log")
 }
 
 model OrbitIntegration {

@@ -38,6 +38,15 @@
     },
     "app/api/admin/orbit/campaigns/[id]/generate/route.ts": {
       "maxDuration": 60
+    },
+    "app/api/admin/orbit/campaigns/[id]/publish/route.ts": {
+      "maxDuration": 30
+    },
+    "app/api/admin/orbit/cron/auto-audit/route.ts": {
+      "maxDuration": 60
+    },
+    "app/api/admin/orbit/integrations/gsc/enrich/route.ts": {
+      "maxDuration": 30
     }
   },
   "crons": [
@@ -88,6 +97,10 @@
     {
       "path": "/api/cron/follow-up-nudge",
       "schedule": "0 8 * * 1-5"
+    },
+    {
+      "path": "/api/admin/orbit/cron/auto-audit",
+      "schedule": "0 2 * * 1"
     }
   ]
 }
