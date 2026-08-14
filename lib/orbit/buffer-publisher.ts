@@ -1,14 +1,31 @@
 /**
  * Orbit — Buffer publishing adapter (server-side only).
  *
+ * Uses Buffer's GraphQL API (the legacy REST API no longer accepts API tokens).
+ * GraphQL endpoint: https://api.bufferapp.com/graphql
+ *
  * Credentials stored in OrbitIntegration where id = 'buffer':
  *   meta.accessToken   — Buffer personal access token (publish.buffer.com → Settings → API)
  *   meta.channels      — { instagram, facebook, linkedin, twitter } channel IDs
- *
- * API: Buffer v1 REST (https://api.bufferapp.com/1)
  */
 
-const BUFFER_API = 'https://api.bufferapp.com/1'
+const BUFFER_GRAPHQL = 'https://api.bufferapp.com/graphql'
+
+const CREATE_POST_MUTATION = `
+  mutation CreatePost($input: CreatePostInput!) {
+    createPost(input: $input) {
+      ... on PostActionSuccess {
+        post { id status }
+      }
+      ... on NotFoundError      { message }
+      ... on UnauthorizedError  { message }
+      ... on UnexpectedError    { message }
+      ... on RestProxyError     { message code }
+      ... on LimitReachedError  { message }
+      ... on InvalidInputError  { message }
+    }
+  }
+`
 
 export interface BufferCredentials {
   accessToken: string
@@ -17,6 +34,7 @@ export interface BufferCredentials {
 
 export interface PublishPostOptions {
   channelId: string
+  platform: string          // 'instagram' | 'facebook' | 'linkedin' | 'twitter'
   text: string
   mediaUrls?: string[]
   postNow?: boolean
@@ -26,40 +44,79 @@ export interface BufferPublishResult {
   bufferUpdateId: string
 }
 
+// Platform-specific metadata required by Buffer's GraphQL API
+function buildMetadata(platform: string): Record<string, unknown> | undefined {
+  if (platform === 'instagram') {
+    return { instagram: { type: 'post', shouldShareToFeed: true } }
+  }
+  if (platform === 'facebook') {
+    return { facebook: { type: 'post' } }
+  }
+  // linkedin and twitter need no extra metadata for basic posts
+  return undefined
+}
+
+interface GqlResponse {
+  data?: {
+    createPost?: {
+      post?: { id: string; status?: string }
+      message?: string
+      code?: number
+    }
+  }
+  errors?: Array<{ message: string }>
+}
+
 export async function publishToBuffer(
   creds: BufferCredentials,
   opts: PublishPostOptions,
 ): Promise<BufferPublishResult> {
-  const params = new URLSearchParams()
-  params.append('profile_ids[]', opts.channelId)
-  params.append('text', opts.text)
-  params.append('now', opts.postNow !== false ? 'true' : 'false')
+  const metadata = buildMetadata(opts.platform)
 
-  if (opts.mediaUrls?.[0]) {
-    params.append('media[photo]', opts.mediaUrls[0])
+  const assets = opts.mediaUrls?.[0]
+    ? [{ image: { url: opts.mediaUrls[0] } }]
+    : []
+
+  const input: Record<string, unknown> = {
+    channelId:      opts.channelId,
+    text:           opts.text,
+    mode:           opts.postNow !== false ? 'shareNow' : 'addToQueue',
+    schedulingType: 'automatic',
+    assets,
   }
+  if (metadata) input.metadata = metadata
 
-  const res = await fetch(`${BUFFER_API}/updates/create.json`, {
+  const res = await fetch(BUFFER_GRAPHQL, {
     method: 'POST',
     headers: {
-      Authorization: `Bearer ${creds.accessToken}`,
-      'Content-Type': 'application/x-www-form-urlencoded',
+      Authorization:  `Bearer ${creds.accessToken}`,
+      'Content-Type': 'application/json',
     },
-    body: params.toString(),
+    body: JSON.stringify({ query: CREATE_POST_MUTATION, variables: { input } }),
   })
 
   if (!res.ok) {
     const body = await res.text()
-    throw new Error(`Buffer API ${res.status}: ${body.slice(0, 300)}`)
+    throw new Error(`Buffer GraphQL ${res.status}: ${body.slice(0, 400)}`)
   }
 
-  const data = await res.json() as { id?: string; success?: boolean; message?: string }
+  const result = await res.json() as GqlResponse
 
-  if (!data.id) {
-    throw new Error(data.message ?? 'Buffer returned no update ID')
+  if (result.errors?.length) {
+    throw new Error(`Buffer GraphQL error: ${result.errors[0].message}`)
   }
 
-  return { bufferUpdateId: data.id }
+  const payload = result.data?.createPost
+  if (!payload) {
+    throw new Error('Buffer returned empty createPost response')
+  }
+
+  // Any union type other than PostActionSuccess carries a `message` but no `post`
+  if (!payload.post?.id) {
+    throw new Error(`Buffer rejected post: ${payload.message ?? 'unknown error'}`)
+  }
+
+  return { bufferUpdateId: payload.post.id }
 }
 
 export function isBufferConfigured(meta: Record<string, unknown>): boolean {

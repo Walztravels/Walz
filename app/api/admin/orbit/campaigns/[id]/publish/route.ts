@@ -122,7 +122,7 @@ export async function POST(
     try {
       const result = await publishToBuffer(
         { accessToken, channels },
-        { channelId, text, mediaUrls: mediaUrl ? [mediaUrl] : undefined, postNow: true },
+        { channelId, platform, text, mediaUrls: mediaUrl ? [mediaUrl] : undefined, postNow: true },
       )
       results.push({ platform, status: 'sent', bufferUpdateId: result.bufferUpdateId })
       await prisma.orbitPublishLog.create({

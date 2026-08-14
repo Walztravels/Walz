@@ -130,7 +130,7 @@ export async function PATCH(
           try {
             const res = await publishToBuffer(
               { accessToken, channels },
-              { channelId, text, mediaUrls: mediaUrl ? [mediaUrl] : undefined, postNow: true },
+              { channelId, platform, text, mediaUrls: mediaUrl ? [mediaUrl] : undefined, postNow: true },
             )
             results.push({ platform, status: 'sent', bufferUpdateId: res.bufferUpdateId })
             await prisma.orbitPublishLog.create({
