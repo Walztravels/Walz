@@ -16,7 +16,7 @@
  */
 
 const REPLICATE_API = 'https://api.replicate.com/v1'
-const MODEL        = 'black-forest-labs/flux-schnell'
+const MODEL        = 'black-forest-labs/flux-dev'
 
 // Appended to every prompt, regardless of user input. Never remove.
 const NO_TEXT_SUFFIX =
@@ -24,9 +24,8 @@ const NO_TEXT_SUFFIX =
   'no typography, no watermarks, no logos, no overlays, no captions, ' +
   'no numbers, no signs with readable text'
 
-// Published Flux Schnell flat rate — Replicate does not surface per-prediction
-// billing in the API response; record this constant per image.
-export const FLUX_COST_USD = 0.003
+// Flux Dev approximate cost per image (GPU-time billed, ~$0.03 at typical run times).
+export const FLUX_COST_USD = 0.03
 
 // ── Formats ──────────────────────────────────────────────────────────────────
 
@@ -92,7 +91,8 @@ async function createPrediction(prompt: string, w: number, h: number): Promise<s
         num_outputs: 1,
         output_format: 'jpg',
         output_quality: 90,
-        num_inference_steps: 4,
+        num_inference_steps: 28,
+        guidance: 3.5,
       },
     }),
   })
