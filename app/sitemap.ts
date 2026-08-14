@@ -8,9 +8,15 @@ const BASE = 'https://www.walztravels.com'
 
 // Concierge hub + dedicated sub-pages (all verified 200 on production)
 const CONCIERGE_STATIC = [
-  { path: '/concierge',                  priority: 0.80 as const },
-  { path: '/concierge/airport-services', priority: 0.75 as const },
-  { path: '/concierge/private-aviation', priority: 0.75 as const },
+  { path: '/concierge',                                    priority: 0.80 as const },
+  { path: '/concierge/airport-services',                   priority: 0.75 as const },
+  { path: '/concierge/private-aviation',                   priority: 0.75 as const },
+  // Airport-services [type] pages — statically generated, all return 200
+  { path: '/concierge/airport-services/lounge',            priority: 0.70 as const },
+  { path: '/concierge/airport-services/meet-greet',        priority: 0.70 as const },
+  { path: '/concierge/airport-services/transfer',          priority: 0.70 as const },
+  { path: '/concierge/airport-services/sleeping-pod',      priority: 0.70 as const },
+  { path: '/concierge/airport-services/baggage',           priority: 0.70 as const },
 ]
 
 // [slug] pages — verified 200 on production before being added

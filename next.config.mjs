@@ -70,6 +70,13 @@ const nextConfig = {
         destination: '/admin/itinerary-planner',
         permanent:   true,
       },
+      // ── Blog: old ?post=slug query-string URLs → /blog/slug (301) ────────
+      {
+        source:      '/blog',
+        has:         [{ type: 'query', key: 'post', value: '(?<slug>.+)' }],
+        destination: '/blog/:slug',
+        permanent:   true,
+      },
     ]
   },
 
