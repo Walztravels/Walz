@@ -62,8 +62,18 @@ export default async function RatesPage() {
   const dbRates = await getRates()
   const rates   = dbRates.length > 0 ? dbRates : FALLBACK_RATES
 
+  const ratesSchema = {
+    '@context': 'https://schema.org',
+    '@type': 'Service',
+    name: 'Visa Fees & Rates — Walz Travels',
+    description: 'Up-to-date visa fees, processing times and rates for all major destinations. Walz Travels.',
+    url: 'https://www.walztravels.com/rates',
+    provider: { '@type': 'Organization', name: 'Walz Travels', url: 'https://www.walztravels.com' },
+  }
+
   return (
     <div className="min-h-screen bg-[#F5F0E8]">
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(ratesSchema) }} />
 
       {/* Hero */}
       <div className="bg-[#0B1F3A] py-16 px-5 text-center">

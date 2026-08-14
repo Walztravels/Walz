@@ -1,6 +1,5 @@
 import type { Metadata } from 'next'
 import Link from 'next/link'
-import Script from 'next/script'
 import { BUSINESS, waLink } from '@/lib/config/business'
 
 export const metadata: Metadata = {
@@ -11,6 +10,7 @@ export const metadata: Metadata = {
     title: 'Schengen Visa for Nigerians 2026 — Which Country is Easiest?',
     description: 'Schengen visa requirements for Nigerians 2026. France, Germany, Spain — which country to apply through, documents, €90 fee, 10–15 day processing. Walz Travels handles end-to-end.',
     url: 'https://www.walztravels.com/visa/schengen-visa-nigeria',
+    images: [{ url: 'https://images.unsplash.com/photo-1471874276752-65e2d717604a?w=1200&h=630&fit=crop&q=80', width: 1200, height: 630, alt: 'Paris Eiffel Tower — Schengen Visa for Nigerians' }],
   },
 }
 
@@ -77,16 +77,8 @@ const schengenCountries = [
 export default function SchengenVisaNigeriaPage() {
   return (
     <>
-      <Script
-        id="faq-schema"
-        type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(faqSchema) }}
-      />
-      <Script
-        id="article-schema"
-        type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(articleSchema) }}
-      />
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(faqSchema) }} />
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(articleSchema) }} />
 
       <main className="min-h-screen bg-[#F4F6F9]">
         {/* Hero */}

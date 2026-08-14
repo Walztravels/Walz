@@ -26,9 +26,19 @@ const TOPICS = [
   '💡 Travel Tips',
 ]
 
+const blogSchema = {
+  '@context': 'https://schema.org',
+  '@type': 'Blog',
+  name: 'Walz Travels Blog',
+  description: 'Travel guides, visa tips, destination insights and expert advice from Walz Travels.',
+  url: 'https://www.walztravels.com/blog',
+  publisher: { '@type': 'Organization', name: 'Walz Travels', url: 'https://www.walztravels.com' },
+}
+
 export default function BlogPage() {
   return (
     <div className="min-h-screen bg-[#F7F8FA]">
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(blogSchema) }} />
 
       {/* ── Hero ─────────────────────────────────────────────── */}
       <section className="relative bg-[#060f1e] overflow-hidden">

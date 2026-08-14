@@ -1,6 +1,5 @@
 import type { Metadata } from 'next'
 import Link from 'next/link'
-import Script from 'next/script'
 import { UK_VISA_FEES } from '@/lib/config/visa-fees'
 import { BUSINESS, waLink } from '@/lib/config/business'
 
@@ -12,6 +11,7 @@ export const metadata: Metadata = {
     title: 'UK Visa for Nigerians 2026 — Requirements & Documents',
     description: 'UK visitor visa requirements for Nigerians 2026. Documents checklist, bank statement guide, processing times. Walz Travels achieves 90%+ approval rate.',
     url: 'https://www.walztravels.com/visa/uk-visa-nigeria',
+    images: [{ url: 'https://images.unsplash.com/photo-1513635269975-59663e0ac1ad?w=1200&h=630&fit=crop&q=80', width: 1200, height: 630, alt: 'London skyline — UK Visa for Nigerians' }],
   },
 }
 
@@ -69,16 +69,8 @@ const articleSchema = {
 export default function UkVisaNigeriaPage() {
   return (
     <>
-      <Script
-        id="faq-schema"
-        type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(faqSchema) }}
-      />
-      <Script
-        id="article-schema"
-        type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(articleSchema) }}
-      />
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(faqSchema) }} />
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(articleSchema) }} />
 
       <main className="min-h-screen bg-[#F4F6F9]">
         {/* Hero */}

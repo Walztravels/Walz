@@ -203,6 +203,7 @@ export default function HelpPage() {
 
   return (
     <div className="min-h-screen bg-[#0B1F3A]">
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify({ '@context': 'https://schema.org', '@type': 'FAQPage', name: 'Help Centre — Walz Travels', description: 'Frequently asked questions about visa applications, flight bookings, hotels, tours and travel services from Walz Travels.', url: 'https://www.walztravels.com/help' }) }} />
 
       {/* Float keyframes */}
       <style dangerouslySetInnerHTML={{ __html: `

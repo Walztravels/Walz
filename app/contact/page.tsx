@@ -38,6 +38,7 @@ export default function ContactPage() {
 
   return (
     <main className="min-h-screen bg-[#060f1e]">
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify({ '@context': 'https://schema.org', '@type': 'ContactPage', name: 'Contact Walz Travels', description: 'Get in touch with the Walz Travels team. Available 7 days a week via WhatsApp, email or our contact form.', url: 'https://www.walztravels.com/contact' }) }} />
       {/* Hero */}
       <div className="bg-[#0a1628] pt-32 pb-20 px-5 text-center">
         <p className="text-amber-400 text-xs uppercase tracking-widest mb-3">Contact Us</p>

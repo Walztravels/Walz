@@ -282,6 +282,7 @@ export default function AboutPage() {
 
   return (
     <div className="bg-[#0B1F3A] text-white overflow-x-hidden">
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify({ '@context': 'https://schema.org', '@type': 'AboutPage', name: 'About Walz Travels', description: 'Walz Travels is a specialist travel agency helping clients from Nigeria and Ghana secure visas, flights, hotels and private tours worldwide.', url: 'https://www.walztravels.com/about', publisher: { '@type': 'Organization', name: 'Walz Travels', url: 'https://www.walztravels.com' } }) }} />
 
       {/* ═══════════════════════════════════════════════════════════════════
           STICKY SUBNAV

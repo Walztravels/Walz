@@ -324,6 +324,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
       title: `${data.from} to ${data.to} Flights — From ${data.estimatedFrom}`,
       description: data.description,
       url: `https://www.walztravels.com/flights/${params.route}`,
+      images: [{ url: 'https://images.unsplash.com/photo-1436491865332-7a61a109cc05?w=1200&h=630&fit=crop&q=80', width: 1200, height: 630, alt: `${data.from} to ${data.to} flights — Walz Travels` }],
     },
   }
 }

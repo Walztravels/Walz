@@ -26,6 +26,22 @@ export const metadata: Metadata = {
   },
 }
 
+const privateAviationSchema = {
+  '@context': 'https://schema.org',
+  '@type': 'Service',
+  name: 'Private Jet Charter — Walz Concierge',
+  description: 'Private jet, turboprop and helicopter charter arranged by your personal Walz specialist.',
+  url: 'https://www.walztravels.com/concierge/private-aviation',
+  provider: { '@type': 'Organization', name: 'Walz Travels', url: 'https://www.walztravels.com' },
+  serviceType: 'Private Aviation Charter',
+  areaServed: 'Worldwide',
+}
+
 export default function PrivateAviationPage() {
-  return <CharterForm />
+  return (
+    <>
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(privateAviationSchema) }} />
+      <CharterForm />
+    </>
+  )
 }

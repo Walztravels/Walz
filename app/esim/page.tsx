@@ -41,7 +41,6 @@ export default async function EsimPage() {
 
   return (
     <>
-      <h1 className="sr-only">Jade Connect eSIM — Stay Connected in 150+ Countries</h1>
       <EsimHero />
       <EsimTicker />
 

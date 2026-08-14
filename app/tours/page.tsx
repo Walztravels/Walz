@@ -391,6 +391,7 @@ export default function ToursPage() {
 
   return (
     <div className="min-h-screen bg-walz-off-white">
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify({ '@context': 'https://schema.org', '@type': 'Service', name: 'Private Tours — Walz Travels', description: 'Bespoke private tours and group travel packages. Expert-curated itineraries to top destinations worldwide.', url: 'https://www.walztravels.com/tours', provider: { '@type': 'Organization', name: 'Walz Travels', url: 'https://www.walztravels.com' } }) }} />
 
       {/* ── Hero — fullscreen, static image, gradient bottom-up ─────────────── */}
       <div

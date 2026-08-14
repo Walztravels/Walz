@@ -57,8 +57,21 @@ export default async function ConciergePage() {
   // Hero imagery: lifestyle-concierge, using DB override if one has been uploaded.
   const heroImagery = allImagery['lifestyle']!
 
+  const conciergeSchema = {
+    '@context': 'https://schema.org',
+    '@type': 'Service',
+    name: 'Walz Concierge — White-Glove Travel Services',
+    description: 'Bespoke travel services handled by personal specialists. Private aviation, yacht charters, airport VIP, and more.',
+    url: 'https://www.walztravels.com/concierge',
+    provider: { '@type': 'Organization', name: 'Walz Travels', url: 'https://www.walztravels.com' },
+    serviceType: 'Luxury Travel Concierge',
+    areaServed: 'Worldwide',
+  }
+
   return (
-    <ConciergePageClient
+    <>
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(conciergeSchema) }} />
+      <ConciergePageClient
       categories={categories.map(c => ({
         slug:        c.slug,
         name:        c.name,
@@ -67,5 +80,6 @@ export default async function ConciergePage() {
       heroImagery={heroImagery}
       allImagery={allImagery}
     />
+    </>
   )
 }

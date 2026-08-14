@@ -1,6 +1,5 @@
 import type { Metadata } from 'next'
 import Link from 'next/link'
-import Script from 'next/script'
 import { IRPA_DISCLAIMER } from '@/lib/config/credentials'
 import { BUSINESS, waLink } from '@/lib/config/business'
 
@@ -12,6 +11,7 @@ export const metadata: Metadata = {
     title: 'How to Relocate to Canada from Nigeria 2026',
     description: 'Step-by-step guide to moving from Nigeria to Canada. Express Entry, PNP, study permit routes, costs and timelines. Expert guidance from Walz Travels.',
     url: 'https://www.walztravels.com/visa/canada-relocation-guide-nigeria',
+    images: [{ url: 'https://images.unsplash.com/photo-1555697539-1febaa1dab4d?w=1200&h=630&fit=crop&q=80', width: 1200, height: 630, alt: 'Canadian city — How to Relocate to Canada from Nigeria' }],
   },
 }
 
@@ -79,12 +79,9 @@ const articleSchema = {
 export default function CanadaRelocationGuideNigeriaPage() {
   return (
     <>
-      <Script id="faq-schema" type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(faqSchema) }} />
-      <Script id="breadcrumb-schema" type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(breadcrumbSchema) }} />
-      <Script id="article-schema" type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(articleSchema) }} />
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(faqSchema) }} />
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(breadcrumbSchema) }} />
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(articleSchema) }} />
 
       <main className="min-h-screen bg-[#F4F6F9]">
         {/* Hero */}

@@ -489,6 +489,7 @@ function HotelsPageContent() {
   // ── Render ─────────────────────────────────────────────────────────────────
   return (
     <div className="min-h-screen bg-[#060f1e]">
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify({ '@context': 'https://schema.org', '@type': 'Service', name: 'Hotel Booking — Walz Travels', description: 'Search and book hotels worldwide with Walz Travels. Curated selections across top destinations.', url: 'https://www.walztravels.com/hotels', provider: { '@type': 'Organization', name: 'Walz Travels', url: 'https://www.walztravels.com' } }) }} />
 
       {/* ═══════════════════════════════════════════════════════════════════════
           SECTION 1 — HERO + SEARCH FORM

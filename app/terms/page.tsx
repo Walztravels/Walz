@@ -114,8 +114,17 @@ If you have a complaint, please contact us first at contact@walztravels.com. We 
 export default function TermsPage() {
   const lastUpdated = 'June 2025'
 
+  const termsSchema = {
+    '@context': 'https://schema.org', '@type': 'WebPage',
+    name: 'Terms of Service — Walz Travels',
+    url: 'https://www.walztravels.com/terms',
+    description: 'Terms and conditions for using Walz Travels booking and travel services.',
+    publisher: { '@type': 'Organization', name: 'Walz Travels', url: 'https://www.walztravels.com' },
+  }
+
   return (
     <div className="min-h-screen bg-[#F5F2EE]">
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(termsSchema) }} />
 
       {/* Header */}
       <div className="bg-[#0B1F3A] py-14 lg:py-20 px-5 text-center">

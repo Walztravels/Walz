@@ -134,8 +134,17 @@ If you are unsatisfied with our response, you have the right to lodge a complain
 export default function PrivacyPage() {
   const lastUpdated = 'June 2025'
 
+  const privacySchema = {
+    '@context': 'https://schema.org', '@type': 'WebPage',
+    name: 'Privacy Policy — Walz Travels',
+    url: 'https://www.walztravels.com/privacy',
+    description: 'How Walz Travels collects, uses and protects your personal information.',
+    publisher: { '@type': 'Organization', name: 'Walz Travels', url: 'https://www.walztravels.com' },
+  }
+
   return (
     <div className="min-h-screen bg-[#F5F2EE]">
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(privacySchema) }} />
 
       {/* Header */}
       <div className="bg-[#0B1F3A] py-14 lg:py-20 px-5 text-center">

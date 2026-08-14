@@ -41,6 +41,7 @@ export const metadata: Metadata = {
     title: 'Travel Packages | Walz Travels',
     description:
       'Group tours and holiday packages from Lagos and Accra. Flights, visas, hotels and tours included.',
+    images: [{ url: 'https://images.unsplash.com/photo-1488085061387-422e29b40080?w=1200&h=630&fit=crop&q=80', width: 1200, height: 630, alt: 'Travel Packages — Walz Travels' }],
   },
 }
 
@@ -68,8 +69,24 @@ export default async function PackagesPage() {
   const heroImage =
     (packages[0] ? coverPhoto(packages[0]) : null) ?? HERO_FALLBACK
 
+  const packagesSchema = {
+    '@context': 'https://schema.org',
+    '@type': 'ItemList',
+    name: 'Travel Packages — Walz Travels',
+    description: 'Group tours and holiday packages from Lagos and Accra. Flights, visas, hotels and tours included.',
+    url: 'https://www.walztravels.com/packages',
+    numberOfItems: packages.length,
+    itemListElement: packages.slice(0, 10).map((pkg, i) => ({
+      '@type': 'ListItem',
+      position: i + 1,
+      name: pkg.name,
+      url: `https://www.walztravels.com/packages/${pkg.slug}`,
+    })),
+  }
+
   return (
     <div className="min-h-screen" style={{ backgroundColor: '#FAF7F2' }}>
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(packagesSchema) }} />
 
       {/* ── CINEMATIC HERO ── */}
       <section className="relative h-[60vh] min-h-[480px] overflow-hidden">

@@ -1,6 +1,5 @@
 import type { Metadata } from 'next'
 import Link from 'next/link'
-import Script from 'next/script'
 import { UK_VISA_FEES } from '@/lib/config/visa-fees'
 import { BUSINESS, waLink } from '@/lib/config/business'
 
@@ -12,6 +11,7 @@ export const metadata: Metadata = {
     title: 'UK Visa for Ghanaians 2026 — Requirements & Documents',
     description: 'UK visitor visa requirements for Ghanaians 2026. Documents checklist, processing times, approval tips. Apply with Walz Travels in Accra or Kumasi.',
     url: 'https://www.walztravels.com/visa/uk-visa-ghana',
+    images: [{ url: 'https://images.unsplash.com/photo-1513635269975-59663e0ac1ad?w=1200&h=630&fit=crop&q=80', width: 1200, height: 630, alt: 'London skyline — UK Visa for Ghanaians' }],
   },
 }
 
@@ -84,21 +84,9 @@ const serviceSchema = {
 export default function UkVisaGhanaPage() {
   return (
     <>
-      <Script
-        id="faq-schema"
-        type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(faqSchema) }}
-      />
-      <Script
-        id="article-schema"
-        type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(articleSchema) }}
-      />
-      <Script
-        id="service-schema"
-        type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(serviceSchema) }}
-      />
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(faqSchema) }} />
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(articleSchema) }} />
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(serviceSchema) }} />
 
       <main className="min-h-screen bg-[#F4F6F9]">
         {/* Hero */}
