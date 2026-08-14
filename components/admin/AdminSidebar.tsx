@@ -94,12 +94,13 @@ const LOGO_CACHE_TTL  = 60 * 60 * 1000
 const ALWAYS_OPEN = new Set(['OVERVIEW'])
 
 const MARKETING_ITEMS = [
-  { href: '/admin/marketing/captions',     label: 'Caption Generator',  Icon: Sparkles      },
-  { href: '/admin/marketing/calendar',     label: 'Content Calendar',   Icon: CalendarDays  },
-  { href: '/admin/marketing/media',        label: 'Media Library',      Icon: Image         },
-  { href: '/admin/marketing/whatsapp',     label: 'WhatsApp Broadcast', Icon: MessageSquare },
-  { href: '/admin/marketing/analytics',    label: 'Analytics',          Icon: BarChart2     },
-  { href: '/admin/marketing/brand-memory', label: 'Brand Memory',       Icon: Brain         },
+  { href: '/admin/marketing/captions',     label: 'Caption Generator',  Icon: Sparkles,  superAdminOnly: false },
+  { href: '/admin/marketing/calendar',     label: 'Content Calendar',   Icon: CalendarDays, superAdminOnly: false },
+  { href: '/admin/marketing/media',        label: 'Media Library',      Icon: Image,     superAdminOnly: false },
+  { href: '/admin/marketing/whatsapp',     label: 'WhatsApp Broadcast', Icon: MessageSquare, superAdminOnly: false },
+  { href: '/admin/marketing/analytics',    label: 'Analytics',          Icon: BarChart2, superAdminOnly: false },
+  { href: '/admin/marketing/brand-memory', label: 'Brand Memory',       Icon: Brain,     superAdminOnly: false },
+  { href: '/admin/orbit',                  label: 'Orbit SEO',          Icon: Globe,     superAdminOnly: true  },
 ]
 
 export function AdminSidebar() {
@@ -366,7 +367,9 @@ export function AdminSidebar() {
                   }}>
                     <div className="overflow-hidden">
                       <div className="space-y-0.5 pb-1">
-                        {MARKETING_ITEMS.map(({ href, label, Icon }) => (
+                        {MARKETING_ITEMS.filter(item =>
+                          !item.superAdminOnly || profile?.role === 'super_admin'
+                        ).map(({ href, label, Icon }) => (
                           <Link
                             key={href}
                             href={href}

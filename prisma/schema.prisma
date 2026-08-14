@@ -3263,14 +3263,86 @@ model CabinProfile {
 // ─────────────────────────────────────────────────────────────────────────────
 
 model OrbitSettings {
-  id          String   @id @default("singleton")
-  siteUrl     String   @default("https://www.walztravels.com") @map("site_url")
-  brandName   String   @default("Walz Travels") @map("brand_name")
-  brandSuffix String   @default("| Walz Travels") @map("brand_suffix")
-  createdAt   DateTime @default(now()) @map("created_at")
-  updatedAt   DateTime @default(now()) @updatedAt @map("updated_at")
+  id                   String   @id @default("singleton")
+  siteUrl              String   @default("https://www.walztravels.com") @map("site_url")
+  brandName            String   @default("WalzTravels") @map("brand_name")
+  brandSuffix          String   @default("| WalzTravels") @map("brand_suffix")
+  // Phase 1b
+  targetCountries      String[] @default([]) @map("target_countries")
+  targetLanguages      String[] @default([]) @map("target_languages")
+  targetAudiences      String[] @default([]) @map("target_audiences")
+  services             String[] @default([]) @map("services")
+  competitors          String[] @default([]) @map("competitors")
+  priorityDestinations String[] @default([]) @map("priority_destinations")
+  publishingFrequency  String   @default("weekly") @map("publishing_frequency")
+  brandVoice           String   @default("") @map("brand_voice")
+  internalLinkRules    String   @default("") @map("internal_link_rules")
+  keywordExclusions    String[] @default([]) @map("keyword_exclusions")
+  approvalRequired     Boolean  @default(true) @map("approval_required")
+  qualityThreshold     Int      @default(80) @map("quality_threshold")
+  automationLevel      String   @default("generate_drafts") @map("automation_level")
+  notificationsEmail   String   @default("") @map("notifications_email")
+  tokenCapPerCampaign  Int      @default(4000) @map("token_cap_per_campaign")
+  createdAt            DateTime @default(now()) @map("created_at")
+  updatedAt            DateTime @default(now()) @updatedAt @map("updated_at")
 
   @@map("orbit_settings")
+}
+
+model OrbitCampaign {
+  id               String    @id @default(cuid())
+  status           String    @default("draft")  // draft|review|approved|published|rejected
+  objective        String
+  destination      String    @default("") @map("destination")
+  audience         String    @default("")
+  country          String    @default("")
+  platforms        String[]  @default([])
+  tone             String    @default("professional")
+  promotionDetails String    @default("") @map("promotion_details")
+  cta              String    @default("")
+  landingPage      String    @default("") @map("landing_page")
+  startDate        DateTime? @map("start_date")
+  endDate          DateTime? @map("end_date")
+  content          Json      @default("{}") // all generated variants
+  tokensUsed       Int       @default(0) @map("tokens_used")
+  costUsd          Decimal   @default(0) @db.Decimal(10, 6) @map("cost_usd")
+  generatedAt      DateTime? @map("generated_at")
+  generatedBy      String?   @map("generated_by")
+  approvedBy       String?   @map("approved_by")
+  approvedAt       DateTime? @map("approved_at")
+  publishedAt      DateTime? @map("published_at")
+  rejectedBy       String?   @map("rejected_by")
+  rejectedAt       DateTime? @map("rejected_at")
+  rejectionReason  String?   @map("rejection_reason")
+  createdBy        String?   @map("created_by")
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @default(now()) @updatedAt @map("updated_at")
+
+  images OrbitCampaignImage[]
+
+  @@map("orbit_campaigns")
+}
+
+model OrbitCampaignImage {
+  id             String    @id @default(cuid())
+  campaignId     String    @map("campaign_id")
+  format         String    // square_1024 | feed_1080x1350 | story_1080x1920 | ad_1200x628
+  status         String    @default("draft")  // draft|approved|rejected
+  canvaDesignId  String?   @map("canva_design_id")
+  exportUrl      String?   @map("export_url")
+  thumbnailUrl   String?   @map("thumbnail_url")
+  altText        String    @default("") @map("alt_text")
+  textLayers     Json      @default("{}") @map("text_layers")
+  version        Int       @default(1)
+  approvedBy     String?   @map("approved_by")
+  approvedAt     DateTime? @map("approved_at")
+  createdBy      String?   @map("created_by")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @default(now()) @updatedAt @map("updated_at")
+
+  campaign OrbitCampaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+  @@map("orbit_campaign_images")
 }
 
 model OrbitIntegration {

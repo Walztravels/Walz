@@ -34,6 +34,8 @@ export default async function OrbitLayout({ children }: { children: React.ReactN
         <div className="flex gap-4 text-sm">
           <a href="/admin/orbit/dashboard" className="text-gray-300 hover:text-white transition-colors">Dashboard</a>
           <a href="/admin/orbit/audit" className="text-gray-300 hover:text-white transition-colors">Audits</a>
+          <a href="/admin/orbit/campaigns" className="text-gray-300 hover:text-white transition-colors">Campaigns</a>
+          <a href="/admin/orbit/settings" className="text-gray-300 hover:text-white transition-colors">Settings</a>
         </div>
         <div className="ml-auto flex items-center gap-3 text-xs text-gray-500">
           <span>{session.email}</span>
