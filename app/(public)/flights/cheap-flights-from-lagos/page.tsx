@@ -11,6 +11,7 @@ export const metadata: Metadata = {
     title: 'Cheap Flights from Lagos 2026 — Best Fares',
     description: 'Best cheap flight deals from Lagos Murtala Muhammed Airport (LOS) to top destinations. Compare live fares with Walz Travels.',
     url: 'https://www.walztravels.com/flights/cheap-flights-from-lagos',
+    images: [{ url: 'https://images.unsplash.com/photo-1436491865332-7a61a109cc05?w=1200&h=630&fit=crop&q=80', width: 1200, height: 630, alt: 'Cheap flights from Lagos — Walz Travels' }],
   },
 }
 
@@ -79,10 +80,8 @@ const TOP_ROUTES = [
 export default function CheapFlightsFromLagosPage() {
   return (
     <>
-      <Script id="faq-schema" type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(faqSchema) }} />
-      <Script id="breadcrumb-schema" type="application/ld+json"
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(breadcrumbSchema) }} />
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(faqSchema) }} />
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(breadcrumbSchema) }} />
 
       <main className="min-h-screen bg-[#FAF7F2]">
         {/* Hero */}

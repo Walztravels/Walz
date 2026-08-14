@@ -39,8 +39,19 @@ export default async function EsimPage() {
   // Fetch all available packages at ISR time — passed to client as serialized props
   const packages = await fetchAllEsimPackages()
 
+  const esimSchema = {
+    '@context': 'https://schema.org', '@type': 'Service',
+    name: 'Jade Connect eSIM — Walz Travels',
+    description: 'Instant eSIM for 150+ countries from USD 9.99. No roaming charges, no physical SIM.',
+    url: 'https://www.walztravels.com/esim',
+    provider: { '@type': 'Organization', name: 'Walz Travels', url: 'https://www.walztravels.com' },
+    serviceType: 'eSIM Data Service',
+    areaServed: 'Worldwide',
+  }
+
   return (
     <>
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(esimSchema) }} />
       <EsimHero />
       <EsimTicker />
 
