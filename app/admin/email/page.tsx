@@ -278,7 +278,7 @@ export default function EmailHubPage() {
     bcc:       '',
     subject:   '',
     body:      '',
-    category:  'inbox',
+    category:  'sent',
     refType:   '',
     refId:     '',
     showCc:    false,
@@ -532,7 +532,7 @@ export default function EmailHubPage() {
   }
 
   const resetCompose = () => {
-    setCompose({ to: [], toInput: '', cc: '', bcc: '', subject: '', body: '', category: 'inbox', refType: '', refId: '', showCc: false })
+    setCompose({ to: [], toInput: '', cc: '', bcc: '', subject: '', body: '', category: 'sent', refType: '', refId: '', showCc: false })
     setJadePrompt('')
     setShowTemplates(false)
   }
