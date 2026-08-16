@@ -54,7 +54,7 @@ export async function GET(req: NextRequest) {
       existing.impressions += s.impressions ?? 0
     } else {
       pageMap.set(key, {
-        pageUrl:     s.pageUrl,
+        pageUrl:     s.pageUrl ?? '',
         source:      s.source,
         clicks:      s.clicks ?? 0,
         impressions: s.impressions ?? 0,
