@@ -52,6 +52,176 @@ interface ContactSuggestion {
   type:  string
 }
 
+// ─── Templates ───────────────────────────────────────────────────────────────
+
+const TEMPLATES: Array<{ id: string; label: string; category: string; subject: string; body: string }> = [
+  {
+    id: 'hotel-booking-request',
+    label: 'Hotel Booking Request',
+    category: 'hotel',
+    subject: 'Booking Request – [Guest Name] | [Check-in Date]',
+    body: `Dear [Hotel Name] Reservations Team,
+
+I hope this message finds you well. I am writing on behalf of Walz Travels to request availability for the following booking:
+
+Guest Name: [Full Name]
+Check-in Date: [Date]
+Check-out Date: [Date]
+Room Type: [Room Type]
+Number of Guests: [Adults] Adults / [Children] Children
+Special Requests: [Any special requirements]
+
+Could you please confirm availability and provide your best rate? We would also appreciate knowing your cancellation policy.
+
+We look forward to your prompt response.
+
+Kind regards,`,
+  },
+  {
+    id: 'hotel-rate-inquiry',
+    label: 'Hotel Rate Inquiry',
+    category: 'hotel',
+    subject: 'Rate Inquiry – [Month/Season] | Walz Travels',
+    body: `Dear [Hotel Name] Team,
+
+I am reaching out from Walz Travels to enquire about your current rates for the upcoming [month/season].
+
+We regularly send guests to your property and would like to discuss:
+• Contract rates / corporate rates for regular bookings
+• Group rates for [group size] persons
+• Availability for the period [date range]
+• Any current promotions or packages
+
+Please share your rate sheet at your earliest convenience.
+
+Best regards,`,
+  },
+  {
+    id: 'client-welcome',
+    label: 'Client Welcome',
+    category: 'client',
+    subject: 'Welcome to Walz Travels – Your Journey Begins Here',
+    body: `Dear [Client Name],
+
+Thank you for choosing Walz Travels! We are thrilled to be your travel partner.
+
+Your booking reference is: [Booking Reference]
+
+Here is a summary of your upcoming trip:
+• Destination: [Destination]
+• Travel Dates: [Start Date] – [End Date]
+• Travellers: [Number of Travellers]
+
+What happens next:
+1. We will send your full itinerary within 24 hours
+2. Our team will reach out to confirm all arrangements
+3. You will receive your travel documents 72 hours before departure
+
+If you have any questions at all, please do not hesitate to contact us. We are here to make your experience seamless.
+
+Warm regards,`,
+  },
+  {
+    id: 'client-followup',
+    label: 'Client Follow-up',
+    category: 'client',
+    subject: 'Following Up on Your Travel Enquiry – Walz Travels',
+    body: `Dear [Client Name],
+
+I hope you are doing well. I wanted to follow up on the travel enquiry you submitted for [Destination].
+
+We have put together some options based on your requirements and would love to walk you through them.
+
+Could you spare 15–20 minutes for a quick call this week? Alternatively, I can send across the proposals by email if that is more convenient.
+
+We are committed to finding you the best experience within your budget.
+
+Looking forward to hearing from you.
+
+Best regards,`,
+  },
+  {
+    id: 'visa-update',
+    label: 'Visa Status Update',
+    category: 'visa',
+    subject: 'Visa Application Update – [Client Name] | Walz Travels',
+    body: `Dear [Client Name],
+
+I am writing to update you on the status of your visa application.
+
+Application Reference: [Visa Reference]
+Destination Country: [Country]
+Application Date: [Date]
+Current Status: [Status]
+
+[Add specific update details here]
+
+Expected processing time: [Timeline]
+
+Please note that you may be required to:
+• [Requirement 1 if any]
+• [Requirement 2 if any]
+
+We will continue to monitor your application and update you promptly on any developments. Should you have any questions, please feel free to reach out.
+
+Kind regards,`,
+  },
+  {
+    id: 'payment-confirmation',
+    label: 'Payment Confirmation',
+    category: 'client',
+    subject: 'Payment Received – Booking Confirmed | Walz Travels',
+    body: `Dear [Client Name],
+
+Thank you! We have successfully received your payment.
+
+Booking Reference: [Reference]
+Amount Paid: [Amount]
+Payment Date: [Date]
+Payment Method: [Method]
+
+Your booking is now fully confirmed. Here are the next steps:
+1. You will receive your detailed itinerary within 24 hours
+2. Hotel and flight confirmations will be shared separately
+3. All travel documents will be sent 72 hours before departure
+
+Please keep this email for your records.
+
+If you have any questions, we are always happy to help.
+
+Warm regards,`,
+  },
+  {
+    id: 'tour-confirmation',
+    label: 'Tour Confirmation',
+    category: 'tours',
+    subject: 'Tour Confirmation – [Tour Name] | Walz Travels',
+    body: `Dear [Client Name],
+
+We are pleased to confirm your tour booking with Walz Travels.
+
+Tour: [Tour Name]
+Date: [Date]
+Duration: [Duration]
+Pick-up Location: [Location]
+Pick-up Time: [Time]
+Group Size: [Number]
+
+What to bring:
+• Valid ID / Passport
+• Comfortable clothing and shoes
+• [Any specific items]
+
+Important notes:
+• Please arrive 15 minutes before the scheduled pick-up time
+• [Any other notes]
+
+We cannot wait to give you an unforgettable experience!
+
+Best regards,`,
+  },
+]
+
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const FOLDERS = [
@@ -113,6 +283,7 @@ export default function EmailHubPage() {
     refId:     '',
     showCc:    false,
   })
+  const [showTemplates, setShowTemplates] = useState(false)
 
   // Jade AI
   const [jading,     setJading]     = useState(false)
@@ -281,7 +452,15 @@ export default function EmailHubPage() {
   // ── Send email ──────────────────────────────────────────────────────────────
 
   const handleSend = async () => {
-    if (!compose.to.length || !compose.subject || !compose.body) {
+    // Auto-confirm any email typed in the To input but not yet added as a tag
+    let toList = compose.to
+    if (compose.toInput.trim().includes('@')) {
+      const pending = compose.toInput.trim()
+      if (!toList.includes(pending)) toList = [...toList, pending]
+      setCompose(c => ({ ...c, to: toList, toInput: '' }))
+    }
+
+    if (!toList.length || !compose.subject || !compose.body) {
       setError('Fill in To, Subject, and Body before sending')
       return
     }
@@ -292,7 +471,7 @@ export default function EmailHubPage() {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
         body:    JSON.stringify({
-          to:       compose.to,
+          to:       toList,
           cc:       compose.cc  ? [compose.cc]  : undefined,
           bcc:      compose.bcc ? [compose.bcc] : undefined,
           subject:  compose.subject,
@@ -355,6 +534,7 @@ export default function EmailHubPage() {
   const resetCompose = () => {
     setCompose({ to: [], toInput: '', cc: '', bcc: '', subject: '', body: '', category: 'inbox', refType: '', refId: '', showCc: false })
     setJadePrompt('')
+    setShowTemplates(false)
   }
 
   // ── Render ──────────────────────────────────────────────────────────────────
@@ -619,6 +799,39 @@ export default function EmailHubPage() {
                   placeholder="Email subject…"
                   className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-200 placeholder-gray-600 focus:outline-none focus:border-indigo-500"
                 />
+              </div>
+
+              {/* Templates */}
+              <div>
+                <button
+                  type="button"
+                  onClick={() => setShowTemplates(v => !v)}
+                  className="flex items-center gap-1.5 text-xs text-indigo-400 hover:text-indigo-300 mb-2"
+                >
+                  <FolderOpen size={13} />
+                  {showTemplates ? 'Hide templates' : 'Use a template'}
+                  <ChevronDown size={12} className={`transition-transform ${showTemplates ? 'rotate-180' : ''}`} />
+                </button>
+                {showTemplates && (
+                  <div className="bg-gray-900 border border-gray-700 rounded-lg overflow-hidden mb-3">
+                    <div className="grid grid-cols-2 gap-px bg-gray-700">
+                      {TEMPLATES.map(tpl => (
+                        <button
+                          key={tpl.id}
+                          type="button"
+                          onClick={() => {
+                            setCompose(c => ({ ...c, subject: tpl.subject, body: tpl.body }))
+                            setShowTemplates(false)
+                          }}
+                          className="bg-gray-900 px-3 py-2.5 text-left hover:bg-gray-800 transition-colors"
+                        >
+                          <p className="text-xs font-medium text-gray-200">{tpl.label}</p>
+                          <p className="text-[10px] text-gray-500 mt-0.5 capitalize">{tpl.category}</p>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
 
               {/* Body */}
