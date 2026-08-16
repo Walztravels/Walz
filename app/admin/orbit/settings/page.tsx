@@ -227,11 +227,49 @@ export default function OrbitSettingsPage() {
         </div>
       </section>
 
+      {/* SE Ranking Integration */}
+      <section className="bg-gray-900 border border-gray-800 rounded-xl p-6 space-y-4">
+        <h2 className="font-semibold text-white mb-1">SE Ranking Integration</h2>
+        <p className="text-xs text-gray-500">
+          Used for keyword research, rank tracking, domain overview, and competitor analysis.
+          Get your API key at <span className="text-indigo-400">app.seranking.com → Account → API</span>.
+        </p>
+        <div>
+          <label className="block text-xs text-gray-400 mb-1">SE Ranking API Key</label>
+          <input type="password" value={(s.seRankingApiKey as string) ?? ''} onChange={e => set('seRankingApiKey', e.target.value)}
+            placeholder="Enter SE Ranking API key"
+            className="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-indigo-500 font-mono" />
+          <p className="text-xs text-gray-600 mt-1">Stored server-side only. Never exposed to the browser.</p>
+        </div>
+      </section>
+
+      {/* GSC Integration */}
+      <section className="bg-gray-900 border border-gray-800 rounded-xl p-6 space-y-4">
+        <h2 className="font-semibold text-white mb-1">Google Search Console Integration</h2>
+        <p className="text-xs text-gray-500">
+          Used for keyword import, click/impression data, and audit enrichment.
+          Create a service account in Google Cloud Console with Search Console permissions,
+          then paste the full JSON key below.
+        </p>
+        <div>
+          <label className="block text-xs text-gray-400 mb-1">Service Account JSON</label>
+          <textarea rows={4} value={(s.gscServiceAccountJson as string) ?? ''} onChange={e => set('gscServiceAccountJson', e.target.value)}
+            placeholder={'{"type":"service_account","project_id":"...","private_key":"..."}'}
+            className="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-indigo-500 font-mono text-xs" />
+          <p className="text-xs text-gray-600 mt-1">Stored encrypted. Never exposed in browser code.</p>
+        </div>
+        <div>
+          <label className="block text-xs text-gray-400 mb-1">GSC Site URL (must match verified property)</label>
+          <input value={(s.gscSiteUrl as string) ?? ''} onChange={e => set('gscSiteUrl', e.target.value)}
+            placeholder="https://www.walztravels.com"
+            className="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-indigo-500" />
+        </div>
+      </section>
+
       {/* Buffer Integration */}
       <section className="bg-gray-900 border border-gray-800 rounded-xl p-6 space-y-4">
         <div className="flex items-center gap-2 mb-1">
           <h2 className="font-semibold text-white">Buffer Integration</h2>
-          <span className="text-xs bg-indigo-900 text-indigo-300 px-2 py-0.5 rounded-full">Phase 2</span>
         </div>
         <p className="text-xs text-gray-500">
           Connect Buffer to publish approved campaigns directly from Orbit.

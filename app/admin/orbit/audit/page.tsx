@@ -22,8 +22,9 @@ interface AuditRow {
 
 function StatusBadge({ status }: { status: string }) {
   const map: Record<string, string> = {
-    pending: 'bg-gray-700 text-gray-300',
-    running: 'bg-blue-900 text-blue-300 animate-pulse',
+    queued:  'bg-blue-900 text-blue-300 animate-pulse',
+    pending: 'bg-blue-900 text-blue-300 animate-pulse',
+    running: 'bg-indigo-900 text-indigo-300 animate-pulse',
     complete: 'bg-green-900 text-green-300',
     failed: 'bg-red-900 text-red-300',
   }

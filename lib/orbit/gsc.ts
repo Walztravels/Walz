@@ -17,9 +17,28 @@ export interface GscPageData {
   position: number
 }
 
-interface ServiceAccount {
+export interface GscRow {
+  keys: string[]
+  clicks: number
+  impressions: number
+  ctr: number
+  position: number
+}
+
+export interface ServiceAccount {
   client_email: string
   private_key: string
+}
+
+export function getGscCredentials(meta: Record<string, unknown>): ServiceAccount | null {
+  try {
+    const json = meta.serviceAccountJson as string
+    const sa = JSON.parse(json) as ServiceAccount
+    if (!sa.client_email || !sa.private_key) return null
+    return sa
+  } catch {
+    return null
+  }
 }
 
 function b64url(buf: ArrayBuffer | Uint8Array): string {
@@ -29,7 +48,7 @@ function b64url(buf: ArrayBuffer | Uint8Array): string {
   return btoa(str).replace(/\+/g, '-').replace(/\//g, '_').replace(/=/g, '')
 }
 
-async function buildJwt(sa: ServiceAccount): Promise<string> {
+export async function buildJwt(sa: ServiceAccount): Promise<string> {
   const now = Math.floor(Date.now() / 1000)
   const header = { alg: 'RS256', typ: 'JWT' }
   const claim = {
@@ -58,7 +77,7 @@ async function buildJwt(sa: ServiceAccount): Promise<string> {
   return `${unsigned}.${b64url(sig)}`
 }
 
-async function getAccessToken(sa: ServiceAccount): Promise<string> {
+export async function getAccessToken(sa: ServiceAccount): Promise<string> {
   const jwt = await buildJwt(sa)
   const res = await fetch('https://oauth2.googleapis.com/token', {
     method: 'POST',
@@ -74,6 +93,39 @@ async function getAccessToken(sa: ServiceAccount): Promise<string> {
   }
   const data = await res.json() as { access_token: string }
   return data.access_token
+}
+
+export async function querySearchAnalytics(
+  accessToken: string,
+  siteUrl: string,
+  opts: {
+    startDate: string
+    endDate: string
+    dimensions: string[]
+    rowLimit?: number
+  },
+): Promise<GscRow[]> {
+  const encoded = encodeURIComponent(siteUrl)
+  const res = await fetch(
+    `https://searchconsole.googleapis.com/webmasters/v3/sites/${encoded}/searchAnalytics/query`,
+    {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${accessToken}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        startDate:  opts.startDate,
+        endDate:    opts.endDate,
+        dimensions: opts.dimensions,
+        rowLimit:   opts.rowLimit ?? 500,
+        dataState:  'final',
+      }),
+    },
+  )
+  if (!res.ok) {
+    const body = await res.text()
+    throw new Error(`GSC API ${res.status}: ${body.slice(0, 200)}`)
+  }
+  const data = await res.json() as { rows?: GscRow[] }
+  return data.rows ?? []
 }
 
 export async function getPageMetrics(opts: {

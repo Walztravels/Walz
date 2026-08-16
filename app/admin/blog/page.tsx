@@ -25,6 +25,9 @@ interface FormData {
   category: string
   featuredImageUrl: string
   metaDescription: string
+  focusKeyword: string
+  tags: string
+  scheduledAt: string
   published: boolean
 }
 
@@ -36,6 +39,9 @@ const EMPTY: FormData = {
   category: 'Travel Tips',
   featuredImageUrl: '',
   metaDescription: '',
+  focusKeyword: '',
+  tags: '',
+  scheduledAt: '',
   published: false,
 }
 
@@ -80,17 +86,27 @@ export default function AdminBlogPage() {
       id: post.id,
       title: post.title,
       slug: post.slug,
-      content: '',          // content not in list response — user must re-enter or we fetch
+      content: '',
       excerpt: post.excerpt ?? '',
       category: post.category,
       featuredImageUrl: post.featuredImageUrl ?? '',
       metaDescription: '',
+      focusKeyword: '',
+      tags: '',
+      scheduledAt: '',
       published: post.published,
     })
     // Fetch full post content
     fetch(`/api/admin/blog?id=${post.id}`).then(r => r.json()).then(data => {
       if (data && data.content !== undefined) {
-        setModal(m => m ? { ...m, content: data.content, metaDescription: data.metaDescription ?? '' } : m)
+        setModal(m => m ? {
+          ...m,
+          content: data.content,
+          metaDescription: data.metaDescription ?? '',
+          focusKeyword: data.focusKeyword ?? '',
+          tags: Array.isArray(data.tags) ? data.tags.join(', ') : (data.tags ?? ''),
+          scheduledAt: data.scheduledAt ? new Date(data.scheduledAt).toISOString().slice(0, 16) : '',
+        } : m)
       }
     }).catch(() => {})
     setError(null)
@@ -102,9 +118,20 @@ export default function AdminBlogPage() {
     setSaving(true)
 
     try {
-      const body = modal.id
-        ? { id: modal.id, title: modal.title, slug: modal.slug, content: modal.content, excerpt: modal.excerpt || undefined, category: modal.category, featuredImageUrl: modal.featuredImageUrl || '', metaDescription: modal.metaDescription || '', published: modal.published }
-        : { title: modal.title, slug: modal.slug, content: modal.content, excerpt: modal.excerpt || undefined, category: modal.category, featuredImageUrl: modal.featuredImageUrl || '', metaDescription: modal.metaDescription || '', published: modal.published }
+      const tags = modal.tags
+        ? modal.tags.split(',').map(t => t.trim()).filter(Boolean)
+        : []
+      const scheduledAt = modal.scheduledAt ? new Date(modal.scheduledAt).toISOString() : undefined
+      const shared = {
+        title: modal.title, slug: modal.slug, content: modal.content,
+        excerpt: modal.excerpt || undefined, category: modal.category,
+        featuredImageUrl: modal.featuredImageUrl || '', metaDescription: modal.metaDescription || '',
+        focusKeyword: modal.focusKeyword || undefined,
+        tags: tags.length ? tags : undefined,
+        scheduledAt,
+        published: modal.published,
+      }
+      const body = modal.id ? { id: modal.id, ...shared } : shared
 
       const res = await fetch('/api/admin/blog', {
         method: modal.id ? 'PUT' : 'POST',
@@ -358,6 +385,37 @@ export default function AdminBlogPage() {
                   className="w-full px-4 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#C9A84C]/30 focus:border-[#C9A84C] resize-none"
                 />
                 <p className="text-xs text-gray-400 mt-1 text-right">{(modal.metaDescription || '').length}/320</p>
+              </div>
+
+              {/* SEO fields */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Focus Keyword <span className="text-gray-400 font-normal normal-case">(SEO)</span></label>
+                  <input
+                    value={modal.focusKeyword}
+                    onChange={(e) => setModal(m => m ? { ...m, focusKeyword: e.target.value } : m)}
+                    placeholder="e.g. UAE visa from UK"
+                    className="w-full px-4 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#C9A84C]/30 focus:border-[#C9A84C]"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Scheduled Publish <span className="text-gray-400 font-normal normal-case">(optional)</span></label>
+                  <input
+                    type="datetime-local"
+                    value={modal.scheduledAt}
+                    onChange={(e) => setModal(m => m ? { ...m, scheduledAt: e.target.value } : m)}
+                    className="w-full px-4 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#C9A84C]/30 focus:border-[#C9A84C]"
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1.5">Tags <span className="text-gray-400 font-normal normal-case">(comma-separated)</span></label>
+                <input
+                  value={modal.tags}
+                  onChange={(e) => setModal(m => m ? { ...m, tags: e.target.value } : m)}
+                  placeholder="e.g. visa, UAE, travel tips"
+                  className="w-full px-4 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-[#C9A84C]/30 focus:border-[#C9A84C]"
+                />
               </div>
 
               {/* Content */}

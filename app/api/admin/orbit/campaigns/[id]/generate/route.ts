@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getAdminSession } from '@/lib/admin-auth'
 import { prisma } from '@/lib/db'
 import { generateCampaign } from '@/lib/orbit/campaign-generator'
+import { notifyCampaignNeedsApproval } from '@/lib/orbit/notify'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 60
@@ -39,6 +40,24 @@ export async function POST(
       tokenCap,
       brandVoice,
     )
+
+    // Notify approver that campaign is ready for review (non-blocking)
+    try {
+      const settings = await prisma.orbitSettings.findUnique({ where: { id: 'singleton' } })
+      if (settings?.notificationsEmail) {
+        const updated = await prisma.orbitCampaign.findUnique({ where: { id: params.id } })
+        if (updated) {
+          notifyCampaignNeedsApproval({
+            email:       settings.notificationsEmail,
+            campaignId:  params.id,
+            destination: updated.destination,
+            objective:   updated.objective,
+            platforms:   updated.platforms,
+            generatedBy: session.email,
+          })
+        }
+      }
+    } catch { /* non-fatal */ }
 
     return NextResponse.json({
       ok: true,

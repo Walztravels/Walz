@@ -37,6 +37,7 @@ export interface TopKeyword {
 export async function getDomainOverview(
   apiKey: string,
   domain: string,
+  country = 'uk',
 ): Promise<DomainOverview | null> {
   try {
     const data = await seGet<{
@@ -44,7 +45,7 @@ export async function getDomainOverview(
       organic_keywords?: number
       domain_trust?: number
       backlinks?: number
-    }>(apiKey, `/research/uk/overview/?url=${encodeURIComponent(domain)}`)
+    }>(apiKey, `/research/${country}/overview/?url=${encodeURIComponent(domain)}`)
 
     return {
       organicTraffic:  data.organic_traffic  ?? 0,
@@ -61,6 +62,7 @@ export async function getTopKeywords(
   apiKey: string,
   domain: string,
   limit = 20,
+  country = 'uk',
 ): Promise<TopKeyword[]> {
   try {
     type Row = {
@@ -72,7 +74,7 @@ export async function getTopKeywords(
     }
     const data = await seGet<{ keywords?: Row[] }>(
       apiKey,
-      `/research/uk/keywords/?url=${encodeURIComponent(domain)}&limit=${limit}&sort=traffic_desc`,
+      `/research/${country}/keywords/?url=${encodeURIComponent(domain)}&limit=${limit}&sort=traffic_desc`,
     )
 
     return (data.keywords ?? []).map((k) => ({
@@ -85,4 +87,17 @@ export async function getTopKeywords(
   } catch {
     return []
   }
+}
+
+export async function getCompetitorOverview(
+  apiKey: string,
+  domain: string,
+  country = 'uk',
+): Promise<DomainOverview & { topKeywords: TopKeyword[] } | null> {
+  const [overview, keywords] = await Promise.all([
+    getDomainOverview(apiKey, domain, country),
+    getTopKeywords(apiKey, domain, 10, country),
+  ])
+  if (!overview) return null
+  return { ...overview, topKeywords: keywords }
 }

@@ -13,6 +13,9 @@ const blogSchema = z.object({
   category:         z.enum(CATEGORIES),
   featuredImageUrl: z.string().url().optional().or(z.literal('')).transform(v => v || null),
   metaDescription:  z.string().max(320).optional().transform(v => v || null),
+  focusKeyword:     z.string().optional().transform(v => v || null),
+  tags:             z.array(z.string()).optional(),
+  scheduledAt:      z.string().datetime().optional().transform(v => v ? new Date(v) : null),
   published:        z.boolean().default(false),
 })
 

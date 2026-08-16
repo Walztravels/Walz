@@ -390,6 +390,7 @@ export const NAV_ITEMS: NavSection[] = [
       { href: '/admin/dashboard',   label: 'Dashboard',      icon: 'LayoutDashboard', permission: 'dashboard'       },
       { href: '/admin/analytics',   label: 'Analytics',      icon: 'TrendingUp',      permission: 'analytics'       },
       { href: '/admin/inbox',       label: 'Inbox',          icon: 'MessageSquare',   permission: 'inbox'           },
+      { href: '/admin/my-followups', label: 'Follow-ups',    icon: 'Bell',            permission: 'dashboard'       },
     ],
   },
   {

@@ -19,6 +19,7 @@ import {
   LogOut,
   Link2,
   ChevronRight,
+  Bell,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useStaffPermissions } from '@/hooks/useStaffPermissions'
@@ -85,6 +86,7 @@ const ICON_MAP: Record<string, React.ElementType> = {
   GitBranch,
   Phone,
   Link2,
+  Bell,
 }
 
 const LOGO_CACHE_KEY = 'walz_logo_url'

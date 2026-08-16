@@ -740,6 +740,7 @@ model BlogPost {
   author           String    @default("Walz Travels")
   readTime         Int?
   publishedAt      DateTime?
+  scheduledAt      DateTime?
   createdAt        DateTime  @default(now())
   updatedAt        DateTime  @updatedAt
 
@@ -3467,4 +3468,228 @@ model OrbitAuditLog {
   issue OrbitAuditIssue? @relation(fields: [issueId], references: [id], onDelete: SetNull)
 
   @@map("orbit_audit_logs")
+}
+
+// ─── ORBIT PHASE 2 & 3 MODELS ────────────────────────────────────────────────
+
+model OrbitKeywordGroup {
+  id        String   @id @default(cuid())
+  name      String
+  topic     String
+  intent    String   @default("informational")
+  notes     String?
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at")
+
+  keywords OrbitKeyword[]
+
+  @@map("orbit_keyword_groups")
+}
+
+model OrbitKeyword {
+  id             String   @id @default(cuid())
+  keyword        String
+  groupId        String?  @map("group_id")
+  intent         String   @default("informational")
+  // informational | navigational | transactional | commercial
+  country        String   @default("gb")
+  language       String   @default("en")
+  device         String   @default("desktop")
+  source         String   @default("manual")
+  // manual | gsc | se_ranking
+  linkedPageSlug String?  @map("linked_page_slug")
+  volume         Int?
+  difficulty     Int?
+  cpc            Decimal? @db.Decimal(10, 4)
+  notes          String?
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @default(now()) @updatedAt @map("updated_at")
+
+  group    OrbitKeywordGroup?  @relation(fields: [groupId], references: [id], onDelete: SetNull)
+  rankings OrbitKeywordRanking[]
+  briefs   OrbitContentBrief[]
+
+  @@unique([keyword, country, language, device])
+  @@index([groupId])
+  @@map("orbit_keywords")
+}
+
+model OrbitKeywordRanking {
+  id               String   @id @default(cuid())
+  keywordId        String   @map("keyword_id")
+  position         Float?
+  bestPosition     Float?   @map("best_position")
+  previousPosition Float?   @map("previous_position")
+  url              String?
+  impressions      Int?
+  clicks           Int?
+  ctr              Float?
+  source           String   @default("gsc")
+  // gsc | se_ranking
+  recordedAt       DateTime @default(now()) @map("recorded_at")
+
+  keyword OrbitKeyword @relation(fields: [keywordId], references: [id], onDelete: Cascade)
+
+  @@index([keywordId, recordedAt])
+  @@map("orbit_keyword_rankings")
+}
+
+model OrbitContentBrief {
+  id                 String    @id @default(cuid())
+  keywordId          String?   @map("keyword_id")
+  primaryKeyword     String    @map("primary_keyword")
+  supportingKeywords String[]  @default([]) @map("supporting_keywords")
+  intent             String    @default("informational")
+  contentType        String    @default("destination_guide") @map("content_type")
+  // destination_guide | itinerary | flight | hotel | visa | travel_tips | comparison | faq | promotional | refresh
+  suggestedUrl       String?   @map("suggested_url")
+  title              String
+  metaDescription    String?   @map("meta_description")
+  outline            Json      @default("[]")
+  faqs               Json      @default("[]")
+  internalLinks      Json      @default("[]") @map("internal_links")
+  externalSources    Json      @default("[]") @map("external_sources")
+  structuredData     String?   @map("structured_data")
+  status             String    @default("draft")
+  // draft | approved | in_progress | published | archived
+  linkedPostId       String?   @map("linked_post_id")
+  generatedBy        String?   @map("generated_by")
+  approvedBy         String?   @map("approved_by")
+  approvedAt         DateTime? @map("approved_at")
+  createdAt          DateTime  @default(now()) @map("created_at")
+  updatedAt          DateTime  @default(now()) @updatedAt @map("updated_at")
+
+  keyword OrbitKeyword?     @relation(fields: [keywordId], references: [id], onDelete: SetNull)
+  drafts  OrbitContentDraft[]
+
+  @@index([keywordId])
+  @@index([status])
+  @@map("orbit_content_briefs")
+}
+
+model OrbitContentDraft {
+  id              String    @id @default(cuid())
+  briefId         String    @map("brief_id")
+  version         Int       @default(1)
+  title           String
+  content         String    @db.Text
+  excerpt         String?   @db.Text
+  metaDescription String?   @map("meta_description")
+  focusKeyword    String?   @map("focus_keyword")
+  tags            String[]  @default([])
+  status          String    @default("draft")
+  // draft | review | approved | scheduled | published
+  scheduledAt     DateTime? @map("scheduled_at")
+  publishedAt     DateTime? @map("published_at")
+  publishedPostId String?   @map("published_post_id")
+  flaggedClaims   Json      @default("[]") @map("flagged_claims")
+  // [{text, reason, sourceDate}]
+  createdBy       String?   @map("created_by")
+  approvedBy      String?   @map("approved_by")
+  approvedAt      DateTime? @map("approved_at")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @default(now()) @updatedAt @map("updated_at")
+
+  brief    OrbitContentBrief @relation(fields: [briefId], references: [id], onDelete: Cascade)
+  versions OrbitDraftVersion[]
+
+  @@index([briefId])
+  @@index([status, scheduledAt])
+  @@map("orbit_content_drafts")
+}
+
+model OrbitDraftVersion {
+  id        String   @id @default(cuid())
+  draftId   String   @map("draft_id")
+  version   Int
+  title     String
+  content   String   @db.Text
+  savedBy   String?  @map("saved_by")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  draft OrbitContentDraft @relation(fields: [draftId], references: [id], onDelete: Cascade)
+
+  @@index([draftId])
+  @@map("orbit_draft_versions")
+}
+
+model OrbitCompetitor {
+  id        String   @id @default(cuid())
+  domain    String   @unique
+  name      String?
+  active    Boolean  @default(true)
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at")
+
+  snapshots OrbitCompetitorSnapshot[]
+
+  @@map("orbit_competitors")
+}
+
+model OrbitCompetitorSnapshot {
+  id              String   @id @default(cuid())
+  competitorId    String   @map("competitor_id")
+  organicTraffic  Int?     @map("organic_traffic")
+  organicKeywords Int?     @map("organic_keywords")
+  domainScore     Int?     @map("domain_score")
+  backlinks       Int?
+  topKeywords     Json     @default("[]") @map("top_keywords")
+  // [{keyword, position, volume, url}]
+  recordedAt      DateTime @default(now()) @map("recorded_at")
+
+  competitor OrbitCompetitor @relation(fields: [competitorId], references: [id], onDelete: Cascade)
+
+  @@index([competitorId, recordedAt])
+  @@map("orbit_competitor_snapshots")
+}
+
+model OrbitAnalyticsSnapshot {
+  id          String   @id @default(cuid())
+  date        DateTime
+  source      String
+  // gsc | ga4 | meta_ads | google_ads
+  pageUrl     String?  @map("page_url")
+  clicks      Int?
+  impressions Int?
+  ctr         Float?
+  position    Float?
+  sessions    Int?
+  users       Int?
+  conversions Int?
+  spend       Decimal? @db.Decimal(10, 4)
+  cpc         Decimal? @db.Decimal(10, 4)
+  revenue     Decimal? @db.Decimal(10, 4)
+  data        Json     @default("{}")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  @@unique([date, source, pageUrl])
+  @@index([date, source])
+  @@index([pageUrl, source])
+  @@map("orbit_analytics_snapshots")
+}
+
+model OrbitScheduleItem {
+  id          String    @id @default(cuid())
+  type        String
+  // blog | social | email | campaign | promotion | update
+  title       String
+  status      String    @default("scheduled")
+  // draft | scheduled | published | failed | cancelled
+  scheduledAt DateTime  @map("scheduled_at")
+  publishedAt DateTime? @map("published_at")
+  failedAt    DateTime? @map("failed_at")
+  error       String?
+  retries     Int       @default(0)
+  refId       String?   @map("ref_id")
+  refType     String?   @map("ref_type")
+  // blog_post | campaign | email | promotion
+  platform    String?
+  metadata    Json      @default("{}")
+  createdBy   String?   @map("created_by")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @default(now()) @updatedAt @map("updated_at")
+
+  @@index([scheduledAt, status])
+  @@index([type, status])
+  @@map("orbit_schedule_items")
 }
