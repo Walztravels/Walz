@@ -1,4 +1,3 @@
-import { BUSINESS } from '@/lib/config/business'
 import { prisma } from '@/lib/db'
 
 export interface StaffSignatureData {
@@ -15,6 +14,8 @@ interface SignatureSettingsRow {
   accentColor:  string
   brandColor:   string
   officeCities: string[]
+  phone:        string
+  whatsapp:     string
   footerNote:   string
 }
 
@@ -39,6 +40,8 @@ export async function getSignatureSettings(): Promise<SignatureSettingsRow> {
       accentColor:  '#C9A84C',
       brandColor:   '#0B1F3A',
       officeCities: ['London', 'Toronto', 'Dubai', 'Lagos', 'Accra'],
+      phone:        '+1 984 388 0110',
+      whatsapp:     '+1 231 790 2336',
       footerNote:   '',
     },
     update: {},
@@ -62,8 +65,9 @@ export function buildSignatureHtml(
   settings: SignatureSettingsRow,
 ): string {
   const displayRole = staff.signatureTagline?.trim() || staff.staffRole
-  const phone    = BUSINESS.contacts.emergencyPhone
-  const whatsapp = BUSINESS.contacts.globalWhatsapp
+  // Strip non-digits to build the tel: / wa.me href
+  const phoneE164    = settings.phone.replace(/\D/g, '')
+  const whatsappE164 = settings.whatsapp.replace(/\D/g, '')
 
   const officeStr = settings.officeCities
     .map(c => c.toUpperCase())
@@ -81,8 +85,8 @@ export function buildSignatureHtml(
       <p style="margin:0 0 2px 0;font-size:16px;font-weight:700;color:${settings.brandColor};line-height:1.3;">${staff.staffName}</p>
       <p style="margin:0 0 12px 0;font-size:13px;color:#666666;line-height:1.3;">${displayRole} &middot; Walz Travels</p>
       <table cellpadding="0" cellspacing="0" border="0" style="font-size:13px;color:#333333;line-height:1.8;">
-        <tr><td style="padding:0;white-space:nowrap;"><a href="tel:+${phone.e164}" style="color:${settings.brandColor};text-decoration:none;">&#128222; ${phone.display}</a></td></tr>
-        <tr><td style="padding:0;white-space:nowrap;"><a href="https://wa.me/${whatsapp.e164}" style="color:${settings.brandColor};text-decoration:none;">&#128172; ${whatsapp.display}</a></td></tr>
+        <tr><td style="padding:0;white-space:nowrap;"><a href="tel:+${phoneE164}" style="color:${settings.brandColor};text-decoration:none;">&#128222; ${settings.phone}</a></td></tr>
+        <tr><td style="padding:0;white-space:nowrap;"><a href="https://wa.me/${whatsappE164}" style="color:${settings.brandColor};text-decoration:none;">&#128172; ${settings.whatsapp}</a></td></tr>
         <tr><td style="padding:0;white-space:nowrap;"><a href="mailto:${staff.staffEmail}" style="color:${settings.brandColor};text-decoration:none;">&#9993; ${staff.staffEmail}</a></td></tr>
         <tr><td style="padding:0;white-space:nowrap;"><a href="https://walztravels.com" style="color:${settings.accentColor};text-decoration:none;">&#127760; walztravels.com</a></td></tr>
       </table>

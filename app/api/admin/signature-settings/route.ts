@@ -11,6 +11,8 @@ const DEFAULTS = {
   accentColor:  '#C9A84C',
   brandColor:   '#0B1F3A',
   officeCities: ['London', 'Toronto', 'Dubai', 'Lagos', 'Accra'],
+  phone:        '+1 984 388 0110',
+  whatsapp:     '+1 231 790 2336',
   footerNote:   '',
 }
 
@@ -39,6 +41,8 @@ export async function PUT(req: NextRequest) {
     accentColor?:  string
     brandColor?:   string
     officeCities?: string[]
+    phone?:        string
+    whatsapp?:     string
     footerNote?:   string
   }
 
@@ -50,6 +54,8 @@ export async function PUT(req: NextRequest) {
       ...(body.accentColor  !== undefined && { accentColor:  body.accentColor  }),
       ...(body.brandColor   !== undefined && { brandColor:   body.brandColor   }),
       ...(body.officeCities !== undefined && { officeCities: body.officeCities }),
+      ...(body.phone        !== undefined && { phone:        body.phone        }),
+      ...(body.whatsapp     !== undefined && { whatsapp:     body.whatsapp     }),
       ...(body.footerNote   !== undefined && { footerNote:   body.footerNote   }),
       updatedBy: session.id,
     },

@@ -8,6 +8,8 @@ interface Settings {
   accentColor:  string
   brandColor:   string
   officeCities: string[]
+  phone:        string
+  whatsapp:     string
   footerNote:   string
 }
 
@@ -16,6 +18,8 @@ const DEFAULTS: Settings = {
   accentColor:  '#C9A84C',
   brandColor:   '#0B1F3A',
   officeCities: ['London', 'Toronto', 'Dubai', 'Lagos', 'Accra'],
+  phone:        '+1 984 388 0110',
+  whatsapp:     '+1 231 790 2336',
   footerNote:   '',
 }
 
@@ -41,6 +45,8 @@ export default function SignatureSettingsPage() {
         accentColor:  data.accentColor  ?? DEFAULTS.accentColor,
         brandColor:   data.brandColor   ?? DEFAULTS.brandColor,
         officeCities: data.officeCities ?? DEFAULTS.officeCities,
+        phone:        data.phone        ?? DEFAULTS.phone,
+        whatsapp:     data.whatsapp     ?? DEFAULTS.whatsapp,
         footerNote:   data.footerNote   ?? DEFAULTS.footerNote,
       })
     } catch {
@@ -62,6 +68,8 @@ export default function SignatureSettingsPage() {
         accentColor:  current.accentColor,
         brandColor:   current.brandColor,
         officeCities: current.officeCities.join(','),
+        phone:        current.phone,
+        whatsapp:     current.whatsapp,
         footerNote:   current.footerNote,
       })
       try {
@@ -190,6 +198,35 @@ export default function SignatureSettingsPage() {
                     />
                   </div>
                   <p className="text-gray-400 text-[11px] mt-1">Name, contact links, borders</p>
+                </div>
+              </div>
+            </div>
+
+            {/* Phone & WhatsApp */}
+            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
+              <h2 className="font-bold text-[#0B1F3A] text-sm mb-4">Phone & WhatsApp</h2>
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-xs font-semibold text-gray-600 mb-1.5">Phone number</label>
+                  <input
+                    type="tel"
+                    value={form.phone}
+                    onChange={e => setForm(f => ({ ...f, phone: e.target.value }))}
+                    placeholder="+1 984 388 0110"
+                    className="w-full px-3 py-2.5 rounded-xl border border-gray-200 text-sm text-[#0B1F3A] focus:outline-none focus:border-[#C9A84C] focus:ring-1 focus:ring-[#C9A84C]/30"
+                  />
+                  <p className="text-gray-400 text-[11px] mt-1">Include country code (e.g. +44 7700 900000). Used for the phone link in the signature.</p>
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-gray-600 mb-1.5">WhatsApp number</label>
+                  <input
+                    type="tel"
+                    value={form.whatsapp}
+                    onChange={e => setForm(f => ({ ...f, whatsapp: e.target.value }))}
+                    placeholder="+1 231 790 2336"
+                    className="w-full px-3 py-2.5 rounded-xl border border-gray-200 text-sm text-[#0B1F3A] focus:outline-none focus:border-[#C9A84C] focus:ring-1 focus:ring-[#C9A84C]/30"
+                  />
+                  <p className="text-gray-400 text-[11px] mt-1">Include country code. Used for the WhatsApp chat link in the signature.</p>
                 </div>
               </div>
             </div>

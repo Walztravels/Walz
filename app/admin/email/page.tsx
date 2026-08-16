@@ -631,6 +631,17 @@ export default function EmailHubPage() {
             )
           })}
         </nav>
+
+        {/* Signature settings shortcut */}
+        <div className="mt-auto px-3 pb-4 pt-3 border-t border-gray-800">
+          <a
+            href="/admin/settings/signature"
+            className="w-full flex items-center gap-2 px-3 py-2 rounded-lg text-xs text-gray-500 hover:bg-gray-800 hover:text-gray-300 transition-colors"
+          >
+            <Mail size={13} />
+            Edit Email Signature
+          </a>
+        </div>
       </aside>
 
       {/* ── Thread list ──────────────────────────────────────────────────────── */}

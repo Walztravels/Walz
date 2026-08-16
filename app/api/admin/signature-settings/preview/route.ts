@@ -17,6 +17,8 @@ export async function GET(req: NextRequest) {
     accentColor:  p.get('accentColor')  ?? '#C9A84C',
     brandColor:   p.get('brandColor')   ?? '#0B1F3A',
     officeCities: (p.get('officeCities') ?? 'London,Toronto,Dubai,Lagos,Accra').split(',').map(c => c.trim()).filter(Boolean),
+    phone:        p.get('phone')        ?? '+1 984 388 0110',
+    whatsapp:     p.get('whatsapp')     ?? '+1 231 790 2336',
     footerNote:   p.get('footerNote')   ?? '',
   }
 

@@ -3775,6 +3775,8 @@ model SignatureSettings {
   accentColor  String   @default("#C9A84C")
   brandColor   String   @default("#0B1F3A")
   officeCities String[] @default(["London", "Toronto", "Dubai", "Lagos", "Accra"])
+  phone        String   @default("+1 984 388 0110")
+  whatsapp     String   @default("+1 231 790 2336")
   footerNote   String   @default("")
   updatedAt    DateTime @updatedAt
   updatedBy    String?
