@@ -3716,3 +3716,53 @@ model OrbitScheduleItem {
   @@index([type, status])
   @@map("orbit_schedule_items")
 }
+
+// ===========================
+// Email Hub
+// ===========================
+
+model EmailThread {
+  id           String         @id @default(cuid())
+  subject      String
+  category     String         @default("inbox")
+  status       String         @default("open")
+  assignedTo   String?
+  lastEmailAt  DateTime       @default(now())
+  participants Json           @default("[]")
+  refType      String?
+  refId        String?
+  messages     EmailMessage[]
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+
+  @@index([category, status, lastEmailAt])
+  @@index([assignedTo])
+}
+
+model EmailMessage {
+  id          String      @id @default(cuid())
+  threadId    String
+  thread      EmailThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
+  direction   String
+  from        String
+  fromName    String?
+  to          Json        @default("[]")
+  cc          Json        @default("[]")
+  bcc         Json        @default("[]")
+  subject     String
+  bodyHtml    String      @db.Text
+  bodyText    String      @db.Text
+  status      String      @default("sent")
+  sentAt      DateTime?
+  receivedAt  DateTime?
+  readAt      DateTime?
+  openCount   Int         @default(0)
+  resendId    String?
+  sentBy      String?
+  inReplyTo   String?
+  trackingId  String?     @unique
+
+  @@index([threadId, sentAt])
+  @@index([resendId])
+  @@index([trackingId])
+}

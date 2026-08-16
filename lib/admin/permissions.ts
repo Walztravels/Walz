@@ -519,6 +519,12 @@ export const NAV_ITEMS: NavSection[] = [
     ],
   },
   {
+    section: 'EMAIL',
+    items: [
+      { href: '/admin/email', label: 'Email Hub', icon: 'Mail', permission: 'inbox' },
+    ],
+  },
+  {
     section: 'SYSTEM',
     items: [
       { href: '/admin/routing',                   label: 'Routing',         icon: 'GitBranch',   permission: 'settings'     },
