@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import {
   Save, RefreshCw, CheckCircle, Building2, Mail, Phone,
-  Share2, MapPin, DollarSign, Bell, CreditCard,
+  Share2, MapPin, DollarSign, Bell, CreditCard, Pen, Link2, ChevronRight,
 } from 'lucide-react'
 import { BUSINESS } from '@/lib/config/business'
 import { BiometricRegistration } from '@/app/admin/components/BiometricRegistration'
@@ -202,6 +202,30 @@ export default function SettingsPage() {
           <RefreshCw className="w-4 h-4" />
           Reload
         </button>
+      </div>
+
+      {/* Sub-page shortcuts */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 max-w-2xl mb-8">
+        {[
+          { href: '/admin/settings/contact',       icon: Phone,  label: 'Contact & Numbers',  desc: 'Office addresses and phone numbers'    },
+          { href: '/admin/settings/signature',      icon: Pen,    label: 'Email Signature',    desc: 'Logo, colors, office cities, tagline'  },
+          { href: '/admin/settings/inbox-mapping',  icon: Link2,  label: 'Inbox Mapping',      desc: 'Route inbound email to categories'     },
+        ].map(({ href, icon: Icon, label, desc }) => (
+          <a
+            key={href}
+            href={href}
+            className="flex items-center gap-3 bg-white border border-gray-100 rounded-2xl px-4 py-3.5 shadow-sm hover:border-[#C9A84C]/60 hover:shadow-md transition-all group"
+          >
+            <div className="w-9 h-9 rounded-xl bg-[#0B1F3A]/8 flex items-center justify-center flex-shrink-0 group-hover:bg-[#C9A84C]/15 transition-colors">
+              <Icon className="w-4 h-4 text-[#0B1F3A]" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-semibold text-[#0B1F3A] truncate">{label}</p>
+              <p className="text-xs text-gray-400 truncate">{desc}</p>
+            </div>
+            <ChevronRight className="w-4 h-4 text-gray-300 group-hover:text-[#C9A84C] transition-colors flex-shrink-0" />
+          </a>
+        ))}
       </div>
 
       <div className="space-y-6 max-w-2xl">
