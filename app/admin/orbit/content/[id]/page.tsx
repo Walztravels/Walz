@@ -1,7 +1,7 @@
 'use client'
 
-import { useEffect, useState, use } from 'react'
-import { useRouter } from 'next/navigation'
+import { useEffect, useState } from 'react'
+import { useRouter, useParams } from 'next/navigation'
 
 interface FlaggedClaim { text: string; reason: string; sourceDate?: string }
 interface Version { id: string; version: number; createdAt: string }
@@ -36,8 +36,8 @@ const DRAFT_STATUS_TRANSITIONS: Record<string, string[]> = {
   published:   [],
 }
 
-export default function BriefDetailPage({ params }: { params: Promise<{ id: string }> }) {
-  const { id } = use(params)
+export default function BriefDetailPage() {
+  const { id } = useParams<{ id: string }>()
   const router = useRouter()
   const [brief, setBrief]         = useState<Brief | null>(null)
   const [loading, setLoading]     = useState(true)

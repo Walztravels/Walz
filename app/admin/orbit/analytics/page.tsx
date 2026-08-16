@@ -46,10 +46,13 @@ export default function AnalyticsPage() {
     setLoading(true)
     const params = new URLSearchParams({ days: String(days) })
     if (filterSource) params.set('source', filterSource)
-    const res = await fetch(`/api/admin/orbit/analytics?${params}`)
-    const json = await res.json()
-    setData(json)
-    setLoading(false)
+    try {
+      const res = await fetch(`/api/admin/orbit/analytics?${params}`)
+      const json = await res.json()
+      if (!res.ok) { setData(null); return }
+      setData(json)
+    } catch { setData(null) }
+    finally { setLoading(false) }
   }
 
   useEffect(() => { load() }, [days, filterSource])
@@ -68,8 +71,8 @@ export default function AnalyticsPage() {
   }
 
   const fmtNum = (n: number) => n >= 1000 ? `${(n / 1000).toFixed(1)}k` : String(n)
-  const fmtPct = (n: number | null) => n !== null ? `${(n * 100).toFixed(1)}%` : '—'
-  const fmtPos = (n: number | null) => n !== null ? n.toFixed(1) : '—'
+  const fmtPct = (n: number | null | undefined) => n != null ? `${(n * 100).toFixed(1)}%` : '—'
+  const fmtPos = (n: number | null | undefined) => n != null ? n.toFixed(1) : '—'
 
   return (
     <div className="space-y-6">
