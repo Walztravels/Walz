@@ -5,7 +5,7 @@ import {
   Mail, Send, Edit3, Clock, Inbox, FolderOpen,
   Hotel, Users, Map, FileText, Settings, ChevronDown,
   X, Plus, RefreshCw, Loader2, CheckCircle, AlertCircle,
-  Sparkles, Eye, Reply,
+  Sparkles, Eye, Reply, Paperclip, Trash2,
 } from 'lucide-react'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -300,6 +300,11 @@ export default function EmailHubPage() {
   const [showSuggestions,     setShowSuggestions]     = useState(false)
   const contactDebounce = useRef<ReturnType<typeof setTimeout> | null>(null)
 
+  // Attachments
+  interface AttachmentFile { filename: string; content: string; sizeKb: number }
+  const [attachments,    setAttachments]    = useState<AttachmentFile[]>([])
+  const fileInputRef = useRef<HTMLInputElement>(null)
+
   // Reply
   const [replyBody, setReplyBody] = useState('')
   const [replying,  setReplying]  = useState(false)
@@ -471,14 +476,15 @@ export default function EmailHubPage() {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
         body:    JSON.stringify({
-          to:       toList,
-          cc:       compose.cc  ? [compose.cc]  : undefined,
-          bcc:      compose.bcc ? [compose.bcc] : undefined,
-          subject:  compose.subject,
-          bodyText: compose.body,
-          category: compose.category,
-          refType:  compose.refType || undefined,
-          refId:    compose.refId   || undefined,
+          to:          toList,
+          cc:          compose.cc  ? [compose.cc]  : undefined,
+          bcc:         compose.bcc ? [compose.bcc] : undefined,
+          subject:     compose.subject,
+          bodyText:    compose.body,
+          category:    compose.category,
+          refType:     compose.refType || undefined,
+          refId:       compose.refId   || undefined,
+          attachments: attachments.length > 0 ? attachments : undefined,
         }),
       })
       const data = await res.json()
@@ -531,10 +537,30 @@ export default function EmailHubPage() {
     }
   }
 
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files ?? [])
+    files.forEach(file => {
+      const reader = new FileReader()
+      reader.onload = ev => {
+        const dataUrl = ev.target?.result as string
+        // dataUrl is "data:<mime>;base64,<content>" — strip the prefix
+        const base64 = dataUrl.split(',')[1]
+        setAttachments(prev => [
+          ...prev,
+          { filename: file.name, content: base64, sizeKb: Math.round(file.size / 1024) },
+        ])
+      }
+      reader.readAsDataURL(file)
+    })
+    // Reset input so the same file can be re-added after removal
+    if (fileInputRef.current) fileInputRef.current.value = ''
+  }
+
   const resetCompose = () => {
     setCompose({ to: [], toInput: '', cc: '', bcc: '', subject: '', body: '', category: 'sent', refType: '', refId: '', showCc: false })
     setJadePrompt('')
     setShowTemplates(false)
+    setAttachments([])
   }
 
   // ── Render ──────────────────────────────────────────────────────────────────
@@ -844,6 +870,43 @@ export default function EmailHubPage() {
                   rows={10}
                   className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2.5 text-sm text-gray-200 placeholder-gray-600 focus:outline-none focus:border-indigo-500 font-mono leading-relaxed resize-none"
                 />
+              </div>
+
+              {/* Attachments */}
+              <div>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  multiple
+                  className="hidden"
+                  onChange={handleFileSelect}
+                />
+                <button
+                  type="button"
+                  onClick={() => fileInputRef.current?.click()}
+                  className="flex items-center gap-1.5 text-xs text-gray-400 hover:text-gray-200 transition-colors"
+                >
+                  <Paperclip size={13} />
+                  Attach files
+                </button>
+                {attachments.length > 0 && (
+                  <div className="mt-2 space-y-1.5">
+                    {attachments.map((att, i) => (
+                      <div key={i} className="flex items-center gap-2 bg-gray-800 rounded-lg px-3 py-2">
+                        <Paperclip size={12} className="text-gray-500 shrink-0" />
+                        <span className="text-xs text-gray-300 truncate flex-1">{att.filename}</span>
+                        <span className="text-xs text-gray-500 shrink-0">{att.sizeKb} KB</span>
+                        <button
+                          type="button"
+                          onClick={() => setAttachments(prev => prev.filter((_, j) => j !== i))}
+                          className="text-gray-600 hover:text-red-400 transition-colors"
+                        >
+                          <Trash2 size={12} />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
 
               {/* Jade AI section */}

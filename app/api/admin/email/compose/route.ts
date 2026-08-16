@@ -7,21 +7,26 @@ import { buildEmailHtml } from '@/lib/email-hub'
 
 export const dynamic = 'force-dynamic'
 
-// ── POST /api/admin/email/compose ────────────────────────────────────────────
+interface AttachmentInput {
+  filename: string
+  content:  string   // base64-encoded file content
+}
+
 export async function POST(req: NextRequest) {
   const session = await getAdminSession()
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const body = await req.json().catch(() => ({})) as {
-    to:        string[]
-    cc?:       string[]
-    bcc?:      string[]
-    subject:   string
-    bodyText:  string
-    category?: string
-    refType?:  string
-    refId?:    string
-    threadId?: string
+    to:           string[]
+    cc?:          string[]
+    bcc?:         string[]
+    subject:      string
+    bodyText:     string
+    category?:    string
+    refType?:     string
+    refId?:       string
+    threadId?:    string
+    attachments?: AttachmentInput[]
   }
 
   if (!body.to?.length || !body.subject || !body.bodyText) {
@@ -32,24 +37,37 @@ export async function POST(req: NextRequest) {
   }
 
   const trackingId = randomUUID()
-  const staffName  = session.name  || session.email
-  const staffRole  = session.role  || 'Staff'
 
-  const html = buildEmailHtml(body.bodyText, staffName, staffRole, trackingId)
+  // Build staff object for the signature
+  const staff = {
+    staffName:  session.name  || session.email,
+    staffRole:  session.roleTitle || 'Travel Consultant',
+    staffEmail: session.email,
+  }
+
+  const html = buildEmailHtml(body.bodyText, staff, trackingId)
 
   // ── Step 1: Send via Resend ────────────────────────────────────────────────
   let resendId: string | null = null
   try {
-    const resend   = getResend()
+    const resend = getResend()
+
+    // Build Resend attachments from base64 input
+    const attachments = (body.attachments ?? []).map(a => ({
+      filename: a.filename,
+      content:  Buffer.from(a.content, 'base64'),
+    }))
+
     const sendResp = await resend.emails.send({
-      from:     'Walz Travels <bookings@walztravels.com>',
-      replyTo:  'replies@inbound.walztravels.com',
-      to:       body.to,
-      cc:       body.cc  ?? [],
-      bcc:      body.bcc ?? [],
-      subject:  body.subject,
+      from:        'Walz Travels <bookings@walztravels.com>',
+      replyTo:     'bookings@walztravels.com',
+      to:          body.to,
+      cc:          body.cc  ?? [],
+      bcc:         body.bcc ?? [],
+      subject:     body.subject,
       html,
-      text:     body.bodyText,
+      text:        body.bodyText,
+      ...(attachments.length > 0 && { attachments }),
     })
 
     if ((sendResp as { error?: { message?: string } }).error) {
@@ -84,7 +102,7 @@ export async function POST(req: NextRequest) {
             threadId:   body.threadId,
             direction:  'out',
             from:       session.email,
-            fromName:   staffName,
+            fromName:   staff.staffName,
             to:         body.to,
             cc:         body.cc  ?? [],
             bcc:        body.bcc ?? [],
@@ -117,7 +135,7 @@ export async function POST(req: NextRequest) {
           threadId:   thread.id,
           direction:  'out',
           from:       session.email,
-          fromName:   staffName,
+          fromName:   staff.staffName,
           to:         body.to,
           cc:         body.cc  ?? [],
           bcc:        body.bcc ?? [],
@@ -135,7 +153,6 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ thread, message }, { status: 201 })
   } catch (err) {
-    // Email was sent successfully — DB save failed. Log it but don't hide the send success.
     console.error('[email/compose] DB save failed (email was sent — resendId:', resendId, ')', err)
     const msg = err instanceof Error ? err.message : String(err)
     return NextResponse.json(

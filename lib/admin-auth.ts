@@ -37,6 +37,7 @@ export interface AdminSession {
   id:          string
   email:       string
   name:        string
+  roleTitle:   string   // free-text job title e.g. "Senior Travel Consultant"
   // ── RBAC ──────────────────────────────────────────────────────────────────
   role:        string   // actual RBAC role: super_admin | visa_officer | …
   staffRole:   string   // alias for role — backward compat for existing routes
@@ -97,6 +98,7 @@ export async function getAdminSession(): Promise<AdminSession | null> {
       id:          true,
       email:       true,
       name:        true,
+      roleTitle:   true,
       role:        true,
       permissions: true,
       branch:      true,
@@ -113,6 +115,7 @@ export async function getAdminSession(): Promise<AdminSession | null> {
       id:          'env-admin',
       email:       decoded.email,
       name:        decoded.email.split('@')[0],
+      roleTitle:   'Administrator',
       role:        'super_admin',
       staffRole:   'super_admin',
       permissions: {},
@@ -139,6 +142,7 @@ export async function getAdminSession(): Promise<AdminSession | null> {
     id:          staff.id,
     email:       staff.email,
     name:        staff.name,
+    roleTitle:   staff.roleTitle  ?? 'Travel Consultant',
     role:        staff.role,
     staffRole:   staff.role,
     permissions: mergedPerms,

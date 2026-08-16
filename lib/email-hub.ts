@@ -1,3 +1,5 @@
+import { buildEmailSignature, type StaffSignatureData } from '@/lib/email/signature'
+
 // ─── Email Hub utilities ───────────────────────────────────────────────────────
 
 export const CATEGORY_LABELS: Record<string, string> = {
@@ -18,78 +20,70 @@ export const STATUS_COLORS: Record<string, string> = {
   resolved: 'bg-green-500/20 text-green-300',
 }
 
-// ─── Signature block ────────────────────────────────────────────────────────
-
-export function buildSignatureHtml(staffName: string, staffRole: string): string {
-  return `
-<table cellpadding="0" cellspacing="0" border="0" style="margin-top:24px;border-top:2px solid #C9A84C;padding-top:16px;font-family:Arial,sans-serif;">
-  <tr>
-    <td>
-      <p style="margin:0;font-size:15px;font-weight:700;color:#0B1F3A;">${staffName}</p>
-      <p style="margin:4px 0 0;font-size:13px;color:#666;">${staffRole} &bull; Walz Travels</p>
-      <p style="margin:6px 0 0;font-size:12px;color:#888;">
-        <a href="https://walztravels.com" style="color:#C9A84C;text-decoration:none;">walztravels.com</a>
-        &nbsp;|&nbsp;bookings@walztravels.com
-      </p>
-      <p style="margin:6px 0 0;font-size:11px;color:#aaa;font-style:italic;">
-        This email and any attachments are confidential and intended solely for the named recipient.
-      </p>
-    </td>
-  </tr>
-</table>
-  `.trim()
-}
-
 // ─── Full branded email HTML wrapper ────────────────────────────────────────
 
 export function buildEmailHtml(
   bodyText: string,
-  staffName: string,
-  staffRole: string,
+  staff: StaffSignatureData,
   trackingId?: string,
 ): string {
   const trackingPixel = trackingId
     ? `<img src="https://walztravels.com/api/email/track/${trackingId}" width="1" height="1" alt="" style="display:block;" />`
     : ''
 
+  // Escape each line for safe HTML insertion (basic — body is staff-authored, not user-submitted)
   const bodyHtml = bodyText
     .split('\n')
-    .map(line => line.trim() === '' ? '<br/>' : `<p style="margin:0 0 12px;color:#1a1a1a;font-size:15px;line-height:1.6;">${line}</p>`)
-    .join('')
+    .map(line =>
+      line.trim() === ''
+        ? '<br />'
+        : `<p style="margin:0 0 14px 0;color:#1a1a1a;font-size:15px;line-height:1.65;">${line.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')}</p>`,
+    )
+    .join('\n')
+
+  const signatureHtml = buildEmailSignature(staff)
 
   return `<!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta http-equiv="X-UA-Compatible" content="IE=edge" />
 </head>
-<body style="margin:0;padding:0;background:#f4f4f4;font-family:Arial,Helvetica,sans-serif;">
-  <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#f4f4f4;padding:32px 0;">
+<body style="margin:0;padding:0;background:#f0f0f0;font-family:Arial,Helvetica,sans-serif;">
+  <table width="100%" cellpadding="0" cellspacing="0" border="0" style="background:#f0f0f0;padding:32px 16px;">
     <tr>
       <td align="center">
-        <table width="600" cellpadding="0" cellspacing="0" border="0" style="max-width:600px;width:100%;background:#ffffff;border-radius:8px;overflow:hidden;box-shadow:0 2px 8px rgba(0,0,0,0.08);">
+        <table width="600" cellpadding="0" cellspacing="0" border="0" style="max-width:600px;width:100%;background:#ffffff;">
 
-          <!-- Header -->
+          <!-- Navy header with logo -->
           <tr>
-            <td style="background:#0B1F3A;padding:28px 40px;">
-              <h1 style="margin:0;font-size:24px;font-weight:800;color:#C9A84C;letter-spacing:2px;text-transform:uppercase;">WALZ TRAVELS</h1>
-              <p style="margin:4px 0 0;font-size:12px;color:#8ca0b8;letter-spacing:1px;text-transform:uppercase;">Premium Travel Services</p>
+            <td style="background:#0B1F3A;padding:24px 40px;text-align:center;">
+              <img
+                src="https://www.walztravels.com/walz-logo.png"
+                width="150"
+                height="auto"
+                alt="Walz Travels"
+                style="display:block;margin:0 auto;border:0;max-width:150px;"
+              />
             </td>
           </tr>
 
           <!-- Body -->
           <tr>
-            <td style="padding:36px 40px 24px;">
+            <td style="padding:36px 40px 28px 40px;">
               ${bodyHtml}
-              ${buildSignatureHtml(staffName, staffRole)}
+              ${signatureHtml}
             </td>
           </tr>
 
           <!-- Gold footer bar -->
           <tr>
-            <td style="background:#C9A84C;padding:12px 40px;">
-              <p style="margin:0;font-size:11px;color:#0B1F3A;text-align:center;">
+            <td style="background:#C9A84C;padding:14px 40px;text-align:center;">
+              <p style="margin:0;font-size:11px;color:#0B1F3A;font-family:Arial,Helvetica,sans-serif;">
                 &copy; ${new Date().getFullYear()} Walz Travels Ltd. All rights reserved.
+                &nbsp;&middot;&nbsp;
+                <a href="https://walztravels.com" style="color:#0B1F3A;text-decoration:none;">walztravels.com</a>
               </p>
             </td>
           </tr>
