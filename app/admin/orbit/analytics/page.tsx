@@ -146,7 +146,7 @@ export default function AnalyticsPage() {
       </div>
 
       {/* Top pages table */}
-      {data && data.rows.length > 0 && (
+      {data && data.rows?.length > 0 && (
         <div>
           <p className="text-sm font-semibold text-white mb-3">Top Pages</p>
           <div className="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden">
@@ -162,7 +162,7 @@ export default function AnalyticsPage() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-gray-800">
-                {data.rows.slice(0, 50).map((row, i) => (
+                {(data.rows ?? []).slice(0, 50).map((row, i) => (
                   <tr key={i} className="hover:bg-gray-800/40">
                     <td className="px-4 py-2.5 text-xs text-indigo-300 font-mono truncate max-w-[280px]">
                       <a href={row.pageUrl} target="_blank" rel="noreferrer" className="hover:underline">{row.pageUrl}</a>

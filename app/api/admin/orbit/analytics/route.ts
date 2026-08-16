@@ -44,5 +44,35 @@ export async function GET(req: NextRequest) {
     ? snapshots.reduce((sum, s) => sum + (s.ctr ?? 0), 0) / snapshots.filter(s => s.ctr).length
     : null
 
-  return NextResponse.json({ snapshots, totals: { ...totals, avgPosition, avgCtr } })
+  // Group snapshots by pageUrl and source for the top-pages table
+  const pageMap = new Map<string, { pageUrl: string; source: string; clicks: number; impressions: number; ctr: number | null; position: number | null }>()
+  for (const s of snapshots) {
+    const key = `${s.pageUrl}__${s.source}`
+    const existing = pageMap.get(key)
+    if (existing) {
+      existing.clicks      += s.clicks ?? 0
+      existing.impressions += s.impressions ?? 0
+    } else {
+      pageMap.set(key, {
+        pageUrl:     s.pageUrl,
+        source:      s.source,
+        clicks:      s.clicks ?? 0,
+        impressions: s.impressions ?? 0,
+        ctr:         s.ctr ?? null,
+        position:    s.position ?? null,
+      })
+    }
+  }
+  const rows = Array.from(pageMap.values()).sort((a, b) => b.clicks - a.clicks)
+
+  return NextResponse.json({
+    clicks:      totals.clicks,
+    impressions: totals.impressions,
+    sessions:    totals.sessions,
+    conversions: totals.conversions,
+    spend:       0,
+    avgPosition,
+    avgCtr,
+    rows,
+  })
 }
