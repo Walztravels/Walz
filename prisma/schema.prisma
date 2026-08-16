@@ -530,6 +530,7 @@ model Staff {
   breakStartHour    Int     @default(13)             // Local hour break begins  (13=1PM Lagos, 12=12PM Accra)
   breakEndHour      Int     @default(14)             // Local hour break ends    (14=2PM Lagos, 13=1PM  Accra)
   deductionOverride Float?                           // Per-staff override for deductionPerMiss (stored in local currency)
+  sendingEmail  String?                              // Role-facing outbound address shown in From + signature (e.g. reservations@, visa@). Falls back to default if null.
 
   activityLogs ActivityLog[]
   checkIns     CheckInRecord[]

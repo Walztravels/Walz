@@ -38,11 +38,15 @@ export async function POST(req: NextRequest) {
 
   const trackingId = randomUUID()
 
+  // sendingEmail is the role-facing outbound address (reservations@, visa@, etc.)
+  // It's what suppliers/hotels see in From and the signature — never the login email.
+  const fromAddress = session.sendingEmail ?? 'bookings@walztravels.com'
+
   // Build staff object for the signature
   const staff = {
-    staffName:  session.name  || session.email,
+    staffName:  session.name || session.email,
     staffRole:  session.roleTitle || 'Travel Consultant',
-    staffEmail: session.email,
+    staffEmail: fromAddress,   // signature shows the sending address, not the login email
   }
 
   const html = buildEmailHtml(body.bodyText, staff, trackingId)
@@ -59,8 +63,8 @@ export async function POST(req: NextRequest) {
     }))
 
     const sendResp = await resend.emails.send({
-      from:        'Walz Travels <bookings@walztravels.com>',
-      replyTo:     'bookings@walztravels.com',
+      from:        `Walz Travels <${fromAddress}>`,
+      replyTo:     fromAddress,
       to:          body.to,
       cc:          body.cc  ?? [],
       bcc:         body.bcc ?? [],
@@ -101,7 +105,7 @@ export async function POST(req: NextRequest) {
           data: {
             threadId:   body.threadId,
             direction:  'out',
-            from:       session.email,
+            from:       fromAddress,
             fromName:   staff.staffName,
             to:         body.to,
             cc:         body.cc  ?? [],

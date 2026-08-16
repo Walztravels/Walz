@@ -7,8 +7,9 @@ export const BUSINESS = {
     globalWhatsapp:  { display: '+1 231 790 2336', e164: '12317902336' },
     nigeriaWhatsapp: { display: '+234 707 769 1701', e164: '2347077691701' },
     emergencyPhone:  { display: '+1 984 388 0110', e164: '19843880110' },
-    email:           'contact@walztravels.com',
-    visaEmail:       'visa@walztravels.com',
+    email:              'contact@walztravels.com',
+    reservationsEmail:  'reservations@walztravels.com',
+    visaEmail:          'visa@walztravels.com',
   },
   offices: [
     { city: 'London',  country: 'United Kingdom',        active: true },
