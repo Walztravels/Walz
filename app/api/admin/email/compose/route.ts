@@ -37,8 +37,9 @@ export async function POST(req: NextRequest) {
 
   const html = buildEmailHtml(body.bodyText, staffName, staffRole, trackingId)
 
+  // ── Step 1: Send via Resend ────────────────────────────────────────────────
+  let resendId: string | null = null
   try {
-    // ── Send via Resend ───────────────────────────────────────────────────────
     const resend   = getResend()
     const sendResp = await resend.emails.send({
       from:     'Walz Travels <bookings@walztravels.com>',
@@ -51,14 +52,28 @@ export async function POST(req: NextRequest) {
       text:     body.bodyText,
     })
 
-    const resendId = (sendResp as { data?: { id?: string } }).data?.id ?? null
+    if ((sendResp as { error?: { message?: string } }).error) {
+      const resendErr = (sendResp as { error?: { message?: string } }).error
+      console.error('[email/compose] Resend error', resendErr)
+      return NextResponse.json(
+        { error: `Resend error: ${resendErr?.message ?? 'Unknown error'}` },
+        { status: 502 },
+      )
+    }
 
-    // ── Persist thread + message ──────────────────────────────────────────────
+    resendId = (sendResp as { data?: { id?: string } }).data?.id ?? null
+  } catch (err) {
+    console.error('[email/compose] Resend threw', err)
+    const msg = err instanceof Error ? err.message : 'Resend unavailable'
+    return NextResponse.json({ error: `Failed to send: ${msg}` }, { status: 502 })
+  }
+
+  // ── Step 2: Persist thread + message ───────────────────────────────────────
+  try {
     let thread
     let message
 
     if (body.threadId) {
-      // Add to existing thread
       ;[thread, message] = await prisma.$transaction([
         prisma.emailThread.update({
           where: { id: body.threadId },
@@ -85,7 +100,6 @@ export async function POST(req: NextRequest) {
         }),
       ])
     } else {
-      // Create new thread + message
       thread = await prisma.emailThread.create({
         data: {
           subject:      body.subject,
@@ -121,7 +135,12 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({ thread, message }, { status: 201 })
   } catch (err) {
-    console.error('[email/compose POST]', err)
-    return NextResponse.json({ error: 'Failed to send email' }, { status: 500 })
+    // Email was sent successfully — DB save failed. Log it but don't hide the send success.
+    console.error('[email/compose] DB save failed (email was sent — resendId:', resendId, ')', err)
+    const msg = err instanceof Error ? err.message : String(err)
+    return NextResponse.json(
+      { error: `Email sent but failed to save to inbox: ${msg}` },
+      { status: 500 },
+    )
   }
 }
