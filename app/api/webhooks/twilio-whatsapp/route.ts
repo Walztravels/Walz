@@ -31,6 +31,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
 import { normalisePhone } from '@/lib/twilio-whatsapp'
 import { ACTIVE_VISA_STATUSES } from '@/app/api/admin/visa-applications/[id]/whatsapp/route'
+import { sendVisaWhatsAppNotification } from '@/lib/email-staff-notification'
 
 export const dynamic = 'force-dynamic'
 
@@ -70,7 +71,14 @@ async function routeInboundWhatsApp(payload: {
   body:       string
   twilioSid?: string
 }) {
-  let activeApp: { id: string; whatsappBsuid: string | null } | null = null
+  let activeApp: {
+    id: string
+    whatsappBsuid: string | null
+    firstName: string | null
+    lastName: string | null
+    phone: string | null
+    assignedTo: string | null
+  } | null = null
 
   // Step 1 — match by normalised phone number
   if (payload.fromPhone) {
@@ -83,7 +91,7 @@ async function routeInboundWhatsApp(payload: {
         messages:  { some: {} }, // thread must already exist (initiated by staff)
       },
       orderBy: { updatedAt: 'desc' },
-      select:  { id: true, whatsappBsuid: true },
+      select:  { id: true, whatsappBsuid: true, firstName: true, lastName: true, phone: true, assignedTo: true },
     })
   }
 
@@ -93,11 +101,9 @@ async function routeInboundWhatsApp(payload: {
       where: {
         whatsappBsuid: payload.bsuid,
         status:        { in: ACTIVE_VISA_STATUSES },
-        // Note: no messages.some{} guard here — if we have a stored BSUID,
-        // the match is explicit regardless of whether a thread was started.
       },
       orderBy: { updatedAt: 'desc' },
-      select:  { id: true, whatsappBsuid: true },
+      select:  { id: true, whatsappBsuid: true, firstName: true, lastName: true, phone: true, assignedTo: true },
     })
   }
 
@@ -125,6 +131,24 @@ async function routeInboundWhatsApp(payload: {
     await prisma.visaApplication.update({
       where: { id: activeApp.id },
       data:  { whatsappBsuid: payload.bsuid },
-    }).catch(() => {}) // non-fatal
+    }).catch(() => {})
+  }
+
+  // Notify the assigned staff member
+  if (activeApp.assignedTo) {
+    prisma.staff.findUnique({
+      where:  { id: activeApp.assignedTo },
+      select: { name: true, email: true },
+    }).then(staff => {
+      if (!staff) return
+      return sendVisaWhatsAppNotification({
+        agentName:     staff.name,
+        agentEmail:    staff.email,
+        clientName:    [activeApp!.firstName, activeApp!.lastName].filter(Boolean).join(' ') || 'Visa client',
+        clientPhone:   activeApp!.phone ?? payload.fromPhone ?? 'unknown',
+        applicationId: activeApp!.id,
+        messagePreview: payload.body,
+      })
+    }).catch(() => {})
   }
 }
