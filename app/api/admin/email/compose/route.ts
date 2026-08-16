@@ -44,12 +44,13 @@ export async function POST(req: NextRequest) {
 
   // Build staff object for the signature
   const staff = {
-    staffName:  session.name || session.email,
-    staffRole:  session.roleTitle || 'Travel Consultant',
-    staffEmail: fromAddress,   // signature shows the sending address, not the login email
+    staffName:        session.name || session.email,
+    staffRole:        session.roleTitle || 'Travel Consultant',
+    signatureTagline: session.signatureTagline ?? null,
+    staffEmail:       fromAddress,
   }
 
-  const html = buildEmailHtml(body.bodyText, staff, trackingId)
+  const html = await buildEmailHtml(body.bodyText, staff, trackingId)
 
   // ── Step 1: Send via Resend ────────────────────────────────────────────────
   let resendId: string | null = null

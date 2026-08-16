@@ -1,4 +1,6 @@
 import { buildEmailSignature, type StaffSignatureData } from '@/lib/email/signature'
+import { ROLE_HIERARCHY }                                from '@/lib/permissions'
+import prisma                                            from '@/lib/db'
 
 // ─── Email Hub utilities ───────────────────────────────────────────────────────
 
@@ -20,13 +22,39 @@ export const STATUS_COLORS: Record<string, string> = {
   resolved: 'bg-green-500/20 text-green-300',
 }
 
+// ─── Email Hub visibility ────────────────────────────────────────────────────
+
+/**
+ * Returns the set of staff IDs whose email the viewer is allowed to see:
+ * their own ID plus the IDs of every staff member whose role sits strictly
+ * below the viewer's rank in ROLE_HIERARCHY.
+ *
+ * Roles outside the 5-tier hierarchy (e.g. visa_officer) have rank -1, so
+ * they can only see their own email and nobody else can see theirs via this
+ * system (same as coordinator behaviour for hierarchy purposes).
+ */
+export async function getVisibleSentByIds(
+  viewerRole: string,
+  viewerId:   string,
+): Promise<string[]> {
+  const viewerRank   = (ROLE_HIERARCHY as string[]).indexOf(viewerRole)
+  const visibleRoles = (ROLE_HIERARCHY as string[]).filter((_, i) => i < viewerRank)
+
+  const staff = await prisma.staff.findMany({
+    where:  { role: { in: visibleRoles } },
+    select: { id: true },
+  })
+
+  return [viewerId, ...staff.map(s => s.id)]
+}
+
 // ─── Full branded email HTML wrapper ────────────────────────────────────────
 
-export function buildEmailHtml(
+export async function buildEmailHtml(
   bodyText: string,
   staff: StaffSignatureData,
   trackingId?: string,
-): string {
+): Promise<string> {
   const trackingPixel = trackingId
     ? `<img src="https://walztravels.com/api/email/track/${trackingId}" width="1" height="1" alt="" style="display:block;" />`
     : ''
@@ -41,7 +69,7 @@ export function buildEmailHtml(
     )
     .join('\n')
 
-  const signatureHtml = buildEmailSignature(staff)
+  const signatureHtml = await buildEmailSignature(staff)
 
   return `<!DOCTYPE html>
 <html lang="en">

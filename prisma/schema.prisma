@@ -530,7 +530,8 @@ model Staff {
   breakStartHour    Int     @default(13)             // Local hour break begins  (13=1PM Lagos, 12=12PM Accra)
   breakEndHour      Int     @default(14)             // Local hour break ends    (14=2PM Lagos, 13=1PM  Accra)
   deductionOverride Float?                           // Per-staff override for deductionPerMiss (stored in local currency)
-  sendingEmail  String?                              // Role-facing outbound address shown in From + signature (e.g. reservations@, visa@). Falls back to default if null.
+  sendingEmail      String?                          // Role-facing outbound address shown in From + signature (e.g. reservations@, visa@). Falls back to default if null.
+  signatureTagline  String?                          // Optional override for the sub-name line in email signature. Falls back to roleTitle if unset.
 
   activityLogs ActivityLog[]
   checkIns     CheckInRecord[]
@@ -3766,4 +3767,15 @@ model EmailMessage {
   @@index([threadId, sentAt])
   @@index([resendId])
   @@index([trackingId])
+}
+
+model SignatureSettings {
+  id           String   @id @default("singleton")
+  logoUrl      String   @default("https://www.walztravels.com/walz-logo.png")
+  accentColor  String   @default("#C9A84C")
+  brandColor   String   @default("#0B1F3A")
+  officeCities String[] @default(["London", "Toronto", "Dubai", "Lagos", "Accra"])
+  footerNote   String   @default("")
+  updatedAt    DateTime @updatedAt
+  updatedBy    String?
 }

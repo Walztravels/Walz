@@ -28,15 +28,17 @@ type RbacRole =
   | 'customer_support'
 
 interface StaffMember {
-  id:           string
-  name:         string
-  email:        string
-  roleTitle:    string
-  role:         RbacRole
-  portalAccess: boolean
-  isActive:     boolean
-  lastLoginAt:  string | null
-  createdAt:    string
+  id:               string
+  name:             string
+  email:            string
+  roleTitle:        string
+  sendingEmail:     string | null
+  signatureTagline: string | null
+  role:             RbacRole
+  portalAccess:     boolean
+  isActive:         boolean
+  lastLoginAt:      string | null
+  createdAt:        string
 }
 
 interface ActivityEntry {
@@ -193,10 +195,12 @@ function StaffModal({
   const { role: callerRole } = useStaffPermissions()
   const isSuperAdmin = callerRole === 'super_admin'
 
-  const [name,         setName]         = useState(initial?.name         ?? '')
-  const [email,        setEmail]        = useState(initial?.email        ?? '')
-  const [roleTitle,    setRoleTitle]    = useState(initial?.roleTitle    ?? '')
-  const [role,         setRole]         = useState<RbacRole>(
+  const [name,             setName]             = useState(initial?.name             ?? '')
+  const [email,            setEmail]            = useState(initial?.email            ?? '')
+  const [roleTitle,        setRoleTitle]        = useState(initial?.roleTitle        ?? '')
+  const [sendingEmail,     setSendingEmail]     = useState(initial?.sendingEmail     ?? '')
+  const [signatureTagline, setSignatureTagline] = useState(initial?.signatureTagline ?? '')
+  const [role,             setRole]             = useState<RbacRole>(
     (initial?.role as RbacRole) ?? 'sales_rep'
   )
   const [portalAccess, setPortalAccess] = useState(initial?.portalAccess ?? false)
@@ -225,7 +229,7 @@ function StaffModal({
         const res = await fetch(`/api/admin/staff/${initial!.id}`, {
           method:  'PUT',
           headers: { 'Content-Type': 'application/json' },
-          body:    JSON.stringify({ name, roleTitle, role, portalAccess }),
+          body:    JSON.stringify({ name, roleTitle, sendingEmail, signatureTagline, role, portalAccess }),
         })
         const d = await res.json()
         if (!res.ok) { setError(d.error ?? 'Failed to update'); return }
@@ -305,6 +309,35 @@ function StaffModal({
             />
             <p className="text-xs text-gray-400 mt-1">Free text — type any job title</p>
           </div>
+
+          {/* Sending email + signature tagline (edit only) */}
+          {isEdit && (
+            <>
+              <div>
+                <label className="block text-xs font-semibold text-gray-500 mb-1.5 uppercase tracking-wider">
+                  Sending Address
+                </label>
+                <input
+                  type="email"
+                  value={sendingEmail} onChange={e => setSendingEmail(e.target.value)}
+                  placeholder="e.g. reservations@walztravels.com"
+                  className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-[#C9A84C] focus:ring-1 focus:ring-[#C9A84C]"
+                />
+                <p className="text-xs text-gray-400 mt-1">From address used when this staff member sends email. Leave blank to use the default.</p>
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-gray-500 mb-1.5 uppercase tracking-wider">
+                  Signature Tagline <span className="normal-case font-normal">(optional)</span>
+                </label>
+                <input
+                  value={signatureTagline} onChange={e => setSignatureTagline(e.target.value)}
+                  placeholder="e.g. Visa &amp; Immigration Specialist"
+                  className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:border-[#C9A84C] focus:ring-1 focus:ring-[#C9A84C]"
+                />
+                <p className="text-xs text-gray-400 mt-1">Second line under the name in email signatures. Defaults to Job Title if blank.</p>
+              </div>
+            </>
+          )}
 
           {/* Staff Role */}
           <div>

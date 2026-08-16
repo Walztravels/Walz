@@ -136,6 +136,7 @@ export async function GET() {
     orderBy: [{ isActive: 'desc' }, { createdAt: 'asc' }],
     select: {
       id: true, name: true, email: true, roleTitle: true,
+      sendingEmail: true, signatureTagline: true,
       role: true, portalAccess: true, isActive: true,
       lastLoginAt: true, createdAt: true,
     },

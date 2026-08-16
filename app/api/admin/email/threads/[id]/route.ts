@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import prisma from '@/lib/db'
 import { getAdminSession } from '@/lib/admin-auth'
+import { getVisibleSentByIds } from '@/lib/email-hub'
 
 export const dynamic = 'force-dynamic'
 
@@ -13,8 +14,19 @@ export async function GET(
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   try {
-    const thread = await prisma.emailThread.findUnique({
-      where:   { id: params.id },
+    const visibleIds = await getVisibleSentByIds(session.staffRole, session.id)
+
+    // findFirst enforces visibility at the query level — if this viewer can't
+    // see the thread, it returns null (404) rather than 403, which avoids
+    // leaking whether the thread ID exists at all.
+    const thread = await prisma.emailThread.findFirst({
+      where: {
+        id: params.id,
+        OR: [
+          { messages: { some: { sentBy: { in: visibleIds } } } },
+          { messages: { none: { sentBy: { not: null } } } },
+        ],
+      },
       include: {
         messages: { orderBy: { sentAt: 'asc' } },
       },
@@ -53,6 +65,20 @@ export async function PATCH(
   }
 
   try {
+    // Verify visibility before allowing a write — same rule as the GET.
+    const visibleIds = await getVisibleSentByIds(session.staffRole, session.id)
+    const accessible = await prisma.emailThread.findFirst({
+      where: {
+        id: params.id,
+        OR: [
+          { messages: { some: { sentBy: { in: visibleIds } } } },
+          { messages: { none: { sentBy: { not: null } } } },
+        ],
+      },
+      select: { id: true },
+    })
+    if (!accessible) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+
     const thread = await prisma.emailThread.update({
       where: { id: params.id },
       data,

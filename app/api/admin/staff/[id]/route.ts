@@ -14,15 +14,17 @@ export async function GET(
   const staff = await prisma.staff.findUnique({
     where:  { id: params.id },
     select: {
-      id:          true,
-      name:        true,
-      email:       true,
-      role:        true,
-      roleTitle:   true,
-      branch:      true,
-      department:  true,
-      permissions: true,
-      isActive:    true,
+      id:               true,
+      name:             true,
+      email:            true,
+      role:             true,
+      roleTitle:        true,
+      sendingEmail:     true,
+      signatureTagline: true,
+      branch:           true,
+      department:       true,
+      permissions:      true,
+      isActive:         true,
     },
   })
 
@@ -69,7 +71,7 @@ export async function PUT(
     return NextResponse.json({ error: 'Cannot edit a Super Admin account' }, { status: 403 })
   }
 
-  const { name, roleTitle, role, portalAccess, isActive, checkInTracked } =
+  const { name, roleTitle, sendingEmail, signatureTagline, role, portalAccess, isActive, checkInTracked } =
     body as Record<string, string | boolean>
 
   if (role !== undefined) {
@@ -84,8 +86,10 @@ export async function PUT(
   }
 
   const updateData: Record<string, unknown> = {}
-  if (name         !== undefined) updateData.name         = String(name).trim()
-  if (roleTitle    !== undefined) updateData.roleTitle     = String(roleTitle).trim()
+  if (name             !== undefined) updateData.name             = String(name).trim()
+  if (roleTitle        !== undefined) updateData.roleTitle         = String(roleTitle).trim()
+  if (sendingEmail     !== undefined) updateData.sendingEmail      = String(sendingEmail).trim() || null
+  if (signatureTagline !== undefined) updateData.signatureTagline  = String(signatureTagline).trim() || null
   if (role         !== undefined) {
     updateData.role        = String(role)
     updateData.accessLevel = ROLE_TO_ACCESS[String(role)] ?? 'Sales'

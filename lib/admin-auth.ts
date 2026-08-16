@@ -34,11 +34,12 @@ interface JwtClaims {
 /** Full session object returned by getAdminSession() — includes DB fields */
 export interface AdminSession {
   // ── Identity ───────────────────────────────────────────────────────────────
-  id:           string
-  email:        string
-  name:         string
-  roleTitle:    string   // free-text job title e.g. "Senior Travel Consultant"
-  sendingEmail: string   // outbound From address (sendingEmail ?? 'bookings@walztravels.com')
+  id:               string
+  email:            string
+  name:             string
+  roleTitle:        string          // free-text job title e.g. "Senior Travel Consultant"
+  sendingEmail:     string          // outbound From address (sendingEmail ?? 'bookings@walztravels.com')
+  signatureTagline: string | null   // optional override for sub-name line in signature
   // ── RBAC ──────────────────────────────────────────────────────────────────
   role:        string   // actual RBAC role: super_admin | visa_officer | …
   staffRole:   string   // alias for role — backward compat for existing routes
@@ -96,16 +97,17 @@ export async function getAdminSession(): Promise<AdminSession | null> {
   const staff = await prisma.staff.findUnique({
     where:  { email: decoded.email },
     select: {
-      id:           true,
-      email:        true,
-      name:         true,
-      roleTitle:    true,
-      sendingEmail: true,
-      role:         true,
-      permissions:  true,
-      branch:       true,
-      department:   true,
-      isActive:     true,
+      id:               true,
+      email:            true,
+      name:             true,
+      roleTitle:        true,
+      sendingEmail:     true,
+      signatureTagline: true,
+      role:             true,
+      permissions:      true,
+      branch:           true,
+      department:       true,
+      isActive:         true,
     },
   })
 
@@ -114,12 +116,13 @@ export async function getAdminSession(): Promise<AdminSession | null> {
     if (!ALLOWED_EMAILS.includes(decoded.email.toLowerCase())) return null
 
     return {
-      id:           'env-admin',
-      email:        decoded.email,
-      name:         decoded.email.split('@')[0],
-      roleTitle:    'Administrator',
-      sendingEmail: 'bookings@walztravels.com',
-      role:         'super_admin',
+      id:               'env-admin',
+      email:            decoded.email,
+      name:             decoded.email.split('@')[0],
+      roleTitle:        'Administrator',
+      sendingEmail:     'bookings@walztravels.com',
+      signatureTagline: null,
+      role:             'super_admin',
       staffRole:   'super_admin',
       permissions: {},
       branch:      'nigeria',
@@ -142,12 +145,13 @@ export async function getAdminSession(): Promise<AdminSession | null> {
   const mergedPerms    = mergePermissions(roleDefaults, staffOverrides)
 
   return {
-    id:           staff.id,
-    email:        staff.email,
-    name:         staff.name,
-    roleTitle:    staff.roleTitle    ?? 'Travel Consultant',
-    sendingEmail: staff.sendingEmail ?? 'bookings@walztravels.com',
-    role:         staff.role,
+    id:               staff.id,
+    email:            staff.email,
+    name:             staff.name,
+    roleTitle:        staff.roleTitle        ?? 'Travel Consultant',
+    sendingEmail:     staff.sendingEmail     ?? 'bookings@walztravels.com',
+    signatureTagline: staff.signatureTagline ?? null,
+    role:             staff.role,
     staffRole:   staff.role,
     permissions: mergedPerms,
     branch:      staff.branch     ?? 'nigeria',

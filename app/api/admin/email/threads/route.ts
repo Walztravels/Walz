@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import prisma from '@/lib/db'
 import { getAdminSession } from '@/lib/admin-auth'
+import { getVisibleSentByIds } from '@/lib/email-hub'
 
 export const dynamic = 'force-dynamic'
 
@@ -15,7 +16,20 @@ export async function GET(req: NextRequest) {
   const search   = searchParams.get('search')   ?? ''
 
   try {
-    const where: Record<string, unknown> = { category, status }
+    // Resolve which staff IDs this viewer may see based on the role hierarchy.
+    // A thread is visible if the viewer (or someone below them) sent a message
+    // in it, or if the thread has no staff-sent messages at all (pure inbound).
+    const visibleIds = await getVisibleSentByIds(session.staffRole, session.id)
+
+    const where: Record<string, unknown> = {
+      category,
+      status,
+      OR: [
+        { messages: { some: { sentBy: { in: visibleIds } } } },
+        // Pure inbound threads (no staff sentBy) are visible to all staff.
+        { messages: { none: { sentBy: { not: null } } } },
+      ],
+    }
     if (search) {
       where.subject = { contains: search, mode: 'insensitive' }
     }

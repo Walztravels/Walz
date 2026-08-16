@@ -57,14 +57,12 @@ async function verifyAdminCookie(req: NextRequest): Promise<{
   }
 }
 
-/**
- * Role hierarchy — index = seniority (higher = more access).
- * Used for coarse "minimum role" checks in middleware.
- */
-const ROLE_HIERARCHY = ['sales_rep', 'coordinator', 'senior_manager', 'general_manager', 'super_admin']
+// Import canonical hierarchy so middleware and data layer always agree.
+// lib/permissions.ts has no Node.js imports — safe in Edge Runtime.
+import { ROLE_HIERARCHY } from '@/lib/permissions'
 
 function isAtLeast(userRole: string, minRole: string): boolean {
-  return ROLE_HIERARCHY.indexOf(userRole) >= ROLE_HIERARCHY.indexOf(minRole)
+  return (ROLE_HIERARCHY as string[]).indexOf(userRole) >= (ROLE_HIERARCHY as string[]).indexOf(minRole)
 }
 
 /**
