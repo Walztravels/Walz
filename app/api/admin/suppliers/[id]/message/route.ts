@@ -20,6 +20,10 @@ export async function GET(
   const messages = await prisma.supplierMessage.findMany({
     where:   { supplierId: params.id },
     orderBy: { sentAt: 'desc' },
+    select: {
+      id: true, subject: true, purpose: true, status: true, sentAt: true,
+      repliedAt: true, replySubject: true, replyBody: true, body: true,
+    },
   })
   return NextResponse.json({ messages })
 }
@@ -119,9 +123,10 @@ export async function POST(
 
     let logStatus = 'sent'
     let sendError: string | undefined
+    let resendMessageId: string | null = null
 
     try {
-      await sendSupplierMessage({ to: toEmail, subject: body.subject, body: body.messageBody })
+      resendMessageId = await sendSupplierMessage({ to: toEmail, subject: body.subject, body: body.messageBody })
     } catch (err) {
       logStatus  = 'failed'
       sendError  = err instanceof Error ? err.message : String(err)
@@ -129,13 +134,14 @@ export async function POST(
 
     const log = await prisma.supplierMessage.create({
       data: {
-        supplierId: params.id,
-        bookingId:  body.bookingId ?? null,
-        sentBy:     session.id,
-        subject:    body.subject,
-        body:       body.messageBody,
+        supplierId:      params.id,
+        bookingId:       body.bookingId ?? null,
+        sentBy:          session.id,
+        subject:         body.subject,
+        body:            body.messageBody,
         purpose,
-        status:     logStatus,
+        status:          logStatus,
+        resendMessageId: resendMessageId ?? undefined,
       },
     })
 

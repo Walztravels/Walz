@@ -13,6 +13,7 @@ interface Supplier {
 
 interface SupplierMessage {
   id: string; subject: string; purpose: string; status: string; sentAt: string
+  repliedAt: string | null; replySubject: string | null; replyBody: string | null; body: string
 }
 
 const EMPTY: Omit<Supplier, 'id' | 'createdAt'> = {
@@ -229,26 +230,48 @@ function MessagePanel({ supplier, bookingId, onClose }: {
             ) : history.length === 0 ? (
               <p className="text-xs text-gray-400 text-center py-4">No messages sent yet.</p>
             ) : (
-              <div className="space-y-2">
+              <div className="space-y-3">
                 {history.map(m => (
-                  <div key={m.id} className="bg-gray-50 rounded-xl p-3 flex items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <p className="text-xs font-semibold text-[#0B1F3A] truncate">{m.subject}</p>
-                      <p className="text-[11px] text-gray-500 mt-0.5">
-                        {PURPOSE_LABELS[m.purpose] ?? m.purpose} · {new Date(m.sentAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}
-                      </p>
+                  <div key={m.id} className="rounded-xl border border-gray-200 overflow-hidden">
+                    {/* Sent message row */}
+                    <div className="bg-gray-50 px-3 py-2.5 flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="text-xs font-semibold text-[#0B1F3A] truncate">{m.subject}</p>
+                        <p className="text-[11px] text-gray-500 mt-0.5">
+                          {PURPOSE_LABELS[m.purpose] ?? m.purpose} · {new Date(m.sentAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-2 shrink-0">
+                        <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full ${STATUS_COLORS[m.status] ?? 'bg-gray-100 text-gray-600'}`}>
+                          {m.status}
+                        </span>
+                        {m.status === 'sent' && (
+                          <button onClick={() => markReplied(m.id)} disabled={markingId === m.id}
+                            className="text-[11px] text-gray-400 hover:text-green-600 transition-colors">
+                            {markingId === m.id ? '…' : 'Mark replied'}
+                          </button>
+                        )}
+                      </div>
                     </div>
-                    <div className="flex items-center gap-2 shrink-0">
-                      <span className={`text-[11px] font-semibold px-2 py-0.5 rounded-full ${STATUS_COLORS[m.status] ?? 'bg-gray-100 text-gray-600'}`}>
-                        {m.status}
-                      </span>
-                      {m.status === 'sent' && (
-                        <button onClick={() => markReplied(m.id)} disabled={markingId === m.id}
-                          className="text-[11px] text-gray-400 hover:text-green-600 transition-colors">
-                          {markingId === m.id ? '…' : 'Mark replied'}
-                        </button>
-                      )}
-                    </div>
+                    {/* Reply thread — shown when hotel replied */}
+                    {m.replyBody && (
+                      <div className="bg-green-50 border-t border-green-100 px-3 py-2.5">
+                        <div className="flex items-center gap-1.5 mb-1.5">
+                          <span className="text-[10px] font-bold text-green-700 uppercase tracking-wide">Hotel replied</span>
+                          {m.repliedAt && (
+                            <span className="text-[10px] text-green-600">
+                              · {new Date(m.repliedAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })}
+                            </span>
+                          )}
+                        </div>
+                        {m.replySubject && m.replySubject !== m.subject && (
+                          <p className="text-[11px] font-semibold text-green-800 mb-1">{m.replySubject}</p>
+                        )}
+                        <p className="text-[11px] text-green-900 whitespace-pre-wrap leading-relaxed line-clamp-6">
+                          {m.replyBody}
+                        </p>
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>

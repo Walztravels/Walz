@@ -1912,20 +1912,24 @@ model Supplier {
 }
 
 model SupplierMessage {
-  id         String    @id @default(cuid())
-  supplierId String
-  supplier   Supplier  @relation(fields: [supplierId], references: [id])
-  bookingId  String?
-  sentBy     String
-  subject    String
-  body       String    @db.Text
-  purpose    String
-  status     String    @default("sent")
-  sentAt     DateTime  @default(now())
-  repliedAt  DateTime?
+  id              String    @id @default(cuid())
+  supplierId      String
+  supplier        Supplier  @relation(fields: [supplierId], references: [id])
+  bookingId       String?
+  sentBy          String
+  subject         String
+  body            String    @db.Text
+  purpose         String
+  status          String    @default("sent")
+  sentAt          DateTime  @default(now())
+  repliedAt       DateTime?
+  resendMessageId String?
+  replySubject    String?
+  replyBody       String?   @db.Text
 
   @@index([supplierId])
   @@index([bookingId])
+  @@index([resendMessageId])
 }
 
 model DocumentRequest {
