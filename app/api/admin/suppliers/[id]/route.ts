@@ -18,6 +18,7 @@ export async function PATCH(
       ...(body.name    !== undefined && { name:    String(body.name)    }),
       ...(body.type    !== undefined && { type:    String(body.type)    }),
       ...(body.contact !== undefined && { contact: body.contact ? String(body.contact) : null }),
+      ...(body.email   !== undefined && { email:   body.email   ? String(body.email)   : null }),
       ...(body.phone   !== undefined && { phone:   body.phone   ? String(body.phone)   : null }),
       ...(body.website !== undefined && { website: body.website ? String(body.website) : null }),
       ...(body.status  !== undefined && { status:  String(body.status)  }),

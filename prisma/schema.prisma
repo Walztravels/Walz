@@ -1897,16 +1897,35 @@ model ActivityBooking {
 }
 
 model Supplier {
-  id        String   @id @default(cuid())
+  id        String            @id @default(cuid())
   name      String
   type      String
   contact   String?
+  email     String?
   phone     String?
   website   String?
-  status    String   @default("active")
+  status    String            @default("active")
   notes     String?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt DateTime          @default(now())
+  updatedAt DateTime          @updatedAt
+  messages  SupplierMessage[]
+}
+
+model SupplierMessage {
+  id         String    @id @default(cuid())
+  supplierId String
+  supplier   Supplier  @relation(fields: [supplierId], references: [id])
+  bookingId  String?
+  sentBy     String
+  subject    String
+  body       String    @db.Text
+  purpose    String
+  status     String    @default("sent")
+  sentAt     DateTime  @default(now())
+  repliedAt  DateTime?
+
+  @@index([supplierId])
+  @@index([bookingId])
 }
 
 model DocumentRequest {
