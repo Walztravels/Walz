@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useRef } from 'react'
-import { Image as ImageIcon, Upload, Trash2, Copy, Check, Loader2, X, Tag, Link, ToggleLeft, ToggleRight, Plus } from 'lucide-react'
+import { Image as ImageIcon, Upload, Trash2, Copy, Check, Loader2, X, Tag, Link, ToggleLeft, ToggleRight, Plus, Download } from 'lucide-react'
 import { TAGS } from '@/lib/marketing-tags'
 
 type MediaItem = {
@@ -308,6 +308,14 @@ export default function MediaLibraryPage() {
                   >
                     {copied === item.id ? <Check className="w-4 h-4 text-green-500" /> : <Copy className="w-4 h-4" />}
                   </button>
+                  <a
+                    href={item.url}
+                    download={item.filename}
+                    className="w-8 h-8 bg-white rounded-lg flex items-center justify-center text-gray-700 hover:bg-[#0B1F3A] hover:text-white transition"
+                    title="Download"
+                  >
+                    <Download className="w-4 h-4" />
+                  </a>
                   <button
                     onClick={() => deleteMedia(item.id)}
                     className="w-8 h-8 bg-white rounded-lg flex items-center justify-center text-gray-700 hover:bg-red-500 hover:text-white transition"
