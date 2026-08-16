@@ -134,21 +134,37 @@ async function routeInboundWhatsApp(payload: {
     }).catch(() => {})
   }
 
-  // Notify the assigned staff member
-  if (activeApp.assignedTo) {
-    prisma.staff.findUnique({
-      where:  { id: activeApp.assignedTo },
-      select: { name: true, email: true },
-    }).then(staff => {
-      if (!staff) return
-      return sendVisaWhatsAppNotification({
-        agentName:     staff.name,
-        agentEmail:    staff.email,
-        clientName:    [activeApp!.firstName, activeApp!.lastName].filter(Boolean).join(' ') || 'Visa client',
-        clientPhone:   activeApp!.phone ?? payload.fromPhone ?? 'unknown',
-        applicationId: activeApp!.id,
+  // Notify assigned agent + all super_admin / general_manager staff
+  const clientName   = [activeApp!.firstName, activeApp!.lastName].filter(Boolean).join(' ') || 'Visa client'
+  const clientPhone  = activeApp!.phone ?? payload.fromPhone ?? 'unknown'
+  const appId        = activeApp!.id
+
+  prisma.staff.findMany({
+    where: {
+      isActive: true,
+      OR: [
+        { role: { in: ['super_admin', 'general_manager'] } },
+        ...(activeApp.assignedTo ? [{ id: activeApp.assignedTo }] : []),
+      ],
+    },
+    select: { id: true, name: true, email: true },
+  }).then(recipients => {
+    // dedupe by email in case assigned agent is also super_admin / GM
+    const seen  = new Set<string>()
+    const unique = recipients.filter(r => {
+      if (seen.has(r.email)) return false
+      seen.add(r.email)
+      return true
+    })
+    return Promise.all(unique.map(r =>
+      sendVisaWhatsAppNotification({
+        agentName:      r.name,
+        agentEmail:     r.email,
+        clientName,
+        clientPhone,
+        applicationId:  appId,
         messagePreview: payload.body,
       })
-    }).catch(() => {})
-  }
+    ))
+  }).catch(() => {})
 }
