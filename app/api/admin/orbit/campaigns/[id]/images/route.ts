@@ -36,19 +36,46 @@ export async function GET(
     orderBy: { createdAt: 'desc' },
   })
 
-  // Library matches: same destination + format, not already in this campaign
-  const libraryMatches = format && campaign.destination
+  // Library matches: orbit images by destination+format, plus uploaded design assets from marketing library
+  const orbitLibrary = format && campaign.destination
     ? await prisma.orbitMedia.findMany({
         where: {
           destination: { equals: campaign.destination, mode: 'insensitive' },
           format,
-          campaignId: null,      // not yet attached to a campaign
+          campaignId: null,
           status: { in: ['draft', 'approved'] },
         },
         orderBy: { createdAt: 'desc' },
         take: 6,
       })
     : []
+
+  // Also surface recently uploaded design assets from the marketing media library.
+  // These use the TAGS taxonomy (visa, flights, tours, destination, team, general, testimonial)
+  // rather than destination/format matching — flag in _fromMarketing so ImagesSection
+  // calls the from-marketing attach endpoint instead of the OrbitMedia attach endpoint.
+  const marketingUploads = await prisma.marketingMedia.findMany({
+    where: { uploadedBy: 'Design team' },
+    orderBy: { createdAt: 'desc' },
+    take: 6,
+  })
+
+  const libraryMatches = [
+    ...orbitLibrary,
+    ...marketingUploads.map(m => ({
+      id:           m.id,
+      source:       'uploaded',
+      publicUrl:    m.url,
+      format:       format ?? '1080x1350',
+      destination:  null,
+      prompt:       null,
+      altText:      m.altText ?? m.filename,
+      costUsd:      '0',
+      status:       'approved',
+      createdAt:    m.createdAt,
+      _fromMarketing: true,
+    })),
+  ]
 
   // Cap
   const settings = await prisma.orbitSettings.findUnique({ where: { id: 'singleton' } })

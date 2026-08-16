@@ -1,7 +1,8 @@
 'use client'
 
 import { useState, useEffect, useRef } from 'react'
-import { Image as ImageIcon, Upload, Trash2, Copy, Check, Loader2, X, Tag } from 'lucide-react'
+import { Image as ImageIcon, Upload, Trash2, Copy, Check, Loader2, X, Tag, Link, ToggleLeft, ToggleRight, Plus } from 'lucide-react'
+import { TAGS } from '@/lib/marketing-tags'
 
 type MediaItem = {
   id:        string
@@ -15,7 +16,13 @@ type MediaItem = {
   createdAt:  string
 }
 
-const TAGS = ['visa', 'flights', 'tours', 'testimonial', 'destination', 'team', 'general']
+type UploadLink = {
+  id:        string
+  token:     string
+  label:     string
+  isActive:  boolean
+  createdAt: string
+}
 
 function fmtSize(bytes: number | null): string {
   if (!bytes) return ''
@@ -23,6 +30,8 @@ function fmtSize(bytes: number | null): string {
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(0)} KB`
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`
 }
+
+const SITE = typeof window !== 'undefined' ? window.location.origin : 'https://www.walztravels.com'
 
 export default function MediaLibraryPage() {
   const [media,       setMedia]       = useState<MediaItem[]>([])
@@ -40,6 +49,13 @@ export default function MediaLibraryPage() {
   const fileRef = useRef<HTMLInputElement>(null)
   const [pendingFile, setPendingFile] = useState<File | null>(null)
 
+  // Design upload link state
+  const [links,          setLinks]          = useState<UploadLink[]>([])
+  const [linksLoading,   setLinksLoading]   = useState(true)
+  const [creatingLink,   setCreatingLink]   = useState(false)
+  const [copiedLink,     setCopiedLink]     = useState<string | null>(null)
+  const [showLinkPanel,  setShowLinkPanel]  = useState(false)
+
   function fetchMedia(tag?: string) {
     setLoading(true)
     fetch(`/api/admin/marketing/media${tag ? `?tag=${tag}` : ''}`)
@@ -48,6 +64,43 @@ export default function MediaLibraryPage() {
   }
 
   useEffect(() => { fetchMedia(filterTag || undefined) }, [filterTag])
+
+  function fetchLinks() {
+    setLinksLoading(true)
+    fetch('/api/admin/design-upload-link')
+      .then(r => r.json())
+      .then((d: { links?: UploadLink[] }) => { setLinks(d.links ?? []); setLinksLoading(false) })
+      .catch(() => setLinksLoading(false))
+  }
+
+  useEffect(() => { fetchLinks() }, [])
+
+  async function createLink() {
+    setCreatingLink(true)
+    try {
+      const res  = await fetch('/api/admin/design-upload-link', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })
+      const data = await res.json() as { link?: UploadLink }
+      if (data.link) setLinks(prev => [data.link!, ...prev])
+    } finally {
+      setCreatingLink(false)
+    }
+  }
+
+  async function toggleLink(id: string, isActive: boolean) {
+    await fetch('/api/admin/design-upload-link', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id, isActive }),
+    })
+    setLinks(prev => prev.map(l => l.id === id ? { ...l, isActive } : l))
+  }
+
+  function copyLink(token: string) {
+    navigator.clipboard.writeText(`${SITE}/upload/design/${token}`).then(() => {
+      setCopiedLink(token)
+      setTimeout(() => setCopiedLink(null), 2000)
+    })
+  }
 
   function handleFileSelect(file: File) {
     if (!file.type.startsWith('image/')) {
@@ -121,13 +174,75 @@ export default function MediaLibraryPage() {
             <p className="text-sm text-gray-500">{media.length} assets · {filterTag ? `Filtered: ${filterTag}` : 'All tags'}</p>
           </div>
         </div>
-        <button
-          onClick={() => setShowUpload(true)}
-          className="flex items-center gap-2 px-4 py-2.5 bg-amber-500 hover:bg-amber-600 text-white font-semibold rounded-xl text-sm transition"
-        >
-          <Upload className="w-4 h-4" /> Upload Image
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setShowLinkPanel(v => !v)}
+            className="flex items-center gap-2 px-3 py-2.5 border border-gray-200 text-gray-600 hover:border-amber-400 hover:text-amber-600 font-medium rounded-xl text-sm transition"
+          >
+            <Link className="w-4 h-4" /> Design Link
+          </button>
+          <button
+            onClick={() => setShowUpload(true)}
+            className="flex items-center gap-2 px-4 py-2.5 bg-amber-500 hover:bg-amber-600 text-white font-semibold rounded-xl text-sm transition"
+          >
+            <Upload className="w-4 h-4" /> Upload Image
+          </button>
+        </div>
       </div>
+
+      {/* Design upload link panel */}
+      {showLinkPanel && (
+        <div className="bg-white border border-gray-200 rounded-2xl p-5 shadow-sm space-y-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="font-semibold text-gray-900 text-sm">Design team upload link</p>
+              <p className="text-gray-400 text-xs mt-0.5">Share this URL with designers — uploads land here automatically.</p>
+            </div>
+            <button
+              onClick={createLink}
+              disabled={creatingLink}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-[#0B1F3A] text-white text-xs font-semibold rounded-lg hover:bg-[#1a3358] transition disabled:opacity-50"
+            >
+              {creatingLink ? <Loader2 className="w-3 h-3 animate-spin" /> : <Plus className="w-3 h-3" />}
+              New link
+            </button>
+          </div>
+          {linksLoading ? (
+            <div className="flex items-center gap-2 text-gray-400 text-sm py-2">
+              <Loader2 className="w-4 h-4 animate-spin" /> Loading…
+            </div>
+          ) : links.length === 0 ? (
+            <p className="text-gray-400 text-sm py-2">No links yet — create one above.</p>
+          ) : (
+            <div className="space-y-2">
+              {links.map(l => (
+                <div key={l.id} className={`flex items-center gap-3 px-4 py-3 rounded-xl border ${l.isActive ? 'border-green-200 bg-green-50' : 'border-gray-100 bg-gray-50'}`}>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-gray-800 truncate">{l.label}</p>
+                    <p className="text-xs text-gray-400 font-mono truncate">{SITE}/upload/design/{l.token}</p>
+                  </div>
+                  <button
+                    onClick={() => copyLink(l.token)}
+                    className="shrink-0 flex items-center gap-1.5 px-3 py-1.5 border border-gray-200 bg-white text-gray-600 text-xs rounded-lg hover:border-amber-400 hover:text-amber-600 transition"
+                  >
+                    {copiedLink === l.token ? <><Check className="w-3 h-3 text-green-500" /> Copied</> : <><Copy className="w-3 h-3" /> Copy</>}
+                  </button>
+                  <button
+                    onClick={() => toggleLink(l.id, !l.isActive)}
+                    className="shrink-0"
+                    title={l.isActive ? 'Deactivate' : 'Activate'}
+                  >
+                    {l.isActive
+                      ? <ToggleRight className="w-6 h-6 text-green-500" />
+                      : <ToggleLeft  className="w-6 h-6 text-gray-300" />
+                    }
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Tag filter */}
       <div className="flex items-center gap-2 flex-wrap">

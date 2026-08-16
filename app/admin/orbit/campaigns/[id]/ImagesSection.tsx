@@ -15,6 +15,7 @@ interface MediaItem {
   status: string
   approvedBy: string | null
   createdAt: string
+  _fromMarketing?: boolean
 }
 
 interface Props {
@@ -105,11 +106,14 @@ export function ImagesSection({ campaignId, campaignContext }: Props) {
     }
   }
 
-  async function attachLibraryItem(mediaId: string) {
-    const res  = await fetch(`/api/admin/orbit/media/${mediaId}/attach`, {
+  async function attachLibraryItem(item: MediaItem) {
+    const url = item._fromMarketing
+      ? `/api/admin/orbit/media/from-marketing/${item.id}`
+      : `/api/admin/orbit/media/${item.id}/attach`
+    const res  = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ campaignId }),
+      body: JSON.stringify({ campaignId, format }),
     })
     const data = await res.json()
     if (data.capReached) { setCapError(data.error); return }
@@ -230,7 +234,7 @@ export function ImagesSection({ campaignId, campaignContext }: Props) {
                     )}
                     <div className="p-2 space-y-1">
                       <p className="text-xs text-gray-500">{item.source === 'uploaded' ? 'Real photo' : 'Generated'}</p>
-                      <button onClick={() => attachLibraryItem(item.id)}
+                      <button onClick={() => attachLibraryItem(item)}
                         disabled={capReached}
                         className="w-full bg-indigo-700 hover:bg-indigo-600 disabled:opacity-40 text-white text-xs font-medium py-1 rounded transition-colors">
                         Use this

@@ -3781,3 +3781,16 @@ model SignatureSettings {
   updatedAt    DateTime @updatedAt
   updatedBy    String?
 }
+
+// ===========================
+// Design Team Upload Link
+// ===========================
+
+model DesignUploadLink {
+  id        String   @id @default(cuid())
+  token     String   @unique @default(cuid())
+  label     String   @default("Design team uploads")
+  createdBy String   // staff id
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+}

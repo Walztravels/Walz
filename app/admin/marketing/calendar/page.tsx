@@ -3,9 +3,16 @@
 import { useState, useEffect } from 'react'
 import {
   ChevronLeft, ChevronRight, Sparkles, Loader2, X, Check,
-  Calendar, Plus, CheckCircle, XCircle, Send, Trash2,
+  Calendar, Plus, CheckCircle, XCircle, Send, Trash2, Image,
 } from 'lucide-react'
 import { useStaffPermissions } from '@/hooks/useStaffPermissions'
+
+type MediaItem = {
+  id:       string
+  filename: string
+  url:      string
+  tags:     string[]
+}
 
 type Post = {
   id:          string
@@ -97,6 +104,22 @@ export default function CalendarPage() {
   const [editPlatform, setEditPlatform]  = useState('')
   const [editSchedule, setEditSchedule]  = useState('')
   const [editImageUrl, setEditImageUrl]  = useState('')
+
+  // Media picker
+  const [showPicker,   setShowPicker]   = useState(false)
+  const [pickerMedia,  setPickerMedia]  = useState<MediaItem[]>([])
+  const [pickerLoading,setPickerLoading]= useState(false)
+
+  function openPicker() {
+    setShowPicker(true)
+    if (pickerMedia.length === 0) {
+      setPickerLoading(true)
+      fetch('/api/admin/marketing/media')
+        .then(r => r.json())
+        .then((d: { media: MediaItem[] }) => { setPickerMedia(d.media ?? []); setPickerLoading(false) })
+        .catch(() => setPickerLoading(false))
+    }
+  }
 
   const weekEnd = addDays(weekStart, 6)
 
@@ -465,11 +488,19 @@ export default function CalendarPage() {
               </div>
 
               <div>
-                <label className="text-xs font-semibold text-gray-400 uppercase tracking-wider block mb-1">Image URL</label>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Image URL</label>
+                  <button
+                    onClick={openPicker}
+                    className="flex items-center gap-1 text-xs font-medium text-amber-600 hover:text-amber-700 transition"
+                  >
+                    <Image className="w-3.5 h-3.5" /> Pick from library
+                  </button>
+                </div>
                 <input
                   value={editImageUrl}
                   onChange={e => setEditImageUrl(e.target.value)}
-                  placeholder="Paste URL or copy from Media Library…"
+                  placeholder="Paste URL or pick from Media Library…"
                   className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400/50"
                 />
                 {editImageUrl && (
@@ -477,6 +508,38 @@ export default function CalendarPage() {
                   <img src={editImageUrl} alt="Preview" className="mt-2 rounded-lg max-h-36 object-contain border border-gray-100 w-full" />
                 )}
               </div>
+
+              {/* Media picker panel */}
+              {showPicker && (
+                <div className="border border-amber-200 rounded-xl overflow-hidden">
+                  <div className="flex items-center justify-between px-3 py-2 bg-amber-50 border-b border-amber-200">
+                    <p className="text-xs font-semibold text-amber-700">Media Library</p>
+                    <button onClick={() => setShowPicker(false)} className="text-amber-500 hover:text-amber-700">
+                      <X className="w-4 h-4" />
+                    </button>
+                  </div>
+                  {pickerLoading ? (
+                    <div className="flex items-center justify-center gap-2 py-8 text-gray-400 text-sm">
+                      <Loader2 className="w-4 h-4 animate-spin" /> Loading…
+                    </div>
+                  ) : pickerMedia.length === 0 ? (
+                    <p className="text-gray-400 text-sm text-center py-6">No images in library</p>
+                  ) : (
+                    <div className="grid grid-cols-3 gap-1.5 p-2 max-h-52 overflow-y-auto">
+                      {pickerMedia.map(m => (
+                        <button
+                          key={m.id}
+                          onClick={() => { setEditImageUrl(m.url); setShowPicker(false) }}
+                          className="aspect-square rounded-lg overflow-hidden border-2 border-transparent hover:border-amber-400 transition group"
+                        >
+                          {/* eslint-disable-next-line @next/next/no-img-element */}
+                          <img src={m.url} alt={m.filename} className="w-full h-full object-cover" loading="lazy" />
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
 
               {/* Approval section — super_admin + pending */}
               {isSuperAdmin && selected.status === 'pending_approval' && (
