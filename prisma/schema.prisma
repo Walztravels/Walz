@@ -324,17 +324,23 @@ model VisaApplication {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  user            User?                  @relation(fields: [userId], references: [id], onDelete: SetNull)
+  // BSUID — Meta WhatsApp username field (2026 rollout). Nullable; captured
+  // when present on inbound webhooks so phone-less routing works once adoption grows.
+  whatsappBsuid String?
+
+  user            User?                    @relation(fields: [userId], references: [id], onDelete: SetNull)
   notes           VisaApplicationNote[]
   tokens          VisaApplicationToken[]
-  duplicatedFrom  VisaApplication?       @relation("Duplicates", fields: [duplicatedFromId], references: [id], onDelete: SetNull)
-  duplicates      VisaApplication[]      @relation("Duplicates")
+  messages        VisaApplicationMessage[]
+  duplicatedFrom  VisaApplication?         @relation("Duplicates", fields: [duplicatedFromId], references: [id], onDelete: SetNull)
+  duplicates      VisaApplication[]        @relation("Duplicates")
 
   @@index([userId])
   @@index([status])
   @@index([destinationIso2])
   @@index([referenceNumber])
   @@index([duplicatedFromId])
+  @@index([whatsappBsuid])
 }
 
 model VisaApplicationNote {
@@ -3780,6 +3786,29 @@ model SignatureSettings {
   footerNote   String   @default("")
   updatedAt    DateTime @updatedAt
   updatedBy    String?
+}
+
+// ===========================
+// Visa Application WhatsApp Thread
+// ===========================
+
+// Scoped WhatsApp messages tied directly to a visa application.
+// Completely separate from Chatwoot/general inbox — only visible
+// from within the specific application's admin page.
+model VisaApplicationMessage {
+  id                String          @id @default(cuid())
+  visaApplicationId String
+  visaApplication   VisaApplication @relation(fields: [visaApplicationId], references: [id], onDelete: Cascade)
+  direction         String          // 'outbound' | 'inbound'
+  body              String          @db.Text
+  sentBy            String?         // staff id, null for inbound
+  fromBsuid         String?         // BSUID from Meta — captured when present, for future matching
+  status            String          @default("sent")  // sent|delivered|read|failed
+  twilioSid         String?         // Twilio message SID for status callbacks
+  createdAt         DateTime        @default(now())
+
+  @@index([visaApplicationId])
+  @@index([twilioSid])
 }
 
 // ===========================

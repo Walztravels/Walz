@@ -1140,6 +1140,52 @@ export default function AdminVisaDetailPage() {
   const [waError,     setWaError]     = useState<string | null>(null)
   const [waPhone,     setWaPhone]     = useState<string>('')
   const [waEditPhone, setWaEditPhone] = useState(false)
+
+  // Visa-scoped WhatsApp thread
+  type VaMsg = { id: string; direction: string; body: string; sentBy: string | null; status: string; createdAt: string }
+  const [waThreadMsgs,   setWaThreadMsgs]   = useState<VaMsg[]>([])
+  const [waThreadLoading,setWaThreadLoading]= useState(false)
+  const [waThreadSending,setWaThreadSending]= useState(false)
+  const [waThreadInput,  setWaThreadInput]  = useState('')
+  const [waThreadErr,    setWaThreadErr]    = useState<string | null>(null)
+  const waThreadBottom = useRef<HTMLDivElement>(null)
+
+  async function loadWhatsappThread() {
+    if (!app) return
+    setWaThreadLoading(true)
+    try {
+      const res  = await fetch(`/api/admin/visa-applications/${app.id}/whatsapp`)
+      const data = await res.json() as { messages?: VaMsg[]; error?: string }
+      if (data.messages) {
+        setWaThreadMsgs(data.messages)
+        setTimeout(() => waThreadBottom.current?.scrollIntoView({ behavior: 'smooth' }), 50)
+      }
+    } finally {
+      setWaThreadLoading(false)
+    }
+  }
+
+  async function sendWhatsappThread() {
+    if (!app || !waThreadInput.trim()) return
+    setWaThreadSending(true); setWaThreadErr(null)
+    try {
+      const res  = await fetch(`/api/admin/visa-applications/${app.id}/whatsapp`, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ message: waThreadInput.trim() }),
+      })
+      const data = await res.json() as { msg?: VaMsg; error?: string }
+      if (!res.ok || data.error) throw new Error(data.error ?? 'Send failed')
+      if (data.msg) setWaThreadMsgs(prev => [...prev, data.msg!])
+      setWaThreadInput('')
+      setTimeout(() => waThreadBottom.current?.scrollIntoView({ behavior: 'smooth' }), 50)
+    } catch (e) {
+      setWaThreadErr(e instanceof Error ? e.message : 'Send failed')
+    } finally {
+      setWaThreadSending(false)
+    }
+  }
+
   // Trustpilot review request
   const [reviewSent,    setReviewSent]    = useState(false)
   const [reviewLoading, setReviewLoading] = useState(false)
@@ -2159,6 +2205,76 @@ export default function AdminVisaDetailPage() {
                 Record {decisionStatus === 'approved' ? 'Approval' : 'Refusal'}
               </button>
             </div>
+          </ActionSection>
+
+          {/* Scoped WhatsApp thread */}
+          <ActionSection id="whatsapp-thread" title="WhatsApp (this application)" icon={MessageCircle} onOpen={loadWhatsappThread}>
+            {!app.phone ? (
+              <p className="text-xs text-gray-400 py-2">No phone number on this application. Add one in the Contact Information section first.</p>
+            ) : (
+              <div className="space-y-3">
+                {/* Thread */}
+                <div className="bg-gray-900 rounded-xl overflow-hidden" style={{ minHeight: 160, maxHeight: 320 }}>
+                  <div className="overflow-y-auto p-3 space-y-2" style={{ maxHeight: 320 }}>
+                    {waThreadLoading ? (
+                      <div className="flex items-center justify-center gap-2 py-8 text-gray-400 text-xs">
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" /> Loading thread…
+                      </div>
+                    ) : waThreadMsgs.length === 0 ? (
+                      <div className="text-center py-8">
+                        <MessageCircle className="w-8 h-8 text-gray-700 mx-auto mb-2" />
+                        <p className="text-gray-500 text-xs">No messages yet.</p>
+                        <p className="text-gray-600 text-xs mt-0.5">Send the first message below — it goes directly to {app.firstName ?? 'the client'} on WhatsApp.</p>
+                      </div>
+                    ) : (
+                      waThreadMsgs.map(msg => (
+                        <div key={msg.id} className={`flex ${msg.direction === 'outbound' ? 'justify-end' : 'justify-start'}`}>
+                          <div className={`max-w-[80%] px-3 py-2 rounded-xl text-xs ${
+                            msg.direction === 'outbound'
+                              ? 'bg-green-700 text-white'
+                              : 'bg-gray-800 text-gray-100'
+                          }`}>
+                            <p className="whitespace-pre-wrap leading-relaxed">{msg.body}</p>
+                            <p className={`text-[10px] mt-1 ${msg.direction === 'outbound' ? 'text-green-300' : 'text-gray-500'} text-right`}>
+                              {new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                              {msg.direction === 'outbound' && msg.status === 'failed' && ' · failed'}
+                            </p>
+                          </div>
+                        </div>
+                      ))
+                    )}
+                    <div ref={waThreadBottom} />
+                  </div>
+                </div>
+
+                {/* Reply box */}
+                {waThreadErr && (
+                  <p className="text-xs text-red-500 bg-red-50 px-3 py-2 rounded-lg">{waThreadErr}</p>
+                )}
+                <div className="flex gap-2">
+                  <textarea
+                    value={waThreadInput}
+                    onChange={e => setWaThreadInput(e.target.value)}
+                    onKeyDown={e => {
+                      if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void sendWhatsappThread() }
+                    }}
+                    placeholder={`Message ${app.firstName ?? 'client'}…`}
+                    rows={2}
+                    className="flex-1 px-3 py-2 text-xs border border-gray-200 rounded-xl resize-none focus:outline-none focus:border-green-400"
+                  />
+                  <button
+                    onClick={() => void sendWhatsappThread()}
+                    disabled={!waThreadInput.trim() || waThreadSending}
+                    className="px-3 py-2 bg-green-600 hover:bg-green-700 text-white rounded-xl flex items-center justify-center disabled:opacity-40 transition"
+                  >
+                    {waThreadSending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+                  </button>
+                </div>
+                <p className="text-[10px] text-gray-400 leading-snug">
+                  Messages are sent via WhatsApp. Replies route back to this thread automatically while the application is active. Thread is private — not visible in the general WhatsApp inbox.
+                </p>
+              </div>
+            )}
           </ActionSection>
 
           {/* Quick links */}
