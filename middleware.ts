@@ -123,6 +123,10 @@ export async function middleware(req: NextRequest) {
     if (pathname === '/api/admin/extras' && req.method === 'GET') {
       return NextResponse.next()
     }
+    // Resend inbound webhook — authenticated by its own ?secret= param, not staff session
+    if (pathname === '/api/admin/suppliers/inbound') {
+      return NextResponse.next()
+    }
     // Allow CRON_SECRET bearer token (used by CLI migration triggers)
     const cronSecret = process.env.CRON_SECRET
     const authHeader = req.headers.get('authorization')
