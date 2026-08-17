@@ -93,6 +93,228 @@ function toLocalDT(iso: string | null): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
 }
 
+// ── Post preview components ───────────────────────────────────────────────────
+
+const WALZ_AVATAR = 'https://www.walztravels.com/walz-logo.png'
+
+function PostPreviewInstagram({
+  images, caption, hashtags, imgIdx, setImgIdx,
+}: {
+  images: string[]
+  caption: string
+  hashtags: string
+  imgIdx: number
+  setImgIdx: (n: number) => void
+}) {
+  const total = images.length
+  const captionLines = caption.split('\n').filter(Boolean)
+
+  return (
+    <div>
+      <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2 flex items-center gap-1">
+        <span className="w-4 h-4 inline-flex items-center justify-center rounded bg-gradient-to-br from-purple-500 via-pink-500 to-orange-400 text-white text-[8px] font-black">IG</span>
+        Instagram preview
+      </p>
+      <div className="border border-gray-200 rounded-2xl overflow-hidden bg-white max-w-sm mx-auto shadow-sm">
+        {/* Header */}
+        <div className="flex items-center gap-2.5 px-3 py-2.5">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={WALZ_AVATAR} alt="avatar" className="w-8 h-8 rounded-full object-cover border border-gray-100" />
+          <div className="flex-1 min-w-0">
+            <p className="text-xs font-bold text-gray-900 leading-none">walztravels</p>
+            <p className="text-[10px] text-gray-400 mt-0.5">Sponsored</p>
+          </div>
+          <div className="flex gap-0.5">
+            <div className="w-1 h-1 rounded-full bg-gray-400" />
+            <div className="w-1 h-1 rounded-full bg-gray-400" />
+            <div className="w-1 h-1 rounded-full bg-gray-400" />
+          </div>
+        </div>
+
+        {/* Image */}
+        <div className="relative bg-gray-100 aspect-square">
+          {images.length > 0 ? (
+            <>
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img
+                src={images[imgIdx]}
+                alt={`Slide ${imgIdx + 1}`}
+                className="w-full h-full object-cover"
+              />
+              {total > 1 && (
+                <>
+                  {/* Prev */}
+                  {imgIdx > 0 && (
+                    <button
+                      onClick={() => setImgIdx(imgIdx - 1)}
+                      className="absolute left-2 top-1/2 -translate-y-1/2 w-7 h-7 bg-black/40 hover:bg-black/60 rounded-full flex items-center justify-center text-white transition"
+                    >
+                      <ChevronLeft className="w-4 h-4" />
+                    </button>
+                  )}
+                  {/* Next */}
+                  {imgIdx < total - 1 && (
+                    <button
+                      onClick={() => setImgIdx(imgIdx + 1)}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 w-7 h-7 bg-black/40 hover:bg-black/60 rounded-full flex items-center justify-center text-white transition"
+                    >
+                      <ChevronRight className="w-4 h-4" />
+                    </button>
+                  )}
+                  {/* Counter badge */}
+                  <span className="absolute top-2 right-2 bg-black/50 text-white text-[10px] font-semibold px-2 py-0.5 rounded-full">
+                    {imgIdx + 1}/{total}
+                  </span>
+                  {/* Dot indicators */}
+                  <div className="absolute bottom-2 left-0 right-0 flex justify-center gap-1">
+                    {images.map((_, i) => (
+                      <button
+                        key={i}
+                        onClick={() => setImgIdx(i)}
+                        className={`rounded-full transition-all ${i === imgIdx ? 'w-3 h-1.5 bg-white' : 'w-1.5 h-1.5 bg-white/50'}`}
+                      />
+                    ))}
+                  </div>
+                </>
+              )}
+            </>
+          ) : (
+            <div className="w-full h-full flex items-center justify-center text-gray-300 text-sm">No image</div>
+          )}
+        </div>
+
+        {/* Actions */}
+        <div className="px-3 pt-2.5 pb-1 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <svg viewBox="0 0 24 24" className="w-5 h-5 text-gray-700" fill="none" stroke="currentColor" strokeWidth={2}><path d="M20.84 4.61a5.5 5.5 0 00-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 00-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 000-7.78z" /></svg>
+            <svg viewBox="0 0 24 24" className="w-5 h-5 text-gray-700" fill="none" stroke="currentColor" strokeWidth={2}><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z" /></svg>
+            <svg viewBox="0 0 24 24" className="w-5 h-5 text-gray-700" fill="none" stroke="currentColor" strokeWidth={2}><line x1="22" y1="2" x2="11" y2="13" /><polygon points="22 2 15 22 11 13 2 9 22 2" /></svg>
+          </div>
+          <svg viewBox="0 0 24 24" className="w-5 h-5 text-gray-700" fill="none" stroke="currentColor" strokeWidth={2}><path d="M19 21l-7-5-7 5V5a2 2 0 012-2h10a2 2 0 012 2z" /></svg>
+        </div>
+
+        {/* Caption */}
+        <div className="px-3 pb-3 space-y-1">
+          <p className="text-xs font-bold text-gray-900">1,234 likes</p>
+          <div className="text-xs text-gray-800 leading-relaxed">
+            <span className="font-bold">walztravels</span>{' '}
+            {captionLines[0] || <span className="text-gray-400 italic">Caption preview…</span>}
+          </div>
+          {captionLines.length > 1 && (
+            <p className="text-xs text-gray-500 leading-relaxed">{captionLines.slice(1).join(' ')}</p>
+          )}
+          {hashtags && (
+            <p className="text-xs text-blue-500 leading-relaxed">{hashtags}</p>
+          )}
+          <p className="text-[10px] text-gray-400 uppercase tracking-wide mt-1">Just now</p>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function PostPreviewFacebook({
+  images, caption, hashtags,
+}: {
+  images: string[]
+  caption: string
+  hashtags: string
+}) {
+  function imageGrid() {
+    const n = images.length
+    if (n === 0) return <div className="h-40 bg-gray-100 rounded-lg flex items-center justify-center text-gray-300 text-sm">No image</div>
+    if (n === 1) return (
+      // eslint-disable-next-line @next/next/no-img-element
+      <img src={images[0]} alt="post" className="w-full rounded-lg object-cover max-h-72" />
+    )
+    if (n === 2) return (
+      <div className="grid grid-cols-2 gap-0.5 rounded-lg overflow-hidden">
+        {images.slice(0, 2).map((u, i) => (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img key={i} src={u} alt="" className="w-full h-40 object-cover" />
+        ))}
+      </div>
+    )
+    if (n === 3) return (
+      <div className="grid grid-cols-2 gap-0.5 rounded-lg overflow-hidden">
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src={images[0]} alt="" className="w-full h-48 object-cover row-span-2" />
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src={images[1]} alt="" className="w-full h-24 object-cover" />
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src={images[2]} alt="" className="w-full h-24 object-cover" />
+      </div>
+    )
+    // 4+
+    return (
+      <div className="grid grid-cols-2 gap-0.5 rounded-lg overflow-hidden">
+        {images.slice(0, 3).map((u, i) => (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img key={i} src={u} alt="" className="w-full h-32 object-cover" />
+        ))}
+        <div className="relative">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={images[3]} alt="" className="w-full h-32 object-cover" />
+          {n > 4 && (
+            <div className="absolute inset-0 bg-black/50 flex items-center justify-center text-white font-bold text-lg">
+              +{n - 4}
+            </div>
+          )}
+        </div>
+      </div>
+    )
+  }
+
+  return (
+    <div>
+      <p className="text-[10px] font-bold text-gray-400 uppercase tracking-wider mb-2 flex items-center gap-1">
+        <span className="w-4 h-4 inline-flex items-center justify-center rounded bg-blue-600 text-white text-[8px] font-black">f</span>
+        Facebook preview
+      </p>
+      <div className="border border-gray-200 rounded-2xl overflow-hidden bg-white max-w-sm mx-auto shadow-sm">
+        {/* Header */}
+        <div className="flex items-center gap-2.5 px-3 py-2.5">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={WALZ_AVATAR} alt="avatar" className="w-9 h-9 rounded-full object-cover border border-gray-100" />
+          <div className="flex-1 min-w-0">
+            <p className="text-xs font-bold text-gray-900 leading-none">Walz Travels</p>
+            <p className="text-[10px] text-gray-400 mt-0.5">Just now · 🌍</p>
+          </div>
+          <div className="flex gap-0.5">
+            <div className="w-1 h-1 rounded-full bg-gray-400" />
+            <div className="w-1 h-1 rounded-full bg-gray-400" />
+            <div className="w-1 h-1 rounded-full bg-gray-400" />
+          </div>
+        </div>
+
+        {/* Caption */}
+        {(caption || hashtags) && (
+          <div className="px-3 pb-2 text-xs text-gray-800 leading-relaxed space-y-1">
+            {caption && <p>{caption}</p>}
+            {hashtags && <p className="text-blue-600">{hashtags}</p>}
+          </div>
+        )}
+
+        {/* Images */}
+        <div className="px-0">{imageGrid()}</div>
+
+        {/* Reactions */}
+        <div className="px-3 py-2 flex items-center justify-around border-t border-gray-100 mt-1">
+          {[
+            { icon: '👍', label: 'Like' },
+            { icon: '💬', label: 'Comment' },
+            { icon: '↗', label: 'Share' },
+          ].map(a => (
+            <button key={a.label} className="flex items-center gap-1.5 text-xs font-semibold text-gray-500 hover:text-gray-700 px-3 py-1.5 rounded-lg hover:bg-gray-50 transition">
+              <span>{a.icon}</span> {a.label}
+            </button>
+          ))}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function SortableImage({ url, index, onRemove }: { url: string; index: number; onRemove: () => void }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
     useSortable({ id: url })
@@ -174,6 +396,8 @@ export default function CalendarPage() {
   const [editSchedule,   setEditSchedule]   = useState('')
   const [editImageUrls,  setEditImageUrls]  = useState<string[]>([])
   const [newImageUrl,    setNewImageUrl]    = useState('')
+  const [modalTab,       setModalTab]       = useState<'edit' | 'preview'>('edit')
+  const [previewImgIdx,  setPreviewImgIdx]  = useState(0)
 
   // Media picker
   const [showPicker,   setShowPicker]   = useState(false)
@@ -247,11 +471,14 @@ export default function CalendarPage() {
     setNewImageUrl('')
     setShowPicker(false)
     setRejectionNote('')
+    setModalTab('edit')
+    setPreviewImgIdx(0)
   }
 
   function closeModal() {
     setSelected(null)
     setPublishMsg(null)
+    setModalTab('edit')
   }
 
   async function savePost() {
@@ -488,8 +715,23 @@ export default function CalendarPage() {
                   {STATUS_LABELS[selected.status]}
                 </span>
               </div>
-              <div className="flex items-center gap-1">
-                {isSuperAdmin && (
+              <div className="flex items-center gap-2">
+                {/* Edit / Preview tabs */}
+                <div className="flex bg-gray-100 rounded-lg p-0.5 text-xs font-semibold">
+                  <button
+                    onClick={() => setModalTab('edit')}
+                    className={`px-3 py-1 rounded-md transition ${modalTab === 'edit' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+                  >
+                    Edit
+                  </button>
+                  <button
+                    onClick={() => { setModalTab('preview'); setPreviewImgIdx(0) }}
+                    className={`px-3 py-1 rounded-md transition ${modalTab === 'preview' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+                  >
+                    Preview
+                  </button>
+                </div>
+                {isSuperAdmin && modalTab === 'edit' && (
                   <button
                     onClick={deletePost}
                     disabled={deleting}
@@ -505,7 +747,33 @@ export default function CalendarPage() {
               </div>
             </div>
 
-            <div className="p-6 space-y-4">
+            {/* ── Preview tab ─────────────────────────────────────────────── */}
+            {modalTab === 'preview' && (
+              <div className="px-6 pb-6 pt-4 space-y-6">
+                {(editPlatform === 'instagram' || editPlatform === 'both') && (
+                  <PostPreviewInstagram
+                    images={editImageUrls}
+                    caption={editCaption}
+                    hashtags={editHashtags}
+                    imgIdx={previewImgIdx}
+                    setImgIdx={setPreviewImgIdx}
+                  />
+                )}
+                {(editPlatform === 'facebook' || editPlatform === 'both') && (
+                  <PostPreviewFacebook
+                    images={editImageUrls}
+                    caption={editCaption}
+                    hashtags={editHashtags}
+                  />
+                )}
+                {!editPlatform && (
+                  <p className="text-sm text-gray-400 text-center py-6">Select a platform on the Edit tab to see the preview.</p>
+                )}
+              </div>
+            )}
+
+            {/* ── Edit tab ────────────────────────────────────────────────── */}
+            {modalTab === 'edit' && <div className="p-6 space-y-4">
 
               {selected.errorMsg && selected.status === 'draft' && (
                 <div className="bg-red-50 border border-red-200 rounded-xl p-3">
@@ -729,7 +997,7 @@ export default function CalendarPage() {
                   }
                 </button>
               )}
-            </div>
+            </div>}
 
             <div className="px-6 pb-5 pt-4 border-t border-gray-100 flex items-center justify-between gap-2">
               <button onClick={closeModal} className="px-4 py-2 text-sm text-gray-500 hover:text-gray-700 transition">
