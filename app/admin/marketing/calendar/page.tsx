@@ -3,10 +3,19 @@
 import { useState, useEffect } from 'react'
 import {
   ChevronLeft, ChevronRight, Sparkles, Loader2, X, Check,
-  Calendar, Plus, CheckCircle, XCircle, Send, Trash2, Image,
+  Calendar, Plus, CheckCircle, XCircle, Send, Trash2, Image, GripVertical,
 } from 'lucide-react'
 import { useStaffPermissions } from '@/hooks/useStaffPermissions'
 import { TAGS } from '@/lib/marketing-tags'
+import {
+  DndContext, closestCenter, PointerSensor, useSensor, useSensors,
+  type DragEndEvent,
+} from '@dnd-kit/core'
+import {
+  SortableContext, verticalListSortingStrategy,
+  useSortable, arrayMove,
+} from '@dnd-kit/sortable'
+import { CSS } from '@dnd-kit/utilities'
 
 type MediaItem = {
   id:       string
@@ -84,9 +93,68 @@ function toLocalDT(iso: string | null): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
 }
 
+function SortableImage({ url, index, onRemove }: { url: string; index: number; onRemove: () => void }) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
+    useSortable({ id: url })
+
+  const style = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.5 : 1,
+  }
+
+  return (
+    <div
+      ref={setNodeRef}
+      style={style}
+      className="flex items-center gap-2 bg-white border border-gray-200 rounded-xl px-2 py-1.5 group"
+    >
+      {/* Drag handle */}
+      <button
+        {...attributes}
+        {...listeners}
+        className="cursor-grab active:cursor-grabbing text-gray-300 hover:text-gray-500 transition shrink-0 touch-none"
+      >
+        <GripVertical className="w-4 h-4" />
+      </button>
+
+      {/* Position badge */}
+      <span className="text-[10px] font-bold text-gray-400 w-4 shrink-0 text-center">{index + 1}</span>
+
+      {/* Thumbnail */}
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img src={url} alt={`Image ${index + 1}`} className="w-10 h-10 rounded-lg object-cover shrink-0 border border-gray-100" />
+
+      {/* URL truncated */}
+      <span className="flex-1 min-w-0 text-xs text-gray-500 truncate">{url.split('/').pop()}</span>
+
+      {/* Remove */}
+      <button
+        onClick={onRemove}
+        className="shrink-0 text-gray-300 hover:text-red-400 transition opacity-0 group-hover:opacity-100"
+      >
+        <X className="w-4 h-4" />
+      </button>
+    </div>
+  )
+}
+
 export default function CalendarPage() {
   const { role }                         = useStaffPermissions()
   const isSuperAdmin                     = role === 'super_admin'
+
+  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }))
+
+  function handleDragEnd(event: DragEndEvent) {
+    const { active, over } = event
+    if (over && active.id !== over.id) {
+      setEditImageUrls(prev => {
+        const oldIdx = prev.indexOf(active.id as string)
+        const newIdx = prev.indexOf(over.id as string)
+        return arrayMove(prev, oldIdx, newIdx)
+      })
+    }
+  }
 
   const [weekStart,    setWeekStart]     = useState(() => getWeekStart(new Date()))
   const [posts,        setPosts]         = useState<Post[]>([])
@@ -509,24 +577,21 @@ export default function CalendarPage() {
                   </button>
                 </div>
 
-                {/* Selected images grid */}
+                {/* Sortable image list */}
                 {editImageUrls.length > 0 && (
-                  <div className="grid grid-cols-3 gap-1.5 mb-2">
-                    {editImageUrls.map((url, idx) => (
-                      <div key={idx} className="relative aspect-square rounded-lg overflow-hidden border border-gray-200 group">
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img src={url} alt={`Image ${idx + 1}`} className="w-full h-full object-cover" />
-                        <button
-                          onClick={() => setEditImageUrls(prev => prev.filter((_, i) => i !== idx))}
-                          className="absolute top-1 right-1 bg-black/60 hover:bg-black/80 text-white rounded-full p-0.5 opacity-0 group-hover:opacity-100 transition"
-                        >
-                          <X className="w-3 h-3" />
-                        </button>
-                        <span className="absolute bottom-1 left-1 text-[9px] bg-black/50 text-white rounded px-1">
-                          {idx + 1}
-                        </span>
-                      </div>
-                    ))}
+                  <div className="mb-2 space-y-1.5 max-h-64 overflow-y-auto pr-0.5">
+                    <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+                      <SortableContext items={editImageUrls} strategy={verticalListSortingStrategy}>
+                        {editImageUrls.map((url, idx) => (
+                          <SortableImage
+                            key={url + idx}
+                            url={url}
+                            index={idx}
+                            onRemove={() => setEditImageUrls(prev => prev.filter((_, i) => i !== idx))}
+                          />
+                        ))}
+                      </SortableContext>
+                    </DndContext>
                   </div>
                 )}
 
