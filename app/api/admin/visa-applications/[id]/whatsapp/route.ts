@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getAdminSession } from '@/lib/admin-auth'
 import { prisma } from '@/lib/db'
-import { sendWhatsAppBody, normalisePhone } from '@/lib/twilio-whatsapp'
+import { sendWhatsAppBody, normalisePhone, VISA_WHATSAPP_NUMBER } from '@/lib/twilio-whatsapp'
 import { ROLE_HIERARCHY } from '@/lib/permissions'
 
 export const dynamic = 'force-dynamic'
@@ -76,7 +76,7 @@ export async function POST(
   if (!app) return NextResponse.json({ error: 'Not found or access denied' }, { status: 404 })
   if (!app.phone) return NextResponse.json({ error: "No phone number on this application" }, { status: 422 })
 
-  const result = await sendWhatsAppBody(normalisePhone(app.phone), body.message.trim())
+  const result = await sendWhatsAppBody(normalisePhone(app.phone), body.message.trim(), undefined, VISA_WHATSAPP_NUMBER)
 
   const msg = await prisma.visaApplicationMessage.create({
     data: {

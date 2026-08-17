@@ -38,6 +38,8 @@ const MESSAGING_SVC   = process.env.TWILIO_MESSAGING_SERVICE_SID || 'MGd179b68a4
 
 const NG_FROM   = process.env.TWILIO_WHATSAPP_NUMBER_NG   || `+${BUSINESS.contacts.nigeriaWhatsapp.e164}`
 const INTL_FROM = process.env.TWILIO_WHATSAPP_NUMBER_INTL || `+${BUSINESS.contacts.globalWhatsapp.e164}`
+// Dedicated UK number for visa application threads
+export const VISA_WHATSAPP_NUMBER = process.env.TWILIO_WHATSAPP_NUMBER_VISA || '+447949448680'
 
 /** Returns true if the phone belongs to Nigeria (starts with +234, 234, 0 local) */
 export function isNigeriaPhone(phone: string): boolean {
@@ -95,19 +97,23 @@ export interface TwilioSendResult {
  * business-initiated template window is not required (post-purchase context).
  */
 export async function sendWhatsAppBody(
-  toPhone:   string,
-  body:      string,
-  mediaUrl?: string,
+  toPhone:      string,
+  body:         string,
+  mediaUrl?:    string,
+  fromOverride?: string, // pass VISA_WHATSAPP_NUMBER to force a specific sender
 ): Promise<TwilioSendResult> {
   if (!TWILIO_SID || !TWILIO_TOKEN) {
     return { ok: false, error: 'Twilio credentials not configured', usedTemplate: false }
   }
 
   const to         = normalisePhone(toPhone)
-  const fromNumber = getWhatsAppSender(toPhone)
+  const fromNumber = fromOverride ?? getWhatsAppSender(toPhone)
 
   const params = new URLSearchParams()
-  if (MESSAGING_SVC) {
+  if (fromOverride) {
+    // When a specific sender is required, bypass the Messaging Service and set From directly
+    params.set('From', `whatsapp:${fromNumber}`)
+  } else if (MESSAGING_SVC) {
     params.set('MessagingServiceSid', MESSAGING_SVC)
   } else {
     params.set('From', `whatsapp:${fromNumber}`)
