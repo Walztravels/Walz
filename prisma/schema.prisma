@@ -2774,6 +2774,7 @@ model SocialPost {
   caption     String
   hashtags    String    @default("")
   imageUrls   Json      @default("[]")
+  imageType   String    @default("single")
   scheduledAt DateTime?
   publishedAt DateTime?
   status      String    @default("draft")

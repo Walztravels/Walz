@@ -31,6 +31,7 @@ type Post = {
   caption:     string
   hashtags:    string
   imageUrls:   string[]
+  imageType:   string
   status:      string
   scheduledAt: string | null
   createdBy:   string
@@ -395,6 +396,7 @@ export default function CalendarPage() {
   const [editPlatform,   setEditPlatform]   = useState('')
   const [editSchedule,   setEditSchedule]   = useState('')
   const [editImageUrls,  setEditImageUrls]  = useState<string[]>([])
+  const [editImageType,  setEditImageType]  = useState<'single' | 'carousel'>('single')
   const [newImageUrl,    setNewImageUrl]    = useState('')
   const [modalTab,       setModalTab]       = useState<'edit' | 'preview'>('edit')
   const [previewImgIdx,  setPreviewImgIdx]  = useState(0)
@@ -468,6 +470,7 @@ export default function CalendarPage() {
     setEditPlatform(post.platform)
     setEditSchedule(toLocalDT(post.scheduledAt))
     setEditImageUrls(post.imageUrls ?? [])
+    setEditImageType((post.imageType === 'carousel' ? 'carousel' : 'single') as 'single' | 'carousel')
     setNewImageUrl('')
     setShowPicker(false)
     setRejectionNote('')
@@ -490,14 +493,16 @@ export default function CalendarPage() {
         id:          selected.id,
         caption:     editCaption,
         hashtags:    editHashtags,
-        imageUrls:   editImageUrls,
+        imageUrls:   editImageType === 'single' ? editImageUrls.slice(0, 1) : editImageUrls,
+        imageType:   editImageType,
         scheduledAt: editSchedule ? new Date(editSchedule).toISOString() : null,
       }),
     })
     setPosts(prev => prev.map(p =>
       p.id === selected.id
         ? { ...p, caption: editCaption, hashtags: editHashtags,
-            imageUrls: editImageUrls,
+            imageUrls: editImageType === 'single' ? editImageUrls.slice(0, 1) : editImageUrls,
+            imageType: editImageType,
             scheduledAt: editSchedule ? new Date(editSchedule).toISOString() : null }
         : p
     ))
@@ -514,7 +519,8 @@ export default function CalendarPage() {
         id:          selected.id,
         caption:     editCaption,
         hashtags:    editHashtags,
-        imageUrls:   editImageUrls,
+        imageUrls:   editImageType === 'single' ? editImageUrls.slice(0, 1) : editImageUrls,
+        imageType:   editImageType,
         scheduledAt: editSchedule ? new Date(editSchedule).toISOString() : null,
         status:      'pending_approval',
       }),
@@ -752,7 +758,7 @@ export default function CalendarPage() {
               <div className="px-6 pb-6 pt-4 space-y-6">
                 {(editPlatform === 'instagram' || editPlatform === 'both') && (
                   <PostPreviewInstagram
-                    images={editImageUrls}
+                    images={editImageType === 'single' ? editImageUrls.slice(0, 1) : editImageUrls}
                     caption={editCaption}
                     hashtags={editHashtags}
                     imgIdx={previewImgIdx}
@@ -761,7 +767,7 @@ export default function CalendarPage() {
                 )}
                 {(editPlatform === 'facebook' || editPlatform === 'both') && (
                   <PostPreviewFacebook
-                    images={editImageUrls}
+                    images={editImageType === 'single' ? editImageUrls.slice(0, 1) : editImageUrls}
                     caption={editCaption}
                     hashtags={editHashtags}
                   />
@@ -833,58 +839,124 @@ export default function CalendarPage() {
               </div>
 
               <div>
-                <div className="flex items-center justify-between mb-2">
-                  <label className="text-xs font-semibold text-gray-400 uppercase tracking-wider">
-                    Images <span className="normal-case font-normal text-gray-400">({editImageUrls.length})</span>
-                  </label>
-                  <button
-                    onClick={openPicker}
-                    className="flex items-center gap-1 text-xs font-medium text-amber-600 hover:text-amber-700 transition"
-                  >
-                    <Image className="w-3.5 h-3.5" /> Pick from library
-                  </button>
+                {/* Single / Carousel toggle */}
+                <div className="flex items-center justify-between mb-3">
+                  <label className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Image</label>
+                  <div className="flex bg-gray-100 rounded-lg p-0.5 text-xs font-semibold">
+                    <button
+                      onClick={() => {
+                        setEditImageType('single')
+                        setEditImageUrls(prev => prev.slice(0, 1))
+                        setShowPicker(false)
+                      }}
+                      className={`px-3 py-1 rounded-md transition ${editImageType === 'single' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+                    >
+                      Single
+                    </button>
+                    <button
+                      onClick={() => setEditImageType('carousel')}
+                      className={`px-3 py-1 rounded-md transition ${editImageType === 'carousel' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}
+                    >
+                      Carousel
+                    </button>
+                  </div>
                 </div>
 
-                {/* Sortable image list */}
-                {editImageUrls.length > 0 && (
-                  <div className="mb-2 space-y-1.5 max-h-64 overflow-y-auto pr-0.5">
-                    <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
-                      <SortableContext items={editImageUrls} strategy={verticalListSortingStrategy}>
-                        {editImageUrls.map((url, idx) => (
-                          <SortableImage
-                            key={url + idx}
-                            url={url}
-                            index={idx}
-                            onRemove={() => setEditImageUrls(prev => prev.filter((_, i) => i !== idx))}
-                          />
-                        ))}
-                      </SortableContext>
-                    </DndContext>
+                {/* ── Single image ── */}
+                {editImageType === 'single' && (
+                  <div className="space-y-2">
+                    {editImageUrls[0] ? (
+                      <div className="relative rounded-xl overflow-hidden border border-gray-200 group">
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img src={editImageUrls[0]} alt="Selected" className="w-full max-h-48 object-cover" />
+                        <button
+                          onClick={() => setEditImageUrls([])}
+                          className="absolute top-2 right-2 bg-black/60 hover:bg-black/80 text-white rounded-full p-1 opacity-0 group-hover:opacity-100 transition"
+                        >
+                          <X className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="h-20 border-2 border-dashed border-gray-200 rounded-xl flex items-center justify-center text-gray-400 text-xs">
+                        No image selected
+                      </div>
+                    )}
+                    <div className="flex gap-2">
+                      <input
+                        value={newImageUrl}
+                        onChange={e => setNewImageUrl(e.target.value)}
+                        onKeyDown={e => {
+                          if (e.key === 'Enter' && newImageUrl.trim()) {
+                            setEditImageUrls([newImageUrl.trim()])
+                            setNewImageUrl('')
+                          }
+                        }}
+                        placeholder="Paste image URL…"
+                        className="flex-1 border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400/50"
+                      />
+                      <button
+                        onClick={openPicker}
+                        className="flex items-center gap-1 px-3 py-2 text-xs font-semibold text-amber-600 border border-amber-200 bg-amber-50 hover:bg-amber-100 rounded-xl transition"
+                      >
+                        <Image className="w-3.5 h-3.5" /> Library
+                      </button>
+                    </div>
                   </div>
                 )}
 
-                {/* Add by URL */}
-                <div className="flex gap-2">
-                  <input
-                    value={newImageUrl}
-                    onChange={e => setNewImageUrl(e.target.value)}
-                    onKeyDown={e => {
-                      if (e.key === 'Enter' && newImageUrl.trim()) {
-                        setEditImageUrls(prev => [...prev, newImageUrl.trim()])
-                        setNewImageUrl('')
-                      }
-                    }}
-                    placeholder="Paste image URL and press Enter…"
-                    className="flex-1 border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400/50"
-                  />
-                  <button
-                    onClick={() => { if (newImageUrl.trim()) { setEditImageUrls(prev => [...prev, newImageUrl.trim()]); setNewImageUrl('') } }}
-                    disabled={!newImageUrl.trim()}
-                    className="px-3 py-2 bg-amber-500 hover:bg-amber-600 text-white text-sm font-semibold rounded-xl transition disabled:opacity-40"
-                  >
-                    Add
-                  </button>
-                </div>
+                {/* ── Carousel ── */}
+                {editImageType === 'carousel' && (
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <p className="text-xs text-gray-400">{editImageUrls.length} photo{editImageUrls.length !== 1 ? 's' : ''} · drag to reorder</p>
+                      <button
+                        onClick={openPicker}
+                        className="flex items-center gap-1 text-xs font-medium text-amber-600 hover:text-amber-700 transition"
+                      >
+                        <Image className="w-3.5 h-3.5" /> Pick from library
+                      </button>
+                    </div>
+
+                    {editImageUrls.length > 0 && (
+                      <div className="space-y-1.5 max-h-64 overflow-y-auto pr-0.5">
+                        <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+                          <SortableContext items={editImageUrls} strategy={verticalListSortingStrategy}>
+                            {editImageUrls.map((url, idx) => (
+                              <SortableImage
+                                key={url + idx}
+                                url={url}
+                                index={idx}
+                                onRemove={() => setEditImageUrls(prev => prev.filter((_, i) => i !== idx))}
+                              />
+                            ))}
+                          </SortableContext>
+                        </DndContext>
+                      </div>
+                    )}
+
+                    <div className="flex gap-2">
+                      <input
+                        value={newImageUrl}
+                        onChange={e => setNewImageUrl(e.target.value)}
+                        onKeyDown={e => {
+                          if (e.key === 'Enter' && newImageUrl.trim()) {
+                            setEditImageUrls(prev => [...prev, newImageUrl.trim()])
+                            setNewImageUrl('')
+                          }
+                        }}
+                        placeholder="Paste image URL and press Enter…"
+                        className="flex-1 border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400/50"
+                      />
+                      <button
+                        onClick={() => { if (newImageUrl.trim()) { setEditImageUrls(prev => [...prev, newImageUrl.trim()]); setNewImageUrl('') } }}
+                        disabled={!newImageUrl.trim()}
+                        className="px-3 py-2 bg-amber-500 hover:bg-amber-600 text-white text-sm font-semibold rounded-xl transition disabled:opacity-40"
+                      >
+                        Add
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
 
               {/* Media picker panel */}
@@ -928,7 +1000,12 @@ export default function CalendarPage() {
                         <button
                           key={m.id}
                           onClick={() => {
-                            setEditImageUrls(prev => prev.includes(m.url) ? prev : [...prev, m.url])
+                            if (editImageType === 'single') {
+                              setEditImageUrls([m.url])
+                              setShowPicker(false)
+                            } else {
+                              setEditImageUrls(prev => prev.includes(m.url) ? prev : [...prev, m.url])
+                            }
                           }}
                           className={`aspect-square rounded-lg overflow-hidden border-2 transition group relative ${
                             editImageUrls.includes(m.url) ? 'border-amber-500' : 'border-transparent hover:border-amber-400'
