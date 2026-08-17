@@ -6,6 +6,7 @@ import {
   Calendar, Plus, CheckCircle, XCircle, Send, Trash2, Image,
 } from 'lucide-react'
 import { useStaffPermissions } from '@/hooks/useStaffPermissions'
+import { TAGS } from '@/lib/marketing-tags'
 
 type MediaItem = {
   id:       string
@@ -109,6 +110,11 @@ export default function CalendarPage() {
   const [showPicker,   setShowPicker]   = useState(false)
   const [pickerMedia,  setPickerMedia]  = useState<MediaItem[]>([])
   const [pickerLoading,setPickerLoading]= useState(false)
+  const [pickerTag,    setPickerTag]    = useState<string>('all')
+
+  const filteredMedia = pickerTag === 'all'
+    ? pickerMedia
+    : pickerMedia.filter(m => m.tags?.includes(pickerTag))
 
   function openPicker() {
     setShowPicker(true)
@@ -518,22 +524,47 @@ export default function CalendarPage() {
                       <X className="w-4 h-4" />
                     </button>
                   </div>
+
+                  {/* Tag filter */}
+                  <div className="flex items-center gap-1.5 px-2 pt-2 pb-1.5 flex-wrap border-b border-amber-100 bg-white">
+                    {['all', ...TAGS].map(tag => (
+                      <button
+                        key={tag}
+                        onClick={() => setPickerTag(tag)}
+                        className={`px-2.5 py-1 rounded-full text-[11px] font-medium border capitalize transition ${
+                          pickerTag === tag
+                            ? 'bg-amber-500 text-white border-amber-500'
+                            : 'bg-white text-gray-500 border-gray-200 hover:border-amber-300 hover:text-amber-600'
+                        }`}
+                      >
+                        {tag === 'all' ? 'All' : tag}
+                      </button>
+                    ))}
+                  </div>
+
                   {pickerLoading ? (
                     <div className="flex items-center justify-center gap-2 py-8 text-gray-400 text-sm">
                       <Loader2 className="w-4 h-4 animate-spin" /> Loading…
                     </div>
-                  ) : pickerMedia.length === 0 ? (
-                    <p className="text-gray-400 text-sm text-center py-6">No images in library</p>
+                  ) : filteredMedia.length === 0 ? (
+                    <p className="text-gray-400 text-sm text-center py-6">
+                      {pickerMedia.length === 0 ? 'No images in library' : `No images tagged "${pickerTag}"`}
+                    </p>
                   ) : (
                     <div className="grid grid-cols-3 gap-1.5 p-2 max-h-52 overflow-y-auto">
-                      {pickerMedia.map(m => (
+                      {filteredMedia.map(m => (
                         <button
                           key={m.id}
                           onClick={() => { setEditImageUrl(m.url); setShowPicker(false) }}
-                          className="aspect-square rounded-lg overflow-hidden border-2 border-transparent hover:border-amber-400 transition group"
+                          className="aspect-square rounded-lg overflow-hidden border-2 border-transparent hover:border-amber-400 transition group relative"
                         >
                           {/* eslint-disable-next-line @next/next/no-img-element */}
                           <img src={m.url} alt={m.filename} className="w-full h-full object-cover" loading="lazy" />
+                          {m.tags?.length > 0 && (
+                            <span className="absolute bottom-0.5 left-0.5 right-0.5 text-[9px] bg-black/50 text-white rounded px-1 py-0.5 truncate text-center">
+                              {m.tags[0]}
+                            </span>
+                          )}
                         </button>
                       ))}
                     </div>
