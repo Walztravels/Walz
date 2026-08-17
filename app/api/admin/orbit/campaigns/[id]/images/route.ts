@@ -91,6 +91,7 @@ export async function GET(
 
   return NextResponse.json({
     media,
+    mediaOrder: (campaign.mediaOrder as string[]) ?? [],
     libraryMatches,
     cap,
     used,

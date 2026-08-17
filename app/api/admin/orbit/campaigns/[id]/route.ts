@@ -104,11 +104,16 @@ export async function PATCH(
         const accessToken  = bufMeta.accessToken as string
         const channels     = (bufMeta.channels ?? {}) as Record<string, string>
         const content      = campaign.content as Record<string, unknown>
-        const approvedMedia = await prisma.orbitMedia.findFirst({
+        const approvedMedia = await prisma.orbitMedia.findMany({
           where: { campaignId: params.id, status: 'approved' },
           orderBy: { createdAt: 'asc' },
         })
-        const mediaUrl = approvedMedia?.publicUrl ?? undefined
+        const savedOrder = (campaign.mediaOrder as string[]) ?? []
+        const sortedMedia = [
+          ...savedOrder.map(id => approvedMedia.find(m => m.id === id)).filter(Boolean),
+          ...approvedMedia.filter(m => !savedOrder.includes(m.id)),
+        ] as typeof approvedMedia
+        const mediaUrls = sortedMedia.map(m => m.publicUrl).filter((u): u is string => Boolean(u))
 
         type LogResult = { platform: string; status: string; bufferUpdateId?: string; error?: string }
         const results: LogResult[] = []
@@ -130,7 +135,7 @@ export async function PATCH(
           try {
             const res = await publishToBuffer(
               { accessToken, channels },
-              { channelId, platform, text, mediaUrls: mediaUrl ? [mediaUrl] : undefined, postNow: true },
+              { channelId, platform, text, mediaUrls: mediaUrls.length ? mediaUrls : undefined, postNow: true },
             )
             results.push({ platform, status: 'sent', bufferUpdateId: res.bufferUpdateId })
             await prisma.orbitPublishLog.create({
@@ -162,6 +167,13 @@ export async function PATCH(
     } catch {
       // Buffer publish failed — campaign is still marked published in DB
     }
+  } else if (action === 'reorder') {
+    const { mediaOrder } = body as { mediaOrder?: string[] }
+    if (!Array.isArray(mediaOrder)) return NextResponse.json({ error: 'mediaOrder must be an array' }, { status: 400 })
+    await prisma.orbitCampaign.update({
+      where: { id: params.id },
+      data: { mediaOrder },
+    })
   } else if (action === 'draft') {
     await prisma.orbitCampaign.update({
       where: { id: params.id },

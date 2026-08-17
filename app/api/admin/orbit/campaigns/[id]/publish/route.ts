@@ -87,12 +87,17 @@ export async function POST(
 
   const content = campaign.content as Record<string, unknown>
 
-  // Grab all approved images for the campaign (carousel support)
+  // Grab all approved images, sorted by the user-defined mediaOrder
   const approvedMedia = await prisma.orbitMedia.findMany({
     where: { campaignId: params.id, status: 'approved' },
     orderBy: { createdAt: 'asc' },
   })
-  const mediaUrls = approvedMedia.map(m => m.publicUrl).filter((u): u is string => Boolean(u))
+  const savedOrder = (campaign.mediaOrder as string[]) ?? []
+  const sortedMedia = [
+    ...savedOrder.map(id => approvedMedia.find(m => m.id === id)).filter(Boolean),
+    ...approvedMedia.filter(m => !savedOrder.includes(m.id)),
+  ] as typeof approvedMedia
+  const mediaUrls = sortedMedia.map(m => m.publicUrl).filter((u): u is string => Boolean(u))
 
   type LogResult = { platform: string; status: string; bufferUpdateId?: string; error?: string }
   const results: LogResult[] = []

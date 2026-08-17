@@ -2,6 +2,14 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { FLUX_FORMATS, type FluxFormat } from '@/lib/orbit/replicate-adapter'
+import {
+  DndContext, closestCenter, PointerSensor, useSensor, useSensors, type DragEndEvent,
+} from '@dnd-kit/core'
+import {
+  SortableContext, verticalListSortingStrategy, useSortable, arrayMove,
+} from '@dnd-kit/sortable'
+import { CSS } from '@dnd-kit/utilities'
+import { GripVertical } from 'lucide-react'
 
 interface MediaItem {
   id: string
@@ -41,14 +49,70 @@ const FORMAT_LABELS: Record<string, string> = {
   '1024x1024': 'Square',
 }
 
+function SortableMediaCard({
+  item, position, onReject, onRemove,
+}: {
+  item: MediaItem
+  position: number
+  onReject: () => void
+  onRemove: () => void
+}) {
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: item.id })
+  const style = { transform: CSS.Transform.toString(transform), transition }
+
+  return (
+    <div
+      ref={setNodeRef} style={style}
+      className={`flex gap-3 items-center bg-gray-900 border border-gray-800 rounded-xl p-3 transition ${isDragging ? 'opacity-50 shadow-2xl ring-1 ring-indigo-500' : ''}`}
+    >
+      <div {...attributes} {...listeners} className="cursor-grab text-gray-600 hover:text-gray-400 p-1 touch-none">
+        <GripVertical className="w-4 h-4" />
+      </div>
+      <span className="w-6 h-6 rounded-full bg-indigo-700 text-white text-xs font-bold flex items-center justify-center flex-shrink-0">
+        {position}
+      </span>
+      {item.publicUrl ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img src={item.publicUrl} alt="" className="w-14 h-14 object-cover rounded-lg flex-shrink-0" />
+      ) : (
+        <div className="w-14 h-14 bg-gray-800 rounded-lg flex-shrink-0 flex items-center justify-center text-gray-600 text-[10px]">
+          No preview
+        </div>
+      )}
+      <div className="flex-1 min-w-0">
+        <p className="text-xs text-gray-300 font-medium truncate">{FORMAT_LABELS[item.format] ?? item.format}</p>
+        <p className="text-xs text-gray-600 mt-0.5">{item.source === 'uploaded' ? 'Real photo' : 'Generated'}</p>
+        <span className="inline-block mt-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-green-900 text-green-300">approved</span>
+      </div>
+      <div className="flex flex-col gap-1 items-end flex-shrink-0">
+        {item.publicUrl && (
+          <a href={item.publicUrl} download target="_blank" rel="noopener noreferrer"
+            className="text-[11px] text-gray-500 hover:text-gray-300 transition-colors">
+            Download
+          </a>
+        )}
+        <button onClick={onReject} className="text-[11px] text-red-500 hover:text-red-400 transition-colors">
+          Reject
+        </button>
+        <button onClick={onRemove} className="text-[11px] text-gray-600 hover:text-gray-400 transition-colors">
+          {item.source === 'uploaded' ? 'Detach' : 'Delete'}
+        </button>
+      </div>
+    </div>
+  )
+}
+
 export function ImagesSection({ campaignId, campaignContext }: Props) {
   const [media, setMedia]               = useState<MediaItem[]>([])
+  const [mediaOrder, setMediaOrder]     = useState<string[]>([])
   const [library, setLibrary]           = useState<MediaItem[]>([])
   const [cap, setCap]                   = useState(8)
   const [used, setUsed]                 = useState(0)
   const [imageCostUsd, setImageCostUsd] = useState('0')
   const [configured, setConfigured]     = useState<boolean | null>(null)
   const [loading, setLoading]           = useState(true)
+
+  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }))
 
   const [format, setFormat]       = useState<FluxFormat>('1080x1920')
   const [promptHint, setPromptHint] = useState(campaignContext.promotionDetails.slice(0, 120))
@@ -68,6 +132,7 @@ export function ImagesSection({ campaignId, campaignContext }: Props) {
       const res  = await fetch(`/api/admin/orbit/campaigns/${campaignId}/images${fmt ? `?format=${fmt}` : ''}`)
       const data = await res.json()
       if (data.media)          setMedia(data.media)
+      if (data.mediaOrder)     setMediaOrder(data.mediaOrder as string[])
       if (data.libraryMatches) setLibrary(data.libraryMatches)
       if (data.cap !== undefined) setCap(data.cap)
       if (data.used !== undefined) setUsed(data.used)
@@ -300,74 +365,127 @@ export function ImagesSection({ campaignId, campaignContext }: Props) {
             </div>
           )}
 
-          {/* Campaign images gallery */}
-          {media.length > 0 && (
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {media.map(item => (
-                <div key={item.id} className="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden">
-                  {item.publicUrl ? (
-                    <div className="bg-gray-950">
-                      {/* eslint-disable-next-line @next/next/no-img-element */}
-                      <img src={item.publicUrl} alt={item.altText || 'Campaign image'} className="w-full max-h-64 object-contain" />
-                    </div>
-                  ) : (
-                    <div className="h-40 bg-gray-950 flex items-center justify-center text-gray-600 text-xs">Processing…</div>
-                  )}
+          {/* Campaign images */}
+          {media.length > 0 && (() => {
+            const approvedItems = media.filter(m => m.status === 'approved')
+            const otherItems    = media.filter(m => m.status !== 'approved')
 
-                  <div className="p-4 space-y-2">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <p className="text-xs text-gray-400">{FORMAT_LABELS[item.format] ?? item.format}</p>
-                        <p className="text-xs text-gray-600 mt-0.5">
-                          {item.source === 'uploaded' ? 'Real photo' : `Generated · $${Number(item.costUsd).toFixed(4)}`}
-                          {' · '}{new Date(item.createdAt).toLocaleDateString('en-GB')}
-                        </p>
-                      </div>
-                      <span className={`px-2 py-0.5 rounded text-xs font-medium capitalize ${STATUS_CHIP[item.status] ?? 'bg-gray-700 text-gray-300'}`}>
-                        {item.status}
-                      </span>
-                    </div>
+            // Sort approved by user-defined order; unordered ones go to end
+            const orderedApproved: MediaItem[] = [
+              ...mediaOrder.map(id => approvedItems.find(m => m.id === id)).filter((m): m is MediaItem => Boolean(m)),
+              ...approvedItems.filter(m => !mediaOrder.includes(m.id)),
+            ]
 
-                    {item.altText && (
-                      <p className="text-xs text-gray-500 italic truncate" title={item.altText}>Alt: {item.altText}</p>
+            async function handleDragEnd(event: DragEndEvent) {
+              const { active, over } = event
+              if (!over || active.id === over.id) return
+              const oldIdx = orderedApproved.findIndex(m => m.id === String(active.id))
+              const newIdx = orderedApproved.findIndex(m => m.id === String(over.id))
+              const newOrder = arrayMove(orderedApproved, oldIdx, newIdx).map(m => m.id)
+              setMediaOrder(newOrder)
+              await fetch(`/api/admin/orbit/campaigns/${campaignId}`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action: 'reorder', mediaOrder: newOrder }),
+              })
+            }
+
+            return (
+              <div className="space-y-4">
+                {/* Approved — sortable */}
+                {orderedApproved.length > 0 && (
+                  <div className="space-y-2">
+                    <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">
+                      Approved · post order
+                      <span className="ml-2 font-normal text-gray-600 normal-case tracking-normal">drag to reorder</span>
+                    </p>
+                    <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={handleDragEnd}>
+                      <SortableContext items={orderedApproved.map(m => m.id)} strategy={verticalListSortingStrategy}>
+                        <div className="space-y-2">
+                          {orderedApproved.map((item, idx) => (
+                            <SortableMediaCard
+                              key={item.id}
+                              item={item}
+                              position={idx + 1}
+                              onReject={() => mediaAction(item.id, 'reject')}
+                              onRemove={() => removeMedia(item.id)}
+                            />
+                          ))}
+                        </div>
+                      </SortableContext>
+                    </DndContext>
+                  </div>
+                )}
+
+                {/* Draft / rejected — regular grid */}
+                {otherItems.length > 0 && (
+                  <div className="space-y-2">
+                    {orderedApproved.length > 0 && (
+                      <p className="text-xs font-semibold text-gray-600 uppercase tracking-wider">Pending review</p>
                     )}
-
-                    {item.prompt && (
-                      <details className="group">
-                        <summary className="text-xs text-gray-600 cursor-pointer hover:text-gray-400 list-none">Prompt ▸</summary>
-                        <p className="text-xs text-gray-500 mt-1 leading-relaxed">{item.prompt}</p>
-                      </details>
-                    )}
-
-                    <div className="flex gap-2 flex-wrap pt-1">
-                      {item.publicUrl && (
-                        <a href={item.publicUrl} download target="_blank" rel="noopener noreferrer"
-                          className="text-xs bg-gray-800 hover:bg-gray-700 text-gray-300 px-3 py-1.5 rounded transition-colors">
-                          Download
-                        </a>
-                      )}
-                      {item.status === 'draft' && (
-                        <button onClick={() => mediaAction(item.id, 'approve')}
-                          className="text-xs bg-green-900 hover:bg-green-800 text-green-300 px-3 py-1.5 rounded transition-colors">
-                          Approve
-                        </button>
-                      )}
-                      {item.status !== 'rejected' && (
-                        <button onClick={() => mediaAction(item.id, 'reject')}
-                          className="text-xs bg-red-950 hover:bg-red-900 text-red-400 px-3 py-1.5 rounded transition-colors">
-                          Reject
-                        </button>
-                      )}
-                      <button onClick={() => removeMedia(item.id)}
-                        className="text-xs text-gray-600 hover:text-red-400 px-2 py-1.5 transition-colors">
-                        {item.source === 'uploaded' ? 'Detach' : 'Delete'}
-                      </button>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      {otherItems.map(item => (
+                        <div key={item.id} className="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden">
+                          {item.publicUrl ? (
+                            <div className="bg-gray-950">
+                              {/* eslint-disable-next-line @next/next/no-img-element */}
+                              <img src={item.publicUrl} alt={item.altText || 'Campaign image'} className="w-full max-h-64 object-contain" />
+                            </div>
+                          ) : (
+                            <div className="h-40 bg-gray-950 flex items-center justify-center text-gray-600 text-xs">Processing…</div>
+                          )}
+                          <div className="p-4 space-y-2">
+                            <div className="flex items-center justify-between">
+                              <div>
+                                <p className="text-xs text-gray-400">{FORMAT_LABELS[item.format] ?? item.format}</p>
+                                <p className="text-xs text-gray-600 mt-0.5">
+                                  {item.source === 'uploaded' ? 'Real photo' : `Generated · $${Number(item.costUsd).toFixed(4)}`}
+                                  {' · '}{new Date(item.createdAt).toLocaleDateString('en-GB')}
+                                </p>
+                              </div>
+                              <span className={`px-2 py-0.5 rounded text-xs font-medium capitalize ${STATUS_CHIP[item.status] ?? 'bg-gray-700 text-gray-300'}`}>
+                                {item.status}
+                              </span>
+                            </div>
+                            {item.prompt && (
+                              <details>
+                                <summary className="text-xs text-gray-600 cursor-pointer hover:text-gray-400 list-none">Prompt ▸</summary>
+                                <p className="text-xs text-gray-500 mt-1 leading-relaxed">{item.prompt}</p>
+                              </details>
+                            )}
+                            <div className="flex gap-2 flex-wrap pt-1">
+                              {item.publicUrl && (
+                                <a href={item.publicUrl} download target="_blank" rel="noopener noreferrer"
+                                  className="text-xs bg-gray-800 hover:bg-gray-700 text-gray-300 px-3 py-1.5 rounded transition-colors">
+                                  Download
+                                </a>
+                              )}
+                              {item.status === 'draft' && (
+                                <button onClick={() => mediaAction(item.id, 'approve')}
+                                  className="text-xs bg-green-900 hover:bg-green-800 text-green-300 px-3 py-1.5 rounded transition-colors">
+                                  Approve
+                                </button>
+                              )}
+                              {item.status !== 'rejected' && (
+                                <button onClick={() => mediaAction(item.id, 'reject')}
+                                  className="text-xs bg-red-950 hover:bg-red-900 text-red-400 px-3 py-1.5 rounded transition-colors">
+                                  Reject
+                                </button>
+                              )}
+                              <button onClick={() => removeMedia(item.id)}
+                                className="text-xs text-gray-600 hover:text-red-400 px-2 py-1.5 transition-colors">
+                                {item.source === 'uploaded' ? 'Detach' : 'Delete'}
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
                     </div>
                   </div>
-                </div>
-              ))}
-            </div>
-          )}
+                )}
+              </div>
+            )
+          })()}
 
           {media.length === 0 && !showForm && (
             <div className="bg-gray-900 border border-gray-800 border-dashed rounded-xl py-10 text-center space-y-1">
