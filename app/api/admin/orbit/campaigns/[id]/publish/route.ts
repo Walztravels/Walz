@@ -87,12 +87,12 @@ export async function POST(
 
   const content = campaign.content as Record<string, unknown>
 
-  // Grab first approved image for the campaign
-  const approvedMedia = await prisma.orbitMedia.findFirst({
+  // Grab all approved images for the campaign (carousel support)
+  const approvedMedia = await prisma.orbitMedia.findMany({
     where: { campaignId: params.id, status: 'approved' },
     orderBy: { createdAt: 'asc' },
   })
-  const mediaUrl = approvedMedia?.publicUrl ?? undefined
+  const mediaUrls = approvedMedia.map(m => m.publicUrl).filter((u): u is string => Boolean(u))
 
   type LogResult = { platform: string; status: string; bufferUpdateId?: string; error?: string }
   const results: LogResult[] = []
@@ -122,7 +122,7 @@ export async function POST(
     try {
       const result = await publishToBuffer(
         { accessToken, channels },
-        { channelId, platform, text, mediaUrls: mediaUrl ? [mediaUrl] : undefined, postNow: true },
+        { channelId, platform, text, mediaUrls: mediaUrls.length ? mediaUrls : undefined, postNow: true },
       )
       results.push({ platform, status: 'sent', bufferUpdateId: result.bufferUpdateId })
       await prisma.orbitPublishLog.create({

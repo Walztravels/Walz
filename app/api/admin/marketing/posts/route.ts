@@ -73,6 +73,8 @@ export async function PATCH(req: NextRequest) {
     caption?: string
     hashtags?: string
     approvedBy?: string
+    imageUrls?: string[]
+    imageType?: string
   }
 
   const post = await prisma.socialPost.update({
@@ -82,6 +84,8 @@ export async function PATCH(req: NextRequest) {
       ...(body.hashtags   !== undefined && { hashtags:   body.hashtags   }),
       ...(body.status     !== undefined && { status:     body.status     }),
       ...(body.approvedBy !== undefined && { approvedBy: body.approvedBy }),
+      ...(body.imageUrls  !== undefined && { imageUrls:  body.imageUrls  }),
+      ...(body.imageType  !== undefined && { imageType:  body.imageType  }),
       ...(body.scheduledAt !== undefined && {
         scheduledAt: body.scheduledAt ? new Date(body.scheduledAt) : null,
       }),

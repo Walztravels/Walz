@@ -73,9 +73,9 @@ export async function publishToBuffer(
 ): Promise<BufferPublishResult> {
   const metadata = buildMetadata(opts.platform)
 
-  const assets = opts.mediaUrls?.[0]
-    ? [{ image: { url: opts.mediaUrls[0] } }]
-    : []
+  const assets = (opts.mediaUrls ?? [])
+    .filter(Boolean)
+    .map(url => ({ image: { url } }))
 
   const input: Record<string, unknown> = {
     channelId:      opts.channelId,
