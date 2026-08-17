@@ -30,7 +30,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
 import { normalisePhone } from '@/lib/twilio-whatsapp'
-import { ACTIVE_VISA_STATUSES } from '@/app/api/admin/visa-applications/[id]/whatsapp/route'
+import { ACTIVE_VISA_STATUSES } from '@/lib/visa-constants'
 import { sendVisaWhatsAppNotification } from '@/lib/email-staff-notification'
 
 export const dynamic = 'force-dynamic'

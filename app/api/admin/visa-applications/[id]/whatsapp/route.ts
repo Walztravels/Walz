@@ -6,11 +6,7 @@ import { ROLE_HIERARCHY } from '@/lib/permissions'
 
 export const dynamic = 'force-dynamic'
 
-// Active visa statuses — used here and re-exported for the inbound webhook.
-export const ACTIVE_VISA_STATUSES = [
-  'received', 'documents_pending', 'info_required', 'under_review',
-  'ready_to_submit', 'submitted_to_embassy', 'decision_pending',
-]
+import { ACTIVE_VISA_STATUSES } from '@/lib/visa-constants'
 
 // Returns [viewerId, ...ids of all staff strictly below the viewer's rank]
 async function getVisibleStaffIds(viewerRole: string, viewerId: string): Promise<string[]> {
