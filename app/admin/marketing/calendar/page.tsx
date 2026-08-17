@@ -100,11 +100,12 @@ export default function CalendarPage() {
   const [publishing,   setPublishing]    = useState<string | null>(null)
   const [publishMsg,   setPublishMsg]    = useState<{ id: string; ok: boolean; text: string } | null>(null)
 
-  const [editCaption,  setEditCaption]   = useState('')
-  const [editHashtags, setEditHashtags]  = useState('')
-  const [editPlatform, setEditPlatform]  = useState('')
-  const [editSchedule, setEditSchedule]  = useState('')
-  const [editImageUrl, setEditImageUrl]  = useState('')
+  const [editCaption,    setEditCaption]    = useState('')
+  const [editHashtags,   setEditHashtags]   = useState('')
+  const [editPlatform,   setEditPlatform]   = useState('')
+  const [editSchedule,   setEditSchedule]   = useState('')
+  const [editImageUrls,  setEditImageUrls]  = useState<string[]>([])
+  const [newImageUrl,    setNewImageUrl]    = useState('')
 
   // Media picker
   const [showPicker,   setShowPicker]   = useState(false)
@@ -174,7 +175,9 @@ export default function CalendarPage() {
     setEditHashtags(post.hashtags)
     setEditPlatform(post.platform)
     setEditSchedule(toLocalDT(post.scheduledAt))
-    setEditImageUrl((post.imageUrls ?? [])[0] ?? '')
+    setEditImageUrls(post.imageUrls ?? [])
+    setNewImageUrl('')
+    setShowPicker(false)
     setRejectionNote('')
   }
 
@@ -192,14 +195,14 @@ export default function CalendarPage() {
         id:          selected.id,
         caption:     editCaption,
         hashtags:    editHashtags,
-        imageUrls:   editImageUrl ? [editImageUrl] : selected.imageUrls,
+        imageUrls:   editImageUrls,
         scheduledAt: editSchedule ? new Date(editSchedule).toISOString() : null,
       }),
     })
     setPosts(prev => prev.map(p =>
       p.id === selected.id
         ? { ...p, caption: editCaption, hashtags: editHashtags,
-            imageUrls: editImageUrl ? [editImageUrl] : p.imageUrls,
+            imageUrls: editImageUrls,
             scheduledAt: editSchedule ? new Date(editSchedule).toISOString() : null }
         : p
     ))
@@ -216,7 +219,7 @@ export default function CalendarPage() {
         id:          selected.id,
         caption:     editCaption,
         hashtags:    editHashtags,
-        imageUrls:   editImageUrl ? [editImageUrl] : selected.imageUrls,
+        imageUrls:   editImageUrls,
         scheduledAt: editSchedule ? new Date(editSchedule).toISOString() : null,
         status:      'pending_approval',
       }),
@@ -494,8 +497,10 @@ export default function CalendarPage() {
               </div>
 
               <div>
-                <div className="flex items-center justify-between mb-1">
-                  <label className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Image URL</label>
+                <div className="flex items-center justify-between mb-2">
+                  <label className="text-xs font-semibold text-gray-400 uppercase tracking-wider">
+                    Images <span className="normal-case font-normal text-gray-400">({editImageUrls.length})</span>
+                  </label>
                   <button
                     onClick={openPicker}
                     className="flex items-center gap-1 text-xs font-medium text-amber-600 hover:text-amber-700 transition"
@@ -503,16 +508,50 @@ export default function CalendarPage() {
                     <Image className="w-3.5 h-3.5" /> Pick from library
                   </button>
                 </div>
-                <input
-                  value={editImageUrl}
-                  onChange={e => setEditImageUrl(e.target.value)}
-                  placeholder="Paste URL or pick from Media Library…"
-                  className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400/50"
-                />
-                {editImageUrl && (
-                  /* eslint-disable-next-line @next/next/no-img-element */
-                  <img src={editImageUrl} alt="Preview" className="mt-2 rounded-lg max-h-36 object-contain border border-gray-100 w-full" />
+
+                {/* Selected images grid */}
+                {editImageUrls.length > 0 && (
+                  <div className="grid grid-cols-3 gap-1.5 mb-2">
+                    {editImageUrls.map((url, idx) => (
+                      <div key={idx} className="relative aspect-square rounded-lg overflow-hidden border border-gray-200 group">
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img src={url} alt={`Image ${idx + 1}`} className="w-full h-full object-cover" />
+                        <button
+                          onClick={() => setEditImageUrls(prev => prev.filter((_, i) => i !== idx))}
+                          className="absolute top-1 right-1 bg-black/60 hover:bg-black/80 text-white rounded-full p-0.5 opacity-0 group-hover:opacity-100 transition"
+                        >
+                          <X className="w-3 h-3" />
+                        </button>
+                        <span className="absolute bottom-1 left-1 text-[9px] bg-black/50 text-white rounded px-1">
+                          {idx + 1}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
                 )}
+
+                {/* Add by URL */}
+                <div className="flex gap-2">
+                  <input
+                    value={newImageUrl}
+                    onChange={e => setNewImageUrl(e.target.value)}
+                    onKeyDown={e => {
+                      if (e.key === 'Enter' && newImageUrl.trim()) {
+                        setEditImageUrls(prev => [...prev, newImageUrl.trim()])
+                        setNewImageUrl('')
+                      }
+                    }}
+                    placeholder="Paste image URL and press Enter…"
+                    className="flex-1 border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-400/50"
+                  />
+                  <button
+                    onClick={() => { if (newImageUrl.trim()) { setEditImageUrls(prev => [...prev, newImageUrl.trim()]); setNewImageUrl('') } }}
+                    disabled={!newImageUrl.trim()}
+                    className="px-3 py-2 bg-amber-500 hover:bg-amber-600 text-white text-sm font-semibold rounded-xl transition disabled:opacity-40"
+                  >
+                    Add
+                  </button>
+                </div>
               </div>
 
               {/* Media picker panel */}
@@ -555,11 +594,20 @@ export default function CalendarPage() {
                       {filteredMedia.map(m => (
                         <button
                           key={m.id}
-                          onClick={() => { setEditImageUrl(m.url); setShowPicker(false) }}
-                          className="aspect-square rounded-lg overflow-hidden border-2 border-transparent hover:border-amber-400 transition group relative"
+                          onClick={() => {
+                            setEditImageUrls(prev => prev.includes(m.url) ? prev : [...prev, m.url])
+                          }}
+                          className={`aspect-square rounded-lg overflow-hidden border-2 transition group relative ${
+                            editImageUrls.includes(m.url) ? 'border-amber-500' : 'border-transparent hover:border-amber-400'
+                          }`}
                         >
                           {/* eslint-disable-next-line @next/next/no-img-element */}
                           <img src={m.url} alt={m.filename} className="w-full h-full object-cover" loading="lazy" />
+                          {editImageUrls.includes(m.url) && (
+                            <div className="absolute inset-0 bg-amber-500/20 flex items-center justify-center">
+                              <CheckCircle className="w-5 h-5 text-amber-600 drop-shadow" />
+                            </div>
+                          )}
                           {m.tags?.length > 0 && (
                             <span className="absolute bottom-0.5 left-0.5 right-0.5 text-[9px] bg-black/50 text-white rounded px-1 py-0.5 truncate text-center">
                               {m.tags[0]}
