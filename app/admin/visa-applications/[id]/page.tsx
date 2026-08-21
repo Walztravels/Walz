@@ -367,10 +367,11 @@ function EmailClientModal({ app, onClose, onSent }: { app: VisaApp; onClose: () 
   const [to,      setTo]      = useState(app.email ?? app.user?.email ?? '')
   const [subject, setSubject] = useState(`${destName} Visa Application · ${app.referenceNumber}`)
   const [body,    setBody]    = useState('')
-  const [files,   setFiles]   = useState<File[]>([])
-  const [sending, setSending] = useState(false)
-  const [err,     setErr]     = useState('')
-  const [sent,    setSent]    = useState(false)
+  const [files,      setFiles]      = useState<File[]>([])
+  const [sending,    setSending]    = useState(false)
+  const [err,        setErr]        = useState('')
+  const [sent,       setSent]       = useState(false)
+  const [dragActive, setDragActive] = useState(false)
   const fileRef = useRef<HTMLInputElement>(null)
 
   function applyTemplate(tpl: typeof EMAIL_TEMPLATES[0]) {
@@ -382,6 +383,21 @@ function EmailClientModal({ app, onClose, onSent }: { app: VisaApp; onClose: () 
     if (!incoming) return
     setFiles(prev => [...prev, ...Array.from(incoming)])
     if (fileRef.current) fileRef.current.value = ''
+  }
+
+  function handleDrop(e: React.DragEvent) {
+    e.preventDefault()
+    setDragActive(false)
+    addFiles(e.dataTransfer.files)
+  }
+
+  function handleDragOver(e: React.DragEvent) {
+    e.preventDefault()
+    setDragActive(true)
+  }
+
+  function handleDragLeave(e: React.DragEvent) {
+    if (!e.currentTarget.contains(e.relatedTarget as Node)) setDragActive(false)
   }
 
   function removeFile(idx: number) {
@@ -482,12 +498,26 @@ function EmailClientModal({ app, onClose, onSent }: { app: VisaApp; onClose: () 
             </div>
             <input ref={fileRef} type="file" multiple className="hidden" onChange={e => addFiles(e.target.files)} />
             {files.length === 0 ? (
-              <button onClick={() => fileRef.current?.click()}
-                className="w-full border-2 border-dashed border-gray-200 rounded-xl p-4 text-xs text-gray-400 hover:border-[#C9A84C]/40 hover:text-[#C9A84C] transition-colors text-center">
-                Drop files here or click to browse
+              <button
+                onClick={() => fileRef.current?.click()}
+                onDrop={handleDrop}
+                onDragOver={handleDragOver}
+                onDragLeave={handleDragLeave}
+                className={`w-full border-2 border-dashed rounded-xl p-4 text-xs transition-colors text-center ${
+                  dragActive
+                    ? 'border-[#C9A84C] text-[#C9A84C] bg-[#C9A84C]/5'
+                    : 'border-gray-200 text-gray-400 hover:border-[#C9A84C]/40 hover:text-[#C9A84C]'
+                }`}>
+                {dragActive ? 'Release to attach' : 'Drop files here or click to browse'}
               </button>
             ) : (
-              <div className="space-y-1.5">
+              <div
+                className={`space-y-1.5 rounded-xl border-2 border-dashed p-2 transition-colors ${
+                  dragActive ? 'border-[#C9A84C] bg-[#C9A84C]/5' : 'border-transparent'
+                }`}
+                onDrop={handleDrop}
+                onDragOver={handleDragOver}
+                onDragLeave={handleDragLeave}>
                 {files.map((f, i) => (
                   <div key={i} className="flex items-center gap-2 p-2 bg-gray-50 rounded-xl border border-gray-100">
                     <FileText className="w-3.5 h-3.5 text-[#C9A84C] flex-shrink-0" />
