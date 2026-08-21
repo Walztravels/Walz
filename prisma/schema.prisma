@@ -277,6 +277,7 @@ model VisaApplication {
   timeline      Json    @default("[]")
   isDraft       Boolean @default(true)
   initiatedBy   String  @default("client") // "admin" | "client"
+  source        String  @default("online")  // "online" | "manual_entry"
 
   // ── Admin ───────────────────────────────────────
   assignedTo        String?

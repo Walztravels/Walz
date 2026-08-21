@@ -4,8 +4,8 @@ import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import {
-  Search, Globe, Clock, ChevronRight,
-  Loader2, RefreshCw, Send, X, CheckCircle,
+  Search, Globe, ChevronRight,
+  Loader2, RefreshCw, Send, X, CheckCircle, Plus, Trash2, ClipboardList,
 } from 'lucide-react'
 import { STATUS_CONFIG, VISA_AGENTS, VISA_CONFIGS, SCHENGEN_ISO2 } from '@/lib/visa-config'
 import { ALL_COUNTRIES } from '@/lib/countries'
@@ -16,6 +16,7 @@ interface VisaApp {
   id: string; referenceNumber: string; destinationIso2: string; visaType: string
   firstName: string | null; lastName: string | null; email: string | null; phone: string | null
   status: string; serviceFeePaid: boolean; assignedTo: string | null; initiatedBy: string
+  source?: string
   createdAt: string; updatedAt: string
   user: { name: string | null; email: string | null } | null
   notes: { content: string; createdAt: string }[]
@@ -52,7 +53,14 @@ function StatusBadge({ status }: { status: string }) {
   )
 }
 
-function InitiatedBadge({ initiatedBy }: { initiatedBy: string }) {
+function SourceBadge({ initiatedBy, source }: { initiatedBy: string; source?: string }) {
+  if (source === 'manual_entry') {
+    return (
+      <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full bg-purple-50 text-purple-700 border border-purple-200">
+        ✍️ Manual
+      </span>
+    )
+  }
   if (initiatedBy === 'admin') {
     return (
       <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-200">
@@ -127,6 +135,91 @@ export default function AdminVisaApplicationsPage() {
   const [govtFee,      setGovtFee]      = useState<number | ''>('')
   const [govtCurrency, setGovtCurrency] = useState('USD')
   const [showGovtFee,  setShowGovtFee]  = useState(true)
+
+  // ── Manual Entry modal ────────────────────────────────────────────────────
+  interface ManualApplicant { firstName: string; lastName: string; passportNumber: string; email: string; phone: string }
+  const blankApplicant = (): ManualApplicant => ({ firstName: '', lastName: '', passportNumber: '', email: '', phone: '' })
+
+  interface CreatedApp { id: string; referenceNumber: string; firstName: string; lastName: string; email: string | null; status: string; destinationIso2: string; embassyReference: string | null }
+
+  const [manualOpen,        setManualOpen]        = useState(false)
+  const [manualSubmitting,  setManualSubmitting]   = useState(false)
+  const [manualError,       setManualError]        = useState<string | null>(null)
+  const [manualCreated,     setManualCreated]      = useState<CreatedApp[]>([])
+  const [manualEmbassyRef,  setManualEmbassyRef]   = useState('')
+  const [manualDest,        setManualDest]         = useState('')
+  const [manualDestSearch,  setManualDestSearch]   = useState('')
+  const [manualVisaType,    setManualVisaType]     = useState('tourist')
+  const [manualStatus,      setManualStatus]       = useState('received')
+  const [manualApplicants,  setManualApplicants]   = useState<ManualApplicant[]>([blankApplicant()])
+
+  // Post-creation bulk status update
+  const [bulkStatus,        setBulkStatus]         = useState('approved')
+  const [bulkUpdating,      setBulkUpdating]       = useState(false)
+  const [bulkDone,          setBulkDone]           = useState(false)
+
+  function closeManualModal() {
+    setManualOpen(false)
+    setManualSubmitting(false)
+    setManualError(null)
+    setManualCreated([])
+    setManualEmbassyRef('')
+    setManualDest('')
+    setManualDestSearch('')
+    setManualVisaType('tourist')
+    setManualStatus('received')
+    setManualApplicants([blankApplicant()])
+    setBulkStatus('approved')
+    setBulkUpdating(false)
+    setBulkDone(false)
+  }
+
+  function updateApplicant(index: number, field: keyof ManualApplicant, value: string) {
+    setManualApplicants(prev => prev.map((a, i) => i === index ? { ...a, [field]: value } : a))
+  }
+
+  async function handleManualSubmit(e: React.FormEvent) {
+    e.preventDefault()
+    setManualError(null)
+    setManualSubmitting(true)
+    try {
+      const res = await fetch('/api/admin/visa-applications/manual-entry', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({
+          embassyReference: manualEmbassyRef.trim() || undefined,
+          destinationIso2:  manualDest,
+          visaType:         manualVisaType,
+          status:           manualStatus,
+          applicants:       manualApplicants,
+        }),
+      })
+      const d = await res.json()
+      if (!res.ok) { setManualError(d.error ?? 'Failed to create records'); return }
+      setManualCreated(d.applications)
+      setBulkStatus('approved')
+      setBulkDone(false)
+      load() // refresh list in background
+    } catch {
+      setManualError('Network error — please try again')
+    } finally {
+      setManualSubmitting(false)
+    }
+  }
+
+  async function handleBulkStatus() {
+    setBulkUpdating(true)
+    await Promise.all(manualCreated.map(app =>
+      fetch(`/api/admin/visa-applications/${app.id}/status`, {
+        method:  'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ status: bulkStatus }),
+      })
+    ))
+    setBulkDone(true)
+    setBulkUpdating(false)
+    load()
+  }
 
   async function load() {
     setLoading(true)
@@ -241,6 +334,11 @@ export default function AdminVisaApplicationsPage() {
             className="flex items-center gap-2 px-4 py-2 border border-gray-200 rounded-xl text-sm hover:bg-gray-50 transition-colors">
             <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin text-[#C9A84C]' : 'text-gray-500'}`} />
             Refresh
+          </button>
+          <button onClick={() => setManualOpen(true)}
+            className="flex items-center gap-2 px-4 py-2 border border-purple-200 bg-purple-50 hover:bg-purple-100 text-purple-700 font-bold text-sm rounded-xl transition-colors">
+            <ClipboardList className="w-4 h-4" />
+            Manual Entry
           </button>
           <button onClick={() => setModalOpen(true)}
             className="flex items-center gap-2 px-4 py-2 bg-[#C9A84C] hover:bg-[#b8943d] text-[#0B1F3A] font-bold text-sm rounded-xl transition-colors">
@@ -418,7 +516,7 @@ export default function AdminVisaApplicationsPage() {
                         <span className="text-xs text-gray-600 capitalize">{app.visaType}</span>
                       </td>
                       <td className="px-4 py-3">
-                        <InitiatedBadge initiatedBy={app.initiatedBy ?? 'client'} />
+                        <SourceBadge initiatedBy={app.initiatedBy ?? 'client'} source={app.source} />
                       </td>
                       <td className="px-4 py-3">
                         <div className="space-y-1">
@@ -457,7 +555,7 @@ export default function AdminVisaApplicationsPage() {
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 mb-1 flex-wrap">
                       <StatusBadge status={app.status} />
-                      <InitiatedBadge initiatedBy={app.initiatedBy ?? 'client'} />
+                      <SourceBadge initiatedBy={app.initiatedBy ?? 'client'} source={app.source} />
                       <span className="font-mono text-xs text-[#C9A84C]">{app.referenceNumber}</span>
                     </div>
                     <p className="font-semibold text-[#0B1F3A] text-sm">{[app.firstName, app.lastName].filter(Boolean).join(' ') || '—'}</p>
@@ -472,6 +570,248 @@ export default function AdminVisaApplicationsPage() {
       )}
 
       </>}
+
+      {/* ── Manual Entry Modal ── */}
+      {manualOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl flex flex-col max-h-[90vh]">
+            {/* Header */}
+            <div className="flex-shrink-0 flex items-center justify-between px-6 py-4 border-b border-gray-100">
+              <div>
+                <h2 className="text-lg font-bold text-[#0B1F3A]">Manual Entry</h2>
+                <p className="text-xs text-gray-500 mt-0.5">For applications already processed on an external portal — no form link sent</p>
+              </div>
+              <button onClick={closeManualModal} className="p-1.5 rounded-lg hover:bg-gray-100 transition-colors">
+                <X className="w-5 h-5 text-gray-500" />
+              </button>
+            </div>
+
+            {/* Success state */}
+            {manualCreated.length > 0 ? (
+              <div className="p-6 space-y-5 overflow-y-auto">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-full bg-green-50 border-2 border-green-200 flex items-center justify-center">
+                    <CheckCircle className="w-5 h-5 text-green-500" />
+                  </div>
+                  <div>
+                    <p className="font-bold text-[#0B1F3A]">{manualCreated.length} record{manualCreated.length > 1 ? 's' : ''} created</p>
+                    {manualEmbassyRef && <p className="text-xs text-gray-500">Embassy ref: <span className="font-mono font-semibold text-purple-700">{manualEmbassyRef}</span></p>}
+                  </div>
+                </div>
+
+                {/* Created records list */}
+                <div className="bg-gray-50 rounded-xl divide-y divide-gray-100">
+                  {manualCreated.map(app => (
+                    <div key={app.id} className="flex items-center gap-3 px-4 py-3">
+                      <div className="flex-1 min-w-0">
+                        <p className="font-semibold text-[#0B1F3A] text-sm">{[app.firstName, app.lastName].filter(Boolean).join(' ')}</p>
+                        {app.email && <p className="text-xs text-gray-400">{app.email}</p>}
+                      </div>
+                      <span className="font-mono text-xs font-bold text-[#C9A84C]">{app.referenceNumber}</span>
+                      <a href={`/admin/visa-applications/${app.id}`} target="_blank" rel="noopener noreferrer"
+                        className="text-xs text-[#C9A84C] font-semibold hover:underline whitespace-nowrap">
+                        Open →
+                      </a>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Bulk status update */}
+                {bulkDone ? (
+                  <div className="bg-green-50 border border-green-200 rounded-xl px-4 py-3 text-sm text-green-700 font-medium flex items-center gap-2">
+                    <CheckCircle className="w-4 h-4" /> Status updated — emails sent to clients with email addresses.
+                  </div>
+                ) : (
+                  <div className="border border-gray-200 rounded-xl p-4 space-y-3">
+                    <p className="text-xs font-semibold text-gray-500 uppercase tracking-wide">Set status for all records</p>
+                    <div className="flex gap-3 items-center">
+                      <select value={bulkStatus} onChange={e => setBulkStatus(e.target.value)}
+                        className="flex-1 h-10 px-3 border border-gray-200 rounded-xl text-sm outline-none focus:border-[#C9A84C] bg-white">
+                        {ALL_STATUSES.slice(1).map(s => (
+                          <option key={s} value={s}>{s.replace(/_/g, ' ')}</option>
+                        ))}
+                      </select>
+                      <button onClick={handleBulkStatus} disabled={bulkUpdating}
+                        className="h-10 px-5 bg-[#0B1F3A] hover:bg-[#122b4f] text-white font-bold text-sm rounded-xl transition-colors disabled:opacity-60 whitespace-nowrap flex items-center gap-2">
+                        {bulkUpdating ? <><Loader2 className="w-4 h-4 animate-spin" /> Updating…</> : 'Update All'}
+                      </button>
+                    </div>
+                    <p className="text-xs text-gray-400">Clients with email addresses will receive a status notification email.</p>
+                  </div>
+                )}
+
+                <button onClick={closeManualModal}
+                  className="w-full px-4 py-2.5 bg-gray-100 hover:bg-gray-200 text-gray-700 font-semibold text-sm rounded-xl transition-colors">
+                  Done
+                </button>
+              </div>
+            ) : (
+              /* Entry form */
+              <form onSubmit={handleManualSubmit} className="overflow-y-auto p-6 space-y-5">
+                {/* Shared fields */}
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="col-span-2">
+                    <label className="block text-xs font-semibold text-gray-700 mb-1">
+                      Embassy / External Reference <span className="text-gray-400 font-normal">(e.g. 2E2D76 — the destination country's own ref)</span>
+                    </label>
+                    <input
+                      type="text"
+                      value={manualEmbassyRef}
+                      onChange={e => setManualEmbassyRef(e.target.value)}
+                      placeholder="e.g. 2E2D76"
+                      className="w-full px-3 py-2 border border-gray-200 rounded-xl text-sm font-mono outline-none focus:border-purple-400"
+                    />
+                    <p className="text-[10px] text-gray-400 mt-0.5">Stored as the embassy reference — each applicant gets their own Walz tracking ref</p>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-700 mb-1">Destination *</label>
+                    <input
+                      type="text"
+                      value={manualDestSearch}
+                      onChange={e => setManualDestSearch(e.target.value)}
+                      placeholder="Search country…"
+                      className="w-full px-3 py-2 border border-gray-200 rounded-xl text-sm outline-none focus:border-purple-400 mb-1"
+                    />
+                    <select
+                      required
+                      size={4}
+                      value={manualDest}
+                      onChange={e => setManualDest(e.target.value)}
+                      className="w-full px-2 py-1 border border-gray-200 rounded-xl text-sm outline-none focus:border-purple-400 bg-white">
+                      <option value="">— select —</option>
+                      {(() => {
+                        const configuredIso2 = new Set(Object.keys(VISA_CONFIGS))
+                        const q = manualDestSearch.toLowerCase()
+                        const featured = ALL_COUNTRIES.filter(c => configuredIso2.has(c.iso2) && (!q || c.name.toLowerCase().includes(q)))
+                        const others   = ALL_COUNTRIES.filter(c => !configuredIso2.has(c.iso2) && (!q || c.name.toLowerCase().includes(q)))
+                        return (
+                          <>
+                            {featured.length > 0 && (
+                              <optgroup label="✅ Configured">
+                                {featured.map(c => <option key={c.iso2} value={c.iso2}>{c.flag} {c.name}</option>)}
+                              </optgroup>
+                            )}
+                            {others.length > 0 && (
+                              <optgroup label="All countries">
+                                {others.sort((a,b) => a.name.localeCompare(b.name)).map(c => <option key={c.iso2} value={c.iso2}>{c.flag} {c.name}</option>)}
+                              </optgroup>
+                            )}
+                          </>
+                        )
+                      })()}
+                    </select>
+                  </div>
+                  <div className="space-y-3">
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-700 mb-1">Visa Type</label>
+                      <select value={manualVisaType} onChange={e => setManualVisaType(e.target.value)}
+                        className="w-full px-3 py-2 border border-gray-200 rounded-xl text-sm outline-none focus:border-purple-400 bg-white">
+                        {VISA_TYPES.map(t => <option key={t} value={t}>{t.charAt(0).toUpperCase() + t.slice(1)}</option>)}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-700 mb-1">Initial Status</label>
+                      <select value={manualStatus} onChange={e => setManualStatus(e.target.value)}
+                        className="w-full px-3 py-2 border border-gray-200 rounded-xl text-sm outline-none focus:border-purple-400 bg-white">
+                        {ALL_STATUSES.slice(1).map(s => (
+                          <option key={s} value={s}>{s.replace(/_/g, ' ')}</option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Applicant rows */}
+                <div className="border-t border-gray-100 pt-4">
+                  <div className="flex items-center justify-between mb-3">
+                    <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide">
+                      Applicants ({manualApplicants.length})
+                    </label>
+                  </div>
+
+                  <div className="space-y-3">
+                    {manualApplicants.map((a, i) => (
+                      <div key={i} className="bg-gray-50 rounded-xl p-4 space-y-3">
+                        <div className="flex items-center justify-between mb-1">
+                          <span className="text-xs font-semibold text-gray-500">Applicant {i + 1}{i === 0 ? ' (lead)' : ''}</span>
+                          {manualApplicants.length > 1 && (
+                            <button type="button" onClick={() => setManualApplicants(prev => prev.filter((_, idx) => idx !== i))}
+                              className="text-gray-400 hover:text-red-500 transition-colors p-1 rounded">
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+                        </div>
+                        <div className="grid grid-cols-2 gap-3">
+                          <div>
+                            <label className="block text-[10px] font-semibold text-gray-500 mb-1">First Name *</label>
+                            <input required value={a.firstName}
+                              onChange={e => updateApplicant(i, 'firstName', e.target.value)}
+                              placeholder="Jane"
+                              className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm outline-none focus:border-purple-400 bg-white" />
+                          </div>
+                          <div>
+                            <label className="block text-[10px] font-semibold text-gray-500 mb-1">Last Name *</label>
+                            <input required value={a.lastName}
+                              onChange={e => updateApplicant(i, 'lastName', e.target.value)}
+                              placeholder="Smith"
+                              className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm outline-none focus:border-purple-400 bg-white" />
+                          </div>
+                          <div>
+                            <label className="block text-[10px] font-semibold text-gray-500 mb-1">Passport Number</label>
+                            <input value={a.passportNumber}
+                              onChange={e => updateApplicant(i, 'passportNumber', e.target.value)}
+                              placeholder="A12345678"
+                              className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm font-mono outline-none focus:border-purple-400 bg-white" />
+                          </div>
+                          <div>
+                            <label className="block text-[10px] font-semibold text-gray-500 mb-1">Email <span className="font-normal text-gray-400">(for status emails)</span></label>
+                            <input type="email" value={a.email}
+                              onChange={e => updateApplicant(i, 'email', e.target.value)}
+                              placeholder="jane@example.com"
+                              className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm outline-none focus:border-purple-400 bg-white" />
+                          </div>
+                          <div className="col-span-2">
+                            <label className="block text-[10px] font-semibold text-gray-500 mb-1">Phone</label>
+                            <input value={a.phone}
+                              onChange={e => updateApplicant(i, 'phone', e.target.value)}
+                              placeholder="+44 7700 900000"
+                              className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm outline-none focus:border-purple-400 bg-white" />
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+
+                  <button type="button"
+                    onClick={() => setManualApplicants(prev => [...prev, blankApplicant()])}
+                    className="mt-3 flex items-center gap-2 text-sm text-purple-700 font-semibold hover:text-purple-900 transition-colors">
+                    <Plus className="w-4 h-4" /> Add another applicant
+                  </button>
+                </div>
+
+                {manualError && (
+                  <div className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-xl px-4 py-3">
+                    {manualError}
+                  </div>
+                )}
+
+                <div className="bg-purple-50 border border-purple-200 rounded-xl p-3 text-xs text-purple-700">
+                  ✍️ Creates <strong>{manualApplicants.length} record{manualApplicants.length > 1 ? 's' : ''}</strong> marked as <strong>Manual Entry</strong> with status <strong>{manualStatus.replace(/_/g, ' ')}</strong>.
+                  {manualApplicants.length > 1 && ' Records will be linked as a group.'}
+                  {' '}No form link is sent — these applications were already processed externally.
+                </div>
+
+                <button type="submit" disabled={manualSubmitting || !manualDest}
+                  className="w-full flex items-center justify-center gap-2 px-4 py-2.5 bg-purple-700 hover:bg-purple-800 text-white font-bold text-sm rounded-xl transition-colors disabled:opacity-60 disabled:cursor-not-allowed">
+                  {manualSubmitting
+                    ? <><Loader2 className="w-4 h-4 animate-spin" /> Creating records…</>
+                    : <><ClipboardList className="w-4 h-4" /> Create {manualApplicants.length} Record{manualApplicants.length > 1 ? 's' : ''}</>}
+                </button>
+              </form>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* ── Send Form to Client Modal ── */}
       {modalOpen && (

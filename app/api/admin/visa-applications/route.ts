@@ -63,6 +63,7 @@ export async function GET(req: NextRequest) {
         serviceFeePaid: true,
         assignedTo:     true,
         initiatedBy:    true,
+        source:         true,
         isDraft:        true,
         familyGroupId:  true,
         relationship:   true,
