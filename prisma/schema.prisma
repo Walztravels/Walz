@@ -3366,7 +3366,9 @@ model OrbitMedia {
   source       String    // 'generated' | 'uploaded'
   storagePath  String    @map("storage_path")   // path inside orbit-media bucket
   publicUrl    String?   @map("public_url")     // cached public URL
-  format       String    // '1080x1350' | '1080x1920' | '1200x628' | '1024x1024'
+  format       String    // images: '1080x1350'|'1080x1920'|'1200x628'|'1024x1024'; video: 'reel'|'story'|'feed_video'
+  mediaType    String    @default("image")  @map("media_type")   // 'image' | 'video'
+  durationMs   Int?                          @map("duration_ms")  // video only, milliseconds
   destination  String?                          // 'lagos' | 'dubai' | 'harare' …
   campaignType String?   @map("campaign_type")  // 'december_flights' | 'visa' …
   prompt       String?                          // generation prompt (generated only)

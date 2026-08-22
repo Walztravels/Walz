@@ -87,7 +87,7 @@ export async function POST(
 
   const content = campaign.content as Record<string, unknown>
 
-  // Grab all approved images, sorted by the user-defined mediaOrder
+  // Grab all approved media, sorted by the user-defined mediaOrder
   const approvedMedia = await prisma.orbitMedia.findMany({
     where: { campaignId: params.id, status: 'approved' },
     orderBy: { createdAt: 'asc' },
@@ -97,7 +97,27 @@ export async function POST(
     ...savedOrder.map(id => approvedMedia.find(m => m.id === id)).filter(Boolean),
     ...approvedMedia.filter(m => !savedOrder.includes(m.id)),
   ] as typeof approvedMedia
-  const mediaUrls = sortedMedia.map(m => m.publicUrl).filter((u): u is string => Boolean(u))
+
+  const videoItems = sortedMedia.filter(m => m.mediaType === 'video')
+  const imageItems = sortedMedia.filter(m => !m.mediaType || m.mediaType === 'image')
+
+  // Buffer/Meta Content API does not support mixed image+video posts or multi-video carousels.
+  if (videoItems.length > 0 && imageItems.length > 0) {
+    return NextResponse.json({
+      error: 'Cannot mix images and videos in a single post. Remove either all images or all videos from the approved list before publishing.',
+    }, { status: 400 })
+  }
+  if (videoItems.length > 1) {
+    return NextResponse.json({
+      error: 'Buffer does not support posting multiple videos at once. Keep only one approved video.',
+    }, { status: 400 })
+  }
+
+  const isVideoPost  = videoItems.length === 1
+  const publishMedia = isVideoPost ? videoItems : imageItems
+  const mediaUrls    = publishMedia.map(m => m.publicUrl).filter((u): u is string => Boolean(u))
+  const mediaType    = isVideoPost ? 'video' as const : 'image' as const
+  const videoFormat  = isVideoPost ? (videoItems[0].format ?? 'reel') : undefined
 
   type LogResult = { platform: string; status: string; bufferUpdateId?: string; error?: string }
   const results: LogResult[] = []
@@ -127,7 +147,15 @@ export async function POST(
     try {
       const result = await publishToBuffer(
         { accessToken, channels },
-        { channelId, platform, text, mediaUrls: mediaUrls.length ? mediaUrls : undefined, postNow: true },
+        {
+          channelId,
+          platform,
+          text,
+          mediaUrls:   mediaUrls.length ? mediaUrls : undefined,
+          mediaType,
+          videoFormat,
+          postNow:     true,
+        },
       )
       results.push({ platform, status: 'sent', bufferUpdateId: result.bufferUpdateId })
       await prisma.orbitPublishLog.create({

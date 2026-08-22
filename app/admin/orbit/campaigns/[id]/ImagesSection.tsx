@@ -9,20 +9,40 @@ import {
   SortableContext, verticalListSortingStrategy, useSortable, arrayMove,
 } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
-import { GripVertical } from 'lucide-react'
+import { GripVertical, Play } from 'lucide-react'
+
+// ── Client-side upload limits (source: Buffer API docs + platform specs) ──────
+// Buffer enforces 300 MB for Instagram video. Duration limits:
+//   Reel    — 90 s (practical marketing limit; Instagram supports longer)
+//   Story   — 60 s (Instagram Story video limit)
+//   Feed    — 900 s / 15 min (Buffer's Instagram max)
+const MAX_VIDEO_BYTES  = 300 * 1024 * 1024
+const MAX_IMAGE_BYTES  =  50 * 1024 * 1024
+const VIDEO_DURATION_LIMITS: Record<string, number> = {
+  reel:       90,
+  story:      60,
+  feed_video: 900,
+}
+const VIDEO_FORMAT_LABELS: Record<string, string> = {
+  reel:       'Reel (9:16, max 90 s)',
+  story:      'Story (9:16, max 60 s)',
+  feed_video: 'Feed video (max 15 min)',
+}
 
 interface MediaItem {
-  id: string
-  source: string
-  publicUrl: string | null
-  format: string
-  destination: string | null
-  prompt: string | null
-  altText: string
-  costUsd: string
-  status: string
-  approvedBy: string | null
-  createdAt: string
+  id:           string
+  source:       string
+  publicUrl:    string | null
+  format:       string
+  mediaType?:   string
+  durationMs?:  number | null
+  destination:  string | null
+  prompt:       string | null
+  altText:      string
+  costUsd:      string
+  status:       string
+  approvedBy:   string | null
+  createdAt:    string
   _fromMarketing?: boolean
 }
 
@@ -47,18 +67,68 @@ const FORMAT_LABELS: Record<string, string> = {
   '1080x1350': 'Instagram Feed',
   '1200x628':  'Facebook Ad',
   '1024x1024': 'Square',
+  reel:        'Reel',
+  story:       'Story',
+  feed_video:  'Feed video',
 }
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+function fmtDuration(ms: number): string {
+  const s = Math.round(ms / 1000)
+  if (s < 60) return `${s}s`
+  return `${Math.floor(s / 60)}m ${s % 60}s`
+}
+
+function getVideoDuration(file: File): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const vid = document.createElement('video')
+    vid.preload = 'metadata'
+    vid.onloadedmetadata = () => {
+      URL.revokeObjectURL(vid.src)
+      if (!isFinite(vid.duration) || isNaN(vid.duration)) {
+        reject(new Error('Could not determine video duration'))
+      } else {
+        resolve(vid.duration * 1000)
+      }
+    }
+    vid.onerror = () => { URL.revokeObjectURL(vid.src); reject(new Error('Invalid video file')) }
+    vid.src = URL.createObjectURL(file)
+  })
+}
+
+function uploadWithProgress(
+  url: string, file: File, onProgress: (pct: number) => void,
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest()
+    xhr.upload.onprogress = (e) => {
+      if (e.lengthComputable) onProgress(Math.round((e.loaded / e.total) * 100))
+    }
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) resolve()
+      else reject(new Error(`Upload failed: ${xhr.status} — ${xhr.responseText.slice(0, 200)}`))
+    }
+    xhr.onerror = () => reject(new Error('Upload failed — network error'))
+    xhr.open('PUT', url)
+    xhr.setRequestHeader('Content-Type', file.type)
+    xhr.send(file)
+  })
+}
+
+// ── Sortable card (approved items) ────────────────────────────────────────────
 
 function SortableMediaCard({
   item, position, onReject, onRemove,
 }: {
-  item: MediaItem
+  item:     MediaItem
   position: number
   onReject: () => void
   onRemove: () => void
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: item.id })
   const style = { transform: CSS.Transform.toString(transform), transition }
+  const isVideo = item.mediaType === 'video'
 
   return (
     <div
@@ -71,17 +141,35 @@ function SortableMediaCard({
       <span className="w-6 h-6 rounded-full bg-indigo-700 text-white text-xs font-bold flex items-center justify-center flex-shrink-0">
         {position}
       </span>
+
+      {/* Thumbnail */}
       {item.publicUrl ? (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img src={item.publicUrl} alt="" className="w-14 h-14 object-cover rounded-lg flex-shrink-0" />
+        isVideo ? (
+          <div className="w-14 h-14 bg-gray-800 rounded-lg flex-shrink-0 flex items-center justify-center relative overflow-hidden">
+            <video src={item.publicUrl} className="w-full h-full object-cover" muted />
+            <div className="absolute inset-0 flex items-center justify-center bg-black/40">
+              <Play className="w-4 h-4 text-white" />
+            </div>
+          </div>
+        ) : (
+          // eslint-disable-next-line @next/next/no-img-element
+          <img src={item.publicUrl} alt="" className="w-14 h-14 object-cover rounded-lg flex-shrink-0" />
+        )
       ) : (
         <div className="w-14 h-14 bg-gray-800 rounded-lg flex-shrink-0 flex items-center justify-center text-gray-600 text-[10px]">
           No preview
         </div>
       )}
+
       <div className="flex-1 min-w-0">
-        <p className="text-xs text-gray-300 font-medium truncate">{FORMAT_LABELS[item.format] ?? item.format}</p>
-        <p className="text-xs text-gray-600 mt-0.5">{item.source === 'uploaded' ? 'Real photo' : 'Generated'}</p>
+        <p className="text-xs text-gray-300 font-medium truncate">
+          {isVideo && <span className="text-purple-400 mr-1">▶</span>}
+          {FORMAT_LABELS[item.format] ?? item.format}
+        </p>
+        <p className="text-xs text-gray-600 mt-0.5">
+          {item.source === 'uploaded' ? (isVideo ? 'Uploaded video' : 'Real photo') : 'Generated'}
+          {item.durationMs ? ` · ${fmtDuration(item.durationMs)}` : ''}
+        </p>
         <span className="inline-block mt-1 px-1.5 py-0.5 rounded text-[10px] font-medium bg-green-900 text-green-300">approved</span>
       </div>
       <div className="flex flex-col gap-1 items-end flex-shrink-0">
@@ -102,6 +190,8 @@ function SortableMediaCard({
   )
 }
 
+// ── Main component ────────────────────────────────────────────────────────────
+
 export function ImagesSection({ campaignId, campaignContext }: Props) {
   const [media, setMedia]               = useState<MediaItem[]>([])
   const [mediaOrder, setMediaOrder]     = useState<string[]>([])
@@ -114,18 +204,25 @@ export function ImagesSection({ campaignId, campaignContext }: Props) {
 
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }))
 
-  const [format, setFormat]       = useState<FluxFormat>('1080x1920')
-  const [promptHint, setPromptHint] = useState(campaignContext.promotionDetails.slice(0, 120))
+  // Image generation
+  const [format, setFormat]           = useState<FluxFormat>('1080x1920')
+  const [promptHint, setPromptHint]   = useState(campaignContext.promotionDetails.slice(0, 120))
   const [builtPrompt, setBuiltPrompt] = useState('')
-  const [showForm, setShowForm]   = useState(false)
-  const [generating, setGenerating] = useState(false)
-  const [genError, setGenError]   = useState<string | null>(null)
-  const [capError, setCapError]   = useState<string | null>(null)
+  const [showForm, setShowForm]       = useState(false)
+  const [generating, setGenerating]   = useState(false)
+  const [genError, setGenError]       = useState<string | null>(null)
+  const [capError, setCapError]       = useState<string | null>(null)
 
-  // Upload state
-  const fileInputRef = useRef<HTMLInputElement>(null)
-  const [uploading, setUploading]   = useState(false)
-  const [uploadError, setUploadError] = useState<string | null>(null)
+  // Upload state (shared by image + video)
+  const imageInputRef    = useRef<HTMLInputElement>(null)
+  const videoInputRef    = useRef<HTMLInputElement>(null)
+  const [uploading, setUploading]         = useState(false)
+  const [uploadPct, setUploadPct]         = useState<number | null>(null)
+  const [uploadError, setUploadError]     = useState<string | null>(null)
+
+  // Video-specific
+  const [videoFormat, setVideoFormat] = useState<'reel' | 'story' | 'feed_video'>('reel')
+  const [showVideoOpts, setShowVideoOpts] = useState(false)
 
   async function load(fmt?: string) {
     try {
@@ -145,7 +242,6 @@ export function ImagesSection({ campaignId, campaignContext }: Props) {
 
   useEffect(() => { load(format) }, [campaignId]) // eslint-disable-line
 
-  // Refresh library matches when format changes
   useEffect(() => {
     if (!loading) load(format)
   }, [format]) // eslint-disable-line
@@ -199,31 +295,92 @@ export function ImagesSection({ campaignId, campaignContext }: Props) {
     await load(format)
   }
 
-  async function uploadPhoto(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0]
-    if (!file) return
-    setUploading(true); setUploadError(null)
+  // Shared presign upload — works for images and videos
+  async function presignUpload(file: File, uploadMediaType: 'image' | 'video', uploadFormat: string, durationMs?: number) {
+    setUploading(true); setUploadError(null); setUploadPct(0)
     try {
-      const fd = new FormData()
-      fd.append('file', file)
-      fd.append('format', format)
-      fd.append('destination', campaignContext.destination)
-      fd.append('campaignId', campaignId)
-      const res  = await fetch('/api/admin/orbit/media', { method: 'POST', body: fd })
-      const data = await res.json()
-      if (!res.ok) throw new Error(data.error ?? 'Upload failed')
+      const presignRes = await fetch('/api/admin/orbit/media/presign', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          fileSize:    file.size,
+          mimeType:    file.type,
+          format:      uploadFormat,
+          destination: campaignContext.destination,
+          campaignId,
+          mediaType:   uploadMediaType,
+          durationMs,
+        }),
+      })
+      const presignData = await presignRes.json()
+      if (!presignRes.ok) throw new Error(presignData.error ?? 'Failed to get upload URL')
+
+      await uploadWithProgress(presignData.uploadUrl, file, setUploadPct)
       await load(format)
     } catch (e) {
       setUploadError(e instanceof Error ? e.message : 'Upload failed')
     } finally {
       setUploading(false)
-      if (fileInputRef.current) fileInputRef.current.value = ''
+      setUploadPct(null)
+      if (imageInputRef.current) imageInputRef.current.value = ''
+      if (videoInputRef.current) videoInputRef.current.value = ''
     }
+  }
+
+  async function handleImageChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    if (file.size > MAX_IMAGE_BYTES) {
+      setUploadError(`Image must be under 50 MB (this file is ${(file.size / 1024 / 1024).toFixed(1)} MB)`)
+      return
+    }
+    await presignUpload(file, 'image', format)
+  }
+
+  async function handleVideoChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!file) return
+
+    setUploadError(null)
+
+    if (file.size > MAX_VIDEO_BYTES) {
+      setUploadError(`Video must be under 300 MB (Buffer's Instagram limit). This file is ${(file.size / 1024 / 1024).toFixed(0)} MB.`)
+      if (videoInputRef.current) videoInputRef.current.value = ''
+      return
+    }
+
+    let durationMs: number
+    try {
+      durationMs = await getVideoDuration(file)
+    } catch {
+      setUploadError('Could not read video duration. Ensure the file is a valid MP4 or MOV.')
+      if (videoInputRef.current) videoInputRef.current.value = ''
+      return
+    }
+
+    const maxSec = VIDEO_DURATION_LIMITS[videoFormat] ?? 900
+    if (durationMs / 1000 > maxSec) {
+      const label = VIDEO_FORMAT_LABELS[videoFormat] ?? videoFormat
+      setUploadError(
+        `This video is ${fmtDuration(durationMs)} but the ${label} limit is ${maxSec < 60 ? maxSec + 's' : Math.floor(maxSec / 60) + ' min'}. ` +
+        `Trim it or choose a different video type.`
+      )
+      if (videoInputRef.current) videoInputRef.current.value = ''
+      return
+    }
+
+    setShowVideoOpts(false)
+    await presignUpload(file, 'video', videoFormat, durationMs)
   }
 
   if (loading) return null
 
   const capReached = used >= cap
+
+  const approvedItems = media.filter(m => m.status === 'approved')
+  const hasApprovedVideos = approvedItems.some(m => m.mediaType === 'video')
+  const hasApprovedImages = approvedItems.some(m => !m.mediaType || m.mediaType === 'image')
+  const mixedMediaWarn   = hasApprovedVideos && hasApprovedImages
 
   return (
     <div className="space-y-5 pt-4 border-t border-gray-800 mt-6">
@@ -231,13 +388,13 @@ export function ImagesSection({ campaignId, campaignContext }: Props) {
       {/* Header */}
       <div className="flex items-start justify-between gap-4">
         <div>
-          <h2 className="font-semibold text-white">Campaign Images</h2>
+          <h2 className="font-semibold text-white">Campaign Media</h2>
           <p className="text-xs text-gray-500 mt-0.5">
-            Background visuals only — text overlaid separately. Powered by Flux Schnell via Replicate.
+            Images or a single video for this campaign. Powered by Flux Schnell (images) or direct upload (video).
           </p>
         </div>
         <div className="text-right text-xs text-gray-500 space-y-0.5 flex-shrink-0">
-          <p><span className={capReached ? 'text-red-400' : 'text-gray-400'}>{used}/{cap}</span> images</p>
+          <p><span className={capReached ? 'text-red-400' : 'text-gray-400'}>{used}/{cap}</span> items</p>
           {Number(imageCostUsd) > 0 && (
             <p className="text-gray-600">${Number(imageCostUsd).toFixed(4)} image cost</p>
           )}
@@ -264,9 +421,17 @@ export function ImagesSection({ campaignId, campaignContext }: Props) {
         </div>
       )}
 
+      {/* Mixed media warning */}
+      {mixedMediaWarn && (
+        <div className="bg-amber-950 border border-amber-700 text-amber-300 text-sm rounded-lg px-4 py-3">
+          <strong>Cannot publish:</strong> approved list has both images and a video. Buffer requires one type per post.
+          Reject the video or reject all images before publishing.
+        </div>
+      )}
+
       {configured && (
         <>
-          {/* Format + controls */}
+          {/* Format tabs (images only) */}
           <div className="flex flex-wrap gap-2 items-center">
             {Object.entries(FLUX_FORMATS).map(([key, fmt]) => (
               <button key={key} onClick={() => setFormat(key as FluxFormat)}
@@ -311,29 +476,86 @@ export function ImagesSection({ campaignId, campaignContext }: Props) {
             </div>
           )}
 
-          {/* Generate form */}
-          {!showForm ? (
-            <div className="flex gap-2 flex-wrap">
+          {/* Action row */}
+          {!showForm && (
+            <div className="flex gap-2 flex-wrap items-center">
               <button onClick={() => setShowForm(true)} disabled={capReached}
                 className="bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors">
                 {capReached ? `Cap reached (${cap})` : 'Generate background'}
               </button>
+
+              {/* Image upload */}
               <label className={`cursor-pointer ${capReached ? 'opacity-40 pointer-events-none' : ''}`}>
                 <span className="bg-gray-800 hover:bg-gray-700 text-gray-300 text-sm font-medium px-4 py-2 rounded-lg transition-colors inline-block">
-                  {uploading ? 'Uploading…' : 'Upload real photo'}
+                  Upload photo
                 </span>
-                <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={uploadPhoto} disabled={uploading || capReached} />
+                <input ref={imageInputRef} type="file" accept="image/*" className="hidden"
+                  onChange={handleImageChange} disabled={uploading || capReached} />
               </label>
-              {uploadError && <p className="text-red-400 text-xs self-center">{uploadError}</p>}
+
+              {/* Video upload */}
+              <div className="relative">
+                <button
+                  disabled={capReached}
+                  onClick={() => setShowVideoOpts(v => !v)}
+                  className="bg-purple-900 hover:bg-purple-800 disabled:opacity-40 text-purple-200 text-sm font-medium px-4 py-2 rounded-lg transition-colors flex items-center gap-1.5">
+                  <Play className="w-3.5 h-3.5" />
+                  Upload video
+                </button>
+                {showVideoOpts && (
+                  <div className="absolute top-full left-0 mt-1 z-10 bg-gray-900 border border-gray-700 rounded-xl p-3 space-y-2 w-56 shadow-xl">
+                    <p className="text-[10px] text-gray-500 uppercase tracking-wide font-semibold">Video type</p>
+                    {(Object.keys(VIDEO_FORMAT_LABELS) as Array<'reel' | 'story' | 'feed_video'>).map(vf => (
+                      <label key={vf} className="flex items-center gap-2 cursor-pointer group">
+                        <input type="radio" name="videoFmt" value={vf}
+                          checked={videoFormat === vf}
+                          onChange={() => setVideoFormat(vf)}
+                          className="accent-purple-500" />
+                        <span className={`text-xs ${videoFormat === vf ? 'text-purple-300 font-medium' : 'text-gray-400 group-hover:text-gray-200'}`}>
+                          {VIDEO_FORMAT_LABELS[vf]}
+                        </span>
+                      </label>
+                    ))}
+                    <label className="block mt-2">
+                      <span className="w-full bg-purple-700 hover:bg-purple-600 text-white text-xs font-medium px-3 py-1.5 rounded-lg transition-colors flex items-center justify-center gap-1.5 cursor-pointer">
+                        <Play className="w-3 h-3" /> Choose file…
+                      </span>
+                      <input ref={videoInputRef} type="file" accept="video/mp4,video/quicktime"
+                        className="hidden"
+                        onChange={handleVideoChange}
+                        disabled={uploading} />
+                    </label>
+                  </div>
+                )}
+              </div>
+
+              {uploadError && <p className="text-red-400 text-xs w-full mt-1">{uploadError}</p>}
             </div>
-          ) : (
+          )}
+
+          {/* Upload progress */}
+          {uploading && (
+            <div className="space-y-1">
+              <p className="text-xs text-gray-400">
+                Uploading{uploadPct !== null ? ` ${uploadPct}%` : '…'} — uploading directly to storage, bypassing Vercel
+              </p>
+              {uploadPct !== null && (
+                <div className="w-full bg-gray-800 rounded-full h-1.5">
+                  <div className="bg-indigo-500 h-1.5 rounded-full transition-all" style={{ width: `${uploadPct}%` }} />
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Generate form */}
+          {showForm && (
             <div className="bg-gray-900 border border-gray-800 rounded-xl p-5 space-y-4">
               <h3 className="text-sm font-medium text-white">New background — {FORMAT_LABELS[format] ?? format}</h3>
 
               <div>
-                <label className="block text-xs text-gray-400 mb-1">Prompt hint <span className="text-gray-600">(optional — describe what you want in the scene)</span></label>
+                <label className="block text-xs text-gray-400 mb-1">Prompt hint <span className="text-gray-600">(optional)</span></label>
                 <input value={promptHint} onChange={e => setPromptHint(e.target.value)}
-                  placeholder={`e.g. golden hour cityscape, luxury travel aesthetic`}
+                  placeholder="e.g. golden hour cityscape, luxury travel aesthetic"
                   className="w-full bg-gray-800 border border-gray-700 rounded px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-indigo-500" />
               </div>
 
@@ -365,12 +587,10 @@ export function ImagesSection({ campaignId, campaignContext }: Props) {
             </div>
           )}
 
-          {/* Campaign images */}
+          {/* Media list */}
           {media.length > 0 && (() => {
-            const approvedItems = media.filter(m => m.status === 'approved')
-            const otherItems    = media.filter(m => m.status !== 'approved')
+            const otherItems = media.filter(m => m.status !== 'approved')
 
-            // Sort approved by user-defined order; unordered ones go to end
             const orderedApproved: MediaItem[] = [
               ...mediaOrder.map(id => approvedItems.find(m => m.id === id)).filter((m): m is MediaItem => Boolean(m)),
               ...approvedItems.filter(m => !mediaOrder.includes(m.id)),
@@ -417,69 +637,87 @@ export function ImagesSection({ campaignId, campaignContext }: Props) {
                   </div>
                 )}
 
-                {/* Draft / rejected — regular grid */}
+                {/* Draft / rejected */}
                 {otherItems.length > 0 && (
                   <div className="space-y-2">
                     {orderedApproved.length > 0 && (
                       <p className="text-xs font-semibold text-gray-600 uppercase tracking-wider">Pending review</p>
                     )}
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                      {otherItems.map(item => (
-                        <div key={item.id} className="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden">
-                          {item.publicUrl ? (
-                            <div className="bg-gray-950">
-                              {/* eslint-disable-next-line @next/next/no-img-element */}
-                              <img src={item.publicUrl} alt={item.altText || 'Campaign image'} className="w-full max-h-64 object-contain" />
-                            </div>
-                          ) : (
-                            <div className="h-40 bg-gray-950 flex items-center justify-center text-gray-600 text-xs">Processing…</div>
-                          )}
-                          <div className="p-4 space-y-2">
-                            <div className="flex items-center justify-between">
-                              <div>
-                                <p className="text-xs text-gray-400">{FORMAT_LABELS[item.format] ?? item.format}</p>
-                                <p className="text-xs text-gray-600 mt-0.5">
-                                  {item.source === 'uploaded' ? 'Real photo' : `Generated · $${Number(item.costUsd).toFixed(4)}`}
-                                  {' · '}{new Date(item.createdAt).toLocaleDateString('en-GB')}
-                                </p>
+                      {otherItems.map(item => {
+                        const isVideo = item.mediaType === 'video'
+                        return (
+                          <div key={item.id} className="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden">
+                            {item.publicUrl ? (
+                              <div className="bg-gray-950">
+                                {isVideo ? (
+                                  // eslint-disable-next-line jsx-a11y/media-has-caption
+                                  <video
+                                    src={item.publicUrl}
+                                    controls
+                                    className="w-full max-h-64 object-contain"
+                                  />
+                                ) : (
+                                  // eslint-disable-next-line @next/next/no-img-element
+                                  <img src={item.publicUrl} alt={item.altText || 'Campaign image'} className="w-full max-h-64 object-contain" />
+                                )}
                               </div>
-                              <span className={`px-2 py-0.5 rounded text-xs font-medium capitalize ${STATUS_CHIP[item.status] ?? 'bg-gray-700 text-gray-300'}`}>
-                                {item.status}
-                              </span>
-                            </div>
-                            {item.prompt && (
-                              <details>
-                                <summary className="text-xs text-gray-600 cursor-pointer hover:text-gray-400 list-none">Prompt ▸</summary>
-                                <p className="text-xs text-gray-500 mt-1 leading-relaxed">{item.prompt}</p>
-                              </details>
+                            ) : (
+                              <div className="h-40 bg-gray-950 flex items-center justify-center text-gray-600 text-xs">Processing…</div>
                             )}
-                            <div className="flex gap-2 flex-wrap pt-1">
-                              {item.publicUrl && (
-                                <a href={item.publicUrl} download target="_blank" rel="noopener noreferrer"
-                                  className="text-xs bg-gray-800 hover:bg-gray-700 text-gray-300 px-3 py-1.5 rounded transition-colors">
-                                  Download
-                                </a>
+                            <div className="p-4 space-y-2">
+                              <div className="flex items-center justify-between">
+                                <div>
+                                  <p className="text-xs text-gray-400">
+                                    {isVideo && <span className="text-purple-400 mr-1">▶</span>}
+                                    {FORMAT_LABELS[item.format] ?? item.format}
+                                    {item.durationMs ? <span className="text-gray-600 ml-1">· {fmtDuration(item.durationMs)}</span> : ''}
+                                  </p>
+                                  <p className="text-xs text-gray-600 mt-0.5">
+                                    {item.source === 'uploaded'
+                                      ? (isVideo ? 'Uploaded video' : 'Real photo')
+                                      : `Generated · $${Number(item.costUsd).toFixed(4)}`}
+                                    {' · '}{new Date(item.createdAt).toLocaleDateString('en-GB')}
+                                  </p>
+                                </div>
+                                <span className={`px-2 py-0.5 rounded text-xs font-medium capitalize ${STATUS_CHIP[item.status] ?? 'bg-gray-700 text-gray-300'}`}>
+                                  {item.status}
+                                </span>
+                              </div>
+                              {item.prompt && (
+                                <details>
+                                  <summary className="text-xs text-gray-600 cursor-pointer hover:text-gray-400 list-none">Prompt ▸</summary>
+                                  <p className="text-xs text-gray-500 mt-1 leading-relaxed">{item.prompt}</p>
+                                </details>
                               )}
-                              {item.status === 'draft' && (
-                                <button onClick={() => mediaAction(item.id, 'approve')}
-                                  className="text-xs bg-green-900 hover:bg-green-800 text-green-300 px-3 py-1.5 rounded transition-colors">
-                                  Approve
+                              <div className="flex gap-2 flex-wrap pt-1">
+                                {item.publicUrl && (
+                                  <a href={item.publicUrl} download target="_blank" rel="noopener noreferrer"
+                                    className="text-xs bg-gray-800 hover:bg-gray-700 text-gray-300 px-3 py-1.5 rounded transition-colors">
+                                    Download
+                                  </a>
+                                )}
+                                {item.status === 'draft' && (
+                                  <button onClick={() => mediaAction(item.id, 'approve')}
+                                    className="text-xs bg-green-900 hover:bg-green-800 text-green-300 px-3 py-1.5 rounded transition-colors">
+                                    Approve
+                                  </button>
+                                )}
+                                {item.status !== 'rejected' && (
+                                  <button onClick={() => mediaAction(item.id, 'reject')}
+                                    className="text-xs bg-red-950 hover:bg-red-900 text-red-400 px-3 py-1.5 rounded transition-colors">
+                                    Reject
+                                  </button>
+                                )}
+                                <button onClick={() => removeMedia(item.id)}
+                                  className="text-xs text-gray-600 hover:text-red-400 px-2 py-1.5 transition-colors">
+                                  {item.source === 'uploaded' ? 'Detach' : 'Delete'}
                                 </button>
-                              )}
-                              {item.status !== 'rejected' && (
-                                <button onClick={() => mediaAction(item.id, 'reject')}
-                                  className="text-xs bg-red-950 hover:bg-red-900 text-red-400 px-3 py-1.5 rounded transition-colors">
-                                  Reject
-                                </button>
-                              )}
-                              <button onClick={() => removeMedia(item.id)}
-                                className="text-xs text-gray-600 hover:text-red-400 px-2 py-1.5 transition-colors">
-                                {item.source === 'uploaded' ? 'Detach' : 'Delete'}
-                              </button>
+                              </div>
                             </div>
                           </div>
-                        </div>
-                      ))}
+                        )
+                      })}
                     </div>
                   </div>
                 )}
@@ -489,20 +727,21 @@ export function ImagesSection({ campaignId, campaignContext }: Props) {
 
           {media.length === 0 && !showForm && (
             <div className="bg-gray-900 border border-gray-800 border-dashed rounded-xl py-10 text-center space-y-1">
-              <p className="text-gray-500 text-sm">No images yet for this campaign.</p>
-              <p className="text-gray-600 text-xs">Generate a background or upload a real photo.</p>
+              <p className="text-gray-500 text-sm">No media yet for this campaign.</p>
+              <p className="text-gray-600 text-xs">Generate a background, upload a photo, or upload a video.</p>
             </div>
           )}
 
           {!capReached && media.length > 0 && !showForm && (
-            <div className="flex gap-2">
+            <div className="flex gap-2 flex-wrap items-center">
               <button onClick={() => setShowForm(true)}
                 className="text-sm text-indigo-400 hover:text-indigo-300 transition-colors">
                 + Generate another
               </button>
               <label className="cursor-pointer">
-                <span className="text-sm text-gray-500 hover:text-gray-300 transition-colors">/ Upload real photo</span>
-                <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={uploadPhoto} disabled={uploading} />
+                <span className="text-sm text-gray-500 hover:text-gray-300 transition-colors">/ Upload photo</span>
+                <input ref={imageInputRef} type="file" accept="image/*" className="hidden"
+                  onChange={handleImageChange} disabled={uploading} />
               </label>
             </div>
           )}

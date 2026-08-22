@@ -33,21 +33,33 @@ export interface BufferCredentials {
 }
 
 export interface PublishPostOptions {
-  channelId: string
-  platform: string          // 'instagram' | 'facebook' | 'linkedin' | 'twitter'
-  text: string
-  mediaUrls?: string[]
-  postNow?: boolean
+  channelId:   string
+  platform:    string    // 'instagram' | 'facebook' | 'linkedin' | 'twitter'
+  text:        string
+  mediaUrls?:  string[]
+  mediaType?:  'image' | 'video'  // defaults to 'image' when omitted
+  videoFormat?: string            // 'reel' | 'story' | 'feed_video' — video only
+  postNow?:    boolean
 }
 
 export interface BufferPublishResult {
   bufferUpdateId: string
 }
 
-// Platform-specific metadata required by Buffer's GraphQL API
-function buildMetadata(platform: string): Record<string, unknown> | undefined {
+// Platform-specific metadata required by Buffer's GraphQL API.
+// For video, Instagram needs the post type so Buffer can pick the right
+// upload path (reel vs story vs feed post).
+function buildMetadata(
+  platform:    string,
+  mediaType?:  string,
+  videoFormat?: string,
+): Record<string, unknown> | undefined {
   if (platform === 'instagram') {
-    return { instagram: { type: 'post', shouldShareToFeed: true } }
+    let type = 'post'
+    if (mediaType === 'video') {
+      type = videoFormat === 'story' ? 'story' : 'reel'
+    }
+    return { instagram: { type, shouldShareToFeed: true } }
   }
   if (platform === 'facebook') {
     return { facebook: { type: 'post' } }
@@ -71,11 +83,16 @@ export async function publishToBuffer(
   creds: BufferCredentials,
   opts: PublishPostOptions,
 ): Promise<BufferPublishResult> {
-  const metadata = buildMetadata(opts.platform)
+  const metadata = buildMetadata(opts.platform, opts.mediaType, opts.videoFormat)
 
+  const isVideo = opts.mediaType === 'video'
   const assets = (opts.mediaUrls ?? [])
     .filter(Boolean)
-    .map(url => ({ image: { url } }))
+    .map(url =>
+      isVideo
+        ? { video: { url } }
+        : { image: { url } },
+    )
 
   const input: Record<string, unknown> = {
     channelId:      opts.channelId,
