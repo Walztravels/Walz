@@ -80,19 +80,21 @@ function fmtDuration(ms: number): string {
   return `${Math.floor(s / 60)}m ${s % 60}s`
 }
 
-function getVideoDuration(file: File): Promise<number> {
-  return new Promise((resolve, reject) => {
+// Returns duration in ms, or null if the browser can't read it (e.g. moov atom
+// at the end of the file → duration === Infinity). null means skip the check —
+// the platform will reject overlength videos at publish time anyway.
+function getVideoDuration(file: File): Promise<number | null> {
+  return new Promise((resolve) => {
     const vid = document.createElement('video')
     vid.preload = 'metadata'
+    const cleanup = () => { URL.revokeObjectURL(vid.src); vid.src = '' }
+    const timer = setTimeout(() => { cleanup(); resolve(null) }, 5000)
     vid.onloadedmetadata = () => {
-      URL.revokeObjectURL(vid.src)
-      if (!isFinite(vid.duration) || isNaN(vid.duration)) {
-        reject(new Error('Could not determine video duration'))
-      } else {
-        resolve(vid.duration * 1000)
-      }
+      clearTimeout(timer); cleanup()
+      const d = vid.duration
+      resolve(isFinite(d) && d > 0 ? d * 1000 : null)
     }
-    vid.onerror = () => { URL.revokeObjectURL(vid.src); reject(new Error('Invalid video file')) }
+    vid.onerror = () => { clearTimeout(timer); cleanup(); resolve(null) }
     vid.src = URL.createObjectURL(file)
   })
 }
@@ -349,28 +351,25 @@ export function ImagesSection({ campaignId, campaignContext }: Props) {
       return
     }
 
-    let durationMs: number
-    try {
-      durationMs = await getVideoDuration(file)
-    } catch {
-      setUploadError('Could not read video duration. Ensure the file is a valid MP4 or MOV.')
-      if (videoInputRef.current) videoInputRef.current.value = ''
-      return
-    }
+    // null means the browser couldn't read duration (moov atom at end of file, etc.)
+    // — skip the check and let the platform validate at publish time.
+    const durationMs = await getVideoDuration(file)
 
-    const maxSec = VIDEO_DURATION_LIMITS[videoFormat] ?? 900
-    if (durationMs / 1000 > maxSec) {
-      const label = VIDEO_FORMAT_LABELS[videoFormat] ?? videoFormat
-      setUploadError(
-        `This video is ${fmtDuration(durationMs)} but the ${label} limit is ${maxSec < 60 ? maxSec + 's' : Math.floor(maxSec / 60) + ' min'}. ` +
-        `Trim it or choose a different video type.`
-      )
-      if (videoInputRef.current) videoInputRef.current.value = ''
-      return
+    if (durationMs !== null) {
+      const maxSec = VIDEO_DURATION_LIMITS[videoFormat] ?? 900
+      if (durationMs / 1000 > maxSec) {
+        const label = VIDEO_FORMAT_LABELS[videoFormat] ?? videoFormat
+        setUploadError(
+          `This video is ${fmtDuration(durationMs)} but the ${label} limit is ${maxSec < 60 ? maxSec + 's' : Math.floor(maxSec / 60) + ' min'}. ` +
+          `Trim it or choose a different video type.`
+        )
+        if (videoInputRef.current) videoInputRef.current.value = ''
+        return
+      }
     }
 
     setShowVideoOpts(false)
-    await presignUpload(file, 'video', videoFormat, durationMs)
+    await presignUpload(file, 'video', videoFormat, durationMs ?? undefined)
   }
 
   if (loading) return null
