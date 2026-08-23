@@ -145,12 +145,20 @@ export async function PATCH(
             continue
           }
 
-          // TikTok has a 2,073,600 pixel max per image — skip images for TikTok, send text-only
-          const platformMediaUrls = platform === 'tiktok' ? undefined : (mediaUrls.length ? mediaUrls : undefined)
+          // TikTok requires media and rejects images over 2,073,600 pixels.
+          // Skip TikTok for image-only campaigns — only video campaigns should reach it.
+          if (platform === 'tiktok') {
+            const reason = 'TikTok requires a video — upload a video to this campaign to post to TikTok'
+            results.push({ platform, status: 'skipped', error: reason })
+            await prisma.orbitPublishLog.create({
+              data: { campaignId: params.id, platform, status: 'skipped', error: reason, createdBy: session.email },
+            })
+            continue
+          }
           try {
             const res = await publishToBuffer(
               { accessToken, channels },
-              { channelId, platform, text, mediaUrls: platformMediaUrls, postNow: true },
+              { channelId, platform, text, mediaUrls: mediaUrls.length ? mediaUrls : undefined, postNow: true },
             )
             results.push({ platform, status: 'sent', bufferUpdateId: res.bufferUpdateId })
             await prisma.orbitPublishLog.create({

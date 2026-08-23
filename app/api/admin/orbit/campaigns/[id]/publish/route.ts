@@ -167,11 +167,16 @@ export async function POST(
       continue
     }
 
-    // TikTok photo posts have a 2,073,600 pixel max — too restrictive for general images.
-    // Post text-only to TikTok for image campaigns; video campaigns still pass the video.
-    const platformMediaUrls = (platform === 'tiktok' && !isVideoPost)
-      ? undefined
-      : (mediaUrls.length ? mediaUrls : undefined)
+    // TikTok requires media on every post. Image-only campaigns exceed TikTok's
+    // 2,073,600 pixel limit. Skip TikTok unless the campaign has a video.
+    if (platform === 'tiktok' && !isVideoPost) {
+      const entry: LogResult = { platform, status: 'skipped', error: 'TikTok requires a video — upload a video to this campaign to post to TikTok' }
+      results.push(entry)
+      await prisma.orbitPublishLog.create({
+        data: { campaignId: params.id, platform, status: 'skipped', error: entry.error, createdBy: session.email },
+      })
+      continue
+    }
 
     try {
       const result = await publishToBuffer(
@@ -180,8 +185,8 @@ export async function POST(
           channelId,
           platform,
           text,
-          mediaUrls:   platformMediaUrls,
-          mediaType:   platformMediaUrls ? mediaType : undefined,
+          mediaUrls:   mediaUrls.length ? mediaUrls : undefined,
+          mediaType,
           videoFormat,
           postNow:     true,
         },
