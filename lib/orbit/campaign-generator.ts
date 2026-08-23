@@ -119,7 +119,7 @@ Generate ALL of the following in one response. Return ONLY valid JSON matching t
     "descriptions": ["max 90 chars", "max 90 chars"]
   },
   "linkedin_post": "professional post text (max 700 chars)",
-  "x_post": "tweet text max 280 chars including hashtags",
+  "x_post": "tweet text max 250 chars including hashtags — MUST be under 250 chars, no exceptions",
   "tiktok_caption": "TikTok caption with a strong hook (max 2200 chars, trend-aware tone, include relevant hashtags)",
   "google_business_post": "Google Business post (max 1500 chars, informational, clear call to action, no hashtags)",
   "email": {

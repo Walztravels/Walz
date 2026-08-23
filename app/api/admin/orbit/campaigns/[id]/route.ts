@@ -31,7 +31,7 @@ const EXTRACT: Record<string, (c: Record<string, unknown>) => string> = {
   instagram:      (c) => { const caps = c.instagram_captions as string[] | undefined; return caps?.[0] ?? '' },
   facebook:       (c) => { const ads = c.meta_ads as Array<{ headline: string; body: string }> | undefined; const ad = ads?.[0]; return ad ? `${ad.headline}\n\n${ad.body}` : '' },
   linkedin:       (c) => String(c.linkedin_post ?? ''),
-  twitter:        (c) => { const t = String(c.x_post ?? ''); return t.length > 280 ? t.slice(0, 277) + '…' : t },
+  twitter:        (c) => { const t = String(c.x_post ?? ''); return t.length > 255 ? t.slice(0, 252) + '…' : t },
   tiktok:         (c) => String(c.tiktok_caption ?? (c.instagram_captions as string[] | undefined)?.[0] ?? ''),
   googlebusiness: (c) => {
     if (c.google_business_post) return String(c.google_business_post)
@@ -145,10 +145,12 @@ export async function PATCH(
             continue
           }
 
+          // TikTok has a 2,073,600 pixel max per image — skip images for TikTok, send text-only
+          const platformMediaUrls = platform === 'tiktok' ? undefined : (mediaUrls.length ? mediaUrls : undefined)
           try {
             const res = await publishToBuffer(
               { accessToken, channels },
-              { channelId, platform, text, mediaUrls: mediaUrls.length ? mediaUrls : undefined, postNow: true },
+              { channelId, platform, text, mediaUrls: platformMediaUrls, postNow: true },
             )
             results.push({ platform, status: 'sent', bufferUpdateId: res.bufferUpdateId })
             await prisma.orbitPublishLog.create({

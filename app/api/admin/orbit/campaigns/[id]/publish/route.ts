@@ -40,7 +40,7 @@ const EXTRACT: Record<string, (c: Record<string, unknown>) => string> = {
     return ad ? `${ad.headline}\n\n${ad.body}` : ''
   },
   linkedin:       (c) => String(c.linkedin_post ?? ''),
-  twitter:        (c) => { const t = String(c.x_post ?? ''); return t.length > 280 ? t.slice(0, 277) + '…' : t },
+  twitter:        (c) => { const t = String(c.x_post ?? ''); return t.length > 255 ? t.slice(0, 252) + '…' : t },
   tiktok: (c) => {
     if (c.tiktok_caption) return String(c.tiktok_caption)
     // Fallback: use first Instagram caption (similar short-form style)
@@ -165,6 +165,12 @@ export async function POST(
       continue
     }
 
+    // TikTok photo posts have a 2,073,600 pixel max — too restrictive for general images.
+    // Post text-only to TikTok for image campaigns; video campaigns still pass the video.
+    const platformMediaUrls = (platform === 'tiktok' && !isVideoPost)
+      ? undefined
+      : (mediaUrls.length ? mediaUrls : undefined)
+
     try {
       const result = await publishToBuffer(
         { accessToken, channels },
@@ -172,8 +178,8 @@ export async function POST(
           channelId,
           platform,
           text,
-          mediaUrls:   mediaUrls.length ? mediaUrls : undefined,
-          mediaType,
+          mediaUrls:   platformMediaUrls,
+          mediaType:   platformMediaUrls ? mediaType : undefined,
           videoFormat,
           postNow:     true,
         },
