@@ -5,6 +5,7 @@ import { useParams } from 'next/navigation'
 import Link from 'next/link'
 import { ImagesSection } from './ImagesSection'
 import { PublishSection } from './PublishSection'
+import { VideoGeneratorSection } from './VideoGeneratorSection'
 
 interface Campaign {
   id: string
@@ -73,14 +74,15 @@ function StringField({ value }: { value: unknown }) {
 export default function CampaignDetailPage() {
   const params = useParams()
   const id = params.id as string
-  const [campaign, setCampaign]       = useState<Campaign | null>(null)
+  const [campaign, setCampaign]         = useState<Campaign | null>(null)
   const [imageCostUsd, setImageCostUsd] = useState<string>('0')
-  const [imageCount, setImageCount]   = useState(0)
-  const [loading, setLoading]         = useState(true)
-  const [generating, setGenerating]   = useState(false)
-  const [actioning, setActioning]     = useState(false)
-  const [error, setError]             = useState<string | null>(null)
-  const [genError, setGenError]       = useState<string | null>(null)
+  const [imageCount, setImageCount]     = useState(0)
+  const [loading, setLoading]           = useState(true)
+  const [generating, setGenerating]     = useState(false)
+  const [actioning, setActioning]       = useState(false)
+  const [error, setError]               = useState<string | null>(null)
+  const [genError, setGenError]         = useState<string | null>(null)
+  const [mediaRefreshKey, setMediaRefreshKey] = useState(0)
 
   async function load() {
     try {
@@ -367,12 +369,27 @@ export default function CampaignDetailPage() {
       )}
 
       {/* Campaign Images */}
-      <ImagesSection campaignId={campaign.id} campaignContext={{
-        destination: campaign.destination,
-        objective: campaign.objective,
-        cta: campaign.cta,
-        promotionDetails: campaign.promotionDetails,
-      }} />
+      <ImagesSection
+        key={mediaRefreshKey}
+        campaignId={campaign.id}
+        campaignContext={{
+          destination: campaign.destination,
+          objective: campaign.objective,
+          cta: campaign.cta,
+          promotionDetails: campaign.promotionDetails,
+        }}
+      />
+
+      {/* Video Generator */}
+      <VideoGeneratorSection
+        campaignId={campaign.id}
+        destination={campaign.destination}
+        objective={campaign.objective}
+        tone={campaign.tone}
+        promotionDetails={campaign.promotionDetails}
+        cta={campaign.cta}
+        onVideoAdded={() => setMediaRefreshKey(k => k + 1)}
+      />
 
       {/* Buffer Publishing */}
       {hasContent && (
