@@ -189,6 +189,46 @@ export async function PATCH(
       where: { id: params.id },
       data: { mediaOrder },
     })
+  } else if (action === 'update_content') {
+    // Edit the stored text for a specific platform and save back to campaign.content
+    const { platform, text } = body as { platform: string; text: string }
+    if (!platform || typeof text !== 'string') {
+      return NextResponse.json({ error: 'platform and text required' }, { status: 400 })
+    }
+    const existing = (campaign.content ?? {}) as Record<string, unknown>
+    const updated: Record<string, unknown> = { ...existing }
+
+    if (platform === 'instagram') {
+      const caps = [...((existing.instagram_captions as string[]) ?? [])]
+      caps[0] = text
+      updated.instagram_captions = caps
+    } else if (platform === 'facebook') {
+      const ads = [...((existing.meta_ads as Array<{ headline: string; body: string; cta?: string }>) ?? [])]
+      if (ads.length > 0) {
+        // Preserve headline; replace body with edited text
+        const [headline, ...rest] = text.split('\n\n')
+        ads[0] = { ...ads[0], headline: headline ?? ads[0].headline, body: rest.join('\n\n') || text }
+      } else {
+        ads.push({ headline: '', body: text })
+      }
+      updated.meta_ads = ads
+    } else if (platform === 'linkedin') {
+      updated.linkedin_post = text
+    } else if (platform === 'twitter') {
+      updated.x_post = text
+    } else if (platform === 'tiktok') {
+      updated.tiktok_caption = text
+    } else if (platform === 'googlebusiness') {
+      updated.google_business_post = text
+    } else {
+      return NextResponse.json({ error: `Unknown platform: ${platform}` }, { status: 400 })
+    }
+
+    await prisma.orbitCampaign.update({
+      where: { id: params.id },
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      data: { content: updated as any },
+    })
   } else if (action === 'draft') {
     await prisma.orbitCampaign.update({
       where: { id: params.id },

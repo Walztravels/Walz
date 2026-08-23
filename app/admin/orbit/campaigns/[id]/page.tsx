@@ -380,6 +380,7 @@ export default function CampaignDetailPage() {
           campaignId={campaign.id}
           platforms={campaign.platforms}
           campaignStatus={campaign.status}
+          content={campaign.content}
           onPublished={load}
         />
       )}

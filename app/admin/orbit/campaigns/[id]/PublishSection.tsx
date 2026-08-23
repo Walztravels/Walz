@@ -16,6 +16,7 @@ interface Props {
   campaignId: string
   platforms: string[]
   campaignStatus: string
+  content: Record<string, unknown>
   onPublished: () => void
 }
 
@@ -60,12 +61,41 @@ const STATUS_STYLE: Record<string, string> = {
   error:   'bg-red-900 text-red-300',
 }
 
-// Deduplicated list of Buffer-supported keys from whatever the campaign has
+// Twitter-safe truncation (Buffer counts chars differently)
+const TWITTER_SAFE = 252
+
 function toBufferKeys(platforms: string[]): string[] {
   return [...new Set(platforms.map(p => TO_KEY[p]).filter(Boolean))]
 }
 
-export function PublishSection({ campaignId, platforms, campaignStatus, onPublished }: Props) {
+// Extract the current posted text for a given platform from the content JSON.
+// Mirrors the server-side EXTRACT map so we can pre-fill the edit textarea.
+function extractForPlatform(platform: string, content: Record<string, unknown>): string {
+  if (platform === 'instagram') {
+    return ((content.instagram_captions as string[] | undefined)?.[0]) ?? ''
+  }
+  if (platform === 'facebook') {
+    const ads = content.meta_ads as Array<{ headline: string; body: string }> | undefined
+    const ad = ads?.[0]
+    return ad ? `${ad.headline}\n\n${ad.body}` : ''
+  }
+  if (platform === 'linkedin') return String(content.linkedin_post ?? '')
+  if (platform === 'twitter') {
+    const t = String(content.x_post ?? '')
+    return t.length > TWITTER_SAFE ? t.slice(0, TWITTER_SAFE - 1) + '…' : t
+  }
+  if (platform === 'tiktok') {
+    return String(content.tiktok_caption ?? (content.instagram_captions as string[] | undefined)?.[0] ?? '')
+  }
+  if (platform === 'googlebusiness') {
+    if (content.google_business_post) return String(content.google_business_post)
+    const ads = content.meta_ads as Array<{ headline: string; body: string }> | undefined
+    return ads?.[0] ? `${ads[0].headline}\n\n${ads[0].body}` : ''
+  }
+  return ''
+}
+
+export function PublishSection({ campaignId, platforms, campaignStatus, content, onPublished }: Props) {
   const [logs, setLogs]             = useState<PublishLog[]>([])
   const [logsLoaded, setLogsLoaded] = useState(false)
   const [selected, setSelected]     = useState<string[]>(toBufferKeys(platforms))
@@ -73,6 +103,14 @@ export function PublishSection({ campaignId, platforms, campaignStatus, onPublis
   const [publishing, setPublishing] = useState(false)
   const [error, setError]           = useState<string | null>(null)
   const [result, setResult]         = useState<string | null>(null)
+
+  // Edit & Re-send state
+  const [editOpen, setEditOpen]         = useState(false)
+  const [editPlatform, setEditPlatform] = useState('')
+  const [editText, setEditText]         = useState('')
+  const [editSending, setEditSending]   = useState(false)
+  const [editError, setEditError]       = useState<string | null>(null)
+  const [editResult, setEditResult]     = useState<string | null>(null)
 
   const canPublish = campaignStatus === 'approved' || campaignStatus === 'published'
 
@@ -83,7 +121,6 @@ export function PublishSection({ campaignId, platforms, campaignStatus, onPublis
       .then(d => {
         const ch = (d.settings?.bufferChannels ?? {}) as Record<string, string>
         setChannelIds(ch)
-        // Add any configured-channel platforms to the selected set
         setSelected(prev => {
           const fromChannels = Object.keys(ch).filter(k => ch[k] && PLATFORM_LABEL[k])
           return [...new Set([...prev, ...fromChannels])]
@@ -107,11 +144,27 @@ export function PublishSection({ campaignId, platforms, campaignStatus, onPublis
       .finally(() => setLogsLoaded(true))
   }
 
-  // Re-fetch logs whenever the campaign status changes (e.g. after header Publish button fires)
   useEffect(() => { loadLogs() }, [campaignId, campaignStatus]) // eslint-disable-line react-hooks/exhaustive-deps
 
   function togglePlatform(p: string) {
     setSelected(prev => prev.includes(p) ? prev.filter(x => x !== p) : [...prev, p])
+  }
+
+  function openEdit() {
+    const available = availablePlatforms()
+    const first = available[0] ?? ''
+    setEditPlatform(first)
+    setEditText(first ? extractForPlatform(first, content) : '')
+    setEditError(null)
+    setEditResult(null)
+    setEditOpen(true)
+  }
+
+  function onEditPlatformChange(p: string) {
+    setEditPlatform(p)
+    setEditText(extractForPlatform(p, content))
+    setEditError(null)
+    setEditResult(null)
   }
 
   async function publish() {
@@ -138,7 +191,6 @@ export function PublishSection({ campaignId, platforms, campaignStatus, onPublis
         setResult(`${skipped} platform(s) skipped — check channel IDs in settings`)
       }
 
-      // Refresh log
       loadLogs()
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Unknown error')
@@ -146,6 +198,51 @@ export function PublishSection({ campaignId, platforms, campaignStatus, onPublis
       setPublishing(false)
     }
   }
+
+  async function sendEdit() {
+    if (!editPlatform || !editText.trim()) return
+    setEditSending(true); setEditError(null); setEditResult(null)
+    try {
+      // Save the edited text back to the campaign content so it's the new default
+      const saveRes = await fetch(`/api/admin/orbit/campaigns/${campaignId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'update_content', platform: editPlatform, text: editText }),
+      })
+      if (!saveRes.ok) {
+        const d = await saveRes.json().catch(() => ({})) as { error?: string }
+        throw new Error(d.error ?? 'Failed to save edit')
+      }
+
+      // Publish to Buffer with the custom text
+      const pubRes = await fetch(`/api/admin/orbit/campaigns/${campaignId}/publish`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ platforms: [editPlatform], customText: editText }),
+      })
+      const pubData = await pubRes.json() as { results?: Array<{ platform: string; status: string; error?: string }>; error?: string }
+      if (!pubRes.ok) throw new Error(pubData.error ?? 'Publish failed')
+
+      const sent = pubData.results?.filter(r => r.status === 'sent') ?? []
+      const err  = pubData.results?.find(r => r.status === 'error')
+
+      if (sent.length > 0) {
+        setEditResult(`Sent to ${PLATFORM_LABEL[editPlatform]} ✓`)
+        onPublished()
+        loadLogs()
+      } else if (err) {
+        throw new Error(err.error ?? 'Buffer rejected the post')
+      } else {
+        throw new Error('Post was skipped — check channel ID in settings')
+      }
+    } catch (e) {
+      setEditError(e instanceof Error ? e.message : 'Unknown error')
+    } finally {
+      setEditSending(false)
+    }
+  }
+
+  const twitterOverLimit = editPlatform === 'twitter' && editText.length > TWITTER_SAFE
 
   return (
     <div className="bg-gray-900 border border-gray-800 rounded-xl p-5 space-y-4">
@@ -200,6 +297,81 @@ export function PublishSection({ campaignId, platforms, campaignStatus, onPublis
       )}
       {result && (
         <div className="bg-green-950 border border-green-800 text-green-300 text-xs rounded-lg px-3 py-2">{result}</div>
+      )}
+
+      {/* ── Edit & Re-send ───────────────────────────────────────────── */}
+      {canPublish && availablePlatforms().length > 0 && (
+        <div className="border-t border-gray-800 pt-4">
+          {!editOpen ? (
+            <button
+              onClick={openEdit}
+              className="flex items-center gap-1.5 text-xs text-gray-400 hover:text-indigo-300 transition-colors"
+            >
+              <span>✏️</span> Edit post text &amp; re-send to a specific channel
+            </button>
+          ) : (
+            <div className="space-y-3">
+              <div className="flex items-center justify-between">
+                <p className="text-xs font-medium text-white">Edit &amp; Re-send</p>
+                <button onClick={() => setEditOpen(false)} className="text-xs text-gray-600 hover:text-gray-400">✕ Close</button>
+              </div>
+
+              {/* Platform picker */}
+              <div>
+                <label className="text-xs text-gray-500 block mb-1">Platform</label>
+                <div className="flex flex-wrap gap-1.5">
+                  {availablePlatforms().map(key => (
+                    <button
+                      key={key}
+                      onClick={() => onEditPlatformChange(key)}
+                      className={`flex items-center gap-1 text-xs px-2.5 py-1 rounded-lg border transition-colors ${
+                        editPlatform === key
+                          ? 'bg-indigo-900/60 border-indigo-600 text-indigo-200'
+                          : 'bg-gray-800 border-gray-700 text-gray-400 hover:border-gray-500'
+                      }`}
+                    >
+                      <span>{PLATFORM_ICON[key]}</span> {PLATFORM_LABEL[key]}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Text editor */}
+              {editPlatform && (
+                <div>
+                  <label className="text-xs text-gray-500 block mb-1">Post text</label>
+                  <textarea
+                    value={editText}
+                    onChange={e => setEditText(e.target.value)}
+                    rows={6}
+                    className="w-full bg-gray-950 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-600 focus:outline-none focus:border-indigo-500 resize-y"
+                  />
+                  {editPlatform === 'twitter' && (
+                    <p className={`text-xs mt-1 ${twitterOverLimit ? 'text-red-400' : 'text-gray-600'}`}>
+                      {editText.length} / {TWITTER_SAFE} chars{twitterOverLimit ? ' — too long for X/Twitter' : ''}
+                    </p>
+                  )}
+                </div>
+              )}
+
+              {editError && (
+                <div className="bg-red-950 border border-red-800 text-red-300 text-xs rounded-lg px-3 py-2">{editError}</div>
+              )}
+              {editResult && (
+                <div className="bg-green-950 border border-green-800 text-green-300 text-xs rounded-lg px-3 py-2">{editResult}</div>
+              )}
+
+              <button
+                onClick={sendEdit}
+                disabled={editSending || !editPlatform || !editText.trim() || twitterOverLimit}
+                className="bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white text-xs font-medium px-4 py-2 rounded-lg transition-colors"
+              >
+                {editSending ? 'Sending…' : `Save &amp; send to ${editPlatform ? PLATFORM_LABEL[editPlatform] : 'platform'} →`}
+              </button>
+              <p className="text-xs text-gray-600">Saves your edit to this campaign and queues the post on Buffer.</p>
+            </div>
+          )}
+        </div>
       )}
 
       {/* Publish log */}

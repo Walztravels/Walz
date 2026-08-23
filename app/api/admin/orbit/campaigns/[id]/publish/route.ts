@@ -102,11 +102,13 @@ export async function POST(
   const channels = (meta.channels ?? {}) as Record<string, string>
 
   // Which platforms to publish — normalize display names to Buffer short keys
-  const body = await req.json().catch(() => ({})) as { platforms?: string[] }
+  const body = await req.json().catch(() => ({})) as { platforms?: string[]; customText?: string }
   const rawPlatforms = body.platforms ?? campaign.platforms
   const platforms = [...new Set(rawPlatforms.map(p => TO_KEY[p] ?? p).filter(p => EXTRACT[p]))]
 
   const content = campaign.content as Record<string, unknown>
+  // When customText is provided (Edit & Re-send flow), use it instead of EXTRACT
+  const customText = typeof body.customText === 'string' && body.customText.trim() ? body.customText : undefined
 
   // Grab all approved media, sorted by the user-defined mediaOrder
   const approvedMedia = await prisma.orbitMedia.findMany({
@@ -145,7 +147,7 @@ export async function POST(
 
   for (const platform of platforms) {
     const channelId = channels[platform]
-    const text = EXTRACT[platform]?.(content) ?? ''
+    const text = customText ?? EXTRACT[platform]?.(content) ?? ''
 
     if (!text.trim()) {
       const entry: LogResult = { platform, status: 'skipped', error: 'No content generated for this platform' }
