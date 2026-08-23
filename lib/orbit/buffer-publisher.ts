@@ -64,7 +64,11 @@ function buildMetadata(
   if (platform === 'facebook') {
     return { facebook: { type: 'post' } }
   }
-  // linkedin and twitter need no extra metadata for basic posts
+  if (platform === 'googlebusiness') {
+    // type is required by Buffer's API — 'whats_new' is the standard post type
+    return { google: { type: 'whats_new' } }
+  }
+  // tiktok, linkedin, twitter need no extra metadata for basic posts
   return undefined
 }
 

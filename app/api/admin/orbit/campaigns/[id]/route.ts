@@ -10,22 +10,35 @@ export const maxDuration = 30
 
 // Maps DB platform display names → Buffer short keys
 const TO_KEY: Record<string, string> = {
-  'Instagram':       'instagram',
-  'Meta (Facebook)': 'facebook',
-  'LinkedIn':        'linkedin',
-  'X (Twitter)':     'twitter',
-  instagram: 'instagram',
-  facebook:  'facebook',
-  linkedin:  'linkedin',
-  twitter:   'twitter',
+  'Instagram':           'instagram',
+  'Meta (Facebook)':     'facebook',
+  'LinkedIn':            'linkedin',
+  'X (Twitter)':         'twitter',
+  'TikTok':              'tiktok',
+  'Google Business':     'googlebusiness',
+  'Google My Business':  'googlebusiness',
+  'Google':              'googlebusiness',
+  instagram:      'instagram',
+  facebook:       'facebook',
+  linkedin:       'linkedin',
+  twitter:        'twitter',
+  tiktok:         'tiktok',
+  googlebusiness: 'googlebusiness',
 }
 
 // Maps Buffer short keys → content extractor
 const EXTRACT: Record<string, (c: Record<string, unknown>) => string> = {
-  instagram: (c) => { const caps = c.instagram_captions as string[] | undefined; return caps?.[0] ?? '' },
-  facebook:  (c) => { const ads = c.meta_ads as Array<{ headline: string; body: string }> | undefined; const ad = ads?.[0]; return ad ? `${ad.headline}\n\n${ad.body}` : '' },
-  linkedin:  (c) => String(c.linkedin_post ?? ''),
-  twitter:   (c) => String(c.x_post ?? ''),
+  instagram:      (c) => { const caps = c.instagram_captions as string[] | undefined; return caps?.[0] ?? '' },
+  facebook:       (c) => { const ads = c.meta_ads as Array<{ headline: string; body: string }> | undefined; const ad = ads?.[0]; return ad ? `${ad.headline}\n\n${ad.body}` : '' },
+  linkedin:       (c) => String(c.linkedin_post ?? ''),
+  twitter:        (c) => String(c.x_post ?? ''),
+  tiktok:         (c) => String(c.tiktok_caption ?? (c.instagram_captions as string[] | undefined)?.[0] ?? ''),
+  googlebusiness: (c) => {
+    if (c.google_business_post) return String(c.google_business_post)
+    const ads = c.meta_ads as Array<{ headline: string; body: string }> | undefined
+    const ad = ads?.[0]
+    return ad ? `${ad.headline}\n\n${ad.body}` : ''
+  },
 }
 
 export async function GET(
