@@ -40,7 +40,7 @@ const EXTRACT: Record<string, (c: Record<string, unknown>) => string> = {
     return ad ? `${ad.headline}\n\n${ad.body}` : ''
   },
   linkedin:       (c) => String(c.linkedin_post ?? ''),
-  twitter:        (c) => String(c.x_post ?? ''),
+  twitter:        (c) => { const t = String(c.x_post ?? ''); return t.length > 280 ? t.slice(0, 277) + '…' : t },
   tiktok: (c) => {
     if (c.tiktok_caption) return String(c.tiktok_caption)
     // Fallback: use first Instagram caption (similar short-form style)

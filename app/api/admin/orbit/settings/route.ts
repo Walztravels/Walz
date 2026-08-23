@@ -196,10 +196,21 @@ async function handleIntegrationSave(body: Record<string, unknown>, session: { e
   const key = body.integrationKey as string
 
   if (key === 'buffer') {
-    const token = body.bufferToken as string | undefined
-    if (token && token !== '••••••••') {
-      await upsertInt('buffer', { accessToken: token }, token.length > 10)
+    const token    = body.bufferToken as string | undefined
+    const channels = body.bufferChannels as Record<string, string> | undefined
+    const existing = await prisma.orbitIntegration.findUnique({ where: { id: 'buffer' } })
+    const existingMeta = (existing?.meta ?? {}) as Record<string, unknown>
+    const updates: Record<string, unknown> = { ...existingMeta }
+    if (token && token !== '••••••••') updates.accessToken = token
+    if (channels) {
+      const existingChannels = (existingMeta.channels ?? {}) as Record<string, string>
+      updates.channels = {
+        ...existingChannels,
+        ...Object.fromEntries(Object.entries(channels).filter(([, v]) => typeof v === 'string' && v.trim())),
+      }
     }
+    const isConnected = typeof updates.accessToken === 'string' && (updates.accessToken as string).length > 10
+    await upsertInt('buffer', updates, isConnected)
   } else if (key === 'se_ranking') {
     const apiKey = body.seApiKey as string | undefined
     if (apiKey && apiKey !== '••••••••') {
@@ -233,13 +244,14 @@ async function handleIntegrationSave(body: Record<string, unknown>, session: { e
 
   return NextResponse.json({
     settings: {
-      bufferToken:    bMeta.accessToken       ? '••••••••' : '',
-      bufferConnected: bufInt?.connected      ?? false,
-      seApiKey:       sMeta.apiKey            ? '••••••••' : '',
-      seConnected:    seInt?.connected        ?? false,
-      gscJson:        gMeta.serviceAccountJson ? '••••••••' : '',
-      gscSiteUrl:     (gMeta.siteUrl as string) ?? '',
-      gscConnected:   gscInt?.connected       ?? false,
+      bufferToken:     bMeta.accessToken        ? '••••••••' : '',
+      bufferConnected: bufInt?.connected        ?? false,
+      bufferChannels:  (bMeta.channels ?? {})   as Record<string, string>,
+      seApiKey:        sMeta.apiKey             ? '••••••••' : '',
+      seConnected:     seInt?.connected         ?? false,
+      gscJson:         gMeta.serviceAccountJson ? '••••••••' : '',
+      gscSiteUrl:      (gMeta.siteUrl as string) ?? '',
+      gscConnected:    gscInt?.connected        ?? false,
     },
   })
 }

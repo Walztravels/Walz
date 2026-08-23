@@ -21,28 +21,37 @@ interface Props {
 
 // Maps DB platform names (long form from the campaign form) → Buffer keys
 const TO_KEY: Record<string, string> = {
-  'Instagram':       'instagram',
-  'Meta (Facebook)': 'facebook',
-  'LinkedIn':        'linkedin',
-  'X (Twitter)':     'twitter',
-  instagram: 'instagram',
-  facebook:  'facebook',
-  linkedin:  'linkedin',
-  twitter:   'twitter',
+  'Instagram':          'instagram',
+  'Meta (Facebook)':    'facebook',
+  'LinkedIn':           'linkedin',
+  'X (Twitter)':        'twitter',
+  'TikTok':             'tiktok',
+  'Google Business':    'googlebusiness',
+  'Google My Business': 'googlebusiness',
+  instagram:      'instagram',
+  facebook:       'facebook',
+  linkedin:       'linkedin',
+  twitter:        'twitter',
+  tiktok:         'tiktok',
+  googlebusiness: 'googlebusiness',
 }
 
 const PLATFORM_LABEL: Record<string, string> = {
-  instagram: 'Instagram',
-  facebook:  'Meta (Facebook)',
-  linkedin:  'LinkedIn',
-  twitter:   'X (Twitter)',
+  instagram:      'Instagram',
+  facebook:       'Meta (Facebook)',
+  linkedin:       'LinkedIn',
+  twitter:        'X (Twitter)',
+  tiktok:         'TikTok',
+  googlebusiness: 'Google Business',
 }
 
 const PLATFORM_ICON: Record<string, string> = {
-  instagram: '📸',
-  facebook:  '👍',
-  linkedin:  '💼',
-  twitter:   '🐦',
+  instagram:      '📸',
+  facebook:       '👍',
+  linkedin:       '💼',
+  twitter:        '🐦',
+  tiktok:         '🎵',
+  googlebusiness: '🏢',
 }
 
 const STATUS_STYLE: Record<string, string> = {
@@ -57,14 +66,38 @@ function toBufferKeys(platforms: string[]): string[] {
 }
 
 export function PublishSection({ campaignId, platforms, campaignStatus, onPublished }: Props) {
-  const [logs, setLogs]           = useState<PublishLog[]>([])
+  const [logs, setLogs]             = useState<PublishLog[]>([])
   const [logsLoaded, setLogsLoaded] = useState(false)
-  const [selected, setSelected]   = useState<string[]>(toBufferKeys(platforms))
+  const [selected, setSelected]     = useState<string[]>(toBufferKeys(platforms))
+  const [channelIds, setChannelIds] = useState<Record<string, string>>({})
   const [publishing, setPublishing] = useState(false)
-  const [error, setError]         = useState<string | null>(null)
-  const [result, setResult]       = useState<string | null>(null)
+  const [error, setError]           = useState<string | null>(null)
+  const [result, setResult]         = useState<string | null>(null)
 
   const canPublish = campaignStatus === 'approved' || campaignStatus === 'published'
+
+  // Load configured Buffer channel IDs so we can show all connected platforms
+  useEffect(() => {
+    fetch('/api/admin/orbit/settings')
+      .then(r => r.json())
+      .then(d => {
+        const ch = (d.settings?.bufferChannels ?? {}) as Record<string, string>
+        setChannelIds(ch)
+        // Add any configured-channel platforms to the selected set
+        setSelected(prev => {
+          const fromChannels = Object.keys(ch).filter(k => ch[k] && PLATFORM_LABEL[k])
+          return [...new Set([...prev, ...fromChannels])]
+        })
+      })
+      .catch(() => {})
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Platforms to show: campaign's original platforms + any platform with a configured channel ID
+  function availablePlatforms(): string[] {
+    const fromCampaign = toBufferKeys(platforms)
+    const fromChannels = Object.keys(channelIds).filter(k => channelIds[k] && PLATFORM_LABEL[k])
+    return [...new Set([...fromCampaign, ...fromChannels])]
+  }
 
   function loadLogs() {
     fetch(`/api/admin/orbit/campaigns/${campaignId}/publish`)
@@ -142,7 +175,7 @@ export function PublishSection({ campaignId, platforms, campaignStatus, onPublis
         <div>
           <p className="text-xs text-gray-500 mb-2">Select platforms to queue:</p>
           <div className="flex flex-wrap gap-2">
-            {toBufferKeys(platforms).map(key => (
+            {availablePlatforms().map(key => (
               <button
                 key={key}
                 onClick={() => togglePlatform(key)}
@@ -156,8 +189,8 @@ export function PublishSection({ campaignId, platforms, campaignStatus, onPublis
               </button>
             ))}
           </div>
-          {toBufferKeys(platforms).length === 0 && (
-            <p className="text-xs text-gray-600">No supported platforms on this campaign (Instagram, Meta, LinkedIn, X).</p>
+          {availablePlatforms().length === 0 && (
+            <p className="text-xs text-gray-600">No platforms configured. Add Buffer channel IDs in Orbit → Settings → Integrations.</p>
           )}
         </div>
       )}

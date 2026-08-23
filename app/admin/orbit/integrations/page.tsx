@@ -2,8 +2,18 @@
 
 import { useEffect, useState } from 'react'
 
+const BUFFER_PLATFORMS = [
+  { key: 'instagram',      label: 'Instagram' },
+  { key: 'facebook',       label: 'Meta (Facebook)' },
+  { key: 'linkedin',       label: 'LinkedIn' },
+  { key: 'twitter',        label: 'X (Twitter)' },
+  { key: 'tiktok',         label: 'TikTok' },
+  { key: 'googlebusiness', label: 'Google Business' },
+]
+
 interface Settings {
   bufferToken: string; bufferConnected: boolean
+  bufferChannels: Record<string, string>
   seApiKey: string; seConnected: boolean
   gscJson: string; gscSiteUrl: string; gscConnected: boolean
 }
@@ -11,6 +21,7 @@ interface Settings {
 export default function IntegrationsPage() {
   const [settings, setSettings] = useState<Settings>({
     bufferToken: '', bufferConnected: false,
+    bufferChannels: {},
     seApiKey: '', seConnected: false,
     gscJson: '', gscSiteUrl: '', gscConnected: false,
   })
@@ -24,13 +35,14 @@ export default function IntegrationsPage() {
     const data = await res.json()
     if (data.settings) {
       setSettings({
-        bufferToken:    data.settings.bufferToken    ?? '',
+        bufferToken:     data.settings.bufferToken     ?? '',
         bufferConnected: data.settings.bufferConnected ?? false,
-        seApiKey:       data.settings.seApiKey       ?? '',
-        seConnected:    data.settings.seConnected    ?? false,
-        gscJson:        data.settings.gscJson        ?? '',
-        gscSiteUrl:     data.settings.gscSiteUrl     ?? '',
-        gscConnected:   data.settings.gscConnected   ?? false,
+        bufferChannels:  data.settings.bufferChannels  ?? {},
+        seApiKey:        data.settings.seApiKey        ?? '',
+        seConnected:     data.settings.seConnected     ?? false,
+        gscJson:         data.settings.gscJson         ?? '',
+        gscSiteUrl:      data.settings.gscSiteUrl      ?? '',
+        gscConnected:    data.settings.gscConnected    ?? false,
       })
     }
     setLoading(false)
@@ -38,7 +50,7 @@ export default function IntegrationsPage() {
 
   useEffect(() => { load() }, [])
 
-  async function save(key: string, payload: Record<string, string>) {
+  async function save(key: string, payload: Record<string, unknown>) {
     setSaving(true); setSaved(null); setError('')
     try {
       const res = await fetch('/api/admin/orbit/settings', {
@@ -89,8 +101,28 @@ export default function IntegrationsPage() {
           />
           <p className="text-xs text-gray-600 mt-1">Get your token from publish.buffer.com/settings/api</p>
         </div>
+        <div>
+          <p className="text-xs text-gray-400 mb-2">Channel IDs <span className="text-gray-600">(from Buffer → Channels → each channel URL)</span></p>
+          <div className="space-y-2">
+            {BUFFER_PLATFORMS.map(({ key, label }) => (
+              <div key={key} className="flex items-center gap-2">
+                <span className="text-xs text-gray-500 w-36 flex-shrink-0">{label}</span>
+                <input
+                  type="text"
+                  value={settings.bufferChannels[key] ?? ''}
+                  onChange={e => setSettings(p => ({
+                    ...p,
+                    bufferChannels: { ...p.bufferChannels, [key]: e.target.value },
+                  }))}
+                  placeholder="Channel ID"
+                  className="flex-1 bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-xs text-white placeholder-gray-600 focus:outline-none focus:border-indigo-500 font-mono"
+                />
+              </div>
+            ))}
+          </div>
+        </div>
         <button
-          onClick={() => save('buffer', { bufferToken: settings.bufferToken })}
+          onClick={() => save('buffer', { bufferToken: settings.bufferToken, bufferChannels: settings.bufferChannels })}
           disabled={saving}
           className="bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white text-sm px-4 py-2 rounded-lg transition-colors"
         >
