@@ -147,44 +147,6 @@ export async function POST(request: NextRequest) {
 
   try {
     switch (event.type) {
-      case 'payment_intent.succeeded': {
-        const paymentIntent = event.data.object as Stripe.PaymentIntent
-
-        console.log(`[Stripe Webhook] Payment succeeded: ${paymentIntent.id}`)
-
-        // Package deposit payment
-        if (paymentIntent.metadata?.type === 'deposit' && paymentIntent.metadata.booking_ref) {
-          await prisma.$executeRawUnsafe(
-            `UPDATE package_bookings
-             SET payment_status = 'deposit_paid',
-                 payment_gateway = 'stripe',
-                 payment_intent_id = $1,
-                 deposit_paid_at = NOW(),
-                 deposit_amount_paid = $2,
-                 payment_currency = $3,
-                 updated_at = NOW()
-             WHERE booking_ref = $4`,
-            paymentIntent.id,
-            paymentIntent.amount_received / 100,
-            paymentIntent.currency,
-            paymentIntent.metadata.booking_ref
-          )
-        } else {
-          // Existing flight/tour booking handling
-          await prisma.booking.updateMany({
-            where: {
-              stripePaymentIntentId: paymentIntent.id,
-              paymentStatus: 'PENDING',
-            },
-            data: {
-              paymentStatus: 'SUCCEEDED',
-            },
-          })
-        }
-
-        break
-      }
-
       case 'payment_intent.payment_failed': {
         const paymentIntent = event.data.object as Stripe.PaymentIntent
 
@@ -212,14 +174,21 @@ export async function POST(request: NextRequest) {
 
         console.log(`[Stripe Webhook] Payment cancelled: ${paymentIntent.id}`)
 
+        // Card authorization release
+        const cancelledAuth = await prisma.cardAuthorization.findUnique({
+          where: { stripePaymentIntentId: paymentIntent.id },
+        })
+        if (cancelledAuth && (cancelledAuth.status === 'authorized' || cancelledAuth.status === 'pending')) {
+          await prisma.cardAuthorization.update({
+            where: { id: cancelledAuth.id },
+            data: { status: 'released', releasedAt: new Date() },
+          })
+          break
+        }
+
         await prisma.booking.updateMany({
-          where: {
-            stripePaymentIntentId: paymentIntent.id,
-          },
-          data: {
-            paymentStatus: 'CANCELLED',
-            status: 'CANCELLED',
-          },
+          where: { stripePaymentIntentId: paymentIntent.id },
+          data: { paymentStatus: 'CANCELLED', status: 'CANCELLED' },
         })
 
         break
@@ -287,6 +256,82 @@ export async function POST(request: NextRequest) {
             },
           })
         }
+        break
+      }
+
+      case 'payment_intent.amount_capturable_updated': {
+        // Fires when a manual-capture PaymentIntent moves to requires_capture (card authorized).
+        const pi = event.data.object as Stripe.PaymentIntent
+        const cardAuth = await prisma.cardAuthorization.findUnique({
+          where: { stripePaymentIntentId: pi.id },
+        })
+        if (cardAuth && cardAuth.status === 'pending') {
+          const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)
+          await prisma.cardAuthorization.update({
+            where: { id: cardAuth.id },
+            data: {
+              status:      'authorized',
+              authorizedAt: new Date(),
+              expiresAt,
+            },
+          })
+          console.log(`[Stripe Webhook] Card authorized: ${cardAuth.id} (PI: ${pi.id})`)
+        }
+        break
+      }
+
+      case 'payment_intent.succeeded': {
+        const paymentIntent = event.data.object as Stripe.PaymentIntent
+
+        // Card authorization capture
+        const capturedAuth = await prisma.cardAuthorization.findUnique({
+          where: { stripePaymentIntentId: paymentIntent.id },
+        })
+        if (capturedAuth && capturedAuth.status === 'authorized') {
+          await prisma.cardAuthorization.update({
+            where: { id: capturedAuth.id },
+            data: {
+              status:        'captured',
+              capturedAt:    new Date(),
+              capturedAmount: paymentIntent.amount_received / 100,
+            },
+          })
+          console.log(`[Stripe Webhook] Card captured: ${capturedAuth.id}`)
+          break
+        }
+
+        console.log(`[Stripe Webhook] Payment succeeded: ${paymentIntent.id}`)
+
+        // Package deposit payment
+        if (paymentIntent.metadata?.type === 'deposit' && paymentIntent.metadata.booking_ref) {
+          await prisma.$executeRawUnsafe(
+            `UPDATE package_bookings
+             SET payment_status = 'deposit_paid',
+                 payment_gateway = 'stripe',
+                 payment_intent_id = $1,
+                 deposit_paid_at = NOW(),
+                 deposit_amount_paid = $2,
+                 payment_currency = $3,
+                 updated_at = NOW()
+             WHERE booking_ref = $4`,
+            paymentIntent.id,
+            paymentIntent.amount_received / 100,
+            paymentIntent.currency,
+            paymentIntent.metadata.booking_ref
+          )
+        } else {
+          // Existing flight/tour booking handling
+          await prisma.booking.updateMany({
+            where: {
+              stripePaymentIntentId: paymentIntent.id,
+              paymentStatus: 'PENDING',
+            },
+            data: {
+              paymentStatus: 'SUCCEEDED',
+            },
+          })
+        }
+
         break
       }
 

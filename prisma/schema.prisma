@@ -3828,3 +3828,57 @@ model DesignUploadLink {
   isActive  Boolean  @default(true)
   createdAt DateTime @default(now())
 }
+
+// ===========================
+// Card Authorization (Pre-Auth)
+// ===========================
+
+enum CardAuthorizationStatus {
+  pending     // link sent — client has not entered card yet
+  authorized  // Stripe hold placed (requires_capture)
+  captured    // payment taken (succeeded)
+  released    // hold cancelled without charge
+  expired     // Stripe hold auto-expired after 7 days
+  cancelled   // cancelled by staff before client authorized
+}
+
+model CardAuthorization {
+  id                    String                  @id @default(cuid())
+  token                 String                  @unique @default(cuid())
+  status                CardAuthorizationStatus @default(pending)
+
+  amount                Float
+  currency              String                  @default("gbp")
+  description           String
+
+  clientEmail           String
+  clientName            String
+  clientPhone           String?
+
+  bookingRef            String?
+  bookingId             String?
+  applicationId         String?
+  leadId                String?
+
+  stripePaymentIntentId String?                 @unique
+  stripeCustomerId      String?
+
+  authorizedAt          DateTime?
+  capturedAt            DateTime?
+  releasedAt            DateTime?
+  cancelledAt           DateTime?
+  expiresAt             DateTime?
+
+  createdBy             String
+  capturedBy            String?
+  releasedBy            String?
+  cancelledBy           String?
+
+  capturedAmount        Float?
+  notes                 String?
+
+  createdAt             DateTime                @default(now())
+  updatedAt             DateTime                @updatedAt
+
+  @@map("card_authorizations")
+}

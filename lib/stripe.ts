@@ -55,3 +55,48 @@ export async function createRefund(params: {
     ...(params.reason && { reason: params.reason }),
   })
 }
+
+// ── Card Pre-Authorization (manual capture) ───────────────────────────────────
+
+export async function createPreAuthIntent(params: {
+  amount: number          // in currency units (e.g. 150.00)
+  currency: string
+  description: string
+  customerId?: string
+  metadata?: Record<string, string>
+}) {
+  return stripe.paymentIntents.create({
+    amount:         Math.round(params.amount * 100),
+    currency:       params.currency,
+    capture_method: 'manual',
+    description:    params.description,
+    ...(params.customerId && { customer: params.customerId }),
+    metadata:       params.metadata ?? {},
+    automatic_payment_methods: { enabled: true },
+  })
+}
+
+export async function capturePreAuthIntent(params: {
+  paymentIntentId: string
+  amountToCapture?: number  // in currency units; omit to capture full hold
+}) {
+  return stripe.paymentIntents.capture(params.paymentIntentId, {
+    ...(params.amountToCapture && {
+      amount_to_capture: Math.round(params.amountToCapture * 100),
+    }),
+  })
+}
+
+export async function createStripeCustomer(params: {
+  email: string
+  name: string
+  phone?: string
+  metadata?: Record<string, string>
+}) {
+  return stripe.customers.create({
+    email:    params.email,
+    name:     params.name,
+    ...(params.phone && { phone: params.phone }),
+    metadata: params.metadata ?? {},
+  })
+}
