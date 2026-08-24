@@ -287,16 +287,16 @@ export async function POST(request: NextRequest) {
         const capturedAuth = await prisma.cardAuthorization.findUnique({
           where: { stripePaymentIntentId: paymentIntent.id },
         })
-        if (capturedAuth && capturedAuth.status === 'authorized') {
+        if (capturedAuth && ['authorized', 'captured'].includes(capturedAuth.status)) {
           await prisma.cardAuthorization.update({
             where: { id: capturedAuth.id },
             data: {
-              status:        'captured',
-              capturedAt:    new Date(),
+              status:         'captured',
+              capturedAt:     capturedAuth.capturedAt ?? new Date(),
               capturedAmount: paymentIntent.amount_received / 100,
             },
           })
-          console.log(`[Stripe Webhook] Card captured: ${capturedAuth.id}`)
+          console.log(`[Stripe Webhook] Card captured (authoritative): ${capturedAuth.id}, amount_received=${paymentIntent.amount_received}`)
           break
         }
 
