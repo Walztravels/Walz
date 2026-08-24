@@ -93,6 +93,16 @@ const PERM_META: Record<Permission, PermMeta> = {
   concierge:              { label: 'View Concierge',                desc: 'See concierge requests and service history' },
   'concierge.book':       { label: 'Book Concierge Services',       desc: 'Place bookings for private aviation and airport services on behalf of clients' },
   'concierge.images':     { label: 'Manage Page Images',            desc: 'Upload and update hero images on the public concierge page' },
+  'quotes':               { label: 'View Quotes',                   desc: 'See the quotes & proposals list and read quote details' },
+  'quotes.create':        { label: 'Create Quotes',                 desc: 'Build new quote proposals for clients' },
+  'quotes.edit':          { label: 'Edit Quotes',                   desc: 'Update quote content, pricing, and internal notes' },
+  'quotes.send':          { label: 'Send Quotes',                   desc: 'Send quote proposals to clients via email and WhatsApp' },
+  'quotes.delete':        { label: 'Cancel / Archive Quotes',       desc: 'Cancel or archive quote proposals' },
+  'quotes.convert':       { label: 'Convert to Booking',            desc: 'Mark an accepted quote as converted and link it to a booking' },
+  'quotes.view_margin':   { label: 'View Cost & Margin',            desc: 'See supplier cost, markup, and service fee on quote line items' },
+  'quotes.manage_pricing':{ label: 'Manage Pricing Rules',          desc: 'Set and override default markup and service fee rules for quotes' },
+  'quotes.extend_validity':{ label: 'Extend Quote Validity',        desc: 'Push back the expiry date of a sent quote' },
+  'quotes.view_audit':    { label: 'View Quote Audit Trail',        desc: 'Read the full activity log and version history of any quote' },
 }
 
 const PERM_GROUPS: { label: string; perms: Permission[] }[] = [
@@ -107,6 +117,7 @@ const PERM_GROUPS: { label: string; perms: Permission[] }[] = [
   { label: 'Jade AI',              perms: ['jade.staff'] },
   { label: 'Marketing',           perms: ['marketing', 'marketing.publish', 'marketing.analytics', 'marketing.whatsapp', 'marketing.tenants'] },
   { label: 'Concierge',          perms: ['concierge', 'concierge.book', 'concierge.images'] },
+  { label: 'Quotes & Proposals', perms: ['quotes', 'quotes.create', 'quotes.edit', 'quotes.send', 'quotes.delete', 'quotes.convert', 'quotes.view_margin', 'quotes.manage_pricing', 'quotes.extend_validity', 'quotes.view_audit'] },
 ]
 
 const ROLE_META: Record<AdminRole, { label: string; color: string; desc: string }> = {

@@ -4096,3 +4096,340 @@ model FlightQuote {
   @@index([createdBy])
   @@map("flight_quotes")
 }
+
+// ===========================
+// Quotes & Proposals
+// ===========================
+
+model Quote {
+  id                      String    @id @default(cuid())
+  reference               String    @unique   // WT-Q-YYYYMMDD-NNNN
+  secureTokenHash         String    @unique   // SHA-256(rawToken) — raw token goes in public URL
+
+  clientName              String
+  clientEmail             String
+  clientPhone             String?
+  clientCountry           String?
+  currency                String
+
+  title                   String
+  description             String?   @db.Text
+
+  // draft | ready | sent | viewed | changes_requested | accepted | declined | expired | converted | cancelled | archived
+  status                  String    @default("draft")
+  version                 Int       @default(1)
+
+  validUntil              DateTime
+
+  createdBy               String    // staff email
+  assignedTo              String?   // staff email
+
+  sentAt                  DateTime?
+  firstViewedAt           DateTime?
+  lastViewedAt            DateTime?
+  viewCount               Int       @default(0)
+  acceptedAt              DateTime?
+  declinedAt              DateTime?
+  changesRequestedAt      DateTime?
+  convertedAt             DateTime?
+
+  selectedFlightOptionId  String?
+  selectedHotelOptionId   String?
+  convertedBookingId      String?
+
+  declineReason           String?
+  changesNote             String?   @db.Text
+  acceptedVersion         Int?
+  acceptedIp              String?
+  acceptedUserAgent       String?   @db.Text
+  clientSignatureName     String?
+
+  depositMinor            BigInt?
+  depositCurrency         String?
+  depositPercentage       Decimal?  @db.Decimal(5,2)
+
+  subtotalMinor           BigInt    @default(0)
+  totalMinor              BigInt    @default(0)
+
+  internalNotes           String?   @db.Text
+
+  createdAt               DateTime  @default(now())
+  updatedAt               DateTime  @updatedAt
+
+  items         QuoteItem[]
+  flightOptions QuoteFlightOption[]
+  hotelOptions  QuoteHotelOption[]
+  media         QuoteMedia[]
+  versions      QuoteVersion[]
+  activity      QuoteActivity[]
+
+  @@index([status])
+  @@index([createdBy])
+  @@index([clientEmail])
+  @@index([secureTokenHash])
+  @@map("quotes")
+}
+
+model QuoteItem {
+  id                String   @id @default(cuid())
+  quoteId           String
+
+  // flight | hotel | tour | transfer | package | visa | insurance | concierge | fee | custom
+  type              String
+  title             String
+  description       String?  @db.Text
+  sortOrder         Int      @default(0)
+
+  supplier          String?
+  supplierRef       String?
+
+  // api | manual | screenshot | imported | duplicated
+  sourceType        String   @default("manual")
+
+  // INTERNAL — never exposed publicly
+  costMinor         BigInt   @default(0)
+  markupMinor       BigInt   @default(0)
+  serviceFeeMinor   BigInt   @default(0)
+
+  sellingPriceMinor BigInt   @default(0)
+  currency          String
+
+  clientVisible     Boolean  @default(true)
+  showPriceToClient Boolean  @default(true)
+
+  clientNote        String?  @db.Text
+  internalNote      String?  @db.Text
+
+  metadata          Json     @default("{}")
+
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  quote             Quote    @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+
+  @@index([quoteId])
+  @@map("quote_items")
+}
+
+model QuoteFlightOption {
+  id                  String    @id @default(cuid())
+  quoteId             String
+
+  label               String?
+  isRecommended       Boolean   @default(false)
+  sortOrder           Int       @default(0)
+
+  airline             String
+  airlineCode         String?
+  airlineLogoUrl      String?
+  operatingAirline    String?
+
+  // oneway | roundtrip | multicity
+  tripType            String    @default("roundtrip")
+
+  cabinClass          String
+  fareClass           String?
+  fareFamily          String?
+
+  isRefundable        Boolean   @default(false)
+  changesAllowed      Boolean   @default(false)
+  changeFee           String?
+  noShowRule          String?
+  seatIncluded        Boolean   @default(false)
+  mealIncluded        Boolean   @default(false)
+
+  personalItem        String?
+  cabinBaggage        String?
+  checkedBaggage      String?
+  checkedPieces       Int?
+  checkedWeight       String?
+
+  duffelOfferId       String?
+
+  // INTERNAL — never exposed publicly
+  costMinor           BigInt    @default(0)
+  markupMinor         BigInt    @default(0)
+  serviceFeeMinor     BigInt    @default(0)
+
+  sellingPriceMinor   BigInt    @default(0)
+  currency            String
+
+  fareExpiresAt       DateTime?
+
+  // api | manual | screenshot
+  sourceType          String    @default("manual")
+
+  clientNote          String?   @db.Text
+  internalNote        String?   @db.Text
+
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  quote               Quote     @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+  segments            QuoteFlightSegment[]
+  media               QuoteMedia[]
+
+  @@index([quoteId])
+  @@map("quote_flight_options")
+}
+
+model QuoteFlightSegment {
+  id                    String    @id @default(cuid())
+  flightOptionId        String
+  segmentOrder          Int       @default(0)
+
+  originCode            String
+  originCity            String?
+  originTerminal        String?
+  departureAt           DateTime
+
+  destinationCode       String
+  destinationCity       String?
+  destinationTerminal   String?
+  arrivalAt             DateTime
+
+  flightNumber          String?
+  operatingCarrier      String?
+  marketingCarrier      String?
+  aircraft              String?
+  durationMinutes       Int?
+  stops                 Int       @default(0)
+  layoverMinutes        Int?
+
+  flightOption          QuoteFlightOption @relation(fields: [flightOptionId], references: [id], onDelete: Cascade)
+
+  @@index([flightOptionId])
+  @@map("quote_flight_segments")
+}
+
+model QuoteHotelOption {
+  id                  String    @id @default(cuid())
+  quoteId             String
+
+  label               String?
+  isRecommended       Boolean   @default(false)
+  sortOrder           Int       @default(0)
+
+  hotelName           String
+  starRating          Int?
+  address             String?
+  city                String?
+  country             String?
+  description         String?   @db.Text
+
+  checkIn             DateTime
+  checkOut            DateTime
+  nights              Int
+  rooms               Int       @default(1)
+  adults              Int       @default(2)
+  children            Int       @default(0)
+
+  roomType            String?
+  bedType             String?
+  mealPlan            String?
+  breakfastIncluded   Boolean   @default(false)
+
+  checkInTime         String?
+  checkOutTime        String?
+  cancellationPolicy  String?   @db.Text
+  isRefundable        Boolean   @default(false)
+
+  amenities           String[]
+
+  supplier            String?
+  supplierRef         String?
+  rateExpiresAt       DateTime?
+
+  // INTERNAL — never exposed publicly
+  costMinor           BigInt    @default(0)
+  markupMinor         BigInt    @default(0)
+  serviceFeeMinor     BigInt    @default(0)
+
+  sellingPriceMinor   BigInt    @default(0)
+  currency            String
+  showPerNight        Boolean   @default(false)
+
+  // api | manual | screenshot
+  sourceType          String    @default("manual")
+
+  clientNote          String?   @db.Text
+  internalNote        String?   @db.Text
+
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  quote               Quote     @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+  media               QuoteMedia[]
+
+  @@index([quoteId])
+  @@map("quote_hotel_options")
+}
+
+model QuoteMedia {
+  id              String    @id @default(cuid())
+  quoteId         String
+  flightOptionId  String?
+  hotelOptionId   String?
+
+  url             String
+  storagePath     String
+  filename        String
+  mimeType        String
+  sizeBytes       Int
+
+  caption         String?
+  altText         String?
+  sortOrder       Int       @default(0)
+  isHero          Boolean   @default(false)
+  clientVisible   Boolean   @default(true)
+
+  // image | screenshot | document
+  mediaType       String    @default("image")
+
+  createdAt       DateTime  @default(now())
+
+  quote           Quote             @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+  flightOption    QuoteFlightOption? @relation(fields: [flightOptionId], references: [id], onDelete: SetNull)
+  hotelOption     QuoteHotelOption?  @relation(fields: [hotelOptionId], references: [id], onDelete: SetNull)
+
+  @@index([quoteId])
+  @@map("quote_media")
+}
+
+model QuoteVersion {
+  id           String    @id @default(cuid())
+  quoteId      String
+  version      Int
+  status       String
+  snapshotJson Json
+  changedBy    String    // staff email
+  changeNote   String?
+  createdAt    DateTime  @default(now())
+
+  quote        Quote     @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+
+  @@index([quoteId])
+  @@map("quote_versions")
+}
+
+model QuoteActivity {
+  id          String    @id @default(cuid())
+  quoteId     String
+  actor       String    // staff email or "client"
+  // staff | client | system
+  actorType   String    @default("staff")
+  // created | edited | sent | viewed | selected_option | accepted |
+  // declined | changes_requested | converted | expired | version_created
+  eventType   String
+  detail      String?
+  metadata    Json      @default("{}")
+  ipAddress   String?
+  userAgent   String?   @db.Text
+  createdAt   DateTime  @default(now())
+
+  quote       Quote     @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+
+  @@index([quoteId])
+  @@index([createdAt])
+  @@map("quote_activity")
+}

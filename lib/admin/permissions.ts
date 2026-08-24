@@ -96,6 +96,17 @@ export type Permission =
   | 'concierge'
   | 'concierge.book'
   | 'concierge.images'
+  // ── Quotes & Proposals ───────────────────────────────────────────────────
+  | 'quotes'
+  | 'quotes.create'
+  | 'quotes.edit'
+  | 'quotes.send'
+  | 'quotes.delete'
+  | 'quotes.convert'
+  | 'quotes.view_margin'
+  | 'quotes.manage_pricing'
+  | 'quotes.extend_validity'
+  | 'quotes.view_audit'
 
 // ── All permissions (super_admin gets all automatically) ─────────────────────
 
@@ -127,6 +138,8 @@ export const ALL_PERMISSIONS: Permission[] = [
   'marketing', 'marketing.publish', 'marketing.analytics', 'marketing.whatsapp', 'marketing.tenants',
   'link_applications',
   'concierge', 'concierge.book', 'concierge.images',
+  'quotes', 'quotes.create', 'quotes.edit', 'quotes.send', 'quotes.delete',
+  'quotes.convert', 'quotes.view_margin', 'quotes.manage_pricing', 'quotes.extend_validity', 'quotes.view_audit',
 ]
 
 export const ROLE_PERMISSIONS: Record<AdminRole, Permission[]> = {
@@ -152,6 +165,8 @@ export const ROLE_PERMISSIONS: Record<AdminRole, Permission[]> = {
     'jade.staff',
     'marketing', 'marketing.publish', 'marketing.analytics', 'marketing.whatsapp',
     'concierge', 'concierge.book', 'concierge.images',
+    'quotes', 'quotes.create', 'quotes.edit', 'quotes.send', 'quotes.delete',
+    'quotes.convert', 'quotes.view_margin', 'quotes.manage_pricing', 'quotes.extend_validity', 'quotes.view_audit',
   ],
 
   visa_officer: [
@@ -177,6 +192,7 @@ export const ROLE_PERMISSIONS: Record<AdminRole, Permission[]> = {
     'intelligence.form_check', 'intelligence.letters', 'intelligence.tickets',
     'jade.staff',
     'concierge',
+    'quotes', 'quotes.create', 'quotes.edit', 'quotes.send',
   ],
 
   flight_staff: [
@@ -185,6 +201,7 @@ export const ROLE_PERMISSIONS: Record<AdminRole, Permission[]> = {
     'clients', 'transfers', 'approvals',
     'intelligence.tickets',
     'jade.staff',
+    'quotes', 'quotes.create', 'quotes.edit', 'quotes.send',
   ],
 
   tours_staff: [
@@ -192,6 +209,7 @@ export const ROLE_PERMISSIONS: Record<AdminRole, Permission[]> = {
     'tours', 'tours.manage', 'bookings', 'bookings.create',
     'clients', 'documents', 'transfers',
     'jade.staff',
+    'quotes', 'quotes.create', 'quotes.edit', 'quotes.send',
   ],
 
   hotel_staff: [
@@ -199,6 +217,7 @@ export const ROLE_PERMISSIONS: Record<AdminRole, Permission[]> = {
     'hotels', 'hotels.manage', 'bookings', 'bookings.create',
     'clients',
     'jade.staff',
+    'quotes', 'quotes.create', 'quotes.edit', 'quotes.send',
   ],
 
   sales_agent: [
@@ -207,6 +226,7 @@ export const ROLE_PERMISSIONS: Record<AdminRole, Permission[]> = {
     'bookings.create', 'commissions', 'approvals',
     'jade.staff',
     'concierge',
+    'quotes', 'quotes.create', 'quotes.edit', 'quotes.send',
   ],
 
   accountant: [
@@ -246,6 +266,8 @@ export const ROLE_PERMISSIONS: Record<AdminRole, Permission[]> = {
     'intelligence.conversation', 'intelligence.lifecycle',
     'jade.staff',
     'concierge', 'concierge.book', 'concierge.images',
+    'quotes', 'quotes.create', 'quotes.edit', 'quotes.send', 'quotes.delete',
+    'quotes.convert', 'quotes.view_margin', 'quotes.manage_pricing', 'quotes.extend_validity', 'quotes.view_audit',
   ],
 
   senior_manager: [
@@ -260,6 +282,8 @@ export const ROLE_PERMISSIONS: Record<AdminRole, Permission[]> = {
     'intelligence.cris', 'intelligence.revenue',
     'jade.staff',
     'concierge',
+    'quotes', 'quotes.create', 'quotes.edit', 'quotes.send', 'quotes.convert',
+    'quotes.view_margin', 'quotes.extend_validity', 'quotes.view_audit',
   ],
 
   sales_rep: [
@@ -267,6 +291,7 @@ export const ROLE_PERMISSIONS: Record<AdminRole, Permission[]> = {
     'leads', 'clients', 'clients.create',
     'bookings.create', 'approvals', 'reports',
     'jade.staff',
+    'quotes', 'quotes.create', 'quotes.edit', 'quotes.send',
   ],
 }
 
@@ -406,6 +431,7 @@ export const NAV_ITEMS: NavSection[] = [
     items: [
       { href: '/admin/bookings',        label: 'All Bookings',    icon: 'Calendar', permission: 'bookings'        },
       { href: '/admin/book',            label: 'New Booking',     icon: 'Plus',     permission: 'bookings.create' },
+      { href: '/admin/quotes',          label: 'Quotes & Proposals', icon: 'FileText', permission: 'quotes' },
       { href: '/admin/flight-bookings', label: 'Flight Bookings', icon: 'Plane',    permission: 'flights'         },
       { href: '/admin/flights',         label: 'Flight Deals',    icon: 'Plane',    permission: 'flights'         },
       { href: '/admin/flight-extras',    label: 'Flight Extras',    icon: 'Sliders', permission: 'flights' },
