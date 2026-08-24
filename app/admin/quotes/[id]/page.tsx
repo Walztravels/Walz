@@ -443,12 +443,20 @@ export default function QuoteDetailPage() {
         {/* Action buttons */}
         <div className="flex flex-wrap items-center gap-2 shrink-0">
           {isDraft && (
-            <button
-              onClick={() => setSendModal(true)}
-              className="bg-green-600 hover:bg-green-700 text-white text-sm font-semibold px-4 py-2 rounded-lg transition-colors"
-            >
-              Send Quote
-            </button>
+            <>
+              <Link
+                href={`/admin/travel-search?quoteId=${quote.id}`}
+                className="border border-indigo-200 bg-indigo-50 text-indigo-700 text-sm font-semibold px-4 py-2 rounded-lg hover:bg-indigo-100 transition-colors"
+              >
+                + Add Travel Product
+              </Link>
+              <button
+                onClick={() => setSendModal(true)}
+                className="bg-green-600 hover:bg-green-700 text-white text-sm font-semibold px-4 py-2 rounded-lg transition-colors"
+              >
+                Send Quote
+              </button>
+            </>
           )}
           {isSent && (
             <>
