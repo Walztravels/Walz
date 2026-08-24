@@ -212,10 +212,11 @@ export async function PATCH(
 
       if (full.items.length) {
         await tx.quoteItem.createMany({
-          data: full.items.map(({ id: _id, quoteId: _qid, createdAt: _ca, updatedAt: _ua, ...rest }) => ({
+          data: full.items.map(({ id: _id, quoteId: _qid, createdAt: _ca, updatedAt: _ua, metadata, ...rest }) => ({
             ...rest, quoteId: q.id,
             costMinor: rest.costMinor, markupMinor: rest.markupMinor,
             serviceFeeMinor: rest.serviceFeeMinor, sellingPriceMinor: rest.sellingPriceMinor,
+            metadata: metadata ?? {},
           })),
         })
       }
