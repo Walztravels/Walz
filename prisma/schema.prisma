@@ -3847,7 +3847,14 @@ model CardAuthorization {
   token                 String                  @unique @default(cuid())
   status                CardAuthorizationStatus @default(pending)
 
+  // Canonical integer minor-unit amounts (e.g. 850000 = CAD $8,500.00).
+  // amountMinor: requested hold; capturedAmountMinor: Stripe-confirmed captured amount.
+  amountMinor           BigInt                  @default(0)
+  capturedAmountMinor   BigInt?
+  // Legacy Float fields — kept for backward compat; do not use for new logic.
   amount                Float
+  capturedAmount        Float?
+
   currency              String                  @default("gbp")
   description           String
 
@@ -3864,21 +3871,39 @@ model CardAuthorization {
   stripeCustomerId      String?
 
   authorizedAt          DateTime?
-  capturedAt            DateTime?
+  captureRequestedAt    DateTime?               // when admin clicked Capture
+  capturedAt            DateTime?               // when Stripe confirmed capture (set by webhook)
   releasedAt            DateTime?
   cancelledAt           DateTime?
   expiresAt             DateTime?
 
   createdBy             String
-  capturedBy            String?
+  capturedBy            String?                 // who requested the capture
   releasedBy            String?
   cancelledBy           String?
 
-  capturedAmount        Float?
   notes                 String?
 
   createdAt             DateTime                @default(now())
   updatedAt             DateTime                @updatedAt
 
+  events                CardAuthorizationEvent[]
+
   @@map("card_authorizations")
+}
+
+model CardAuthorizationEvent {
+  id              String            @id @default(cuid())
+  authorizationId String
+  eventType       String
+  staffEmail      String?
+  amountMinor     BigInt?
+  currency        String?
+  stripeEventId   String?           @unique
+  metadata        Json?
+  createdAt       DateTime          @default(now())
+
+  authorization   CardAuthorization @relation(fields: [authorizationId], references: [id])
+
+  @@map("card_authorization_events")
 }

@@ -15,6 +15,7 @@ export async function GET(
       id:          true,
       status:      true,
       amount:      true,
+      amountMinor: true,
       currency:    true,
       description: true,
       clientName:  true,
@@ -43,8 +44,11 @@ export async function GET(
     }
   }
 
+  // Prefer amountMinor (canonical integer); fall back to legacy Float for old records
+  const amountMinor = Number(auth.amountMinor) || Math.round(auth.amount * 100)
+
   return NextResponse.json({
-    amount:      auth.amount,
+    amountMinor,
     currency:    auth.currency,
     description: auth.description,
     clientName:  auth.clientName,

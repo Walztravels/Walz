@@ -3,8 +3,21 @@ import { getAdminSession } from '@/lib/admin-auth'
 import { prisma } from '@/lib/db'
 import { createPreAuthIntent, createStripeCustomer } from '@/lib/stripe'
 import { sendCardAuthorizationRequest } from '@/lib/email-card-auth'
+import { decimalToMinor } from '@/lib/currency'
 
 export const dynamic = 'force-dynamic'
+
+function serializeAuthItem(auth: {
+  amountMinor: bigint
+  capturedAmountMinor: bigint | null
+  [key: string]: unknown
+}) {
+  return {
+    ...auth,
+    amountMinor:         Number(auth.amountMinor),
+    capturedAmountMinor: auth.capturedAmountMinor != null ? Number(auth.capturedAmountMinor) : null,
+  }
+}
 
 // GET — list all card authorizations
 export async function GET(req: NextRequest) {
@@ -41,7 +54,12 @@ export async function GET(req: NextRequest) {
     prisma.cardAuthorization.count({ where }),
   ])
 
-  return NextResponse.json({ items, total, page, pages: Math.ceil(total / limit) })
+  return NextResponse.json({
+    items: items.map(serializeAuthItem),
+    total,
+    page,
+    pages: Math.ceil(total / limit),
+  })
 }
 
 // POST — create a new authorization request and email the client
@@ -77,16 +95,14 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'amount must be a positive number' }, { status: 400 })
   }
 
-  const currency = (body.currency ?? 'gbp').toLowerCase()
+  const currency    = (body.currency ?? 'gbp').toLowerCase()
+  const amountMinor = decimalToMinor(body.amount, currency)
 
-  // Create a Stripe PaymentIntent with capture_method: manual.
-  // We don't confirm it here — the client does that on the authorization page.
   let stripePaymentIntentId: string | undefined
   let stripeClientSecret: string | undefined
   let stripeCustomerId: string | undefined
 
   try {
-    // Create or reuse Stripe customer for this email
     const existingUser = await prisma.user.findUnique({ where: { email: body.clientEmail } })
     if (existingUser?.stripeCustomerId) {
       stripeCustomerId = existingUser.stripeCustomerId
@@ -101,7 +117,7 @@ export async function POST(req: NextRequest) {
     }
 
     const pi = await createPreAuthIntent({
-      amount:     body.amount,
+      amountMinor,
       currency,
       description: body.description,
       customerId:  stripeCustomerId,
@@ -110,8 +126,8 @@ export async function POST(req: NextRequest) {
         clientEmail: body.clientEmail,
         clientName:  body.clientName,
         createdBy:   session.email,
-        ...(body.bookingRef   && { bookingRef: body.bookingRef }),
-        ...(body.bookingId    && { bookingId:  body.bookingId }),
+        ...(body.bookingRef    && { bookingRef:    body.bookingRef }),
+        ...(body.bookingId     && { bookingId:     body.bookingId }),
         ...(body.applicationId && { applicationId: body.applicationId }),
       },
     })
@@ -129,6 +145,7 @@ export async function POST(req: NextRequest) {
   const auth = await prisma.cardAuthorization.create({
     data: {
       amount:               body.amount,
+      amountMinor:          BigInt(amountMinor),
       currency,
       description:          body.description,
       clientEmail:          body.clientEmail,
@@ -145,12 +162,22 @@ export async function POST(req: NextRequest) {
     },
   })
 
-  // Email the client with the authorization link (non-fatal)
+  // CREATED audit event
+  await prisma.cardAuthorizationEvent.create({
+    data: {
+      authorizationId: auth.id,
+      eventType:       'CREATED',
+      staffEmail:      session.email,
+      amountMinor:     BigInt(amountMinor),
+      currency,
+    },
+  })
+
   try {
     await sendCardAuthorizationRequest({
       clientEmail:  auth.clientEmail,
       clientName:   auth.clientName,
-      amount:       auth.amount,
+      amountMinor,
       currency:     auth.currency,
       description:  auth.description,
       token:        auth.token,
@@ -159,5 +186,5 @@ export async function POST(req: NextRequest) {
     console.error('[CardAuth] Email send failed:', err)
   }
 
-  return NextResponse.json({ auth, clientSecret: stripeClientSecret }, { status: 201 })
+  return NextResponse.json({ auth: serializeAuthItem(auth), clientSecret: stripeClientSecret }, { status: 201 })
 }

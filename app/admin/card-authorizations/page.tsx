@@ -3,22 +3,24 @@
 import { useState, useEffect, useCallback } from 'react'
 import Link from 'next/link'
 import { Search, Plus, RefreshCw, CreditCard, Clock, CheckCircle, XCircle, AlertCircle, Banknote } from 'lucide-react'
+import { formatCurrencyMinor } from '@/lib/currency'
 
 interface CardAuth {
-  id:          string
-  status:      string
-  amount:      number
-  currency:    string
-  description: string
-  clientName:  string
-  clientEmail: string
-  bookingRef:  string | null
-  authorizedAt: string | null
-  capturedAt:   string | null
-  expiresAt:    string | null
-  createdAt:    string
-  createdBy:    string
-  capturedAmount: number | null
+  id:                 string
+  status:             string
+  amountMinor:        number
+  capturedAmountMinor: number | null
+  currency:           string
+  description:        string
+  clientName:         string
+  clientEmail:        string
+  bookingRef:         string | null
+  authorizedAt:       string | null
+  captureRequestedAt: string | null
+  capturedAt:         string | null
+  expiresAt:          string | null
+  createdAt:          string
+  createdBy:          string
 }
 
 const STATUS_COLORS: Record<string, string> = {
@@ -47,10 +49,6 @@ const STATUS_LABELS: Record<string, string> = {
   released:   'Released',
   expired:    'Expired',
   cancelled:  'Cancelled',
-}
-
-function fmt(amount: number, currency: string) {
-  return new Intl.NumberFormat('en-GB', { style: 'currency', currency: currency.toUpperCase() }).format(amount)
 }
 
 function fmtDate(iso: string | null) {
@@ -197,12 +195,12 @@ export default function CardAuthorizationsPage() {
                   </td>
                   <td className="px-4 py-3 text-gray-300 max-w-[220px] truncate">{auth.description}</td>
                   <td className="px-4 py-3 text-white font-semibold tabular-nums">
-                    {auth.status === 'captured' && auth.capturedAmount !== null && auth.capturedAmount !== auth.amount
+                    {auth.status === 'captured' && auth.capturedAmountMinor !== null && auth.capturedAmountMinor !== auth.amountMinor
                       ? <>
-                          <span>{fmt(auth.capturedAmount, auth.currency)}</span>
-                          <span className="text-gray-500 text-xs ml-1">of {fmt(auth.amount, auth.currency)}</span>
+                          <span>{formatCurrencyMinor(auth.capturedAmountMinor, auth.currency)}</span>
+                          <span className="text-gray-500 text-xs ml-1">of {formatCurrencyMinor(auth.amountMinor, auth.currency)}</span>
                         </>
-                      : fmt(auth.amount, auth.currency)
+                      : formatCurrencyMinor(auth.amountMinor, auth.currency)
                     }
                   </td>
                   <td className="px-4 py-3">

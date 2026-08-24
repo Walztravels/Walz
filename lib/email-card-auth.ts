@@ -1,31 +1,25 @@
 import { Resend } from 'resend'
+import { formatCurrencyMinor } from '@/lib/currency'
 
 function getResend(): Resend {
   if (!process.env.RESEND_API_KEY) throw new Error('RESEND_API_KEY is not set')
   return new Resend(process.env.RESEND_API_KEY)
 }
 
-const FROM = 'Walz Travels <bookings@walztravels.com>'
+const FROM     = 'Walz Travels <bookings@walztravels.com>'
 const BASE_URL = process.env.NEXT_PUBLIC_APP_URL ?? 'https://walztravels.com'
-
-function formatAmount(amount: number, currency: string): string {
-  return new Intl.NumberFormat('en-GB', {
-    style:    'currency',
-    currency: currency.toUpperCase(),
-  }).format(amount)
-}
 
 export async function sendCardAuthorizationRequest(params: {
   clientEmail:  string
   clientName:   string
-  amount:       number
+  amountMinor:  number   // Stripe minor units
   currency:     string
   description:  string
   token:        string
 }) {
-  const { clientEmail, clientName, amount, currency, description, token } = params
-  const authUrl    = `${BASE_URL}/authorize/${token}`
-  const amountStr  = formatAmount(amount, currency)
+  const { clientEmail, clientName, amountMinor, currency, description, token } = params
+  const authUrl   = `${BASE_URL}/authorize/${token}`
+  const amountStr = formatCurrencyMinor(amountMinor, currency)
 
   const html = `
 <!DOCTYPE html>

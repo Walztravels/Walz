@@ -7,12 +7,24 @@ import {
   ArrowLeft, Copy, Send, CheckCircle, XCircle, CreditCard,
   Clock, AlertCircle, Edit3, Check, RefreshCw,
 } from 'lucide-react'
+import { formatCurrencyMinor } from '@/lib/currency'
+
+interface AuditEvent {
+  id:           string
+  eventType:    string
+  staffEmail:   string | null
+  amountMinor:  number | null
+  currency:     string | null
+  stripeEventId: string | null
+  createdAt:    string
+}
 
 interface CardAuth {
   id:                    string
   token:                 string
   status:                string
-  amount:                number
+  amountMinor:           number
+  capturedAmountMinor:   number | null
   currency:              string
   description:           string
   clientName:            string
@@ -24,6 +36,7 @@ interface CardAuth {
   leadId:                string | null
   stripePaymentIntentId: string | null
   authorizedAt:          string | null
+  captureRequestedAt:    string | null
   capturedAt:            string | null
   releasedAt:            string | null
   cancelledAt:           string | null
@@ -33,8 +46,8 @@ interface CardAuth {
   capturedBy:            string | null
   releasedBy:            string | null
   cancelledBy:           string | null
-  capturedAmount:        number | null
   notes:                 string | null
+  events:                AuditEvent[]
 }
 
 const STATUS_COLORS: Record<string, string> = {
@@ -46,16 +59,26 @@ const STATUS_COLORS: Record<string, string> = {
   cancelled:  'bg-red-900/40 text-red-300 border-red-700',
 }
 
-function fmt(amount: number | null, currency: string) {
-  if (amount === null) return '—'
-  return new Intl.NumberFormat('en-GB', { style: 'currency', currency: currency.toUpperCase() }).format(amount)
+const EVENT_LABELS: Record<string, string> = {
+  CREATED:          'Authorization created',
+  AUTHORIZED:       'Card authorized by client',
+  CAPTURE_REQUESTED:'Capture requested',
+  CAPTURE_CONFIRMED:'Capture confirmed by Stripe',
+  RELEASED:         'Hold released',
+  CANCELLED:        'Authorization cancelled',
 }
 
 function fmtDt(iso: string | null) {
   if (!iso) return '—'
   return new Date(iso).toLocaleString('en-GB', {
     day: 'numeric', month: 'short', year: 'numeric',
-    hour: '2-digit', minute: '2-digit',
+    hour: '2-digit', minute: '2-digit', second: '2-digit',
+  })
+}
+
+function fmtTime(iso: string) {
+  return new Date(iso).toLocaleTimeString('en-GB', {
+    hour: '2-digit', minute: '2-digit', second: '2-digit',
   })
 }
 
@@ -65,7 +88,6 @@ export default function CardAuthDetailPage({ params }: { params: { id: string } 
   const [loading, setLoading] = useState(true)
   const [error,   setError]   = useState<string | null>(null)
 
-  // Action state
   const [captureAmount, setCaptureAmount] = useState('')
   const [capturing,  setCapturing]  = useState(false)
   const [releasing,  setReleasing]  = useState(false)
@@ -74,12 +96,9 @@ export default function CardAuthDetailPage({ params }: { params: { id: string } 
   const [actionError, setActionError] = useState<string | null>(null)
   const [actionOk,    setActionOk]   = useState<string | null>(null)
 
-  // Notes
   const [notes,       setNotes]       = useState('')
   const [editNotes,   setEditNotes]   = useState(false)
   const [savingNotes, setSavingNotes] = useState(false)
-
-  // Copied state
   const [copied, setCopied] = useState(false)
 
   const load = useCallback(async () => {
@@ -118,7 +137,7 @@ export default function CardAuthDetailPage({ params }: { params: { id: string } 
     const amount = captureAmount ? parseFloat(captureAmount) : undefined
     const result = await doAction('capture', amount ? { amountToCapture: amount } : {})
     if (!result.ok) setActionError(result.error ?? 'Capture failed')
-    else setActionOk('Payment captured successfully')
+    else setActionOk('Capture requested — awaiting Stripe confirmation')
     setCapturing(false)
   }
 
@@ -176,10 +195,18 @@ export default function CardAuthDetailPage({ params }: { params: { id: string } 
 
   const authUrl    = `/authorize/${auth.token}`
   const fullUrl    = typeof window !== 'undefined' ? `${window.location.origin}${authUrl}` : authUrl
-  const canCapture = auth.status === 'authorized'
-  const canRelease = auth.status === 'authorized'
+  const capturePending = auth.status === 'authorized' && !!auth.captureRequestedAt && !auth.capturedAt
+  const canCapture = auth.status === 'authorized' && !auth.captureRequestedAt
+  const canRelease = auth.status === 'authorized' && !auth.captureRequestedAt
   const canCancel  = ['pending', 'authorized'].includes(auth.status)
   const canResend  = auth.status === 'pending'
+
+  // Display amount: prefer authoritative capturedAmountMinor after capture
+  const displayAmount = (auth.status === 'captured' && auth.capturedAmountMinor != null)
+    ? formatCurrencyMinor(auth.capturedAmountMinor, auth.currency)
+    : formatCurrencyMinor(auth.amountMinor, auth.currency)
+
+  const maxCaptureDecimal = auth.amountMinor / Math.pow(10, auth.currency.toLowerCase() === 'jpy' ? 0 : 2)
 
   return (
     <div className="max-w-3xl mx-auto p-6 space-y-6">
@@ -204,6 +231,14 @@ export default function CardAuthDetailPage({ params }: { params: { id: string } 
         </div>
       </div>
 
+      {/* Capture pending banner */}
+      {capturePending && (
+        <div className="bg-blue-950 border border-blue-700 text-blue-300 text-sm rounded-lg px-4 py-3 flex items-center gap-2">
+          <Clock className="w-4 h-4 flex-shrink-0" />
+          Capture requested at {fmtDt(auth.captureRequestedAt)} — awaiting Stripe confirmation
+        </div>
+      )}
+
       {/* Action feedback */}
       {actionError && (
         <div className="bg-red-950 border border-red-800 text-red-300 text-sm rounded-lg px-4 py-3">
@@ -225,9 +260,11 @@ export default function CardAuthDetailPage({ params }: { params: { id: string } 
             ['Email',        auth.clientEmail],
             ['Phone',        auth.clientPhone ?? '—'],
             ['Description',  auth.description],
-            ['Amount',       fmt(auth.amount, auth.currency)],
+            ['Authorized amount', formatCurrencyMinor(auth.amountMinor, auth.currency)],
+            ['Captured amount',   auth.status === 'captured' && auth.capturedAmountMinor != null
+              ? formatCurrencyMinor(auth.capturedAmountMinor, auth.currency)
+              : '—'],
             ['Currency',     auth.currency.toUpperCase()],
-            ...(auth.capturedAmount !== null ? [['Captured', fmt(auth.capturedAmount, auth.currency)]] : []),
             ['Booking Ref',  auth.bookingRef  ?? '—'],
             ['Booking ID',   auth.bookingId   ?? '—'],
             ['Application',  auth.applicationId ?? '—'],
@@ -236,15 +273,16 @@ export default function CardAuthDetailPage({ params }: { params: { id: string } 
             ['Created by',   auth.createdBy],
             ['Authorized',   fmtDt(auth.authorizedAt)],
             ['Expires',      fmtDt(auth.expiresAt)],
-            ['Captured at',  fmtDt(auth.capturedAt)],
-            ['Captured by',  auth.capturedBy  ?? '—'],
+            ['Capture requested', fmtDt(auth.captureRequestedAt)],
+            ['Capture requested by', auth.capturedBy ?? '—'],
+            ['Captured at (Stripe)', fmtDt(auth.capturedAt)],
             ['Released at',  fmtDt(auth.releasedAt)],
             ['Released by',  auth.releasedBy  ?? '—'],
             ['Cancelled at', fmtDt(auth.cancelledAt)],
             ['Cancelled by', auth.cancelledBy ?? '—'],
           ].map(([label, value]) => (
             <div key={label} className="flex gap-2">
-              <span className="text-gray-500 w-28 flex-shrink-0">{label}</span>
+              <span className="text-gray-500 w-40 flex-shrink-0">{label}</span>
               <span className="text-gray-200 break-all">{value}</span>
             </div>
           ))}
@@ -278,6 +316,47 @@ export default function CardAuthDetailPage({ params }: { params: { id: string } 
         </div>
       </div>
 
+      {/* Audit timeline */}
+      {auth.events.length > 0 && (
+        <div className="bg-gray-900 border border-gray-800 rounded-xl p-5 space-y-3">
+          <h2 className="text-sm font-semibold text-white">Timeline</h2>
+          <ol className="space-y-3">
+            {auth.events.map((ev, i) => (
+              <li key={ev.id} className="flex gap-3 text-sm">
+                <div className="flex flex-col items-center gap-1">
+                  <div className={`w-2 h-2 rounded-full mt-1.5 flex-shrink-0 ${
+                    ev.eventType === 'CAPTURE_CONFIRMED' ? 'bg-green-400' :
+                    ev.eventType === 'CAPTURE_REQUESTED' ? 'bg-blue-400' :
+                    ev.eventType === 'AUTHORIZED'        ? 'bg-amber-400' :
+                    ev.eventType === 'RELEASED'          ? 'bg-gray-500' :
+                    ev.eventType === 'CANCELLED'         ? 'bg-red-400' :
+                    'bg-gray-600'
+                  }`} />
+                  {i < auth.events.length - 1 && (
+                    <div className="w-px flex-1 bg-gray-700" />
+                  )}
+                </div>
+                <div className="pb-3 min-w-0">
+                  <p className="text-gray-200 font-medium">
+                    {EVENT_LABELS[ev.eventType] ?? ev.eventType}
+                    {ev.amountMinor != null && ev.currency && (
+                      <span className="text-gray-400 font-normal ml-1.5">
+                        — {formatCurrencyMinor(ev.amountMinor, ev.currency)}
+                      </span>
+                    )}
+                  </p>
+                  <p className="text-gray-500 text-xs mt-0.5">
+                    {fmtTime(ev.createdAt)}
+                    {ev.staffEmail && <span className="ml-2">by {ev.staffEmail}</span>}
+                    {ev.stripeEventId && <span className="ml-2 font-mono opacity-50">{ev.stripeEventId.slice(0, 16)}…</span>}
+                  </p>
+                </div>
+              </li>
+            ))}
+          </ol>
+        </div>
+      )}
+
       {/* Notes */}
       <div className="bg-gray-900 border border-gray-800 rounded-xl p-5 space-y-3">
         <div className="flex items-center justify-between">
@@ -309,22 +388,31 @@ export default function CardAuthDetailPage({ params }: { params: { id: string } 
       </div>
 
       {/* Actions */}
-      {(canCapture || canRelease || canCancel || canResend) && (
+      {(canCapture || canRelease || canCancel || canResend || capturePending) && (
         <div className="bg-gray-900 border border-gray-800 rounded-xl p-5 space-y-4">
           <h2 className="text-sm font-semibold text-white">Actions</h2>
 
+          {capturePending && (
+            <p className="text-sm text-blue-300 flex items-center gap-2">
+              <Clock className="w-4 h-4" />
+              Capture in progress — refresh to check Stripe confirmation status
+            </p>
+          )}
+
           {canCapture && (
             <div className="space-y-2">
-              <label className="text-xs text-gray-400 block">Capture amount (leave empty for full {fmt(auth.amount, auth.currency)})</label>
+              <label className="text-xs text-gray-400 block">
+                Capture amount (leave empty for full {formatCurrencyMinor(auth.amountMinor, auth.currency)})
+              </label>
               <div className="flex gap-2">
                 <input
                   type="number"
                   step="0.01"
                   min="0.01"
-                  max={auth.amount}
+                  max={maxCaptureDecimal}
                   value={captureAmount}
                   onChange={e => setCaptureAmount(e.target.value)}
-                  placeholder={String(auth.amount)}
+                  placeholder={String(maxCaptureDecimal)}
                   className="w-40 bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-600 focus:outline-none focus:border-[#C9A84C]"
                 />
                 <button
@@ -333,7 +421,7 @@ export default function CardAuthDetailPage({ params }: { params: { id: string } 
                   className="flex items-center gap-2 bg-green-700 hover:bg-green-600 disabled:opacity-50 text-white text-sm font-semibold px-4 py-2 rounded-lg transition-colors"
                 >
                   <CheckCircle className="w-4 h-4" />
-                  {capturing ? 'Capturing…' : 'Capture Payment'}
+                  {capturing ? 'Requesting…' : 'Capture Payment'}
                 </button>
               </div>
             </div>
@@ -372,6 +460,32 @@ export default function CardAuthDetailPage({ params }: { params: { id: string } 
                 {cancelling ? 'Cancelling…' : 'Cancel Request'}
               </button>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* Summary strip for captured state */}
+      {auth.status === 'captured' && (
+        <div className="bg-green-950 border border-green-800 rounded-xl p-5">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-green-300 text-sm font-semibold">Payment captured</p>
+              {auth.capturedBy && (
+                <p className="text-green-500 text-xs mt-0.5">
+                  Requested by {auth.capturedBy}
+                  {auth.captureRequestedAt && <span> at {fmtTime(auth.captureRequestedAt)}</span>}
+                  {auth.capturedAt && <span> · confirmed {fmtTime(auth.capturedAt)}</span>}
+                </p>
+              )}
+            </div>
+            <div className="text-right">
+              <p className="text-green-200 text-xl font-bold">{displayAmount}</p>
+              <p className="text-green-500 text-xs">
+                {auth.capturedAmountMinor != null && auth.capturedAmountMinor !== auth.amountMinor
+                  ? `partial of ${formatCurrencyMinor(auth.amountMinor, auth.currency)}`
+                  : 'full amount'}
+              </p>
+            </div>
           </div>
         </div>
       )}

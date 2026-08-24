@@ -270,9 +270,18 @@ export async function POST(request: NextRequest) {
           await prisma.cardAuthorization.update({
             where: { id: cardAuth.id },
             data: {
-              status:      'authorized',
+              status:       'authorized',
               authorizedAt: new Date(),
               expiresAt,
+            },
+          })
+          await prisma.cardAuthorizationEvent.create({
+            data: {
+              authorizationId: cardAuth.id,
+              eventType:       'AUTHORIZED',
+              amountMinor:     BigInt(pi.amount_capturable ?? 0),
+              currency:        pi.currency,
+              stripeEventId:   event.id,
             },
           })
           console.log(`[Stripe Webhook] Card authorized: ${cardAuth.id} (PI: ${pi.id})`)
@@ -283,19 +292,43 @@ export async function POST(request: NextRequest) {
       case 'payment_intent.succeeded': {
         const paymentIntent = event.data.object as Stripe.PaymentIntent
 
-        // Card authorization capture
+        // Card authorization capture — Stripe authoritatively confirms the capture
         const capturedAuth = await prisma.cardAuthorization.findUnique({
           where: { stripePaymentIntentId: paymentIntent.id },
         })
         if (capturedAuth && ['authorized', 'captured'].includes(capturedAuth.status)) {
+          // capturedAt: preserve if already set (idempotent retries); set now on first confirmation
+          const capturedAt = capturedAuth.capturedAt ?? new Date()
+
           await prisma.cardAuthorization.update({
             where: { id: capturedAuth.id },
             data: {
-              status:         'captured',
-              capturedAt:     capturedAuth.capturedAt ?? new Date(),
-              capturedAmount: paymentIntent.amount_received / 100,
+              status:              'captured',
+              capturedAt,
+              // authoritative integer amount from Stripe — never a / 100 approximation
+              capturedAmountMinor: BigInt(paymentIntent.amount_received),
+              capturedAmount:      null, // clear legacy Float — capturedAmountMinor is canonical
             },
           })
+
+          // CAPTURE_CONFIRMED is idempotent via stripeEventId unique constraint
+          try {
+            await prisma.cardAuthorizationEvent.create({
+              data: {
+                authorizationId: capturedAuth.id,
+                eventType:       'CAPTURE_CONFIRMED',
+                amountMinor:     BigInt(paymentIntent.amount_received),
+                currency:        paymentIntent.currency,
+                stripeEventId:   event.id,
+              },
+            })
+          } catch (err: unknown) {
+            // P2002 = unique constraint violation → duplicate webhook delivery; safe to skip
+            const isUniqueViolation = err instanceof Error && 'code' in err && (err as { code: string }).code === 'P2002'
+            if (!isUniqueViolation) throw err
+            console.log(`[Stripe Webhook] Duplicate payment_intent.succeeded event ${event.id} — skipping audit`)
+          }
+
           console.log(`[Stripe Webhook] Card captured (authoritative): ${capturedAuth.id}, amount_received=${paymentIntent.amount_received}`)
           break
         }

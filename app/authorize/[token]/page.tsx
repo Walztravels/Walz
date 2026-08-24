@@ -8,17 +8,18 @@ import {
   useStripe,
   useElements,
 } from '@stripe/react-stripe-js'
+import { formatCurrencyMinor } from '@/lib/currency'
 
 const stripePromise = loadStripe(process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY!)
 
 // ── Inner form (rendered inside <Elements>) ───────────────────────────────────
 
 function AuthForm({
-  amount,
+  amountMinor,
   currency,
   description,
 }: {
-  amount: number
+  amountMinor: number
   currency: string
   description: string
 }) {
@@ -29,10 +30,7 @@ function AuthForm({
   const [error,      setError]      = useState<string | null>(null)
   const [done,       setDone]       = useState(false)
 
-  const formatted = new Intl.NumberFormat('en-GB', {
-    style:    'currency',
-    currency: currency.toUpperCase(),
-  }).format(amount)
+  const formatted = formatCurrencyMinor(amountMinor, currency)
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
@@ -108,7 +106,7 @@ function AuthForm({
 // ── Page ───────────────────────────────────────────────────────────────────────
 
 interface AuthData {
-  amount:       number
+  amountMinor:  number
   currency:     string
   description:  string
   clientName:   string
@@ -136,12 +134,7 @@ export default function AuthorizePage({ params }: { params: { token: string } })
       .finally(() => setLoading(false))
   }, [params.token])
 
-  const formatted = data
-    ? new Intl.NumberFormat('en-GB', {
-        style:    'currency',
-        currency: data.currency.toUpperCase(),
-      }).format(data.amount)
-    : ''
+  const formatted = data ? formatCurrencyMinor(data.amountMinor, data.currency) : ''
 
   return (
     <div className="min-h-screen bg-gray-50 flex flex-col">
@@ -228,7 +221,7 @@ export default function AuthorizePage({ params }: { params: { token: string } })
                   }}
                 >
                   <AuthForm
-                    amount={data.amount}
+                    amountMinor={data.amountMinor}
                     currency={data.currency}
                     description={data.description}
                   />

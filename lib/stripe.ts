@@ -59,14 +59,14 @@ export async function createRefund(params: {
 // ── Card Pre-Authorization (manual capture) ───────────────────────────────────
 
 export async function createPreAuthIntent(params: {
-  amount: number          // in currency units (e.g. 150.00)
+  amountMinor: number     // Stripe minor units (e.g. 850000 for CAD $8,500.00)
   currency: string
   description: string
   customerId?: string
   metadata?: Record<string, string>
 }) {
   return stripe.paymentIntents.create({
-    amount:         Math.round(params.amount * 100),
+    amount:         params.amountMinor,
     currency:       params.currency,
     capture_method: 'manual',
     description:    params.description,
@@ -78,11 +78,11 @@ export async function createPreAuthIntent(params: {
 
 export async function capturePreAuthIntent(params: {
   paymentIntentId: string
-  amountToCapture?: number  // in currency units; omit to capture full hold
+  amountMinorToCapture?: number  // Stripe minor units; omit to capture full hold
 }) {
   return stripe.paymentIntents.capture(params.paymentIntentId, {
-    ...(params.amountToCapture && {
-      amount_to_capture: Math.round(params.amountToCapture * 100),
+    ...(params.amountMinorToCapture !== undefined && {
+      amount_to_capture: params.amountMinorToCapture,
     }),
   })
 }
