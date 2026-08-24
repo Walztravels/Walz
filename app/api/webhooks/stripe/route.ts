@@ -275,15 +275,20 @@ export async function POST(request: NextRequest) {
               expiresAt,
             },
           })
-          await prisma.cardAuthorizationEvent.create({
-            data: {
-              authorizationId: cardAuth.id,
-              eventType:       'AUTHORIZED',
-              amountMinor:     BigInt(pi.amount_capturable ?? 0),
-              currency:        pi.currency,
-              stripeEventId:   event.id,
-            },
-          })
+          try {
+            await prisma.cardAuthorizationEvent.create({
+              data: {
+                authorizationId: cardAuth.id,
+                eventType:       'AUTHORIZED',
+                amountMinor:     BigInt(pi.amount_capturable ?? 0),
+                currency:        pi.currency,
+                stripeEventId:   event.id,
+              },
+            })
+          } catch (evErr: unknown) {
+            const isDup = evErr instanceof Error && 'code' in evErr && (evErr as { code: string }).code === 'P2002'
+            if (!isDup) console.error('[Stripe Webhook] AUTHORIZED event insert failed:', evErr)
+          }
           console.log(`[Stripe Webhook] Card authorized: ${cardAuth.id} (PI: ${pi.id})`)
         }
         break

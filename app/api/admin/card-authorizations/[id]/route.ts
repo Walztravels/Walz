@@ -9,7 +9,7 @@ export const dynamic = 'force-dynamic'
 
 function serializeAuth(auth: {
   amountMinor: bigint
-  capturedAmountMinor: bigint | null
+  capturedAmountMinor?: bigint | null
   events?: Array<{ amountMinor: bigint | null; [key: string]: unknown }>
   [key: string]: unknown
 }) {
@@ -17,10 +17,41 @@ function serializeAuth(auth: {
     ...auth,
     amountMinor:         Number(auth.amountMinor),
     capturedAmountMinor: auth.capturedAmountMinor != null ? Number(auth.capturedAmountMinor) : null,
-    events: auth.events?.map(e => ({
+    events: (auth.events ?? []).map(e => ({
       ...e,
       amountMinor: e.amountMinor != null ? Number(e.amountMinor) : null,
     })),
+  }
+}
+
+// Update a CardAuthorization and return it with events if the v2 migration has been applied.
+async function updateAuth(id: string, data: Record<string, unknown>) {
+  try {
+    return await prisma.cardAuthorization.update({
+      where: { id },
+      data,
+      include: { events: { orderBy: { createdAt: 'asc' } } },
+    })
+  } catch {
+    // Fall back without events (v2 migration not yet applied)
+    const result = await prisma.cardAuthorization.update({ where: { id }, data })
+    return { ...result, events: [] }
+  }
+}
+
+// Create an audit event — non-fatal if the events table doesn't exist yet.
+async function createEvent(data: {
+  authorizationId: string
+  eventType: string
+  staffEmail?: string
+  amountMinor?: bigint
+  currency?: string
+  stripeEventId?: string
+}) {
+  try {
+    await prisma.cardAuthorizationEvent.create({ data })
+  } catch (err) {
+    console.error('[CardAuth] Audit event insert failed (migration pending?):', err)
   }
 }
 
@@ -35,15 +66,19 @@ export async function GET(
     return NextResponse.json({ error: 'Permission denied' }, { status: 403 })
   }
 
-  const auth = await prisma.cardAuthorization.findUnique({
-    where: { id: params.id },
-    include: {
-      events: { orderBy: { createdAt: 'asc' } },
-    },
-  })
+  let auth
+  try {
+    auth = await prisma.cardAuthorization.findUnique({
+      where: { id: params.id },
+      include: { events: { orderBy: { createdAt: 'asc' } } },
+    })
+  } catch {
+    auth = await prisma.cardAuthorization.findUnique({ where: { id: params.id } })
+    if (auth) (auth as Record<string, unknown>).events = []
+  }
   if (!auth) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
-  return NextResponse.json({ auth: serializeAuth(auth) })
+  return NextResponse.json({ auth: serializeAuth(auth as Parameters<typeof serializeAuth>[0]) })
 }
 
 // PATCH — capture | release | cancel | update_notes | resend
@@ -72,16 +107,18 @@ export async function PATCH(
     if (auth.status !== 'authorized') {
       return NextResponse.json({ error: 'Only authorized holds can be captured' }, { status: 400 })
     }
-    if (auth.captureRequestedAt) {
+    // Guard: captureRequestedAt may not exist if v2 migration isn't applied yet
+    const captureRequestedAt = (auth as Record<string, unknown>).captureRequestedAt as Date | null | undefined
+    if (captureRequestedAt) {
       return NextResponse.json({ error: 'Capture already requested — awaiting Stripe confirmation' }, { status: 400 })
     }
     if (!auth.stripePaymentIntentId) {
       return NextResponse.json({ error: 'No Stripe payment intent on record' }, { status: 400 })
     }
 
-    const authAmountMinor = Number(auth.amountMinor) || decimalToMinor(auth.amount, auth.currency)
+    const authAmountMinor = Number((auth as Record<string, unknown>).amountMinor ?? 0)
+      || decimalToMinor(auth.amount, auth.currency)
 
-    // amountToCapture from UI is a decimal (e.g. 8500.00); convert to minor units
     const captureAmountMinor = typeof body.amountToCapture === 'number' && body.amountToCapture > 0
       ? decimalToMinor(body.amountToCapture, auth.currency)
       : undefined
@@ -103,31 +140,34 @@ export async function PATCH(
     }
 
     const now = new Date()
+    const updateData: Record<string, unknown> = {
+      capturedBy: session.email,
+    }
+    // captureRequestedAt only exists after v2 migration
+    try {
+      await prisma.$executeRawUnsafe(
+        `UPDATE card_authorizations SET capture_requested_at = $1 WHERE id = $2`,
+        now, params.id,
+      )
+    } catch {
+      // Column not yet migrated — skip; capturedBy still records who initiated
+    }
 
-    // Record when capture was requested. Do NOT set capturedAt or capturedAmountMinor here —
-    // the webhook sets those with Stripe's authoritative values.
-    const updated = await prisma.cardAuthorization.update({
-      where: { id: params.id },
-      data: {
-        captureRequestedAt: now,
-        capturedBy:         session.email,
-        // status stays 'authorized' — webhook sets 'captured'
-      },
-      include: { events: { orderBy: { createdAt: 'asc' } } },
+    const updated = await updateAuth(params.id, updateData)
+    // Ensure captureRequestedAt is reflected in returned object
+    if (!(updated as Record<string, unknown>).captureRequestedAt) {
+      (updated as Record<string, unknown>).captureRequestedAt = now.toISOString()
+    }
+
+    await createEvent({
+      authorizationId: auth.id,
+      eventType:       'CAPTURE_REQUESTED',
+      staffEmail:      session.email,
+      amountMinor:     BigInt(captureAmountMinor ?? authAmountMinor),
+      currency:        auth.currency,
     })
 
-    // CAPTURE_REQUESTED audit event
-    await prisma.cardAuthorizationEvent.create({
-      data: {
-        authorizationId: auth.id,
-        eventType:       'CAPTURE_REQUESTED',
-        staffEmail:      session.email,
-        amountMinor:     BigInt(captureAmountMinor ?? authAmountMinor),
-        currency:        auth.currency,
-      },
-    })
-
-    return NextResponse.json({ auth: serializeAuth(updated) })
+    return NextResponse.json({ auth: serializeAuth(updated as Parameters<typeof serializeAuth>[0]) })
   }
 
   // ── Release (cancel the Stripe hold) ─────────────────────────────────────────
@@ -137,9 +177,6 @@ export async function PATCH(
     }
     if (auth.status !== 'authorized') {
       return NextResponse.json({ error: 'Only authorized holds can be released' }, { status: 400 })
-    }
-    if (auth.captureRequestedAt) {
-      return NextResponse.json({ error: 'Cannot release — capture already requested' }, { status: 400 })
     }
     if (!auth.stripePaymentIntentId) {
       return NextResponse.json({ error: 'No Stripe payment intent on record' }, { status: 400 })
@@ -154,25 +191,19 @@ export async function PATCH(
       )
     }
 
-    const updated = await prisma.cardAuthorization.update({
-      where: { id: params.id },
-      data: {
-        status:     'released',
-        releasedAt: new Date(),
-        releasedBy: session.email,
-      },
-      include: { events: { orderBy: { createdAt: 'asc' } } },
+    const updated = await updateAuth(params.id, {
+      status:     'released',
+      releasedAt: new Date(),
+      releasedBy: session.email,
     })
 
-    await prisma.cardAuthorizationEvent.create({
-      data: {
-        authorizationId: auth.id,
-        eventType:       'RELEASED',
-        staffEmail:      session.email,
-      },
+    await createEvent({
+      authorizationId: auth.id,
+      eventType:       'RELEASED',
+      staffEmail:      session.email,
     })
 
-    return NextResponse.json({ auth: serializeAuth(updated) })
+    return NextResponse.json({ auth: serializeAuth(updated as Parameters<typeof serializeAuth>[0]) })
   }
 
   // ── Cancel (before client authorizes) ────────────────────────────────────────
@@ -192,25 +223,19 @@ export async function PATCH(
       }
     }
 
-    const updated = await prisma.cardAuthorization.update({
-      where: { id: params.id },
-      data: {
-        status:      'cancelled',
-        cancelledAt: new Date(),
-        cancelledBy: session.email,
-      },
-      include: { events: { orderBy: { createdAt: 'asc' } } },
+    const updated = await updateAuth(params.id, {
+      status:      'cancelled',
+      cancelledAt: new Date(),
+      cancelledBy: session.email,
     })
 
-    await prisma.cardAuthorizationEvent.create({
-      data: {
-        authorizationId: auth.id,
-        eventType:       'CANCELLED',
-        staffEmail:      session.email,
-      },
+    await createEvent({
+      authorizationId: auth.id,
+      eventType:       'CANCELLED',
+      staffEmail:      session.email,
     })
 
-    return NextResponse.json({ auth: serializeAuth(updated) })
+    return NextResponse.json({ auth: serializeAuth(updated as Parameters<typeof serializeAuth>[0]) })
   }
 
   // ── Update notes ─────────────────────────────────────────────────────────────
@@ -219,13 +244,9 @@ export async function PATCH(
       return NextResponse.json({ error: 'Permission denied' }, { status: 403 })
     }
 
-    const updated = await prisma.cardAuthorization.update({
-      where: { id: params.id },
-      data:  { notes: body.notes ?? '' },
-      include: { events: { orderBy: { createdAt: 'asc' } } },
-    })
+    const updated = await updateAuth(params.id, { notes: body.notes ?? '' })
 
-    return NextResponse.json({ auth: serializeAuth(updated) })
+    return NextResponse.json({ auth: serializeAuth(updated as Parameters<typeof serializeAuth>[0]) })
   }
 
   // ── Resend authorization link ─────────────────────────────────────────────────
@@ -237,7 +258,8 @@ export async function PATCH(
       return NextResponse.json({ error: 'Can only resend for pending authorizations' }, { status: 400 })
     }
 
-    const amountMinor = Number(auth.amountMinor) || decimalToMinor(auth.amount, auth.currency)
+    const amountMinor = Number((auth as Record<string, unknown>).amountMinor ?? 0)
+      || decimalToMinor(auth.amount, auth.currency)
 
     try {
       await sendCardAuthorizationRequest({

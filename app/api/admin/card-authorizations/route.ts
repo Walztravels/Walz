@@ -142,36 +142,53 @@ export async function POST(req: NextRequest) {
     )
   }
 
-  const auth = await prisma.cardAuthorization.create({
-    data: {
-      amount:               body.amount,
-      amountMinor:          BigInt(amountMinor),
-      currency,
-      description:          body.description,
-      clientEmail:          body.clientEmail,
-      clientName:           body.clientName,
-      clientPhone:          body.clientPhone,
-      bookingRef:           body.bookingRef,
-      bookingId:            body.bookingId,
-      applicationId:        body.applicationId,
-      leadId:               body.leadId,
-      notes:                body.notes,
-      stripePaymentIntentId,
-      stripeCustomerId,
-      createdBy:            session.email,
-    },
-  })
+  let auth
+  try {
+    auth = await prisma.cardAuthorization.create({
+      data: {
+        amount:               body.amount,
+        amountMinor:          BigInt(amountMinor),
+        currency,
+        description:          body.description,
+        clientEmail:          body.clientEmail,
+        clientName:           body.clientName,
+        clientPhone:          body.clientPhone,
+        bookingRef:           body.bookingRef,
+        bookingId:            body.bookingId,
+        applicationId:        body.applicationId,
+        leadId:               body.leadId,
+        notes:                body.notes,
+        stripePaymentIntentId,
+        stripeCustomerId,
+        createdBy:            session.email,
+      },
+    })
+  } catch (err) {
+    console.error('[CardAuth] DB create failed:', err)
+    // Cancel the PI we already created to avoid orphaned holds
+    if (stripePaymentIntentId) {
+      try { await (await import('@/lib/stripe')).cancelPaymentIntent(stripePaymentIntentId) } catch {}
+    }
+    return NextResponse.json(
+      { error: 'Database error — the SQL migration may not have been applied. Run prisma/migrations/add_card_auth_v2.sql in Supabase.' },
+      { status: 500 },
+    )
+  }
 
-  // CREATED audit event
-  await prisma.cardAuthorizationEvent.create({
-    data: {
-      authorizationId: auth.id,
-      eventType:       'CREATED',
-      staffEmail:      session.email,
-      amountMinor:     BigInt(amountMinor),
-      currency,
-    },
-  })
+  // CREATED audit event — non-fatal if the events table doesn't exist yet
+  try {
+    await prisma.cardAuthorizationEvent.create({
+      data: {
+        authorizationId: auth.id,
+        eventType:       'CREATED',
+        staffEmail:      session.email,
+        amountMinor:     BigInt(amountMinor),
+        currency,
+      },
+    })
+  } catch (err) {
+    console.error('[CardAuth] Audit event insert failed (migration pending?):', err)
+  }
 
   try {
     await sendCardAuthorizationRequest({
