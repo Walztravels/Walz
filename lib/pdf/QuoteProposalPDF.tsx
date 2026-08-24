@@ -89,7 +89,7 @@ interface HotelOption {
   id: string; label?: string; isRecommended: boolean
   hotelName: string; starRating?: number; city?: string; country?: string
   description?: string; checkIn: string; checkOut: string; nights: number
-  rooms: number; adults: number; roomType?: string; mealPlan?: string
+  rooms: number; adults: number; children: number; roomType?: string; mealPlan?: string
   breakfastIncluded: boolean; isRefundable: boolean; amenities: string[]
   sellingPriceMinor: number; currency: string; clientNote?: string
 }
