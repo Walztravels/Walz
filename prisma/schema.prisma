@@ -3907,3 +3907,157 @@ model CardAuthorizationEvent {
 
   @@map("card_authorization_events")
 }
+
+// ===========================
+// Credit Card Authorization
+// ===========================
+
+enum CreditCardAuthStatus {
+  draft                   // created, not yet sent to client
+  sent                    // email sent, client hasn't opened
+  opened                  // client opened the link
+  active                  // card saved + signed, ready to charge
+  authentication_required // a charge attempt needs 3DS
+  partially_used          // charges made, still under limit
+  fully_used              // maxAmountMinor reached
+  expired                 // past validUntil
+  revoked                 // admin revoked
+  cancelled               // cancelled before signing
+}
+
+enum CreditCardAuthTransactionStatus {
+  pending
+  processing
+  authentication_required
+  paid
+  failed
+  refunded
+  partially_refunded
+}
+
+model CreditCardAuthorization {
+  id              String                @id @default(cuid())
+  reference       String                @unique // WT-CCA-YYYYMMDD-NNNN
+  secureTokenHash String                @unique // SHA-256 of raw URL token
+  status          CreditCardAuthStatus  @default(draft)
+
+  // Cardholder
+  cardholderName             String
+  cardholderEmail            String
+  cardholderPhone            String?
+  cardholderAddress          String?
+  cardholderCity             String?
+  cardholderState            String?
+  cardholderPostal           String?
+  cardholderCountry          String?
+  cardholderRelationship     String    @default("self") // self|spouse|parent|employer|other
+  cardholderRelationshipNote String?
+  isPersonalCard             Boolean   @default(true)
+  companyName                String?
+
+  // Traveller / booking
+  travellerName    String
+  bookingReference String?
+  travelDates      String?
+  supplier         String?
+  serviceType      String
+
+  // Authorization terms
+  currency             String   @default("gbp")
+  maxAmountMinor       BigInt
+  permittedCharges     String[]
+  description          String
+  allowMultipleCharges Boolean  @default(false)
+  validUntil           DateTime
+
+  // Stripe — card on file
+  stripeCustomerId      String?
+  stripePaymentMethodId String?
+  setupIntentId         String?  @unique
+  cardBrand             String?
+  cardLast4             String?
+  cardExpMonth          Int?
+  cardExpYear           Int?
+
+  // Consent & signature
+  signedAt          DateTime?
+  signatureName     String?
+  signatureDataUrl  String?   @db.Text
+  ipAddress         String?
+  userAgent         String?   @db.Text
+  termsVersion      String    @default("v1")
+  termsSnapshot     String?   @db.Text
+  allConsentChecked Boolean   @default(false)
+
+  // Running total (sum of paid transactions)
+  totalChargedMinor BigInt @default(0)
+
+  // Lifecycle
+  sentAt           DateTime?
+  openedAt         DateTime?
+  createdBy        String
+  revokedAt        DateTime?
+  revokedBy        String?
+  revocationReason String?
+  expiryNotifiedAt DateTime?
+
+  notes     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  transactions CreditCardAuthorizationTransaction[]
+  events       CreditCardAuthorizationEvent[]
+
+  @@map("credit_card_authorizations")
+}
+
+model CreditCardAuthorizationTransaction {
+  id              String                          @id @default(cuid())
+  authorizationId String
+  amountMinor     BigInt
+  currency        String
+  description     String
+  idempotencyKey  String                          @unique
+
+  stripePaymentIntentId String? @unique
+  stripeChargeId        String?
+  status                CreditCardAuthTransactionStatus @default(pending)
+
+  // Token for /payment-authentication/[token] (3DS flow)
+  authenticationTokenHash String? @unique
+
+  requestedBy String
+  requestedAt DateTime @default(now())
+
+  succeededAt        DateTime?
+  failedAt           DateTime?
+  failureCode        String?
+  safeFailureMessage String?
+
+  refundedAmountMinor BigInt?
+  refundedAt          DateTime?
+  refundedBy          String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  authorization CreditCardAuthorization @relation(fields: [authorizationId], references: [id])
+
+  @@map("credit_card_authorization_transactions")
+}
+
+model CreditCardAuthorizationEvent {
+  id              String   @id @default(cuid())
+  authorizationId String
+  eventType       String
+  staffEmail      String?
+  amountMinor     BigInt?
+  currency        String?
+  stripeEventId   String?  @unique
+  metadata        Json?
+  createdAt       DateTime @default(now())
+
+  authorization CreditCardAuthorization @relation(fields: [authorizationId], references: [id])
+
+  @@map("credit_card_authorization_events")
+}

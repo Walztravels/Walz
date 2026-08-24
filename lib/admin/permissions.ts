@@ -449,7 +449,8 @@ export const NAV_ITEMS: NavSection[] = [
     section: 'FINANCE',
     items: [
       { href: '/admin/payments',                label: 'Payments',           icon: 'CreditCard',  permission: 'payments'    },
-      { href: '/admin/card-authorizations',     label: 'Card Authorisations', icon: 'ShieldCheck', permission: 'payments'    },
+      { href: '/admin/card-authorizations',        label: 'Card Authorisations',        icon: 'ShieldCheck', permission: 'payments'    },
+      { href: '/admin/credit-card-authorizations', label: 'Credit Card Authorisations', icon: 'CreditCard',  permission: 'payments'    },
       { href: '/admin/payments/crypto-links',   label: 'Crypto Payment Links', icon: 'Link2',       permission: 'payments'    },
       { href: '/admin/accounting',              label: 'Accounting',           icon: 'BarChart2',   permission: 'payments'    },
       { href: '/admin/vouchers',                label: 'Vouchers',             icon: 'Gift',        permission: 'payments'    },

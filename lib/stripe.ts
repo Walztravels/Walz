@@ -100,3 +100,65 @@ export async function createStripeCustomer(params: {
     metadata: params.metadata ?? {},
   })
 }
+
+// ── Credit Card Authorization (SetupIntent + off-session charge) ───────────────
+
+export async function createCCASetupIntent(params: {
+  customerId: string
+  authorizationId: string
+  metadata?: Record<string, string>
+}) {
+  return stripe.setupIntents.create({
+    customer: params.customerId,
+    usage: 'off_session',
+    metadata: {
+      source: 'credit_card_authorization',
+      authorizationId: params.authorizationId,
+      ...(params.metadata ?? {}),
+    },
+  })
+}
+
+export async function retrieveSetupIntent(setupIntentId: string) {
+  return stripe.setupIntents.retrieve(setupIntentId, {
+    expand: ['payment_method'],
+  })
+}
+
+export async function createOffSessionPaymentIntent(params: {
+  amountMinor: number
+  currency: string
+  customerId: string
+  paymentMethodId: string
+  description: string
+  idempotencyKey: string
+  metadata?: Record<string, string>
+}) {
+  return stripe.paymentIntents.create(
+    {
+      amount:         params.amountMinor,
+      currency:       params.currency,
+      customer:       params.customerId,
+      payment_method: params.paymentMethodId,
+      off_session:    true,
+      confirm:        true,
+      description:    params.description,
+      metadata:       params.metadata ?? {},
+    },
+    { idempotencyKey: params.idempotencyKey },
+  )
+}
+
+export async function retrievePaymentMethod(paymentMethodId: string) {
+  return stripe.paymentMethods.retrieve(paymentMethodId)
+}
+
+export async function createPartialRefund(params: {
+  paymentIntentId: string
+  amountMinor: number
+}) {
+  return stripe.refunds.create({
+    payment_intent: params.paymentIntentId,
+    amount: params.amountMinor,
+  })
+}

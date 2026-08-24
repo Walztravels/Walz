@@ -147,28 +147,6 @@ export async function POST(request: NextRequest) {
 
   try {
     switch (event.type) {
-      case 'payment_intent.payment_failed': {
-        const paymentIntent = event.data.object as Stripe.PaymentIntent
-
-        console.log(
-          `[Stripe Webhook] Payment failed: ${paymentIntent.id}`,
-          paymentIntent.last_payment_error?.message
-        )
-
-        await prisma.booking.updateMany({
-          where: {
-            stripePaymentIntentId: paymentIntent.id,
-          },
-          data: {
-            paymentStatus: 'FAILED',
-            status: 'FAILED',
-            notes: `Payment failed: ${paymentIntent.last_payment_error?.message || 'Unknown reason'}`,
-          },
-        })
-
-        break
-      }
-
       case 'payment_intent.canceled': {
         const paymentIntent = event.data.object as Stripe.PaymentIntent
 
@@ -294,6 +272,49 @@ export async function POST(request: NextRequest) {
         break
       }
 
+      // ── Credit Card Authorization: SetupIntent succeeded ──────────────────────
+      case 'setup_intent.succeeded': {
+        const si = event.data.object as Stripe.SetupIntent
+        const authId = si.metadata?.authorizationId
+        if (!authId) break
+
+        const cca = await prisma.creditCardAuthorization.findFirst({
+          where: { setupIntentId: si.id },
+        })
+        if (!cca || !['sent', 'opened', 'active'].includes(cca.status)) break
+
+        const pm = si.payment_method as string | null
+        if (!pm) break
+
+        try {
+          const pmDetails = await (await import('@/lib/stripe')).retrievePaymentMethod(pm)
+          const card = pmDetails.card
+          await prisma.creditCardAuthorization.update({
+            where: { id: cca.id },
+            data: {
+              stripePaymentMethodId: pm,
+              cardBrand:    card?.brand,
+              cardLast4:    card?.last4,
+              cardExpMonth: card?.exp_month,
+              cardExpYear:  card?.exp_year,
+              status:       cca.status === 'active' ? 'active' : 'active',
+              signedAt:     cca.signedAt ?? new Date(),
+            },
+          })
+          await prisma.creditCardAuthorizationEvent.create({
+            data: {
+              authorizationId: cca.id,
+              eventType:       'CARD_SAVED',
+              stripeEventId:   event.id,
+            },
+          }).catch(() => {})
+        } catch (err) {
+          console.error('[Stripe Webhook] setup_intent.succeeded CCA update failed:', err)
+        }
+        break
+      }
+
+      // ── Credit Card Authorization: off-session PI events ───────────────────────
       case 'payment_intent.succeeded': {
         const paymentIntent = event.data.object as Stripe.PaymentIntent
 
@@ -338,6 +359,48 @@ export async function POST(request: NextRequest) {
           break
         }
 
+        // CCA off-session transaction
+        const ccaTx = await prisma.creditCardAuthorizationTransaction.findUnique({
+          where:   { stripePaymentIntentId: paymentIntent.id },
+          include: { authorization: true },
+        })
+        if (ccaTx && ['processing', 'authentication_required', 'pending'].includes(ccaTx.status)) {
+          try {
+            await prisma.creditCardAuthorizationTransaction.update({
+              where: { id: ccaTx.id },
+              data: {
+                status:        'paid',
+                succeededAt:   new Date(),
+                stripeChargeId: typeof paymentIntent.latest_charge === 'string' ? paymentIntent.latest_charge : undefined,
+              },
+            })
+
+            const auth    = ccaTx.authorization
+            const newTotal = Number(auth.totalChargedMinor) + Number(ccaTx.amountMinor)
+            const newStatus = newTotal >= Number(auth.maxAmountMinor) ? 'fully_used' : 'partially_used'
+            await prisma.creditCardAuthorization.update({
+              where: { id: auth.id },
+              data:  { totalChargedMinor: BigInt(newTotal), status: newStatus },
+            })
+
+            await prisma.creditCardAuthorizationEvent.create({
+              data: {
+                authorizationId: auth.id,
+                eventType:       'CHARGE_SUCCEEDED',
+                amountMinor:     ccaTx.amountMinor,
+                currency:        ccaTx.currency,
+                stripeEventId:   event.id,
+                metadata:        { transactionId: ccaTx.id },
+              },
+            }).catch(() => {})
+
+            console.log(`[Stripe Webhook] CCA charge confirmed: ${auth.reference}, tx=${ccaTx.id}`)
+          } catch (err) {
+            console.error('[Stripe Webhook] CCA charge update failed:', err)
+          }
+          break
+        }
+
         console.log(`[Stripe Webhook] Payment succeeded: ${paymentIntent.id}`)
 
         // Package deposit payment
@@ -369,6 +432,55 @@ export async function POST(request: NextRequest) {
             },
           })
         }
+
+        break
+      }
+
+      case 'payment_intent.payment_failed': {
+        const paymentIntent = event.data.object as Stripe.PaymentIntent
+
+        // CCA off-session transaction failed
+        const ccaTx = await prisma.creditCardAuthorizationTransaction.findUnique({
+          where: { stripePaymentIntentId: paymentIntent.id },
+        })
+        if (ccaTx && ['processing', 'authentication_required', 'pending'].includes(ccaTx.status)) {
+          await prisma.creditCardAuthorizationTransaction.update({
+            where: { id: ccaTx.id },
+            data: {
+              status:             'failed',
+              failedAt:           new Date(),
+              failureCode:        paymentIntent.last_payment_error?.code ?? undefined,
+              safeFailureMessage: paymentIntent.last_payment_error?.message ?? 'Payment failed.',
+            },
+          }).catch(() => {})
+          await prisma.creditCardAuthorizationEvent.create({
+            data: {
+              authorizationId: ccaTx.authorizationId,
+              eventType:       'CHARGE_FAILED',
+              amountMinor:     ccaTx.amountMinor,
+              currency:        ccaTx.currency,
+              stripeEventId:   event.id,
+            },
+          }).catch(() => {})
+          console.log(`[Stripe Webhook] CCA charge failed: tx=${ccaTx.id}`)
+          break
+        }
+
+        console.log(
+          `[Stripe Webhook] Payment failed: ${paymentIntent.id}`,
+          paymentIntent.last_payment_error?.message
+        )
+
+        await prisma.booking.updateMany({
+          where: {
+            stripePaymentIntentId: paymentIntent.id,
+          },
+          data: {
+            paymentStatus: 'FAILED',
+            status: 'FAILED',
+            notes: `Payment failed: ${paymentIntent.last_payment_error?.message || 'Unknown reason'}`,
+          },
+        })
 
         break
       }
