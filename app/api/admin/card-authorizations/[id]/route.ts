@@ -146,7 +146,7 @@ export async function PATCH(
     // captureRequestedAt only exists after v2 migration
     try {
       await prisma.$executeRawUnsafe(
-        `UPDATE card_authorizations SET capture_requested_at = $1 WHERE id = $2`,
+        `UPDATE card_authorizations SET "captureRequestedAt" = $1 WHERE id = $2`,
         now, params.id,
       )
     } catch {
