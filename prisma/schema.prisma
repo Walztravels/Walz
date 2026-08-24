@@ -4061,3 +4061,38 @@ model CreditCardAuthorizationEvent {
 
   @@map("credit_card_authorization_events")
 }
+
+// ===========================
+// Flight Quotes
+// ===========================
+
+model FlightQuote {
+  id            String    @id @default(cuid())
+  token         String    @unique   // unpredictable — used in public shareable URL
+  duffelOfferId String
+  status        String    @default("pending")  // pending | viewed | approved | expired | booked
+  clientName    String?
+  clientEmail   String?
+  clientPhone   String?
+
+  // customer-safe display fields only — no supplier net cost
+  origin        String
+  destination   String
+  departureDate DateTime
+  returnDate    DateTime?
+  airline       String
+  cabinClass    String
+  displayPrice  Decimal   @db.Decimal(10,2)
+  currency      String
+
+  createdBy     String    // staff email
+  createdAt     DateTime  @default(now())
+  viewedAt      DateTime?
+  approvedAt    DateTime?
+  expiresAt     DateTime  // client quote validity window (7 days)
+
+  @@index([token])
+  @@index([status])
+  @@index([createdBy])
+  @@map("flight_quotes")
+}

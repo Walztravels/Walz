@@ -1,14 +1,14 @@
 'use client'
 
-import { useState } from 'react'
-import { useRouter } from 'next/navigation'
+import { useState, useEffect, Suspense } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
 import {
   Plane, Search, Loader2, ArrowRight, Clock,
-  CreditCard, CheckCircle, ArrowLeft,
+  CreditCard, CheckCircle, ArrowLeft, Send, SkipForward,
 } from 'lucide-react'
 import Link from 'next/link'
 
-type Step        = 'search' | 'results' | 'passenger' | 'confirm' | 'done'
+type Step        = 'search' | 'results' | 'quote' | 'passenger' | 'confirm' | 'done'
 type TripType    = 'oneway' | 'roundtrip'
 type CabinClass  = 'ECONOMY' | 'PREMIUM_ECONOMY' | 'BUSINESS' | 'FIRST'
 
@@ -38,8 +38,11 @@ const CABIN_LABELS: Record<CabinClass, string> = {
 
 const SYM: Record<string, string> = { GBP: '£', USD: '$', EUR: '€', AED: 'AED ', CAD: 'CA$' }
 
-export default function AdminFlightBookingPage() {
+function AdminFlightBookingInner() {
   const router = useRouter()
+  const searchParams = useSearchParams()
+  const quoteId = searchParams.get('quoteId')
+
   const [step, setStep] = useState<Step>('search')
 
   const [tripType,     setTripType]     = useState<TripType>('roundtrip')
@@ -60,6 +63,15 @@ export default function AdminFlightBookingPage() {
   const [searching,    setSearching]    = useState(false)
   const [searchErr,    setSearchErr]    = useState('')
 
+  // Quote step state
+  const [quoteSending, setQuoteSending] = useState(false)
+  const [quoteLink,    setQuoteLink]    = useState<string | null>(null)
+  const [quoteErr,     setQuoteErr]     = useState('')
+
+  // Quote-load state (when opened with ?quoteId=)
+  const [quoteLoading, setQuoteLoading] = useState(false)
+  const [quoteLoadErr, setQuoteLoadErr] = useState<string | null>(null)
+
   const [passFirst,    setPassFirst]    = useState('')
   const [passLast,     setPassLast]     = useState('')
   const [passDob,      setPassDob]      = useState('')
@@ -72,6 +84,86 @@ export default function AdminFlightBookingPage() {
 
   const today = new Date().toISOString().split('T')[0]
 
+  // ── Load and verify an approved quote when quoteId is in the URL ────────────
+  useEffect(() => {
+    if (!quoteId) return
+
+    async function verifyAndLoad() {
+      setQuoteLoading(true)
+      setQuoteLoadErr(null)
+      try {
+        const r = await fetch(`/api/admin/flight-quotes/${quoteId}`)
+        const d = await r.json()
+
+        if (!r.ok) {
+          setQuoteLoadErr(d.error ?? 'Could not load quote.')
+          setQuoteLoading(false)
+          return
+        }
+
+        const { quote, offerVerification } = d
+
+        if (offerVerification.expired) {
+          setQuoteLoadErr(
+            `The Duffel offer for this quote has expired. Please search for ${quote.origin} → ${quote.destination} again and generate a new quote.`
+          )
+          setQuoteLoading(false)
+          return
+        }
+
+        if (offerVerification.priceChanged) {
+          setQuoteLoadErr(
+            `The price has changed since this quote was sent (was ${quote.displayPrice} ${quote.currency}, now ${offerVerification.currentPrice} ${offerVerification.currentCurrency ?? quote.currency}). Please search again.`
+          )
+          setQuoteLoading(false)
+          return
+        }
+
+        if (offerVerification.error) {
+          setQuoteLoadErr(`Offer verification failed: ${offerVerification.error}. Please search again to confirm availability.`)
+          setQuoteLoading(false)
+          return
+        }
+
+        // Offer still valid — pre-fill wizard state
+        setClientName(quote.clientName ?? '')
+        setClientEmail(quote.clientEmail ?? '')
+        setClientPhone(quote.clientPhone ?? '')
+        setOrigin(quote.origin)
+        setDestination(quote.destination)
+        setDepart(quote.departureDate.split('T')[0])
+        if (quote.returnDate) setReturnDate(quote.returnDate.split('T')[0])
+
+        setSelected({
+          id:              quote.duffelOfferId,
+          duffelOfferId:   quote.duffelOfferId,
+          airline:         quote.airline,
+          flightNumber:    '',
+          origin:          quote.origin,
+          destination:     quote.destination,
+          departureTime:   quote.departureDate,
+          arrivalTime:     '',
+          duration:        '',
+          stops:           0,
+          price:           parseFloat(quote.displayPrice),
+          currency:        quote.currency,
+          cabinClass:      quote.cabinClass,
+          baggageIncluded: '',
+        })
+
+        setStep('passenger')
+      } catch {
+        setQuoteLoadErr('Failed to verify quote. Please try again.')
+      } finally {
+        setQuoteLoading(false)
+      }
+    }
+
+    void verifyAndLoad()
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [quoteId])
+
+  // ── Search ──────────────────────────────────────────────────────────────────
   async function handleSearch(e: React.FormEvent) {
     e.preventDefault()
     if (!origin || !destination || !depart) return
@@ -129,6 +221,41 @@ export default function AdminFlightBookingPage() {
     }
   }
 
+  // ── Generate & send quote (does NOT call Duffel /air/orders) ───────────────
+  async function handleGenerateQuote() {
+    if (!selected || !clientEmail) return
+    setQuoteSending(true); setQuoteErr('')
+
+    try {
+      const r = await fetch('/api/admin/flight-quotes', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          duffelOfferId: selected.duffelOfferId ?? selected.id,
+          clientName:    clientName || null,
+          clientEmail,
+          clientPhone:   clientPhone || null,
+          origin:        selected.origin,
+          destination:   selected.destination,
+          departureDate: selected.departureTime || depart,
+          returnDate:    returnDate || null,
+          airline:       selected.airline,
+          cabinClass:    selected.cabinClass,
+          displayPrice:  selected.price,
+          currency:      selected.currency,
+        }),
+      })
+      const d = await r.json()
+      if (!r.ok) throw new Error(d.error ?? 'Failed to create quote')
+      setQuoteLink(d.quote.link)
+    } catch (err: unknown) {
+      setQuoteErr(err instanceof Error ? err.message : 'Failed to create quote')
+    } finally {
+      setQuoteSending(false)
+    }
+  }
+
+  // ── Book (creates Duffel order) ─────────────────────────────────────────────
   async function handleBook() {
     if (!selected || !clientName || !clientEmail || !passFirst || !passLast || !passDob) return
     setBooking(true); setBookErr('')
@@ -165,6 +292,18 @@ export default function AdminFlightBookingPage() {
     }
   }
 
+  // ── Quote pre-load error banner ─────────────────────────────────────────────
+  if (quoteLoading) {
+    return (
+      <div className="max-w-3xl mx-auto">
+        <div className="flex items-center justify-center min-h-[300px] text-gray-400 text-sm gap-2">
+          <Loader2 className="w-4 h-4 animate-spin" />
+          Verifying Duffel offer…
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="max-w-3xl mx-auto">
 
@@ -190,6 +329,14 @@ export default function AdminFlightBookingPage() {
           <p className="text-gray-400 text-xs">Powered by Duffel · 400+ airlines</p>
         </div>
       </div>
+
+      {/* Quote load error (when opened with ?quoteId) */}
+      {quoteLoadErr && (
+        <div className="bg-amber-50 border border-amber-200 text-amber-800 rounded-xl px-4 py-3 text-sm mb-6">
+          <p className="font-semibold mb-1">Offer no longer bookable</p>
+          <p>{quoteLoadErr}</p>
+        </div>
+      )}
 
       {/* ── SEARCH ── */}
       {step === 'search' && (
@@ -293,7 +440,7 @@ export default function AdminFlightBookingPage() {
           </p>
           {results.slice(0, 15).map(f => (
             <div key={f.id}
-              onClick={() => { setSelected(f); setStep('passenger') }}
+              onClick={() => { setSelected(f); setStep('quote') }}
               className="bg-white rounded-2xl border border-gray-200 p-4 hover:border-[#C9A84C]/40 hover:shadow-md transition-all cursor-pointer">
               <div className="flex items-center justify-between">
                 <div>
@@ -331,13 +478,118 @@ export default function AdminFlightBookingPage() {
         </div>
       )}
 
+      {/* ── QUOTE STEP ── */}
+      {step === 'quote' && selected && (
+        <div className="bg-white rounded-2xl border border-gray-200 p-6 space-y-5">
+          <div className="p-4 bg-blue-50 rounded-xl border border-blue-100">
+            <p className="font-bold text-[#0B1F3A] text-sm">{selected.airline} {selected.flightNumber}</p>
+            <p className="text-xs text-gray-500">
+              {selected.origin} → {selected.destination} ·{' '}
+              {SYM[selected.currency] ?? selected.currency}{selected.price.toLocaleString()} per person
+            </p>
+          </div>
+
+          {/* Option A: Generate & send quote */}
+          {!quoteLink ? (
+            <>
+              <div className="space-y-3">
+                <p className="text-xs font-bold text-[#0B1F3A] uppercase tracking-wider">Send a quote to the client</p>
+                <p className="text-sm text-gray-500">
+                  Creates a shareable quote link and emails it to the client. No booking is made.
+                  The client approves, then you return here to collect passenger details and confirm.
+                </p>
+
+                {!clientEmail && (
+                  <div className="grid grid-cols-2 gap-3">
+                    <div className="col-span-2 sm:col-span-1">
+                      <label className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Client name</label>
+                      <input value={clientName} onChange={e => setClientName(e.target.value)}
+                        placeholder="Jane Smith"
+                        className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-[#C9A84C] mt-1" />
+                    </div>
+                    <div className="col-span-2 sm:col-span-1">
+                      <label className="text-xs font-semibold text-gray-400 uppercase tracking-wider">Client email *</label>
+                      <input type="email" value={clientEmail} onChange={e => setClientEmail(e.target.value)}
+                        placeholder="jane@example.com" required
+                        className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-[#C9A84C] mt-1" />
+                    </div>
+                  </div>
+                )}
+
+                {quoteErr && <p className="text-red-500 text-sm">{quoteErr}</p>}
+
+                <button
+                  onClick={handleGenerateQuote}
+                  disabled={quoteSending || !clientEmail}
+                  className="w-full flex items-center justify-center gap-2 bg-[#C9A84C] text-[#0B1F3A] font-bold py-3 rounded-xl hover:bg-[#b8973d] transition-colors disabled:opacity-50"
+                >
+                  {quoteSending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+                  {quoteSending ? 'Generating quote…' : 'Generate & Send Quote'}
+                </button>
+              </div>
+
+              <div className="relative flex items-center gap-3">
+                <div className="flex-1 h-px bg-gray-200" />
+                <span className="text-xs text-gray-400 uppercase tracking-wider">or</span>
+                <div className="flex-1 h-px bg-gray-200" />
+              </div>
+
+              {/* Option B: Skip quote, book directly */}
+              <div>
+                <p className="text-xs font-bold text-[#0B1F3A] uppercase tracking-wider mb-2">Book directly</p>
+                <p className="text-sm text-gray-500 mb-3">
+                  Client has already agreed by phone or WhatsApp. Skip the quote and proceed straight to passenger details.
+                </p>
+                <button
+                  onClick={() => setStep('passenger')}
+                  className="w-full flex items-center justify-center gap-2 border border-gray-300 text-gray-700 font-semibold py-3 rounded-xl hover:bg-gray-50 transition-colors"
+                >
+                  <SkipForward className="w-4 h-4" />
+                  Skip Quote — Book Directly
+                </button>
+              </div>
+            </>
+          ) : (
+            /* Quote generated successfully */
+            <div className="space-y-4">
+              <div className="p-4 bg-green-50 border border-green-200 rounded-xl">
+                <p className="font-semibold text-green-800 mb-1">Quote sent to {clientEmail}</p>
+                <p className="text-sm text-green-700 mb-3">
+                  The client can approve at this link:
+                </p>
+                <code className="text-xs text-green-900 bg-green-100 px-3 py-2 rounded-lg block break-all">
+                  {quoteLink}
+                </code>
+              </div>
+              <p className="text-sm text-gray-500">
+                Once the client approves, you&apos;ll get an email notification.
+                Come back to <Link href="/admin/flight-quotes" className="text-[#C9A84C] underline">Flight Quotes</Link> to
+                verify the offer and complete the booking.
+              </p>
+              <div className="flex gap-3">
+                <button
+                  onClick={() => { setStep('search'); setSelected(null); setQuoteLink(null) }}
+                  className="px-5 py-2.5 border border-gray-200 text-gray-500 rounded-xl text-sm hover:bg-gray-50"
+                >
+                  New Booking
+                </button>
+                <Link href="/admin/flight-quotes"
+                  className="px-5 py-2.5 bg-[#0B1F3A] text-white rounded-xl text-sm hover:bg-[#162d52]">
+                  View All Quotes
+                </Link>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
       {/* ── PASSENGER DETAILS ── */}
       {step === 'passenger' && selected && (
         <div className="bg-white rounded-2xl border border-gray-200 p-6 space-y-4">
           <div className="p-4 bg-blue-50 rounded-xl border border-blue-100">
             <p className="font-bold text-[#0B1F3A] text-sm">{selected.airline} {selected.flightNumber}</p>
             <p className="text-xs text-gray-500">
-              {origin} → {destination} · {SYM[selected.currency] ?? selected.currency}{selected.price.toLocaleString()} per person
+              {selected.origin} → {selected.destination} · {SYM[selected.currency] ?? selected.currency}{selected.price.toLocaleString()} per person
             </p>
           </div>
 
@@ -392,7 +644,7 @@ export default function AdminFlightBookingPage() {
               ['Client',    clientName],
               ['Email',     clientEmail],
               ['Flight',    `${selected.airline} ${selected.flightNumber}`],
-              ['Route',     `${origin} → ${destination}`],
+              ['Route',     `${selected.origin} → ${selected.destination}`],
               ['Depart',    depart],
               ['Passenger', `${passFirst} ${passLast}`],
               ['Total',     `${SYM[selected.currency] ?? selected.currency}${selected.price.toLocaleString()} ${selected.currency}`],
@@ -426,7 +678,7 @@ export default function AdminFlightBookingPage() {
           <p className="text-gray-400 text-xs mb-6">Confirmation email sent to {clientEmail}</p>
           <div className="flex gap-3 justify-center">
             <button
-              onClick={() => { setStep('search'); setSelected(null); setBookingRef('') }}
+              onClick={() => { setStep('search'); setSelected(null); setBookingRef(''); setQuoteLink(null) }}
               className="px-6 py-2.5 border border-gray-200 text-gray-500 rounded-xl text-sm hover:bg-gray-50">
               New Booking
             </button>
@@ -439,5 +691,17 @@ export default function AdminFlightBookingPage() {
       )}
 
     </div>
+  )
+}
+
+export default function AdminFlightBookingPage() {
+  return (
+    <Suspense fallback={
+      <div className="max-w-3xl mx-auto flex items-center justify-center min-h-[300px] text-gray-400 text-sm gap-2">
+        <Loader2 className="w-4 h-4 animate-spin" /> Loading…
+      </div>
+    }>
+      <AdminFlightBookingInner />
+    </Suspense>
   )
 }
