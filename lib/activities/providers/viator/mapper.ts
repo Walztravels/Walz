@@ -2,13 +2,46 @@ import { applyActivityMarkup } from '../../pricing'
 import type { NormalizedActivity } from '../../types'
 import type { ViatorProductSummary } from './types'
 
-function pickViatorImage(images?: ViatorProductSummary['images']): string | undefined {
-  if (!images?.length) return undefined
-  const cover = images.find(img => img.isCover) ?? images[0]
-  return (
-    cover.variants?.sort((a, b) => (b.width ?? 0) - (a.width ?? 0))[0]?.url ??
-    cover.imageSource
-  )
+// Pick the best URL from a single Viator image object.
+// NOTE: imageSource is often the literal string "SUPPLIER_PROVIDED", not a URL.
+// Always prefer variant URLs; never fall back to imageSource.
+function bestVariantUrl(img: NonNullable<ViatorProductSummary['images']>[number], minWidth = 0): string | undefined {
+  const variants = img.variants?.filter(v => v.url?.startsWith('https')) ?? []
+  if (!variants.length) return undefined
+  // Sort descending by width, pick first that meets the minWidth threshold
+  const sorted = [...variants].sort((a, b) => (b.width ?? 0) - (a.width ?? 0))
+  return (sorted.find(v => (v.width ?? 0) >= minWidth) ?? sorted[0])?.url
+}
+
+// Returns [heroUrl, thumbUrl] — hero prefers ≥800px, thumb prefers ≥400px.
+function pickViatorImages(images?: ViatorProductSummary['images']): { hero?: string; thumb?: string; all: string[] } {
+  if (!images?.length) return { all: [] }
+
+  const cover  = images.find(img => img.isCover) ?? images[0]
+  const others = images.filter(img => img !== cover)
+
+  const hero  = bestVariantUrl(cover, 800)
+    ?? bestVariantUrl(cover, 400)
+    ?? bestVariantUrl(cover)
+    ?? others.map(img => bestVariantUrl(img, 400)).find(Boolean)
+
+  const thumb = bestVariantUrl(cover, 400)
+    ?? bestVariantUrl(cover)
+
+  const all = [cover, ...others]
+    .map(img => bestVariantUrl(img, 400) ?? bestVariantUrl(img))
+    .filter((u): u is string => !!u)
+
+  if (process.env.NODE_ENV !== 'production' && images.length > 0 && !hero) {
+    console.warn('[Viator] No usable image URL found', {
+      supplier: 'VIATOR',
+      imageCount: images.length,
+      mappedImageCount: 0,
+      reason: 'All variant URLs missing or non-HTTPS',
+    })
+  }
+
+  return { hero, thumb, all }
 }
 
 function viatorDurationText(d?: ViatorProductSummary['duration']): string | undefined {
@@ -41,7 +74,7 @@ export function mapViatorProduct(
   const rating = product.reviews?.combinedAverageRating
   const reviewCount = product.reviews?.totalReviews
 
-  const imageUrl = pickViatorImage(product.images)
+  const { hero: imageUrl, all: allImageUrls } = pickViatorImages(product.images)
 
   const dur = product.duration ?? product.itinerary?.duration
   const durMins = dur?.fixedDurationInMinutes
@@ -72,7 +105,9 @@ export function mapViatorProduct(
       address:   meetingPoint,
     },
 
-    images: imageUrl ? [{ url: imageUrl, isCover: true }] : [],
+    images: allImageUrls.length
+      ? allImageUrls.map((url, i) => ({ url, isCover: i === 0 }))
+      : imageUrl ? [{ url: imageUrl, isCover: true }] : [],
 
     rating,
     reviewCount,

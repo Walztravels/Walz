@@ -10,6 +10,21 @@ import {
   ShoppingCart, Loader2, MessageCircle,
 } from 'lucide-react'
 
+// Resolve the best image URL from either the new normalized shape or the legacy HB shape.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function resolveHeroImage(activity: any): string {
+  // New shape: images[{url, isCover}]
+  const images: Array<{ url?: string }> = activity.images ?? []
+  for (const img of images) {
+    if (img.url && img.url.startsWith('https')) return img.url
+  }
+  // Legacy flat shape: activity.image (Hotelbeds/static/DB)
+  if (activity.image && typeof activity.image === 'string' && activity.image.startsWith('http')) {
+    return activity.image
+  }
+  return ''
+}
+
 const SYM: Record<string, string> = {
   GBP: '£', USD: '$', EUR: '€', CAD: 'CA$', AED: 'AED ', NGN: '₦',
 }
@@ -19,6 +34,7 @@ export default function ActivityDetailClient({ activity }: { activity: any }) {
   const { addItem } = useCart()
   const router      = useRouter()
   const [added, setAdded] = useState(false)
+  const heroImage   = resolveHeroImage(activity)
 
   function handleAddToCart() {
     addItem({
@@ -46,10 +62,10 @@ export default function ActivityDetailClient({ activity }: { activity: any }) {
 
       {/* Hero */}
       <div className="relative h-80 md:h-[420px] bg-white/5">
-        {activity.image ? (
+        {heroImage ? (
           <Image
-            src={activity.image} alt={activity.title} fill
-            className="object-cover" unoptimized
+            src={heroImage} alt={activity.title} fill
+            className="object-cover" sizes="100vw" priority
           />
         ) : (
           <div className="w-full h-full bg-gradient-to-br from-[#0B1F3A] to-[#1C3557]" />

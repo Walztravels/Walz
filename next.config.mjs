@@ -32,6 +32,10 @@ const nextConfig = {
       { protocol: 'https', hostname: '**.activitiesbank.com',            pathname: '/**' },
       // Hotelbeds Transfer API — vehicle images (production CDN)
       { protocol: 'https', hostname: 'htx.hotelbeds.com',                pathname: '/**' },
+      // Viator / TripAdvisor CDN — activity images from Viator Partner API
+      { protocol: 'https', hostname: 'media-cdn.tripadvisor.com',        pathname: '/**' },
+      { protocol: 'https', hostname: 'media.tacdn.com',                  pathname: '/**' },
+      { protocol: 'https', hostname: '**.tacdn.com',                     pathname: '/**' },
     ],
   },
 

@@ -5,6 +5,9 @@ import ActivityDetailClient                       from './ActivityDetailClient'
 import { getActivityBySlug, STATIC_ACTIVITIES }  from '@/lib/activities-data'
 import { hotelbedsRequest }                       from '@/lib/hotelbeds'
 import prisma                                     from '@/lib/db'
+import { viatorGet }                              from '@/lib/activities/providers/viator/client'
+import { mapViatorProduct }                       from '@/lib/activities/providers/viator/mapper'
+import type { ViatorProductSummary }              from '@/lib/activities/providers/viator/types'
 
 // ── Destination code → readable city name ─────────────────────────────────────
 const DEST_CODE_TO_NAME: Record<string, string> = {
@@ -246,6 +249,56 @@ function buildActivityShape(rawCode: string, cacheItem: any, contentItem: any, d
   }
 }
 
+// ── Viator product resolver (SSR) ────────────────────────────────────────────
+async function resolveViatorActivity(productCode: string) {
+  if (!process.env.VIATOR_API_KEY) return null
+  if (process.env.VIATOR_ACTIVITIES_ENABLED !== 'true') return null
+
+  try {
+    const { status, data: product } = await viatorGet<ViatorProductSummary>(`/products/${encodeURIComponent(productCode)}`)
+    if (status !== 200 || !product?.productCode) return null
+
+    const normalized  = mapViatorProduct(product, '', 'GBP')
+
+    // Convert to the legacy shape ActivityDetailClient understands,
+    // while also carrying the full `images` array for the new image helper.
+    const dur         = product.duration ?? product.itinerary?.duration
+    const durMins     = dur?.fixedDurationInMinutes ?? dur?.variableDurationFromMinutes
+    const durText     = normalized.duration?.text ?? ''
+
+    return {
+      // Fields ActivityDetailClient reads
+      id:          normalized.id,
+      slug:        normalized.slug,
+      title:       normalized.title,
+      shortDesc:   (normalized.shortDescription ?? '').slice(0, 200),
+      description: normalized.description ?? normalized.shortDescription ?? '',
+      // images array — used by the new image helper in ActivityDetailClient
+      images:      normalized.images,
+      // Legacy flat image field for backward compat
+      image:       normalized.images?.[0]?.url ?? '',
+      price:       normalized.sellingPrice,
+      currency:    normalized.currency,
+      duration:    durText,
+      durationMins: durMins,
+      location:    normalized.destination?.name ?? '',
+      category:    'experience',
+      freeCancel:  normalized.freeCancellation,
+      rating:      normalized.rating ?? 0,
+      reviewCount: normalized.reviewCount,
+      highlights:  normalized.highlights ?? [],
+      included:    normalized.included ?? [],
+      notIncluded: normalized.excluded ?? [],
+      source:      'viator',
+      supplier:    'VIATOR',
+      supplierProductId: productCode,
+    }
+  } catch (err) {
+    console.error('[Viator] detail page resolver failed:', productCode, err instanceof Error ? err.message : err)
+    return null
+  }
+}
+
 // ── Main data resolver ────────────────────────────────────────────────────────
 async function getActivityData(slug: string) {
   // 1. DB (admin-curated)
@@ -258,7 +311,16 @@ async function getActivityData(slug: string) {
   const staticAct = getActivityBySlug(slug)
   if (staticAct) return staticAct
 
-  // 3. Live Hotelbeds
+  // 3. Live Viator — slug is "viator-{productCode}" e.g. "viator-26601p72"
+  if (slug.startsWith('viator-')) {
+    // Reconstruct productCode: strip prefix, uppercase, restore dash before digits after letters
+    // "viator-26601p72" → "26601P72"
+    const raw  = slug.replace(/^viator-/, '')
+    const code = raw.replace(/-/g, '').toUpperCase()
+    return resolveViatorActivity(code)
+  }
+
+  // 4. Live Hotelbeds
   if (slug.startsWith('hb-')) {
     return resolveHBActivity(slug.replace(/^hb-/, ''))
   }
@@ -275,10 +337,12 @@ export async function generateMetadata(
 ): Promise<Metadata> {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const a: any = await getActivityData(params.slug)
-  if (!a) return { title: 'Activity' }
+  if (!a) return { title: 'Activity | Walz Travels' }
+  const ogImage = a.images?.[0]?.url ?? a.image ?? undefined
   return {
-    title:       a.title,
+    title:       `${a.title} | Walz Travels`,
     description: (a.shortDesc ?? a.description ?? '').slice(0, 160),
+    openGraph:   ogImage ? { images: [{ url: ogImage }] } : undefined,
   }
 }
 
