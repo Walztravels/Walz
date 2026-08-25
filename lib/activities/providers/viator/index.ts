@@ -31,7 +31,6 @@ export class ViatorActivityProvider implements ActivityProvider {
 
     const body: ViatorProductSearchRequest = {
       filtering:  { destination: destId },
-      sorting:    { sort: 'POPULARITY', order: 'DESCENDING' },
       pagination: { start: 1, count: MAX_RESULTS },
       currency:   params.currency ?? 'GBP',
     }

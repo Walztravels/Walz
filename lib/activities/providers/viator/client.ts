@@ -42,11 +42,10 @@ export async function viatorGet<T = unknown>(path: string): Promise<{ status: nu
   return { status: res.status, data }
 }
 
-/** Connectivity probe — London sandbox, 3 products */
+/** Connectivity probe — London, 3 products */
 export async function viatorTestConnection() {
   return viatorPost('/products/search', {
     filtering:  { destination: '77' },
-    sorting:    { sort: 'POPULARITY', order: 'DESCENDING' },
     pagination: { start: 1, count: 3 },
     currency:   'GBP',
   })

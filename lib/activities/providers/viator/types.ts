@@ -13,7 +13,7 @@ export interface ViatorProductSearchRequest {
     durationInMinutes?: { from?: number; to?: number }
   }
   sorting?: {
-    sort?: 'TRAVELER_RATING' | 'PRICE' | 'PRICE_AND_POPULARITY' | 'POPULARITY' | 'DEFAULT'
+    sort?: 'TRAVELER_RATING' | 'PRICE' | 'PRICE_AND_POPULARITY' | 'DEFAULT'
     order?: 'ASCENDING' | 'DESCENDING'
   }
   pagination?: {
