@@ -4103,58 +4103,57 @@ model FlightQuote {
 
 model Quote {
   id                      String    @id @default(cuid())
-  reference               String    @unique   // WT-Q-YYYYMMDD-NNNN
-  secureTokenHash         String    @unique   // SHA-256(rawToken) — raw token goes in public URL
+  reference               String    @unique
+  secureTokenHash         String    @unique   @map("secure_token_hash")
 
-  clientName              String
-  clientEmail             String
-  clientPhone             String?
-  clientCountry           String?
+  clientName              String    @map("client_name")
+  clientEmail             String    @map("client_email")
+  clientPhone             String?   @map("client_phone")
+  clientCountry           String?   @map("client_country")
   currency                String
 
   title                   String
   description             String?   @db.Text
 
-  // draft | ready | sent | viewed | changes_requested | accepted | declined | expired | converted | cancelled | archived
   status                  String    @default("draft")
   version                 Int       @default(1)
 
-  validUntil              DateTime
+  validUntil              DateTime  @map("valid_until")
 
-  createdBy               String    // staff email
-  assignedTo              String?   // staff email
+  createdBy               String    @map("created_by")
+  assignedTo              String?   @map("assigned_to")
 
-  sentAt                  DateTime?
-  firstViewedAt           DateTime?
-  lastViewedAt            DateTime?
-  viewCount               Int       @default(0)
-  acceptedAt              DateTime?
-  declinedAt              DateTime?
-  changesRequestedAt      DateTime?
-  convertedAt             DateTime?
+  sentAt                  DateTime? @map("sent_at")
+  firstViewedAt           DateTime? @map("first_viewed_at")
+  lastViewedAt            DateTime? @map("last_viewed_at")
+  viewCount               Int       @default(0) @map("view_count")
+  acceptedAt              DateTime? @map("accepted_at")
+  declinedAt              DateTime? @map("declined_at")
+  changesRequestedAt      DateTime? @map("changes_requested_at")
+  convertedAt             DateTime? @map("converted_at")
 
-  selectedFlightOptionId  String?
-  selectedHotelOptionId   String?
-  convertedBookingId      String?
+  selectedFlightOptionId  String?   @map("selected_flight_option_id")
+  selectedHotelOptionId   String?   @map("selected_hotel_option_id")
+  convertedBookingId      String?   @map("converted_booking_id")
 
-  declineReason           String?
-  changesNote             String?   @db.Text
-  acceptedVersion         Int?
-  acceptedIp              String?
-  acceptedUserAgent       String?   @db.Text
-  clientSignatureName     String?
+  declineReason           String?   @map("decline_reason")
+  changesNote             String?   @db.Text @map("changes_note")
+  acceptedVersion         Int?      @map("accepted_version")
+  acceptedIp              String?   @map("accepted_ip")
+  acceptedUserAgent       String?   @db.Text @map("accepted_user_agent")
+  clientSignatureName     String?   @map("client_signature_name")
 
-  depositMinor            BigInt?
-  depositCurrency         String?
-  depositPercentage       Decimal?  @db.Decimal(5,2)
+  depositMinor            BigInt?   @map("deposit_minor")
+  depositCurrency         String?   @map("deposit_currency")
+  depositPercentage       Decimal?  @db.Decimal(5,2) @map("deposit_percentage")
 
-  subtotalMinor           BigInt    @default(0)
-  totalMinor              BigInt    @default(0)
+  subtotalMinor           BigInt    @default(0) @map("subtotal_minor")
+  totalMinor              BigInt    @default(0) @map("total_minor")
 
-  internalNotes           String?   @db.Text
+  internalNotes           String?   @db.Text @map("internal_notes")
 
-  createdAt               DateTime  @default(now())
-  updatedAt               DateTime  @updatedAt
+  createdAt               DateTime  @default(now()) @map("created_at")
+  updatedAt               DateTime  @updatedAt      @map("updated_at")
 
   items         QuoteItem[]
   flightOptions QuoteFlightOption[]
@@ -4172,38 +4171,35 @@ model Quote {
 
 model QuoteItem {
   id                String   @id @default(cuid())
-  quoteId           String
+  quoteId           String   @map("quote_id")
 
-  // flight | hotel | tour | transfer | package | visa | insurance | concierge | fee | custom
   type              String
   title             String
   description       String?  @db.Text
-  sortOrder         Int      @default(0)
+  sortOrder         Int      @default(0) @map("sort_order")
 
   supplier          String?
-  supplierRef       String?
+  supplierRef       String?  @map("supplier_ref")
 
-  // api | manual | screenshot | imported | duplicated
-  sourceType        String   @default("manual")
+  sourceType        String   @default("manual") @map("source_type")
 
-  // INTERNAL — never exposed publicly
-  costMinor         BigInt   @default(0)
-  markupMinor       BigInt   @default(0)
-  serviceFeeMinor   BigInt   @default(0)
+  costMinor         BigInt   @default(0) @map("cost_minor")
+  markupMinor       BigInt   @default(0) @map("markup_minor")
+  serviceFeeMinor   BigInt   @default(0) @map("service_fee_minor")
 
-  sellingPriceMinor BigInt   @default(0)
+  sellingPriceMinor BigInt   @default(0) @map("selling_price_minor")
   currency          String
 
-  clientVisible     Boolean  @default(true)
-  showPriceToClient Boolean  @default(true)
+  clientVisible     Boolean  @default(true)  @map("client_visible")
+  showPriceToClient Boolean  @default(true)  @map("show_price_to_client")
 
-  clientNote        String?  @db.Text
-  internalNote      String?  @db.Text
+  clientNote        String?  @db.Text @map("client_note")
+  internalNote      String?  @db.Text @map("internal_note")
 
   metadata          Json     @default("{}")
 
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt      @map("updated_at")
 
   quote             Quote    @relation(fields: [quoteId], references: [id], onDelete: Cascade)
 
@@ -4213,57 +4209,54 @@ model QuoteItem {
 
 model QuoteFlightOption {
   id                  String    @id @default(cuid())
-  quoteId             String
+  quoteId             String    @map("quote_id")
 
   label               String?
-  isRecommended       Boolean   @default(false)
-  sortOrder           Int       @default(0)
+  isRecommended       Boolean   @default(false) @map("is_recommended")
+  sortOrder           Int       @default(0)     @map("sort_order")
 
   airline             String
-  airlineCode         String?
-  airlineLogoUrl      String?
-  operatingAirline    String?
+  airlineCode         String?   @map("airline_code")
+  airlineLogoUrl      String?   @map("airline_logo_url")
+  operatingAirline    String?   @map("operating_airline")
 
-  // oneway | roundtrip | multicity
-  tripType            String    @default("roundtrip")
+  tripType            String    @default("roundtrip") @map("trip_type")
 
-  cabinClass          String
-  fareClass           String?
-  fareFamily          String?
+  cabinClass          String    @map("cabin_class")
+  fareClass           String?   @map("fare_class")
+  fareFamily          String?   @map("fare_family")
 
-  isRefundable        Boolean   @default(false)
-  changesAllowed      Boolean   @default(false)
-  changeFee           String?
-  noShowRule          String?
-  seatIncluded        Boolean   @default(false)
-  mealIncluded        Boolean   @default(false)
+  isRefundable        Boolean   @default(false) @map("is_refundable")
+  changesAllowed      Boolean   @default(false) @map("changes_allowed")
+  changeFee           String?   @map("change_fee")
+  noShowRule          String?   @map("no_show_rule")
+  seatIncluded        Boolean   @default(false) @map("seat_included")
+  mealIncluded        Boolean   @default(false) @map("meal_included")
 
-  personalItem        String?
-  cabinBaggage        String?
-  checkedBaggage      String?
-  checkedPieces       Int?
-  checkedWeight       String?
+  personalItem        String?   @map("personal_item")
+  cabinBaggage        String?   @map("cabin_baggage")
+  checkedBaggage      String?   @map("checked_baggage")
+  checkedPieces       Int?      @map("checked_pieces")
+  checkedWeight       String?   @map("checked_weight")
 
-  duffelOfferId       String?
+  duffelOfferId       String?   @map("duffel_offer_id")
 
-  // INTERNAL — never exposed publicly
-  costMinor           BigInt    @default(0)
-  markupMinor         BigInt    @default(0)
-  serviceFeeMinor     BigInt    @default(0)
+  costMinor           BigInt    @default(0) @map("cost_minor")
+  markupMinor         BigInt    @default(0) @map("markup_minor")
+  serviceFeeMinor     BigInt    @default(0) @map("service_fee_minor")
 
-  sellingPriceMinor   BigInt    @default(0)
+  sellingPriceMinor   BigInt    @default(0) @map("selling_price_minor")
   currency            String
 
-  fareExpiresAt       DateTime?
+  fareExpiresAt       DateTime? @map("fare_expires_at")
 
-  // api | manual | screenshot
-  sourceType          String    @default("manual")
+  sourceType          String    @default("manual") @map("source_type")
 
-  clientNote          String?   @db.Text
-  internalNote        String?   @db.Text
+  clientNote          String?   @db.Text @map("client_note")
+  internalNote        String?   @db.Text @map("internal_note")
 
-  createdAt           DateTime  @default(now())
-  updatedAt           DateTime  @updatedAt
+  createdAt           DateTime  @default(now()) @map("created_at")
+  updatedAt           DateTime  @updatedAt      @map("updated_at")
 
   quote               Quote     @relation(fields: [quoteId], references: [id], onDelete: Cascade)
   segments            QuoteFlightSegment[]
@@ -4275,26 +4268,26 @@ model QuoteFlightOption {
 
 model QuoteFlightSegment {
   id                    String    @id @default(cuid())
-  flightOptionId        String
-  segmentOrder          Int       @default(0)
+  flightOptionId        String    @map("flight_option_id")
+  segmentOrder          Int       @default(0) @map("segment_order")
 
-  originCode            String
-  originCity            String?
-  originTerminal        String?
-  departureAt           DateTime
+  originCode            String    @map("origin_code")
+  originCity            String?   @map("origin_city")
+  originTerminal        String?   @map("origin_terminal")
+  departureAt           DateTime  @map("departure_at")
 
-  destinationCode       String
-  destinationCity       String?
-  destinationTerminal   String?
-  arrivalAt             DateTime
+  destinationCode       String    @map("destination_code")
+  destinationCity       String?   @map("destination_city")
+  destinationTerminal   String?   @map("destination_terminal")
+  arrivalAt             DateTime  @map("arrival_at")
 
-  flightNumber          String?
-  operatingCarrier      String?
-  marketingCarrier      String?
+  flightNumber          String?   @map("flight_number")
+  operatingCarrier      String?   @map("operating_carrier")
+  marketingCarrier      String?   @map("marketing_carrier")
   aircraft              String?
-  durationMinutes       Int?
+  durationMinutes       Int?      @map("duration_minutes")
   stops                 Int       @default(0)
-  layoverMinutes        Int?
+  layoverMinutes        Int?      @map("layover_minutes")
 
   flightOption          QuoteFlightOption @relation(fields: [flightOptionId], references: [id], onDelete: Cascade)
 
@@ -4304,59 +4297,57 @@ model QuoteFlightSegment {
 
 model QuoteHotelOption {
   id                  String    @id @default(cuid())
-  quoteId             String
+  quoteId             String    @map("quote_id")
 
   label               String?
-  isRecommended       Boolean   @default(false)
-  sortOrder           Int       @default(0)
+  isRecommended       Boolean   @default(false) @map("is_recommended")
+  sortOrder           Int       @default(0)     @map("sort_order")
 
-  hotelName           String
-  starRating          Int?
+  hotelName           String    @map("hotel_name")
+  starRating          Int?      @map("star_rating")
   address             String?
   city                String?
   country             String?
   description         String?   @db.Text
 
-  checkIn             DateTime
-  checkOut            DateTime
+  checkIn             DateTime  @map("check_in")
+  checkOut            DateTime  @map("check_out")
   nights              Int
   rooms               Int       @default(1)
   adults              Int       @default(2)
   children            Int       @default(0)
 
-  roomType            String?
-  bedType             String?
-  mealPlan            String?
-  breakfastIncluded   Boolean   @default(false)
+  roomType            String?   @map("room_type")
+  bedType             String?   @map("bed_type")
+  mealPlan            String?   @map("meal_plan")
+  breakfastIncluded   Boolean   @default(false) @map("breakfast_included")
 
-  checkInTime         String?
-  checkOutTime        String?
-  cancellationPolicy  String?   @db.Text
-  isRefundable        Boolean   @default(false)
+  checkInTime         String?   @map("check_in_time")
+  checkOutTime        String?   @map("check_out_time")
+  cancellationPolicy  String?   @db.Text @map("cancellation_policy")
+  isRefundable        Boolean   @default(false) @map("is_refundable")
 
   amenities           String[]
 
   supplier            String?
-  supplierRef         String?
-  rateExpiresAt       DateTime?
+  supplierRef         String?   @map("supplier_ref")
+  rateExpiresAt       DateTime? @map("rate_expires_at")
 
-  // INTERNAL — never exposed publicly
-  costMinor           BigInt    @default(0)
-  markupMinor         BigInt    @default(0)
-  serviceFeeMinor     BigInt    @default(0)
+  costMinor           BigInt    @default(0) @map("cost_minor")
+  markupMinor         BigInt    @default(0) @map("markup_minor")
+  serviceFeeMinor     BigInt    @default(0) @map("service_fee_minor")
 
-  sellingPriceMinor   BigInt    @default(0)
+  sellingPriceMinor   BigInt    @default(0) @map("selling_price_minor")
   currency            String
-  showPerNight        Boolean   @default(false)
+  showPerNight        Boolean   @default(false) @map("show_per_night")
 
-  // api | manual | screenshot
-  sourceType          String    @default("manual")
+  sourceType          String    @default("manual") @map("source_type")
 
-  clientNote          String?   @db.Text
-  internalNote        String?   @db.Text
+  clientNote          String?   @db.Text @map("client_note")
+  internalNote        String?   @db.Text @map("internal_note")
 
-  createdAt           DateTime  @default(now())
-  updatedAt           DateTime  @updatedAt
+  createdAt           DateTime  @default(now()) @map("created_at")
+  updatedAt           DateTime  @updatedAt      @map("updated_at")
 
   quote               Quote     @relation(fields: [quoteId], references: [id], onDelete: Cascade)
   media               QuoteMedia[]
@@ -4367,26 +4358,25 @@ model QuoteHotelOption {
 
 model QuoteMedia {
   id              String    @id @default(cuid())
-  quoteId         String
-  flightOptionId  String?
-  hotelOptionId   String?
+  quoteId         String    @map("quote_id")
+  flightOptionId  String?   @map("flight_option_id")
+  hotelOptionId   String?   @map("hotel_option_id")
 
   url             String
-  storagePath     String
+  storagePath     String    @map("storage_path")
   filename        String
-  mimeType        String
-  sizeBytes       Int
+  mimeType        String    @map("mime_type")
+  sizeBytes       Int       @map("size_bytes")
 
   caption         String?
-  altText         String?
-  sortOrder       Int       @default(0)
-  isHero          Boolean   @default(false)
-  clientVisible   Boolean   @default(true)
+  altText         String?   @map("alt_text")
+  sortOrder       Int       @default(0) @map("sort_order")
+  isHero          Boolean   @default(false) @map("is_hero")
+  clientVisible   Boolean   @default(true) @map("client_visible")
 
-  // image | screenshot | document
-  mediaType       String    @default("image")
+  mediaType       String    @default("image") @map("media_type")
 
-  createdAt       DateTime  @default(now())
+  createdAt       DateTime  @default(now()) @map("created_at")
 
   quote           Quote             @relation(fields: [quoteId], references: [id], onDelete: Cascade)
   flightOption    QuoteFlightOption? @relation(fields: [flightOptionId], references: [id], onDelete: SetNull)
@@ -4398,13 +4388,13 @@ model QuoteMedia {
 
 model QuoteVersion {
   id           String    @id @default(cuid())
-  quoteId      String
+  quoteId      String    @map("quote_id")
   version      Int
   status       String
-  snapshotJson Json
-  changedBy    String    // staff email
-  changeNote   String?
-  createdAt    DateTime  @default(now())
+  snapshotJson Json      @map("snapshot_json")
+  changedBy    String    @map("changed_by")
+  changeNote   String?   @map("change_note")
+  createdAt    DateTime  @default(now()) @map("created_at")
 
   quote        Quote     @relation(fields: [quoteId], references: [id], onDelete: Cascade)
 
@@ -4414,18 +4404,15 @@ model QuoteVersion {
 
 model QuoteActivity {
   id          String    @id @default(cuid())
-  quoteId     String
-  actor       String    // staff email or "client"
-  // staff | client | system
-  actorType   String    @default("staff")
-  // created | edited | sent | viewed | selected_option | accepted |
-  // declined | changes_requested | converted | expired | version_created
-  eventType   String
+  quoteId     String    @map("quote_id")
+  actor       String
+  actorType   String    @default("staff") @map("actor_type")
+  eventType   String    @map("event_type")
   detail      String?
   metadata    Json      @default("{}")
-  ipAddress   String?
-  userAgent   String?   @db.Text
-  createdAt   DateTime  @default(now())
+  ipAddress   String?   @map("ip_address")
+  userAgent   String?   @db.Text @map("user_agent")
+  createdAt   DateTime  @default(now()) @map("created_at")
 
   quote       Quote     @relation(fields: [quoteId], references: [id], onDelete: Cascade)
 
