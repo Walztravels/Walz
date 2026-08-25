@@ -419,6 +419,13 @@ export const NAV_ITEMS: NavSection[] = [
     ],
   },
   {
+    section: 'QUOTES',
+    items: [
+      { href: '/admin/quotes',      label: 'Quotes & Proposals', icon: 'FileText', permission: 'quotes'        },
+      { href: '/admin/quotes/new',  label: 'New Quote',          icon: 'Plus',     permission: 'quotes.create' },
+    ],
+  },
+  {
     section: 'CLIENTS & LEADS',
     items: [
       { href: '/admin/clients',              label: 'Clients',            icon: 'Users',           permission: 'clients'          },
@@ -431,7 +438,6 @@ export const NAV_ITEMS: NavSection[] = [
     items: [
       { href: '/admin/bookings',        label: 'All Bookings',    icon: 'Calendar', permission: 'bookings'        },
       { href: '/admin/book',            label: 'New Booking',     icon: 'Plus',     permission: 'bookings.create' },
-      { href: '/admin/quotes',          label: 'Quotes & Proposals', icon: 'FileText', permission: 'quotes' },
       { href: '/admin/flight-bookings', label: 'Flight Bookings', icon: 'Plane',    permission: 'flights'         },
       { href: '/admin/flights',         label: 'Flight Deals',    icon: 'Plane',    permission: 'flights'         },
       { href: '/admin/flight-extras',    label: 'Flight Extras',    icon: 'Sliders', permission: 'flights' },
