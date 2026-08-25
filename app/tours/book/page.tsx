@@ -7,6 +7,7 @@ import {
   Star, MapPin, Clock, Shield, Loader2, CheckCircle, AlertCircle,
   CreditCard, Smartphone, MessageSquare, Image as ImageIcon,
 } from 'lucide-react'
+import NextImage from 'next/image'
 import GatewaySelector, { type Gateway } from '@/components/payments/GatewaySelector'
 import { processorsFor } from '@/lib/payments/processors'
 
@@ -116,8 +117,7 @@ function StepOne({ tour, date, setDate, groupSize, setGroupSize, addons, setAddo
         {/* Tour hero card */}
         <div className="relative h-52 sm:h-64 rounded-2xl overflow-hidden bg-gray-100 shadow-sm">
           {tour.imageUrl ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img src={tour.imageUrl} alt={tour.name} className="w-full h-full object-cover" />
+            <NextImage src={tour.imageUrl} alt={tour.name} fill className="object-cover" sizes="(max-width: 768px) 100vw, 700px" />
           ) : (
             <div className="w-full h-full flex items-center justify-center text-gray-300">
               <ImageIcon className="w-16 h-16" />
@@ -623,8 +623,9 @@ function StepThree({ tour, date, groupSize, addons, details, onBack, onSuccess }
           <h3 className="font-bold text-[#0B1F3A] mb-4">Booking Summary</h3>
           <div className="flex gap-4">
             {tour.imageUrl && (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img src={tour.imageUrl} alt={tour.name} className="w-20 h-20 rounded-xl object-cover flex-shrink-0" />
+              <div className="relative w-20 h-20 rounded-xl overflow-hidden flex-shrink-0">
+                <NextImage src={tour.imageUrl} alt={tour.name} fill className="object-cover" sizes="80px" />
+              </div>
             )}
             <div className="flex-1 min-w-0">
               <h4 className="font-semibold text-[#0B1F3A] leading-tight">{tour.name}</h4>

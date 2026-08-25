@@ -1,8 +1,7 @@
 // lib/site-settings.ts
 import db from '@/lib/db'
-import { cache } from 'react'
+import { unstable_cache, revalidateTag } from 'next/cache'
 import { BUSINESS } from '@/lib/config/business'
-import { unstable_noStore as noStore } from 'next/cache'
 
 export type SiteSettings = {
   whatsapp_header: string
@@ -50,26 +49,31 @@ export const SETTING_DEFAULTS: SiteSettings = {
   business_name:           'Walz Travels Ltd',
 }
 
-// react cache() deduplicates within a single request.
-// noStore() inside opts every call out of Next.js static / CDN caching entirely,
-// so changes in the DB appear on the very next page load — no revalidation needed.
-export const getSiteSettings = cache(async (): Promise<SiteSettings> => {
-  noStore()
-  try {
-    const rows = await db.siteSetting.findMany()
-    const map: Record<string, string> = {}
-    for (const row of rows) {
-      if (row.key && row.value) map[row.key] = row.value
+// unstable_cache caches the result across ALL requests for 1 hour.
+// Site settings change at most once per deploy — revalidateTag('site-settings')
+// can be called from an admin action to flush immediately.
+export const getSiteSettings = unstable_cache(
+  async (): Promise<SiteSettings> => {
+    try {
+      const rows = await db.siteSetting.findMany()
+      const map: Record<string, string> = {}
+      for (const row of rows) {
+        if (row.key && row.value) map[row.key] = row.value
+      }
+      return { ...SETTING_DEFAULTS, ...map } as SiteSettings
+    } catch (err) {
+      console.error('[SiteSettings] DB read failed, using defaults:', err)
+      return SETTING_DEFAULTS
     }
-    return { ...SETTING_DEFAULTS, ...map } as SiteSettings
-  } catch (err) {
-    console.error('[SiteSettings] DB read failed, using defaults:', err)
-    return SETTING_DEFAULTS
-  }
-})
+  },
+  ['site-settings'],
+  { revalidate: 3600, tags: ['site-settings'] },
+)
 
-// No-op — no longer needed without unstable_cache
-export async function revalidateSiteSettings() {}
+// Call from admin settings save action to flush the cache immediately.
+export async function revalidateSiteSettings() {
+  revalidateTag('site-settings')
+}
 
 export function whatsappLink(number: string, message = '') {
   const clean = number.replace(/\D/g, '')

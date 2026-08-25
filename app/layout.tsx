@@ -132,165 +132,20 @@ export default async function RootLayout({
       suppressHydrationWarning
     >
       <head>
-        {/* Speed up image loading — preconnect to the CDN we hit on every page */}
-        <link rel="preconnect" href="https://images.unsplash.com" />
+        {/* Critical preconnects — resolved before the browser parses body, shaving ~100–300 ms off first requests */}
+        <link rel="preconnect" href="https://images.unsplash.com" crossOrigin="anonymous" />
         <link rel="dns-prefetch" href="https://images.unsplash.com" />
-        <link rel="preconnect" href="https://bxacijnrgqgmyqyfgumg.supabase.co" />
+        <link rel="preconnect" href="https://bxacijnrgqgmyqyfgumg.supabase.co" crossOrigin="anonymous" />
+        {/* Analytics — preconnect so gtag/js and fbevents.js load without a cold DNS lookup */}
+        <link rel="preconnect" href="https://www.googletagmanager.com" />
+        <link rel="preconnect" href="https://www.google-analytics.com" />
+        <link rel="dns-prefetch" href="https://connect.facebook.net" />
 
-        {/* Organisation schema lives on homepage (app/page.tsx) only — not root layout.
-            Emitting TravelAgency on every URL (including /flights/search?...) causes
-            Semrush "invalid structured data" warnings on parameterised search pages. */}
-        {false && <script
-          type="application/ld+json"
-          dangerouslySetInnerHTML={{
-            __html: JSON.stringify({
-              '@context': 'https://schema.org',
-              '@graph': [
-                {
-                  '@type': ['TravelAgency', 'LocalBusiness'],
-                  '@id': 'https://www.walztravels.com/#organization',
-                  name: 'Walz Travels',
-                  legalName: 'THE WALZ TRAVELS INC',
-                  url: 'https://www.walztravels.com',
-                  logo: {
-                    '@type': 'ImageObject',
-                    url: 'https://www.walztravels.com/walz-logo.png',
-                    width: 1350,
-                    height: 1350,
-                  },
-                  image: 'https://www.walztravels.com/og-image.png',
-                  description:
-                    'Walz Travels is a premium global travel and visa consultancy offering international flight bookings, visa processing for UK, Canada, Schengen, USA and UAE, luxury tour packages, hotel bookings and bespoke travel itineraries for individuals, families and corporate clients worldwide.',
-                  telephone: `+${BUSINESS.contacts.globalWhatsapp.e164}`,
-                  email: 'contact@walztravels.com',
-                  address: {
-                    '@type': 'PostalAddress',
-                    addressCountry: 'CA',
-                    addressRegion: 'Ontario',
-                    addressLocality: 'Toronto',
-                  },
-                  areaServed: [
-                    { '@type': 'Country', name: 'Canada' },
-                    { '@type': 'Country', name: 'United Kingdom' },
-                    { '@type': 'Country', name: 'United Arab Emirates' },
-                    { '@type': 'Country', name: 'Nigeria' },
-                    { '@type': 'Country', name: 'Ghana' },
-                    { '@type': 'Country', name: 'United States' },
-                  ],
-                  hasOfferCatalog: {
-                    '@type': 'OfferCatalog',
-                    name: 'Travel Services',
-                    itemListElement: [
-                      { '@type': 'Offer', itemOffered: { '@type': 'Service', name: 'Schengen Visa Processing' } },
-                      { '@type': 'Offer', itemOffered: { '@type': 'Service', name: 'UK Visa Processing' } },
-                      { '@type': 'Offer', itemOffered: { '@type': 'Service', name: 'Canada Visa Processing' } },
-                      { '@type': 'Offer', itemOffered: { '@type': 'Service', name: 'USA Visa Processing' } },
-                      { '@type': 'Offer', itemOffered: { '@type': 'Service', name: 'UAE Visa Processing' } },
-                      { '@type': 'Offer', itemOffered: { '@type': 'Service', name: 'International Flight Bookings' } },
-                      { '@type': 'Offer', itemOffered: { '@type': 'Service', name: 'Luxury Tour Packages' } },
-                      { '@type': 'Offer', itemOffered: { '@type': 'Service', name: 'Hotel Bookings' } },
-                      { '@type': 'Offer', itemOffered: { '@type': 'Service', name: 'Corporate Travel Management' } },
-                    ],
-                  },
-                  sameAs: [
-                    'https://instagram.com/walz_travels',
-                    'https://facebook.com/walztravels',
-                    'https://tiktok.com/@walztravels',
-                    'https://snapchat.com/add/walztravels',
-                    'https://linkedin.com/company/walztravels',
-                    'https://youtube.com/@walztravels',
-                    'https://x.com/walztravels',
-                  ],
-                  contactPoint: {
-                    '@type': 'ContactPoint',
-                    telephone: `+${BUSINESS.contacts.globalWhatsapp.e164}`,
-                    contactType: 'customer service',
-                    availableLanguage: ['English'],
-                    areaServed: ['CA', 'GB', 'AE', 'NG', 'GH', 'US'],
-                  },
-                  openingHoursSpecification: {
-                    '@type': 'OpeningHoursSpecification',
-                    dayOfWeek: ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'],
-                    opens: '00:00',
-                    closes: '23:59',
-                  },
-                  priceRange: '$$',
-                },
-                // FAQPage — triggers Google FAQ rich results in SERP
-                {
-                  '@type': 'FAQPage',
-                  '@id': 'https://www.walztravels.com/#faq',
-                  mainEntity: [
-                    {
-                      '@type': 'Question',
-                      name: 'How much does a UK visa cost from Nigeria?',
-                      acceptedAnswer: {
-                        '@type': 'Answer',
-                        text: 'The UK Standard Visitor Visa fee is £115 (approx ₦150,000–₦180,000). Walz Travels charges a service fee from £75 for full UK visa processing — document review, form completion and application submission included. Contact us for a personalised quote.',
-                      },
-                    },
-                    {
-                      '@type': 'Question',
-                      name: 'How long does UK visa processing take from Nigeria?',
-                      acceptedAnswer: {
-                        '@type': 'Answer',
-                        text: 'Standard UK visa processing from Nigeria takes 3–8 weeks. Priority and super-priority services are available through the UK Visa Application Centre in Lagos, reducing processing to 5 business days or 24 hours respectively. Walz Travels monitors your application throughout and advises on the fastest option for your situation.',
-                      },
-                    },
-                    {
-                      '@type': 'Question',
-                      name: 'What are the cheapest flights from Lagos to London?',
-                      acceptedAnswer: {
-                        '@type': 'Answer',
-                        text: 'The cheapest flights from Lagos (LOS) to London (LHR) typically route via Addis Ababa on Ethiopian Airlines, Dubai on Emirates, or Doha on Qatar Airways. Return economy fares start from approximately £400–£600. Walz Travels compares hundreds of airlines to find the best available fare — search our flights page for live prices.',
-                      },
-                    },
-                    {
-                      '@type': 'Question',
-                      name: 'Does Walz Travels offer both visa processing and flight booking?',
-                      acceptedAnswer: {
-                        '@type': 'Answer',
-                        text: 'Yes. Walz Travels is a full-service travel consultancy handling UK, Canada, Schengen, USA, and UAE visa applications alongside international flight bookings, hotel reservations, private tour packages, and travel insurance. Our visa + flight bundle is popular with clients from Nigeria, Ghana, and the African diaspora in Canada and the UK.',
-                      },
-                    },
-                    {
-                      '@type': 'Question',
-                      name: 'What documents are required for a Canada visa from Nigeria?',
-                      acceptedAnswer: {
-                        '@type': 'Answer',
-                        text: 'Canada Temporary Resident Visa requirements from Nigeria include: valid passport (6+ months), 6-month bank statements, proof of employment or business, travel itinerary, hotel bookings, travel insurance, and a cover letter explaining the purpose of visit. Walz Travels reviews and prepares your complete application package.',
-                      },
-                    },
-                    {
-                      '@type': 'Question',
-                      name: 'Can I get an onward ticket or dummy ticket for my visa application?',
-                      acceptedAnswer: {
-                        '@type': 'Answer',
-                        text: 'Yes. Walz Travels generates verifiable flight itineraries (onward/dummy tickets) for visa applications. These are real airline booking references verifiable on the airline\'s website, valid 24–72 hours — sufficient for a visa appointment. We also offer Duffel-verified real airline holds for embassies requiring confirmed reservations.',
-                      },
-                    },
-                  ],
-                },
-                // WebSite with SearchAction — enables Google Sitelinks searchbox in SERP
-                {
-                  '@type': 'WebSite',
-                  '@id': 'https://www.walztravels.com/#website',
-                  url: 'https://www.walztravels.com',
-                  name: 'Walz Travels',
-                  description: 'Premium travel agency for visa processing, international flights, hotels and tours for the African diaspora and global travellers.',
-                  potentialAction: {
-                    '@type': 'SearchAction',
-                    target: {
-                      '@type': 'EntryPoint',
-                      urlTemplate: 'https://www.walztravels.com/flights?from={from}&to={to}&depart={depart}',
-                    },
-                    'query-input': 'required name=from required name=to required name=depart',
-                  },
-                },
-              ],
-            }),
-          }}
-        />}
+        {/* Organisation schema lives on homepage (app/page.tsx) — not root layout.
+            Emitting TravelAgency on every URL causes structured-data warnings on
+            parameterised search pages. Dead block intentionally removed. */}
+        {/* REMOVED: {false && <script .../>} — dead code, never rendered, still compiled.
+            Moved to app/page.tsx as a live <script type="application/ld+json"> block. */}
 
         {/* Google Consent Mode v2 */}
         <Script
@@ -372,11 +227,6 @@ export default async function RootLayout({
         />
         {/* End Google Analytics 4 */}
 
-        {/* Trustpilot bootstrap — lazyOnload so it never blocks LCP */}
-        <Script
-          src="//widget.trustpilot.com/bootstrap/v5/tp.widget.bootstrap.min.js"
-          strategy="afterInteractive"
-        />
 
       </head>
       <body className="font-sans bg-walz-off-white text-walz-deep-navy antialiased min-h-screen flex flex-col">

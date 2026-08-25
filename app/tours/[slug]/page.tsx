@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback, Suspense } from 'react'
 import { useParams } from 'next/navigation'
+import Image from 'next/image'
 import Link from 'next/link'
 import {
   MapPin, Clock, DollarSign, ArrowLeft, ArrowRight,
@@ -127,10 +128,9 @@ function Lightbox({ photos, index, onClose, onNav }: LightboxProps) {
             <button
               key={url + i}
               onClick={(e) => { e.stopPropagation(); onNav(i) }}
-              className={`flex-shrink-0 w-14 h-10 rounded-lg overflow-hidden border-2 transition-all ${i === index ? 'border-[#C9A84C]' : 'border-white/20 hover:border-white/60'}`}
+              className={`relative flex-shrink-0 w-14 h-10 rounded-lg overflow-hidden border-2 transition-all ${i === index ? 'border-[#C9A84C]' : 'border-white/20 hover:border-white/60'}`}
             >
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={url} alt={`Tour photo ${i + 1}`} className="w-full h-full object-cover" />
+              <Image src={url} alt={`Tour photo ${i + 1}`} fill className="object-cover" sizes="56px" />
             </button>
           ))}
         </div>
@@ -279,10 +279,9 @@ function TourDetailContent() {
                   setGalleryIndex(i)
                   setLightboxIndex(i)
                 }}
-                className={`flex-shrink-0 w-16 h-12 rounded-lg overflow-hidden border-2 transition-all ${i === galleryIndex ? 'border-[#C9A84C]' : 'border-white/20 hover:border-white/60'}`}
+                className={`relative flex-shrink-0 w-16 h-12 rounded-lg overflow-hidden border-2 transition-all ${i === galleryIndex ? 'border-[#C9A84C]' : 'border-white/20 hover:border-white/60'}`}
               >
-                {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={url} alt={`${tour.name} photo`} className="w-full h-full object-cover" />
+                <Image src={url} alt={`${tour.name} photo`} fill className="object-cover" sizes="64px" />
               </button>
             ))}
             {/* View all photos */}

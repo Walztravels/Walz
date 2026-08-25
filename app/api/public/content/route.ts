@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import prisma from '@/lib/db'
 
-export const dynamic = 'force-dynamic'
+export const revalidate = 60 // site content changes rarely; re-fetch every minute
 
 export async function GET() {
   try {

@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import dynamic from 'next/dynamic'
+import Script from 'next/script'
 import Image from 'next/image'
 import { BUSINESS } from '@/lib/config/business'
 import Link from 'next/link'
@@ -145,6 +146,11 @@ export default function HomePage() {
 
   return (
     <>
+      {/* Trustpilot bootstrap — homepage only; no need to load on every page */}
+      <Script
+        src="//widget.trustpilot.com/bootstrap/v5/tp.widget.bootstrap.min.js"
+        strategy="lazyOnload"
+      />
       <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify({
         "@context": "https://schema.org",
         "@graph": [

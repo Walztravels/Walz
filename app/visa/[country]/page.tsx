@@ -1,5 +1,6 @@
 import { notFound } from 'next/navigation'
 import Link from 'next/link'
+import { cache } from 'react'
 import { Clock, CheckCircle, AlertTriangle, ArrowLeft, MessageCircle, Plane, Hotel, Shield } from 'lucide-react'
 import { prisma } from '@/lib/db'
 import { ADVISORY_CONFIG, RULE_TYPE_CONFIG } from '@/lib/countries'
@@ -9,7 +10,12 @@ import { Price } from '@/components/common/Price'
 import { JadeChatButton } from '@/components/ui/JadeChatButton'
 import { SLUG_TO_ISO2 } from '@/lib/visa-config'
 
-export const dynamic = 'force-dynamic'
+// Cache the portal lookup so generateMetadata and the page function share one DB round-trip
+const getPortal = cache((iso2: string) =>
+  prisma.countryPortal.findUnique({ where: { destinationIso2: iso2 } })
+)
+
+export const revalidate = 3600 // visa rules change infrequently — re-validate every hour
 
 interface Props {
   params: { country: string }
@@ -35,7 +41,7 @@ function AdvisoryBadge({ level }: { level: number }) {
 
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const iso2 = resolveIso2(params.country)
-  const portal = await prisma.countryPortal.findUnique({ where: { destinationIso2: iso2 } })
+  const portal = await getPortal(iso2)
   if (!portal) return { title: 'Visa Requirements — Walz Travels' }
   return {
     title: `${portal.countryName} Visa Requirements — Walz Travels`,
@@ -47,7 +53,7 @@ export default async function VisaCountryPage({ params }: Props) {
   const iso2 = resolveIso2(params.country)
 
   const [portal, advisory, ngRule, docGuides] = await Promise.all([
-    prisma.countryPortal.findUnique({ where: { destinationIso2: iso2 } }),
+    getPortal(iso2),
     prisma.travelAdvisory.findUnique({ where: { destinationIso2: iso2 } }),
     prisma.visaRule.findUnique({
       where: { passportIso2_destinationIso2: { passportIso2: 'NG', destinationIso2: iso2 } },

@@ -9,8 +9,8 @@ const nextConfig = {
   images: {
     // Serve AVIF first (50-60 % smaller), WebP as fallback
     formats: ['image/avif', 'image/webp'],
-    // Cache optimised images for 24 h on the CDN edge
-    minimumCacheTTL: 86400,
+    // Cache optimised images for 7 days on the CDN edge (Next.js content-hashes the URL — safe to keep long)
+    minimumCacheTTL: 604800,
     remotePatterns: [
       { protocol: 'https', hostname: 'images.unsplash.com',              pathname: '/**' },
       { protocol: 'https', hostname: 'plus.unsplash.com',                pathname: '/**' },
@@ -30,8 +30,8 @@ const nextConfig = {
       { protocol: 'https', hostname: '**.giata.com',                     pathname: '/**' },
       // Hotelbeds Activity Content API — images served from activitiesbank.com CDN
       { protocol: 'https', hostname: '**.activitiesbank.com',            pathname: '/**' },
-      // Hotelbeds Transfer API — vehicle images served from htxstaging.com (test env)
-      { protocol: 'https', hostname: '**.htxstaging.com',                pathname: '/**' },
+      // Hotelbeds Transfer API — vehicle images (production CDN)
+      { protocol: 'https', hostname: 'htx.hotelbeds.com',                pathname: '/**' },
     ],
   },
 
@@ -207,7 +207,7 @@ const nextConfig = {
     serverActions: {
       bodySizeLimit: '10mb',
     },
-    optimizePackageImports: ['lucide-react', 'framer-motion', 'date-fns'],
+    optimizePackageImports: ['lucide-react', 'framer-motion', 'date-fns', 'gsap', '@radix-ui/react-dialog', '@radix-ui/react-dropdown-menu', '@radix-ui/react-select', '@radix-ui/react-tabs', '@radix-ui/react-tooltip'],
   },
 }
 
