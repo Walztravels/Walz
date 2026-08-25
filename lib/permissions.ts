@@ -142,6 +142,16 @@ export type PermissionKey =
   | 'concierge_view'
   | 'concierge_book'
   | 'concierge_manage_images'
+  // Activities marketplace (Hotelbeds + Viator)
+  | 'activities_search'
+  | 'activities_view_net_rate'
+  | 'activities_create_booking'
+  | 'activities_override_price'
+  | 'activities_mark_paid'
+  | 'activities_cancel'
+  | 'activities_refund'
+  | 'activities_manual_booking'
+  | 'activities_view_profit'
 
 export type Permissions = Record<PermissionKey, boolean>
 
@@ -249,6 +259,15 @@ export const EMPTY_PERMISSIONS: Permissions = {
   concierge_view: false,
   concierge_book: false,
   concierge_manage_images: false,
+  activities_search: false,
+  activities_view_net_rate: false,
+  activities_create_booking: false,
+  activities_override_price: false,
+  activities_mark_paid: false,
+  activities_cancel: false,
+  activities_refund: false,
+  activities_manual_booking: false,
+  activities_view_profit: false,
 }
 
 /**
