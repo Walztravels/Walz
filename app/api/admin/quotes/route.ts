@@ -134,7 +134,9 @@ export async function POST(req: NextRequest) {
 
   const subtotalMinor = BigInt(itemsTotal + flightTotal + hotelTotal)
 
-  const quote = await prisma.$transaction(async (tx) => {
+  let quote: Awaited<ReturnType<typeof prisma.quote.create>>
+  try {
+    quote = await prisma.$transaction(async (tx) => {
     const q = await tx.quote.create({
       data: {
         reference,
@@ -312,8 +314,13 @@ export async function POST(req: NextRequest) {
       },
     })
 
-    return q
-  })
+      return q
+    })
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err)
+    console.error('[quotes POST]', err)
+    return NextResponse.json({ error: msg }, { status: 500 })
+  }
 
   const link = `${process.env.NEXT_PUBLIC_APP_URL ?? ''}/quote-proposal/${rawToken}`
 

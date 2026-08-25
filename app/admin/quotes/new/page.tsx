@@ -1199,7 +1199,12 @@ function NewQuoteInner() {
           flightOptions, hotelOptions, items, sendEmail: send,
         }),
       })
-      const d = await r.json() as { quote?: { id: string }; error?: string }
+      let d: { quote?: { id: string }; error?: string }
+      try {
+        d = await r.json()
+      } catch {
+        throw new Error(`Server error (HTTP ${r.status}) — please try again or contact support`)
+      }
       if (!r.ok) throw new Error(d.error ?? 'Failed to save quote')
       router.push(`/admin/quotes/${d.quote!.id}`)
     } catch (e) {
