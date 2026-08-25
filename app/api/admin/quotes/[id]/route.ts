@@ -65,13 +65,14 @@ export async function GET(
   if (!quote) return NextResponse.json({ error: 'Quote not found' }, { status: 404 })
 
   const canViewMargin = hasPermission(session, 'quotes.view_margin')
+  const canDelete     = session.role === 'super_admin'
 
   // secureTokenHash is never returned — it is internal only
   const { secureTokenHash: _, ...quoteData } = quote as Record<string, unknown> & { secureTokenHash: string }
 
   const stripped = serializeQuote(quoteData, canViewMargin)
 
-  return NextResponse.json(bigintToNumber(stripped))
+  return NextResponse.json({ ...bigintToNumber(stripped) as object, canDelete })
 }
 
 // PATCH /api/admin/quotes/[id]
@@ -340,4 +341,23 @@ export async function PATCH(
 
   const { secureTokenHash: _, ...safeUpdated } = updated as Record<string, unknown> & { secureTokenHash: string }
   return NextResponse.json(bigintToNumber(safeUpdated))
+}
+
+// DELETE /api/admin/quotes/[id] — permanently delete (super_admin only)
+export async function DELETE(
+  _req: NextRequest,
+  { params }: { params: { id: string } }
+) {
+  const session = await getAdminSession()
+  if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  if (session.role !== 'super_admin') {
+    return NextResponse.json({ error: 'Forbidden — super_admin only' }, { status: 403 })
+  }
+
+  const quote = await prisma.quote.findUnique({ where: { id: params.id }, select: { id: true, reference: true } })
+  if (!quote) return NextResponse.json({ error: 'Quote not found' }, { status: 404 })
+
+  await prisma.quote.delete({ where: { id: params.id } })
+
+  return NextResponse.json({ deleted: true, reference: quote.reference })
 }

@@ -119,6 +119,7 @@ interface QuoteDetail {
   declineReason?: string
   changesNote?: string
   clientSignatureName?: string
+  canDelete?: boolean
   items: QuoteItem[]
   flightOptions: QuoteFlightOption[]
   hotelOptions: QuoteHotelOption[]
@@ -241,6 +242,7 @@ export default function QuoteDetailPage() {
   const [sendModal,    setSendModal]    = useState(false)
   const [extendModal,  setExtendModal]  = useState(false)
   const [cancelModal,  setCancelModal]  = useState(false)
+  const [deleteModal,  setDeleteModal]  = useState(false)
   const [extendDays,   setExtendDays]   = useState('7')
   const [cancelReason, setCancelReason] = useState('')
   const [actionBusy,   setActionBusy]   = useState(false)
@@ -340,6 +342,18 @@ export default function QuoteDetailPage() {
       await load()
     } catch (e) {
       addToast('error', e instanceof Error ? e.message : 'Failed to archive')
+    }
+  }
+
+  async function handleDelete() {
+    try {
+      const r = await window.fetch(`/api/admin/quotes/${id}`, { method: 'DELETE' })
+      const d = await r.json()
+      if (!r.ok) throw new Error(d.error ?? 'Failed to delete')
+      window.location.href = '/admin/quotes'
+    } catch (e) {
+      addToast('error', e instanceof Error ? e.message : 'Failed to delete')
+      setDeleteModal(false)
     }
   }
 
@@ -510,6 +524,15 @@ export default function QuoteDetailPage() {
               className="border border-gray-200 text-gray-400 text-sm font-semibold px-4 py-2 rounded-lg hover:bg-gray-50 transition-colors disabled:opacity-50"
             >
               Archive
+            </button>
+          )}
+          {quote.canDelete && (
+            <button
+              onClick={() => setDeleteModal(true)}
+              disabled={actionBusy}
+              className="border border-red-300 bg-red-50 text-red-700 text-sm font-semibold px-4 py-2 rounded-lg hover:bg-red-100 transition-colors disabled:opacity-50"
+            >
+              Delete
             </button>
           )}
         </div>
@@ -1101,6 +1124,34 @@ export default function QuoteDetailPage() {
                 className="px-4 py-2 text-sm font-semibold bg-[#0A1628] hover:bg-[#1a2a48] text-white rounded-lg disabled:opacity-50 transition-colors"
               >
                 {actionBusy ? 'Saving…' : 'Extend'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Delete Modal ── */}
+      {deleteModal && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6">
+            <h3 className="text-lg font-bold text-red-700 mb-2">Permanently Delete Quote</h3>
+            <p className="text-sm text-gray-600 mb-1">
+              This will <strong>permanently delete</strong> quote <strong>#{quote.reference}</strong> and all
+              its flight options, hotel options, items, activity, and media.
+            </p>
+            <p className="text-sm text-red-600 font-medium mb-4">This action cannot be undone.</p>
+            <div className="flex gap-3 justify-end">
+              <button
+                onClick={() => setDeleteModal(false)}
+                className="px-4 py-2 text-sm text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => { void handleDelete() }}
+                className="px-4 py-2 text-sm font-semibold bg-red-600 hover:bg-red-700 text-white rounded-lg transition-colors"
+              >
+                Delete Permanently
               </button>
             </div>
           </div>
