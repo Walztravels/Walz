@@ -160,6 +160,9 @@ function fmtDuration(minutes: number) {
 
 function fmtTime(iso?: string) {
   if (!iso) return '—'
+  // Flight times are always local airport time — extract HH:MM directly, no browser timezone conversion
+  const m = iso.match(/T(\d{2}:\d{2})/)
+  if (m) return m[1]
   return new Date(iso).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })
 }
 

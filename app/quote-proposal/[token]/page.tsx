@@ -162,11 +162,10 @@ function formatShortDate(iso: string): string {
 }
 
 function formatTime(iso: string): string {
-  return new Date(iso).toLocaleTimeString('en-GB', {
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: false,
-  });
+  // Flight times are always local airport time — extract HH:MM directly
+  const m = iso.match(/T(\d{2}:\d{2})/)
+  if (m) return m[1]
+  return new Date(iso).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false })
 }
 
 function formatDuration(minutes: number): string {
