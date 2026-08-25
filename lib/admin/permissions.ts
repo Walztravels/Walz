@@ -421,8 +421,7 @@ export const NAV_ITEMS: NavSection[] = [
   {
     section: 'QUOTES',
     items: [
-      { href: '/admin/quotes',      label: 'Quotes & Proposals', icon: 'FileText', permission: 'quotes'        },
-      { href: '/admin/quotes/new',  label: 'New Quote',          icon: 'Plus',     permission: 'quotes.create' },
+      { href: '/admin/quotes', label: 'Quotes & Proposals', icon: 'FileText', permission: 'quotes' },
     ],
   },
   {
