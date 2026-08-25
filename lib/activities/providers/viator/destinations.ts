@@ -1,14 +1,14 @@
 // Viator destination IDs (numeric strings) for common markets.
 // These are Viator's own internal IDs — distinct from IATA or HB codes.
-// Verified against the Viator Partner API v2 taxonomy endpoint.
-// To look up more: GET /taxonomy/destinations (returns full tree)
+// Verified against the Viator Partner API v2 /search/freetext endpoint on 2026-08-25.
+// To look up more: POST /search/freetext with searchType DESTINATIONS
 
 export const VIATOR_DEST_MAP: Record<string, string> = {
   // UK & Europe
-  'london':          '77',
-  'united kingdom':  '77',
-  'uk':              '77',
-  'england':         '77',
+  'london':          '737',
+  'united kingdom':  '737',
+  'uk':              '737',
+  'england':         '737',
   'paris':           '479',
   'france':          '479',
   'rome':            '511',
@@ -24,9 +24,9 @@ export const VIATOR_DEST_MAP: Record<string, string> = {
   'turkey':          '585',
 
   // Middle East
-  'dubai':           '846',
-  'dubai uae':       '846',
-  'uae':             '846',
+  'dubai':           '828',
+  'dubai uae':       '828',
+  'uae':             '828',
   'abu dhabi':       '1020',
 
   // Asia Pacific
@@ -34,9 +34,9 @@ export const VIATOR_DEST_MAP: Record<string, string> = {
   'japan':           '334',
   'bangkok':         '343',
   'thailand':        '343',
-  'singapore':       '353',
-  'bali':            '357',
-  'indonesia':       '357',
+  'singapore':       '60449',
+  'bali':            '98',
+  'indonesia':       '98',
 
   // Americas
   'new york':        '687',
@@ -47,30 +47,30 @@ export const VIATOR_DEST_MAP: Record<string, string> = {
   'vancouver':       '649',
 
   // Africa
-  'cape town':       '1356',
-  'south africa':    '1356',
+  'cape town':       '318',
+  'south africa':    '318',
   'johannesburg':    '1357',
-  'nairobi':         '1375',
-  'kenya':           '1375',
-  'zanzibar':        '1385',
-  'tanzania':        '1385',
-  'dar es salaam':   '1385',
+  'nairobi':         '5280',
+  'kenya':           '5280',
+  'zanzibar':        '24350',
+  'tanzania':        '24350',
+  'dar es salaam':   '24350',
   'serengeti':       '1386',
   'kilimanjaro':     '1387',
-  'cairo':           '1369',
-  'egypt':           '1369',
-  'marrakech':       '1365',
-  'morocco':         '1365',
-  'accra':           '1370',
-  'ghana':           '1370',
-  'lagos':           '1373',
-  'nigeria':         '1373',
+  'cairo':           '782',
+  'egypt':           '782',
+  'marrakech':       '5408',
+  'morocco':         '5408',
+  'accra':           '5517',
+  'ghana':           '5517',
+  'lagos':           '24049',
+  'nigeria':         '24049',
   'abuja':           '1374',
 
   // Indian Ocean
-  'maldives':        '1399',
-  'mauritius':       '1392',
-  'seychelles':      '1393',
+  'maldives':        '4672',
+  'mauritius':       '4463',
+  'seychelles':      '4868',
 }
 
 export function resolveViatorDestId(name: string): string | null {
