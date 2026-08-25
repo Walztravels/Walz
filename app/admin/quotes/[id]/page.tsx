@@ -8,30 +8,32 @@ import Link from 'next/link'
 
 interface QuoteSegment {
   id: string
-  flightNumber: string
-  airline: string
-  origin: string
-  destination: string
-  departureTime: string
-  arrivalTime: string
-  durationMinutes: number
+  segmentOrder: number
+  flightNumber?: string
+  originCode: string
+  originCity?: string
+  destinationCode: string
+  destinationCity?: string
+  departureAt: string
+  arrivalAt: string
+  durationMinutes?: number
   stops: number
-  cabinClass?: string
 }
 
 interface QuoteFlightOption {
   id: string
   label?: string
   isRecommended?: boolean
-  airlineName: string
-  originCode: string
-  destinationCode: string
-  priceMinor: number
-  currency: string
-  refundable?: boolean
+  airline: string
+  airlineCode?: string
+  cabinClass?: string
+  tripType?: string
+  isRefundable?: boolean
   changesAllowed?: boolean
-  baggageIncluded?: boolean
-  baggageKg?: number
+  checkedBaggage?: string
+  checkedPieces?: number
+  sellingPriceMinor: number
+  currency: string
   segments: QuoteSegment[]
   media?: QuoteMedia[]
 }
@@ -45,7 +47,7 @@ interface QuoteHotelOption {
   nights: number
   roomType?: string
   mealPlan?: string
-  priceMinor: number
+  sellingPriceMinor: number
   currency: string
   media?: QuoteMedia[]
 }
@@ -55,7 +57,7 @@ interface QuoteItem {
   type: string
   title: string
   description?: string
-  priceMinor: number
+  sellingPriceMinor: number
   currency: string
 }
 
@@ -367,7 +369,7 @@ export default function QuoteDetailPage() {
 
   function itemsSubtotal() {
     if (!quote) return 0
-    return quote.items.reduce((s, i) => s + i.priceMinor, 0)
+    return quote.items.reduce((s, i) => s + i.sellingPriceMinor, 0)
   }
 
   // ─── Loading / error ─────────────────────────────────────────────────────
@@ -397,8 +399,8 @@ export default function QuoteDetailPage() {
   const selectedFlight = quote.flightOptions.find(f => f.id === quote.selectedFlightOptionId)
   const selectedHotel  = quote.hotelOptions.find(h => h.id === quote.selectedHotelOptionId)
 
-  const flightSubtotal = selectedFlight ? selectedFlight.priceMinor : 0
-  const hotelSubtotal  = selectedHotel  ? selectedHotel.priceMinor  : 0
+  const flightSubtotal = selectedFlight ? selectedFlight.sellingPriceMinor : 0
+  const hotelSubtotal  = selectedHotel  ? selectedHotel.sellingPriceMinor  : 0
   const computedSubtotal = flightSubtotal + hotelSubtotal + itemsSubtotal()
 
   return (
@@ -564,9 +566,9 @@ export default function QuoteDetailPage() {
                       {/* Flight header */}
                       <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
                         <div className="flex flex-wrap items-center gap-2">
-                          <span className="font-bold text-gray-900">{fo.airlineName}</span>
+                          <span className="font-bold text-gray-900">{fo.airline}</span>
                           <span className="font-mono text-sm font-semibold text-gray-600">
-                            {fo.originCode} → {fo.destinationCode}
+                            {fo.segments[0]?.originCode ?? '—'} → {fo.segments[fo.segments.length - 1]?.destinationCode ?? '—'}
                           </span>
                           {fo.isRecommended && (
                             <span className="text-xs font-semibold bg-[#C9A84C] text-white px-2 py-0.5 rounded-full">
@@ -585,7 +587,7 @@ export default function QuoteDetailPage() {
                           )}
                         </div>
                         <p className="text-lg font-bold text-gray-900 tabular-nums">
-                          {fmtMinor(fo.priceMinor, fo.currency)}
+                          {fmtMinor(fo.sellingPriceMinor, fo.currency)}
                         </p>
                       </div>
 
@@ -595,19 +597,19 @@ export default function QuoteDetailPage() {
                           {fo.segments.map(seg => (
                             <div key={seg.id} className="px-3 py-2.5 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
                               <span className="font-mono font-semibold text-gray-800 text-xs w-20 shrink-0">
-                                {seg.flightNumber}
+                                {seg.flightNumber ?? '—'}
                               </span>
                               <span className="font-semibold text-gray-900">
-                                {fmtTime(seg.departureTime)}
+                                {fmtTime(seg.departureAt)}
                               </span>
-                              <span className="text-gray-400 text-xs">{seg.origin}</span>
+                              <span className="text-gray-400 text-xs">{seg.originCode}</span>
                               <span className="text-gray-300 text-xs">→</span>
                               <span className="font-semibold text-gray-900">
-                                {fmtTime(seg.arrivalTime)}
+                                {fmtTime(seg.arrivalAt)}
                               </span>
-                              <span className="text-gray-400 text-xs">{seg.destination}</span>
+                              <span className="text-gray-400 text-xs">{seg.destinationCode}</span>
                               <span className="text-gray-400 text-xs ml-auto">
-                                {fmtDuration(seg.durationMinutes)}
+                                {seg.durationMinutes != null ? fmtDuration(seg.durationMinutes) : ''}
                                 {seg.stops > 0 && (
                                   <span className="ml-2 text-amber-600">· {seg.stops} stop{seg.stops > 1 ? 's' : ''}</span>
                                 )}
@@ -619,15 +621,15 @@ export default function QuoteDetailPage() {
 
                       {/* Fare conditions */}
                       <div className="grid grid-cols-3 gap-2 text-xs">
-                        <div className={`rounded-lg px-2 py-1.5 text-center font-medium ${fo.refundable ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-500'}`}>
-                          {fo.refundable ? '✓ Refundable' : '✗ Non-refundable'}
+                        <div className={`rounded-lg px-2 py-1.5 text-center font-medium ${fo.isRefundable ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-500'}`}>
+                          {fo.isRefundable ? '✓ Refundable' : '✗ Non-refundable'}
                         </div>
                         <div className={`rounded-lg px-2 py-1.5 text-center font-medium ${fo.changesAllowed ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-500'}`}>
                           {fo.changesAllowed ? '✓ Changes' : '✗ No changes'}
                         </div>
-                        <div className={`rounded-lg px-2 py-1.5 text-center font-medium ${fo.baggageIncluded ? 'bg-green-50 text-green-700' : 'bg-amber-50 text-amber-600'}`}>
-                          {fo.baggageIncluded
-                            ? `✓ Baggage${fo.baggageKg ? ` ${fo.baggageKg}kg` : ''}`
+                        <div className={`rounded-lg px-2 py-1.5 text-center font-medium ${fo.checkedBaggage ? 'bg-green-50 text-green-700' : 'bg-amber-50 text-amber-600'}`}>
+                          {fo.checkedBaggage
+                            ? `✓ Baggage ${fo.checkedBaggage}`
                             : '✗ No baggage'}
                         </div>
                       </div>
@@ -669,7 +671,7 @@ export default function QuoteDetailPage() {
                           )}
                         </div>
                         <p className="text-lg font-bold text-gray-900 tabular-nums">
-                          {fmtMinor(ho.priceMinor, ho.currency)}
+                          {fmtMinor(ho.sellingPriceMinor, ho.currency)}
                         </p>
                       </div>
 
@@ -732,7 +734,7 @@ export default function QuoteDetailPage() {
                           )}
                         </td>
                         <td className="py-2.5 text-right font-semibold text-gray-900 tabular-nums">
-                          {fmtMinor(item.priceMinor, item.currency)}
+                          {fmtMinor(item.sellingPriceMinor, item.currency)}
                         </td>
                       </tr>
                     ))}
@@ -788,19 +790,19 @@ export default function QuoteDetailPage() {
               {selectedFlight && (
                 <div className="flex items-center justify-between">
                   <span className="text-gray-600">Flight</span>
-                  <span className="font-medium tabular-nums">{fmtMinor(selectedFlight.priceMinor, selectedFlight.currency)}</span>
+                  <span className="font-medium tabular-nums">{fmtMinor(selectedFlight.sellingPriceMinor, selectedFlight.currency)}</span>
                 </div>
               )}
               {selectedHotel && (
                 <div className="flex items-center justify-between">
                   <span className="text-gray-600">Hotel</span>
-                  <span className="font-medium tabular-nums">{fmtMinor(selectedHotel.priceMinor, selectedHotel.currency)}</span>
+                  <span className="font-medium tabular-nums">{fmtMinor(selectedHotel.sellingPriceMinor, selectedHotel.currency)}</span>
                 </div>
               )}
               {quote.items.map(item => (
                 <div key={item.id} className="flex items-center justify-between">
                   <span className="text-gray-600 truncate pr-2">{item.title}</span>
-                  <span className="font-medium tabular-nums shrink-0">{fmtMinor(item.priceMinor, item.currency)}</span>
+                  <span className="font-medium tabular-nums shrink-0">{fmtMinor(item.sellingPriceMinor, item.currency)}</span>
                 </div>
               ))}
               <div className="border-t border-gray-100 pt-2 mt-1 flex items-center justify-between">

@@ -23,6 +23,7 @@ function serializeQuote(q: Record<string, unknown>, canViewMargin: boolean) {
 
 function bigintToNumber(obj: unknown): unknown {
   if (typeof obj === 'bigint') return Number(obj)
+  if (obj instanceof Date) return obj
   if (Array.isArray(obj)) return obj.map(bigintToNumber)
   if (obj !== null && typeof obj === 'object') {
     return Object.fromEntries(
