@@ -35,25 +35,38 @@ export async function GET(req: NextRequest) {
     ]
   }
 
-  const [total, quotes] = await Promise.all([
-    prisma.quote.count({ where }),
-    prisma.quote.findMany({
-      where,
-      orderBy: { createdAt: 'desc' },
-      skip,
-      take: PAGE_SIZE,
-      select: {
-        id: true, reference: true, status: true, version: true,
-        clientName: true, clientEmail: true, clientPhone: true,
-        currency: true, title: true,
-        totalMinor: true, subtotalMinor: true,
-        validUntil: true, sentAt: true, viewCount: true,
-        firstViewedAt: true, acceptedAt: true, declinedAt: true,
-        createdBy: true, assignedTo: true, createdAt: true, updatedAt: true,
-        _count: { select: { items: true, flightOptions: true, hotelOptions: true } },
-      },
-    }),
-  ])
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let total = 0, quotes: any[] = []
+
+  try {
+    ;[total, quotes] = await Promise.all([
+      prisma.quote.count({ where }),
+      prisma.quote.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        skip,
+        take: PAGE_SIZE,
+        select: {
+          id: true, reference: true, status: true, version: true,
+          clientName: true, clientEmail: true, clientPhone: true,
+          currency: true, title: true,
+          totalMinor: true, subtotalMinor: true,
+          validUntil: true, sentAt: true, viewCount: true,
+          firstViewedAt: true, acceptedAt: true, declinedAt: true,
+          createdBy: true, assignedTo: true, createdAt: true, updatedAt: true,
+          _count: { select: { items: true, flightOptions: true, hotelOptions: true } },
+        },
+      }),
+    ])
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err)
+    // Table not set up yet — return empty list rather than crashing
+    if (msg.includes('does not exist') || msg.includes('relation') || msg.includes('table')) {
+      return NextResponse.json({ items: [], total: 0, page: 1, pages: 0, setupRequired: true })
+    }
+    console.error('[quotes GET]', err)
+    return NextResponse.json({ error: msg }, { status: 500 })
+  }
 
   const canViewMargin = hasPermission(session, 'quotes.view_margin')
 

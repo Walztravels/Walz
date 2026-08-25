@@ -134,14 +134,15 @@ function StatusBadge({ status }: { status: string }) {
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function QuotesPage() {
-  const [items,   setItems]   = useState<QuoteItem[]>([])
-  const [total,   setTotal]   = useState(0)
-  const [page,    setPage]    = useState(1)
-  const [pages,   setPages]   = useState(1)
-  const [status,  setStatus]  = useState('all')
-  const [q,       setQ]       = useState('')
-  const [loading, setLoading] = useState(true)
-  const [error,   setError]   = useState<string | null>(null)
+  const [items,        setItems]        = useState<QuoteItem[]>([])
+  const [total,        setTotal]        = useState(0)
+  const [page,         setPage]         = useState(1)
+  const [pages,        setPages]        = useState(1)
+  const [status,       setStatus]       = useState('all')
+  const [q,            setQ]            = useState('')
+  const [loading,      setLoading]      = useState(true)
+  const [error,        setError]        = useState<string | null>(null)
+  const [setupRequired, setSetupRequired] = useState(false)
 
   // Debounce search input
   const [debouncedQ, setDebouncedQ] = useState('')
@@ -171,8 +172,15 @@ export default function QuotesPage() {
       if (status !== 'all') sp.set('status', status)
       if (debouncedQ.trim()) sp.set('q', debouncedQ.trim())
       const r = await window.fetch(`/api/admin/quotes?${sp}`)
-      const d: ApiResponse = await r.json()
-      if (!r.ok) throw new Error((d as unknown as { error?: string }).error ?? 'Failed to load')
+      let d: ApiResponse & { setupRequired?: boolean; error?: string }
+      try {
+        d = await r.json()
+      } catch {
+        throw new Error('Server returned an unexpected response. Check that the quotes database tables have been created in Supabase.')
+      }
+      if (!r.ok) throw new Error(d.error ?? 'Failed to load')
+      if (d.setupRequired) { setSetupRequired(true); setItems([]); setTotal(0); setPages(0); return }
+      setSetupRequired(false)
       setItems(d.items)
       setTotal(d.total)
       setPages(d.pages)
@@ -250,6 +258,14 @@ export default function QuotesPage() {
           </button>
         )}
       </div>
+
+      {/* ── Setup required banner ── */}
+      {setupRequired && (
+        <div className="bg-amber-50 border border-amber-200 rounded-xl px-5 py-4 mb-5 text-sm text-amber-800">
+          <strong>Database setup required.</strong> The Quotes tables have not been created in Supabase yet.
+          Run the SQL from <code className="bg-amber-100 px-1 rounded">prisma/migrations/add_quotes_system.sql</code> in your Supabase SQL Editor, then refresh this page.
+        </div>
+      )}
 
       {/* ── Error ── */}
       {error && (
