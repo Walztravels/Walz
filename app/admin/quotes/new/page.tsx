@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useCallback, Suspense } from 'react'
+import { useState, useCallback, useEffect, useRef, Suspense } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import {
@@ -60,6 +60,186 @@ function placeholderRef() {
   const now = new Date()
   const ymd = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}`
   return `WT-Q-${ymd}-XXXX`
+}
+
+// ─── Airport Data ─────────────────────────────────────────────────────────────
+
+interface Airport { code: string; name: string; city: string; country: string }
+
+const AIRPORTS: Airport[] = [
+  // Nigeria
+  { code: 'LOS', name: 'Murtala Muhammed Intl', city: 'Lagos', country: 'Nigeria' },
+  { code: 'ABV', name: 'Nnamdi Azikiwe Intl', city: 'Abuja', country: 'Nigeria' },
+  { code: 'KAN', name: 'Mallam Aminu Kano Intl', city: 'Kano', country: 'Nigeria' },
+  { code: 'PHC', name: 'Port Harcourt Intl', city: 'Port Harcourt', country: 'Nigeria' },
+  { code: 'ENU', name: 'Akanu Ibiam Intl', city: 'Enugu', country: 'Nigeria' },
+  { code: 'CBQ', name: 'Margaret Ekpo Intl', city: 'Calabar', country: 'Nigeria' },
+  { code: 'ILR', name: 'Ilorin Intl Airport', city: 'Ilorin', country: 'Nigeria' },
+  // Africa
+  { code: 'ACC', name: 'Kotoka Intl', city: 'Accra', country: 'Ghana' },
+  { code: 'ABJ', name: 'Félix-Houphouët-Boigny Intl', city: 'Abidjan', country: "Côte d'Ivoire" },
+  { code: 'CMN', name: 'Mohammed V Intl', city: 'Casablanca', country: 'Morocco' },
+  { code: 'CAI', name: 'Cairo Intl', city: 'Cairo', country: 'Egypt' },
+  { code: 'HRE', name: 'Robert Gabriel Mugabe Intl', city: 'Harare', country: 'Zimbabwe' },
+  { code: 'NBO', name: 'Jomo Kenyatta Intl', city: 'Nairobi', country: 'Kenya' },
+  { code: 'JNB', name: 'O.R. Tambo Intl', city: 'Johannesburg', country: 'South Africa' },
+  { code: 'CPT', name: 'Cape Town Intl', city: 'Cape Town', country: 'South Africa' },
+  { code: 'DUR', name: 'King Shaka Intl', city: 'Durban', country: 'South Africa' },
+  { code: 'ADD', name: 'Addis Ababa Bole Intl', city: 'Addis Ababa', country: 'Ethiopia' },
+  { code: 'DAR', name: 'Julius Nyerere Intl', city: 'Dar es Salaam', country: 'Tanzania' },
+  { code: 'KGL', name: 'Kigali Intl', city: 'Kigali', country: 'Rwanda' },
+  { code: 'EBB', name: 'Entebbe Intl', city: 'Entebbe', country: 'Uganda' },
+  { code: 'LUN', name: 'Kenneth Kaunda Intl', city: 'Lusaka', country: 'Zambia' },
+  { code: 'LBV', name: "Léon M'ba Intl", city: 'Libreville', country: 'Gabon' },
+  { code: 'DLA', name: 'Douala Intl', city: 'Douala', country: 'Cameroon' },
+  { code: 'FIH', name: "N'djili Airport", city: 'Kinshasa', country: 'DR Congo' },
+  { code: 'DKR', name: 'Blaise Diagne Intl', city: 'Dakar', country: 'Senegal' },
+  { code: 'BKO', name: 'Bamako-Sénou Intl', city: 'Bamako', country: 'Mali' },
+  { code: 'OUA', name: 'Ouagadougou Airport', city: 'Ouagadougou', country: 'Burkina Faso' },
+  { code: 'LFW', name: 'Lomé-Tokoin Intl', city: 'Lomé', country: 'Togo' },
+  { code: 'COO', name: 'Cotonou Cadjehoun Airport', city: 'Cotonou', country: 'Benin' },
+  { code: 'MRU', name: 'Sir Seewoosagur Ramgoolam Intl', city: 'Mauritius', country: 'Mauritius' },
+  { code: 'TUN', name: 'Tunis Carthage Intl', city: 'Tunis', country: 'Tunisia' },
+  { code: 'ALG', name: 'Houari Boumediene Airport', city: 'Algiers', country: 'Algeria' },
+  { code: 'NKC', name: 'Nouakchott–Oumtounsy Intl', city: 'Nouakchott', country: 'Mauritania' },
+  { code: 'SEZ', name: 'Seychelles Intl', city: 'Mahé', country: 'Seychelles' },
+  { code: 'TNR', name: 'Ivato Intl', city: 'Antananarivo', country: 'Madagascar' },
+  // Europe
+  { code: 'LHR', name: 'Heathrow Airport', city: 'London', country: 'UK' },
+  { code: 'LGW', name: 'Gatwick Airport', city: 'London', country: 'UK' },
+  { code: 'STN', name: 'Stansted Airport', city: 'London', country: 'UK' },
+  { code: 'LCY', name: 'London City Airport', city: 'London', country: 'UK' },
+  { code: 'MAN', name: 'Manchester Airport', city: 'Manchester', country: 'UK' },
+  { code: 'BHX', name: 'Birmingham Airport', city: 'Birmingham', country: 'UK' },
+  { code: 'CDG', name: 'Charles de Gaulle Airport', city: 'Paris', country: 'France' },
+  { code: 'ORY', name: 'Orly Airport', city: 'Paris', country: 'France' },
+  { code: 'AMS', name: 'Amsterdam Schiphol', city: 'Amsterdam', country: 'Netherlands' },
+  { code: 'FRA', name: 'Frankfurt Airport', city: 'Frankfurt', country: 'Germany' },
+  { code: 'MUC', name: 'Munich Airport', city: 'Munich', country: 'Germany' },
+  { code: 'ZRH', name: 'Zurich Airport', city: 'Zurich', country: 'Switzerland' },
+  { code: 'GVA', name: 'Geneva Airport', city: 'Geneva', country: 'Switzerland' },
+  { code: 'BRU', name: 'Brussels Airport', city: 'Brussels', country: 'Belgium' },
+  { code: 'MAD', name: 'Madrid Barajas Airport', city: 'Madrid', country: 'Spain' },
+  { code: 'BCN', name: 'Barcelona El Prat Airport', city: 'Barcelona', country: 'Spain' },
+  { code: 'FCO', name: 'Fiumicino Airport', city: 'Rome', country: 'Italy' },
+  { code: 'MXP', name: 'Milan Malpensa Airport', city: 'Milan', country: 'Italy' },
+  { code: 'LIS', name: 'Lisbon Airport', city: 'Lisbon', country: 'Portugal' },
+  { code: 'VIE', name: 'Vienna Intl Airport', city: 'Vienna', country: 'Austria' },
+  { code: 'CPH', name: 'Copenhagen Airport', city: 'Copenhagen', country: 'Denmark' },
+  { code: 'IST', name: 'Istanbul Airport', city: 'Istanbul', country: 'Turkey' },
+  { code: 'SAW', name: 'Sabiha Gökçen Intl', city: 'Istanbul', country: 'Turkey' },
+  { code: 'ATH', name: 'Athens Intl Airport', city: 'Athens', country: 'Greece' },
+  { code: 'WAW', name: 'Warsaw Chopin Airport', city: 'Warsaw', country: 'Poland' },
+  { code: 'OSL', name: 'Oslo Gardermoen Airport', city: 'Oslo', country: 'Norway' },
+  { code: 'ARN', name: 'Stockholm Arlanda Airport', city: 'Stockholm', country: 'Sweden' },
+  { code: 'HEL', name: 'Helsinki Airport', city: 'Helsinki', country: 'Finland' },
+  // Middle East
+  { code: 'DXB', name: 'Dubai Intl Airport', city: 'Dubai', country: 'UAE' },
+  { code: 'AUH', name: 'Abu Dhabi Intl Airport', city: 'Abu Dhabi', country: 'UAE' },
+  { code: 'DOH', name: 'Hamad Intl Airport', city: 'Doha', country: 'Qatar' },
+  { code: 'KWI', name: 'Kuwait Intl Airport', city: 'Kuwait City', country: 'Kuwait' },
+  { code: 'RUH', name: 'King Khalid Intl Airport', city: 'Riyadh', country: 'Saudi Arabia' },
+  { code: 'JED', name: 'King Abdulaziz Intl Airport', city: 'Jeddah', country: 'Saudi Arabia' },
+  { code: 'MED', name: 'Prince Mohammad bin Abdulaziz Airport', city: 'Medina', country: 'Saudi Arabia' },
+  { code: 'BAH', name: 'Bahrain Intl Airport', city: 'Manama', country: 'Bahrain' },
+  { code: 'MCT', name: 'Muscat Intl Airport', city: 'Muscat', country: 'Oman' },
+  { code: 'BEY', name: 'Rafic Hariri Intl Airport', city: 'Beirut', country: 'Lebanon' },
+  { code: 'AMM', name: 'Queen Alia Intl Airport', city: 'Amman', country: 'Jordan' },
+  { code: 'TLV', name: 'Ben Gurion Intl Airport', city: 'Tel Aviv', country: 'Israel' },
+  // North America
+  { code: 'JFK', name: 'John F. Kennedy Intl', city: 'New York', country: 'USA' },
+  { code: 'EWR', name: 'Newark Liberty Intl', city: 'New York', country: 'USA' },
+  { code: 'LGA', name: 'LaGuardia Airport', city: 'New York', country: 'USA' },
+  { code: 'ORD', name: "O'Hare Intl Airport", city: 'Chicago', country: 'USA' },
+  { code: 'MDW', name: 'Chicago Midway Intl', city: 'Chicago', country: 'USA' },
+  { code: 'LAX', name: 'Los Angeles Intl', city: 'Los Angeles', country: 'USA' },
+  { code: 'SFO', name: 'San Francisco Intl', city: 'San Francisco', country: 'USA' },
+  { code: 'MIA', name: 'Miami Intl Airport', city: 'Miami', country: 'USA' },
+  { code: 'ATL', name: 'Hartsfield-Jackson Atlanta Intl', city: 'Atlanta', country: 'USA' },
+  { code: 'DFW', name: 'Dallas Fort Worth Intl', city: 'Dallas', country: 'USA' },
+  { code: 'IAH', name: 'George Bush Intercontinental', city: 'Houston', country: 'USA' },
+  { code: 'BOS', name: 'Logan Intl Airport', city: 'Boston', country: 'USA' },
+  { code: 'IAD', name: 'Dulles Intl Airport', city: 'Washington DC', country: 'USA' },
+  { code: 'DCA', name: 'Ronald Reagan Washington National', city: 'Washington DC', country: 'USA' },
+  { code: 'YYZ', name: 'Toronto Pearson Intl', city: 'Toronto', country: 'Canada' },
+  { code: 'YUL', name: 'Montréal-Trudeau Intl', city: 'Montreal', country: 'Canada' },
+  { code: 'YVR', name: 'Vancouver Intl Airport', city: 'Vancouver', country: 'Canada' },
+  { code: 'MEX', name: 'Mexico City Intl', city: 'Mexico City', country: 'Mexico' },
+  // Asia Pacific
+  { code: 'SIN', name: 'Singapore Changi Airport', city: 'Singapore', country: 'Singapore' },
+  { code: 'BKK', name: 'Suvarnabhumi Airport', city: 'Bangkok', country: 'Thailand' },
+  { code: 'KUL', name: 'Kuala Lumpur Intl', city: 'Kuala Lumpur', country: 'Malaysia' },
+  { code: 'HKG', name: 'Hong Kong Intl Airport', city: 'Hong Kong', country: 'Hong Kong' },
+  { code: 'NRT', name: 'Narita Intl Airport', city: 'Tokyo', country: 'Japan' },
+  { code: 'HND', name: 'Haneda Airport', city: 'Tokyo', country: 'Japan' },
+  { code: 'ICN', name: 'Incheon Intl Airport', city: 'Seoul', country: 'South Korea' },
+  { code: 'DEL', name: 'Indira Gandhi Intl Airport', city: 'New Delhi', country: 'India' },
+  { code: 'BOM', name: 'Chhatrapati Shivaji Intl', city: 'Mumbai', country: 'India' },
+  { code: 'SYD', name: 'Sydney Kingsford Smith Airport', city: 'Sydney', country: 'Australia' },
+  { code: 'MEL', name: 'Melbourne Airport', city: 'Melbourne', country: 'Australia' },
+  { code: 'PVG', name: 'Shanghai Pudong Intl', city: 'Shanghai', country: 'China' },
+  { code: 'PEK', name: 'Beijing Capital Intl', city: 'Beijing', country: 'China' },
+  { code: 'CGK', name: 'Soekarno-Hatta Intl', city: 'Jakarta', country: 'Indonesia' },
+  { code: 'MNL', name: 'Ninoy Aquino Intl', city: 'Manila', country: 'Philippines' },
+  { code: 'AKL', name: 'Auckland Airport', city: 'Auckland', country: 'New Zealand' },
+]
+
+function AirportInput({ value, onChange, label }: {
+  value: string; onChange: (code: string) => void; label: string
+}) {
+  const [query, setQuery] = useState(value)
+  const [open,  setOpen]  = useState(false)
+  const prevValue = useRef(value)
+
+  useEffect(() => {
+    if (value !== prevValue.current) { setQuery(value); prevValue.current = value }
+  }, [value])
+
+  const exact = AIRPORTS.find(a => a.code === query.toUpperCase())
+
+  const filtered = query.length >= 1
+    ? AIRPORTS.filter(a =>
+        a.code.startsWith(query.toUpperCase()) ||
+        a.city.toLowerCase().startsWith(query.toLowerCase()) ||
+        a.city.toLowerCase().includes(query.toLowerCase()) ||
+        a.name.toLowerCase().includes(query.toLowerCase()) ||
+        a.country.toLowerCase().startsWith(query.toLowerCase())
+      ).slice(0, 8)
+    : AIRPORTS.filter(a => ['LOS','ABV','LHR','DXB','LGW','JFK','CDG','AMS'].includes(a.code))
+
+  return (
+    <div className="relative flex-1">
+      <label className="block text-xs text-gray-500 mb-1">{label}</label>
+      <div className={`border rounded-lg px-3 py-2 focus-within:border-indigo-500 focus-within:ring-1 focus-within:ring-indigo-200 ${open ? 'border-indigo-400' : 'border-gray-300'}`}>
+        <input
+          value={query}
+          onChange={e => { setQuery(e.target.value); setOpen(true); if (!e.target.value) onChange('') }}
+          onFocus={() => setOpen(true)}
+          onBlur={() => setTimeout(() => setOpen(false), 180)}
+          placeholder="City or airport code…"
+          autoComplete="off"
+          className="w-full text-sm font-bold text-gray-900 outline-none bg-transparent placeholder-gray-400 leading-tight"
+        />
+        <div className="text-xs text-gray-400 mt-0.5 min-h-[16px]">
+          {exact ? `${exact.name} · ${exact.city}, ${exact.country}` : query.length >= 3 && !exact ? 'No match — try another code or city' : ''}
+        </div>
+      </div>
+      {open && filtered.length > 0 && (
+        <div className="absolute z-50 left-0 right-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-xl max-h-64 overflow-auto">
+          {filtered.map(a => (
+            <button key={a.code} onMouseDown={() => { onChange(a.code); setQuery(a.code); setOpen(false) }}
+              className="w-full text-left px-3 py-2.5 hover:bg-indigo-50 flex items-center gap-3 border-b border-gray-50 last:border-0">
+              <span className="font-mono font-bold text-indigo-600 text-sm w-10 shrink-0">{a.code}</span>
+              <div className="min-w-0">
+                <div className="text-sm text-gray-900 truncate">{a.name}</div>
+                <div className="text-xs text-gray-400">{a.city}, {a.country}</div>
+              </div>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  )
 }
 
 // ─── Step Indicator ───────────────────────────────────────────────────────────
@@ -838,27 +1018,11 @@ function SearchAddStep({
 
               {/* From / To with swap */}
               <div className="flex items-end gap-2 mb-3">
-                <div className="flex-1">
-                  <label className="block text-xs text-gray-500 mb-1">From</label>
-                  <div className="border border-gray-300 rounded-lg px-3 pt-2 pb-2 relative">
-                    <div className="text-base font-bold text-gray-900">{fFrom || 'YYZ'}</div>
-                    <input value={fFrom} onChange={e => setFFrom(e.target.value.toUpperCase())} maxLength={3}
-                      placeholder="Airport code" className="absolute inset-0 opacity-0 w-full h-full cursor-text" />
-                    <div className="text-xs text-gray-400">Toronto, Canada</div>
-                  </div>
-                </div>
-                <button onClick={swapAirports} className="mb-4 p-2 rounded-full border border-gray-300 hover:bg-gray-50 flex-shrink-0">
+                <AirportInput label="From" value={fFrom} onChange={setFFrom} />
+                <button onClick={swapAirports} className="mb-8 p-2 rounded-full border border-gray-300 hover:bg-gray-50 flex-shrink-0">
                   <ArrowLeftRight className="w-4 h-4 text-gray-500" />
                 </button>
-                <div className="flex-1">
-                  <label className="block text-xs text-gray-500 mb-1">To</label>
-                  <div className="border border-gray-300 rounded-lg px-3 pt-2 pb-2 relative">
-                    <div className="text-base font-bold text-gray-900">{fTo || 'LOS'}</div>
-                    <input value={fTo} onChange={e => setFTo(e.target.value.toUpperCase())} maxLength={3}
-                      placeholder="Airport code" className="absolute inset-0 opacity-0 w-full h-full cursor-text" />
-                    <div className="text-xs text-gray-400">Lagos, Nigeria</div>
-                  </div>
-                </div>
+                <AirportInput label="To" value={fTo} onChange={setFTo} />
               </div>
 
               {/* Dates */}
