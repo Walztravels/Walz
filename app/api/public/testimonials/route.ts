@@ -8,7 +8,7 @@ export async function GET() {
     const items = await prisma.testimonial.findMany({
       where:   { active: true },
       orderBy: { sortOrder: 'asc' },
-      select:  { id: true, name: true, role: true, body: true, rating: true, sortOrder: true },
+      select:  { id: true, name: true, location: true, trip: true, text: true, initials: true, rating: true, sortOrder: true },
     })
     return NextResponse.json({ items })
   } catch {
