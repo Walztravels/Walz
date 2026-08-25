@@ -1879,6 +1879,14 @@ model ActivityBooking {
   activity   Activity? @relation(fields: [activityId], references: [id])
   activityId String?
 
+  // Multi-supplier fields
+  supplier             String  @default("MANUAL")   // HOTELBEDS | VIATOR | MANUAL
+  supplierProductId    String?                        // supplier's own product/activity code
+  supplierReference    String?                        // supplier booking reference (HB ref, Viator bookingRef)
+  walzReference        String?                        // Walz-internal reference (e.g. WALZ-ACT-xxxx)
+  bookingSource        String  @default("CUSTOMER_WEB") // CUSTOMER_WEB | ADMIN | JADE | PHONE | WHATSAPP | MANUAL
+  bookedByStaffId      String?                        // staff member who created the booking (admin source only)
+
   clientName  String
   clientEmail String
   clientPhone String?
@@ -1889,8 +1897,14 @@ model ActivityBooking {
 
   date        DateTime?
   adults      Int       @default(1)
-  totalAmount Float?
-  currency    String    @default("GBP")
+  children    Int       @default(0)
+  infants     Int       @default(0)
+
+  // Pricing
+  supplierNetAmount Float?                            // supplier net cost (never exposed to public)
+  markupAmount      Float?
+  totalAmount       Float?
+  currency          String  @default("GBP")
 
   status          String  @default("ENQUIRY")
   paymentStatus   String  @default("UNPAID")
@@ -1901,6 +1915,9 @@ model ActivityBooking {
   convertedToLeadId String?
 
   @@index([activityId])
+  @@index([supplier])
+  @@index([supplierReference])
+  @@index([walzReference])
   @@index([status])
   @@index([stripeSessionId])
 }

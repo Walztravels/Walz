@@ -1,5 +1,5 @@
 import { NextResponse }         from 'next/server'
-import { getAdminSession }       from '@/lib/auth/admin-session'
+import { getAdminSession }       from '@/lib/admin-auth'
 import { viatorTestConnection }  from '@/lib/viator/client'
 
 export const dynamic = 'force-dynamic'

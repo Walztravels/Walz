@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import prisma from '@/lib/db'
 import { hotelbedsRequest } from '@/lib/hotelbeds'
 import { STATIC_ACTIVITIES } from '@/lib/activities-data'
+import { ViatorActivityProvider } from '@/lib/activities/providers/viator'
 
 // ── Destination name → Hotelbeds destination code ──────────────────────────
 const DEST_MAP: Record<string, string> = {
@@ -489,10 +490,65 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  // ── 3. Merge: DB first, then Hotelbeds live ───────────────────────────────
-  const combined = [...dbActivities, ...hotelbedsActivities]
+  // ── 3. Viator live results (feature-flagged) ─────────────────────────────
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let viatorActivities: any[] = []
+  const viatorEnabled =
+    process.env.VIATOR_ACTIVITIES_ENABLED === 'true' &&
+    process.env.VIATOR_CUSTOMER_SEARCH_ENABLED === 'true' &&
+    !!process.env.VIATOR_API_KEY &&
+    !!destination
 
-  // ── 4. Static fallback only when completely empty ─────────────────────────
+  if (viatorEnabled) {
+    try {
+      const provider = new ViatorActivityProvider()
+      const results = await provider.search({
+        destination,
+        dateFrom: dateFrom ?? undefined,
+        dateTo:   dateTo   ?? undefined,
+        adults:   1,
+        currency: 'GBP',
+      })
+      // Flatten to the legacy shape the existing frontend expects
+      // (id, slug, title, shortDesc, description, image, price, currency, duration, location,
+      //  category, badge, freeCancel, rating, source)
+      viatorActivities = results.map(a => ({
+        id:          a.id,
+        slug:        a.slug,
+        title:       a.title,
+        shortDesc:   a.shortDescription ?? '',
+        description: a.description ?? '',
+        image:       a.images?.[0]?.url ?? '',
+        price:       a.sellingPrice,
+        currency:    a.currency,
+        duration:    a.duration?.text ?? '',
+        location:    a.destination?.name ?? destination,
+        category:    a.categories?.[0] ?? 'adventure',
+        badge:       null,
+        freeCancel:  a.freeCancellation,
+        rating:      a.rating ?? null,
+        source:      'viator',
+      }))
+
+      // Deduplicate Viator vs HB results by normalised title
+      const hbTitles = new Set(
+        hotelbedsActivities.map((a: { title?: string; name?: string }) =>
+          (a.title ?? a.name ?? '').toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 60),
+        ),
+      )
+      viatorActivities = viatorActivities.filter(a => {
+        const t = a.title.toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 60)
+        return !hbTitles.has(t)
+      })
+    } catch (viatorErr) {
+      console.error('[Viator Activities] fetch error:', viatorErr instanceof Error ? viatorErr.message : viatorErr)
+    }
+  }
+
+  // ── 4. Merge: DB first, then Hotelbeds live, then Viator ─────────────────
+  const combined = [...dbActivities, ...hotelbedsActivities, ...viatorActivities]
+
+  // ── 5. Static fallback only when completely empty ─────────────────────────
   if (combined.length === 0) {
     const lower   = search.toLowerCase()
     const statics = lower
