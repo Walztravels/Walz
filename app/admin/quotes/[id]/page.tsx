@@ -76,10 +76,10 @@ interface QuoteVersion {
 
 interface QuoteActivity {
   id: string
-  action: string
-  actorName?: string
-  actorEmail?: string
-  note?: string
+  eventType: string
+  actor: string       // staff email or "client"
+  actorType: string
+  detail?: string | null
   createdAt: string
 }
 
@@ -754,17 +754,17 @@ export default function QuoteDetailPage() {
                   {quote.activity.map(ev => (
                     <div key={ev.id} className="flex gap-3 relative pl-9">
                       <div className="absolute left-0 w-8 h-8 rounded-full bg-gray-50 border border-gray-200 flex items-center justify-center text-sm shrink-0">
-                        {ACTIVITY_ICONS[ev.action] ?? '•'}
+                        {ACTIVITY_ICONS[ev.eventType] ?? '•'}
                       </div>
                       <div className="min-w-0 flex-1 pt-0.5">
                         <p className="text-sm text-gray-800">
-                          <span className="font-semibold capitalize">{ev.action.replace(/_/g, ' ')}</span>
-                          {ev.actorName && (
-                            <span className="text-gray-500"> by {ev.actorName}</span>
+                          <span className="font-semibold capitalize">{ev.eventType.replace(/_/g, ' ')}</span>
+                          {ev.actor && (
+                            <span className="text-gray-500"> by {ev.actor}</span>
                           )}
                         </p>
-                        {ev.note && (
-                          <p className="text-xs text-gray-500 mt-0.5">{ev.note}</p>
+                        {ev.detail && (
+                          <p className="text-xs text-gray-500 mt-0.5">{ev.detail}</p>
                         )}
                         <p className="text-xs text-gray-400 mt-0.5">{fmtDateTime(ev.createdAt)}</p>
                       </div>
