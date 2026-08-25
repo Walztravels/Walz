@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useCallback } from 'react'
+import { useState, useCallback, Suspense } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
 import { Plane, Hotel, Activity, Car, Plus, RefreshCw, ChevronDown, ChevronUp,
          Star, Clock, Luggage, AlertCircle, Check, ShoppingCart, X, Loader2 } from 'lucide-react'
@@ -422,6 +422,14 @@ function TransferCard({ offer, onAdd }: { offer: NormalizedTransferOffer; onAdd:
 // ─── Main page ────────────────────────────────────────────────────────────────
 
 export default function TravelSearchPage() {
+  return (
+    <Suspense fallback={<div className="p-8 text-gray-400 text-sm">Loading…</div>}>
+      <TravelSearchInner />
+    </Suspense>
+  )
+}
+
+function TravelSearchInner() {
   const params  = useSearchParams()
   const router  = useRouter()
   const quoteId = params.get('quoteId')
