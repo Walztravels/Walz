@@ -1880,12 +1880,12 @@ model ActivityBooking {
   activityId String?
 
   // Multi-supplier fields
-  supplier             String  @default("MANUAL")   // HOTELBEDS | VIATOR | MANUAL
-  supplierProductId    String?                        // supplier's own product/activity code
-  supplierReference    String?                        // supplier booking reference (HB ref, Viator bookingRef)
-  walzReference        String?                        // Walz-internal reference (e.g. WALZ-ACT-xxxx)
-  bookingSource        String  @default("CUSTOMER_WEB") // CUSTOMER_WEB | ADMIN | JADE | PHONE | WHATSAPP | MANUAL
-  bookedByStaffId      String?                        // staff member who created the booking (admin source only)
+  supplier             String  @default("MANUAL")      // HOTELBEDS | VIATOR | MANUAL
+  supplierProductId    String?
+  supplierReference    String?
+  walzReference        String?
+  bookingSource        String  @default("CUSTOMER_WEB")
+  bookedByStaffId      String?
 
   clientName  String
   clientEmail String
@@ -1901,18 +1901,34 @@ model ActivityBooking {
   infants     Int       @default(0)
 
   // Pricing
-  supplierNetAmount Float?                            // supplier net cost (never exposed to public)
+  supplierNetAmount Float?
   markupAmount      Float?
   totalAmount       Float?
   currency          String  @default("GBP")
 
-  status          String  @default("ENQUIRY")
-  paymentStatus   String  @default("UNPAID")
-  paymentRef      String?
-  stripeSessionId String?
-  notes           String?
+  // Booking lifecycle
+  status                  String    @default("ENQUIRY")
+  paymentStatus           String    @default("UNPAID")
+  paymentRef              String?
+  stripeSessionId         String?
+  cartItemId              String?   // stable per-line ID within a Stripe session (typically the cart index)
+  failureReason           String?   // SOLD_OUT | TIMEOUT | REJECTED | PRICE_CHANGE | UNKNOWN
 
+  // Timestamps for idempotency and stale detection
+  supplierConfirmingAt    DateTime? // when SUPPLIER_CONFIRMING was set
+  supplierConfirmedAt     DateTime? // when Viator confirmed
+  paymentReceiptSentAt    DateTime? // email idempotency
+  confirmationEmailSentAt DateTime? // email idempotency
+  failureAlertSentAt      DateTime? // email idempotency
+
+  // Reconciliation
+  reconciliationAttempts  Int       @default(0)
+  lastReconciledAt        DateTime?
+
+  notes             String?
   convertedToLeadId String?
+
+  attempts ActivityBookingAttempt[]
 
   @@index([activityId])
   @@index([supplier])
@@ -1920,6 +1936,38 @@ model ActivityBooking {
   @@index([walzReference])
   @@index([status])
   @@index([stripeSessionId])
+  @@index([status, supplierConfirmingAt])
+}
+
+// Durable log of every supplier API call for audit and reconciliation
+model ActivityBookingAttempt {
+  id        String   @id @default(cuid())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  activityBookingId String
+  activityBooking   ActivityBooking @relation(fields: [activityBookingId], references: [id])
+
+  supplier String
+  action   String @default("BOOK")   // BOOK | LOOKUP | CANCEL
+
+  status String @default("CREATED")  // CREATED | IN_PROGRESS | SUCCEEDED | FAILED | UNKNOWN
+
+  partnerBookingReference  String?  // walzRef passed to Viator as partnerOrderId
+  supplierBookingReference String?  // Viator bookingRef returned
+  supplierRequestId        String?
+
+  startedAt   DateTime
+  completedAt DateTime?
+
+  lastErrorCode    String?
+  lastErrorMessage String?
+
+  attemptNumber Int @default(1)
+
+  @@index([activityBookingId])
+  @@index([partnerBookingReference])
+  @@index([supplierBookingReference])
 }
 
 model Supplier {

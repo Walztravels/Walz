@@ -7,6 +7,7 @@ import { getSupabaseAdmin }    from '@/lib/supabase'
 import { getConfig }           from '@/lib/concierge/suppliers/comfortpass/config'
 import { ComfortPassAdapter }  from '@/lib/concierge/suppliers/comfortpass/adapter'
 import type { CPPassenger }    from '@/lib/concierge/suppliers/comfortpass/types'
+import { bookCartActivities, parseCartItems } from '@/lib/activities/booking'
 
 
 // ── Concierge airport service — post-payment booking dispatch ─────────────────
@@ -216,7 +217,7 @@ export async function POST(request: NextRequest) {
           await handleConciergeAirportPayment(session)
         }
 
-        // Activity booking
+        // Activity booking — legacy single-item path (old metadata.type flag)
         if (session.metadata?.type === 'activity_booking') {
           await prisma.activityBooking.create({
             data: {
@@ -229,11 +230,35 @@ export async function POST(request: NextRequest) {
               totalAmount:     (session.amount_total ?? 0) / 100,
               currency:        session.currency?.toUpperCase() ?? 'GBP',
               stripeSessionId: session.id,
-              status:          'confirmed',
+              status:          'CONFIRMED',
               paymentStatus:   'PAID',
             },
           })
         }
+
+        // Cart activity booking — new multi-item path (item_count in metadata)
+        // Calls supplier APIs and manages full booking lifecycle.
+        // This is the authoritative trusted trigger; the browser redirect is read-only.
+        if (session.metadata?.item_count) {
+          const items  = parseCartItems(session.metadata)
+          const hasActivity = items.some(i => i.t === 'activity')
+
+          if (hasActivity) {
+            const holder = {
+              name:  session.customer_details?.name  ?? 'Valued Customer',
+              email: session.customer_details?.email ?? session.customer_email ?? '',
+              phone: session.customer_details?.phone ?? undefined,
+            }
+            const total    = (session.amount_total ?? 0) / 100
+            const currency = (session.currency ?? 'GBP').toUpperCase()
+
+            // Run supplier booking within the webhook. bookCartActivities is idempotent.
+            // Webhook must return 200 in ≤30s — supplier calls have their own 25s timeout.
+            await bookCartActivities(items, holder, session.id, total, currency)
+              .catch(err => console.error('[Stripe Webhook] Cart activity booking error:', err))
+          }
+        }
+
         break
       }
 

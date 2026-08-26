@@ -6,6 +6,7 @@
     "www.walztravels.us"
   ],
   "functions": {
+    "app/api/cron/activity-reconciliation/route.ts": { "maxDuration": 60 },
     "app/api/public/group/[param]/lock/route.ts": {
       "maxDuration": 120
     },
@@ -101,6 +102,10 @@
     {
       "path": "/api/admin/orbit/cron/auto-audit",
       "schedule": "0 2 * * 1"
+    },
+    {
+      "path": "/api/cron/activity-reconciliation",
+      "schedule": "*/5 * * * *"
     }
   ]
 }

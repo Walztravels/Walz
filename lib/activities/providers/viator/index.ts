@@ -181,17 +181,42 @@ export class ViatorActivityProvider implements ActivityProvider {
   }
 
   async getBooking(supplierReference: string): Promise<ActivityBookingResult> {
-    const { data } = await viatorPost<{
+    // Viator Partner API v2: GET /bookings/{bookingRef}
+    const { status, data } = await viatorGet<{
       bookingRef?: string
       status?: string
       voucherKey?: string
-    }>(`/bookings/${supplierReference}`, {})
+      message?: string
+    }>(`/bookings/${encodeURIComponent(supplierReference)}`)
 
     return {
-      success: !!(data.bookingRef),
+      success:           status === 200 && !!(data.bookingRef),
       walzReference:     '',
       supplierReference: data.bookingRef,
       status:            data.status === 'CONFIRMED' ? 'CONFIRMED' : 'PENDING',
+    }
+  }
+
+  // Look up a booking by the walzReference (partnerOrderId) we passed at booking time.
+  // Viator Partner API v2: GET /bookings?partnerOrderId={ref}
+  // Returns null if not found or if the API doesn't support this query.
+  async getBookingByPartnerRef(walzReference: string): Promise<ActivityBookingResult | null> {
+    try {
+      const { status, data } = await viatorGet<{
+        bookings?: Array<{ bookingRef?: string; status?: string }>
+        message?: string
+      }>(`/bookings?partnerOrderId=${encodeURIComponent(walzReference)}`)
+
+      if (status !== 200 || !data.bookings?.length) return null
+      const found = data.bookings[0]
+      return {
+        success:           !!(found.bookingRef),
+        walzReference,
+        supplierReference: found.bookingRef,
+        status:            found.status === 'CONFIRMED' ? 'CONFIRMED' : 'PENDING',
+      }
+    } catch {
+      return null
     }
   }
 

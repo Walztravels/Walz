@@ -34,6 +34,8 @@ function fmt(currency: string, amount: number) {
 interface ViatorLivePricing {
   available: boolean
   reason?: string
+  productCode?: string
+  productOptionCode?: string
   totalSellingPrice?: number
   breakdown?: Array<{ ageBand: string; count: number; unitSellingPrice: number; subtotal: number }>
   startTimes?: string[]
@@ -145,10 +147,16 @@ export default function ActivityDetailClient({ activity }: { activity: any }) {
       currency: displayCurrency,
       quantity: 1,
       meta: Object.fromEntries(Object.entries({
-        location: activity.location ?? '',
-        duration: activity.duration ?? '',
-        date:     date || '',
-        supplier: activity.supplier ?? activity.source ?? '',
+        location:          activity.location ?? '',
+        duration:          activity.duration ?? '',
+        date,
+        supplier:          activity.supplier ?? activity.source ?? '',
+        productCode:       activity.supplierProductId ?? '',
+        productOptionCode: livePricing?.productOptionCode ?? viatorPricing?.productOptionCode ?? '',
+        adults:            String(adults),
+        children:          String(children),
+        infants:           String(infants),
+        startTime:         livePricing?.startTimes?.[0] ?? '',
       }).filter(([, v]) => v !== '')) as Record<string, string>,
     })
     setAdded(true)
