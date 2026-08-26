@@ -41,22 +41,23 @@ function PassengerDropdown({ value, onChange, onClose }: { value: PassengerCount
     onChange(next)
   }
   return (
-    <div className="absolute left-0 right-0 top-full mt-1 bg-white rounded-xl shadow-xl border border-black/5 z-50 p-4">
+    <div className="absolute right-0 top-full mt-2 w-72 bg-white rounded-2xl shadow-xl border border-black/5 z-50 p-4">
       {([['adults', 'Adults', '12+ years'], ['children', 'Children', '2–11 years'], ['infants', 'Infants', 'Under 2']] as const).map(([key, label, sub]) => (
         <div key={key} className="flex items-center justify-between py-3 border-b border-black/5 last:border-0">
           <div>
-            <p className="text-sm font-medium text-[#0B1F3A]">{label}</p>
+            <p className="text-sm font-semibold text-[#0B1F3A]">{label}</p>
             <p className="text-xs text-[#0B1F3A]/40">{sub}</p>
           </div>
           <div className="flex items-center gap-3">
             <button type="button" onClick={() => adjust(key, -1)}
               disabled={value[key] <= (key === 'adults' ? 1 : 0)}
-              className="w-11 h-11 rounded-full border border-[#0B1F3A]/10 flex items-center justify-center text-[#0B1F3A]/60 hover:border-[#C9A84C] hover:text-[#C9A84C] transition-all disabled:opacity-30 disabled:cursor-not-allowed">
+              className="w-9 h-9 rounded-full border-2 border-[#0B1F3A]/15 flex items-center justify-center text-lg font-light text-[#0B1F3A] hover:border-[#C9A84C] hover:text-[#C9A84C] transition-all disabled:opacity-25 disabled:cursor-not-allowed disabled:hover:border-[#0B1F3A]/15 disabled:hover:text-[#0B1F3A]">
               −
             </button>
-            <span className="w-5 text-center text-sm font-semibold text-[#0B1F3A]">{value[key]}</span>
+            <span className="w-6 text-center text-base font-bold text-[#0B1F3A] tabular-nums">{value[key]}</span>
             <button type="button" onClick={() => adjust(key, 1)}
-              className="w-11 h-11 rounded-full border border-[#0B1F3A]/10 flex items-center justify-center text-[#0B1F3A]/60 hover:border-[#C9A84C] hover:text-[#C9A84C] transition-all">
+              disabled={value[key] + (key === 'adults' ? value.children + value.infants : key === 'children' ? value.adults + value.infants : value.adults + value.children) >= 9}
+              className="w-9 h-9 rounded-full border-2 border-[#0B1F3A]/15 flex items-center justify-center text-lg font-light text-[#0B1F3A] hover:border-[#C9A84C] hover:text-[#C9A84C] transition-all disabled:opacity-25 disabled:cursor-not-allowed disabled:hover:border-[#0B1F3A]/15 disabled:hover:text-[#0B1F3A]">
               +
             </button>
           </div>
