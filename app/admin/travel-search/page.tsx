@@ -356,6 +356,7 @@ function HotelCard({
 // ─── Activity card ────────────────────────────────────────────────────────────
 
 function ActivityCard({ offer, onAdd }: { offer: NormalizedActivityOffer; onAdd: (o: NormalizedActivityOffer) => void }) {
+  const providerLabel = offer.provider === 'viator' ? 'Viator' : 'Hotelbeds'
   return (
     <div className="border border-gray-200 rounded-xl overflow-hidden bg-white hover:shadow-md transition-shadow flex">
       {offer.imageUrl && (
@@ -365,7 +366,16 @@ function ActivityCard({ offer, onAdd }: { offer: NormalizedActivityOffer; onAdd:
         <div className="flex items-start justify-between gap-2">
           <div>
             <div className="font-semibold text-gray-900 text-sm">{offer.name}</div>
-            <div className="text-xs text-gray-400">{offer.providerModalityName}</div>
+            <div className="flex items-center gap-2 mt-0.5">
+              <span className={`text-xs px-1.5 py-0.5 rounded font-medium ${
+                offer.provider === 'viator'
+                  ? 'bg-emerald-50 text-emerald-700'
+                  : 'bg-blue-50 text-blue-700'
+              }`}>{providerLabel}</span>
+              {offer.providerModalityName && (
+                <span className="text-xs text-gray-400">{offer.providerModalityName}</span>
+              )}
+            </div>
             {offer.duration && (
               <div className="flex items-center gap-1 text-xs text-gray-500 mt-1">
                 <Clock className="w-3 h-3" />{offer.duration}
@@ -374,7 +384,7 @@ function ActivityCard({ offer, onAdd }: { offer: NormalizedActivityOffer; onAdd:
           </div>
           <div className="text-right shrink-0">
             <div className="font-mono font-bold text-gray-900">{fmt(offer.supplierAmountMinor, offer.supplierCurrency)}</div>
-            <div className="text-xs text-gray-400">supplier</div>
+            <div className="text-xs text-gray-400">from</div>
           </div>
         </div>
         {offer.description && (
@@ -472,9 +482,10 @@ function TravelSearchInner() {
   const [hRooms,   setHRooms]   = useState(1)
 
   // Activity form
-  const [aCode, setACode] = useState('')
-  const [aFrom, setAFrom] = useState('')
-  const [aTo,   setATo]   = useState('')
+  const [aCode,   setACode]   = useState('')
+  const [aFrom,   setAFrom]   = useState('')
+  const [aTo,     setATo]     = useState('')
+  const [aAdults, setAAdults] = useState(2)
 
   // Transfer form
   const [tPickupType,  setTPickupType]  = useState('IATA')
@@ -523,11 +534,10 @@ function TravelSearchInner() {
   const searchActivities = useCallback(async () => {
     setLoading(true); setError(null)
     try {
-      const res = await fetch('/api/admin/travel-search/activities', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ destinationCode: aCode, from: aFrom, to: aTo }),
-      })
+      const qs = new URLSearchParams({ destination: aCode, adults: String(aAdults) })
+      if (aFrom) qs.set('dateFrom', aFrom)
+      if (aTo)   qs.set('dateTo',   aTo)
+      const res = await fetch(`/api/admin/travel-search/activities?${qs}`)
       const data = await res.json()
       if (!res.ok) throw new Error(data.error ?? 'Search failed')
       setActivityResults(data.offers ?? [])
@@ -536,7 +546,7 @@ function TravelSearchInner() {
     } finally {
       setLoading(false)
     }
-  }, [aCode, aFrom, aTo])
+  }, [aCode, aFrom, aTo, aAdults])
 
   const searchTransfers = useCallback(async () => {
     setLoading(true); setError(null)
@@ -818,9 +828,9 @@ function TravelSearchInner() {
             <div className="bg-white rounded-2xl border border-gray-200 p-5 mb-6">
               <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                 <div>
-                  <label className="block text-xs text-gray-500 mb-1">Destination Code</label>
-                  <input value={aCode} onChange={e => setACode(e.target.value.toUpperCase())} placeholder="PMI"
-                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm font-mono uppercase" />
+                  <label className="block text-xs text-gray-500 mb-1">Destination</label>
+                  <input value={aCode} onChange={e => setACode(e.target.value)} placeholder="Dubai"
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
                 </div>
                 <div>
                   <label className="block text-xs text-gray-500 mb-1">From Date</label>
@@ -832,9 +842,14 @@ function TravelSearchInner() {
                   <input type="date" value={aTo} onChange={e => setATo(e.target.value)}
                     className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
                 </div>
-                <div className="flex items-end">
+                <div>
+                  <label className="block text-xs text-gray-500 mb-1">Adults</label>
+                  <input type="number" min={1} max={20} value={aAdults} onChange={e => setAAdults(Number(e.target.value))}
+                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm" />
+                </div>
+                <div className="flex items-end col-span-2 md:col-span-4">
                   <button onClick={searchActivities} disabled={loading}
-                    className="w-full bg-indigo-600 text-white py-2 rounded-lg text-sm font-medium hover:bg-indigo-700 disabled:opacity-50 flex items-center justify-center gap-2">
+                    className="bg-indigo-600 text-white px-6 py-2 rounded-lg text-sm font-medium hover:bg-indigo-700 disabled:opacity-50 flex items-center justify-center gap-2">
                     {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
                     Search
                   </button>

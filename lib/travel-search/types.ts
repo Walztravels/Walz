@@ -122,7 +122,7 @@ export interface NormalizedHotelOffer {
 }
 
 export interface NormalizedActivityOffer {
-  provider:              'hotelbeds'
+  provider:              'hotelbeds' | 'viator'
   providerCode:          string
   providerModalityCode:  string
   providerModalityName:  string

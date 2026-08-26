@@ -373,12 +373,12 @@ async function getActivityData(slug: string) {
   const staticAct = getActivityBySlug(slug)
   if (staticAct) return staticAct
 
-  // 3. Live Viator — slug is "viator-{productCode}" e.g. "viator-26601p72"
+  // 3. Live Viator — slug is "viator-{productCode.toLowerCase().replace(/[^a-z0-9]+/g, '-')}"
+  // e.g. "viator-26601p72" → "26601P72", "viator-br-6503" → "BR-6503"
+  // Uppercase only (preserve dashes) — stripping dashes was lossy for codes like BR-6503
   if (slug.startsWith('viator-')) {
-    // Reconstruct productCode: strip prefix, uppercase, restore dash before digits after letters
-    // "viator-26601p72" → "26601P72"
     const raw  = slug.replace(/^viator-/, '')
-    const code = raw.replace(/-/g, '').toUpperCase()
+    const code = raw.toUpperCase()
     return resolveViatorActivity(code)
   }
 

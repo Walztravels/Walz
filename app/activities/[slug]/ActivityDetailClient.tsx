@@ -2,11 +2,11 @@
 
 import Image                         from 'next/image'
 import Link                          from 'next/link'
-import { useState, useCallback, useRef } from 'react'
+import { useState, useCallback, useRef, useEffect } from 'react'
 import { useCart }                   from '@/lib/context/CartContext'
 import { useRouter }                 from 'next/navigation'
 import {
-  ArrowLeft, Clock, MapPin, Star, Check, X,
+  ArrowLeft, ChevronLeft, ChevronRight, Clock, MapPin, Star, Check, X,
   ShoppingCart, Loader2, MessageCircle, Users, Calendar, AlertCircle,
 } from 'lucide-react'
 
@@ -63,8 +63,20 @@ export default function ActivityDetailClient({ activity }: { activity: any }) {
   const [priceWarning, setPriceWarning] = useState<string | null>(null)
   const prevPriceRef                    = useRef<number | null>(null)
   const debounceRef                     = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const [lightboxOpen, setLightboxOpen]   = useState(false)
+  const [lightboxIndex, setLightboxIndex] = useState(0)
 
   const heroImage      = resolveHeroImage(activity)
+  const galleryImages: Array<{ url: string }> = (
+    Array.isArray(activity.images)
+      ? (activity.images as Array<{ url?: string }>)
+      : []
+  ).filter(img => img?.url?.startsWith('https')).map(img => ({ url: img.url as string }))
+
+  function openLightbox(idx: number) { setLightboxIndex(idx); setLightboxOpen(true) }
+  function closeLightbox()            { setLightboxOpen(false) }
+  function prevImage()                { setLightboxIndex(i => (i - 1 + galleryImages.length) % galleryImages.length) }
+  function nextImage()                { setLightboxIndex(i => (i + 1) % galleryImages.length) }
   const isViator       = activity.source === 'viator'
   const viatorPricing: ViatorBasePricing | null = activity.viatorPricing ?? null
   const displayCurrency = livePricing?.currency ?? activity.currency ?? 'GBP'
@@ -115,6 +127,18 @@ export default function ActivityDetailClient({ activity }: { activity: any }) {
       }
     }, 400)
   }, [isViator, activity.supplierProductId, viatorPricing?.currency, displayCurrency])
+
+  useEffect(() => {
+    if (!lightboxOpen) return
+    const len = galleryImages.length
+    function onKey(e: KeyboardEvent) {
+      if (e.key === 'Escape')     { setLightboxOpen(false); return }
+      if (e.key === 'ArrowLeft')  setLightboxIndex(i => (i - 1 + len) % len)
+      if (e.key === 'ArrowRight') setLightboxIndex(i => (i + 1) % len)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [lightboxOpen, galleryImages.length])
 
   function handleDateChange(newDate: string) {
     setDate(newDate)
@@ -203,6 +227,68 @@ export default function ActivityDetailClient({ activity }: { activity: any }) {
           </h1>
         </div>
       </div>
+
+      {/* Image Gallery — only when 2+ valid images */}
+      {galleryImages.length >= 2 && (
+        <div className="max-w-5xl mx-auto px-4 md:px-6 mt-2">
+
+          {/* Desktop: Airbnb-style grid — first image large (2×2), up to 4 smaller alongside */}
+          <div className="hidden md:grid grid-cols-4 gap-2 h-[320px] overflow-hidden rounded-2xl">
+            <button
+              className="col-span-2 row-span-2 relative focus:outline-none focus:ring-2
+                focus:ring-[#C9A84C] overflow-hidden"
+              onClick={() => openLightbox(0)}
+              aria-label="View image 1"
+            >
+              <Image
+                src={galleryImages[0].url} alt="" fill
+                className="object-cover hover:scale-105 transition-transform duration-500"
+                sizes="50vw"
+              />
+            </button>
+            {galleryImages.slice(1, 5).map((img, i) => (
+              <button
+                key={i}
+                className="relative focus:outline-none focus:ring-2 focus:ring-[#C9A84C] overflow-hidden"
+                onClick={() => openLightbox(i + 1)}
+                aria-label={`View image ${i + 2}`}
+              >
+                <Image
+                  src={img.url} alt="" fill
+                  className="object-cover hover:scale-105 transition-transform duration-500"
+                  sizes="25vw"
+                />
+                {i === 3 && galleryImages.length > 5 && (
+                  <div className="absolute inset-0 bg-black/60 flex items-center
+                    justify-center pointer-events-none">
+                    <span className="text-white font-semibold text-sm">
+                      +{galleryImages.length - 5} more
+                    </span>
+                  </div>
+                )}
+              </button>
+            ))}
+          </div>
+
+          {/* Mobile: horizontal swipeable row */}
+          <div
+            className="md:hidden flex gap-3 overflow-x-auto pb-3"
+            style={{ scrollbarWidth: 'none' }}
+          >
+            {galleryImages.slice(0, 6).map((img, i) => (
+              <button
+                key={i}
+                className="flex-shrink-0 w-64 h-44 relative rounded-2xl overflow-hidden
+                  focus:outline-none focus:ring-2 focus:ring-[#C9A84C]"
+                onClick={() => openLightbox(i)}
+                aria-label={`View image ${i + 1}`}
+              >
+                <Image src={img.url} alt="" fill className="object-cover" sizes="256px" />
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
 
       <div className="max-w-5xl mx-auto px-4 md:px-6 py-8">
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
@@ -450,6 +536,76 @@ export default function ActivityDetailClient({ activity }: { activity: any }) {
 
         </div>
       </div>
+
+      {/* Lightbox — full-screen modal with keyboard navigation */}
+      {lightboxOpen && galleryImages.length > 0 && (
+        <div
+          className="fixed inset-0 z-50 bg-black/95 flex items-center justify-center"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Image gallery lightbox"
+        >
+          {/* Close button — receives autoFocus for focus trapping */}
+          <button
+            className="absolute top-5 right-5 bg-white/10 hover:bg-white/20 text-white
+              rounded-full p-2.5 transition-colors focus:outline-none focus:ring-2
+              focus:ring-[#C9A84C] z-10"
+            onClick={closeLightbox}
+            aria-label="Close gallery"
+            // eslint-disable-next-line jsx-a11y/no-autofocus
+            autoFocus
+          >
+            <X className="w-5 h-5" />
+          </button>
+
+          {/* Counter */}
+          <div className="absolute top-5 left-1/2 -translate-x-1/2 text-white/60
+            text-sm select-none pointer-events-none">
+            {lightboxIndex + 1} / {galleryImages.length}
+          </div>
+
+          {/* Previous */}
+          {galleryImages.length > 1 && (
+            <button
+              className="absolute left-4 top-1/2 -translate-y-1/2 bg-white/10
+                hover:bg-white/20 text-white rounded-full p-3 transition-colors
+                focus:outline-none focus:ring-2 focus:ring-[#C9A84C] z-10"
+              onClick={prevImage}
+              aria-label="Previous image"
+            >
+              <ChevronLeft className="w-6 h-6" />
+            </button>
+          )}
+
+          {/* Current image */}
+          <div className="w-full h-full flex items-center justify-center px-20 py-16">
+            <div className="relative w-full h-full max-w-5xl">
+              {galleryImages[lightboxIndex] && (
+                <Image
+                  src={galleryImages[lightboxIndex].url}
+                  alt={`Gallery image ${lightboxIndex + 1}`}
+                  fill
+                  className="object-contain"
+                  sizes="100vw"
+                />
+              )}
+            </div>
+          </div>
+
+          {/* Next */}
+          {galleryImages.length > 1 && (
+            <button
+              className="absolute right-4 top-1/2 -translate-y-1/2 bg-white/10
+                hover:bg-white/20 text-white rounded-full p-3 transition-colors
+                focus:outline-none focus:ring-2 focus:ring-[#C9A84C] z-10"
+              onClick={nextImage}
+              aria-label="Next image"
+            >
+              <ChevronRight className="w-6 h-6" />
+            </button>
+          )}
+        </div>
+      )}
     </div>
   )
 }

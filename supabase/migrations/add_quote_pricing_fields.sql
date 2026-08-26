@@ -1,0 +1,5 @@
+-- Run this in Supabase SQL editor
+ALTER TABLE quotes
+  ADD COLUMN IF NOT EXISTS markup_minor BIGINT NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS service_charge_minor BIGINT NOT NULL DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS discount_minor BIGINT NOT NULL DEFAULT 0;

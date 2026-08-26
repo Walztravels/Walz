@@ -211,9 +211,17 @@ export async function POST(req: NextRequest) {
       ? (activityOffer?.name ?? 'Activity')
       : (transferOffer?.name ?? 'Transfer')
 
+    // Derive supplier from provider field — never hardcode Hotelbeds for Viator activities
+    const supplierName = isActivity
+      ? (activityOffer?.provider === 'viator' ? 'Viator' : 'Hotelbeds')
+      : 'Hotelbeds'
+
+    // Guard against undefined providerCode/providerModalityCode producing "undefined/undefined"
     const supplierRef = isActivity
-      ? `${activityOffer?.providerCode}/${activityOffer?.providerModalityCode}`
-      : transferOffer?.providerRateKey
+      ? (activityOffer?.providerCode && activityOffer?.providerModalityCode
+          ? `${activityOffer.providerCode}/${activityOffer.providerModalityCode}`
+          : (activityOffer?.providerCode ?? null))
+      : (transferOffer?.providerRateKey ?? null)
 
     const item = await prisma.quoteItem.create({
       data: {
@@ -221,8 +229,8 @@ export async function POST(req: NextRequest) {
         type:              payload.type,
         title,
         sourceType:        'live_search',
-        supplier:          'Hotelbeds',
-        supplierRef:       supplierRef ?? null,
+        supplier:          supplierName,
+        supplierRef:       supplierRef,
         costMinor:         BigInt(costMinor),
         markupMinor:       BigInt(markupMinor),
         serviceFeeMinor:   BigInt(serviceFeeMinor),
@@ -230,7 +238,9 @@ export async function POST(req: NextRequest) {
         currency,
         clientNote:        clientNote ?? null,
         internalNote:      internalNote ?? null,
-        metadata:          JSON.parse(JSON.stringify(offer)),
+        // bigintToNumber removes BigInt values that JSON.stringify can't handle
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        metadata:          bigintToNumber(offer) as any,
       },
     })
 
@@ -243,10 +253,24 @@ export async function POST(req: NextRequest) {
 }
 
 async function updateQuoteTotals(quoteId: string) {
-  const items = await prisma.quoteItem.findMany({ where: { quoteId } })
+  const [items, quote] = await Promise.all([
+    prisma.quoteItem.findMany({ where: { quoteId } }),
+    (prisma.quote as any).findUnique({ where: { id: quoteId }, select: { markupMinor: true, serviceChargeMinor: true, discountMinor: true } }),
+  ])
+  if (!quote) return
+  const { calculateProposalPricing } = await import('@/lib/pricing/proposal-pricing')
   const subtotalMinor = items.reduce((s, i) => s + i.sellingPriceMinor, BigInt(0))
+  const result = calculateProposalPricing({
+    subtotalMinor,
+    markupMinor:        (quote as any).markupMinor ?? BigInt(0),
+    serviceChargeMinor: (quote as any).serviceChargeMinor ?? BigInt(0),
+    discountMinor:      (quote as any).discountMinor ?? BigInt(0),
+  })
   await prisma.quote.update({
     where: { id: quoteId },
-    data:  { subtotalMinor, totalMinor: subtotalMinor },
+    data: {
+      subtotalMinor: result.subtotalMinor,
+      totalMinor:    result.totalMinor,
+    },
   })
 }

@@ -4214,6 +4214,9 @@ model Quote {
 
   subtotalMinor           BigInt    @default(0) @map("subtotal_minor")
   totalMinor              BigInt    @default(0) @map("total_minor")
+  markupMinor             BigInt    @default(0) @map("markup_minor")
+  serviceChargeMinor      BigInt    @default(0) @map("service_charge_minor")
+  discountMinor           BigInt    @default(0) @map("discount_minor")
 
   internalNotes           String?   @db.Text @map("internal_notes")
 

@@ -161,7 +161,9 @@ export async function middleware(req: NextRequest) {
   if (pathname === '/login') {
     const token = await getToken(jwtOpts)
     if (token) {
-      const callbackUrl = req.nextUrl.searchParams.get('callbackUrl') || '/dashboard'
+      const raw = req.nextUrl.searchParams.get('callbackUrl') || ''
+      // Only allow relative paths — prevents open-redirect via protocol-relative or absolute URLs
+      const callbackUrl = raw.startsWith('/') && !raw.startsWith('//') ? raw : '/dashboard'
       return NextResponse.redirect(new URL(callbackUrl, req.url))
     }
   }

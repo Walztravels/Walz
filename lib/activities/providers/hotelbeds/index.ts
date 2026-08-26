@@ -109,50 +109,64 @@ function mapHBCategory(codes: any[]): string {
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-function extractHBImage(item: any): string {
+function extractHBImages(item: any): string[] {
+  const seen = new Set<string>()
+  const add = (url: string | undefined | null) => {
+    if (url?.startsWith('https')) seen.add(url)
+  }
+
+  // item.media?.images or item.images — array of { urls: [{ sizeType, resource }], url? }
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const imgList: any[] = item.media?.images ?? item.images ?? []
-
   for (const img of imgList) {
     const urlArr = Array.isArray(img.urls) ? img.urls : []
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const pick = urlArr.find((u: any) => u.sizeType === 'LARGE' || u.sizeType === 'LARGE2') ?? urlArr[0]
-    const resource = (pick as { resource?: string })?.resource
-    if (resource?.startsWith('http')) return resource
-    if ((img as { url?: string }).url?.startsWith('http')) return (img as { url: string }).url
+    for (const u of urlArr) {
+      add((u as { resource?: string }).resource)
+    }
+    add((img as { url?: string }).url)
   }
 
-  const mediaArr: { url?: string; resource?: string }[] = Array.isArray(item.media) ? item.media : []
-  for (const m of mediaArr) {
-    if (m.url?.startsWith('http'))      return m.url
-    if (m.resource?.startsWith('http')) return m.resource
+  // item.pictureList — [{ numericId }] → https://photos.hotelbeds.com/giata/{numericId}.jpg
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const pictureList: any[] = item.pictureList ?? []
+  for (const p of pictureList) {
+    if (p.numericId) add(`https://photos.hotelbeds.com/giata/${p.numericId}.jpg`)
   }
 
-  if (item.pictureList?.[0]?.numericId) {
-    return `https://photos.hotelbeds.com/giata/${item.pictureList[0].numericId}.jpg`
-  }
-
+  // item.content?.media?.images
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const subImages: any[] = item.content?.media?.images ?? []
   for (const img of subImages) {
-    const url = img.urls?.[0]?.resource ?? img.url
-    if (url?.startsWith('http')) return url
+    const urlArr = Array.isArray(img.urls) ? img.urls : []
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    for (const u of urlArr) {
+      add((u as { resource?: string }).resource)
+    }
+    add((img as { url?: string }).url)
   }
 
+  // item.multimedia — array of { url?, resource?, path? }
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const multimedia: any[] = Array.isArray(item.multimedia) ? item.multimedia : []
   for (const m of multimedia) {
-    const url: string | undefined = m.url ?? m.resource ?? m.path
-    if (url?.startsWith('http')) return url
+    add(m.url ?? m.resource ?? m.path)
   }
 
+  // flat item.media array
+  if (Array.isArray(item.media)) {
+    for (const m of item.media as { url?: string; resource?: string }[]) {
+      add(m.url ?? m.resource)
+    }
+  }
+
+  // item.media object (not array)
   if (typeof item.media === 'object' && !Array.isArray(item.media) && item.media !== null) {
-    const url = (item.media as { url?: string; resource?: string }).url
-      ?? (item.media as { url?: string; resource?: string }).resource
-    if (url?.startsWith('http')) return url
+    const m = item.media as { url?: string; resource?: string }
+    add(m.url ?? m.resource)
   }
 
-  return ''
+  return Array.from(seen)
 }
 
 function durationText(minutes: number | null | undefined): string {
@@ -170,7 +184,7 @@ function durationText(minutes: number | null | undefined): string {
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function mapHBToNormalized(a: any, destName: string): NormalizedActivity {
-  const img = extractHBImage(a)
+  const imgs = extractHBImages(a)
   const categoryCodes = [
     a.activityFactsheetType,
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -214,7 +228,7 @@ function mapHBToNormalized(a: any, destName: string): NormalizedActivity {
 
     destination: { name: destName, code: resolveHBDestCode(destName) ?? undefined },
 
-    images: img ? [{ url: img, isCover: true }] : [],
+    images: imgs.map((url, idx) => ({ url, isCover: idx === 0 })),
 
     rating,
     duration: { text: durationText(durationMins), minMinutes: durationMins ?? undefined },
@@ -330,7 +344,13 @@ export class HotelbedsActivityProvider implements ActivityProvider {
           const c = contentMap[a.supplierProductId]
           if (!c) return a
 
-          const img = extractHBImage(c) || a.images?.[0]?.url
+          const contentImgs = extractHBImages(c)
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const existingUrls = new Set((a.images ?? []).map((i: any) => i.url as string))
+          const mergedImages = [
+            ...(a.images ?? []),
+            ...contentImgs.filter(u => !existingUrls.has(u)).map(url => ({ url })),
+          ]
           const rawDesc = c.content?.description ?? c.description ?? c.content?.briefDescription ?? a.description ?? ''
           const description = rawDesc.replace(/<[^>]*>/g, '').trim()
 
@@ -344,7 +364,7 @@ export class HotelbedsActivityProvider implements ActivityProvider {
 
           return {
             ...a,
-            images:          img ? [{ url: img, isCover: true }] : a.images,
+            images: mergedImages.length > 0 ? mergedImages : a.images,
             description:     description || a.description,
             duration:        durationMins ? { text: durationText(durationMins), minMinutes: durationMins } : a.duration,
             freeCancellation,

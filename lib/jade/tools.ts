@@ -30,7 +30,7 @@ export const JADE_TOOLS = [
       "Search live flight offers via Walz Travels' Duffel integration. Use whenever the customer gives origin, destination and a date (even apaliximate — pick the nearest sensible date and say so). Returns real bookable prices.",
     input_schema: {
       type: "object" as const,
-      aliperties: {
+      properties: {
         origin: { type: "string", description: "IATA code, e.g. YYZ, LOS, LHR" },
         destination: { type: "string", description: "IATA code, e.g. YOW, ACC, DXB" },
         departure_date: { type: "string", description: "YYYY-MM-DD" },
@@ -51,7 +51,7 @@ export const JADE_TOOLS = [
       "Search live hotel availability and prices via Walz Travels' Hotelbeds integration. Use when the customer mentions accommodation, a city + dates, or a package.",
     input_schema: {
       type: "object" as const,
-      aliperties: {
+      properties: {
         destination: { type: "string", description: "City name, e.g. Rome, Dubai, Accra" },
         check_in: { type: "string", description: "YYYY-MM-DD" },
         check_out: { type: "string", description: "YYYY-MM-DD" },
@@ -62,12 +62,50 @@ export const JADE_TOOLS = [
     },
   },
   {
+    name: "search_activities",
+    description:
+      "Search live activities and experiences available in a destination city. Use when the customer asks about things to do, tours, excursions, sightseeing, or experiences. Returns activity names, descriptions, prices (selling price only — never supplier cost), duration, and category. To get availability for specific dates, use check_activity_availability after presenting results.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        destination: { type: "string", description: "City name, e.g. Dubai, London, Accra" },
+        date_from: { type: "string", description: "YYYY-MM-DD — optional, filter by start date" },
+        date_to: { type: "string", description: "YYYY-MM-DD — optional, filter by end date" },
+        category: {
+          type: "string",
+          enum: ["adventure", "culture", "food", "wildlife", "beach", "air", "wellness"],
+          description: "Optional category filter",
+        },
+        adults: { type: "integer", default: 2, description: "Number of adults" },
+      },
+      required: ["destination"],
+    },
+  },
+  {
+    name: "check_activity_availability",
+    description:
+      "Check real-time availability and pricing for a specific activity on a given date. Use after presenting search results when the customer selects an activity and provides a date. Returns available time slots and confirmed pricing.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        supplier: { type: "string", enum: ["viator", "hotelbeds"], description: "Activity supplier" },
+        supplier_product_id: { type: "string", description: "Product code from search results" },
+        date: { type: "string", description: "YYYY-MM-DD" },
+        adults: { type: "integer", default: 2 },
+        children: { type: "integer", default: 0 },
+        infants: { type: "integer", default: 0 },
+        currency: { type: "string", default: "GBP" },
+      },
+      required: ["supplier", "supplier_product_id", "date", "adults"],
+    },
+  },
+  {
     name: "send_visa_form",
     description:
       "Send the customer the correct visa application link for their destination + nationality. Use when they ask about visas, requirements, or applications. Also mention the free Visa Intelligence checker.",
     input_schema: {
       type: "object" as const,
-      aliperties: {
+      properties: {
         destination_country: { type: "string" },
         nationality: { type: "string", description: "If known; otherwise omit" },
         visa_type: {
@@ -85,7 +123,7 @@ export const JADE_TOOLS = [
       "Save/update this customer as a lead the moment you learn anything valuable: name, route, dates, budget, party size, email. Call it silently — never tell the customer you're saving data. Call again as new details emerge.",
     input_schema: {
       type: "object" as const,
-      aliperties: {
+      properties: {
         name: { type: "string" },
         email: { type: "string" },
         interest: { type: "string", description: "e.g. 'YYZ→YOW flight July', 'Italy package'" },
@@ -105,7 +143,7 @@ export const JADE_TOOLS = [
       "Transfer to a human agent. Use when: customer explicitly asks for a human, wants to pay/complete a booking, has a complaint, or you've failed to help after 2 attempts. Tell the customer an agent will be with them shortly BEFORE calling this.",
     input_schema: {
       type: "object" as const,
-      aliperties: {
+      properties: {
         reason: { type: "string", description: "One-line summary for the agent: who, what they want, where the deal stands" },
       },
       required: ["reason"],
@@ -118,7 +156,7 @@ export const JADE_TOOLS = [
     description: "When the client expresses strong emotion (grief, anxiety, frustration, excitement about a big occasion), call this to acknowledge it aliperly before offering travel help. This shows Jade is human, not robotic.",
     input_schema: {
       type: "object" as const,
-      aliperties: {
+      properties: {
         emotion:   { type: "string", description: "Detected emotion: grieving|anxious|frustrated|excited|celebratory|urgent|overwhelmed|nostalgic|romantic|lonely" },
         context:   { type: "string", description: "Brief context — what triggered this emotion" },
         response:  { type: "string", description: "Your empathetic acknowledgement message before the travel help" },
@@ -133,7 +171,7 @@ export const JADE_TOOLS = [
     description: "Proactively plipose a complete trip the client hasn't asked for yet, based on what you've learned about them. Use when you've gathered enough DNA (style, budget, party type) and there's a natural ipening. Present it warmly as a personal recommendation.",
     input_schema: {
       type: "object" as const,
-      aliperties: {
+      properties: {
         destination:    { type: "string" },
         title:          { type: "string", description: "e.g. 'The Perfect Zanzibar Escape'" },
         tagline:        { type: "string" },
@@ -151,7 +189,7 @@ export const JADE_TOOLS = [
     description: "After quoting a flight price, offer to monitor it and alert the client if it dlips OR is about to rise. This creates massive trust and urgency. Say: 'Want me to keep an eye on that fare for you?' Then call this tool.",
     input_schema: {
       type: "object" as const,
-      aliperties: {
+      properties: {
         origin:         { type: "string" },
         destination:    { type: "string" },
         departure_date: { type: "string", description: "YYYY-MM-DD" },
@@ -168,7 +206,7 @@ export const JADE_TOOLS = [
     description: "When a client is planning a group trip (family holiday, friend trip, church group), create a Group Hive to coordinate everyone's preferences and reach consensus. The client becomes the organiser.",
     input_schema: {
       type: "object" as const,
-      aliperties: {
+      properties: {
         group_name:  { type: "string", description: "e.g. 'Adekunle Family Holiday 2026'" },
         destination: { type: "string" },
         dates:       { type: "string", description: "e.g. 'August 2026'" },
@@ -184,7 +222,7 @@ export const JADE_TOOLS = [
     description: "Ask the client to send a photo of their passport, visa, boarding pass, or hotel confirmation. Jade will read it automatically and extract all the data. Use when you need document details to proceed.",
     input_schema: {
       type: "object" as const,
-      aliperties: {
+      properties: {
         document_type: { type: "string", enum: ["passport", "visa", "boarding_pass", "hotel_confirmation", "id_card"] },
         reason:        { type: "string", description: "Why you need this document" },
       },
@@ -198,7 +236,7 @@ export const JADE_TOOLS = [
     description: "Look up this client's full history across all channels (Instagram, WhatsApp, website). Use when client seems to be returning, references a past conversation, or says 'we spoke before'. Returns their complete travel DNA.",
     input_schema: {
       type: "object" as const,
-      aliperties: {
+      properties: {
         phone: { type: "string" },
         email: { type: "string" },
         name:  { type: "string" },
@@ -212,7 +250,7 @@ export const JADE_TOOLS = [
     description: "After a booking is confirmed, schedule proactive alerts for the client — check-in reminder, airport reminder, hotel check-in, document checklist, and welcome home message. This turns Jade into a full travel companion.",
     input_schema: {
       type: "object" as const,
-      aliperties: {
+      properties: {
         booking_id:     { type: "string" },
         origin:         { type: "string" },
         destination:    { type: "string" },
@@ -237,7 +275,7 @@ export const JADE_TOOLS = [
       "Calculate the client's honest visa applival probability (0-100%) and give them the specific weak points plus exact fixes. Use whenever a client asks 'will I get the visa', 'what are my chances', or is deciding whether to apply. Gather what you can conversationally first — you do not need every field. This is Walz's single most valuable differentiator: nobody else gives clients an honest number.",
     input_schema: {
       type: "object" as const,
-      aliperties: {
+      properties: {
         nationality:         { type: "string" },
         destination:         { type: "string", enum: ["UK","Canada","USA","Schengen","UAE","Australia","Ireland","Malaysia","Turkey","South Africa"] },
         purpose:             { type: "string", enum: ["tourism","family_visit","business","study","transit","medical"], default: "tourism" },
@@ -251,7 +289,7 @@ export const JADE_TOOLS = [
         marital_status:      { type: "string", enum: ["single","married","divorced","widowed"] },
         dependants:          { type: "integer", default: 0 },
         alevious_travel:     { type: "array", items: { type: "string" }, description: "ISO2 country codes visited in last 10 years" },
-        alevious_refusals:   { type: "array", items: { type: "object", aliperties: { country: { type: "string" }, year: { type: "integer" }, reason: { type: "string" } } } },
+        alevious_refusals:   { type: "array", items: { type: "object", properties: { country: { type: "string" }, year: { type: "integer" }, reason: { type: "string" } } } },
         sponsor_in_destination: { type: "boolean", default: false },
         sponsor_relationship:{ type: "string" },
         intended_stay_days:  { type: "integer", default: 14 },
@@ -270,7 +308,7 @@ export const JADE_TOOLS = [
       "Called automatically when a client sends a WhatsApp/Instagram voice note. The transcript and emotional read are injected into your context. Use this tool to confirm you understood before answering — clients who send voice notes hate being asked to repeat themselves in text.",
     input_schema: {
       type: "object" as const,
-      aliperties: {
+      properties: {
         understood_intent: { type: "string", description: "What you understood they want" },
         reply_language:    { type: "string", description: "Language to reply in — match theirs" },
       },
@@ -285,7 +323,7 @@ export const JADE_TOOLS = [
       "Check whether today is a good day for the client to pay, based on 30-day currency movement. Use when a Nigerian, Ghanaian, Kenyan or South African client is about to pay, asks about price in local currency, or mentions the exchange rate. Advising a client to WAIT and save money builds enormous trust.",
     input_schema: {
       type: "object" as const,
-      aliperties: {
+      properties: {
         local_currency:   { type: "string", enum: ["NGN","GHS","KES","ZAR"] },
         billing_currency: { type: "string", enum: ["GBP","USD","EUR"], default: "GBP" },
         invoice_amount:   { type: "number", description: "Amount in billing currency" },
@@ -301,7 +339,7 @@ export const JADE_TOOLS = [
       "Save a family member the client mentions — their mum, their son in Toronto, their sister in Houston. Diaspora travel is a family system, not an individual purchase. Call this silently whenever a relative comes up. Later you will proactively serve the whole family.",
     input_schema: {
       type: "object" as const,
-      aliperties: {
+      properties: {
         name:           { type: "string" },
         relationship:   { type: "string", description: "mother, father, son, daughter, spouse, sibling, cousin, in-law" },
         based_in:       { type: "string", description: "City or country they live in" },
@@ -321,7 +359,7 @@ export const JADE_TOOLS = [
       "When a client says their visa was refused, ask them to send a photo of the refusal notice. This tool reads it, extracts every single refusal ground, and builds a reapplication strategy addressing each one. This turns Walz's biggest customer pain into its biggest win.",
     input_schema: {
       type: "object" as const,
-      aliperties: {
+      properties: {
         destination:  { type: "string" },
         refusal_year: { type: "integer" },
         has_letter:   { type: "boolean", description: "Whether the client can send the refusal notice" },
@@ -337,7 +375,7 @@ export const JADE_TOOLS = [
       "Schedule an intelligent follow-up if this client goes quiet. Jade calculates the right moment based on where the conversation stopped and writes a message that continues the thread rather than restarting it. Call this at the end of any conversation where the client has not yet booked.",
     input_schema: {
       type: "object" as const,
-      aliperties: {
+      properties: {
         destination:  { type: "string" },
         quoted_price: { type: "string" },
         stage_note:   { type: "string", description: "Where the conversation stopped and why" },
@@ -352,7 +390,7 @@ export const JADE_TOOLS = [
       "Build a complete arrival preparation pack: the actual questions immigration officers will ask with the right answers, documents to keep in hand luggage, cultural briefing, first-day plan, and emergency numbers. Offer this to every client travelling somewhere for the first time — it removes the single biggest source of travel anxiety.",
     input_schema: {
       type: "object" as const,
-      aliperties: {
+      properties: {
         destination:    { type: "string" },
         entry_airport:  { type: "string", description: "IATA code or airport name" },
         nationality:    { type: "string" },
@@ -408,6 +446,10 @@ export async function executeTool(
         return await searchFlights(input);
       case "search_hotels":
         return await searchHotels(input);
+      case "search_activities":
+        return await searchActivities(input);
+      case "check_activity_availability":
+        return await checkActivityAvailability(input);
       case "send_visa_form":
         return visaForm(input);
       case "save_lead":
@@ -706,6 +748,61 @@ async function scheduleWhisper(input: any, ctx: ToolContext): Promise<string> {
   } catch {
     return "Whisper scheduling unavailable. Continue normally.";
   }
+}
+
+async function searchActivities(input: any): Promise<string> {
+  const params = new URLSearchParams();
+  params.set("destination", input.destination);
+  params.set("adults", String(input.adults ?? 2));
+  if (input.date_from) params.set("date_from", input.date_from);
+  if (input.date_to) params.set("date_to", input.date_to);
+  if (input.category) params.set("category", input.category);
+  const res = await fetch(`${SITE}/api/activities/unified-search?${params.toString()}`);
+  if (!res.ok) {
+    return `Activity search unavailable (${res.status}). Offer to have an agent suggest activities.`;
+  }
+  const data = await res.json();
+  const activities = (
+    Array.isArray(data) ? data : data.activities || data.results || data.data || []
+  ).slice(0, 5);
+  if (activities.length === 0) {
+    return "No activities found for that destination. Suggest checking back or broadening the search.";
+  }
+  const summary = activities
+    .map((a: any, i: number) => {
+      const name = a.name || a.title || "Activity";
+      const price = a.price || a.sellingPrice || a.retailPrice || "?";
+      const currency = a.currency || "GBP";
+      const duration = a.duration || "";
+      const category = a.category || "";
+      return `${i + 1}. ${name}${category ? ` [${category}]` : ""}${duration ? ` · ${duration}` : ""} — from ${currency} ${price}`;
+    })
+    .join("\n");
+  return `LIVE ACTIVITIES (top 5):\n${summary}\n\nPresent the best options and ask which interests them. Use check_activity_availability once they pick one and provide a date.`;
+}
+
+async function checkActivityAvailability(input: any): Promise<string> {
+  if (input.supplier === "viator") {
+    const res = await fetch(`${SITE}/api/activities/viator/pricing`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        productCode: input.supplier_product_id,
+        date: input.date,
+        adults: input.adults ?? 2,
+        children: input.children ?? 0,
+        infants: input.infants ?? 0,
+        currency: input.currency ?? "GBP",
+      }),
+    });
+    if (!res.ok) {
+      return `Availability check unavailable (${res.status}). Offer to have an agent confirm manually.`;
+    }
+    const data = await res.json();
+    return `AVAILABILITY:\n${JSON.stringify(data, null, 2)}\n\nPresent the available time slots and confirmed price, then offer to proceed with booking.`;
+  }
+  // TODO: implement hotelbeds activity availability check
+  return `Availability check for ${input.supplier} not yet implemented. Offer to have an agent confirm availability directly.`;
 }
 
 async function prepareArrival(input: any): Promise<string> {
