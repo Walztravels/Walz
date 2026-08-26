@@ -2,23 +2,21 @@
 
 import Image                         from 'next/image'
 import Link                          from 'next/link'
-import { useState }                  from 'react'
+import { useState, useCallback, useRef } from 'react'
 import { useCart }                   from '@/lib/context/CartContext'
 import { useRouter }                 from 'next/navigation'
 import {
   ArrowLeft, Clock, MapPin, Star, Check, X,
-  ShoppingCart, Loader2, MessageCircle,
+  ShoppingCart, Loader2, MessageCircle, Users, Calendar, AlertCircle,
 } from 'lucide-react'
 
 // Resolve the best image URL from either the new normalized shape or the legacy HB shape.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function resolveHeroImage(activity: any): string {
-  // New shape: images[{url, isCover}]
   const images: Array<{ url?: string }> = activity.images ?? []
   for (const img of images) {
     if (img.url && img.url.startsWith('https')) return img.url
   }
-  // Legacy flat shape: activity.image (Hotelbeds/static/DB)
   if (activity.image && typeof activity.image === 'string' && activity.image.startsWith('http')) {
     return activity.image
   }
@@ -29,37 +27,138 @@ const SYM: Record<string, string> = {
   GBP: '£', USD: '$', EUR: '€', CAD: 'CA$', AED: 'AED ', NGN: '₦',
 }
 
+function fmt(currency: string, amount: number) {
+  return `${SYM[currency] ?? currency + ' '}${amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+}
+
+interface ViatorLivePricing {
+  available: boolean
+  reason?: string
+  totalSellingPrice?: number
+  breakdown?: Array<{ ageBand: string; count: number; unitSellingPrice: number; subtotal: number }>
+  startTimes?: string[]
+  currency?: string
+}
+
+interface ViatorBasePricing {
+  fromSellingPrice: number
+  currency: string
+  ageBands: Array<{ band: string; sellingPrice: number; rrp: number }>
+  productOptionCode?: string
+}
+
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export default function ActivityDetailClient({ activity }: { activity: any }) {
   const { addItem } = useCart()
   const router      = useRouter()
-  const [added, setAdded] = useState(false)
-  const heroImage   = resolveHeroImage(activity)
+  const [added, setAdded]               = useState(false)
+  const [date, setDate]                 = useState('')
+  const [adults, setAdults]             = useState(1)
+  const [children, setChildren]         = useState(0)
+  const [infants, setInfants]           = useState(0)
+  const [pricingLoading, setPricingLoading] = useState(false)
+  const [livePricing, setLivePricing]   = useState<ViatorLivePricing | null>(null)
+  const [priceWarning, setPriceWarning] = useState<string | null>(null)
+  const prevPriceRef                    = useRef<number | null>(null)
+  const debounceRef                     = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const heroImage      = resolveHeroImage(activity)
+  const isViator       = activity.source === 'viator'
+  const viatorPricing: ViatorBasePricing | null = activity.viatorPricing ?? null
+  const displayCurrency = livePricing?.currency ?? activity.currency ?? 'GBP'
+
+  // Coerce to strings — defensive against any objects slipping through
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const toStr = (arr: any[]): string[] => arr.map(i => typeof i === 'string' ? i : (i?.otherDescription ?? i?.description ?? i?.typeDescription ?? '')).filter(Boolean)
+  const included    = toStr(activity.included    ?? activity.inclusions  ?? [])
+  const notIncluded = toStr(activity.notIncluded ?? activity.exclusions  ?? [])
+  const highlights  = toStr(activity.highlights  ?? [])
+
+  // Fetch live Viator pricing when date or pax changes
+  const fetchLivePricing = useCallback(async (newDate: string, a: number, c: number, i: number) => {
+    if (!isViator || !activity.supplierProductId || !newDate) {
+      setLivePricing(null)
+      return
+    }
+    if (debounceRef.current) clearTimeout(debounceRef.current)
+    debounceRef.current = setTimeout(async () => {
+      setPricingLoading(true)
+      setPriceWarning(null)
+      try {
+        const res = await fetch('/api/activities/viator/pricing', {
+          method:  'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            productCode: activity.supplierProductId,
+            date:        newDate,
+            adults:      a,
+            children:    c,
+            infants:     i,
+            currency:    viatorPricing?.currency ?? 'GBP',
+          }),
+        })
+        const data: ViatorLivePricing = await res.json()
+        // Detect price change (if user already had a confirmed price)
+        if (prevPriceRef.current !== null && data.available && data.totalSellingPrice &&
+            Math.abs((data.totalSellingPrice ?? 0) - prevPriceRef.current) > 0.01) {
+          setPriceWarning(
+            `Price updated to ${fmt(data.currency ?? displayCurrency, data.totalSellingPrice)}`
+          )
+        }
+        setLivePricing(data)
+      } catch {
+        setLivePricing({ available: false, reason: 'Could not retrieve pricing' })
+      } finally {
+        setPricingLoading(false)
+      }
+    }, 400)
+  }, [isViator, activity.supplierProductId, viatorPricing?.currency, displayCurrency])
+
+  function handleDateChange(newDate: string) {
+    setDate(newDate)
+    setLivePricing(null)
+    if (newDate) fetchLivePricing(newDate, adults, children, infants)
+  }
+  function handlePaxChange(a: number, c: number, i: number) {
+    setAdults(a); setChildren(c); setInfants(i)
+    setLivePricing(null)
+    if (date) fetchLivePricing(date, a, c, i)
+  }
+
+  // Price to use for Add to Cart — must be a confirmed live price for Viator
+  const confirmedPrice = isViator
+    ? (livePricing?.available ? (livePricing.totalSellingPrice ?? 0) : 0)
+    : (activity.price ?? 0)
+  const canAddToCart = isViator
+    ? (livePricing?.available === true && (livePricing.totalSellingPrice ?? 0) > 0)
+    : (confirmedPrice > 0)
 
   function handleAddToCart() {
+    if (!canAddToCart) return
+    // Record the price we're adding so we can detect changes
+    prevPriceRef.current = confirmedPrice
     addItem({
       id:       activity.id ?? activity.slug,
       type:     'activity',
       title:    activity.title,
-      price:    activity.price > 0 ? activity.price : 50,
-      currency: activity.currency ?? 'USD',
+      price:    confirmedPrice,
+      currency: displayCurrency,
       quantity: 1,
-      meta: {
+      meta: Object.fromEntries(Object.entries({
         location: activity.location ?? '',
         duration: activity.duration ?? '',
-      },
+        date:     date || '',
+        supplier: activity.supplier ?? activity.source ?? '',
+      }).filter(([, v]) => v !== '')) as Record<string, string>,
     })
     setAdded(true)
     setTimeout(() => { setAdded(false); router.push('/cart') }, 1500)
   }
 
-  // Coerce to strings — Viator detail API can return inclusion objects if mapper is bypassed
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const toStr = (arr: any[]): string[] => arr.map(i => typeof i === 'string' ? i : (i?.otherDescription ?? i?.description ?? i?.typeDescription ?? '')).filter(Boolean)
-
-  const included    = toStr(activity.included    ?? activity.inclusions  ?? [])
-  const notIncluded = toStr(activity.notIncluded ?? activity.exclusions  ?? [])
-  const highlights  = toStr(activity.highlights  ?? [])
+  // Minimum selectable date = tomorrow
+  const minDate = new Date()
+  minDate.setDate(minDate.getDate() + 1)
+  const minDateStr = minDate.toISOString().slice(0, 10)
 
   return (
     <div className="min-h-screen bg-[#0B1F3A]">
@@ -115,12 +214,15 @@ export default function ActivityDetailClient({ activity }: { activity: any }) {
                   <MapPin className="w-4 h-4 text-[#C9A84C]" />{activity.location}
                 </div>
               )}
-              {activity.rating > 0 && (
+              {(activity.rating ?? 0) > 0 && (
                 <div className="flex items-center gap-1.5">
                   <Star className="w-4 h-4 text-amber-400 fill-amber-400" />
                   <span className="text-white font-semibold text-sm">
                     {Number(activity.rating).toFixed(1)}
                   </span>
+                  {activity.reviewCount ? (
+                    <span className="text-white/40 text-xs">({activity.reviewCount.toLocaleString()})</span>
+                  ) : null}
                 </div>
               )}
               {activity.freeCancel && (
@@ -176,42 +278,154 @@ export default function ActivityDetailClient({ activity }: { activity: any }) {
 
           {/* Booking sidebar */}
           <div className="lg:col-span-1">
-            <div className="bg-white/5 border border-white/10 rounded-2xl p-5 sticky top-24">
+            <div className="bg-white/5 border border-white/10 rounded-2xl p-5 sticky top-24 space-y-4">
 
-              {/* Price */}
-              <div className="text-center mb-5 pb-5 border-b border-white/10">
+              {/* Base "From" price */}
+              <div className="text-center pb-4 border-b border-white/10">
                 {activity.price > 0 ? (
                   <>
                     <p className="text-white/40 text-xs mb-1">From</p>
                     <p className="text-3xl font-bold text-white">
-                      {SYM[activity.currency] ?? activity.currency}
-                      {Number(activity.price).toLocaleString()}
+                      {fmt(activity.currency ?? 'GBP', activity.price)}
                     </p>
-                    <p className="text-white/40 text-xs">per person</p>
+                    <p className="text-white/40 text-xs">per adult</p>
                   </>
                 ) : (
                   <p className="text-[#C9A84C] font-semibold text-sm">Price on request</p>
                 )}
               </div>
 
+              {/* Viator date + pax selector */}
+              {isViator && (
+                <div className="space-y-3">
+
+                  {/* Date picker */}
+                  <div>
+                    <label className="block text-white/50 text-xs mb-1 flex items-center gap-1.5">
+                      <Calendar className="w-3.5 h-3.5" /> Travel date
+                    </label>
+                    <input
+                      type="date"
+                      min={minDateStr}
+                      value={date}
+                      onChange={e => handleDateChange(e.target.value)}
+                      className="w-full bg-white/10 text-white rounded-xl px-3 py-2.5 text-sm
+                        border border-white/10 focus:border-[#C9A84C] focus:outline-none
+                        [color-scheme:dark]"
+                    />
+                  </div>
+
+                  {/* Adults */}
+                  <div>
+                    <label className="block text-white/50 text-xs mb-1 flex items-center gap-1.5">
+                      <Users className="w-3.5 h-3.5" /> Travellers
+                    </label>
+                    <div className="grid grid-cols-3 gap-2">
+                      {[
+                        { label: 'Adults',   val: adults,   set: (n: number) => handlePaxChange(n, children, infants), min: 1 },
+                        { label: 'Children', val: children, set: (n: number) => handlePaxChange(adults, n, infants),   min: 0 },
+                        { label: 'Infants',  val: infants,  set: (n: number) => handlePaxChange(adults, children, n), min: 0 },
+                      ].map(({ label, val, set, min }) => (
+                        <div key={label} className="text-center">
+                          <p className="text-white/40 text-[10px] mb-1">{label}</p>
+                          <div className="flex items-center justify-center gap-1">
+                            <button
+                              onClick={() => set(Math.max(min, val - 1))}
+                              className="w-6 h-6 rounded-lg bg-white/10 text-white text-sm
+                                hover:bg-white/20 transition-colors flex items-center justify-center"
+                            >−</button>
+                            <span className="text-white text-sm font-semibold w-5 text-center">{val}</span>
+                            <button
+                              onClick={() => set(val + 1)}
+                              className="w-6 h-6 rounded-lg bg-white/10 text-white text-sm
+                                hover:bg-white/20 transition-colors flex items-center justify-center"
+                            >+</button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Live pricing result */}
+                  {pricingLoading && (
+                    <div className="flex items-center gap-2 text-white/50 text-xs py-2">
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" /> Checking latest price…
+                    </div>
+                  )}
+
+                  {priceWarning && (
+                    <div className="flex items-start gap-2 bg-amber-500/10 border border-amber-500/30
+                      rounded-xl p-3 text-amber-400 text-xs">
+                      <AlertCircle className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" />
+                      {priceWarning}
+                    </div>
+                  )}
+
+                  {!pricingLoading && livePricing && (
+                    <div className="bg-white/5 rounded-xl p-3 space-y-2">
+                      {livePricing.available ? (
+                        <>
+                          {/* Breakdown */}
+                          {(livePricing.breakdown ?? []).map((b, i) => (
+                            <div key={i} className="flex justify-between text-xs text-white/60">
+                              <span>{b.ageBand.charAt(0) + b.ageBand.slice(1).toLowerCase()} × {b.count}</span>
+                              <span>{fmt(livePricing.currency ?? displayCurrency, b.subtotal)}</span>
+                            </div>
+                          ))}
+                          <div className="flex justify-between text-sm font-bold text-white pt-2 border-t border-white/10">
+                            <span>Total</span>
+                            <span>{fmt(livePricing.currency ?? displayCurrency, livePricing.totalSellingPrice ?? 0)}</span>
+                          </div>
+                          {/* Time slots if multiple */}
+                          {(livePricing.startTimes ?? []).length > 1 && (
+                            <p className="text-white/40 text-xs">
+                              Times: {livePricing.startTimes!.join(', ')}
+                            </p>
+                          )}
+                        </>
+                      ) : (
+                        <div className="flex items-center gap-2 text-red-400 text-xs">
+                          <X className="w-3.5 h-3.5 flex-shrink-0" />
+                          {livePricing.reason === 'Date unavailable or sold out'
+                            ? 'No availability for this date. Try another date.'
+                            : (livePricing.reason ?? 'Not available')}
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Prompt before date selected */}
+                  {!date && !pricingLoading && (
+                    <p className="text-white/30 text-xs text-center">
+                      Select a date to see exact pricing
+                    </p>
+                  )}
+                </div>
+              )}
+
               {/* Add to cart */}
               <button
                 onClick={handleAddToCart}
+                disabled={!canAddToCart || added}
                 className={`w-full py-3.5 rounded-xl font-bold text-sm transition-all
-                  flex items-center justify-center gap-2 mb-3 ${
+                  flex items-center justify-center gap-2 ${
                   added
                     ? 'bg-green-500 text-white'
-                    : 'bg-[#C9A84C] text-[#0B1F3A] hover:bg-[#b8973f]'
+                    : canAddToCart
+                      ? 'bg-[#C9A84C] text-[#0B1F3A] hover:bg-[#b8973f]'
+                      : 'bg-white/10 text-white/30 cursor-not-allowed'
                 }`}
               >
                 {added
                   ? <><Loader2 className="w-4 h-4 animate-spin" /> Added! Going to cart…</>
-                  : <><ShoppingCart className="w-4 h-4" /> Add to Cart</>
+                  : isViator && !canAddToCart
+                    ? <><Calendar className="w-4 h-4" /> Select date &amp; check price</>
+                    : <><ShoppingCart className="w-4 h-4" /> Add to Cart</>
                 }
               </button>
 
               {/* WhatsApp help */}
-              <div className="pt-4 border-t border-white/10 text-center">
+              <div className="pt-2 border-t border-white/10 text-center">
                 <p className="text-white/30 text-xs mb-2">Need help choosing?</p>
                 <a
                   href="https://wa.me/12317902336"

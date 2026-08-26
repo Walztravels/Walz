@@ -1,6 +1,7 @@
-import { viatorPost } from './client'
-import { resolveViatorDestId } from './destinations'
-import { mapViatorProduct } from './mapper'
+import { viatorPost, viatorGet }    from './client'
+import { resolveViatorDestId }      from './destinations'
+import { mapViatorProduct }         from './mapper'
+import { applyActivityMarkup }      from '../../pricing'
 import type {
   ActivityProvider,
   ActivitySearchParams,
@@ -15,6 +16,7 @@ import type {
   ViatorProductSearchRequest,
   ViatorProductSearchResponse,
   ViatorProductSummary,
+  ViatorScheduleResponse,
 } from './types'
 
 const MAX_RESULTS = 40
@@ -70,43 +72,65 @@ export class ViatorActivityProvider implements ActivityProvider {
 
   async checkAvailability(params: AvailabilityParams): Promise<ActivityAvailability> {
     const currency = params.currency ?? 'GBP'
+    const date = params.date  // YYYY-MM-DD
 
-    const { status, data } = await viatorPost<{
-      bookableItems?: Array<{
-        productOptionCode?: string
-        startTime?: string
-        unavailableDates?: string[]
-        available?: boolean
-        pricing?: {
-          summary?: { fromPrice?: number; fromPriceBeforeDiscount?: number }
-          fareDetails?: Array<{ fareType?: string; unitPrice?: number }>
-        }
-      }>
-    }>(`/products/${params.supplierProductId}/availability/schedules`, {
-      currency,
-      month: params.date.slice(0, 7),  // YYYY-MM
-    })
+    // Correct endpoint: GET /availability/schedules/{productCode}
+    // POST /availability/check returns 403 at the current API key tier.
+    const { status, data } = await viatorGet<ViatorScheduleResponse>(
+      `/availability/schedules/${encodeURIComponent(params.supplierProductId)}`
+    )
 
     if (status !== 200 || !data.bookableItems?.length) {
       return { available: false, options: [], currency }
     }
 
-    const options: ActivityOption[] = data.bookableItems
-      .filter(item => item.available !== false)
-      .map(item => {
-        const supplierNetPrice = item.pricing?.summary?.fromPrice ?? 0
-        return {
-          code:              item.productOptionCode ?? 'DEFAULT',
-          name:              item.productOptionCode ?? 'Standard',
-          sellingPrice:      supplierNetPrice,   // Viator sells at retail; we show as-is
-          supplierNetPrice,
-          currency,
-          startTimes:        item.startTime ? [item.startTime] : undefined,
-          freeCancellation:  false,
-        } satisfies ActivityOption
-      })
+    const scheduleCurrency = data.currency ?? currency
+    const today = new Date().toISOString().slice(0, 10)
+    const dayName = new Date(date + 'T12:00:00Z')
+      .toLocaleDateString('en-US', { weekday: 'long', timeZone: 'UTC' })
+      .toUpperCase()
 
-    return { available: options.length > 0, options, currency }
+    const options: ActivityOption[] = []
+
+    for (const item of data.bookableItems) {
+      for (const season of item.seasons ?? []) {
+        if (season.startDate > date || season.endDate < date) continue
+
+        for (const rec of season.pricingRecords ?? []) {
+          if (rec.daysOfWeek && !rec.daysOfWeek.includes(dayName)) continue
+
+          const pricingDetails = rec.pricingDetails ?? []
+          const adultDetail = pricingDetails.find(d => d.ageBand === 'ADULT') ?? pricingDetails[0]
+          if (!adultDetail) continue
+
+          const sp = adultDetail.price.special
+          const useSpecial = sp && sp.offerStartDate && sp.offerEndDate &&
+            sp.offerStartDate <= today && sp.offerEndDate >= today
+          const netPrice  = useSpecial ? sp.partnerNetPrice  : adultDetail.price.original.partnerNetPrice
+          const { sellingPrice } = applyActivityMarkup(netPrice, 'VIATOR', scheduleCurrency)
+
+          const availableTimes: string[] = []
+          for (const entry of rec.timedEntries ?? []) {
+            const soldOut = entry.unavailableDates?.some(u => u.date === date)
+            if (!soldOut) availableTimes.push(entry.startTime)
+          }
+
+          if (rec.timedEntries?.length && !availableTimes.length) continue  // all times sold out
+
+          options.push({
+            code:              item.productOptionCode,
+            name:              item.productOptionCode,
+            sellingPrice:      Math.round(sellingPrice * 100) / 100,
+            supplierNetPrice:  Math.round(netPrice * 100) / 100,
+            currency:          scheduleCurrency,
+            startTimes:        availableTimes.length ? availableTimes : undefined,
+            freeCancellation:  false,
+          } satisfies ActivityOption)
+        }
+      }
+    }
+
+    return { available: options.length > 0, options, currency: scheduleCurrency }
   }
 
   async book(params: BookingParams): Promise<ActivityBookingResult> {

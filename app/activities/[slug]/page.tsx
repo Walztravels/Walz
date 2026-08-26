@@ -7,7 +7,8 @@ import { hotelbedsRequest }                       from '@/lib/hotelbeds'
 import prisma                                     from '@/lib/db'
 import { viatorGet }                              from '@/lib/activities/providers/viator/client'
 import { mapViatorProduct }                       from '@/lib/activities/providers/viator/mapper'
-import type { ViatorProductSummary }              from '@/lib/activities/providers/viator/types'
+import { applyActivityMarkup }                    from '@/lib/activities/pricing'
+import type { ViatorProductSummary, ViatorScheduleResponse } from '@/lib/activities/providers/viator/types'
 
 // ── Destination code → readable city name ─────────────────────────────────────
 const DEST_CODE_TO_NAME: Record<string, string> = {
@@ -249,36 +250,90 @@ function buildActivityShape(rawCode: string, cacheItem: any, contentItem: any, d
   }
 }
 
+// ── Viator schedule fetch — base pricing for display before date selection ────
+async function fetchViatorBasePricing(productCode: string): Promise<{
+  currency: string
+  fromSellingPrice: number
+  ageBands: Array<{ band: string; sellingPrice: number; rrp: number }>
+  productOptionCode?: string
+} | null> {
+  try {
+    const { status, data } = await viatorGet<ViatorScheduleResponse>(
+      `/availability/schedules/${encodeURIComponent(productCode)}`
+    )
+    if (status !== 200 || !data.bookableItems?.length) return null
+
+    const item     = data.bookableItems[0]
+    const currency = data.currency ?? 'GBP'
+    const today    = new Date().toISOString().slice(0, 10)
+
+    // Find first available season
+    const season = (item.seasons ?? []).find(s => s.endDate >= today) ?? item.seasons?.[0]
+    if (!season) return null
+
+    const pricingRecord = season.pricingRecords?.[0]
+    const pricingDetails = pricingRecord?.pricingDetails ?? []
+    if (!pricingDetails.length) return null
+
+    const ageBands = pricingDetails.map(d => {
+      // Use special price if current date is within the offer window
+      const sp = d.price.special
+      const useSpecial = sp && sp.offerStartDate && sp.offerEndDate &&
+        sp.offerStartDate <= today && sp.offerEndDate >= today
+      const net = useSpecial ? sp.partnerNetPrice : d.price.original.partnerNetPrice
+      const rrp = useSpecial ? sp.recommendedRetailPrice : d.price.original.recommendedRetailPrice
+      const { sellingPrice } = applyActivityMarkup(net, 'VIATOR', currency)
+      return { band: d.ageBand, sellingPrice: Math.round(sellingPrice * 100) / 100, rrp }
+    })
+
+    const adultBand = ageBands.find(b => b.band === 'ADULT') ?? ageBands[0]
+    return {
+      currency,
+      fromSellingPrice: adultBand?.sellingPrice ?? 0,
+      ageBands,
+      productOptionCode: item.productOptionCode,
+    }
+  } catch {
+    return null
+  }
+}
+
 // ── Viator product resolver (SSR) ────────────────────────────────────────────
 async function resolveViatorActivity(productCode: string) {
   if (!process.env.VIATOR_API_KEY) return null
   if (process.env.VIATOR_ACTIVITIES_ENABLED !== 'true') return null
 
   try {
-    const { status, data: product } = await viatorGet<ViatorProductSummary>(`/products/${encodeURIComponent(productCode)}`)
+    // Fetch product detail and pricing schedule in parallel
+    const [productResult, pricingData] = await Promise.all([
+      viatorGet<ViatorProductSummary>(`/products/${encodeURIComponent(productCode)}`),
+      fetchViatorBasePricing(productCode),
+    ])
+
+    const { status, data: product } = productResult
     if (status !== 200 || !product?.productCode) return null
 
-    const normalized  = mapViatorProduct(product, '', 'GBP')
+    const normalized  = mapViatorProduct(product, '', pricingData?.currency ?? 'GBP')
 
-    // Convert to the legacy shape ActivityDetailClient understands,
-    // while also carrying the full `images` array for the new image helper.
     const dur         = product.duration ?? product.itinerary?.duration
     const durMins     = dur?.fixedDurationInMinutes ?? dur?.variableDurationFromMinutes
     const durText     = normalized.duration?.text ?? ''
 
+    // Use schedule-derived price if available; fall back to search-derived price
+    const displayPrice    = pricingData?.fromSellingPrice ?? normalized.sellingPrice
+    const displayCurrency = pricingData?.currency ?? normalized.currency
+
     return {
-      // Fields ActivityDetailClient reads
       id:          normalized.id,
       slug:        normalized.slug,
       title:       normalized.title,
       shortDesc:   (normalized.shortDescription ?? '').slice(0, 200),
       description: normalized.description ?? normalized.shortDescription ?? '',
-      // images array — used by the new image helper in ActivityDetailClient
       images:      normalized.images,
-      // Legacy flat image field for backward compat
       image:       normalized.images?.[0]?.url ?? '',
-      price:       normalized.sellingPrice,
-      currency:    normalized.currency,
+      // displayPrice is the Walz selling price (already marked up from partnerNetPrice)
+      price:       displayPrice,
+      currency:    displayCurrency,
       duration:    durText,
       durationMins: durMins,
       location:    normalized.destination?.name ?? '',
@@ -292,6 +347,13 @@ async function resolveViatorActivity(productCode: string) {
       source:      'viator',
       supplier:    'VIATOR',
       supplierProductId: productCode,
+      // Pricing metadata for the interactive selector
+      viatorPricing: pricingData ? {
+        fromSellingPrice: pricingData.fromSellingPrice,
+        currency:         pricingData.currency,
+        ageBands:         pricingData.ageBands,
+        productOptionCode: pricingData.productOptionCode,
+      } : null,
     }
   } catch (err) {
     console.error('[Viator] detail page resolver failed:', productCode, err instanceof Error ? err.message : err)

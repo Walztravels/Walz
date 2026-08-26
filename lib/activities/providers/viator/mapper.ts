@@ -79,9 +79,15 @@ export function mapViatorProduct(
   destName: string,
   currency: string = 'GBP',
 ): NormalizedActivity {
-  const pricing = product.pricing ?? product.pricingInfo
-  const supplierNetPrice = pricing?.fromPrice ?? 0
-  const { sellingPrice } = applyActivityMarkup(supplierNetPrice, 'VIATOR', pricing?.currency ?? currency)
+  // Search API: pricing.summary.fromPrice (nested — NOT pricing.fromPrice)
+  // Detail API: pricingInfo has no prices, only age-band definitions
+  const pricingCurrency = product.pricing?.currency ?? currency
+  const fromPrice = product.pricing?.summary?.fromPrice ?? 0
+  // fromPrice from search is the recommended retail price (customer-facing).
+  // We display it as-is since it represents the supplier's own customer price.
+  // supplierNetPrice = 0 when we only have RRP (no partnerNetPrice available from search).
+  const supplierNetPrice = fromPrice
+  const { sellingPrice } = applyActivityMarkup(supplierNetPrice, 'VIATOR', pricingCurrency)
 
   const rating = product.reviews?.combinedAverageRating
   const reviewCount = product.reviews?.totalReviews
@@ -140,9 +146,9 @@ export function mapViatorProduct(
 
     instantConfirmation: product.bookingProcess === 'INSTANT',
 
-    currency:         pricing?.currency ?? currency,
+    currency:         pricingCurrency,
     sellingPrice,
-    originalPrice:    pricing?.fromPriceBeforeDiscount ?? undefined,
+    originalPrice:    product.pricing?.summary?.fromPriceBeforeDiscount ?? undefined,
     supplierNetPrice: supplierNetPrice || undefined,
 
     source: 'viator',
