@@ -4,9 +4,10 @@ import { duffelPost } from '@/lib/duffel/client'
 import { getAdminSession } from '@/lib/admin-auth'
 
 export const dynamic = 'force-dynamic'
+export const maxDuration = 60
 
 function generateRef() {
-  return 'WLZ-' + Math.random().toString(36).slice(2, 8).toUpperCase()
+  return 'WLZ-FLT-' + Math.random().toString(36).slice(2, 8).toUpperCase()
 }
 
 export async function POST(req: NextRequest) {
@@ -15,8 +16,20 @@ export async function POST(req: NextRequest) {
     if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
     const {
-      offerId, clientName, clientEmail, clientPhone,
-      passengers, totalAmount, currency,
+      offerId,
+      clientName, clientEmail, clientPhone,
+      passengers,
+      totalNet,        // Duffel cost (supplier net)
+      sellingPrice,    // Walz sell price
+      markupPercent,
+      markupAmount,
+      serviceFee = 0,
+      discount   = 0,
+      currency   = 'GBP',
+      clientId,
+      paymentMethod,
+      // Route metadata for display
+      origin, destination, tripType, departureDate, returnDate, cabinClass,
     } = await req.json()
 
     if (!offerId || !clientEmail || !passengers?.length) {
@@ -26,12 +39,13 @@ export async function POST(req: NextRequest) {
     let pnr: string | null           = null
     let duffelOrderId: string | null = null
 
+    // ── Place Duffel order ───────────────────────────────────────────────────
     try {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const order: any = await duffelPost('/air/orders', {
         data: {
-          type:             'instant',
-          selected_offers:  [offerId],
+          type:            'instant',
+          selected_offers: [offerId],
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           passengers: passengers.map((p: any, i: number) => ({
             id:           `passenger-${i}`,
@@ -45,7 +59,7 @@ export async function POST(req: NextRequest) {
           })),
           payments: [{
             type:     'balance',
-            amount:   String(totalAmount),
+            amount:   String(totalNet ?? sellingPrice),
             currency: currency ?? 'GBP',
           }],
         },
@@ -56,26 +70,59 @@ export async function POST(req: NextRequest) {
     } catch (duffelErr: unknown) {
       const msg = duffelErr instanceof Error ? duffelErr.message : String(duffelErr)
       console.warn('[Admin/book/flight] Duffel order failed:', msg)
+      // Still save as PENDING if Duffel fails
     }
 
     const bookingReference = pnr ?? generateRef()
+    const paymentStatus    = paymentMethod === 'MARK_PAID' ? 'SUCCEEDED' : (pnr ? 'SUCCEEDED' : 'PENDING')
 
     await prisma.booking.create({
       data: {
         bookingReference,
-        pnr:           pnr ?? null,
-        type:          'FLIGHT',
-        status:        pnr ? 'CONFIRMED' : 'PENDING',
-        paymentStatus: pnr ? 'SUCCEEDED' : 'PENDING',
-        totalAmount:   parseFloat(String(totalAmount ?? 0)),
-        currency:      currency ?? 'GBP',
-        contactEmail:  clientEmail,
-        contactPhone:  clientPhone ?? null,
+        pnr:              pnr ?? null,
+        type:             'FLIGHT',
+        status:           pnr ? 'CONFIRMED' : 'PENDING',
+        paymentStatus:    paymentStatus as 'SUCCEEDED' | 'PENDING',
+        totalAmount:      parseFloat(String(sellingPrice ?? totalNet ?? 0)),
+        currency:         currency ?? 'GBP',
+        userId:           clientId ?? null,
+        contactEmail:     clientEmail,
+        contactPhone:     clientPhone ?? null,
+        createdByStaffId: session.staffId ?? session.id,
         flightDetails: {
           duffelOrderId,
           clientName,
+          origin,
+          destination,
+          tripType,
+          departureDate,
+          returnDate:    returnDate ?? null,
+          cabinClass,
+          supplierNet:   parseFloat(String(totalNet ?? 0)),
+          sellingPrice:  parseFloat(String(sellingPrice ?? 0)),
+          markupPercent,
+          markupAmount,
+          serviceFee,
+          discount,
+          paymentMethod,
+          bookedByName:  session.name,
+          bookedByEmail: session.email,
           passengers,
         },
+      },
+    })
+
+    await prisma.activityLog.create({
+      data: {
+        staffId:     session.staffId ?? session.id,
+        staffName:   session.name,
+        staffRole:   session.staffRole ?? session.role,
+        staffBranch: session.branch ?? '',
+        action:      'FLIGHT_BOOKING_CREATED',
+        module:      'bookings',
+        entityId:    bookingReference,
+        entityType:  'Booking',
+        detail:      `Flight ${bookingReference} — ${origin ?? '?'} → ${destination ?? '?'} — ${clientName} — ${currency} ${sellingPrice}`,
       },
     })
 
