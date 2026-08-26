@@ -530,23 +530,42 @@ export async function GET(req: NextRequest) {
         source:      'viator',
       }))
 
-      // Deduplicate Viator vs HB results by normalised title
-      const hbTitles = new Set(
-        hotelbedsActivities.map((a: { title?: string; name?: string }) =>
-          (a.title ?? a.name ?? '').toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 60),
-        ),
+      // Deduplicate Viator vs HB by significant title word overlap (≥70%)
+      const sigWords = (t: string) =>
+        t.toLowerCase().replace(/[^a-z0-9 ]/g, '').split(/\s+/).filter(w => w.length > 3)
+      const hbSigs = hotelbedsActivities.map((a: { title?: string; name?: string }) =>
+        sigWords(a.title ?? a.name ?? ''),
       )
       viatorActivities = viatorActivities.filter(a => {
-        const t = a.title.toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 60)
-        return !hbTitles.has(t)
+        const vWords = sigWords(a.title)
+        if (!vWords.length) return true
+        return !hbSigs.some(hWords => {
+          if (!hWords.length) return false
+          const shared  = vWords.filter((w: string) => hWords.includes(w)).length
+          return shared / Math.max(vWords.length, hWords.length) >= 0.7
+        })
       })
     } catch (viatorErr) {
       console.error('[Viator Activities] fetch error:', viatorErr instanceof Error ? viatorErr.message : viatorErr)
     }
   }
 
-  // ── 4. Merge: DB first, then Hotelbeds live, then Viator ─────────────────
-  const combined = [...dbActivities, ...hotelbedsActivities, ...viatorActivities]
+  // ── 4. Merge: DB curated first, then Viator (priority supplier), then Hotelbeds ─
+  // Within each supplier group sort by rating desc, then by image presence.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const qualitySort = (arr: any[]) => [...arr].sort((a, b) => {
+    const imgA = a.image?.startsWith('https') ? 1 : 0
+    const imgB = b.image?.startsWith('https') ? 1 : 0
+    const ratingDiff = (b.rating ?? 0) - (a.rating ?? 0)
+    if (Math.abs(ratingDiff) > 0.3) return ratingDiff
+    return imgB - imgA
+  })
+
+  const combined = [
+    ...dbActivities,
+    ...qualitySort(viatorActivities),
+    ...qualitySort(hotelbedsActivities),
+  ]
 
   // ── 5. Static fallback only when completely empty ─────────────────────────
   if (combined.length === 0) {

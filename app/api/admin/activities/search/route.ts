@@ -3,6 +3,7 @@ import { getAdminSession } from '@/lib/admin-auth'
 import { HotelbedsActivityProvider } from '@/lib/activities/providers/hotelbeds'
 import { ViatorActivityProvider }    from '@/lib/activities/providers/viator'
 import type { NormalizedActivity, ActivitySearchParams } from '@/lib/activities/types'
+import { rankActivities, filterUnusableActivities } from '@/lib/activities/ranking'
 
 export const dynamic = 'force-dynamic'
 
@@ -29,7 +30,8 @@ export async function POST(req: NextRequest) {
   const viatorActivities = viatorResult.status === 'fulfilled' ? viatorResult.value : []
 
   // Admin sees supplierNetPrice — do NOT strip it here
-  const activities = [...hbActivities, ...viatorActivities]
+  // Rank: Viator before Hotelbeds, quality sort within each supplier group
+  const activities = rankActivities(filterUnusableActivities([...hbActivities, ...viatorActivities]))
 
   return NextResponse.json({
     activities,
