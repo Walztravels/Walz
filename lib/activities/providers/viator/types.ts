@@ -23,6 +23,16 @@ export interface ViatorProductSearchRequest {
   currency: string
 }
 
+// Viator detail API inclusion/exclusion item (objects, not strings)
+export interface ViatorInclusionItem {
+  category?: string
+  categoryDescription?: string
+  type?: string
+  typeDescription?: string
+  otherDescription?: string  // inclusions use this for the readable text
+  description?: string       // exclusions use this for the readable text
+}
+
 export interface ViatorImage {
   imageSource: string        // URL
   caption?: string
@@ -86,9 +96,11 @@ export interface ViatorProductSummary {
   cancellationPolicy?: ViatorCancellationPolicy
   language?: string
   highlights?: string[]
-  inclusions?: string[]
-  exclusions?: string[]
-  additionalInfo?: string[]
+  // Detail API returns objects; search API returns strings — handle both
+  inclusions?: Array<string | ViatorInclusionItem>
+  exclusions?: Array<string | ViatorInclusionItem>
+  additionalInfo?: Array<string | { type?: string; description?: string }>
+  bookingQuestions?: Array<{ sortOrder?: number; requiredAnswerCount?: number; question?: string; hint?: string; stringQuestionId?: string; id?: number }>
   locations?: Array<{
     provider?: string
     unstructuredLocation?: string

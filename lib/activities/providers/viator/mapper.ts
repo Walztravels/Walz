@@ -44,6 +44,18 @@ function pickViatorImages(images?: ViatorProductSummary['images']): { hero?: str
   return { hero, thumb, all }
 }
 
+// Viator detail API returns inclusions/exclusions as objects, not strings.
+// Extract the human-readable text from whichever field is populated.
+function extractViatorInclusionText(item: unknown): string | null {
+  if (typeof item === 'string') return item.trim() || null
+  if (typeof item === 'object' && item !== null) {
+    const o = item as Record<string, unknown>
+    const text = (o.otherDescription ?? o.description ?? o.typeDescription ?? o.categoryDescription ?? '') as string
+    return text.trim() || null
+  }
+  return null
+}
+
 function viatorDurationText(d?: ViatorProductSummary['duration']): string | undefined {
   if (!d) return undefined
   if (d.unstructuredDuration) return d.unstructuredDuration
@@ -119,8 +131,8 @@ export function mapViatorProduct(
     },
 
     highlights:  product.highlights,
-    included:    product.inclusions,
-    excluded:    product.exclusions,
+    included:    (product.inclusions ?? []).map(extractViatorInclusionText).filter((s): s is string => !!s),
+    excluded:    (product.exclusions ?? []).map(extractViatorInclusionText).filter((s): s is string => !!s),
     meetingPoint,
 
     cancellationPolicy: product.cancellationPolicy?.description,

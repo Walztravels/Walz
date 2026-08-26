@@ -53,9 +53,13 @@ export default function ActivityDetailClient({ activity }: { activity: any }) {
     setTimeout(() => { setAdded(false); router.push('/cart') }, 1500)
   }
 
-  const included    = activity.included    ?? activity.inclusions  ?? []
-  const notIncluded = activity.notIncluded ?? activity.exclusions  ?? []
-  const highlights  = activity.highlights  ?? []
+  // Coerce to strings — Viator detail API can return inclusion objects if mapper is bypassed
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const toStr = (arr: any[]): string[] => arr.map(i => typeof i === 'string' ? i : (i?.otherDescription ?? i?.description ?? i?.typeDescription ?? '')).filter(Boolean)
+
+  const included    = toStr(activity.included    ?? activity.inclusions  ?? [])
+  const notIncluded = toStr(activity.notIncluded ?? activity.exclusions  ?? [])
+  const highlights  = toStr(activity.highlights  ?? [])
 
   return (
     <div className="min-h-screen bg-[#0B1F3A]">
