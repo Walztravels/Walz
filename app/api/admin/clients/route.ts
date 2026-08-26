@@ -27,6 +27,7 @@ export async function GET(req: NextRequest) {
         OR: [
           { email: { contains: search, mode: 'insensitive' as const } },
           { name:  { contains: search, mode: 'insensitive' as const } },
+          { phone: { contains: search, mode: 'insensitive' as const } },
         ],
       }
     : {}
