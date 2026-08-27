@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createHmac }               from 'crypto'
 import { prisma }                   from '@/lib/db'
+import { trackDurableEvent }        from '@/lib/commercial/track'
 
 export const dynamic = 'force-dynamic'
 
@@ -126,6 +127,26 @@ export async function POST(req: NextRequest) {
           )
           console.log('[ps-hook] checkout: package_bookings rows updated:', pkgRows)
         }
+      }
+    }
+    // Durable commercial event — fires once per charge.success regardless of path
+    if (event === 'charge.success') {
+      const paystackRef = (data.reference as string | undefined) ?? null
+      const amountKobo  = typeof data.amount === 'number' ? data.amount : 0
+      const currency    = (data.currency as string | undefined)?.toUpperCase() ?? 'NGN'
+      try {
+        await trackDurableEvent('payment_succeeded', {
+          sessionId: paystackRef ?? undefined,
+          currency,
+          amount:    amountKobo / 100, // Paystack amounts are in kobo
+          metadata:  {
+            gateway:   'paystack',
+            reference: paystackRef,
+            channel:   data.channel,
+          },
+        })
+      } catch (trackErr) {
+        console.warn('[CommercialEvent] paystack payment_succeeded tracking failed:', (trackErr as Error).message)
       }
     }
   } catch (err) {

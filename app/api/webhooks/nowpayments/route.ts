@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import crypto                        from 'crypto'
 import prisma                        from '@/lib/db'
 import { getSupabaseAdmin }          from '@/lib/supabase'
+import { trackDurableEvent }         from '@/lib/commercial/track'
 
 export const dynamic = 'force-dynamic'
 
@@ -153,6 +154,20 @@ export async function POST(req: NextRequest) {
   }).catch(() => {}) // Non-critical
 
   console.log(`[NOWPayments IPN] order=${order_id} payment_status=${payment_status} → paymentStatus=${paymentStatus} confirmed=${isFullyPaid}`)
+
+  // Durable commercial event — only when payment is fully finished (not partially paid)
+  if (isFullyPaid) {
+    try {
+      await trackDurableEvent('payment_succeeded', {
+        sessionId: order_id ?? undefined,
+        currency:  (pay_currency as string | undefined)?.toUpperCase(),
+        amount:    typeof actually_paid === 'number' ? actually_paid : undefined,
+        metadata:  { gateway: 'nowpayments', orderId: order_id, cryptoCurrency: pay_currency },
+      })
+    } catch (trackErr) {
+      console.warn('[CommercialEvent] nowpayments payment_succeeded tracking failed:', (trackErr as Error).message)
+    }
+  }
 
   return NextResponse.json({ received: true })
 }

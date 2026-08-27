@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import prisma from '@/lib/db'
+import { trackDurableEvent } from '@/lib/commercial/track'
 
 export async function POST(req: NextRequest) {
   const hash = req.headers.get('verif-hash')
@@ -41,6 +42,18 @@ export async function POST(req: NextRequest) {
           data.currency,
           booking_ref
         )
+      }
+
+      // Durable commercial event — payment received, gateway confirmed successful
+      try {
+        await trackDurableEvent('payment_succeeded', {
+          sessionId: booking_ref ?? undefined,
+          currency:  (data.currency as string | undefined)?.toUpperCase(),
+          amount:    typeof data.amount === 'number' ? data.amount : undefined,
+          metadata:  { gateway: 'flutterwave', transactionId: String(data.id), txRef: data.tx_ref },
+        })
+      } catch (trackErr) {
+        console.warn('[CommercialEvent] flutterwave payment_succeeded tracking failed:', (trackErr as Error).message)
       }
     }
 
