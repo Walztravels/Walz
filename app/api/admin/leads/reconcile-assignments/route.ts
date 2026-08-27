@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getAdminSession } from '@/lib/admin-auth'
 import { createClient } from '@supabase/supabase-js'
 import prisma from '@/lib/db'
+import { isAtLeast } from '@/lib/permissions'
 
 export const dynamic = 'force-dynamic'
 
@@ -53,9 +54,11 @@ export async function GET() {
 export async function POST(req: NextRequest) {
   const session = await getAdminSession()
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  // Superadmin gate
-  if (!['superadmin', 'admin'].includes(session.staffRole ?? session.role ?? '')) {
-    return NextResponse.json({ error: 'Forbidden — superadmin only' }, { status: 403 })
+  // super_admin gate — uses canonical role from ROLE_HIERARCHY in lib/permissions.ts
+  // Canonical roles: sales_rep → coordinator → senior_manager → general_manager → super_admin
+  // Only super_admin may execute bulk lead reconciliation.
+  if (!isAtLeast(session.role as Parameters<typeof isAtLeast>[0], 'super_admin')) {
+    return NextResponse.json({ error: 'Forbidden — super_admin only' }, { status: 403 })
   }
 
   const supabase = supabaseAdmin()
