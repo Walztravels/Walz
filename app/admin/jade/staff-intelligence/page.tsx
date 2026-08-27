@@ -1,11 +1,12 @@
-import { getAdminSession } from '@/lib/admin-auth'
-import { redirect }        from 'next/navigation'
-import prisma              from '@/lib/db'
-import Link                from 'next/link'
-import { format }          from 'date-fns'
+import { getAdminSession }    from '@/lib/admin-auth'
+import { redirect }           from 'next/navigation'
+import prisma                 from '@/lib/db'
+import Link                   from 'next/link'
+import { format }             from 'date-fns'
+import { JadeEmailActions }   from '@/components/admin/JadeEmailActions'
 import {
   Sparkles, Users, Bell, FileText, CheckCircle2, Clock,
-  TrendingUp, AlertTriangle, Plus,
+  TrendingUp, Plus,
 } from 'lucide-react'
 
 export const dynamic = 'force-dynamic'
@@ -131,6 +132,20 @@ export default async function StaffIntelligencePage() {
         />
       </div>
 
+      {/* Email actions */}
+      <div className="bg-[#112240] rounded-2xl ring-1 ring-white/5 p-6 space-y-3">
+        <div className="flex items-center gap-2 mb-1">
+          <h2 className="text-sm font-semibold text-white/60 uppercase tracking-wider">Email Delivery</h2>
+          {todayBrief && (
+            <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 font-bold">Brief Ready</span>
+          )}
+        </div>
+        <p className="text-xs text-white/30">
+          Staff receive the brief at 08:00 in their local timezone. Use these tools to preview or test the email template.
+        </p>
+        <JadeEmailActions hasBrief={!!todayBrief} briefDate={today} />
+      </div>
+
       <div className="grid lg:grid-cols-2 gap-6">
 
         {/* System status */}
@@ -140,10 +155,10 @@ export default async function StaffIntelligencePage() {
             {[
               { label: 'Daily Brief Cron', ok: true,  note: '07:00 UTC · weekdays' },
               { label: 'Staff Notifications', ok: true, note: 'In-app delivery active' },
+              { label: 'Email Delivery',        ok: true, note: '08:00 local time · weekdays' },
               { label: 'Travel News Ingestion', ok: false, note: 'Phase 2 — not yet active' },
               { label: 'Visa Monitoring',       ok: false, note: 'Phase 3 — not yet active' },
-              { label: 'Email Delivery',        ok: false, note: 'Phase 4 — not yet active' },
-              { label: 'WhatsApp Delivery',     ok: false, note: 'Phase 4 — not yet active' },
+              { label: 'WhatsApp Delivery',     ok: false, note: 'Phase 5 — not yet active' },
             ].map(({ label, ok, note }) => (
               <div key={label} className="flex items-center justify-between py-2 border-b border-white/5 last:border-0">
                 <div className="flex items-center gap-2">

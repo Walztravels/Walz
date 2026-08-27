@@ -4599,14 +4599,19 @@ model StaffNotification {
 }
 
 model BriefDeliveryLog {
-  id          String   @id @default(cuid())
-  briefDate   String
-  staffId     String
-  channel     String   // "admin" | "email" | "whatsapp"
-  deliveredAt DateTime @default(now())
+  id                String    @id @default(cuid())
+  briefDate         String
+  staffId           String
+  channel           String    // "admin" | "email" | "whatsapp"
+  status            String    @default("SENT") // SENT | FAILED
+  providerMessageId String?
+  failureReason     String?
+  sentAt            DateTime?
+  deliveredAt       DateTime  @default(now())
 
   @@unique([briefDate, staffId, channel])
   @@index([briefDate])
+  @@index([status])
 }
 
 model MotivationHistory {
