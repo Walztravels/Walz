@@ -292,6 +292,14 @@ export async function PATCH(
       },
     })
 
+    // Propagate quoteId and leadId to the linked Booking for revenue attribution
+    if (fields.bookingId) {
+      await prisma.booking.update({
+        where: { id: fields.bookingId },
+        data:  { quoteId: params.id },
+      }).catch(() => { /* Booking may not yet exist — non-fatal */ })
+    }
+
     await prisma.quoteActivity.create({
       data: {
         quoteId: params.id, actor: session.email, actorType: 'staff',
