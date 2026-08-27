@@ -397,6 +397,34 @@ async function onConversationUpdated(payload: CWPayload, supabase: SupabaseAdmin
     }
   }
 
+  // ── Mirror assignment to Prisma "Lead" table ─────────────────────────────
+  // The Supabase 'leads' table (above) is the pre-Prisma original; "Lead" is the
+  // Prisma-managed table the admin panel reads. Both exist independently.
+  // When a staff assignment is made, write it to "Lead" as well so the admin
+  // panel sees it — matching by phone number since "Lead" has no chatwoot_conversation_id.
+  if (staffId || newStatus) {
+    const phoneNorm = senderPhone ? ('+' + senderPhone.replace(/\D/g, '')) : null
+    if (phoneNorm) {
+      const prismaUpdate: Parameters<typeof prisma.lead.updateMany>[0]['data'] = {
+        status: newStatus,
+      }
+      if (staffId)                     prismaUpdate.assignedToId   = staffId
+      if (newStatus === 'Contacted')   prismaUpdate.lastContactedAt = new Date()
+
+      try {
+        const result = await prisma.lead.updateMany({
+          where: { whatsapp: { in: [phoneNorm, senderPhone ?? ''].filter(Boolean) } },
+          data:  prismaUpdate,
+        })
+        console.log('[cw-hook] prisma mirror', {
+          phone: phoneNorm, updated: result.count, staffId, newStatus,
+        })
+      } catch (e) {
+        console.warn('[cw-hook] prisma mirror failed (non-blocking):', e instanceof Error ? e.message : e)
+      }
+    }
+  }
+
   console.log('[cw-hook] resolve', {
     event:        'conversation_updated',
     convId,
