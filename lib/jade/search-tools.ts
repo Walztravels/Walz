@@ -22,6 +22,7 @@ import { HotelbedsActivityProvider }             from '@/lib/activities/provider
 import { fetchAllEsimPackages }                  from '@/lib/esim/api'
 import { createSearchRef }                       from './search-ref'
 import { trackCommercialEvent }                  from '@/lib/commercial/track'
+import { calculateHotelRetailPrice }             from '@/lib/pricing/hotel'
 import type { JadeTripToolContext }              from './trip-tools'
 import type { JadeToolSchema }                   from './trip-tools'
 
@@ -410,13 +411,13 @@ async function execSearchHotels(input: Record<string, unknown>, ctx: JadeTripToo
     metadata: { destination: destCode, checkIn, checkOut, adults, resultCount: rawHotels.length, source: 'jade_chat' },
   })
 
-  // Normalize and pick top 5
+  // Normalize: apply shared retail pricing and filter out hotels with invalid rates
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const normalized = rawHotels.map((h: any) => {
     const rate         = h.rooms?.[0]?.rates?.[0]
-    const rateKey      = rate?.rateKey ?? ''       // private — into supplierPayload
+    const rateKey      = rate?.rateKey ?? ''         // private — supplierPayload only
     const hotelCode    = String(h.code)
-    const totalNet     = parseFloat(rate?.net ?? h.minRate ?? '0')
+    const supplierNet  = parseFloat(rate?.net ?? h.minRate ?? '0')  // Hotelbeds partner net
     const stars        = parseInt(h.categoryCode?.replace(/\D/g, '') || '3', 10) || 3
     const review       = h.reviews?.[0]
     const policies     = rate?.cancellationPolicies ?? []
@@ -424,20 +425,25 @@ async function execSearchHotels(input: Record<string, unknown>, ctx: JadeTripToo
     const cancellation = isRefundable
       ? (policies[0] ? `Free cancellation until ${new Date(policies[0].from).toLocaleDateString('en-GB')}` : 'Free cancellation')
       : 'Non-refundable'
-    const pricePerNight = Math.round((totalNet / nights) * 100) / 100
-    return { h, hotelCode, rateKey, totalNet, stars, review, cancellation, isRefundable, pricePerNight, rate }
-  }).filter(x => x.totalNet > 0 && x.rateKey)
-    .sort((a, b) => a.totalNet - b.totalNet)
+
+    // Shared retail pricing engine — fail-closed on zero/invalid net (requirement 12/13)
+    const pricing = calculateHotelRetailPrice({ supplierNetAmount: supplierNet, currency, nights })
+    return { h, hotelCode, rateKey, supplierNet, pricing, stars, review, cancellation, isRefundable, rate }
+  }).filter(x => x.rateKey && x.pricing !== null)   // skip rates with missing rateKey or invalid pricing
+    .sort((a, b) => a.pricing!.retailTotal - b.pricing!.retailTotal)
 
   let filtered = normalized
   if (maxPrice !== undefined) {
-    filtered = normalized.filter(x => x.totalNet <= maxPrice)
-    if (!filtered.length) filtered = normalized  // if nothing matches, return anyway with a note
+    const priceFiltered = normalized.filter(x => x.pricing!.retailTotal <= maxPrice)
+    if (priceFiltered.length) filtered = priceFiltered
+    // If nothing matches the price cap, return the cheapest available with a note
   }
 
   const top5 = filtered.slice(0, 5)
 
-  const results = await Promise.all(top5.map(async ({ h, hotelCode, rateKey, totalNet, stars, review, cancellation, pricePerNight, rate }, i) => {
+  const results = await Promise.all(top5.map(async ({ h, hotelCode, rateKey, supplierNet, pricing, stars, review, cancellation, rate }, i) => {
+    const { retailTotal, retailPerNight } = pricing!
+
     const details: Record<string, unknown> = {
       hotelName:      h.name,
       stars,
@@ -448,7 +454,7 @@ async function execSearchHotels(input: Record<string, unknown>, ctx: JadeTripToo
       checkIn,
       checkOut,
       nights,
-      pricePerNight,
+      pricePerNight:  retailPerNight,
       freeCancellation: cancellation,
       ...(review ? { rating: review.rate, reviewCount: review.reviewCount } : {}),
     }
@@ -458,15 +464,16 @@ async function execSearchHotels(input: Record<string, unknown>, ctx: JadeTripToo
       sessionId:   ctx.sessionId,
       productType: 'HOTEL',
       title:       h.name,
-      sellingPrice: totalNet,
+      sellingPrice: retailTotal,    // Walz customer selling price — authoritative
       currency,
       details,
       supplierPayload: {
-        supplier:        'HOTELBEDS',
+        supplier:          'HOTELBEDS',
         hotelCode,
-        rateKey,         // secret — never returned to Jade
-        roomCode:        h.rooms?.[0]?.code ?? null,
-        boardCode:       rate?.boardCode    ?? null,
+        rateKey,           // secret — never returned to Jade
+        supplierNetAmount: supplierNet,   // for reconciliation — never returned to Jade
+        roomCode:          h.rooms?.[0]?.code ?? null,
+        boardCode:         rate?.boardCode    ?? null,
         checkIn,
         checkOut,
         nights,
@@ -488,8 +495,8 @@ async function execSearchHotels(input: Record<string, unknown>, ctx: JadeTripToo
       checkIn,
       checkOut,
       nights,
-      pricePerNight,
-      sellingPrice: totalNet,
+      pricePerNight: retailPerNight,
+      sellingPrice:  retailTotal,
       currency,
       freeCancellation: cancellation,
       ...(review ? { rating: review.rate, reviewCount: review.reviewCount } : {}),

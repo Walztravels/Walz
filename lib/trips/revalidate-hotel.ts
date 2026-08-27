@@ -3,6 +3,7 @@
 // SECURITY: never surfaces supplier net rates or raw booking credentials.
 import type { Prisma } from '@prisma/client'
 import { hotelbedsRequest } from '@/lib/hotelbeds'
+import { calculateHotelRetailPrice } from '@/lib/pricing/hotel'
 import type { RevalidationResult, RevalidationStatus } from '@/lib/trips/revalidate'
 
 interface HotelItemForRevalidation {
@@ -67,20 +68,27 @@ export async function revalidateHotelTripItem(
     }
 
     const rate    = rates[0] as Record<string, unknown>
-    // Hotelbeds `net` is the partner net price — we do NOT expose it.
-    // `sellingRate` is the retail price if set; otherwise fall back to `net`.
-    // We only compare totals (not per-night) to match how we stored cost.
-    const rawPrice = (rate.sellingRate as number | undefined)
-                  ?? (rate.net         as number | undefined)
-    if (rawPrice === undefined || rawPrice === null) {
+    // Apply the same shared pricing engine used at search time so the comparison
+    // is always: old retailTotal vs new retailTotal (never net vs sellingRate).
+    const rawNet = typeof rate.net === 'number'
+      ? rate.net
+      : parseFloat((rate.net as string | undefined) ?? '')
+    const nights = typeof meta.nights === 'number' ? meta.nights : 1
+
+    const latestPricing = calculateHotelRetailPrice({
+      supplierNetAmount: rawNet,
+      currency:          item.currency,
+      nights,
+    })
+    if (!latestPricing) {
       return {
         status:   'REVALIDATION_FAILED',
         currency: item.currency,
-        reason:   'Checkrate did not return a price',
+        reason:   'Checkrate returned an invalid price',
       }
     }
 
-    const latestPrice   = rawPrice
+    const latestPrice   = latestPricing.retailTotal
     const previousPrice = item.cost ?? 0
     const delta         = Math.abs(latestPrice - previousPrice)
 

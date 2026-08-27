@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { hotelbedsRequest } from '@/lib/hotelbeds'
 import { countryToTimezone, destinationToTimezone } from '@/lib/timezones'
+import { calculateHotelRetailPrice } from '@/lib/pricing/hotel'
 import type { HotelResult } from '@/types/booking'
 
 export async function POST(request: NextRequest) {
@@ -135,11 +136,13 @@ export async function POST(request: NextRequest) {
       Math.ceil((checkOutDate.getTime() - checkInDate.getTime()) / (1000 * 60 * 60 * 24)),
     )
 
-    const hotels: HotelResult[] = rawHotels.map((h: any) => {
-      const rate          = h.rooms?.[0]?.rates?.[0]
-      const totalNet      = parseFloat(rate?.net ?? h.minRate ?? '0')
-      const pricePerNight = Math.round((totalNet / nights) * 100) / 100
-      const totalPrice    = Math.round(totalNet * 100) / 100
+    const hotels: HotelResult[] = rawHotels.flatMap((h: any) => {
+      const rate        = h.rooms?.[0]?.rates?.[0]
+      const supplierNet = parseFloat(rate?.net ?? h.minRate ?? '0')
+      const pricing     = calculateHotelRetailPrice({ supplierNetAmount: supplierNet, currency, nights })
+      if (!pricing) return []   // skip hotels with invalid/zero net (fail-closed)
+      const pricePerNight = pricing.retailPerNight
+      const totalPrice    = pricing.retailTotal
       const stars         = parseInt(h.categoryCode?.replace(/\D/g, '') || '3', 10) || 3
 
       const policies     = rate?.cancellationPolicies ?? []
@@ -153,7 +156,7 @@ export async function POST(request: NextRequest) {
       const countryCode = countryByCode[String(h.code)] || h.countryCode || ''
       const addrParts   = [addressLine, h.destinationName, countryCode].filter(Boolean)
 
-      return {
+      return [{
         id:        String(h.code),
         rateKey,
         hotelCode: String(h.code),
@@ -190,7 +193,7 @@ export async function POST(request: NextRequest) {
         destinationTimezone: destTimezone !== 'UTC'
           ? destTimezone
           : countryCode ? countryToTimezone(countryCode) : 'UTC',
-      } satisfies HotelResult
+      } satisfies HotelResult]
     })
 
     return NextResponse.json(hotels)
