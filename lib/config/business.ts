@@ -5,6 +5,7 @@ export const BUSINESS = {
   brand: 'Walz Travels',
   contacts: {
     globalWhatsapp:  { display: '+1 231 790 2336', e164: '12317902336' },
+    visaWhatsapp:    { display: '+44 7949 448680', e164: '447949448680' },
     nigeriaWhatsapp: { display: '+234 707 769 1701', e164: '2347077691701' },
     emergencyPhone:  { display: '+1 984 388 0110', e164: '19843880110' },
     email:              'contact@walztravels.com',
