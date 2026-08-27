@@ -518,6 +518,10 @@ export const NAV_ITEMS: NavSection[] = [
     section: 'INTELLIGENCE',
     items: [
       { href: '/admin/jade',                            label: 'Jade Staff Assistant',  icon: 'Sparkles',      permission: 'jade.staff'                  },
+      { href: '/admin/jade/briefs',                     label: 'Daily Brief',           icon: 'Newspaper',     permission: 'jade.staff'                  },
+      { href: '/admin/jade/staff-intelligence',         label: 'Staff Intelligence',    icon: 'Cpu',           permission: 'jade.staff', superAdminOnly: true },
+      { href: '/admin/staff-updates',                   label: 'Staff Updates',         icon: 'Megaphone',     permission: 'jade.staff'                  },
+      { href: '/admin/notifications',                   label: 'Notifications',         icon: 'Bell',          permission: 'jade.staff'                  },
       { href: '/admin/intelligence',                    label: 'Intelligence Hub',      icon: 'Brain',         permission: 'intelligence'                },
       { href: '/admin/intelligence/dna',               label: 'Financial DNA',          icon: 'Dna',           permission: 'intelligence.financial_dna'  },
       { href: '/admin/intelligence/officer-sim',       label: 'Officer Simulation',     icon: 'UserCheck',     permission: 'intelligence.officer_sim'    },

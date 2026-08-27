@@ -1,0 +1,224 @@
+import { NextResponse } from 'next/server'
+import prisma from '@/lib/db'
+import Anthropic from '@anthropic-ai/sdk'
+
+export const dynamic = 'force-dynamic'
+export const maxDuration = 60
+
+const THEMES = [
+  'customer service', 'consistency', 'sales excellence', 'teamwork', 'professionalism',
+  'leadership', 'continuous learning', 'problem solving', 'travel expertise',
+  'attention to detail', 'communication', 'client relationships', 'perseverance',
+  'adaptability', 'trust', 'going the extra mile', 'curiosity', 'precision',
+]
+
+function todayString() {
+  return new Date().toISOString().split('T')[0] // "2026-08-26"
+}
+
+function isEligible(
+  staff: { role: string; department: string; id: string },
+  ann: { audience: string; audienceRoles: string[]; audienceStaffIds: string[] },
+): boolean {
+  switch (ann.audience) {
+    case 'EVERYONE':           return true
+    case 'SALES':              return staff.department === 'sales'
+    case 'VISA_TEAM':          return staff.department === 'visa'
+    case 'TRAVEL_CONSULTANTS': return ['flights','tours','hotels'].includes(staff.department)
+    case 'FINANCE':            return staff.department === 'accounts'
+    case 'ADMIN_TEAM':         return ['super_admin','admin'].includes(staff.role)
+    case 'MANAGEMENT':         return ['super_admin','manager','general_manager'].includes(staff.role)
+    case 'SPECIFIC_ROLE':      return ann.audienceRoles.includes(staff.role)
+    case 'SPECIFIC_STAFF':     return ann.audienceStaffIds.includes(staff.id)
+    default:                   return true
+  }
+}
+
+export async function GET(req: Request) {
+  const auth = req.headers.get('authorization')
+  if (auth !== `Bearer ${process.env.CRON_SECRET}`) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+
+  const today = todayString()
+
+  // Idempotency guard — do not regenerate if brief already exists today
+  const existing = await prisma.jadeDailyBrief.findUnique({ where: { briefDate: today } })
+  if (existing) {
+    return NextResponse.json({ skipped: true, briefDate: today, reason: 'already_generated' })
+  }
+
+  // ── Generate motivation ───────────────────────────────────────────────────────
+  const recentHistory = await prisma.motivationHistory.findMany({
+    orderBy: { usedOn: 'desc' },
+    take: 20,
+    select: { theme: true },
+  })
+  const usedThemes = recentHistory.map(h => h.theme)
+  const availableThemes = THEMES.filter(t => !usedThemes.includes(t))
+  const themePool = availableThemes.length > 0 ? availableThemes : THEMES
+  const selectedTheme = themePool[Math.floor(themePool.length / 2)] // deterministic pick
+
+  let motivation   = 'Doing the right thing consistently is the foundation of every great client relationship.'
+  let motivationThought = 'Every call you handle with care today is an investment in a client who returns tomorrow.'
+  let motivationTheme   = selectedTheme
+
+  try {
+    const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
+    const msg = await anthropic.messages.create({
+      model: 'claude-haiku-4-5-20251001',
+      max_tokens: 250,
+      messages: [{
+        role: 'user',
+        content: `You generate daily motivational messages for Walz Travels staff — a premium travel agency.
+
+Theme for today: "${selectedTheme}"
+Recent themes used (avoid similar): ${usedThemes.slice(0,10).join(', ')}
+
+Requirements:
+- Professional, positive, grounded — not inspirational-poster cheesy
+- Original phrasing — do not falsely attribute quotes to famous people
+- Relevant to travel, customer service, or professional excellence
+- "quote": 1–2 short sentences
+- "thought": 1–2 sentences that Jade adds as a practical daily follow-through
+
+Reply ONLY with valid JSON (no markdown, no code fences):
+{"quote":"...","thought":"...","theme":"${selectedTheme}"}`,
+      }],
+    })
+
+    const raw = msg.content[0].type === 'text' ? msg.content[0].text.trim() : ''
+    const parsed = JSON.parse(raw)
+    if (parsed.quote && parsed.thought) {
+      motivation        = parsed.quote
+      motivationThought = parsed.thought
+      motivationTheme   = parsed.theme ?? selectedTheme
+    }
+  } catch (e) {
+    console.warn('[jade-brief] motivation generation failed, using fallback:', e)
+  }
+
+  // ── Fetch published announcements ─────────────────────────────────────────────
+  const announcements = await prisma.staffAnnouncement.findMany({
+    where:   { status: 'PUBLISHED' },
+    orderBy: [{ priority: 'desc' }, { publishedAt: 'desc' }],
+    take:    5,
+    select: {
+      id: true, title: true, category: true, summary: true,
+      detail: true, whatToDo: true, relevantUrl: true,
+      priority: true, audience: true, audienceRoles: true, audienceStaffIds: true,
+    },
+  })
+
+  const urgentCount = announcements.filter(a => a.priority === 'URGENT').length
+
+  // ── Build and persist the brief ───────────────────────────────────────────────
+  const contentJson = {
+    announcements: announcements.map(a => ({
+      id:          a.id,
+      title:       a.title,
+      category:    a.category,
+      summary:     a.summary,
+      detail:      a.detail,
+      whatToDo:    a.whatToDo,
+      relevantUrl: a.relevantUrl,
+      priority:    a.priority,
+    })),
+    travel:       [],  // Phase 2
+    visa:         [],  // Phase 3
+    urgentCount,
+  }
+
+  const brief = await prisma.jadeDailyBrief.create({
+    data: {
+      briefDate:         today,
+      motivation,
+      motivationThought,
+      motivationTheme,
+      contentJson,
+    },
+  })
+
+  // Record theme so it is not repeated soon
+  await prisma.motivationHistory.create({ data: { theme: motivationTheme, usedOn: today } })
+
+  // ── Deliver in-app notifications to all active staff ─────────────────────────
+  const allStaff = await prisma.staff.findMany({
+    where:  { isActive: true },
+    select: { id: true, role: true, department: true },
+  })
+
+  let notifCount = 0
+  for (const staff of allStaff) {
+    // Skip if already delivered today (idempotency)
+    const already = await prisma.briefDeliveryLog.findUnique({
+      where: { briefDate_staffId_channel: { briefDate: today, staffId: staff.id, channel: 'admin' } },
+    })
+    if (already) continue
+
+    try {
+      await prisma.staffNotification.create({
+        data: {
+          staffId:    staff.id,
+          category:   'JADE_BRIEF',
+          title:      `Jade Daily Brief — ${today}`,
+          body:       motivation,
+          important:  urgentCount > 0,
+          sourceId:   brief.id,
+          sourceType: 'brief',
+        },
+      })
+      await prisma.briefDeliveryLog.create({
+        data: { briefDate: today, staffId: staff.id, channel: 'admin' },
+      })
+      notifCount++
+    } catch {
+      // Unique constraint on BriefDeliveryLog is the real guard; ignore duplicate errors
+    }
+  }
+
+  // ── Announcement notifications for newly published items ──────────────────────
+  // Announcements without a delivery log get a separate notification per eligible staff
+  for (const ann of announcements) {
+    for (const staff of allStaff) {
+      if (!isEligible(staff, ann)) continue
+      const already = await prisma.briefDeliveryLog.findUnique({
+        where: { briefDate_staffId_channel: { briefDate: today, staffId: staff.id, channel: `ann_${ann.id}` } },
+      })
+      if (already) continue
+
+      try {
+        await prisma.staffNotification.create({
+          data: {
+            staffId:    staff.id,
+            category:   'SYSTEM',
+            title:      ann.title,
+            body:       ann.summary,
+            important:  ann.priority === 'URGENT',
+            sourceId:   ann.id,
+            sourceType: 'announcement',
+          },
+        })
+        await prisma.briefDeliveryLog.create({
+          data: { briefDate: today, staffId: staff.id, channel: `ann_${ann.id}` },
+        })
+      } catch {
+        // idempotent — duplicate constraint or create failure
+      }
+    }
+  }
+
+  // Update staffReached count
+  await prisma.jadeDailyBrief.update({
+    where: { briefDate: today },
+    data:  { staffReached: notifCount },
+  })
+
+  return NextResponse.json({
+    ok:          true,
+    briefDate:   today,
+    staffReached: notifCount,
+    announcements: announcements.length,
+    urgentCount,
+  })
+}

@@ -9,6 +9,7 @@ import { format } from 'date-fns'
 import Link from 'next/link'
 import { cn } from '@/lib/utils'
 import { StaffCheckInWidget } from './StaffCheckInWidget'
+import { JadeDailyBriefCard } from '@/components/admin/JadeDailyBriefCard'
 
 export const dynamic = 'force-dynamic'
 
@@ -230,6 +231,11 @@ export default async function DashboardPage() {
       <div className="hidden md:block mb-8">
         <h1 className="text-2xl font-bold text-white">Dashboard</h1>
         <p className="text-white/40 text-sm mt-1">{greetings[staffRole] ?? 'Welcome back.'}</p>
+      </div>
+
+      {/* ── Jade Daily Brief ───────────────────────────────────────────────── */}
+      <div className="mb-6">
+        <JadeDailyBriefCard staffName={session.name} />
       </div>
 
       {/* ── Staff Check-In Widget (only renders for tracked staff) ──────────── */}

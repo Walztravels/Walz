@@ -1,9 +1,10 @@
 'use client'
 
 import { usePathname, useRouter } from 'next/navigation'
-import { Bell, LogOut, ChevronRight, Phone } from 'lucide-react'
+import { LogOut, ChevronRight, Phone } from 'lucide-react'
 import { useStaffPermissions } from '@/hooks/useStaffPermissions'
 import { cn } from '@/lib/utils'
+import { NotificationBell } from '@/components/admin/NotificationBell'
 
 // ── Page title map ────────────────────────────────────────────────────────────
 const PAGE_META: Record<string, { title: string; section: string }> = {
@@ -103,9 +104,7 @@ export function AdminHeader({ adminEmail }: Props) {
         </button>
 
         {/* Notifications */}
-        <button className="relative p-2 rounded-lg hover:bg-gray-100 transition-colors text-gray-500 hover:text-gray-700">
-          <Bell className="w-4 h-4" />
-        </button>
+        <NotificationBell />
 
         {/* User pill with role badge */}
         <div className="flex items-center gap-2 pl-3 border-l border-gray-200">

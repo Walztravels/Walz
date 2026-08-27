@@ -542,10 +542,12 @@ model Staff {
   signatureTagline  String?                          // Optional override for the sub-name line in email signature. Falls back to roleTitle if unset.
   lastActiveAt      DateTime?                        // Updated (throttled, 2-min gap) on every authenticated admin request — used to determine offline status for inbound-message alerts.
 
-  activityLogs ActivityLog[]
-  checkIns     CheckInRecord[]
-  manager      Staff?    @relation("StaffManager", fields: [managerId], references: [id])
-  reports      Staff[]   @relation("StaffManager")
+  activityLogs     ActivityLog[]
+  checkIns         CheckInRecord[]
+  manager          Staff?              @relation("StaffManager", fields: [managerId], references: [id])
+  reports          Staff[]             @relation("StaffManager")
+  announcements    StaffAnnouncement[]
+  notifications    StaffNotification[]
 
   @@index([email])
   @@index([isActive])
@@ -4489,4 +4491,128 @@ model QuoteActivity {
   @@index([quoteId])
   @@index([createdAt])
   @@map("quote_activity")
+}
+
+// ─── Jade Daily Brief System ──────────────────────────────────────────────────
+
+enum AnnouncementCategory {
+  NEW_FEATURE
+  SYSTEM_UPDATE
+  POLICY
+  SUPPLIER
+  IMPORTANT
+  TRAINING
+}
+
+enum AnnouncementStatus {
+  DRAFT
+  APPROVED
+  PUBLISHED
+  ARCHIVED
+}
+
+enum AnnouncementPriority {
+  NORMAL
+  HIGH
+  URGENT
+}
+
+enum AnnouncementAudience {
+  EVERYONE
+  SALES
+  VISA_TEAM
+  TRAVEL_CONSULTANTS
+  FINANCE
+  ADMIN_TEAM
+  MANAGEMENT
+  SPECIFIC_ROLE
+  SPECIFIC_STAFF
+}
+
+enum StaffNotificationCategory {
+  JADE_BRIEF
+  SYSTEM
+  VISA
+  TRAVEL
+  BOOKING
+  SUPPLIER
+  MANAGEMENT
+}
+
+model StaffAnnouncement {
+  id               String               @id @default(cuid())
+  title            String
+  category         AnnouncementCategory
+  summary          String               @db.Text
+  detail           String               @db.Text
+  whatToDo         String?              @db.Text
+  effectiveDate    DateTime?
+  relevantUrl      String?
+  audience         AnnouncementAudience @default(EVERYONE)
+  audienceRoles    String[]             @default([])
+  audienceStaffIds String[]             @default([])
+  priority         AnnouncementPriority @default(NORMAL)
+  status           AnnouncementStatus   @default(DRAFT)
+  publishedAt      DateTime?
+  authorId         String
+  author           Staff                @relation(fields: [authorId], references: [id])
+  createdAt        DateTime             @default(now())
+  updatedAt        DateTime             @updatedAt
+
+  @@index([status])
+  @@index([publishedAt])
+  @@index([authorId])
+}
+
+model JadeDailyBrief {
+  id                String   @id @default(cuid())
+  briefDate         String   // "2026-08-26" — unique per calendar day
+  motivation        String   @db.Text
+  motivationThought String   @db.Text
+  motivationTheme   String
+  contentJson       Json
+  generatedAt       DateTime @default(now())
+  staffReached      Int      @default(0)
+
+  @@unique([briefDate])
+  @@index([briefDate])
+}
+
+model StaffNotification {
+  id         String                    @id @default(cuid())
+  staffId    String
+  staff      Staff                     @relation(fields: [staffId], references: [id])
+  category   StaffNotificationCategory @default(SYSTEM)
+  title      String
+  body       String                    @db.Text
+  data       Json?
+  read       Boolean                   @default(false)
+  important  Boolean                   @default(false)
+  archived   Boolean                   @default(false)
+  sourceId   String?
+  sourceType String?                   // "brief" | "announcement" | "travel" | "visa"
+  createdAt  DateTime                  @default(now())
+
+  @@index([staffId, read])
+  @@index([staffId, createdAt])
+  @@index([staffId, archived])
+}
+
+model BriefDeliveryLog {
+  id          String   @id @default(cuid())
+  briefDate   String
+  staffId     String
+  channel     String   // "admin" | "email" | "whatsapp"
+  deliveredAt DateTime @default(now())
+
+  @@unique([briefDate, staffId, channel])
+  @@index([briefDate])
+}
+
+model MotivationHistory {
+  id     String @id @default(cuid())
+  theme  String
+  usedOn String // "2026-08-26" ISO date
+
+  @@index([usedOn])
 }
