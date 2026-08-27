@@ -67,3 +67,16 @@ export function signupRateLimit(ip: string): RateLimitResult {
 export function forgotPasswordRateLimit(ip: string): RateLimitResult {
   return rateLimit({ key: `forgot:${ip}`, limit: 5, windowMs: 60 * 60 * 1000 })
 }
+
+// Trip builder endpoints
+export function tripMyRateLimit(ip: string): RateLimitResult {
+  return rateLimit({ key: `trip-my:${ip}`, limit: 30, windowMs: 60 * 1000 })
+}
+
+export function tripClaimRateLimit(ip: string): RateLimitResult {
+  return rateLimit({ key: `trip-claim:${ip}`, limit: 10, windowMs: 60 * 1000 })
+}
+
+export function tripRevalidateRateLimit(ip: string): RateLimitResult {
+  return rateLimit({ key: `trip-reval:${ip}`, limit: 20, windowMs: 60 * 1000 })
+}

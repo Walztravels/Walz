@@ -16,7 +16,8 @@ import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { useCurrency } from '@/lib/context/CurrencyContext'
 import { CURRENCIES } from '@/lib/currencies'
-import { useCart } from '@/lib/context/CartContext'
+import { useCart }         from '@/lib/context/CartContext'
+import { TripNavBadge }   from '@/components/trips/TripNavBadge'
 
 const LOGO_CACHE_KEY = 'walz_logo_url'
 const LOGO_CACHE_TTL = 60 * 60 * 1000 // 1 hour
@@ -347,6 +348,13 @@ export function Navbar() {
                 </div>
               )}
             </div>
+
+            {/* Trip builder badge — desktop; only renders when walz_trip_id is in localStorage */}
+            {process.env.NEXT_PUBLIC_TRIP_BUILDER_ENABLED === 'true' && (
+              <div className="hidden lg:flex">
+                <TripNavBadge />
+              </div>
+            )}
 
             {/* Cart icon — desktop */}
             <Link href="/cart" className="hidden lg:flex relative items-center p-2 rounded-lg text-walz-muted hover:text-walz-gold hover:bg-walz-slate/50 transition-all">

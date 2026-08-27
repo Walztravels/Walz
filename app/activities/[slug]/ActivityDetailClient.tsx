@@ -535,6 +535,14 @@ export default function ActivityDetailClient({ activity }: { activity: any }) {
                     description: activity.description ?? undefined,
                     sourceType:  activity.source ?? activity.supplier ?? undefined,
                     sourceId:    activity.supplierProductId ?? activity.id ?? undefined,
+                    metadata:    {
+                      travelDate:        date || undefined,
+                      adults,
+                      children,
+                      infants,
+                      productOptionCode: livePricing?.productOptionCode ?? viatorPricing?.productOptionCode ?? undefined,
+                      pricingCheckedAt:  (confirmedPrice && date) ? new Date().toISOString() : undefined,
+                    },
                   }}
                 />
               )}

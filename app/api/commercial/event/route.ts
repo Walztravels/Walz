@@ -16,6 +16,9 @@ const BROWSER_SAFE_EVENTS = new Set<CommercialEventName>([
   'product_view',
   'jade_started',
   'jade_trip_intent',
+  'cross_sell_shown',
+  'cross_sell_clicked',
+  'cross_sell_added',
 ])
 
 // POST /api/commercial/event — ingest client-side commercial events

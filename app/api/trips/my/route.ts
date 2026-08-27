@@ -3,6 +3,7 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import prisma from '@/lib/db'
 import { trackCommercialEvent } from '@/lib/commercial/track'
+import { tripMyRateLimit } from '@/lib/rate-limit'
 
 export const dynamic = 'force-dynamic'
 
@@ -12,6 +13,10 @@ function getSessionId(req: NextRequest) {
 
 // Returns the most recent DRAFT trip for this user/session, or creates one
 export async function GET(req: NextRequest) {
+  const ip = req.headers.get('x-forwarded-for')?.split(',')[0].trim() ?? 'unknown'
+  const rl = tripMyRateLimit(ip)
+  if (!rl.allowed) return NextResponse.json({ error: 'Too many requests' }, { status: 429 })
+
   const session = await getServerSession(authOptions)
   const sessionId = getSessionId(req)
 
@@ -37,6 +42,10 @@ export async function GET(req: NextRequest) {
 
 // Create (or return existing) DRAFT trip — idempotent
 export async function POST(req: NextRequest) {
+  const ip = req.headers.get('x-forwarded-for')?.split(',')[0].trim() ?? 'unknown'
+  const rl = tripMyRateLimit(ip)
+  if (!rl.allowed) return NextResponse.json({ error: 'Too many requests' }, { status: 429 })
+
   const session = await getServerSession(authOptions)
   const sessionId = getSessionId(req)
 

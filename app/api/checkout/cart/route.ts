@@ -1,51 +1,128 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { stripe }                    from '@/lib/stripe'
 import { trackDurableEvent }         from '@/lib/commercial/track'
+import { revalidateTripActivityItem } from '@/lib/trips/revalidate'
 
 const SITE = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://www.walztravels.com'
 
 // Compact representation stored per-item in Stripe metadata.
-// Stripe allows 50 keys × 500 chars; each compact item JSON is ~180 chars.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function compactItem(item: any, idx: number) {
   return JSON.stringify({
-    cid:   String(idx),                             // stable cart-line ID (position within this session)
+    cid:   String(idx),
     t:     item.type,
     title: (item.title ?? '').slice(0, 60),
-    s:     item.meta?.supplier   ?? '',
-    pc:    item.meta?.productCode         ?? '',
-    poc:   item.meta?.productOptionCode   ?? '',
-    d:     item.meta?.date       ?? '',
-    a:     Number(item.meta?.adults   ?? item.quantity ?? 1),
+    s:     item.meta?.supplier           ?? '',
+    pc:    item.meta?.productCode        ?? '',
+    poc:   item.meta?.productOptionCode  ?? '',
+    d:     item.meta?.date               ?? '',
+    a:     Number(item.meta?.adults  ?? item.quantity ?? 1),
     c:     Number(item.meta?.children ?? 0),
     i:     Number(item.meta?.infants  ?? 0),
-    st:    item.meta?.startTime  ?? '',
+    st:    item.meta?.startTime          ?? '',
     p:     item.price,
     cur:   item.currency ?? 'GBP',
     loc:   (item.meta?.location ?? '').slice(0, 30),
-    dur:   (item.meta?.duration ?? '').slice(0, 20),
+    dur:   (item.meta?.duration  ?? '').slice(0, 20),
   })
 }
 
 export async function POST(req: NextRequest) {
-  const { items, gateway, sessionId } = await req.json()
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { items, gateway, sessionId } = await req.json() as { items: any[]; gateway: string; sessionId?: string }
 
   if (!items?.length) {
     return NextResponse.json({ error: 'Cart is empty' }, { status: 400 })
   }
 
+  // ── Mixed-currency guard ───────────────────────────────────────────────────
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const currencies = [...new Set<string>(items.map((i: any) => (i.currency || 'GBP').toUpperCase()))]
+  if (currencies.length > 1) {
+    return NextResponse.json({
+      error:      'MIXED_CURRENCY',
+      message:    'Your cart contains items in multiple currencies. Please keep items in a single currency before continuing to checkout.',
+      currencies,
+    }, { status: 422 })
+  }
+
+  // ── Viator activity revalidation at checkout ───────────────────────────────
+  // Revalidate all Viator activity items before creating a payment session.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const viatorItems = items.filter((i: any) =>
+    (i.type === 'activity' || i.type === 'ACTIVITY') &&
+    (i.meta?.supplier ?? '').toLowerCase() === 'viator' &&
+    i.meta?.productCode
+  )
+
+  if (viatorItems.length > 0) {
+    const revalResults = await Promise.all(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      viatorItems.map(async (i: any) => {
+        const result = await revalidateTripActivityItem({
+          cost:       i.price,
+          currency:   i.currency ?? 'GBP',
+          sourceType: 'viator',
+          sourceId:   i.meta?.productCode ?? null,
+          metadata:   {
+            travelDate: i.meta?.date      ?? null,
+            adults:     i.meta?.adults    ?? 1,
+            children:   i.meta?.children  ?? 0,
+            infants:    i.meta?.infants   ?? 0,
+          },
+        })
+        return { item: i, result }
+      })
+    )
+
+    const soldOut     = revalResults.filter(r => r.result.status === 'SOLD_OUT')
+    const changed     = revalResults.filter(r => r.result.status === 'PRICE_CHANGED')
+    const failed      = revalResults.filter(r => r.result.status === 'REVALIDATION_FAILED')
+
+    if (soldOut.length > 0) {
+      return NextResponse.json({
+        error: 'ITEMS_SOLD_OUT',
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        items: soldOut.map(r => ({ title: (r.item as any).title })),
+      }, { status: 422 })
+    }
+
+    if (changed.length > 0) {
+      return NextResponse.json({
+        error:   'PRICE_CHANGED',
+        message: 'One or more activity prices have changed since you added them. Please review your cart.',
+        changes: changed.map(r => ({
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          title:         (r.item as any).title,
+          previousPrice: r.result.previousPrice,
+          latestPrice:   r.result.latestPrice,
+          currency:      r.result.currency,
+        })),
+      }, { status: 422 })
+    }
+
+    if (failed.length > 0) {
+      return NextResponse.json({
+        error:   'REVALIDATION_FAILED',
+        message: 'We could not confirm the latest price for one or more activities. Please try again.',
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        items:   failed.map(r => ({ title: (r.item as any).title })),
+      }, { status: 422 })
+    }
+  }
+
   if (gateway === 'flutterwave') {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const total = items.reduce((s: number, i: any) => s + i.price * i.quantity, 0)
-    const txRef = `WALZ-${Date.now()}`
+    const total  = items.reduce((s: number, i: any) => s + i.price * i.quantity, 0)
+    const txRef  = `WALZ-${Date.now()}`
+    const fwCurrency = items[0]?.currency ?? 'USD'
 
     const payload = {
       tx_ref:       txRef,
       amount:       total.toFixed(2),
-      currency:     items[0]?.currency ?? 'USD',
+      currency:     fwCurrency,
       redirect_url: `${SITE}/booking/success?gateway=flutterwave&tx_ref=${txRef}`,
       meta: {
-        // Full item data for post-payment booking
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         items: JSON.stringify(items.map((i: any) => ({
           t: i.type, title: i.title, s: i.meta?.supplier ?? '',
@@ -64,6 +141,18 @@ export async function POST(req: NextRequest) {
       },
     }
 
+    // Track checkout_started for Flutterwave (was missing before)
+    try {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const fwTotal = items.reduce((s: number, i: any) => s + i.price * (i.quantity ?? 1), 0)
+      await trackDurableEvent('checkout_started', {
+        sessionId: typeof sessionId === 'string' ? sessionId : undefined,
+        currency:  fwCurrency,
+        amount:    fwTotal,
+        metadata:  { itemCount: items.length, gateway: 'flutterwave' },
+      })
+    } catch { /* tracking must never fail checkout */ }
+
     const fw = await fetch('https://api.flutterwave.com/v3/payments', {
       method:  'POST',
       headers: {
@@ -81,6 +170,7 @@ export async function POST(req: NextRequest) {
   }
 
   // ── Stripe checkout ───────────────────────────────────────────────────────
+  // All items share the same currency (mixed-currency guard above).
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const line_items = items.map((item: any) => ({
     price_data: {
@@ -95,10 +185,9 @@ export async function POST(req: NextRequest) {
     quantity: item.quantity ?? 1,
   }))
 
-  // Track checkout_started — durable event, authoritative trigger
   const cartCurrency = items[0]?.currency ?? 'GBP'
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const cartTotal = items.reduce((s: number, i: any) => s + i.price * (i.quantity ?? 1), 0)
+  const cartTotal    = items.reduce((s: number, i: any) => s + i.price * (i.quantity ?? 1), 0)
   try {
     await trackDurableEvent('checkout_started', {
       sessionId: typeof sessionId === 'string' ? sessionId : undefined,
@@ -108,8 +197,6 @@ export async function POST(req: NextRequest) {
     })
   } catch { /* tracking must never fail checkout */ }
 
-  // Store compact item data per-key so confirm can call supplier APIs.
-  // Stripe metadata: 50 keys max, 500 chars per value, 8000 chars total.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const itemMeta: Record<string, string> = {}
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -118,10 +205,9 @@ export async function POST(req: NextRequest) {
   })
   itemMeta.item_count = String(items.length)
   itemMeta.gateway    = 'stripe'
-  // Pass sessionId so checkout.session.completed webhook can mark CartSession converted
   if (typeof sessionId === 'string') itemMeta.walz_session_id = sessionId.slice(0, 64)
 
-  const session = await stripe.checkout.sessions.create({
+  const stripeSession = await stripe.checkout.sessions.create({
     mode:       'payment',
     line_items,
     success_url: `${SITE}/booking/success?session_id={CHECKOUT_SESSION_ID}`,
@@ -134,5 +220,5 @@ export async function POST(req: NextRequest) {
     metadata: itemMeta,
   })
 
-  return NextResponse.json({ url: session.url })
+  return NextResponse.json({ url: stripeSession.url })
 }

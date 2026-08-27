@@ -1,21 +1,31 @@
 'use client'
-import { useCart } from '@/lib/context/CartContext'
-import { Trash2, ShoppingCart, CreditCard, Loader2 } from 'lucide-react'
-import { useState } from 'react'
-import Link from 'next/link'
+import { useCart }              from '@/lib/context/CartContext'
+import { Trash2, ShoppingCart, CreditCard, Loader2, AlertCircle } from 'lucide-react'
+import { useState, useEffect }  from 'react'
+import Link                     from 'next/link'
+import { TripRecommendations }  from '@/components/trips/TripRecommendations'
 
 const TYPE_ICONS: Record<string, string> = {
   activity: '🎭', transfer: '🚗', tour: '🗺️', hotel: '🏨', flight: '✈️',
 }
 
+const TRIP_KEY = 'walz_trip_id'
+
 export default function CartPage() {
   const { items, removeItem, clearCart, total, itemCount, sessionId } = useCart()
-  const [paying,  setPaying]  = useState(false)
-  const [gateway, setGateway] = useState<'stripe' | 'flutterwave'>('stripe')
+  const [paying,     setPaying]     = useState(false)
+  const [gateway,    setGateway]    = useState<'stripe' | 'flutterwave'>('stripe')
+  const [checkoutErr,setCheckoutErr]= useState<string | null>(null)
+  const [tripId,     setTripId]     = useState<string | null>(null)
+
+  useEffect(() => {
+    try { setTripId(localStorage.getItem(TRIP_KEY)) } catch {}
+  }, [])
 
   async function handleCheckout() {
     if (!items.length) return
     setPaying(true)
+    setCheckoutErr(null)
     try {
       const res = await fetch('/api/checkout/cart', {
         method:  'POST',
@@ -23,10 +33,42 @@ export default function CartPage() {
         body:    JSON.stringify({ items, gateway, sessionId }),
       })
       const data = await res.json()
-      if (data.url) window.location.href = data.url
-      else alert(data.error ?? 'Checkout failed. Please try again.')
-    } catch { alert('Checkout failed. Please try again.') }
+
+      if (data.error === 'MIXED_CURRENCY') {
+        setCheckoutErr(data.message ?? 'Your cart contains items in multiple currencies. Please keep items in a single currency.')
+        return
+      }
+      if (data.error === 'PRICE_CHANGED') {
+        const summary = data.changes?.map((c: { title: string; previousPrice: number; latestPrice: number; currency: string }) =>
+          `${c.title}: ${c.currency} ${c.previousPrice} → ${c.latestPrice}`
+        ).join('\n')
+        setCheckoutErr(`One or more activity prices have changed. Please return to your trip and accept the new prices.\n\n${summary ?? ''}`)
+        return
+      }
+      if (data.error === 'ITEMS_SOLD_OUT') {
+        const names = data.items?.map((i: { title: string }) => i.title).join(', ')
+        setCheckoutErr(`Some items are no longer available: ${names}. Please remove them before continuing.`)
+        return
+      }
+      if (data.error === 'REVALIDATION_FAILED') {
+        setCheckoutErr('We could not confirm the latest price for some activities. Please try again.')
+        return
+      }
+      if (data.url) { window.location.href = data.url; return }
+      setCheckoutErr(data.error ?? 'Checkout failed. Please try again.')
+    } catch { setCheckoutErr('Checkout failed. Please try again.') }
     finally { setPaying(false) }
+  }
+
+  // Build a minimal trip context for cross-sell if no trip is active
+  const cartTrip = tripId ? null : {
+    id:          'cart',
+    destination: items[0]?.meta?.location ?? '',
+    origin:      null,
+    adults:      Number(items[0]?.meta?.adults ?? 1),
+    children:    Number(items[0]?.meta?.children ?? 0),
+    infants:     0,
+    items:       items.map(i => ({ type: i.type.toUpperCase(), metadata: {} })),
   }
 
   if (itemCount === 0) return (
@@ -94,6 +136,14 @@ export default function CartPage() {
           </div>
         </div>
 
+        {/* Mixed-currency / checkout error */}
+        {checkoutErr && (
+          <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 mb-4 flex gap-3">
+            <AlertCircle className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
+            <p className="text-sm text-amber-800 whitespace-pre-line">{checkoutErr}</p>
+          </div>
+        )}
+
         {/* Payment gateway selector */}
         <div className="bg-white rounded-2xl p-4 shadow-sm mb-4">
           <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-3">
@@ -101,8 +151,8 @@ export default function CartPage() {
           </p>
           <div className="grid grid-cols-2 gap-3">
             {([
-              { id: 'stripe',       label: 'Card / Apple Pay',  sub: 'Visa, Mastercard, Amex'    },
-              { id: 'flutterwave',  label: 'Flutterwave',       sub: 'Cards, Bank, Mobile Money' },
+              { id: 'stripe',      label: 'Card / Apple Pay',  sub: 'Visa, Mastercard, Amex'    },
+              { id: 'flutterwave', label: 'Flutterwave',       sub: 'Cards, Bank, Mobile Money' },
             ] as const).map(g => (
               <button key={g.id} onClick={() => setGateway(g.id)}
                 className={`p-3 rounded-xl border-2 text-left transition-all ${
@@ -131,6 +181,13 @@ export default function CartPage() {
           className="w-full mt-3 text-gray-400 text-sm hover:text-red-400 transition-colors py-2">
           Clear cart
         </button>
+
+        {/* Cross-sell recommendations below checkout */}
+        {process.env.NEXT_PUBLIC_CROSS_SELL_ENABLED !== 'false' && cartTrip && cartTrip.items.length > 0 && (
+          <div className="mt-8 pt-8 border-t border-gray-200">
+            <TripRecommendations trip={cartTrip} />
+          </div>
+        )}
       </div>
     </div>
   )

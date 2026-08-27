@@ -23,6 +23,9 @@ export type CommercialEventName =
   | 'trip_created'
   | 'trip_item_added'
   | 'trip_item_removed'
+  | 'cross_sell_shown'
+  | 'cross_sell_clicked'
+  | 'cross_sell_added'
 
 export interface TrackOptions {
   eventId?:     string   // client dedup key — reject duplicates from browser

@@ -5,10 +5,14 @@ import { useParams } from 'next/navigation'
 import Link from 'next/link'
 import {
   Plane, Hotel, MapPin, Zap, Globe, Utensils, Car,
-  Trash2, Loader2, ShoppingCart, ArrowRight, RefreshCw,
+  Trash2, Loader2, ShoppingCart, ArrowRight, RefreshCw, X,
+  AlertCircle, CheckCircle2,
 } from 'lucide-react'
-import { useCart } from '@/lib/context/CartContext'
-import { cn } from '@/lib/utils'
+import { useCart }                           from '@/lib/context/CartContext'
+import { cn }                                from '@/lib/utils'
+import { groupTripTotalsByCurrency }         from '@/lib/trips/currency'
+import { TripRecommendations }               from '@/components/trips/TripRecommendations'
+import type { CartItem }                     from '@/lib/context/CartContext'
 
 const SESSION_KEY = 'walz_cart_session_id'
 const TRIP_KEY    = 'walz_trip_id'
@@ -32,17 +36,17 @@ const TYPE_META: Record<string, { label: string; icon: React.ReactNode; color: s
 }
 
 interface TripItem {
-  id:       string
-  type:     string
-  title:    string
-  cost:     number | null
-  currency: string
-  quantity: number
-  imageUrl: string | null
-  location: string | null
-  metadata: Record<string, unknown>
+  id:         string
+  type:       string
+  title:      string
+  cost:       number | null
+  currency:   string
+  quantity:   number
+  imageUrl:   string | null
+  location:   string | null
+  metadata:   Record<string, unknown>
   sourceType: string | null
-  confirmed: boolean
+  confirmed:  boolean
 }
 
 interface Trip {
@@ -61,16 +65,42 @@ interface Trip {
 // Items that can be moved to cart
 const CART_TYPES = new Set(['ACTIVITY', 'TRANSFER', 'TRANSPORT'])
 
+// Maps TripItemType → CartItem.type.
+// TRANSPORT is a legacy alias for TRANSFER — map cleanly without as any.
+function tripItemTypeToCartType(type: string): CartItem['type'] | null {
+  switch (type.toUpperCase()) {
+    case 'ACTIVITY':  return 'activity'
+    case 'TRANSFER':
+    case 'TRANSPORT': return 'transfer'
+    case 'TOUR':      return 'tour'
+    case 'HOTEL':     return 'hotel'
+    case 'FLIGHT':    return 'flight'
+    default:          return null
+  }
+}
+
+type RevalDialogType = 'price_changed' | 'sold_out' | 'revalidation_failed'
+
+interface RevalDialog {
+  type:          RevalDialogType
+  item:          TripItem
+  previousPrice?: number
+  latestPrice?:  number
+  currency:      string
+}
+
 export default function MyTripPage() {
   const params   = useParams()
   const tripId   = params?.id as string
-  const { addItem, sessionId: cartSessionId } = useCart()
+  const { addItem, sessionId: cartSessionId, items: cartItems } = useCart()
 
-  const [trip,    setTrip]    = useState<Trip | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [error,   setError]   = useState<string | null>(null)
-  const [removing, setRemoving] = useState<string | null>(null)
+  const [trip,         setTrip]         = useState<Trip | null>(null)
+  const [loading,      setLoading]      = useState(true)
+  const [error,        setError]        = useState<string | null>(null)
+  const [removing,     setRemoving]     = useState<string | null>(null)
   const [movingToCart, setMovingToCart] = useState<string | null>(null)
+  const [revalDialog,  setRevalDialog]  = useState<RevalDialog | null>(null)
+  const [acceptingPrice, setAcceptingPrice] = useState(false)
 
   const sessionId = cartSessionId ?? getSessionId()
 
@@ -100,9 +130,9 @@ export default function MyTripPage() {
       const headers: HeadersInit = { 'Content-Type': 'application/json' }
       if (sessionId) headers['x-walz-session-id'] = sessionId
       await fetch(`/api/trips/${tripId}/items`, {
-        method:  'DELETE',
+        method: 'DELETE',
         headers,
-        body:    JSON.stringify({ id: itemId }),
+        body:   JSON.stringify({ id: itemId }),
       })
       setTrip(prev => prev ? { ...prev, items: prev.items.filter(i => i.id !== itemId) } : prev)
     } finally {
@@ -110,26 +140,93 @@ export default function MyTripPage() {
     }
   }
 
+  function doAddToCart(item: TripItem, priceOverride?: number) {
+    const cartType = tripItemTypeToCartType(item.type)
+    if (!cartType) return
+    addItem({
+      id:       item.id,
+      type:     cartType,
+      title:    item.title,
+      price:    priceOverride ?? item.cost ?? 0,
+      currency: item.currency,
+      quantity: item.quantity,
+      meta:     {},
+    })
+  }
+
   async function moveToCart(item: TripItem) {
     if (movingToCart) return
     setMovingToCart(item.id)
     try {
-      addItem({
-        id:       item.id,
-        type:     item.type.toLowerCase() as any,
-        title:    item.title,
-        price:    item.cost ?? 0,
-        currency: item.currency,
-        quantity: item.quantity,
-        meta:     {},
-      })
+      // Revalidate Viator activities before adding to cart
+      const isViator = item.sourceType?.toLowerCase() === 'viator' && item.type === 'ACTIVITY'
+      if (isViator) {
+        const headers: HeadersInit = { 'Content-Type': 'application/json' }
+        if (sessionId) headers['x-walz-session-id'] = sessionId
+        const res = await fetch(`/api/trips/${tripId}/revalidate-item`, {
+          method: 'POST',
+          headers,
+          body:   JSON.stringify({ itemId: item.id }),
+        })
+        if (!res.ok) {
+          setRevalDialog({ type: 'revalidation_failed', item, currency: item.currency })
+          return
+        }
+        const reval = await res.json()
+        if (reval.status === 'SOLD_OUT') {
+          setRevalDialog({ type: 'sold_out', item, currency: reval.currency })
+          return
+        }
+        if (reval.status === 'PRICE_CHANGED') {
+          setRevalDialog({
+            type:          'price_changed',
+            item,
+            previousPrice: reval.previousPrice,
+            latestPrice:   reval.latestPrice,
+            currency:      reval.currency,
+          })
+          return
+        }
+        if (reval.status === 'REVALIDATION_FAILED') {
+          setRevalDialog({ type: 'revalidation_failed', item, currency: reval.currency })
+          return
+        }
+        // UNCHANGED or NOT_APPLICABLE → add at current price
+      }
+      doAddToCart(item)
     } finally {
       setMovingToCart(null)
     }
   }
 
-  const total = trip?.items.reduce((sum, i) => sum + (i.cost ?? 0) * i.quantity, 0) ?? 0
-  const cartItems = trip?.items.filter(i => CART_TYPES.has(i.type)) ?? []
+  async function acceptNewPrice() {
+    if (!revalDialog || revalDialog.type !== 'price_changed' || !revalDialog.latestPrice) return
+    setAcceptingPrice(true)
+    try {
+      const { item, latestPrice } = revalDialog
+      // Update the stored cost snapshot on the server
+      const headers: HeadersInit = { 'Content-Type': 'application/json' }
+      if (sessionId) headers['x-walz-session-id'] = sessionId
+      await fetch(`/api/trips/${tripId}/items`, {
+        method: 'PATCH',
+        headers,
+        body:   JSON.stringify({ id: item.id, cost: latestPrice }),
+      })
+      // Update local state
+      setTrip(prev => prev ? {
+        ...prev,
+        items: prev.items.map(i => i.id === item.id ? { ...i, cost: latestPrice } : i),
+      } : prev)
+      doAddToCart(item, latestPrice)
+      setRevalDialog(null)
+    } finally {
+      setAcceptingPrice(false)
+    }
+  }
+
+  const currencyTotals = groupTripTotalsByCurrency(trip?.items ?? [])
+  const currencyEntries = Object.entries(currencyTotals)
+  const hasCartableItems = (trip?.items ?? []).some(i => CART_TYPES.has(i.type))
 
   if (loading) return (
     <div className="min-h-screen bg-[#F5F0E8] flex items-center justify-center">
@@ -193,7 +290,7 @@ export default function MyTripPage() {
         ) : (
           <>
             {trip.items.map(item => {
-              const meta = TYPE_META[item.type] ?? TYPE_META.CUSTOM
+              const meta        = TYPE_META[item.type] ?? TYPE_META.CUSTOM
               const canAddToCart = CART_TYPES.has(item.type)
               return (
                 <div key={item.id} className="bg-white rounded-2xl shadow-sm overflow-hidden">
@@ -262,16 +359,35 @@ export default function MyTripPage() {
 
             {/* Total + actions */}
             <div className="bg-white rounded-2xl shadow-sm p-6 mt-6">
-              <div className="flex items-center justify-between mb-4">
-                <span className="text-gray-600 font-medium">Estimated Total</span>
-                <span className="text-xl font-bold text-[#0B1F3A]">
-                  {trip.currency} {total.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-                </span>
-              </div>
-              <p className="text-xs text-gray-400 mb-5">
+              <p className="text-gray-500 text-xs font-semibold uppercase tracking-wider mb-3">
+                Estimated Total
+              </p>
+              {currencyEntries.length === 0 ? (
+                <p className="text-gray-300 text-sm">No priced items</p>
+              ) : currencyEntries.length === 1 ? (
+                <p className="text-2xl font-bold text-[#0B1F3A]">
+                  {currencyEntries[0][0]}{' '}
+                  {currencyEntries[0][1].toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </p>
+              ) : (
+                <div className="space-y-1">
+                  {currencyEntries.map(([currency, amount]) => (
+                    <div key={currency} className="flex items-baseline gap-2">
+                      <span className="text-xl font-bold text-[#0B1F3A]">
+                        {currency} {amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </span>
+                    </div>
+                  ))}
+                  <p className="text-xs text-amber-600 flex items-center gap-1 mt-2">
+                    <AlertCircle className="w-3 h-3" />
+                    Items are in multiple currencies — totals shown separately.
+                  </p>
+                </div>
+              )}
+              <p className="text-xs text-gray-400 mt-3 mb-5">
                 Prices are indicative. Final price confirmed at checkout after live rate check.
               </p>
-              {cartItems.length > 0 && (
+              {hasCartableItems && cartItems.length > 0 && (
                 <Link
                   href="/cart"
                   className="flex items-center justify-center gap-2 w-full bg-[#C9A84C] text-[#0B1F3A] font-bold py-3 rounded-xl text-sm hover:bg-[#b8963e] transition-colors"
@@ -283,7 +399,114 @@ export default function MyTripPage() {
             </div>
           </>
         )}
+
+        {/* Cross-sell recommendations */}
+        {process.env.NEXT_PUBLIC_CROSS_SELL_ENABLED !== 'false' && (
+          <TripRecommendations trip={trip} />
+        )}
       </div>
+
+      {/* Revalidation dialogs */}
+      {revalDialog && (
+        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-xl max-w-sm w-full p-6">
+
+            {revalDialog.type === 'price_changed' && (
+              <>
+                <div className="flex items-center gap-3 mb-4">
+                  <AlertCircle className="w-6 h-6 text-amber-500 flex-shrink-0" />
+                  <h3 className="font-bold text-[#0B1F3A] text-lg">Price Updated</h3>
+                </div>
+                <p className="text-sm text-gray-600 mb-4">{revalDialog.item.title}</p>
+                <div className="bg-gray-50 rounded-xl p-4 mb-5 space-y-2">
+                  <div className="flex justify-between text-sm">
+                    <span className="text-gray-500">Previous</span>
+                    <span className="line-through text-gray-400">
+                      {revalDialog.currency} {revalDialog.previousPrice?.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                    </span>
+                  </div>
+                  <div className="flex justify-between text-sm font-bold">
+                    <span className="text-[#0B1F3A]">Latest</span>
+                    <span className="text-[#C9A84C]">
+                      {revalDialog.currency} {revalDialog.latestPrice?.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                    </span>
+                  </div>
+                </div>
+                <div className="flex gap-3">
+                  <button
+                    onClick={() => setRevalDialog(null)}
+                    className="flex-1 py-2.5 rounded-xl border border-gray-200 text-sm font-medium text-gray-600 hover:bg-gray-50 transition-colors"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={acceptNewPrice}
+                    disabled={acceptingPrice}
+                    className="flex-1 py-2.5 rounded-xl bg-[#C9A84C] text-[#0B1F3A] text-sm font-bold hover:bg-[#b8963e] transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+                  >
+                    {acceptingPrice ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
+                    Accept New Price
+                  </button>
+                </div>
+              </>
+            )}
+
+            {revalDialog.type === 'sold_out' && (
+              <>
+                <div className="flex items-center gap-3 mb-4">
+                  <X className="w-6 h-6 text-red-500 flex-shrink-0" />
+                  <h3 className="font-bold text-[#0B1F3A] text-lg">No Longer Available</h3>
+                </div>
+                <p className="text-sm text-gray-600 mb-2">{revalDialog.item.title}</p>
+                <p className="text-sm text-gray-500 mb-5">
+                  This activity is no longer available for your selected date.
+                </p>
+                <div className="flex gap-3">
+                  <button
+                    onClick={() => setRevalDialog(null)}
+                    className="flex-1 py-2.5 rounded-xl border border-gray-200 text-sm font-medium text-gray-600 hover:bg-gray-50 transition-colors"
+                  >
+                    Close
+                  </button>
+                  <Link
+                    href="/activities"
+                    onClick={() => setRevalDialog(null)}
+                    className="flex-1 py-2.5 rounded-xl bg-[#0B1F3A] text-white text-sm font-bold text-center hover:bg-[#0d2547] transition-colors"
+                  >
+                    Find Similar
+                  </Link>
+                </div>
+              </>
+            )}
+
+            {revalDialog.type === 'revalidation_failed' && (
+              <>
+                <div className="flex items-center gap-3 mb-4">
+                  <AlertCircle className="w-6 h-6 text-gray-400 flex-shrink-0" />
+                  <h3 className="font-bold text-[#0B1F3A] text-lg">Price Check Failed</h3>
+                </div>
+                <p className="text-sm text-gray-600 mb-5">
+                  We couldn't confirm the latest price for <strong>{revalDialog.item.title}</strong> right now. Please try again.
+                </p>
+                <div className="flex gap-3">
+                  <button
+                    onClick={() => setRevalDialog(null)}
+                    className="flex-1 py-2.5 rounded-xl border border-gray-200 text-sm font-medium text-gray-600 hover:bg-gray-50 transition-colors"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={() => { setRevalDialog(null); moveToCart(revalDialog.item) }}
+                    className="flex-1 py-2.5 rounded-xl bg-[#0B1F3A] text-white text-sm font-bold hover:bg-[#0d2547] transition-colors"
+                  >
+                    Try Again
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   )
 }
