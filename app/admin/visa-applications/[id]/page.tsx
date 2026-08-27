@@ -2369,7 +2369,7 @@ export default function AdminVisaDetailPage() {
 
             {/* WhatsApp note: business-initiated delivery depends on client having messaged first */}
             <div className="px-2.5 py-2 bg-blue-50 border border-blue-200 rounded-xl text-[10px] text-blue-700 leading-snug">
-              💬 Opening message sent via Chatwoot. If the client has already messaged your WhatsApp it will deliver instantly. If not, ask them to WhatsApp <strong>+{BUSINESS.contacts.nigeriaWhatsapp.e164}</strong> first.
+              💬 Opening message sent via Chatwoot. If the client has already messaged your WhatsApp it will deliver instantly. If not, ask them to WhatsApp <strong>+{BUSINESS.contacts.visaWhatsapp.e164}</strong> first.
             </div>
 
             {app.phone && (
