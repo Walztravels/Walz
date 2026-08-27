@@ -11,8 +11,9 @@ export type CommercialEventName =
   | 'checkout_started'
   | 'payment_started'
   | 'payment_succeeded'
-  | 'booking_confirmed'
-  | 'supplier_booking_failed'
+  | 'booking_confirmed'          // fires only when authoritative booking status = CONFIRMED
+  | 'supplier_booking_failed'    // fires when supplier definitively rejects after payment
+  | 'reconciliation_required'    // fires when supplier response is unknown (timeout/lost)
   | 'jade_started'
   | 'jade_trip_intent'
   | 'proposal_viewed'
@@ -87,4 +88,103 @@ function generateId(): string {
   let id = 'c'
   for (let i = 0; i < 24; i++) id += chars[Math.floor(Math.random() * chars.length)]
   return id
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Centralized booking lifecycle events
+//
+// These wrap trackDurableEvent with the correct event name for each outcome.
+// Call these from the authoritative confirmation point for each product type,
+// NOT from the Stripe webhook handler.
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface BookingEventOpts {
+  bookingId?:   string
+  leadId?:      string
+  sessionId?:   string
+  productType?: string   // 'activity' | 'hotel' | 'flight' | 'transfer' | 'tour'
+  supplier?:    string   // 'VIATOR' | 'HOTELBEDS' | 'DUFFEL' | 'WALZ'
+  amount?:      number
+  currency?:    string
+  metadata?:    Record<string, unknown>
+}
+
+/**
+ * Fire when the authoritative booking record transitions to CONFIRMED.
+ * Must wrap in try/catch — never allowed to fail the business transaction.
+ */
+export async function recordBookingConfirmed(opts: BookingEventOpts): Promise<void> {
+  await trackDurableEvent('booking_confirmed', {
+    bookingId:   opts.bookingId,
+    leadId:      opts.leadId,
+    sessionId:   opts.sessionId,
+    productType: opts.productType,
+    amount:      opts.amount,
+    currency:    opts.currency,
+    metadata:    { supplier: opts.supplier, ...opts.metadata },
+  })
+}
+
+/**
+ * Fire when the supplier definitively rejects a booking after payment succeeded.
+ * Must wrap in try/catch.
+ */
+export async function recordSupplierBookingFailed(opts: BookingEventOpts): Promise<void> {
+  await trackDurableEvent('supplier_booking_failed', {
+    bookingId:   opts.bookingId,
+    leadId:      opts.leadId,
+    sessionId:   opts.sessionId,
+    productType: opts.productType,
+    amount:      opts.amount,
+    currency:    opts.currency,
+    metadata:    { supplier: opts.supplier, ...opts.metadata },
+  })
+}
+
+/**
+ * Fire when the supplier response is unknown after payment (timeout / lost response).
+ * Must wrap in try/catch.
+ */
+export async function recordReconciliationRequired(opts: BookingEventOpts): Promise<void> {
+  await trackDurableEvent('reconciliation_required', {
+    bookingId:   opts.bookingId,
+    leadId:      opts.leadId,
+    sessionId:   opts.sessionId,
+    productType: opts.productType,
+    amount:      opts.amount,
+    currency:    opts.currency,
+    metadata:    { supplier: opts.supplier, ...opts.metadata },
+  })
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Jade attribution propagation
+//
+// When a Booking is linked to a Lead (via Booking.leadId), and the lead is
+// jade-assisted AND jadeQualifiedAt is within JADE_ATTRIBUTION_DAYS of now,
+// set Booking.jadeAssisted = true on the booking record.
+//
+// Call this immediately after setting Booking.leadId.
+// ─────────────────────────────────────────────────────────────────────────────
+
+const JADE_ATTRIBUTION_DAYS = parseInt(process.env.JADE_ATTRIBUTION_DAYS ?? '7', 10)
+
+export async function propagateJadeAttribution(bookingId: string, leadId: string): Promise<void> {
+  try {
+    const lead = await prisma.lead.findUnique({
+      where:  { id: leadId },
+      select: { jadeAssisted: true, jadeQualifiedAt: true },
+    })
+    if (!lead?.jadeAssisted || !lead.jadeQualifiedAt) return
+
+    const windowStart = new Date(Date.now() - JADE_ATTRIBUTION_DAYS * 24 * 60 * 60 * 1000)
+    if (lead.jadeQualifiedAt < windowStart) return
+
+    await prisma.booking.update({
+      where: { id: bookingId },
+      data:  { jadeAssisted: true },
+    })
+  } catch (err) {
+    console.warn('[Jade] propagateJadeAttribution failed (non-fatal):', (err as Error).message)
+  }
 }

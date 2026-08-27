@@ -9,6 +9,8 @@ import { ComfortPassAdapter }  from '@/lib/concierge/suppliers/comfortpass/adapt
 import type { CPPassenger }    from '@/lib/concierge/suppliers/comfortpass/types'
 import { bookCartActivities, parseCartItems } from '@/lib/activities/booking'
 import { trackCommercialEvent, trackDurableEvent } from '@/lib/commercial/track'
+// trackDurableEvent used for payment_succeeded. booking_confirmed fires from
+// the supplier confirmation path (bookCartActivities), not from this webhook directly.
 
 
 // ── Concierge airport service — post-payment booking dispatch ─────────────────
@@ -197,21 +199,17 @@ export async function POST(request: NextRequest) {
       case 'checkout.session.completed': {
         const session = event.data.object as Stripe.Checkout.Session
 
-        // Mark CartSession as converted — authoritative conversion from trusted webhook
-        if (session.metadata?.walz_session_id) {
+        // Mark CartSession as paid-converted — only when Stripe confirms payment was collected.
+        // convertedAt = successful payment, NOT supplier booking confirmation.
+        // booking_confirmed fires later from the supplier confirmation path (bookCartActivities).
+        if (session.metadata?.walz_session_id && session.payment_status === 'paid') {
           try {
             await prisma.cartSession.updateMany({
               where: { sessionId: session.metadata.walz_session_id, convertedAt: null },
               data:  { convertedAt: new Date() },
             })
-            await trackDurableEvent('booking_confirmed', {
-              sessionId: session.metadata.walz_session_id,
-              currency:  session.currency?.toUpperCase(),
-              amount:    (session.amount_total ?? 0) / 100,
-              metadata:  { stripeSessionId: session.id },
-            })
           } catch {
-            console.warn('[CommercialEvent] CartSession conversion tracking failed (non-fatal)')
+            console.warn('[CartSession] conversion update failed (non-fatal)')
           }
         }
 

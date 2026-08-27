@@ -208,7 +208,7 @@ export default function RevenueCommandCenter() {
           <Card>
             <div className="flex items-center justify-between mb-1">
               <SectionTitle badge={!data.trackingStarted ? 'Accumulating data' : undefined}>
-                Commercial Funnel — last {data.window} days
+                Event Activity Funnel — last {data.window} days
               </SectionTitle>
             </div>
             {!data.trackingStarted ? (
@@ -221,7 +221,10 @@ export default function RevenueCommandCenter() {
               </div>
             ) : (
               <>
-                <p className="text-xs text-gray-400 mb-3">Showing total events. Unique session counts require additional aggregation.</p>
+                <p className="text-xs text-gray-400 mb-3">
+                  Total event counts — not unique visitors. One customer may trigger multiple events.
+                  Do not compute conversion percentages from these figures.
+                </p>
                 <div className="space-y-2">
                   {data.funnel.map((step, i) => {
                     const max = data.funnel[0]?.count ?? 1

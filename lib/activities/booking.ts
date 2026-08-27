@@ -33,6 +33,11 @@ import { HotelbedsActivityProvider }   from './providers/hotelbeds'
 import { applyActivityMarkup }         from './pricing'
 import { getResend }                   from '@/lib/resend'
 import { viatorGet }                   from './providers/viator/client'
+import {
+  recordBookingConfirmed,
+  recordSupplierBookingFailed,
+  recordReconciliationRequired,
+} from '@/lib/commercial/track'
 import type { ActivityBookingResult, ActivitySupplier } from './types'
 import type { ViatorScheduleResponse } from './providers/viator/types'
 
@@ -732,20 +737,45 @@ export async function bookCartActivities(
       },
     })
 
-    // ── 12. Post-confirmation emails (idempotent) ─────────────────────────────
+    // ── 12. Post-confirmation emails + durable commercial events ─────────────
+    // Events fire AFTER authoritative DB state is persisted (step 11).
     if (finalStatus === 'CONFIRMED') {
       log('viator_booking_confirmed', { walzRef, supplierRef: supplierResult.supplierReference })
       sendConfirmedEmailIfNotSent(bookingId, holder, walzRef, supplierResult.supplierReference, item).catch(() => {})
+      recordBookingConfirmed({
+        bookingId,
+        productType: 'activity',
+        supplier:    item.s,
+        amount:      totalAmount,
+        currency,
+        metadata:    { walzReference: walzRef, supplierReference: supplierResult.supplierReference },
+      }).catch(err => console.warn('[CommercialEvent] booking_confirmed failed:', (err as Error).message))
     }
     if (finalStatus === 'SUPPLIER_BOOKING_FAILED') {
       log('viator_booking_failed', { walzRef, reason: failureReason })
       sendFailureAlertIfNotSent(bookingId, walzRef, item.s, item.title, failureReason ?? 'REJECTED',
         supplierResult.error ?? 'Unknown').catch(() => {})
+      recordSupplierBookingFailed({
+        bookingId,
+        productType: 'activity',
+        supplier:    item.s,
+        amount:      totalAmount,
+        currency,
+        metadata:    { walzReference: walzRef, reason: failureReason },
+      }).catch(err => console.warn('[CommercialEvent] supplier_booking_failed failed:', (err as Error).message))
     }
     if (finalStatus === 'RECONCILIATION_REQUIRED') {
       log('viator_booking_timeout', { walzRef })
       sendFailureAlertIfNotSent(bookingId, walzRef, item.s, item.title, 'TIMEOUT',
         supplierResult.error ?? 'Timeout').catch(() => {})
+      recordReconciliationRequired({
+        bookingId,
+        productType: 'activity',
+        supplier:    item.s,
+        amount:      totalAmount,
+        currency,
+        metadata:    { walzReference: walzRef, reason: 'TIMEOUT' },
+      }).catch(err => console.warn('[CommercialEvent] reconciliation_required failed:', (err as Error).message))
     }
 
     results.push({
@@ -831,6 +861,13 @@ export async function reconcileViatorBooking(bookingId: string): Promise<string>
     }
 
     log('viator_reconciliation_confirmed', { bookingId, supplierRef: found.supplierReference })
+    // booking_confirmed fires here — this is the authoritative moment for reconciled bookings.
+    recordBookingConfirmed({
+      bookingId,
+      productType: 'activity',
+      supplier:    booking.supplier,
+      metadata:    { walzReference: booking.walzReference, supplierReference: found.supplierReference, via: 'reconciliation' },
+    }).catch(err => console.warn('[CommercialEvent] reconciled booking_confirmed failed:', (err as Error).message))
     return 'CONFIRMED'
   }
 

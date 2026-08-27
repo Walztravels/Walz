@@ -6,6 +6,7 @@ import { hasPermission } from '@/lib/admin/permissions'
 import { sendQuoteProposalEmail } from '@/lib/email-quote-proposal'
 import { sendWhatsAppBody, twilioConfigured } from '@/lib/twilio-whatsapp'
 import { generateQuoteReference } from '@/lib/quote-reference'
+import { propagateJadeAttribution } from '@/lib/commercial/track'
 
 export const dynamic = 'force-dynamic'
 
@@ -292,12 +293,25 @@ export async function PATCH(
       },
     })
 
-    // Propagate quoteId and leadId to the linked Booking for revenue attribution
+    // Propagate quoteId to the linked Booking for revenue attribution.
+    // NOTE: Quote model has no leadId field — Quote→Lead chain is not persisted in schema.
+    // Jade attribution via leadId must be set explicitly (fields.leadId) at convert time.
     if (fields.bookingId) {
+      const bookingUpdateData: Record<string, unknown> = { quoteId: params.id }
+      // If admin explicitly passes a leadId (e.g. from the Quote's associated lead), set it
+      if (typeof fields.leadId === 'string' && fields.leadId) {
+        bookingUpdateData.leadId = fields.leadId
+      }
       await prisma.booking.update({
         where: { id: fields.bookingId },
-        data:  { quoteId: params.id },
+        data:  bookingUpdateData as { quoteId: string; leadId?: string },
       }).catch(() => { /* Booking may not yet exist — non-fatal */ })
+
+      // Propagate Jade attribution if leadId is now known
+      if (typeof fields.leadId === 'string' && fields.leadId) {
+        propagateJadeAttribution(fields.bookingId, fields.leadId)
+          .catch(() => { /* non-fatal */ })
+      }
     }
 
     await prisma.quoteActivity.create({
