@@ -51,6 +51,7 @@ export type Permission =
   | 'reports.all'
   | 'payroll'
   | 'commissions'
+  | 'finance.revenue'
   // ── Staff & System ────────────────────────────────────────────────────────
   | 'staff'
   | 'staff.create'
@@ -120,7 +121,7 @@ export const ALL_PERMISSIONS: Permission[] = [
   'tours', 'tours.manage', 'transfers',
   'payments', 'payments.refund', 'payments.all',
   'reports', 'reports.financial', 'reports.all',
-  'payroll', 'commissions',
+  'payroll', 'commissions', 'finance.revenue',
   'staff', 'staff.create', 'staff.edit', 'staff.delete',
   'suppliers', 'tools', 'settings', 'content',
   'audit_logs', 'api_keys',
@@ -253,6 +254,7 @@ export const ROLE_PERMISSIONS: Record<AdminRole, Permission[]> = {
     'flights', 'hotels', 'visa', 'visa.approve', 'visa.documents',
     'tours', 'tours.manage', 'transfers',
     'payments', 'reports', 'reports.financial', 'reports.all',
+    'finance.revenue',
     'staff', 'staff.create', 'staff.edit', 'suppliers', 'commissions', 'approvals', 'approvals.resolve',
     'blog', 'blog.publish', 'documents', 'content', 'tools', 'settings',
     'audit_logs', 'api_keys', 'payroll',
@@ -310,6 +312,7 @@ const PERMISSION_TO_RBAC: Partial<Record<Permission, string[]>> = {
   'reports.all':         ['reports_all'],
   payroll:               ['payroll'],
   commissions:           ['commissions'],
+  'finance.revenue':     ['finance_revenue_view'],
   staff:                 ['staff_view'],
   'staff.create':        ['staff_create'],
   'staff.edit':          ['staff_edit'],
@@ -487,7 +490,7 @@ export const NAV_ITEMS: NavSection[] = [
       { href: '/admin/vouchers',                label: 'Vouchers',             icon: 'Gift',        permission: 'payments'    },
       { href: '/admin/commissions',             label: 'Commissions',          icon: 'Award',       permission: 'commissions' },
       { href: '/admin/payroll',                 label: 'Payroll',              icon: 'DollarSign',  permission: 'payroll'     },
-      { href: '/admin/finance/revenue',         label: 'Revenue Intelligence', icon: 'TrendingUp',  permission: 'analytics'   },
+      { href: '/admin/finance/revenue',         label: 'Revenue Intelligence', icon: 'TrendingUp',  permission: 'finance.revenue' },
     ],
   },
   {

@@ -15,10 +15,14 @@ function daysAgo(n: number) {
 
 const FINANCE_ROLES = new Set(['super_admin', 'general_manager'])
 
+function hasRevenueAccess(session: { role: string; permissions: Record<string, boolean> }) {
+  return FINANCE_ROLES.has(session.role) || session.permissions.finance_revenue_view === true
+}
+
 export async function GET(req: NextRequest) {
   const session = await getAdminSession()
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  if (!FINANCE_ROLES.has(session.role)) {
+  if (!hasRevenueAccess(session)) {
     return NextResponse.json({ error: 'Forbidden — Finance access required' }, { status: 403 })
   }
 
