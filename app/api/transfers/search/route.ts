@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { hotelbedsRequest }         from '@/lib/hotelbeds'
+import { trackCommercialEvent }     from '@/lib/commercial/track'
 
 export const dynamic = 'force-dynamic'
 
@@ -132,6 +133,10 @@ export async function GET(req: NextRequest) {
       }
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     }).filter((t: any) => t.price > 0)
+
+    trackCommercialEvent('transfer_search', {
+      metadata: { from: fromParam, to: toParam, date, adults, children, resultCount: transfers.length },
+    })
 
     return NextResponse.json({ transfers })
   } catch (err: unknown) {

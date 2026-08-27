@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
 import prisma from '@/lib/db'
-import { hotelbedsRequest } from '@/lib/hotelbeds'
-import { STATIC_ACTIVITIES } from '@/lib/activities-data'
-import { ViatorActivityProvider } from '@/lib/activities/providers/viator'
+import { hotelbedsRequest }         from '@/lib/hotelbeds'
+import { STATIC_ACTIVITIES }        from '@/lib/activities-data'
+import { ViatorActivityProvider }   from '@/lib/activities/providers/viator'
+import { trackCommercialEvent }     from '@/lib/commercial/track'
 
 // ── Destination name → Hotelbeds destination code ──────────────────────────
 const DEST_MAP: Record<string, string> = {
@@ -578,6 +579,14 @@ export async function GET(req: NextRequest) {
         )
       : STATIC_ACTIVITIES
     return NextResponse.json({ activities: statics, source: 'static' })
+  }
+
+  // Track activity search — only when a real destination/query was provided
+  if (search) {
+    trackCommercialEvent('activity_search', {
+      destination: search,
+      metadata: { resultCount: combined.length, dateFrom, dateTo, category },
+    })
   }
 
   return NextResponse.json({ activities: combined })

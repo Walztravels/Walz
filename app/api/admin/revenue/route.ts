@@ -4,6 +4,8 @@ import prisma                       from '@/lib/db'
 
 export const dynamic = 'force-dynamic'
 
+const ABANDON_MINUTES = 60
+
 function daysAgo(n: number) {
   const d = new Date()
   d.setDate(d.getDate() - n)
@@ -20,9 +22,15 @@ export async function GET(req: NextRequest) {
   const since  = daysAgo(window)
   const today  = daysAgo(0)
   const week   = daysAgo(7)
+  const abandonThreshold = new Date(Date.now() - ABANDON_MINUTES * 60 * 1000)
 
   const [
-    bookingsAll,
+    // GBV buckets — payment captured vs supplier confirmed vs pending vs failed
+    paymentCapturedGBV,
+    confirmedGBV,
+    pendingConfirmationGBV,
+    failedAfterPaymentGBV,
+
     bookingsToday,
     bookingsWeek,
     activityMargin,
@@ -32,10 +40,15 @@ export async function GET(req: NextRequest) {
     leadsWeek,
     quotesOpen,
     abandonedCount,
-    commercialEvents,
+    commercialEventFunnel,
     jadeAssistedBookings,
+    cartActive,
+    cartAbandoned,
+    cartConverted,
+    cartAbandonedValue,
+    trackingStart,
   ] = await Promise.all([
-    // GBV by currency — paid bookings in window
+    // All payments captured (paymentStatus = SUCCEEDED), regardless of booking status
     prisma.booking.groupBy({
       by: ['currency'],
       where: { paymentStatus: 'SUCCEEDED', createdAt: { gte: since } },
@@ -43,15 +56,36 @@ export async function GET(req: NextRequest) {
       _count: { id: true },
     }),
 
-    // Today's bookings count
+    // Confirmed GBV — paid AND supplier/Walz confirmed
+    prisma.booking.groupBy({
+      by: ['currency'],
+      where: { paymentStatus: 'SUCCEEDED', status: 'CONFIRMED', createdAt: { gte: since } },
+      _sum:   { totalAmount: true },
+      _count: { id: true },
+    }),
+
+    // Pending — paid but not yet confirmed
+    prisma.booking.groupBy({
+      by: ['currency'],
+      where: { paymentStatus: 'SUCCEEDED', status: 'PENDING', createdAt: { gte: since } },
+      _sum:   { totalAmount: true },
+      _count: { id: true },
+    }),
+
+    // Failed after payment — paid but supplier/booking failed
+    prisma.booking.groupBy({
+      by: ['currency'],
+      where: { paymentStatus: 'SUCCEEDED', status: { in: ['FAILED', 'CANCELLED'] }, createdAt: { gte: since } },
+      _sum:   { totalAmount: true },
+      _count: { id: true },
+    }),
+
     prisma.booking.count({ where: { paymentStatus: 'SUCCEEDED', createdAt: { gte: today } } }),
+    prisma.booking.count({ where: { paymentStatus: 'SUCCEEDED', createdAt: { gte: week  } } }),
 
-    // This week's bookings count
-    prisma.booking.count({ where: { paymentStatus: 'SUCCEEDED', createdAt: { gte: week } } }),
-
-    // Activity margin in window
+    // Activity margin — only CONFIRMED bookings for realized margin
     prisma.activityBooking.aggregate({
-      where: { paymentStatus: 'PAID', createdAt: { gte: since } },
+      where: { status: 'CONFIRMED', createdAt: { gte: since } },
       _sum: { markupAmount: true, totalAmount: true, supplierNetAmount: true },
       _count: { id: true },
     }),
@@ -63,28 +97,19 @@ export async function GET(req: NextRequest) {
       _count: { id: true },
     }),
 
-    // Lead funnel by status
-    prisma.lead.groupBy({
-      by: ['status'],
-      _count: { id: true },
-    }),
-
-    // New leads today
+    prisma.lead.groupBy({ by: ['status'], _count: { id: true } }),
     prisma.lead.count({ where: { createdAt: { gte: today } } }),
+    prisma.lead.count({ where: { createdAt: { gte: week  } } }),
 
-    // New leads this week
-    prisma.lead.count({ where: { createdAt: { gte: week } } }),
-
-    // Open quotes pipeline
     prisma.quote.findMany({
       where: { status: { in: ['draft', 'sent', 'viewed', 'accepted'] } },
       select: { status: true, currency: true, totalMinor: true, markupMinor: true, createdAt: true },
     }),
 
-    // Abandoned sessions not converted
+    // Legacy AbandonedSession (form-level abandonment — different from CartSession)
     prisma.abandonedSession.count({ where: { converted: false } }),
 
-    // Commercial event funnel (last 30d)
+    // Commercial event funnel — unique sessionIds where possible
     prisma.commercialEvent.groupBy({
       by: ['event'],
       where: { createdAt: { gte: since } },
@@ -92,18 +117,30 @@ export async function GET(req: NextRequest) {
       orderBy: { _count: { id: 'desc' } },
     }),
 
-    // Jade-assisted bookings
     prisma.booking.count({ where: { jadeAssisted: true } }),
+
+    // CartSession counts
+    prisma.cartSession.count({
+      where: { convertedAt: null, updatedAt: { gte: abandonThreshold }, totalAmount: { gt: 0 } },
+    }),
+    prisma.cartSession.count({
+      where: { convertedAt: null, updatedAt: { lt: abandonThreshold }, totalAmount: { gt: 0 } },
+    }),
+    prisma.cartSession.count({ where: { convertedAt: { not: null } } }),
+    prisma.cartSession.aggregate({
+      where: { convertedAt: null, updatedAt: { lt: abandonThreshold }, totalAmount: { gt: 0 } },
+      _sum: { totalAmount: true },
+    }),
+
+    // Earliest CommercialEvent — indicates when tracking started
+    prisma.commercialEvent.findFirst({ orderBy: { createdAt: 'asc' }, select: { createdAt: true } }),
   ])
 
-  // GBV grouped by currency
-  const gbv = bookingsAll.map(row => ({
-    currency: row.currency,
-    total:    row._sum.totalAmount ?? 0,
-    count:    row._count.id,
-  }))
+  // ── Format GBV buckets ───────────────────────────────────────────────────
+  const formatGbv = (rows: { currency: string; _sum: { totalAmount: number | null }; _count: { id: number } }[]) =>
+    rows.map(r => ({ currency: r.currency, total: r._sum.totalAmount ?? 0, count: r._count.id }))
 
-  // Quote pipeline value by currency
+  // ── Quote pipeline value by currency ────────────────────────────────────
   const quotePipeline: Record<string, { total: number; markup: number; count: number }> = {}
   for (const q of quotesOpen) {
     const cur = q.currency
@@ -118,57 +155,87 @@ export async function GET(req: NextRequest) {
     return acc
   }, {})
 
-  // Lead funnel
+  // ── Lead funnel ──────────────────────────────────────────────────────────
   const leadFunnel = leadsByStatus.map(r => ({ status: r.status, count: r._count.id }))
   const totalLeads = leadFunnel.reduce((s, r) => s + r.count, 0)
 
-  // Commercial event funnel
-  const eventMap = commercialEvents.reduce<Record<string, number>>((acc, r) => {
+  // ── Commercial event funnel ──────────────────────────────────────────────
+  const eventMap = commercialEventFunnel.reduce<Record<string, number>>((acc, r) => {
     acc[r.event] = r._count.id
     return acc
   }, {})
 
   const FUNNEL_STEPS = [
-    'flight_search', 'hotel_search', 'activity_search', 'product_view',
-    'checkout_started', 'payment_started', 'payment_succeeded', 'booking_confirmed',
+    'flight_search', 'hotel_search', 'activity_search', 'transfer_search',
+    'product_view', 'lead_created', 'checkout_started',
+    'payment_started', 'payment_succeeded', 'booking_confirmed',
   ]
   const funnelData = FUNNEL_STEPS.map(step => ({ event: step, count: eventMap[step] ?? 0 }))
-  const trackingStarted = commercialEvents.length > 0
+  const trackingStarted = commercialEventFunnel.length > 0
 
   return NextResponse.json({
     window,
-    gbv,
+    trackingStartedAt: trackingStart?.createdAt ?? null,
+
+    // Payment Captured = all SUCCEEDED payments (may include unconfirmed supplier bookings)
+    paymentCaptured:   formatGbv(paymentCapturedGBV),
+    // Confirmed GBV = supplier/Walz confirmed bookings only
+    confirmedGBV:      formatGbv(confirmedGBV),
+    // Paid but awaiting supplier confirmation
+    pendingConfirmation: formatGbv(pendingConfirmationGBV),
+    // Paid but supplier/booking failed — at-risk value
+    failedAfterPayment:  formatGbv(failedAfterPaymentGBV),
+
     bookingsToday,
     bookingsWeek,
+
     activity: {
       count:       activityMargin._count.id,
       revenue:     activityMargin._sum.totalAmount ?? 0,
       margin:      activityMargin._sum.markupAmount ?? 0,
       supplierNet: activityMargin._sum.supplierNetAmount ?? 0,
       currency:    'GBP',
+      note:        'Confirmed bookings only — at-risk margin excluded',
     },
+
     esim: {
       count:   esimOrders._count.id,
       revenue: esimOrders._sum.retailPriceUsd ?? 0,
       margin:  esimOrders._sum.marginUsd ?? 0,
       currency: 'USD',
     },
+
     leads: {
       today: leadsToday,
       week:  leadsWeek,
       total: totalLeads,
       funnel: leadFunnel,
     },
+
     quotes: {
       pipeline:    quotePipeline,
       byStatus:    quotesByStatus,
       totalOpen:   quotesOpen.length,
     },
-    abandoned:      abandonedCount,
+
+    // CartSession abandonment (Release 1.1)
+    cart: {
+      active:           cartActive,
+      abandoned:        cartAbandoned,
+      converted:        cartConverted,
+      abandonedValue:   cartAbandonedValue._sum.totalAmount ?? 0,
+      thresholdMinutes: ABANDON_MINUTES,
+    },
+
+    // Legacy form-level abandonment (AbandonedSession model)
+    formAbandoned: abandonedCount,
+
     funnel:         funnelData,
     trackingStarted,
+
     jade: {
       assistedBookings: jadeAssistedBookings,
+      attributionWindowDays: parseInt(process.env.JADE_ATTRIBUTION_DAYS ?? '7', 10),
     },
   })
 }

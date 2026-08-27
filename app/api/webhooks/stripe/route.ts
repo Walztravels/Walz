@@ -8,7 +8,7 @@ import { getConfig }           from '@/lib/concierge/suppliers/comfortpass/confi
 import { ComfortPassAdapter }  from '@/lib/concierge/suppliers/comfortpass/adapter'
 import type { CPPassenger }    from '@/lib/concierge/suppliers/comfortpass/types'
 import { bookCartActivities, parseCartItems } from '@/lib/activities/booking'
-import { trackCommercialEvent } from '@/lib/commercial/track'
+import { trackCommercialEvent, trackDurableEvent } from '@/lib/commercial/track'
 
 
 // ── Concierge airport service — post-payment booking dispatch ─────────────────
@@ -196,6 +196,24 @@ export async function POST(request: NextRequest) {
 
       case 'checkout.session.completed': {
         const session = event.data.object as Stripe.Checkout.Session
+
+        // Mark CartSession as converted — authoritative conversion from trusted webhook
+        if (session.metadata?.walz_session_id) {
+          try {
+            await prisma.cartSession.updateMany({
+              where: { sessionId: session.metadata.walz_session_id, convertedAt: null },
+              data:  { convertedAt: new Date() },
+            })
+            await trackDurableEvent('booking_confirmed', {
+              sessionId: session.metadata.walz_session_id,
+              currency:  session.currency?.toUpperCase(),
+              amount:    (session.amount_total ?? 0) / 100,
+              metadata:  { stripeSessionId: session.id },
+            })
+          } catch {
+            console.warn('[CommercialEvent] CartSession conversion tracking failed (non-fatal)')
+          }
+        }
 
         // Visa application service fee
         if (session.metadata?.applicationId) {
@@ -458,18 +476,22 @@ export async function POST(request: NextRequest) {
             },
           })
 
-          // Track payment_succeeded + booking_confirmed events
+          // Track payment_succeeded — durable, authoritative financial event
           if (updated.count > 0) {
-            trackCommercialEvent('payment_succeeded', {
-              currency: paymentIntent.currency?.toUpperCase(),
-              amount:   paymentIntent.amount_received / 100,
-              metadata: { stripePaymentIntentId: paymentIntent.id, bookingCount: updated.count },
-            })
-            trackCommercialEvent('booking_confirmed', {
-              currency: paymentIntent.currency?.toUpperCase(),
-              amount:   paymentIntent.amount_received / 100,
-              metadata: { stripePaymentIntentId: paymentIntent.id },
-            })
+            try {
+              await trackDurableEvent('payment_succeeded', {
+                currency: paymentIntent.currency?.toUpperCase(),
+                amount:   paymentIntent.amount_received / 100,
+                metadata: { stripePaymentIntentId: paymentIntent.id, bookingCount: updated.count },
+              })
+              // NOTE: booking_confirmed is NOT fired here.
+              // For PaymentIntent flow (flights/hotels) the booking is Walz-confirmed once payment
+              // succeeds, but for Stripe Checkout cart items (activities) the supplier confirmation
+              // fires separately in checkout.session.completed → bookCartActivities.
+              // This distinction matters: payment ≠ supplier confirmation.
+            } catch {
+              console.warn('[CommercialEvent] payment_succeeded tracking failed (non-fatal)')
+            }
           }
         }
 

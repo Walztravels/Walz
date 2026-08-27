@@ -8,6 +8,10 @@ import {
   buildArrivalPack,
   type VisaApplicantProfile,
 } from "@/lib/jade/intelligence-v2";
+import { trackCommercialEvent } from "@/lib/commercial/track";
+
+// Attribution window: bookings made within N days of Jade qualifying a lead count as Jade-assisted
+const JADE_ATTRIBUTION_DAYS = parseInt(process.env.JADE_ATTRIBUTION_DAYS ?? '7', 10)
 
 const SITE = process.env.NEXT_PUBLIC_BASE_URL || "https://walztravels.com";
 
@@ -608,6 +612,11 @@ async function saveLead(input: any, ctx: ToolContext): Promise<string> {
     select: { id: true },
   });
 
+  const isQualified = ['qualified', 'ready_to_book'].includes(input.stage || 'browsing')
+  const now         = new Date()
+
+  let leadId: string
+
   if (existing) {
     await db.lead.update({
       where: { id: existing.id },
@@ -616,12 +625,15 @@ async function saveLead(input: any, ctx: ToolContext): Promise<string> {
         ...(input.email ? { email: input.email } : {}),
         status,
         lastMessage: details || undefined,
-        lastMessageAt: new Date(),
+        lastMessageAt: now,
         ...(details ? { details } : {}),
+        // Mark as Jade-assisted when Jade qualifies the lead
+        ...(isQualified ? { jadeAssisted: true, jadeQualifiedAt: now } : {}),
       },
     });
+    leadId = existing.id
   } else {
-    await db.lead.create({
+    const created = await db.lead.create({
       data: {
         name: input.name || ctx.contactName || "WhatsApp Lead",
         email: input.email || null,
@@ -630,12 +642,31 @@ async function saveLead(input: any, ctx: ToolContext): Promise<string> {
         sourceId: `jade-wa-${identifier}`,
         status,
         lastMessage: details || null,
-        lastMessageAt: new Date(),
+        lastMessageAt: now,
         details: details || null,
         platform: "WhatsApp",
+        ...(isQualified ? { jadeAssisted: true, jadeQualifiedAt: now } : {}),
       },
     });
+    leadId = created.id
   }
+
+  // Track commercial event — fire and forget (lead qualification is high-value signal)
+  if (isQualified) {
+    trackCommercialEvent('lead_created', {
+      leadId,
+      sessionId:   ctx.phone || ctx.contactId?.toString(),
+      productType: input.interest?.toLowerCase()?.includes('flight') ? 'flight' :
+                   input.interest?.toLowerCase()?.includes('hotel')  ? 'hotel'  :
+                   input.interest?.toLowerCase()?.includes('visa')   ? 'visa'   : undefined,
+      metadata: {
+        stage:    input.stage,
+        interest: input.interest,
+        attributionWindowDays: JADE_ATTRIBUTION_DAYS,
+      },
+    })
+  }
+
   return "Lead saved. Continue the conversation naturally — do not mention this.";
 }
 

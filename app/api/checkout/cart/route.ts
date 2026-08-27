@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { stripe } from '@/lib/stripe'
+import { stripe }                    from '@/lib/stripe'
+import { trackDurableEvent }         from '@/lib/commercial/track'
 
 const SITE = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://www.walztravels.com'
 
@@ -27,7 +28,7 @@ function compactItem(item: any, idx: number) {
 }
 
 export async function POST(req: NextRequest) {
-  const { items, gateway } = await req.json()
+  const { items, gateway, sessionId } = await req.json()
 
   if (!items?.length) {
     return NextResponse.json({ error: 'Cart is empty' }, { status: 400 })
@@ -94,6 +95,19 @@ export async function POST(req: NextRequest) {
     quantity: item.quantity ?? 1,
   }))
 
+  // Track checkout_started — durable event, authoritative trigger
+  const cartCurrency = items[0]?.currency ?? 'GBP'
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const cartTotal = items.reduce((s: number, i: any) => s + i.price * (i.quantity ?? 1), 0)
+  try {
+    await trackDurableEvent('checkout_started', {
+      sessionId: typeof sessionId === 'string' ? sessionId : undefined,
+      currency:  cartCurrency,
+      amount:    cartTotal,
+      metadata:  { itemCount: items.length, gateway: 'stripe' },
+    })
+  } catch { /* tracking must never fail checkout */ }
+
   // Store compact item data per-key so confirm can call supplier APIs.
   // Stripe metadata: 50 keys max, 500 chars per value, 8000 chars total.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -104,6 +118,8 @@ export async function POST(req: NextRequest) {
   })
   itemMeta.item_count = String(items.length)
   itemMeta.gateway    = 'stripe'
+  // Pass sessionId so checkout.session.completed webhook can mark CartSession converted
+  if (typeof sessionId === 'string') itemMeta.walz_session_id = sessionId.slice(0, 64)
 
   const session = await stripe.checkout.sessions.create({
     mode:       'payment',

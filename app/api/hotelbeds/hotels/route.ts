@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { hotelbedsRequest } from '@/lib/hotelbeds'
+import { hotelbedsRequest }          from '@/lib/hotelbeds'
+import { trackCommercialEvent }      from '@/lib/commercial/track'
 
 export async function POST(req: NextRequest) {
   try {
@@ -58,6 +59,12 @@ export async function POST(req: NextRequest) {
       rooms:           h.rooms,
       reviews:         h.reviews,
     }))
+
+    trackCommercialEvent('hotel_search', {
+      destination,
+      currency,
+      metadata: { checkIn, checkOut, adults, children, rooms, resultCount: hotels.length },
+    })
 
     return NextResponse.json({ hotels, total: data.hotels?.total ?? 0, checkIn, checkOut })
   } catch (e: any) {

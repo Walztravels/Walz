@@ -468,6 +468,9 @@ model Lead {
   platform          String?   // Facebook | Instagram | WhatsApp | Website
   // ── CSV import tracking ────────────────────────────────────────────────
   importBatchId String?  // shared ID for all leads from one CSV upload
+  // ── Revenue Engine attribution ─────────────────────────────────────────
+  jadeAssisted    Boolean   @default(false) // set when Jade qualifies/books this lead
+  jadeQualifiedAt DateTime?                 // when jade stage >= 'qualified'
   // ── Birthday ───────────────────────────────────────────────────────────
   dateOfBirth         DateTime?
   birthdayEmailSentAt DateTime?
@@ -4634,11 +4637,13 @@ model MotivationHistory {
 
 model CommercialEvent {
   id          String   @id @default(cuid())
-  event       String   // flight_search | hotel_search | activity_search | product_view | lead_created | checkout_started | payment_started | payment_succeeded | booking_confirmed | jade_started | jade_trip_intent
+  eventId     String?  // client-supplied dedup key (browser events only)
+  event       String   // flight_search | hotel_search | activity_search | product_view | lead_created | checkout_started | payment_started | payment_succeeded | booking_confirmed | jade_started | jade_trip_intent | supplier_booking_failed | transfer_search
   sessionId   String?
   userId      String?
   leadId      String?
-  productType String?  // flight | hotel | activity | esim | visa | package
+  bookingId   String?
+  productType String?  // flight | hotel | activity | esim | visa | package | transfer
   productId   String?
   destination String?
   currency    String?
@@ -4649,7 +4654,9 @@ model CommercialEvent {
   @@index([event])
   @@index([sessionId])
   @@index([leadId])
+  @@index([bookingId])
   @@index([createdAt])
+  @@index([eventId])
 }
 
 // ===========================
