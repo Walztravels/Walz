@@ -8,9 +8,15 @@ import { getConfig }           from '@/lib/concierge/suppliers/comfortpass/confi
 import { ComfortPassAdapter }  from '@/lib/concierge/suppliers/comfortpass/adapter'
 import type { CPPassenger }    from '@/lib/concierge/suppliers/comfortpass/types'
 import { bookCartActivities, parseCartItems } from '@/lib/activities/booking'
-import { trackCommercialEvent } from '@/lib/commercial/track'
+import { trackCommercialEvent, recordCrossSellPurchased, recordPostBookingUpsellPurchased } from '@/lib/commercial/track'
 import { recordPaymentSucceeded } from '@/lib/commercial/payment'
+import { setTripPaid } from '@/lib/trips/lifecycle'
+import { createOrUpdateOpportunity, markCartRecovered, resolveAssignment } from '@/lib/recovery/opportunity'
+import { calculatePriority } from '@/lib/recovery/scoring'
 // booking_confirmed fires from the supplier confirmation path (bookCartActivities), not here.
+// cross_sell_purchased / post_booking_upsell_purchased for ACTIVITY items fire from bookCartActivities on supplier CONFIRMED.
+// For non-activity items (HOTEL, FLIGHT, TRANSFER, ESIM) there is no supplier confirmation step —
+// payment IS the authoritative event, so we fire those events here.
 
 
 // ── Concierge airport service — post-payment booking dispatch ─────────────────
@@ -204,13 +210,36 @@ export async function POST(request: NextRequest) {
         // booking_confirmed fires later from the supplier confirmation path (bookCartActivities).
         if (session.metadata?.walz_session_id && session.payment_status === 'paid') {
           try {
+            const converted = await prisma.cartSession.findFirst({
+              where:  { sessionId: session.metadata.walz_session_id },
+              select: { id: true, totalAmount: true, currency: true },
+            })
             await prisma.cartSession.updateMany({
               where: { sessionId: session.metadata.walz_session_id, convertedAt: null },
               data:  { convertedAt: new Date() },
             })
+            // 3A: If this cart had an ABANDONED_CART recovery opportunity, mark it RECOVERED.
+            if (converted) {
+              markCartRecovered(
+                converted.id,
+                converted.totalAmount ?? 0,
+                (converted.currency ?? 'GBP').toUpperCase(),
+                session.id,
+              ).catch(() => {})
+            }
           } catch {
             console.warn('[CartSession] conversion update failed (non-fatal)')
           }
+        }
+
+        // Advance Trip to PAID — payment provider has authoritatively confirmed payment.
+        // Fires for all cart checkouts (walz_trip_id in metadata).
+        // Non-fatal: lifecycle helpers never throw.
+        if (session.payment_status === 'paid' && (session.metadata?.walz_trip_id || session.metadata?.walz_session_id)) {
+          void setTripPaid({
+            tripId:    session.metadata?.walz_trip_id    ?? null,
+            sessionId: session.metadata?.walz_session_id ?? null,
+          })
         }
 
         // Visa application service fee
@@ -271,8 +300,34 @@ export async function POST(request: NextRequest) {
 
             // Run supplier booking within the webhook. bookCartActivities is idempotent.
             // Webhook must return 200 in ≤30s — supplier calls have their own 25s timeout.
-            await bookCartActivities(items, holder, session.id, total, currency)
+            await bookCartActivities(items, holder, session.id, total, currency, session.metadata?.walz_trip_id ?? null)
               .catch(err => console.error('[Stripe Webhook] Cart activity booking error:', err))
+          }
+
+          // ── Non-activity purchase attribution (2D.1.1) ──────────────────────────
+          // HOTEL, FLIGHT, TRANSFER, ESIM: no supplier confirmation step exists in the
+          // current system. Payment = authoritative. Fire cross_sell_purchased /
+          // post_booking_upsell_purchased here, idempotent via eventId.
+          const nonActivityAttributed = items.filter(
+            i => i.t !== 'activity' && i.tid && (i.cs === 'cross_sell' || i.cs === 'post_booking_upsell')
+          )
+          const sessionCurrency = (session.currency ?? 'GBP').toUpperCase()
+
+          for (const item of nonActivityAttributed) {
+            const opts = {
+              tripItemId:  item.tid!,
+              bookingId:   session.id,
+              productType: item.t ?? 'unknown',
+              amount:      item.p ?? 0,
+              currency:    item.cur || sessionCurrency,
+            }
+            if (item.cs === 'cross_sell') {
+              recordCrossSellPurchased(opts)
+                .catch(err => console.warn('[CommercialEvent] cross_sell_purchased (non-activity) failed:', (err as Error).message))
+            } else {
+              recordPostBookingUpsellPurchased(opts)
+                .catch(err => console.warn('[CommercialEvent] post_booking_upsell_purchased (non-activity) failed:', (err as Error).message))
+            }
           }
         }
 
@@ -534,6 +589,23 @@ export async function POST(request: NextRequest) {
             notes: `Payment failed: ${paymentIntent.last_payment_error?.message || 'Unknown reason'}`,
           },
         })
+
+        // 3A: Create FAILED_PAYMENT recovery opportunity (provider-authoritative — not a browser error).
+        // Idempotent via dedupeKey = "FAILED_PAYMENT:<paymentIntentId>".
+        if (process.env.RECOVERY_ENGINE_ENABLED === 'true') {
+          const failedAmount = (paymentIntent.amount ?? 0) / 100
+          const failedCurrency = (paymentIntent.currency ?? 'GBP').toUpperCase()
+          const priority = calculatePriority({ type: 'FAILED_PAYMENT', amount: failedAmount })
+          createOrUpdateOpportunity({
+            type:        'FAILED_PAYMENT',
+            reason:      `Stripe payment failed: ${paymentIntent.last_payment_error?.message ?? 'Unknown reason'}`,
+            priority,
+            amount:      failedAmount,
+            currency:    failedCurrency,
+            bookingId:   paymentIntent.id,  // payment intent ID as booking reference
+            assignedToId: null,  // no lead context available from payment intent alone
+          }).catch(err => console.warn('[Recovery] FAILED_PAYMENT opportunity failed:', (err as Error).message))
+        }
 
         break
       }

@@ -1301,7 +1301,11 @@ model TeamMember {
 enum TripStatus {
   DRAFT
   PLANNING
-  CONFIRMED
+  CHECKOUT_STARTED      // customer initiated payment (any provider)
+  PAID                  // payment confirmed by provider; awaiting supplier confirmation
+  CONFIRMING            // at least one supplier confirmation in-flight
+  CONFIRMED             // all required TripItems confirmed by suppliers (= BOOKED)
+  PARTIALLY_CONFIRMED   // some items confirmed, at least one failed/pending
   COMPLETED
   CANCELLED
 }
@@ -1946,6 +1950,10 @@ model ActivityBooking {
   // Reconciliation
   reconciliationAttempts  Int       @default(0)
   lastReconciledAt        DateTime?
+
+  // 3A: Attribution persistence — survives Viator reconciliation path
+  commercialSource  String?   // 'cross_sell' | 'post_booking_upsell' — from Stripe session cs field
+  tripItemId        String?   // TripItem.id — for cross_sell_purchased idempotency on reconcile
 
   notes             String?
   convertedToLeadId String?
@@ -4690,4 +4698,76 @@ model CartSession {
   @@index([sessionId])
   @@index([userId])
   @@index([abandonedAt])
+}
+
+// ── Release 3A: Recovery Engine ───────────────────────────────────────────────
+//
+// Centralised recovery opportunity — one record per recoverable event.
+// Deduplicated via dedupeKey (type:entityId) — upsert-safe.
+//
+// Types: ABANDONED_CART | UNPAID_PROPOSAL | FAILED_PAYMENT | SUPPLIER_FAILURE
+//        | INCOMPLETE_TRIP | HOT_LEAD
+//
+// Statuses: OPEN | CONTACTED | IN_PROGRESS | RECOVERED | LOST | DISMISSED
+//
+// Priority: LOW | MEDIUM | HIGH | URGENT
+model RecoveryOpportunity {
+  id String @id @default(cuid())
+
+  type   String  // ABANDONED_CART | UNPAID_PROPOSAL | FAILED_PAYMENT | SUPPLIER_FAILURE | INCOMPLETE_TRIP | HOT_LEAD
+  status String  @default("OPEN")    // OPEN | CONTACTED | IN_PROGRESS | RECOVERED | LOST | DISMISSED
+
+  // Dedup key — one active opportunity per type+entity. Format: "TYPE:entityId"
+  dedupeKey String @unique
+
+  // Entity links — all optional; only relevant ones set per type
+  userId            String?
+  leadId            String?
+  tripId            String?
+  cartSessionId     String?
+  quoteId           String?
+  bookingId         String?
+  activityBookingId String?
+
+  // Assignment — inherits from Lead.assignedToId where available
+  assignedToId String?
+
+  // Value
+  amount   Float?
+  currency String?
+
+  // Description
+  reason   String
+  priority String @default("MEDIUM")   // LOW | MEDIUM | HIGH | URGENT
+
+  // Timing
+  detectedAt     DateTime  @default(now())
+  lastActivityAt DateTime?
+  nextActionAt   DateTime?
+
+  // Resolution
+  recoveredAt        DateTime?
+  recoveredBookingId String?
+  recoveredAmount    Float?
+  recoveredCurrency  String?
+
+  // Staff notes
+  notes String?
+
+  // 3C: customer messaging tracking
+  contactCount    Int       @default(0)
+  lastContactedAt DateTime?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([status])
+  @@index([priority, status])
+  @@index([type, status])
+  @@index([assignedToId])
+  @@index([cartSessionId])
+  @@index([activityBookingId])
+  @@index([leadId])
+  @@index([detectedAt])
+  @@index([nextActionAt])
 }

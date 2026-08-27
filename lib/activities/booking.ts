@@ -37,7 +37,10 @@ import {
   recordBookingConfirmed,
   recordSupplierBookingFailed,
   recordReconciliationRequired,
+  recordCrossSellPurchased,
+  recordPostBookingUpsellPurchased,
 } from '@/lib/commercial/track'
+import { setTripConfirming, applyDerivedTripStatus } from '@/lib/trips/lifecycle'
 import type { ActivityBookingResult, ActivitySupplier } from './types'
 import type { ViatorScheduleResponse } from './providers/viator/types'
 
@@ -60,19 +63,21 @@ const STALE_CONFIRMING_MS = 10 * 60 * 1000  // 10 minutes
 // ── Types ─────────────────────────────────────────────────────────────────────
 
 export interface CartItemCompact {
-  cid:   string   // stable cart-line ID (position index within Stripe session)
-  t:     string   // 'activity' | 'transfer' | ...
+  cid:   string    // stable cart-line ID (position index within Stripe session)
+  tid?:  string    // TripItem.id — back-written to TripItem.bookingRef after booking (2D.1)
+  cs?:   string    // commercialSource — 'cross_sell' | 'post_booking_upsell' for attribution (2D.3)
+  t:     string    // 'activity' | 'transfer' | ...
   title: string
-  s:     string   // 'VIATOR' | 'HOTELBEDS' | 'MANUAL'
-  pc:    string   // productCode / activityCode
-  poc:   string   // productOptionCode / modalityCode
-  d:     string   // YYYY-MM-DD travel date
-  a:     number   // adults
-  c:     number   // children
-  i:     number   // infants
-  st:    string   // startTime HH:MM
-  p:     number   // Walz selling price (post-markup)
-  cur:   string   // currency
+  s:     string    // 'VIATOR' | 'HOTELBEDS' | 'MANUAL'
+  pc:    string    // productCode / activityCode
+  poc:   string    // productOptionCode / modalityCode
+  d:     string    // YYYY-MM-DD travel date
+  a:     number    // adults
+  c:     number    // children
+  i:     number    // infants
+  st:    string    // startTime HH:MM
+  p:     number    // Walz selling price (post-markup)
+  cur:   string    // currency
   loc:   string
   dur:   string
 }
@@ -515,9 +520,13 @@ export async function bookCartActivities(
   stripeSessionId: string,
   totalAmount:     number,
   currency:        string,
+  tripId?:         string | null,
 ): Promise<ProcessedBooking[]> {
   const activityItems = items.filter(i => i.t === 'activity')
   if (!activityItems.length) return []
+
+  // Advance trip status to CONFIRMING — supplier fulfillment is beginning.
+  if (tripId) void setTripConfirming(tripId)
 
   const results: ProcessedBooking[] = []
 
@@ -582,10 +591,22 @@ export async function bookCartActivities(
           status:            'PAYMENT_RECEIVED',
           paymentStatus:     'PAID',
           stripeSessionId,
+          // 3A: Attribution persistence — survives the reconciliation path
+          commercialSource:  item.cs  || null,
+          tripItemId:        item.tid || null,
         },
       })
       bookingId = created.id
       log('viator_booking_started', { walzRef, bookingId, cartItemId, supplier: item.s })
+
+      // 2D.1: Back-write bookingRef to TripItem so fulfillment status is queryable.
+      // Non-fatal — booking proceeds even if TripItem link fails.
+      if (item.tid) {
+        prisma.tripItem.update({
+          where: { id: item.tid },
+          data:  { bookingRef: walzRef },
+        }).catch(err => console.warn('[2D.1] TripItem.bookingRef back-write failed:', (err as Error).message))
+      }
     } catch (err) {
       // Likely a duplicate — the unique index on (stripeSessionId, cartItemId) fired.
       // Re-check and return existing.
@@ -737,6 +758,15 @@ export async function bookCartActivities(
       },
     })
 
+    // 2D.1: Set TripItem.confirmed when authoritative supplier confirmation received.
+    // This upgrades deriveTripStatus from a planning proxy to an authoritative signal.
+    if (finalStatus === 'CONFIRMED' && item.tid) {
+      prisma.tripItem.update({
+        where: { id: item.tid },
+        data:  { confirmed: true },
+      }).catch(err => console.warn('[2D.1] TripItem.confirmed back-write failed:', (err as Error).message))
+    }
+
     // ── 12. Post-confirmation emails + durable commercial events ─────────────
     // Events fire AFTER authoritative DB state is persisted (step 11).
     if (finalStatus === 'CONFIRMED') {
@@ -750,6 +780,26 @@ export async function bookCartActivities(
         currency,
         metadata:    { walzReference: walzRef, supplierReference: supplierResult.supplierReference },
       }).catch(err => console.warn('[CommercialEvent] booking_confirmed failed:', (err as Error).message))
+
+      // 2D.3: Server-authoritative purchase attribution with idempotency.
+      // Only fires when the item has a commercial attribution tag AND a TripItem ID.
+      if (item.tid && item.cs === 'cross_sell') {
+        recordCrossSellPurchased({
+          tripItemId:  item.tid,
+          bookingId,
+          productType: 'activity',
+          amount:      totalAmount,
+          currency,
+        }).catch(err => console.warn('[CommercialEvent] cross_sell_purchased failed:', (err as Error).message))
+      } else if (item.tid && item.cs === 'post_booking_upsell') {
+        recordPostBookingUpsellPurchased({
+          tripItemId:  item.tid,
+          bookingId,
+          productType: 'activity',
+          amount:      totalAmount,
+          currency,
+        }).catch(err => console.warn('[CommercialEvent] post_booking_upsell_purchased failed:', (err as Error).message))
+      }
     }
     if (finalStatus === 'SUPPLIER_BOOKING_FAILED') {
       log('viator_booking_failed', { walzRef, reason: failureReason })
@@ -789,6 +839,9 @@ export async function bookCartActivities(
     })
   }
 
+  // Derive and apply final trip status from item outcomes (CONFIRMED / PARTIALLY_CONFIRMED)
+  if (tripId) void applyDerivedTripStatus(tripId)
+
   return results
 }
 
@@ -810,6 +863,9 @@ export async function reconcileViatorBooking(bookingId: string): Promise<string>
       adults: true, children: true, infants: true, travelDate: true,
       supplierProductId: true, reconciliationAttempts: true, currency: true,
       confirmationEmailSentAt: true,
+      // 3A: Attribution persistence fields (may be null for pre-3A bookings)
+      commercialSource: true,
+      tripItemId:       true,
     },
   })
   if (!booking) return 'MANUAL_REQUIRED'
@@ -868,6 +924,29 @@ export async function reconcileViatorBooking(bookingId: string): Promise<string>
       supplier:    booking.supplier,
       metadata:    { walzReference: booking.walzReference, supplierReference: found.supplierReference, via: 'reconciliation' },
     }).catch(err => console.warn('[CommercialEvent] reconciled booking_confirmed failed:', (err as Error).message))
+
+    // 3A: Viator reconciliation attribution fix.
+    // If this booking originally came from a cross-sell or post-booking upsell,
+    // fire the purchase event now. Idempotency is via eventId = "cross_sell_purchased:<tripItemId>",
+    // so this fires at most once even if reconciliation is retried.
+    if (booking.tripItemId && booking.commercialSource === 'cross_sell') {
+      recordCrossSellPurchased({
+        tripItemId:  booking.tripItemId,
+        bookingId,
+        productType: 'activity',
+        amount:      undefined,  // amount unknown at reconcile time — don't double-record
+        currency:    booking.currency,
+      }).catch(err => console.warn('[CommercialEvent] reconciled cross_sell_purchased failed:', (err as Error).message))
+    } else if (booking.tripItemId && booking.commercialSource === 'post_booking_upsell') {
+      recordPostBookingUpsellPurchased({
+        tripItemId:  booking.tripItemId,
+        bookingId,
+        productType: 'activity',
+        amount:      undefined,
+        currency:    booking.currency,
+      }).catch(err => console.warn('[CommercialEvent] reconciled post_booking_upsell_purchased failed:', (err as Error).message))
+    }
+
     return 'CONFIRMED'
   }
 
