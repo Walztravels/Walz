@@ -17,37 +17,113 @@ function supabaseAdmin() {
   return createClient(url, key, { auth: { persistSession: false } })
 }
 
-export async function GET() {
+// Normalize a phone: strip all non-digits, keep last 9 digits
+function tail9(phone: string): string {
+  return phone.replace(/\D/g, '').slice(-9)
+}
+
+export async function GET(req: NextRequest) {
   const session = await getAdminSession()
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
+  const { searchParams } = new URL(req.url)
+  const diagnose = searchParams.get('diagnose') === '1'
+
   const supabase = supabaseAdmin()
 
-  // Fetch raw leads that have assignedToId set
+  // Raw leads with both assignedToId and whatsapp set
   const { data: rawLeads, error } = await supabase
     .from('leads')
-    .select('whatsapp, assignedToId')
+    .select('id, whatsapp, assignedToId, name')
     .not('assignedToId', 'is', null)
     .not('whatsapp', 'is', null)
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
-  const phones = (rawLeads ?? []).map(r => r.whatsapp as string).filter(Boolean)
+  const rows = rawLeads ?? []
+  const phones = rows.map(r => r.whatsapp as string).filter(Boolean)
 
   // Count Prisma leads that match those phones but have no assignment
   const unassigned = await prisma.lead.count({
-    where: {
-      whatsapp:     { in: phones },
-      assignedToId: null,
-    },
+    where: { whatsapp: { in: phones }, assignedToId: null },
   })
 
+  if (!diagnose) {
+    return NextResponse.json({
+      rawLeadsWithAssignment: rows.length,
+      prismaLeadsNeedingSync: unassigned,
+      message: unassigned > 0
+        ? `POST to this endpoint to sync ${unassigned} assignments into the Prisma "Lead" table`
+        : 'Nothing to sync — all matched leads already have assignedToId set',
+      tip: 'Add ?diagnose=1 to see per-phone breakdown of why rows are not matching',
+    })
+  }
+
+  // ── Diagnostic mode — per-phone analysis ──────────────────────────────────
+  // Pull all Prisma Lead phones once (for efficient lookup)
+  const allPrismaLeads = await prisma.lead.findMany({
+    select: { id: true, whatsapp: true, name: true, assignedToId: true },
+  })
+
+  const prismaTail9Map: Record<string, { id: string; whatsapp: string | null; name: string; assignedToId: string | null }[]> = {}
+  for (const pl of allPrismaLeads) {
+    if (!pl.whatsapp) continue
+    const key = tail9(pl.whatsapp)
+    ;(prismaTail9Map[key] ??= []).push(pl)
+  }
+
+  const breakdown = rows.map(raw => {
+    const rawPhone = raw.whatsapp as string
+    const rawTail  = tail9(rawPhone)
+
+    // 1. Exact match in Prisma
+    const exact = allPrismaLeads.filter(pl => pl.whatsapp === rawPhone)
+
+    // 2. Last-9-digit match (normalization fallback)
+    const byTail = prismaTail9Map[rawTail] ?? []
+
+    let matchType: string
+    if (exact.length > 0) {
+      matchType = exact[0].assignedToId
+        ? 'exact_match_already_assigned'
+        : 'exact_match_unassigned'
+    } else if (byTail.length > 0) {
+      matchType = 'phone_format_mismatch'
+    } else {
+      matchType = 'no_prisma_lead_found'
+    }
+
+    return {
+      rawId:       raw.id,
+      rawName:     raw.name,
+      rawPhone,
+      matchType,
+      exactMatches: exact.length,
+      tail9Matches: byTail.length,
+      tail9Samples: byTail.slice(0, 2).map(p => ({ prismaId: p.id, prismaPhone: p.whatsapp })),
+    }
+  })
+
+  const summary = {
+    exact_match_already_assigned: 0,
+    exact_match_unassigned:       0,
+    phone_format_mismatch:        0,
+    no_prisma_lead_found:         0,
+  }
+  for (const row of breakdown) {
+    summary[row.matchType as keyof typeof summary]++
+  }
+
   return NextResponse.json({
-    rawLeadsWithAssignment: rawLeads?.length ?? 0,
-    prismaLeadsNeedingSync: unassigned,
-    message: unassigned > 0
-      ? `POST to this endpoint to sync ${unassigned} assignments into the Prisma "Lead" table`
-      : 'Nothing to sync — all matched leads already have assignedToId set',
+    rawLeadsWithAssignment: rows.length,
+    summary,
+    rows: breakdown,
+    interpretation: [
+      `exact_match_already_assigned (${summary.exact_match_already_assigned}): reconciled — Prisma already has assignedToId`,
+      `exact_match_unassigned (${summary.exact_match_unassigned}): will be synced on next POST`,
+      `phone_format_mismatch (${summary.phone_format_mismatch}): phone exists in Prisma but stored differently — reconcile needs normalisation`,
+      `no_prisma_lead_found (${summary.no_prisma_lead_found}): lead only exists in raw table, never migrated to Prisma — reconcile cannot help these`,
+    ],
   })
 }
 
