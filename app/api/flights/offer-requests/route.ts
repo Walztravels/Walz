@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { duffelGet, duffelPost } from '@/lib/duffel/client'
+import { trackCommercialEvent } from '@/lib/commercial/track'
 
 /**
  * GET  /api/flights/offer-requests          — list offer requests (paginated)
@@ -130,6 +131,18 @@ export async function POST(request: NextRequest) {
       { data: offerRequestData },
       { return_offers: String(return_offers), supplier_timeout: String(supplier_timeout) }
     )
+
+    // Track flight search — fire and forget
+    const slices = parsed.data.slices
+    trackCommercialEvent('flight_search', {
+      destination: slices[0]?.destination,
+      metadata: {
+        origin:      slices[0]?.origin,
+        cabin_class: parsed.data.cabin_class,
+        passengers:  parsed.data.passengers.length,
+        legs:        slices.length,
+      },
+    })
 
     return NextResponse.json(result.data)
   } catch (err) {

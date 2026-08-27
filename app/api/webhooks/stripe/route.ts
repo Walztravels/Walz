@@ -8,6 +8,7 @@ import { getConfig }           from '@/lib/concierge/suppliers/comfortpass/confi
 import { ComfortPassAdapter }  from '@/lib/concierge/suppliers/comfortpass/adapter'
 import type { CPPassenger }    from '@/lib/concierge/suppliers/comfortpass/types'
 import { bookCartActivities, parseCartItems } from '@/lib/activities/booking'
+import { trackCommercialEvent } from '@/lib/commercial/track'
 
 
 // ── Concierge airport service — post-payment booking dispatch ─────────────────
@@ -447,7 +448,7 @@ export async function POST(request: NextRequest) {
           )
         } else {
           // Existing flight/tour booking handling
-          await prisma.booking.updateMany({
+          const updated = await prisma.booking.updateMany({
             where: {
               stripePaymentIntentId: paymentIntent.id,
               paymentStatus: 'PENDING',
@@ -456,6 +457,20 @@ export async function POST(request: NextRequest) {
               paymentStatus: 'SUCCEEDED',
             },
           })
+
+          // Track payment_succeeded + booking_confirmed events
+          if (updated.count > 0) {
+            trackCommercialEvent('payment_succeeded', {
+              currency: paymentIntent.currency?.toUpperCase(),
+              amount:   paymentIntent.amount_received / 100,
+              metadata: { stripePaymentIntentId: paymentIntent.id, bookingCount: updated.count },
+            })
+            trackCommercialEvent('booking_confirmed', {
+              currency: paymentIntent.currency?.toUpperCase(),
+              amount:   paymentIntent.amount_received / 100,
+              metadata: { stripePaymentIntentId: paymentIntent.id },
+            })
+          }
         }
 
         break

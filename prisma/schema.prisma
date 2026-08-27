@@ -174,6 +174,11 @@ model Booking {
   // Addons
   addons Json?
 
+  // Revenue Engine attribution (Release 1)
+  jadeAssisted     Boolean @default(false)
+  leadId           String?
+  quoteId          String?
+
   // Metadata
   notes            String? @db.Text
   createdByStaffId String?
@@ -4620,4 +4625,52 @@ model MotivationHistory {
   usedOn String // "2026-08-26" ISO date
 
   @@index([usedOn])
+}
+
+// ===========================
+// Release 1: Commercial Event Tracking
+// Created via Supabase SQL editor. NEVER run prisma db push.
+// ===========================
+
+model CommercialEvent {
+  id          String   @id @default(cuid())
+  event       String   // flight_search | hotel_search | activity_search | product_view | lead_created | checkout_started | payment_started | payment_succeeded | booking_confirmed | jade_started | jade_trip_intent
+  sessionId   String?
+  userId      String?
+  leadId      String?
+  productType String?  // flight | hotel | activity | esim | visa | package
+  productId   String?
+  destination String?
+  currency    String?
+  amount      Float?
+  metadata    Json?
+  createdAt   DateTime @default(now())
+
+  @@index([event])
+  @@index([sessionId])
+  @@index([leadId])
+  @@index([createdAt])
+}
+
+// ===========================
+// Release 1: CartSession persistence
+// Created via Supabase SQL editor. NEVER run prisma db push.
+// ===========================
+
+model CartSession {
+  id          String    @id @default(cuid())
+  sessionId   String    @unique
+  items       Json      @default("[]")
+  userId      String?
+  leadId      String?
+  currency    String    @default("GBP")
+  totalAmount Float?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  abandonedAt DateTime?
+  convertedAt DateTime?
+
+  @@index([sessionId])
+  @@index([userId])
+  @@index([abandonedAt])
 }
