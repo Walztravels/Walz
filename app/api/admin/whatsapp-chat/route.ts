@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { getAdminSession } from '@/lib/admin-auth'
 import prisma from '@/lib/db'
-import { sendWhatsAppViaTwilio, twilioConfigured, twilioTemplateConfigured, isNigeriaPhone, normalisePhone } from '@/lib/twilio-whatsapp'
+import { sendWhatsAppViaTwilio, sendWhatsAppBody, twilioConfigured, twilioTemplateConfigured, isNigeriaPhone, normalisePhone } from '@/lib/twilio-whatsapp'
 import { BUSINESS } from '@/lib/config/business'
 
 export const dynamic = 'force-dynamic'
@@ -144,15 +144,16 @@ export async function POST(req: Request) {
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const body = await req.json() as {
-    applicationId?: string
-    clientName:     string
-    clientPhone:    string
-    refNumber?:     string
-    firstMessage?:  string  // optional custom first message body
-    fromNumber?:    string  // force a specific Twilio sender (e.g. VISA_WHATSAPP_NUMBER)
+    applicationId?:    string  // PortalApplication.id — persists phone on portal record
+    visaApplicationId?: string // VisaApplication.id — used to check 24-hour session window
+    clientName:        string
+    clientPhone:       string
+    refNumber?:        string
+    firstMessage?:     string  // optional custom first message body
+    fromNumber?:       string  // force a specific Twilio sender (e.g. VISA_WHATSAPP_NUMBER)
   }
 
-  const { applicationId, clientName, clientPhone, refNumber, firstMessage, fromNumber } = body
+  const { applicationId, visaApplicationId, clientName, clientPhone, refNumber, firstMessage, fromNumber } = body
   if (!clientName || !clientPhone) {
     return NextResponse.json({ error: 'clientName and clientPhone required' }, { status: 400 })
   }
@@ -212,7 +213,24 @@ export async function POST(req: Request) {
     conversationId = cd.id
   }
 
-  // ── 4. Send greeting ─────────────────────────────────────────────────────────
+  // ── 4. Check for active 24-hour WhatsApp session (visa context only) ──────
+  // VisaApplicationMessage records every direction of every message exchanged on
+  // this visa application. If the client sent us anything in the last 24 hours
+  // the WhatsApp session window is still open and we can send free-form — no
+  // business-initiated template needed. Non-visa callers (no visaApplicationId)
+  // skip this check and fall through to the existing template behaviour.
+  let withinSession = false
+  if (visaApplicationId) {
+    const lastInbound = await prisma.visaApplicationMessage.findFirst({
+      where:   { visaApplicationId, direction: 'inbound' },
+      orderBy: { createdAt: 'desc' },
+      select:  { createdAt: true },
+    })
+    withinSession = !!lastInbound
+      && (Date.now() - lastInbound.createdAt.getTime()) < 24 * 60 * 60 * 1000
+  }
+
+  // ── 5. Send greeting ─────────────────────────────────────────────────────────
   const ref     = refNumber ?? applicationId ?? 'N/A'
   const msgBody = firstMessage
     ?? `Hello ${clientName}, your visa application with Walz Travels (Ref: ${ref}) is being processed. Our team will contact you shortly. How can we help? 🌍`
@@ -222,9 +240,15 @@ export async function POST(req: Request) {
   let chatwootSent    = false
 
   if (!reused) {
-    // Try Twilio first — works once the Nigeria number is enabled for business-initiated
-    // (Twilio console → Messaging → WhatsApp → Senders → enable outbound on +2347077691701)
-    if (twilioConfigured() && twilioTemplateConfigured()) {
+    if (withinSession && twilioConfigured()) {
+      // Client replied within the last 24 h — session is open, send free-form
+      console.log('[whatsapp-chat] active 24h session detected — sending free-form (no template)')
+      const tr = await sendWhatsAppBody(clientPhone, msgBody, undefined, fromNumber)
+      twilioSent  = tr.ok
+      twilioError = tr.ok ? null : (tr.error ?? null)
+      if (!tr.ok) console.warn('[whatsapp-chat] Twilio send failed:', tr.error)
+    } else if (twilioConfigured() && twilioTemplateConfigured()) {
+      // No active session (or non-visa caller) — use business-initiated template
       const tr = await sendWhatsAppViaTwilio(clientPhone, clientName, ref, msgBody, fromNumber)
       twilioSent  = tr.ok
       twilioError = tr.ok ? null : (tr.error ?? null)

@@ -1478,7 +1478,7 @@ export default function AdminVisaDetailPage() {
       const res = await fetch('/api/admin/whatsapp-chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ clientName, clientPhone: phone, refNumber: app.referenceNumber, fromNumber: '+447949448680' }),
+        body: JSON.stringify({ visaApplicationId: app.id, clientName, clientPhone: phone, refNumber: app.referenceNumber, fromNumber: '+447949448680' }),
       })
       const data = await res.json() as {
         conversationId?: number; error?: string; inboxName?: string; channelType?: string
