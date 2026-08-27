@@ -20,6 +20,9 @@ export type CommercialEventName =
   | 'jade_trip_intent'
   | 'proposal_viewed'
   | 'proposal_accepted'
+  | 'trip_created'
+  | 'trip_item_added'
+  | 'trip_item_removed'
 
 export interface TrackOptions {
   eventId?:     string   // client dedup key — reject duplicates from browser

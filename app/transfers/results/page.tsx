@@ -8,6 +8,7 @@ import {
   Clock, Loader2, MessageCircle, ShoppingCart,
 } from 'lucide-react'
 import { useCart } from '@/lib/context/CartContext'
+import { AddToTripButton } from '@/components/trips/AddToTripButton'
 
 const SYM: Record<string, string> = {
   GBP: '£', USD: '$', EUR: '€', AED: 'AED ', CAD: 'CA$', NGN: '₦',
@@ -111,7 +112,7 @@ function TransferCard({ t, from, to, date, time, adults, children }: TransferCar
         </div>
       </div>
 
-      <div className="border-t border-gray-100 px-4 py-2.5 flex gap-2">
+      <div className="border-t border-gray-100 px-4 py-2.5 flex gap-2 flex-wrap">
         <button
           onClick={handleAddToCart}
           className={`flex-1 flex items-center justify-center gap-1.5 font-bold py-2.5 rounded-xl text-sm transition-colors ${
@@ -123,6 +124,22 @@ function TransferCard({ t, from, to, date, time, adults, children }: TransferCar
           <ShoppingCart className="w-4 h-4" />
           {added ? 'Added!' : 'Add to Cart'}
         </button>
+        {process.env.NEXT_PUBLIC_TRIP_BUILDER_ENABLED === 'true' && (
+          <AddToTripButton
+            size="sm"
+            label="Save"
+            item={{
+              type:      'TRANSFER',
+              title:     t.name,
+              cost:      t.price,
+              currency:  t.currency ?? 'GBP',
+              location:  `${from} → ${to}`,
+              sourceType: 'hotelbeds',
+              sourceId:  t.rateKey ?? t.id ?? undefined,
+              metadata:  { from, to, date, time, adults, children },
+            }}
+          />
+        )}
         <button
           onClick={bookWhatsApp}
           className="px-3 py-2.5 rounded-xl border border-gray-200 text-gray-600

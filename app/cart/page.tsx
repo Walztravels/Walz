@@ -9,7 +9,7 @@ const TYPE_ICONS: Record<string, string> = {
 }
 
 export default function CartPage() {
-  const { items, removeItem, clearCart, total, itemCount } = useCart()
+  const { items, removeItem, clearCart, total, itemCount, sessionId } = useCart()
   const [paying,  setPaying]  = useState(false)
   const [gateway, setGateway] = useState<'stripe' | 'flutterwave'>('stripe')
 
@@ -20,7 +20,7 @@ export default function CartPage() {
       const res = await fetch('/api/checkout/cart', {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({ items, gateway }),
+        body:    JSON.stringify({ items, gateway, sessionId }),
       })
       const data = await res.json()
       if (data.url) window.location.href = data.url

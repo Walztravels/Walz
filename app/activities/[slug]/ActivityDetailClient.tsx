@@ -9,6 +9,7 @@ import {
   ArrowLeft, ChevronLeft, ChevronRight, Clock, MapPin, Star, Check, X,
   ShoppingCart, Loader2, MessageCircle, Users, Calendar, AlertCircle,
 } from 'lucide-react'
+import { AddToTripButton } from '@/components/trips/AddToTripButton'
 
 // Resolve the best image URL from either the new normalized shape or the legacy HB shape.
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -517,6 +518,26 @@ export default function ActivityDetailClient({ activity }: { activity: any }) {
                     : <><ShoppingCart className="w-4 h-4" /> Add to Cart</>
                 }
               </button>
+
+              {/* Save to Trip */}
+              {process.env.NEXT_PUBLIC_TRIP_BUILDER_ENABLED === 'true' && (
+                <AddToTripButton
+                  size="sm"
+                  label="Save to My Trip"
+                  className="w-full justify-center"
+                  item={{
+                    type:        'ACTIVITY',
+                    title:       activity.title,
+                    cost:        confirmedPrice || (activity.price ?? undefined),
+                    currency:    displayCurrency,
+                    imageUrl:    resolveHeroImage(activity) || undefined,
+                    location:    activity.location ?? undefined,
+                    description: activity.description ?? undefined,
+                    sourceType:  activity.source ?? activity.supplier ?? undefined,
+                    sourceId:    activity.supplierProductId ?? activity.id ?? undefined,
+                  }}
+                />
+              )}
 
               {/* WhatsApp help */}
               <div className="pt-2 border-t border-white/10 text-center">

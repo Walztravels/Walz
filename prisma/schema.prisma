@@ -1315,15 +1315,19 @@ enum TripItemType {
   ACTIVITY
   RESTAURANT
   TRANSPORT
+  TRANSFER
   NOTE
   CUSTOM
 }
 
 model Trip {
   id          String     @id @default(cuid())
-  userId      String
-  title       String
-  destination String
+  userId      String?
+  sessionId   String?
+  leadId      String?
+  title       String     @default("My Trip")
+  destination String     @default("")
+  origin      String?
   description String?    @db.Text
   coverImage  String?
   startDate   DateTime?
@@ -1333,13 +1337,16 @@ model Trip {
   shareToken  String?    @unique
   budget      Float?
   currency    String     @default("GBP")
+  adults      Int        @default(1)
+  children    Int        @default(0)
+  infants     Int        @default(0)
   notes       String?    @db.Text
   templateId  String?
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  user          User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user          User?              @relation(fields: [userId], references: [id], onDelete: SetNull)
   template      TripTemplate?      @relation(fields: [templateId], references: [id], onDelete: SetNull)
   days          TripDay[]
   items         TripItem[]
@@ -1349,6 +1356,8 @@ model Trip {
   invoices      Invoice[]
 
   @@index([userId])
+  @@index([sessionId])
+  @@index([leadId])
   @@index([status])
   @@index([shareToken])
   @@index([templateId])
@@ -1384,6 +1393,7 @@ model TripItem {
   endTime     String?
   cost        Float?
   currency    String       @default("GBP")
+  quantity    Int          @default(1)
   imageUrl    String?
   externalUrl String?
   bookingRef  String?

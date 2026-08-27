@@ -2,25 +2,32 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import prisma from '@/lib/db'
-import { nanoid } from 'nanoid'
+import { trackCommercialEvent } from '@/lib/commercial/track'
 
 export const dynamic = 'force-dynamic'
 
-// ── GET — all trips for the authenticated user ─────────────────────────────
-export async function GET() {
+function getSessionId(req: NextRequest) {
+  return req.headers.get('x-walz-session-id') ?? null
+}
+
+// ── GET — all trips for the authenticated user (or anonymous sessionId) ───────
+export async function GET(req: NextRequest) {
   const session = await getServerSession(authOptions)
-  if (!session?.user?.email) {
+  const sessionId = getSessionId(req)
+
+  if (!session?.user?.email && !sessionId) {
     return NextResponse.json({ error: 'Unauthorised' }, { status: 401 })
   }
 
-  const user = await prisma.user.findUnique({ where: { email: session.user.email } })
-  if (!user) return NextResponse.json({ error: 'User not found' }, { status: 404 })
+  const where = session?.user?.email
+    ? { user: { email: session.user.email } }
+    : { sessionId }
 
   const trips = await prisma.trip.findMany({
-    where: { userId: user.id },
+    where,
     include: {
       days:  { select: { id: true, dayNumber: true, title: true, date: true } },
-      items: { select: { id: true, type: true, title: true, confirmed: true } },
+      items: { select: { id: true, type: true, title: true, confirmed: true, quantity: true } },
       template: { select: { id: true, name: true } },
     },
     orderBy: { updatedAt: 'desc' },
@@ -32,19 +39,25 @@ export async function GET() {
 // ── POST — create a new trip ───────────────────────────────────────────────
 export async function POST(req: NextRequest) {
   const session = await getServerSession(authOptions)
-  if (!session?.user?.email) {
+  const sessionId = getSessionId(req)
+
+  if (!session?.user?.email && !sessionId) {
     return NextResponse.json({ error: 'Unauthorised' }, { status: 401 })
   }
 
-  const user = await prisma.user.findUnique({ where: { email: session.user.email } })
-  if (!user) return NextResponse.json({ error: 'User not found' }, { status: 404 })
-
-  const body = await req.json().catch(() => null)
-  if (!body?.title || !body?.destination) {
-    return NextResponse.json({ error: 'title and destination required' }, { status: 400 })
+  let userId: string | null = null
+  if (session?.user?.email) {
+    const user = await prisma.user.findUnique({ where: { email: session.user.email } })
+    if (!user) return NextResponse.json({ error: 'User not found' }, { status: 404 })
+    userId = user.id
   }
 
-  const { title, destination, description, startDate, endDate, budget, currency, templateId } = body
+  const body = await req.json().catch(() => null)
+  const {
+    title, destination, description, origin,
+    startDate, endDate, budget, currency, templateId,
+    adults, children, infants, leadId,
+  } = body ?? {}
 
   // If cloning from template, pull its itinerary
   let template = null
@@ -54,16 +67,22 @@ export async function POST(req: NextRequest) {
 
   const trip = await prisma.trip.create({
     data: {
-      userId: user.id,
-      title,
-      destination,
+      userId:      userId ?? null,
+      sessionId:   userId ? null : (sessionId ?? null),
+      leadId:      leadId ?? null,
+      title:       title       ?? 'My Trip',
+      destination: destination ?? '',
+      origin:      origin      ?? null,
       description: description ?? null,
-      startDate: startDate ? new Date(startDate) : null,
-      endDate:   endDate   ? new Date(endDate)   : null,
-      budget:    budget    ?? null,
-      currency:  currency  ?? 'GBP',
-      templateId: template?.id ?? null,
-      coverImage: template?.coverImage ?? null,
+      startDate:   startDate   ? new Date(startDate) : null,
+      endDate:     endDate     ? new Date(endDate)   : null,
+      budget:      budget      ?? null,
+      currency:    currency    ?? 'GBP',
+      adults:      adults      ?? 1,
+      children:    children    ?? 0,
+      infants:     infants     ?? 0,
+      templateId:  template?.id ?? null,
+      coverImage:  template?.coverImage ?? null,
     },
   })
 
@@ -102,6 +121,16 @@ export async function POST(req: NextRequest) {
       }
     }
   }
+
+  // Fire commercial event (fire-and-forget)
+  void trackCommercialEvent('trip_created', {
+    sessionId: sessionId ?? undefined,
+    userId:    userId    ?? undefined,
+    leadId:    leadId    ?? undefined,
+    productType: 'trip',
+    productId:   trip.id,
+    destination: destination ?? undefined,
+  })
 
   const tripWithDays = await prisma.trip.findUnique({
     where: { id: trip.id },
