@@ -4250,6 +4250,10 @@ model Quote {
 
   internalNotes           String?   @db.Text @map("internal_notes")
 
+  // Release 4C — link to Jade-created Lead and Trip
+  leadId                  String?   @map("lead_id")
+  tripId                  String?   @map("trip_id")
+
   createdAt               DateTime  @default(now()) @map("created_at")
   updatedAt               DateTime  @updatedAt      @map("updated_at")
 
@@ -4264,6 +4268,8 @@ model Quote {
   @@index([createdBy])
   @@index([clientEmail])
   @@index([secureTokenHash])
+  @@index([leadId])
+  @@index([tripId])
   @@map("quotes")
 }
 

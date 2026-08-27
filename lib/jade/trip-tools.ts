@@ -14,6 +14,7 @@
 import prisma from '@/lib/db'
 import { getTripItemFulfillmentStatus } from '@/lib/trips/fulfillment'
 import { resolveSearchRef }             from './search-ref'
+import { syncJadeLeadForTrip }          from './crm-sync'
 
 // ── Context ───────────────────────────────────────────────────────────────────
 
@@ -206,20 +207,28 @@ async function getTrip(input: Record<string, unknown>, ctx: JadeTripToolContext)
     select: {
       id: true, title: true, destination: true, origin: true, status: true,
       adults: true, children: true, infants: true, currency: true,
-      startDate: true, endDate: true,
+      startDate: true, endDate: true, budget: true,
       items: {
         select: {
           id: true, type: true, title: true, location: true,
           startTime: true, cost: true, currency: true,
           confirmed: true, bookingRef: true,
           // sourceId intentionally excluded — may contain rateKey
-          // metadata intentionally excluded — may contain rateKey
+          // metadata intentionally excluded — may contain supplier secrets
         },
         orderBy: [{ order: 'asc' }],
       },
     },
   })
   if (!trip) return JSON.stringify({ error: 'Trip not found' })
+
+  // Fetch stale markers from metadata — only staleReason extracted, never supplier payload
+  const staleRows = await prisma.$queryRaw<Array<{ id: string; stale_reason: string | null }>>`
+    SELECT id, (metadata->>'staleReason')::text as stale_reason
+    FROM "TripItem"
+    WHERE "tripId" = ${tripId}
+  `
+  const staleMap = new Map(staleRows.map(r => [r.id, r.stale_reason]))
 
   // Resolve fulfillment status for each item — uses at most 3 DB queries total (batch helper)
   const itemsWithStatus = await Promise.all(
@@ -238,9 +247,12 @@ async function getTrip(input: Record<string, unknown>, ctx: JadeTripToolContext)
         currency:          i.currency,
         confirmed:         i.confirmed,
         fulfillmentStatus,
+        staleReason:       staleMap.get(i.id) ?? null,
       }
     }),
   )
+
+  const staleCount = itemsWithStatus.filter(i => i.staleReason).length
 
   return JSON.stringify({
     id:          trip.id,
@@ -252,9 +264,11 @@ async function getTrip(input: Record<string, unknown>, ctx: JadeTripToolContext)
     infants:     trip.infants,
     status:      trip.status,
     currency:    trip.currency,
+    budget:      trip.budget ?? null,
     startDate:   trip.startDate ? trip.startDate.toISOString().slice(0, 10) : null,
     endDate:     trip.endDate   ? trip.endDate.toISOString().slice(0, 10)   : null,
     itemCount:   trip.items.length,
+    staleCount,
     items:       itemsWithStatus,
   })
 }
@@ -301,6 +315,21 @@ async function createTrip(input: Record<string, unknown>, ctx: JadeTripToolConte
       metadata: { tripId: trip.id, destination, source: 'jade_chat' },
     },
   }).catch(() => {})
+
+  // Release 4C-B: non-blocking CRM lead sync for authenticated users
+  if (ctx.userId && process.env.JADE_CRM_SYNC_ENABLED === 'true') {
+    syncJadeLeadForTrip(ctx.userId, {
+      id:          trip.id,
+      destination: typeof input.destination === 'string' ? input.destination : null,
+      origin:      typeof input.origin      === 'string' ? input.origin      : null,
+      startDate:   typeof input.start_date  === 'string' ? new Date(input.start_date)  : null,
+      endDate:     typeof input.end_date    === 'string' ? new Date(input.end_date)    : null,
+      adults:      typeof input.adults      === 'number' ? input.adults      : 1,
+      children:    typeof input.children    === 'number' ? input.children    : 0,
+      currency:    typeof input.currency    === 'string' ? input.currency    : 'GBP',
+      budget:      null,
+    }).catch(() => {})
+  }
 
   return JSON.stringify({
     ok:          true,

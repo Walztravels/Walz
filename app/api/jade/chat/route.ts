@@ -14,6 +14,10 @@ import {
   JADE_SEARCH_TOOL_SCHEMAS,
   executeJadeSearchTool,
 } from '@/lib/jade/search-tools'
+import {
+  JADE_REFINEMENT_TOOL_SCHEMAS,
+  executeJadeRefinementTool,
+} from '@/lib/jade/trip-refinement-tools'
 
 export const maxDuration = 60
 export const dynamic     = 'force-dynamic'
@@ -254,24 +258,33 @@ export async function POST(req: NextRequest) {
     sessionId: sessionId || null,
   }
 
-  const liveSearchEnabled   = process.env.JADE_LIVE_SEARCH_ENABLED   === 'true'
-  const tripBuilderEnabled  = process.env.JADE_TRIP_BUILDER_ENABLED  === 'true'
+  const liveSearchEnabled      = process.env.JADE_LIVE_SEARCH_ENABLED      === 'true'
+  const tripBuilderEnabled     = process.env.JADE_TRIP_BUILDER_ENABLED     === 'true'
+  const tripRefinementEnabled  = process.env.JADE_TRIP_REFINEMENT_ENABLED  === 'true'
+  const proposalEnabled        = process.env.JADE_PROPOSAL_ENABLED         === 'true'
 
-  // Build unified tool list — trip tools + search tools (filtered by flag)
-  const tripToolSchemas: Anthropic.Tool[]    = tripWriteEnabled  ? (JADE_TRIP_TOOL_SCHEMAS as Anthropic.Tool[]) : []
-  const searchToolSchemas: Anthropic.Tool[]  = liveSearchEnabled
+  // Build unified tool list — trip tools + search tools + refinement tools (filtered by flag)
+  const tripToolSchemas: Anthropic.Tool[]       = tripWriteEnabled       ? (JADE_TRIP_TOOL_SCHEMAS        as Anthropic.Tool[]) : []
+  const searchToolSchemas: Anthropic.Tool[]     = liveSearchEnabled
     ? (JADE_SEARCH_TOOL_SCHEMAS.filter(t =>
         t.name !== 'build_trip' || tripBuilderEnabled,
       ) as Anthropic.Tool[])
     : []
+  const refinementToolSchemas: Anthropic.Tool[] = tripRefinementEnabled
+    ? (JADE_REFINEMENT_TOOL_SCHEMAS.filter(t =>
+        t.name !== 'create_trip_proposal' || proposalEnabled,
+      ) as Anthropic.Tool[])
+    : []
 
-  const allTools: Anthropic.Tool[] = [...tripToolSchemas, ...searchToolSchemas]
+  const allTools: Anthropic.Tool[] = [...tripToolSchemas, ...searchToolSchemas, ...refinementToolSchemas]
 
   // Unified tool executor — routes to the right service by tool name
-  const SEARCH_TOOL_NAMES = new Set(JADE_SEARCH_TOOL_SCHEMAS.map(t => t.name))
+  const SEARCH_TOOL_NAMES     = new Set(JADE_SEARCH_TOOL_SCHEMAS.map(t => t.name))
+  const REFINEMENT_TOOL_NAMES = new Set(JADE_REFINEMENT_TOOL_SCHEMAS.map(t => t.name))
   const unifiedExecutor = allTools.length > 0
     ? async (name: string, input: Record<string, unknown>): Promise<string> => {
-        if (SEARCH_TOOL_NAMES.has(name)) return executeJadeSearchTool(name, input, tripCtx)
+        if (SEARCH_TOOL_NAMES.has(name))     return executeJadeSearchTool(name, input, tripCtx)
+        if (REFINEMENT_TOOL_NAMES.has(name)) return executeJadeRefinementTool(name, input, tripCtx)
         return executeJadeTripTool(name, input, tripCtx)
       }
     : undefined
@@ -285,6 +298,12 @@ export async function POST(req: NextRequest) {
     systemPrompt += `\n\n## LIVE SEARCH TOOLS\nYou have access to live inventory search: search_flights, search_hotels, search_activities, search_transfers, search_esims.\n- Always search live before quoting specific prices — never make up fares or rates.\n- Present results to the customer and ask which they'd like before calling add_search_result_to_trip.\n- Result refs (jr_...) expire — if an add_search_result_to_trip call returns SEARCH_RESULT_EXPIRED, run a new search.\n- Never expose resultRef values to the customer — they are internal opaque tokens.\n- sellingPrice and currency in results are the authoritative customer prices — never modify them.`
     if (tripBuilderEnabled) {
       systemPrompt += `\n\n## TRIP BUILDER\nYou have access to build_trip. Call it when the customer asks to build, plan, or put together a full trip. It returns step-by-step instructions — follow them in sequence, presenting results at each stage. Always confirm with the customer before adding anything.`
+    }
+  }
+  if (tripRefinementEnabled) {
+    systemPrompt += `\n\n## TRIP REFINEMENT TOOLS\nYou have access to: replace_trip_item, update_trip_preferences, get_trip_commercial_summary.\n- replace_trip_item: use when customer wants to swap one item for another (e.g. "change my hotel to this one"). Always call get_trip first to confirm the item is not purchased/confirmed.\n- update_trip_preferences: use when dates, traveller count, budget, or flight/hotel preferences change. When this marks items stale, prompt the customer to re-search.\n- get_trip_commercial_summary: use before discussing budget, recommending cheaper alternatives, or checking what's missing from the trip.\n- staleReason on an item means its price or availability may be invalid — always prompt re-search for stale items before finalising.`
+    if (proposalEnabled) {
+      systemPrompt += `\n\n## PROPOSAL TOOL\nYou have access to create_trip_proposal. Call it ONLY when the customer explicitly requests a quote or proposal (e.g. "can you send me a quote?", "I'd like a proposal"). It creates a DRAFT — staff review and send it. Confirm the customer wants a proposal before calling. Never call it on your own initiative.`
     }
   }
 

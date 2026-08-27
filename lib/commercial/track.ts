@@ -41,6 +41,14 @@ export type CommercialEventName =
   | 'jade_trip_build_started'
   | 'jade_trip_build_completed'
   | 'jade_trip_build_failed'
+  // Release 4C — Jade trip refinement, CRM sync, proposals
+  | 'jade_trip_refined'
+  | 'jade_trip_item_replaced'
+  | 'jade_lead_created'
+  | 'jade_lead_updated'
+  | 'jade_lead_qualified'
+  | 'jade_proposal_requested'
+  | 'jade_proposal_created'
 
 export interface TrackOptions {
   eventId?:     string   // client dedup key — reject duplicates from browser
