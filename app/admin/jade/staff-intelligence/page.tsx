@@ -153,12 +153,12 @@ export default async function StaffIntelligencePage() {
           <h2 className="text-sm font-semibold text-white/60 uppercase tracking-wider">System Status</h2>
           <div className="space-y-3">
             {[
-              { label: 'Daily Brief Cron', ok: true,  note: '07:00 UTC · weekdays' },
+              { label: 'Daily Brief Cron',    ok: true, note: '07:00 UTC · weekdays' },
               { label: 'Staff Notifications', ok: true, note: 'In-app delivery active' },
-              { label: 'Email Delivery',        ok: true, note: '08:00 local time · weekdays' },
-              { label: 'Travel News Ingestion', ok: false, note: 'Phase 2 — not yet active' },
-              { label: 'Visa Monitoring',       ok: false, note: 'Phase 3 — not yet active' },
-              { label: 'WhatsApp Delivery',     ok: false, note: 'Phase 5 — not yet active' },
+              { label: 'Email Delivery',      ok: true, note: '08:00 local time · weekdays' },
+              { label: 'WhatsApp Delivery',   ok: true, note: '08:00 local time · weekdays' },
+              { label: 'Travel Intelligence', ok: true, note: 'AI-generated · 3 items daily' },
+              { label: 'Visa Intelligence',   ok: true, note: 'AI-generated · 5 destinations' },
             ].map(({ label, ok, note }) => (
               <div key={label} className="flex items-center justify-between py-2 border-b border-white/5 last:border-0">
                 <div className="flex items-center gap-2">

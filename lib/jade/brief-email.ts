@@ -9,10 +9,25 @@ type Announcement = {
   priority: string
 }
 
+type TravelItem = {
+  headline: string
+  summary: string
+  relevance?: string
+  category: 'FLIGHTS' | 'DESTINATION' | 'INDUSTRY' | 'WEATHER'
+}
+
+type VisaItem = {
+  destination: string
+  status: string
+  processingDays: string
+  notes: string
+  alert: 'GREEN' | 'AMBER' | 'RED'
+}
+
 type BriefContent = {
   announcements?: Announcement[]
-  travel?: unknown[]
-  visa?: unknown[]
+  travel?: TravelItem[]
+  visa?: VisaItem[]
   urgentCount?: number
 }
 
@@ -48,11 +63,23 @@ function escapeHtml(str: string) {
     .replace(/"/g, '&quot;')
 }
 
+const TRAVEL_CAT_ICON: Record<string, string> = {
+  FLIGHTS: '✈️', DESTINATION: '🌍', INDUSTRY: '📊', WEATHER: '⛈️',
+}
+const VISA_ALERT_COLOR: Record<string, string> = {
+  GREEN: '#10b981', AMBER: '#f59e0b', RED: '#ef4444',
+}
+const VISA_ALERT_EMOJI: Record<string, string> = {
+  GREEN: '🟢', AMBER: '🟡', RED: '🔴',
+}
+
 export function renderBriefHtml(opts: BriefEmailOpts): string {
   const { staffName, briefDate, motivation, motivationThought, contentJson, baseUrl } = opts
   const firstName = staffName.split(' ')[0]
   const date = formattedDate(briefDate)
   const announcements = contentJson.announcements ?? []
+  const travel = contentJson.travel ?? []
+  const visa   = contentJson.visa   ?? []
 
   const announcementBlock = (ann: Announcement) => `
     <tr>
@@ -152,6 +179,79 @@ export function renderBriefHtml(opts: BriefEmailOpts): string {
         </tr>
         ` : ''}
 
+        ${travel.length > 0 ? `
+        <!-- Travel Intelligence -->
+        <tr>
+          <td style="padding:0 0 24px 0">
+            <table width="100%" cellpadding="0" cellspacing="0" role="presentation">
+              <tr>
+                <td style="background:#112240;border-radius:14px;padding:24px 28px">
+                  <p style="margin:0 0 20px 0;font-size:11px;font-weight:700;color:#C9A84C;text-transform:uppercase;letter-spacing:1.5px">✈️ Travel Intelligence</p>
+                  <table width="100%" cellpadding="0" cellspacing="0" role="presentation">
+                    ${travel.map(item => `
+                    <tr>
+                      <td style="padding:0 0 18px 0">
+                        <table width="100%" cellpadding="0" cellspacing="0" role="presentation">
+                          <tr>
+                            <td style="background:#0d2442;border-radius:8px;padding:16px 18px">
+                              <p style="margin:0 0 4px 0;font-size:10px;font-weight:700;color:#C9A84C;text-transform:uppercase;letter-spacing:1px">${escapeHtml(TRAVEL_CAT_ICON[item.category] ?? '📌')} ${escapeHtml(item.category)}</p>
+                              <p style="margin:0 0 8px 0;font-size:14px;font-weight:700;color:#ffffff;line-height:1.4">${escapeHtml(item.headline)}</p>
+                              <p style="margin:0;font-size:13px;color:#94a3b8;line-height:1.6">${escapeHtml(item.summary)}</p>
+                            </td>
+                          </tr>
+                        </table>
+                      </td>
+                    </tr>`).join('')}
+                  </table>
+                  <p style="margin:8px 0 0 0;font-size:10px;color:#334155;font-style:italic">AI-generated intelligence — verify time-sensitive information independently.</p>
+                </td>
+              </tr>
+            </table>
+          </td>
+        </tr>
+        ` : ''}
+
+        ${visa.length > 0 ? `
+        <!-- Visa Intelligence -->
+        <tr>
+          <td style="padding:0 0 24px 0">
+            <table width="100%" cellpadding="0" cellspacing="0" role="presentation">
+              <tr>
+                <td style="background:#112240;border-radius:14px;padding:24px 28px">
+                  <p style="margin:0 0 20px 0;font-size:11px;font-weight:700;color:#C9A84C;text-transform:uppercase;letter-spacing:1.5px">🛂 Visa Intelligence</p>
+                  <table width="100%" cellpadding="0" cellspacing="0" role="presentation">
+                    ${visa.map(item => `
+                    <tr>
+                      <td style="padding:0 0 12px 0;border-bottom:1px solid #1e3a5f">
+                        <table width="100%" cellpadding="0" cellspacing="0" role="presentation">
+                          <tr>
+                            <td style="padding:12px 0">
+                              <table width="100%" cellpadding="0" cellspacing="0" role="presentation">
+                                <tr>
+                                  <td>
+                                    <p style="margin:0 0 4px 0;font-size:14px;font-weight:700;color:#ffffff">${escapeHtml(VISA_ALERT_EMOJI[item.alert] ?? '⚪')} ${escapeHtml(item.destination)}</p>
+                                    <p style="margin:0 0 4px 0;font-size:12px;color:#64748b">${escapeHtml(item.status)} &middot; ~${escapeHtml(item.processingDays)} days</p>
+                                    <p style="margin:0;font-size:13px;color:#94a3b8;line-height:1.5">${escapeHtml(item.notes)}</p>
+                                  </td>
+                                  <td style="text-align:right;vertical-align:top;white-space:nowrap;padding-left:12px">
+                                    <span style="display:inline-block;font-size:10px;font-weight:700;padding:3px 8px;border-radius:10px;background:${VISA_ALERT_COLOR[item.alert] ?? '#334155'}22;color:${VISA_ALERT_COLOR[item.alert] ?? '#94a3b8'}">${escapeHtml(item.alert)}</span>
+                                  </td>
+                                </tr>
+                              </table>
+                            </td>
+                          </tr>
+                        </table>
+                      </td>
+                    </tr>`).join('')}
+                  </table>
+                  <p style="margin:16px 0 0 0;font-size:10px;color:#334155;font-style:italic">AI-generated estimates — always verify with official government sources before advising clients.</p>
+                </td>
+              </tr>
+            </table>
+          </td>
+        </tr>
+        ` : ''}
+
         <!-- Footer -->
         <tr>
           <td style="padding:28px 0 0 0;text-align:center;border-top:1px solid #1e3a5f">
@@ -177,6 +277,8 @@ export function renderBriefText(opts: BriefEmailOpts): string {
   const firstName = staffName.split(' ')[0]
   const date = formattedDate(briefDate)
   const announcements = contentJson.announcements ?? []
+  const travel = contentJson.travel ?? []
+  const visa   = contentJson.visa   ?? []
 
   const line = '─'.repeat(42)
   let text = `WALZ TRAVELS · Powered by Jade\n`
@@ -201,8 +303,75 @@ export function renderBriefText(opts: BriefEmailOpts): string {
     }
   }
 
+  if (travel.length > 0) {
+    text += `${line}\n`
+    text += `TRAVEL INTELLIGENCE\n\n`
+    for (const item of travel) {
+      text += `[${item.category}] ${item.headline}\n`
+      text += `${item.summary}\n\n`
+    }
+    text += `(AI-generated — verify time-sensitive information independently)\n\n`
+  }
+
+  if (visa.length > 0) {
+    text += `${line}\n`
+    text += `VISA INTELLIGENCE\n\n`
+    for (const item of visa) {
+      const alertMark = item.alert === 'GREEN' ? '[OK]' : item.alert === 'AMBER' ? '[!]' : '[!!]'
+      text += `${alertMark} ${item.destination} — ${item.status} · ~${item.processingDays} days\n`
+      text += `${item.notes}\n\n`
+    }
+    text += `(AI estimates — always verify with official government sources)\n\n`
+  }
+
   text += `${line}\n`
   text += `Have a productive day.\nJade · Walz Travels\n\n`
   text += `This is an internal Walz Travels staff communication. Not for forwarding.\n`
+  return text
+}
+
+// Condensed WhatsApp-friendly plain text for Phase 5
+export function renderBriefWhatsApp(opts: BriefEmailOpts): string {
+  const { staffName, briefDate, motivation, motivationThought, contentJson } = opts
+  const firstName = staffName.split(' ')[0]
+  const date = formattedDate(briefDate)
+  const announcements = contentJson.announcements ?? []
+  const travel = contentJson.travel ?? []
+  const visa   = contentJson.visa   ?? []
+
+  let text = `*WALZ TRAVELS · Jade Daily Brief*\n`
+  text += `📅 ${date}\n\n`
+  text += `Good morning, ${firstName}! 🌅\n\n`
+  text += `✨ *Motivation*\n`
+  text += `_"${motivation}"_\n\n`
+  text += `${motivationThought}\n`
+
+  if (announcements.length > 0) {
+    text += `\n---\n`
+    text += `🚀 *Staff Updates (${announcements.length})*\n`
+    for (const ann of announcements) {
+      text += `📌 *${ann.title}*\n${ann.summary}\n`
+    }
+  }
+
+  if (travel.length > 0) {
+    text += `\n---\n`
+    text += `✈️ *Travel Intel*\n`
+    for (const item of travel) {
+      const icon = TRAVEL_CAT_ICON[item.category] ?? '•'
+      text += `${icon} *${item.headline}*\n${item.summary}\n\n`
+    }
+  }
+
+  if (visa.length > 0) {
+    text += `\n---\n`
+    text += `🛂 *Visa Intel*\n`
+    for (const item of visa) {
+      const emoji = VISA_ALERT_EMOJI[item.alert] ?? '⚪'
+      text += `${emoji} *${item.destination}* — ~${item.processingDays} days\n${item.notes}\n\n`
+    }
+  }
+
+  text += `\n---\n_Jade · Walz Travels_`
   return text
 }

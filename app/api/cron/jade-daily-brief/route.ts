@@ -112,6 +112,79 @@ Reply ONLY with valid JSON (no markdown, no code fences):
 
   const urgentCount = announcements.filter(a => a.priority === 'URGENT').length
 
+  // ── Phase 2: Travel Intelligence ─────────────────────────────────────────────
+  type TravelItem = {
+    headline: string
+    summary:  string
+    relevance: string
+    category: 'FLIGHTS' | 'DESTINATION' | 'INDUSTRY' | 'WEATHER'
+  }
+  let travelItems: TravelItem[] = []
+
+  try {
+    const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
+    const travelMsg = await anthropic.messages.create({
+      model:      'claude-haiku-4-5-20251001',
+      max_tokens: 600,
+      messages: [{
+        role:    'user',
+        content: `You generate travel intelligence for Walz Travels staff daily brief.
+Walz Travels is a Nigerian premium travel agency. Staff handle flights, visas, hotels, and tour packages primarily for Nigerian clients traveling to UK, Schengen, US, UAE, Canada, and within Africa.
+
+Generate exactly 3 travel intelligence items useful for Nigerian travel agents.
+Focus on: airline updates, route news, airport changes, destination advisories, African carrier news, popular route tips.
+Be specific — name airlines, airports, and destinations. Keep each summary under 55 words.
+
+Reply ONLY with valid JSON (no markdown, no code fences):
+{"items":[{"headline":"...","summary":"...","relevance":"...","category":"FLIGHTS|DESTINATION|INDUSTRY|WEATHER"}]}`,
+      }],
+    })
+    const travelRaw = travelMsg.content[0].type === 'text' ? travelMsg.content[0].text.trim() : ''
+    const travelParsed = JSON.parse(travelRaw)
+    if (Array.isArray(travelParsed.items)) travelItems = travelParsed.items.slice(0, 5)
+  } catch (e) {
+    console.warn('[jade-brief] travel intelligence generation failed:', e)
+  }
+
+  // ── Phase 3: Visa Intelligence ────────────────────────────────────────────────
+  type VisaItem = {
+    destination:    string
+    status:         string  // NORMAL | DELAYED | BACKLOGGED | EXPEDITED
+    processingDays: string
+    notes:          string
+    alert:          'GREEN' | 'AMBER' | 'RED'
+  }
+  let visaItems: VisaItem[] = []
+
+  try {
+    const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
+    const visaMsg = await anthropic.messages.create({
+      model:      'claude-haiku-4-5-20251001',
+      max_tokens: 700,
+      messages: [{
+        role:    'user',
+        content: `You generate visa intelligence for Walz Travels staff daily brief.
+Walz Travels processes visa applications for Nigerian passport holders to UK, Schengen, USA, Canada, UAE, and Australia.
+
+Generate visa intelligence for these 5 destinations (all 5 required):
+UK, Schengen (EU), USA, Canada, UAE
+
+For each, provide: typical current processing times, alert level, and one practical tip for agents.
+Keep notes under 40 words per destination.
+
+alert: GREEN (normal), AMBER (some delays/scrutiny), RED (significant delays/restrictions)
+
+Reply ONLY with valid JSON (no markdown, no code fences):
+{"items":[{"destination":"...","status":"NORMAL|DELAYED|BACKLOGGED|EXPEDITED","processingDays":"e.g. 15-20","notes":"...","alert":"GREEN|AMBER|RED"}]}`,
+      }],
+    })
+    const visaRaw = visaMsg.content[0].type === 'text' ? visaMsg.content[0].text.trim() : ''
+    const visaParsed = JSON.parse(visaRaw)
+    if (Array.isArray(visaParsed.items)) visaItems = visaParsed.items.slice(0, 8)
+  } catch (e) {
+    console.warn('[jade-brief] visa intelligence generation failed:', e)
+  }
+
   // ── Build and persist the brief ───────────────────────────────────────────────
   const contentJson = {
     announcements: announcements.map(a => ({
@@ -124,8 +197,8 @@ Reply ONLY with valid JSON (no markdown, no code fences):
       relevantUrl: a.relevantUrl,
       priority:    a.priority,
     })),
-    travel:       [],  // Phase 2
-    visa:         [],  // Phase 3
+    travel:  travelItems,
+    visa:    visaItems,
     urgentCount,
   }
 

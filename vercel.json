@@ -8,7 +8,8 @@
   "functions": {
     "app/api/cron/activity-reconciliation/route.ts": { "maxDuration": 60 },
     "app/api/cron/jade-daily-brief/route.ts":    { "maxDuration": 60 },
-    "app/api/cron/jade-brief-delivery/route.ts": { "maxDuration": 60 },
+    "app/api/cron/jade-brief-delivery/route.ts":   { "maxDuration": 60 },
+    "app/api/cron/jade-brief-whatsapp/route.ts":   { "maxDuration": 60 },
     "app/api/public/group/[param]/lock/route.ts": {
       "maxDuration": 120
     },
@@ -115,6 +116,10 @@
     },
     {
       "path": "/api/cron/jade-brief-delivery",
+      "schedule": "*/30 * * * *"
+    },
+    {
+      "path": "/api/cron/jade-brief-whatsapp",
       "schedule": "*/30 * * * *"
     }
   ]
