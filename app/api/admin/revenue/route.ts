@@ -13,9 +13,14 @@ function daysAgo(n: number) {
   return d
 }
 
+const FINANCE_ROLES = new Set(['super_admin', 'general_manager'])
+
 export async function GET(req: NextRequest) {
   const session = await getAdminSession()
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  if (!FINANCE_ROLES.has(session.role)) {
+    return NextResponse.json({ error: 'Forbidden — Finance access required' }, { status: 403 })
+  }
 
   const url    = new URL(req.url)
   const window = parseInt(url.searchParams.get('window') ?? '30', 10)
@@ -47,6 +52,7 @@ export async function GET(req: NextRequest) {
     cartConverted,
     cartAbandonedValue,
     trackingStart,
+    paymentsByProviderRaw,
   ] = await Promise.all([
     // All payments captured (paymentStatus = SUCCEEDED), regardless of booking status
     prisma.booking.groupBy({
@@ -134,6 +140,21 @@ export async function GET(req: NextRequest) {
 
     // Earliest CommercialEvent — indicates when tracking started
     prisma.commercialEvent.findFirst({ orderBy: { createdAt: 'asc' }, select: { createdAt: true } }),
+
+    // Payment breakdown by provider — from CommercialEvent metadata
+    prisma.$queryRaw<{ provider: string; currency: string; total: number; count: number }[]>`
+      SELECT
+        metadata->>'provider'  AS provider,
+        UPPER(currency)         AS currency,
+        SUM(amount)::float      AS total,
+        COUNT(*)::int           AS count
+      FROM "CommercialEvent"
+      WHERE event = 'payment_succeeded'
+        AND metadata->>'provider' IS NOT NULL
+        AND "createdAt" >= ${since}
+      GROUP BY metadata->>'provider', UPPER(currency)
+      ORDER BY total DESC NULLS LAST
+    `,
   ])
 
   // ── Format GBV buckets ───────────────────────────────────────────────────
@@ -237,5 +258,10 @@ export async function GET(req: NextRequest) {
       assistedBookings: jadeAssistedBookings,
       attributionWindowDays: parseInt(process.env.JADE_ATTRIBUTION_DAYS ?? '7', 10),
     },
+
+    // Payment provider breakdown — from CommercialEvent metadata (post-Release 1.1 data only)
+    // GBV buckets (above) remain the financial source of truth; this is analytics supplemental data.
+    paymentsByProvider: paymentsByProviderRaw ?? [],
+    paymentProviderNote: 'Event-based counts from Release 1.1 onward only. Pre-1.1 payments not included.',
   })
 }

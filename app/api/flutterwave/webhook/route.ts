@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma }                    from '@/lib/db'
-import { getResend } from '@/lib/resend'
+import { getResend }                 from '@/lib/resend'
+import { recordPaymentSucceeded }    from '@/lib/commercial/payment'
 
 const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December']
 
@@ -64,6 +65,15 @@ async function handleVirtualAccountPayment(payload: Record<string, unknown>) {
     } catch (dbErr: any) {
       console.error('[flw-webhook] VA DB error:', dbErr.message)
     }
+
+    // Durable payment event — bank transfer (virtual account) confirmed
+    recordPaymentSucceeded({
+      provider:          'BANK_TRANSFER',
+      providerPaymentId: flw_ref ?? tx_ref ?? 'unknown',
+      amount:   typeof amount === 'number' ? amount : 0,
+      currency,
+      metadata: { source: 'flutterwave_va', txRef: tx_ref, payerBank: bankname, payerName: originatorname },
+    }).catch(err => console.warn('[Payment] FLW VA payment_succeeded tracking failed:', (err as Error).message))
 
     // Send receipt email to client
     if (clientEmail) {

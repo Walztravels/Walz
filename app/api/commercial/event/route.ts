@@ -6,8 +6,8 @@ export const dynamic = 'force-dynamic'
 
 // Allowlist: only analytics/intent events accepted from the browser.
 // Blocked server-only events (never accepted from browser):
-//   payment_succeeded, booking_confirmed, supplier_booking_failed,
-//   reconciliation_required, refund_processed
+//   payment_succeeded, payment_failed, booking_confirmed,
+//   supplier_booking_failed, reconciliation_required, refund_processed
 const BROWSER_SAFE_EVENTS = new Set<CommercialEventName>([
   'flight_search',
   'hotel_search',

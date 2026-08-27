@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getAdminSession }          from '@/lib/admin-auth'
 import { hotelbedsRequest }         from '@/lib/hotelbeds'
 import prisma                       from '@/lib/db'
+import { recordPaymentSucceeded }   from '@/lib/commercial/payment'
 
 export const maxDuration = 60
 
@@ -137,6 +138,16 @@ export async function POST(req: NextRequest) {
         detail:      `Transfer ${walzRef} — ${fromDisplay ?? fromCode} → ${toDisplay ?? toCode} — ${holderName} — ${currency} ${sellingPrice}`,
       },
     })
+
+    if (paymentMethod === 'MARK_PAID') {
+      recordPaymentSucceeded({
+        provider:          'MANUAL',
+        providerPaymentId: walzRef,
+        amount:   parseFloat(String(sellingPrice)),
+        currency: String(currency).toUpperCase(),
+        metadata: { productType: 'transfer', markedPaidBy: session.email, hotelbedsRef },
+      }).catch(() => {})
+    }
 
     return NextResponse.json({
       success:      true,

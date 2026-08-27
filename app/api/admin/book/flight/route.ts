@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import prisma from '@/lib/db'
 import { duffelPost } from '@/lib/duffel/client'
 import { getAdminSession } from '@/lib/admin-auth'
+import { recordPaymentSucceeded } from '@/lib/commercial/payment'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 60
@@ -125,6 +126,16 @@ export async function POST(req: NextRequest) {
         detail:      `Flight ${bookingReference} — ${origin ?? '?'} → ${destination ?? '?'} — ${clientName} — ${currency} ${sellingPrice}`,
       },
     })
+
+    if (paymentMethod === 'MARK_PAID') {
+      recordPaymentSucceeded({
+        provider:          'MANUAL',
+        providerPaymentId: bookingReference,
+        amount:   parseFloat(String(sellingPrice ?? 0)),
+        currency: String(currency).toUpperCase(),
+        metadata: { productType: 'flight', markedPaidBy: session.email, pnr, duffelOrderId },
+      }).catch(() => {})
+    }
 
     return NextResponse.json({ bookingReference, pnr, duffelOrderId })
   } catch (err: unknown) {

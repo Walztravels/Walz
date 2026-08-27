@@ -8,9 +8,9 @@ import { getConfig }           from '@/lib/concierge/suppliers/comfortpass/confi
 import { ComfortPassAdapter }  from '@/lib/concierge/suppliers/comfortpass/adapter'
 import type { CPPassenger }    from '@/lib/concierge/suppliers/comfortpass/types'
 import { bookCartActivities, parseCartItems } from '@/lib/activities/booking'
-import { trackCommercialEvent, trackDurableEvent } from '@/lib/commercial/track'
-// trackDurableEvent used for payment_succeeded. booking_confirmed fires from
-// the supplier confirmation path (bookCartActivities), not from this webhook directly.
+import { trackCommercialEvent } from '@/lib/commercial/track'
+import { recordPaymentSucceeded } from '@/lib/commercial/payment'
+// booking_confirmed fires from the supplier confirmation path (bookCartActivities), not here.
 
 
 // ── Concierge airport service — post-payment booking dispatch ─────────────────
@@ -474,22 +474,15 @@ export async function POST(request: NextRequest) {
             },
           })
 
-          // Track payment_succeeded — durable, authoritative financial event
+          // Track payment_succeeded via normalized helper — idempotent, deduplicates by PI id
           if (updated.count > 0) {
-            try {
-              await trackDurableEvent('payment_succeeded', {
-                currency: paymentIntent.currency?.toUpperCase(),
-                amount:   paymentIntent.amount_received / 100,
-                metadata: { stripePaymentIntentId: paymentIntent.id, bookingCount: updated.count },
-              })
-              // NOTE: booking_confirmed is NOT fired here.
-              // For PaymentIntent flow (flights/hotels) the booking is Walz-confirmed once payment
-              // succeeds, but for Stripe Checkout cart items (activities) the supplier confirmation
-              // fires separately in checkout.session.completed → bookCartActivities.
-              // This distinction matters: payment ≠ supplier confirmation.
-            } catch {
-              console.warn('[CommercialEvent] payment_succeeded tracking failed (non-fatal)')
-            }
+            recordPaymentSucceeded({
+              provider:          'STRIPE',
+              providerPaymentId: paymentIntent.id,
+              amount:   paymentIntent.amount_received / 100,
+              currency: paymentIntent.currency?.toUpperCase() ?? 'GBP',
+              metadata: { bookingCount: updated.count },
+            }).catch(err => console.warn('[Payment] Stripe payment_succeeded tracking failed:', (err as Error).message))
           }
         }
 

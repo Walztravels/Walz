@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getAdminSession }          from '@/lib/admin-auth'
 import prisma                       from '@/lib/db'
+import { recordPaymentSucceeded }   from '@/lib/commercial/payment'
 
 export const maxDuration = 60
 export const dynamic     = 'force-dynamic'
@@ -102,6 +103,16 @@ export async function POST(req: NextRequest) {
         detail:      `Tour ${walzRef} — ${tourName} — ${holderName} — ${currency} ${sellingPrice}`,
       },
     })
+
+    if (paymentMethod === 'MARK_PAID') {
+      recordPaymentSucceeded({
+        provider:          'MANUAL',
+        providerPaymentId: walzRef,
+        amount:   parseFloat(String(sellingPrice)),
+        currency: String(currency).toUpperCase(),
+        metadata: { productType: 'tour', markedPaidBy: session.email },
+      }).catch(() => {})
+    }
 
     return NextResponse.json({ success: true, walzRef, sellingPrice, currency })
   } catch (err: unknown) {

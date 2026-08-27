@@ -14,6 +14,8 @@ export type CommercialEventName =
   | 'booking_confirmed'          // fires only when authoritative booking status = CONFIRMED
   | 'supplier_booking_failed'    // fires when supplier definitively rejects after payment
   | 'reconciliation_required'    // fires when supplier response is unknown (timeout/lost)
+  | 'payment_failed'             // server-only — provider declined/failed the payment
+  | 'refund_processed'           // server-only — refund confirmed by provider
   | 'jade_started'
   | 'jade_trip_intent'
   | 'proposal_viewed'

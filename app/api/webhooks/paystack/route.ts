@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createHmac }               from 'crypto'
 import { prisma }                   from '@/lib/db'
-import { trackDurableEvent }        from '@/lib/commercial/track'
+import { recordPaymentSucceeded }   from '@/lib/commercial/payment'
 
 export const dynamic = 'force-dynamic'
 
@@ -129,25 +129,21 @@ export async function POST(req: NextRequest) {
         }
       }
     }
-    // Durable commercial event — fires once per charge.success regardless of path
+    // Normalized payment event — deduplicates by reference, fires once per charge.success
     if (event === 'charge.success') {
-      const paystackRef = (data.reference as string | undefined) ?? null
+      const paystackRef = (data.reference as string | undefined) ?? 'unknown'
       const amountKobo  = typeof data.amount === 'number' ? data.amount : 0
       const currency    = (data.currency as string | undefined)?.toUpperCase() ?? 'NGN'
-      try {
-        await trackDurableEvent('payment_succeeded', {
-          sessionId: paystackRef ?? undefined,
-          currency,
-          amount:    amountKobo / 100, // Paystack amounts are in kobo
-          metadata:  {
-            gateway:   'paystack',
-            reference: paystackRef,
-            channel:   data.channel,
-          },
-        })
-      } catch (trackErr) {
-        console.warn('[CommercialEvent] paystack payment_succeeded tracking failed:', (trackErr as Error).message)
-      }
+      const channel     = data.channel as string | undefined
+      // dedicated_nuban = bank transfer via Paystack VA; all others = card/USSD/mobile_money
+      const provider    = channel === 'dedicated_nuban' ? 'BANK_TRANSFER' : 'PAYSTACK'
+      recordPaymentSucceeded({
+        provider,
+        providerPaymentId: paystackRef,
+        amount:   amountKobo / 100, // kobo → major unit
+        currency,
+        metadata: { source: 'paystack_webhook', channel },
+      }).catch(err => console.warn('[Payment] Paystack payment_succeeded tracking failed:', (err as Error).message))
     }
   } catch (err) {
     console.error('[ps-hook] handler error:', err)

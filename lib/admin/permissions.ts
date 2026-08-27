@@ -413,7 +413,6 @@ export const NAV_ITEMS: NavSection[] = [
     section: 'OVERVIEW',
     items: [
       { href: '/admin/dashboard',   label: 'Dashboard',           icon: 'LayoutDashboard', permission: 'dashboard'       },
-      { href: '/admin/revenue',     label: 'Revenue',             icon: 'DollarSign',      permission: 'analytics'       },
       { href: '/admin/analytics',   label: 'Analytics',           icon: 'TrendingUp',      permission: 'analytics'       },
       { href: '/admin/inbox',       label: 'Inbox',               icon: 'MessageSquare',   permission: 'inbox'           },
       { href: '/admin/my-followups', label: 'Follow-ups',         icon: 'Bell',            permission: 'dashboard'       },
@@ -488,6 +487,7 @@ export const NAV_ITEMS: NavSection[] = [
       { href: '/admin/vouchers',                label: 'Vouchers',             icon: 'Gift',        permission: 'payments'    },
       { href: '/admin/commissions',             label: 'Commissions',          icon: 'Award',       permission: 'commissions' },
       { href: '/admin/payroll',                 label: 'Payroll',              icon: 'DollarSign',  permission: 'payroll'     },
+      { href: '/admin/finance/revenue',         label: 'Revenue Intelligence', icon: 'TrendingUp',  permission: 'analytics'   },
     ],
   },
   {
