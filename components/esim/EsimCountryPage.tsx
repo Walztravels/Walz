@@ -11,6 +11,7 @@ import {
 } from 'lucide-react'
 import { BUSINESS, waLink } from '@/lib/config/business'
 import type { EsimPackage } from '@/lib/esim/types'
+import { AddToTripButton } from '@/components/trips/AddToTripButton'
 
 const stripePromise = loadStripe(process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY!)
 
@@ -66,11 +67,12 @@ function parseData(label: string): { amount: string; unit: string } {
 
 // ── Plan card ─────────────────────────────────────────────────────────────────
 function PlanCard({
-  pkg, popular, onBuy,
+  pkg, popular, onBuy, countryName,
 }: {
-  pkg:     EsimPackage
-  popular: boolean
-  onBuy:   (pkg: EsimPackage) => void
+  pkg:         EsimPackage
+  popular:     boolean
+  onBuy:       (pkg: EsimPackage) => void
+  countryName: string
 }) {
   const data = parseData(pkg.dataLabel)
 
@@ -180,6 +182,28 @@ function PlanCard({
           >
             Buy Now
           </button>
+          <div className="mt-2 flex justify-center">
+            <AddToTripButton
+              size="sm"
+              label="Save to Trip"
+              item={{
+                type:        'ESIM',
+                title:       `eSIM · ${countryName} · ${pkg.dataLabel}`,
+                cost:        pkg.retailUsd,
+                currency:    'USD',
+                location:    countryName,
+                sourceType:  'esim',
+                sourceId:    pkg.packageCode,
+                metadata: {
+                  packageCode:     pkg.packageCode,
+                  country:         countryName,
+                  locationCode:    pkg.locationCode,
+                  dataAllowanceGb: pkg.dataAmount,
+                  validityDays:    pkg.durationDays,
+                },
+              }}
+            />
+          </div>
         </div>
       </div>
     </div>
@@ -687,6 +711,7 @@ export function EsimCountryPage({
                 pkg={pkg}
                 popular={pkg.packageCode === popular?.packageCode}
                 onBuy={handleBuy}
+                countryName={name}
               />
             ))}
           </div>

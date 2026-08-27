@@ -1,15 +1,21 @@
-import { NextRequest, NextResponse } from 'next/server'
-import { stripe }                    from '@/lib/stripe'
-import { trackDurableEvent }         from '@/lib/commercial/track'
+import { NextRequest, NextResponse }  from 'next/server'
+import { stripe }                     from '@/lib/stripe'
+import { trackDurableEvent }          from '@/lib/commercial/track'
 import { revalidateTripActivityItem } from '@/lib/trips/revalidate'
+import { revalidateHotelTripItem }    from '@/lib/trips/revalidate-hotel'
+import { setTripCheckoutStarted }     from '@/lib/trips/lifecycle'
 
 const SITE = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://www.walztravels.com'
 
 // Compact representation stored per-item in Stripe metadata.
+// tid = TripItem.id — written back to TripItem.bookingRef after booking (2D.1)
+// cs  = commercialSource — attribution tag for cross-sell / post-booking upsell (2D.3)
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 function compactItem(item: any, idx: number) {
   return JSON.stringify({
     cid:   String(idx),
+    tid:   item.id                         ?? '',
+    cs:    item.meta?.commercialSource     ?? '',
     t:     item.type,
     title: (item.title ?? '').slice(0, 60),
     s:     item.meta?.supplier           ?? '',
@@ -29,7 +35,7 @@ function compactItem(item: any, idx: number) {
 
 export async function POST(req: NextRequest) {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { items, gateway, sessionId } = await req.json() as { items: any[]; gateway: string; sessionId?: string }
+  const { items, gateway, sessionId, tripId } = await req.json() as { items: any[]; gateway: string; sessionId?: string; tripId?: string | null }
 
   if (!items?.length) {
     return NextResponse.json({ error: 'Cart is empty' }, { status: 400 })
@@ -111,6 +117,86 @@ export async function POST(req: NextRequest) {
     }
   }
 
+  // ── Hotelbeds hotel revalidation at checkout ──────────────────────────────
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const hotelItems = items.filter((i: any) =>
+    (i.type === 'hotel' || i.type === 'HOTEL') &&
+    (i.meta?.sourceType ?? i.sourceType ?? '').toLowerCase() === 'hotelbeds'
+  )
+
+  if (hotelItems.length > 0) {
+    const hotelRevalResults = await Promise.all(
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      hotelItems.map(async (i: any) => {
+        const result = await revalidateHotelTripItem({
+          cost:       i.price,
+          currency:   i.currency ?? 'GBP',
+          sourceType: 'hotelbeds',
+          sourceId:   i.meta?.rateKey ?? i.meta?.sourceId ?? null,
+          metadata:   { rateKey: i.meta?.rateKey ?? null },
+        })
+        return { item: i, result }
+      })
+    )
+
+    const hotelSoldOut = hotelRevalResults.filter(r => r.result.status === 'SOLD_OUT')
+    const hotelChanged = hotelRevalResults.filter(r => r.result.status === 'PRICE_CHANGED')
+    const hotelFailed  = hotelRevalResults.filter(r => r.result.status === 'REVALIDATION_FAILED')
+
+    if (hotelSoldOut.length > 0) {
+      return NextResponse.json({
+        error: 'ITEMS_SOLD_OUT',
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        items: hotelSoldOut.map(r => ({ title: (r.item as any).title })),
+      }, { status: 422 })
+    }
+    if (hotelChanged.length > 0) {
+      return NextResponse.json({
+        error:   'PRICE_CHANGED',
+        message: 'One or more hotel prices have changed. Please return to your trip and accept the new prices.',
+        changes: hotelChanged.map(r => ({
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          title:         (r.item as any).title,
+          previousPrice: r.result.previousPrice,
+          latestPrice:   r.result.latestPrice,
+          currency:      r.result.currency,
+        })),
+      }, { status: 422 })
+    }
+    if (hotelFailed.length > 0) {
+      return NextResponse.json({
+        error:   'REVALIDATION_FAILED',
+        message: 'We could not confirm the latest hotel rate. Please try again.',
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        items:   hotelFailed.map(r => ({ title: (r.item as any).title })),
+      }, { status: 422 })
+    }
+  }
+
+  // ── Flight offer expiry check at checkout ─────────────────────────────────
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const expiredFlights = items.filter((i: any) => {
+    if (i.type !== 'flight' && i.type !== 'FLIGHT') return false
+    const expiresAt = i.meta?.offerExpiresAt as string | undefined
+    if (!expiresAt) return false
+    return new Date(expiresAt) <= new Date()
+  })
+  if (expiredFlights.length > 0) {
+    return NextResponse.json({
+      error:   'FLIGHT_OFFER_EXPIRED',
+      message: 'One or more flight offers have expired. Please search again for the latest fares.',
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      items:   expiredFlights.map((i: any) => ({ title: i.title })),
+    }, { status: 422 })
+  }
+
+  // ── Mark trip as CHECKOUT_STARTED ─────────────────────────────────────────
+  // All validations passed — safe to advance the trip lifecycle.
+  void setTripCheckoutStarted({
+    tripId:    typeof tripId    === 'string' ? tripId    : null,
+    sessionId: typeof sessionId === 'string' ? sessionId : null,
+  })
+
   if (gateway === 'flutterwave') {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const total  = items.reduce((s: number, i: any) => s + i.price * i.quantity, 0)
@@ -132,6 +218,8 @@ export async function POST(req: NextRequest) {
           st: i.meta?.startTime ?? '', p: i.price, cur: i.currency ?? 'GBP',
           loc: i.meta?.location ?? '', dur: i.meta?.duration ?? '',
         }))),
+        ...(typeof tripId    === 'string' && tripId    ? { walz_trip_id:     tripId    } : {}),
+        ...(typeof sessionId === 'string' && sessionId ? { walz_session_id:  sessionId } : {}),
       },
       customizations: {
         title:       'Walz Travels',
@@ -206,6 +294,7 @@ export async function POST(req: NextRequest) {
   itemMeta.item_count = String(items.length)
   itemMeta.gateway    = 'stripe'
   if (typeof sessionId === 'string') itemMeta.walz_session_id = sessionId.slice(0, 64)
+  if (typeof tripId    === 'string') itemMeta.walz_trip_id    = tripId.slice(0, 64)
 
   const stripeSession = await stripe.checkout.sessions.create({
     mode:       'payment',

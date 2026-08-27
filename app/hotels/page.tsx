@@ -12,6 +12,7 @@ import { DatePickerField } from '@/components/ui/DatePicker'
 import { cn, formatPrice } from '@/lib/utils'
 import { format } from 'date-fns'
 import type { HotelResult } from '@/types/booking'
+import { AddToTripButton } from '@/components/trips/AddToTripButton'
 
 export const dynamic = 'force-dynamic'
 
@@ -176,7 +177,10 @@ function HotelImage({ images, name }: { images: string[]; name: string }) {
 
 // ─── hotel card ──────────────────────────────────────────────────────────────
 
-function HotelCard({ hotel, nights, onBook }: { hotel: HotelResult; nights: number; onBook: (h: HotelResult) => void }) {
+function HotelCard({ hotel, nights, onBook, checkIn, checkOut }: {
+  hotel: HotelResult; nights: number; onBook: (h: HotelResult) => void
+  checkIn?: string; checkOut?: string
+}) {
   return (
     <div className="bg-white rounded-2xl border border-walz-border overflow-hidden flex flex-col sm:flex-row hover:shadow-card hover:border-walz-gold/30 transition-all group"
       style={{ minHeight: 210 }}>
@@ -230,10 +234,32 @@ function HotelCard({ hotel, nights, onBook }: { hotel: HotelResult; nights: numb
             </p>
             <p className="text-xs text-walz-muted">{formatPrice(hotel.totalPrice.amount, hotel.totalPrice.currency)} total</p>
           </div>
-          <button onClick={() => onBook(hotel)}
-            className="bg-walz-gold hover:bg-walz-gold-light text-walz-deep-navy font-bold text-sm px-6 py-2.5 rounded-xl transition-colors shadow-sm">
-            See details →
-          </button>
+          <div className="flex items-center gap-2">
+            <AddToTripButton
+              size="sm"
+              label="Save Hotel"
+              item={{
+                type:        'HOTEL',
+                title:       hotel.name,
+                cost:        hotel.totalPrice.amount,
+                currency:    hotel.totalPrice.currency,
+                location:    [hotel.address.city, hotel.address.country].filter(Boolean).join(', '),
+                imageUrl:    hotel.images[0] ?? undefined,
+                sourceType:  'hotelbeds',
+                sourceId:    hotel.rateKey || hotel.id,
+                metadata: {
+                  checkIn:   checkIn,
+                  checkOut:  checkOut,
+                  rateKey:   hotel.rateKey,
+                  nights,
+                },
+              }}
+            />
+            <button onClick={() => onBook(hotel)}
+              className="bg-walz-gold hover:bg-walz-gold-light text-walz-deep-navy font-bold text-sm px-6 py-2.5 rounded-xl transition-colors shadow-sm">
+              See details →
+            </button>
+          </div>
         </div>
       </div>
     </div>
@@ -800,7 +826,7 @@ function HotelsPageContent() {
                   {/* Hotel cards */}
                   {!loading && displayed.length > 0 && (
                     <div className="space-y-4">
-                      {displayed.map(h => <HotelCard key={h.id} hotel={h} nights={nights} onBook={openDetail} />)}
+                      {displayed.map(h => <HotelCard key={h.id} hotel={h} nights={nights} onBook={openDetail} checkIn={meta.checkIn} checkOut={meta.checkOut} />)}
                     </div>
                   )}
 

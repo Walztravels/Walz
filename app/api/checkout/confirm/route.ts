@@ -17,6 +17,7 @@ function generateRef() {
 // it does NOT duplicate the booking or email logic.
 
 import { aggregateCartStatus } from '@/lib/activities/booking'
+import { getCrossSellRecommendations } from '@/lib/commercial/cross-sell'
 
 async function handleCartSession(sessionId: string) {
   const session = await stripe.checkout.sessions.retrieve(sessionId)
@@ -48,6 +49,51 @@ async function handleCartSession(sessionId: string) {
     ? aggregateCartStatus(bookings.map(b => b.status))
     : 'PROCESSING'
 
+  // ── 2D.2: Trip context + cross-sell recommendations ───────────────────────────
+  // Non-fatal: recommendation failures must never break the booking confirmation UI.
+  let tripId:                 string | null                  = null
+  let tripStatus:             string | null                  = null
+  let crossSellRecommendations: ReturnType<typeof getCrossSellRecommendations> = []
+
+  const metaTripId = session.metadata?.walz_trip_id ?? null
+  if (metaTripId) {
+    try {
+      const trip = await prisma.trip.findUnique({
+        where:  { id: metaTripId },
+        select: {
+          id:          true,
+          status:      true,
+          destination: true,
+          origin:      true,
+          adults:      true,
+          children:    true,
+          infants:     true,
+          items: {
+            select: { type: true, metadata: true },
+          },
+        },
+      })
+      if (trip) {
+        tripId     = trip.id
+        tripStatus = trip.status
+        crossSellRecommendations = getCrossSellRecommendations({
+          destination: trip.destination ?? '',
+          origin:      trip.origin      ?? null,
+          adults:      trip.adults      ?? 1,
+          children:    trip.children    ?? 0,
+          infants:     trip.infants     ?? 0,
+          items:       (trip.items ?? []).map(i => ({
+            type:     i.type,
+            metadata: (i.metadata as Record<string, unknown>) ?? {},
+          })),
+        })
+      }
+    } catch (err) {
+      // Non-fatal — recommendation failure must never break confirmation UI
+      console.warn('[Cart confirm] Trip cross-sell failed (non-fatal):', (err as Error).message)
+    }
+  }
+
   return {
     // Primary booking reference (first confirmed, or first overall)
     bookingReference:  (bookings.find(b => b.status === 'CONFIRMED') ?? bookings[0])?.walzReference ?? null,
@@ -57,6 +103,9 @@ async function handleCartSession(sessionId: string) {
     activityTitle:     bookings[0]?.activityTitle ?? null,
     items,
     isCart:            true,
+    tripId,
+    tripStatus,
+    crossSellRecommendations,
   }
 }
 

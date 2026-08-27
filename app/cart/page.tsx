@@ -22,15 +22,19 @@ export default function CartPage() {
     try { setTripId(localStorage.getItem(TRIP_KEY)) } catch {}
   }, [])
 
+  // Detect mixed currencies client-side so the Pay button can be disabled upfront
+  const cartCurrencies = [...new Set(items.map(i => (i.currency || 'GBP').toUpperCase()))]
+  const isMixedCurrency = cartCurrencies.length > 1
+
   async function handleCheckout() {
-    if (!items.length) return
+    if (!items.length || isMixedCurrency) return
     setPaying(true)
     setCheckoutErr(null)
     try {
       const res = await fetch('/api/checkout/cart', {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({ items, gateway, sessionId }),
+        body:    JSON.stringify({ items, gateway, sessionId, tripId }),
       })
       const data = await res.json()
 
@@ -122,18 +126,34 @@ export default function CartPage() {
 
         {/* Order summary */}
         <div className="bg-white rounded-2xl p-5 shadow-sm mb-4">
-          <div className="flex justify-between text-sm mb-2">
-            <span className="text-gray-400">Subtotal</span>
-            <span className="font-semibold text-[#0B1F3A]">USD {total.toFixed(2)}</span>
-          </div>
+          {Object.entries(
+            items.reduce<Record<string, number>>((acc, item) => {
+              const cur = (item.currency || 'GBP').toUpperCase()
+              acc[cur] = (acc[cur] ?? 0) + item.price * item.quantity
+              return acc
+            }, {})
+          ).map(([cur, amt]) => (
+            <div key={cur} className="flex justify-between text-sm mb-2">
+              <span className="text-gray-400">Subtotal ({cur})</span>
+              <span className="font-semibold text-[#0B1F3A]">{cur} {amt.toFixed(2)}</span>
+            </div>
+          ))}
           <div className="flex justify-between text-sm mb-4 pb-4 border-b border-gray-100">
             <span className="text-gray-400">Booking fee</span>
             <span className="text-green-600 font-semibold">Free</span>
           </div>
-          <div className="flex justify-between font-bold text-lg">
-            <span className="text-[#0B1F3A]">Total</span>
-            <span className="text-[#C9A84C]">USD {total.toFixed(2)}</span>
-          </div>
+          {Object.entries(
+            items.reduce<Record<string, number>>((acc, item) => {
+              const cur = (item.currency || 'GBP').toUpperCase()
+              acc[cur] = (acc[cur] ?? 0) + item.price * item.quantity
+              return acc
+            }, {})
+          ).map(([cur, amt]) => (
+            <div key={cur} className="flex justify-between font-bold text-lg">
+              <span className="text-[#0B1F3A]">Total</span>
+              <span className="text-[#C9A84C]">{cur} {amt.toFixed(2)}</span>
+            </div>
+          ))}
         </div>
 
         {/* Mixed-currency / checkout error */}
@@ -167,15 +187,33 @@ export default function CartPage() {
           </div>
         </div>
 
-        <button onClick={handleCheckout} disabled={paying}
-          className="w-full bg-[#C9A84C] text-[#0B1F3A] font-bold py-4 rounded-2xl
-            text-base hover:bg-[#b8973f] transition-colors flex items-center
-            justify-center gap-2 disabled:opacity-50">
-          {paying
-            ? <><Loader2 className="w-5 h-5 animate-spin" /> Processing…</>
-            : <><CreditCard className="w-5 h-5" /> Pay USD {total.toFixed(2)}</>
-          }
-        </button>
+        {isMixedCurrency ? (
+          <div className="w-full bg-gray-100 border border-gray-200 rounded-2xl p-4 text-center">
+            <p className="text-sm font-bold text-gray-500 mb-1">Checkout unavailable</p>
+            <p className="text-xs text-gray-400">
+              Your cart contains items in multiple currencies ({cartCurrencies.join(', ')}).
+              Remove items until all items share one currency to continue.
+            </p>
+          </div>
+        ) : (
+          <button onClick={handleCheckout} disabled={paying}
+            className="w-full bg-[#C9A84C] text-[#0B1F3A] font-bold py-4 rounded-2xl
+              text-base hover:bg-[#b8973f] transition-colors flex items-center
+              justify-center gap-2 disabled:opacity-50">
+            {paying
+              ? <><Loader2 className="w-5 h-5 animate-spin" /> Processing…</>
+              : (() => {
+                  const totals = items.reduce<Record<string, number>>((acc, item) => {
+                    const cur = (item.currency || 'GBP').toUpperCase()
+                    acc[cur] = (acc[cur] ?? 0) + item.price * item.quantity
+                    return acc
+                  }, {})
+                  const parts = Object.entries(totals).map(([cur, amt]) => `${cur} ${amt.toFixed(2)}`)
+                  return <><CreditCard className="w-5 h-5" /> Pay {parts.join(' + ')}</>
+                })()
+            }
+          </button>
+        )}
 
         <button onClick={clearCart}
           className="w-full mt-3 text-gray-400 text-sm hover:text-red-400 transition-colors py-2">

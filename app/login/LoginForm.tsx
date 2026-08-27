@@ -54,6 +54,17 @@ export default function LoginForm() {
     if (res?.error) {
       setError('Incorrect email or password. Please check your details and try again.')
     } else if (res?.ok) {
+      // Auto-claim anonymous trip if one exists
+      try {
+        const sessionId = localStorage.getItem('walz_cart_session_id')
+        const tripId    = localStorage.getItem('walz_trip_id')
+        if (sessionId && tripId) {
+          await fetch('/api/trips/claim', {
+            method:  'POST',
+            headers: { 'Content-Type': 'application/json', 'x-walz-session-id': sessionId },
+          }).catch(() => {})
+        }
+      } catch {}
       window.location.href = callbackUrl
     }
   }

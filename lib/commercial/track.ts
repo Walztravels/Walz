@@ -26,6 +26,21 @@ export type CommercialEventName =
   | 'cross_sell_shown'
   | 'cross_sell_clicked'
   | 'cross_sell_added'
+  | 'cross_sell_purchased'           // server-only — fires when a cross-sell item booking is CONFIRMED
+  | 'post_booking_upsell_shown'      // browser-safe — success page cross-sell section rendered
+  | 'post_booking_upsell_clicked'    // browser-safe — user clicked a post-booking upsell CTA
+  | 'post_booking_upsell_added'      // server-only — upsell item added to a trip post-booking
+  | 'post_booking_upsell_purchased'  // server-only — upsell item booking CONFIRMED after post-booking add
+  // Release 4B — Jade live search events (server-side only)
+  | 'jade_flight_search'
+  | 'jade_hotel_search'
+  | 'jade_activity_search'
+  | 'jade_transfer_search'
+  | 'jade_esim_search'
+  | 'jade_search_result_added'
+  | 'jade_trip_build_started'
+  | 'jade_trip_build_completed'
+  | 'jade_trip_build_failed'
 
 export interface TrackOptions {
   eventId?:     string   // client dedup key — reject duplicates from browser
@@ -162,6 +177,77 @@ export async function recordReconciliationRequired(opts: BookingEventOpts): Prom
     amount:      opts.amount,
     currency:    opts.currency,
     metadata:    { supplier: opts.supplier, ...opts.metadata },
+  })
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Post-booking purchase attribution
+//
+// cross_sell_purchased and post_booking_upsell_purchased are server-only events
+// that fire when an item with commercial attribution reaches CONFIRMED status.
+//
+// Idempotency: keyed on `cross_sell_purchased:<tripItemId>` / `post_booking_upsell_purchased:<tripItemId>`
+// so that webhook retries never produce duplicate revenue records.
+//
+// commercialSource values: 'cross_sell' | 'post_booking_upsell'
+// ─────────────────────────────────────────────────────────────────────────────
+
+export interface PurchaseAttributionOpts {
+  tripItemId:        string          // idempotency anchor
+  bookingId?:        string
+  sessionId?:        string
+  productType?:      string
+  recommendationType?: string        // 'HOTEL' | 'TRANSFER' | 'ACTIVITY' | 'ESIM' | 'FLIGHT'
+  sourceProductType?:  string        // product type that triggered the recommendation
+  amount?:           number
+  currency?:         string
+}
+
+export async function recordCrossSellPurchased(opts: PurchaseAttributionOpts): Promise<void> {
+  const idempotencyKey = `cross_sell_purchased:${opts.tripItemId}`
+  const existing = await prisma.commercialEvent.findFirst({
+    where:  { eventId: idempotencyKey },
+    select: { id: true },
+  }).catch(() => null)
+  if (existing) return  // already recorded — webhook retry or duplicate call
+
+  await trackDurableEvent('cross_sell_purchased', {
+    eventId:     idempotencyKey,
+    bookingId:   opts.bookingId,
+    sessionId:   opts.sessionId,
+    productType: opts.productType,
+    amount:      opts.amount,
+    currency:    opts.currency,
+    metadata: {
+      commercialSource:    'cross_sell',
+      tripItemId:          opts.tripItemId,
+      recommendationType:  opts.recommendationType,
+      sourceProductType:   opts.sourceProductType,
+    },
+  })
+}
+
+export async function recordPostBookingUpsellPurchased(opts: PurchaseAttributionOpts): Promise<void> {
+  const idempotencyKey = `post_booking_upsell_purchased:${opts.tripItemId}`
+  const existing = await prisma.commercialEvent.findFirst({
+    where:  { eventId: idempotencyKey },
+    select: { id: true },
+  }).catch(() => null)
+  if (existing) return
+
+  await trackDurableEvent('post_booking_upsell_purchased', {
+    eventId:     idempotencyKey,
+    bookingId:   opts.bookingId,
+    sessionId:   opts.sessionId,
+    productType: opts.productType,
+    amount:      opts.amount,
+    currency:    opts.currency,
+    metadata: {
+      commercialSource:    'post_booking_upsell',
+      tripItemId:          opts.tripItemId,
+      recommendationType:  opts.recommendationType,
+      sourceProductType:   opts.sourceProductType,
+    },
   })
 }
 

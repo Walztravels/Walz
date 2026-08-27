@@ -3,6 +3,8 @@ import { getServerSession }          from 'next-auth'
 import { authOptions }               from '@/lib/auth'
 import prisma                        from '@/lib/db'
 import { revalidateTripActivityItem } from '@/lib/trips/revalidate'
+import { revalidateHotelTripItem }    from '@/lib/trips/revalidate-hotel'
+import { tripRevalidateRateLimit }    from '@/lib/rate-limit'
 
 export const dynamic = 'force-dynamic'
 
@@ -17,6 +19,15 @@ export async function POST(
   req: NextRequest,
   { params }: { params: { tripId: string } }
 ) {
+  const ip = req.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ?? 'unknown'
+  const rl = tripRevalidateRateLimit(ip)
+  if (!rl.allowed) {
+    return NextResponse.json({ error: 'Rate limit exceeded' }, {
+      status: 429,
+      headers: { 'Retry-After': String(Math.ceil((rl.resetAt - Date.now()) / 1000)) },
+    })
+  }
+
   const { tripId } = params
   const session   = await getServerSession(authOptions)
   const sessionId = getSessionId(req)
@@ -51,6 +62,11 @@ export async function POST(
   const item = trip.items[0]
   if (!item) return NextResponse.json({ error: 'Item not found' }, { status: 404 })
 
-  const result = await revalidateTripActivityItem(item)
+  // Route to the appropriate revalidation function based on source type
+  const st = item.sourceType?.toLowerCase()
+  const result = st === 'hotelbeds'
+    ? await revalidateHotelTripItem(item)
+    : await revalidateTripActivityItem(item)
+
   return NextResponse.json(result)
 }

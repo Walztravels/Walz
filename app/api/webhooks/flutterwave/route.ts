@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import prisma from '@/lib/db'
 import { recordPaymentSucceeded } from '@/lib/commercial/payment'
+import { setTripPaid }            from '@/lib/trips/lifecycle'
 
 export async function POST(req: NextRequest) {
   const hash = req.headers.get('verif-hash')
@@ -51,6 +52,13 @@ export async function POST(req: NextRequest) {
         currency:  (data.currency as string | undefined)?.toUpperCase() ?? 'NGN',
         metadata:  { txRef: data.tx_ref, bookingRef: booking_ref },
       }).catch(err => console.warn('[Payment] Flutterwave payment_succeeded tracking failed:', (err as Error).message))
+
+      // Advance Trip lifecycle to PAID (non-fatal)
+      const tripId    = meta?.walz_trip_id    as string | undefined
+      const sessionId = meta?.walz_session_id as string | undefined
+      if (tripId || sessionId) {
+        void setTripPaid({ tripId: tripId ?? null, sessionId: sessionId ?? null })
+      }
     }
 
     return NextResponse.json({ status: 'ok' })

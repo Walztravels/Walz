@@ -61,7 +61,7 @@ export async function POST(req: NextRequest) {
   }
 
   const body = await req.json().catch(() => ({}))
-  const { destination, origin, adults, children, infants, currency } = body
+  const { destination, origin, adults, children, infants, currency, source } = body
 
   // Return existing DRAFT if one exists
   const existing = await prisma.trip.findFirst({
@@ -94,6 +94,7 @@ export async function POST(req: NextRequest) {
     productType: 'trip',
     productId:   trip.id,
     destination: destination ?? undefined,
+    metadata: source ? { source: String(source).slice(0, 64) } : undefined,
   })
 
   return NextResponse.json({ trip, created: true }, { status: 201 })

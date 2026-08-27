@@ -62,8 +62,8 @@ interface Trip {
   items:       TripItem[]
 }
 
-// Items that can be moved to cart
-const CART_TYPES = new Set(['ACTIVITY', 'TRANSFER', 'TRANSPORT'])
+// Items that can be moved to cart (all types that have checkout revalidation)
+const CART_TYPES = new Set(['ACTIVITY', 'TRANSFER', 'TRANSPORT', 'HOTEL', 'FLIGHT'])
 
 // Maps TripItemType → CartItem.type.
 // TRANSPORT is a legacy alias for TRANSFER — map cleanly without as any.
@@ -79,7 +79,13 @@ function tripItemTypeToCartType(type: string): CartItem['type'] | null {
   }
 }
 
-type RevalDialogType = 'price_changed' | 'sold_out' | 'revalidation_failed'
+type RevalDialogType =
+  | 'price_changed'
+  | 'sold_out'
+  | 'revalidation_failed'
+  | 'hotel_price_changed'
+  | 'hotel_sold_out'
+  | 'flight_expired'
 
 interface RevalDialog {
   type:          RevalDialogType
@@ -150,7 +156,7 @@ export default function MyTripPage() {
       price:    priceOverride ?? item.cost ?? 0,
       currency: item.currency,
       quantity: item.quantity,
-      meta:     {},
+      meta:     (item.metadata ?? {}) as Record<string, string>,
     })
   }
 
@@ -158,9 +164,21 @@ export default function MyTripPage() {
     if (movingToCart) return
     setMovingToCart(item.id)
     try {
-      // Revalidate Viator activities before adding to cart
+      // ── Flight: check offer expiry before adding to cart ──────────────────
+      if (item.type === 'FLIGHT') {
+        const expiresAt = item.metadata?.offerExpiresAt as string | undefined
+        if (expiresAt && new Date(expiresAt) <= new Date()) {
+          setRevalDialog({ type: 'flight_expired', item, currency: item.currency })
+          return
+        }
+      }
+
+      // ── Hotel: check-rate revalidation before adding to cart ──────────────
+      const isHotel  = item.type === 'HOTEL' && item.sourceType?.toLowerCase() === 'hotelbeds'
+      // ── Activity: Viator revalidation ─────────────────────────────────────
       const isViator = item.sourceType?.toLowerCase() === 'viator' && item.type === 'ACTIVITY'
-      if (isViator) {
+
+      if (isHotel || isViator) {
         const headers: HeadersInit = { 'Content-Type': 'application/json' }
         if (sessionId) headers['x-walz-session-id'] = sessionId
         const res = await fetch(`/api/trips/${tripId}/revalidate-item`, {
@@ -169,17 +187,22 @@ export default function MyTripPage() {
           body:   JSON.stringify({ itemId: item.id }),
         })
         if (!res.ok) {
-          setRevalDialog({ type: 'revalidation_failed', item, currency: item.currency })
+          setRevalDialog({
+            type:     isHotel ? 'revalidation_failed' : 'revalidation_failed',
+            item,
+            currency: item.currency,
+          })
           return
         }
         const reval = await res.json()
+
         if (reval.status === 'SOLD_OUT') {
-          setRevalDialog({ type: 'sold_out', item, currency: reval.currency })
+          setRevalDialog({ type: isHotel ? 'hotel_sold_out' : 'sold_out', item, currency: reval.currency })
           return
         }
         if (reval.status === 'PRICE_CHANGED') {
           setRevalDialog({
-            type:          'price_changed',
+            type:          isHotel ? 'hotel_price_changed' : 'price_changed',
             item,
             previousPrice: reval.previousPrice,
             latestPrice:   reval.latestPrice,
@@ -193,6 +216,7 @@ export default function MyTripPage() {
         }
         // UNCHANGED or NOT_APPLICABLE → add at current price
       }
+
       doAddToCart(item)
     } finally {
       setMovingToCart(null)
@@ -501,6 +525,103 @@ export default function MyTripPage() {
                   >
                     Try Again
                   </button>
+                </div>
+              </>
+            )}
+
+            {revalDialog.type === 'hotel_price_changed' && (
+              <>
+                <div className="flex items-center gap-3 mb-4">
+                  <AlertCircle className="w-6 h-6 text-amber-500 flex-shrink-0" />
+                  <h3 className="font-bold text-[#0B1F3A] text-lg">Hotel Price Updated</h3>
+                </div>
+                <p className="text-sm text-gray-600 mb-4">{revalDialog.item.title}</p>
+                <div className="bg-gray-50 rounded-xl p-4 mb-5 space-y-2">
+                  <div className="flex justify-between text-sm">
+                    <span className="text-gray-500">Previous</span>
+                    <span className="line-through text-gray-400">
+                      {revalDialog.currency} {revalDialog.previousPrice?.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                    </span>
+                  </div>
+                  <div className="flex justify-between text-sm font-bold">
+                    <span className="text-[#0B1F3A]">New Price</span>
+                    <span className="text-[#C9A84C]">
+                      {revalDialog.currency} {revalDialog.latestPrice?.toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                    </span>
+                  </div>
+                </div>
+                <div className="flex gap-3">
+                  <Link
+                    href="/hotels"
+                    onClick={() => setRevalDialog(null)}
+                    className="flex-1 py-2.5 rounded-xl border border-gray-200 text-sm font-medium text-gray-600 hover:bg-gray-50 transition-colors text-center"
+                  >
+                    Choose Another Room
+                  </Link>
+                  <button
+                    onClick={acceptNewPrice}
+                    disabled={acceptingPrice}
+                    className="flex-1 py-2.5 rounded-xl bg-[#C9A84C] text-[#0B1F3A] text-sm font-bold hover:bg-[#b8963e] transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+                  >
+                    {acceptingPrice ? <Loader2 className="w-4 h-4 animate-spin" /> : <CheckCircle2 className="w-4 h-4" />}
+                    Accept New Price
+                  </button>
+                </div>
+              </>
+            )}
+
+            {revalDialog.type === 'hotel_sold_out' && (
+              <>
+                <div className="flex items-center gap-3 mb-4">
+                  <X className="w-6 h-6 text-red-500 flex-shrink-0" />
+                  <h3 className="font-bold text-[#0B1F3A] text-lg">Room No Longer Available</h3>
+                </div>
+                <p className="text-sm text-gray-600 mb-2">{revalDialog.item.title}</p>
+                <p className="text-sm text-gray-500 mb-5">
+                  This room has sold out. Hotel prices change quickly — browse available rooms and find another option.
+                </p>
+                <div className="flex gap-3">
+                  <button
+                    onClick={() => setRevalDialog(null)}
+                    className="flex-1 py-2.5 rounded-xl border border-gray-200 text-sm font-medium text-gray-600 hover:bg-gray-50 transition-colors"
+                  >
+                    Close
+                  </button>
+                  <Link
+                    href="/hotels"
+                    onClick={() => setRevalDialog(null)}
+                    className="flex-1 py-2.5 rounded-xl bg-[#0B1F3A] text-white text-sm font-bold text-center hover:bg-[#0d2547] transition-colors"
+                  >
+                    View Other Rooms
+                  </Link>
+                </div>
+              </>
+            )}
+
+            {revalDialog.type === 'flight_expired' && (
+              <>
+                <div className="flex items-center gap-3 mb-4">
+                  <AlertCircle className="w-6 h-6 text-red-500 flex-shrink-0" />
+                  <h3 className="font-bold text-[#0B1F3A] text-lg">Flight Offer Expired</h3>
+                </div>
+                <p className="text-sm text-gray-600 mb-2">{revalDialog.item.title}</p>
+                <p className="text-sm text-gray-500 mb-5">
+                  This flight offer has expired. Flight prices change quickly — search again for the latest fare.
+                </p>
+                <div className="flex gap-3">
+                  <button
+                    onClick={() => setRevalDialog(null)}
+                    className="flex-1 py-2.5 rounded-xl border border-gray-200 text-sm font-medium text-gray-600 hover:bg-gray-50 transition-colors"
+                  >
+                    Close
+                  </button>
+                  <Link
+                    href="/flights"
+                    onClick={() => setRevalDialog(null)}
+                    className="flex-1 py-2.5 rounded-xl bg-[#0B1F3A] text-white text-sm font-bold text-center hover:bg-[#0d2547] transition-colors"
+                  >
+                    Search Flights
+                  </Link>
                 </div>
               </>
             )}

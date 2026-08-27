@@ -86,7 +86,7 @@ export async function POST(req: NextRequest, { params }: Ctx) {
     },
   })
 
-  // Fire commercial event (fire-and-forget)
+  // Fire commercial events (fire-and-forget)
   void trackCommercialEvent('trip_item_added', {
     sessionId:   access.sessionId ?? undefined,
     userId:      access.userId    ?? undefined,
@@ -94,6 +94,22 @@ export async function POST(req: NextRequest, { params }: Ctx) {
     productId:   params.tripId,
     metadata:    { itemId: item.id, title, cost, currency },
   })
+
+  // cross_sell_added is server-authoritative — only fire after TripItem persisted
+  if (metadata?.crossSellSource) {
+    void trackCommercialEvent('cross_sell_added', {
+      sessionId:   access.sessionId ?? undefined,
+      userId:      access.userId    ?? undefined,
+      productType: type ?? 'CUSTOM',
+      productId:   params.tripId,
+      metadata: {
+        itemId:          item.id,
+        crossSellSource: metadata.crossSellSource,
+        recommendationType: type ?? 'CUSTOM',
+        tripId:          params.tripId,
+      },
+    })
+  }
 
   return NextResponse.json({ item }, { status: 201 })
 }

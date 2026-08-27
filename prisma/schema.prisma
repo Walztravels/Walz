@@ -4771,3 +4771,33 @@ model RecoveryOpportunity {
   @@index([detectedAt])
   @@index([nextActionAt])
 }
+
+// ── Release 4B: Jade Search Result Reference ──────────────────────────────────
+// Short-lived opaque refs that map a Jade-visible search result to private
+// supplier data (rateKey, offerId, supplierProductId, etc.).
+// Redis is the primary TTL store; this table is the durable fallback.
+model JadeSearchRef {
+  id          String   @id              // "jr_" prefix + 16-char base64url
+  userId      String?                   // authenticated user, or null
+  sessionId   String?                   // anonymous session, or null
+  tripId      String?                   // pre-linked trip, optional
+  productType String                    // FLIGHT | HOTEL | ACTIVITY | TRANSFER | ESIM
+
+  // Customer-safe fields returned to Jade
+  title       String
+  description String?
+  imageUrl    String?
+  sellingPrice Float
+  currency    String
+  details     Json     @default("{}")  // customer-safe details (no rateKey/offerId)
+
+  // Private supplier payload — NEVER returned to Jade
+  supplierPayload Json @default("{}")  // rateKey, offerId, packageCode, etc.
+
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+
+  @@index([userId])
+  @@index([sessionId])
+  @@index([expiresAt])
+}

@@ -8,6 +8,7 @@ import { useFlightStore } from '@/store/flightStore'
 import { useFlightPrice } from '@/lib/hooks/useFlightPrice'
 import { useCurrency } from '@/lib/context/CurrencyContext'
 import { CURRENCIES } from '@/lib/currencies'
+import { AddToTripButton } from '@/components/trips/AddToTripButton'
 
 interface Props {
   results: FlightItinerary[]
@@ -315,6 +316,27 @@ function FlightCard({ itinerary: it, expanded, onToggle, onSelect }: {
           {seg.amenities.find(a => a.type === 'lounge' && a.available) && <span className="text-[11px] text-[#0B1F3A]/45">🛋 Lounge</span>}
           {it.refundable && <span className="text-[11px] text-emerald-700 sm:hidden">✓ Refundable</span>}
           {it.co2Kg && <span className="text-[11px] text-[#0B1F3A]/25">🌱 {it.co2Kg}kg CO₂</span>}
+          <AddToTripButton
+            size="sm"
+            item={{
+              type:        'FLIGHT',
+              title:       `${seg.departureIata} → ${it.segments[it.segments.length - 1].arrivalIata}${isRT ? ' (return)' : ''}`,
+              cost:        it.price.total ?? it.price.perPerson,
+              currency:    it.price.currency,
+              location:    it.segments[it.segments.length - 1].arrivalCity,
+              sourceType:  'duffel',
+              sourceId:    it.id,
+              metadata: {
+                offerId:       it.id,
+                offerExpiresAt: it.expiresAt ?? undefined,
+                airline:       seg.airlineName,
+                cabin:         it.fareType,
+                origin:        seg.departureIata,
+                destination:   it.segments[it.segments.length - 1].arrivalIata,
+                departureDate: seg.departureTime,
+              },
+            }}
+          />
           <button onClick={onToggle}
             className="ml-auto text-[11px] font-semibold text-[#C9A84C] hover:underline flex-shrink-0">
             {expanded ? 'Hide ▲' : 'Details ▼'}

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createHmac }               from 'crypto'
 import { prisma }                   from '@/lib/db'
 import { recordPaymentSucceeded }   from '@/lib/commercial/payment'
+import { setTripPaid }              from '@/lib/trips/lifecycle'
 
 export const dynamic = 'force-dynamic'
 
@@ -131,6 +132,7 @@ export async function POST(req: NextRequest) {
     }
     // Normalized payment event — deduplicates by reference, fires once per charge.success
     if (event === 'charge.success') {
+      const meta2      = data.metadata as Record<string, unknown> | undefined
       const paystackRef = (data.reference as string | undefined) ?? 'unknown'
       const amountKobo  = typeof data.amount === 'number' ? data.amount : 0
       const currency    = (data.currency as string | undefined)?.toUpperCase() ?? 'NGN'
@@ -144,6 +146,13 @@ export async function POST(req: NextRequest) {
         currency,
         metadata: { source: 'paystack_webhook', channel },
       }).catch(err => console.warn('[Payment] Paystack payment_succeeded tracking failed:', (err as Error).message))
+
+      // Advance Trip lifecycle to PAID (non-fatal)
+      const psTripId    = meta2?.walz_trip_id    as string | undefined
+      const psSessionId = meta2?.walz_session_id as string | undefined
+      if (psTripId || psSessionId) {
+        void setTripPaid({ tripId: psTripId ?? null, sessionId: psSessionId ?? null })
+      }
     }
   } catch (err) {
     console.error('[ps-hook] handler error:', err)
