@@ -146,10 +146,11 @@ export async function sendWhatsAppBody(
 }
 
 export async function sendWhatsAppViaTwilio(
-  toPhone:    string,
-  clientName: string,
-  refNumber:  string,
-  body:       string,
+  toPhone:      string,
+  clientName:   string,
+  refNumber:    string,
+  body:         string,
+  fromOverride?: string, // force a specific sender (e.g. VISA_WHATSAPP_NUMBER)
 ): Promise<TwilioSendResult> {
   if (!TWILIO_SID || !TWILIO_TOKEN) {
     return {
@@ -160,12 +161,16 @@ export async function sendWhatsAppViaTwilio(
   }
 
   const to         = normalisePhone(toPhone)
-  const fromNumber = getWhatsAppSender(toPhone)
+  const fromNumber = fromOverride ?? getWhatsAppSender(toPhone)
 
   const params = new URLSearchParams()
-  // Use MessagingServiceSid — both WhatsApp senders live inside this service.
-  // Sending with From: directly causes error 63049 for business-initiated messages.
-  if (MESSAGING_SVC) {
+  if (fromOverride) {
+    // When a specific sender is required, set From directly — bypass MessagingServiceSid
+    // so Twilio uses exactly the number requested, not the service's routing logic.
+    params.set('From', `whatsapp:${fromNumber}`)
+  } else if (MESSAGING_SVC) {
+    // Use MessagingServiceSid — both WhatsApp senders live inside this service.
+    // Sending with From: directly causes error 63049 for business-initiated messages.
     params.set('MessagingServiceSid', MESSAGING_SVC)
   } else {
     params.set('From', `whatsapp:${fromNumber}`)

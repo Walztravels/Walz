@@ -149,9 +149,10 @@ export async function POST(req: Request) {
     clientPhone:    string
     refNumber?:     string
     firstMessage?:  string  // optional custom first message body
+    fromNumber?:    string  // force a specific Twilio sender (e.g. VISA_WHATSAPP_NUMBER)
   }
 
-  const { applicationId, clientName, clientPhone, refNumber, firstMessage } = body
+  const { applicationId, clientName, clientPhone, refNumber, firstMessage, fromNumber } = body
   if (!clientName || !clientPhone) {
     return NextResponse.json({ error: 'clientName and clientPhone required' }, { status: 400 })
   }
@@ -224,7 +225,7 @@ export async function POST(req: Request) {
     // Try Twilio first — works once the Nigeria number is enabled for business-initiated
     // (Twilio console → Messaging → WhatsApp → Senders → enable outbound on +2347077691701)
     if (twilioConfigured() && twilioTemplateConfigured()) {
-      const tr = await sendWhatsAppViaTwilio(clientPhone, clientName, ref, msgBody)
+      const tr = await sendWhatsAppViaTwilio(clientPhone, clientName, ref, msgBody, fromNumber)
       twilioSent  = tr.ok
       twilioError = tr.ok ? null : (tr.error ?? null)
       if (!tr.ok) console.warn('[whatsapp-chat] Twilio send failed:', tr.error)
