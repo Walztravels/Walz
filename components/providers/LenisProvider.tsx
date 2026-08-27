@@ -1,11 +1,20 @@
 'use client'
 
 import { useEffect } from 'react'
+import { usePathname } from 'next/navigation'
 import gsap from 'gsap'
 import ScrollTrigger from 'gsap/ScrollTrigger'
 
 export function LenisProvider({ children }: { children: React.ReactNode }) {
+  const pathname = usePathname()
+
   useEffect(() => {
+    // Admin pages use a fixed-height flex layout where only <main> scrolls
+    // (overflow-y-auto). Lenis intercepts wheel events at the document level
+    // before they reach <main>, so wheel/trackpad scroll silently does nothing
+    // while dragging the scrollbar still works. Skip Lenis on all admin routes.
+    if (pathname?.startsWith('/admin')) return
+
     gsap.registerPlugin(ScrollTrigger)
 
     // Only import & start Lenis on client
@@ -30,7 +39,7 @@ export function LenisProvider({ children }: { children: React.ReactNode }) {
         gsap.ticker.remove((time) => lenis.raf(time * 1000))
       }
     })
-  }, [])
+  }, [pathname])
 
   return <>{children}</>
 }
