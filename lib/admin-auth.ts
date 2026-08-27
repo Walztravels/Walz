@@ -108,23 +108,32 @@ export async function getAdminSession(): Promise<AdminSession | null> {
       branch:           true,
       department:       true,
       isActive:         true,
-      lastActiveAt:     true,
     },
   })
 
   // ── Touch lastActiveAt — throttled to one write per 2 minutes ─────────────
-  // Used downstream to decide whether a staff member is "online" for the
-  // purpose of inbound-message offline-alert emails. Non-blocking.
+  // Wrapped in try/catch so a missing DB column (pre-migration) never crashes
+  // the session. The column is added via add_offline_notification_fields.sql.
   if (staff?.isActive) {
-    const TWO_MIN_MS = 2 * 60 * 1000
-    const stale = !staff.lastActiveAt
-      || (Date.now() - staff.lastActiveAt.getTime()) > TWO_MIN_MS
-    if (stale) {
-      prisma.staff.update({
-        where: { id: staff.id },
-        data:  { lastActiveAt: new Date() },
-      }).catch(() => null)
-    }
+    void (async () => {
+      try {
+        const TWO_MIN_MS = 2 * 60 * 1000
+        const row = await prisma.staff.findUnique({
+          where:  { id: staff.id },
+          select: { lastActiveAt: true },
+        })
+        const stale = !row?.lastActiveAt
+          || (Date.now() - row.lastActiveAt.getTime()) > TWO_MIN_MS
+        if (stale) {
+          await prisma.staff.update({
+            where: { id: staff.id },
+            data:  { lastActiveAt: new Date() },
+          })
+        }
+      } catch {
+        // Column not yet migrated — silently skip
+      }
+    })()
   }
 
   // ── Fallback: env-var super admin with no Staff record yet ─────────────────
