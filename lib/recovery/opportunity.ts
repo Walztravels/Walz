@@ -77,6 +77,17 @@ export async function createOrUpdateOpportunity(
       lastActivityAt:    new Date(),
     },
   })
+
+  // 3D: server-authoritative lifecycle event — non-blocking
+  prisma.commercialEvent.create({
+    data: {
+      event:    'recovery_opportunity_created',
+      leadId:   opts.leadId ?? null,
+      userId:   opts.userId ?? null,
+      metadata: { opportunityId: opp.id, type: opts.type, priority: opts.priority },
+    },
+  }).catch(() => {})
+
   return opp.id
 }
 

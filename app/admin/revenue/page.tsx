@@ -9,6 +9,34 @@ interface LeadRow    { status: string; count: number }
 interface FunnelStep { event: string; count: number }
 interface QuotePipeline { [currency: string]: { total: number; markup: number; count: number } }
 
+interface RecoveryTypeRow {
+  type:      string
+  open:      number
+  recovered: number
+  lost:      number
+  dismissed: number
+  total:     number
+}
+interface StaffPerfRow {
+  assignedToId:   string
+  name:           string
+  total:          number
+  contacted:      number
+  recovered:      number
+  recoveredValue: Record<string, number>
+}
+interface RecoveryData {
+  openValueByCurrency: GbvRow[]
+  recoveredGbv:        GbvRow[]
+  recoveryRate:        number | null
+  recoveredCount:      number
+  lostCount:           number
+  closedTotal:         number
+  byType:              RecoveryTypeRow[]
+  staffPerformance?:   StaffPerfRow[]
+  denominatorNote:     string
+}
+
 interface RevenueData {
   window:              number
   trackingStartedAt:   string | null
@@ -27,6 +55,7 @@ interface RevenueData {
   funnel:              FunnelStep[]
   trackingStarted:     boolean
   jade:                { assistedBookings: number; attributionWindowDays: number }
+  recovery:            RecoveryData
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -405,6 +434,130 @@ export default function RevenueCommandCenter() {
               <p className="text-xs text-gray-300 mt-2">Supplier cost not stored on Booking model</p>
             </Card>
           </div>
+
+          {/* Recovery Revenue & Analytics — Release 3D */}
+          {data.recovery && (
+            <>
+              <Card>
+                <SectionTitle>Recovery Engine — opportunity value</SectionTitle>
+                <p className="text-xs text-gray-400 mb-4">
+                  Open value = opportunities detected in this window still awaiting resolution.
+                  Recovered GBV = amount confirmed recovered (payment made/booking confirmed).
+                  Currencies displayed separately — never summed across currencies.
+                </p>
+                <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
+                  <div className="rounded-xl p-4 bg-gray-50">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-gray-400 mb-2">Open Opportunity Value</p>
+                    {data.recovery.openValueByCurrency.length === 0 ? (
+                      <p className="text-sm text-gray-400">None in period</p>
+                    ) : data.recovery.openValueByCurrency.map(r => (
+                      <div key={r.currency} className="flex items-baseline justify-between">
+                        <span className="text-lg font-bold text-[#0B1F3A]">{fmt(r.total, r.currency)}</span>
+                        <span className="text-xs text-gray-400">{r.count} opps</span>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="rounded-xl p-4 bg-[#0B1F3A]">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-white/50 mb-2">Recovered GBV</p>
+                    {data.recovery.recoveredGbv.length === 0 ? (
+                      <p className="text-sm text-white/40">None yet</p>
+                    ) : data.recovery.recoveredGbv.map(r => (
+                      <div key={r.currency} className="flex items-baseline justify-between">
+                        <span className="text-lg font-bold text-[#C9A84C]">{fmt(r.total, r.currency)}</span>
+                        <span className="text-xs text-white/40">{r.count} recovered</span>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="rounded-xl p-4 bg-gray-50">
+                    <p className="text-xs font-semibold uppercase tracking-wide text-gray-400 mb-2">Recovery Rate</p>
+                    {data.recovery.recoveryRate === null ? (
+                      <p className="text-sm text-gray-400">No closed opps yet</p>
+                    ) : (
+                      <>
+                        <p className="text-2xl font-bold text-[#0B1F3A]">{data.recovery.recoveryRate}%</p>
+                        <p className="text-xs text-gray-400 mt-1">
+                          {data.recovery.recoveredCount} recovered / {data.recovery.closedTotal} closed
+                        </p>
+                      </>
+                    )}
+                    <p className="text-[10px] text-gray-300 mt-2 leading-tight">{data.recovery.denominatorNote}</p>
+                  </div>
+                </div>
+              </Card>
+
+              {/* Recovery by type */}
+              {data.recovery.byType.length > 0 && (
+                <Card>
+                  <SectionTitle>Recovery by Type</SectionTitle>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-xs">
+                      <thead>
+                        <tr className="text-gray-400 uppercase tracking-wide border-b border-gray-100">
+                          <th className="text-left py-2 font-semibold">Type</th>
+                          <th className="text-right py-2 font-semibold">Total</th>
+                          <th className="text-right py-2 font-semibold">Open</th>
+                          <th className="text-right py-2 font-semibold">Recovered</th>
+                          <th className="text-right py-2 font-semibold">Lost</th>
+                          <th className="text-right py-2 font-semibold">Dismissed</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {data.recovery.byType.sort((a, b) => b.total - a.total).map(row => (
+                          <tr key={row.type} className="border-b border-gray-50 last:border-0">
+                            <td className="py-2 font-medium text-[#0B1F3A]">{row.type.replace(/_/g, ' ')}</td>
+                            <td className="py-2 text-right text-gray-600 font-semibold">{fmtNum(row.total)}</td>
+                            <td className="py-2 text-right text-amber-700">{fmtNum(row.open)}</td>
+                            <td className="py-2 text-right text-green-700 font-semibold">{fmtNum(row.recovered)}</td>
+                            <td className="py-2 text-right text-red-600">{fmtNum(row.lost)}</td>
+                            <td className="py-2 text-right text-gray-400">{fmtNum(row.dismissed)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </Card>
+              )}
+
+              {/* Staff performance — management only */}
+              {data.recovery.staffPerformance && data.recovery.staffPerformance.length > 0 && (
+                <Card>
+                  <SectionTitle badge="Management">Recovery — Staff Performance</SectionTitle>
+                  <p className="text-xs text-gray-400 mb-3">
+                    Opportunities assigned in this period. Contacted = at least one automated or staff-recorded contact.
+                  </p>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-xs font-variant-numeric tabular-nums">
+                      <thead>
+                        <tr className="text-gray-400 uppercase tracking-wide border-b border-gray-100">
+                          <th className="text-left py-2 font-semibold">Staff</th>
+                          <th className="text-right py-2 font-semibold">Assigned</th>
+                          <th className="text-right py-2 font-semibold">Contacted</th>
+                          <th className="text-right py-2 font-semibold">Recovered</th>
+                          <th className="text-right py-2 font-semibold">Recovered Value</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {data.recovery.staffPerformance.map(row => (
+                          <tr key={row.assignedToId} className="border-b border-gray-50 last:border-0">
+                            <td className="py-2 font-medium text-[#0B1F3A]">{row.name}</td>
+                            <td className="py-2 text-right text-gray-600">{fmtNum(row.total)}</td>
+                            <td className="py-2 text-right text-gray-600">{fmtNum(row.contacted)}</td>
+                            <td className="py-2 text-right text-green-700 font-semibold">{fmtNum(row.recovered)}</td>
+                            <td className="py-2 text-right text-[#0B1F3A]">
+                              {Object.entries(row.recoveredValue).map(([cur, val]) => (
+                                <span key={cur} className="block">{fmt(val, cur)}</span>
+                              ))}
+                              {Object.keys(row.recoveredValue).length === 0 && <span className="text-gray-300">—</span>}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </Card>
+              )}
+            </>
+          )}
         </>
       ) : null}
     </div>

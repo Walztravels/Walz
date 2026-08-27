@@ -161,6 +161,110 @@ export async function GET(req: NextRequest) {
     `,
   ])
 
+  // ── Recovery analytics (Release 3D) ─────────────────────────────────────
+  const isManagement = FINANCE_ROLES.has(session.role)
+
+  const [
+    openOppsByCurrency,
+    recoveredGbvByCurrency,
+    closedStatusCounts,
+    typeStatusCounts,
+  ] = await Promise.all([
+    prisma.recoveryOpportunity.groupBy({
+      by:    ['currency'],
+      where: { status: { in: ['OPEN', 'CONTACTED', 'IN_PROGRESS'] }, detectedAt: { gte: since }, currency: { not: null } },
+      _sum:  { amount: true },
+      _count: { id: true },
+    }),
+    prisma.recoveryOpportunity.groupBy({
+      by:    ['recoveredCurrency'],
+      where: { status: 'RECOVERED', detectedAt: { gte: since }, recoveredCurrency: { not: null } },
+      _sum:  { recoveredAmount: true },
+      _count: { id: true },
+    }),
+    prisma.recoveryOpportunity.groupBy({
+      by:    ['status'],
+      where: { status: { in: ['RECOVERED', 'LOST'] }, detectedAt: { gte: since } },
+      _count: { id: true },
+    }),
+    prisma.recoveryOpportunity.groupBy({
+      by:    ['type', 'status'],
+      where: { detectedAt: { gte: since } },
+      _count: { id: true },
+    }),
+  ])
+
+  const staffPerfRows = isManagement
+    ? await prisma.recoveryOpportunity.findMany({
+        where:  { detectedAt: { gte: since }, assignedToId: { not: null } },
+        select: { assignedToId: true, status: true, contactCount: true, recoveredAmount: true, recoveredCurrency: true },
+      })
+    : []
+
+  // Format open value and recovered GBV by currency
+  const openValueByCurrency = openOppsByCurrency.map(r => ({
+    currency: r.currency as string,
+    total:    r._sum.amount ?? 0,
+    count:    r._count.id,
+  }))
+  const recoveredGbv = recoveredGbvByCurrency.map(r => ({
+    currency: r.recoveredCurrency as string,
+    total:    r._sum.recoveredAmount ?? 0,
+    count:    r._count.id,
+  }))
+
+  // Recovery rate — denominator: closed (recovered + lost) in window only
+  const closedMap = closedStatusCounts.reduce<Record<string, number>>((acc, r) => {
+    acc[r.status] = r._count.id; return acc
+  }, {})
+  const recoveredCount = closedMap['RECOVERED'] ?? 0
+  const lostCount      = closedMap['LOST']      ?? 0
+  const closedTotal    = recoveredCount + lostCount
+  const recoveryRate   = closedTotal > 0 ? Math.round((recoveredCount / closedTotal) * 100) : null
+
+  // By-type breakdown
+  const typeMap: Record<string, { open: number; recovered: number; lost: number; dismissed: number; total: number }> = {}
+  for (const row of typeStatusCounts) {
+    if (!typeMap[row.type]) typeMap[row.type] = { open: 0, recovered: 0, lost: 0, dismissed: 0, total: 0 }
+    const n = row._count.id
+    typeMap[row.type].total += n
+    if (['OPEN', 'CONTACTED', 'IN_PROGRESS'].includes(row.status)) typeMap[row.type].open      += n
+    else if (row.status === 'RECOVERED')                            typeMap[row.type].recovered  += n
+    else if (row.status === 'LOST')                                 typeMap[row.type].lost       += n
+    else if (row.status === 'DISMISSED')                            typeMap[row.type].dismissed  += n
+  }
+  const byType = Object.entries(typeMap).map(([type, v]) => ({ type, ...v }))
+
+  // Staff performance — management only
+  type StaffPerfRow = { assignedToId: string; name: string; total: number; contacted: number; recovered: number; recoveredValue: Record<string, number> }
+  let staffPerformance: StaffPerfRow[] = []
+
+  if (isManagement && staffPerfRows.length > 0) {
+    const perfMap: Record<string, Omit<StaffPerfRow, 'name'>> = {}
+    for (const row of staffPerfRows) {
+      const id = row.assignedToId as string
+      if (!perfMap[id]) perfMap[id] = { assignedToId: id, total: 0, contacted: 0, recovered: 0, recoveredValue: {} }
+      perfMap[id].total++
+      if (row.contactCount > 0)       perfMap[id].contacted++
+      if (row.status === 'RECOVERED') {
+        perfMap[id].recovered++
+        if (row.recoveredAmount != null && row.recoveredCurrency) {
+          const cur = row.recoveredCurrency
+          perfMap[id].recoveredValue[cur] = (perfMap[id].recoveredValue[cur] ?? 0) + row.recoveredAmount
+        }
+      }
+    }
+    const staffIds   = Object.keys(perfMap)
+    const staffNames = await prisma.staff.findMany({
+      where:  { id: { in: staffIds } },
+      select: { id: true, name: true },
+    })
+    const nameMap = Object.fromEntries(staffNames.map(s => [s.id, s.name]))
+    staffPerformance = Object.values(perfMap)
+      .map(p => ({ ...p, name: nameMap[p.assignedToId] ?? 'Unknown' }))
+      .sort((a, b) => b.recovered - a.recovered)
+  }
+
   // ── Format GBV buckets ───────────────────────────────────────────────────
   const formatGbv = (rows: { currency: string; _sum: { totalAmount: number | null }; _count: { id: number } }[]) =>
     rows.map(r => ({ currency: r.currency, total: r._sum.totalAmount ?? 0, count: r._count.id }))
@@ -267,5 +371,18 @@ export async function GET(req: NextRequest) {
     // GBV buckets (above) remain the financial source of truth; this is analytics supplemental data.
     paymentsByProvider: paymentsByProviderRaw ?? [],
     paymentProviderNote: 'Event-based counts from Release 1.1 onward only. Pre-1.1 payments not included.',
+
+    // Recovery analytics (Release 3D)
+    recovery: {
+      openValueByCurrency,
+      recoveredGbv,
+      recoveryRate,
+      recoveredCount,
+      lostCount,
+      closedTotal,
+      byType,
+      staffPerformance: isManagement ? staffPerformance : undefined,
+      denominatorNote: 'Rate = recovered ÷ (recovered + lost) for opportunities detected in this window. Open/dismissed excluded.',
+    },
   })
 }

@@ -185,6 +185,48 @@ Reply ONLY with valid JSON (no markdown, no code fences):
     console.warn('[jade-brief] visa intelligence generation failed:', e)
   }
 
+  // ── Recovery snapshot (Release 3D) ───────────────────────────────────────────
+  type RecoverySnapshotItem = { currency: string; total: number }
+  type RecoverySnapshot = {
+    openCount:            number
+    urgentOpenCount:      number
+    supplierFailureCount: number
+    hotLeadCount:         number
+    openValueByCurrency:  RecoverySnapshotItem[]
+  }
+
+  let recoverySnapshot: RecoverySnapshot = {
+    openCount: 0, urgentOpenCount: 0, supplierFailureCount: 0, hotLeadCount: 0, openValueByCurrency: [],
+  }
+
+  if (process.env.RECOVERY_ENGINE_ENABLED === 'true') {
+    try {
+      const OPEN_STATUSES = ['OPEN', 'CONTACTED', 'IN_PROGRESS']
+      const [openTotal, urgentOpen, supplierOpen, hotLeadOpen, openValueRows] = await Promise.all([
+        prisma.recoveryOpportunity.count({ where: { status: { in: OPEN_STATUSES } } }),
+        prisma.recoveryOpportunity.count({ where: { status: { in: OPEN_STATUSES }, priority: 'URGENT' } }),
+        prisma.recoveryOpportunity.count({ where: { status: { in: OPEN_STATUSES }, type: 'SUPPLIER_FAILURE' } }),
+        prisma.recoveryOpportunity.count({ where: { status: 'OPEN', type: 'HOT_LEAD' } }),
+        prisma.recoveryOpportunity.groupBy({
+          by:    ['currency'],
+          where: { status: { in: OPEN_STATUSES }, currency: { not: null } },
+          _sum:  { amount: true },
+        }),
+      ])
+      recoverySnapshot = {
+        openCount:            openTotal,
+        urgentOpenCount:      urgentOpen,
+        supplierFailureCount: supplierOpen,
+        hotLeadCount:         hotLeadOpen,
+        openValueByCurrency:  openValueRows
+          .filter(r => r.currency !== null)
+          .map(r => ({ currency: r.currency as string, total: r._sum?.amount ?? 0 })),
+      }
+    } catch (e) {
+      console.warn('[jade-brief] recovery snapshot failed:', e)
+    }
+  }
+
   // ── Build and persist the brief ───────────────────────────────────────────────
   const contentJson = {
     announcements: announcements.map(a => ({
@@ -197,9 +239,10 @@ Reply ONLY with valid JSON (no markdown, no code fences):
       relevantUrl: a.relevantUrl,
       priority:    a.priority,
     })),
-    travel:  travelItems,
-    visa:    visaItems,
+    travel:    travelItems,
+    visa:      visaItems,
     urgentCount,
+    recovery:  recoverySnapshot,
   }
 
   const brief = await prisma.jadeDailyBrief.create({

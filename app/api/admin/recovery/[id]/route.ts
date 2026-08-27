@@ -89,7 +89,7 @@ export async function POST(
 
   const opp = await prisma.recoveryOpportunity.findUnique({
     where:  { id: params.id },
-    select: { id: true, status: true, assignedToId: true },
+    select: { id: true, status: true, assignedToId: true, leadId: true, userId: true, type: true, amount: true, currency: true },
   })
   if (!opp) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
@@ -136,6 +136,20 @@ export async function POST(
           lastActivityAt:    new Date(),
         },
       })
+      // 3D: server-authoritative — non-blocking
+      prisma.commercialEvent.create({
+        data: {
+          event:    'recovery_recovered',
+          leadId:   opp.leadId ?? null,
+          userId:   opp.userId ?? null,
+          metadata: {
+            opportunityId:     params.id,
+            type:              opp.type,
+            recoveredAmount:   body.recoveredAmount   ?? null,
+            recoveredCurrency: body.recoveredCurrency ?? null,
+          },
+        },
+      }).catch(() => {})
       break
 
     case 'mark_lost':
@@ -143,6 +157,15 @@ export async function POST(
         where: { id: params.id },
         data:  { status: 'LOST', lastActivityAt: new Date() },
       })
+      // 3D: server-authoritative — non-blocking
+      prisma.commercialEvent.create({
+        data: {
+          event:    'recovery_lost',
+          leadId:   opp.leadId ?? null,
+          userId:   opp.userId ?? null,
+          metadata: { opportunityId: params.id, type: opp.type, amount: opp.amount, currency: opp.currency },
+        },
+      }).catch(() => {})
       break
 
     case 'dismiss':
