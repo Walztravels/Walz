@@ -473,6 +473,7 @@ model Lead {
   followUpNote    String?   @db.Text
   followUpCount   Int       @default(0)
   interestLevel   String?   // 'hot' | 'warm' | 'cold'
+  lastOfflineNotifiedAt DateTime?  // set when an offline-staff alert email was sent; used to suppress duplicates within 30 min
   // ──────────────────────────────────────────────────────────────────────
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -539,6 +540,7 @@ model Staff {
   deductionOverride Float?                           // Per-staff override for deductionPerMiss (stored in local currency)
   sendingEmail      String?                          // Role-facing outbound address shown in From + signature (e.g. reservations@, visa@). Falls back to default if null.
   signatureTagline  String?                          // Optional override for the sub-name line in email signature. Falls back to roleTitle if unset.
+  lastActiveAt      DateTime?                        // Updated (throttled, 2-min gap) on every authenticated admin request — used to determine offline status for inbound-message alerts.
 
   activityLogs ActivityLog[]
   checkIns     CheckInRecord[]

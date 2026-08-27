@@ -25,6 +25,7 @@ import { getSupabaseAdmin } from '@/lib/supabase'
 import { prisma } from '@/lib/db'
 import { saveJadeSession, loadJadeSession, markHandover, markResumed } from '@/lib/jade-session'
 import { routeConversation, applyRouting } from '@/lib/conversation-router'
+import { getResend } from '@/lib/resend'
 
 export const dynamic = 'force-dynamic'
 
@@ -476,6 +477,36 @@ async function onMessageCreated(payload: CWPayload, supabase: SupabaseAdmin) {
         console.error('[router] Routing error (non-fatal):', e)
       }
     }
+
+    // ── Clear whisper re-engagement state on genuine inbound reply ────────────
+    // whisperStage / whisperCount live inside JadeSession.state JSON.
+    // If a client sends a real message, they've re-engaged — any pending
+    // scheduled whisper must not fire. Clearing here is the earliest possible
+    // point after the chatwootConversationId is known and the message type is
+    // confirmed as a real client message (not a receipt, note, or agent send).
+    try {
+      const convKey   = String(convId)
+      const jSession  = await prisma.jadeSession.findUnique({
+        where: { chatwootConversationId: convKey },
+      })
+      if (jSession) {
+        const state = (jSession.state as Record<string, unknown>) ?? {}
+        if (state.whisperStage !== undefined) {
+          const { whisperStage: _ws, whisperCount: _wc, ...rest } = state
+          await prisma.jadeSession.update({
+            where: { chatwootConversationId: convKey },
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            data:  { state: rest as any },
+          })
+          console.log('[cw-hook] whisper state cleared on client reply', {
+            convId, removedStage: _ws, removedCount: _wc,
+          })
+        }
+      }
+    } catch (e) {
+      console.warn('[cw-hook] whisper clear failed (non-blocking):', e instanceof Error ? e.message : e)
+    }
+    // ── End whisper clear ─────────────────────────────────────────────────────
   }
   // ── End routing ─────────────────────────────────────────────────────────────
 
@@ -610,6 +641,106 @@ async function onMessageCreated(payload: CWPayload, supabase: SupabaseAdmin) {
 
   // message_type: 0 = incoming, 1 = outgoing from agent
   const direction = payload.message_type === 0 ? 'inbound' : 'outbound'
+
+  // ── Offline-staff alert: notify the assigned agent by email when they are ──
+  // inactive and a client messages them. Only fires on inbound messages.
+  // Non-blocking — a failure here must never interrupt the webhook response.
+  if (direction === 'inbound') {
+    const OFFLINE_THRESHOLD_MS   = 5  * 60 * 1000  // 5 minutes with no admin activity
+    const DEDUP_WINDOW_MS        = 30 * 60 * 1000  // suppress repeat alerts for 30 min
+
+    const BASE_URL = process.env.NEXTAUTH_URL || 'https://walztravels.com'
+
+    void (async () => {
+      try {
+        // Find the Prisma Lead by phone number to get assignedToId
+        const sender      = payload.sender ?? payload.contact
+        const rawPhone    = sender?.phone_number
+          ?? payload.conversation?.contact_inbox?.source_id
+        if (!rawPhone) return
+
+        const normalizedPhone = rawPhone.replace(/\D/g, '')
+        const prismaLead = await prisma.lead.findFirst({
+          where: {
+            OR: [
+              { whatsapp: rawPhone },
+              { whatsapp: normalizedPhone },
+              { whatsapp: { endsWith: normalizedPhone.slice(-9) } },
+            ],
+            assignedToId: { not: null },
+          },
+          select: {
+            id:                   true,
+            name:                 true,
+            lastOfflineNotifiedAt: true,
+            assignedToId:         true,
+          },
+        })
+        if (!prismaLead?.assignedToId) return
+
+        // De-duplicate: skip if we already notified for this lead within 30 min
+        const alreadyNotified = prismaLead.lastOfflineNotifiedAt
+          && (Date.now() - prismaLead.lastOfflineNotifiedAt.getTime()) < DEDUP_WINDOW_MS
+        if (alreadyNotified) return
+
+        // Check if the assigned staff member is currently active
+        const assignedStaff = await prisma.staff.findUnique({
+          where:  { id: prismaLead.assignedToId },
+          select: { id: true, name: true, email: true, isActive: true, lastActiveAt: true },
+        })
+        if (!assignedStaff?.isActive || !assignedStaff.email) return
+
+        const isOffline = !assignedStaff.lastActiveAt
+          || (Date.now() - assignedStaff.lastActiveAt.getTime()) > OFFLINE_THRESHOLD_MS
+        if (!isOffline) return
+
+        // All checks passed — send the alert
+        const clientName    = sender?.name ?? prismaLead.name ?? 'A client'
+        const messagePreview = (payload.content ?? '').slice(0, 120)
+        const staffFirstName = assignedStaff.name.split(' ')[0]
+        const followUpUrl    = `${BASE_URL}/admin/my-followups`
+
+        await getResend().emails.send({
+          from:    'Walz Staff <contact@walztravels.com>',
+          to:      assignedStaff.email,
+          subject: `💬 ${clientName} just messaged you on WhatsApp`,
+          html: `
+            <div style="font-family:sans-serif;max-width:480px;margin:0 auto;background:#0B1F3A;padding:32px;border-radius:12px">
+              <p style="color:#C9A84C;font-size:11px;letter-spacing:3px;text-transform:uppercase;margin:0 0 16px">Walz Travels</p>
+              <h2 style="color:#ffffff;font-size:20px;font-weight:600;margin:0 0 8px">
+                New message, ${staffFirstName}
+              </h2>
+              <p style="color:#94a3b8;font-size:15px;line-height:1.6;margin:0 0 8px">
+                <strong style="color:#f8fafc">${clientName}</strong> just sent you a WhatsApp message while you were away:
+              </p>
+              ${messagePreview ? `
+              <div style="background:#0d2442;border-left:3px solid #C9A84C;padding:12px 16px;border-radius:4px;margin:0 0 24px">
+                <p style="color:#cbd5e1;font-size:14px;margin:0;font-style:italic">"${messagePreview}${(payload.content ?? '').length > 120 ? '…' : ''}"</p>
+              </div>` : ''}
+              <a href="${followUpUrl}"
+                 style="display:inline-block;background:#C9A84C;color:#0B1F3A;font-weight:700;font-size:14px;padding:12px 24px;border-radius:8px;text-decoration:none">
+                View My Leads →
+              </a>
+              <p style="color:#475569;font-size:12px;margin:24px 0 0">
+                This is an automated notification. Replies go to contact@walztravels.com
+              </p>
+            </div>
+          `,
+        })
+
+        // Stamp the lead so duplicates within the next 30 min are suppressed
+        await prisma.lead.update({
+          where: { id: prismaLead.id },
+          data:  { lastOfflineNotifiedAt: new Date() },
+        })
+
+        console.log('[cw-hook] offline-alert sent to', assignedStaff.email, 'for lead', prismaLead.id)
+      } catch (e) {
+        console.error('[cw-hook] offline-alert failed (non-blocking):', e instanceof Error ? e.message : e)
+      }
+    })()
+  }
+  // ── End offline-staff alert ───────────────────────────────────────────────
   const body      = payload.content ?? ''
   const now       = new Date().toISOString()
 

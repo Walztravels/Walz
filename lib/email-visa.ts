@@ -9,8 +9,8 @@ const BASE_URL = 'https://walztravels.com'
 export const TRUSTPILOT_AFS_EMAIL = 'walztravels.com+2491559753@invite.trustpilot.com'
 
 const LOGO_URL = `${BASE_URL}/walz-logo.png`
-const WA_NUMBER = BUSINESS.contacts.globalWhatsapp.display
-const WA_LINK = `https://wa.me/${BUSINESS.contacts.globalWhatsapp.e164}`
+const WA_NUMBER = BUSINESS.contacts.visaWhatsapp.display
+const WA_LINK = `https://wa.me/${BUSINESS.contacts.visaWhatsapp.e164}`
 
 function header() {
   return `<div style="background:#ffffff;padding:24px 40px 16px;text-align:center;border-bottom:3px solid #C9A84C;">

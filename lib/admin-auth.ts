@@ -108,8 +108,24 @@ export async function getAdminSession(): Promise<AdminSession | null> {
       branch:           true,
       department:       true,
       isActive:         true,
+      lastActiveAt:     true,
     },
   })
+
+  // ── Touch lastActiveAt — throttled to one write per 2 minutes ─────────────
+  // Used downstream to decide whether a staff member is "online" for the
+  // purpose of inbound-message offline-alert emails. Non-blocking.
+  if (staff?.isActive) {
+    const TWO_MIN_MS = 2 * 60 * 1000
+    const stale = !staff.lastActiveAt
+      || (Date.now() - staff.lastActiveAt.getTime()) > TWO_MIN_MS
+    if (stale) {
+      prisma.staff.update({
+        where: { id: staff.id },
+        data:  { lastActiveAt: new Date() },
+      }).catch(() => null)
+    }
+  }
 
   // ── Fallback: env-var super admin with no Staff record yet ─────────────────
   if (!staff) {

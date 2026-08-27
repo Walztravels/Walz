@@ -16,7 +16,7 @@ function ConfirmationContent() {
   const whatsappMsg = encodeURIComponent(
     `Hi Jade! I just submitted my visa application. Reference: ${ref}. Please let me know if you need anything else.`
   )
-  const whatsappUrl = `https://wa.me/${BUSINESS.contacts.globalWhatsapp.e164}?text=${whatsappMsg}`
+  const whatsappUrl = `https://wa.me/${BUSINESS.contacts.visaWhatsapp.e164}?text=${whatsappMsg}`
 
   return (
     <div className="w-full max-w-lg">
