@@ -73,7 +73,11 @@
     },
     {
       "path": "/api/admin/payroll/auto-run",
-      "schedule": "0 9 28 * *"
+      "schedule": "0 2 28 * *"
+    },
+    {
+      "path": "/api/admin/payroll/auto-run",
+      "schedule": "0 10 28 * *"
     },
     {
       "path": "/api/cron/publish-scheduled-posts",

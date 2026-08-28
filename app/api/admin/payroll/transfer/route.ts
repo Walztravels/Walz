@@ -93,7 +93,11 @@ export async function POST(req: NextRequest) {
     // Accept admin session OR internal cron secret
     const session        = await getAdminSession()
     const internalSecret = req.headers.get('x-internal-secret')
-    const isInternalCron = !!process.env.CRON_SECRET && internalSecret === process.env.CRON_SECRET
+    const authBearer     = req.headers.get('authorization')
+    const isInternalCron = !!process.env.CRON_SECRET && (
+      internalSecret === process.env.CRON_SECRET ||
+      authBearer     === `Bearer ${process.env.CRON_SECRET}`
+    )
     if (!session && !isInternalCron) {
       return NextResponse.json({ error: 'Unauthorised' }, { status: 401 })
     }

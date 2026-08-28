@@ -38,8 +38,11 @@ export async function GET(req: NextRequest) {
     const res  = await fetch(`${appUrl}/api/admin/payroll/transfer`, {
       method: 'POST',
       headers: {
-        'Content-Type':     'application/json',
-        'x-internal-secret': process.env.CRON_SECRET || '',
+        'Content-Type':  'application/json',
+        // Use Authorization: Bearer so edge middleware passes the request through.
+        // x-internal-secret is kept for the transfer route's own auth check.
+        'Authorization':      `Bearer ${process.env.CRON_SECRET || ''}`,
+        'x-internal-secret':  process.env.CRON_SECRET || '',
       },
       body: JSON.stringify({ dryRun: false }),
     })
