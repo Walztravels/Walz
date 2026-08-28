@@ -938,7 +938,10 @@ export interface LeadQualityMetrics {
 export async function getLeadQualityAnalytics(opts: AnalyticsOpts, ctx: JadeAnalyticsContext): Promise<LeadQualityMetrics> {
   const { range, jadeFilter } = opts
   const jadeLeadIds = ctx.allJadeLeadIds
-  const leadFilter  = jadeFilter !== 'ALL' ? jadeLeadFilter(jadeFilter, jadeLeadIds) : {}
+  // Filter by Lead.id (PK), not leadId — jadeLeadFilter() targets Trip.leadId (FK) and must not be used here.
+  const leadIdFilter = jadeFilter === 'JADE_ASSISTED' ? { id: { in: jadeLeadIds } }
+                     : jadeFilter === 'NON_JADE'      ? { id: { notIn: jadeLeadIds } }
+                     : {}
 
   const levels = ['hot', 'warm', 'cold'] as const
 
@@ -947,7 +950,7 @@ export async function getLeadQualityAnalytics(opts: AnalyticsOpts, ctx: JadeAnal
       where: {
         createdAt:     { gte: range.from, lte: range.to },
         interestLevel: level,
-        ...leadFilter,
+        ...leadIdFilter,
       },
       select: { id: true },
     })
