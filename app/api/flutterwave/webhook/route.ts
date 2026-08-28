@@ -1,7 +1,9 @@
-import { NextRequest, NextResponse } from 'next/server'
-import { prisma }                    from '@/lib/db'
-import { getResend }                 from '@/lib/resend'
-import { recordPaymentSucceeded }    from '@/lib/commercial/payment'
+import { NextRequest, NextResponse }         from 'next/server'
+import { prisma }                            from '@/lib/db'
+import { getResend }                         from '@/lib/resend'
+import { recordPaymentSucceeded }            from '@/lib/commercial/payment'
+import { setTripPaid }                       from '@/lib/trips/lifecycle'
+import { handleSuccessfulTripPayment }       from '@/lib/payments/handle-success'
 
 const MONTHS = ['January','February','March','April','May','June','July','August','September','October','November','December']
 
@@ -163,6 +165,55 @@ export async function POST(req: NextRequest) {
        (transfer as Record<string, unknown>)?.payment_type === 'bank_transfer')
     ) {
       await handleVirtualAccountPayment(payload)
+      return NextResponse.json({ received: true })
+    }
+
+    // ── FLW card / mobile-money — Trip checkout payments ──────────────────────
+    // The trip checkout creates FLW hosted payment pages (not VA links), so Trip
+    // payments arrive here as charge.completed with payment_type != bank_transfer.
+    // The active webhook URL (this file) is also used for VA and payslips above;
+    // /api/webhooks/flutterwave is inoperative because FLUTTERWAVE_WEBHOOK_HASH is
+    // not configured, so this is the only path that receives card payment webhooks.
+    //
+    // FLW bank-transfer via VA for Trips is NOT supported: VA PaymentLinks carry no
+    // walz_trip_id in their meta_data (they use txRef for PaymentLink matching only).
+    if (event === 'charge.completed') {
+      const tData     = transfer as Record<string, unknown>
+      const tStatus   = tData.status as string | undefined
+      const tMeta     = tData.meta as Record<string, unknown> | undefined
+      const tTripId   = tMeta?.walz_trip_id    as string | undefined
+      const tSessId   = tMeta?.walz_session_id as string | undefined
+
+      if ((tStatus === 'successful' || tStatus === 'succeeded') && (tTripId || tSessId)) {
+        const customer = tData.customer as Record<string, unknown> | undefined
+        const txRef    = tData.tx_ref   as string | undefined
+
+        recordPaymentSucceeded({
+          provider:          'FLUTTERWAVE',
+          providerPaymentId: String(tData.id ?? txRef ?? ''),
+          amount:            typeof tData.amount === 'number' ? tData.amount : 0,
+          currency:          (tData.currency as string | undefined)?.toUpperCase() ?? 'NGN',
+          metadata:          { source: 'flutterwave_card_trip', txRef, tripId: tTripId, sessionId: tSessId },
+        }).catch(err => console.warn('[flw-webhook] card trip payment_succeeded tracking failed:', (err as Error).message))
+
+        void setTripPaid({ tripId: tTripId ?? null, sessionId: tSessId ?? null })
+
+        handleSuccessfulTripPayment({
+          provider:          'FLUTTERWAVE',
+          providerPaymentId: String(tData.id ?? txRef ?? ''),
+          tripId:            tTripId ?? null,
+          sessionId:         tSessId ?? null,
+          leadId:            (tMeta?.walz_lead_id as string | undefined) ?? null,
+          jadeAssisted:      tMeta?.jade_assisted === 'true',
+          amount:            typeof tData.amount === 'number' ? tData.amount : 0,
+          currency:          (tData.currency as string | undefined)?.toUpperCase() ?? 'NGN',
+          holder: {
+            name:  String(customer?.name  ?? 'Valued Customer'),
+            email: String(customer?.email ?? ''),
+            phone: customer?.phone_number ? String(customer.phone_number) : undefined,
+          },
+        }).catch(err => console.error('[flw-webhook] card trip handleSuccessfulTripPayment failed:', err))
+      }
       return NextResponse.json({ received: true })
     }
 

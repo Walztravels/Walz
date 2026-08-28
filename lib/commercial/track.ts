@@ -49,6 +49,27 @@ export type CommercialEventName =
   | 'jade_lead_qualified'
   | 'jade_proposal_requested'
   | 'jade_proposal_created'
+  // Release 4D — Jade checkout handoff
+  | 'jade_checkout_requested'    // Jade called prepare_trip_checkout
+  | 'jade_checkout_ready'        // All items valid — review URL generated
+  | 'jade_checkout_blocked'      // Sold-out / expired / stale — cannot proceed
+  | 'jade_checkout_price_changed'// One or more prices changed — ACTION_REQUIRED
+  | 'jade_checkout_started'      // Customer confirmed payment via review page
+  | 'jade_checkout_converted'    // Payment succeeded for a jade-assisted trip
+  // Release 4E — analytics coverage
+  | 'jade_search_no_results'     // Search returned zero results
+  | 'jade_search_failed'         // Search threw an error
+  | 'jade_trip_created'
+  | 'jade_trip_updated'
+  | 'jade_trip_item_added'
+  | 'jade_trip_item_removed'
+  | 'proposal_sent'
+  | 'checkout_payment_failed'
+  | 'recovery_opportunity_created'
+  | 'recovery_clicked'
+  | 'recovery_contacted'
+  | 'recovery_recovered'
+  | 'recovery_lost'
 
 export interface TrackOptions {
   eventId?:     string   // client dedup key — reject duplicates from browser
@@ -86,12 +107,17 @@ function buildData(event: CommercialEventName, opts: TrackOptions) {
  * Fire-and-forget — analytics events that tolerate occasional loss.
  * Correct for: flight_search, hotel_search, product_view, jade_started, etc.
  * Never await this; never use for financial events.
+ *
+ * P2002 (unique_constraint_violation on eventId) is silently treated as a
+ * successful dedup — the first insert won and the retry is a no-op.
  */
 export function trackCommercialEvent(
   event: CommercialEventName,
   opts: TrackOptions = {},
 ): void {
   prisma.commercialEvent.create({ data: buildData(event, opts) }).catch(err => {
+    // P2002: unique violation on eventId — expected for webhook retries. Silent no-op.
+    if ((err as { code?: string }).code === 'P2002') return
     console.warn('[CommercialEvent] insert failed (non-fatal):', (err as Error).message)
   })
 }
@@ -104,6 +130,9 @@ export function trackCommercialEvent(
  * Callers MUST wrap in try/catch — a tracking failure must never
  * propagate to the business transaction.
  *
+ * P2002 (unique_constraint_violation on eventId) is treated as a successful
+ * dedup — the first insert won, the caller's intent is satisfied.
+ *
  * Example:
  *   try { await trackDurableEvent('payment_succeeded', opts) } catch {}
  */
@@ -111,7 +140,13 @@ export async function trackDurableEvent(
   event: CommercialEventName,
   opts: TrackOptions = {},
 ): Promise<void> {
-  await prisma.commercialEvent.create({ data: buildData(event, opts) })
+  try {
+    await prisma.commercialEvent.create({ data: buildData(event, opts) })
+  } catch (err) {
+    // P2002 when eventId is set: duplicate insert from a webhook retry. No-op — first write won.
+    if ((err as { code?: string }).code === 'P2002' && opts.eventId) return
+    throw err
+  }
 }
 
 function generateId(): string {

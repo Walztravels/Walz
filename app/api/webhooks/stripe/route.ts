@@ -8,7 +8,7 @@ import { getConfig }           from '@/lib/concierge/suppliers/comfortpass/confi
 import { ComfortPassAdapter }  from '@/lib/concierge/suppliers/comfortpass/adapter'
 import type { CPPassenger }    from '@/lib/concierge/suppliers/comfortpass/types'
 import { bookCartActivities, parseCartItems } from '@/lib/activities/booking'
-import { trackCommercialEvent, recordCrossSellPurchased, recordPostBookingUpsellPurchased } from '@/lib/commercial/track'
+import { trackCommercialEvent, recordCrossSellPurchased, recordPostBookingUpsellPurchased, propagateJadeAttribution } from '@/lib/commercial/track'
 import { recordPaymentSucceeded } from '@/lib/commercial/payment'
 import { setTripPaid } from '@/lib/trips/lifecycle'
 import { createOrUpdateOpportunity, markCartRecovered, resolveAssignment } from '@/lib/recovery/opportunity'
@@ -240,6 +240,33 @@ export async function POST(request: NextRequest) {
             tripId:    session.metadata?.walz_trip_id    ?? null,
             sessionId: session.metadata?.walz_session_id ?? null,
           })
+        }
+
+        // ── Jade attribution (4D.1) ──────────────────────────────────────────────
+        // When checkout originated from a Jade-assisted session, propagate attribution
+        // and fire jade_checkout_converted after authoritative payment confirmation.
+        if (session.payment_status === 'paid' && session.metadata?.jade_assisted === 'true') {
+          const jadeLead   = session.metadata?.walz_lead_id  ?? null
+          const jadeTripId = session.metadata?.walz_trip_id  ?? null
+
+          // propagateJadeAttribution updates Booking.jadeAssisted for admin-created bookings.
+          // For self-service Trip checkouts (no Booking record) this is a no-op; the event
+          // below is the authoritative attribution signal.
+          if (jadeLead) {
+            propagateJadeAttribution(session.id, jadeLead).catch(() => {})
+          }
+
+          // jade_checkout_converted — deduplicated via eventId unique index
+          prisma.commercialEvent.create({
+            data: {
+              eventId:  `jade_checkout_converted:STRIPE:${session.id}`.slice(0, 64),
+              event:    'jade_checkout_converted',
+              leadId:   jadeLead ?? undefined,
+              currency: session.currency?.toUpperCase() ?? undefined,
+              amount:   (session.amount_total ?? 0) / 100,
+              metadata: { stripeSessionId: session.id, tripId: jadeTripId },
+            },
+          }).catch(() => {}) // P2002 on duplicate → silent no-op
         }
 
         // Visa application service fee

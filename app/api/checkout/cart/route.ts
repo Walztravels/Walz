@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse }  from 'next/server'
 import { stripe }                     from '@/lib/stripe'
+import prisma                         from '@/lib/db'
 import { trackDurableEvent }          from '@/lib/commercial/track'
 import { revalidateTripActivityItem } from '@/lib/trips/revalidate'
 import { revalidateHotelTripItem }    from '@/lib/trips/revalidate-hotel'
@@ -39,6 +40,56 @@ export async function POST(req: NextRequest) {
 
   if (!items?.length) {
     return NextResponse.json({ error: 'Cart is empty' }, { status: 400 })
+  }
+
+  // ── Stale-item gate (S4) ──────────────────────────────────────────────────
+  // Server-authoritative check: query TripItem.metadata from the DB rather than
+  // trusting the client payload. Stale items must be re-searched before checkout.
+  if (tripId) {
+    const staleRows = await prisma.$queryRaw<Array<{ id: string; title: string; stale_reason: string }>>`
+      SELECT id, title, (metadata->>'staleReason')::text AS stale_reason
+      FROM "TripItem"
+      WHERE "tripId" = ${tripId}
+        AND confirmed = false
+        AND metadata->>'staleReason' IS NOT NULL
+    `
+    if (staleRows.length > 0) {
+      return NextResponse.json({
+        error:   'STALE_ITEMS',
+        message: 'Some items in your trip are no longer valid (dates or traveller count changed). Please re-search those items before proceeding to checkout.',
+        items:   staleRows.map(r => ({ id: r.id, title: r.title, staleReason: r.stale_reason })),
+      }, { status: 422 })
+    }
+  }
+
+  // ── DB price override (security) ─────────────────────────────────────────
+  // When tripId is present ALL items MUST be verified against TripItem.cost in the DB.
+  // Browser-supplied prices are NEVER authoritative; items without a DB record are rejected.
+  // This prevents DevTools price tampering (client sends price:1 → server charges DB price).
+  if (tripId) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const itemIds = items.map((i: any) => i.id).filter((id: unknown): id is string => typeof id === 'string' && id.length > 0)
+    if (itemIds.length > 0) {
+      const dbItems = await prisma.tripItem.findMany({
+        where:  { tripId: tripId as string, id: { in: itemIds } },
+        select: { id: true, cost: true },
+      })
+      const dbPriceMap = new Map(dbItems.map(i => [i.id, i.cost]))
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      for (const item of items as any[]) {
+        if (typeof item.id === 'string' && item.id.length > 0) {
+          if (!dbPriceMap.has(item.id)) {
+            return NextResponse.json({
+              error:   'ITEM_NOT_FOUND',
+              message: 'One or more items could not be verified from trip records. Please refresh your cart.',
+              items:   [{ title: item.title ?? item.id }],
+            }, { status: 422 })
+          }
+          item.price          = dbPriceMap.get(item.id) ?? item.price
+          item._priceVerified = true
+        }
+      }
+    }
   }
 
   // ── Mixed-currency guard ───────────────────────────────────────────────────
@@ -115,6 +166,14 @@ export async function POST(req: NextRequest) {
         items:   failed.map(r => ({ title: (r.item as any).title })),
       }, { status: 422 })
     }
+
+    // All Viator items passed — apply supplier-authoritative price and mark verified.
+    // result.latestPrice is always set on UNCHANGED status (server-side Viator API price).
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    for (const { item, result } of revalResults as Array<{ item: any; result: any }>) {
+      item.price          = result.latestPrice ?? item.price
+      item._priceVerified = true
+    }
   }
 
   // ── Hotelbeds hotel revalidation at checkout ──────────────────────────────
@@ -171,6 +230,13 @@ export async function POST(req: NextRequest) {
         items:   hotelFailed.map(r => ({ title: (r.item as any).title })),
       }, { status: 422 })
     }
+
+    // All hotel items passed — apply Hotelbeds-authoritative price and mark verified.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    for (const { item, result } of hotelRevalResults as Array<{ item: any; result: any }>) {
+      item.price          = result.latestPrice ?? item.price
+      item._priceVerified = true
+    }
   }
 
   // ── Flight offer expiry check at checkout ─────────────────────────────────
@@ -187,6 +253,25 @@ export async function POST(req: NextRequest) {
       message: 'One or more flight offers have expired. Please search again for the latest fares.',
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       items:   expiredFlights.map((i: any) => ({ title: i.title })),
+    }, { status: 422 })
+  }
+
+  // ── Authoritative price gate ──────────────────────────────────────────────
+  // Every item MUST have been price-verified by a server-side source:
+  //   - Trip items (any type):    TripItem.cost from DB       → _priceVerified = true
+  //   - Viator activities:        Viator API latestPrice      → _priceVerified = true
+  //   - Hotelbeds hotels:         Hotelbeds checkrate price   → _priceVerified = true
+  // Items that reach this gate unverified (e.g. flights, transfers, eSIM without tripId)
+  // have no server-side price authority — they are rejected. Browser prices are NEVER
+  // authoritative; this gate prevents DevTools tampering from reaching a payment session.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const unverifiedItems = (items as any[]).filter((i: any) => !i._priceVerified)
+  if (unverifiedItems.length > 0) {
+    return NextResponse.json({
+      error:   'PRICE_UNVERIFIABLE',
+      message: 'One or more items cannot be price-verified from server records. All items must go through the Walz trip system before checkout.',
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      items:   unverifiedItems.map((i: any) => ({ type: i.type, title: i.title })),
     }, { status: 422 })
   }
 

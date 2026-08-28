@@ -1,12 +1,21 @@
 // Client action endpoint — accept, decline, or request changes on a quote.
 // All responses are deliberately minimal — no supplier costs or internal data.
+//
+// Release 4D-C:
+//   - Blocks DRAFT proposal acceptance (customer cannot accept before staff sends)
+//   - Fires proposal_accepted CommercialEvent on acceptance
+//   - Returns checkoutUrl when accepted quote has a linked Trip (SENT→accepted only)
 
-import { NextRequest, NextResponse } from 'next/server'
-import crypto from 'crypto'
-import prisma from '@/lib/db'
+import { NextRequest, NextResponse }  from 'next/server'
+import crypto                         from 'crypto'
+import prisma                         from '@/lib/db'
 import { sendQuoteActionNotification } from '@/lib/email-quote-proposal'
+import { createCheckoutToken }        from '@/lib/checkout/token'
+import { trackCommercialEvent }       from '@/lib/commercial/track'
 
 export const dynamic = 'force-dynamic'
+
+const SITE = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://www.walztravels.com'
 
 function hashToken(raw: string) {
   return crypto.createHash('sha256').update(raw).digest('hex')
@@ -28,6 +37,10 @@ export async function POST(
   }
   if (new Date() > quote.validUntil) {
     return NextResponse.json({ error: 'This quote has expired.' }, { status: 410 })
+  }
+  if (quote.status === 'draft') {
+    // DRAFT proposals are under staff review — customer cannot accept until SENT
+    return NextResponse.json({ error: 'This proposal is still under review. You will receive an email when it is ready.' }, { status: 403 })
   }
   if (['cancelled', 'archived', 'expired'].includes(quote.status)) {
     return NextResponse.json({ error: 'This quote is no longer active.' }, { status: 410 })
@@ -110,7 +123,33 @@ export async function POST(
       }).catch(() => {})
     }
 
-    return NextResponse.json({ accepted: true })
+    // Fire proposal_accepted commercial event (was missing before 4D-C)
+    void trackCommercialEvent('proposal_accepted', {
+      leadId:   quote.leadId ?? undefined,
+      metadata: { quoteId: quote.id, reference: quote.reference, tripId: quote.tripId ?? undefined },
+    })
+
+    // Generate checkout URL if this quote has a linked Trip (SENT→accepted flow)
+    // DRAFT proposals do not reach this point (blocked above)
+    let checkoutUrl: string | undefined
+    if (quote.tripId && process.env.JADE_CHECKOUT_HANDOFF_ENABLED === 'true') {
+      try {
+        const linkedTrip = await prisma.trip.findUnique({
+          where:  { id: quote.tripId },
+          select: { userId: true, sessionId: true, status: true },
+        })
+        // Only generate URL if trip is in a checkable state
+        if (linkedTrip && ['DRAFT', 'PLANNING', 'CHECKOUT_STARTED'].includes(linkedTrip.status)) {
+          const ownerId = linkedTrip.userId ?? linkedTrip.sessionId
+          if (ownerId) {
+            const token = createCheckoutToken(quote.tripId, ownerId)
+            checkoutUrl = `${SITE}/checkout/trip/${quote.tripId}?ct=${encodeURIComponent(token)}`
+          }
+        }
+      } catch { /* non-fatal — checkout URL is a convenience, not required */ }
+    }
+
+    return NextResponse.json({ accepted: true, ...(checkoutUrl ? { checkoutUrl } : {}) })
   }
 
   if (action === 'decline') {

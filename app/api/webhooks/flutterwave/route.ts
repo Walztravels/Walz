@@ -1,7 +1,8 @@
-import { NextRequest, NextResponse } from 'next/server'
-import prisma from '@/lib/db'
-import { recordPaymentSucceeded } from '@/lib/commercial/payment'
-import { setTripPaid }            from '@/lib/trips/lifecycle'
+import { NextRequest, NextResponse }          from 'next/server'
+import prisma                                 from '@/lib/db'
+import { recordPaymentSucceeded }             from '@/lib/commercial/payment'
+import { setTripPaid }                        from '@/lib/trips/lifecycle'
+import { handleSuccessfulTripPayment }        from '@/lib/payments/handle-success'
 
 export async function POST(req: NextRequest) {
   const hash = req.headers.get('verif-hash')
@@ -58,6 +59,25 @@ export async function POST(req: NextRequest) {
       const sessionId = meta?.walz_session_id as string | undefined
       if (tripId || sessionId) {
         void setTripPaid({ tripId: tripId ?? null, sessionId: sessionId ?? null })
+
+        // Run shared trip-payment orchestration: CartSession.convertedAt,
+        // Jade attribution, jade_checkout_converted event, bookCartActivities.
+        const customer = data.customer as Record<string, unknown> | undefined
+        handleSuccessfulTripPayment({
+          provider:          'FLUTTERWAVE',
+          providerPaymentId: String(data.id),
+          tripId:            tripId    ?? null,
+          sessionId:         sessionId ?? null,
+          leadId:            (meta?.walz_lead_id as string | undefined) ?? null,
+          jadeAssisted:      meta?.jade_assisted === 'true',
+          amount:            typeof data.amount === 'number' ? data.amount : 0,
+          currency:          (data.currency as string | undefined)?.toUpperCase() ?? 'NGN',
+          holder: {
+            name:  String(customer?.name  ?? 'Valued Customer'),
+            email: String(customer?.email ?? ''),
+            phone: customer?.phone_number ? String(customer.phone_number) : undefined,
+          },
+        }).catch(err => console.error('[FLW] handleSuccessfulTripPayment failed:', err))
       }
     }
 

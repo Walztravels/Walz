@@ -4661,7 +4661,13 @@ model MotivationHistory {
 
 model CommercialEvent {
   id          String   @id @default(cuid())
-  eventId     String?  // client-supplied dedup key (browser events only)
+  // eventId is the idempotency anchor for authoritative lifecycle events.
+  // Non-null eventIds are unique enforced by the DB partial unique index
+  // "CommercialEvent_eventId_unique" (WHERE eventId IS NOT NULL) — NOT by
+  // Prisma @unique, because Prisma cannot represent partial indexes and an
+  // unrestricted @unique would block multiple NULL rows. See:
+  // prisma/migrations/manual/release_4e_a1_event_idempotency.sql
+  eventId     String?
   event       String   // flight_search | hotel_search | activity_search | product_view | lead_created | checkout_started | payment_started | payment_succeeded | booking_confirmed | jade_started | jade_trip_intent | supplier_booking_failed | transfer_search
   sessionId   String?
   userId      String?

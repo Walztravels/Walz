@@ -1,6 +1,12 @@
 import { NextResponse } from 'next/server'
 import prisma from '@/lib/db'
 import Anthropic from '@anthropic-ai/sdk'
+import { buildDateRange, buildJadeAnalyticsContext } from '@/lib/commercial/metrics'
+import {
+  getExecutiveMetrics,
+  getRecoveryMetrics,
+  getJadeFunnel,
+} from '@/lib/commercial/jade-analytics'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 60
@@ -227,6 +233,46 @@ Reply ONLY with valid JSON (no markdown, no code fences):
     }
   }
 
+  // ── Jade commerce snapshot (Phase 4) ─────────────────────────────────────────
+  // Graceful fallback: commerce failure must NOT prevent brief generation.
+  // No LLM involved — only authoritative DB metrics.
+  type CommerceSnapshot = {
+    date: string
+    leads: number | null
+    trips: number | null
+    paymentsCaptured: number | null
+    confirmedBookings: number | null
+    funnelStages: Array<{ label: string; count: number }> | null
+    openRecovery: number | null
+    recoveredToday: number | null
+  }
+  let commerceSnapshot: CommerceSnapshot | null = null
+  if (process.env.JADE_COMMERCE_ANALYTICS_ENABLED === 'true') {
+    try {
+      const todayRange = buildDateRange('today')
+      const jadeCtx    = await buildJadeAnalyticsContext(todayRange)
+      const jadeOpts   = { range: todayRange, jadeFilter: 'JADE_ASSISTED' as const }
+      const [exec, funnel, recovery4e] = await Promise.allSettled([
+        getExecutiveMetrics(jadeOpts, jadeCtx),
+        getJadeFunnel(todayRange, jadeCtx),
+        getRecoveryMetrics(jadeOpts, jadeCtx),
+      ])
+      commerceSnapshot = {
+        date:              today,
+        leads:             exec.status === 'fulfilled' ? exec.value.leads             : null,
+        trips:             exec.status === 'fulfilled' ? exec.value.trips             : null,
+        paymentsCaptured:  exec.status === 'fulfilled' ? exec.value.paymentsCaptured  : null,
+        confirmedBookings: exec.status === 'fulfilled' ? exec.value.confirmedBookings : null,
+        funnelStages:      funnel.status  === 'fulfilled' ? funnel.value.stages.map(s => ({ label: s.label, count: s.count })) : null,
+        openRecovery:      recovery4e.status === 'fulfilled' ? recovery4e.value.openCount    : null,
+        recoveredToday:    recovery4e.status === 'fulfilled' ? recovery4e.value.recoveredCount : null,
+      }
+    } catch (e) {
+      console.warn('[jade-brief] commerce snapshot failed (non-fatal):', e)
+      commerceSnapshot = null
+    }
+  }
+
   // ── Build and persist the brief ───────────────────────────────────────────────
   const contentJson = {
     announcements: announcements.map(a => ({
@@ -243,6 +289,7 @@ Reply ONLY with valid JSON (no markdown, no code fences):
     visa:      visaItems,
     urgentCount,
     recovery:  recoverySnapshot,
+    commerce:  commerceSnapshot,
   }
 
   const brief = await prisma.jadeDailyBrief.create({

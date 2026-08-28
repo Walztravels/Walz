@@ -258,10 +258,11 @@ export async function POST(req: NextRequest) {
     sessionId: sessionId || null,
   }
 
-  const liveSearchEnabled      = process.env.JADE_LIVE_SEARCH_ENABLED      === 'true'
-  const tripBuilderEnabled     = process.env.JADE_TRIP_BUILDER_ENABLED     === 'true'
-  const tripRefinementEnabled  = process.env.JADE_TRIP_REFINEMENT_ENABLED  === 'true'
-  const proposalEnabled        = process.env.JADE_PROPOSAL_ENABLED         === 'true'
+  const liveSearchEnabled       = process.env.JADE_LIVE_SEARCH_ENABLED        === 'true'
+  const tripBuilderEnabled      = process.env.JADE_TRIP_BUILDER_ENABLED       === 'true'
+  const tripRefinementEnabled   = process.env.JADE_TRIP_REFINEMENT_ENABLED    === 'true'
+  const proposalEnabled         = process.env.JADE_PROPOSAL_ENABLED           === 'true'
+  const checkoutHandoffEnabled  = process.env.JADE_CHECKOUT_HANDOFF_ENABLED   === 'true'
 
   // Build unified tool list — trip tools + search tools + refinement tools (filtered by flag)
   const tripToolSchemas: Anthropic.Tool[]       = tripWriteEnabled       ? (JADE_TRIP_TOOL_SCHEMAS        as Anthropic.Tool[]) : []
@@ -271,9 +272,11 @@ export async function POST(req: NextRequest) {
       ) as Anthropic.Tool[])
     : []
   const refinementToolSchemas: Anthropic.Tool[] = tripRefinementEnabled
-    ? (JADE_REFINEMENT_TOOL_SCHEMAS.filter(t =>
-        t.name !== 'create_trip_proposal' || proposalEnabled,
-      ) as Anthropic.Tool[])
+    ? (JADE_REFINEMENT_TOOL_SCHEMAS.filter(t => {
+        if (t.name === 'create_trip_proposal')  return proposalEnabled
+        if (t.name === 'prepare_trip_checkout') return checkoutHandoffEnabled
+        return true
+      }) as Anthropic.Tool[])
     : []
 
   const allTools: Anthropic.Tool[] = [...tripToolSchemas, ...searchToolSchemas, ...refinementToolSchemas]
@@ -304,6 +307,9 @@ export async function POST(req: NextRequest) {
     systemPrompt += `\n\n## TRIP REFINEMENT TOOLS\nYou have access to: replace_trip_item, update_trip_preferences, get_trip_commercial_summary.\n- replace_trip_item: use when customer wants to swap one item for another (e.g. "change my hotel to this one"). Always call get_trip first to confirm the item is not purchased/confirmed.\n- update_trip_preferences: use when dates, traveller count, budget, or flight/hotel preferences change. When this marks items stale, prompt the customer to re-search.\n- get_trip_commercial_summary: use before discussing budget, recommending cheaper alternatives, or checking what's missing from the trip.\n- staleReason on an item means its price or availability may be invalid — always prompt re-search for stale items before finalising.`
     if (proposalEnabled) {
       systemPrompt += `\n\n## PROPOSAL TOOL\nYou have access to create_trip_proposal. Call it ONLY when the customer explicitly requests a quote or proposal (e.g. "can you send me a quote?", "I'd like a proposal"). It creates a DRAFT — staff review and send it. Confirm the customer wants a proposal before calling. Never call it on your own initiative.`
+    }
+    if (checkoutHandoffEnabled) {
+      systemPrompt += `\n\n## CHECKOUT HANDOFF TOOL\nYou have access to prepare_trip_checkout. Call it when the customer says they're ready to book (e.g. "I'm happy with this trip", "let's book it", "how do I pay?"). It validates availability, checks current prices, and returns a secure review URL.\n- ONLY pass trip_id — never pass amount, currency, or price\n- If status is READY: share the reviewUrl with the customer: "Your trip is ready — [Review & Continue to Payment](reviewUrl)"\n- If status is ACTION_REQUIRED (price changed): tell the customer what changed, share the reviewUrl: "One price has changed. [Review Updated Prices](reviewUrl)"\n- If status is BLOCKED (sold out / expired / stale): do NOT share a URL. Tell the customer which items need attention and offer to re-search\n- NEVER say the trip is "booked" or "confirmed" — payment and supplier confirmation are separate steps\n- After payment: correct language is "Payment received — we're confirming your reservations"`
     }
   }
 

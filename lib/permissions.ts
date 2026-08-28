@@ -366,6 +366,7 @@ export const ROUTE_PERMISSIONS: Record<string, PermissionKey> = {
   '/admin/settings':    'settings_view',
   '/admin/cms':         'cms_view',
   '/admin/roles':       'roles_view',
+  '/admin/revenue':     'reports_revenue',
 }
 
 // ─── Master permission groups ─────────────────────────────────────────────────

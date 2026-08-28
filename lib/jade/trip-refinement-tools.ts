@@ -2,6 +2,7 @@
 // Release 4C-A — Trip refinement: replace_trip_item, update_trip_preferences,
 //                get_trip_commercial_summary
 // Release 4C-C — Proposal creation: create_trip_proposal
+// Release 4D-A — Checkout handoff: prepare_trip_checkout
 //
 // SECURITY invariants (identical to trip-tools.ts):
 //   - Ownership validated before every read or write
@@ -17,6 +18,7 @@ import {
   getTripItemFulfillmentStatus,
 }                                  from '@/lib/trips/fulfillment'
 import { resolveSearchRef }        from './search-ref'
+import { prepareJadeTripCheckout } from './checkout-handoff'
 import type { JadeTripToolContext } from './trip-tools'
 
 // ── Protected fulfillment statuses ────────────────────────────────────────────
@@ -89,6 +91,17 @@ export const JADE_REFINEMENT_TOOL_SCHEMAS = [
       required: ['trip_id'],
     },
   },
+  {
+    name:        'prepare_trip_checkout',
+    description: "Prepare a trip for checkout. Call when the customer says they're ready to book. Validates ownership, checks availability and current prices, then returns a secure review URL the customer clicks to review and pay. Never call this to charge or process payment — it only prepares a review link. Do NOT pass any price or amount — only trip_id.",
+    input_schema: {
+      type: 'object',
+      properties: {
+        trip_id: { type: 'string', description: 'The trip ID to prepare for checkout' },
+      },
+      required: ['trip_id'],
+    },
+  },
 ]
 
 // ── Ownership helper (mirrors trip-tools.ts) ──────────────────────────────────
@@ -121,6 +134,7 @@ export async function executeJadeRefinementTool(
       case 'update_trip_preferences':    return await updateTripPreferences(input, ctx)
       case 'get_trip_commercial_summary':return await getTripCommercialSummary(input, ctx)
       case 'create_trip_proposal':       return await createTripProposal(input, ctx)
+      case 'prepare_trip_checkout':      return await prepareJadeTripCheckout(input, ctx)
       default: return JSON.stringify({ error: `Unknown refinement tool: ${name}` })
     }
   } catch (err) {
@@ -190,29 +204,31 @@ async function replaceTripItem(
   const itemType = itemTypeMap[ref.productType]
   if (!itemType) return JSON.stringify({ error: `Unsupported product type: ${ref.productType}` })
 
-  // Create new item first — if this fails, the old item is untouched
-  const newItem = await prisma.tripItem.create({
-    data: {
-      tripId,
-      type:      itemType as never,
-      title:     ref.title,
-      location:  (ref.details.destination as string | undefined) ??
-                 (ref.details.zone        as string | undefined) ??
-                 (ref.details.country     as string | undefined) ?? null,
-      startTime: (ref.details.departure   as string | undefined) ??
-                 (ref.details.checkIn     as string | undefined) ??
-                 (ref.details.date        as string | undefined) ?? null,
-      cost:      ref.sellingPrice,
-      currency:  ref.currency,
-      confirmed: false,
-      ...(notes ? { notes } : {}),
-      metadata:  ref.supplierPayload as never,
-    },
-    select: { id: true, type: true, title: true, location: true, startTime: true, cost: true, currency: true },
-  })
-
-  // Delete old item
-  await prisma.tripItem.delete({ where: { id: oldItemId } })
+  // Atomic swap: create new item + delete old in one transaction.
+  // If delete fails, the create is rolled back — no orphan items.
+  const txResult = await prisma.$transaction([
+    prisma.tripItem.create({
+      data: {
+        tripId,
+        type:      itemType as never,
+        title:     ref.title,
+        location:  (ref.details.destination as string | undefined) ??
+                   (ref.details.zone        as string | undefined) ??
+                   (ref.details.country     as string | undefined) ?? null,
+        startTime: (ref.details.departure   as string | undefined) ??
+                   (ref.details.checkIn     as string | undefined) ??
+                   (ref.details.date        as string | undefined) ?? null,
+        cost:      ref.sellingPrice,
+        currency:  ref.currency,
+        confirmed: false,
+        ...(notes ? { notes } : {}),
+        metadata:  ref.supplierPayload as never,
+      },
+      select: { id: true, type: true, title: true, location: true, startTime: true, cost: true, currency: true },
+    }),
+    prisma.tripItem.delete({ where: { id: oldItemId } }),
+  ])
+  const newItem = txResult[0]
 
   prisma.commercialEvent.create({
     data: {
@@ -312,7 +328,7 @@ async function updateTripPreferences(
     const staleJson = JSON.stringify({ staleReason: 'dates_changed', staleAt: new Date().toISOString() })
     await prisma.$executeRaw`
       UPDATE "TripItem"
-      SET metadata = metadata || ${staleJson}::jsonb
+      SET metadata = COALESCE(metadata, '{}'::jsonb) || ${staleJson}::jsonb
       WHERE "tripId" = ${tripId} AND confirmed = false
     `
   } else if (travellersChanged) {
@@ -320,7 +336,7 @@ async function updateTripPreferences(
     const staleJson = JSON.stringify({ staleReason: 'travellers_changed', staleAt: new Date().toISOString() })
     await prisma.$executeRaw`
       UPDATE "TripItem"
-      SET metadata = metadata || ${staleJson}::jsonb
+      SET metadata = COALESCE(metadata, '{}'::jsonb) || ${staleJson}::jsonb
       WHERE "tripId" = ${tripId} AND confirmed = false
     `
   }
@@ -463,6 +479,28 @@ async function createTripProposal(
       select: { id: true },
     })
     leadId = lead?.id ?? null
+  }
+
+  // Idempotency guard: return existing DRAFT proposal if one already exists for this trip
+  const existingDraft = await prisma.quote.findFirst({
+    where:  { tripId, status: 'draft' },
+    select: { id: true, reference: true },
+  })
+  if (existingDraft) {
+    prisma.commercialEvent.create({
+      data: {
+        event:    'jade_proposal_requested',
+        userId:   ctx.userId,
+        leadId:   leadId ?? undefined,
+        metadata: { tripId, existingReference: existingDraft.reference, source: 'jade_chat', duplicate: true },
+      },
+    }).catch(() => {})
+    return JSON.stringify({
+      ok:                true,
+      proposalReference: existingDraft.reference,
+      message: `A proposal (ref: ${existingDraft.reference}) was already created for this trip and is awaiting staff review. We'll be in touch within 24 hours.`,
+      note:    'No new proposal was created — an existing draft was found.',
+    })
   }
 
   // Only include items in the trip currency — never mix currencies in a Quote

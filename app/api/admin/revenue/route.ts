@@ -1,6 +1,31 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getAdminSession }          from '@/lib/admin-auth'
 import prisma                       from '@/lib/db'
+import {
+  buildDateRange,
+  previousPeriod,
+  buildJadeAnalyticsContext,
+  REPORTING_TIMEZONE,
+  type DateRangePreset,
+  type JadeAnalyticsContext,
+} from '@/lib/commercial/metrics'
+import {
+  getExecutiveMetrics,
+  getGBVBuckets,
+  getJadeContribution,
+  getJadeFunnel,
+  getSearchAnalytics,
+  getProductAnalytics,
+  getProposalAnalytics,
+  getCheckoutAnalytics,
+  getPaymentAnalytics,
+  getFulfillmentAnalytics,
+  getRecoveryMetrics,
+  getLeadQualityAnalytics,
+  getJadeToolPerformance,
+  getStaffAnalytics,
+  getDataHealthDiagnostics,
+} from '@/lib/commercial/jade-analytics'
 
 export const dynamic = 'force-dynamic'
 
@@ -13,10 +38,12 @@ function daysAgo(n: number) {
   return d
 }
 
-const FINANCE_ROLES = new Set(['super_admin', 'general_manager'])
-
+// 4E-A.1: Use the typed PermissionKey `reports_revenue` (already in lib/permissions.ts).
+// super_admin/general_manager/operations_manager/accountant all receive reports_revenue = true
+// in ROLE_DEFAULTS. Additional staff may be granted it via per-staff permission overrides.
+// Do NOT check hardcoded role names — use the RBAC system.
 function hasRevenueAccess(session: { role: string; permissions: Record<string, boolean> }) {
-  return FINANCE_ROLES.has(session.role) || session.permissions.finance_revenue_view === true
+  return session.permissions.reports_revenue === true
 }
 
 export async function GET(req: NextRequest) {
@@ -162,7 +189,9 @@ export async function GET(req: NextRequest) {
   ])
 
   // ── Recovery analytics (Release 3D) ─────────────────────────────────────
-  const isManagement = FINANCE_ROLES.has(session.role)
+  // isManagement: use reports_revenue permission for consistency with the gate above.
+  // Staff without this permission get scoped results; management see all.
+  const isManagement = session.permissions.reports_revenue === true
 
   const [
     openOppsByCurrency,
@@ -302,6 +331,165 @@ export async function GET(req: NextRequest) {
   const funnelData = FUNNEL_STEPS.map(step => ({ event: step, count: eventMap[step] ?? 0 }))
   const trackingStarted = commercialEventFunnel.length > 0
 
+  // ── Jade Commerce Analytics (Release 4E-B → 4E-F) ─────────────────────────
+  const jadeAnalyticsEnabled = process.env.JADE_COMMERCE_ANALYTICS_ENABLED === 'true'
+  let jadeAnalytics: Record<string, unknown> = { enabled: false }
+
+  if (jadeAnalyticsEnabled) {
+    // Phase 3: Support custom date range via ?jadeRange=custom&from=YYYY-MM-DD&to=YYYY-MM-DD
+    const VALID_JADE_PRESETS = ['today', 'yesterday', '7d', '30d', 'this_month', 'last_month']
+    const rawJadeRange = url.searchParams.get('jadeRange') ?? '30d'
+    const isoDateRe    = /^\d{4}-\d{2}-\d{2}$/
+    let jadeRange
+    if (rawJadeRange === 'custom') {
+      const fromStr = url.searchParams.get('from') ?? ''
+      const toStr   = url.searchParams.get('to')   ?? ''
+      if (isoDateRe.test(fromStr) && isoDateRe.test(toStr) && fromStr <= toStr) {
+        jadeRange = buildDateRange({ from: fromStr, to: toStr })
+      } else {
+        jadeRange = buildDateRange('30d')  // invalid custom params → safe fallback
+      }
+    } else {
+      const jadePreset = (VALID_JADE_PRESETS.includes(rawJadeRange) ? rawJadeRange : '30d') as DateRangePreset
+      jadeRange = buildDateRange(jadePreset)
+    }
+    const jadePrevRange = previousPeriod(jadeRange)
+
+    const jadeOpts     = { range: jadeRange,     jadeFilter: 'JADE_ASSISTED' as const }
+    const jadePrevOpts = { range: jadePrevRange, jadeFilter: 'JADE_ASSISTED' as const }
+
+    // Phase 11: build Jade analytics context once; all functions reuse the pre-fetched lead IDs.
+    const jadeCtx: JadeAnalyticsContext = await buildJadeAnalyticsContext(jadeRange)
+    const jadePrevCtx: JadeAnalyticsContext = { allJadeLeadIds: jadeCtx.allJadeLeadIds, rangeJadeLeadIds: [] }
+
+    // All analytics run in parallel; section-level errors isolated via Promise.allSettled
+    const [
+      execRes, execPrevRes, gbvRes, contributionRes, funnelRes,
+      searchRes, productsRes, proposalsRes, checkoutRes, paymentsRes,
+      fulfillmentRes, recoveryRes, leadQualityRes, staffRes, jadeToolsRes, dataHealthRes,
+    ] = await Promise.allSettled([
+      getExecutiveMetrics(jadeOpts, jadeCtx),
+      getExecutiveMetrics(jadePrevOpts, jadePrevCtx),
+      getGBVBuckets(jadeOpts, jadeCtx),
+      getJadeContribution(jadeRange, jadeCtx),
+      getJadeFunnel(jadeRange, jadeCtx),
+      getSearchAnalytics(jadeRange),
+      getProductAnalytics(jadeRange, jadeCtx),
+      getProposalAnalytics(jadeOpts, jadeCtx),
+      getCheckoutAnalytics(jadeRange),
+      getPaymentAnalytics(jadeRange),
+      getFulfillmentAnalytics(jadeOpts, jadeCtx),
+      getRecoveryMetrics(jadeOpts, jadeCtx),
+      getLeadQualityAnalytics(jadeOpts, jadeCtx),
+      isManagement ? getStaffAnalytics(jadeRange) : Promise.resolve(null),
+      getJadeToolPerformance(jadeRange),
+      isManagement ? getDataHealthDiagnostics() : Promise.resolve(null),
+    ])
+
+    function unwrap<T>(res: PromiseSettledResult<T>, name: string): T | null {
+      if (res.status === 'fulfilled') return res.value
+      console.error(`[4E] jade.${name} failed:`, (res.reason as Error)?.message ?? res.reason)
+      return null
+    }
+
+    const executive    = unwrap(execRes, 'executive')
+    const execPrev     = unwrap(execPrevRes, 'executivePrev')
+    const gbv          = unwrap(gbvRes, 'gbv')
+    const contribution = unwrap(contributionRes, 'contribution')
+    const funnel       = unwrap(funnelRes, 'funnel')
+    const search       = unwrap(searchRes, 'search')
+    const products     = unwrap(productsRes, 'products')
+    const proposals    = unwrap(proposalsRes, 'proposals')
+    const checkout     = unwrap(checkoutRes, 'checkout')
+    const payments     = unwrap(paymentsRes, 'payments')
+    const fulfillment  = unwrap(fulfillmentRes, 'fulfillment')
+    const recovery4e   = unwrap(recoveryRes, 'recovery')
+    const leadQuality  = unwrap(leadQualityRes, 'leadQuality')
+    const staff        = isManagement ? unwrap(staffRes, 'staff') : null
+    const jadeTools    = unwrap(jadeToolsRes, 'jadeTools')
+    const dataHealth   = isManagement ? unwrap(dataHealthRes, 'dataHealth') : null
+
+    // Funnel drop-offs — ordered by drop rate desc
+    const dropoffs = (funnel?.stages ?? [])
+      .slice(0, -1)
+      .map((stage, i) => {
+        const next = funnel!.stages[i + 1]
+        return {
+          from:     stage.label,
+          to:       next.label,
+          dropped:  Math.max(0, stage.count - next.count),
+          dropRate: stage.count > 0
+            ? Math.round(((stage.count - next.count) / stage.count) * 100)
+            : null,
+        }
+      })
+      .filter(d => d.dropped > 0)
+      .sort((a, b) => (b.dropRate ?? 0) - (a.dropRate ?? 0))
+
+    // Deterministic summary (no LLM)
+    const bCurr = executive?.confirmedBookings ?? 0
+    const bPrev = execPrev?.confirmedBookings  ?? 0
+    const bChange = bPrev > 0 ? Math.round(((bCurr - bPrev) / bPrev) * 100) : null
+    const bookingTrend = bChange === null
+      ? `${bCurr} Jade-assisted booking${bCurr !== 1 ? 's' : ''} confirmed this period`
+      : `Jade-assisted bookings ${bChange >= 0 ? 'up' : 'down'} ${Math.abs(bChange)}% vs prior period`
+    const largestDropoff = dropoffs[0]?.dropRate != null
+      ? `Largest funnel drop: ${dropoffs[0].from} → ${dropoffs[0].to} (${dropoffs[0].dropRate}% fall-off)`
+      : null
+    const pendingLines = (gbv?.pendingConfirmation ?? [])
+      .map(c => new Intl.NumberFormat('en-GB', { style: 'currency', currency: c.currency, maximumFractionDigits: 0 }).format(c.amount))
+      .join(', ')
+    const pendingConfirmation = (gbv?.pendingConfirmation?.length ?? 0) > 0
+      ? `${pendingLines} pending supplier confirmation`
+      : null
+
+    // Which sections had errors
+    const sectionErrors: Record<string, boolean> = {
+      executive: execRes.status === 'rejected', gbv: gbvRes.status === 'rejected',
+      contribution: contributionRes.status === 'rejected', funnel: funnelRes.status === 'rejected',
+      search: searchRes.status === 'rejected', products: productsRes.status === 'rejected',
+      proposals: proposalsRes.status === 'rejected', checkout: checkoutRes.status === 'rejected',
+      payments: paymentsRes.status === 'rejected', fulfillment: fulfillmentRes.status === 'rejected',
+      recovery: recoveryRes.status === 'rejected', leadQuality: leadQualityRes.status === 'rejected',
+      staff: staffRes.status === 'rejected', jadeTools: jadeToolsRes.status === 'rejected',
+      dataHealth: dataHealthRes.status === 'rejected',
+    }
+
+    jadeAnalytics = {
+      enabled:  true,
+      range:    { from: jadeRange.from.toISOString(),     to: jadeRange.to.toISOString(),     label: jadeRange.label },
+      previous: { from: jadePrevRange.from.toISOString(), to: jadePrevRange.to.toISOString() },
+      executive:    executive   ? { current: executive,  previous: execPrev  } : null,
+      gbv,
+      contribution,
+      funnel,
+      dropoffs,
+      search,
+      products,
+      proposals,
+      checkout,
+      payments,
+      fulfillment,
+      recovery:     recovery4e,
+      leadQuality,
+      staff,
+      jadeTools,
+      dataHealth,
+      summary:  { bookingTrend, largestDropoff, pendingConfirmation },
+      sectionErrors,
+      generatedAt:       new Date().toISOString(),
+      reportingTimezone: REPORTING_TIMEZONE,
+      knownLimitations: [
+        'Funnel stages 1–2 (Conversations, Searches) show all Jade tool interactions — not filtered to Jade-attributed leads.',
+        'Funnel is a snapshot (events/records in this range), not a cohort. A booking confirmed this period may have started last period.',
+        'No sandbox/test filtering is applied to behavioral data (CommercialEvent). Financial GBV (Trip/TripItem) also has no automated sandbox exclusion — exclude test trips via manual data hygiene.',
+        'Previous period comparison shifts the window back by the same duration — not calendar-month-aligned.',
+        'Staff and data health sections are management-only and absent for non-management sessions.',
+        'Partially Confirmed GBV shows total TripItem costs for the trip — not just the confirmed items within it.',
+      ],
+    }
+  }
+
   return NextResponse.json({
     window,
     trackingStartedAt: trackingStart?.createdAt ?? null,
@@ -365,6 +553,7 @@ export async function GET(req: NextRequest) {
     jade: {
       assistedBookings: jadeAssistedBookings,
       attributionWindowDays: parseInt(process.env.JADE_ATTRIBUTION_DAYS ?? '7', 10),
+      ...jadeAnalytics,
     },
 
     // Payment provider breakdown — from CommercialEvent metadata (post-Release 1.1 data only)

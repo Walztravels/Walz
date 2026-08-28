@@ -14,10 +14,11 @@ import prisma                       from '@/lib/db'
 
 export const dynamic = 'force-dynamic'
 
-const FINANCE_ROLES = new Set(['super_admin', 'general_manager'])
-
+// 4E-A.1: Use the typed PermissionKey `reports_revenue` (already in lib/permissions.ts).
+// super_admin/general_manager/operations_manager/accountant all receive reports_revenue = true
+// in ROLE_DEFAULTS. Do NOT check hardcoded role names — use the RBAC system.
 function hasRevenueAccess(session: { role: string; permissions: Record<string, boolean> }) {
-  return FINANCE_ROLES.has(session.role) || session.permissions.finance_revenue_view === true
+  return session.permissions.reports_revenue === true
 }
 
 function daysAgo(n: number) {

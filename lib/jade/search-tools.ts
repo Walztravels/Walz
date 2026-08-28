@@ -174,6 +174,7 @@ export async function executeJadeSearchTool(
     }
   } catch (err) {
     console.error(`[jade-search-tools] ${name} failed:`, err)
+    void trackCommercialEvent('jade_search_failed', { metadata: { tool: name, reason: (err as Error)?.message ?? 'unknown' } })
     return JSON.stringify({ error: 'Search temporarily unavailable — please try again in a moment.' })
   }
 }
@@ -223,10 +224,12 @@ async function execSearchFlights(input: Record<string, unknown>, ctx: JadeTripTo
     })
   } catch (err) {
     console.error('[jade] Duffel search error:', err)
+    void trackCommercialEvent('jade_search_failed', { metadata: { productType: 'flight', reason: (err as Error)?.message ?? 'unknown' } })
     return JSON.stringify({ error: 'Flight search is temporarily unavailable.' })
   }
 
   if (!raw.length) {
+    void trackCommercialEvent('jade_search_no_results', { metadata: { productType: 'flight', origin, destination: dest, departureDate: depDate } })
     return JSON.stringify({ ok: true, results: [], message: 'NO_RESULTS — No flights found for these parameters. Try different dates, nearby airports, or relax any filters.' })
   }
 
@@ -398,12 +401,14 @@ async function execSearchHotels(input: Record<string, unknown>, ctx: JadeTripToo
     })
   } catch (err) {
     console.error('[jade] Hotelbeds hotel search error:', err)
+    void trackCommercialEvent('jade_search_failed', { metadata: { productType: 'hotel', reason: (err as Error)?.message ?? 'unknown' } })
     return JSON.stringify({ error: 'Hotel search is temporarily unavailable.' })
   }
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const rawHotels: any[] = data?.hotels?.hotels ?? []
   if (!rawHotels.length) {
+    void trackCommercialEvent('jade_search_no_results', { metadata: { productType: 'hotel' } })
     return JSON.stringify({ ok: true, results: [], message: 'NO_RESULTS — No hotels found. Try relaxing filters, different dates, or a nearby destination.' })
   }
 
@@ -542,6 +547,7 @@ async function execSearchActivities(input: Record<string, unknown>, ctx: JadeTri
   }
 
   if (!activities.length) {
+    void trackCommercialEvent('jade_search_no_results', { metadata: { productType: 'activity' } })
     return JSON.stringify({ ok: true, results: [], message: 'NO_RESULTS — No activities found for this destination. Try a nearby city or broaden the search.' })
   }
 
@@ -663,6 +669,7 @@ async function execSearchTransfers(input: Record<string, unknown>, ctx: JadeTrip
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const services: any[] = Array.isArray(data?.services) ? data.services : []
   if (!services.length) {
+    void trackCommercialEvent('jade_search_no_results', { metadata: { productType: 'transfer' } })
     return JSON.stringify({ ok: true, results: [], message: 'NO_RESULTS — No transfers found between these locations.' })
   }
 
@@ -779,6 +786,7 @@ async function execSearchEsims(input: Record<string, unknown>, ctx: JadeTripTool
     : packages.filter(p => p.locationName.toLowerCase().includes((countryRaw ?? '').toLowerCase()))
 
   if (!filtered.length) {
+    void trackCommercialEvent('jade_search_no_results', { metadata: { productType: 'esim', country: countryRaw } })
     return JSON.stringify({ ok: true, results: [], message: `NO_RESULTS — No eSIM packages found for "${countryRaw}".` })
   }
 

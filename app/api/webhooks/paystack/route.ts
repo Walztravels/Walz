@@ -1,8 +1,9 @@
-import { NextRequest, NextResponse } from 'next/server'
-import { createHmac }               from 'crypto'
-import { prisma }                   from '@/lib/db'
-import { recordPaymentSucceeded }   from '@/lib/commercial/payment'
-import { setTripPaid }              from '@/lib/trips/lifecycle'
+import { NextRequest, NextResponse }       from 'next/server'
+import { createHmac }                      from 'crypto'
+import { prisma }                          from '@/lib/db'
+import { recordPaymentSucceeded }          from '@/lib/commercial/payment'
+import { setTripPaid }                     from '@/lib/trips/lifecycle'
+import { handleSuccessfulTripPayment }     from '@/lib/payments/handle-success'
 
 export const dynamic = 'force-dynamic'
 
@@ -152,6 +153,27 @@ export async function POST(req: NextRequest) {
       const psSessionId = meta2?.walz_session_id as string | undefined
       if (psTripId || psSessionId) {
         void setTripPaid({ tripId: psTripId ?? null, sessionId: psSessionId ?? null })
+
+        // Run shared trip-payment orchestration: CartSession.convertedAt,
+        // Jade attribution, jade_checkout_converted event, bookCartActivities.
+        const psCustomer = data.customer as Record<string, unknown> | undefined
+        const psHolderName = psCustomer?.first_name
+          ? `${psCustomer.first_name} ${psCustomer.last_name ?? ''}`.trim()
+          : 'Valued Customer'
+        handleSuccessfulTripPayment({
+          provider:          channel === 'dedicated_nuban' ? 'BANK_TRANSFER' : 'PAYSTACK',
+          providerPaymentId: paystackRef,
+          tripId:            psTripId    ?? null,
+          sessionId:         psSessionId ?? null,
+          leadId:            (meta2?.walz_lead_id as string | undefined) ?? null,
+          jadeAssisted:      meta2?.jade_assisted === 'true',
+          amount:            amountKobo / 100,
+          currency,
+          holder: {
+            name:  psHolderName,
+            email: (psCustomer?.email as string | undefined) ?? '',
+          },
+        }).catch(err => console.error('[ps-hook] handleSuccessfulTripPayment failed:', err))
       }
     }
   } catch (err) {
