@@ -491,6 +491,7 @@ export const NAV_ITEMS: NavSection[] = [
       { href: '/admin/commissions',             label: 'Commissions',          icon: 'Award',       permission: 'commissions' },
       { href: '/admin/payroll',                 label: 'Payroll',              icon: 'DollarSign',  permission: 'payroll'     },
       { href: '/admin/finance/revenue',         label: 'Revenue Intelligence', icon: 'TrendingUp',  permission: 'finance.revenue' },
+      { href: '/admin/revenue',                 label: 'Jade Commerce',        icon: 'Sparkles',    permission: 'finance.revenue' },
     ],
   },
   {
