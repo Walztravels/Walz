@@ -60,7 +60,12 @@ export async function GET(req: NextRequest, { params }: Params) {
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const { id: itinerary_id } = await params
-  const supabase = getSupabaseAdmin()
+  let supabase: ReturnType<typeof getSupabaseAdmin>
+  try {
+    supabase = getSupabaseAdmin()
+  } catch {
+    return NextResponse.json({ esims: [], recommendations: [], _warning: 'Supabase not configured' })
+  }
 
   // 1. Fetch assigned eSIMs
   const { data: esims, error } = await supabase
@@ -97,7 +102,10 @@ export async function POST(req: NextRequest, { params }: Params) {
 
   const { id: itinerary_id } = await params
   const body = await req.json()
-  const supabase = getSupabaseAdmin()
+  let supabase: ReturnType<typeof getSupabaseAdmin>
+  try { supabase = getSupabaseAdmin() } catch {
+    return NextResponse.json({ error: 'Supabase not configured' }, { status: 503 })
+  }
 
   const { data, error } = await supabase
     .from('itinerary_esims')
@@ -139,7 +147,10 @@ export async function PATCH(req: NextRequest, { params }: Params) {
     return NextResponse.json({ error: 'esimId is required' }, { status: 400 })
   }
 
-  const supabase = getSupabaseAdmin()
+  let supabase: ReturnType<typeof getSupabaseAdmin>
+  try { supabase = getSupabaseAdmin() } catch {
+    return NextResponse.json({ error: 'Supabase not configured' }, { status: 503 })
+  }
 
   const allowed = [
     'traveler_name', 'package_code', 'package_name', 'provider',
@@ -188,7 +199,10 @@ export async function DELETE(req: NextRequest, { params }: Params) {
     return NextResponse.json({ error: 'esimId is required' }, { status: 400 })
   }
 
-  const supabase = getSupabaseAdmin()
+  let supabase: ReturnType<typeof getSupabaseAdmin>
+  try { supabase = getSupabaseAdmin() } catch {
+    return NextResponse.json({ error: 'Supabase not configured' }, { status: 503 })
+  }
 
   const { error } = await supabase
     .from('itinerary_esims')

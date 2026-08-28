@@ -62,6 +62,7 @@ interface Hotel {
   status: string
   notes: string
   image: string
+  images?: string[]
   supplierId: string
   hotelbedsCancellationReference: string
 }
@@ -79,6 +80,7 @@ interface Transfer {
   supplierCost: number | null
   notes: string
   image: string
+  images?: string[]
   supplierId: string
 }
 
@@ -94,6 +96,7 @@ interface Tour {
   supplierCost: number | null
   notes: string
   image: string
+  images?: string[]
   supplierId: string
 }
 
@@ -291,6 +294,172 @@ function ImageField({ value, onChange, label = 'Image URL', placeholder = 'https
         </div>
       )}
       <input value={value} onChange={e => onChange(e.target.value)} placeholder={placeholder} className={inp} />
+    </div>
+  )
+}
+
+// ─── MultiImageGallery ────────────────────────────────────────────────────────
+
+function MultiImageGallery({
+  itinId,
+  itemType,
+  itemId,
+  images,
+  websiteUrl,
+  destination,
+  onImagesChange,
+}: {
+  itinId:          string
+  itemType:        'hotel' | 'tour' | 'transfer' | 'train' | 'ferry'
+  itemId:          string
+  images:          string[]
+  websiteUrl?:     string
+  destination?:    string
+  onImagesChange:  (imgs: string[]) => void
+}) {
+  const [fetching, setFetching]   = useState(false)
+  const [uploading, setUploading] = useState(false)
+  const [urlInput, setUrlInput]   = useState('')
+  const [fetchMsg, setFetchMsg]   = useState('')
+  const fileRef = useRef<HTMLInputElement>(null)
+
+  const addUrls = (newUrls: string[]) => {
+    const deduped = [...new Set([...images, ...newUrls.filter(Boolean)])]
+    onImagesChange(deduped)
+  }
+  const removeImg = (idx: number) => {
+    onImagesChange(images.filter((_, i) => i !== idx))
+  }
+
+  const handleFetch = async () => {
+    setFetching(true)
+    setFetchMsg('')
+    try {
+      const res = await fetch('/api/admin/itineraries/fetch-item-images', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ itemType, url: websiteUrl, destination }),
+      })
+      const data = await res.json() as { urls?: string[]; source?: string; error?: string }
+      if (data.urls && data.urls.length > 0) {
+        addUrls(data.urls)
+        setFetchMsg(`✓ ${data.urls.length} images fetched (${data.source ?? ''})`)
+      } else {
+        setFetchMsg('No images found. Try uploading instead.')
+      }
+    } catch {
+      setFetchMsg('Fetch failed')
+    }
+    setFetching(false)
+  }
+
+  const handleUpload = async (files: FileList | null) => {
+    if (!files || files.length === 0) return
+    setUploading(true)
+    const uploaded: string[] = []
+    for (const file of Array.from(files)) {
+      const fd = new FormData()
+      fd.append('file', file)
+      fd.append('itemType', itemType)
+      fd.append('itemId', itemId)
+      try {
+        const res = await fetch(`/api/admin/itineraries/${itinId}/upload-item-image`, {
+          method: 'POST',
+          body: fd,
+        })
+        const data = await res.json() as { url?: string; error?: string }
+        if (data.url) uploaded.push(data.url)
+      } catch {}
+    }
+    if (uploaded.length) addUrls(uploaded)
+    setUploading(false)
+  }
+
+  const handleUrlAdd = () => {
+    const url = urlInput.trim()
+    if (url) { addUrls([url]); setUrlInput('') }
+  }
+
+  return (
+    <div className="mt-3">
+      <label className="text-white/30 text-[10px] font-bold uppercase block mb-2">Images</label>
+
+      {/* Thumbnail grid */}
+      {images.length > 0 && (
+        <div className="grid grid-cols-4 gap-2 mb-3">
+          {images.map((src, idx) => (
+            <div key={idx} className="relative group rounded-lg overflow-hidden bg-white/5 aspect-video">
+              <img src={src} alt={`img-${idx}`} className="w-full h-full object-cover" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }} />
+              <button
+                onClick={() => removeImg(idx)}
+                className="absolute top-1 right-1 bg-black/70 text-white text-[10px] px-1.5 py-0.5 rounded-full opacity-0 group-hover:opacity-100 transition hover:bg-red-500/80"
+              >
+                ✕
+              </button>
+              {idx === 0 && (
+                <div className="absolute bottom-1 left-1 bg-amber-500 text-black text-[9px] font-bold px-1.5 py-0.5 rounded-full leading-none">
+                  COVER
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Actions row */}
+      <div className="flex flex-wrap gap-2 mb-2">
+        <button
+          onClick={handleFetch}
+          disabled={fetching || (!websiteUrl && !destination)}
+          className="flex items-center gap-1.5 bg-purple-600/20 text-purple-300 border border-purple-500/30 px-3 py-1.5 rounded-lg text-xs font-bold hover:bg-purple-600/30 transition disabled:opacity-40"
+        >
+          {fetching
+            ? <><span className="w-3 h-3 border border-purple-300 border-t-transparent rounded-full animate-spin inline-block" /> Fetching…</>
+            : '🔍 Fetch from Website'}
+        </button>
+
+        <button
+          onClick={() => fileRef.current?.click()}
+          disabled={uploading}
+          className="flex items-center gap-1.5 bg-blue-600/20 text-blue-300 border border-blue-500/30 px-3 py-1.5 rounded-lg text-xs font-bold hover:bg-blue-600/30 transition disabled:opacity-40"
+        >
+          {uploading
+            ? <><span className="w-3 h-3 border border-blue-300 border-t-transparent rounded-full animate-spin inline-block" /> Uploading…</>
+            : '⬆ Upload Images'}
+        </button>
+        <input
+          ref={fileRef}
+          type="file"
+          accept="image/jpeg,image/png,image/webp,image/avif"
+          multiple
+          className="hidden"
+          onChange={e => void handleUpload(e.target.files)}
+        />
+      </div>
+
+      {/* URL input */}
+      <div className="flex gap-2">
+        <input
+          value={urlInput}
+          onChange={e => setUrlInput(e.target.value)}
+          onKeyDown={e => e.key === 'Enter' && handleUrlAdd()}
+          placeholder="Or paste image URL…"
+          className={inp + ' flex-1 text-xs'}
+        />
+        <button
+          onClick={handleUrlAdd}
+          disabled={!urlInput.trim()}
+          className="bg-white/5 hover:bg-white/10 text-white border border-white/10 px-3 rounded-lg text-xs font-bold transition disabled:opacity-40"
+        >
+          + Add
+        </button>
+      </div>
+
+      {fetchMsg && (
+        <p className={`mt-1.5 text-[11px] ${fetchMsg.startsWith('✓') ? 'text-green-400' : 'text-amber-400'}`}>
+          {fetchMsg}
+        </p>
+      )}
     </div>
   )
 }
@@ -1154,7 +1323,6 @@ function BookingsTab({ itin, onSave }: { itin: ItineraryData; onSave: (u: Record
   const [trains, setTrains] = useState<Train[]>(safeParse<Train[]>(itin.trains || '[]', []))
   const [ferries, setFerries] = useState<Ferry[]>(safeParse<Ferry[]>(itin.ferries || '[]', []))
   const [saving, setSaving] = useState(false)
-  const [fetchingHotelImg, setFetchingHotelImg] = useState<string | null>(null)
 
   const sym = CURRENCY_SYM[itin.currency] || ''
 
@@ -1176,21 +1344,6 @@ function BookingsTab({ itin, onSave }: { itin: ItineraryData; onSave: (u: Record
     setSaving(false)
   }
 
-  const fetchHotelImage = async (hotelId: string, url: string) => {
-    if (!url) return
-    setFetchingHotelImg(hotelId)
-    try {
-      const res = await fetch('/api/admin/itineraries/fetch-hotel-image', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url }),
-      })
-      const data = await res.json()
-      if (data.url) setHotels(prev => prev.map(h => h.id === hotelId ? { ...h, image: data.url } : h))
-    } catch {}
-    setFetchingHotelImg(null)
-  }
-
   // ── Flights ──────────────────────────────────────────────────────────────
 
   const addFlight = () => setFlights(prev => [...prev, {
@@ -1207,7 +1360,7 @@ function BookingsTab({ itin, onSave }: { itin: ItineraryData; onSave: (u: Record
   const addHotel = () => setHotels(prev => [...prev, {
     id: uid(), name: '', location: '', websiteUrl: '', checkIn: '', checkOut: '',
     roomType: '', nights: 1, cost: null, supplierCost: null, status: 'confirmed',
-    notes: '', image: '', supplierId: '', hotelbedsCancellationReference: '',
+    notes: '', image: '', images: [], supplierId: '', hotelbedsCancellationReference: '',
   }])
   const updHotel = (id: string, f: keyof Hotel, v: unknown) => setHotels(prev => prev.map(h => h.id === id ? { ...h, [f]: v } : h))
   const rmHotel = (id: string) => setHotels(prev => prev.filter(h => h.id !== id))
@@ -1216,7 +1369,7 @@ function BookingsTab({ itin, onSave }: { itin: ItineraryData; onSave: (u: Record
 
   const addTransfer = () => setTransfers(prev => [...prev, {
     id: uid(), type: 'Private Car', from: '', to: '', date: '', time: '',
-    vehicle: '', provider: '', cost: null, supplierCost: null, notes: '', image: '', supplierId: '',
+    vehicle: '', provider: '', cost: null, supplierCost: null, notes: '', image: '', images: [], supplierId: '',
   }])
   const updTransfer = (id: string, f: keyof Transfer, v: unknown) => setTransfers(prev => prev.map(t => t.id === id ? { ...t, [f]: v } : t))
   const rmTransfer = (id: string) => setTransfers(prev => prev.filter(t => t.id !== id))
@@ -1225,7 +1378,7 @@ function BookingsTab({ itin, onSave }: { itin: ItineraryData; onSave: (u: Record
 
   const addTour = () => setTours(prev => [...prev, {
     id: uid(), name: '', location: '', date: '', time: '',
-    duration: '', provider: '', cost: null, supplierCost: null, notes: '', image: '', supplierId: '',
+    duration: '', provider: '', cost: null, supplierCost: null, notes: '', image: '', images: [], supplierId: '',
   }])
   const updTour = (id: string, f: keyof Tour, v: unknown) => setTours(prev => prev.map(t => t.id === id ? { ...t, [f]: v } : t))
   const rmTour = (id: string) => setTours(prev => prev.filter(t => t.id !== id))
@@ -1412,11 +1565,6 @@ function BookingsTab({ itin, onSave }: { itin: ItineraryData; onSave: (u: Record
                     <p className="text-white/50 text-xs font-bold uppercase tracking-wider">Hotel / Accommodation</p>
                     <button onClick={() => rmHotel(h.id)} className="text-white/20 hover:text-red-400 text-xs transition">✕ Remove</button>
                   </div>
-                  {h.image && (
-                    <div className="mb-3 rounded-xl overflow-hidden h-32 bg-white/5">
-                      <img src={h.image} alt={h.name} className="w-full h-full object-cover" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }} />
-                    </div>
-                  )}
                   <div className="grid grid-cols-2 gap-3 mb-3">
                     <div>
                       <label className="text-white/30 text-[10px] font-bold uppercase block mb-1">Hotel Name</label>
@@ -1429,24 +1577,20 @@ function BookingsTab({ itin, onSave }: { itin: ItineraryData; onSave: (u: Record
                   </div>
                   <div className="mb-3">
                     <label className="text-white/30 text-[10px] font-bold uppercase block mb-1">Hotel Website URL</label>
-                    <div className="flex gap-2">
-                      <input value={h.websiteUrl} onChange={e => updHotel(h.id, 'websiteUrl', e.target.value)} placeholder="https://www.burjalarab.com" className={inp + ' flex-1'} />
-                      <button
-                        onClick={() => fetchHotelImage(h.id, h.websiteUrl)}
-                        disabled={fetchingHotelImg === h.id || !h.websiteUrl}
-                        className="bg-purple-600/20 text-purple-300 border border-purple-500/30 px-3 rounded-xl hover:bg-purple-600/30 transition text-xs font-bold whitespace-nowrap disabled:opacity-40 flex items-center gap-1.5"
-                      >
-                        {fetchingHotelImg === h.id
-                          ? <span className="w-3 h-3 border border-purple-300 border-t-transparent rounded-full animate-spin" />
-                          : '🖼'}
-                        Fetch Image
-                      </button>
-                    </div>
+                    <input value={h.websiteUrl} onChange={e => updHotel(h.id, 'websiteUrl', e.target.value)} placeholder="https://www.burjalarab.com" className={inp} />
                   </div>
-                  <div className="mb-3">
-                    <label className="text-white/30 text-[10px] font-bold uppercase block mb-1">Image URL (override)</label>
-                    <input value={h.image} onChange={e => updHotel(h.id, 'image', e.target.value)} placeholder="Or paste image URL directly…" className={inp} />
-                  </div>
+                  <MultiImageGallery
+                    itinId={itin.id}
+                    itemType="hotel"
+                    itemId={h.id}
+                    images={h.images ?? (h.image ? [h.image] : [])}
+                    websiteUrl={h.websiteUrl}
+                    destination={h.location || itin.destination}
+                    onImagesChange={imgs => {
+                      updHotel(h.id, 'images', imgs)
+                      updHotel(h.id, 'image', imgs[0] ?? '')
+                    }}
+                  />
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-3">
                     <div>
                       <label className="text-white/30 text-[10px] font-bold uppercase block mb-1">Check-In</label>
@@ -1563,17 +1707,27 @@ function BookingsTab({ itin, onSave }: { itin: ItineraryData; onSave: (u: Record
                       <input type="number" value={t.cost ?? ''} onChange={e => updTransfer(t.id, 'cost', e.target.value ? Number(e.target.value) : null)} placeholder="0.00" className={inp} />
                     </div>
                   </div>
-                  <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                  <div className="grid grid-cols-2 gap-3">
                     <div>
                       <label className="text-amber-400/70 text-[10px] font-bold uppercase block mb-1">Supplier Cost ({sym}) <span className="text-white/20 font-normal normal-case">internal</span></label>
                       <input type="number" value={t.supplierCost ?? ''} onChange={e => updTransfer(t.id, 'supplierCost', e.target.value ? Number(e.target.value) : null)} placeholder="0.00" className={inp} />
                     </div>
-                    <ImageField value={t.image} onChange={v => updTransfer(t.id, 'image', v)} label="Image URL" placeholder="https://…" />
                     <div>
                       <label className="text-white/30 text-[10px] font-bold uppercase block mb-1">Notes</label>
                       <input value={t.notes} onChange={e => updTransfer(t.id, 'notes', e.target.value)} placeholder="Meet & greet, sign…" className={inp} />
                     </div>
                   </div>
+                  <MultiImageGallery
+                    itinId={itin.id}
+                    itemType="transfer"
+                    itemId={t.id}
+                    images={t.images ?? (t.image ? [t.image] : [])}
+                    destination={t.from || itin.destination}
+                    onImagesChange={imgs => {
+                      updTransfer(t.id, 'images', imgs)
+                      updTransfer(t.id, 'image', imgs[0] ?? '')
+                    }}
+                  />
                   <div className="mt-2">
                     <label className="text-white/30 text-[10px] font-bold uppercase block mb-1">Supplier</label>
                     <SupplierPicker value={t.supplierId} onChange={(id) => updTransfer(t.id, 'supplierId', id)} />
@@ -1652,7 +1806,17 @@ function BookingsTab({ itin, onSave }: { itin: ItineraryData; onSave: (u: Record
                     <label className="text-white/30 text-[10px] font-bold uppercase block mb-1">Supplier</label>
                     <SupplierPicker value={t.supplierId} onChange={(id) => updTour(t.id, 'supplierId', id)} />
                   </div>
-                  <ImageField value={t.image} onChange={v => updTour(t.id, 'image', v)} />
+                  <MultiImageGallery
+                    itinId={itin.id}
+                    itemType="tour"
+                    itemId={t.id}
+                    images={t.images ?? (t.image ? [t.image] : [])}
+                    destination={t.location || itin.destination}
+                    onImagesChange={imgs => {
+                      updTour(t.id, 'images', imgs)
+                      updTour(t.id, 'image', imgs[0] ?? '')
+                    }}
+                  />
                 </div>
               ))}
             </div>
