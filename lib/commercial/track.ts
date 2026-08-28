@@ -70,6 +70,33 @@ export type CommercialEventName =
   | 'recovery_contacted'
   | 'recovery_recovered'
   | 'recovery_lost'
+  // Release 5A — Jade Sales Intelligence
+  | 'jade_intent_scored'
+  | 'jade_next_best_action'
+  // Release 5B — Smart Recommendations
+  | 'jade_recommendation_shown'
+  | 'jade_recommendation_selected'
+  | 'jade_cross_sell_eligible'
+  | 'jade_cross_sell_offered'
+  | 'jade_cross_sell_accepted'
+  // Release 5C — Automated Follow-Up
+  | 'jade_followup_eligible'
+  | 'jade_followup_scheduled'
+  | 'jade_followup_sent'
+  | 'jade_followup_suppressed'
+  | 'jade_followup_converted'
+  // Release 5D — Proposal Automation
+  | 'jade_proposal_automation_evaluated'
+  | 'jade_proposal_auto_eligible'
+  | 'jade_proposal_staff_review_required'
+  | 'jade_proposal_auto_sent'
+  | 'jade_proposal_auto_send_failed'
+  // Release 5E — Dynamic Packages
+  | 'jade_package_generated'
+  | 'jade_package_selected'
+  | 'jade_package_checkout_started'
+  | 'jade_package_paid'
+  | 'jade_package_confirmed'
 
 export interface TrackOptions {
   eventId?:     string   // client dedup key — reject duplicates from browser

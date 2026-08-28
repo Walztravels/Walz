@@ -65,7 +65,6 @@ export interface SurpriseTripProposal {
   destination:    string
   title:          string
   tagline:        string
-  costEstimate:   string
   personalReason: string
   highlights:     string[]
   bookingLink:    string
@@ -104,7 +103,6 @@ Return valid JSON ONLY:
   "destination": "specific city or region",
   "title": "catchy trip title (4-7 words)",
   "tagline": "one evocative sentence about this trip",
-  "costEstimate": "e.g. from £899 per person",
   "personalReason": "one sentence explaining WHY this fits THIS specific client — reference something they actually said",
   "highlights": ["3 specific highlights matched to their interests"],
   "bookingLink": "/packages or /tours or /flights"
@@ -233,7 +231,6 @@ export interface GroupProposal {
   destination: string
   dates:       string
   highlights:  string[]
-  priceEst:    string
   whyItWorks:  string
 }
 
@@ -266,7 +263,7 @@ Destination hint: ${hive.destination || 'flexible'}
 Dates hint: ${hive.dates || 'flexible'}
 
 Return a JSON array ONLY with exactly 3 proposals:
-[{"title":"catchy trip name","destination":"specific place","dates":"suggested dates","highlights":["3 highlights for this group"],"priceEst":"from £X per person","whyItWorks":"how it satisfies everyone"}]`
+[{"title":"catchy trip name","destination":"specific place","dates":"suggested dates","highlights":["3 highlights for this group"],"whyItWorks":"how it satisfies everyone"}]`
 
   try {
     const res = await anthropic.messages.create({

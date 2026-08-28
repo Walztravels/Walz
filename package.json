@@ -12,7 +12,9 @@
     "db:seed": "ts-node --project tsconfig.json prisma/seed.ts",
     "db:studio": "prisma studio",
     "seed": "npx prisma db seed",
-    "schema:check": "ts-node --project tsconfig.json scripts/check-schema-sync.ts"
+    "schema:check": "ts-node --project tsconfig.json scripts/check-schema-sync.ts",
+    "test": "jest",
+    "test:grounding": "jest commercial-grounding"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.98.0",
@@ -80,15 +82,18 @@
   },
   "devDependencies": {
     "@types/canvas-confetti": "^1.9.0",
+    "@types/jest": "^30.0.0",
     "@types/node": "^20.16.10",
     "@types/qrcode": "^1.5.6",
     "@types/react": "^18.3.9",
     "@types/react-dom": "^18.3.0",
     "autoprefixer": "^10.4.20",
+    "jest": "^30.5.0",
     "postcss": "^8.4.47",
     "prisma": "^5.19.0",
     "sharp": "^0.35.2",
     "tailwindcss": "^3.4.12",
+    "ts-jest": "^29.4.12",
     "ts-node": "^10.9.2",
     "typescript": "^5.6.2"
   },

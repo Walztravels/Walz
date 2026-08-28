@@ -18,6 +18,16 @@ import {
   JADE_REFINEMENT_TOOL_SCHEMAS,
   executeJadeRefinementTool,
 } from '@/lib/jade/trip-refinement-tools'
+// Release 5A — Jade Sales Intelligence
+import {
+  getJadeCommercialContext,
+  buildCommercialContextSummary,
+} from '@/lib/jade/commercial-context'
+// Release 5.1 — Commercial Grounding Patch
+import {
+  buildGroundingContract,
+  EMPTY_COMMERCIAL_FACTS,
+} from '@/lib/jade/commercial-grounding'
 
 export const maxDuration = 60
 export const dynamic     = 'force-dynamic'
@@ -60,13 +70,13 @@ const JADE_SYSTEM = `You are Jade — the professional AI travel consultant and 
 - 🌐 **Visas** → /visa (15+ countries, 90%+ approval rate)
 - 📶 **eSIM** → /esim (Jade Connect, stay connected abroad)
 
-## PRICING KNOWLEDGE
-- Flights: From £89 short-haul, £350+ long-haul
-- Hotels: From £60/night budget, £150+ mid, £400+ luxury
-- Activities: From £20/person, full-day from £80
-- Transfers: From £35 airport
-- Always say "from" prices — exact depends on dates
-- Never make up specific flight numbers or hotel rates
+## COMMERCIAL GROUNDING — NON-NEGOTIABLE
+Never quote estimated prices, fare bands, or memory-based costs. All numeric commercial
+claims must originate from a live search tool result or authoritative trip data.
+- No price found: "I can search for current options for those dates."
+- No FX rate authority: preserve the customer's original currency without converting.
+- Cross-currency budget vs product: keep them separate — never say "within budget" without an authoritative rate.
+- Availability language ("available", "runs from", "you can get"): only when a live result confirms it.
 
 ## LEAD CAPTURE
 When a customer seems ready or asks to book:
@@ -149,6 +159,8 @@ interface JadeChatRequest {
   customerName?:       string
   pageContext?:        string
   sessionId?:          string   // anonymous session ID for trip ownership (4A)
+  tripId?:             string   // active trip hint (5A)
+  leadId?:             string   // lead context hint (5A)
 }
 
 // ─── PRIMARY: CLAUDE ──────────────────────────────────────────────────────────
@@ -224,6 +236,8 @@ export async function POST(req: NextRequest) {
     customerName = '',
     pageContext = '',
     sessionId = '',
+    tripId,
+    leadId,
   } = await req.json() as JadeChatRequest
 
   if (!message?.trim()) {
@@ -256,6 +270,22 @@ export async function POST(req: NextRequest) {
   const tripCtx: JadeTripToolContext = {
     userId,
     sessionId: sessionId || null,
+  }
+
+  // ── Release 5A: Commercial context injection ───────────────────────────────
+  // Fetched in parallel with tool setup. Non-fatal — Jade continues without it.
+  let commercialContextSummary = ''
+  const salesIntelEnabled = process.env.JADE_SALES_INTELLIGENCE_ENABLED === 'true'
+  if (salesIntelEnabled) {
+    try {
+      const ctx = await getJadeCommercialContext({
+        userId,
+        sessionId: sessionId || null,
+        leadId:    leadId   || null,
+        tripId:    tripId   || null,
+      })
+      commercialContextSummary = buildCommercialContextSummary(ctx)
+    } catch { /* non-fatal — Jade continues without commercial context */ }
   }
 
   const liveSearchEnabled       = process.env.JADE_LIVE_SEARCH_ENABLED        === 'true'
@@ -294,6 +324,15 @@ export async function POST(req: NextRequest) {
 
   // Append capability hints to system prompt when tools are active
   let systemPrompt = buildSystemPrompt(intent, sentiment, msgCount, customerName, pageContext)
+
+  // Inject commercial context summary (5A) — server-verified, compact
+  if (commercialContextSummary) {
+    systemPrompt += `\n\n${commercialContextSummary}\n\nIMPORTANT: Use the commercial context above to guide your conversation naturally. Do NOT directly quote the internal state to the customer — translate it into natural, helpful conversation. Never claim prices or inventory are held unless the customer is in active checkout.`
+  }
+
+  // Release 5.1 — Grounding contract (always injected — no live FX service yet)
+  systemPrompt += buildGroundingContract(EMPTY_COMMERCIAL_FACTS)
+
   if (tripWriteEnabled) {
     systemPrompt += `\n\n## TRIP TOOLS\nYou have access to trip management tools: get_trip, create_trip, update_trip, add_trip_item, remove_trip_item, add_search_result_to_trip.\n- Always call get_trip first before suggesting changes to an existing trip.\n- Only add items the customer has explicitly selected — never invent prices or availability.\n- If a remove_trip_item call returns { error: "protected" }, explain to the customer that the item is purchased or confirmed and they must contact the Walz team to cancel it.\n- Never expose supplier IDs, rateKeys, or internal costs — the tool results already exclude these.\n- Use add_search_result_to_trip (not add_trip_item) when adding an item from a live search result.`
   }

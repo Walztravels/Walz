@@ -7,6 +7,8 @@ import {
   getRecoveryMetrics,
   getJadeFunnel,
 } from '@/lib/commercial/jade-analytics'
+// Release 5F — Revenue leakage & executive insights for the Daily Brief
+import { getRevenueLeakage } from '@/lib/commercial/jade-analytics-5f'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 60
@@ -274,6 +276,16 @@ Reply ONLY with valid JSON (no markdown, no code fences):
   }
 
   // ── Build and persist the brief ───────────────────────────────────────────────
+  // ── Release 5F: Revenue leakage snapshot ─────────────────────────────────────
+  let revenueLeakage: Awaited<ReturnType<typeof getRevenueLeakage>> = []
+  if (process.env.JADE_REVENUE_OPTIMIZATION_ENABLED === 'true') {
+    try {
+      revenueLeakage = await getRevenueLeakage()
+    } catch (e) {
+      console.warn('[jade-brief] revenue leakage snapshot failed (non-fatal):', e)
+    }
+  }
+
   const contentJson = {
     announcements: announcements.map(a => ({
       id:          a.id,
@@ -285,11 +297,13 @@ Reply ONLY with valid JSON (no markdown, no code fences):
       relevantUrl: a.relevantUrl,
       priority:    a.priority,
     })),
-    travel:    travelItems,
-    visa:      visaItems,
+    travel:          travelItems,
+    visa:            visaItems,
     urgentCount,
-    recovery:  recoverySnapshot,
-    commerce:  commerceSnapshot,
+    recovery:        recoverySnapshot,
+    commerce:        commerceSnapshot,
+    // Release 5F — Revenue leakage items for management-visible brief sections
+    revenueLeakage:  revenueLeakage.filter(l => l.severity !== 'LOW'), // only MEDIUM+ in brief
   }
 
   const brief = await prisma.jadeDailyBrief.create({
@@ -298,7 +312,8 @@ Reply ONLY with valid JSON (no markdown, no code fences):
       motivation,
       motivationThought,
       motivationTheme,
-      contentJson,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      contentJson: JSON.parse(JSON.stringify(contentJson)) as any,
     },
   })
 

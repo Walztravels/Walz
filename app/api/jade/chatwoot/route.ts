@@ -13,6 +13,16 @@ import { searchFlights, assignBadges } from '@/lib/flights/duffel'
 import type { FlightSearchParams, FlightItinerary } from '@/lib/flights/types'
 import { resolveContext } from '@/lib/jade/context-resolver'
 import { getModeConfig }  from '@/lib/jade/mode-manager'
+// Release 5A — Jade Sales Intelligence
+import {
+  getJadeCommercialContext,
+  buildCommercialContextSummary,
+} from '@/lib/jade/commercial-context'
+// Release 5.1 — Commercial Grounding Patch
+import {
+  buildGroundingContract,
+  EMPTY_COMMERCIAL_FACTS,
+} from '@/lib/jade/commercial-grounding'
 import { conciergeCore }    from '@/lib/concierge/core'
 import { getCategoryBySlug } from '@/lib/concierge/catalogue'
 import { sendClientConfirmation } from '@/lib/concierge/notifications'
@@ -631,86 +641,35 @@ Contact:
 - Email: contact@walztravels.com
 - Call Jade: +1 984 388 0110
 
-## PRICING KNOWLEDGE
+## COMMERCIAL GROUNDING — NON-NEGOTIABLE
 
-Always lead with value, then mention price. Quote "from" pricing — never invent exact figures for a specific booking.
-
-Flights:
-- Short-haul (European/regional): from £89
-- Long-haul economy: from £350
-- Long-haul premium economy: from £800
-- Business class: from £2,000
-- First class: from £4,500
-
-Hotels (per night):
-- Budget (clean, well-located): from £60
-- Mid-range (3–4 star): £120–£300
-- Luxury (5 star): £300–£800
-- Ultra-luxury (Aman, Four Seasons, EDITION): from £1,000–£2,500+
-
-Activities:
-- Local experiences: from £20/person
-- Guided day tours: from £45/person
-- Private guided tours: from £80
-- Safari packages: from £180/person/day
-
-Transfers:
-- Standard sedan (1–3 pax): from £35
-- SUV/MPV (4–6 pax): from £55
-- Minibus (7–14 pax): from £75
-- Coach (15+ pax): from £120
-
-Packages (per person, all-inclusive):
-- Budget destinations (Turkey, Egypt, Tunisia): from £599
-- Mid-range (Dubai, Bali, Thailand): from £899
-- Luxury (Maldives, Seychelles, Mauritius): from £1,500
-- Ultra-luxury bespoke: from £2,200+
-
-eSIM:
-- 1GB (city break): from £8
-- 3GB: from £15
-- 5GB: from £20
-- 10GB (extended trip): from £28
+All prices must come from live search results or confirmed trip items — never from memory.
+- No search result available: "I can search for current options" — never estimate a price.
+- No FX authority: preserve the customer's original currency. Never approximate a conversion.
+- Cross-currency budget vs product: keep them separate — never say "within budget" without an authoritative exchange rate.
+- Availability language ("available", "you can get", "runs from"): only when a live result confirms it.
 
 ## VISA EXPERTISE
 
 We process visas for UK, Schengen, Canada, USA, UAE, Australia and more. 90%+ approval rate. We never guarantee approval, but we dramatically improve the odds.
 
-Exchange rates used for conversions (approximate): £1 ≈ $1.35 ≈ ₦1,836 ≈ GH₵15.66
+**UK Standard Visitor Visa**: £115 official fee (10–14 working days) | Priority: £500 (5 days) | Super Priority: £1,000 (next day). Requires: 6-month bank statements, employment/business letter, strong ties to home country, accommodation evidence.
 
-**UK Standard Visitor Visa**: £115 fee (10–14 working days) | Priority: £500 (5 days) | Super Priority: £1,000 (next day). Total cost with our service: approx ₦555,680 (adult) / ₦455,680 (child). Requires: 6-month bank statements, employment/business letter, strong ties to home country, accommodation evidence.
+**Schengen Visa**: From €80 official embassy fee. Requires: Travel insurance min €30k cover, round-trip flights, accommodation proof, financial evidence (~€50–100/day in destination).
 
-**Schengen Visa**: From €80 / £77 / ₦140,000+ embassy fee. Total with service: approx ₦511,440 (adult) / ₦431,440 (child). Requires: Travel insurance min €30k cover, round-trip flights, accommodation proof, financial evidence (~€50–100/day in destination).
+**Canada Visitor Visa (TRV)**: CAD$185 official fee. eTA (CAD$7) for some passport holders. Requires: Purpose of visit, financial proof, ties to home country.
 
-**Canada Visitor Visa (TRV)**: CAD$185 / ~£133 / GH₵2,088 / ₦244,800. Total with service: approx ₦694,800. eTA (CAD$7) for some passport holders. Requires: Purpose of visit, financial proof, ties to home country.
+**USA B1/B2 Visitor**: $185 DS-160 official fee + consular appointment. ESTA $21 for eligible passport holders. Requires: Non-immigrant intent, strong financial proof, ties to home.
 
-**USA B1/B2 Visitor**: $185 DS-160 fee + consular appointment. ESTA $21 for eligible passport holders. Requires: Non-immigrant intent, strong financial proof, ties to home.
+**UAE Visas**: $69 security clearance | $470 96-hour transit | $1,150 1-month tourist. Free on arrival for many nationalities (varies by passport).
 
-**UAE Visas**:
-- Security clearance only: ₦93,840 / $69 / £51
-- 96-hour transit: ₦639,200 / $470 / £348 / GH₵5,452
-- 1-month tourist: ₦1,564,000 / $1,150 / £852 / GH₵13,340
-- Free on arrival for many nationalities (varies by passport)
+**Africa Destinations**: Visa fees vary by passport and destination — direct the client to walztravels.com/visa for a current quote.
 
-**Africa Destinations (from Nigeria)**:
-- Uganda Tourist: from ₦200,000 (~£109)
-- East Africa Multi-Country: from ₦280,000 (~£153)
-- Tanzania Standard: ₦299,200 ($220 / £163) | Express: ₦394,400 ($290 / £215)
-- Egypt: from ₦340,000 ($250 / £185)
-- Morocco: from ₦590,000 (~£322)
-
-**Asia Destinations (from Nigeria)**:
-- Philippines E-Visa: from ₦550,000 (~£299)
-- Thailand E-Visa: from ₦250,000 (~£136)
-- Malaysia: ₦571,200 ($420 / £311) / GH₵4,872
-- Indonesia: from ₦950,000 (~£518)
-
-**Americas**:
-- Mexico: from ₦3,000,000 (~$2,206 / £1,634) — full consular process
+**Asia Destinations**: Visa fees vary by passport and destination — direct the client to walztravels.com/visa for a current quote.
 
 **Australia**: eVisitor/ETA from AUD$20 for eligible passports. Standard tourist visa from AUD$145.
 
-When quoting visa prices, always lead with the client's local currency, then show GBP equivalent in brackets.
+For Walz Travels service fees and exact costs in the client's currency: always direct them to walztravels.com/visa or offer to get them a current quote — do not state service fees from memory.
 
 ## CONTEXT RETENTION — NON-NEGOTIABLE
 
@@ -914,9 +873,11 @@ function buildSystemPrompt(
     extra += `\n\n## PAGE CONTEXT\nClient is on the "${pageContext}" page — tailor your response accordingly.`
   }
 
-  // Currency instruction (always injected)
+  // Currency preference — note client currency for context; grounding rules govern conversion
   const currencyLabel = CURRENCY_LABELS[currency] ?? CURRENCY_LABELS['GBP']
-  extra += `\n\n## CLIENT CURRENCY\nAlways quote prices in ${currencyLabel} first, with GBP in brackets if different. Example: "₦639,200 (about £348)". If client is GBP: normal quoting.`
+  if (currency !== 'GBP') {
+    extra += `\n\n## CLIENT CURRENCY PREFERENCE\nThis client's preferred currency is ${currencyLabel}. When authoritative prices or FX conversions are provided by a tool or search result, present them in ${currencyLabel} if available. Do NOT perform currency conversions from memory — if no authoritative rate is present, state the price in its original currency.`
+  }
 
   // Language rule — injected when client writes in a non-English language
   if (lang !== 'en') {
@@ -928,7 +889,8 @@ function buildSystemPrompt(
     extra += `\n\n## LANGUAGE RULE\nRespond ENTIRELY in ${langName}. The client is writing in ${langName}. Use ${langName} for every sentence. English is only permitted for: prices, IATA airport codes, and the brand names "Walz Travels" and "Jade".`
   }
 
-  return JADE_MASTER + extra + modeAddendum
+  // Release 5.1 — always append grounding contract (no live FX service yet → empty facts)
+  return JADE_MASTER + extra + modeAddendum + buildGroundingContract(EMPTY_COMMERCIAL_FACTS)
 }
 
 // ─── AI reply ─────────────────────────────────────────────────────────────────
@@ -1834,12 +1796,35 @@ export async function POST(req: NextRequest) {
       }
     : undefined
 
+  // ── Release 5A: commercial context injection ──────────────────────────────────
+  let r5aAddendum = modeConfig.systemAddendum
+  if (process.env.JADE_SALES_INTELLIGENCE_ENABLED === 'true') {
+    try {
+      // Look up lead by sessionId or conversationId
+      const leadRecord = actualConvId
+        ? await import('@/lib/db').then(m => m.default.lead.findFirst({
+            where:  { sourceId: String(actualConvId) },
+            select: { id: true },
+          })).catch(() => null)
+        : null
+
+      const commercialCtx = await getJadeCommercialContext({
+        sessionId: sid,
+        leadId:    leadRecord?.id ?? null,
+      })
+      const ctxSummary = buildCommercialContextSummary(commercialCtx)
+      r5aAddendum = (r5aAddendum ? r5aAddendum + '\n\n' : '') +
+        ctxSummary +
+        '\n\nIMPORTANT: Use the commercial context above to guide your conversation naturally. Do NOT directly quote internal state to the customer. Never claim prices or inventory are held unless the customer is in active checkout.'
+    } catch { /* non-fatal */ }
+  }
+
   const [reply, extractedProfile] = await Promise.all([
     jadeReply(
       messages, pageContext, dna, shouldResume, profile,
       b2b ? JADE_B2B_PROMPT : undefined,
       clientLanguage,
-      modeConfig.systemAddendum,
+      r5aAddendum,
       conciergeToolActive ? [SUBMIT_CONCIERGE_INTENT] : [],
       conciergeExecutor,
     ),
