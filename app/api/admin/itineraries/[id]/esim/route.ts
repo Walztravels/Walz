@@ -64,7 +64,7 @@ export async function GET(req: NextRequest, { params }: Params) {
   try {
     supabase = getSupabaseAdmin()
   } catch {
-    return NextResponse.json({ esims: [], recommendations: [], _warning: 'Supabase not configured' })
+    return NextResponse.json({ error: 'Supabase not configured' }, { status: 503 })
   }
 
   // 1. Fetch assigned eSIMs
@@ -113,6 +113,37 @@ export async function POST(req: NextRequest, { params }: Params) {
     return NextResponse.json({ error: 'Supabase not configured' }, { status: 503 })
   }
 
+  // Required field
+  if (!body.provider?.trim()) {
+    return NextResponse.json({ error: 'provider is required' }, { status: 400 })
+  }
+
+  // Status enum
+  const VALID_ESIM_STATUS = ['recommended', 'added', 'purchased', 'issued', 'installed', 'activated']
+  const esimStatus = body.status || 'recommended'
+  if (!VALID_ESIM_STATUS.includes(esimStatus)) {
+    return NextResponse.json({ error: `status must be one of: ${VALID_ESIM_STATUS.join(', ')}` }, { status: 400 })
+  }
+
+  // Numeric validation: NaN, Infinity, and negative values are all rejected with 400.
+  // Absent/empty fields are accepted as null.
+  function validateNumField(v: unknown, fieldName: string, allowNegative = false): { ok: true; value: number | null } | { ok: false; error: string } {
+    if (v === null || v === undefined || v === '') return { ok: true, value: null }
+    const n = Number(v)
+    if (isNaN(n) || !isFinite(n)) return { ok: false, error: `${fieldName} must be a valid finite number` }
+    if (!allowNegative && n < 0) return { ok: false, error: `${fieldName} must be >= 0` }
+    return { ok: true, value: n }
+  }
+
+  const validityResult = validateNumField(body.validity_days, 'validity_days')
+  if (!validityResult.ok) return NextResponse.json({ error: validityResult.error }, { status: 400 })
+
+  const wholesaleResult = validateNumField(body.wholesale_cost, 'wholesale_cost')
+  if (!wholesaleResult.ok) return NextResponse.json({ error: wholesaleResult.error }, { status: 400 })
+
+  const clientPriceResult = validateNumField(body.client_price, 'client_price')
+  if (!clientPriceResult.ok) return NextResponse.json({ error: clientPriceResult.error }, { status: 400 })
+
   const { data, error } = await supabase
     .from('itinerary_esims')
     .insert({
@@ -120,14 +151,14 @@ export async function POST(req: NextRequest, { params }: Params) {
       traveler_name: body.traveler_name?.trim() || null,
       package_code: body.package_code?.trim() || null,
       package_name: body.package_name?.trim() || null,
-      provider: body.provider?.trim() || 'airalo',
+      provider: body.provider.trim(),
       destination_countries: body.destination_countries || [],
       data_amount: body.data_amount?.trim() || null,
-      validity_days: body.validity_days ? Number(body.validity_days) : null,
-      wholesale_cost: body.wholesale_cost ? Number(body.wholesale_cost) : null,
-      client_price: body.client_price ? Number(body.client_price) : null,
+      validity_days: validityResult.value,
+      wholesale_cost: wholesaleResult.value,
+      client_price: clientPriceResult.value,
       currency: body.currency?.trim() || 'USD',
-      status: body.status || 'recommended',
+      status: esimStatus,
       notes: body.notes?.trim() || null,
     })
     .select()
@@ -169,13 +200,36 @@ export async function PATCH(req: NextRequest, { params }: Params) {
     'destination_countries', 'data_amount', 'validity_days',
     'wholesale_cost', 'client_price', 'currency', 'status', 'notes',
   ]
+
+  // Status enum validation
+  const VALID_ESIM_STATUS_PATCH = ['recommended', 'added', 'purchased', 'issued', 'installed', 'activated']
+  if ('status' in rest && !VALID_ESIM_STATUS_PATCH.includes(rest.status as string)) {
+    return NextResponse.json({ error: `status must be one of: ${VALID_ESIM_STATUS_PATCH.join(', ')}` }, { status: 400 })
+  }
+
+  // Numeric validation for PATCH: NaN, Infinity, and negative values rejected with 400.
+  function validateNumPatch(v: unknown, fieldName: string): { ok: true; value: number | null } | { ok: false; error: string } {
+    if (v === null || v === undefined || v === '') return { ok: true, value: null }
+    const n = Number(v)
+    if (isNaN(n) || !isFinite(n)) return { ok: false, error: `${fieldName} must be a valid finite number` }
+    if (n < 0) return { ok: false, error: `${fieldName} must be >= 0` }
+    return { ok: true, value: n }
+  }
+
+  const numericFields = ['validity_days', 'wholesale_cost', 'client_price'] as const
+  for (const field of numericFields) {
+    if (field in rest) {
+      const result = validateNumPatch(rest[field], field)
+      if (!result.ok) return NextResponse.json({ error: result.error }, { status: 400 })
+    }
+  }
+
   const updates: Record<string, unknown> = { updated_at: new Date().toISOString() }
   for (const key of allowed) {
     if (key in rest) {
-      if (['validity_days'].includes(key)) {
-        updates[key] = rest[key] !== null ? Number(rest[key]) : null
-      } else if (['wholesale_cost', 'client_price'].includes(key)) {
-        updates[key] = rest[key] !== null ? Number(rest[key]) : null
+      if ((numericFields as readonly string[]).includes(key)) {
+        const result = validateNumPatch(rest[key], key)
+        updates[key] = result.ok ? result.value : null
       } else {
         updates[key] = rest[key]
       }

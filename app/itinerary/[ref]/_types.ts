@@ -14,6 +14,34 @@ export interface ProposalFlight {
   class?: string
   pnr?: string
   stops?: number
+  airlineLogoUrl?: string  // pre-resolved safe URL, never iataCode
+  imageUrl?: string        // aircraft image
+}
+
+export interface ProposalTrain {
+  from?: string
+  to?: string
+  date?: string
+  departureTime?: string
+  arrivalTime?: string
+  trainNumber?: string
+  class?: string
+  provider?: string
+  image?: string
+  images?: string[]
+}
+
+export interface ProposalFerry {
+  from?: string
+  to?: string
+  date?: string
+  departureTime?: string
+  arrivalTime?: string
+  operator?: string
+  class?: string
+  vessel?: string
+  image?: string
+  images?: string[]
 }
 
 export interface ProposalHotel {
@@ -121,6 +149,8 @@ export interface PublicProposalDTO {
   hotels: ProposalHotel[]
   transfers: ProposalTransfer[]
   tours: ProposalTour[]
+  trains: ProposalTrain[]
+  ferries: ProposalFerry[]
   inclusions: string[]
   exclusions: string[]
   priceBreakdown: ProposalPriceLine[]

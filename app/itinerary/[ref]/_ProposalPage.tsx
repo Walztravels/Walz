@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback, useRef } from 'react'
-import type { PublicProposalDTO, ProposalFlight, ProposalHotel, ProposalTransfer, ProposalTour, ProposalDay } from './_types'
+import type { PublicProposalDTO, ProposalFlight, ProposalHotel, ProposalTransfer, ProposalTour, ProposalDay, ProposalTrain, ProposalFerry } from './_types'
 import { formatDateOnly, parseDateOnly } from '@/lib/date-utils'
 
 // ── Utilities ─────────────────────────────────────────────────────────────────
@@ -43,6 +43,7 @@ const SECTIONS = {
   flights:     'section-flights',
   stay:        'section-stay',
   experiences: 'section-experiences',
+  transport:   'section-transport',
   itinerary:   'section-itinerary',
   investment:  'section-investment',
 }
@@ -85,6 +86,7 @@ function ProposalHeader({ proposal, compact, onAccept }: { proposal: PublicPropo
     { label: 'Flights',      id: SECTIONS.flights,     show: proposal.flights.length > 0 },
     { label: 'Stay',         id: SECTIONS.stay,        show: proposal.hotels.length > 0 },
     { label: 'Experiences',  id: SECTIONS.experiences, show: proposal.tours.length > 0 || proposal.transfers.length > 0 },
+    { label: 'Transport',    id: SECTIONS.transport,   show: (proposal.trains?.length ?? 0) > 0 || (proposal.ferries?.length ?? 0) > 0 },
     { label: 'Itinerary',    id: SECTIONS.itinerary,   show: proposal.days.length > 0 },
     { label: 'Investment',   id: SECTIONS.investment,  show: !!(proposal.totalPrice || proposal.priceBreakdown.length > 0) },
   ].filter(n => n.show)
@@ -341,14 +343,33 @@ function FlightCard({ f, currency }: { f: ProposalFlight; currency: string }) {
     <div style={{ background: '#fff', borderRadius: 20, overflow: 'hidden', boxShadow: '0 2px 16px rgba(0,0,0,0.07)', marginBottom: 16 }}>
       {/* Airline header */}
       <div style={{ background: '#0B1F3A', padding: '16px 24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <div>
-          <p style={{ color: '#fff', fontSize: 16, fontWeight: 700 }}>{f.airline || 'Flight'}</p>
-          <p style={{ color: 'rgba(255,255,255,0.45)', fontSize: 12, marginTop: 2 }}>
-            {f.flightNumber}{f.flightNumber && f.class ? ' · ' : ''}{f.class}
-          </p>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flex: 1, minWidth: 0 }}>
+          {/* Logo or initials badge */}
+          {f.airlineLogoUrl ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img
+              src={f.airlineLogoUrl}
+              alt={f.airline || 'Airline'}
+              className="h-7 w-auto max-w-[60px] object-contain rounded bg-white px-1"
+              onError={(e) => { (e.currentTarget as HTMLImageElement).style.display = 'none' }}
+              style={{ flexShrink: 0 }}
+            />
+          ) : (
+            <div style={{ width: 28, height: 28, borderRadius: 6, background: '#C9A84C', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+              <span style={{ color: '#0B1F3A', fontSize: 11, fontWeight: 800 }}>
+                {(f.airline || 'FL').slice(0, 2).toUpperCase()}
+              </span>
+            </div>
+          )}
+          <div style={{ minWidth: 0 }}>
+            <p style={{ color: '#fff', fontSize: 16, fontWeight: 700 }}>{f.airline || 'Flight'}</p>
+            <p style={{ color: 'rgba(255,255,255,0.45)', fontSize: 12, marginTop: 2 }}>
+              {f.flightNumber}{f.flightNumber && f.class ? ' · ' : ''}{f.class}
+            </p>
+          </div>
         </div>
         {f.date && (
-          <p style={{ color: '#C9A84C', fontSize: 13, fontWeight: 600 }}>{fmtDate(f.date)}</p>
+          <p style={{ color: '#C9A84C', fontSize: 13, fontWeight: 600, flexShrink: 0, marginLeft: 12 }}>{fmtDate(f.date)}</p>
         )}
       </div>
 
@@ -396,6 +417,21 @@ function FlightCard({ f, currency }: { f: ProposalFlight; currency: string }) {
             {open ? 'Hide details ↑' : 'View details ↓'}
           </button>
         </div>
+
+        {/* Aircraft image — tasteful secondary visual */}
+        {f.imageUrl && (
+          <div style={{ marginTop: 12, borderRadius: 10, overflow: 'hidden', height: 80, position: 'relative', background: '#f5f2ed' }}>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={f.imageUrl}
+              alt="Aircraft"
+              onError={(e) => { (e.currentTarget as HTMLImageElement).parentElement!.style.display = 'none' }}
+              loading="lazy"
+              decoding="async"
+              style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', objectPosition: 'center 60%' }}
+            />
+          </div>
+        )}
 
         {/* Expanded details */}
         {open && (
@@ -622,6 +658,139 @@ function ProposalExperiences({ proposal }: { proposal: PublicProposalDTO }) {
             <p style={{ color: '#9ca3af', fontSize: 12, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 16, marginTop: 8 }}>Transfers</p>
           )}
           {proposal.transfers.map((t, i) => <TransferCard key={i} t={t} />)}
+        </div>
+      )}
+    </Section>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// TRAINS + FERRIES
+// ─────────────────────────────────────────────────────────────────────────────
+
+function TrainCard({ t }: { t: ProposalTrain }) {
+  const hasImg = (t.images && t.images.length > 0) || t.image
+  const imgSrc = (t.images && t.images.length > 0) ? t.images[0] : t.image
+  return (
+    <div style={{ background: '#fff', borderRadius: 16, overflow: 'hidden', boxShadow: '0 2px 16px rgba(0,0,0,0.06)', marginBottom: 14 }}>
+      {hasImg && imgSrc && (
+        <div style={{ position: 'relative', height: 120, overflow: 'hidden', background: '#e8e0d4' }}>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={imgSrc}
+            alt={t.provider || 'Train'}
+            onError={imgFallback}
+            loading="lazy"
+            decoding="async"
+            style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }}
+          />
+        </div>
+      )}
+      <div style={{ padding: '20px 24px' }}>
+        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, marginBottom: 12 }}>
+          <div style={{ flex: 1 }}>
+            {t.date && (
+              <p style={{ color: '#9ca3af', fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 6 }}>
+                {fmtDate(t.date)}
+              </p>
+            )}
+            {(t.from || t.to) && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span style={{ color: '#0B1F3A', fontSize: 18, fontWeight: 800 }}>{t.from || '—'}</span>
+                <span style={{ color: '#C9A84C', fontSize: 16 }}>→</span>
+                <span style={{ color: '#0B1F3A', fontSize: 18, fontWeight: 800 }}>{t.to || '—'}</span>
+              </div>
+            )}
+          </div>
+          {t.class && (
+            <span style={{ background: '#f0ede8', color: '#92700c', fontSize: 12, fontWeight: 600, padding: '4px 10px', borderRadius: 8, whiteSpace: 'nowrap' }}>
+              {t.class}
+            </span>
+          )}
+        </div>
+        <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
+          {t.departureTime && <span style={{ color: '#4b5563', fontSize: 13 }}>Dep: {t.departureTime}</span>}
+          {t.arrivalTime && <span style={{ color: '#4b5563', fontSize: 13 }}>Arr: {t.arrivalTime}</span>}
+          {t.provider && <span style={{ color: '#4b5563', fontSize: 13 }}>🚆 {t.provider}</span>}
+          {t.trainNumber && <span style={{ color: '#6b7280', fontSize: 12, fontFamily: 'monospace' }}>{t.trainNumber}</span>}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function FerryCard({ f }: { f: ProposalFerry }) {
+  const hasImg = (f.images && f.images.length > 0) || f.image
+  const imgSrc = (f.images && f.images.length > 0) ? f.images[0] : f.image
+  return (
+    <div style={{ background: '#fff', borderRadius: 16, overflow: 'hidden', boxShadow: '0 2px 16px rgba(0,0,0,0.06)', marginBottom: 14 }}>
+      {hasImg && imgSrc && (
+        <div style={{ position: 'relative', height: 120, overflow: 'hidden', background: '#e8e0d4' }}>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src={imgSrc}
+            alt={f.operator || 'Ferry'}
+            onError={imgFallback}
+            loading="lazy"
+            decoding="async"
+            style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }}
+          />
+        </div>
+      )}
+      <div style={{ padding: '20px 24px' }}>
+        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, marginBottom: 12 }}>
+          <div style={{ flex: 1 }}>
+            {f.date && (
+              <p style={{ color: '#9ca3af', fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 6 }}>
+                {fmtDate(f.date)}
+              </p>
+            )}
+            {(f.from || f.to) && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span style={{ color: '#0B1F3A', fontSize: 18, fontWeight: 800 }}>{f.from || '—'}</span>
+                <span style={{ color: '#C9A84C', fontSize: 16 }}>→</span>
+                <span style={{ color: '#0B1F3A', fontSize: 18, fontWeight: 800 }}>{f.to || '—'}</span>
+              </div>
+            )}
+          </div>
+          {f.class && (
+            <span style={{ background: '#f0ede8', color: '#92700c', fontSize: 12, fontWeight: 600, padding: '4px 10px', borderRadius: 8, whiteSpace: 'nowrap' }}>
+              {f.class}
+            </span>
+          )}
+        </div>
+        <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
+          {f.departureTime && <span style={{ color: '#4b5563', fontSize: 13 }}>Dep: {f.departureTime}</span>}
+          {f.arrivalTime && <span style={{ color: '#4b5563', fontSize: 13 }}>Arr: {f.arrivalTime}</span>}
+          {f.operator && <span style={{ color: '#4b5563', fontSize: 13 }}>⛴ {f.operator}</span>}
+          {f.vessel && <span style={{ color: '#6b7280', fontSize: 12 }}>{f.vessel}</span>}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function ProposalTransport({ proposal }: { proposal: PublicProposalDTO }) {
+  const hasTrains = (proposal.trains?.length ?? 0) > 0
+  const hasFerries = (proposal.ferries?.length ?? 0) > 0
+  if (!hasTrains && !hasFerries) return null
+
+  return (
+    <Section id={SECTIONS.transport} eyebrow="On the Move" title="Rail & Sea" alt>
+      {hasTrains && (
+        <div style={{ marginBottom: hasFerries ? 40 : 0 }}>
+          {hasFerries && (
+            <p style={{ color: '#9ca3af', fontSize: 12, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 16 }}>Train</p>
+          )}
+          {proposal.trains!.map((t, i) => <TrainCard key={i} t={t} />)}
+        </div>
+      )}
+      {hasFerries && (
+        <div>
+          {hasTrains && (
+            <p style={{ color: '#9ca3af', fontSize: 12, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 16, marginTop: 8 }}>Ferry</p>
+          )}
+          {proposal.ferries!.map((f, i) => <FerryCard key={i} f={f} />)}
         </div>
       )}
     </Section>
@@ -1618,6 +1787,7 @@ export function ProposalPage({ proposal }: { proposal: PublicProposalDTO }) {
         <ProposalFlights proposal={proposal} />
         <ProposalHotels proposal={proposal} />
         <ProposalExperiences proposal={proposal} />
+        <ProposalTransport proposal={proposal} />
         <ProposalDayByDay proposal={proposal} />
         <ProposalInclusions proposal={proposal} />
         <ProposalPricing proposal={proposal} onAccept={handleAccept} />

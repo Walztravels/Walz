@@ -1,9 +1,9 @@
-// Uploads one image for a booking item (hotel, tour, transfer, etc.)
+// Uploads one image for a booking item (flight, hotel, tour, transfer, etc.)
 // to the itinerary-images Supabase bucket.
 //
 // Body: multipart/form-data
-//   file      — image file (JPEG / PNG / WebP / AVIF, ≤ 8 MB)
-//   itemType  — 'hotel' | 'tour' | 'transfer' | 'train' | 'ferry'
+//   file      — image file (JPEG / PNG / WebP / AVIF / SVG, ≤ 8 MB)
+//   itemType  — 'flight' | 'hotel' | 'tour' | 'transfer' | 'train' | 'ferry'
 //   itemId    — booking item ID (for path namespacing)
 //
 // Returns: { url: string }
@@ -17,7 +17,7 @@ type Params = { params: Promise<{ id: string }> }
 
 const BUCKET      = 'itinerary-images'
 const MAX_BYTES   = 8 * 1024 * 1024
-const ALLOWED     = ['image/jpeg', 'image/png', 'image/webp', 'image/avif']
+const ALLOWED     = ['image/jpeg', 'image/png', 'image/webp', 'image/avif', 'image/svg+xml']
 
 export async function POST(req: NextRequest, { params }: Params) {
   const session = await getAdminSession()
@@ -41,13 +41,13 @@ export async function POST(req: NextRequest, { params }: Params) {
 
   if (!file) return NextResponse.json({ error: 'No file provided' }, { status: 400 })
   if (!ALLOWED.includes(file.type)) {
-    return NextResponse.json({ error: 'Only JPEG, PNG, WebP and AVIF are allowed' }, { status: 400 })
+    return NextResponse.json({ error: 'Only JPEG, PNG, WebP, AVIF and SVG are allowed' }, { status: 400 })
   }
   if (file.size > MAX_BYTES) {
     return NextResponse.json({ error: 'File exceeds 8 MB limit' }, { status: 400 })
   }
 
-  const ext    = file.type.split('/')[1].replace('jpeg', 'jpg')
+  const ext    = file.type.split('/')[1].replace('jpeg', 'jpg').replace('svg+xml', 'svg')
   const path   = `${id}/${itemType}/${itemId}/${Date.now()}.${ext}`
   const buffer = Buffer.from(await file.arrayBuffer())
 

@@ -16,8 +16,11 @@ const MAX_IMAGES = 8
 const REJECT_PATH_RE =
   /logo|favicon|icon|sprite|placeholder|default[\-_.]|blank|loading|spinner|avatar|no[\-_]image|noimage|pixel|tracking|badge|button|arrow|close|menu|checkmark|star|rating|flag|map[\-_]pin|marker|\.gif$/i
 
-// Only these extensions are accepted as image responses.
-const IMAGE_EXT_RE = /\.(jpe?g|png|webp|avif)(\?[^#]*)?($|#)/i
+// Accept standard dot-extension images AND extensionless CDN transform URLs that
+// end with a recognised format suffix (e.g. Cloudinary / Maybourne: "…-jpeg").
+// Issue 11: extensionless CDN URLs (confirmed on Claridge's og:image) were
+// silently dropped because the original regex required a literal dot.
+const IMAGE_EXT_RE = /(\.(jpe?g|png|webp|avif|gif|svg)(\?[^#]*)?($|#)|-(jpe?g|png|webp|avif|gif|svg)(\?[^#]*)?$)/i
 
 // Convert a potentially relative URL to absolute, using `base` as the context.
 // Returns null when the src is unusable (data URI, blob, unparsable).

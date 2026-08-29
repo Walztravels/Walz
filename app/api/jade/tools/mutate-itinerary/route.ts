@@ -21,6 +21,20 @@ const PROTECTED_TOP_LEVEL = new Set([
   'clientEmail',
   'clientPhone',
   'clientName',
+  // Approval and payment integrity — all sub-fields of the options JSON and
+  // the selectedOption snapshot are protected via 'options' and 'selectedOption'
+  // above. These top-level aliases are added as explicit defense-in-depth so
+  // that if any future tool path passes them as params they are rejected here.
+  'approvalToken',
+  'approvalTokenExpiresAt',
+  'approvalTokenUsed',
+  'approvalTokenIssuedAt',
+  'sentOptionsHash',
+  'sentOptionsHashCreatedAt',
+  'acceptedTotal',
+  'acceptedAt',
+  'acceptedBy',
+  'acceptedOptionIds',
 ])
 
 // ─── Allowed day fields ────────────────────────────────────────────────────────
@@ -39,6 +53,9 @@ const ALLOWED_DAY_FIELDS = new Set([
 ])
 
 // ─── Allowed hotel fields ──────────────────────────────────────────────────────
+// 'confirmationNo' removed — hotel reservation confirmation numbers are supplier
+// booking credentials. Jade must not overwrite them. hotelbedsCancellationReference,
+// supplierId, and duffelOrderId are also not listed here and remain unwritable.
 const ALLOWED_HOTEL_FIELDS = new Set([
   'name',
   'location',
@@ -48,13 +65,13 @@ const ALLOWED_HOTEL_FIELDS = new Set([
   'roomType',
   'stars',
   'boardBasis',
-  'confirmationNo',
   'notes',
   'websiteUrl',
   'status',
 ])
 
 // ─── Allowed flight fields ─────────────────────────────────────────────────────
+// Issue 9: 'pnr' removed — PNR is a booking credential that Jade must not overwrite
 const ALLOWED_FLIGHT_FIELDS = new Set([
   'from',
   'to',
@@ -65,7 +82,6 @@ const ALLOWED_FLIGHT_FIELDS = new Set([
   'time',
   'arrivalTime',
   'class',
-  'pnr',
   'notes',
   'status',
   'baggage',

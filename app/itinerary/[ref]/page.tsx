@@ -3,7 +3,7 @@ import { notFound } from 'next/navigation'
 import type { Metadata } from 'next'
 import { BUSINESS } from '@/lib/config/business'
 import { ProposalPage } from './_ProposalPage'
-import type { PublicProposalDTO, ProposalFlight, ProposalHotel, ProposalTransfer, ProposalTour, ProposalDay, ProposalPriceLine, ProposalPackageOption, ProposalPaymentMilestone } from './_types'
+import type { PublicProposalDTO, ProposalFlight, ProposalHotel, ProposalTransfer, ProposalTour, ProposalDay, ProposalPriceLine, ProposalPackageOption, ProposalPaymentMilestone, ProposalTrain, ProposalFerry } from './_types'
 
 export const dynamic = 'force-dynamic'
 
@@ -68,7 +68,22 @@ export default async function ClientItineraryPage({ params }: Params) {
     airline?: string; flightNumber?: string; date?: string
     time?: string; departureTime?: string; arrivalTime?: string
     class?: string; pnr?: string; stops?: number
-    // Deliberately ignored: cost, supplierCost, netRate, markup
+    airlineLogoUrl?: string; imageUrl?: string
+    // Deliberately ignored: cost, supplierCost, netRate, markup, rateKey
+  }
+  type RawTrain = {
+    from?: string; to?: string; date?: string
+    departureTime?: string; arrivalTime?: string
+    trainNumber?: string; class?: string; provider?: string
+    image?: string; images?: string[]
+    // Ignored: cost, supplierCost, notes, supplierId, pnr
+  }
+  type RawFerry = {
+    from?: string; to?: string; date?: string
+    departureTime?: string; arrivalTime?: string
+    operator?: string; class?: string; vessel?: string
+    image?: string; images?: string[]
+    // Ignored: cost, supplierCost, notes, supplierId
   }
   type RawHotel = {
     name?: string; location?: string; checkIn?: string; checkOut?: string
@@ -117,6 +132,8 @@ export default async function ClientItineraryPage({ params }: Params) {
   const rawTours     = safeParse<RawTour[]>(itin.tours, [])
   const rawDays      = safeParse<RawDay[]>(itin.days, [])
   const rawOptions   = safeParse<RawOptions>(itin.options, {})
+  const rawTrains    = safeParse<RawTrain[]>((itin as Record<string, unknown>).trains as string | null, [])
+  const rawFerries   = safeParse<RawFerry[]>((itin as Record<string, unknown>).ferries as string | null, [])
 
   // GA5: expose approval token only when still valid (proposal, not used, not expired)
   const rawToken = rawOptions.approvalToken
@@ -151,6 +168,9 @@ export default async function ClientItineraryPage({ params }: Params) {
     class: f.class,
     pnr: f.pnr,
     stops: f.stops,
+    airlineLogoUrl: f.airlineLogoUrl,
+    imageUrl: f.imageUrl,
+    // NEVER add: iataCode, cost, supplierCost, netRate, markup, rateKey
   }))
 
   const hotels: ProposalHotel[] = rawHotels.map(h => ({
@@ -182,6 +202,20 @@ export default async function ClientItineraryPage({ params }: Params) {
     provider: t.provider,
     notes: t.notes,
     images: t.images,
+  }))
+
+  const trains: ProposalTrain[] = rawTrains.map(t => ({
+    from: t.from, to: t.to, date: t.date,
+    departureTime: t.departureTime, arrivalTime: t.arrivalTime,
+    trainNumber: t.trainNumber, class: t.class, provider: t.provider,
+    image: t.image, images: t.images,
+  }))
+
+  const ferries: ProposalFerry[] = rawFerries.map(f => ({
+    from: f.from, to: f.to, date: f.date,
+    departureTime: f.departureTime, arrivalTime: f.arrivalTime,
+    operator: f.operator, class: f.class, vessel: f.vessel,
+    image: f.image, images: f.images,
   }))
 
   const days: ProposalDay[] = rawDays.map(d => ({
@@ -244,6 +278,8 @@ export default async function ClientItineraryPage({ params }: Params) {
     hotels,
     transfers,
     tours,
+    trains,
+    ferries,
     inclusions: safeParse<string[]>(itin.inclusions, []),
     exclusions: safeParse<string[]>(itin.exclusions, []),
     priceBreakdown,

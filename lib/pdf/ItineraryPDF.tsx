@@ -1,5 +1,5 @@
 import React from 'react'
-import { Document, Page, Text, View, StyleSheet } from '@react-pdf/renderer'
+import { Document, Page, Text, View, StyleSheet, Image } from '@react-pdf/renderer'
 import { formatDateOnly } from '@/lib/date-utils'
 
 const NAVY  = '#0B1F3A'
@@ -150,16 +150,28 @@ export interface ItineraryPDFProps {
     from?: string; to?: string; airline?: string; flightNumber?: string
     date?: string; time?: string; departureTime?: string; arrivalTime?: string
     class?: string; pnr?: string; cost?: number; stops?: number
+    airlineLogoUrl?: string
   }>
   hotels: Array<{
     name?: string; location?: string; checkIn?: string; checkOut?: string
     roomType?: string; nights?: number; cost?: number; mealPlan?: string
+    images?: string[]
   }>
   transfers?: Array<{
     type?: string; from?: string; to?: string; date?: string; vehicle?: string; cost?: number
+    images?: string[]
   }>
   tours?: Array<{
     name?: string; location?: string; date?: string; duration?: string; provider?: string; cost?: number
+    images?: string[]
+  }>
+  trains?: Array<{
+    from?: string; to?: string; date?: string; operator?: string; trainNumber?: string
+    class?: string; duration?: string; image?: string; images?: string[]
+  }>
+  ferries?: Array<{
+    from?: string; to?: string; date?: string; operator?: string; ferryName?: string
+    class?: string; duration?: string; image?: string; images?: string[]
   }>
   inclusions?: string[]
   exclusions?: string[]
@@ -184,6 +196,8 @@ export function ItineraryPDF(p: ItineraryPDFProps) {
   const hasHotels    = p.hotels.length > 0
   const hasTransfers = (p.transfers ?? []).length > 0
   const hasTours     = (p.tours ?? []).length > 0
+  const hasTrains    = (p.trains ?? []).length > 0
+  const hasFerries   = (p.ferries ?? []).length > 0
   const hasPrice     = p.priceBreakdown && p.priceBreakdown.length > 0
 
   const pageFooter = (
@@ -311,7 +325,12 @@ export function ItineraryPDF(p: ItineraryPDFProps) {
           {p.flights.map((f, i) => (
             <View key={i} style={s.flightCard} wrap={false}>
               <View style={s.flightHead}>
-                <Text style={s.flightAirline}>{f.airline || 'Flight'}{f.flightNumber ? `  ·  ${f.flightNumber}` : ''}</Text>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1 }}>
+                  {f.airlineLogoUrl && f.airlineLogoUrl.startsWith('https://') && (
+                    <Image src={f.airlineLogoUrl} style={{ height: 24, width: 48, objectFit: 'contain', backgroundColor: '#ffffff', borderRadius: 4 }} />
+                  )}
+                  <Text style={s.flightAirline}>{f.airline || 'Flight'}{f.flightNumber ? `  ·  ${f.flightNumber}` : ''}</Text>
+                </View>
                 <Text style={s.flightClass}>{f.class || ''}</Text>
               </View>
               <View style={s.flightBody}>
@@ -366,6 +385,9 @@ export function ItineraryPDF(p: ItineraryPDFProps) {
           <View style={s.sectionDivider} />
           {p.hotels.map((h, i) => (
             <View key={i} style={s.hotelCard} wrap={false}>
+              {h.images?.[0] && h.images[0].startsWith('https://') && (
+                <Image src={h.images[0]} style={{ width: '100%', height: 120, objectFit: 'cover', borderRadius: 4, marginBottom: 8 }} />
+              )}
               <Text style={s.hotelName}>{h.name || 'Hotel'}</Text>
               {h.location && <Text style={s.hotelLoc}>{h.location}</Text>}
               <View style={s.hotelRow}>
@@ -435,6 +457,9 @@ export function ItineraryPDF(p: ItineraryPDFProps) {
               <View style={s.sectionDivider} />
               {(p.tours ?? []).map((t, i) => (
                 <View key={i} style={[s.hotelCard, { marginBottom: 8 }]} wrap={false}>
+                  {t.images?.[0] && t.images[0].startsWith('https://') && (
+                    <Image src={t.images[0]} style={{ width: '100%', height: 120, objectFit: 'cover', borderRadius: 4, marginBottom: 8 }} />
+                  )}
                   <Text style={s.hotelName}>{t.name || 'Activity'}</Text>
                   {t.location && <Text style={s.hotelLoc}>{t.location}</Text>}
                   <View style={s.hotelRow}>
@@ -445,6 +470,67 @@ export function ItineraryPDF(p: ItineraryPDFProps) {
                   {t.cost != null && <Text style={s.hotelPrice}>{fmtMoney(t.cost, p.currency)}</Text>}
                 </View>
               ))}
+            </>
+          )}
+          {pageFooter}
+        </Page>
+      )}
+
+      {/* ── Trains & Ferries ────────────────────────────────────────────────── */}
+      {(hasTrains || hasFerries) && (
+        <Page size="A4" style={s.content}>
+          {hasTrains && (
+            <>
+              <Text style={s.sectionLabel}>Rail Travel</Text>
+              <Text style={s.sectionTitle}>Trains</Text>
+              <View style={s.sectionDivider} />
+              {(p.trains ?? []).map((tr, i) => {
+                const coverImg = tr.images?.[0] ?? tr.image
+                return (
+                  <View key={i} style={[s.hotelCard, { marginBottom: 8 }]} wrap={false}>
+                    {coverImg && coverImg.startsWith('https://') && (
+                      <Image src={coverImg} style={{ width: '100%', height: 100, objectFit: 'cover', borderRadius: 4, marginBottom: 8 }} />
+                    )}
+                    <Text style={s.hotelName}>
+                      {tr.from || '—'}{tr.from && tr.to ? ' → ' : ''}{tr.to || ''}
+                    </Text>
+                    <View style={s.hotelRow}>
+                      {tr.date && <View><Text style={s.hotelKey}>Date</Text><Text style={s.hotelVal}>{tr.date}</Text></View>}
+                      {tr.operator && <View><Text style={s.hotelKey}>Operator</Text><Text style={s.hotelVal}>{tr.operator}</Text></View>}
+                      {tr.trainNumber && <View><Text style={s.hotelKey}>Train No.</Text><Text style={s.hotelVal}>{tr.trainNumber}</Text></View>}
+                      {tr.class && <View><Text style={s.hotelKey}>Class</Text><Text style={s.hotelVal}>{tr.class}</Text></View>}
+                      {tr.duration && <View><Text style={s.hotelKey}>Duration</Text><Text style={s.hotelVal}>{tr.duration}</Text></View>}
+                    </View>
+                  </View>
+                )
+              })}
+            </>
+          )}
+          {hasFerries && (
+            <>
+              <Text style={[s.sectionLabel, { marginTop: hasTrains ? 20 : 0 }]}>Sea Travel</Text>
+              <Text style={s.sectionTitle}>Ferries</Text>
+              <View style={s.sectionDivider} />
+              {(p.ferries ?? []).map((fe, i) => {
+                const coverImg = fe.images?.[0] ?? fe.image
+                return (
+                  <View key={i} style={[s.hotelCard, { marginBottom: 8 }]} wrap={false}>
+                    {coverImg && coverImg.startsWith('https://') && (
+                      <Image src={coverImg} style={{ width: '100%', height: 100, objectFit: 'cover', borderRadius: 4, marginBottom: 8 }} />
+                    )}
+                    <Text style={s.hotelName}>
+                      {fe.from || '—'}{fe.from && fe.to ? ' → ' : ''}{fe.to || ''}
+                    </Text>
+                    {fe.ferryName && <Text style={s.hotelLoc}>{fe.ferryName}</Text>}
+                    <View style={s.hotelRow}>
+                      {fe.date && <View><Text style={s.hotelKey}>Date</Text><Text style={s.hotelVal}>{fe.date}</Text></View>}
+                      {fe.operator && <View><Text style={s.hotelKey}>Operator</Text><Text style={s.hotelVal}>{fe.operator}</Text></View>}
+                      {fe.class && <View><Text style={s.hotelKey}>Class</Text><Text style={s.hotelVal}>{fe.class}</Text></View>}
+                      {fe.duration && <View><Text style={s.hotelKey}>Duration</Text><Text style={s.hotelVal}>{fe.duration}</Text></View>}
+                    </View>
+                  </View>
+                )
+              })}
             </>
           )}
           {pageFooter}

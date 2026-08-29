@@ -18,7 +18,7 @@ export async function GET(_req: NextRequest, { params }: Params) {
 
   const { id: itinerary_id } = await params
   const { sb, err } = getSupabase()
-  if (!sb) return NextResponse.json({ travelers: [], _warning: err }, { status: 200 })
+  if (!sb) return NextResponse.json({ error: err ?? 'Supabase not configured' }, { status: 503 })
 
   const { data, error } = await sb
     .from('itinerary_travelers')
@@ -109,6 +109,11 @@ export async function PATCH(req: NextRequest, { params }: Params) {
   const updates: Record<string, unknown> = { updated_at: new Date().toISOString() }
   for (const key of allowed) {
     if (key in rest) updates[key] = rest[key]
+  }
+
+  // Issue 2: reject blank full_name
+  if ('full_name' in updates && typeof updates.full_name === 'string' && !updates.full_name.trim()) {
+    return NextResponse.json({ error: 'full_name cannot be blank' }, { status: 400 })
   }
 
   const { data, error } = await sb

@@ -48,6 +48,8 @@ interface Flight {
   notes: string
   supplierId: string          // FK to Supplier
   duffelOrderId: string       // links to confirmed Duffel booking
+  airlineLogoUrl?: string     // stored airline logo URL (priority over AirHex CDN)
+  imageUrl?: string           // aircraft / flight image URL
 }
 
 interface Hotel {
@@ -117,6 +119,7 @@ interface Train {
   supplierCost: number | null
   notes: string
   image: string
+  images?: string[]
   supplierId: string
 }
 
@@ -134,6 +137,7 @@ interface Ferry {
   supplierCost: number | null
   notes: string
   image: string
+  images?: string[]
   supplierId: string
 }
 
@@ -1665,6 +1669,70 @@ function DaysTab({ itin, onSave, onContextChange }: {
   )
 }
 
+// ─── BookingMediaThumbnail ────────────────────────────────────────────────────
+
+function BookingMediaThumbnail({
+  type,
+  imageUrl,
+  logoUrl,
+  iataCode,
+}: {
+  type: 'flight' | 'hotel' | 'transfer' | 'tour' | 'train' | 'ferry'
+  imageUrl?: string | null
+  logoUrl?: string | null
+  iataCode?: string
+}) {
+  const FALLBACK_EMOJI: Record<string, string> = {
+    flight: '✈️', hotel: '🏨', transfer: '🚗', tour: '🗺️', train: '🚂', ferry: '⛴️',
+  }
+
+  // Compute effective logo URL (for flights, try airhex CDN if no stored logo)
+  const effectiveLogoUrl = logoUrl || (iataCode ? `https://content.airhex.com/content/logos/airlines_${iataCode.toUpperCase()}_200_200_s.png` : null)
+
+  const [imgFailed, setImgFailed] = useState(false)
+  const [logoFailed, setLogoFailed] = useState(false)
+
+  // Dimensions: ~220px wide, 16:9
+  return (
+    <div
+      style={{ width: 220, minWidth: 220, aspectRatio: '16/9', position: 'relative', overflow: 'hidden', background: '#0b1525', flexShrink: 0 }}
+      className="hidden sm:block"
+    >
+      {/* Primary image layer */}
+      {imageUrl && !imgFailed ? (
+        <img
+          src={imageUrl}
+          alt="booking media"
+          style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }}
+          onError={() => setImgFailed(true)}
+        />
+      ) : (
+        /* Dark gradient fallback background */
+        <div style={{ position: 'absolute', inset: 0, background: 'linear-gradient(135deg, #0d1e35 0%, #0b1525 100%)' }} />
+      )}
+
+      {/* Logo badge — bottom-left, white pill */}
+      {effectiveLogoUrl && !logoFailed && (
+        <div style={{ position: 'absolute', bottom: 8, left: 8, background: 'white', borderRadius: 6, padding: '3px 8px', display: 'flex', alignItems: 'center', maxWidth: 90 }}>
+          <img
+            src={effectiveLogoUrl}
+            alt="airline logo"
+            style={{ height: 22, maxWidth: 80, objectFit: 'contain', display: 'block' }}
+            onError={() => setLogoFailed(true)}
+          />
+        </div>
+      )}
+
+      {/* Emoji fallback — centered, when no image AND no usable logo */}
+      {(!imageUrl || imgFailed) && (!effectiveLogoUrl || logoFailed) && (
+        <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 32 }}>
+          {FALLBACK_EMOJI[type] || '📦'}
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ─── Bookings Tab ─────────────────────────────────────────────────────────────
 
 interface SupplierOption { id: string; name: string; type: string }
@@ -1707,6 +1775,28 @@ function BookingsTab({ itin, onSave, onContextChange }: {
   const [saving, setSaving] = useState(false)
   const [saveError, setSaveError] = useState<string | null>(null)
   const [editingId, setEditingId] = useState<{ type: string; id: string } | null>(null)
+  const [logoLoading, setLogoLoading] = useState(false)
+  const [logoMsg, setLogoMsg] = useState('')
+  const logoFileRef = useRef<HTMLInputElement>(null)
+
+  const saveWithFlights = async (updatedFlights: Flight[]) => {
+    setSaving(true)
+    setSaveError(null)
+    try {
+      await onSave({
+        flights: JSON.stringify(updatedFlights),
+        hotels: JSON.stringify(hotels),
+        transfers: JSON.stringify(transfers),
+        tours: JSON.stringify(tours),
+        trains: JSON.stringify(trains),
+        ferries: JSON.stringify(ferries),
+      })
+    } catch {
+      setSaveError('Save failed — check your connection and try again.')
+    } finally {
+      setSaving(false)
+    }
+  }
 
   // Update Jade context when editing state or booking tab changes
   useEffect(() => {
@@ -1780,7 +1870,7 @@ function BookingsTab({ itin, onSave, onContextChange }: {
       id: newId, from: '', to: '', airline: '', iataCode: '', flightNumber: '',
       date: '', time: '', arrivalTime: '', class: 'Economy', pnr: '',
       cost: null, supplierCost: null, status: 'confirmed', notes: '',
-      supplierId: '', duffelOrderId: '',
+      supplierId: '', duffelOrderId: '', airlineLogoUrl: undefined, imageUrl: '',
     }])
     setEditingId({ type: 'flight', id: newId })
   }
@@ -1834,7 +1924,7 @@ function BookingsTab({ itin, onSave, onContextChange }: {
     setTrains(prev => [...prev, {
       id: newId, from: '', to: '', date: '', departureTime: '', arrivalTime: '',
       trainNumber: '', class: 'Standard', provider: '', pnr: '',
-      cost: null, supplierCost: null, notes: '', image: '', supplierId: '',
+      cost: null, supplierCost: null, notes: '', image: '', images: [], supplierId: '',
     }])
     setEditingId({ type: 'train', id: newId })
   }
@@ -1848,7 +1938,7 @@ function BookingsTab({ itin, onSave, onContextChange }: {
     setFerries(prev => [...prev, {
       id: newId, from: '', to: '', date: '', departureTime: '', arrivalTime: '',
       operator: '', class: 'Standard', vessel: '',
-      cost: null, supplierCost: null, notes: '', image: '', supplierId: '',
+      cost: null, supplierCost: null, notes: '', image: '', images: [], supplierId: '',
     }])
     setEditingId({ type: 'ferry', id: newId })
   }
@@ -1949,7 +2039,42 @@ function BookingsTab({ itin, onSave, onContextChange }: {
                       </div>
                       <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-3">
                         <div><label className="text-white/30 text-[10px] font-bold uppercase block mb-1">Airline</label><input value={f.airline} onChange={e => updFlight(f.id, 'airline', e.target.value)} placeholder="Emirates" className={inp} /></div>
-                        <div><label className="text-white/30 text-[10px] font-bold uppercase block mb-1">IATA Code</label><input value={f.iataCode} onChange={e => updFlight(f.id, 'iataCode', e.target.value.toUpperCase())} placeholder="EK" maxLength={3} className={inp} /></div>
+                        <div>
+                          <label className="text-white/30 text-[10px] font-bold uppercase block mb-1">IATA Code</label>
+                          <input value={f.iataCode} onChange={e => updFlight(f.id, 'iataCode', e.target.value.toUpperCase())} placeholder="EK" maxLength={3} className={inp} />
+                          {f.iataCode && !f.airlineLogoUrl && (
+                            <button
+                              type="button"
+                              disabled={logoLoading}
+                              onClick={async () => {
+                                setLogoLoading(true)
+                                setLogoMsg('')
+                                try {
+                                  const res = await fetch('/api/admin/airlines/logo', {
+                                    method: 'POST',
+                                    headers: { 'Content-Type': 'application/json' },
+                                    body: JSON.stringify({ iataCode: f.iataCode }),
+                                  })
+                                  const data = await res.json() as { logoUrl?: string; error?: string }
+                                  if (data.logoUrl) {
+                                    const upd = flights.map(fl => fl.id === f.id ? { ...fl, airlineLogoUrl: data.logoUrl } : fl)
+                                    setFlights(upd)
+                                    await saveWithFlights(upd)
+                                    setLogoMsg('✓ Logo resolved')
+                                  } else {
+                                    setLogoMsg(`Logo not found for ${f.iataCode}`)
+                                  }
+                                } catch {
+                                  setLogoMsg('Failed to resolve logo')
+                                }
+                                setLogoLoading(false)
+                              }}
+                              className="mt-1 text-[10px] text-amber-400/60 hover:text-amber-400 transition block disabled:opacity-40"
+                            >
+                              Auto-resolve logo?
+                            </button>
+                          )}
+                        </div>
                         <div><label className="text-white/30 text-[10px] font-bold uppercase block mb-1">Flight No.</label><input value={f.flightNumber} onChange={e => updFlight(f.id, 'flightNumber', e.target.value)} placeholder="EK001" className={inp} /></div>
                         <div><label className="text-white/30 text-[10px] font-bold uppercase block mb-1">Arrives</label><input type="time" value={f.arrivalTime} onChange={e => updFlight(f.id, 'arrivalTime', e.target.value)} className={inp} /></div>
                         <div><label className="text-white/30 text-[10px] font-bold uppercase block mb-1">Class</label><select value={f.class} onChange={e => updFlight(f.id, 'class', e.target.value)} className={sel}><option>Economy</option><option>Premium Economy</option><option>Business</option><option>First Class</option></select></div>
@@ -1961,6 +2086,175 @@ function BookingsTab({ itin, onSave, onContextChange }: {
                         <div><label className="text-white/30 text-[10px] font-bold uppercase block mb-1">Notes</label><input value={f.notes} onChange={e => updFlight(f.id, 'notes', e.target.value)} placeholder="Baggage, meals…" className={inp} /></div>
                       </div>
                       <div className="mt-2"><label className="text-white/30 text-[10px] font-bold uppercase block mb-1">Supplier</label><SupplierPicker value={f.supplierId} onChange={(id, name) => { updFlight(f.id, 'supplierId', id); updFlight(f.id, 'airline', name || f.airline) }} /></div>
+                      {/* Airline Logo Management */}
+                      <div className="mt-3 p-3 bg-white/[0.03] border border-white/[0.08] rounded-xl">
+                        <label className="text-white/30 text-[10px] font-bold uppercase block mb-2">Airline Logo</label>
+                        <div className="flex items-start gap-3 flex-wrap">
+                          <div className="flex-shrink-0 w-[120px] h-[60px] bg-white rounded-lg flex items-center justify-center overflow-hidden">
+                            {(f.airlineLogoUrl || f.iataCode)
+                              ? <img
+                                  src={f.airlineLogoUrl || `https://content.airhex.com/content/logos/airlines_${f.iataCode.toUpperCase()}_350_100_r.png`}
+                                  alt={f.airline || f.iataCode}
+                                  className="max-w-full max-h-full object-contain"
+                                  onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }}
+                                />
+                              : <span className="text-2xl">✈️</span>}
+                          </div>
+                          <div className="flex flex-wrap gap-2 items-center">
+                            <button
+                              type="button"
+                              disabled={logoLoading || !f.iataCode}
+                              onClick={async () => {
+                                setLogoLoading(true)
+                                setLogoMsg('')
+                                try {
+                                  const res = await fetch('/api/admin/airlines/logo', {
+                                    method: 'POST',
+                                    headers: { 'Content-Type': 'application/json' },
+                                    body: JSON.stringify({ iataCode: f.iataCode }),
+                                  })
+                                  const data = await res.json() as { logoUrl?: string; error?: string }
+                                  if (data.logoUrl) {
+                                    const upd = flights.map(fl => fl.id === f.id ? { ...fl, airlineLogoUrl: data.logoUrl } : fl)
+                                    setFlights(upd)
+                                    await saveWithFlights(upd)
+                                    setLogoMsg('✓ Logo resolved')
+                                  } else {
+                                    setLogoMsg(`Logo not found for ${f.iataCode}`)
+                                  }
+                                } catch {
+                                  setLogoMsg('Failed to resolve logo')
+                                }
+                                setLogoLoading(false)
+                              }}
+                              className="flex items-center gap-1.5 bg-blue-600/20 text-blue-300 border border-blue-500/30 px-3 py-1.5 rounded-lg text-xs font-bold hover:bg-blue-600/30 transition disabled:opacity-40"
+                            >
+                              {logoLoading
+                                ? <><span className="w-3 h-3 border border-blue-300 border-t-transparent rounded-full animate-spin inline-block" /> Resolving…</>
+                                : '🔍 Resolve Logo'}
+                            </button>
+                            <button
+                              type="button"
+                              disabled={logoLoading}
+                              onClick={() => logoFileRef.current?.click()}
+                              className="flex items-center gap-1.5 bg-purple-600/20 text-purple-300 border border-purple-500/30 px-3 py-1.5 rounded-lg text-xs font-bold hover:bg-purple-600/30 transition disabled:opacity-40"
+                            >
+                              {logoLoading
+                                ? <><span className="w-3 h-3 border border-purple-300 border-t-transparent rounded-full animate-spin inline-block" /> Uploading…</>
+                                : '⬆ Upload Logo'}
+                            </button>
+                            <input
+                              ref={logoFileRef}
+                              type="file"
+                              accept="image/png,image/jpeg,image/webp,image/svg+xml"
+                              className="hidden"
+                              onChange={async (e) => {
+                                const file = e.target.files?.[0]
+                                if (!file) return
+                                setLogoLoading(true)
+                                setLogoMsg('')
+                                const fd = new FormData()
+                                fd.append('file', file)
+                                fd.append('itemType', 'airline-logo')
+                                fd.append('itemId', f.id || f.iataCode || 'logo')
+                                try {
+                                  const res = await fetch(`/api/admin/itineraries/${itin.id}/upload-item-image`, {
+                                    method: 'POST',
+                                    body: fd,
+                                  })
+                                  const data = await res.json() as { url?: string; error?: string }
+                                  if (data.url) {
+                                    const upd = flights.map(fl => fl.id === f.id ? { ...fl, airlineLogoUrl: data.url } : fl)
+                                    setFlights(upd)
+                                    await saveWithFlights(upd)
+                                    setLogoMsg('✓ Logo uploaded')
+                                  } else {
+                                    setLogoMsg(data.error || 'Upload failed')
+                                  }
+                                } catch {
+                                  setLogoMsg('Upload failed')
+                                }
+                                setLogoLoading(false)
+                                e.target.value = ''
+                              }}
+                            />
+                            {f.airlineLogoUrl && (
+                              <button
+                                type="button"
+                                disabled={logoLoading}
+                                onClick={async () => {
+                                  const upd = flights.map(fl => fl.id === f.id ? { ...fl, airlineLogoUrl: undefined } : fl)
+                                  setFlights(upd)
+                                  await saveWithFlights(upd)
+                                  setLogoMsg('Logo removed')
+                                }}
+                                className="flex items-center gap-1.5 bg-red-600/20 text-red-300 border border-red-500/30 px-3 py-1.5 rounded-lg text-xs font-bold hover:bg-red-600/30 transition disabled:opacity-40"
+                              >
+                                ✕ Remove Logo
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                        {logoMsg && (
+                          <p className={`mt-1.5 text-[11px] ${logoMsg.startsWith('✓') ? 'text-green-400' : 'text-amber-400'}`}>
+                            {logoMsg}
+                          </p>
+                        )}
+                      </div>
+                      {/* Aircraft Image Section */}
+                      <div className="mt-3 p-3 bg-white/[0.03] border border-white/[0.08] rounded-xl">
+                        <label className="text-white/30 text-[10px] font-bold uppercase block mb-2">Aircraft Image</label>
+                        <ImageField
+                          value={f.imageUrl ?? ''}
+                          label="Aircraft Image URL"
+                          placeholder="https://..."
+                          onChange={v => updFlight(f.id, 'imageUrl', v)}
+                        />
+                        <div className="flex flex-wrap gap-2 mt-2 items-center">
+                          <label className="flex items-center gap-1.5 bg-blue-600/20 text-blue-300 border border-blue-500/30 px-3 py-1.5 rounded-lg text-xs font-bold hover:bg-blue-600/30 transition cursor-pointer">
+                            ⬆ Upload Aircraft Image
+                            <input
+                              type="file"
+                              accept="image/jpeg,image/png,image/webp,image/svg+xml"
+                              className="hidden"
+                              onChange={async (e) => {
+                                const file = e.target.files?.[0]
+                                if (!file) return
+                                const fd = new FormData()
+                                fd.append('file', file)
+                                fd.append('itemType', 'flight')
+                                fd.append('itemId', f.id)
+                                try {
+                                  const res = await fetch(`/api/admin/itineraries/${itin.id}/upload-item-image`, {
+                                    method: 'POST',
+                                    body: fd,
+                                  })
+                                  const data = await res.json() as { url?: string; error?: string }
+                                  if (data.url) {
+                                    const upd = flights.map(fl => fl.id === f.id ? { ...fl, imageUrl: data.url } : fl)
+                                    setFlights(upd)
+                                    await saveWithFlights(upd)
+                                  }
+                                } catch { /* silent */ }
+                                e.target.value = ''
+                              }}
+                            />
+                          </label>
+                          {f.imageUrl && (
+                            <button
+                              type="button"
+                              onClick={async () => {
+                                const upd = flights.map(fl => fl.id === f.id ? { ...fl, imageUrl: '' } : fl)
+                                setFlights(upd)
+                                await saveWithFlights(upd)
+                              }}
+                              className="text-red-400/60 hover:text-red-400 text-xs transition"
+                            >
+                              Remove Image
+                            </button>
+                          )}
+                        </div>
+                      </div>
                       {(f.cost != null && f.supplierCost != null && f.cost > 0 && f.supplierCost > 0) && (
                         <div className="mt-2 px-3 py-2 bg-white/[0.03] rounded-lg flex items-center gap-4 text-xs">
                           <span className="text-white/40">Margin:</span>
@@ -1969,34 +2263,32 @@ function BookingsTab({ itin, onSave, onContextChange }: {
                       )}
                     </div>
                   ) : (
-                    <div className="flex items-center gap-4 p-4">
-                      <div className="flex-shrink-0 w-[72px] flex items-center justify-center">
-                        {f.iataCode
-                          ? <img src={`https://content.airhex.com/content/logos/airlines_${f.iataCode.toUpperCase()}_350_100_r.png`} alt={f.airline || f.iataCode} className="h-9 max-w-[72px] object-contain bg-white rounded-lg px-2 py-1" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }} />
-                          : <span className="text-3xl">✈️</span>}
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 mb-0.5 flex-wrap">
-                          <span className="text-white font-bold text-sm">{f.airline || 'Airline'} {f.flightNumber}</span>
-                          {f.status && <SBadge status={f.status} />}
+                    <div className="flex flex-col sm:flex-row overflow-hidden">
+                      <BookingMediaThumbnail type="flight" imageUrl={f.imageUrl} logoUrl={f.airlineLogoUrl} iataCode={f.iataCode} />
+                      <div className="flex-1 min-w-0 flex items-center gap-4 p-4">
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 mb-0.5 flex-wrap">
+                            <span className="text-white font-bold text-sm">{f.airline || 'Airline'} {f.flightNumber}</span>
+                            {f.status && <SBadge status={f.status} />}
+                          </div>
+                          <div className="flex items-center gap-2 mb-1 flex-wrap">
+                            <span className="text-white font-semibold text-sm font-mono">{f.from || '—'}</span>
+                            <span className="text-white/30 text-xs">──✈──</span>
+                            <span className="text-white font-semibold text-sm font-mono">{f.to || '—'}</span>
+                            {(f.time || f.arrivalTime) && <span className="text-white/40 text-xs ml-1">{f.time}{f.arrivalTime ? ` → ${f.arrivalTime}` : ''}</span>}
+                          </div>
+                          <div className="flex items-center gap-3 flex-wrap">
+                            {f.date && <span className="text-white/40 text-xs">{fmtDate(f.date)}</span>}
+                            {f.class && <span className="text-white/40 text-xs">{f.class}</span>}
+                            {f.pnr && <span className="text-white/30 text-xs font-mono">PNR: {f.pnr}</span>}
+                            {f.cost != null && f.cost > 0 && <span className="text-green-400 text-xs font-bold">{sym}{f.cost.toLocaleString()}</span>}
+                            <MarginPill cost={f.cost} supplierCost={f.supplierCost} />
+                          </div>
                         </div>
-                        <div className="flex items-center gap-2 mb-1 flex-wrap">
-                          <span className="text-white font-semibold text-sm font-mono">{f.from || '—'}</span>
-                          <span className="text-white/30 text-xs">──✈──</span>
-                          <span className="text-white font-semibold text-sm font-mono">{f.to || '—'}</span>
-                          {(f.time || f.arrivalTime) && <span className="text-white/40 text-xs ml-1">{f.time}{f.arrivalTime ? ` → ${f.arrivalTime}` : ''}</span>}
+                        <div className="flex flex-col gap-1.5 flex-shrink-0">
+                          <button type="button" aria-expanded={false} onClick={() => startEdit('flight', f.id)} className={editBtnCls}>Edit</button>
+                          <button type="button" onClick={() => rmFlight(f.id)} className={rmBtnCls}>Remove</button>
                         </div>
-                        <div className="flex items-center gap-3 flex-wrap">
-                          {f.date && <span className="text-white/40 text-xs">{fmtDate(f.date)}</span>}
-                          {f.class && <span className="text-white/40 text-xs">{f.class}</span>}
-                          {f.pnr && <span className="text-white/30 text-xs font-mono">PNR: {f.pnr}</span>}
-                          {f.cost != null && f.cost > 0 && <span className="text-green-400 text-xs font-bold">{sym}{f.cost.toLocaleString()}</span>}
-                          <MarginPill cost={f.cost} supplierCost={f.supplierCost} />
-                        </div>
-                      </div>
-                      <div className="flex flex-col gap-1.5 flex-shrink-0">
-                        <button type="button" aria-expanded={false} onClick={() => startEdit('flight', f.id)} className={editBtnCls}>Edit</button>
-                        <button type="button" onClick={() => rmFlight(f.id)} className={rmBtnCls}>Remove</button>
                       </div>
                     </div>
                   )}
@@ -2053,28 +2345,26 @@ function BookingsTab({ itin, onSave, onContextChange }: {
                       )}
                     </div>
                   ) : (
-                    <div className="flex items-center gap-4 p-4">
-                      <div className="flex-shrink-0 w-16 h-16 rounded-lg overflow-hidden bg-white/10">
-                        {(h.image || (h.images && h.images[0]))
-                          ? <img src={h.image || h.images![0]} alt={h.name} className="w-full h-full object-cover" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }} />
-                          : <div className="w-full h-full flex items-center justify-center text-2xl">🏨</div>}
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 mb-0.5 flex-wrap">
-                          <span className="text-white font-bold text-sm">{h.name || 'Hotel'}</span>
-                          {h.status && <SBadge status={h.status} />}
+                    <div className="flex flex-col sm:flex-row overflow-hidden">
+                      <BookingMediaThumbnail type="hotel" imageUrl={(h.images?.[0] || h.image) || null} />
+                      <div className="flex-1 min-w-0 flex items-center gap-4 p-4">
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 mb-0.5 flex-wrap">
+                            <span className="text-white font-bold text-sm">{h.name || 'Hotel'}</span>
+                            {h.status && <SBadge status={h.status} />}
+                          </div>
+                          {h.location && <p className="text-white/50 text-xs mb-1">{h.location}</p>}
+                          <div className="flex items-center gap-3 flex-wrap">
+                            {(h.checkIn || h.checkOut) && <span className="text-white/40 text-xs">{fmtDate(h.checkIn)} → {fmtDate(h.checkOut)}{h.nights ? ` · ${h.nights}n` : ''}</span>}
+                            {h.roomType && <span className="text-white/40 text-xs">{h.roomType}</span>}
+                            {h.cost != null && h.cost > 0 && <span className="text-green-400 text-xs font-bold">{sym}{h.cost.toLocaleString()}</span>}
+                            <MarginPill cost={h.cost} supplierCost={h.supplierCost} />
+                          </div>
                         </div>
-                        {h.location && <p className="text-white/50 text-xs mb-1">{h.location}</p>}
-                        <div className="flex items-center gap-3 flex-wrap">
-                          {(h.checkIn || h.checkOut) && <span className="text-white/40 text-xs">{fmtDate(h.checkIn)} → {fmtDate(h.checkOut)}{h.nights ? ` · ${h.nights}n` : ''}</span>}
-                          {h.roomType && <span className="text-white/40 text-xs">{h.roomType}</span>}
-                          {h.cost != null && h.cost > 0 && <span className="text-green-400 text-xs font-bold">{sym}{h.cost.toLocaleString()}</span>}
-                          <MarginPill cost={h.cost} supplierCost={h.supplierCost} />
+                        <div className="flex flex-col gap-1.5 flex-shrink-0">
+                          <button type="button" aria-expanded={false} onClick={() => startEdit('hotel', h.id)} className={editBtnCls}>Edit</button>
+                          <button type="button" onClick={() => rmHotel(h.id)} className={rmBtnCls}>Remove</button>
                         </div>
-                      </div>
-                      <div className="flex flex-col gap-1.5 flex-shrink-0">
-                        <button type="button" aria-expanded={false} onClick={() => startEdit('hotel', h.id)} className={editBtnCls}>Edit</button>
-                        <button type="button" onClick={() => rmHotel(h.id)} className={rmBtnCls}>Remove</button>
                       </div>
                     </div>
                   )}
@@ -2125,30 +2415,30 @@ function BookingsTab({ itin, onSave, onContextChange }: {
                       <div className="mt-2"><label className="text-white/30 text-[10px] font-bold uppercase block mb-1">Supplier</label><SupplierPicker value={t.supplierId} onChange={(id) => updTransfer(t.id, 'supplierId', id)} /></div>
                     </div>
                   ) : (
-                    <div className="flex items-center gap-4 p-4">
-                      <div className="flex-shrink-0 w-10 h-10 rounded-lg bg-white/10 flex items-center justify-center text-xl">
-                        {t.type === 'Shuttle' || t.type === 'Minibus' || t.type === 'Coach' ? '🚌' : t.type === 'Airport Transfer' ? '🛫' : '🚗'}
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 mb-0.5 flex-wrap">
-                          <span className="text-white font-bold text-sm">{t.type || 'Transfer'}</span>
-                          {t.date && <span className="text-white/40 text-xs">{fmtDate(t.date)}{t.time ? ` · ${t.time}` : ''}</span>}
+                    <div className="flex flex-col sm:flex-row overflow-hidden">
+                      <BookingMediaThumbnail type="transfer" imageUrl={(t.images?.[0] || t.image) || null} />
+                      <div className="flex-1 min-w-0 flex items-center gap-4 p-4">
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 mb-0.5 flex-wrap">
+                            <span className="text-white font-bold text-sm">{t.type || 'Transfer'}</span>
+                            {t.date && <span className="text-white/40 text-xs">{fmtDate(t.date)}{t.time ? ` · ${t.time}` : ''}</span>}
+                          </div>
+                          <div className="flex items-center gap-2 mb-1">
+                            <span className="text-white/70 text-sm">{t.from || '—'}</span>
+                            <span className="text-white/30 text-xs">→</span>
+                            <span className="text-white/70 text-sm">{t.to || '—'}</span>
+                          </div>
+                          <div className="flex items-center gap-3 flex-wrap">
+                            {t.vehicle && <span className="text-white/40 text-xs">{t.vehicle}</span>}
+                            {t.provider && <span className="text-white/40 text-xs">{t.provider}</span>}
+                            {t.cost != null && t.cost > 0 && <span className="text-green-400 text-xs font-bold">{sym}{t.cost.toLocaleString()}</span>}
+                            <MarginPill cost={t.cost} supplierCost={t.supplierCost} />
+                          </div>
                         </div>
-                        <div className="flex items-center gap-2 mb-1">
-                          <span className="text-white/70 text-sm">{t.from || '—'}</span>
-                          <span className="text-white/30 text-xs">→</span>
-                          <span className="text-white/70 text-sm">{t.to || '—'}</span>
+                        <div className="flex flex-col gap-1.5 flex-shrink-0">
+                          <button type="button" aria-expanded={false} onClick={() => startEdit('transfer', t.id)} className={editBtnCls}>Edit</button>
+                          <button type="button" onClick={() => rmTransfer(t.id)} className={rmBtnCls}>Remove</button>
                         </div>
-                        <div className="flex items-center gap-3 flex-wrap">
-                          {t.vehicle && <span className="text-white/40 text-xs">{t.vehicle}</span>}
-                          {t.provider && <span className="text-white/40 text-xs">{t.provider}</span>}
-                          {t.cost != null && t.cost > 0 && <span className="text-green-400 text-xs font-bold">{sym}{t.cost.toLocaleString()}</span>}
-                          <MarginPill cost={t.cost} supplierCost={t.supplierCost} />
-                        </div>
-                      </div>
-                      <div className="flex flex-col gap-1.5 flex-shrink-0">
-                        <button type="button" aria-expanded={false} onClick={() => startEdit('transfer', t.id)} className={editBtnCls}>Edit</button>
-                        <button type="button" onClick={() => rmTransfer(t.id)} className={rmBtnCls}>Remove</button>
                       </div>
                     </div>
                   )}
@@ -2198,26 +2488,24 @@ function BookingsTab({ itin, onSave, onContextChange }: {
                       <MultiImageGallery itinId={itin.id} itemType="tour" itemId={t.id} images={t.images ?? (t.image ? [t.image] : [])} destination={t.location || itin.destination} onImagesChange={imgs => { updTour(t.id, 'images', imgs); updTour(t.id, 'image', imgs[0] ?? '') }} autoSave={handleSave} />
                     </div>
                   ) : (
-                    <div className="flex items-center gap-4 p-4">
-                      <div className="flex-shrink-0 w-16 h-16 rounded-lg overflow-hidden bg-white/10">
-                        {(t.image || (t.images && t.images[0]))
-                          ? <img src={t.image || t.images![0]} alt={t.name} className="w-full h-full object-cover" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }} />
-                          : <div className="w-full h-full flex items-center justify-center text-2xl">🎭</div>}
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-white font-bold text-sm mb-0.5">{t.name || 'Tour / Activity'}</p>
-                        {t.location && <p className="text-white/50 text-xs mb-1">{t.location}</p>}
-                        <div className="flex items-center gap-3 flex-wrap">
-                          {t.date && <span className="text-white/40 text-xs">{fmtDate(t.date)}{t.time ? ` · ${t.time}` : ''}</span>}
-                          {t.duration && <span className="text-white/40 text-xs">{t.duration}</span>}
-                          {t.provider && <span className="text-white/40 text-xs">{t.provider}</span>}
-                          {t.cost != null && t.cost > 0 && <span className="text-green-400 text-xs font-bold">{sym}{t.cost.toLocaleString()}</span>}
-                          <MarginPill cost={t.cost} supplierCost={t.supplierCost} />
+                    <div className="flex flex-col sm:flex-row overflow-hidden">
+                      <BookingMediaThumbnail type="tour" imageUrl={(t.images?.[0] || t.image) || null} />
+                      <div className="flex-1 min-w-0 flex items-center gap-4 p-4">
+                        <div className="flex-1 min-w-0">
+                          <p className="text-white font-bold text-sm mb-0.5">{t.name || 'Tour / Activity'}</p>
+                          {t.location && <p className="text-white/50 text-xs mb-1">{t.location}</p>}
+                          <div className="flex items-center gap-3 flex-wrap">
+                            {t.date && <span className="text-white/40 text-xs">{fmtDate(t.date)}{t.time ? ` · ${t.time}` : ''}</span>}
+                            {t.duration && <span className="text-white/40 text-xs">{t.duration}</span>}
+                            {t.provider && <span className="text-white/40 text-xs">{t.provider}</span>}
+                            {t.cost != null && t.cost > 0 && <span className="text-green-400 text-xs font-bold">{sym}{t.cost.toLocaleString()}</span>}
+                            <MarginPill cost={t.cost} supplierCost={t.supplierCost} />
+                          </div>
                         </div>
-                      </div>
-                      <div className="flex flex-col gap-1.5 flex-shrink-0">
-                        <button type="button" aria-expanded={false} onClick={() => startEdit('tour', t.id)} className={editBtnCls}>Edit</button>
-                        <button type="button" onClick={() => rmTour(t.id)} className={rmBtnCls}>Remove</button>
+                        <div className="flex flex-col gap-1.5 flex-shrink-0">
+                          <button type="button" aria-expanded={false} onClick={() => startEdit('tour', t.id)} className={editBtnCls}>Edit</button>
+                          <button type="button" onClick={() => rmTour(t.id)} className={rmBtnCls}>Remove</button>
+                        </div>
                       </div>
                     </div>
                   )}
@@ -2266,29 +2554,39 @@ function BookingsTab({ itin, onSave, onContextChange }: {
                         <div><label className="text-amber-400/70 text-[10px] font-bold uppercase block mb-1">Supplier Cost ({sym}) <span className="text-white/20 font-normal normal-case">internal</span></label><input type="number" value={t.supplierCost ?? ''} onChange={e => updTrain(t.id, 'supplierCost', e.target.value ? Number(e.target.value) : null)} placeholder="0.00" className={inp} /></div>
                         <div><label className="text-white/30 text-[10px] font-bold uppercase block mb-1">Notes</label><input value={t.notes} onChange={e => updTrain(t.id, 'notes', e.target.value)} placeholder="Seat number, coach…" className={inp} /></div>
                       </div>
-                      <ImageField value={t.image} onChange={v => updTrain(t.id, 'image', v)} />
+                      <MultiImageGallery
+                        itinId={itin.id}
+                        itemType="train"
+                        itemId={t.id}
+                        images={t.images ?? (t.image ? [t.image] : [])}
+                        destination={itin.destination}
+                        onImagesChange={imgs => { updTrain(t.id, 'images', imgs); updTrain(t.id, 'image', imgs[0] ?? '') }}
+                        autoSave={handleSave}
+                      />
                     </div>
                   ) : (
-                    <div className="flex items-center gap-4 p-4">
-                      <div className="flex-shrink-0 w-10 h-10 rounded-lg bg-white/10 flex items-center justify-center text-xl">🚂</div>
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 mb-0.5 flex-wrap">
-                          <span className="text-white font-bold text-sm">{t.from || '—'}</span>
-                          <span className="text-white/30 text-xs">→</span>
-                          <span className="text-white font-bold text-sm">{t.to || '—'}</span>
+                    <div className="flex flex-col sm:flex-row overflow-hidden">
+                      <BookingMediaThumbnail type="train" imageUrl={(t.images?.[0] || t.image) || null} />
+                      <div className="flex-1 min-w-0 flex items-center gap-4 p-4">
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 mb-0.5 flex-wrap">
+                            <span className="text-white font-bold text-sm">{t.from || '—'}</span>
+                            <span className="text-white/30 text-xs">→</span>
+                            <span className="text-white font-bold text-sm">{t.to || '—'}</span>
+                          </div>
+                          <div className="flex items-center gap-3 flex-wrap">
+                            {t.date && <span className="text-white/40 text-xs">{fmtDate(t.date)}</span>}
+                            {(t.departureTime || t.arrivalTime) && <span className="text-white/40 text-xs">{t.departureTime}{t.arrivalTime ? ` → ${t.arrivalTime}` : ''}</span>}
+                            {(t.provider || t.trainNumber) && <span className="text-white/40 text-xs">{t.provider}{t.trainNumber ? ` ${t.trainNumber}` : ''}</span>}
+                            {t.class && <span className="text-white/40 text-xs">{t.class}</span>}
+                            {t.cost != null && t.cost > 0 && <span className="text-green-400 text-xs font-bold">{sym}{t.cost.toLocaleString()}</span>}
+                            <MarginPill cost={t.cost} supplierCost={t.supplierCost} />
+                          </div>
                         </div>
-                        <div className="flex items-center gap-3 flex-wrap">
-                          {t.date && <span className="text-white/40 text-xs">{fmtDate(t.date)}</span>}
-                          {(t.departureTime || t.arrivalTime) && <span className="text-white/40 text-xs">{t.departureTime}{t.arrivalTime ? ` → ${t.arrivalTime}` : ''}</span>}
-                          {(t.provider || t.trainNumber) && <span className="text-white/40 text-xs">{t.provider}{t.trainNumber ? ` ${t.trainNumber}` : ''}</span>}
-                          {t.class && <span className="text-white/40 text-xs">{t.class}</span>}
-                          {t.cost != null && t.cost > 0 && <span className="text-green-400 text-xs font-bold">{sym}{t.cost.toLocaleString()}</span>}
-                          <MarginPill cost={t.cost} supplierCost={t.supplierCost} />
+                        <div className="flex flex-col gap-1.5 flex-shrink-0">
+                          <button type="button" aria-expanded={false} onClick={() => startEdit('train', t.id)} className={editBtnCls}>Edit</button>
+                          <button type="button" onClick={() => rmTrain(t.id)} className={rmBtnCls}>Remove</button>
                         </div>
-                      </div>
-                      <div className="flex flex-col gap-1.5 flex-shrink-0">
-                        <button type="button" aria-expanded={false} onClick={() => startEdit('train', t.id)} className={editBtnCls}>Edit</button>
-                        <button type="button" onClick={() => rmTrain(t.id)} className={rmBtnCls}>Remove</button>
                       </div>
                     </div>
                   )}
@@ -2336,30 +2634,40 @@ function BookingsTab({ itin, onSave, onContextChange }: {
                         <div><label className="text-amber-400/70 text-[10px] font-bold uppercase block mb-1">Supplier Cost ({sym}) <span className="text-white/20 font-normal normal-case">internal</span></label><input type="number" value={fe.supplierCost ?? ''} onChange={e => updFerry(fe.id, 'supplierCost', e.target.value ? Number(e.target.value) : null)} placeholder="0.00" className={inp} /></div>
                         <div><label className="text-white/30 text-[10px] font-bold uppercase block mb-1">Notes</label><input value={fe.notes} onChange={e => updFerry(fe.id, 'notes', e.target.value)} placeholder="Cabin type, vehicle…" className={inp} /></div>
                       </div>
-                      <ImageField value={fe.image} onChange={v => updFerry(fe.id, 'image', v)} />
+                      <MultiImageGallery
+                        itinId={itin.id}
+                        itemType="ferry"
+                        itemId={fe.id}
+                        images={fe.images ?? (fe.image ? [fe.image] : [])}
+                        destination={itin.destination}
+                        onImagesChange={imgs => { updFerry(fe.id, 'images', imgs); updFerry(fe.id, 'image', imgs[0] ?? '') }}
+                        autoSave={handleSave}
+                      />
                     </div>
                   ) : (
-                    <div className="flex items-center gap-4 p-4">
-                      <div className="flex-shrink-0 w-10 h-10 rounded-lg bg-white/10 flex items-center justify-center text-xl">⛴️</div>
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 mb-0.5 flex-wrap">
-                          <span className="text-white font-bold text-sm">{fe.from || '—'}</span>
-                          <span className="text-white/30 text-xs">→</span>
-                          <span className="text-white font-bold text-sm">{fe.to || '—'}</span>
+                    <div className="flex flex-col sm:flex-row overflow-hidden">
+                      <BookingMediaThumbnail type="ferry" imageUrl={(fe.images?.[0] || fe.image) || null} />
+                      <div className="flex-1 min-w-0 flex items-center gap-4 p-4">
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 mb-0.5 flex-wrap">
+                            <span className="text-white font-bold text-sm">{fe.from || '—'}</span>
+                            <span className="text-white/30 text-xs">→</span>
+                            <span className="text-white font-bold text-sm">{fe.to || '—'}</span>
+                          </div>
+                          <div className="flex items-center gap-3 flex-wrap">
+                            {fe.date && <span className="text-white/40 text-xs">{fmtDate(fe.date)}</span>}
+                            {(fe.departureTime || fe.arrivalTime) && <span className="text-white/40 text-xs">{fe.departureTime}{fe.arrivalTime ? ` → ${fe.arrivalTime}` : ''}</span>}
+                            {fe.operator && <span className="text-white/40 text-xs">{fe.operator}</span>}
+                            {fe.vessel && <span className="text-white/40 text-xs">{fe.vessel}</span>}
+                            {fe.class && <span className="text-white/40 text-xs">{fe.class}</span>}
+                            {fe.cost != null && fe.cost > 0 && <span className="text-green-400 text-xs font-bold">{sym}{fe.cost.toLocaleString()}</span>}
+                            <MarginPill cost={fe.cost} supplierCost={fe.supplierCost} />
+                          </div>
                         </div>
-                        <div className="flex items-center gap-3 flex-wrap">
-                          {fe.date && <span className="text-white/40 text-xs">{fmtDate(fe.date)}</span>}
-                          {(fe.departureTime || fe.arrivalTime) && <span className="text-white/40 text-xs">{fe.departureTime}{fe.arrivalTime ? ` → ${fe.arrivalTime}` : ''}</span>}
-                          {fe.operator && <span className="text-white/40 text-xs">{fe.operator}</span>}
-                          {fe.vessel && <span className="text-white/40 text-xs">{fe.vessel}</span>}
-                          {fe.class && <span className="text-white/40 text-xs">{fe.class}</span>}
-                          {fe.cost != null && fe.cost > 0 && <span className="text-green-400 text-xs font-bold">{sym}{fe.cost.toLocaleString()}</span>}
-                          <MarginPill cost={fe.cost} supplierCost={fe.supplierCost} />
+                        <div className="flex flex-col gap-1.5 flex-shrink-0">
+                          <button type="button" aria-expanded={false} onClick={() => startEdit('ferry', fe.id)} className={editBtnCls}>Edit</button>
+                          <button type="button" onClick={() => rmFerry(fe.id)} className={rmBtnCls}>Remove</button>
                         </div>
-                      </div>
-                      <div className="flex flex-col gap-1.5 flex-shrink-0">
-                        <button type="button" aria-expanded={false} onClick={() => startEdit('ferry', fe.id)} className={editBtnCls}>Edit</button>
-                        <button type="button" onClick={() => rmFerry(fe.id)} className={rmBtnCls}>Remove</button>
                       </div>
                     </div>
                   )}
