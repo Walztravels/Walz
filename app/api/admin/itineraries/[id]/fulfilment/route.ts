@@ -10,6 +10,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getAdminSession } from '@/lib/admin-auth'
 import { getSupabaseAdmin } from '@/lib/supabase'
+import { prisma } from '@/lib/db'
+import { createStaffNotification } from '@/lib/notifications/staff'
 import type { FulfilmentStatus, FulfilmentItemType } from '@/lib/v2/types'
 
 export const dynamic = 'force-dynamic'
@@ -203,6 +205,26 @@ export async function PATCH(req: NextRequest, { params }: Params) {
 
   if (dbErr) return NextResponse.json({ error: dbErr.message }, { status: 500 })
   if (!data) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+
+  // FAILED item alert — notify the admin who flagged this so it appears in their notification bell (non-fatal)
+  if (rest.status === 'FAILED') {
+    try {
+      const itin = await prisma.itinerary.findUnique({
+        where:  { id: itinerary_id },
+        select: { referenceNumber: true, destination: true },
+      })
+      await createStaffNotification({
+        staffId:    session.id,
+        category:   'BOOKING',
+        title:      `Fulfilment item FAILED — ${itin?.referenceNumber ?? itinerary_id}`,
+        body:       `A ${data.type} item ("${data.description ?? 'untitled'}") was marked FAILED${itin?.destination ? ` for the ${itin.destination} trip` : ''}. Immediate action required.`,
+        important:  true,
+        sourceId:   `fulfilment-failed:${data.id}`,
+        sourceType: 'FULFILMENT_FAILED',
+        data:       { itemId: data.id, itineraryId: itinerary_id, type: data.type },
+      })
+    } catch { /* non-fatal */ }
+  }
 
   return NextResponse.json({
     item: {
