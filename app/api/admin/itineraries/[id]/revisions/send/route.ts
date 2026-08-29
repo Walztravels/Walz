@@ -3,11 +3,12 @@
  *
  * Sends the revised proposal to the client.
  *   1. Validates itinerary is in revision_draft state
- *   2. Builds a fresh proposal hash from current content + options
- *   3. Generates a new approval token (30-day expiry)
- *   4. Sets status → revision_sent
- *   5. Sends a "revised proposal ready" email to the client
+ *   2. Fetches Supabase package options (pre-transaction)
+ *   3. Atomically: locks row → reads latest committed state → builds hash →
+ *      generates fresh token → writes revision_sent status in one transaction
+ *   4. AFTER commit: sends client notification email and internal staff alert
  *
+ * Email failure is non-fatal — hash/token state is already persisted.
  * The client accepts via POST /api/itinerary/[ref]/accept-revision.
  */
 
@@ -32,6 +33,7 @@ export async function POST(_req: NextRequest, { params }: Params) {
 
   const { id } = await params
 
+  // Initial fetch — used for email content and validation only.
   const itin = await prisma.itinerary.findUnique({ where: { id } })
   if (!itin) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
@@ -49,30 +51,85 @@ export async function POST(_req: NextRequest, { params }: Params) {
     )
   }
 
-  const opts       = parseOptions(itin.options) as Record<string, unknown>
-  const revNum     = typeof opts.revisionNumber === 'number' ? opts.revisionNumber : 1
-  const BASE       = process.env.NEXT_PUBLIC_APP_URL ?? 'https://walztravels.com'
-  const sym        = getCurrencySymbol(itin.currency)
+  const opts   = parseOptions(itin.options) as Record<string, unknown>
+  const revNum = typeof opts.revisionNumber === 'number' ? opts.revisionNumber : 1
+  const BASE   = process.env.NEXT_PUBLIC_APP_URL ?? 'https://walztravels.com'
+  const sym    = getCurrencySymbol(itin.currency)
 
-  // ── Build proposal hash from current state ────────────────────────────────
-  const now = new Date()
+  // Fetch package options before the transaction — acceptable minor race on pkg option
+  // changes; the itinerary row lock (below) prevents concurrent saves on the row itself.
   let sb: ReturnType<typeof getSupabaseAdmin>
   try { sb = getSupabaseAdmin() } catch {
     return NextResponse.json({ error: 'Supabase not configured' }, { status: 503 })
   }
 
-  // ── Generate new approval token ───────────────────────────────────────────
-  const token     = crypto.randomBytes(32).toString('hex')
-  const expiresAt = new Date(now.getTime() + 30 * 86_400_000).toISOString()
+  const { data: pkgRowsData } = await sb
+    .from('itinerary_package_options')
+    .select('name, description, price, currency, features, sort_order')
+    .eq('itinerary_id', id)
+    .order('sort_order')
+  const pkgRows = (pkgRowsData ?? []) as PackageOptionRow[]
 
-  // ── Send email to client (non-fatal) ──────────────────────────────────────
-  // NOTE: itin is fetched again after the emails below (itinForHash) to close
-  // the race window between initial fetch and hash computation.
+  // Atomic: lock row → read latest committed state → compute hash → write — all in one tx.
+  // Any concurrent admin save blocks on the lock and commits before our hash is computed,
+  // so the stored hash always matches the DB state that the client will see at accept-time.
+  let sentHash = ''
+  try {
+    const { hash } = await prisma.$transaction(async (tx) => {
+      // Acquire exclusive row lock. Concurrent admin saves will wait until this tx commits.
+      await tx.$executeRaw`SELECT 1 FROM "Itinerary" WHERE id = ${id} FOR UPDATE`
+
+      const locked = await tx.itinerary.findUnique({ where: { id } })
+      if (!locked) throw Object.assign(new Error('NOT_FOUND'), { _txCode: 'NOT_FOUND' })
+
+      const now       = new Date()
+      const payload   = buildProposalHashPayload(locked, pkgRows)
+      const hash      = hashProposalState(payload)
+      const token     = crypto.randomBytes(32).toString('hex')
+      const expiresAt = new Date(now.getTime() + 30 * 86_400_000).toISOString()
+
+      console.info('[revision-send/hash-diag]', {
+        ref: locked.referenceNumber,
+        storedHashPrefix: hash.slice(0, 8),
+        payloadSummary: buildPayloadSummary(payload),
+        ts: now.toISOString(),
+      })
+
+      await tx.itinerary.update({
+        where: { id },
+        data: {
+          status:    'revision_sent',
+          sentAt:    now,
+          updatedAt: now,
+          options:   patchOptions(locked.options, {
+            approvalToken:            token,
+            approvalTokenIssuedAt:    now.toISOString(),
+            approvalTokenExpiresAt:   expiresAt,
+            approvalTokenUsed:        false,
+            sentOptionsHash:          hash,
+            sentOptionsHashCreatedAt: now.toISOString(),
+            revisionSentAt:           now.toISOString(),
+          }),
+        },
+      })
+
+      return { hash }
+    })
+
+    sentHash = hash
+  } catch (err: unknown) {
+    const e = err as { _txCode?: string }
+    if (e._txCode === 'NOT_FOUND') return NextResponse.json({ error: 'Not found' }, { status: 404 })
+    console.error('[revision-send] Transaction failed', err)
+    return NextResponse.json({ error: 'Failed to record send state. Please try again.' }, { status: 500 })
+  }
+
+  // Client email — AFTER commit. Non-fatal; hash/token state is already persisted.
+  const proposalUrl = `${BASE}/itinerary/${itin.referenceNumber}`
   let emailSent = false
   try {
-    const resend  = getResend()
+    const resend   = getResend()
     const revLabel = `Revision ${revNum}`
-    const proposalUrl = `${BASE}/itinerary/${itin.referenceNumber}`
 
     const { error } = await resend.emails.send({
       from:    'Walz Travels <contact@walztravels.com>',
@@ -108,7 +165,14 @@ export async function POST(_req: NextRequest, { params }: Params) {
     if (!error) emailSent = true
   } catch { /* non-fatal */ }
 
-  // ── Internal staff alert (non-fatal) ─────────────────────────────────────
+  if (!emailSent) {
+    console.warn('[revision-send] Client email delivery failed after commit — hash/token preserved', {
+      ref: itin.referenceNumber,
+      to:  itin.clientEmail,
+    })
+  }
+
+  // Internal staff alert — non-fatal
   try {
     const resend = getResend()
     await resend.emails.send({
@@ -117,59 +181,15 @@ export async function POST(_req: NextRequest, { params }: Params) {
       subject: `📤 Revised proposal sent — ${itin.referenceNumber} (Revision ${revNum})`,
       html:    `<p>Revised proposal sent by <strong>${session.name || session.email}</strong> for <strong>${itin.referenceNumber}</strong> (${itin.destination}).</p>
                <p>Revision: ${revNum} · Total: ${itin.currency} ${itin.totalPrice != null ? Number(itin.totalPrice).toLocaleString() : 'TBD'}</p>
-               <p><a href="${process.env.NEXT_PUBLIC_APP_URL ?? 'https://walztravels.com'}/admin/itinerary-planner/${id}">Open in admin →</a></p>`,
+               <p><a href="${BASE}/admin/itinerary-planner/${id}">Open in admin →</a></p>`,
     })
   } catch { /* non-fatal */ }
 
-  // ── Re-fetch itin immediately before hashing ─────────────────────────────
-  // Closes the race window between initial fetch (used for email HTML) and
-  // hash computation. Any admin save during the email calls would otherwise
-  // produce a hash that never matches the accept-time state.
-  const [itinForHash, pkgRowsResult] = await Promise.all([
-    prisma.itinerary.findUnique({ where: { id } }),
-    sb
-      .from('itinerary_package_options')
-      .select('name, description, price, currency, features, sort_order')
-      .eq('itinerary_id', id)
-      .order('sort_order'),
-  ])
-  if (!itinForHash) return NextResponse.json({ error: 'Not found' }, { status: 404 })
-
-  const pkgRows = pkgRowsResult.data
-  const payload = buildProposalHashPayload(itinForHash, (pkgRows ?? []) as PackageOptionRow[])
-  const hash    = hashProposalState(payload)
-
-  console.info('[revision-send/hash-diag]', {
-    ref: itinForHash.referenceNumber,
-    storedHashPrefix: hash.slice(0, 8),
-    payloadSummary: buildPayloadSummary(payload),
-    ts: now.toISOString(),
-  })
-
-  // ── Persist new token + hash + status ────────────────────────────────────
-  await prisma.itinerary.update({
-    where: { id },
-    data: {
-      status:    'revision_sent',
-      sentAt:    now,
-      updatedAt: now,
-      options:   patchOptions(itinForHash.options, {
-        approvalToken:           token,
-        approvalTokenIssuedAt:   now.toISOString(),
-        approvalTokenExpiresAt:  expiresAt,
-        approvalTokenUsed:       false,
-        sentOptionsHash:         hash,
-        sentOptionsHashCreatedAt: now.toISOString(),
-        revisionSentAt:          now.toISOString(),
-      }),
-    },
-  })
-
   return NextResponse.json({
-    sent:           true,
+    sent:            true,
     emailSent,
-    revisionNumber: revNum,
-    approvalUrl:    `${BASE}/itinerary/${itin.referenceNumber}`,
-    sentOptionsHash: hash,
+    revisionNumber:  revNum,
+    approvalUrl:     proposalUrl,
+    sentOptionsHash: sentHash,
   })
 }
