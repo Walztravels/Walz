@@ -70,9 +70,10 @@ export async function POST(req: NextRequest) {
   }
 
   // ── Fallback: destination-based search filtered by query text ─────────────────
-  if (products.length === 0 && location) {
+  if (products.length === 0) {
+    const destLookup = location || query
     try {
-      const destId = resolveViatorDestId(location)
+      const destId = resolveViatorDestId(destLookup)
       if (destId) {
         const { status, data } = await viatorPost<ViatorProductSearchResponse>('/products/search', {
           filtering:  { destination: destId },
@@ -80,10 +81,19 @@ export async function POST(req: NextRequest) {
           currency:   'GBP',
         })
         if (status === 200 && data.products?.length) {
-          const queryLower = query.toLowerCase()
-          products = data.products
-            .filter(p => p.title.toLowerCase().includes(queryLower))
-            .slice(0, 10)
+          // Score by how many query words appear in the title
+          const queryWords = query.toLowerCase().split(/\s+/).filter(w => w.length > 2)
+          const scored = data.products.map(p => {
+            const titleLower = p.title.toLowerCase()
+            const score = queryWords.filter(w => titleLower.includes(w)).length
+            return { p, score }
+          })
+          const matched = scored
+            .filter(({ score }) => score > 0)
+            .sort((a, b) => b.score - a.score)
+            .map(({ p }) => p)
+          // If no word matches at all, return first 10 from destination (better than nothing)
+          products = (matched.length > 0 ? matched : data.products).slice(0, 10)
         }
       }
     } catch (err) {
