@@ -15,12 +15,12 @@ export function ViewTracker({ refCode }: { refCode: string }) {
   return null
 }
 
-// ── PDF / Print button ─────────────────────────────────────────────────────────
-export function PrintButton() {
+// ── PDF download button ────────────────────────────────────────────────────────
+export function PrintButton({ refCode }: { refCode: string }) {
   return (
-    <button
-      type="button"
-      onClick={() => window.print()}
+    <a
+      href={`/api/itinerary/${encodeURIComponent(refCode)}/pdf`}
+      download
       className="flex items-center gap-2 bg-white/10 hover:bg-white/20 border border-white/20 text-white font-semibold px-4 py-2 rounded-xl text-sm transition-colors print:hidden"
       aria-label="Download PDF"
     >
@@ -36,11 +36,11 @@ export function PrintButton() {
         <path
           strokeLinecap="round"
           strokeLinejoin="round"
-          d="M12 10v6m0 0l-3-3m3 3l3-3M3 17V7a2 2 0 012-2h6l2 2h4a2 2 0 012 2v8a2 2 0 01-2 2H5a2 2 0 01-2-2z"
+          d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"
         />
       </svg>
       Download PDF
-    </button>
+    </a>
   )
 }
 
@@ -48,9 +48,11 @@ export function PrintButton() {
 export function MobileStickyBar({
   whatsappE164,
   refCode,
+  pdfRef,
 }: {
   whatsappE164: string
   refCode: string
+  pdfRef: string
 }) {
   return (
     <div className="fixed bottom-0 left-0 right-0 z-40 sm:hidden print:hidden">
@@ -98,10 +100,10 @@ export function MobileStickyBar({
             WhatsApp
           </a>
 
-          {/* Print / PDF */}
-          <button
-            type="button"
-            onClick={() => window.print()}
+          {/* PDF download */}
+          <a
+            href={`/api/itinerary/${encodeURIComponent(pdfRef)}/pdf`}
+            download
             className="flex-1 flex items-center justify-center gap-1.5 bg-amber-500 hover:bg-amber-400 text-black text-xs font-bold py-3 rounded-xl transition-colors"
             aria-label="Download PDF"
           >
@@ -121,7 +123,7 @@ export function MobileStickyBar({
               />
             </svg>
             PDF
-          </button>
+          </a>
         </div>
       </div>
     </div>

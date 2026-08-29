@@ -131,12 +131,21 @@ function buildAutoTasks(itinerary_id: string, itinSummary: ItinSummary) {
   return tasks
 }
 
+function getSupabase() {
+  try {
+    return { sb: getSupabaseAdmin(), err: null }
+  } catch (e) {
+    return { sb: null, err: e instanceof Error ? e.message : 'Supabase not configured' }
+  }
+}
+
 export async function GET(_req: NextRequest, { params }: Params) {
   const session = await getAdminSession()
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const { id: itinerary_id } = await params
-  const supabase = getSupabaseAdmin()
+  const { sb: supabase, err } = getSupabase()
+  if (!supabase) return NextResponse.json({ tasks: [], _warning: err }, { status: 200 })
 
   const { data, error } = await supabase
     .from('itinerary_tasks')
@@ -169,7 +178,8 @@ export async function POST(req: NextRequest, { params }: Params) {
 
   const { id: itinerary_id } = await params
   const body = await req.json()
-  const supabase = getSupabaseAdmin()
+  const { sb: supabase, err } = getSupabase()
+  if (!supabase) return NextResponse.json({ error: err }, { status: 503 })
 
   // Auto-generate mode
   if (body.autoGenerate === true) {
@@ -231,7 +241,8 @@ export async function PATCH(req: NextRequest, { params }: Params) {
     return NextResponse.json({ error: 'taskId is required' }, { status: 400 })
   }
 
-  const supabase = getSupabaseAdmin()
+  const { sb: supabase, err: patchErr } = getSupabase()
+  if (!supabase) return NextResponse.json({ error: patchErr }, { status: 503 })
 
   const allowed = [
     'title', 'description', 'owner', 'due_date', 'priority',
@@ -271,7 +282,8 @@ export async function DELETE(req: NextRequest, { params }: Params) {
     return NextResponse.json({ error: 'taskId is required' }, { status: 400 })
   }
 
-  const supabase = getSupabaseAdmin()
+  const { sb: supabase, err: delErr } = getSupabase()
+  if (!supabase) return NextResponse.json({ error: delErr }, { status: 503 })
 
   const { error } = await supabase
     .from('itinerary_tasks')

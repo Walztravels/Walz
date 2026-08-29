@@ -107,6 +107,7 @@ export default async function ClientItineraryPage({ params }: { params: Promise<
       <MobileStickyBar
         whatsappE164={BUSINESS.contacts.globalWhatsapp.e164}
         refCode={itin.referenceNumber}
+        pdfRef={itin.referenceNumber}
       />
 
       {/* ── Header ──────────────────────────────────────────────────────────── */}
@@ -120,7 +121,7 @@ export default async function ClientItineraryPage({ params }: { params: Promise<
             )}
             {/* Desktop PDF button */}
             <div className="hidden sm:block">
-              <PrintButton />
+              <PrintButton refCode={itin.referenceNumber} />
             </div>
           </div>
         </div>
