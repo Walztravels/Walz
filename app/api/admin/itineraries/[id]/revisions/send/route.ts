@@ -20,7 +20,7 @@ import { getSupabaseAdmin } from '@/lib/supabase'
 import { getCurrencySymbol } from '@/lib/currency'
 import { BUSINESS } from '@/lib/config/business'
 import { parseOptions, patchOptions } from '@/lib/itinerary-options'
-import { buildProposalHashPayload, hashProposalState, type PackageOptionRow } from '@/lib/proposalHash'
+import { buildProposalHashPayload, hashProposalState, buildPayloadSummary, type PackageOptionRow } from '@/lib/proposalHash'
 
 export const dynamic = 'force-dynamic'
 
@@ -61,20 +61,13 @@ export async function POST(_req: NextRequest, { params }: Params) {
     return NextResponse.json({ error: 'Supabase not configured' }, { status: 503 })
   }
 
-  const { data: pkgRows } = await sb
-    .from('itinerary_package_options')
-    .select('name, description, price, currency, features, sort_order')
-    .eq('itinerary_id', id)
-    .order('sort_order')
-
-  const payload = buildProposalHashPayload(itin, (pkgRows ?? []) as PackageOptionRow[])
-  const hash    = hashProposalState(payload)
-
   // ── Generate new approval token ───────────────────────────────────────────
   const token     = crypto.randomBytes(32).toString('hex')
   const expiresAt = new Date(now.getTime() + 30 * 86_400_000).toISOString()
 
   // ── Send email to client (non-fatal) ──────────────────────────────────────
+  // NOTE: itin is fetched again after the emails below (itinForHash) to close
+  // the race window between initial fetch and hash computation.
   let emailSent = false
   try {
     const resend  = getResend()
@@ -128,6 +121,31 @@ export async function POST(_req: NextRequest, { params }: Params) {
     })
   } catch { /* non-fatal */ }
 
+  // ── Re-fetch itin immediately before hashing ─────────────────────────────
+  // Closes the race window between initial fetch (used for email HTML) and
+  // hash computation. Any admin save during the email calls would otherwise
+  // produce a hash that never matches the accept-time state.
+  const [itinForHash, pkgRowsResult] = await Promise.all([
+    prisma.itinerary.findUnique({ where: { id } }),
+    sb
+      .from('itinerary_package_options')
+      .select('name, description, price, currency, features, sort_order')
+      .eq('itinerary_id', id)
+      .order('sort_order'),
+  ])
+  if (!itinForHash) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+
+  const pkgRows = pkgRowsResult.data
+  const payload = buildProposalHashPayload(itinForHash, (pkgRows ?? []) as PackageOptionRow[])
+  const hash    = hashProposalState(payload)
+
+  console.info('[revision-send/hash-diag]', {
+    ref: itinForHash.referenceNumber,
+    storedHashPrefix: hash.slice(0, 8),
+    payloadSummary: buildPayloadSummary(payload),
+    ts: now.toISOString(),
+  })
+
   // ── Persist new token + hash + status ────────────────────────────────────
   await prisma.itinerary.update({
     where: { id },
@@ -135,7 +153,7 @@ export async function POST(_req: NextRequest, { params }: Params) {
       status:    'revision_sent',
       sentAt:    now,
       updatedAt: now,
-      options:   patchOptions(itin.options, {
+      options:   patchOptions(itinForHash.options, {
         approvalToken:           token,
         approvalTokenIssuedAt:   now.toISOString(),
         approvalTokenExpiresAt:  expiresAt,

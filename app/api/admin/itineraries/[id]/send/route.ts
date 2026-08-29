@@ -7,7 +7,7 @@ import { getCurrencySymbol } from '@/lib/currency'
 import { getSupabaseAdmin } from '@/lib/supabase'
 import { BUSINESS } from '@/lib/config/business'
 import { patchOptions } from '@/lib/itinerary-options'
-import { buildProposalHashPayload, hashProposalState, type PackageOptionRow } from '@/lib/proposalHash'
+import { buildProposalHashPayload, hashProposalState, buildPayloadSummary, type PackageOptionRow } from '@/lib/proposalHash'
 
 const BASE = 'https://walztravels.com'
 
@@ -117,21 +117,36 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     if (!error) emailSent = true
   } catch { /* non-fatal */ }
 
-  // Build proposal hash and refresh approval token — all written atomically.
-  // Fetching package options here (not earlier) so the hash reflects exactly
-  // what is stored at the moment of send, not what was loaded for email HTML.
+  // Build proposal hash and refresh approval token.
+  // Re-fetch itin immediately before hashing to close the race window: the initial
+  // fetch (line 18) was used for email HTML, but any concurrent admin save during
+  // the email API call would make that snapshot stale. Re-fetching here ensures
+  // the stored hash matches the actual DB state written in the same update.
   const now = new Date()
   const sb  = getSupabaseAdmin()
-  const { data: pkgRows } = await sb
-    .from('itinerary_package_options')
-    .select('name, description, price, currency, features, sort_order')
-    .eq('itinerary_id', id)
-    .order('sort_order')
 
-  const payload  = buildProposalHashPayload(itin, (pkgRows ?? []) as PackageOptionRow[])
+  const [itinForHash, pkgRowsResult] = await Promise.all([
+    prisma.itinerary.findUnique({ where: { id } }),
+    sb
+      .from('itinerary_package_options')
+      .select('name, description, price, currency, features, sort_order')
+      .eq('itinerary_id', id)
+      .order('sort_order'),
+  ])
+  if (!itinForHash) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+
+  const pkgRows  = pkgRowsResult.data
+  const payload  = buildProposalHashPayload(itinForHash, (pkgRows ?? []) as PackageOptionRow[])
   const hash     = hashProposalState(payload)
   const token    = crypto.randomBytes(32).toString('hex')
   const expiresAt = new Date(now.getTime() + 30 * 86_400_000).toISOString()
+
+  console.info('[send/hash-diag]', {
+    ref: itinForHash.referenceNumber,
+    storedHashPrefix: hash.slice(0, 8),
+    payloadSummary: buildPayloadSummary(payload),
+    ts: now.toISOString(),
+  })
 
   await prisma.itinerary.update({
     where: { id },
@@ -141,7 +156,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       updatedAt: now,
       // Token + hash + expiry represent the same sent proposal — written together
       // to guarantee consistency. Replaces any prior token.
-      options: patchOptions(itin.options, {
+      options: patchOptions(itinForHash.options, {
         approvalToken:           token,
         approvalTokenIssuedAt:   now.toISOString(),
         approvalTokenExpiresAt:  expiresAt,

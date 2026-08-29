@@ -46,6 +46,7 @@ import {
   hashProposalState,
   validateSentProposalState,
   getStoredProposalHash,
+  buildPayloadSummary,
   type PackageOptionRow,
 } from '@/lib/proposalHash'
 import { validateClientSelections } from '@/lib/v2/validate-selection'
@@ -228,6 +229,13 @@ export async function POST(
   const legacyNoHash = hashResult.result === 'NO_HASH_LEGACY'
 
   if (hashResult.result === 'STALE') {
+    const currentPayload = buildProposalHashPayload(itin, (pkgRows ?? []) as PackageOptionRow[])
+    console.info('[accept-revision] 409/HASH_STALE', {
+      ref,
+      storedHashPrefix:  hashResult.storedHash.slice(0, 8),
+      currentHashPrefix: hashResult.currentHash.slice(0, 8),
+      payloadSummary: buildPayloadSummary(currentPayload),
+    })
     return NextResponse.json(
       {
         error: 'This revised proposal has been updated since it was sent. ' +

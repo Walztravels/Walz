@@ -13,6 +13,7 @@ import {
   hashProposalState,
   validateSentProposalState,
   getStoredProposalHash,
+  buildPayloadSummary,
   type PackageOptionRow,
 } from '@/lib/proposalHash'
 
@@ -216,6 +217,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ ref
     .eq('active', true)
     .limit(1)
   if (v2Groups && v2Groups.length > 0) {
+    console.warn('[approve] 409/V2_ROUTING — active V2 option groups block /approve; client must use /accept-v2', { ref })
     return NextResponse.json(
       { error: 'This itinerary uses a multi-option format and must be accepted through the updated proposal link.' },
       { status: 409 }
@@ -227,7 +229,13 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ ref
   const hashResult = validateSentProposalState(itin, allPkgOptions, storedHash)
 
   if (hashResult.result === 'STALE') {
-    console.info('[approve] Stale proposal — advisor edited after send', { ref })
+    const currentPayload = buildProposalHashPayload(itin, allPkgOptions)
+    console.info('[approve] 409/HASH_STALE', {
+      ref,
+      storedHashPrefix:  hashResult.storedHash.slice(0, 8),
+      currentHashPrefix: hashResult.currentHash.slice(0, 8),
+      payloadSummary: buildPayloadSummary(currentPayload),
+    })
     return NextResponse.json(
       {
         error: 'This proposal has been updated since it was sent to you. ' +

@@ -280,6 +280,41 @@ export function buildProposalHashPayload(
 }
 
 /**
+ * Non-sensitive summary of a hash payload for diagnostic logging.
+ * Safe to emit in server logs — contains counts and normalized commercial values,
+ * never raw content, supplier data, or PII.
+ */
+export function buildPayloadSummary(payload: ProposalHashPayload): Record<string, unknown> {
+  return {
+    currency:           payload.currency,
+    destination:        payload.destination,
+    startDate:          payload.startDate,
+    endDate:            payload.endDate,
+    duration:           payload.duration,
+    numberOfTravellers: payload.numberOfTravellers,
+    tripType:           payload.tripType,
+    totalPrice:         payload.totalPrice,
+    deposit:            payload.deposit,
+    hasOverview:        payload.overview != null && payload.overview.length > 0,
+    hasTerms:           payload.terms != null && payload.terms.length > 0,
+    overviewLen:        payload.overview?.length ?? 0,
+    termsLen:           payload.terms?.length ?? 0,
+    priceBreakdownCount: payload.priceBreakdown.length,
+    daysCount:          payload.days.length,
+    flightsCount:       payload.flights.length,
+    hotelsCount:        payload.hotels.length,
+    transfersCount:     payload.transfers.length,
+    toursCount:         payload.tours.length,
+    trainsCount:        payload.trains.length,
+    ferriesCount:       payload.ferries.length,
+    inclusionsCount:    payload.inclusions.length,
+    exclusionsCount:    payload.exclusions.length,
+    pkgOptionsCount:    payload.packageOptions.length,
+    optionGroupsCount:  payload.optionGroups.length,
+  }
+}
+
+/**
  * Produce a SHA-256 hex digest of the canonical proposal payload.
  * Synchronous; no side effects.
  */
