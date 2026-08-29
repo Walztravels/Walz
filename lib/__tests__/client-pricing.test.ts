@@ -391,8 +391,8 @@ describe('D. Investment section display logic', () => {
   })
 
   test('D3. hasComponents false when componentPrices is undefined', () => {
-    const cp = undefined
-    const hasComponents = cp != null && Object.values(cp).some(v => (v ?? 0) > 0)
+    const cp: ComponentPrices | undefined = undefined
+    const hasComponents = cp != null
     expect(hasComponents).toBe(false)
   })
 

@@ -2878,7 +2878,6 @@ function BookingsTab({ itin, onSave, onContextChange }: {
 
 function PricingTab({ itin, onSave, onNavigateToOptions }: { itin: ItineraryData; onSave: (u: Record<string, unknown>) => Promise<void>; onNavigateToOptions?: () => void }) {
   const [rows, setRows] = useState<PriceRow[]>(safeParse<PriceRow[]>(itin.priceBreakdown, []))
-  const [totalOverride, setTotalOverride] = useState<string>(itin.totalPrice != null ? String(itin.totalPrice) : '')
   const [deposit, setDeposit] = useState<string>(itin.deposit != null ? String(itin.deposit) : '')
   const [depositEnabled, setDepositEnabled] = useState(itin.deposit != null && itin.deposit > 0)
   const [depositDue, setDepositDue] = useState(itin.depositDue ? itin.depositDue.split('T')[0] : '')
@@ -2926,7 +2925,6 @@ function PricingTab({ itin, onSave, onNavigateToOptions }: { itin: ItineraryData
   const bookingCostTotal = bookingComponents.reduce((s, c) => s + c.total, 0)
   const manualRowsTotal  = rows.reduce((s, r) => s + (Number(r.cost) || 0), 0)
   const derivedTotal     = bookingCostTotal + manualRowsTotal
-  const displayTotal     = totalOverride !== '' ? Number(totalOverride) : derivedTotal
 
   const addRow    = () => setRows(prev => [...prev, { id: uid(), item: '', description: '', cost: 0 }])
   const updRow    = (id: string, field: keyof PriceRow, value: unknown) => setRows(prev => prev.map(r => r.id === id ? { ...r, [field]: value } : r))
@@ -2939,7 +2937,7 @@ function PricingTab({ itin, onSave, onNavigateToOptions }: { itin: ItineraryData
     setSaving(true)
     await onSave({
       priceBreakdown: JSON.stringify(rows),
-      totalPrice: totalOverride !== '' ? Number(totalOverride) : (derivedTotal > 0 ? derivedTotal : null),
+      totalPrice: derivedTotal > 0 ? derivedTotal : null,
       deposit: depositEnabled && deposit !== '' ? Number(deposit) : null,
       depositDue: depositEnabled && depositDue ? depositDue : null,
       balanceDue: balanceDue || null,
@@ -2949,12 +2947,13 @@ function PricingTab({ itin, onSave, onNavigateToOptions }: { itin: ItineraryData
   }
 
   const pricingSnap    = parseSnap(itin.selectedOption)
-  const currentTotal   = displayTotal > 0 ? displayTotal : null
+  const currentTotal   = derivedTotal > 0 ? derivedTotal : null
   const acceptedTotalNum = pricingSnap?.acceptedTotal ?? null
   const isItinAccepted = itin.status === 'approved' || itin.status === 'revision_accepted'
+  const isSent         = itin.status === 'proposal' || itin.status === 'revision_sent'
   const hasDivergence  = isItinAccepted && acceptedTotalNum != null && currentTotal != null && Math.abs(acceptedTotalNum - currentTotal) > 0.01
   const depositNum     = depositEnabled && deposit !== '' ? Number(deposit) : 0
-  const balance        = Math.max(0, displayTotal - depositNum)
+  const balance        = Math.max(0, derivedTotal - depositNum)
 
   return (
     <div className="max-w-3xl space-y-4">
@@ -3089,26 +3088,6 @@ function PricingTab({ itin, onSave, onNavigateToOptions }: { itin: ItineraryData
           <p className="text-amber-400 text-3xl font-bold tabular-nums">{sym}{derivedTotal.toLocaleString()}</p>
         </div>
 
-        {/* Optional override */}
-        <div className="mt-4 pt-4 border-t border-white/[0.08]">
-          <label className="text-white/30 text-[11px] font-bold uppercase tracking-wider block mb-1.5">
-            Total Override <span className="text-white/20 normal-case font-normal">(leave blank to use auto)</span>
-          </label>
-          <div className="relative">
-            <input
-              type="number"
-              value={totalOverride}
-              onChange={e => setTotalOverride(e.target.value)}
-              placeholder={derivedTotal > 0 ? `${derivedTotal.toLocaleString()} (auto)` : 'Enter custom total'}
-              className={inp}
-            />
-            {totalOverride !== '' && (
-              <button onClick={() => setTotalOverride('')} className="absolute right-2 top-1/2 -translate-y-1/2 text-white/30 hover:text-white/60 transition text-xs px-1">
-                Clear
-              </button>
-            )}
-          </div>
-        </div>
       </div>
 
       {/* ── SECTION 4: PAYMENT TERMS ─────────────────────────────────────────── */}
@@ -3117,11 +3096,22 @@ function PricingTab({ itin, onSave, onNavigateToOptions }: { itin: ItineraryData
 
         <div className="mb-5">
           <label className="text-white/40 text-xs font-bold uppercase tracking-wider block mb-1.5">Billing Currency</label>
-          <select value={currency} onChange={e => setCurrency(e.target.value)} className={sel}>
+          <select
+            value={currency}
+            onChange={e => setCurrency(e.target.value)}
+            disabled={isItinAccepted}
+            className={`${sel} ${isItinAccepted ? 'opacity-40 cursor-not-allowed' : ''}`}
+          >
             {Object.entries(CURRENCY_SYM).map(([code, s]) => (
               <option key={code} value={code}>{s} {code}</option>
             ))}
           </select>
+          {isItinAccepted && (
+            <p className="text-white/30 text-xs mt-1.5">Currency locked — proposal accepted. Use revision workflow to change.</p>
+          )}
+          {isSent && currency !== (itin.currency || 'GBP') && (
+            <p className="text-amber-400/80 text-xs mt-1.5">⚠️ Currency changed from {itin.currency || 'GBP'}. This proposal was already sent — existing numeric amounts are NOT converted. Re-send required before client can accept.</p>
+          )}
         </div>
 
         <div className="mb-4">
@@ -3160,7 +3150,7 @@ function PricingTab({ itin, onSave, onNavigateToOptions }: { itin: ItineraryData
           )}
         </div>
 
-        {depositEnabled && depositNum > 0 && displayTotal > 0 && (
+        {depositEnabled && depositNum > 0 && derivedTotal > 0 && (
           <div className="mt-3 pt-3 border-t border-white/[0.06] flex justify-between items-center text-sm pl-7">
             <span className="text-white/30">Balance (auto)</span>
             <span className="text-white/60 font-mono tabular-nums">{sym}{balance.toLocaleString()}</span>
