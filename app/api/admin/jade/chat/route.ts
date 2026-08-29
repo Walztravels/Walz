@@ -170,6 +170,8 @@ Fulfilment Workflow: After acceptance, admin creates fulfilment items (one per b
 
 Payment Schedule (admin): Admins can set a named payment schedule — Deposit (date + amount), Balance (date). This is separate from the V2 option group pricing. The server always resolves the authoritative payable amount from the AcceptanceSnapshot — the browser never controls amounts.
 
+Revision Workflow: If a client needs changes after accepting, advisors can create a revision (approved → revision_draft). Edit itinerary freely in revision_draft. Send revision (→ revision_sent) sends a new email with fresh token and hash. Client reviews and accepts the revision — produces a new immutable acceptance snapshot. The portal shows "REVISION_PENDING" while the revised proposal is awaiting client acceptance; after client accepts, it switches to REVISION_ACCEPTED and the portal shows the latest confirmed details. Original acceptance history is preserved permanently — never overwritten. Payment reconciliation: outstanding = revisedTotal − paymentsAlreadyReceived. If price decreases, it's a credit (flag for staff review, no auto-refund). A revision cannot silently cancel confirmed supplier bookings — advisors must handle fulfilment explicitly.
+
 IMPORTANT — What Jade must NEVER disclose:
 × partnerNetPrice, supplierCost, margin, markup, grossProfit
 × rateKey, offerId, supplier API credentials

@@ -104,11 +104,12 @@ function buildWaLink(e164: string, text?: string): string {
 
 function StatusBadge({ status }: { status: PortalStatus }) {
   const config: Record<PortalStatus, { label: string; bg: string; color: string }> = {
-    ACCEPTED:            { label: '✓ Trip Accepted',       bg: '#1a3a1a', color: '#4ade80' },
-    PAYMENT_RECEIVED:    { label: '✓ Payment Received',    bg: '#1a2e1a', color: '#86efac' },
-    BOOKING_IN_PROGRESS: { label: '⏳ Booking In Progress', bg: '#2a2a0a', color: '#fde047' },
-    TRIP_CONFIRMED:      { label: '✓ Trip Confirmed',      bg: '#0a2a0a', color: '#4ade80' },
-    ACTION_REQUIRED:     { label: '⚠ Action Required',     bg: '#2a0a0a', color: '#f87171' },
+    ACCEPTED:            { label: '✓ Trip Accepted',         bg: '#1a3a1a', color: '#4ade80' },
+    PAYMENT_RECEIVED:    { label: '✓ Payment Received',      bg: '#1a2e1a', color: '#86efac' },
+    BOOKING_IN_PROGRESS: { label: '⏳ Booking In Progress',   bg: '#2a2a0a', color: '#fde047' },
+    TRIP_CONFIRMED:      { label: '✓ Trip Confirmed',        bg: '#0a2a0a', color: '#4ade80' },
+    ACTION_REQUIRED:     { label: '⚠ Action Required',       bg: '#2a0a0a', color: '#f87171' },
+    REVISION_PENDING:    { label: '📋 Updated Proposal Ready', bg: '#1a1a3a', color: '#a5b4fc' },
   }
   const c = config[status]
   return (
