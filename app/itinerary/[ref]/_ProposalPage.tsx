@@ -1669,6 +1669,13 @@ function AcceptanceModal({
   }
 
   async function handleSubmit() {
+    // ── DIAG: Phase 13B instrumentation — remove after root cause confirmed ──
+    const _diag = (event: string, extra?: Record<string, unknown>) => {
+      try { console.info('[WALZ_ACCEPT]', event, { pathname: window.location.pathname, online: navigator.onLine, ua: navigator.userAgent.slice(0, 80), ...extra }) } catch { /* ignore */ }
+    }
+    _diag('ACCEPT_CLICK')
+    // ── END DIAG ──
+
     const trimmed = name.trim()
     if (trimmed.length < 2) {
       setNameError('Please enter your full name (minimum 2 characters).')
@@ -1678,6 +1685,9 @@ function AcceptanceModal({
       setNameError('Name must be 100 characters or fewer.')
       return
     }
+
+    _diag('VALIDATION_COMPLETE') // ── DIAG
+
     setSubmitting(true)
     setNameError('')
 
@@ -1685,48 +1695,56 @@ function AcceptanceModal({
     const isRevision = proposal.status === 'revision_sent'
     const isV2 = proposal.acceptanceVersion === 2 && (proposal.optionGroups?.length ?? 0) > 0
 
+    // ── DIAG ──
+    const endpoint = isRevision
+      ? `/api/itinerary/${proposal.referenceNumber}/accept-revision`
+      : isV2
+        ? `/api/itinerary/${proposal.referenceNumber}/accept-v2`
+        : `/api/itinerary/${proposal.referenceNumber}/approve`
+    _diag('ENDPOINT_RESOLVED', { endpoint, isRevision, isV2 })
+    // ── END DIAG ──
+
     try {
-      let res: Response
+      let body: string
       if (isRevision) {
-        // Revision acceptance — routes to accept-revision regardless of V1/V2
-        res = await fetch(`/api/itinerary/${proposal.referenceNumber}/accept-revision`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            token:         proposal.approvalToken,
-            acceptedBy:    trimmed,
-            termsAccepted: true,
-            ...(isV2 ? { selections: v2Selections } : {}),
-          }),
+        body = JSON.stringify({
+          token:         proposal.approvalToken,
+          acceptedBy:    trimmed,
+          termsAccepted: true,
+          ...(isV2 ? { selections: v2Selections } : {}),
         })
       } else if (isV2) {
-        // Initial V2 flow — sends selections to accept-v2 endpoint
-        res = await fetch(`/api/itinerary/${proposal.referenceNumber}/accept-v2`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            token:         proposal.approvalToken,
-            acceptedBy:    trimmed,
-            termsAccepted: true,
-            selections:    v2Selections,
-          }),
+        body = JSON.stringify({
+          token:         proposal.approvalToken,
+          acceptedBy:    trimmed,
+          termsAccepted: true,
+          selections:    v2Selections,
         })
       } else {
-        // Initial V1 flow — unchanged
-        res = await fetch(`/api/itinerary/${proposal.referenceNumber}/approve`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            token:             proposal.approvalToken,
-            name:              trimmed,
-            selectedOptionIds: selectedIds,
-            termsAccepted:     true,
-            acceptanceVersion: 1,
-          }),
+        body = JSON.stringify({
+          token:             proposal.approvalToken,
+          name:              trimmed,
+          selectedOptionIds: selectedIds,
+          termsAccepted:     true,
+          acceptanceVersion: 1,
         })
       }
 
+      _diag('BODY_SERIALIZED', { bodyLength: body.length }) // ── DIAG
+
+      _diag('FETCH_STARTED') // ── DIAG
+
+      let res: Response
+      res = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body,
+      })
+
+      _diag('FETCH_RESOLVED', { status: res.status }) // ── DIAG
+
       if (res.ok) {
+        _diag('SUCCESS_HANDLER_STARTED') // ── DIAG
         const data = await res.json().catch(() => ({})) as { acceptedTotal?: number | null; currency?: string }
         setSuccess({
           acceptedTotal: data.acceptedTotal ?? null,
@@ -1734,8 +1752,11 @@ function AcceptanceModal({
         })
         return
       }
-      const body = await res.json().catch(() => ({})) as { error?: string }
-      const msg = body?.error ?? 'An unexpected error occurred.'
+
+      _diag('RESPONSE_STATUS', { status: res.status }) // ── DIAG
+
+      const respBody = await res.json().catch(() => ({})) as { error?: string }
+      const msg = respBody?.error ?? 'An unexpected error occurred.'
       if (res.status === 410) {
         setApiError({ kind: 'expired', msg })
       } else if (res.status === 409) {
@@ -1750,7 +1771,11 @@ function AcceptanceModal({
       } else {
         setApiError({ kind: 'other', msg })
       }
-    } catch {
+    } catch (err: unknown) {
+      // ── DIAG ──
+      const e = err instanceof Error ? err : new Error(String(err))
+      _diag('FETCH_REJECTED', { errorName: e.name, errorMessage: e.message, online: navigator.onLine })
+      // ── END DIAG ──
       setApiError({ kind: 'other', msg: 'Network error. Please check your connection and try again.' })
     } finally {
       setSubmitting(false)
