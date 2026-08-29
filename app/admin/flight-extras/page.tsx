@@ -2,6 +2,7 @@
 
 import { useState, useRef, useEffect, useCallback } from 'react'
 import { DEFAULT_EXTRAS, type FlightExtra } from '@/lib/flights/extras'
+import { getCurrencySymbol } from '@/lib/currency'
 
 const CATEGORIES = ['All', 'Transport', 'Comfort', 'Protection', 'Convenience', 'Baggage', 'Technology', 'Documents']
 
@@ -208,7 +209,7 @@ export default function FlightExtrasAdminPage() {
                 <td className="px-4 py-3 text-right">
                   {extra.livePriced
                     ? <span className="text-xs text-gray-400">via ComfortPass</span>
-                    : <span className="font-bold text-[#0B1F3A]">£{extra.price}</span>
+                    : <span className="font-bold text-[#0B1F3A]">{getCurrencySymbol(extra.currency)}{extra.price}</span>
                   }
                 </td>
                 <td className="px-4 py-3 text-center">
@@ -334,7 +335,7 @@ export default function FlightExtrasAdminPage() {
             {/* Price — only editable for manual extras */}
             {!modal.extra.livePriced && (
               <div>
-                <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Price (£)</label>
+                <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Price ({modal.extra.currency || 'GBP'})</label>
                 <input
                   type="number"
                   value={modal.price}

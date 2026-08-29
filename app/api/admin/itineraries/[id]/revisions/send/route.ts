@@ -17,6 +17,7 @@ import { prisma } from '@/lib/db'
 import { getAdminSession } from '@/lib/admin-auth'
 import { getResend } from '@/lib/email-internal'
 import { getSupabaseAdmin } from '@/lib/supabase'
+import { getCurrencySymbol } from '@/lib/currency'
 import { BUSINESS } from '@/lib/config/business'
 import { parseOptions, patchOptions } from '@/lib/itinerary-options'
 import { buildProposalHashPayload, hashProposalState, type PackageOptionRow } from '@/lib/proposalHash'
@@ -51,7 +52,7 @@ export async function POST(_req: NextRequest, { params }: Params) {
   const opts       = parseOptions(itin.options) as Record<string, unknown>
   const revNum     = typeof opts.revisionNumber === 'number' ? opts.revisionNumber : 1
   const BASE       = process.env.NEXT_PUBLIC_APP_URL ?? 'https://walztravels.com'
-  const sym        = itin.currency === 'GBP' ? '£' : itin.currency === 'USD' ? '$' : itin.currency === 'EUR' ? '€' : itin.currency === 'AED' ? 'AED ' : '₦'
+  const sym        = getCurrencySymbol(itin.currency)
 
   // ── Build proposal hash from current state ────────────────────────────────
   const now = new Date()

@@ -492,7 +492,7 @@ export default function AdminPaymentsPage() {
                   ] as { id: 'stripe' | 'flutterwave' | 'virtual_account' | 'paga'; label: string }[]).map(({ id: p, label }) => (
                     <button key={p} onClick={() => setPayLinkForm(prev => ({
                       ...prev, provider: p,
-                      currency: p === 'stripe' ? 'GBP' : 'NGN',
+                      currency: p === 'paga' ? 'NGN' : prev.currency,
                       cardType: 'eu',
                       pagaMethod: 'checkout',
                       vaProvider: 'flutterwave',

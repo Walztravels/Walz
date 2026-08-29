@@ -32,6 +32,7 @@ interface PaystackEvent {
       itinerary_reference?: string
       payment_type?:        string
       accepted_total?:      number | string
+      currency?:            string  // set server-side by itinerary-payments/initiate
     }
   }
 }
@@ -92,7 +93,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ received: true }, { status: 200 })
   }
 
-  // ── 5. Amount verification ────────────────────────────────────────────────
+  // ── 5. Amount + currency verification ────────────────────────────────────
   // Verify the amount Paystack reports matches the accepted_total from metadata.
   // Paystack amounts are in minor units (kobo/pesewa); accepted_total is in major units.
   const acceptedTotal = Number(meta?.accepted_total)
@@ -102,6 +103,17 @@ export async function POST(req: NextRequest) {
       console.error('[paystack-itinerary-webhook] Amount mismatch — expected', expectedMinor, 'got', data.amount, 'ref:', data.reference)
       return NextResponse.json({ received: true }, { status: 200 })
     }
+  }
+
+  // Currency integrity check: the currency Paystack reports must match the currency
+  // stamped into the transaction metadata by the server at initialization time.
+  const expectedCurrency = meta?.currency?.toUpperCase()
+  const webhookCurrency  = data.currency?.toUpperCase()
+  if (expectedCurrency && webhookCurrency && webhookCurrency !== expectedCurrency) {
+    console.error(
+      `[paystack-itinerary-webhook] Currency mismatch — webhook currency ${webhookCurrency} ≠ expected ${expectedCurrency} — ref: ${data.reference}`,
+    )
+    return NextResponse.json({ received: true }, { status: 200 })
   }
 
   // ── 6. Upsert payment record ──────────────────────────────────────────────

@@ -1,3 +1,21 @@
+/** Display symbols for all supported billing currencies.
+ *  Falls back to the ISO code so unknown currencies render legibly, never silently as '₦' or '£'. */
+const CURRENCY_SYMBOLS: Record<string, string> = {
+  GBP: '£',
+  USD: '$',
+  CAD: 'CA$',
+  EUR: '€',
+  NGN: '₦',
+  GHS: 'GH₵',
+  AED: 'AED ',
+  ZAR: 'R',
+}
+
+export function getCurrencySymbol(currency: string | null | undefined): string {
+  if (!currency) return ''
+  return CURRENCY_SYMBOLS[currency.toUpperCase()] ?? currency.toUpperCase()
+}
+
 // Stripe stores amounts in each currency's smallest unit (minor units).
 // The exponent varies: JPY=0, USD/GBP/EUR/CAD/AED/NGN=2, KWD/BHD=3.
 // Never blindly divide by 100 — use these helpers everywhere.

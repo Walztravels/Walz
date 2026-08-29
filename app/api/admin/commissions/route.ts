@@ -28,12 +28,17 @@ export async function GET() {
       staff.map(async s => {
         const bookings = await prisma.booking.findMany({
           where: { createdByStaffId: s.id, createdAt: { gte: startOfMonth } },
-          select: { totalAmount: true },
+          select: { totalAmount: true, currency: true },
         })
-        const revenue    = bookings.reduce((sum, b) => sum + (b.totalAmount ?? 0), 0)
+        const currencyRevenue: Record<string, number> = {}
+        for (const b of bookings) {
+          const cur = b.currency || 'GBP'
+          currencyRevenue[cur] = (currencyRevenue[cur] || 0) + (b.totalAmount ?? 0)
+        }
+        const revenue    = Object.values(currencyRevenue).reduce((s, v) => s + v, 0)
         const rate       = RATES[s.role] ?? 0.01
         const commission = revenue * rate
-        return { ...s, bookings: bookings.length, revenue, rate, commission, status: 'unpaid' }
+        return { ...s, bookings: bookings.length, revenue, currencyRevenue, rate, commission, status: 'unpaid' }
       }),
     )
 

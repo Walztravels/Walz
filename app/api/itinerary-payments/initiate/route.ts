@@ -14,6 +14,7 @@ import { prisma } from '@/lib/db'
 import { stripe } from '@/lib/stripe'
 import { parseOptions } from '@/lib/itinerary-options'
 import { getSupabaseAdmin } from '@/lib/supabase'
+import { isCurrencySupported } from '@/lib/payments/processors'
 
 export const dynamic = 'force-dynamic'
 
@@ -49,10 +50,11 @@ function resolvePayableAmount(
   snapshot: AcceptanceSnapshot,
   paymentType: PaymentType,
   paidTotal: number,
+  itineraryCurrency: string,
 ): { amount: number; currency: string } | { error: string } {
   const total    = snapshot.acceptedTotal
   const deposit  = snapshot.deposit
-  const currency = (snapshot.currency ?? 'GBP').toUpperCase()
+  const currency = (snapshot.currency ?? itineraryCurrency).toUpperCase()
 
   if (typeof total !== 'number' || total <= 0) {
     return { error: 'Accepted total is missing or invalid in the acceptance snapshot' }
@@ -208,12 +210,22 @@ export async function POST(req: NextRequest) {
   }
 
   // ── 6. Calculate authoritative payable amount (server-side only) ───────────
-  const amountResult = resolvePayableAmount(snapshot, paymentType as PaymentType, paidTotal)
+  const amountResult = resolvePayableAmount(snapshot, paymentType as PaymentType, paidTotal, itinerary.currency ?? 'GBP')
   if ('error' in amountResult) {
     return NextResponse.json({ error: amountResult.error }, { status: 422 })
   }
 
   const { amount, currency } = amountResult
+
+  // ── 6b. Gateway-currency compatibility check ───────────────────────────────
+  // Reject before calling any external API — never silently convert currency.
+  if (!isCurrencySupported(method, currency)) {
+    return NextResponse.json(
+      { error: `${method} does not support ${currency} payments. Please choose a compatible payment method.` },
+      { status: 422 },
+    )
+  }
+
   // L-9: Always use authoritative clientEmail from DB. Never trust browser-supplied email.
   const clientEmail = itinerary.clientEmail || ''
   const label = itinerary.title ?? itineraryReference
@@ -281,6 +293,7 @@ export async function POST(req: NextRequest) {
             itinerary_reference: itineraryReference,
             payment_type:        paymentType,
             accepted_total:      snapshot.acceptedTotal,
+            currency:            currency.toUpperCase(),
             source:              'v2_itinerary_payment',
           },
         }),

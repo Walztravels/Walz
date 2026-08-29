@@ -19,6 +19,8 @@ interface Props {
 export function FlightFilters({ results, onChange }: Props) {
   const allAirlines = [...new Set(results.flatMap(r => r.segments.map(s => s.airlineName)))]
   const maxResultPrice = Math.max(5000, ...results.map(r => r.price.total))
+  // Derive quote currency from results; GBP only if the API genuinely quotes in GBP (no results = no quote)
+  const resultCurrency = results[0]?.price.currency ?? 'GBP'
 
   const [stops,      setStops]     = useState<number[]>([])
   const [maxPrice,   setMaxPrice]  = useState(maxResultPrice)
@@ -84,9 +86,9 @@ export function FlightFilters({ results, onChange }: Props) {
           onChange={e => setMaxPrice(Number(e.target.value))}
           className="w-full accent-[#C9A84C]" />
         <div className="flex justify-between text-xs text-[#0B1F3A]/40 mt-1.5">
-          <span>£0</span>
-          <span className="font-semibold text-[#0B1F3A]">Up to {formatPrice(maxPrice)}</span>
-          <span>{formatPrice(maxResultPrice)}+</span>
+          <span>{formatPrice(0, resultCurrency)}</span>
+          <span className="font-semibold text-[#0B1F3A]">Up to {formatPrice(maxPrice, resultCurrency)}</span>
+          <span>{formatPrice(maxResultPrice, resultCurrency)}+</span>
         </div>
       </div>
 

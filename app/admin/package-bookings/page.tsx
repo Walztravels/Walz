@@ -126,9 +126,13 @@ export default function PackageBookingsPage() {
   }
 
   // ── Derived stats ───────────────────────────────────────────────────────────
-  const totalRevenue = bookings
+  const revenueMap = bookings
     .filter(b => b.payment_status === 'fully_paid')
-    .reduce((sum, b) => sum + (typeof b.total_amount === 'string' ? parseFloat(b.total_amount) : b.total_amount), 0)
+    .reduce<Record<string, number>>((acc, b) => {
+      const cur = b.currency || 'GBP'
+      acc[cur] = (acc[cur] || 0) + (typeof b.total_amount === 'string' ? parseFloat(b.total_amount) : b.total_amount)
+      return acc
+    }, {})
 
   const pendingCount   = bookings.filter(b => b.status === 'pending').length
   const confirmedCount = bookings.filter(b => b.status === 'confirmed').length
@@ -163,9 +167,11 @@ export default function PackageBookingsPage() {
             { label: 'Confirmed',      value: confirmedCount.toString(),        accent: false },
             {
               label: 'Revenue (Paid)',
-              value: isNaN(totalRevenue)
+              value: Object.keys(revenueMap).length === 0
                 ? '—'
-                : new Intl.NumberFormat('en-GB', { style: 'currency', currency: 'GBP', maximumFractionDigits: 0 }).format(totalRevenue),
+                : Object.entries(revenueMap)
+                    .map(([cur, amt]) => fmtCurrency(cur, amt))
+                    .join(' / '),
               accent: true,
             },
           ].map(({ label, value, accent }) => (

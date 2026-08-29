@@ -52,12 +52,24 @@ export async function POST(req: NextRequest) {
 
   const itineraryReference = intent.metadata?.itinerary_reference
   const paymentType        = intent.metadata?.payment_type
-  const currency           = intent.metadata?.currency ?? intent.currency.toUpperCase()
+  const metadataCurrency = intent.metadata?.currency?.toUpperCase()
+  const intentCurrency   = intent.currency.toUpperCase()
 
   if (!itineraryReference || !paymentType) {
     console.error('[stripe-itinerary-webhook] Missing metadata:', intent.id)
     return NextResponse.json({ error: 'Missing itinerary metadata' }, { status: 400 })
   }
+
+  // Currency integrity check: the currency Stripe reports must match the currency
+  // the server stamped into the PaymentIntent metadata at creation time.
+  if (metadataCurrency && intentCurrency !== metadataCurrency) {
+    console.error(
+      `[stripe-itinerary-webhook] Currency mismatch — intent currency ${intentCurrency} ≠ metadata currency ${metadataCurrency} — ref: ${itineraryReference}, intent: ${intent.id}`,
+    )
+    return NextResponse.json({ received: true }, { status: 200 })
+  }
+
+  const currency = intentCurrency
 
   // amount is in smallest currency unit (pence for GBP); convert to major units
   const amountMajor = intent.amount / 100

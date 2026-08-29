@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getSupabaseAdmin } from '@/lib/supabase'
 import { getAdminSession } from '@/lib/admin-auth'
+import { prisma } from '@/lib/db'
 
 export async function GET(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const session = await getAdminSession()
@@ -25,12 +26,24 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     label: string; amount: number; currency?: string
     due_date?: string; notes?: string; sort_order?: number
   }
+
+  const itin = await prisma.itinerary.findUnique({ where: { id }, select: { currency: true } })
+  if (!itin) return NextResponse.json({ error: 'Itinerary not found' }, { status: 404 })
+  const itineraryCurrency = (itin.currency ?? 'GBP').toUpperCase()
+
+  if (body.currency && body.currency.toUpperCase() !== itineraryCurrency) {
+    return NextResponse.json(
+      { error: `Milestone currency (${body.currency.toUpperCase()}) does not match itinerary billing currency (${itineraryCurrency}). One itinerary must have one billing currency.` },
+      { status: 409 },
+    )
+  }
+
   const sb = getSupabaseAdmin()
   const { data, error } = await sb.from('itinerary_payment_schedule').insert({
     itinerary_id: id,
     label:        body.label,
     amount:       body.amount,
-    currency:     body.currency ?? 'GBP',
+    currency:     itineraryCurrency,
     due_date:     body.due_date ?? null,
     notes:        body.notes ?? null,
     sort_order:   body.sort_order ?? 0,

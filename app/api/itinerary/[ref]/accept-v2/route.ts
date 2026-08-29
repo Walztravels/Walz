@@ -26,6 +26,7 @@ import { prisma } from '@/lib/db'
 import { getSupabaseAdmin } from '@/lib/supabase'
 import { parseOptions, patchOptions } from '@/lib/itinerary-options'
 import { esc } from '@/lib/html-escape'
+import { getCurrencySymbol } from '@/lib/currency'
 import {
   buildProposalHashPayload,
   hashProposalState,
@@ -444,7 +445,7 @@ export async function POST(
   try {
     const resend = getResend()
     const BASE   = process.env.NEXT_PUBLIC_APP_URL ?? 'https://walztravels.com'
-    const sym    = snapshot.currency === 'GBP' ? '£' : snapshot.currency === 'USD' ? '$' : snapshot.currency === 'EUR' ? '€' : snapshot.currency === 'AED' ? 'AED ' : '₦'
+    const sym    = getCurrencySymbol(snapshot.currency)
 
     const groupsHtml = snapshot.selectedGroups
       .map(g => `<p style="margin:0 0 6px;font-size:14px;color:#475569;"><strong>${esc(g.groupName)}:</strong> ${g.selectedItems.map(i => esc(i.name)).join(', ')}</p>`)

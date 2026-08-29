@@ -53,6 +53,30 @@ function isOverCap(p: Processor, currency: string, amount: number): boolean {
   return false
 }
 
+/** Maps the uppercase method strings used by itinerary-payments routes to processor IDs. */
+const METHOD_TO_PROCESSOR_ID: Record<string, Processor['id']> = {
+  STRIPE:      'stripe',
+  PAYSTACK:    'paystack',
+  FLUTTERWAVE: 'flutterwave',
+  CRYPTO:      'nowpayments',
+}
+
+/**
+ * Returns true if the given payment method supports the given currency
+ * according to our configured account-level allowlists.
+ * BANK_TRANSFER and MANUAL are advisor-handled and accept any currency.
+ */
+export function isCurrencySupported(method: string, currency: string): boolean {
+  const upper = method.toUpperCase()
+  if (upper === 'BANK_TRANSFER' || upper === 'MANUAL') return true
+  const processorId = METHOD_TO_PROCESSOR_ID[upper]
+  if (!processorId) return true  // unknown method — don't block
+  const p = PROCESSORS.find(x => x.id === processorId)
+  if (!p || !p.enabled) return false
+  const cur = currency.toUpperCase()
+  return p.currencies.includes('*') || p.currencies.includes(cur)
+}
+
 export function processorsFor(currency: string, amount: number): Processor[] {
   return PROCESSORS.filter(p =>
     p.enabled &&

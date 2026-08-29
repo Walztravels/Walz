@@ -38,6 +38,7 @@ import { prisma } from '@/lib/db'
 import { getSupabaseAdmin } from '@/lib/supabase'
 import { parseOptions, patchOptions } from '@/lib/itinerary-options'
 import { getResend } from '@/lib/email-internal'
+import { getCurrencySymbol } from '@/lib/currency'
 import { BUSINESS } from '@/lib/config/business'
 import { esc } from '@/lib/html-escape'
 import {
@@ -409,7 +410,7 @@ export async function POST(
   try {
     const resend = getResend()
     const BASE   = process.env.NEXT_PUBLIC_APP_URL ?? 'https://walztravels.com'
-    const sym    = itin.currency === 'GBP' ? '£' : itin.currency === 'USD' ? '$' : itin.currency === 'EUR' ? '€' : itin.currency === 'AED' ? 'AED ' : '₦'
+    const sym    = getCurrencySymbol(itin.currency)
 
     await resend.emails.send({
       from:    'Walz Travels <contact@walztravels.com>',

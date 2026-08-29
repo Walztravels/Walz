@@ -3,6 +3,7 @@ import crypto from 'crypto'
 import { prisma } from '@/lib/db'
 import { getResend } from '@/lib/email-internal'
 import { getAdminSession } from '@/lib/admin-auth'
+import { getCurrencySymbol } from '@/lib/currency'
 import { getSupabaseAdmin } from '@/lib/supabase'
 import { BUSINESS } from '@/lib/config/business'
 import { patchOptions } from '@/lib/itinerary-options'
@@ -37,7 +38,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
   let priceBreakdown: Array<{ item: string; description?: string; cost: number }> = []
   try { priceBreakdown = JSON.parse(itin.priceBreakdown) } catch { priceBreakdown = [] }
 
-  const sym = itin.currency === 'GBP' ? '£' : itin.currency === 'USD' ? '$' : itin.currency === 'EUR' ? '€' : itin.currency === 'AED' ? 'AED ' : '₦'
+  const sym = getCurrencySymbol(itin.currency)
   const fmtDate = (d?: string | Date | null) => d ? new Date(d).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' }) : ''
 
   const daysHtml = days.length > 0 ? `

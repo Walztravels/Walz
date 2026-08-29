@@ -1,5 +1,5 @@
 'use client'
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { useParams } from 'next/navigation'
 import { formatDateOnly, addDaysToDateOnly, parseDateOnly } from '@/lib/date-utils'
 import { JadeCopilot, type JadeContext, type AdminJadeTripContext } from './JadeCopilot'
@@ -298,7 +298,7 @@ const STATUS_LABELS: Record<string, string> = {
 }
 
 const CURRENCY_SYM: Record<string, string> = {
-  GBP: '£', USD: '$', EUR: '€', NGN: '₦', GHS: '₵', AED: 'AED ',
+  GBP: '£', USD: '$', CAD: 'CA$', EUR: '€', NGN: '₦', GHS: 'GH₵', AED: 'AED ', ZAR: 'R',
 }
 
 // ─── Shared input styles ──────────────────────────────────────────────────────
@@ -849,7 +849,7 @@ export default function ItineraryBuilderPage() {
           />
         )}
         {activeTab === 'pricing'    && <PricingTab   itin={itin} onSave={save} />}
-        {activeTab === 'options'    && <OptionsTab     itineraryId={itin.id} />}
+        {activeTab === 'options'    && <OptionsTab     itineraryId={itin.id} itineraryCurrency={itin.currency} />}
         {activeTab === 'fulfilment' && <FulfilmentTab itineraryId={itin.id} />}
         {activeTab === 'margin'     && <MarginTab    itin={itin} />}
         {activeTab === 'research'   && (
@@ -2883,14 +2883,37 @@ function PricingTab({ itin, onSave }: { itin: ItineraryData; onSave: (u: Record<
   const [depositDue, setDepositDue] = useState(itin.depositDue ? itin.depositDue.split('T')[0] : '')
   const [balanceDue, setBalanceDue] = useState(itin.balanceDue ? itin.balanceDue.split('T')[0] : '')
   const [saving, setSaving] = useState(false)
+  const [currency, setCurrency] = useState<string>(itin.currency || 'GBP')
 
-  const sym = CURRENCY_SYM[itin.currency] || ''
-  const autoTotal = rows.reduce((s, r) => s + (Number(r.cost) || 0), 0)
+  const sym = CURRENCY_SYM[currency] || ''
+
+  // ── Auto-calculated trip component costs (read-only, sourced from booking records) ──
+  const bookingComponents = useMemo(() => {
+    const sumCost = (arr: { cost?: number | null }[]) => arr.reduce((s, x) => s + (x.cost ?? 0), 0)
+    const flights   = safeParse<{ cost?: number | null }[]>(itin.flights, [])
+    const hotels    = safeParse<{ cost?: number | null }[]>(itin.hotels, [])
+    const transfers = safeParse<{ cost?: number | null }[]>(itin.transfers || '[]', [])
+    const tours     = safeParse<{ cost?: number | null }[]>(itin.tours || '[]', [])
+    const trains    = safeParse<{ cost?: number | null }[]>(itin.trains || '[]', [])
+    const ferries   = safeParse<{ cost?: number | null }[]>(itin.ferries || '[]', [])
+    return [
+      { label: 'Flights',            total: sumCost(flights) },
+      { label: 'Hotels',             total: sumCost(hotels) },
+      { label: 'Transfers',          total: sumCost(transfers) },
+      { label: 'Tours & Activities', total: sumCost(tours) },
+      { label: 'Trains',             total: sumCost(trains) },
+      { label: 'Ferries',            total: sumCost(ferries) },
+    ].filter(c => c.total > 0)
+  }, [itin.flights, itin.hotels, itin.transfers, itin.tours, itin.trains, itin.ferries])
+
+  const bookingCostTotal = bookingComponents.reduce((s, c) => s + c.total, 0)
+  const manualRowsTotal  = rows.reduce((s, r) => s + (Number(r.cost) || 0), 0)
+  const derivedTotal     = bookingCostTotal + manualRowsTotal
 
   const addRow = () => setRows(prev => [...prev, { id: uid(), item: '', description: '', cost: 0 }])
   const updRow = (id: string, field: keyof PriceRow, value: unknown) => setRows(prev => prev.map(r => r.id === id ? { ...r, [field]: value } : r))
   const removeRow = (id: string) => setRows(prev => prev.filter(r => r.id !== id))
-  const useAutoTotal = () => setTotalPrice(String(autoTotal))
+  const useAutoTotal = () => setTotalPrice(String(derivedTotal))
 
   const handleSave = async () => {
     setSaving(true)
@@ -2900,12 +2923,13 @@ function PricingTab({ itin, onSave }: { itin: ItineraryData; onSave: (u: Record<
       deposit: deposit !== '' ? Number(deposit) : null,
       depositDue: depositDue || null,
       balanceDue: balanceDue || null,
+      currency,
     })
     setSaving(false)
   }
 
   const pricingSnap = parseSnap(itin.selectedOption)
-  const currentTotal = totalPrice !== '' ? Number(totalPrice) : (autoTotal > 0 ? autoTotal : null)
+  const currentTotal = totalPrice !== '' ? Number(totalPrice) : (derivedTotal > 0 ? derivedTotal : null)
   const acceptedTotalNum = pricingSnap?.acceptedTotal ?? null
   const isItinAccepted = itin.status === 'approved' || itin.status === 'revision_accepted'
   const hasDivergence = isItinAccepted && acceptedTotalNum != null && currentTotal != null && Math.abs(acceptedTotalNum - currentTotal) > 0.01
@@ -2941,9 +2965,31 @@ function PricingTab({ itin, onSave }: { itin: ItineraryData; onSave: (u: Record<
         </div>
       )}
 
+      {/* Trip Components — auto-calculated from booking records, read-only */}
+      {bookingComponents.length > 0 && (
+        <div className="bg-white/5 border border-white/[0.08] rounded-2xl p-6">
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-white font-bold text-base">Trip Components</h2>
+            <span className="text-xs text-white/30 bg-white/5 border border-white/10 px-2 py-1 rounded-lg">Auto from bookings</span>
+          </div>
+          <div className="space-y-2">
+            {bookingComponents.map(c => (
+              <div key={c.label} className="flex items-center justify-between py-1.5">
+                <span className="text-white/60 text-sm">{c.label}</span>
+                <span className="text-white text-sm font-mono">{sym}{c.total.toLocaleString()}</span>
+              </div>
+            ))}
+            <div className="border-t border-white/10 pt-3 mt-1 flex items-center justify-between">
+              <span className="text-white/40 text-xs font-bold uppercase tracking-wider">Component Subtotal</span>
+              <span className="text-white font-bold">{sym}{bookingCostTotal.toLocaleString()}</span>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="bg-white/5 border border-white/[0.08] rounded-2xl p-6">
         <div className="flex items-center justify-between mb-5">
-          <h2 className="text-white font-bold text-base">Price Breakdown</h2>
+          <h2 className="text-white font-bold text-base">Manual Adjustments</h2>
           <button onClick={addRow} className="bg-white/5 hover:bg-white/10 text-white border border-white/10 font-bold px-4 py-2 rounded-xl text-sm transition">+ Add Item</button>
         </div>
 
@@ -2978,7 +3024,7 @@ function PricingTab({ itin, onSave }: { itin: ItineraryData; onSave: (u: Record<
             ))}
             <div className="border-t border-white/10 mt-3 pt-3 flex justify-between items-center">
               <button onClick={useAutoTotal} className="text-amber-400 text-xs hover:text-amber-300 transition">← Use auto-total</button>
-              <p className="text-white font-bold">Subtotal: {sym}{autoTotal.toLocaleString()}</p>
+              <p className="text-white font-bold">Adjustments: {sym}{manualRowsTotal.toLocaleString()}</p>
             </div>
           </div>
         )}
@@ -2986,14 +3032,22 @@ function PricingTab({ itin, onSave }: { itin: ItineraryData; onSave: (u: Record<
 
       <div className="bg-white/5 border border-white/[0.08] rounded-2xl p-6">
         <h2 className="text-white font-bold text-base mb-5">Payment Details</h2>
+        <div className="mb-4">
+          <label className="text-white/40 text-xs font-bold uppercase tracking-wider block mb-1.5">Billing Currency</label>
+          <select value={currency} onChange={e => setCurrency(e.target.value)} className={sel}>
+            {Object.entries(CURRENCY_SYM).map(([code, s]) => (
+              <option key={code} value={code}>{s} {code}</option>
+            ))}
+          </select>
+        </div>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
             <label className="text-white/40 text-xs font-bold uppercase tracking-wider block mb-1.5">Total Price ({sym})</label>
             <div className="relative">
-              <input type="number" value={totalPrice} onChange={e => setTotalPrice(e.target.value)} placeholder={`Auto: ${autoTotal.toLocaleString()}`} className={inp} />
-              {totalPrice === '' && autoTotal > 0 && (
+              <input type="number" value={totalPrice} onChange={e => setTotalPrice(e.target.value)} placeholder={derivedTotal > 0 ? `Auto: ${derivedTotal.toLocaleString()}` : 'Enter total'} className={inp} />
+              {totalPrice === '' && derivedTotal > 0 && (
                 <button onClick={useAutoTotal} className="absolute right-2 top-1/2 -translate-y-1/2 text-amber-400 text-xs hover:text-amber-300 transition px-1">
-                  Use {sym}{autoTotal.toLocaleString()}
+                  Use {sym}{derivedTotal.toLocaleString()}
                 </button>
               )}
             </div>
@@ -3012,10 +3066,10 @@ function PricingTab({ itin, onSave }: { itin: ItineraryData; onSave: (u: Record<
           </div>
         </div>
 
-        {(totalPrice || autoTotal > 0) && (
+        {(totalPrice || derivedTotal > 0) && (
           <div className="mt-5 bg-[#0B1F3A] rounded-xl p-4 flex items-center justify-between">
             <span className="text-white font-bold">Total</span>
-            <span className="text-amber-400 font-bold text-xl">{sym}{Number(totalPrice || autoTotal).toLocaleString()}</span>
+            <span className="text-amber-400 font-bold text-xl">{sym}{Number(totalPrice || derivedTotal).toLocaleString()}</span>
           </div>
         )}
       </div>
@@ -3174,7 +3228,7 @@ const CATEGORY_COLORS: Record<OptionCategory, string> = {
   OTHER:     'bg-white/10 text-white/40',
 }
 
-function OptionsTab({ itineraryId }: { itineraryId: string }) {
+function OptionsTab({ itineraryId, itineraryCurrency }: { itineraryId: string; itineraryCurrency: string }) {
   const [groups, setGroups]               = useState<OptionGroup[]>([])
   const [selectedGroupId, setSelectedGroupId] = useState<string | null>(null)
   const [editingGroup, setEditingGroup]   = useState<OptionGroup | null>(null)
@@ -3307,7 +3361,7 @@ function OptionsTab({ itineraryId }: { itineraryId: string }) {
           name:             'New Option',
           description:      '',
           clientPrice:      0,
-          currency:         'GBP',
+          currency:         itineraryCurrency || 'GBP',
           priceAdjustment:  0,
           recommended:      false,
           defaultSelected:  false,

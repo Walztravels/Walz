@@ -43,7 +43,7 @@ OUTPUT FORMAT — Return ONLY valid JSON, no markdown, no explanation:
   "duration": 7,
   "numberOfTravellers": 2,
   "tripType": "honeymoon",
-  "currency": "GBP",
+  "currency": null,
   "totalBudget": 8000,
   "coverImageKeyword": "dubai luxury honeymoon",
   "inclusions": ["Return flights LHR-DXB", "7 nights hotel B&B", "Airport transfers", "Desert safari", "Travel insurance"],
@@ -542,7 +542,7 @@ Generate a comprehensive, professional itinerary with all fields populated. Be s
           duration:          result.duration          ? Number(result.duration)          : undefined,
           numberOfTravellers: result.numberOfTravellers ? Number(result.numberOfTravellers) : undefined,
           tripType:          result.tripType          ? String(result.tripType)          : undefined,
-          currency:          result.currency          ? String(result.currency)          : undefined,
+          // currency intentionally omitted — admin sets billing currency; Jade must not override it
           budget:            result.totalBudget       ? Number(result.totalBudget)       : undefined,
           coverImage:        result.coverImage        ? String(result.coverImage)        : undefined,
           inclusions:        JSON.stringify(result.inclusions  || []),

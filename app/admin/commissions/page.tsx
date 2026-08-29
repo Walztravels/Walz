@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback } from 'react'
 import { Award, RefreshCw, Loader2, TrendingUp } from 'lucide-react'
+import { getCurrencySymbol } from '@/lib/currency'
 
 interface Commission {
   id: string
@@ -10,9 +11,18 @@ interface Commission {
   role: string
   bookings: number
   revenue: number
+  currencyRevenue: Record<string, number>
   rate: number
   commission: number
   status: string
+}
+
+function fmtRevenue(currencyRevenue: Record<string, number>): string {
+  const entries = Object.entries(currencyRevenue)
+  if (entries.length === 0) return '—'
+  return entries
+    .map(([cur, amt]) => `${getCurrencySymbol(cur)}${amt.toLocaleString('en-GB', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`)
+    .join(' / ')
 }
 
 const ROLE_LABELS: Record<string, string> = {
@@ -44,9 +54,21 @@ export default function CommissionsPage() {
 
   useEffect(() => { load() }, [load])
 
-  const totalCommission = commissions.reduce((s, c) => s + c.commission, 0)
-  const totalRevenue    = commissions.reduce((s, c) => s + c.revenue, 0)
-  const activeStaff     = commissions.filter(c => c.bookings > 0).length
+  const activeStaff = commissions.filter(c => c.bookings > 0).length
+
+  const allRevenueByCurrency = commissions.reduce<Record<string, number>>((acc, c) => {
+    for (const [cur, amt] of Object.entries(c.currencyRevenue ?? {})) {
+      acc[cur] = (acc[cur] ?? 0) + amt
+    }
+    return acc
+  }, {})
+
+  const allCommissionByCurrency = commissions.reduce<Record<string, number>>((acc, c) => {
+    for (const [cur, amt] of Object.entries(c.currencyRevenue ?? {})) {
+      acc[cur] = (acc[cur] ?? 0) + amt * c.rate
+    }
+    return acc
+  }, {})
 
   return (
     <div className="p-6 space-y-6 max-w-7xl mx-auto">
@@ -68,14 +90,14 @@ export default function CommissionsPage() {
           <div className="w-9 h-9 bg-amber-50 rounded-xl flex items-center justify-center mb-3">
             <Award className="w-4 h-4 text-amber-600" />
           </div>
-          <p className="text-2xl font-bold text-[#0B1F3A]">£{totalCommission.toFixed(2)}</p>
+          <p className="text-lg font-bold text-[#0B1F3A] leading-snug">{fmtRevenue(allCommissionByCurrency)}</p>
           <p className="text-xs text-gray-500 mt-0.5">Total Commissions Due</p>
         </div>
         <div className="bg-white rounded-2xl border border-gray-100 p-5">
           <div className="w-9 h-9 bg-green-50 rounded-xl flex items-center justify-center mb-3">
             <TrendingUp className="w-4 h-4 text-green-600" />
           </div>
-          <p className="text-2xl font-bold text-[#0B1F3A]">£{totalRevenue.toFixed(0)}</p>
+          <p className="text-lg font-bold text-[#0B1F3A] leading-snug">{fmtRevenue(allRevenueByCurrency)}</p>
           <p className="text-xs text-gray-500 mt-0.5">Revenue Generated (Month)</p>
         </div>
         <div className="bg-white rounded-2xl border border-gray-100 p-5">
@@ -120,13 +142,17 @@ export default function CommissionsPage() {
                       <span className="font-semibold text-[#0B1F3A]">{c.bookings}</span>
                     </td>
                     <td className="px-4 py-3">
-                      <span className="font-semibold text-[#0B1F3A]">£{c.revenue.toFixed(2)}</span>
+                      <span className="font-semibold text-[#0B1F3A]">{fmtRevenue(c.currencyRevenue ?? {})}</span>
                     </td>
                     <td className="px-4 py-3">
                       <span className="text-xs text-gray-500">{(c.rate * 100).toFixed(0)}%</span>
                     </td>
                     <td className="px-4 py-3">
-                      <span className="font-bold text-[#C9A84C]">£{c.commission.toFixed(2)}</span>
+                      <span className="font-bold text-[#C9A84C]">
+                        {fmtRevenue(Object.fromEntries(
+                          Object.entries(c.currencyRevenue ?? {}).map(([cur, amt]) => [cur, amt * c.rate])
+                        ))}
+                      </span>
                     </td>
                     <td className="px-4 py-3">
                       <span className={`text-[11px] font-semibold px-2 py-1 rounded-full ${
