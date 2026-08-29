@@ -257,10 +257,100 @@ export async function POST(req: NextRequest) {
   const session = await getAdminSession()
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const { prompt, itineraryId, conversationHistory, mode } = await req.json()
+  const { prompt, itineraryId, conversationHistory, mode, tabContext } = await req.json()
 
   if (!prompt?.trim()) {
     return NextResponse.json({ error: 'Please describe the trip' }, { status: 400 })
+  }
+
+  // ── V2 tab guidance mode ────────────────────────────────────────────────────
+  // When staff is on the Options or Fulfilment tab, questions are about V2 platform
+  // features — not itinerary building. Return a text response, not itinerary JSON.
+  const V2_TABS = ['options', 'fulfilment', 'portal'] as const
+  if (V2_TABS.includes(tabContext as (typeof V2_TABS)[number])) {
+    const v2SystemPrompt = `You are Jade, a senior travel consultant at Walz Travels. You're helping a staff member with the V2 itinerary platform features.
+
+Be direct, concise, and practical. Answer in plain text — no JSON, no markdown headers, no bullet walls.
+
+V2 PLATFORM KNOWLEDGE:
+Option Groups: Structured choices for clients (room type, flight class, transfers, extras). Two pricing modes:
+  REPLACEMENT: client selects one option; its priceAdjustment replaces the base price delta (upgrades/downgrades).
+  ADD_ON: selected items are added on top of the base price (extras like tours or insurance).
+  Required groups must have a selection before acceptance. Min/max selections enforce the count.
+  After acceptance, option groups lock — they cannot be changed without re-sending the proposal.
+
+Acceptance V2 Flow: client → Customize (pick options) → Review (total + selections summary) → Accept (typed name + terms).
+  The accepted total is server-computed. The browser never supplies amounts.
+  AcceptanceSnapshot records all selections immutably.
+
+Fulfilment Workflow: admin creates items per booking component (flight, hotel, transfer, etc.).
+  PENDING → IN_PROGRESS → BOOKED → CONFIRMED
+  FAILED items trigger ACTION_REQUIRED on the client portal.
+  Add supplier references (PNR, hotel confirmation) when BOOKED/CONFIRMED — shown on portal only when CONFIRMED.
+
+Portal Status (client-facing portal at /itinerary/[ref]/portal):
+  ACCEPTED: accepted, no payment yet
+  PAYMENT_RECEIVED: at least one PAID payment recorded
+  BOOKING_IN_PROGRESS: payment received + fulfilment items exist but not all confirmed
+  TRIP_CONFIRMED: all active (non-cancelled) items are CONFIRMED or BOOKED
+  ACTION_REQUIRED: any item FAILED — overrides everything else
+  Cancelled items never block TRIP_CONFIRMED.
+
+Payment Schedule: admin sets named milestones (Deposit, Balance with amounts and dates).
+  Server resolves the authoritative payable amount from the AcceptanceSnapshot — browser never controls amounts.
+
+NEVER mention: partnerNetPrice, supplierCost, margin, rateKey, offerId, or credentials.`
+
+    const history = Array.isArray(conversationHistory)
+      ? (conversationHistory as Array<{ role: string; content: string }>)
+          .slice(-6)
+          .map(m => ({ role: m.role === 'user' ? 'user' : 'assistant', content: m.content.substring(0, 400) }))
+      : []
+
+    let guidance = ''
+    const openAiKey = process.env.OPENAI_API_KEY
+    if (openAiKey) {
+      try {
+        const r = await fetch('https://api.openai.com/v1/chat/completions', {
+          method: 'POST',
+          headers: { 'Authorization': `Bearer ${openAiKey}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            model: 'gpt-4o-mini',
+            messages: [{ role: 'system', content: v2SystemPrompt }, ...history, { role: 'user', content: prompt }],
+            temperature: 0.7,
+            max_tokens: 500,
+          }),
+        })
+        if (r.ok) {
+          const d = await r.json() as { choices: Array<{ message: { content: string } }> }
+          guidance = d.choices?.[0]?.message?.content || ''
+        }
+      } catch { /* fall through */ }
+    }
+    if (!guidance) {
+      try {
+        const r = await fetch('https://api.anthropic.com/v1/messages', {
+          method: 'POST',
+          headers: {
+            'x-api-key': process.env.ANTHROPIC_API_KEY!,
+            'anthropic-version': '2023-06-01',
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            model: 'claude-haiku-4-5-20251001',
+            max_tokens: 500,
+            system: v2SystemPrompt,
+            messages: [...history, { role: 'user', content: prompt }],
+          }),
+        })
+        if (r.ok) {
+          const d = await r.json() as { content: Array<{ text: string }> }
+          guidance = d.content?.[0]?.text || ''
+        }
+      } catch { /* fail */ }
+    }
+    if (!guidance) return NextResponse.json({ error: 'Jade is unavailable. Try again.' }, { status: 500 })
+    return NextResponse.json({ success: true, message: guidance })
   }
 
   // ── Load existing itinerary from DB for context ───────────────────────────

@@ -31,6 +31,21 @@ const PAGE_SUGGESTIONS: Record<string, string[]> = {
     'How do I send the itinerary to the client?',
     'Dubai visa requirements for Nigerian clients?',
   ],
+  'option-groups': [
+    'When should I use REPLACEMENT vs ADD_ON pricing for an option group?',
+    'How do I set up a room type upgrade option group?',
+    'What happens to option groups after the client accepts the proposal?',
+  ],
+  'fulfilment': [
+    'Walk me through the fulfilment workflow after a client accepts',
+    'What makes the client portal show TRIP_CONFIRMED?',
+    'What should I do when a fulfilment item is stuck in FAILED?',
+  ],
+  'portal': [
+    'What does each portal status mean for the client?',
+    'How does payment affect the portal status?',
+    'When does the portal show the supplier reference to the client?',
+  ],
   'trip-requests': [
     'How do I send a trip request form to a client?',
     'What happens after a client submits the form?',
@@ -135,12 +150,39 @@ Payment flow: enquiry → proposal → deposit (20-30%) → balance due 30 days 
 Visa flow: enquiry → document checklist email → application prep → submission → embassy pack email → decision.
 Communications: WhatsApp through Chatwoot (app.chatwoot.com), transactional emails via Resend.
 
+V2 PLATFORM — ITINERARY FEATURES:
+Option Groups: Admins can build structured choices for clients — e.g. "Room Type" (single-select: Standard vs Suite), "Flight Class" (Economy vs Business), "Airport Transfer" (add-on). Two pricing modes:
+  REPLACEMENT = client selects ONE option; its priceAdjustment replaces the base price delta (can be positive or negative). Good for upgrades.
+  ADD_ON = client's selected items are ADDED ON TOP of the base price. Good for extras.
+Each group has a required flag. Required groups must have a selection before acceptance. Min/max selections enforce the count.
+
+Acceptance V2 Flow: When an itinerary has option groups, clients go through a multi-step acceptance: 1) Customize (choose from option groups), 2) Review (summary of selections + total), 3) Accept (sign name + terms). The accepted total is server-computed — the browser never supplies amounts. The immutable AcceptanceSnapshot records every selection.
+
+Portal Status (client-facing): After acceptance, clients see their portal at /itinerary/[ref]/portal.
+  ACCEPTED = accepted, no payment yet
+  PAYMENT_RECEIVED = at least one payment marked PAID
+  BOOKING_IN_PROGRESS = payment received + fulfilment items exist but not all confirmed
+  TRIP_CONFIRMED = all active fulfilment items are CONFIRMED or BOOKED
+  ACTION_REQUIRED = any fulfilment item FAILED (overrides everything)
+Cancelled items never block TRIP_CONFIRMED.
+
+Fulfilment Workflow: After acceptance, admin creates fulfilment items (one per booking component — flight, hotel, transfer, etc.). Each item moves: PENDING → IN_PROGRESS → BOOKED → CONFIRMED. FAILED items trigger ACTION_REQUIRED on the client portal. Supplier references (PNR, hotel confirmation) are added to fulfilment items — they appear on the portal only when CONFIRMED.
+
+Payment Schedule (admin): Admins can set a named payment schedule — Deposit (date + amount), Balance (date). This is separate from the V2 option group pricing. The server always resolves the authoritative payable amount from the AcceptanceSnapshot — the browser never controls amounts.
+
+IMPORTANT — What Jade must NEVER disclose:
+× partnerNetPrice, supplierCost, margin, markup, grossProfit
+× rateKey, offerId, supplier API credentials
+× PNR/booking refs that aren't yet confirmed
+× Any amount the browser hasn't seen from the server-authoritative flow
+
 LIVE DATA RIGHT NOW:
 ${liveData || 'Loading live stats...'}
 
 CURRENT PAGE: ${currentPage || 'admin'}
 ${currentPage.includes('visa') ? `\n${staffName} is on visa applications right now.` : ''}
 ${currentPage.includes('payment') ? `\n${staffName} is looking at payments right now.` : ''}
+${currentPage.includes('itinerary-planner') ? `\n${staffName} is in the itinerary planner. Jade Copilot handles the building; they may have V2 questions about option groups, fulfilment, or the client portal.` : ''}
 
 Be the most useful person in this office. Answer fast, answer right.`
 }

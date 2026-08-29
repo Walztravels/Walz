@@ -70,6 +70,12 @@ export interface AdminJadeTripContext {
   destination?: string
   currency?: string
   numberOfTravellers?: number
+  // V2 status signals — no prices, no supplier data
+  status?: string             // proposal | approved | live | draft
+  hasOptionGroups?: boolean   // V2 option groups configured
+  optionGroupCount?: number
+  fulfilmentItemCount?: number
+  fulfilmentActionRequired?: boolean  // any item in FAILED or PENDING state
 }
 
 // ── Context model ──────────────────────────────────────────────────────────
@@ -104,6 +110,8 @@ function getContextLabel(ctx: JadeContext): string {
     case 'preview': return 'Preview & Send'
     case 'travelers': return 'Travelers'
     case 'tasks': return 'Tasks'
+    case 'options': return 'Option Groups'
+    case 'fulfilment': return 'Fulfilment'
     default: return cap(ctx.activeTab)
   }
 }
@@ -186,6 +194,16 @@ function getContextSuggestions(ctx: JadeContext | undefined): Suggestion[] {
       { label: 'Audit proposal', prompt: 'Audit this proposal for completeness. Identify anything that would prevent sending it to the client.' },
       { label: 'Check client info', prompt: 'Check that all client-facing information is complete — name, dates, prices, inclusions, and contact details.' },
       { label: 'Review readiness', prompt: 'Is this itinerary ready to send to the client? What still needs attention?' },
+    ]
+    case 'options': return [
+      { label: 'Explain option groups', prompt: 'What are option groups and how should I use them for this itinerary? When would I use REPLACEMENT vs ADD_ON pricing?' },
+      { label: 'Suggest group names', prompt: 'Suggest option group names for this itinerary. What choices would the client typically want to make (room type, flight class, transfers, extras)?' },
+      { label: 'Check pricing logic', prompt: 'Explain how REPLACEMENT and ADD_ON pricing modes work in option groups. Which should I use for upgrading the flight vs adding an activity?' },
+    ]
+    case 'fulfilment': return [
+      { label: 'What to action next', prompt: 'What should I action next in the fulfilment workflow? Which items typically block the client portal from showing TRIP CONFIRMED?' },
+      { label: 'Explain portal status', prompt: 'Explain what each portal status means (ACCEPTED → PAYMENT_RECEIVED → BOOKING_IN_PROGRESS → TRIP_CONFIRMED). What drives the transition from one to the next?' },
+      { label: 'Fulfilment checklist', prompt: 'Give me a fulfilment checklist for this trip — what to confirm before marking all items CONFIRMED and setting the portal to TRIP CONFIRMED.' },
     ]
     default: return [
       { label: '✈ Search Flights', special: 'flights' },
@@ -509,6 +527,11 @@ export function JadeCopilot({
       }))
 
     try {
+      const V2_TABS = ['options', 'fulfilment', 'portal']
+      const tabContext = jadeContext?.activeTab && V2_TABS.includes(jadeContext.activeTab)
+        ? jadeContext.activeTab
+        : undefined
+
       const res = await fetch('/api/admin/itineraries/copilot', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -517,6 +540,7 @@ export function JadeCopilot({
           itineraryId: itinerary?.id,
           conversationHistory: history,
           mode: detectedMode,
+          tabContext,
           // currentItinerary intentionally omitted: server re-fetches
           // authoritative data from DB using itineraryId. Never send
           // booking arrays here — they contain supplierCost fields.
@@ -527,7 +551,18 @@ export function JadeCopilot({
         success?: boolean
         error?: string
         itinerary?: GeneratedItinerary
+        message?: string   // V2 guidance mode — plain text response
         model?: string
+      }
+
+      // V2 guidance mode: plain-text answer about option groups / fulfilment / portal
+      if (data.success && data.message && !data.itinerary) {
+        setMessages(prev => [...prev, {
+          role: 'assistant',
+          content: data.message!,
+          timestamp: new Date(),
+        }])
+        return
       }
 
       if (data.success && data.itinerary) {

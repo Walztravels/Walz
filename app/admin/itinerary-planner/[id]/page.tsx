@@ -889,6 +889,7 @@ export default function ItineraryBuilderPage() {
           destination: itin.destination || undefined,
           currency: itin.currency || undefined,
           numberOfTravellers: itin.numberOfTravellers,
+          status: itin.status || undefined,
         }) satisfies AdminJadeTripContext}
         onItineraryUpdate={refresh}
         onClose={() => setShowCopilot(false)}
