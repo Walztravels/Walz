@@ -23,6 +23,11 @@ import {
   buildGroundingContract,
   EMPTY_COMMERCIAL_FACTS,
 } from '@/lib/jade/commercial-grounding'
+// Release 5.2 — Live search tools
+import {
+  JADE_SEARCH_TOOL_SCHEMAS,
+  executeJadeSearchTool,
+} from '@/lib/jade/search-tools'
 import { conciergeCore }    from '@/lib/concierge/core'
 import { getCategoryBySlug } from '@/lib/concierge/catalogue'
 import { sendClientConfirmation } from '@/lib/concierge/notifications'
@@ -636,10 +641,10 @@ When a client asks how to follow us or find us on social media, share the correc
 - LinkedIn: /company/walztravels (linkedin.com/company/walztravels)
 
 Contact:
-- WhatsApp UK: wa.me/${BUSINESS.contacts.globalWhatsapp.e164}
-- WhatsApp Canada: wa.me/15557107823
-- Email: contact@walztravels.com
-- Call Jade: +1 984 388 0110
+- WhatsApp: wa.me/${BUSINESS.contacts.globalWhatsapp.e164} (${BUSINESS.contacts.globalWhatsapp.display})
+- Visa enquiries: wa.me/${BUSINESS.contacts.visaWhatsapp.e164} (${BUSINESS.contacts.visaWhatsapp.display})
+- Email: ${BUSINESS.contacts.email}
+- Emergency line: ${BUSINESS.contacts.emergencyPhone.display}
 
 ## COMMERCIAL GROUNDING — NON-NEGOTIABLE
 
@@ -714,7 +719,7 @@ Say exactly: "Let me connect you with one of our specialist consultants who can 
 
 ## HARD LIMITS
 
-- Never claim real-time prices or live seat/room availability
+- Never quote prices or seat/room availability from memory — use a search tool if available, or say "I can search for current options"
 - Never complete a booking directly — guide to the booking page or trigger handover
 - Never promise visa approval ("We can't guarantee it, but our track record is strong")
 - Never mention competitor travel agencies
@@ -1819,14 +1824,40 @@ export async function POST(req: NextRequest) {
     } catch { /* non-fatal */ }
   }
 
+  // ── Release 5.2 — Live search tools ─────────────────────────────────────────
+  const liveSearchEnabled = process.env.JADE_LIVE_SEARCH_ENABLED === 'true'
+  const searchToolDefs    = liveSearchEnabled ? JADE_SEARCH_TOOL_SCHEMAS : []
+  const searchTripCtx     = { userId: null, sessionId: sid }
+
+  if (liveSearchEnabled) {
+    r5aAddendum = (r5aAddendum ? r5aAddendum + '\n\n' : '') +
+      `## LIVE SEARCH TOOLS\nYou have access to live inventory search: search_flights, search_hotels, search_activities, search_transfers, search_esims.\n- Always search live before quoting specific prices — never make up fares or rates.\n- Present results to the customer and ask which they'd like.\n- Never expose resultRef values to the customer — they are internal opaque tokens.\n- sellingPrice and currency in results are the authoritative customer prices — never modify them.`
+  }
+
+  const allCwToolDefs = [
+    ...(conciergeToolActive ? [SUBMIT_CONCIERGE_INTENT] : []),
+    ...searchToolDefs,
+  ]
+
+  const SEARCH_NAMES = new Set(JADE_SEARCH_TOOL_SCHEMAS.map(t => t.name))
+
+  const unifiedCwExecutor: ((name: string, input: Record<string, unknown>) => Promise<string>) | undefined =
+    allCwToolDefs.length > 0
+      ? async (name, input) => {
+          if (SEARCH_NAMES.has(name)) return executeJadeSearchTool(name, input, searchTripCtx)
+          if (name === 'submit_concierge_intent' && conciergeExecutor) return conciergeExecutor(name, input)
+          return JSON.stringify({ error: `Unknown tool in chatwoot mode: ${name}` })
+        }
+      : undefined
+
   const [reply, extractedProfile] = await Promise.all([
     jadeReply(
       messages, pageContext, dna, shouldResume, profile,
       b2b ? JADE_B2B_PROMPT : undefined,
       clientLanguage,
       r5aAddendum,
-      conciergeToolActive ? [SUBMIT_CONCIERGE_INTENT] : [],
-      conciergeExecutor,
+      allCwToolDefs,
+      unifiedCwExecutor,
     ),
     extractProfileWithClaude(messages).catch(() => ({})),
   ])
