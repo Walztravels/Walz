@@ -103,6 +103,7 @@ interface Tour {
   image: string
   images?: string[]
   supplierId: string
+  viatorProductCode?: string
 }
 
 interface Train {
@@ -509,6 +510,172 @@ function MultiImageGallery({
         <p className={`mt-1.5 text-[11px] ${fetchMsg.startsWith('✓') ? 'text-green-400' : 'text-amber-400'}`}>
           {fetchMsg}
         </p>
+      )}
+    </div>
+  )
+}
+
+// ─── WalzActivityFinder ───────────────────────────────────────────────────────
+
+type WalzActivityResult = {
+  productCode: string
+  title: string
+  location: string
+  supplier: string
+  heroImageUrl: string | null
+  thumbImageUrl: string | null
+  allImageUrls: string[]
+}
+
+function WalzActivityFinder({
+  initialName,
+  initialLocation,
+  onSelect,
+}: {
+  initialName: string
+  initialLocation: string
+  onSelect: (productCode: string, images: string[], heroImageUrl: string | null) => void
+}) {
+  const [open, setOpen]             = useState(false)
+  const [activityName, setActivityName] = useState(initialName)
+  const [location, setLocation]     = useState(initialLocation)
+  const [searching, setSearching]   = useState(false)
+  const [results, setResults]       = useState<WalzActivityResult[]>([])
+  const [searchError, setSearchError] = useState('')
+  const [loadingCode, setLoadingCode] = useState<string | null>(null)
+
+  const handleSearch = async () => {
+    if (!activityName.trim()) return
+    setSearching(true)
+    setSearchError('')
+    setResults([])
+    try {
+      const res = await fetch('/api/admin/itineraries/search-walz-activities', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ query: activityName.trim(), location: location.trim() }),
+      })
+      const data = await res.json() as { activities?: WalzActivityResult[]; error?: string }
+      if (!res.ok) {
+        setSearchError(data.error ?? 'Search failed')
+      } else {
+        const found = data.activities ?? []
+        setResults(found)
+        if (!found.length) setSearchError('No matching activities found. Try a different name or location.')
+      }
+    } catch {
+      setSearchError('Search failed — check your connection')
+    }
+    setSearching(false)
+  }
+
+  const handleUse = async (result: WalzActivityResult) => {
+    setLoadingCode(result.productCode)
+    try {
+      const res = await fetch('/api/admin/itineraries/walz-activity-images', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ productCode: result.productCode }),
+      })
+      const data = await res.json() as { images?: string[]; heroImageUrl?: string | null; error?: string }
+      if (res.ok && data.images?.length) {
+        onSelect(result.productCode, data.images, data.heroImageUrl ?? null)
+      } else {
+        // Fall back to images returned in the search result
+        onSelect(result.productCode, result.allImageUrls, result.heroImageUrl)
+      }
+    } catch {
+      // Fall back to images returned in the search result
+      onSelect(result.productCode, result.allImageUrls, result.heroImageUrl)
+    }
+    setLoadingCode(null)
+    setOpen(false)
+  }
+
+  return (
+    <div className="mt-2 mb-2">
+      <button
+        type="button"
+        onClick={() => setOpen(o => !o)}
+        className="flex items-center gap-1.5 bg-amber-600/20 text-amber-300 border border-amber-500/30 px-3 py-1.5 rounded-lg text-xs font-bold hover:bg-amber-600/30 transition"
+      >
+        {open ? '✕ Close Activity Search' : '🔍 Find from Walz Activities'}
+      </button>
+
+      {open && (
+        <div className="mt-2 p-3 bg-white/[0.04] border border-white/[0.08] rounded-xl">
+          <div className="flex flex-wrap gap-2 mb-3">
+            <div className="flex-1 min-w-[140px]">
+              <label className="text-white/30 text-[10px] font-bold uppercase block mb-1">Activity Name</label>
+              <input
+                value={activityName}
+                onChange={e => setActivityName(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter' && !searching) void handleSearch() }}
+                placeholder="e.g. Desert Safari"
+                className={inp + ' text-xs'}
+              />
+            </div>
+            <div className="flex-1 min-w-[120px]">
+              <label className="text-white/30 text-[10px] font-bold uppercase block mb-1">Location</label>
+              <input
+                value={location}
+                onChange={e => setLocation(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter' && !searching) void handleSearch() }}
+                placeholder="e.g. Dubai"
+                className={inp + ' text-xs'}
+              />
+            </div>
+            <div className="flex items-end">
+              <button
+                type="button"
+                onClick={() => void handleSearch()}
+                disabled={searching || !activityName.trim()}
+                className="flex items-center gap-1.5 bg-amber-600/20 text-amber-300 border border-amber-500/30 px-3 py-2.5 rounded-xl text-xs font-bold hover:bg-amber-600/30 transition disabled:opacity-40"
+              >
+                {searching
+                  ? <><span className="w-3 h-3 border border-amber-300 border-t-transparent rounded-full animate-spin inline-block" />{' '}Searching…</>
+                  : 'Search'}
+              </button>
+            </div>
+          </div>
+
+          {searchError && (
+            <p className="text-red-400 text-xs mb-2">{searchError}</p>
+          )}
+
+          {results.length > 0 && (
+            <div className="space-y-2 max-h-80 overflow-y-auto pr-1">
+              {results.map(r => (
+                <div key={r.productCode} className="flex items-center gap-3 bg-white/[0.04] border border-white/[0.06] rounded-lg p-2">
+                  <div className="w-14 h-14 rounded-lg overflow-hidden bg-white/5 flex-shrink-0">
+                    {r.thumbImageUrl ? (
+                      <img src={r.thumbImageUrl} alt={r.title} className="w-full h-full object-cover" />
+                    ) : (
+                      <div className="w-full h-full flex items-center justify-center text-white/20 text-xl">🎭</div>
+                    )}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-white text-xs font-bold truncate">{r.title}</p>
+                    {r.location && <p className="text-white/40 text-[10px] truncate">{r.location}</p>}
+                    <p className="text-amber-400/60 text-[10px]">
+                      {r.allImageUrls.length} image{r.allImageUrls.length !== 1 ? 's' : ''}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => void handleUse(r)}
+                    disabled={loadingCode !== null}
+                    className="flex-shrink-0 flex items-center gap-1 bg-amber-600/20 text-amber-300 border border-amber-500/30 px-2.5 py-1.5 rounded-lg text-[10px] font-bold hover:bg-amber-600/30 transition disabled:opacity-40 whitespace-nowrap"
+                  >
+                    {loadingCode === r.productCode
+                      ? <><span className="w-2.5 h-2.5 border border-amber-300 border-t-transparent rounded-full animate-spin inline-block" />{' '}Loading…</>
+                      : 'Use images'}
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       )}
     </div>
   )
@@ -2490,6 +2657,16 @@ function BookingsTab({ itin, onSave, onContextChange }: {
                         <div className="col-span-2"><label className="text-white/30 text-[10px] font-bold uppercase block mb-1">Notes</label><input value={t.notes} onChange={e => updTour(t.id, 'notes', e.target.value)} placeholder="What's included…" className={inp} /></div>
                       </div>
                       <div className="mt-2"><label className="text-white/30 text-[10px] font-bold uppercase block mb-1">Supplier</label><SupplierPicker value={t.supplierId} onChange={(id) => updTour(t.id, 'supplierId', id)} /></div>
+                      <WalzActivityFinder
+                        initialName={t.name}
+                        initialLocation={t.location || itin.destination}
+                        onSelect={(productCode, images, heroImageUrl) => {
+                          updTour(t.id, 'viatorProductCode', productCode)
+                          updTour(t.id, 'images', images)
+                          updTour(t.id, 'image', heroImageUrl ?? images[0] ?? '')
+                          void handleSave()
+                        }}
+                      />
                       <MultiImageGallery itinId={itin.id} itemType="tour" itemId={t.id} images={t.images ?? (t.image ? [t.image] : [])} destination={t.location || itin.destination} onImagesChange={imgs => { updTour(t.id, 'images', imgs); updTour(t.id, 'image', imgs[0] ?? '') }} autoSave={handleSave} />
                     </div>
                   ) : (
