@@ -1,13 +1,34 @@
 import { prisma } from '@/lib/db'
 import { notFound } from 'next/navigation'
+import type { Metadata } from 'next'
 import { BUSINESS } from '@/lib/config/business'
-import { ViewTracker } from './_ClientShell'
 import { ProposalPage } from './_ProposalPage'
 import type { PublicProposalDTO, ProposalFlight, ProposalHotel, ProposalTransfer, ProposalTour, ProposalDay, ProposalPriceLine, ProposalPackageOption, ProposalPaymentMilestone } from './_types'
 
 export const dynamic = 'force-dynamic'
 
 type Params = { params: Promise<{ ref: string }> }
+
+// ── SEO: noindex (private itinerary links must not be crawled) ─────────────────
+export async function generateMetadata({ params }: Params): Promise<Metadata> {
+  const { ref } = await params
+  const itin = await prisma.itinerary.findUnique({
+    where: { referenceNumber: ref },
+    select: { title: true, destination: true, status: true },
+  })
+
+  const title = itin?.title
+    ? `${itin.title} | Walz Travels`
+    : 'Your Trip Proposal | Walz Travels'
+
+  return {
+    title,
+    description: itin?.destination
+      ? `Your personalised trip to ${itin.destination}, curated by Walz Travels.`
+      : 'Your personalised trip proposal, curated by Walz Travels.',
+    robots: { index: false, follow: false },
+  }
+}
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 
@@ -212,10 +233,5 @@ export default async function ClientItineraryPage({ params }: Params) {
     },
   }
 
-  return (
-    <>
-      <ViewTracker refCode={itin.referenceNumber} />
-      <ProposalPage proposal={dto} />
-    </>
-  )
+  return <ProposalPage proposal={dto} />
 }

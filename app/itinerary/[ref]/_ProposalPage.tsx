@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import type { PublicProposalDTO, ProposalFlight, ProposalHotel, ProposalTransfer, ProposalTour, ProposalDay } from './_types'
 
 // ── Utilities ─────────────────────────────────────────────────────────────────
@@ -21,11 +21,6 @@ function fmtDate(d?: string | null) {
 function fmtShortDate(d?: string | null) {
   if (!d) return ''
   return new Date(d).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })
-}
-
-function fmtDay(d?: string | null) {
-  if (!d) return ''
-  return new Date(d).toLocaleDateString('en-GB', { weekday: 'long', day: 'numeric', month: 'long' })
 }
 
 function imgFallback(e: React.SyntheticEvent<HTMLImageElement>) {
@@ -50,7 +45,10 @@ const SECTIONS = {
 
 function scrollTo(id: string) {
   const el = document.getElementById(id)
-  if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  if (!el) return
+  // Offset for fixed 64px header
+  const top = el.getBoundingClientRect().top + window.scrollY - 72
+  window.scrollTo({ top, behavior: 'smooth' })
 }
 
 // ── Day icon helper ────────────────────────────────────────────────────────────
@@ -91,7 +89,7 @@ function ProposalHeader({ proposal, compact }: { proposal: PublicProposalDTO; co
 
   return (
     <header
-      className="fixed top-0 left-0 right-0 z-50 transition-all duration-300"
+      className="proposal-header-blur fixed top-0 left-0 right-0 z-50 transition-all duration-300"
       style={{
         background: compact ? 'rgba(11,31,58,0.97)' : 'rgba(11,31,58,0.85)',
         backdropFilter: 'blur(16px)',
@@ -430,7 +428,7 @@ function HotelCard({ h, currency }: { h: ProposalHotel; currency: string }) {
 
   return (
     <div style={{ background: '#fff', borderRadius: 24, overflow: 'hidden', boxShadow: '0 4px 24px rgba(0,0,0,0.08)', marginBottom: 24 }}>
-      <div style={{ display: 'grid', gridTemplateColumns: hasImages ? '1fr 1fr' : '1fr', minHeight: 300 }}>
+      <div className="hotel-card-grid" style={{ display: 'grid', gridTemplateColumns: hasImages ? '1fr 1fr' : '1fr', minHeight: 300 }}>
         {/* Image */}
         {hasImages && (
           <div style={{ position: 'relative', overflow: 'hidden', background: '#e8e0d4' }}>
@@ -849,16 +847,18 @@ function ProposalTerms({ proposal }: { proposal: PublicProposalDTO }) {
         <div style={{ background: '#f5f2ed', borderRadius: 16, padding: '24px 28px' }}>
           <button
             onClick={() => setExpanded(e => !e)}
-            style={{ background: 'none', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8, color: '#6b7280', fontSize: 14, fontWeight: 600 }}
+            aria-expanded={expanded}
+            aria-controls="terms-body"
+            style={{ background: 'none', border: 'none', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8, color: '#6b7280', fontSize: 14, fontWeight: 600, width: '100%', textAlign: 'left' }}
           >
             Terms &amp; Conditions
-            <span style={{ fontSize: 10 }}>{expanded ? '▲' : '▼'}</span>
+            <span style={{ fontSize: 10, marginLeft: 'auto' }}>{expanded ? '▲' : '▼'}</span>
           </button>
-          {expanded && (
+          <div id="terms-body" hidden={!expanded} aria-hidden={!expanded}>
             <p style={{ color: '#6b7280', fontSize: 13, lineHeight: 1.7, marginTop: 12, whiteSpace: 'pre-line' }}>
               {proposal.terms}
             </p>
-          )}
+          </div>
         </div>
       </div>
     </section>
@@ -874,7 +874,7 @@ function ProposalContact({ proposal }: { proposal: PublicProposalDTO }) {
   return (
     <section style={{ background: '#0B1F3A', padding: '80px 24px' }}>
       <div style={{ maxWidth: 1100, margin: '0 auto' }}>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 48, alignItems: 'center' }}>
+        <div className="contact-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 48, alignItems: 'center' }}>
           <div>
             <p style={{ color: '#C9A84C', fontSize: 11, fontWeight: 700, letterSpacing: '0.14em', textTransform: 'uppercase', marginBottom: 12 }}>
               Your Advisor
@@ -1049,12 +1049,37 @@ function ProposalPackageOptions({ proposal }: { proposal: PublicProposalDTO }) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// STATUS BANNER (approved / live)
+// ─────────────────────────────────────────────────────────────────────────────
+
+function StatusBanner({ status }: { status: string }) {
+  if (status === 'approved') {
+    return (
+      <div style={{ background: '#16a34a', padding: '12px 24px', textAlign: 'center' }}>
+        <p style={{ color: '#fff', fontSize: 14, fontWeight: 700, margin: 0 }}>
+          ✓ Proposal accepted — your trip is being arranged
+        </p>
+      </div>
+    )
+  }
+  if (status === 'live') {
+    return (
+      <div style={{ background: '#0B1F3A', borderBottom: '2px solid #C9A84C', padding: '12px 24px', textAlign: 'center' }}>
+        <p style={{ color: '#C9A84C', fontSize: 14, fontWeight: 700, margin: 0 }}>
+          ✈ Your trip is live — have an amazing journey!
+        </p>
+      </div>
+    )
+  }
+  return null
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // MAIN PROPOSAL PAGE
 // ─────────────────────────────────────────────────────────────────────────────
 
 export function ProposalPage({ proposal }: { proposal: PublicProposalDTO }) {
   const [compact, setCompact] = useState(false)
-  const heroRef = useRef<HTMLDivElement>(null)
 
   const onScroll = useCallback(() => {
     setCompact(window.scrollY > 120)
@@ -1065,33 +1090,50 @@ export function ProposalPage({ proposal }: { proposal: PublicProposalDTO }) {
     return () => window.removeEventListener('scroll', onScroll)
   }, [onScroll])
 
+  // Bottom padding so content isn't hidden under the mobile sticky bar
+  const hasMobileBar = true
+
   return (
     <>
-      {/* Google Fonts */}
-      {/* eslint-disable-next-line @next/next/no-page-custom-font */}
-      <link rel="preconnect" href="https://fonts.googleapis.com" />
-      <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
-      {/* eslint-disable-next-line @next/next/no-page-custom-font */}
-      <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700;800&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
-
       <style>{`
         * { box-sizing: border-box; }
         body { margin: 0; font-family: 'Inter', -apple-system, sans-serif; background: #FAFAF8; }
         #proposal-root { padding-top: 0; }
+        /* Mobile responsive fixes */
         @media (max-width: 768px) {
           .hotel-card-grid { grid-template-columns: 1fr !important; }
           .contact-grid { grid-template-columns: 1fr !important; }
-          .section-inner { padding: 48px 16px !important; }
         }
+        @media (max-width: 640px) {
+          #proposal-root { padding-bottom: 80px; }
+        }
+        /* Safari: ensure backdrop-filter works */
+        @supports not (backdrop-filter: blur(1px)) {
+          .proposal-header-blur { background: rgba(11,31,58,0.98) !important; }
+        }
+        /* Smooth scroll with header offset via scroll-margin */
+        [id^="section-"] { scroll-margin-top: 72px; }
+        /* Keyboard focus indicators */
+        button:focus-visible, a:focus-visible {
+          outline: 2px solid #C9A84C;
+          outline-offset: 2px;
+          border-radius: 4px;
+        }
+        /* Prevent horizontal overflow */
+        #proposal-root, #proposal-root * { max-width: 100%; }
+        img { max-width: 100%; }
       `}</style>
 
       <div id="proposal-root">
         <ProposalHeader proposal={proposal} compact={compact} />
 
-        {/* Hero — full bleed, no padding-top (header is fixed/transparent) */}
-        <div ref={heroRef}>
-          <ProposalHero proposal={proposal} />
+        {/* Status banners for approved / live */}
+        <div style={{ paddingTop: compact ? 52 : 68 }}>
+          <StatusBanner status={proposal.status} />
         </div>
+
+        {/* Hero — full bleed */}
+        <ProposalHero proposal={proposal} />
 
         {/* Introduction + Glance (overlap the hero) */}
         <ProposalIntro proposal={proposal} />
@@ -1106,7 +1148,7 @@ export function ProposalPage({ proposal }: { proposal: PublicProposalDTO }) {
         <ProposalPricing proposal={proposal} />
         <ProposalTerms proposal={proposal} />
         <ProposalContact proposal={proposal} />
-        <MobileStickyBar proposal={proposal} />
+        {hasMobileBar && <MobileStickyBar proposal={proposal} />}
       </div>
     </>
   )
