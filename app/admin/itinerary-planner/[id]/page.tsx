@@ -848,7 +848,7 @@ export default function ItineraryBuilderPage() {
             currency={itin.currency || 'GBP'}
           />
         )}
-        {activeTab === 'pricing'    && <PricingTab   itin={itin} onSave={save} />}
+        {activeTab === 'pricing'    && <PricingTab   itin={itin} onSave={save} onNavigateToOptions={() => setActiveTab('options')} />}
         {activeTab === 'options'    && <OptionsTab     itineraryId={itin.id} itineraryCurrency={itin.currency} />}
         {activeTab === 'fulfilment' && <FulfilmentTab itineraryId={itin.id} />}
         {activeTab === 'margin'     && <MarginTab    itin={itin} />}
@@ -2876,67 +2876,90 @@ function BookingsTab({ itin, onSave, onContextChange }: {
 
 // ─── Pricing Tab ──────────────────────────────────────────────────────────────
 
-function PricingTab({ itin, onSave }: { itin: ItineraryData; onSave: (u: Record<string, unknown>) => Promise<void> }) {
+function PricingTab({ itin, onSave, onNavigateToOptions }: { itin: ItineraryData; onSave: (u: Record<string, unknown>) => Promise<void>; onNavigateToOptions?: () => void }) {
   const [rows, setRows] = useState<PriceRow[]>(safeParse<PriceRow[]>(itin.priceBreakdown, []))
-  const [totalPrice, setTotalPrice] = useState<string>(itin.totalPrice != null ? String(itin.totalPrice) : '')
+  const [totalOverride, setTotalOverride] = useState<string>(itin.totalPrice != null ? String(itin.totalPrice) : '')
   const [deposit, setDeposit] = useState<string>(itin.deposit != null ? String(itin.deposit) : '')
+  const [depositEnabled, setDepositEnabled] = useState(itin.deposit != null && itin.deposit > 0)
   const [depositDue, setDepositDue] = useState(itin.depositDue ? itin.depositDue.split('T')[0] : '')
   const [balanceDue, setBalanceDue] = useState(itin.balanceDue ? itin.balanceDue.split('T')[0] : '')
   const [saving, setSaving] = useState(false)
   const [currency, setCurrency] = useState<string>(itin.currency || 'GBP')
+  const [expandedCategories, setExpandedCategories] = useState<Set<string>>(new Set())
+  const [showPaymentPlan, setShowPaymentPlan] = useState(false)
 
   const sym = CURRENCY_SYM[currency] || ''
 
-  // ── Auto-calculated trip component costs (read-only, sourced from booking records) ──
-  const bookingComponents = useMemo(() => {
+  // ── Auto-calculated trip component costs ──────────────────────────────────────
+  const { bookingComponents, bookingItemDetails } = useMemo(() => {
+    type BookingItem = { label: string; amount: number }
     const sumCost = (arr: { cost?: number | null }[]) => arr.reduce((s, x) => s + (x.cost ?? 0), 0)
-    const flights   = safeParse<{ cost?: number | null }[]>(itin.flights, [])
-    const hotels    = safeParse<{ cost?: number | null }[]>(itin.hotels, [])
-    const transfers = safeParse<{ cost?: number | null }[]>(itin.transfers || '[]', [])
-    const tours     = safeParse<{ cost?: number | null }[]>(itin.tours || '[]', [])
-    const trains    = safeParse<{ cost?: number | null }[]>(itin.trains || '[]', [])
-    const ferries   = safeParse<{ cost?: number | null }[]>(itin.ferries || '[]', [])
-    return [
-      { label: 'Flights',            total: sumCost(flights) },
-      { label: 'Hotels',             total: sumCost(hotels) },
-      { label: 'Transfers',          total: sumCost(transfers) },
-      { label: 'Tours & Activities', total: sumCost(tours) },
-      { label: 'Trains',             total: sumCost(trains) },
-      { label: 'Ferries',            total: sumCost(ferries) },
+
+    const rawFlights   = safeParse<{ airline?: string; from?: string; to?: string; flightNumber?: string; cost?: number | null }[]>(itin.flights, [])
+    const rawHotels    = safeParse<{ name?: string; location?: string; cost?: number | null }[]>(itin.hotels, [])
+    const rawTransfers = safeParse<{ type?: string; from?: string; to?: string; cost?: number | null }[]>(itin.transfers || '[]', [])
+    const rawTours     = safeParse<{ name?: string; cost?: number | null }[]>(itin.tours || '[]', [])
+    const rawTrains    = safeParse<{ from?: string; to?: string; cost?: number | null }[]>(itin.trains || '[]', [])
+    const rawFerries   = safeParse<{ from?: string; to?: string; cost?: number | null }[]>(itin.ferries || '[]', [])
+
+    const components = [
+      { label: 'Flights',            total: sumCost(rawFlights) },
+      { label: 'Hotels',             total: sumCost(rawHotels) },
+      { label: 'Transfers',          total: sumCost(rawTransfers) },
+      { label: 'Tours & Activities', total: sumCost(rawTours) },
+      { label: 'Trains',             total: sumCost(rawTrains) },
+      { label: 'Ferries',            total: sumCost(rawFerries) },
     ].filter(c => c.total > 0)
+
+    const details: Record<string, BookingItem[]> = {
+      'Flights':            rawFlights.filter(f => (f.cost ?? 0) > 0).map(f => ({ label: [f.from, f.to].filter(Boolean).join('→') || f.airline || f.flightNumber || 'Flight', amount: f.cost! })),
+      'Hotels':             rawHotels.filter(h => (h.cost ?? 0) > 0).map(h => ({ label: h.name || h.location || 'Hotel', amount: h.cost! })),
+      'Transfers':          rawTransfers.filter(t => (t.cost ?? 0) > 0).map(t => ({ label: t.type || [t.from, t.to].filter(Boolean).join('→') || 'Transfer', amount: t.cost! })),
+      'Tours & Activities': rawTours.filter(t => (t.cost ?? 0) > 0).map(t => ({ label: t.name || 'Experience', amount: t.cost! })),
+      'Trains':             rawTrains.filter(t => (t.cost ?? 0) > 0).map(t => ({ label: [t.from, t.to].filter(Boolean).join('→') || 'Train', amount: t.cost! })),
+      'Ferries':            rawFerries.filter(f => (f.cost ?? 0) > 0).map(f => ({ label: [f.from, f.to].filter(Boolean).join('→') || 'Ferry', amount: f.cost! })),
+    }
+
+    return { bookingComponents: components, bookingItemDetails: details }
   }, [itin.flights, itin.hotels, itin.transfers, itin.tours, itin.trains, itin.ferries])
 
   const bookingCostTotal = bookingComponents.reduce((s, c) => s + c.total, 0)
   const manualRowsTotal  = rows.reduce((s, r) => s + (Number(r.cost) || 0), 0)
   const derivedTotal     = bookingCostTotal + manualRowsTotal
+  const displayTotal     = totalOverride !== '' ? Number(totalOverride) : derivedTotal
 
-  const addRow = () => setRows(prev => [...prev, { id: uid(), item: '', description: '', cost: 0 }])
-  const updRow = (id: string, field: keyof PriceRow, value: unknown) => setRows(prev => prev.map(r => r.id === id ? { ...r, [field]: value } : r))
+  const addRow    = () => setRows(prev => [...prev, { id: uid(), item: '', description: '', cost: 0 }])
+  const updRow    = (id: string, field: keyof PriceRow, value: unknown) => setRows(prev => prev.map(r => r.id === id ? { ...r, [field]: value } : r))
   const removeRow = (id: string) => setRows(prev => prev.filter(r => r.id !== id))
-  const useAutoTotal = () => setTotalPrice(String(derivedTotal))
+
+  const toggleCategory = (label: string) =>
+    setExpandedCategories(prev => { const next = new Set(prev); next.has(label) ? next.delete(label) : next.add(label); return next })
 
   const handleSave = async () => {
     setSaving(true)
     await onSave({
       priceBreakdown: JSON.stringify(rows),
-      totalPrice: totalPrice !== '' ? Number(totalPrice) : null,
-      deposit: deposit !== '' ? Number(deposit) : null,
-      depositDue: depositDue || null,
+      totalPrice: totalOverride !== '' ? Number(totalOverride) : (derivedTotal > 0 ? derivedTotal : null),
+      deposit: depositEnabled && deposit !== '' ? Number(deposit) : null,
+      depositDue: depositEnabled && depositDue ? depositDue : null,
       balanceDue: balanceDue || null,
       currency,
     })
     setSaving(false)
   }
 
-  const pricingSnap = parseSnap(itin.selectedOption)
-  const currentTotal = totalPrice !== '' ? Number(totalPrice) : (derivedTotal > 0 ? derivedTotal : null)
+  const pricingSnap    = parseSnap(itin.selectedOption)
+  const currentTotal   = displayTotal > 0 ? displayTotal : null
   const acceptedTotalNum = pricingSnap?.acceptedTotal ?? null
   const isItinAccepted = itin.status === 'approved' || itin.status === 'revision_accepted'
-  const hasDivergence = isItinAccepted && acceptedTotalNum != null && currentTotal != null && Math.abs(acceptedTotalNum - currentTotal) > 0.01
+  const hasDivergence  = isItinAccepted && acceptedTotalNum != null && currentTotal != null && Math.abs(acceptedTotalNum - currentTotal) > 0.01
+  const depositNum     = depositEnabled && deposit !== '' ? Number(deposit) : 0
+  const balance        = Math.max(0, displayTotal - depositNum)
 
   return (
-    <div className="max-w-3xl space-y-6">
-      {/* Accepted total + divergence warning — accepted itineraries (approved or revision_accepted) */}
+    <div className="max-w-3xl space-y-4">
+
+      {/* Accepted total + divergence warning */}
       {isItinAccepted && pricingSnap?.acceptedBy && (
         <div className={`rounded-2xl p-5 border ${hasDivergence ? 'bg-amber-500/10 border-amber-500/30' : 'bg-green-500/10 border-green-500/25'}`}>
           <div className="flex items-start justify-between">
@@ -2965,74 +2988,134 @@ function PricingTab({ itin, onSave }: { itin: ItineraryData; onSave: (u: Record<
         </div>
       )}
 
-      {/* Trip Components — auto-calculated from booking records, read-only */}
-      {bookingComponents.length > 0 && (
-        <div className="bg-white/5 border border-white/[0.08] rounded-2xl p-6">
-          <div className="flex items-center justify-between mb-4">
-            <h2 className="text-white font-bold text-base">Trip Components</h2>
-            <span className="text-xs text-white/30 bg-white/5 border border-white/10 px-2 py-1 rounded-lg">Auto from bookings</span>
-          </div>
-          <div className="space-y-2">
-            {bookingComponents.map(c => (
-              <div key={c.label} className="flex items-center justify-between py-1.5">
-                <span className="text-white/60 text-sm">{c.label}</span>
-                <span className="text-white text-sm font-mono">{sym}{c.total.toLocaleString()}</span>
-              </div>
-            ))}
-            <div className="border-t border-white/10 pt-3 mt-1 flex items-center justify-between">
-              <span className="text-white/40 text-xs font-bold uppercase tracking-wider">Component Subtotal</span>
-              <span className="text-white font-bold">{sym}{bookingCostTotal.toLocaleString()}</span>
-            </div>
-          </div>
-        </div>
-      )}
-
+      {/* ── SECTION 1: TRIP PRICE ────────────────────────────────────────────── */}
       <div className="bg-white/5 border border-white/[0.08] rounded-2xl p-6">
-        <div className="flex items-center justify-between mb-5">
-          <h2 className="text-white font-bold text-base">Manual Adjustments</h2>
-          <button onClick={addRow} className="bg-white/5 hover:bg-white/10 text-white border border-white/10 font-bold px-4 py-2 rounded-xl text-sm transition">+ Add Item</button>
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-white font-bold text-base">Trip Price</h2>
+          <span className="text-xs text-white/30 bg-white/5 border border-white/10 px-2 py-1 rounded-lg">Auto from bookings</span>
         </div>
 
-        {rows.length === 0 ? (
-          <div className="text-center py-8">
-            <p className="text-white/20 text-sm mb-3">No pricing items yet</p>
-            <button onClick={addRow} className="text-amber-400 text-sm hover:text-amber-300 transition">+ Add first item</button>
-          </div>
+        {bookingComponents.length === 0 ? (
+          <p className="text-white/30 text-sm">No booking costs yet. Add client prices to flights, hotels, transfers, tours, trains and ferries.</p>
         ) : (
-          <div className="space-y-2">
-            <div className="grid grid-cols-12 gap-3 mb-2 px-1">
-              <p className="col-span-4 text-white/30 text-xs font-bold uppercase tracking-wider">Item</p>
-              <p className="col-span-5 text-white/30 text-xs font-bold uppercase tracking-wider">Description</p>
-              <p className="col-span-2 text-white/30 text-xs font-bold uppercase tracking-wider text-right">Cost</p>
-              <p className="col-span-1" />
-            </div>
-            {rows.map(r => (
-              <div key={r.id} className="grid grid-cols-12 gap-3 items-center">
-                <div className="col-span-4">
-                  <input value={r.item} onChange={e => updRow(r.id, 'item', e.target.value)} placeholder="e.g. Return Flights" className={inp} />
+          <div>
+            {bookingComponents.map(c => {
+              const items = bookingItemDetails[c.label] ?? []
+              const isOpen = expandedCategories.has(c.label)
+              return (
+                <div key={c.label}>
+                  <button
+                    onClick={() => toggleCategory(c.label)}
+                    className="w-full flex items-center justify-between py-2.5 px-2 rounded-lg hover:bg-white/5 transition-colors text-left"
+                  >
+                    <div className="flex items-center gap-2">
+                      <span className={`text-white/25 text-[10px] transition-transform duration-150 ${isOpen ? 'rotate-90' : ''}`}>▶</span>
+                      <span className="text-white/70 text-sm">{c.label}</span>
+                    </div>
+                    <span className="text-white text-sm font-mono tabular-nums">{sym}{c.total.toLocaleString()}</span>
+                  </button>
+                  {isOpen && items.length > 0 && (
+                    <div className="ml-5 mb-1 border-l border-white/[0.06] pl-3">
+                      {items.map((item, i) => (
+                        <div key={i} className="flex justify-between py-1.5 text-xs text-white/35">
+                          <span className="truncate pr-4">{item.label}</span>
+                          <span className="font-mono tabular-nums flex-shrink-0">{sym}{item.amount.toLocaleString()}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
-                <div className="col-span-5">
-                  <input value={r.description} onChange={e => updRow(r.id, 'description', e.target.value)} placeholder="Per person, economy…" className={inp} />
-                </div>
-                <div className="col-span-2">
-                  <input type="number" value={r.cost} onChange={e => updRow(r.id, 'cost', Number(e.target.value))} placeholder="0" className={inp + ' text-right'} />
-                </div>
-                <div className="col-span-1 flex justify-center">
-                  <button onClick={() => removeRow(r.id)} className="text-white/20 hover:text-red-400 transition">✕</button>
-                </div>
-              </div>
-            ))}
-            <div className="border-t border-white/10 mt-3 pt-3 flex justify-between items-center">
-              <button onClick={useAutoTotal} className="text-amber-400 text-xs hover:text-amber-300 transition">← Use auto-total</button>
-              <p className="text-white font-bold">Adjustments: {sym}{manualRowsTotal.toLocaleString()}</p>
+              )
+            })}
+            <div className="border-t border-white/10 pt-3 mt-2 flex items-center justify-between px-2">
+              <span className="text-white/40 text-xs font-bold uppercase tracking-wider">Component Total</span>
+              <span className="text-white font-bold font-mono tabular-nums">{sym}{bookingCostTotal.toLocaleString()}</span>
             </div>
           </div>
         )}
       </div>
 
+      {/* ── SECTION 2: ADJUSTMENTS ───────────────────────────────────────────── */}
       <div className="bg-white/5 border border-white/[0.08] rounded-2xl p-6">
-        <h2 className="text-white font-bold text-base mb-5">Payment Details</h2>
-        <div className="mb-4">
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-white font-bold text-base">Adjustments</h2>
+          <button onClick={addRow} className="text-amber-400 text-sm hover:text-amber-300 transition font-semibold">+ Add</button>
+        </div>
+
+        {rows.length === 0 ? (
+          <p className="text-white/20 text-xs">No adjustments — service fees, discounts, extra items. <button onClick={addRow} className="text-amber-400 hover:text-amber-300 transition ml-1">Add one →</button></p>
+        ) : (
+          <div className="space-y-2">
+            {rows.map(r => (
+              <div key={r.id} className="flex items-center gap-2">
+                <input
+                  value={r.item}
+                  onChange={e => updRow(r.id, 'item', e.target.value)}
+                  placeholder="Service fee, discount…"
+                  className={`${inp} flex-1 min-w-0`}
+                />
+                <div className="relative flex-shrink-0 w-32">
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-white/30 text-xs pointer-events-none">{sym}</span>
+                  <input
+                    type="number"
+                    value={r.cost}
+                    onChange={e => updRow(r.id, 'cost', Number(e.target.value))}
+                    className={`${inp} pl-7 text-right tabular-nums`}
+                  />
+                </div>
+                <button onClick={() => removeRow(r.id)} className="text-white/20 hover:text-red-400 transition flex-shrink-0 text-sm">✕</button>
+              </div>
+            ))}
+            {manualRowsTotal !== 0 && (
+              <div className="flex justify-end pt-1 pr-9">
+                <span className="text-white/50 text-sm font-mono tabular-nums">{manualRowsTotal < 0 ? '−' : '+'}{sym}{Math.abs(manualRowsTotal).toLocaleString()}</span>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* ── SECTION 3: CLIENT TOTAL ──────────────────────────────────────────── */}
+      <div className="bg-[#0B1F3A] border border-[#C9A84C]/20 rounded-2xl p-6">
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="text-white/40 text-[11px] font-bold uppercase tracking-wider mb-1">Client Total</p>
+            <p className="text-white/40 text-xs">
+              {bookingCostTotal > 0 && <span>Components {sym}{bookingCostTotal.toLocaleString()}</span>}
+              {bookingCostTotal > 0 && manualRowsTotal !== 0 && <span className="mx-1">+</span>}
+              {manualRowsTotal !== 0 && <span>Adjustments {manualRowsTotal < 0 ? '−' : ''}{sym}{Math.abs(manualRowsTotal).toLocaleString()}</span>}
+            </p>
+          </div>
+          <p className="text-amber-400 text-3xl font-bold tabular-nums">{sym}{derivedTotal.toLocaleString()}</p>
+        </div>
+
+        {/* Optional override */}
+        <div className="mt-4 pt-4 border-t border-white/[0.08]">
+          <label className="text-white/30 text-[11px] font-bold uppercase tracking-wider block mb-1.5">
+            Total Override <span className="text-white/20 normal-case font-normal">(leave blank to use auto)</span>
+          </label>
+          <div className="relative">
+            <input
+              type="number"
+              value={totalOverride}
+              onChange={e => setTotalOverride(e.target.value)}
+              placeholder={derivedTotal > 0 ? `${derivedTotal.toLocaleString()} (auto)` : 'Enter custom total'}
+              className={inp}
+            />
+            {totalOverride !== '' && (
+              <button onClick={() => setTotalOverride('')} className="absolute right-2 top-1/2 -translate-y-1/2 text-white/30 hover:text-white/60 transition text-xs px-1">
+                Clear
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+
+      {/* ── SECTION 4: PAYMENT TERMS ─────────────────────────────────────────── */}
+      <div className="bg-white/5 border border-white/[0.08] rounded-2xl p-6">
+        <h2 className="text-white font-bold text-base mb-5">Payment Terms</h2>
+
+        <div className="mb-5">
           <label className="text-white/40 text-xs font-bold uppercase tracking-wider block mb-1.5">Billing Currency</label>
           <select value={currency} onChange={e => setCurrency(e.target.value)} className={sel}>
             {Object.entries(CURRENCY_SYM).map(([code, s]) => (
@@ -3040,40 +3123,78 @@ function PricingTab({ itin, onSave }: { itin: ItineraryData; onSave: (u: Record<
             ))}
           </select>
         </div>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div>
-            <label className="text-white/40 text-xs font-bold uppercase tracking-wider block mb-1.5">Total Price ({sym})</label>
-            <div className="relative">
-              <input type="number" value={totalPrice} onChange={e => setTotalPrice(e.target.value)} placeholder={derivedTotal > 0 ? `Auto: ${derivedTotal.toLocaleString()}` : 'Enter total'} className={inp} />
-              {totalPrice === '' && derivedTotal > 0 && (
-                <button onClick={useAutoTotal} className="absolute right-2 top-1/2 -translate-y-1/2 text-amber-400 text-xs hover:text-amber-300 transition px-1">
-                  Use {sym}{derivedTotal.toLocaleString()}
-                </button>
-              )}
+
+        <div className="mb-4">
+          <label className="flex items-center gap-3 cursor-pointer select-none mb-3">
+            <input
+              type="checkbox"
+              checked={depositEnabled}
+              onChange={e => { setDepositEnabled(e.target.checked); if (!e.target.checked) setDeposit('') }}
+              className="w-4 h-4 rounded accent-amber-500"
+            />
+            <span className="text-white/70 text-sm font-medium">Require deposit</span>
+          </label>
+
+          {depositEnabled && (
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3 pl-7">
+              <div>
+                <label className="text-white/40 text-xs font-bold uppercase tracking-wider block mb-1.5">Amount ({sym})</label>
+                <input type="number" value={deposit} onChange={e => setDeposit(e.target.value)} placeholder="0" className={inp} />
+              </div>
+              <div>
+                <label className="text-white/40 text-xs font-bold uppercase tracking-wider block mb-1.5">Deposit Due</label>
+                <input type="date" value={depositDue} onChange={e => setDepositDue(e.target.value)} className={inp} />
+              </div>
+              <div>
+                <label className="text-white/40 text-xs font-bold uppercase tracking-wider block mb-1.5">Balance Due</label>
+                <input type="date" value={balanceDue} onChange={e => setBalanceDue(e.target.value)} className={inp} />
+              </div>
             </div>
-          </div>
-          <div>
-            <label className="text-white/40 text-xs font-bold uppercase tracking-wider block mb-1.5">Deposit Amount ({sym})</label>
-            <input type="number" value={deposit} onChange={e => setDeposit(e.target.value)} placeholder="Optional" className={inp} />
-          </div>
-          <div>
-            <label className="text-white/40 text-xs font-bold uppercase tracking-wider block mb-1.5">Deposit Due Date</label>
-            <input type="date" value={depositDue} onChange={e => setDepositDue(e.target.value)} className={inp} />
-          </div>
-          <div>
-            <label className="text-white/40 text-xs font-bold uppercase tracking-wider block mb-1.5">Balance Due Date</label>
-            <input type="date" value={balanceDue} onChange={e => setBalanceDue(e.target.value)} className={inp} />
-          </div>
+          )}
+
+          {!depositEnabled && (
+            <div className="pl-7">
+              <label className="text-white/40 text-xs font-bold uppercase tracking-wider block mb-1.5">Balance Due Date</label>
+              <input type="date" value={balanceDue} onChange={e => setBalanceDue(e.target.value)} className={`${inp} max-w-xs`} />
+            </div>
+          )}
         </div>
 
-        {(totalPrice || derivedTotal > 0) && (
-          <div className="mt-5 bg-[#0B1F3A] rounded-xl p-4 flex items-center justify-between">
-            <span className="text-white font-bold">Total</span>
-            <span className="text-amber-400 font-bold text-xl">{sym}{Number(totalPrice || derivedTotal).toLocaleString()}</span>
+        {depositEnabled && depositNum > 0 && displayTotal > 0 && (
+          <div className="mt-3 pt-3 border-t border-white/[0.06] flex justify-between items-center text-sm pl-7">
+            <span className="text-white/30">Balance (auto)</span>
+            <span className="text-white/60 font-mono tabular-nums">{sym}{balance.toLocaleString()}</span>
           </div>
         )}
       </div>
 
+      {/* ── Payment Plan — collapsed by default ──────────────────────────────── */}
+      <div className="bg-white/5 border border-white/[0.08] rounded-2xl overflow-hidden">
+        <button
+          onClick={() => setShowPaymentPlan(p => !p)}
+          className="w-full flex items-center justify-between px-6 py-4 text-left hover:bg-white/[0.03] transition-colors"
+        >
+          <span className="text-white/70 font-semibold text-sm">{showPaymentPlan ? '▼' : '+'} Payment Plan</span>
+          <span className="text-white/30 text-xs">{showPaymentPlan ? 'Collapse' : 'Set milestone schedule'}</span>
+        </button>
+        {showPaymentPlan && (
+          <div className="px-6 pb-6 border-t border-white/[0.06]">
+            <PaymentScheduleEditor itinId={itin.id} currency={itin.currency || 'GBP'} />
+          </div>
+        )}
+      </div>
+
+      {/* ── Package Options — link to Options tab ────────────────────────────── */}
+      <div className="bg-white/[0.03] border border-white/[0.06] rounded-2xl px-5 py-3.5 flex items-center justify-between">
+        <p className="text-white/30 text-sm">Package options are managed in the Options tab</p>
+        {onNavigateToOptions && (
+          <button onClick={onNavigateToOptions} className="text-amber-400/70 hover:text-amber-400 text-sm transition font-medium flex-shrink-0 ml-4">
+            Options tab →
+          </button>
+        )}
+      </div>
+
+      {/* Save */}
       <div className="flex justify-end">
         <button
           onClick={handleSave}
@@ -3083,9 +3204,6 @@ function PricingTab({ itin, onSave }: { itin: ItineraryData; onSave: (u: Record<
           {saving ? <><div className="w-4 h-4 border-2 border-black border-t-transparent rounded-full animate-spin" /> Saving…</> : 'Save Pricing'}
         </button>
       </div>
-
-      <PackageOptionsEditor itinId={itin.id} currency={itin.currency || 'GBP'} />
-      <PaymentScheduleEditor itinId={itin.id} currency={itin.currency || 'GBP'} />
     </div>
   )
 }

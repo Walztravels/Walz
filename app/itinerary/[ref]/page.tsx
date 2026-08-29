@@ -71,33 +71,39 @@ export default async function ClientItineraryPage({ params }: Params) {
     time?: string; departureTime?: string; arrivalTime?: string
     class?: string; pnr?: string; stops?: number
     airlineLogoUrl?: string; imageUrl?: string
-    // Deliberately ignored: cost, supplierCost, netRate, markup, rateKey
+    cost?: number | null        // client selling price — safe to expose
+    // Deliberately ignored: supplierCost, netRate, markup, rateKey
   }
   type RawTrain = {
     from?: string; to?: string; date?: string
     departureTime?: string; arrivalTime?: string
     trainNumber?: string; class?: string; provider?: string
     image?: string; images?: string[]
-    // Ignored: cost, supplierCost, notes, supplierId, pnr
+    cost?: number | null
+    // Ignored: supplierCost, notes, supplierId, pnr
   }
   type RawFerry = {
     from?: string; to?: string; date?: string
     departureTime?: string; arrivalTime?: string
     operator?: string; class?: string; vessel?: string
     image?: string; images?: string[]
-    // Ignored: cost, supplierCost, notes, supplierId
+    cost?: number | null
+    // Ignored: supplierCost, notes, supplierId
   }
   type RawHotel = {
     name?: string; location?: string; checkIn?: string; checkOut?: string
     roomType?: string; nights?: number; mealPlan?: string; images?: string[]
-    // Ignored: cost, supplierCost, wholesale_cost
+    cost?: number | null
+    // Ignored: supplierCost, wholesale_cost
   }
   type RawTransfer = {
     type?: string; from?: string; to?: string; date?: string; vehicle?: string; images?: string[]
+    cost?: number | null
   }
   type RawTour = {
     name?: string; location?: string; date?: string; time?: string
     duration?: string; provider?: string; notes?: string; images?: string[]
+    cost?: number | null
   }
   type RawDay = {
     day: number; title: string; destination?: string; description?: string
@@ -174,7 +180,8 @@ export default async function ClientItineraryPage({ params }: Params) {
     stops: f.stops,
     airlineLogoUrl: f.airlineLogoUrl,
     imageUrl: f.imageUrl,
-    // NEVER add: iataCode, cost, supplierCost, netRate, markup, rateKey, pnr (pre-acceptance)
+    clientPrice: f.cost != null && f.cost > 0 ? f.cost : undefined,
+    // NEVER add: iataCode, supplierCost, netRate, markup, rateKey, pnr (pre-acceptance)
   }))
 
   const hotels: ProposalHotel[] = rawHotels.map(h => ({
@@ -186,6 +193,7 @@ export default async function ClientItineraryPage({ params }: Params) {
     nights: h.nights,
     mealPlan: h.mealPlan,
     images: h.images,
+    clientPrice: h.cost != null && h.cost > 0 ? h.cost : undefined,
   }))
 
   const transfers: ProposalTransfer[] = rawTransfers.map(t => ({
@@ -195,6 +203,7 @@ export default async function ClientItineraryPage({ params }: Params) {
     date: t.date,
     vehicle: t.vehicle,
     images: t.images,
+    clientPrice: t.cost != null && t.cost > 0 ? t.cost : undefined,
   }))
 
   const tours: ProposalTour[] = rawTours.map(t => ({
@@ -206,6 +215,7 @@ export default async function ClientItineraryPage({ params }: Params) {
     provider: t.provider,
     notes: t.notes,
     images: t.images,
+    clientPrice: t.cost != null && t.cost > 0 ? t.cost : undefined,
   }))
 
   const trains: ProposalTrain[] = rawTrains.map(t => ({
@@ -213,6 +223,7 @@ export default async function ClientItineraryPage({ params }: Params) {
     departureTime: t.departureTime, arrivalTime: t.arrivalTime,
     trainNumber: t.trainNumber, class: t.class, provider: t.provider,
     image: t.image, images: t.images,
+    clientPrice: t.cost != null && t.cost > 0 ? t.cost : undefined,
   }))
 
   const ferries: ProposalFerry[] = rawFerries.map(f => ({
@@ -220,7 +231,24 @@ export default async function ClientItineraryPage({ params }: Params) {
     departureTime: f.departureTime, arrivalTime: f.arrivalTime,
     operator: f.operator, class: f.class, vessel: f.vessel,
     image: f.image, images: f.images,
+    clientPrice: f.cost != null && f.cost > 0 ? f.cost : undefined,
   }))
+
+  // Component price totals — server-computed from booking.cost (client selling price).
+  // NEVER includes supplierCost, netRate, markup, or margin.
+  const _sumClientPrice = (arr: { cost?: number | null }[]) => {
+    const total = arr.reduce((s, x) => s + (x.cost ?? 0), 0)
+    return total > 0 ? total : undefined
+  }
+  const componentPrices = {
+    flights:   _sumClientPrice(rawFlights),
+    hotels:    _sumClientPrice(rawHotels),
+    transfers: _sumClientPrice(rawTransfers),
+    tours:     _sumClientPrice(rawTours),
+    trains:    _sumClientPrice(rawTrains),
+    ferries:   _sumClientPrice(rawFerries),
+  }
+  const hasComponentPrices = Object.values(componentPrices).some(v => v != null)
 
   const days: ProposalDay[] = rawDays.map(d => ({
     day: d.day,
@@ -303,6 +331,7 @@ export default async function ClientItineraryPage({ params }: Params) {
     acceptedTotal: acceptedTotal ?? undefined,
     acceptedBy,
     acceptedOptionIds,
+    componentPrices: hasComponentPrices ? componentPrices : undefined,
   }
 
   // ── V2: Fetch option groups (graceful — V1 itineraries have no rows) ──────────

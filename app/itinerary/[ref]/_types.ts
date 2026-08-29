@@ -18,6 +18,7 @@ export interface ProposalFlight {
   stops?: number
   airlineLogoUrl?: string  // pre-resolved safe URL, never iataCode
   imageUrl?: string        // aircraft image
+  clientPrice?: number     // client selling price — never supplier cost
 }
 
 export interface ProposalTrain {
@@ -31,6 +32,7 @@ export interface ProposalTrain {
   provider?: string
   image?: string
   images?: string[]
+  clientPrice?: number
 }
 
 export interface ProposalFerry {
@@ -44,6 +46,7 @@ export interface ProposalFerry {
   vessel?: string
   image?: string
   images?: string[]
+  clientPrice?: number
 }
 
 export interface ProposalHotel {
@@ -55,6 +58,7 @@ export interface ProposalHotel {
   nights?: number
   mealPlan?: string
   images?: string[]
+  clientPrice?: number
 }
 
 export interface ProposalTransfer {
@@ -64,6 +68,7 @@ export interface ProposalTransfer {
   date?: string
   vehicle?: string
   images?: string[]
+  clientPrice?: number
 }
 
 export interface ProposalTour {
@@ -75,6 +80,7 @@ export interface ProposalTour {
   provider?: string
   notes?: string
   images?: string[]
+  clientPrice?: number
 }
 
 export interface ProposalDay {
@@ -171,4 +177,15 @@ export interface PublicProposalDTO {
   // V2: option customiser — absent / empty = V1 flow (no customiser rendered)
   optionGroups?: PublicOptionGroup[]
   acceptanceVersion?: 1 | 2
+
+  // Component price totals — safe client selling prices, derived server-side from booking.cost.
+  // Never expose: supplierCost, netRate, markup, margin, commission.
+  componentPrices?: {
+    flights?: number
+    hotels?: number
+    transfers?: number
+    tours?: number
+    trains?: number
+    ferries?: number
+  }
 }

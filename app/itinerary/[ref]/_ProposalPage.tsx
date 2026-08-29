@@ -370,8 +370,11 @@ function FlightCard({ f, currency }: { f: ProposalFlight; currency: string }) {
             </p>
           </div>
         </div>
-        {f.date && (
-          <p style={{ color: '#C9A84C', fontSize: 13, fontWeight: 600, flexShrink: 0, marginLeft: 12 }}>{fmtDate(f.date)}</p>
+        {(f.date || f.clientPrice != null) && (
+          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 2, flexShrink: 0, marginLeft: 12 }}>
+            {f.date && <p style={{ color: '#C9A84C', fontSize: 13, fontWeight: 600 }}>{fmtDate(f.date)}</p>}
+            {f.clientPrice != null && <p style={{ color: 'rgba(255,255,255,0.7)', fontSize: 13, fontWeight: 700 }}>{fmtMoney(f.clientPrice, currency)}</p>}
+          </div>
         )}
       </div>
 
@@ -542,6 +545,12 @@ function HotelCard({ h, currency }: { h: ProposalHotel; currency: string }) {
                 <p style={{ color: '#1f2937', fontSize: 14, fontWeight: 600 }}>{h.mealPlan}</p>
               </div>
             )}
+            {h.clientPrice != null && (
+              <div style={{ gridColumn: '1 / -1', borderTop: '1px solid #f5f2ed', paddingTop: 14, marginTop: 4 }}>
+                <p style={{ color: '#9ca3af', fontSize: 11, fontWeight: 600, marginBottom: 3 }}>PRICE</p>
+                <p style={{ color: '#0B1F3A', fontSize: 16, fontWeight: 700 }}>{fmtMoney(h.clientPrice, currency)}</p>
+              </div>
+            )}
           </div>
         </div>
       </div>
@@ -565,7 +574,7 @@ function ProposalHotels({ proposal }: { proposal: PublicProposalDTO }) {
 // TRANSFERS + EXPERIENCES
 // ─────────────────────────────────────────────────────────────────────────────
 
-function TransferCard({ t }: { t: ProposalTransfer }) {
+function TransferCard({ t, currency }: { t: ProposalTransfer; currency: string }) {
   const hasImg = t.images && t.images.length > 0
   return (
     <div style={{ background: '#fff', borderRadius: 16, overflow: 'hidden', boxShadow: '0 2px 16px rgba(0,0,0,0.06)', marginBottom: 14 }}>
@@ -605,6 +614,9 @@ function TransferCard({ t }: { t: ProposalTransfer }) {
                 {t.vehicle}
               </span>
             )}
+            {t.clientPrice != null && (
+              <p style={{ marginTop: 12, color: '#0B1F3A', fontSize: 15, fontWeight: 700 }}>{fmtMoney(t.clientPrice, currency)}</p>
+            )}
           </div>
         </div>
       )}
@@ -630,11 +642,16 @@ function TransferCard({ t }: { t: ProposalTransfer }) {
                 </div>
               )}
             </div>
-            {t.vehicle && (
-              <span style={{ background: '#f0ede8', color: '#92700c', fontSize: 12, fontWeight: 600, padding: '6px 12px', borderRadius: 8, whiteSpace: 'nowrap' }}>
-                {t.vehicle}
-              </span>
-            )}
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 8, flexShrink: 0 }}>
+              {t.vehicle && (
+                <span style={{ background: '#f0ede8', color: '#92700c', fontSize: 12, fontWeight: 600, padding: '6px 12px', borderRadius: 8, whiteSpace: 'nowrap' }}>
+                  {t.vehicle}
+                </span>
+              )}
+              {t.clientPrice != null && (
+                <span style={{ color: '#0B1F3A', fontSize: 15, fontWeight: 700, whiteSpace: 'nowrap' }}>{fmtMoney(t.clientPrice, currency)}</span>
+              )}
+            </div>
           </div>
         </div>
       )}
@@ -642,7 +659,7 @@ function TransferCard({ t }: { t: ProposalTransfer }) {
   )
 }
 
-function TourCard({ t }: { t: ProposalTour }) {
+function TourCard({ t, currency }: { t: ProposalTour; currency: string }) {
   const hasImg = t.images && t.images.length > 0
   return (
     <div style={{ background: '#fff', borderRadius: 20, overflow: 'hidden', boxShadow: '0 4px 20px rgba(0,0,0,0.07)', marginBottom: 20 }}>
@@ -671,10 +688,13 @@ function TourCard({ t }: { t: ProposalTour }) {
         {t.notes && (
           <p style={{ color: '#6b7280', fontSize: 14, lineHeight: 1.6, marginBottom: 12 }}>{t.notes}</p>
         )}
-        <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap', alignItems: 'center' }}>
           {t.date && <span style={{ color: '#4b5563', fontSize: 13 }}>📅 {fmtDate(t.date)}{t.time ? ` · ${t.time}` : ''}</span>}
           {t.duration && <span style={{ color: '#4b5563', fontSize: 13 }}>⏱ {t.duration}</span>}
           {t.provider && <span style={{ color: '#4b5563', fontSize: 13 }}>🏢 {t.provider}</span>}
+          {t.clientPrice != null && (
+            <span style={{ marginLeft: 'auto', color: '#0B1F3A', fontSize: 15, fontWeight: 700 }}>{fmtMoney(t.clientPrice, currency)}</span>
+          )}
         </div>
       </div>
     </div>
@@ -694,7 +714,7 @@ function ProposalExperiences({ proposal }: { proposal: PublicProposalDTO }) {
             <p style={{ color: '#9ca3af', fontSize: 12, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 16 }}>Tours & Activities</p>
           )}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: 16 }}>
-            {proposal.tours.map((t, i) => <TourCard key={i} t={t} />)}
+            {proposal.tours.map((t, i) => <TourCard key={i} t={t} currency={proposal.currency} />)}
           </div>
         </div>
       )}
@@ -703,7 +723,7 @@ function ProposalExperiences({ proposal }: { proposal: PublicProposalDTO }) {
           {hasTransfers && hasTours && (
             <p style={{ color: '#9ca3af', fontSize: 12, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 16, marginTop: 8 }}>Transfers</p>
           )}
-          {proposal.transfers.map((t, i) => <TransferCard key={i} t={t} />)}
+          {proposal.transfers.map((t, i) => <TransferCard key={i} t={t} currency={proposal.currency} />)}
         </div>
       )}
     </Section>
@@ -966,15 +986,65 @@ function ProposalInclusions({ proposal }: { proposal: PublicProposalDTO }) {
 // PRICING
 // ─────────────────────────────────────────────────────────────────────────────
 
+const COMPONENT_LABELS: Record<string, string> = {
+  flights: 'Flights', hotels: 'Hotels', transfers: 'Transfers',
+  tours: 'Tours & Activities', trains: 'Trains', ferries: 'Ferries',
+}
+
 function ProposalPricing({ proposal, onAccept }: { proposal: PublicProposalDTO; onAccept?: () => void }) {
   const hasData = proposal.totalPrice != null || proposal.priceBreakdown.length > 0 || proposal.paymentSchedule.length > 0
   if (!hasData) return null
 
+  const cp = proposal.componentPrices
+  const hasComponents = cp != null && Object.values(cp).some(v => (v ?? 0) > 0)
+
   return (
     <Section id={SECTIONS.investment} eyebrow="Your Investment" title="Trip Pricing" alt>
       <div style={{ maxWidth: 640 }}>
-        {/* Price breakdown */}
-        {proposal.priceBreakdown.length > 0 && (
+
+        {/* Component breakdown (auto from booking data) + manual adjustments */}
+        {hasComponents && (
+          <div style={{ background: '#fff', borderRadius: 20, overflow: 'hidden', boxShadow: '0 4px 24px rgba(0,0,0,0.07)', marginBottom: 16 }}>
+            <div style={{ padding: '20px 28px 4px' }}>
+              <p style={{ color: '#9ca3af', fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 12 }}>Trip Components</p>
+              {Object.entries(cp!).map(([key, val]) =>
+                val != null && val > 0 ? (
+                  <div key={key} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '9px 0', borderBottom: '1px solid #f5f2ed' }}>
+                    <span style={{ color: '#374151', fontSize: 14 }}>{COMPONENT_LABELS[key] ?? key}</span>
+                    <span style={{ color: '#1f2937', fontSize: 14, fontWeight: 600 }}>{fmtMoney(val, proposal.currency)}</span>
+                  </div>
+                ) : null
+              )}
+            </div>
+
+            {/* Manual adjustments as a secondary section */}
+            {proposal.priceBreakdown.length > 0 && (
+              <div style={{ padding: '16px 28px 4px', borderTop: '1px solid #f5f2ed' }}>
+                <p style={{ color: '#9ca3af', fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 12 }}>Adjustments</p>
+                {proposal.priceBreakdown.map((row, i) => (
+                  <div key={i} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', padding: '9px 0', borderBottom: i < proposal.priceBreakdown.length - 1 ? '1px solid #f5f2ed' : 'none' }}>
+                    <div>
+                      <p style={{ color: '#374151', fontSize: 14 }}>{row.item}</p>
+                      {row.description && <p style={{ color: '#9ca3af', fontSize: 12 }}>{row.description}</p>}
+                    </div>
+                    <p style={{ color: '#1f2937', fontSize: 14, fontWeight: 600 }}>{fmtMoney(row.cost, proposal.currency)}</p>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Total row */}
+            {proposal.totalPrice != null && (
+              <div style={{ background: '#0B1F3A', padding: '20px 28px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <p style={{ color: '#fff', fontSize: 18, fontWeight: 700 }}>Total</p>
+                <p style={{ color: '#C9A84C', fontSize: 26, fontWeight: 800 }}>{fmtMoney(proposal.totalPrice, proposal.currency)}</p>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Manual breakdown only (no componentPrices) */}
+        {!hasComponents && proposal.priceBreakdown.length > 0 && (
           <div style={{ background: '#fff', borderRadius: 20, overflow: 'hidden', boxShadow: '0 4px 24px rgba(0,0,0,0.07)', marginBottom: 16 }}>
             <div style={{ padding: '28px 32px' }}>
               {proposal.priceBreakdown.map((row, i) => (
@@ -1001,8 +1071,8 @@ function ProposalPricing({ proposal, onAccept }: { proposal: PublicProposalDTO; 
           </div>
         )}
 
-        {/* Simple total (no breakdown) */}
-        {proposal.totalPrice != null && proposal.priceBreakdown.length === 0 && (
+        {/* Simple total (no breakdown at all) */}
+        {proposal.totalPrice != null && !hasComponents && proposal.priceBreakdown.length === 0 && (
           <div style={{ background: '#0B1F3A', borderRadius: 20, padding: '24px 32px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
             <p style={{ color: '#fff', fontSize: 18, fontWeight: 700 }}>Trip Total</p>
             <p style={{ color: '#C9A84C', fontSize: 28, fontWeight: 800 }}>{fmtMoney(proposal.totalPrice, proposal.currency)}</p>
