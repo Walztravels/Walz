@@ -134,7 +134,7 @@ function ProposalHeader({ proposal, compact, onAccept }: { proposal: PublicPropo
         {/* Accept CTA */}
         {(proposal.status === 'proposal' || proposal.status === 'revision_sent') && proposal.approvalToken && (
           <button
-            onClick={onAccept}
+            onClick={() => onAccept()}
             className="hidden sm:flex items-center gap-2"
             style={{ background: '#C9A84C', color: '#0B1F3A', fontWeight: 700, fontSize: 13, padding: '9px 20px', borderRadius: 10, border: 'none', cursor: 'pointer', whiteSpace: 'nowrap', flexShrink: 0 }}
           >
@@ -1117,7 +1117,7 @@ function ProposalPricing({ proposal, onAccept }: { proposal: PublicProposalDTO; 
         {(proposal.status === 'proposal' || proposal.status === 'revision_sent') && (
           onAccept && proposal.approvalToken ? (
             <button
-              onClick={onAccept}
+              onClick={() => onAccept()}
               style={{ display: 'block', width: '100%', background: '#C9A84C', color: '#0B1F3A', fontWeight: 800, fontSize: 17, padding: '18px 32px', borderRadius: 16, textAlign: 'center', border: 'none', cursor: 'pointer', marginTop: 24 }}
             >
               Review & Accept →
@@ -1278,7 +1278,7 @@ function MobileStickyBar({ proposal, onAccept }: { proposal: PublicProposalDTO; 
         {(proposal.status === 'proposal' || proposal.status === 'revision_sent') ? (
           onAccept && proposal.approvalToken ? (
             <button
-              onClick={onAccept}
+              onClick={() => onAccept()}
               style={{ flex: 2, display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#C9A84C', color: '#0B1F3A', fontWeight: 800, fontSize: 15, borderRadius: 12, border: 'none', cursor: 'pointer', padding: '12px 0' }}
             >
               Review & Accept →
@@ -1775,29 +1775,37 @@ function AcceptanceModal({
     // ── END DIAG ──
 
     try {
-      let body: string
-      if (isRevision) {
-        body = JSON.stringify({
-          token:         proposal.approvalToken,
-          acceptedBy:    trimmed,
-          termsAccepted: true,
-          ...(isV2 ? { selections: v2Selections } : {}),
-        })
-      } else if (isV2) {
-        body = JSON.stringify({
-          token:         proposal.approvalToken,
-          acceptedBy:    trimmed,
-          termsAccepted: true,
-          selections:    v2Selections,
-        })
-      } else {
-        body = JSON.stringify({
-          token:             proposal.approvalToken,
-          name:              trimmed,
-          selectedOptionIds: selectedIds,
-          termsAccepted:     true,
-          acceptanceVersion: 1,
-        })
+      // Build an explicit allowlist payload — never spread state/props/events.
+      let body = ''
+      try {
+        if (isRevision) {
+          body = JSON.stringify({
+            token:         String(proposal.approvalToken ?? ''),
+            acceptedBy:    trimmed,
+            termsAccepted: true,
+            ...(isV2 ? { selections: v2Selections.map(s => ({ groupId: String(s.groupId), itemIds: s.itemIds.map(String) })) } : {}),
+          })
+        } else if (isV2) {
+          body = JSON.stringify({
+            token:         String(proposal.approvalToken ?? ''),
+            acceptedBy:    trimmed,
+            termsAccepted: true,
+            selections:    v2Selections.map(s => ({ groupId: String(s.groupId), itemIds: s.itemIds.map(String) })),
+          })
+        } else {
+          body = JSON.stringify({
+            token:             String(proposal.approvalToken ?? ''),
+            name:              trimmed,
+            selectedOptionIds: selectedIds.filter(id => typeof id === 'string'),
+            termsAccepted:     true,
+            acceptanceVersion: 1,
+          })
+        }
+      } catch (serErr: unknown) {
+        const e = serErr instanceof Error ? serErr : new Error(String(serErr))
+        _diag('CLIENT_SERIALIZATION_ERROR', { errorName: e.name, errorMessage: e.message })
+        setApiError({ kind: 'other', msg: "We couldn't submit your acceptance. Please try again or contact Walz Travels." })
+        return
       }
 
       _diag('BODY_SERIALIZED', { bodyLength: body.length }) // ── DIAG
@@ -1846,6 +1854,7 @@ function AcceptanceModal({
       const e = err instanceof Error ? err : new Error(String(err))
       _diag('FETCH_REJECTED', { errorName: e.name, errorMessage: e.message, online: navigator.onLine })
       // ── END DIAG ──
+      // Only genuine network failures reach here (serialization errors return early above).
       setApiError({ kind: 'other', msg: 'Network error. Please check your connection and try again.' })
     } finally {
       setSubmitting(false)
@@ -2226,7 +2235,7 @@ export function ProposalPage({ proposal }: { proposal: PublicProposalDTO }) {
       }
       setSelectionError(null)
     }
-    setInitialOptionId(optionId ?? null)
+    setInitialOptionId(typeof optionId === 'string' ? optionId : null)
     setAcceptOpen(true)
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [v2Selections, proposal.acceptanceVersion, proposal.optionGroups])
