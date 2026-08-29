@@ -193,6 +193,9 @@ function ProposalHero({ proposal }: { proposal: PublicProposalDTO }) {
           src={proposal.coverImage}
           alt={proposal.title}
           onError={imgFallback}
+          loading="eager"
+          decoding="async"
+          fetchPriority="high"
           style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }}
         />
       ) : (
@@ -431,13 +434,15 @@ function HotelCard({ h, currency }: { h: ProposalHotel; currency: string }) {
       <div className="hotel-card-grid" style={{ display: 'grid', gridTemplateColumns: hasImages ? '1fr 1fr' : '1fr', minHeight: 300 }}>
         {/* Image */}
         {hasImages && (
-          <div style={{ position: 'relative', overflow: 'hidden', background: '#e8e0d4' }}>
+          <div style={{ position: 'relative', overflow: 'hidden', background: '#e8e0d4', aspectRatio: '4/3', minHeight: 260 }}>
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
               src={h.images![activeImg]}
               alt={h.name || 'Hotel'}
               onError={imgFallback}
-              style={{ width: '100%', height: '100%', objectFit: 'cover', display: 'block', minHeight: 300 }}
+              loading="lazy"
+              decoding="async"
+              style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
             />
             {h.images!.length > 1 && (
               <div style={{ position: 'absolute', bottom: 12, left: 0, right: 0, display: 'flex', justifyContent: 'center', gap: 6 }}>
@@ -560,9 +565,16 @@ function TourCard({ t }: { t: ProposalTour }) {
   return (
     <div style={{ background: '#fff', borderRadius: 20, overflow: 'hidden', boxShadow: '0 4px 20px rgba(0,0,0,0.07)', marginBottom: 20 }}>
       {hasImg && (
-        <div style={{ height: 220, overflow: 'hidden', background: '#e8e0d4' }}>
+        <div style={{ position: 'relative', aspectRatio: '16/9', overflow: 'hidden', background: '#e8e0d4' }}>
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={t.images![0]} alt={t.name || 'Experience'} onError={imgFallback} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+          <img
+            src={t.images![0]}
+            alt={t.name || 'Experience'}
+            onError={imgFallback}
+            loading="lazy"
+            decoding="async"
+            style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }}
+          />
         </div>
       )}
       <div style={{ padding: '24px 28px' }}>
