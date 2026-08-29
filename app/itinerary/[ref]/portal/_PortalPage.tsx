@@ -11,6 +11,7 @@ import type {
   ProposalFerry,
 } from '../_types'
 import { formatDateOnly, parseDateOnly } from '@/lib/date-utils'
+import type { PortalStatus } from '@/lib/v2/portal-status'
 
 // ── PortalDTO types ───────────────────────────────────────────────────────────
 // Exported so the server component (page.tsx) can import them as type-only.
@@ -24,6 +25,8 @@ export interface PortalAcceptance {
   currency: string
   /** V2 only — item names only, NO prices */
   selectedGroupSummary?: Array<{ groupName: string; selectedItems: string[] }>
+  /** Derived from fulfilment items and payments — always set by the server */
+  portalStatus: PortalStatus
 }
 
 export type PortalDTO = PublicProposalDTO & {
@@ -98,6 +101,31 @@ function buildWaLink(e164: string, text?: string): string {
 // muted-text: #7a6f5e
 
 // ── Sub-components ────────────────────────────────────────────────────────────
+
+function StatusBadge({ status }: { status: PortalStatus }) {
+  const config: Record<PortalStatus, { label: string; bg: string; color: string }> = {
+    ACCEPTED:            { label: '✓ Trip Accepted',       bg: '#1a3a1a', color: '#4ade80' },
+    PAYMENT_RECEIVED:    { label: '✓ Payment Received',    bg: '#1a2e1a', color: '#86efac' },
+    BOOKING_IN_PROGRESS: { label: '⏳ Booking In Progress', bg: '#2a2a0a', color: '#fde047' },
+    TRIP_CONFIRMED:      { label: '✓ Trip Confirmed',      bg: '#0a2a0a', color: '#4ade80' },
+    ACTION_REQUIRED:     { label: '⚠ Action Required',     bg: '#2a0a0a', color: '#f87171' },
+  }
+  const c = config[status]
+  return (
+    <span style={{
+      display: 'inline-block',
+      background: c.bg,
+      color: c.color,
+      fontWeight: 700,
+      fontSize: 13,
+      padding: '6px 14px',
+      borderRadius: 20,
+      letterSpacing: '0.03em',
+    }}>
+      {c.label}
+    </span>
+  )
+}
 
 function SectionHeading({ label, icon }: { label: string; icon: string }) {
   return (
@@ -515,22 +543,8 @@ export function PortalPage({ portal }: { portal: PortalDTO }) {
             )}
           </div>
 
-          {/* Confirmed badge */}
-          <span
-            className="inline-flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-full self-start"
-            style={{ background: 'rgba(22,163,74,0.9)', color: '#fff' }}
-          >
-            <svg className="w-3 h-3 shrink-0" fill="currentColor" viewBox="0 0 20 20" aria-hidden="true">
-              <path
-                fillRule="evenodd"
-                d="M16.707 5.293a1 1 0 010 1.414L8.414 15l-5.121-5.121a1 1 0 011.414-1.414L8.414 12.172l6.879-6.879a1 1 0 011.414 0z"
-                clipRule="evenodd"
-              />
-            </svg>
-            Confirmed
-            {acceptance.acceptedBy ? ` · ${acceptance.acceptedBy}` : ''}
-            {acceptance.acceptedAt ? ` · ${fmtTimestamp(acceptance.acceptedAt)}` : ''}
-          </span>
+          {/* Status badge — derived from fulfilment items and payments */}
+          <StatusBadge status={portal.acceptance.portalStatus} />
         </div>
       </div>
 

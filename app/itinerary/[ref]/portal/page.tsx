@@ -5,6 +5,8 @@ import { BUSINESS } from '@/lib/config/business'
 import { getSupabaseAdmin } from '@/lib/supabase'
 import { PortalPage } from './_PortalPage'
 import type { PortalDTO, PortalAcceptance } from './_PortalPage'
+import { derivePortalStatus } from '@/lib/v2/portal-status'
+import type { FulfilmentSummary, PaymentSummary } from '@/lib/v2/portal-status'
 import type {
   PublicProposalDTO,
   ProposalFlight,
@@ -168,6 +170,7 @@ export default async function ClientPortalPage({ params }: Params) {
     acceptedTotal: snap.acceptedTotal ?? 0,
     deposit:       snap.deposit ?? null,
     currency:      snap.currency ?? itin.currency,
+    portalStatus:  'ACCEPTED', // overwritten below after fulfilment/payment fetch
     ...(isV2 && snap.selectedGroups && snap.selectedGroups.length > 0
       ? {
           selectedGroupSummary: snap.selectedGroups.map(g => ({
@@ -192,7 +195,7 @@ export default async function ClientPortalPage({ params }: Params) {
     departureTime:  f.departureTime ?? f.time,
     arrivalTime:    f.arrivalTime,
     class:          f.class,
-    pnr:            f.pnr,   // included in DTO but NOT rendered by _PortalPage
+    // pnr intentionally excluded from PortalDTO — must not appear in client response
     stops:          f.stops,
     airlineLogoUrl: f.airlineLogoUrl,
     imageUrl:       f.imageUrl,
@@ -356,7 +359,7 @@ export default async function ClientPortalPage({ params }: Params) {
     }
 
     const { data: rawGroups } = await supabase
-      .from('option_groups')
+      .from('itinerary_option_groups')
       .select(
         'id, name, description, category, selection_mode, pricing_mode, required, ' +
         'min_selections, max_selections, sort_order, ' +
@@ -417,6 +420,45 @@ export default async function ClientPortalPage({ params }: Params) {
 
   dto.optionGroups      = optionGroups
   dto.acceptanceVersion = isV2 ? 2 : 1
+
+  // ── Fetch fulfilment items and payments (graceful — if tables absent portal renders with ACCEPTED) ──
+  let fulfilmentItems: FulfilmentSummary[] = []
+  let payments: PaymentSummary[] = []
+
+  try {
+    const supabase = getSupabaseAdmin()
+
+    const [{ data: rawFulfilment }, { data: rawPayments }] = await Promise.all([
+      supabase
+        .from('itinerary_fulfilment_items')
+        .select('id, status')
+        .eq('itinerary_id', itin.id),
+      supabase
+        .from('itinerary_payments')
+        .select('id, status')
+        .eq('itinerary_id', itin.id),
+    ])
+
+    if (rawFulfilment) {
+      fulfilmentItems = (rawFulfilment as { id: string; status: string }[]).map(r => ({
+        id: r.id,
+        status: r.status,
+      }))
+    }
+    if (rawPayments) {
+      payments = (rawPayments as { id: string; status: string }[]).map(r => ({
+        id: r.id,
+        status: r.status,
+      }))
+    }
+  } catch {
+    // Supabase not configured or tables absent — degrade gracefully (status stays ACCEPTED)
+    fulfilmentItems = []
+    payments = []
+  }
+
+  const portalStatus = derivePortalStatus(fulfilmentItems, payments)
+  acceptance.portalStatus = portalStatus
 
   // ── Assemble final PortalDTO ──────────────────────────────────────────────────
   const portalDto: PortalDTO = {
