@@ -67,8 +67,9 @@ export default async function ClientPortalPage({ params }: Params) {
   const itin = await prisma.itinerary.findUnique({ where: { referenceNumber: ref } })
   if (!itin) notFound()
 
-  // Portal is exclusively for approved itineraries.
-  if (itin.status !== 'approved') notFound()
+  // Portal is for accepted and revision-pending itineraries.
+  // revision_sent stays accessible so clients see the REVISION_PENDING CTA.
+  if (itin.status !== 'approved' && itin.status !== 'revision_accepted' && itin.status !== 'revision_sent') notFound()
 
   // ── Raw types — only client-safe fields named. Internal fields are listed
   //    in comments so reviewers can see what is deliberately excluded. ─────────
@@ -457,7 +458,7 @@ export default async function ClientPortalPage({ params }: Params) {
     payments = []
   }
 
-  const portalStatus = derivePortalStatus(fulfilmentItems, payments)
+  const portalStatus = derivePortalStatus(fulfilmentItems, payments, itin.status)
   acceptance.portalStatus = portalStatus
 
   // ── Assemble final PortalDTO ──────────────────────────────────────────────────

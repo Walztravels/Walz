@@ -132,7 +132,7 @@ function ProposalHeader({ proposal, compact, onAccept }: { proposal: PublicPropo
         </nav>
 
         {/* Accept CTA */}
-        {proposal.status === 'proposal' && proposal.approvalToken && (
+        {(proposal.status === 'proposal' || proposal.status === 'revision_sent') && proposal.approvalToken && (
           <button
             onClick={onAccept}
             className="hidden sm:flex items-center gap-2"
@@ -169,7 +169,7 @@ function ProposalHeader({ proposal, compact, onAccept }: { proposal: PublicPropo
               {n.label}
             </button>
           ))}
-          {proposal.status === 'proposal' && proposal.approvalToken && (
+          {(proposal.status === 'proposal' || proposal.status === 'revision_sent') && proposal.approvalToken && (
             <button
               onClick={() => { setMenuOpen(false); onAccept() }}
               style={{ display: 'block', width: '100%', marginTop: 12, background: '#C9A84C', color: '#0B1F3A', fontWeight: 700, padding: '12px 0', borderRadius: 10, textAlign: 'center', border: 'none', cursor: 'pointer' }}
@@ -1044,7 +1044,7 @@ function ProposalPricing({ proposal, onAccept }: { proposal: PublicProposalDTO; 
         )}
 
         {/* Accept CTA */}
-        {proposal.status === 'proposal' && (
+        {(proposal.status === 'proposal' || proposal.status === 'revision_sent') && (
           onAccept && proposal.approvalToken ? (
             <button
               onClick={onAccept}
@@ -1205,7 +1205,7 @@ function MobileStickyBar({ proposal, onAccept }: { proposal: PublicProposalDTO; 
             <p style={{ color: '#C9A84C', fontSize: 18, fontWeight: 800 }}>{fmtMoney(proposal.totalPrice, proposal.currency)}</p>
           </div>
         )}
-        {proposal.status === 'proposal' ? (
+        {(proposal.status === 'proposal' || proposal.status === 'revision_sent') ? (
           onAccept && proposal.approvalToken ? (
             <button
               onClick={onAccept}
@@ -1587,7 +1587,7 @@ function StatusBanner({ status, acceptedBy, acceptedAt, acceptedTotal, currency 
   acceptedTotal?: number | null
   currency?: string
 }) {
-  if (status === 'approved') {
+  if (status === 'approved' || status === 'revision_accepted') {
     return (
       <div style={{ background: '#16a34a', padding: '14px 24px', textAlign: 'center' }}>
         <p style={{ color: '#fff', fontSize: 14, fontWeight: 700, margin: 0 }}>
@@ -1681,13 +1681,26 @@ function AcceptanceModal({
     setSubmitting(true)
     setNameError('')
 
-    // Determine flow: V2 when acceptanceVersion=2 and there are option groups
+    // Determine flow
+    const isRevision = proposal.status === 'revision_sent'
     const isV2 = proposal.acceptanceVersion === 2 && (proposal.optionGroups?.length ?? 0) > 0
 
     try {
       let res: Response
-      if (isV2) {
-        // V2 flow — sends selections to accept-v2 endpoint
+      if (isRevision) {
+        // Revision acceptance — routes to accept-revision regardless of V1/V2
+        res = await fetch(`/api/itinerary/${proposal.referenceNumber}/accept-revision`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            token:         proposal.approvalToken,
+            acceptedBy:    trimmed,
+            termsAccepted: true,
+            ...(isV2 ? { selections: v2Selections } : {}),
+          }),
+        })
+      } else if (isV2) {
+        // Initial V2 flow — sends selections to accept-v2 endpoint
         res = await fetch(`/api/itinerary/${proposal.referenceNumber}/accept-v2`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -1699,7 +1712,7 @@ function AcceptanceModal({
           }),
         })
       } else {
-        // V1 flow — unchanged
+        // Initial V1 flow — unchanged
         res = await fetch(`/api/itinerary/${proposal.referenceNumber}/approve`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -2189,7 +2202,7 @@ export function ProposalPage({ proposal }: { proposal: PublicProposalDTO }) {
         {/* Sections */}
         <ProposalPackageOptions
           proposal={proposal}
-          onAccept={proposal.status === 'proposal' && proposal.approvalToken ? handleAccept : undefined}
+          onAccept={(proposal.status === 'proposal' || proposal.status === 'revision_sent') && proposal.approvalToken ? handleAccept : undefined}
         />
         <ProposalFlights proposal={proposal} />
         <ProposalHotels proposal={proposal} />
@@ -2219,7 +2232,7 @@ export function ProposalPage({ proposal }: { proposal: PublicProposalDTO }) {
         <ProposalTerms proposal={proposal} />
         <ProposalContact proposal={proposal} />
         {hasMobileBar && <MobileStickyBar proposal={proposal} onAccept={handleAccept} />}
-        {acceptOpen && proposal.approvalToken && proposal.status === 'proposal' && (
+        {acceptOpen && proposal.approvalToken && (proposal.status === 'proposal' || proposal.status === 'revision_sent') && (
           <AcceptanceModal
             proposal={proposal}
             initialOptionId={initialOptionId}

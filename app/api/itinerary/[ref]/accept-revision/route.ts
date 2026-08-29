@@ -33,11 +33,13 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server'
+import { timingSafeEqual } from 'crypto'
 import { prisma } from '@/lib/db'
 import { getSupabaseAdmin } from '@/lib/supabase'
 import { parseOptions, patchOptions } from '@/lib/itinerary-options'
 import { getResend } from '@/lib/email-internal'
 import { BUSINESS } from '@/lib/config/business'
+import { esc } from '@/lib/html-escape'
 import {
   buildProposalHashPayload,
   hashProposalState,
@@ -181,7 +183,13 @@ export async function POST(
   const tokenUsed   = opts.approvalTokenUsed as boolean | undefined
   const expiresAt   = opts.approvalTokenExpiresAt as string | undefined
 
-  if (!storedToken || storedToken !== token) {
+  const tokenValid = storedToken != null && (() => {
+    try {
+      const a = Buffer.from(storedToken); const b = Buffer.from(token)
+      return a.length === b.length && timingSafeEqual(a, b)
+    } catch { return false }
+  })()
+  if (!tokenValid) {
     return NextResponse.json({ error: 'Invalid or expired approval link' }, { status: 403 })
   }
   if (tokenUsed) {
@@ -288,7 +296,53 @@ export async function POST(
   const acceptedTotal = snapshot.acceptedTotal as number | null
   const deposit       = snapshot.deposit as number | null
 
-  // ── 7. Atomic persistence ─────────────────────────────────────────────────
+  // ── 7. Set authoritative acceptedAt — shared by both writes ─────────────
+  // This timestamp must be set before either write so the history record and
+  // the Prisma snapshot agree on the same acceptedAt value.
+  const acceptedAtDate = new Date()
+  ;(snapshot as Record<string, unknown>).acceptedAt = acceptedAtDate.toISOString()
+
+  // ── 7b. Write acceptance history to Supabase FIRST (H-10) ───────────────
+  // An accepted revision CANNOT exist without its immutable history record.
+  // If this write fails we return 503 — the client retries and the Prisma
+  // state is never committed. An orphaned history row on a later Prisma
+  // failure is harmless; UNIQUE(itinerary_id, revision_number) prevents
+  // a duplicate on retry.
+  const { flights, hotels, days, inclusions, exclusions, totalPrice } = itin
+  const safeArr = (s: string) => { try { const v = JSON.parse(s); return Array.isArray(v) ? v : [] } catch { return [] } }
+  const { error: histErr } = await sb
+    .from('itinerary_acceptance_history')
+    .insert({
+      itinerary_id:     itin.id,
+      revision_number:  revisionNumber,
+      version:          hasOptionGroups ? 2 : 1,
+      snapshot:         snapshot,
+      content_snapshot: {
+        flights:    safeArr(flights),
+        hotels:     safeArr(hotels),
+        days:       safeArr(days),
+        inclusions: safeArr(inclusions),
+        exclusions: safeArr(exclusions),
+        totalPrice,
+      },
+      proposal_hash:  legacyNoHash ? null : currentHash,
+      accepted_at:    acceptedAtDate.toISOString(),
+      accepted_by:    acceptedBy,
+      accepted_total: acceptedTotal,
+      currency:       itin.currency,
+    })
+  if (histErr) {
+    console.error('[accept-revision] History write failed — aborting acceptance', histErr)
+    return NextResponse.json(
+      { error: 'Service temporarily unavailable. Please try again in a moment.' },
+      { status: 503 },
+    )
+  }
+
+  // ── 8. Atomic Prisma transaction (history already committed) ─────────────
+  // History is durable before we touch Prisma. If the tx fails after history
+  // succeeds, the history row is orphaned but harmless — the unique constraint
+  // blocks a duplicate on retry, and the loser path handles duplicate detection.
   type LockedRow = { id: string; status: string; options: string }
   type TxResult  = { winner: boolean }
   let txResult: TxResult
@@ -312,18 +366,15 @@ export async function POST(
         throw new Error('INELIGIBLE_STATUS')
       }
 
-      const now = new Date()
-      ;(snapshot as Record<string, unknown>).acceptedAt = now.toISOString()
-
       await tx.itinerary.update({
         where: { id: itin.id },
         data: {
           status:         'revision_accepted',
-          approvedAt:     now,
+          approvedAt:     acceptedAtDate,
           approvedBy:     acceptedBy,
           selectedOption: JSON.stringify(snapshot),
           options:        patchOptions(locked.options, { approvalTokenUsed: true }),
-          updatedAt:      now,
+          updatedAt:      acceptedAtDate,
         },
       })
 
@@ -350,35 +401,6 @@ export async function POST(
     return NextResponse.json({ error: 'Already accepted' }, { status: 409 })
   }
 
-  // ── 8. Write acceptance history row ──────────────────────────────────────
-  try {
-    const { flights, hotels, days, inclusions, exclusions, totalPrice } = itin
-    const safeArr = (s: string) => { try { const v = JSON.parse(s); return Array.isArray(v) ? v : [] } catch { return [] } }
-    await sb
-      .from('itinerary_acceptance_history')
-      .insert({
-        itinerary_id:     itin.id,
-        revision_number:  revisionNumber,
-        version:          hasOptionGroups ? 2 : 1,
-        snapshot:         snapshot,
-        content_snapshot: {
-          flights:    safeArr(flights),
-          hotels:     safeArr(hotels),
-          days:       safeArr(days),
-          inclusions: safeArr(inclusions),
-          exclusions: safeArr(exclusions),
-          totalPrice,
-        },
-        proposal_hash:  legacyNoHash ? null : currentHash,
-        accepted_at:    snapshot.acceptedAt,
-        accepted_by:    acceptedBy,
-        accepted_total: acceptedTotal,
-        currency:       itin.currency,
-      })
-  } catch (err) {
-    console.error('[accept-revision] Failed to write acceptance history (non-fatal):', err)
-  }
-
   // ── 9. Post-acceptance notifications (non-fatal) ──────────────────────────
   console.info('[accept-revision] Revision accepted', {
     ref, revisionNumber, acceptedBy, acceptedTotal,
@@ -400,13 +422,13 @@ export async function POST(
           </div>
           <div style="padding:36px;">
             <h1 style="color:#0B1F3A;font-size:22px;margin:0 0 12px;">Your updated trip is confirmed!</h1>
-            <p style="color:#475569;font-size:14px;margin:0 0 8px;">Dear ${acceptedBy},</p>
+            <p style="color:#475569;font-size:14px;margin:0 0 8px;">Dear ${esc(acceptedBy)},</p>
             <p style="color:#475569;font-size:14px;margin:0 0 24px;">
-              You've accepted the updated proposal for your <strong>${itin.destination}</strong>
+              You&#x27;ve accepted the updated proposal for your <strong>${esc(itin.destination)}</strong>
               trip (${itin.referenceNumber}).
             </p>
             <div style="background:#f8fafc;border-radius:10px;padding:20px;margin-bottom:24px;">
-              <p style="margin:0 0 6px;font-size:14px;color:#475569;"><strong>Trip:</strong> ${itin.title}</p>
+              <p style="margin:0 0 6px;font-size:14px;color:#475569;"><strong>Trip:</strong> ${esc(itin.title)}</p>
               <p style="margin:0 0 6px;font-size:14px;color:#475569;"><strong>Reference:</strong> ${itin.referenceNumber}</p>
               <p style="margin:0 0 6px;font-size:14px;color:#475569;"><strong>Revision:</strong> ${revisionNumber}</p>
               ${acceptedTotal != null ? `<p style="margin:0;font-size:14px;color:#0B1F3A;font-weight:600;"><strong>Confirmed Total:</strong> ${sym}${Number(acceptedTotal).toLocaleString()}</p>` : ''}
@@ -426,7 +448,7 @@ export async function POST(
       from:    'Walz Travels System <contact@walztravels.com>',
       to:      BUSINESS.contacts.email,
       subject: `✅ Revision ${revisionNumber} accepted — ${itin.referenceNumber} (${acceptedBy})`,
-      html:    `<p><strong>${acceptedBy}</strong> accepted revision <strong>${revisionNumber}</strong> of ${itin.referenceNumber} for ${itin.destination ?? ''}.</p>
+      html:    `<p><strong>${esc(acceptedBy)}</strong> accepted revision <strong>${revisionNumber}</strong> of ${itin.referenceNumber} for ${esc(itin.destination ?? '')}.</p>
                <p>Total: ${itin.currency} ${acceptedTotal != null ? Number(acceptedTotal).toLocaleString() : 'n/a'}</p>
                <p><a href="${process.env.NEXT_PUBLIC_APP_URL ?? 'https://walztravels.com'}/admin/itinerary-planner/${itin.id}">Open in admin →</a></p>`,
     })

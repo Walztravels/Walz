@@ -61,9 +61,11 @@ export function truncate(text: string, maxLength: number): string {
 
 export function generateBookingReference(): string {
   const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
+  const { randomBytes } = require('crypto') as typeof import('crypto')
+  const bytes = randomBytes(6)
   let result = 'WZ'
   for (let i = 0; i < 6; i++) {
-    result += chars.charAt(Math.floor(Math.random() * chars.length))
+    result += chars.charAt(bytes[i] % chars.length)
   }
   return result
 }

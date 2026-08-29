@@ -52,8 +52,8 @@ export default async function ClientItineraryPage({ params }: Params) {
   const itin = await prisma.itinerary.findUnique({ where: { referenceNumber: ref } })
   if (!itin) notFound()
 
-  // Only public statuses
-  if (!['proposal', 'approved', 'live'].includes(itin.status)) notFound()
+  // Only public statuses (revision_sent shows revised proposal to client; revision_accepted shows post-acceptance view)
+  if (!['proposal', 'approved', 'revision_sent', 'revision_accepted', 'live'].includes(itin.status)) notFound()
 
   // Async view tracking — fire and forget
   prisma.itinerary.update({
@@ -137,22 +137,23 @@ export default async function ClientItineraryPage({ params }: Params) {
   const rawTrains    = safeParse<RawTrain[]>((itin as Record<string, unknown>).trains as string | null, [])
   const rawFerries   = safeParse<RawFerry[]>((itin as Record<string, unknown>).ferries as string | null, [])
 
-  // GA5: expose approval token only when still valid (proposal, not used, not expired)
+  // GA5: expose approval token for proposal (initial) and revision_sent (revised proposal awaiting acceptance)
   const rawToken = rawOptions.approvalToken
   const approvalToken = (
-    itin.status === 'proposal' &&
+    (itin.status === 'proposal' || itin.status === 'revision_sent') &&
     typeof rawToken === 'string' &&
     rawToken.length > 0 &&
     !rawOptions.approvalTokenUsed &&
     (!rawOptions.approvalTokenExpiresAt || new Date(rawOptions.approvalTokenExpiresAt) > new Date())
   ) ? rawToken : undefined
 
-  // GA5: parse acceptance snapshot for approved status display
+  // GA5: parse acceptance snapshot for accepted status display
   const rawSnap = safeParse<RawAcceptanceSnapshot>(itin.selectedOption, {})
-  const acceptedAt        = itin.status === 'approved' ? rawSnap.acceptedAt : undefined
-  const acceptedTotal     = itin.status === 'approved' ? (rawSnap.acceptedTotal ?? null) : undefined
-  const acceptedBy        = itin.status === 'approved' ? rawSnap.acceptedBy : undefined
-  const acceptedOptionIds = itin.status === 'approved' ? (rawSnap.selectedOptionIds ?? []) : undefined
+  const isItinAccepted    = itin.status === 'approved' || itin.status === 'revision_accepted'
+  const acceptedAt        = isItinAccepted ? rawSnap.acceptedAt : undefined
+  const acceptedTotal     = isItinAccepted ? (rawSnap.acceptedTotal ?? null) : undefined
+  const acceptedBy        = isItinAccepted ? rawSnap.acceptedBy : undefined
+  const acceptedOptionIds = isItinAccepted ? (rawSnap.selectedOptionIds ?? []) : undefined
 
   // ── Explicit client-safe field selection ─────────────────────────────────────
   // No internal pricing, supplier costs, or admin metadata passes through.
@@ -168,11 +169,12 @@ export default async function ClientItineraryPage({ params }: Params) {
     departureTime: f.departureTime ?? f.time,
     arrivalTime: f.arrivalTime,
     class: f.class,
-    pnr: f.pnr,
+    // PNR is a booking credential — only expose after acceptance (not on proposal/revision_sent)
+    pnr: (itin.status === 'approved' || itin.status === 'revision_accepted') ? f.pnr : undefined,
     stops: f.stops,
     airlineLogoUrl: f.airlineLogoUrl,
     imageUrl: f.imageUrl,
-    // NEVER add: iataCode, cost, supplierCost, netRate, markup, rateKey
+    // NEVER add: iataCode, cost, supplierCost, netRate, markup, rateKey, pnr (pre-acceptance)
   }))
 
   const hotels: ProposalHotel[] = rawHotels.map(h => ({

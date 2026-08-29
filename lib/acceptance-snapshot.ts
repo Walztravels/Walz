@@ -36,7 +36,7 @@ export function getAuthoritativeClientTotal(
   selectedOptionJson: string | null | undefined,
   totalPrice: number | null | undefined
 ): number | null {
-  if (status === 'approved') {
+  if (status === 'approved' || status === 'revision_accepted') {
     const snap = parseAcceptanceSnapshot(selectedOptionJson)
     if (snap && snap.acceptedTotal != null) return snap.acceptedTotal
   }

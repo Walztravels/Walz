@@ -410,8 +410,10 @@ export const VISA_AGENTS = [
 
 // ── Reference number generator ───────────────────────────────────────────────
 export function generateVisaRef(): string {
+  const { randomBytes } = require('crypto') as typeof import('crypto')
   const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
+  const bytes = randomBytes(6)
   let ref = 'WALZ-'
-  for (let i = 0; i < 6; i++) ref += chars[Math.floor(Math.random() * chars.length)]
+  for (let i = 0; i < 6; i++) ref += chars[bytes[i] % chars.length]
   return ref
 }

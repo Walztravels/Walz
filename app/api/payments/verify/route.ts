@@ -44,6 +44,6 @@ export async function POST(req: NextRequest) {
     })
   } catch (err: any) {
     console.error('[payments/verify]', err.message)
-    return NextResponse.json({ verified: false, error: err.message })
+    return NextResponse.json({ verified: false, error: 'Verification failed' }, { status: 500 })
   }
 }

@@ -9,8 +9,11 @@
 // CRYPTO and MANUAL return a pending record (no provider call yet).
 
 import { NextRequest, NextResponse } from 'next/server'
+import { timingSafeEqual, randomBytes } from 'crypto'
 import { prisma } from '@/lib/db'
 import { stripe } from '@/lib/stripe'
+import { parseOptions } from '@/lib/itinerary-options'
+import { getSupabaseAdmin } from '@/lib/supabase'
 
 export const dynamic = 'force-dynamic'
 
@@ -38,12 +41,14 @@ function safeParse<T>(json: string | null | undefined, fallback: T): T {
 }
 
 // ─── Server-authoritative amount resolution ───────────────────────────────────
-// This is the only place in V2 where payment amounts are determined.
-// The browser is never trusted to supply an amount.
+// paidTotal is queried from confirmed PaymentRecords so the browser cannot
+// lie about what has already been paid. The resolver rejects invalid initiations
+// (balance without deposit, overpayment, duplicate deposit).
 
 function resolvePayableAmount(
   snapshot: AcceptanceSnapshot,
   paymentType: PaymentType,
+  paidTotal: number,
 ): { amount: number; currency: string } | { error: string } {
   const total    = snapshot.acceptedTotal
   const deposit  = snapshot.deposit
@@ -61,15 +66,24 @@ function resolvePayableAmount(
       if (typeof deposit !== 'number' || deposit <= 0 || !Number.isFinite(deposit)) {
         return { error: 'Deposit amount is not set or is invalid in the acceptance snapshot' }
       }
+      if (paidTotal >= deposit) {
+        return { error: 'Deposit has already been paid' }
+      }
       return { amount: deposit, currency }
     }
     case 'FULL': {
-      return { amount: total, currency }
+      if (paidTotal >= total) {
+        return { error: 'This itinerary has already been paid in full' }
+      }
+      return { amount: total - paidTotal, currency }
     }
     case 'BALANCE': {
-      const balance = typeof deposit === 'number' ? total - deposit : total
+      if (typeof deposit !== 'number' || paidTotal < deposit) {
+        return { error: 'A deposit must be paid before the balance can be initiated' }
+      }
+      const balance = total - paidTotal
       if (balance <= 0) {
-        return { error: 'No outstanding balance — deposit covers the full amount' }
+        return { error: 'No outstanding balance — this itinerary has already been paid in full' }
       }
       return { amount: balance, currency }
     }
@@ -83,7 +97,7 @@ export async function POST(req: NextRequest) {
     itineraryReference?: unknown
     paymentType?:        unknown
     method?:             unknown
-    email?:              unknown
+    approvalToken?:      unknown
   }
   try {
     body = await req.json() as typeof body
@@ -101,7 +115,7 @@ export async function POST(req: NextRequest) {
   const method = typeof body.method === 'string'
     ? body.method.trim().toUpperCase()
     : null
-  const email = typeof body.email === 'string' ? body.email.trim() : ''
+  const approvalToken = typeof body.approvalToken === 'string' ? body.approvalToken : null
 
   if (!itineraryReference) {
     return NextResponse.json({ error: 'itineraryReference is required' }, { status: 400 })
@@ -118,6 +132,9 @@ export async function POST(req: NextRequest) {
       { status: 400 },
     )
   }
+  if (!approvalToken) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
 
   // ── 2. Resolve itinerary from DB ───────────────────────────────────────────
   const itinerary = await prisma.itinerary.findUnique({
@@ -126,6 +143,7 @@ export async function POST(req: NextRequest) {
       id:             true,
       status:         true,
       selectedOption: true,
+      options:        true,
       currency:       true,
       clientEmail:    true,
       clientName:     true,
@@ -137,15 +155,29 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Itinerary not found' }, { status: 404 })
   }
 
-  if (itinerary.status !== 'approved') {
+  // ── 3. H-5: Validate approvalToken — server-verifiable entitlement ─────────
+  // Anyone who merely knows WALZ-XXXX must NOT be able to initiate payment.
+  // The approvalToken is stored in options and issued only to the client at send time.
+  const opts         = parseOptions(itinerary.options) as Record<string, unknown>
+  const storedToken  = opts.approvalToken as string | undefined
+  const tokenValid   = storedToken != null && approvalToken != null && (() => {
+    try {
+      const a = Buffer.from(storedToken); const b = Buffer.from(approvalToken)
+      return a.length === b.length && timingSafeEqual(a, b)
+    } catch { return false }
+  })()
+  if (!tokenValid) {
+    return NextResponse.json({ error: 'Unauthorized' }, { status: 403 })
+  }
+
+  if (itinerary.status !== 'approved' && itinerary.status !== 'revision_accepted') {
     return NextResponse.json(
-      { error: `Itinerary must have approved status to initiate payment (current: ${itinerary.status})` },
+      { error: `Itinerary must be accepted to initiate payment (current: ${itinerary.status})` },
       { status: 409 },
     )
   }
 
-  // ── 3. Read immutable AcceptanceSnapshot ───────────────────────────────────
-  // selectedOption is written once at acceptance and never mutated.
+  // ── 4. Read immutable AcceptanceSnapshot ───────────────────────────────────
   const snapshot = safeParse<AcceptanceSnapshot>(itinerary.selectedOption, {})
 
   if (typeof snapshot.acceptedTotal !== 'number') {
@@ -155,17 +187,38 @@ export async function POST(req: NextRequest) {
     )
   }
 
-  // ── 4. Calculate authoritative payable amount (server-side only) ───────────
-  const amountResult = resolvePayableAmount(snapshot, paymentType as PaymentType)
+  // ── 5. H-6: Query confirmed payment records to prevent overpayment ─────────
+  // The browser must never control what has been paid. We query actual PAID
+  // records so BALANCE cannot be initiated before DEPOSIT, and duplicate
+  // deposits are rejected.
+  let paidTotal = 0
+  try {
+    const sb = getSupabaseAdmin()
+    const { data: paidRows } = await sb
+      .from('itinerary_payments')
+      .select('amount')
+      .eq('itinerary_id', itineraryReference)  // stored as reference string by webhooks
+      .eq('status', 'PAID')
+    if (paidRows) {
+      paidTotal = paidRows.reduce((sum, r) => sum + Number(r.amount), 0)
+    }
+  } catch (err) {
+    console.error('[itinerary-payments/initiate] Failed to query payment records:', err)
+    return NextResponse.json({ error: 'Service temporarily unavailable' }, { status: 503 })
+  }
+
+  // ── 6. Calculate authoritative payable amount (server-side only) ───────────
+  const amountResult = resolvePayableAmount(snapshot, paymentType as PaymentType, paidTotal)
   if ('error' in amountResult) {
     return NextResponse.json({ error: amountResult.error }, { status: 422 })
   }
 
   const { amount, currency } = amountResult
-  const clientEmail = email || itinerary.clientEmail || ''
+  // L-9: Always use authoritative clientEmail from DB. Never trust browser-supplied email.
+  const clientEmail = itinerary.clientEmail || ''
   const label = itinerary.title ?? itineraryReference
 
-  // ── 5. Create payment with the chosen provider ─────────────────────────────
+  // ── 7. Create payment with the chosen provider ─────────────────────────────
   if (method === 'STRIPE') {
     if (!process.env.STRIPE_SECRET_KEY) {
       return NextResponse.json({ error: 'Stripe is not configured' }, { status: 503 })
@@ -173,7 +226,6 @@ export async function POST(req: NextRequest) {
 
     try {
       const intent = await stripe.paymentIntents.create({
-        // Amount in smallest currency unit (pence for GBP, cents for USD, etc.)
         amount:   Math.round(amount * 100),
         currency: currency.toLowerCase(),
         automatic_payment_methods: { enabled: true },
@@ -198,9 +250,8 @@ export async function POST(req: NextRequest) {
         itineraryReference,
       })
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : 'Stripe error'
-      console.error('[itinerary-payments/initiate] Stripe:', msg)
-      return NextResponse.json({ error: msg }, { status: 502 })
+      console.error('[itinerary-payments/initiate] Stripe error:', err instanceof Error ? err.message : err)
+      return NextResponse.json({ error: 'Payment provider error' }, { status: 502 })
     }
   }
 
@@ -210,8 +261,8 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Paystack is not configured' }, { status: 503 })
     }
 
-    const txRef = `WALZ-V2-${itineraryReference}-${paymentType}-${Date.now()}`
-    // Paystack expects Kobo (NGN) / Pesewa (GHS) — minor units
+    // M-11: Use cryptographically random suffix to prevent txRef collision
+    const txRef = `WALZ-V2-${itineraryReference}-${paymentType}-${randomBytes(4).toString('hex')}`
     const amountMinor = Math.round(amount * 100)
 
     try {
@@ -250,9 +301,8 @@ export async function POST(req: NextRequest) {
         itineraryReference,
       })
     } catch (err: unknown) {
-      const msg = err instanceof Error ? err.message : 'Paystack error'
-      console.error('[itinerary-payments/initiate] Paystack:', msg)
-      return NextResponse.json({ error: msg }, { status: 502 })
+      console.error('[itinerary-payments/initiate] Paystack error:', err instanceof Error ? err.message : err)
+      return NextResponse.json({ error: 'Payment provider error' }, { status: 502 })
     }
   }
 

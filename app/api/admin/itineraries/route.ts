@@ -1,13 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
 import { getAdminSession } from '@/lib/admin-auth'
-
-function generateRef() {
-  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
-  let ref = 'WALZ-'
-  for (let i = 0; i < 6; i++) ref += chars[Math.floor(Math.random() * chars.length)]
-  return ref
-}
+import { generateBookingReference } from '@/lib/utils'
 
 export async function GET(req: NextRequest) {
   const session = await getAdminSession()
@@ -35,7 +29,7 @@ export async function POST(req: NextRequest) {
   const body = await req.json()
   const itinerary = await prisma.itinerary.create({
     data: {
-      referenceNumber: generateRef(),
+      referenceNumber: generateBookingReference(),
       title: body.title,
       clientName: body.clientName,
       clientEmail: body.clientEmail,

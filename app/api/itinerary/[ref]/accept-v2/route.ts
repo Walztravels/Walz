@@ -21,9 +21,11 @@
  */
 
 import { NextRequest, NextResponse } from 'next/server'
+import { timingSafeEqual } from 'crypto'
 import { prisma } from '@/lib/db'
 import { getSupabaseAdmin } from '@/lib/supabase'
 import { parseOptions, patchOptions } from '@/lib/itinerary-options'
+import { esc } from '@/lib/html-escape'
 import {
   buildProposalHashPayload,
   hashProposalState,
@@ -236,7 +238,13 @@ export async function POST(
   const tokenUsed   = opts.approvalTokenUsed as boolean | undefined
   const expiresAt   = opts.approvalTokenExpiresAt as string | undefined
 
-  if (!storedToken || storedToken !== token) {
+  const tokenValid = storedToken != null && (() => {
+    try {
+      const a = Buffer.from(storedToken); const b = Buffer.from(token)
+      return a.length === b.length && timingSafeEqual(a, b)
+    } catch { return false }
+  })()
+  if (!tokenValid) {
     console.warn('[accept-v2] Invalid token attempt', { ref, prefix: token.slice(0, 8) })
     return NextResponse.json({ error: 'Invalid or expired approval link' }, { status: 403 })
   }
@@ -286,6 +294,8 @@ export async function POST(
 
   // ── 8. Load V2 option groups and items from Supabase ─────────────────────
 
+  // H-8: Filter at DB level — inactive/hidden groups and items never reach validation.
+  // validateClientSelections is a second layer, not the first line of defence.
   const [{ data: groupRows }, { data: itemRows }] = await Promise.all([
     sb
       .from('itinerary_option_groups')
@@ -294,7 +304,9 @@ export async function POST(
         'required, min_selections, max_selections, sort_order, active, client_visible, ' +
         'locked_after_acceptance, created_at, updated_at',
       )
-      .eq('itinerary_id', itin.id),
+      .eq('itinerary_id', itin.id)
+      .eq('active', true)
+      .eq('client_visible', true),
     sb
       .from('itinerary_option_items')
       .select(
@@ -303,7 +315,8 @@ export async function POST(
         'sort_order, image_url, quote_expires_at, supplier_cost, internal_margin, ' +
         'source_type, source_booking_ref, metadata, created_at, updated_at',
       )
-      .eq('itinerary_id', itin.id),
+      .eq('itinerary_id', itin.id)
+      .eq('active', true),
   ])
 
   const optionGroups: OptionGroup[] = (groupRows ?? []).map(r => mapGroup(r as unknown as RawGroupRow))
@@ -434,7 +447,7 @@ export async function POST(
     const sym    = snapshot.currency === 'GBP' ? '£' : snapshot.currency === 'USD' ? '$' : snapshot.currency === 'EUR' ? '€' : snapshot.currency === 'AED' ? 'AED ' : '₦'
 
     const groupsHtml = snapshot.selectedGroups
-      .map(g => `<p style="margin:0 0 6px;font-size:14px;color:#475569;"><strong>${g.groupName}:</strong> ${g.selectedItems.map(i => i.name).join(', ')}</p>`)
+      .map(g => `<p style="margin:0 0 6px;font-size:14px;color:#475569;"><strong>${esc(g.groupName)}:</strong> ${g.selectedItems.map(i => esc(i.name)).join(', ')}</p>`)
       .join('')
 
     await resend.emails.send({
@@ -448,13 +461,13 @@ export async function POST(
           </div>
           <div style="padding:36px;">
             <h1 style="color:#0B1F3A;font-size:22px;margin:0 0 12px;">Your trip is confirmed!</h1>
-            <p style="color:#475569;font-size:14px;margin:0 0 8px;">Dear ${acceptedBy},</p>
+            <p style="color:#475569;font-size:14px;margin:0 0 8px;">Dear ${esc(acceptedBy)},</p>
             <p style="color:#475569;font-size:14px;margin:0 0 24px;">
-              Thank you for confirming your <strong>${itin.destination ?? 'trip'}</strong> itinerary
+              Thank you for confirming your <strong>${esc(itin.destination ?? 'trip')}</strong> itinerary
               (${itin.referenceNumber}).
             </p>
             <div style="background:#f8fafc;border-radius:10px;padding:20px;margin-bottom:24px;">
-              <p style="margin:0 0 6px;font-size:14px;color:#475569;"><strong>Trip:</strong> ${itin.title}</p>
+              <p style="margin:0 0 6px;font-size:14px;color:#475569;"><strong>Trip:</strong> ${esc(itin.title)}</p>
               <p style="margin:0 0 6px;font-size:14px;color:#475569;"><strong>Reference:</strong> ${itin.referenceNumber}</p>
               ${groupsHtml}
               <p style="margin:0 0 6px;font-size:14px;color:#0B1F3A;font-weight:600;"><strong>Total:</strong> ${sym}${Number(snapshot.acceptedTotal).toLocaleString()}</p>
@@ -474,10 +487,10 @@ export async function POST(
       from:    'Walz Travels System <contact@walztravels.com>',
       to:      BUSINESS.contacts.email,
       subject: `✅ Proposal accepted — ${itin.referenceNumber} (${acceptedBy})`,
-      html:    `<p><strong>${acceptedBy}</strong> accepted proposal <strong>${itin.referenceNumber}</strong> for ${itin.destination ?? ''}.</p>
+      html:    `<p><strong>${esc(acceptedBy)}</strong> accepted proposal <strong>${itin.referenceNumber}</strong> for ${esc(itin.destination ?? '')}.</p>
                <p>Accepted at: ${new Date(snapshot.acceptedAt).toLocaleString('en-GB', { timeZone: 'Europe/London' })}</p>
                <p>Total: ${snapshot.currency} ${Number(snapshot.acceptedTotal).toLocaleString()}</p>
-               ${snapshot.selectedGroups.length > 0 ? `<p>Selections: ${snapshot.selectedGroups.map(g => `${g.groupName}: ${g.selectedItems.map(i => i.name).join(', ')}`).join(' | ')}</p>` : ''}
+               ${snapshot.selectedGroups.length > 0 ? `<p>Selections: ${snapshot.selectedGroups.map(g => `${esc(g.groupName)}: ${g.selectedItems.map(i => esc(i.name)).join(', ')}`).join(' | ')}</p>` : ''}
                ${legacyNoHash ? '<p>⚠️ LEGACY_NO_HASH: accepted without hash verification</p>' : ''}
                <p><a href="${BASE}/admin/itinerary-planner/${itin.id}">Open in admin →</a></p>`,
     })

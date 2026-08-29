@@ -31,10 +31,12 @@ const PROTECTED_TOP_LEVEL = new Set([
   'approvalTokenIssuedAt',
   'sentOptionsHash',
   'sentOptionsHashCreatedAt',
+  'revisionNumber',
   'acceptedTotal',
   'acceptedAt',
   'acceptedBy',
   'acceptedOptionIds',
+  'confirmationNo',  // L-7: supplier booking credential — must not be overwritten by AI
 ])
 
 // ─── Allowed day fields ────────────────────────────────────────────────────────
@@ -51,6 +53,9 @@ const ALLOWED_DAY_FIELDS = new Set([
   'internalNotes',
   'notes',
 ])
+
+// ─── Allowed hotel status values (M-8) ────────────────────────────────────────
+const ALLOWED_HOTEL_STATUSES = new Set(['confirmed', 'pending', 'cancelled', 'waitlisted'])
 
 // ─── Allowed hotel fields ──────────────────────────────────────────────────────
 // 'confirmationNo' removed — hotel reservation confirmation numbers are supplier
@@ -240,6 +245,10 @@ async function handleUpdateHotelField(
   if (!ALLOWED_HOTEL_FIELDS.has(field)) {
     return { ok: false, error: `field "${field}" is not allowed. Allowed: ${[...ALLOWED_HOTEL_FIELDS].join(', ')}` }
   }
+  // M-8: Validate hotel status against explicit enum — prevent arbitrary strings
+  if (field === 'status' && (typeof value !== 'string' || !ALLOWED_HOTEL_STATUSES.has(value.toLowerCase()))) {
+    return { ok: false, error: `Invalid hotel status. Allowed: ${[...ALLOWED_HOTEL_STATUSES].join(', ')}` }
+  }
 
   const existing = await prisma.itinerary.findUnique({ where: { id: itineraryId }, select: { hotels: true } })
   if (!existing) return { ok: false, error: 'Itinerary not found' }
@@ -309,8 +318,9 @@ async function handleUpdatePricingField(
   })
   if (!existing) return { ok: false, error: 'Itinerary not found' }
 
-  if (existing.status === 'approved') {
-    return { ok: false, error: 'Cannot modify pricing on an approved itinerary' }
+  // revision_sent is also locked — client is actively reviewing the revised price
+  if (existing.status === 'approved' || existing.status === 'revision_accepted' || existing.status === 'revision_sent') {
+    return { ok: false, error: 'Cannot modify pricing on an accepted or sent-for-revision itinerary' }
   }
 
   await prisma.itinerary.update({

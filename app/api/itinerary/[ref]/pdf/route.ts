@@ -23,7 +23,7 @@ export async function GET(_req: NextRequest, { params }: Params) {
   if (!itin) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
   // Only serve PDF for non-draft itineraries
-  if (!['proposal', 'approved', 'live'].includes(itin.status)) {
+  if (!['proposal', 'approved', 'revision_sent', 'revision_accepted', 'live'].includes(itin.status)) {
     return NextResponse.json({ error: 'Not available' }, { status: 403 })
   }
 
@@ -59,7 +59,8 @@ export async function GET(_req: NextRequest, { params }: Params) {
     departureTime: f.departureTime,
     arrivalTime: f.arrivalTime,
     class: f.class,
-    pnr: f.pnr,
+    // PNR is a booking credential — only expose after acceptance (not on proposal/revision_sent PDF)
+    pnr: (itin.status === 'approved' || itin.status === 'revision_accepted') ? f.pnr : undefined,
     // cost: only include client-visible cost if present
     cost: typeof f.cost === 'number' ? f.cost : undefined,
     stops: f.stops,

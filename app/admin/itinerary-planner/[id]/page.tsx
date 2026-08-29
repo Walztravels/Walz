@@ -781,7 +781,7 @@ export default function ItineraryBuilderPage() {
                 {showCopilot && <span className="bg-black/20 text-[10px] px-1.5 py-0.5 rounded-full">ON</span>}
               </button>
               <span className={`text-xs font-bold px-3 py-1.5 rounded-full ${
-                itin.status === 'approved' ? 'bg-green-500/20 text-green-400' :
+                (itin.status === 'approved' || itin.status === 'revision_accepted') ? 'bg-green-500/20 text-green-400' :
                 itin.status === 'proposal' ? 'bg-blue-500/20 text-blue-400' :
                 'bg-white/10 text-white/50'
               }`}>
@@ -1009,8 +1009,8 @@ function OverviewTab({ itin, onSave }: { itin: ItineraryData; onSave: (u: Record
 
   return (
     <div className="space-y-6 max-w-4xl">
-      {/* Acceptance card — approved itineraries only */}
-      {itin.status === 'approved' && snap?.acceptedBy && (
+      {/* Acceptance card — accepted itineraries (approved or revision_accepted) */}
+      {(itin.status === 'approved' || itin.status === 'revision_accepted') && snap?.acceptedBy && (
         <div className="bg-green-500/10 border border-green-500/25 rounded-2xl p-5">
           <div className="flex items-center gap-2 mb-3">
             <span className="text-green-400 text-lg">✅</span>
@@ -2907,12 +2907,13 @@ function PricingTab({ itin, onSave }: { itin: ItineraryData; onSave: (u: Record<
   const pricingSnap = parseSnap(itin.selectedOption)
   const currentTotal = totalPrice !== '' ? Number(totalPrice) : (autoTotal > 0 ? autoTotal : null)
   const acceptedTotalNum = pricingSnap?.acceptedTotal ?? null
-  const hasDivergence = itin.status === 'approved' && acceptedTotalNum != null && currentTotal != null && Math.abs(acceptedTotalNum - currentTotal) > 0.01
+  const isItinAccepted = itin.status === 'approved' || itin.status === 'revision_accepted'
+  const hasDivergence = isItinAccepted && acceptedTotalNum != null && currentTotal != null && Math.abs(acceptedTotalNum - currentTotal) > 0.01
 
   return (
     <div className="max-w-3xl space-y-6">
-      {/* Accepted total + divergence warning — approved itineraries only */}
-      {itin.status === 'approved' && pricingSnap?.acceptedBy && (
+      {/* Accepted total + divergence warning — accepted itineraries (approved or revision_accepted) */}
+      {isItinAccepted && pricingSnap?.acceptedBy && (
         <div className={`rounded-2xl p-5 border ${hasDivergence ? 'bg-amber-500/10 border-amber-500/30' : 'bg-green-500/10 border-green-500/25'}`}>
           <div className="flex items-start justify-between">
             <div>
@@ -4065,8 +4066,8 @@ function PreviewTab({
 
       {/* Right: Actions */}
       <div className="space-y-5">
-        {/* Acceptance premium card — replaces send emphasis for approved itineraries */}
-        {itin.status === 'approved' && (() => {
+        {/* Acceptance premium card — replaces send emphasis for accepted itineraries */}
+        {(itin.status === 'approved' || itin.status === 'revision_accepted') && (() => {
           const previewSnap = parseSnap(itin.selectedOption)
           return previewSnap?.acceptedBy ? (
             <div className="bg-green-500/10 border border-green-500/30 rounded-2xl p-5">
@@ -4171,9 +4172,9 @@ function PreviewTab({
             Generate a one-time link for {itin.clientName || 'the client'} to digitally sign and approve this itinerary.
           </p>
 
-          {itin.status === 'approved' ? (
+          {(itin.status === 'approved' || itin.status === 'revision_accepted') ? (
             <div className="bg-green-500/10 border border-green-500/20 rounded-xl p-3">
-              <p className="text-green-400 text-xs font-semibold">✅ This itinerary has already been approved.</p>
+              <p className="text-green-400 text-xs font-semibold">✅ This itinerary has already been accepted.</p>
               {itin.approvedAt && <p className="text-green-400/60 text-xs mt-0.5">{fmtDateTime(itin.approvedAt)}</p>}
             </div>
           ) : (

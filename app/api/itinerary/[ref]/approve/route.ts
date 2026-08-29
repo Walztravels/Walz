@@ -1,8 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { timingSafeEqual } from 'crypto'
 import { prisma } from '@/lib/db'
 import { getResend } from '@/lib/email-internal'
 import { getSupabaseAdmin } from '@/lib/supabase'
 import { BUSINESS } from '@/lib/config/business'
+import { esc } from '@/lib/html-escape'
 import { parseOptions, patchOptions, type OptionsMap } from '@/lib/itinerary-options'
 import { parseAcceptanceSnapshot } from '@/lib/acceptance-snapshot'
 import {
@@ -106,15 +108,13 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ ref
   }
   const acceptedBy = rawName
 
-  // acceptanceVersion >= 1: require termsAccepted === true strictly.
-  // Legacy page (no acceptanceVersion): treat as implicitly accepted (checkbox enforced in UI).
-  // Coerce to number so string "1" is treated as version 1, not legacy 0.
-  const acceptanceVersion = Number(body.acceptanceVersion) >= 1 ? 1 : 0
-  const termsAccepted     = body.termsAccepted
-  if (acceptanceVersion >= 1 && termsAccepted !== true) {
+  // termsAccepted is always required — acceptanceVersion no longer gates this check.
+  // An attacker stripping acceptanceVersion from the request must not bypass terms enforcement.
+  const termsAccepted = body.termsAccepted
+  if (termsAccepted !== true) {
     return NextResponse.json({ error: 'You must accept the terms and conditions to proceed' }, { status: 400 })
   }
-  const termsRecorded = acceptanceVersion >= 1 ? true : (termsAccepted === true)
+  const termsRecorded = true
 
   const requestedIds: string[] = Array.isArray(body.selectedOptionIds)
     ? body.selectedOptionIds.filter((id): id is string => typeof id === 'string')
@@ -173,7 +173,14 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ ref
   const tokenUsed   = opts.approvalTokenUsed as boolean | undefined
   const expiresAt   = opts.approvalTokenExpiresAt as string | undefined
 
-  if (!storedToken || storedToken !== token) {
+  // Timing-safe comparison prevents token oracle via response time
+  const tokenValid = storedToken != null && (() => {
+    try {
+      const a = Buffer.from(storedToken); const b = Buffer.from(token)
+      return a.length === b.length && timingSafeEqual(a, b)
+    } catch { return false }
+  })()
+  if (!tokenValid) {
     console.warn('[approve] Invalid token attempt', { ref, prefix: token.slice(0, 8) })
     return NextResponse.json({ error: 'Invalid or expired approval link' }, { status: 403 })
   }
@@ -197,6 +204,22 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ ref
     .eq('itinerary_id', itin.id)
     .order('sort_order')
   const allPkgOptions = (pkgRows ?? []) as (PackageOptionRow & { id: string })[]
+
+  // ── 6b. H-7: Reject if active V2 option groups exist ─────────────────────
+  // V1 /approve is incompatible with V2 option groups. The client must use
+  // /accept-v2 instead. Checking server-side prevents the V2→V1 boundary bypass.
+  const { data: v2Groups } = await sb
+    .from('itinerary_option_groups')
+    .select('id')
+    .eq('itinerary_id', itin.id)
+    .eq('active', true)
+    .limit(1)
+  if (v2Groups && v2Groups.length > 0) {
+    return NextResponse.json(
+      { error: 'This itinerary uses a multi-option format and must be accepted through the updated proposal link.' },
+      { status: 409 }
+    )
+  }
 
   // ── 7. Proposal hash validation (GA3) ─────────────────────────────────────
   const storedHash = getStoredProposalHash(itin.options)
@@ -387,15 +410,15 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ ref
           </div>
           <div style="padding:36px;">
             <h1 style="color:#0B1F3A;font-size:22px;margin:0 0 12px;">Your trip is confirmed!</h1>
-            <p style="color:#475569;font-size:14px;margin:0 0 8px;">Dear ${acceptedBy},</p>
+            <p style="color:#475569;font-size:14px;margin:0 0 8px;">Dear ${esc(acceptedBy)},</p>
             <p style="color:#475569;font-size:14px;margin:0 0 24px;">
-              Thank you for approving your <strong>${itin.destination}</strong> itinerary
+              Thank you for approving your <strong>${esc(itin.destination)}</strong> itinerary
               (${itin.referenceNumber}). Your booking is now confirmed.
             </p>
             <div style="background:#f8fafc;border-radius:10px;padding:20px;margin-bottom:24px;">
-              <p style="margin:0 0 6px;font-size:14px;color:#475569;"><strong>Trip:</strong> ${itin.title}</p>
+              <p style="margin:0 0 6px;font-size:14px;color:#475569;"><strong>Trip:</strong> ${esc(itin.title)}</p>
               <p style="margin:0 0 6px;font-size:14px;color:#475569;"><strong>Reference:</strong> ${itin.referenceNumber}</p>
-              ${snapshot.options.length > 0 ? `<p style="margin:0 0 6px;font-size:14px;color:#475569;"><strong>Package:</strong> ${snapshot.options.map(o => o.label).join(', ')}</p>` : ''}
+              ${snapshot.options.length > 0 ? `<p style="margin:0 0 6px;font-size:14px;color:#475569;"><strong>Package:</strong> ${snapshot.options.map(o => esc(o.label)).join(', ')}</p>` : ''}
               ${acceptedTotal != null ? `<p style="margin:0 0 6px;font-size:14px;color:#0B1F3A;font-weight:600;"><strong>Accepted Total:</strong> ${sym}${Number(acceptedTotal).toLocaleString()}</p>` : ''}
               ${snapshot.deposit ? `<p style="margin:0;font-size:14px;color:#C9A84C;font-weight:600;">Deposit of ${sym}${Number(snapshot.deposit).toLocaleString()} required to secure your booking.</p>` : ''}
             </div>
@@ -413,7 +436,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ ref
       from:    'Walz Travels System <contact@walztravels.com>',
       to:      BUSINESS.contacts.email,
       subject: `✅ Proposal accepted — ${itin.referenceNumber} (${acceptedBy})`,
-      html: `<p><strong>${acceptedBy}</strong> accepted proposal <strong>${itin.referenceNumber}</strong> for ${itin.destination}.</p>
+      html: `<p><strong>${esc(acceptedBy)}</strong> accepted proposal <strong>${itin.referenceNumber}</strong> for ${esc(itin.destination)}.</p>
              <p>Accepted at: ${new Date(snapshot.acceptedAt).toLocaleString('en-GB', { timeZone: 'Europe/London' })}</p>
              ${acceptedTotal != null ? `<p>Accepted total: ${itin.currency} ${Number(acceptedTotal).toLocaleString()}</p>` : ''}
              ${legacyNoHash ? '<p>⚠️ LEGACY_NO_HASH: accepted without hash verification</p>' : ''}

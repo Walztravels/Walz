@@ -45,7 +45,8 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'email and amount are required' }, { status: 400 })
     }
 
-    const txRef = `WALZ-PS-${Date.now()}-${Math.random().toString(36).substring(2, 7).toUpperCase()}`
+    const { randomBytes: _rb } = require('crypto') as typeof import('crypto')
+    const txRef = `WALZ-PS-${Date.now()}-${_rb(4).toString('hex').toUpperCase()}`
     // Paystack requires amount in minor units (kobo for NGN, pesewas for GHS, etc.)
     const amountMinor = Math.round(Number(amount) * 100)
 
@@ -113,6 +114,6 @@ export async function POST(req: NextRequest) {
     })
   } catch (err: unknown) {
     console.error('[ps-init] ERROR:', (err as Error).message)
-    return NextResponse.json({ error: (err as Error).message }, { status: 500 })
+    return NextResponse.json({ error: 'Payment initialization failed' }, { status: 500 })
   }
 }

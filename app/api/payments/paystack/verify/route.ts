@@ -33,11 +33,12 @@ export async function POST(req: NextRequest) {
       )
     }
 
-    if (expected_amount && data.data.amount < Math.round(Number(expected_amount) * 100)) {
+    // Use != null (not &&) so that zero values still trigger the check
+    if (expected_amount != null && data.data.amount < Math.round(Number(expected_amount) * 100)) {
       return NextResponse.json({ verified: false, error: 'Amount mismatch' }, { status: 400 })
     }
 
-    if (expected_currency && data.data.currency !== expected_currency) {
+    if (expected_currency != null && data.data.currency !== expected_currency) {
       return NextResponse.json({ verified: false, error: 'Currency mismatch' }, { status: 400 })
     }
 
@@ -52,6 +53,6 @@ export async function POST(req: NextRequest) {
     })
   } catch (err: unknown) {
     console.error('[ps-verify] ERROR:', (err as Error).message)
-    return NextResponse.json({ error: (err as Error).message }, { status: 500 })
+    return NextResponse.json({ error: 'Verification failed' }, { status: 500 })
   }
 }

@@ -4,8 +4,9 @@ import prisma from '@/lib/db'
 export const dynamic = 'force-dynamic'
 
 // Resend posts inbound email payloads here.
-// Protect with a secret token in the URL: ?secret=RESEND_INBOUND_SECRET
-// Set that env variable in Vercel and match it in the Resend inbound route config.
+// Protect with a secret token in the x-resend-inbound-secret request header.
+// Set RESEND_INBOUND_SECRET in Vercel and configure Resend to send the same value
+// in that custom header. Using a header keeps the secret out of server access logs.
 
 interface ResendInboundEmail {
   from?: string
@@ -45,10 +46,10 @@ function stripAngleBrackets(s: string | null): string | null {
 }
 
 export async function POST(req: NextRequest) {
-  // ── Verify secret token ───────────────────────────────────────────────────
+  // ── Verify secret token (L-2: header, not URL param — keeps secret out of logs) ──
   const secret = process.env.RESEND_INBOUND_SECRET
   if (secret) {
-    const provided = req.nextUrl.searchParams.get('secret')
+    const provided = req.headers.get('x-resend-inbound-secret') ?? req.nextUrl.searchParams.get('secret')
     if (provided !== secret) {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }

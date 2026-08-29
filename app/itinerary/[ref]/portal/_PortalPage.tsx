@@ -549,6 +549,28 @@ export function PortalPage({ portal }: { portal: PortalDTO }) {
         </div>
       </div>
 
+      {/* ── REVISION_PENDING banner ── */}
+      {portal.acceptance.portalStatus === 'REVISION_PENDING' && (
+        <div style={{ background: '#1a1a3a', borderBottom: '1px solid #3730a3', padding: '18px 24px' }}>
+          <div className="max-w-3xl mx-auto flex flex-col sm:flex-row items-start sm:items-center gap-4">
+            <div className="flex-1">
+              <p style={{ color: '#a5b4fc', fontWeight: 700, fontSize: 15, margin: 0 }}>
+                📋 Your advisor has sent an updated proposal
+              </p>
+              <p style={{ color: 'rgba(165,180,252,0.7)', fontSize: 13, marginTop: 4 }}>
+                Review the changes and accept the updated itinerary to continue with your trip.
+              </p>
+            </div>
+            <a
+              href={`/itinerary/${portal.referenceNumber}`}
+              style={{ flexShrink: 0, background: '#6366f1', color: '#fff', fontWeight: 700, fontSize: 14, padding: '10px 20px', borderRadius: 10, textDecoration: 'none', display: 'inline-block' }}
+            >
+              Review Updated Proposal →
+            </a>
+          </div>
+        </div>
+      )}
+
       {/* ── Page content ── */}
       <div className="max-w-3xl mx-auto px-4 py-10 space-y-12">
 

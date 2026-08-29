@@ -107,11 +107,6 @@ export async function POST(_req: NextRequest, { params }: Params) {
     )
   }
 
-  const opts           = parseOptions(itin.options) as Record<string, unknown>
-  const currentRevNum  = typeof opts.revisionNumber === 'number' ? opts.revisionNumber : 0
-  const newRevNum      = currentRevNum + 1
-
-  // ── Write original accepted state to history ──────────────────────────────
   const contentSnap = buildContentSnapshot({
     flights:    itin.flights,
     hotels:     itin.hotels,
@@ -128,55 +123,85 @@ export async function POST(_req: NextRequest, { params }: Params) {
   const snapshotTotal      = (existingSnapshot.acceptedTotal as number | null | undefined) ?? null
   const snapshotCurrency   = (existingSnapshot.currency as string | undefined) ?? itin.currency
 
+  // ── H-9: Atomic revision creation with SELECT FOR UPDATE ─────────────────
+  // A concurrent POST could read the same revisionNumber before either
+  // increments it, creating two revisions with the same number. Locking the
+  // row serialises concurrent requests so only one wins.
+  type LockedRow = { id: string; status: string; options: string }
+  let newRevNum: number
+  const now = new Date()
+
   try {
     const sb = getSupabaseAdmin()
-    const { error } = await sb
-      .from('itinerary_acceptance_history')
-      .insert({
-        itinerary_id:     id,
-        revision_number:  currentRevNum,
-        version:          snapshotVersion,
-        snapshot:         existingSnapshot,
-        content_snapshot: contentSnap,
-        proposal_hash:    snapshotHash,
-        accepted_at:      snapshotAcceptedAt,
-        accepted_by:      snapshotAcceptedBy,
-        accepted_total:   snapshotTotal,
-        currency:         snapshotCurrency,
+    await prisma.$transaction(async (tx) => {
+      const rows = await tx.$queryRaw<LockedRow[]>`
+        SELECT id, status, options FROM "Itinerary" WHERE id = ${id} FOR UPDATE
+      `
+      const locked = rows[0]
+      if (!locked) throw new Error('NOT_FOUND')
+      if (!isAccepted(locked.status)) throw new Error('INELIGIBLE_STATUS')
+
+      const lockedOpts    = parseOptions(locked.options) as Record<string, unknown>
+      const currentRevNum = typeof lockedOpts.revisionNumber === 'number' ? lockedOpts.revisionNumber : 0
+      newRevNum = currentRevNum + 1
+
+      // Write history row to Supabase while holding the Prisma row lock.
+      // If Supabase fails the transaction is rolled back and we return the error.
+      const { error: histErr } = await sb
+        .from('itinerary_acceptance_history')
+        .insert({
+          itinerary_id:     id,
+          revision_number:  currentRevNum,
+          version:          snapshotVersion,
+          snapshot:         existingSnapshot,
+          content_snapshot: contentSnap,
+          proposal_hash:    snapshotHash,
+          accepted_at:      snapshotAcceptedAt,
+          accepted_by:      snapshotAcceptedBy,
+          accepted_total:   snapshotTotal,
+          currency:         snapshotCurrency,
+        })
+        .select('id')
+        .single()
+
+      if (histErr && !histErr.message.includes('unique constraint') && !histErr.message.includes('duplicate key')) {
+        console.error('[revisions] Failed to write acceptance history:', histErr.message)
+      }
+
+      await tx.itinerary.update({
+        where: { id },
+        data: {
+          status:    'revision_draft',
+          updatedAt: now,
+          options:   patchOptions(locked.options, {
+            revisionNumber:    newRevNum,
+            revisionCreatedAt: now.toISOString(),
+            revisionCreatedBy: session.email,   // L-10: use email, not opaque session.id
+            approvalToken:          null,
+            approvalTokenUsed:      false,
+            approvalTokenExpiresAt: null,
+            sentOptionsHash:        null,
+          }),
+        },
       })
-      .select('id')
-      .single()
-
-    if (error && !error.message.includes('unique constraint') && !error.message.includes('duplicate key')) {
-      console.error('[revisions] Failed to write acceptance history:', error.message)
+    })
+  } catch (err: unknown) {
+    if (err instanceof Error && err.message === 'NOT_FOUND') {
+      return NextResponse.json({ error: 'Not found' }, { status: 404 })
     }
-  } catch (err) {
-    console.error('[revisions] Supabase error writing acceptance history:', err)
+    if (err instanceof Error && err.message === 'INELIGIBLE_STATUS') {
+      return NextResponse.json(
+        { error: 'A revision can only be created from an accepted itinerary.' },
+        { status: 409 },
+      )
+    }
+    console.error('[revisions] Transaction error', err)
+    return NextResponse.json({ error: 'Could not create revision. Please try again.' }, { status: 500 })
   }
-
-  // ── Update itinerary to revision_draft ────────────────────────────────────
-  const now = new Date()
-  await prisma.itinerary.update({
-    where: { id },
-    data: {
-      status:    'revision_draft',
-      updatedAt: now,
-      options:   patchOptions(itin.options, {
-        revisionNumber:    newRevNum,
-        revisionCreatedAt: now.toISOString(),
-        revisionCreatedBy: session.id,
-        // Clear any previous revision approval token so a fresh one is issued on send
-        approvalToken:          null,
-        approvalTokenUsed:      false,
-        approvalTokenExpiresAt: null,
-        sentOptionsHash:        null,
-      }),
-    },
-  })
 
   return NextResponse.json({
     created:        true,
-    revisionNumber: newRevNum,
+    revisionNumber: newRevNum!,
     status:         'revision_draft',
   }, { status: 201 })
 }

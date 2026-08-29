@@ -25,6 +25,34 @@ export async function POST(req: NextRequest) {
     ) {
       const data = body.data as Record<string, unknown>
       const meta = data.meta as Record<string, unknown> | undefined
+
+      // M-5: Idempotency guard — prevent duplicate lifecycle processing.
+      // Use data.id (Flutterwave's unique transaction ID) as the idempotency key.
+      const providerPaymentId = String(data.id)
+      const existingPayment = await prisma.paymentLink.findUnique({
+        where: { txRef: providerPaymentId },
+        select: { status: true },
+      })
+      if (existingPayment?.status === 'paid') {
+        console.log('[Flutterwave] Duplicate event ignored for', providerPaymentId)
+        return NextResponse.json({ status: 'ok' })
+      }
+      // Record this payment before processing lifecycle — idempotency sentinel
+      await prisma.paymentLink.upsert({
+        where: { txRef: providerPaymentId },
+        create: {
+          txRef:       providerPaymentId,
+          type:        'flutterwave',
+          provider:    'flutterwave',
+          status:      'paid',
+          amount:      typeof data.amount === 'number' ? data.amount : 0,
+          currency:    (data.currency as string | undefined)?.toUpperCase() ?? 'NGN',
+          paidAt:      new Date(),
+          description: `Flutterwave charge ${providerPaymentId}`,
+        },
+        update: { status: 'paid', paidAt: new Date() },
+      })
+
       const booking_ref =
         (meta?.booking_ref as string | undefined) || (data.tx_ref as string | undefined)
 

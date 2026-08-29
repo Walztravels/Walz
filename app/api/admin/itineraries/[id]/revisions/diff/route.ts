@@ -70,7 +70,14 @@ export async function GET(_req: NextRequest, { params }: Params) {
       .single()
 
     if (histRow?.content_snapshot) {
-      originalContentSnapshot = histRow.content_snapshot as ContentSnapshot
+      const cs = histRow.content_snapshot as ContentSnapshot
+      // Use accepted_total from the DB column as financial authority — it is set from
+      // the immutable AcceptanceSnapshot at revision-creation time, not from the mutable
+      // itin.totalPrice field that content_snapshot.totalPrice was captured from.
+      originalContentSnapshot = {
+        ...cs,
+        totalPrice: histRow.accepted_total != null ? Number(histRow.accepted_total) : cs.totalPrice,
+      }
     }
   } catch { /* table may not exist yet */ }
 
