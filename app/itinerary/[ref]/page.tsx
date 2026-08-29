@@ -20,6 +20,14 @@ interface ItinHotel {
   roomType?: string; nights?: number; cost?: number;
   images?: string[]
 }
+interface ItinTour {
+  name?: string; location?: string; date?: string; duration?: string;
+  provider?: string; cost?: number; images?: string[]
+}
+interface ItinTransfer {
+  type?: string; from?: string; to?: string; date?: string;
+  vehicle?: string; cost?: number; images?: string[]
+}
 interface PriceRow { item: string; description?: string; cost: number }
 
 // ── New interfaces for enhanced sections ─────────────────────────────────────
@@ -77,6 +85,8 @@ export default async function ClientItineraryPage({ params }: { params: Promise<
   const days = safeParse<ItinDay[]>(itin.days, [])
   const flights = safeParse<ItinFlight[]>(itin.flights, [])
   const hotels = safeParse<ItinHotel[]>(itin.hotels, [])
+  const tours = safeParse<ItinTour[]>(itin.tours, [])
+  const transfers = safeParse<ItinTransfer[]>(itin.transfers, [])
   const inclusions = safeParse<string[]>(itin.inclusions, [])
   const exclusions = safeParse<string[]>(itin.exclusions, [])
   const priceBreakdown = safeParse<PriceRow[]>(itin.priceBreakdown, [])
@@ -326,6 +336,70 @@ export default async function ClientItineraryPage({ params }: { params: Promise<
                         {h.roomType ? ` · ${h.roomType}` : ''}
                       </p>
                     )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* ── Tours & Activities ───────────────────────────────────────────── */}
+        {tours.length > 0 && (
+          <div className="bg-white rounded-2xl p-6 mb-6 shadow-sm">
+            <h2 className="font-bold text-gray-900 text-lg mb-4">🎭 Tours &amp; Activities</h2>
+            <div className="space-y-3">
+              {tours.map((t, i) => (
+                <div key={i} className="bg-gray-50 rounded-xl overflow-hidden">
+                  {t.images && t.images.length > 0 && (
+                    <div className="flex gap-1 h-28 overflow-hidden">
+                      {t.images.slice(0, 4).map((src, idx) => (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img
+                          key={idx}
+                          src={src}
+                          alt={t.name || 'Tour'}
+                          className={`object-cover ${idx === 0 ? 'w-1/2' : 'flex-1'}`}
+                          loading="lazy"
+                        />
+                      ))}
+                    </div>
+                  )}
+                  <div className="p-4">
+                    <p className="font-bold text-gray-900">{t.name}</p>
+                    {t.location && <p className="text-gray-500 text-sm">📍 {t.location}</p>}
+                    {t.date && <p className="text-gray-600 text-sm">{fmtDate(t.date)}{t.duration ? ` · ${t.duration}` : ''}</p>}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* ── Transfers ─────────────────────────────────────────────────────── */}
+        {transfers.length > 0 && (
+          <div className="bg-white rounded-2xl p-6 mb-6 shadow-sm">
+            <h2 className="font-bold text-gray-900 text-lg mb-4">🚗 Transfers</h2>
+            <div className="space-y-3">
+              {transfers.map((t, i) => (
+                <div key={i} className="bg-gray-50 rounded-xl overflow-hidden">
+                  {t.images && t.images.length > 0 && (
+                    <div className="flex gap-1 h-28 overflow-hidden">
+                      {t.images.slice(0, 4).map((src, idx) => (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img
+                          key={idx}
+                          src={src}
+                          alt={t.type || 'Transfer'}
+                          className={`object-cover ${idx === 0 ? 'w-1/2' : 'flex-1'}`}
+                          loading="lazy"
+                        />
+                      ))}
+                    </div>
+                  )}
+                  <div className="p-4">
+                    <p className="font-bold text-gray-900">{t.type || 'Transfer'}{t.vehicle ? ` · ${t.vehicle}` : ''}</p>
+                    {(t.from || t.to) && <p className="text-gray-500 text-sm">📍 {t.from}{t.from && t.to ? ' → ' : ''}{t.to}</p>}
+                    {t.date && <p className="text-gray-600 text-sm">{fmtDate(t.date)}</p>}
                   </div>
                 </div>
               ))}

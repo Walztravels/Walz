@@ -308,6 +308,7 @@ function MultiImageGallery({
   websiteUrl,
   destination,
   onImagesChange,
+  autoSave,
 }: {
   itinId:          string
   itemType:        'hotel' | 'tour' | 'transfer' | 'train' | 'ferry'
@@ -316,11 +317,13 @@ function MultiImageGallery({
   websiteUrl?:     string
   destination?:    string
   onImagesChange:  (imgs: string[]) => void
+  autoSave?:       () => void
 }) {
-  const [fetching, setFetching]   = useState(false)
-  const [uploading, setUploading] = useState(false)
-  const [urlInput, setUrlInput]   = useState('')
-  const [fetchMsg, setFetchMsg]   = useState('')
+  const [fetching, setFetching]     = useState(false)
+  const [uploading, setUploading]   = useState(false)
+  const [urlInput, setUrlInput]     = useState('')
+  const [fetchMsg, setFetchMsg]     = useState('')
+  const [failedImgs, setFailedImgs] = useState<Set<number>>(new Set())
   const fileRef = useRef<HTMLInputElement>(null)
 
   const addUrls = (newUrls: string[]) => {
@@ -344,6 +347,7 @@ function MultiImageGallery({
       if (data.urls && data.urls.length > 0) {
         addUrls(data.urls)
         setFetchMsg(`✓ ${data.urls.length} images fetched (${data.source ?? ''})`)
+        autoSave?.()
       } else {
         setFetchMsg('No images found. Try uploading instead.')
       }
@@ -356,22 +360,27 @@ function MultiImageGallery({
   const handleUpload = async (files: FileList | null) => {
     if (!files || files.length === 0) return
     setUploading(true)
-    const uploaded: string[] = []
-    for (const file of Array.from(files)) {
-      const fd = new FormData()
-      fd.append('file', file)
-      fd.append('itemType', itemType)
-      fd.append('itemId', itemId)
-      try {
-        const res = await fetch(`/api/admin/itineraries/${itinId}/upload-item-image`, {
-          method: 'POST',
-          body: fd,
-        })
-        const data = await res.json() as { url?: string; error?: string }
-        if (data.url) uploaded.push(data.url)
-      } catch {}
+    const results = await Promise.all(
+      Array.from(files).map(async (file) => {
+        const fd = new FormData()
+        fd.append('file', file)
+        fd.append('itemType', itemType)
+        fd.append('itemId', itemId)
+        try {
+          const res = await fetch(`/api/admin/itineraries/${itinId}/upload-item-image`, {
+            method: 'POST',
+            body: fd,
+          })
+          const data = await res.json() as { url?: string; error?: string }
+          return data.url ?? null
+        } catch { return null }
+      })
+    )
+    const uploaded = results.filter((u): u is string => u !== null)
+    if (uploaded.length) {
+      addUrls(uploaded)
+      autoSave?.()
     }
-    if (uploaded.length) addUrls(uploaded)
     setUploading(false)
   }
 
@@ -389,7 +398,19 @@ function MultiImageGallery({
         <div className="grid grid-cols-4 gap-2 mb-3">
           {images.map((src, idx) => (
             <div key={idx} className="relative group rounded-lg overflow-hidden bg-white/5 aspect-video">
-              <img src={src} alt={`img-${idx}`} className="w-full h-full object-cover" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }} />
+              {failedImgs.has(idx) ? (
+                <div className="w-full h-full flex flex-col items-center justify-center text-white/30 text-xs gap-1">
+                  <span className="text-xl">🖼</span>
+                  <span>Failed to load</span>
+                </div>
+              ) : (
+                <img
+                  src={src}
+                  alt={`img-${idx}`}
+                  className="w-full h-full object-cover"
+                  onError={() => setFailedImgs(prev => new Set(prev).add(idx))}
+                />
+              )}
               <button
                 onClick={() => removeImg(idx)}
                 className="absolute top-1 right-1 bg-black/70 text-white text-[10px] px-1.5 py-0.5 rounded-full opacity-0 group-hover:opacity-100 transition hover:bg-red-500/80"
@@ -474,6 +495,7 @@ export default function ItineraryBuilderPage() {
   const [saving, setSaving] = useState(false)
   const [saveMsg, setSaveMsg] = useState('')
   const [showCopilot, setShowCopilot] = useState(false)
+  const [flightSearchHint, setFlightSearchHint] = useState<{ type: string; destination: string; date: string } | null>(null)
 
   const load = useCallback(async () => {
     const res = await fetch(`/api/admin/itineraries/${id}`)
@@ -483,6 +505,15 @@ export default function ItineraryBuilderPage() {
   }, [id])
 
   useEffect(() => { void load() }, [load])
+
+  useEffect(() => {
+    const handler = (e: CustomEvent) => {
+      setShowCopilot(true)
+      setFlightSearchHint(e.detail as { type: string; destination: string; date: string })
+    }
+    window.addEventListener('jade-open-search', handler as EventListener)
+    return () => window.removeEventListener('jade-open-search', handler as EventListener)
+  }, [])
 
   const refresh = useCallback(async () => {
     const res = await fetch(`/api/admin/itineraries/${id}`)
@@ -650,6 +681,8 @@ export default function ItineraryBuilderPage() {
         itinerary={itin as unknown as Record<string, unknown>}
         onItineraryUpdate={refresh}
         onClose={() => setShowCopilot(false)}
+        initialSearchHint={flightSearchHint}
+        onSearchHintConsumed={() => setFlightSearchHint(null)}
       />
     )}
     </>
@@ -911,6 +944,22 @@ function OverviewTab({ itin, onSave }: { itin: ItineraryData; onSave: (u: Record
               <input type="number" min="1" value={form.numberOfTravellers} onChange={e => upd('numberOfTravellers', e.target.value)} className={inp} />
             </div>
           </div>
+          {form.startDate && form.destination && (
+            <div className="mt-3 p-3 bg-blue-500/10 border border-blue-500/20 rounded-xl flex items-center justify-between">
+              <div>
+                <p className="text-blue-300 text-xs font-bold">✈ Dates set for {form.destination}</p>
+                <p className="text-white/40 text-[11px]">Search live flights for this trip</p>
+              </div>
+              <button
+                onClick={() => {
+                  window.dispatchEvent(new CustomEvent('jade-open-search', { detail: { type: 'flights', destination: form.destination, date: form.startDate } }))
+                }}
+                className="bg-blue-500/20 text-blue-300 border border-blue-500/30 px-3 py-1.5 rounded-lg text-xs font-bold hover:bg-blue-500/30 transition"
+              >
+                Search Flights →
+              </button>
+            </div>
+          )}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div>
               <label className="text-white/40 text-xs font-bold uppercase tracking-wider block mb-1.5">Trip Type</label>
@@ -1590,6 +1639,7 @@ function BookingsTab({ itin, onSave }: { itin: ItineraryData; onSave: (u: Record
                       updHotel(h.id, 'images', imgs)
                       updHotel(h.id, 'image', imgs[0] ?? '')
                     }}
+                    autoSave={handleSave}
                   />
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-3">
                     <div>
@@ -1727,6 +1777,7 @@ function BookingsTab({ itin, onSave }: { itin: ItineraryData; onSave: (u: Record
                       updTransfer(t.id, 'images', imgs)
                       updTransfer(t.id, 'image', imgs[0] ?? '')
                     }}
+                    autoSave={handleSave}
                   />
                   <div className="mt-2">
                     <label className="text-white/30 text-[10px] font-bold uppercase block mb-1">Supplier</label>
@@ -1816,6 +1867,7 @@ function BookingsTab({ itin, onSave }: { itin: ItineraryData; onSave: (u: Record
                       updTour(t.id, 'images', imgs)
                       updTour(t.id, 'image', imgs[0] ?? '')
                     }}
+                    autoSave={handleSave}
                   />
                 </div>
               ))}
@@ -2408,9 +2460,14 @@ function PreviewTab({
               <div>
                 <h3 className="font-bold text-gray-800 text-sm mb-2">🏨 Hotels ({hotels.length})</h3>
                 {hotels.slice(0, 2).map((h, i) => (
-                  <div key={i} className="bg-gray-50 rounded-lg p-2 mb-1.5">
-                    <p className="text-gray-700 text-xs font-medium">{h.name}</p>
-                    <p className="text-gray-400 text-xs">{h.location} · {h.nights} nights</p>
+                  <div key={i} className="bg-gray-50 rounded-lg overflow-hidden mb-1.5">
+                    {h.images?.[0] && (
+                      <img src={h.images[0]} alt={h.name} className="w-full h-16 object-cover" onError={e => { (e.target as HTMLImageElement).style.display = 'none' }} />
+                    )}
+                    <div className="p-2">
+                      <p className="text-gray-700 text-xs font-medium">{h.name}</p>
+                      <p className="text-gray-400 text-xs">{h.location} · {h.nights} nights</p>
+                    </div>
                   </div>
                 ))}
               </div>

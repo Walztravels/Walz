@@ -140,16 +140,15 @@ async function scrapeImages(url: string): Promise<string[]> {
   }
 }
 
-// Fetch destination photos from Unsplash (free, no API key — open CDN)
-function getUnsplashDestinationPhotos(destination: string): string[] {
-  const query = DESTINATION_QUERIES[destination.toLowerCase().trim()]
-    ?? destination.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '')
-
-  // Unsplash source API (no auth, returns different photos each call — we use stable seeds)
-  const seeds = ['travel', 'vacation', 'trip', 'tourism', 'landscape', 'adventure']
-  return seeds.slice(0, 6).map((seed, i) =>
-    `https://source.unsplash.com/1200x800/?${query},${seed}&sig=${i}`
-  )
+// Fetch destination photos using a stable hash into our curated fallback lists.
+// No external API call needed — source.unsplash.com is deprecated and unreliable.
+function getUnsplashDestinationPhotos(destination: string, isHotel = false): string[] {
+  const pool = isHotel ? HOTEL_FALLBACKS : ACTIVITY_FALLBACKS
+  // Simple deterministic hash so the same destination always gets the same photos
+  const hash = destination.toLowerCase().split('').reduce((acc, c) => acc + c.charCodeAt(0), 0)
+  const offset = hash % pool.length
+  // Return 4 photos, wrapping around the pool
+  return Array.from({ length: 4 }, (_, i) => pool[(offset + i) % pool.length])
 }
 
 export async function POST(req: NextRequest) {
@@ -170,10 +169,10 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  // Destination-based Unsplash photos (flights, activities, transfers, or hotel fallback)
+  // Destination-based photos (hotels, activities, transfers)
   if (destination) {
-    const photos = getUnsplashDestinationPhotos(destination)
-    return NextResponse.json({ urls: photos, source: 'unsplash' })
+    const photos = getUnsplashDestinationPhotos(destination, itemType === 'hotel')
+    return NextResponse.json({ urls: photos, source: 'fallback' })
   }
 
   // Generic fallbacks

@@ -22,6 +22,31 @@ interface GeneratedItinerary {
   copilotNotes?: string
 }
 
+interface SearchParams {
+  from: string
+  to: string
+  date: string
+  returnDate: string
+  adults: number
+}
+
+interface FlightResult {
+  type: 'flight'
+  id: string
+  summary: string
+  from: string
+  to: string
+  date: unknown
+  departureTime: string
+  arrivalTime: string
+  airline: string
+  flightNumber: string
+  class: string
+  price: number
+  currency: string
+  stops: number
+}
+
 const EXAMPLE_PROMPTS = [
   '7-night luxury honeymoon Dubai, 2 pax, £8,000 budget, Emirates business class from LHR',
   '10 days Canada family trip, 4 people (2 adults, kids 8 & 12), fly Toronto then Vancouver, CAD 15,000',
@@ -73,10 +98,14 @@ export function JadeCopilot({
   itinerary,
   onItineraryUpdate,
   onClose,
+  initialSearchHint,
+  onSearchHintConsumed,
 }: {
   itinerary: Record<string, unknown> | null
   onItineraryUpdate: () => Promise<void>
   onClose: () => void
+  initialSearchHint?: { type: string; destination: string; date: string } | null
+  onSearchHintConsumed?: () => void
 }) {
   const [messages, setMessages] = useState<Message[]>([
     {
@@ -87,12 +116,31 @@ export function JadeCopilot({
   ])
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
+  const [searchMode, setSearchMode] = useState<null | 'flights' | 'hotels' | 'activities'>(null)
+  const [searchResults, setSearchResults] = useState<FlightResult[]>([])
+  const [searchLoading, setSearchLoading] = useState(false)
+  const [searchParams, setSearchParams] = useState<SearchParams>({
+    from: '', to: '', date: '', returnDate: '', adults: 1,
+  })
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
+
+  // Handle initialSearchHint from the OverviewTab flight banner
+  useEffect(() => {
+    if (initialSearchHint && initialSearchHint.type === 'flights') {
+      setSearchMode('flights')
+      setSearchParams(prev => ({
+        ...prev,
+        to: initialSearchHint.destination,
+        date: initialSearchHint.date,
+      }))
+      onSearchHintConsumed?.()
+    }
+  }, [initialSearchHint]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const detectMode = useCallback((text: string): 'generate' | 'refine' | 'parse' => {
     const lower = text.toLowerCase()
@@ -122,10 +170,98 @@ export function JadeCopilot({
     return 'generate'
   }, [messages.length])
 
+  const handleFlightSearch = async () => {
+    if (!searchParams.from || !searchParams.to || !searchParams.date) return
+    setSearchLoading(true)
+    setSearchResults([])
+    try {
+      const res = await fetch(`/api/admin/itineraries/${itinerary?.id as string}/copilot-live-search`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          type: 'flights',
+          params: {
+            origin: searchParams.from,
+            destination: searchParams.to,
+            departure_date: searchParams.date,
+            return_date: searchParams.returnDate || undefined,
+            adults: searchParams.adults,
+          },
+        }),
+      })
+      const data = await res.json() as { results?: FlightResult[] }
+      setSearchResults(data.results ?? [])
+      if (!data.results?.length) {
+        setMessages(prev => [...prev, {
+          role: 'assistant',
+          content: 'No flights found for those dates. Try adjusting your search or check the dates.',
+          timestamp: new Date(),
+        }])
+      }
+    } catch {
+      setMessages(prev => [...prev, {
+        role: 'assistant',
+        content: 'Flight search unavailable — Duffel API may not be configured. Add flights manually in the Bookings tab.',
+        timestamp: new Date(),
+      }])
+    }
+    setSearchLoading(false)
+  }
+
+  const addItemToItinerary = async (result: FlightResult) => {
+    const itinId = itinerary?.id as string
+    if (!itinId) return
+    const flightItem = {
+      from: result.from,
+      to: result.to,
+      airline: result.airline,
+      flightNumber: result.flightNumber || '',
+      date: result.date,
+      time: result.departureTime ? new Date(result.departureTime).toTimeString().slice(0, 5) : '',
+      arrivalTime: result.arrivalTime ? new Date(result.arrivalTime).toTimeString().slice(0, 5) : '',
+      class: result.class,
+      cost: result.price,
+      status: 'confirmed',
+      notes: '',
+      pnr: '',
+      iataCode: '',
+      supplierId: '',
+      duffelOrderId: result.id || '',
+      supplierCost: null,
+    }
+    const res = await fetch(`/api/admin/itineraries/${itinId}/copilot-add-item`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ itemType: 'flight', item: flightItem }),
+    })
+    if (res.ok) {
+      await onItineraryUpdate()
+      setMessages(prev => [...prev, {
+        role: 'assistant',
+        content: `✅ Flight added to itinerary — ${result.airline} ${result.from}→${result.to}. Check the Bookings → Flights tab.`,
+        timestamp: new Date(),
+      }])
+      setSearchMode(null)
+      setSearchResults([])
+    }
+  }
+
   const send = async () => {
     if (!input.trim() || loading) return
 
     const text = input.trim()
+
+    // Detect flight search intent
+    const lower = text.toLowerCase()
+    if (
+      !searchMode &&
+      (lower.includes('search flights') || lower.includes('find flights') || lower.includes('look for flights'))
+    ) {
+      setSearchMode('flights')
+      setInput('')
+      return
+    }
+
     const detectedMode = detectMode(text)
 
     const userMsg: Message = { role: 'user', content: text, timestamp: new Date() }
@@ -269,6 +405,26 @@ export function JadeCopilot({
           </div>
         ))}
 
+        {/* Flight search results */}
+        {searchResults.length > 0 && (
+          <div className="space-y-2">
+            <p className="text-white/40 text-xs font-bold px-1">✈ Flight Results</p>
+            {searchResults.map((result, idx) => (
+              <div key={idx} className="bg-white/[0.08] rounded-xl p-3">
+                <p className="text-white font-bold text-sm">{result.airline} · {result.from}→{result.to}</p>
+                <p className="text-white/60 text-xs">{result.summary} · {String(result.date ?? '')}</p>
+                <p className="text-amber-400 font-bold text-sm mt-1">{result.currency} {result.price?.toLocaleString()}</p>
+                <button
+                  onClick={() => void addItemToItinerary(result)}
+                  className="mt-2 w-full bg-amber-500 text-black font-bold text-xs py-1.5 rounded-lg hover:bg-amber-400 transition"
+                >
+                  + Add to Itinerary
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+
         {loading && (
           <div className="flex gap-3 justify-start">
             <div className="w-7 h-7 bg-amber-500/20 rounded-full flex items-center justify-center flex-shrink-0">
@@ -294,6 +450,30 @@ export function JadeCopilot({
         <div ref={messagesEndRef} />
       </div>
 
+      {/* Quick action buttons — only shown on first load */}
+      {messages.length <= 1 && !loading && (
+        <div className="px-4 pb-2 flex gap-2 flex-wrap flex-shrink-0">
+          <button
+            onClick={() => setSearchMode('flights')}
+            className="text-xs bg-blue-500/20 text-blue-300 border border-blue-500/30 px-3 py-1.5 rounded-xl font-bold hover:bg-blue-500/30 transition"
+          >
+            ✈ Search Flights
+          </button>
+          <button
+            onClick={() => setSearchMode('hotels')}
+            className="text-xs bg-purple-500/20 text-purple-300 border border-purple-500/30 px-3 py-1.5 rounded-xl font-bold hover:bg-purple-500/30 transition"
+          >
+            🏨 Search Hotels
+          </button>
+          <button
+            onClick={() => setSearchMode('activities')}
+            className="text-xs bg-green-500/20 text-green-300 border border-green-500/30 px-3 py-1.5 rounded-xl font-bold hover:bg-green-500/30 transition"
+          >
+            🎭 Activities
+          </button>
+        </div>
+      )}
+
       {/* Example prompts — only shown on first load */}
       {messages.length <= 1 && !loading && (
         <div className="px-4 pb-3 flex-shrink-0">
@@ -309,6 +489,102 @@ export function JadeCopilot({
               </button>
             ))}
           </div>
+        </div>
+      )}
+
+      {/* Flight search form panel */}
+      {searchMode === 'flights' && (
+        <div className="px-4 pb-3 border-t border-white/10 pt-3 flex-shrink-0 bg-[#0a1a30]">
+          <div className="flex items-center justify-between mb-3">
+            <p className="text-blue-300 text-xs font-bold">✈ Flight Search</p>
+            <button
+              onClick={() => { setSearchMode(null); setSearchResults([]) }}
+              className="text-white/30 hover:text-white text-xs transition"
+            >
+              ✕ Cancel
+            </button>
+          </div>
+          <div className="grid grid-cols-2 gap-2 mb-2">
+            <div>
+              <label className="text-white/30 text-[10px] font-bold uppercase block mb-1">From (IATA)</label>
+              <input
+                value={searchParams.from}
+                onChange={e => setSearchParams(p => ({ ...p, from: e.target.value.toUpperCase() }))}
+                placeholder="LHR"
+                maxLength={3}
+                className="w-full bg-white/5 border border-white/10 rounded-lg px-2 py-1.5 text-white text-xs focus:outline-none focus:border-blue-500/50"
+              />
+            </div>
+            <div>
+              <label className="text-white/30 text-[10px] font-bold uppercase block mb-1">To (IATA)</label>
+              <input
+                value={searchParams.to}
+                onChange={e => setSearchParams(p => ({ ...p, to: e.target.value.toUpperCase() }))}
+                placeholder="DXB"
+                maxLength={3}
+                className="w-full bg-white/5 border border-white/10 rounded-lg px-2 py-1.5 text-white text-xs focus:outline-none focus:border-blue-500/50"
+              />
+            </div>
+            <div>
+              <label className="text-white/30 text-[10px] font-bold uppercase block mb-1">Departure</label>
+              <input
+                type="date"
+                value={searchParams.date}
+                onChange={e => setSearchParams(p => ({ ...p, date: e.target.value }))}
+                className="w-full bg-white/5 border border-white/10 rounded-lg px-2 py-1.5 text-white text-xs focus:outline-none focus:border-blue-500/50"
+              />
+            </div>
+            <div>
+              <label className="text-white/30 text-[10px] font-bold uppercase block mb-1">Return (opt)</label>
+              <input
+                type="date"
+                value={searchParams.returnDate}
+                onChange={e => setSearchParams(p => ({ ...p, returnDate: e.target.value }))}
+                className="w-full bg-white/5 border border-white/10 rounded-lg px-2 py-1.5 text-white text-xs focus:outline-none focus:border-blue-500/50"
+              />
+            </div>
+            <div>
+              <label className="text-white/30 text-[10px] font-bold uppercase block mb-1">Adults</label>
+              <input
+                type="number"
+                min={1}
+                max={9}
+                value={searchParams.adults}
+                onChange={e => setSearchParams(p => ({ ...p, adults: Number(e.target.value) }))}
+                className="w-full bg-white/5 border border-white/10 rounded-lg px-2 py-1.5 text-white text-xs focus:outline-none focus:border-blue-500/50"
+              />
+            </div>
+          </div>
+          <button
+            onClick={() => void handleFlightSearch()}
+            disabled={searchLoading || !searchParams.from || !searchParams.to || !searchParams.date}
+            className="w-full bg-blue-500 text-white font-bold text-xs py-2 rounded-lg hover:bg-blue-400 transition disabled:opacity-40 flex items-center justify-center gap-2"
+          >
+            {searchLoading
+              ? <><span className="w-3 h-3 border border-white border-t-transparent rounded-full animate-spin" /> Searching…</>
+              : '✈ Search Flights'}
+          </button>
+        </div>
+      )}
+
+      {/* Hotels / Activities message panels */}
+      {searchMode === 'hotels' && (
+        <div className="px-4 pb-3 border-t border-white/10 pt-3 flex-shrink-0 bg-[#0a1a30]">
+          <div className="flex items-center justify-between mb-2">
+            <p className="text-purple-300 text-xs font-bold">🏨 Hotel Search</p>
+            <button onClick={() => setSearchMode(null)} className="text-white/30 hover:text-white text-xs transition">✕ Cancel</button>
+          </div>
+          <p className="text-white/50 text-xs leading-relaxed">Hotel live search coming soon. Use the <strong className="text-white/70">Bookings → Hotels</strong> tab to add hotels manually, or paste a hotel website URL to fetch images.</p>
+        </div>
+      )}
+
+      {searchMode === 'activities' && (
+        <div className="px-4 pb-3 border-t border-white/10 pt-3 flex-shrink-0 bg-[#0a1a30]">
+          <div className="flex items-center justify-between mb-2">
+            <p className="text-green-300 text-xs font-bold">🎭 Activity Search</p>
+            <button onClick={() => setSearchMode(null)} className="text-white/30 hover:text-white text-xs transition">✕ Cancel</button>
+          </div>
+          <p className="text-white/50 text-xs leading-relaxed">Describe the activity you need in the chat below and Jade will generate itinerary details for it.</p>
         </div>
       )}
 
