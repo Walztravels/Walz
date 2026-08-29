@@ -198,14 +198,21 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ ref
     )
   }
 
-  // ── 6. Fetch package options (hash validation + selection validation) ─────
+  // ── 6. Package options — frozen snapshot from send time when available ────
+  // frozenPackageOptions was stored by the send route inside the same transaction that
+  // produced sentOptionsHash. Using it here eliminates the Supabase race at accept time:
+  // the hash is validated against exactly the option set the client was shown.
+  // Legacy proposals (sent before this change) fall back to a live Supabase fetch.
   const sb = getSupabaseAdmin()
-  const { data: pkgRows } = await sb
-    .from('itinerary_package_options')
-    .select('id, name, description, price, currency, features, sort_order')
-    .eq('itinerary_id', itin.id)
-    .order('sort_order')
-  const allPkgOptions = (pkgRows ?? []) as (PackageOptionRow & { id: string })[]
+  const frozenRaw = opts.frozenPackageOptions  // unknown — narrowed below
+  const allPkgOptions: (PackageOptionRow & { id: string })[] = Array.isArray(frozenRaw)
+    ? (frozenRaw as (PackageOptionRow & { id: string })[])
+    : await sb
+        .from('itinerary_package_options')
+        .select('id, name, description, price, currency, features, sort_order')
+        .eq('itinerary_id', itin.id)
+        .order('sort_order')
+        .then(({ data }) => (data ?? []) as (PackageOptionRow & { id: string })[])
 
   // ── 6b. H-7: Reject if active V2 option groups exist ─────────────────────
   // V1 /approve is incompatible with V2 option groups. The client must use

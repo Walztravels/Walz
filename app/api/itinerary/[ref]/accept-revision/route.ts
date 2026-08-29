@@ -218,18 +218,26 @@ export async function POST(
   const hasOptionGroups = (groupRows ?? []).length > 0
 
   // ── 5. Hash validation ────────────────────────────────────────────────────
-  const { data: pkgRows } = await sb
-    .from('itinerary_package_options')
-    .select('name, description, price, currency, features, sort_order')
-    .eq('itinerary_id', itin.id)
-    .order('sort_order')
+  // Use frozen pkg option snapshot from send time when available — same rationale as /approve.
+  // frozenPackageOptions was stored by the revision send route inside the same transaction
+  // that produced sentOptionsHash, so validation is race-free.
+  // Legacy proposals (sent before this change) fall back to a live Supabase fetch.
+  const frozenRaw = opts.frozenPackageOptions  // unknown — narrowed below
+  const hashPkgOptions: PackageOptionRow[] = Array.isArray(frozenRaw)
+    ? (frozenRaw as PackageOptionRow[])
+    : await sb
+        .from('itinerary_package_options')
+        .select('name, description, price, currency, features, sort_order')
+        .eq('itinerary_id', itin.id)
+        .order('sort_order')
+        .then(({ data }) => (data ?? []) as PackageOptionRow[])
 
   const storedHash   = getStoredProposalHash(itin.options)
-  const hashResult   = validateSentProposalState(itin, (pkgRows ?? []) as PackageOptionRow[], storedHash)
+  const hashResult   = validateSentProposalState(itin, hashPkgOptions, storedHash)
   const legacyNoHash = hashResult.result === 'NO_HASH_LEGACY'
 
   if (hashResult.result === 'STALE') {
-    const currentPayload = buildProposalHashPayload(itin, (pkgRows ?? []) as PackageOptionRow[])
+    const currentPayload = buildProposalHashPayload(itin, hashPkgOptions)
     console.info('[accept-revision] 409/HASH_STALE', {
       ref,
       storedHashPrefix:  hashResult.storedHash.slice(0, 8),
@@ -245,7 +253,7 @@ export async function POST(
     )
   }
 
-  const hashPayload   = buildProposalHashPayload(itin, (pkgRows ?? []) as PackageOptionRow[])
+  const hashPayload   = buildProposalHashPayload(itin, hashPkgOptions)
   const currentHash   = hashProposalState(hashPayload)
 
   const revisionNumber = typeof opts.revisionNumber === 'number' ? opts.revisionNumber : 1
