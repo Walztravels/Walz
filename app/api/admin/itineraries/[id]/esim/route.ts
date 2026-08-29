@@ -82,7 +82,7 @@ export async function GET(req: NextRequest, { params }: Params) {
         { status: 503 }
       )
     }
-    return NextResponse.json({ error: error.message }, { status: 500 })
+    return NextResponse.json({ error: 'Unable to process request. Please retry.' }, { status: 500 })
   }
 
   // 2. Airalo recommendations (best-effort, graceful fallback)
@@ -172,7 +172,7 @@ export async function POST(req: NextRequest, { params }: Params) {
         { status: 503 }
       )
     }
-    return NextResponse.json({ error: error.message }, { status: 500 })
+    return NextResponse.json({ error: 'Unable to process request. Please retry.' }, { status: 500 })
   }
 
   return NextResponse.json({ esim: data }, { status: 201 })
@@ -252,7 +252,7 @@ export async function PATCH(req: NextRequest, { params }: Params) {
         { status: 503 }
       )
     }
-    return NextResponse.json({ error: error.message }, { status: 500 })
+    return NextResponse.json({ error: 'Unable to process request. Please retry.' }, { status: 500 })
   }
   if (!data) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
@@ -290,7 +290,7 @@ export async function DELETE(req: NextRequest, { params }: Params) {
         { status: 503 }
       )
     }
-    return NextResponse.json({ error: error.message }, { status: 500 })
+    return NextResponse.json({ error: 'Unable to process request. Please retry.' }, { status: 500 })
   }
 
   return NextResponse.json({ success: true })

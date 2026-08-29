@@ -4,12 +4,22 @@ import { getSupabaseAdmin } from '@/lib/supabase'
 
 type Params = { params: Promise<{ id: string }> }
 
+function getSupabase() {
+  try {
+    return { sb: getSupabaseAdmin(), err: null }
+  } catch (e) {
+    return { sb: null, err: e instanceof Error ? e.message : 'Supabase not configured' }
+  }
+}
+
 export async function GET(_req: NextRequest, { params }: Params) {
   const session = await getAdminSession()
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const { id: itinerary_id } = await params
-  const supabase = getSupabaseAdmin()
+  const { sb: supabase, err } = getSupabase()
+  if (!supabase) return NextResponse.json({ error: 'Database service unavailable' }, { status: 503 })
+  void err
 
   const { data, error } = await supabase
     .from('itinerary_versions')
@@ -20,7 +30,13 @@ export async function GET(_req: NextRequest, { params }: Params) {
 
   if (error) {
     console.error('[versions/GET]', error)
-    return NextResponse.json({ error: error.message }, { status: 500 })
+    if (error.code === '42P01') {
+      return NextResponse.json(
+        { error: 'Database table not ready — apply migration in the Supabase SQL editor.' },
+        { status: 503 }
+      )
+    }
+    return NextResponse.json({ error: 'Unable to load versions. Please retry.' }, { status: 500 })
   }
 
   // Map snake_case DB columns to camelCase expected by the frontend interface
@@ -42,7 +58,9 @@ export async function POST(req: NextRequest, { params }: Params) {
 
   const { id: itinerary_id } = await params
   const body = await req.json()
-  const supabase = getSupabaseAdmin()
+  const { sb: supabase, err } = getSupabase()
+  if (!supabase) return NextResponse.json({ error: 'Database service unavailable' }, { status: 503 })
+  void err
 
   if (!body.snapshot || typeof body.snapshot !== 'object') {
     return NextResponse.json({ error: 'snapshot (object) is required' }, { status: 400 })
@@ -59,7 +77,13 @@ export async function POST(req: NextRequest, { params }: Params) {
 
   if (maxError) {
     console.error('[versions/POST] max query error', maxError)
-    return NextResponse.json({ error: maxError.message }, { status: 500 })
+    if (maxError.code === '42P01') {
+      return NextResponse.json(
+        { error: 'Database table not ready — apply migration in the Supabase SQL editor.' },
+        { status: 503 }
+      )
+    }
+    return NextResponse.json({ error: 'Unable to save version. Please retry.' }, { status: 500 })
   }
 
   const next_version = (maxRow?.version_number ?? 0) + 1
@@ -80,7 +104,7 @@ export async function POST(req: NextRequest, { params }: Params) {
 
   if (error) {
     console.error('[versions/POST]', error)
-    return NextResponse.json({ error: error.message }, { status: 500 })
+    return NextResponse.json({ error: 'Unable to save version. Please retry.' }, { status: 500 })
   }
 
   return NextResponse.json({ version: data }, { status: 201 })

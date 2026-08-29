@@ -2,8 +2,10 @@ import { prisma } from '@/lib/db'
 import { notFound } from 'next/navigation'
 import type { Metadata } from 'next'
 import { BUSINESS } from '@/lib/config/business'
+import { getSupabaseAdmin } from '@/lib/supabase'
 import { ProposalPage } from './_ProposalPage'
 import type { PublicProposalDTO, ProposalFlight, ProposalHotel, ProposalTransfer, ProposalTour, ProposalDay, ProposalPriceLine, ProposalPackageOption, ProposalPaymentMilestone, ProposalTrain, ProposalFerry } from './_types'
+import type { PublicOptionGroup, PublicOptionItem } from '@/lib/v2/types'
 
 export const dynamic = 'force-dynamic'
 
@@ -300,6 +302,87 @@ export default async function ClientItineraryPage({ params }: Params) {
     acceptedBy,
     acceptedOptionIds,
   }
+
+  // ── V2: Fetch option groups (graceful — V1 itineraries have no rows) ──────────
+  // No internal fields (supplierCost, internalMargin, sourceBookingRef, metadata)
+  // are included in the mapped PublicOptionGroup / PublicOptionItem shapes.
+  let optionGroups: PublicOptionGroup[] = []
+  let acceptanceVersion: 1 | 2 = 1
+
+  try {
+    const supabase = getSupabaseAdmin()
+
+    type RawItem = {
+      id: string; group_id: string; name: string; description: string | null
+      client_price: number; currency: string; price_adjustment: number
+      recommended: boolean; default_selected: boolean; active: boolean
+      sort_order: number; image_url: string | null; quote_expires_at: string | null
+    }
+    type RawGroup = {
+      id: string; name: string; description: string | null; category: string
+      selection_mode: string; pricing_mode: string; required: boolean
+      min_selections: number; max_selections: number; sort_order: number
+      option_items: RawItem[]
+    }
+
+    const { data: rawGroups } = await supabase
+      .from('option_groups')
+      .select('id, name, description, category, selection_mode, pricing_mode, required, min_selections, max_selections, sort_order, option_items(id, group_id, name, description, client_price, currency, price_adjustment, recommended, default_selected, active, sort_order, image_url, quote_expires_at)')
+      .eq('itinerary_id', itin.id)
+      .eq('active', true)
+      .eq('client_visible', true)
+      .order('sort_order', { ascending: true })
+
+    if (rawGroups && rawGroups.length > 0) {
+      const mapped: PublicOptionGroup[] = (rawGroups as RawGroup[])
+        .map(g => {
+          const items: PublicOptionItem[] = (g.option_items ?? [])
+            .filter(item => item.active === true)
+            .sort((a, b) => a.sort_order - b.sort_order)
+            .map(item => ({
+              id: item.id,
+              groupId: item.group_id,
+              name: item.name,
+              description: item.description ?? undefined,
+              clientPrice: item.client_price,
+              currency: item.currency,
+              priceAdjustment: item.price_adjustment,
+              recommended: item.recommended,
+              defaultSelected: item.default_selected,
+              active: item.active,
+              sortOrder: item.sort_order,
+              imageUrl: item.image_url ?? undefined,
+              quoteExpiresAt: item.quote_expires_at ?? undefined,
+            }))
+          return {
+            id: g.id,
+            name: g.name,
+            description: g.description ?? undefined,
+            category: g.category as PublicOptionGroup['category'],
+            selectionMode: g.selection_mode as PublicOptionGroup['selectionMode'],
+            pricingMode: g.pricing_mode as PublicOptionGroup['pricingMode'],
+            required: g.required,
+            minSelections: g.min_selections,
+            maxSelections: g.max_selections,
+            sortOrder: g.sort_order,
+            items,
+          }
+        })
+        .filter(g => g.items.length > 0)
+
+      if (mapped.length > 0) {
+        optionGroups = mapped
+        acceptanceVersion = 2
+      }
+    }
+  } catch {
+    // Supabase not configured or table absent — V1 flow unchanged
+    optionGroups = []
+    acceptanceVersion = 1
+  }
+
+  dto.optionGroups      = optionGroups
+  dto.acceptanceVersion = acceptanceVersion
 
   return <ProposalPage proposal={dto} />
 }

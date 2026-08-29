@@ -1,6 +1,8 @@
 // PublicProposalDTO — the ONLY shape the public proposal page receives.
 // Built server-side. Zero internal fields.
 
+import type { PublicOptionGroup } from '@/lib/v2/types'
+
 export interface ProposalFlight {
   from?: string
   to?: string
@@ -165,4 +167,8 @@ export interface PublicProposalDTO {
   acceptedTotal?: number | null
   acceptedBy?: string         // client's typed name from AcceptanceSnapshot
   acceptedOptionIds?: string[]
+
+  // V2: option customiser — absent / empty = V1 flow (no customiser rendered)
+  optionGroups?: PublicOptionGroup[]
+  acceptanceVersion?: 1 | 2
 }

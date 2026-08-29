@@ -18,7 +18,7 @@ export async function GET(_req: NextRequest, { params }: Params) {
 
   const { id: itinerary_id } = await params
   const { sb, err } = getSupabase()
-  if (!sb) return NextResponse.json({ error: err ?? 'Supabase not configured' }, { status: 503 })
+  if (!sb) return NextResponse.json({ error: 'Database service unavailable' }, { status: 503 })
 
   const { data, error } = await sb
     .from('itinerary_travelers')
@@ -35,7 +35,7 @@ export async function GET(_req: NextRequest, { params }: Params) {
         { status: 503 }
       )
     }
-    return NextResponse.json({ error: error.message }, { status: 500 })
+    return NextResponse.json({ error: 'Unable to process request. Please retry.' }, { status: 500 })
   }
 
   return NextResponse.json({ travelers: data ?? [] })
@@ -53,7 +53,7 @@ export async function POST(req: NextRequest, { params }: Params) {
   }
 
   const { sb, err } = getSupabase()
-  if (!sb) return NextResponse.json({ error: err }, { status: 503 })
+  if (!sb) return NextResponse.json({ error: 'Database service unavailable' }, { status: 503 })
 
   const { data, error } = await sb
     .from('itinerary_travelers')
@@ -81,7 +81,7 @@ export async function POST(req: NextRequest, { params }: Params) {
         { status: 503 }
       )
     }
-    return NextResponse.json({ error: error.message }, { status: 500 })
+    return NextResponse.json({ error: 'Unable to process request. Please retry.' }, { status: 500 })
   }
 
   return NextResponse.json({ traveler: data }, { status: 201 })
@@ -100,7 +100,7 @@ export async function PATCH(req: NextRequest, { params }: Params) {
   }
 
   const { sb, err } = getSupabase()
-  if (!sb) return NextResponse.json({ error: err }, { status: 503 })
+  if (!sb) return NextResponse.json({ error: 'Database service unavailable' }, { status: 503 })
 
   const allowed = [
     'full_name', 'email', 'phone', 'date_of_birth', 'nationality',
@@ -132,7 +132,7 @@ export async function PATCH(req: NextRequest, { params }: Params) {
         { status: 503 }
       )
     }
-    return NextResponse.json({ error: error.message }, { status: 500 })
+    return NextResponse.json({ error: 'Unable to process request. Please retry.' }, { status: 500 })
   }
   if (!data) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
@@ -152,7 +152,7 @@ export async function DELETE(req: NextRequest, { params }: Params) {
   }
 
   const { sb, err } = getSupabase()
-  if (!sb) return NextResponse.json({ error: err }, { status: 503 })
+  if (!sb) return NextResponse.json({ error: 'Database service unavailable' }, { status: 503 })
 
   const { error } = await sb
     .from('itinerary_travelers')
@@ -168,7 +168,7 @@ export async function DELETE(req: NextRequest, { params }: Params) {
         { status: 503 }
       )
     }
-    return NextResponse.json({ error: error.message }, { status: 500 })
+    return NextResponse.json({ error: 'Unable to process request. Please retry.' }, { status: 500 })
   }
 
   return NextResponse.json({ success: true })

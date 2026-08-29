@@ -11,6 +11,7 @@ import { NotesTab } from '@/components/admin/itinerary/NotesTab'
 import { PaymentScheduleEditor, PackageOptionsEditor } from '@/components/admin/itinerary/PricingExtras'
 import ResearchTab from '@/components/admin/itinerary/ResearchTab'
 import VersionHistory from '@/components/admin/itinerary/VersionHistory'
+import type { OptionGroup, OptionItem, OptionCategory, SelectionMode, PricingMode, OptionSourceType, FulfilmentItem, FulfilmentStatus, FulfilmentItemType } from '@/lib/v2/types'
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -269,7 +270,9 @@ const TABS = [
   { id: 'tasks',      label: '✅ Tasks' },
   { id: 'esim',       label: '📶 eSIM' },
   { id: 'pricing',    label: '💰 Pricing' },
-  { id: 'margin',     label: '📊 Margin' },
+  { id: 'options',      label: '🎛 Options' },
+  { id: 'fulfilment',   label: '📦 Fulfilment' },
+  { id: 'margin',       label: '📊 Margin' },
   { id: 'research',   label: '🔍 Research' },
   { id: 'versions',   label: '🕓 Versions' },
   { id: 'notes',      label: '📝 Notes' },
@@ -679,6 +682,8 @@ export default function ItineraryBuilderPage() {
           />
         )}
         {activeTab === 'pricing'    && <PricingTab   itin={itin} onSave={save} />}
+        {activeTab === 'options'    && <OptionsTab     itineraryId={itin.id} />}
+        {activeTab === 'fulfilment' && <FulfilmentTab itineraryId={itin.id} />}
         {activeTab === 'margin'     && <MarginTab    itin={itin} />}
         {activeTab === 'research'   && (
           <ResearchTab
@@ -2974,6 +2979,658 @@ function MarginTab({ itin }: { itin: ItineraryData }) {
   )
 }
 
+// ─── Options Tab ─────────────────────────────────────────────────────────────
+
+const OPTION_CATEGORIES: OptionCategory[] = ['FLIGHT', 'HOTEL', 'ROOM', 'TRANSFER', 'ACTIVITY', 'INSURANCE', 'ADDON', 'OTHER']
+const OPTION_SOURCE_TYPES: OptionSourceType[] = ['MANUAL', 'FLIGHT_BOOKING', 'HOTEL_BOOKING', 'TRANSFER_BOOKING', 'TOUR_BOOKING']
+
+const CATEGORY_COLORS: Record<OptionCategory, string> = {
+  FLIGHT:    'bg-blue-500/20 text-blue-300',
+  HOTEL:     'bg-purple-500/20 text-purple-300',
+  ROOM:      'bg-indigo-500/20 text-indigo-300',
+  TRANSFER:  'bg-amber-500/20 text-amber-300',
+  ACTIVITY:  'bg-green-500/20 text-green-300',
+  INSURANCE: 'bg-red-500/20 text-red-300',
+  ADDON:     'bg-orange-500/20 text-orange-300',
+  OTHER:     'bg-white/10 text-white/40',
+}
+
+function OptionsTab({ itineraryId }: { itineraryId: string }) {
+  const [groups, setGroups]               = useState<OptionGroup[]>([])
+  const [selectedGroupId, setSelectedGroupId] = useState<string | null>(null)
+  const [editingGroup, setEditingGroup]   = useState<OptionGroup | null>(null)
+  const [items, setItems]                 = useState<OptionItem[]>([])
+  const [editingItem, setEditingItem]     = useState<OptionItem | null>(null)
+  const [loadingGroups, setLoadingGroups] = useState(true)
+  const [loadingItems, setLoadingItems]   = useState(false)
+  const [savingGroup, setSavingGroup]     = useState(false)
+  const [savingItem, setSavingItem]       = useState(false)
+  const [groupMsg, setGroupMsg]           = useState<{ ok: boolean; text: string } | null>(null)
+  const [itemMsg, setItemMsg]             = useState<{ ok: boolean; text: string } | null>(null)
+
+  // ── API helpers ────────────────────────────────────────────────────────────
+
+  const loadGroups = async () => {
+    setLoadingGroups(true)
+    try {
+      const res  = await fetch(`/api/admin/itineraries/${itineraryId}/option-groups`)
+      const data = await res.json() as { groups?: OptionGroup[] } | OptionGroup[]
+      setGroups(Array.isArray(data) ? data : (data as { groups?: OptionGroup[] }).groups ?? [])
+    } catch {
+      setGroupMsg({ ok: false, text: 'Failed to load option groups' })
+    }
+    setLoadingGroups(false)
+  }
+
+  const loadItems = async (groupId: string) => {
+    setLoadingItems(true)
+    setItemMsg(null)
+    try {
+      const res  = await fetch(`/api/admin/itineraries/${itineraryId}/option-groups/${groupId}/items`)
+      const data = await res.json() as { items?: OptionItem[] } | OptionItem[]
+      setItems(Array.isArray(data) ? data : (data as { items?: OptionItem[] }).items ?? [])
+    } catch {
+      setItemMsg({ ok: false, text: 'Failed to load items' })
+    }
+    setLoadingItems(false)
+  }
+
+  // ── Effects ────────────────────────────────────────────────────────────────
+
+  useEffect(() => { void loadGroups() }, [itineraryId]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => {
+    if (!selectedGroupId) {
+      setEditingGroup(null)
+      setItems([])
+      setEditingItem(null)
+      return
+    }
+    const found = groups.find(g => g.id === selectedGroupId)
+    if (found) setEditingGroup({ ...found })
+    void loadItems(selectedGroupId)
+  }, [selectedGroupId]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Group operations ───────────────────────────────────────────────────────
+
+  const handleAddGroup = async () => {
+    setGroupMsg(null)
+    try {
+      const res  = await fetch(`/api/admin/itineraries/${itineraryId}/option-groups`, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({
+          name:                  'New Group',
+          category:              'OTHER' as OptionCategory,
+          selectionMode:         'SINGLE' as SelectionMode,
+          pricingMode:           'ADD_ON' as PricingMode,
+          required:              false,
+          minSelections:         0,
+          maxSelections:         1,
+          active:                true,
+          clientVisible:         true,
+          lockedAfterAcceptance: false,
+          sortOrder:             groups.length,
+        }),
+      })
+      const data = await res.json() as { group?: OptionGroup } | OptionGroup
+      const newGroup = (data as { group?: OptionGroup }).group ?? data as OptionGroup
+      await loadGroups()
+      setSelectedGroupId(newGroup.id)
+    } catch {
+      setGroupMsg({ ok: false, text: 'Failed to create group' })
+    }
+  }
+
+  const handleSaveGroup = async () => {
+    if (!editingGroup) return
+    setSavingGroup(true)
+    setGroupMsg(null)
+    try {
+      await fetch(`/api/admin/itineraries/${itineraryId}/option-groups/${editingGroup.id}`, {
+        method:  'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify(editingGroup),
+      })
+      await loadGroups()
+      setGroupMsg({ ok: true, text: 'Saved' })
+      setTimeout(() => setGroupMsg(null), 2000)
+    } catch {
+      setGroupMsg({ ok: false, text: 'Failed to save group' })
+    }
+    setSavingGroup(false)
+  }
+
+  const handleDeleteGroup = async (groupId: string) => {
+    if (!window.confirm('Delete this option group and all its items? This cannot be undone.')) return
+    setGroupMsg(null)
+    try {
+      await fetch(`/api/admin/itineraries/${itineraryId}/option-groups/${groupId}`, { method: 'DELETE' })
+      setSelectedGroupId(null)
+      setEditingGroup(null)
+      setItems([])
+      await loadGroups()
+    } catch {
+      setGroupMsg({ ok: false, text: 'Failed to delete group' })
+    }
+  }
+
+  // ── Item operations ────────────────────────────────────────────────────────
+
+  const handleAddItem = async () => {
+    if (!selectedGroupId) return
+    setItemMsg(null)
+    try {
+      const res  = await fetch(`/api/admin/itineraries/${itineraryId}/option-groups/${selectedGroupId}/items`, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({
+          name:             'New Option',
+          description:      '',
+          clientPrice:      0,
+          currency:         'GBP',
+          priceAdjustment:  0,
+          recommended:      false,
+          defaultSelected:  false,
+          clientSelectable: true,
+          active:           true,
+          sortOrder:        items.length,
+          imageUrl:         '',
+          supplierCost:     null,
+          internalMargin:   null,
+          sourceType:       null,
+        }),
+      })
+      const data    = await res.json() as { item?: OptionItem } | OptionItem
+      const newItem = (data as { item?: OptionItem }).item ?? data as OptionItem
+      await loadItems(selectedGroupId)
+      setEditingItem(newItem)
+    } catch {
+      setItemMsg({ ok: false, text: 'Failed to create item' })
+    }
+  }
+
+  const handleSaveItem = async () => {
+    if (!editingItem || !selectedGroupId) return
+    setSavingItem(true)
+    setItemMsg(null)
+    try {
+      await fetch(`/api/admin/itineraries/${itineraryId}/option-groups/${selectedGroupId}/items/${editingItem.id}`, {
+        method:  'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify(editingItem),
+      })
+      await loadItems(selectedGroupId)
+      setEditingItem(null)
+      setItemMsg({ ok: true, text: 'Saved' })
+      setTimeout(() => setItemMsg(null), 2000)
+    } catch {
+      setItemMsg({ ok: false, text: 'Failed to save item' })
+    }
+    setSavingItem(false)
+  }
+
+  const handleDeleteItem = async (itemId: string) => {
+    if (!selectedGroupId) return
+    if (!window.confirm('Delete this item? This cannot be undone.')) return
+    setItemMsg(null)
+    try {
+      await fetch(`/api/admin/itineraries/${itineraryId}/option-groups/${selectedGroupId}/items/${itemId}`, { method: 'DELETE' })
+      if (editingItem?.id === itemId) setEditingItem(null)
+      await loadItems(selectedGroupId)
+    } catch {
+      setItemMsg({ ok: false, text: 'Failed to delete item' })
+    }
+  }
+
+  // ── Render ─────────────────────────────────────────────────────────────────
+
+  return (
+    <div className="max-w-6xl">
+      <div className="flex items-center justify-between mb-6">
+        <h2 className="text-white font-bold text-lg">Option Groups</h2>
+        <p className="text-white/30 text-xs">Build choices that clients can select when reviewing their proposal</p>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+
+        {/* ── Left: Group list ──────────────────────────────────────────────── */}
+        <div className="lg:col-span-1">
+          <div className="bg-white/5 border border-white/[0.08] rounded-2xl p-4">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-white font-bold text-sm">Groups</h3>
+              <button
+                onClick={() => { void handleAddGroup() }}
+                className="bg-amber-500/20 text-amber-400 border border-amber-500/30 px-3 py-1.5 rounded-lg text-xs font-bold hover:bg-amber-500/30 transition"
+              >
+                + Add Group
+              </button>
+            </div>
+
+            {groupMsg && !selectedGroupId && (
+              <div className={`mb-3 px-3 py-2 rounded-lg text-xs border ${groupMsg.ok ? 'bg-green-500/10 border-green-500/20 text-green-400' : 'bg-red-500/10 border-red-500/20 text-red-400'}`}>
+                {groupMsg.text}
+              </div>
+            )}
+
+            {loadingGroups ? (
+              <div className="flex items-center justify-center py-10">
+                <div className="w-5 h-5 border-2 border-amber-500 border-t-transparent rounded-full animate-spin" />
+              </div>
+            ) : groups.length === 0 ? (
+              <div className="text-center py-10">
+                <p className="text-4xl mb-3">🎛</p>
+                <p className="text-white/30 text-sm">No option groups yet</p>
+                <p className="text-white/20 text-xs mt-1">Add a group to offer client choices</p>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {groups.map(g => (
+                  <button
+                    key={g.id}
+                    onClick={() => setSelectedGroupId(g.id)}
+                    className={`w-full text-left px-3 py-3 rounded-xl border transition ${
+                      selectedGroupId === g.id
+                        ? 'bg-white/10 border-amber-500/30'
+                        : 'bg-white/[0.03] border-white/[0.06] hover:bg-white/[0.06]'
+                    }`}
+                  >
+                    <div className="flex items-start justify-between gap-2 mb-1.5">
+                      <span className="text-white text-xs font-semibold leading-snug">{g.name}</span>
+                      {g.required && (
+                        <span className="flex-shrink-0 text-[9px] font-bold bg-red-500/20 text-red-400 px-1.5 py-0.5 rounded-full">REQ</span>
+                      )}
+                    </div>
+                    <div className="flex flex-wrap gap-1.5 mb-1">
+                      <span className={`text-[9px] font-bold px-1.5 py-0.5 rounded-full ${CATEGORY_COLORS[g.category]}`}>
+                        {g.category}
+                      </span>
+                      <span className="text-[9px] font-bold bg-white/10 text-white/40 px-1.5 py-0.5 rounded-full">
+                        {g.selectionMode}
+                      </span>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* ── Right: Group detail + items ───────────────────────────────────── */}
+        <div className="lg:col-span-2 space-y-5">
+          {!selectedGroupId ? (
+            <div className="bg-white/5 border border-white/[0.08] rounded-2xl p-10 text-center">
+              <p className="text-white/30 text-sm">Select a group from the left to view its settings and items</p>
+            </div>
+          ) : editingGroup ? (
+            <>
+              {/* Group settings form */}
+              <div className="bg-white/5 border border-white/[0.08] rounded-2xl p-5">
+                <div className="flex items-center justify-between mb-5">
+                  <h3 className="text-white font-bold text-sm">Group Settings</h3>
+                  <div className="flex items-center gap-2">
+                    {groupMsg && (
+                      <span className={`text-xs ${groupMsg.ok ? 'text-green-400' : 'text-red-400'}`}>{groupMsg.ok ? '✓' : '⚠'} {groupMsg.text}</span>
+                    )}
+                    <button
+                      onClick={() => { void handleSaveGroup() }}
+                      disabled={savingGroup}
+                      className="bg-amber-500 hover:bg-amber-400 text-black font-bold px-4 py-1.5 rounded-lg text-xs transition disabled:opacity-50 flex items-center gap-1.5"
+                    >
+                      {savingGroup
+                        ? <><div className="w-3 h-3 border-2 border-black border-t-transparent rounded-full animate-spin" /> Saving…</>
+                        : '✓ Save Group'}
+                    </button>
+                    <button
+                      onClick={() => { void handleDeleteGroup(editingGroup.id) }}
+                      className="bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/20 px-3 py-1.5 rounded-lg text-xs font-bold transition"
+                    >
+                      Delete
+                    </button>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                  <div>
+                    <label className="text-white/40 text-[10px] font-bold uppercase block mb-1">Name</label>
+                    <input
+                      value={editingGroup.name}
+                      onChange={e => setEditingGroup(g => g ? { ...g, name: e.target.value } : g)}
+                      placeholder="e.g. Room Type"
+                      className={inp}
+                    />
+                  </div>
+                  <div>
+                    <label className="text-white/40 text-[10px] font-bold uppercase block mb-1">Category</label>
+                    <select
+                      value={editingGroup.category}
+                      onChange={e => setEditingGroup(g => g ? { ...g, category: e.target.value as OptionCategory } : g)}
+                      className={sel}
+                    >
+                      {OPTION_CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+                    </select>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                  <div>
+                    <label className="text-white/40 text-[10px] font-bold uppercase block mb-2">Selection Mode</label>
+                    <div className="flex gap-4">
+                      {(['SINGLE', 'MULTIPLE'] as SelectionMode[]).map(m => (
+                        <label key={m} className="flex items-center gap-2 cursor-pointer">
+                          <input
+                            type="radio"
+                            name={`sel-${editingGroup.id}`}
+                            checked={editingGroup.selectionMode === m}
+                            onChange={() => setEditingGroup(g => g ? { ...g, selectionMode: m } : g)}
+                            className="accent-amber-500"
+                          />
+                          <span className="text-white/70 text-xs">{m}</span>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                  <div>
+                    <label className="text-white/40 text-[10px] font-bold uppercase block mb-2">Pricing Mode</label>
+                    <div className="flex gap-4">
+                      {(['REPLACEMENT', 'ADD_ON'] as PricingMode[]).map(m => (
+                        <label key={m} className="flex items-center gap-2 cursor-pointer">
+                          <input
+                            type="radio"
+                            name={`pm-${editingGroup.id}`}
+                            checked={editingGroup.pricingMode === m}
+                            onChange={() => setEditingGroup(g => g ? { ...g, pricingMode: m } : g)}
+                            className="accent-amber-500"
+                          />
+                          <span className="text-white/70 text-xs">{m}</span>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                {editingGroup.selectionMode === 'MULTIPLE' && (
+                  <div className="grid grid-cols-2 gap-4 mb-4">
+                    <div>
+                      <label className="text-white/40 text-[10px] font-bold uppercase block mb-1">Min Selections</label>
+                      <input
+                        type="number"
+                        min="0"
+                        value={editingGroup.minSelections}
+                        onChange={e => setEditingGroup(g => g ? { ...g, minSelections: Number(e.target.value) } : g)}
+                        className={inp}
+                      />
+                    </div>
+                    <div>
+                      <label className="text-white/40 text-[10px] font-bold uppercase block mb-1">Max Selections</label>
+                      <input
+                        type="number"
+                        min="1"
+                        value={editingGroup.maxSelections}
+                        onChange={e => setEditingGroup(g => g ? { ...g, maxSelections: Number(e.target.value) } : g)}
+                        className={inp}
+                      />
+                    </div>
+                  </div>
+                )}
+
+                <div className="flex flex-wrap gap-5 pt-1">
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input type="checkbox" checked={editingGroup.required} onChange={e => setEditingGroup(g => g ? { ...g, required: e.target.checked } : g)} className="accent-amber-500" />
+                    <span className="text-white/70 text-xs">Required</span>
+                  </label>
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input type="checkbox" checked={editingGroup.clientVisible} onChange={e => setEditingGroup(g => g ? { ...g, clientVisible: e.target.checked } : g)} className="accent-amber-500" />
+                    <span className="text-white/70 text-xs">Client Visible</span>
+                  </label>
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input type="checkbox" checked={editingGroup.lockedAfterAcceptance} onChange={e => setEditingGroup(g => g ? { ...g, lockedAfterAcceptance: e.target.checked } : g)} className="accent-amber-500" />
+                    <span className="text-white/70 text-xs">Locked After Acceptance</span>
+                  </label>
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input type="checkbox" checked={editingGroup.active} onChange={e => setEditingGroup(g => g ? { ...g, active: e.target.checked } : g)} className="accent-amber-500" />
+                    <span className="text-white/70 text-xs">Active</span>
+                  </label>
+                </div>
+              </div>
+
+              {/* Items section */}
+              <div className="bg-white/5 border border-white/[0.08] rounded-2xl p-5">
+                <div className="flex items-center justify-between mb-4">
+                  <h3 className="text-white font-bold text-sm">Items</h3>
+                  <div className="flex items-center gap-2">
+                    {itemMsg && (
+                      <span className={`text-xs ${itemMsg.ok ? 'text-green-400' : 'text-red-400'}`}>{itemMsg.ok ? '✓' : '⚠'} {itemMsg.text}</span>
+                    )}
+                    <button
+                      onClick={() => { void handleAddItem() }}
+                      className="bg-white/5 hover:bg-white/10 text-white border border-white/10 font-bold px-3 py-1.5 rounded-lg text-xs transition"
+                    >
+                      + Add Item
+                    </button>
+                  </div>
+                </div>
+
+                {loadingItems ? (
+                  <div className="flex items-center justify-center py-10">
+                    <div className="w-5 h-5 border-2 border-amber-500 border-t-transparent rounded-full animate-spin" />
+                  </div>
+                ) : items.length === 0 ? (
+                  <div className="text-center py-8">
+                    <p className="text-white/30 text-sm">No items yet</p>
+                    <button onClick={() => { void handleAddItem() }} className="text-amber-400 text-xs mt-2 hover:text-amber-300 transition">+ Add first item</button>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {items.map(item => (
+                      <div key={item.id} className="bg-white/[0.04] border border-white/[0.06] rounded-xl overflow-hidden">
+                        {editingItem?.id === item.id ? (
+                          /* ── Inline item editor ── */
+                          <div className="p-4">
+                            <div className="flex items-center justify-between mb-4 pb-3 border-b border-white/[0.08]">
+                              <p className="text-amber-400 text-xs font-bold uppercase tracking-wider">✏️ Editing: {item.name || 'New Item'}</p>
+                              <div className="flex gap-2">
+                                <button
+                                  onClick={() => { void handleSaveItem() }}
+                                  disabled={savingItem}
+                                  className="bg-amber-500 hover:bg-amber-400 text-black font-bold px-4 py-1.5 rounded-lg text-xs transition disabled:opacity-50"
+                                >
+                                  {savingItem ? 'Saving…' : '✓ Done'}
+                                </button>
+                                <button
+                                  onClick={() => { void handleDeleteItem(item.id) }}
+                                  className="bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/20 px-3 py-1.5 rounded-lg text-xs font-bold transition"
+                                >
+                                  Delete
+                                </button>
+                              </div>
+                            </div>
+
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-3">
+                              <div>
+                                <label className="text-white/30 text-[10px] font-bold uppercase block mb-1">Name</label>
+                                <input
+                                  value={editingItem.name}
+                                  onChange={e => setEditingItem(i => i ? { ...i, name: e.target.value } : i)}
+                                  placeholder="Option name"
+                                  className={inp}
+                                />
+                              </div>
+                              <div>
+                                <label className="text-white/30 text-[10px] font-bold uppercase block mb-1">Description</label>
+                                <input
+                                  value={editingItem.description ?? ''}
+                                  onChange={e => setEditingItem(i => i ? { ...i, description: e.target.value } : i)}
+                                  placeholder="Short description"
+                                  className={inp}
+                                />
+                              </div>
+                            </div>
+
+                            <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mb-3">
+                              <div>
+                                <label className="text-green-400/70 text-[10px] font-bold uppercase block mb-1">Client Price</label>
+                                <input
+                                  type="number"
+                                  value={editingItem.clientPrice}
+                                  onChange={e => setEditingItem(i => i ? { ...i, clientPrice: Number(e.target.value) } : i)}
+                                  placeholder="0.00"
+                                  className={inp}
+                                />
+                              </div>
+                              <div>
+                                <label className="text-white/30 text-[10px] font-bold uppercase block mb-1">Currency</label>
+                                <select
+                                  value={editingItem.currency}
+                                  onChange={e => setEditingItem(i => i ? { ...i, currency: e.target.value } : i)}
+                                  className={sel}
+                                >
+                                  {['GBP', 'USD', 'EUR', 'NGN', 'GHS', 'AED'].map(c => <option key={c}>{c}</option>)}
+                                </select>
+                              </div>
+                              <div>
+                                <label className="text-white/30 text-[10px] font-bold uppercase block mb-1">
+                                  {editingGroup.pricingMode === 'REPLACEMENT' ? 'Price Delta' : 'Add-on Price'}
+                                </label>
+                                <input
+                                  type="number"
+                                  value={editingItem.priceAdjustment}
+                                  onChange={e => setEditingItem(i => i ? { ...i, priceAdjustment: Number(e.target.value) } : i)}
+                                  placeholder="0.00"
+                                  className={inp}
+                                />
+                              </div>
+                            </div>
+
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-3">
+                              <div>
+                                <label className="text-white/30 text-[10px] font-bold uppercase block mb-1">Image URL</label>
+                                {editingItem.imageUrl && (
+                                  <div className="mb-1.5 rounded-lg overflow-hidden h-16 bg-white/5">
+                                    <img src={editingItem.imageUrl} alt="preview" className="w-full h-full object-cover" onError={e => { (e.target as HTMLImageElement).style.display = 'none' }} />
+                                  </div>
+                                )}
+                                <input
+                                  value={editingItem.imageUrl ?? ''}
+                                  onChange={e => setEditingItem(i => i ? { ...i, imageUrl: e.target.value } : i)}
+                                  placeholder="https://…"
+                                  className={inp}
+                                />
+                              </div>
+                              <div>
+                                <label className="text-white/30 text-[10px] font-bold uppercase block mb-1">Quote Expires At</label>
+                                <input
+                                  type="date"
+                                  value={editingItem.quoteExpiresAt ? editingItem.quoteExpiresAt.split('T')[0] : ''}
+                                  onChange={e => setEditingItem(i => i ? { ...i, quoteExpiresAt: e.target.value || undefined } : i)}
+                                  className={inp}
+                                />
+                              </div>
+                            </div>
+
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-3">
+                              <div>
+                                <label className="text-amber-400/70 text-[10px] font-bold uppercase block mb-1">Supplier Cost <span className="text-white/20 font-normal normal-case">— Internal</span></label>
+                                <input
+                                  type="number"
+                                  value={editingItem.supplierCost ?? ''}
+                                  onChange={e => setEditingItem(i => i ? { ...i, supplierCost: e.target.value ? Number(e.target.value) : null } : i)}
+                                  placeholder="0.00"
+                                  className={inp}
+                                />
+                              </div>
+                              <div>
+                                <label className="text-amber-400/70 text-[10px] font-bold uppercase block mb-1">Internal Margin <span className="text-white/20 font-normal normal-case">— Internal</span></label>
+                                <input
+                                  type="number"
+                                  value={editingItem.internalMargin ?? ''}
+                                  onChange={e => setEditingItem(i => i ? { ...i, internalMargin: e.target.value ? Number(e.target.value) : null } : i)}
+                                  placeholder="0.00"
+                                  className={inp}
+                                />
+                              </div>
+                            </div>
+
+                            <div className="mb-4">
+                              <label className="text-white/30 text-[10px] font-bold uppercase block mb-1">Source Type</label>
+                              <select
+                                value={editingItem.sourceType ?? ''}
+                                onChange={e => setEditingItem(i => i ? { ...i, sourceType: e.target.value ? e.target.value as OptionSourceType : null } : i)}
+                                className={sel}
+                              >
+                                <option value="">— None —</option>
+                                {OPTION_SOURCE_TYPES.map(st => <option key={st} value={st}>{st}</option>)}
+                              </select>
+                            </div>
+
+                            <div className="flex flex-wrap gap-5">
+                              <label className="flex items-center gap-2 cursor-pointer">
+                                <input type="checkbox" checked={editingItem.recommended} onChange={e => setEditingItem(i => i ? { ...i, recommended: e.target.checked } : i)} className="accent-amber-500" />
+                                <span className="text-white/70 text-xs">Recommended</span>
+                              </label>
+                              <label className="flex items-center gap-2 cursor-pointer">
+                                <input type="checkbox" checked={editingItem.defaultSelected} onChange={e => setEditingItem(i => i ? { ...i, defaultSelected: e.target.checked } : i)} className="accent-amber-500" />
+                                <span className="text-white/70 text-xs">Default Selected</span>
+                              </label>
+                              <label className="flex items-center gap-2 cursor-pointer">
+                                <input type="checkbox" checked={editingItem.clientSelectable} onChange={e => setEditingItem(i => i ? { ...i, clientSelectable: e.target.checked } : i)} className="accent-amber-500" />
+                                <span className="text-white/70 text-xs">Client Selectable</span>
+                              </label>
+                              <label className="flex items-center gap-2 cursor-pointer">
+                                <input type="checkbox" checked={editingItem.active} onChange={e => setEditingItem(i => i ? { ...i, active: e.target.checked } : i)} className="accent-amber-500" />
+                                <span className="text-white/70 text-xs">Active</span>
+                              </label>
+                            </div>
+                          </div>
+                        ) : (
+                          /* ── Item summary row ── */
+                          <div className="flex items-center gap-3 p-3">
+                            {item.imageUrl && (
+                              <div className="flex-shrink-0 w-12 h-10 rounded-lg overflow-hidden bg-white/5">
+                                <img src={item.imageUrl} alt={item.name} className="w-full h-full object-cover" onError={e => { (e.target as HTMLImageElement).style.display = 'none' }} />
+                              </div>
+                            )}
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-2 mb-0.5 flex-wrap">
+                                <span className="text-white text-sm font-medium">{item.name}</span>
+                                {item.recommended && (
+                                  <span className="text-[9px] font-bold bg-amber-500/20 text-amber-400 px-1.5 py-0.5 rounded-full">RECOMMENDED</span>
+                                )}
+                                {item.defaultSelected && (
+                                  <span className="text-[9px] font-bold bg-green-500/15 text-green-400 px-1.5 py-0.5 rounded-full">DEFAULT</span>
+                                )}
+                              </div>
+                              <div className="flex items-center gap-3 text-xs text-white/40">
+                                {editingGroup.pricingMode === 'ADD_ON'
+                                  ? <span>+{item.currency} {item.clientPrice.toLocaleString()}</span>
+                                  : <span>Δ {item.currency} {item.priceAdjustment.toLocaleString()}</span>
+                                }
+                                {item.quoteExpiresAt && (
+                                  <span className="text-amber-400/60">Expires {item.quoteExpiresAt.split('T')[0]}</span>
+                                )}
+                              </div>
+                            </div>
+                            <button
+                              onClick={() => setEditingItem({ ...item })}
+                              className="flex-shrink-0 bg-white/5 hover:bg-white/10 text-white/70 hover:text-white border border-white/10 px-3 py-1.5 rounded-lg text-xs font-bold transition"
+                            >
+                              Edit
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </>
+          ) : null}
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ─── Preview Tab ──────────────────────────────────────────────────────────────
 
 function PreviewTab({
@@ -3141,9 +3798,14 @@ function PreviewTab({
               <div>
                 <h3 className="font-bold text-gray-800 text-sm mb-2">🚗 Transfers ({transfers.length})</h3>
                 {transfers.slice(0, 2).map((t, i) => (
-                  <div key={i} className="bg-gray-50 rounded-lg p-2 mb-1.5 flex justify-between">
-                    <p className="text-gray-700 text-xs">{t.from} → {t.to} · {t.type}</p>
-                    {t.date && <p className="text-gray-400 text-xs">{fmtDate(t.date)}</p>}
+                  <div key={i} className="bg-gray-50 rounded-lg overflow-hidden mb-1.5">
+                    {(t.images?.[0] || t.image) && (
+                      <img src={t.images?.[0] || t.image} alt={t.type || 'Transfer'} className="w-full h-16 object-cover" onError={e => { (e.target as HTMLImageElement).style.display = 'none' }} />
+                    )}
+                    <div className="p-2 flex justify-between">
+                      <p className="text-gray-700 text-xs">{t.from} → {t.to} · {t.type}</p>
+                      {t.date && <p className="text-gray-400 text-xs">{fmtDate(t.date)}</p>}
+                    </div>
                   </div>
                 ))}
               </div>
@@ -3412,6 +4074,430 @@ function PreviewTab({
           </div>
         </div>
       </div>
+    </div>
+  )
+}
+
+// ─── Fulfilment Tab ───────────────────────────────────────────────────────────
+
+const FULFILMENT_ITEM_TYPES: FulfilmentItemType[] = [
+  'FLIGHT', 'HOTEL', 'TRANSFER', 'TOUR', 'TRAIN', 'FERRY', 'ESIM', 'OTHER',
+]
+const FULFILMENT_STATUSES: FulfilmentStatus[] = [
+  'PENDING', 'IN_PROGRESS', 'BOOKED', 'CONFIRMED', 'FAILED', 'CANCELLED',
+]
+
+const FULFILMENT_TYPE_COLOURS: Record<FulfilmentItemType, string> = {
+  FLIGHT:   'bg-sky-500/20 text-sky-300 border-sky-500/30',
+  HOTEL:    'bg-purple-500/20 text-purple-300 border-purple-500/30',
+  TRANSFER: 'bg-amber-500/20 text-amber-300 border-amber-500/30',
+  TOUR:     'bg-green-500/20 text-green-300 border-green-500/30',
+  TRAIN:    'bg-orange-500/20 text-orange-300 border-orange-500/30',
+  FERRY:    'bg-teal-500/20 text-teal-300 border-teal-500/30',
+  ESIM:     'bg-indigo-500/20 text-indigo-300 border-indigo-500/30',
+  OTHER:    'bg-white/10 text-white/50 border-white/20',
+}
+
+const FULFILMENT_STATUS_COLOURS: Record<FulfilmentStatus, string> = {
+  PENDING:     'bg-yellow-500/20 text-yellow-300 border-yellow-500/30',
+  IN_PROGRESS: 'bg-blue-500/20 text-blue-300 border-blue-500/30',
+  BOOKED:      'bg-purple-500/20 text-purple-300 border-purple-500/30',
+  CONFIRMED:   'bg-green-500/20 text-green-300 border-green-500/30',
+  FAILED:      'bg-red-500/20 text-red-300 border-red-500/30',
+  CANCELLED:   'bg-gray-500/20 text-gray-400 border-gray-500/30',
+}
+
+const FULFILMENT_TYPE_ICONS: Record<FulfilmentItemType, string> = {
+  FLIGHT: '✈️', HOTEL: '🏨', TRANSFER: '🚗', TOUR: '🎭',
+  TRAIN: '🚂', FERRY: '⛴️', ESIM: '📶', OTHER: '📦',
+}
+
+const COMPLETED_STATUSES: FulfilmentStatus[] = ['CONFIRMED', 'BOOKED']
+
+interface FulfilmentFormState {
+  type:              FulfilmentItemType
+  description:       string
+  status:            FulfilmentStatus
+  supplierReference: string
+  clientReference:   string
+  assignedTo:        string
+  notes:             string
+  completedAt:       string
+}
+
+const EMPTY_FORM: FulfilmentFormState = {
+  type:              'OTHER',
+  description:       '',
+  status:            'PENDING',
+  supplierReference: '',
+  clientReference:   '',
+  assignedTo:        '',
+  notes:             '',
+  completedAt:       '',
+}
+
+function fulfilmentFormToBody(form: FulfilmentFormState) {
+  return {
+    type:              form.type,
+    description:       form.description,
+    status:            form.status,
+    supplierReference: form.supplierReference.trim() || null,
+    clientReference:   form.clientReference.trim()   || null,
+    assignedTo:        form.assignedTo.trim()         || null,
+    notes:             form.notes.trim()              || null,
+    completedAt:       form.completedAt               || null,
+  }
+}
+
+function FulfilmentTab({ itineraryId }: { itineraryId: string }) {
+  const [items, setItems]               = useState<FulfilmentItem[]>([])
+  const [loading, setLoading]           = useState(true)
+  const [editingId, setEditingId]       = useState<string | null>(null)
+  const [editForm, setEditForm]         = useState<FulfilmentFormState>(EMPTY_FORM)
+  const [showCreate, setShowCreate]     = useState(false)
+  const [createForm, setCreateForm]     = useState<FulfilmentFormState>(EMPTY_FORM)
+  const [saving, setSaving]             = useState(false)
+  const [deleting, setDeleting]         = useState(false)
+  const [msg, setMsg]                   = useState<{ ok: boolean; text: string } | null>(null)
+
+  const apiBase = `/api/admin/itineraries/${itineraryId}/fulfilment`
+
+  const loadItems = async () => {
+    setLoading(true)
+    try {
+      const res  = await fetch(apiBase)
+      const data = await res.json() as { items?: FulfilmentItem[] } | FulfilmentItem[]
+      setItems(Array.isArray(data) ? data : (data as { items?: FulfilmentItem[] }).items ?? [])
+    } catch {
+      setMsg({ ok: false, text: 'Failed to load fulfilment items' })
+    }
+    setLoading(false)
+  }
+
+  useEffect(() => { void loadItems() }, [itineraryId]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Auto-fill completedAt when status becomes CONFIRMED or BOOKED
+  const handleStatusChange = (
+    status: FulfilmentStatus,
+    form: FulfilmentFormState,
+    setForm: (f: FulfilmentFormState) => void,
+  ) => {
+    const completedAt =
+      COMPLETED_STATUSES.includes(status) && !form.completedAt
+        ? new Date().toISOString().slice(0, 16)
+        : form.completedAt
+    setForm({ ...form, status, completedAt })
+  }
+
+  const openEdit = (item: FulfilmentItem) => {
+    setShowCreate(false)
+    setEditingId(item.id)
+    setEditForm({
+      type:              item.type,
+      description:       item.description,
+      status:            item.status,
+      supplierReference: item.supplierReference ?? '',
+      clientReference:   item.clientReference   ?? '',
+      assignedTo:        item.assignedTo         ?? '',
+      notes:             item.notes              ?? '',
+      completedAt:       item.completedAt        ? item.completedAt.slice(0, 16) : '',
+    })
+    setMsg(null)
+  }
+
+  const handleSaveEdit = async () => {
+    if (!editingId) return
+    setSaving(true)
+    setMsg(null)
+    try {
+      const res = await fetch(apiBase, {
+        method:  'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ itemId: editingId, ...fulfilmentFormToBody(editForm) }),
+      })
+      if (!res.ok) throw new Error(await res.text())
+      setMsg({ ok: true, text: 'Saved' })
+      setEditingId(null)
+      void loadItems()
+    } catch {
+      setMsg({ ok: false, text: 'Save failed — try again' })
+    }
+    setSaving(false)
+  }
+
+  const handleDelete = async (itemId: string) => {
+    if (!window.confirm('Delete this work item? This cannot be undone.')) return
+    setDeleting(true)
+    setMsg(null)
+    try {
+      const res = await fetch(apiBase, {
+        method:  'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ itemId }),
+      })
+      if (!res.ok) throw new Error(await res.text())
+      setEditingId(null)
+      void loadItems()
+    } catch {
+      setMsg({ ok: false, text: 'Delete failed — try again' })
+    }
+    setDeleting(false)
+  }
+
+  const handleCreate = async () => {
+    setSaving(true)
+    setMsg(null)
+    try {
+      const res = await fetch(apiBase, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify(fulfilmentFormToBody(createForm)),
+      })
+      if (!res.ok) throw new Error(await res.text())
+      setMsg({ ok: true, text: 'Work item created' })
+      setShowCreate(false)
+      setCreateForm(EMPTY_FORM)
+      void loadItems()
+    } catch {
+      setMsg({ ok: false, text: 'Create failed — try again' })
+    }
+    setSaving(false)
+  }
+
+  // ── Reusable field editor ──────────────────────────────────────────────────
+
+  function FulfilmentFields({
+    form,
+    setForm,
+  }: {
+    form: FulfilmentFormState
+    setForm: (f: FulfilmentFormState) => void
+  }) {
+    return (
+      <div className="space-y-4">
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <label className="text-white/30 text-[10px] font-bold uppercase block mb-1">Type</label>
+            <select
+              value={form.type}
+              onChange={e => setForm({ ...form, type: e.target.value as FulfilmentItemType })}
+              className={sel}
+            >
+              {FULFILMENT_ITEM_TYPES.map(t => (
+                <option key={t} value={t}>{FULFILMENT_TYPE_ICONS[t]} {t}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="text-white/30 text-[10px] font-bold uppercase block mb-1">Status</label>
+            <select
+              value={form.status}
+              onChange={e => handleStatusChange(e.target.value as FulfilmentStatus, form, setForm)}
+              className={sel}
+            >
+              {FULFILMENT_STATUSES.map(s => (
+                <option key={s} value={s}>{s}</option>
+              ))}
+            </select>
+          </div>
+        </div>
+
+        <div>
+          <label className="text-white/30 text-[10px] font-bold uppercase block mb-1">Description</label>
+          <input
+            value={form.description}
+            onChange={e => setForm({ ...form, description: e.target.value })}
+            placeholder="e.g. EK 001 LHR→DXB, 2 pax, Business Class"
+            className={inp}
+          />
+        </div>
+
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <label className="text-white/30 text-[10px] font-bold uppercase block mb-1">Assigned To</label>
+            <input
+              value={form.assignedTo}
+              onChange={e => setForm({ ...form, assignedTo: e.target.value })}
+              placeholder="Advisor name or email"
+              className={inp}
+            />
+          </div>
+          <div>
+            <label className="text-white/30 text-[10px] font-bold uppercase block mb-1">Client Reference</label>
+            <input
+              value={form.clientReference}
+              onChange={e => setForm({ ...form, clientReference: e.target.value })}
+              placeholder="Ref shown to client"
+              className={inp}
+            />
+          </div>
+        </div>
+
+        <div>
+          <label className="text-white/30 text-[10px] font-bold uppercase block mb-1">
+            Supplier Ref (PNR/Confirmation) — only record AFTER confirmed booking with supplier
+          </label>
+          <input
+            value={form.supplierReference}
+            onChange={e => setForm({ ...form, supplierReference: e.target.value })}
+            placeholder="e.g. ABC123 — leave blank until booking is confirmed"
+            className={inp}
+          />
+        </div>
+
+        <div>
+          <label className="text-white/30 text-[10px] font-bold uppercase block mb-1">Notes</label>
+          <textarea
+            value={form.notes}
+            onChange={e => setForm({ ...form, notes: e.target.value })}
+            placeholder="Internal notes for this work item…"
+            rows={3}
+            className={ta}
+          />
+        </div>
+
+        <div>
+          <label className="text-white/30 text-[10px] font-bold uppercase block mb-1">
+            Completed At (auto-filled when status set to BOOKED or CONFIRMED)
+          </label>
+          <input
+            type="datetime-local"
+            value={form.completedAt}
+            onChange={e => setForm({ ...form, completedAt: e.target.value })}
+            className={inp}
+          />
+        </div>
+      </div>
+    )
+  }
+
+  // ── Render ─────────────────────────────────────────────────────────────────
+
+  return (
+    <div className="space-y-6 max-w-4xl">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="text-white font-bold text-base">📦 Fulfilment</h2>
+          <p className="text-white/30 text-xs mt-0.5">Post-acceptance booking work items</p>
+        </div>
+        <button
+          onClick={() => { setShowCreate(true); setEditingId(null); setCreateForm(EMPTY_FORM); setMsg(null) }}
+          className="flex items-center gap-1.5 bg-amber-500/20 text-amber-400 border border-amber-500/30 px-4 py-2 rounded-xl text-sm font-bold hover:bg-amber-500/30 transition"
+        >
+          + Add Work Item
+        </button>
+      </div>
+
+      {/* Message */}
+      {msg && (
+        <div className={`rounded-xl px-4 py-3 text-sm font-medium ${msg.ok ? 'bg-green-500/15 text-green-400 border border-green-500/25' : 'bg-red-500/15 text-red-400 border border-red-500/25'}`}>
+          {msg.ok ? `✓ ${msg.text}` : `✕ ${msg.text}`}
+        </div>
+      )}
+
+      {/* Create form */}
+      {showCreate && (
+        <div className="bg-white/5 border border-amber-500/30 rounded-2xl p-6">
+          <h3 className="text-amber-400 font-bold text-sm mb-4">New Work Item</h3>
+          <FulfilmentFields form={createForm} setForm={setCreateForm} />
+          <div className="flex gap-3 mt-5">
+            <button
+              onClick={handleCreate}
+              disabled={saving || !createForm.description.trim()}
+              className="bg-amber-500 hover:bg-amber-400 text-black font-bold px-5 py-2.5 rounded-xl text-sm transition disabled:opacity-50 flex items-center gap-2"
+            >
+              {saving ? <><span className="w-4 h-4 border-2 border-black border-t-transparent rounded-full animate-spin" /> Saving…</> : 'Create'}
+            </button>
+            <button
+              onClick={() => { setShowCreate(false); setMsg(null) }}
+              className="bg-white/5 hover:bg-white/10 text-white/60 border border-white/10 font-bold px-5 py-2.5 rounded-xl text-sm transition"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Item list */}
+      {loading ? (
+        <div className="flex items-center justify-center py-16">
+          <div className="w-7 h-7 border-2 border-amber-500 border-t-transparent rounded-full animate-spin" />
+        </div>
+      ) : items.length === 0 ? (
+        <div className="bg-white/5 border border-white/[0.08] rounded-2xl p-12 text-center">
+          <p className="text-4xl mb-3">📦</p>
+          <p className="text-white/40 text-sm">No fulfilment items yet</p>
+          <p className="text-white/20 text-xs mt-1">Click "+ Add Work Item" to create the first one</p>
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {items.map(item => (
+            <div key={item.id}>
+              {/* Item row */}
+              <button
+                onClick={() => editingId === item.id ? setEditingId(null) : openEdit(item)}
+                className={`w-full text-left bg-white/5 border rounded-2xl p-4 transition hover:bg-white/[0.07] ${editingId === item.id ? 'border-amber-500/40' : 'border-white/[0.08]'}`}
+              >
+                <div className="flex items-start gap-3">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex flex-wrap items-center gap-2 mb-1.5">
+                      <span className={`inline-flex items-center gap-1 border text-[10px] font-bold px-2 py-0.5 rounded-full ${FULFILMENT_TYPE_COLOURS[item.type]}`}>
+                        {FULFILMENT_TYPE_ICONS[item.type]} {item.type}
+                      </span>
+                      <span className={`inline-flex border text-[10px] font-bold px-2 py-0.5 rounded-full ${FULFILMENT_STATUS_COLOURS[item.status]}`}>
+                        {item.status.replace('_', ' ')}
+                      </span>
+                    </div>
+                    <p className="text-white text-sm font-medium truncate">{item.description}</p>
+                    <div className="flex flex-wrap gap-x-4 gap-y-0.5 mt-1">
+                      {item.assignedTo && (
+                        <span className="text-white/30 text-xs">👤 {item.assignedTo}</span>
+                      )}
+                      {item.supplierReference && (
+                        <span className="text-white/30 text-xs">🔖 {item.supplierReference}</span>
+                      )}
+                      {item.clientReference && (
+                        <span className="text-white/30 text-xs">🏷 {item.clientReference}</span>
+                      )}
+                    </div>
+                  </div>
+                  <span className="text-white/20 text-xs mt-1 shrink-0">{editingId === item.id ? '▲' : '▼'}</span>
+                </div>
+              </button>
+
+              {/* Inline editor */}
+              {editingId === item.id && (
+                <div className="bg-white/[0.04] border border-amber-500/20 border-t-0 rounded-b-2xl px-6 py-5">
+                  <FulfilmentFields form={editForm} setForm={setEditForm} />
+                  <div className="flex gap-3 mt-5">
+                    <button
+                      onClick={handleSaveEdit}
+                      disabled={saving || !editForm.description.trim()}
+                      className="bg-amber-500 hover:bg-amber-400 text-black font-bold px-5 py-2.5 rounded-xl text-sm transition disabled:opacity-50 flex items-center gap-2"
+                    >
+                      {saving ? <><span className="w-4 h-4 border-2 border-black border-t-transparent rounded-full animate-spin" /> Saving…</> : 'Save Changes'}
+                    </button>
+                    <button
+                      onClick={() => { setEditingId(null); setMsg(null) }}
+                      className="bg-white/5 hover:bg-white/10 text-white/60 border border-white/10 font-bold px-5 py-2.5 rounded-xl text-sm transition"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      onClick={() => void handleDelete(item.id)}
+                      disabled={deleting}
+                      className="ml-auto bg-red-500/15 hover:bg-red-500/25 text-red-400 border border-red-500/30 font-bold px-4 py-2.5 rounded-xl text-sm transition disabled:opacity-50"
+                    >
+                      {deleting ? 'Deleting…' : 'Delete'}
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   )
 }

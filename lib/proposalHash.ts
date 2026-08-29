@@ -51,6 +51,35 @@ export type PackageOptionRow = {
   [key: string]: unknown  // allow extra Supabase columns without TS error
 }
 
+// V2 option group rows — only the fields that affect the commercial proposal.
+// supplierCost, internalMargin, sourceBookingRef, metadata are excluded.
+export type OptionGroupForHash = {
+  id:              string
+  name:            string
+  category:        string
+  selectionMode:   string
+  pricingMode:     string
+  required:        boolean
+  minSelections:   number
+  maxSelections:   number
+  sortOrder:       number
+  active:          boolean
+  clientVisible:   boolean
+  items: Array<{
+    id:              string
+    name:            string
+    clientPrice:     number | null
+    currency:        string
+    priceAdjustment: number | null
+    recommended:     boolean
+    defaultSelected: boolean
+    clientSelectable: boolean
+    active:          boolean
+    sortOrder:       number
+    quoteExpiresAt:  string | null   // ISO string
+  }>
+}
+
 // The exact set of values fed into the hash — explicit, no raw Prisma object.
 type ProposalHashPayload = {
   referenceNumber:    string
@@ -78,6 +107,8 @@ type ProposalHashPayload = {
   inclusions:         string[]        // sorted (set semantics)
   exclusions:         string[]        // sorted (set semantics)
   packageOptions:     unknown[]       // sorted by sort_order, then name
+  // V2: option groups — empty array for V1 itineraries (maintains hash compatibility)
+  optionGroups:       unknown[]
 }
 
 // ─── normalization helpers ─────────────────────────────────────────────────────
@@ -132,6 +163,42 @@ function normalizePackageOptions(rows: PackageOptionRow[]): unknown[] {
     }))
 }
 
+// Normalize V2 option groups for hashing.
+// Only commercial/pricing-relevant fields are included.
+// supplierCost, internalMargin, sourceBookingRef, metadata are excluded.
+function normalizeOptionGroups(groups: OptionGroupForHash[]): unknown[] {
+  return [...groups]
+    .sort((a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name))
+    .map(g => ({
+      id:            g.id,
+      name:          g.name,
+      category:      g.category,
+      selectionMode: g.selectionMode,
+      pricingMode:   g.pricingMode,
+      required:      g.required,
+      minSelections: g.minSelections,
+      maxSelections: g.maxSelections,
+      sortOrder:     g.sortOrder,
+      active:        g.active,
+      clientVisible: g.clientVisible,
+      items: [...g.items]
+        .sort((a, b) => a.sortOrder - b.sortOrder || a.name.localeCompare(b.name))
+        .map(item => ({
+          id:               item.id,
+          name:             item.name,
+          clientPrice:      normalizeMoney(item.clientPrice),
+          currency:         item.currency,
+          priceAdjustment:  normalizeMoney(item.priceAdjustment),
+          recommended:      item.recommended,
+          defaultSelected:  item.defaultSelected,
+          clientSelectable: item.clientSelectable,
+          active:           item.active,
+          sortOrder:        item.sortOrder,
+          quoteExpiresAt:   item.quoteExpiresAt ?? null,
+        })),
+    }))
+}
+
 // ─── canonicalization ──────────────────────────────────────────────────────────
 
 // Recursively produce a deterministic JSON-serializable structure:
@@ -162,7 +229,9 @@ function canonicalize(value: unknown): unknown {
  */
 export function buildProposalHashPayload(
   itin: Itinerary,
-  packageOptions: PackageOptionRow[] = []
+  packageOptions: PackageOptionRow[] = [],
+  // V2 option groups — pass [] for V1 itineraries; hash is backward-compatible
+  optionGroupsV2: OptionGroupForHash[] = [],
 ): ProposalHashPayload {
   return {
     referenceNumber:    itin.referenceNumber,
@@ -190,6 +259,7 @@ export function buildProposalHashPayload(
     inclusions:         (safeParseArray(itin.inclusions) as string[]).slice().sort(),
     exclusions:         (safeParseArray(itin.exclusions) as string[]).slice().sort(),
     packageOptions:     normalizePackageOptions(packageOptions),
+    optionGroups:       normalizeOptionGroups(optionGroupsV2),
   }
 }
 

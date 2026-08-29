@@ -3,6 +3,8 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import type { PublicProposalDTO, ProposalFlight, ProposalHotel, ProposalTransfer, ProposalTour, ProposalDay, ProposalTrain, ProposalFerry } from './_types'
 import { formatDateOnly, parseDateOnly } from '@/lib/date-utils'
+import type { PublicOptionGroup, PublicOptionItem, ClientSelectionPayload, SelectedItemInput } from '@/lib/v2/types'
+import { calculateTripPrice } from '@/lib/v2/pricing'
 
 // ── Utilities ─────────────────────────────────────────────────────────────────
 
@@ -564,34 +566,78 @@ function ProposalHotels({ proposal }: { proposal: PublicProposalDTO }) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 function TransferCard({ t }: { t: ProposalTransfer }) {
+  const hasImg = t.images && t.images.length > 0
   return (
-    <div style={{ background: '#fff', borderRadius: 16, padding: '24px 28px', boxShadow: '0 2px 16px rgba(0,0,0,0.06)', marginBottom: 14 }}>
-      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16 }}>
-        <div style={{ flex: 1 }}>
-          <p style={{ color: '#9ca3af', fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 6 }}>
-            {t.date ? fmtDate(t.date) : 'Transfer'}
-          </p>
-          <h4 style={{ color: '#0B1F3A', fontSize: 18, fontWeight: 700, marginBottom: 14 }}>
-            {t.type || 'Private Transfer'}
-          </h4>
-          {(t.from || t.to) && (
-            <div style={{ display: 'flex', alignItems: 'flex-start', gap: 0 }}>
-              <div style={{ flex: 1 }}>
-                <p style={{ color: '#4b5563', fontSize: 14, fontWeight: 500 }}>{t.from || '—'}</p>
+    <div style={{ background: '#fff', borderRadius: 16, overflow: 'hidden', boxShadow: '0 2px 16px rgba(0,0,0,0.06)', marginBottom: 14 }}>
+      {hasImg && (
+        <div style={{ display: 'grid', gridTemplateColumns: '38% 1fr' }}>
+          <div style={{ position: 'relative', minHeight: 160, overflow: 'hidden', background: '#e8e0d4' }}>
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img
+              src={t.images![0]}
+              alt={t.type || 'Transfer'}
+              onError={imgFallback}
+              loading="lazy"
+              decoding="async"
+              style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover' }}
+            />
+          </div>
+          <div style={{ padding: '24px 28px' }}>
+            <p style={{ color: '#9ca3af', fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 6 }}>
+              {t.date ? fmtDate(t.date) : 'Transfer'}
+            </p>
+            <h4 style={{ color: '#0B1F3A', fontSize: 18, fontWeight: 700, marginBottom: 14 }}>
+              {t.type || 'Private Transfer'}
+            </h4>
+            {(t.from || t.to) && (
+              <div style={{ display: 'flex', alignItems: 'flex-start', gap: 0 }}>
+                <div style={{ flex: 1 }}>
+                  <p style={{ color: '#4b5563', fontSize: 14, fontWeight: 500 }}>{t.from || '—'}</p>
+                </div>
+                <div style={{ padding: '0 16px', color: '#C9A84C', fontSize: 18, lineHeight: 1.5 }}>↓</div>
+                <div style={{ flex: 1 }}>
+                  <p style={{ color: '#4b5563', fontSize: 14, fontWeight: 500 }}>{t.to || '—'}</p>
+                </div>
               </div>
-              <div style={{ padding: '0 16px', color: '#C9A84C', fontSize: 18, lineHeight: 1.5 }}>↓</div>
-              <div style={{ flex: 1 }}>
-                <p style={{ color: '#4b5563', fontSize: 14, fontWeight: 500 }}>{t.to || '—'}</p>
-              </div>
-            </div>
-          )}
+            )}
+            {t.vehicle && (
+              <span style={{ display: 'inline-block', marginTop: 12, background: '#f0ede8', color: '#92700c', fontSize: 12, fontWeight: 600, padding: '6px 12px', borderRadius: 8 }}>
+                {t.vehicle}
+              </span>
+            )}
+          </div>
         </div>
-        {t.vehicle && (
-          <span style={{ background: '#f0ede8', color: '#92700c', fontSize: 12, fontWeight: 600, padding: '6px 12px', borderRadius: 8, whiteSpace: 'nowrap' }}>
-            {t.vehicle}
-          </span>
-        )}
-      </div>
+      )}
+      {!hasImg && (
+        <div style={{ padding: '24px 28px' }}>
+          <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 16 }}>
+            <div style={{ flex: 1 }}>
+              <p style={{ color: '#9ca3af', fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 6 }}>
+                {t.date ? fmtDate(t.date) : 'Transfer'}
+              </p>
+              <h4 style={{ color: '#0B1F3A', fontSize: 18, fontWeight: 700, marginBottom: 14 }}>
+                {t.type || 'Private Transfer'}
+              </h4>
+              {(t.from || t.to) && (
+                <div style={{ display: 'flex', alignItems: 'flex-start', gap: 0 }}>
+                  <div style={{ flex: 1 }}>
+                    <p style={{ color: '#4b5563', fontSize: 14, fontWeight: 500 }}>{t.from || '—'}</p>
+                  </div>
+                  <div style={{ padding: '0 16px', color: '#C9A84C', fontSize: 18, lineHeight: 1.5 }}>↓</div>
+                  <div style={{ flex: 1 }}>
+                    <p style={{ color: '#4b5563', fontSize: 14, fontWeight: 500 }}>{t.to || '—'}</p>
+                  </div>
+                </div>
+              )}
+            </div>
+            {t.vehicle && (
+              <span style={{ background: '#f0ede8', color: '#92700c', fontSize: 12, fontWeight: 600, padding: '6px 12px', borderRadius: 8, whiteSpace: 'nowrap' }}>
+                {t.vehicle}
+              </span>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -1189,6 +1235,279 @@ function MobileStickyBar({ proposal, onAccept }: { proposal: PublicProposalDTO; 
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// V2 OPTION CUSTOMISER
+// ─────────────────────────────────────────────────────────────────────────────
+
+function ProposalOptionCustomizer({
+  proposal,
+  selections,
+  onSelectionsChange,
+}: {
+  proposal: PublicProposalDTO
+  selections: ClientSelectionPayload[]
+  onSelectionsChange: (s: ClientSelectionPayload[]) => void
+}) {
+  const groups = proposal.optionGroups
+  if (!groups || groups.length === 0) return null
+
+  const now = new Date()
+
+  function isItemExpired(item: PublicOptionItem): boolean {
+    if (!item.quoteExpiresAt) return false
+    return new Date(item.quoteExpiresAt) < now
+  }
+
+  function getSelectedIds(groupId: string): string[] {
+    return selections.find(s => s.groupId === groupId)?.itemIds ?? []
+  }
+
+  function updateGroup(groupId: string, itemIds: string[]) {
+    onSelectionsChange([
+      ...selections.filter(s => s.groupId !== groupId),
+      ...(itemIds.length > 0 ? [{ groupId, itemIds }] : []),
+    ])
+  }
+
+  function toggleItem(group: PublicOptionGroup, itemId: string) {
+    const item = group.items.find(i => i.id === itemId)
+    if (!item || isItemExpired(item)) return
+
+    const current = getSelectedIds(group.id)
+
+    if (group.selectionMode === 'SINGLE') {
+      updateGroup(group.id, current.includes(itemId) ? [] : [itemId])
+    } else {
+      if (current.includes(itemId)) {
+        updateGroup(group.id, current.filter(id => id !== itemId))
+      } else {
+        if (group.maxSelections > 0 && current.length >= group.maxSelections) return
+        updateGroup(group.id, [...current, itemId])
+      }
+    }
+  }
+
+  function fmtAdjustment(group: PublicOptionGroup, item: PublicOptionItem): string {
+    if (group.pricingMode === 'REPLACEMENT') {
+      if (item.priceAdjustment === 0) return 'Included'
+      const sign = item.priceAdjustment > 0 ? '+' : ''
+      return `${sign}${fmtMoney(item.priceAdjustment, item.currency)}`
+    }
+    // ADD_ON
+    return `+${fmtMoney(item.clientPrice, item.currency)}`
+  }
+
+  return (
+    <Section id="section-v2-customiser" eyebrow="Personalise Your Trip" title="Customise Your Journey">
+      <div style={{ maxWidth: 800 }}>
+        {groups.map(group => {
+          const selectedIds = getSelectedIds(group.id)
+          const isRadio = group.selectionMode === 'SINGLE'
+          return (
+            <div key={group.id} style={{ marginBottom: 44 }}>
+              <h3 style={{ color: '#0B1F3A', fontSize: 20, fontWeight: 700, fontFamily: '"Playfair Display", Georgia, serif', marginBottom: 4, lineHeight: 1.2 }}>
+                {group.name}
+              </h3>
+              {group.description && (
+                <p style={{ color: '#6b7280', fontSize: 14, lineHeight: 1.65, marginBottom: 16 }}>
+                  {group.description}
+                </p>
+              )}
+              {!group.description && <div style={{ marginBottom: 16 }} />}
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                {group.items.map(item => {
+                  const expired  = isItemExpired(item)
+                  const selected = selectedIds.includes(item.id)
+                  const priceLabel = fmtAdjustment(group, item)
+                  const priceIsGreen = priceLabel === 'Included'
+
+                  return (
+                    <button
+                      key={item.id}
+                      onClick={() => toggleItem(group, item.id)}
+                      disabled={expired}
+                      aria-pressed={selected}
+                      style={{
+                        background: selected ? '#FAFAF8' : '#fff',
+                        border: `2px solid ${selected ? '#C9A84C' : '#f0ede8'}`,
+                        borderRadius: 14,
+                        padding: '16px 18px',
+                        cursor: expired ? 'not-allowed' : 'pointer',
+                        textAlign: 'left',
+                        width: '100%',
+                        opacity: expired ? 0.55 : 1,
+                        transition: 'border-color 0.15s, background 0.15s',
+                        boxShadow: selected ? '0 4px 20px rgba(201,168,76,0.12)' : '0 2px 8px rgba(0,0,0,0.04)',
+                      }}
+                    >
+                      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12 }}>
+                        {/* Radio / Checkbox indicator */}
+                        <div style={{
+                          width: 20, height: 20,
+                          borderRadius: isRadio ? '50%' : 4,
+                          border: `2px solid ${selected ? '#C9A84C' : '#d1d5db'}`,
+                          background: selected ? '#C9A84C' : '#fff',
+                          flexShrink: 0, marginTop: 2,
+                          display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        }}>
+                          {selected && (
+                            <span style={{ color: '#0B1F3A', fontSize: 11, fontWeight: 900, lineHeight: 1 }}>✓</span>
+                          )}
+                        </div>
+
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                              <span style={{ color: '#0B1F3A', fontSize: 15, fontWeight: 700 }}>{item.name}</span>
+                              {item.recommended && !expired && (
+                                <span style={{ background: '#C9A84C', color: '#0B1F3A', fontSize: 10, fontWeight: 800, padding: '2px 7px', borderRadius: 20, letterSpacing: '0.04em', whiteSpace: 'nowrap' }}>
+                                  RECOMMENDED
+                                </span>
+                              )}
+                              {expired && (
+                                <span style={{ background: '#f3f4f6', color: '#9ca3af', fontSize: 10, fontWeight: 700, padding: '2px 7px', borderRadius: 20, whiteSpace: 'nowrap' }}>
+                                  EXPIRED
+                                </span>
+                              )}
+                            </div>
+                            <span style={{
+                              color: priceIsGreen ? '#16a34a' : '#0B1F3A',
+                              fontSize: 14, fontWeight: 800, whiteSpace: 'nowrap', flexShrink: 0,
+                            }}>
+                              {priceLabel}
+                            </span>
+                          </div>
+                          {item.description && (
+                            <p style={{ color: '#6b7280', fontSize: 13, marginTop: 5, lineHeight: 1.55, margin: '5px 0 0' }}>
+                              {item.description}
+                            </p>
+                          )}
+                        </div>
+                      </div>
+                    </button>
+                  )
+                })}
+              </div>
+
+              {group.required && (
+                <p style={{ color: '#9ca3af', fontSize: 12, marginTop: 8, fontStyle: 'italic' }}>
+                  * A selection is required from this group.
+                </p>
+              )}
+            </div>
+          )
+        })}
+      </div>
+    </Section>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// V2 LIVE PRICING WIDGET
+// ─────────────────────────────────────────────────────────────────────────────
+
+function LivePricingWidget({
+  proposal,
+  selections,
+}: {
+  proposal: PublicProposalDTO
+  selections: ClientSelectionPayload[]
+}) {
+  const groups = proposal.optionGroups
+  if (!groups || groups.length === 0) return null
+  if (proposal.totalPrice == null) return null
+
+  // Build SelectedItemInput[] from current selections — no internal fields
+  const selectedItems: SelectedItemInput[] = []
+  for (const sel of selections) {
+    const group = groups.find(g => g.id === sel.groupId)
+    if (!group) continue
+    for (const itemId of sel.itemIds) {
+      const item = group.items.find(i => i.id === itemId)
+      if (!item) continue
+      selectedItems.push({
+        groupId:         group.id,
+        itemId:          item.id,
+        pricingMode:     group.pricingMode,
+        priceAdjustment: item.priceAdjustment,
+        clientPrice:     item.clientPrice,
+        currency:        item.currency,
+        label:           item.name,
+      })
+    }
+  }
+
+  const result = calculateTripPrice({
+    baseTotal:     proposal.totalPrice,
+    selectedItems,
+    currency:      proposal.currency,
+  })
+
+  const deposit = proposal.deposit ?? null
+  const balance = deposit != null ? Math.max(0, result.grandTotal - deposit) : null
+
+  return (
+    <section style={{ background: '#f5f2ed', padding: '0 24px 48px' }}>
+      <div style={{ maxWidth: 800, margin: '0 auto' }}>
+        <div style={{ background: '#0B1F3A', borderRadius: 20, overflow: 'hidden', boxShadow: '0 8px 32px rgba(11,31,58,0.18)' }}>
+          {/* Line items */}
+          <div style={{ padding: '24px 28px 0' }}>
+            <p style={{ color: '#C9A84C', fontSize: 11, fontWeight: 700, letterSpacing: '0.14em', textTransform: 'uppercase', marginBottom: 16 }}>
+              Trip Total
+            </p>
+
+            {/* Base */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', padding: '10px 0', borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
+              <span style={{ color: 'rgba(255,255,255,0.7)', fontSize: 14 }}>Base trip</span>
+              <span style={{ color: '#fff', fontSize: 14, fontWeight: 600 }}>{fmtMoney(result.baseTotal, result.currency)}</span>
+            </div>
+
+            {/* Option adjustments */}
+            {result.lineItems.map((li, i) => {
+              if (li.amount === 0) return null
+              const sign = li.amount > 0 ? '+' : ''
+              return (
+                <div key={`${li.itemId}-${i}`} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', padding: '10px 0', borderBottom: '1px solid rgba(255,255,255,0.08)' }}>
+                  <span style={{ color: 'rgba(255,255,255,0.7)', fontSize: 14 }}>{li.label}</span>
+                  <span style={{ color: li.amount >= 0 ? '#C9A84C' : '#86efac', fontSize: 14, fontWeight: 600 }}>
+                    {sign}{fmtMoney(Math.abs(li.amount), result.currency)}
+                  </span>
+                </div>
+              )
+            })}
+          </div>
+
+          {/* Grand total + deposit/balance */}
+          <div style={{ padding: '16px 28px', background: 'rgba(201,168,76,0.10)', borderTop: '1px solid rgba(201,168,76,0.22)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: deposit != null ? 14 : 0 }}>
+              <span style={{ color: '#fff', fontSize: 18, fontWeight: 700 }}>TOTAL</span>
+              <span style={{ color: '#C9A84C', fontSize: 26, fontWeight: 800 }}>{fmtMoney(result.grandTotal, result.currency)}</span>
+            </div>
+            {deposit != null && (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                  <span style={{ color: 'rgba(255,255,255,0.55)', fontSize: 13 }}>Deposit</span>
+                  <span style={{ color: 'rgba(255,255,255,0.8)', fontSize: 13, fontWeight: 600 }}>{fmtMoney(deposit, proposal.currency)}</span>
+                </div>
+                {balance != null && (
+                  <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <span style={{ color: 'rgba(255,255,255,0.55)', fontSize: 13 }}>Balance</span>
+                    <span style={{ color: 'rgba(255,255,255,0.8)', fontSize: 13, fontWeight: 600 }}>{fmtMoney(balance, proposal.currency)}</span>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+        <p style={{ color: '#9ca3af', fontSize: 12, marginTop: 10, textAlign: 'center' }}>
+          Final total confirmed at acceptance.
+        </p>
+      </div>
+    </section>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // PACKAGE OPTIONS (if present)
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -1297,10 +1616,12 @@ function StatusBanner({ status, acceptedBy, acceptedAt, acceptedTotal, currency 
 function AcceptanceModal({
   proposal,
   initialOptionId,
+  v2Selections,
   onClose,
 }: {
   proposal: PublicProposalDTO
   initialOptionId: string | null
+  v2Selections: ClientSelectionPayload[]
   onClose: () => void
 }) {
   const hasOptions = proposal.packageOptions.length > 0
@@ -1359,18 +1680,39 @@ function AcceptanceModal({
     }
     setSubmitting(true)
     setNameError('')
+
+    // Determine flow: V2 when acceptanceVersion=2 and there are option groups
+    const isV2 = proposal.acceptanceVersion === 2 && (proposal.optionGroups?.length ?? 0) > 0
+
     try {
-      const res = await fetch(`/api/itinerary/${proposal.referenceNumber}/approve`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          token: proposal.approvalToken,
-          name: trimmed,
-          selectedOptionIds: selectedIds,
-          termsAccepted: true,
-          acceptanceVersion: 1,
-        }),
-      })
+      let res: Response
+      if (isV2) {
+        // V2 flow — sends selections to accept-v2 endpoint
+        res = await fetch(`/api/itinerary/${proposal.referenceNumber}/accept-v2`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            token:         proposal.approvalToken,
+            acceptedBy:    trimmed,
+            termsAccepted: true,
+            selections:    v2Selections,
+          }),
+        })
+      } else {
+        // V1 flow — unchanged
+        res = await fetch(`/api/itinerary/${proposal.referenceNumber}/approve`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            token:             proposal.approvalToken,
+            name:              trimmed,
+            selectedOptionIds: selectedIds,
+            termsAccepted:     true,
+            acceptanceVersion: 1,
+          }),
+        })
+      }
+
       if (res.ok) {
         const data = await res.json() as { acceptedTotal?: number | null; currency?: string }
         setSuccess({
@@ -1568,7 +1910,30 @@ function AcceptanceModal({
                 )}
               </div>
 
-              {selectedOption ? (
+              {/* V2: show selections summary */}
+              {proposal.acceptanceVersion === 2 && v2Selections.length > 0 && (
+                <div style={{ background: '#fff', border: '2px solid #C9A84C', borderRadius: 12, padding: '14px 18px', marginBottom: 12 }}>
+                  <p style={{ color: '#9ca3af', fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.08em', margin: '0 0 10px' }}>Your Selections</p>
+                  {v2Selections.map(sel => {
+                    const grp = proposal.optionGroups?.find(g => g.id === sel.groupId)
+                    if (!grp) return null
+                    return (
+                      <div key={sel.groupId} style={{ marginBottom: 8 }}>
+                        <p style={{ color: '#6b7280', fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.06em', margin: '0 0 2px' }}>{grp.name}</p>
+                        {sel.itemIds.map(id => {
+                          const it = grp.items.find(i => i.id === id)
+                          return it ? (
+                            <p key={id} style={{ color: '#0B1F3A', fontSize: 13, fontWeight: 700, margin: 0 }}>{it.name}</p>
+                          ) : null
+                        })}
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+
+              {/* V1: show selected package option */}
+              {proposal.acceptanceVersion !== 2 && selectedOption ? (
                 <div style={{ background: '#fff', border: '2px solid #C9A84C', borderRadius: 12, padding: '14px 18px', marginBottom: 12 }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <div>
@@ -1583,7 +1948,7 @@ function AcceptanceModal({
                     </button>
                   )}
                 </div>
-              ) : hasOptions ? (
+              ) : proposal.acceptanceVersion !== 2 && hasOptions ? (
                 <div style={{ background: '#FAFAF8', borderRadius: 12, padding: '14px 18px', marginBottom: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                   <p style={{ color: '#6b7280', fontSize: 13, margin: 0 }}>No upgrade — base package</p>
                   <button onClick={() => setStep(1)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#9ca3af', fontSize: 12, textDecoration: 'underline' }}>Change</button>
@@ -1710,11 +2075,53 @@ export function ProposalPage({ proposal }: { proposal: PublicProposalDTO }) {
   const [compact, setCompact] = useState(false)
   const [acceptOpen, setAcceptOpen] = useState(false)
   const [initialOptionId, setInitialOptionId] = useState<string | null>(null)
+  const [selectionError, setSelectionError] = useState<string | null>(null)
+
+  // V2: selection state — initialised from defaultSelected items
+  const [v2Selections, setV2Selections] = useState<ClientSelectionPayload[]>(() => {
+    const groups = proposal.optionGroups ?? []
+    const now = new Date()
+    return groups
+      .map(group => ({
+        groupId: group.id,
+        itemIds: group.items
+          .filter(item =>
+            item.defaultSelected &&
+            item.active &&
+            (!item.quoteExpiresAt || new Date(item.quoteExpiresAt) >= now)
+          )
+          .map(item => item.id),
+      }))
+      .filter(s => s.itemIds.length > 0)
+  })
 
   const handleAccept = useCallback((optionId?: string) => {
+    // V2: validate required groups before opening the modal
+    if (proposal.acceptanceVersion === 2 && (proposal.optionGroups?.length ?? 0) > 0) {
+      const groups = proposal.optionGroups ?? []
+      for (const group of groups) {
+        if (!group.required) continue
+        const sel = v2Selections.find(s => s.groupId === group.id)
+        const count = sel?.itemIds.length ?? 0
+        if (count < group.minSelections) {
+          const needed = group.minSelections
+          setSelectionError(
+            `Please select at least ${needed} option${needed > 1 ? 's' : ''} for "${group.name}".`
+          )
+          const el = document.getElementById('section-v2-customiser')
+          if (el) {
+            const top = el.getBoundingClientRect().top + window.scrollY - 88
+            window.scrollTo({ top, behavior: 'smooth' })
+          }
+          return
+        }
+      }
+      setSelectionError(null)
+    }
     setInitialOptionId(optionId ?? null)
     setAcceptOpen(true)
-  }, [])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [v2Selections, proposal.acceptanceVersion, proposal.optionGroups])
 
   const onScroll = useCallback(() => {
     setCompact(window.scrollY > 120)
@@ -1790,6 +2197,24 @@ export function ProposalPage({ proposal }: { proposal: PublicProposalDTO }) {
         <ProposalTransport proposal={proposal} />
         <ProposalDayByDay proposal={proposal} />
         <ProposalInclusions proposal={proposal} />
+
+        {/* V2: Option customiser — only renders when optionGroups present */}
+        <ProposalOptionCustomizer
+          proposal={proposal}
+          selections={v2Selections}
+          onSelectionsChange={sels => { setV2Selections(sels); setSelectionError(null) }}
+        />
+
+        {/* V2: Live pricing widget — only renders when optionGroups + totalPrice present */}
+        <LivePricingWidget proposal={proposal} selections={v2Selections} />
+
+        {/* V2: Validation error notice (shown when required group not fulfilled on "Review & Accept") */}
+        {selectionError && (
+          <div style={{ background: '#fef2f2', border: '1px solid #fecaca', borderRadius: 12, padding: '12px 20px', margin: '0 24px 16px', maxWidth: 800, marginLeft: 'auto', marginRight: 'auto' }}>
+            <p style={{ color: '#dc2626', fontSize: 14, fontWeight: 600, margin: 0 }}>{selectionError}</p>
+          </div>
+        )}
+
         <ProposalPricing proposal={proposal} onAccept={handleAccept} />
         <ProposalTerms proposal={proposal} />
         <ProposalContact proposal={proposal} />
@@ -1798,6 +2223,7 @@ export function ProposalPage({ proposal }: { proposal: PublicProposalDTO }) {
           <AcceptanceModal
             proposal={proposal}
             initialOptionId={initialOptionId}
+            v2Selections={v2Selections}
             onClose={() => setAcceptOpen(false)}
           />
         )}
