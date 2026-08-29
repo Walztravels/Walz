@@ -174,12 +174,15 @@ export default function EsimTab({
         ? `${BASE}?destination=${encodeURIComponent(primaryDestination)}`
         : BASE
       const res = await fetch(url)
-      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({})) as { error?: string }
+        throw new Error(j.error ?? `Could not load eSIM data. Please retry.`)
+      }
       const json = await res.json()
       setEsims(json.esims ?? [])
       setRecommendations(json.recommendations ?? [])
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : 'Failed to load eSIM data')
+      setError(e instanceof Error ? e.message : 'Could not load eSIM data. Please retry.')
     } finally {
       setLoading(false)
     }
@@ -315,8 +318,14 @@ export default function EsimTab({
     <div className="space-y-6">
       {/* Error */}
       {error && (
-        <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-400">
-          {error}
+        <div className="flex items-center justify-between gap-3 rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-400">
+          <span>{error}</span>
+          <button
+            onClick={fetchEsims}
+            className="shrink-0 rounded border border-red-500/40 px-3 py-1 text-xs transition hover:bg-red-500/20"
+          >
+            Retry
+          </button>
         </div>
       )}
 

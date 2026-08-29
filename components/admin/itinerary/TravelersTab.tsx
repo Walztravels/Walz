@@ -128,11 +128,14 @@ export default function TravelersTab({
       setLoading(true)
       setError(null)
       const res = await fetch(BASE)
-      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({})) as { error?: string }
+        throw new Error(j.error ?? `Could not load travelers. Please retry.`)
+      }
       const json = await res.json()
       setTravelers(json.travelers ?? [])
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : 'Failed to load travelers')
+      setError(e instanceof Error ? e.message : 'Could not load travelers. Please retry.')
     } finally {
       setLoading(false)
     }
@@ -275,8 +278,14 @@ export default function TravelersTab({
 
       {/* Error */}
       {error && (
-        <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-400">
-          {error}
+        <div className="flex items-center justify-between gap-3 rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-400">
+          <span>{error}</span>
+          <button
+            onClick={fetchTravelers}
+            className="shrink-0 rounded border border-red-500/40 px-3 py-1 text-xs transition hover:bg-red-500/20"
+          >
+            Retry
+          </button>
         </div>
       )}
 

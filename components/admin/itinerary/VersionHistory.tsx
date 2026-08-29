@@ -14,6 +14,7 @@ interface ItineraryVersion {
 
 interface Props {
   itinId: string
+  snapshot: Record<string, unknown>  // current itinerary state — saved with each version
   onRestore?: (snapshot: Record<string, unknown>) => void
 }
 
@@ -104,9 +105,11 @@ function RestoreModal({
 // ── Save version controls ──────────────────────────────────────────────────────
 function SaveVersionForm({
   itinId,
+  snapshot,
   onSaved,
 }: {
   itinId: string
+  snapshot: Record<string, unknown>  // current itinerary state passed in from parent
   onSaved: () => void
 }) {
   const [note, setNote] = useState('')
@@ -120,7 +123,7 @@ function SaveVersionForm({
       const res = await fetch(`/api/admin/itineraries/${itinId}/versions`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ note: note.trim() || null }),
+        body: JSON.stringify({ snapshot, note: note.trim() || null }),
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error ?? 'Save failed')
@@ -131,7 +134,7 @@ function SaveVersionForm({
     } finally {
       setSaving(false)
     }
-  }, [itinId, note, onSaved])
+  }, [itinId, snapshot, note, onSaved])
 
   return (
     <div className="bg-white/5 rounded-xl p-4 border border-white/10 mb-4">
@@ -162,7 +165,7 @@ function SaveVersionForm({
 }
 
 // ── Main component ─────────────────────────────────────────────────────────────
-export default function VersionHistory({ itinId, onRestore }: Props) {
+export default function VersionHistory({ itinId, snapshot, onRestore }: Props) {
   const [versions, setVersions] = useState<ItineraryVersion[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -209,7 +212,7 @@ export default function VersionHistory({ itinId, onRestore }: Props) {
 
       <div className="space-y-4">
         {/* Save controls */}
-        <SaveVersionForm itinId={itinId} onSaved={fetchVersions} />
+        <SaveVersionForm itinId={itinId} snapshot={snapshot} onSaved={fetchVersions} />
 
         {/* Header */}
         <div className="flex items-center justify-between">

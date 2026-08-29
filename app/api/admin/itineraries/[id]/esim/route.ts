@@ -76,6 +76,12 @@ export async function GET(req: NextRequest, { params }: Params) {
 
   if (error) {
     console.error('[esim/GET]', error)
+    if (error.code === '42P01') {
+      return NextResponse.json(
+        { error: 'Database table not ready — apply migration phases4_16_workspace_tables.sql in the Supabase SQL editor.' },
+        { status: 503 }
+      )
+    }
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
 
@@ -129,6 +135,12 @@ export async function POST(req: NextRequest, { params }: Params) {
 
   if (error) {
     console.error('[esim/POST]', error)
+    if (error.code === '42P01') {
+      return NextResponse.json(
+        { error: 'Database table not ready — apply migration phases4_16_workspace_tables.sql in the Supabase SQL editor.' },
+        { status: 503 }
+      )
+    }
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
 
@@ -180,6 +192,12 @@ export async function PATCH(req: NextRequest, { params }: Params) {
 
   if (error) {
     console.error('[esim/PATCH]', error)
+    if (error.code === '42P01') {
+      return NextResponse.json(
+        { error: 'Database table not ready — apply migration phases4_16_workspace_tables.sql in the Supabase SQL editor.' },
+        { status: 503 }
+      )
+    }
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
   if (!data) return NextResponse.json({ error: 'Not found' }, { status: 404 })
@@ -212,6 +230,12 @@ export async function DELETE(req: NextRequest, { params }: Params) {
 
   if (error) {
     console.error('[esim/DELETE]', error)
+    if (error.code === '42P01') {
+      return NextResponse.json(
+        { error: 'Database table not ready — apply migration phases4_16_workspace_tables.sql in the Supabase SQL editor.' },
+        { status: 503 }
+      )
+    }
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
 

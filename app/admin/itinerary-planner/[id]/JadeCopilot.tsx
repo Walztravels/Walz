@@ -1,12 +1,25 @@
 'use client'
 import { useState, useRef, useEffect, useCallback } from 'react'
 
+interface ConfirmationRequest {
+  tool: string
+  params: Record<string, unknown>
+  message: string
+}
+
 interface Message {
   role: 'user' | 'assistant'
   content: string
   itinerary?: Record<string, unknown>
   model?: string
   timestamp: Date
+  // Mutation tool result — shown as a distinct success/confirmation card
+  mutationResult?: {
+    changed: Record<string, unknown>
+    tool: string
+  }
+  // Pending confirmation — shown as a card with Confirm/Cancel buttons
+  pendingConfirmation?: ConfirmationRequest
 }
 
 interface GeneratedItinerary {
@@ -383,6 +396,86 @@ export function JadeCopilot({
     }
   }
 
+  // ── Jade mutation tool caller ─────────────────────────────────────────────
+  const callMutationTool = async (tool: string, params: Record<string, unknown>) => {
+    const itinId = itinerary?.id
+    if (!itinId) {
+      setMessages(prev => [...prev, {
+        role: 'assistant',
+        content: 'No itinerary loaded — cannot apply mutation.',
+        timestamp: new Date(),
+      }])
+      return
+    }
+
+    setLoading(true)
+    try {
+      const res = await fetch('/api/jade/tools/mutate-itinerary', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ itineraryId: itinId, tool, params }),
+      })
+      const data = await res.json() as {
+        ok?: boolean
+        changed?: Record<string, unknown>
+        requiresConfirmation?: boolean
+        message?: string
+        error?: string
+      }
+
+      if (data.requiresConfirmation) {
+        setMessages(prev => [...prev, {
+          role: 'assistant',
+          content: data.message ?? 'This action requires confirmation.',
+          pendingConfirmation: { tool, params, message: data.message ?? '' },
+          timestamp: new Date(),
+        }])
+      } else if (data.ok && data.changed) {
+        const changed = data.changed
+        setMessages(prev => [...prev, {
+          role: 'assistant',
+          content: `Done — itinerary updated.`,
+          mutationResult: { changed, tool },
+          timestamp: new Date(),
+        }])
+        await onItineraryUpdate()
+      } else {
+        setMessages(prev => [...prev, {
+          role: 'assistant',
+          content: `Could not apply change: ${data.error ?? 'unknown error'}`,
+          timestamp: new Date(),
+        }])
+      }
+    } catch (err: unknown) {
+      setMessages(prev => [...prev, {
+        role: 'assistant',
+        content: `Network error during mutation: ${err instanceof Error ? err.message : 'Unknown error'}`,
+        timestamp: new Date(),
+      }])
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  // ── Confirm a pending mutation (e.g. removeDay) ────────────────────────────
+  const confirmMutation = async (req: ConfirmationRequest, msgIdx: number) => {
+    // Mark the confirmation message as resolved (replace with neutral text)
+    setMessages(prev => prev.map((m, i) =>
+      i === msgIdx
+        ? { ...m, pendingConfirmation: undefined, content: `Confirmed. Applying change…` }
+        : m,
+    ))
+    await callMutationTool(req.tool, { ...req.params, confirmed: true })
+  }
+
+  const cancelConfirmation = (msgIdx: number) => {
+    setMessages(prev => prev.map((m, i) =>
+      i === msgIdx
+        ? { ...m, pendingConfirmation: undefined, content: `Action cancelled.` }
+        : m,
+    ))
+  }
+
   const send = async () => {
     if (!input.trim() || loading) return
 
@@ -531,16 +624,50 @@ export function JadeCopilot({
                 <span className="text-xs">✈️</span>
               </div>
             )}
-            <div className={`max-w-[85%] rounded-2xl px-4 py-3 text-sm leading-relaxed ${
-              msg.role === 'user'
-                ? 'bg-amber-500 text-black font-medium rounded-tr-sm'
-                : 'bg-white/[0.08] text-white/80 rounded-tl-sm'
-            }`}>
-              {parseSimpleMarkdown(msg.content)}
-              {msg.model && msg.role === 'assistant' && (
-                <p className="text-white/20 text-[10px] mt-2 border-t border-white/10 pt-1">
-                  {msg.model === 'gpt-4o' ? '⚡ GPT-4o' : '🤖 Claude Sonnet'}
-                </p>
+            <div className="max-w-[85%] flex flex-col gap-2">
+              <div className={`rounded-2xl px-4 py-3 text-sm leading-relaxed ${
+                msg.role === 'user'
+                  ? 'bg-amber-500 text-black font-medium rounded-tr-sm'
+                  : 'bg-white/[0.08] text-white/80 rounded-tl-sm'
+              }`}>
+                {parseSimpleMarkdown(msg.content)}
+                {msg.model && msg.role === 'assistant' && (
+                  <p className="text-white/20 text-[10px] mt-2 border-t border-white/10 pt-1">
+                    {msg.model === 'gpt-4o' ? '⚡ GPT-4o' : '🤖 Claude Sonnet'}
+                  </p>
+                )}
+              </div>
+
+              {/* Mutation result card */}
+              {msg.mutationResult && (
+                <div className="bg-green-500/10 border border-green-500/20 rounded-xl px-3 py-2 text-xs text-green-300">
+                  <p className="font-bold mb-1 text-green-200">Change applied</p>
+                  <pre className="text-green-400/70 text-[10px] whitespace-pre-wrap break-all leading-relaxed">
+                    {JSON.stringify(msg.mutationResult.changed, null, 2)}
+                  </pre>
+                </div>
+              )}
+
+              {/* Pending confirmation card */}
+              {msg.pendingConfirmation && (
+                <div className="bg-orange-500/10 border border-orange-500/20 rounded-xl px-3 py-2.5 text-xs">
+                  <p className="text-orange-200 font-bold mb-1">Confirmation required</p>
+                  <p className="text-orange-300/70 mb-3 leading-relaxed">{msg.pendingConfirmation.message}</p>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => void confirmMutation(msg.pendingConfirmation!, idx)}
+                      className="flex-1 bg-orange-500 hover:bg-orange-400 text-white font-bold py-1.5 rounded-lg transition text-[11px]"
+                    >
+                      Confirm
+                    </button>
+                    <button
+                      onClick={() => cancelConfirmation(idx)}
+                      className="flex-1 bg-white/10 hover:bg-white/15 text-white/60 font-medium py-1.5 rounded-lg transition text-[11px]"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
               )}
             </div>
           </div>

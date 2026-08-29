@@ -1,6 +1,7 @@
 'use client'
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { useParams } from 'next/navigation'
+import { formatDateOnly, addDaysToDateOnly, parseDateOnly } from '@/lib/date-utils'
 import { JadeCopilot, type JadeContext, type AdminJadeTripContext } from './JadeCopilot'
 import { JadeTripAuditor } from '@/components/admin/JadeTripAuditor'
 import TravelersTab from '@/components/admin/itinerary/TravelersTab'
@@ -26,6 +27,7 @@ interface Day {
   notes: string          // legacy — kept for backwards compat
   clientNotes: string    // shown to client on the public page
   internalNotes: string  // admin-only, never shown to client
+  date?: string          // YYYY-MM-DD; overrides startDate+offset if advisor sets it
 }
 
 interface Flight {
@@ -215,7 +217,9 @@ function uid() {
 
 function fmtDate(d?: string | Date | null) {
   if (!d) return ''
-  return new Date(d).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })
+  // Convert Date objects to ISO string first; parseDateOnly strips the time part
+  const s = typeof d === 'string' ? d : d.toISOString()
+  return formatDateOnly(s, 'short')
 }
 
 function fmtDateTime(d?: string | Date | null) {
@@ -684,6 +688,7 @@ export default function ItineraryBuilderPage() {
         {activeTab === 'versions'   && (
           <VersionHistory
             itinId={itin.id}
+            snapshot={itin as unknown as Record<string, unknown>}
             onRestore={(snapshot) => {
               setItin(prev => prev ? { ...prev, ...snapshot } as typeof prev : prev)
             }}
@@ -1187,10 +1192,15 @@ function DaysTab({ itin, onSave, onContextChange }: {
 
   const addDay = () => {
     const next = days.length > 0 ? Math.max(...days.map(d => d.day)) + 1 : 1
+    let defaultDate = ''
+    if (itin.startDate) {
+      try { defaultDate = addDaysToDateOnly(itin.startDate, next - 1) } catch { /* leave empty */ }
+    }
     const newDay: Day = {
       day: next, title: `Day ${next}`, description: '', activities: [],
       meals: '', accommodation: '', destination: '', weather: '', dressCode: '',
       notes: '', clientNotes: '', internalNotes: '',
+      date: defaultDate || undefined,
     }
     setDays(prev => [...prev, newDay])
     setEditingDayId(next)
@@ -1327,14 +1337,22 @@ function DaysTab({ itin, onSave, onContextChange }: {
     return { time: null, body: text }
   }
 
-  // Compute a display date string from itin.startDate + day offset
+  // Format a YYYY-MM-DD string to full weekday+date display (local time, no UTC shift)
+  const fmtDayDate = (dateStr: string): string => {
+    try {
+      const { year, month, day } = parseDateOnly(dateStr)
+      const d = new Date(year, month - 1, day)
+      if (isNaN(d.getTime())) return ''
+      return d.toLocaleDateString('en-GB', { weekday: 'long', day: '2-digit', month: 'long', year: 'numeric' })
+    } catch { return '' }
+  }
+
+  // Compute a display date string from itin.startDate + day offset (UTC-safe)
   const dayDate = (dayNum: number): string | null => {
     if (!itin.startDate) return null
     try {
-      const base = new Date(itin.startDate)
-      if (isNaN(base.getTime())) return null
-      base.setDate(base.getDate() + dayNum - 1)
-      return base.toLocaleDateString('en-GB', { weekday: 'long', day: '2-digit', month: 'long', year: 'numeric' })
+      const dateStr = addDaysToDateOnly(itin.startDate, dayNum - 1)
+      return fmtDayDate(dateStr)
     } catch { return null }
   }
 
@@ -1411,7 +1429,13 @@ function DaysTab({ itin, onSave, onContextChange }: {
       ) : (
         <div className="space-y-4">
           {days.map((day) => {
-            const dateStr = dayDate(day.day)
+            // Use stored day.date if set, otherwise compute from itinerary startDate + offset
+            const dateStr = day.date ? fmtDayDate(day.date) : dayDate(day.day)
+            // YYYY-MM-DD value for the <input type="date"> picker
+            let dayInputDate = day.date || ''
+            if (!dayInputDate && itin.startDate) {
+              try { dayInputDate = addDaysToDateOnly(itin.startDate, day.day - 1) } catch { /* leave empty */ }
+            }
             const visibleActivities = day.activities.filter(a => a.trim())
             return (
               <div key={day.day} className="bg-white/[0.04] border border-white/[0.06] rounded-2xl overflow-hidden">
@@ -1421,9 +1445,22 @@ function DaysTab({ itin, onSave, onContextChange }: {
                   <div className="p-5 space-y-4">
                     <DayEditHeader day={day} />
 
-                    <div>
-                      <label className="text-white/40 text-xs font-bold uppercase tracking-wider block mb-1.5">Day Title</label>
-                      <input value={day.title} onChange={e => updDay(day.day, 'title', e.target.value)} placeholder={`Day ${day.day} title`} className={inp} />
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div>
+                        <label className="text-white/40 text-xs font-bold uppercase tracking-wider block mb-1.5">Day Title</label>
+                        <input value={day.title} onChange={e => updDay(day.day, 'title', e.target.value)} placeholder={`Day ${day.day} title`} className={inp} />
+                      </div>
+                      <div>
+                        <label className="text-white/40 text-xs font-bold uppercase tracking-wider block mb-1.5">
+                          Date <span className="text-white/20 font-normal normal-case">(overrides auto-computed)</span>
+                        </label>
+                        <input
+                          type="date"
+                          value={dayInputDate}
+                          onChange={e => updDay(day.day, 'date', e.target.value || undefined)}
+                          className={inp}
+                        />
+                      </div>
                     </div>
 
                     <div>

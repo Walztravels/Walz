@@ -112,11 +112,14 @@ export default function TasksTab({ itinId, itinSummary }: TasksTabProps) {
       setLoading(true)
       setError(null)
       const res = await fetch(BASE)
-      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({})) as { error?: string }
+        throw new Error(j.error ?? `Could not load tasks. Please retry.`)
+      }
       const json = await res.json()
       setTasks(json.tasks ?? [])
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : 'Failed to load tasks')
+      setError(e instanceof Error ? e.message : 'Could not load tasks. Please retry.')
     } finally {
       setLoading(false)
     }
@@ -278,8 +281,14 @@ export default function TasksTab({ itinId, itinSummary }: TasksTabProps) {
 
       {/* Error */}
       {error && (
-        <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-400">
-          {error}
+        <div className="flex items-center justify-between gap-3 rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-400">
+          <span>{error}</span>
+          <button
+            onClick={fetchTasks}
+            className="shrink-0 rounded border border-red-500/40 px-3 py-1 text-xs transition hover:bg-red-500/20"
+          >
+            Retry
+          </button>
         </div>
       )}
 

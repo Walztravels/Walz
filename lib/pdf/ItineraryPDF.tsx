@@ -1,5 +1,6 @@
 import React from 'react'
 import { Document, Page, Text, View, StyleSheet } from '@react-pdf/renderer'
+import { formatDateOnly } from '@/lib/date-utils'
 
 const NAVY  = '#0B1F3A'
 const GOLD  = '#C9A84C'
@@ -117,7 +118,9 @@ function fmtMoney(amount: number | null | undefined, currency: string) {
 }
 function fmtDate(d?: string | Date | null) {
   if (!d) return ''
-  return new Date(d).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })
+  // For Date objects, toISOString() gives UTC midnight ISO; parseDateOnly splits on 'T' to get date-only
+  const s = typeof d === 'string' ? d : d.toISOString()
+  return formatDateOnly(s, 'long')
 }
 
 // ── Props ─────────────────────────────────────────────────────────────────────

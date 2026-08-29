@@ -23,7 +23,17 @@ export async function GET(_req: NextRequest, { params }: Params) {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
 
-  return NextResponse.json({ versions: data })
+  // Map snake_case DB columns to camelCase expected by the frontend interface
+  const versions = (data ?? []).map((row) => ({
+    id: row.id,
+    versionNumber: row.version_number,
+    savedBy: row.saved_by,
+    note: row.note,
+    createdAt: row.created_at,
+    snapshot: row.snapshot,
+  }))
+
+  return NextResponse.json({ versions })
 }
 
 export async function POST(req: NextRequest, { params }: Params) {

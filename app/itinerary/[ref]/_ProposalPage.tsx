@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react'
 import type { PublicProposalDTO, ProposalFlight, ProposalHotel, ProposalTransfer, ProposalTour, ProposalDay } from './_types'
+import { formatDateOnly, parseDateOnly } from '@/lib/date-utils'
 
 // ── Utilities ─────────────────────────────────────────────────────────────────
 
@@ -14,13 +15,16 @@ function fmtMoney(amount: number | null | undefined, currency: string) {
 }
 
 function fmtDate(d?: string | null) {
-  if (!d) return ''
-  return new Date(d).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' })
+  // formatDateOnly uses local-time Date constructor to avoid UTC midnight shift
+  return formatDateOnly(d, 'long')
 }
 
 function fmtShortDate(d?: string | null) {
   if (!d) return ''
-  return new Date(d).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })
+  try {
+    const { year, month, day } = parseDateOnly(d)
+    return new Date(year, month - 1, day).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })
+  } catch { return '' }
 }
 
 function imgFallback(e: React.SyntheticEvent<HTMLImageElement>) {

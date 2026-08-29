@@ -155,6 +155,12 @@ export async function GET(_req: NextRequest, { params }: Params) {
 
   if (error) {
     console.error('[tasks/GET]', error)
+    if (error.code === '42P01') {
+      return NextResponse.json(
+        { error: 'Database table not ready — apply migration phases4_16_workspace_tables.sql in the Supabase SQL editor.' },
+        { status: 503 }
+      )
+    }
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
 
@@ -193,6 +199,12 @@ export async function POST(req: NextRequest, { params }: Params) {
 
     if (error) {
       console.error('[tasks/POST autoGenerate]', error)
+      if (error.code === '42P01') {
+        return NextResponse.json(
+          { error: 'Database table not ready — apply migration phases4_16_workspace_tables.sql in the Supabase SQL editor.' },
+          { status: 503 }
+        )
+      }
       return NextResponse.json({ error: error.message }, { status: 500 })
     }
 
@@ -223,6 +235,12 @@ export async function POST(req: NextRequest, { params }: Params) {
 
   if (error) {
     console.error('[tasks/POST]', error)
+    if (error.code === '42P01') {
+      return NextResponse.json(
+        { error: 'Database table not ready — apply migration phases4_16_workspace_tables.sql in the Supabase SQL editor.' },
+        { status: 503 }
+      )
+    }
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
 
@@ -263,6 +281,12 @@ export async function PATCH(req: NextRequest, { params }: Params) {
 
   if (error) {
     console.error('[tasks/PATCH]', error)
+    if (error.code === '42P01') {
+      return NextResponse.json(
+        { error: 'Database table not ready — apply migration phases4_16_workspace_tables.sql in the Supabase SQL editor.' },
+        { status: 503 }
+      )
+    }
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
   if (!data) return NextResponse.json({ error: 'Not found' }, { status: 404 })
@@ -293,6 +317,12 @@ export async function DELETE(req: NextRequest, { params }: Params) {
 
   if (error) {
     console.error('[tasks/DELETE]', error)
+    if (error.code === '42P01') {
+      return NextResponse.json(
+        { error: 'Database table not ready — apply migration phases4_16_workspace_tables.sql in the Supabase SQL editor.' },
+        { status: 503 }
+      )
+    }
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
 
