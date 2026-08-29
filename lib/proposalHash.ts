@@ -139,6 +139,22 @@ function safeParseArray(raw: string | null | undefined): unknown[] {
   }
 }
 
+// Strip presentation-only fields from booking items before hashing.
+// Images, logos, and media URLs don't affect the commercial offer.
+// Adding or changing images after a proposal is sent must not invalidate the hash.
+function stripPresentationFields(items: unknown[]): unknown[] {
+  const STRIP = new Set([
+    'images', 'imageUrl', 'heroImageUrl', 'thumbImageUrl', 'allImageUrls',
+    'airlineLogoUrl', 'logoUrl', 'viatorProductCode',
+  ])
+  return items.map(item => {
+    if (typeof item !== 'object' || !item) return item
+    const row = { ...(item as Record<string, unknown>) }
+    for (const k of STRIP) delete row[k]
+    return row
+  })
+}
+
 // Normalize cost fields in priceBreakdown items (display order preserved).
 function normalizePriceBreakdown(items: unknown[]): unknown[] {
   return items.map(item => {
@@ -250,12 +266,12 @@ export function buildProposalHashPayload(
     terms:              itin.terms ?? null,
     priceBreakdown:     normalizePriceBreakdown(safeParseArray(itin.priceBreakdown)),
     days:               safeParseArray(itin.days),
-    flights:            safeParseArray(itin.flights),
-    hotels:             safeParseArray(itin.hotels),
-    transfers:          safeParseArray(itin.transfers ?? null),
-    tours:              safeParseArray(itin.tours ?? null),
-    trains:             safeParseArray(itin.trains ?? null),
-    ferries:            safeParseArray(itin.ferries ?? null),
+    flights:            stripPresentationFields(safeParseArray(itin.flights)),
+    hotels:             stripPresentationFields(safeParseArray(itin.hotels)),
+    transfers:          stripPresentationFields(safeParseArray(itin.transfers ?? null)),
+    tours:              stripPresentationFields(safeParseArray(itin.tours ?? null)),
+    trains:             stripPresentationFields(safeParseArray(itin.trains ?? null)),
+    ferries:            stripPresentationFields(safeParseArray(itin.ferries ?? null)),
     inclusions:         (safeParseArray(itin.inclusions) as string[]).slice().sort(),
     exclusions:         (safeParseArray(itin.exclusions) as string[]).slice().sort(),
     packageOptions:     normalizePackageOptions(packageOptions),
@@ -271,6 +287,48 @@ export function hashProposalState(payload: ProposalHashPayload): string {
   const canonical  = canonicalize(payload)
   const serialized = JSON.stringify(canonical)
   return createHash('sha256').update(serialized, 'utf8').digest('hex')
+}
+
+// Hash an arbitrary record — used for legacy compat checks where the payload
+// shape doesn't fully match ProposalHashPayload (missing keys, no image stripping).
+function hashRawPayload(payload: Record<string, unknown>): string {
+  return createHash('sha256').update(JSON.stringify(canonicalize(payload)), 'utf8').digest('hex')
+}
+
+// Build the V0 (pre-trains/ferries) payload for backward-compat validation only.
+// Matches the exact shape that was hashed when proposals were sent before
+// trains, ferries, and optionGroups were added. Presentation fields (images, logos)
+// are NOT stripped here because old hashes included them.
+function buildV0HashPayload(
+  itin: Itinerary,
+  packageOptions: PackageOptionRow[],
+): Record<string, unknown> {
+  return {
+    referenceNumber:    itin.referenceNumber,
+    currency:           itin.currency,
+    destination:        itin.destination,
+    startDate:          normalizeDate(itin.startDate),
+    endDate:            normalizeDate(itin.endDate),
+    duration:           itin.duration ?? null,
+    numberOfTravellers: itin.numberOfTravellers,
+    tripType:           itin.tripType ?? null,
+    totalPrice:         normalizeMoney(itin.totalPrice),
+    deposit:            normalizeMoney(itin.deposit),
+    depositDue:         normalizeDate(itin.depositDue),
+    balanceDue:         normalizeDate(itin.balanceDue),
+    overview:           itin.overview ?? null,
+    terms:              itin.terms ?? null,
+    priceBreakdown:     normalizePriceBreakdown(safeParseArray(itin.priceBreakdown)),
+    days:               safeParseArray(itin.days),
+    flights:            safeParseArray(itin.flights),
+    hotels:             safeParseArray(itin.hotels),
+    transfers:          safeParseArray(itin.transfers ?? null),
+    tours:              safeParseArray(itin.tours ?? null),
+    // No trains, ferries, or optionGroups — those were added later
+    inclusions:         (safeParseArray(itin.inclusions) as string[]).slice().sort(),
+    exclusions:         (safeParseArray(itin.exclusions) as string[]).slice().sort(),
+    packageOptions:     normalizePackageOptions(packageOptions),
+  }
 }
 
 // ─── validation ───────────────────────────────────────────────────────────────
@@ -296,9 +354,23 @@ export function validateSentProposalState(
   storedHash: string | undefined
 ): ProposalValidationResult {
   if (!storedHash) return { result: 'NO_HASH_LEGACY' }
+
+  // Current payload: presentation fields stripped, trains/ferries/optionGroups included.
   const payload     = buildProposalHashPayload(itin, packageOptions)
   const currentHash = hashProposalState(payload)
   if (currentHash === storedHash) return { result: 'VALID' }
+
+  // V0 compat: proposals sent before trains/ferries/optionGroups were added to the hash.
+  // Old hashes included presentation fields (images/logos), so we don't strip them here.
+  // If this matches, the proposal is structurally unchanged — only schema drift caused mismatch.
+  const v0 = buildV0HashPayload(itin, packageOptions)
+  if (hashRawPayload(v0) === storedHash) {
+    console.warn('[proposalHash] V0 legacy hash matched — proposal pre-dates trains/ferries fields', {
+      ref: itin.referenceNumber,
+    })
+    return { result: 'NO_HASH_LEGACY' }
+  }
+
   return { result: 'STALE', storedHash, currentHash }
 }
 

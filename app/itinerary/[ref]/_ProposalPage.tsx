@@ -1714,7 +1714,7 @@ function AcceptanceModal({
       }
 
       if (res.ok) {
-        const data = await res.json() as { acceptedTotal?: number | null; currency?: string }
+        const data = await res.json().catch(() => ({})) as { acceptedTotal?: number | null; currency?: string }
         setSuccess({
           acceptedTotal: data.acceptedTotal ?? null,
           currency: data.currency ?? proposal.currency,
@@ -1729,11 +1729,11 @@ function AcceptanceModal({
         const lower = msg.toLowerCase()
         if (lower.includes('changed') || lower.includes('stale') || lower.includes('hash') || lower.includes('update')) {
           setApiError({ kind: 'stale', msg })
-        } else if (lower.includes('active') || lower.includes('already') || lower.includes('accepted')) {
-          setApiError({ kind: 'conflict', msg })
         } else {
           setApiError({ kind: 'conflict', msg })
         }
+      } else if (res.status === 500 || res.status === 503) {
+        setApiError({ kind: 'other', msg: 'Our server encountered a problem. Please try again in a moment, or contact your travel advisor.' })
       } else {
         setApiError({ kind: 'other', msg })
       }
