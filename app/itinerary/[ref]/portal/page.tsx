@@ -24,7 +24,7 @@ import type { PublicOptionGroup, PublicOptionItem } from '@/lib/v2/types'
 
 export const dynamic = 'force-dynamic'
 
-type Params = { params: Promise<{ ref: string }> }
+type Params = { params: Promise<{ ref: string }>; searchParams?: Promise<Record<string, string | undefined>> }
 
 // ── SEO: noindex — private confirmed-trip pages must not be crawled ───────────
 export async function generateMetadata({ params }: Params): Promise<Metadata> {
@@ -61,8 +61,10 @@ function toIso(d: Date | null | undefined): string | undefined {
 
 // ── Page ──────────────────────────────────────────────────────────────────────
 
-export default async function ClientPortalPage({ params }: Params) {
+export default async function ClientPortalPage({ params, searchParams }: Params) {
   const { ref } = await params
+  const sp = searchParams ? await searchParams : {}
+  const paymentConfirming = sp?.payment === 'confirming'
 
   const itin = await prisma.itinerary.findUnique({ where: { referenceNumber: ref } })
   if (!itin) notFound()
@@ -154,6 +156,8 @@ export default async function ClientPortalPage({ params }: Params) {
   const rawTours     = safeParse<RawTour[]>(itin.tours, [])
   const rawDays      = safeParse<RawDay[]>(itin.days, [])
   const rawOptions   = safeParse<RawOptions>(itin.options, {})
+  const rawOptsAll   = safeParse<Record<string, unknown>>(itin.options, {})
+  const approvalToken = typeof rawOptsAll.approvalToken === 'string' ? rawOptsAll.approvalToken : ''
   const rawTrains    = safeParse<RawTrain[]>((itin as Record<string, unknown>).trains as string | null, [])
   const rawFerries   = safeParse<RawFerry[]>((itin as Record<string, unknown>).ferries as string | null, [])
 
@@ -165,13 +169,16 @@ export default async function ClientPortalPage({ params }: Params) {
   const isV2 = snap.version === 2
 
   const acceptance: PortalAcceptance = {
-    version:       isV2 ? 2 : 1,
-    acceptedAt:    snap.acceptedAt  ?? '',
-    acceptedBy:    snap.acceptedBy  ?? '',
-    acceptedTotal: snap.acceptedTotal ?? 0,
-    deposit:       snap.deposit ?? null,
-    currency:      snap.currency ?? itin.currency,
-    portalStatus:  'ACCEPTED', // overwritten below after fulfilment/payment fetch
+    version:        isV2 ? 2 : 1,
+    acceptedAt:     snap.acceptedAt  ?? '',
+    acceptedBy:     snap.acceptedBy  ?? '',
+    acceptedTotal:  snap.acceptedTotal ?? 0,
+    deposit:        snap.deposit ?? null,
+    currency:       snap.currency ?? itin.currency,
+    portalStatus:   'ACCEPTED', // overwritten below after fulfilment/payment fetch
+    paidTotal:      0,           // overwritten below after payments query
+    approvalToken,
+    paymentConfirming,
     ...(isV2 && snap.selectedGroups && snap.selectedGroups.length > 0
       ? {
           selectedGroupSummary: snap.selectedGroups.map(g => ({
@@ -436,8 +443,10 @@ export default async function ClientPortalPage({ params }: Params) {
         .eq('itinerary_id', itin.id),
       supabase
         .from('itinerary_payments')
-        .select('id, status')
-        .eq('itinerary_id', itin.id),
+        .select('id, status, amount')
+        // P0: itinerary_payments stores itinerary_id as the reference string (WALZ-XXX),
+        // not the Prisma CUID. Webhooks and initiate route both write it by reference.
+        .eq('itinerary_id', itin.referenceNumber),
     ])
 
     if (rawFulfilment) {
@@ -447,10 +456,13 @@ export default async function ClientPortalPage({ params }: Params) {
       }))
     }
     if (rawPayments) {
-      payments = (rawPayments as { id: string; status: string }[]).map(r => ({
+      payments = (rawPayments as { id: string; status: string; amount?: number }[]).map(r => ({
         id: r.id,
         status: r.status,
       }))
+      acceptance.paidTotal = (rawPayments as { status: string; amount?: number }[])
+        .filter(r => r.status === 'PAID')
+        .reduce((sum, r) => sum + Number(r.amount ?? 0), 0)
     }
   } catch {
     // Supabase not configured or tables absent — degrade gracefully (status stays ACCEPTED)

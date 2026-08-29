@@ -7,7 +7,9 @@ import { handleSuccessfulTripPayment }        from '@/lib/payments/handle-succes
 export async function POST(req: NextRequest) {
   const hash = req.headers.get('verif-hash')
 
-  if (!hash || hash !== process.env.FLUTTERWAVE_WEBHOOK_HASH) {
+  // P13: support both FLUTTERWAVE_WEBHOOK_HASH (code) and FLW_WEBHOOK_SECRET (.env.example)
+  const expectedHash = process.env.FLUTTERWAVE_WEBHOOK_HASH ?? process.env.FLW_WEBHOOK_SECRET
+  if (!hash || !expectedHash || hash !== expectedHash) {
     return NextResponse.json({ error: 'Invalid hash' }, { status: 401 })
   }
 

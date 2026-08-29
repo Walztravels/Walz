@@ -100,6 +100,7 @@ export async function POST(req: NextRequest) {
     paymentType?:        unknown
     method?:             unknown
     approvalToken?:      unknown
+    callbackUrl?:        unknown
   }
   try {
     body = await req.json() as typeof body
@@ -137,6 +138,11 @@ export async function POST(req: NextRequest) {
   if (!approvalToken) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
+
+  // Optional: Paystack callback URL — must be https, never trusted for payment proof
+  const callbackUrl = typeof body.callbackUrl === 'string' && body.callbackUrl.startsWith('https://')
+    ? body.callbackUrl
+    : undefined
 
   // ── 2. Resolve itinerary from DB ───────────────────────────────────────────
   const itinerary = await prisma.itinerary.findUnique({
@@ -289,6 +295,7 @@ export async function POST(req: NextRequest) {
           amount:    amountMinor,
           currency:  currency.toUpperCase(),
           reference: txRef,
+          ...(callbackUrl ? { callback_url: callbackUrl } : {}),
           metadata: {
             itinerary_reference: itineraryReference,
             payment_type:        paymentType,

@@ -3,6 +3,7 @@ import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { useParams } from 'next/navigation'
 import { formatDateOnly, addDaysToDateOnly, parseDateOnly } from '@/lib/date-utils'
 import { JadeCopilot, type JadeContext, type AdminJadeTripContext } from './JadeCopilot'
+import { AdminPaymentPanel } from './AdminPaymentPanel'
 import { JadeTripAuditor } from '@/components/admin/JadeTripAuditor'
 import TravelersTab from '@/components/admin/itinerary/TravelersTab'
 import TasksTab from '@/components/admin/itinerary/TasksTab'
@@ -1043,6 +1044,14 @@ function OverviewTab({ itin, onSave }: { itin: ItineraryData; onSave: (u: Record
           {itin.approvedAt && (
             <p className="text-white/20 text-xs mt-3">System timestamp: {fmtDateTime(itin.approvedAt)}</p>
           )}
+        </div>
+      )}
+
+      {/* Payment Panel — P11 */}
+      {itin && (itin.status === 'approved' || itin.status === 'revision_accepted') && (
+        <div className="bg-white/5 border border-white/[0.08] rounded-2xl p-6">
+          <h2 className="text-white font-bold text-base mb-5">Payments</h2>
+          <AdminPaymentPanel itineraryId={itin.id} />
         </div>
       )}
 

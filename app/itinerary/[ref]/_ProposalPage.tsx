@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback, useRef } from 'react'
+import { useRouter } from 'next/navigation'
 import type { PublicProposalDTO, ProposalFlight, ProposalHotel, ProposalTransfer, ProposalTour, ProposalDay, ProposalTrain, ProposalFerry } from './_types'
 import { formatDateOnly, parseDateOnly } from '@/lib/date-utils'
 import type { PublicOptionGroup, PublicOptionItem, ClientSelectionPayload, SelectedItemInput } from '@/lib/v2/types'
@@ -1694,6 +1695,7 @@ function AcceptanceModal({
   v2Selections: ClientSelectionPayload[]
   onClose: () => void
 }) {
+  const router = useRouter()
   const hasOptions = proposal.packageOptions.length > 0
   const startStep: 1 | 2 | 3 = hasOptions ? 1 : 2
 
@@ -1828,6 +1830,10 @@ function AcceptanceModal({
           acceptedTotal: data.acceptedTotal ?? null,
           currency: data.currency ?? proposal.currency,
         })
+        // P1: Redirect to portal after acceptance — 2s delay so client sees confirmation
+        setTimeout(() => {
+          router.replace(`/itinerary/${proposal.referenceNumber}/portal`)
+        }, 2000)
         return
       }
 

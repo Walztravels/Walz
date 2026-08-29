@@ -110,7 +110,7 @@ export async function GET(_req: NextRequest, { params }: Params) {
     const { data: payRows } = await sb
       .from('itinerary_payments')
       .select('amount, currency, status')
-      .eq('itinerary_id', id)
+      .eq('itinerary_id', itin.referenceNumber)
 
     if (payRows) {
       payments = payRows.map(r => ({
