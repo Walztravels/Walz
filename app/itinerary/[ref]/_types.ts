@@ -128,4 +128,11 @@ export interface PublicProposalDTO {
   paymentSchedule: ProposalPaymentMilestone[]
 
   contact: ProposalContact
+
+  // GA5: acceptance flow — only present when relevant to the UI
+  approvalToken?: string      // status='proposal', valid + not used + not expired
+  acceptedAt?: string         // status='approved': ISO timestamp from AcceptanceSnapshot
+  acceptedTotal?: number | null
+  acceptedBy?: string         // client's typed name from AcceptanceSnapshot
+  acceptedOptionIds?: string[]
 }

@@ -4,6 +4,7 @@ import React from 'react'
 import { prisma } from '@/lib/db'
 import { BUSINESS } from '@/lib/config/business'
 import { ItineraryPDF } from '@/lib/pdf/ItineraryPDF'
+import { getAuthoritativeClientTotal, parseAcceptanceSnapshot } from '@/lib/acceptance-snapshot'
 
 export const dynamic = 'force-dynamic'
 export const maxDuration = 60
@@ -105,6 +106,10 @@ export async function GET(_req: NextRequest, { params }: Params) {
   const exclusions = safeParse<string[]>(itin.exclusions, [])
   const priceBreakdown = safeParse<Array<{ item: string; description?: string; cost: number }>>(itin.priceBreakdown, [])
 
+  // GA6: for approved itineraries, use the immutable accepted total from the snapshot
+  const snap = parseAcceptanceSnapshot(itin.selectedOption)
+  const authoritativeTotal = getAuthoritativeClientTotal(itin.status, itin.selectedOption, itin.totalPrice)
+
   const buffer = await renderToBuffer(
     React.createElement(ItineraryPDF, {
       referenceNumber: itin.referenceNumber,
@@ -118,8 +123,8 @@ export async function GET(_req: NextRequest, { params }: Params) {
       tripType: itin.tripType,
       currency: itin.currency,
       overview: itin.overview,
-      totalPrice: itin.totalPrice,
-      deposit: itin.deposit,
+      totalPrice: authoritativeTotal,
+      deposit: snap?.deposit ?? itin.deposit,
       days,
       flights,
       hotels,
@@ -131,6 +136,9 @@ export async function GET(_req: NextRequest, { params }: Params) {
       contactWhatsApp: BUSINESS.contacts.globalWhatsapp.display,
       contactEmail: BUSINESS.contacts.email,
       contactWebsite: 'walztravels.com',
+      acceptedBy: snap?.acceptedBy,
+      acceptedAt: snap?.acceptedAt,
+      acceptedTotal: snap?.acceptedTotal ?? undefined,
     })
   )
 

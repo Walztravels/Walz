@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
 import { getAdminSession } from '@/lib/admin-auth'
+import { patchOptions, parseOptions } from '@/lib/itinerary-options'
 
 export async function GET(_req: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const session = await getAdminSession()
@@ -17,15 +18,27 @@ export async function PATCH(req: NextRequest, { params }: { params: Promise<{ id
   const { id } = await params
   const body = await req.json()
   const data: Record<string, unknown> = { updatedAt: new Date() }
+
+  // 'options' is handled separately below with merge logic — exclude from bulk copy
   const stringFields = [
     'title', 'status', 'type', 'clientName', 'clientEmail', 'clientPhone',
-    'destination', 'destinations', 'overview', 'notes', 'terms', 'coverImage', 'selectedOption',
+    'destination', 'destinations', 'overview', 'notes', 'terms', 'coverImage',
+    // 'selectedOption' intentionally excluded — acceptance snapshot is immutable
+    // and must only be written by the /approve endpoint.
     'createdBy', 'assignedTo', 'tripType', 'currency', 'days', 'flights', 'hotels',
     'transfers', 'tours', 'trains', 'ferries',
-    'inclusions', 'exclusions', 'attachments', 'options', 'priceBreakdown',
+    'inclusions', 'exclusions', 'attachments', 'priceBreakdown',
     'clientSignature', 'approvedBy',
   ]
   for (const f of stringFields) if (f in body) data[f] = body[f]
+
+  // Merge 'options' safely to preserve approval tokens and future metadata keys.
+  // Never let a partial options write from any caller silently wipe approval tokens.
+  if ('options' in body) {
+    const current = await prisma.itinerary.findUnique({ where: { id }, select: { options: true } })
+    const patch = parseOptions(body.options as string | null)
+    data.options = patchOptions(current?.options, patch)
+  }
   if ('numberOfTravellers' in body) data.numberOfTravellers = Number(body.numberOfTravellers)
   if ('duration' in body) data.duration = body.duration !== null ? Number(body.duration) : null
   if ('totalPrice' in body) data.totalPrice = body.totalPrice !== null ? Number(body.totalPrice) : null

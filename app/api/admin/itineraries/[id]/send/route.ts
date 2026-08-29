@@ -1,8 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
+import crypto from 'crypto'
 import { prisma } from '@/lib/db'
 import { getResend } from '@/lib/email-internal'
 import { getAdminSession } from '@/lib/admin-auth'
+import { getSupabaseAdmin } from '@/lib/supabase'
 import { BUSINESS } from '@/lib/config/business'
+import { patchOptions } from '@/lib/itinerary-options'
+import { buildProposalHashPayload, hashProposalState, type PackageOptionRow } from '@/lib/proposalHash'
 
 const BASE = 'https://walztravels.com'
 
@@ -112,10 +116,41 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     if (!error) emailSent = true
   } catch { /* non-fatal */ }
 
+  // Build proposal hash and refresh approval token — all written atomically.
+  // Fetching package options here (not earlier) so the hash reflects exactly
+  // what is stored at the moment of send, not what was loaded for email HTML.
+  const now = new Date()
+  const sb  = getSupabaseAdmin()
+  const { data: pkgRows } = await sb
+    .from('itinerary_package_options')
+    .select('name, description, price, currency, features, sort_order')
+    .eq('itinerary_id', id)
+    .order('sort_order')
+
+  const payload  = buildProposalHashPayload(itin, (pkgRows ?? []) as PackageOptionRow[])
+  const hash     = hashProposalState(payload)
+  const token    = crypto.randomBytes(32).toString('hex')
+  const expiresAt = new Date(now.getTime() + 30 * 86_400_000).toISOString()
+
   await prisma.itinerary.update({
     where: { id },
-    data: { status: 'proposal', sentAt: new Date(), updatedAt: new Date() },
+    data: {
+      status:    'proposal',
+      sentAt:    now,
+      updatedAt: now,
+      // Token + hash + expiry represent the same sent proposal — written together
+      // to guarantee consistency. Replaces any prior token.
+      options: patchOptions(itin.options, {
+        approvalToken:           token,
+        approvalTokenIssuedAt:   now.toISOString(),
+        approvalTokenExpiresAt:  expiresAt,
+        approvalTokenUsed:       false,
+        sentOptionsHash:         hash,
+        sentOptionsHashCreatedAt: now.toISOString(),
+      }),
+    },
   })
 
-  return NextResponse.json({ ok: true, emailSent, to: itin.clientEmail })
+  const approvalUrl = `${BASE}/itinerary/${itin.referenceNumber}`
+  return NextResponse.json({ ok: true, emailSent, to: itin.clientEmail, approvalUrl, sentOptionsHash: hash })
 }

@@ -1,7 +1,7 @@
 'use client'
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { useParams } from 'next/navigation'
-import { JadeCopilot } from './JadeCopilot'
+import { JadeCopilot, type JadeContext, type AdminJadeTripContext } from './JadeCopilot'
 import { JadeTripAuditor } from '@/components/admin/JadeTripAuditor'
 import TravelersTab from '@/components/admin/itinerary/TravelersTab'
 import TasksTab from '@/components/admin/itinerary/TasksTab'
@@ -180,6 +180,7 @@ interface ItineraryData {
   coverImage: string | null
   sentAt: string | null
   approvedAt: string | null
+  selectedOption: string | null
   viewCount: number
   createdAt: string
   updatedAt: string
@@ -189,6 +190,23 @@ interface ItineraryData {
 
 function safeParse<T>(json: string, fallback: T): T {
   try { return JSON.parse(json) as T } catch { return fallback }
+}
+
+type SnapBrief = {
+  acceptedBy?: string
+  acceptedAt?: string
+  acceptedTotal?: number | null
+  deposit?: number | null
+  selectedOptionIds?: string[]
+  options?: { id: string; label: string; price: number | null; currency: string }[]
+}
+function parseSnap(raw: string | null | undefined): SnapBrief | null {
+  if (!raw) return null
+  try {
+    const p = JSON.parse(raw) as unknown
+    if (typeof p !== 'object' || p === null) return null
+    return p as SnapBrief
+  } catch { return null }
 }
 
 function uid() {
@@ -496,6 +514,12 @@ export default function ItineraryBuilderPage() {
   const [saveMsg, setSaveMsg] = useState('')
   const [showCopilot, setShowCopilot] = useState(false)
   const [flightSearchHint, setFlightSearchHint] = useState<{ type: string; destination: string; date: string } | null>(null)
+  const [jadeContext, setJadeContext] = useState<JadeContext>({ activeTab: 'overview' })
+
+  // Reset context when tab changes; child components enrich it via onContextChange
+  useEffect(() => {
+    setJadeContext({ activeTab })
+  }, [activeTab])
 
   const load = useCallback(async () => {
     const res = await fetch(`/api/admin/itineraries/${id}`)
@@ -613,8 +637,8 @@ export default function ItineraryBuilderPage() {
 
       <div className="max-w-7xl mx-auto px-6 py-8">
         {activeTab === 'overview'   && <OverviewTab  itin={itin} onSave={save} />}
-        {activeTab === 'days'       && <DaysTab      itin={itin} onSave={save} />}
-        {activeTab === 'bookings'   && <BookingsTab  itin={itin} onSave={save} />}
+        {activeTab === 'days'       && <DaysTab      itin={itin} onSave={save} onContextChange={setJadeContext} />}
+        {activeTab === 'bookings'   && <BookingsTab  itin={itin} onSave={save} onContextChange={setJadeContext} />}
         {activeTab === 'travelers'  && (
           <TravelersTab
             itinId={itin.id}
@@ -678,11 +702,18 @@ export default function ItineraryBuilderPage() {
 
     {showCopilot && (
       <JadeCopilot
-        itinerary={itin as unknown as Record<string, unknown>}
+        itinerary={({
+          id: itin.id,
+          title: itin.title || undefined,
+          destination: itin.destination || undefined,
+          currency: itin.currency || undefined,
+          numberOfTravellers: itin.numberOfTravellers,
+        }) satisfies AdminJadeTripContext}
         onItineraryUpdate={refresh}
         onClose={() => setShowCopilot(false)}
         initialSearchHint={flightSearchHint}
         onSearchHintConsumed={() => setFlightSearchHint(null)}
+        jadeContext={jadeContext}
       />
     )}
     </>
@@ -791,8 +822,48 @@ function OverviewTab({ itin, onSave }: { itin: ItineraryData; onSave: (u: Record
   const addInc = () => { if (newInc.trim()) { setInclusions(p => [...p, newInc.trim()]); setNewInc('') } }
   const addExc = () => { if (newExc.trim()) { setExclusions(p => [...p, newExc.trim()]); setNewExc('') } }
 
+  const snap = parseSnap(itin.selectedOption)
+  const sym = CURRENCY_SYM[itin.currency] || ''
+
   return (
     <div className="space-y-6 max-w-4xl">
+      {/* Acceptance card — approved itineraries only */}
+      {itin.status === 'approved' && snap?.acceptedBy && (
+        <div className="bg-green-500/10 border border-green-500/25 rounded-2xl p-5">
+          <div className="flex items-center gap-2 mb-3">
+            <span className="text-green-400 text-lg">✅</span>
+            <h2 className="text-green-400 font-bold text-base">Proposal Accepted</h2>
+          </div>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <div>
+              <p className="text-white/30 text-[10px] font-bold uppercase tracking-wider mb-1">Accepted By</p>
+              <p className="text-white text-sm font-semibold">{snap.acceptedBy}</p>
+            </div>
+            {snap.acceptedAt && (
+              <div>
+                <p className="text-white/30 text-[10px] font-bold uppercase tracking-wider mb-1">Accepted On</p>
+                <p className="text-white text-sm">{fmtDateTime(snap.acceptedAt)}</p>
+              </div>
+            )}
+            {snap.acceptedTotal != null && (
+              <div>
+                <p className="text-white/30 text-[10px] font-bold uppercase tracking-wider mb-1">Accepted Total</p>
+                <p className="text-amber-400 text-sm font-bold">{sym}{Number(snap.acceptedTotal).toLocaleString()}</p>
+              </div>
+            )}
+            {snap.options && snap.options.length > 0 && (
+              <div>
+                <p className="text-white/30 text-[10px] font-bold uppercase tracking-wider mb-1">Package</p>
+                <p className="text-white text-sm">{snap.options.map(o => o.label).join(', ')}</p>
+              </div>
+            )}
+          </div>
+          {itin.approvedAt && (
+            <p className="text-white/20 text-xs mt-3">System timestamp: {fmtDateTime(itin.approvedAt)}</p>
+          )}
+        </div>
+      )}
+
       {/* Client Info */}
       <div className="bg-white/5 border border-white/[0.08] rounded-2xl p-6">
         <h2 className="text-white font-bold text-base mb-4">Client Details</h2>
@@ -1076,25 +1147,43 @@ function OverviewTab({ itin, onSave }: { itin: ItineraryData; onSave: (u: Record
 
 // ─── Days Tab ────────────────────────────────────────────────────────────────
 
-function DaysTab({ itin, onSave }: { itin: ItineraryData; onSave: (u: Record<string, unknown>) => Promise<void> }) {
+function DaysTab({ itin, onSave, onContextChange }: {
+  itin: ItineraryData
+  onSave: (u: Record<string, unknown>) => Promise<void>
+  onContextChange?: (ctx: JadeContext) => void
+}) {
+
+  // ── State ─────────────────────────────────────────────────────────────────
   const [days, setDays] = useState<Day[]>(safeParse<Day[]>(itin.days, []))
-  const [expanded, setExpanded] = useState<number | null>(days.length > 0 ? 1 : null)
+  const [editingDayId, setEditingDayId] = useState<number | null>(null)
   const [saving, setSaving] = useState(false)
+  const [saveError, setSaveError] = useState<string | null>(null)
   const [generating, setGenerating] = useState(false)
   const [genMsg, setGenMsg] = useState('')
 
-  // Sync when Jade Copilot (or any external save) updates itin.days in the parent
+  // Sync when Jade Copilot (or any external save) updates itin.days in parent
   useEffect(() => {
     if (!generating) {
       const fresh = safeParse<Day[]>(itin.days, [])
       setDays(fresh)
-      if (fresh.length > 0) setExpanded(1)
+      // Don't force editor open on Jade sync
     }
   }, [itin.days]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  const updDay = (dayNum: number, field: keyof Day, value: unknown) => {
+  // Update Jade context when editing state changes
+  useEffect(() => {
+    if (!onContextChange) return
+    if (!editingDayId) {
+      onContextChange({ activeTab: 'days' })
+      return
+    }
+    const day = days.find(d => d.day === editingDayId)
+    onContextChange({ activeTab: 'days', dayNumber: editingDayId, dayTitle: day?.title || `Day ${editingDayId}` })
+  }, [editingDayId]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Data helpers ──────────────────────────────────────────────────────────
+  const updDay = (dayNum: number, field: keyof Day, value: unknown) =>
     setDays(prev => prev.map(d => d.day === dayNum ? { ...d, [field]: value } : d))
-  }
 
   const addDay = () => {
     const next = days.length > 0 ? Math.max(...days.map(d => d.day)) + 1 : 1
@@ -1104,50 +1193,75 @@ function DaysTab({ itin, onSave }: { itin: ItineraryData; onSave: (u: Record<str
       notes: '', clientNotes: '', internalNotes: '',
     }
     setDays(prev => [...prev, newDay])
-    setExpanded(next)
+    setEditingDayId(next)
   }
 
   const removeDay = (dayNum: number) => {
+    if (!window.confirm('Remove this day? This cannot be undone until you cancel without saving.')) return
     setDays(prev => prev.filter(d => d.day !== dayNum).map((d, i) => ({ ...d, day: i + 1 })))
+    setEditingDayId(null)
   }
 
   const moveDay = (dayNum: number, dir: 'up' | 'down') => {
+    const idx = days.findIndex(d => d.day === dayNum)
+    const canMove = dir === 'up' ? idx > 0 : idx < days.length - 1
+    if (!canMove) return
     setDays(prev => {
-      const idx = prev.findIndex(d => d.day === dayNum)
-      if (dir === 'up' && idx === 0) return prev
-      if (dir === 'down' && idx === prev.length - 1) return prev
+      const i = prev.findIndex(d => d.day === dayNum)
       const next = [...prev]
-      const swap = dir === 'up' ? idx - 1 : idx + 1
-      ;[next[idx], next[swap]] = [next[swap], next[idx]]
-      return next.map((d, i) => ({ ...d, day: i + 1 }))
+      const swap = dir === 'up' ? i - 1 : i + 1
+      ;[next[i], next[swap]] = [next[swap], next[i]]
+      return next.map((d, j) => ({ ...d, day: j + 1 }))
     })
+    // Keep the editor tracking the moved day after renumber
+    if (editingDayId === dayNum) {
+      setEditingDayId(dir === 'up' ? dayNum - 1 : dayNum + 1)
+    }
   }
 
-  const addActivity = (dayNum: number) => {
+  const addActivity = (dayNum: number) =>
     setDays(prev => prev.map(d => d.day === dayNum ? { ...d, activities: [...d.activities, ''] } : d))
-  }
 
-  const updActivity = (dayNum: number, idx: number, val: string) => {
+  const updActivity = (dayNum: number, idx: number, val: string) =>
     setDays(prev => prev.map(d => {
       if (d.day !== dayNum) return d
       const acts = [...d.activities]; acts[idx] = val
       return { ...d, activities: acts }
     }))
-  }
 
-  const removeActivity = (dayNum: number, idx: number) => {
+  const removeActivity = (dayNum: number, idx: number) =>
     setDays(prev => prev.map(d => {
       if (d.day !== dayNum) return d
       return { ...d, activities: d.activities.filter((_, i) => i !== idx) }
     }))
-  }
 
+  // ── Save helpers ──────────────────────────────────────────────────────────
   const handleSave = async () => {
     setSaving(true)
-    await onSave({ days: JSON.stringify(days) })
-    setSaving(false)
+    setSaveError(null)
+    try {
+      await onSave({ days: JSON.stringify(days) })
+    } catch (e) {
+      setSaveError('Save failed — check your connection and try again.')
+      throw e
+    } finally {
+      setSaving(false)
+    }
   }
 
+  const doneEditing = async () => {
+    try { await handleSave(); setEditingDayId(null) } catch { /* saveError is set; editor stays open */ }
+  }
+
+  const switchToDay = async (newDayId: number) => {
+    if (editingDayId === null || editingDayId === newDayId) {
+      setEditingDayId(newDayId)
+      return
+    }
+    try { await handleSave(); setEditingDayId(newDayId) } catch { /* saveError shown; stay on current day */ }
+  }
+
+  // ── Jade AI generation ────────────────────────────────────────────────────
   const handleGenerate = async () => {
     setGenerating(true)
     setGenMsg('Generating with Jade AI…')
@@ -1170,7 +1284,7 @@ function DaysTab({ itin, onSave }: { itin: ItineraryData; onSave: (u: Record<str
         setGenMsg(`❌ ${data.error}`)
       } else if (data.days && Array.isArray(data.days)) {
         setDays(data.days)
-        setExpanded(1)
+        setEditingDayId(null)
         setGenMsg('✓ Generated! Review and save.')
         const extras: Record<string, unknown> = { days: JSON.stringify(data.days) }
         if (data.overview) extras.overview = data.overview
@@ -1186,12 +1300,82 @@ function DaysTab({ itin, onSave }: { itin: ItineraryData; onSave: (u: Record<str
     setGenerating(false)
   }
 
+  // ── Display-only helpers ──────────────────────────────────────────────────
+
+  // Icon detection — never persisted to the database
+  const actIcon = (text: string): string => {
+    const t = text.toLowerCase()
+    if (/flight|airport|arrival|departure/.test(t)) return '✈'
+    if (/hotel|check.?in|accommodation/.test(t)) return '🏨'
+    if (/transfer|chauffeur|driver|pickup|shuttle/.test(t)) return '🚘'
+    if (/\btrain\b|\brailway\b/.test(t)) return '🚆'
+    if (/\bferry\b/.test(t)) return '⛴'
+    if (/\bcruise\b/.test(t)) return '🛥'
+    if (/\btour\b|sightseeing/.test(t)) return '🗺'
+    if (/\bmuseum\b|\bgallery\b/.test(t)) return '🏛'
+    if (/restaurant|dinner|lunch|breakfast|dining/.test(t)) return '🍽'
+    if (/shopping|market|souk|bazaar/.test(t)) return '🛍'
+    if (/\bmeeting\b|conference/.test(t)) return '🤝'
+    if (/free time|leisure|relax|\bspa\b|\bpool\b/.test(t)) return '☕'
+    return ''
+  }
+
+  // Extract optional leading time from activity string: "14:30 Dinner" → { time: "14:30", body: "Dinner" }
+  const parseAct = (text: string): { time: string | null; body: string } => {
+    const m = text.match(/^(\d{1,2}(?::\d{2})?\s*(?:am|pm)?)\s+(.+)/i)
+    if (m) return { time: m[1].trim(), body: m[2].trim() }
+    return { time: null, body: text }
+  }
+
+  // Compute a display date string from itin.startDate + day offset
+  const dayDate = (dayNum: number): string | null => {
+    if (!itin.startDate) return null
+    try {
+      const base = new Date(itin.startDate)
+      if (isNaN(base.getTime())) return null
+      base.setDate(base.getDate() + dayNum - 1)
+      return base.toLocaleDateString('en-GB', { weekday: 'long', day: '2-digit', month: 'long', year: 'numeric' })
+    } catch { return null }
+  }
+
+  // ── Day editor header (closes over saving/saveError/doneEditing) ──────────
+  const DayEditHeader = ({ day }: { day: Day }) => (
+    <div className="mb-4 pb-3 border-b border-white/[0.08]">
+      <div className="flex items-center justify-between">
+        <p className="text-amber-400 text-xs font-bold uppercase tracking-wider">
+          ✏️ Editing: Day {day.day}{day.title && day.title !== `Day ${day.day}` ? ` — ${day.title}` : ''}
+        </p>
+        <div className="flex gap-2">
+          <button type="button" onClick={doneEditing} disabled={saving}
+            className="bg-amber-500 hover:bg-amber-400 text-black font-bold px-4 py-1.5 rounded-lg text-xs transition disabled:opacity-50">
+            {saving ? 'Saving…' : '✓ Done'}
+          </button>
+          <button type="button" onClick={() => removeDay(day.day)}
+            className="bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/20 px-3 py-1.5 rounded-lg text-xs font-bold transition">
+            Remove
+          </button>
+        </div>
+      </div>
+      {saveError && (
+        <p className="mt-2 text-red-400 text-xs flex items-center gap-1.5">
+          <span>⚠</span> {saveError}
+          <button type="button" onClick={doneEditing} className="underline ml-1 hover:text-red-300 transition">Retry</button>
+        </p>
+      )}
+    </div>
+  )
+
+  // ── Render ────────────────────────────────────────────────────────────────
+
   return (
     <div className="max-w-4xl">
+
+      {/* Toolbar */}
       <div className="flex items-center justify-between mb-6">
         <h2 className="text-white font-bold text-lg">Day-by-Day Itinerary</h2>
         <div className="flex gap-3">
           <button
+            type="button"
             onClick={handleGenerate}
             disabled={generating}
             className="bg-purple-600/20 hover:bg-purple-600/30 text-purple-300 border border-purple-500/30 font-bold px-4 py-2 rounded-xl text-sm transition flex items-center gap-2 disabled:opacity-50"
@@ -1200,131 +1384,239 @@ function DaysTab({ itin, onSave }: { itin: ItineraryData; onSave: (u: Record<str
               ? <><div className="w-3.5 h-3.5 border-2 border-purple-300 border-t-transparent rounded-full animate-spin" /> Generating…</>
               : '✨ Generate with Jade AI'}
           </button>
-          <button onClick={addDay} className="bg-white/5 hover:bg-white/10 text-white border border-white/10 font-bold px-4 py-2 rounded-xl text-sm transition">
+          <button type="button" onClick={addDay} className="bg-white/5 hover:bg-white/10 text-white border border-white/10 font-bold px-4 py-2 rounded-xl text-sm transition">
             + Add Day
           </button>
         </div>
       </div>
 
+      {/* Jade generation message */}
       {genMsg && (
         <div className={`mb-4 px-4 py-3 rounded-xl text-sm ${genMsg.startsWith('✓') ? 'bg-green-500/10 text-green-400' : 'bg-amber-500/10 text-amber-400'}`}>
           {genMsg}
         </div>
       )}
 
+      {/* Empty state */}
       {days.length === 0 ? (
         <div className="bg-white/5 rounded-2xl p-12 text-center">
           <p className="text-4xl mb-3">📅</p>
           <p className="text-white/40 mb-2">No days yet</p>
           <p className="text-white/20 text-sm mb-6">Add days manually or let Jade AI generate the full itinerary</p>
           <div className="flex gap-3 justify-center">
-            <button onClick={addDay} className="bg-amber-500 text-black font-bold px-5 py-2.5 rounded-xl text-sm hover:bg-amber-400 transition">+ Add Day</button>
-            <button onClick={handleGenerate} disabled={generating} className="bg-purple-600/20 text-purple-300 border border-purple-500/30 font-bold px-5 py-2.5 rounded-xl text-sm hover:bg-purple-600/30 transition">✨ Generate with AI</button>
+            <button type="button" onClick={addDay} className="bg-amber-500 text-black font-bold px-5 py-2.5 rounded-xl text-sm hover:bg-amber-400 transition">+ Add Day</button>
+            <button type="button" onClick={handleGenerate} disabled={generating} className="bg-purple-600/20 text-purple-300 border border-purple-500/30 font-bold px-5 py-2.5 rounded-xl text-sm hover:bg-purple-600/30 transition">✨ Generate with AI</button>
           </div>
         </div>
       ) : (
-        <div className="space-y-3">
-          {days.map((day) => (
-            <div key={day.day} className="bg-white/5 border border-white/[0.08] rounded-2xl overflow-hidden">
-              <div
-                className="flex items-center gap-4 p-4 cursor-pointer hover:bg-white/[0.03] transition"
-                onClick={() => setExpanded(expanded === day.day ? null : day.day)}
-              >
-                <div className="bg-amber-500/20 rounded-xl px-3 py-2 text-center flex-shrink-0">
-                  <p className="text-amber-400 text-[10px] font-bold uppercase">Day</p>
-                  <p className="text-amber-400 text-lg font-bold">{day.day}</p>
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-white font-medium text-sm truncate">{day.title || `Day ${day.day}`}</p>
-                  <div className="flex items-center gap-3">
-                    {day.destination && <p className="text-white/30 text-xs">📍 {day.destination}</p>}
-                    {day.accommodation && <p className="text-white/30 text-xs">🏨 {day.accommodation}</p>}
-                    {day.weather && <p className="text-white/30 text-xs">🌤 {day.weather}</p>}
-                  </div>
-                </div>
-                <div className="flex items-center gap-2">
-                  <button onClick={(e) => { e.stopPropagation(); moveDay(day.day, 'up') }} className="text-white/20 hover:text-white/60 text-xs px-1.5 py-1 rounded transition">↑</button>
-                  <button onClick={(e) => { e.stopPropagation(); moveDay(day.day, 'down') }} className="text-white/20 hover:text-white/60 text-xs px-1.5 py-1 rounded transition">↓</button>
-                  <button onClick={(e) => { e.stopPropagation(); removeDay(day.day) }} className="text-white/20 hover:text-red-400 text-xs px-1.5 py-1 rounded transition">✕</button>
-                  <span className="text-white/20 text-xs">{expanded === day.day ? '▲' : '▼'}</span>
-                </div>
-              </div>
+        <div className="space-y-4">
+          {days.map((day) => {
+            const dateStr = dayDate(day.day)
+            const visibleActivities = day.activities.filter(a => a.trim())
+            return (
+              <div key={day.day} className="bg-white/[0.04] border border-white/[0.06] rounded-2xl overflow-hidden">
 
-              {expanded === day.day && (
-                <div className="border-t border-white/[0.08] p-5 space-y-4">
-                  <div>
-                    <label className="text-white/40 text-xs font-bold uppercase tracking-wider block mb-1.5">Day Title</label>
-                    <input value={day.title} onChange={e => updDay(day.day, 'title', e.target.value)} placeholder={`Day ${day.day} title`} className={inp} />
+                {/* ── EDIT MODE ─────────────────────────────────────────── */}
+                {editingDayId === day.day ? (
+                  <div className="p-5 space-y-4">
+                    <DayEditHeader day={day} />
+
+                    <div>
+                      <label className="text-white/40 text-xs font-bold uppercase tracking-wider block mb-1.5">Day Title</label>
+                      <input value={day.title} onChange={e => updDay(day.day, 'title', e.target.value)} placeholder={`Day ${day.day} title`} className={inp} />
+                    </div>
+
+                    <div>
+                      <label className="text-white/40 text-xs font-bold uppercase tracking-wider block mb-1.5">Description</label>
+                      <textarea value={day.description} onChange={e => updDay(day.day, 'description', e.target.value)} placeholder="What happens on this day…" rows={3} className={ta} />
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                      <div>
+                        <label className="text-white/40 text-xs font-bold uppercase tracking-wider block mb-1.5">Location / City</label>
+                        <input value={day.destination || ''} onChange={e => updDay(day.day, 'destination', e.target.value)} placeholder="e.g. Dubai" className={inp} />
+                      </div>
+                      <div>
+                        <label className="text-white/40 text-xs font-bold uppercase tracking-wider block mb-1.5">Weather</label>
+                        <input value={day.weather || ''} onChange={e => updDay(day.day, 'weather', e.target.value)} placeholder="e.g. Warm 28°C, sunny" className={inp} />
+                      </div>
+                      <div>
+                        <label className="text-white/40 text-xs font-bold uppercase tracking-wider block mb-1.5">Dress Code</label>
+                        <input value={day.dressCode || ''} onChange={e => updDay(day.day, 'dressCode', e.target.value)} placeholder="e.g. Smart casual" className={inp} />
+                      </div>
+                    </div>
+
+                    <div>
+                      <div className="flex items-center justify-between mb-1.5">
+                        <label className="text-white/40 text-xs font-bold uppercase tracking-wider">Activities</label>
+                        <button type="button" onClick={() => addActivity(day.day)} className="text-amber-400 text-xs hover:text-amber-300 transition">+ Add</button>
+                      </div>
+                      <div className="space-y-2">
+                        {day.activities.map((act, ai) => (
+                          <div key={ai} className="flex gap-2">
+                            <input value={act} onChange={e => updActivity(day.day, ai, e.target.value)} placeholder={`Activity ${ai + 1}`} className={inp + ' flex-1'} />
+                            <button type="button" onClick={() => removeActivity(day.day, ai)} className="text-white/20 hover:text-red-400 px-2 transition">✕</button>
+                          </div>
+                        ))}
+                        {day.activities.length === 0 && (
+                          <button type="button" onClick={() => addActivity(day.day)} className="w-full border border-dashed border-white/10 rounded-xl py-2.5 text-white/20 text-sm hover:border-amber-500/30 hover:text-amber-400/50 transition">
+                            + Add activity
+                          </button>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div>
+                        <label className="text-white/40 text-xs font-bold uppercase tracking-wider block mb-1.5">Accommodation</label>
+                        <input value={day.accommodation} onChange={e => updDay(day.day, 'accommodation', e.target.value)} placeholder="Hotel name" className={inp} />
+                      </div>
+                      <div>
+                        <label className="text-white/40 text-xs font-bold uppercase tracking-wider block mb-1.5">Meals</label>
+                        <input value={day.meals} onChange={e => updDay(day.day, 'meals', e.target.value)} placeholder="B / L / D" className={inp} />
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div>
+                        <label className="text-green-400/70 text-xs font-bold uppercase tracking-wider block mb-1.5">
+                          Client Notes <span className="text-white/20 font-normal normal-case">(shown to client)</span>
+                        </label>
+                        <input value={day.clientNotes || ''} onChange={e => updDay(day.day, 'clientNotes', e.target.value)} placeholder="Tips, highlights shown on the client page…" className={inp} />
+                      </div>
+                      <div>
+                        <label className="text-amber-400/70 text-xs font-bold uppercase tracking-wider block mb-1.5">
+                          Internal Notes <span className="text-white/20 font-normal normal-case">(admin only)</span>
+                        </label>
+                        <input value={day.internalNotes || ''} onChange={e => updDay(day.day, 'internalNotes', e.target.value)} placeholder="Supplier instructions, margins, internal reminders…" className={inp} />
+                      </div>
+                    </div>
                   </div>
-                  <div>
-                    <label className="text-white/40 text-xs font-bold uppercase tracking-wider block mb-1.5">Description</label>
-                    <textarea value={day.description} onChange={e => updDay(day.day, 'description', e.target.value)} placeholder="What happens on this day…" rows={3} className={ta} />
+
+                ) : (
+                  /* ── SUMMARY VIEW ──────────────────────────────────────── */
+                  <div className="p-5">
+
+                    {/* Header */}
+                    <div className="flex items-start gap-4">
+                      {/* Day number badge */}
+                      <div className="flex-shrink-0 w-12 text-center pt-0.5">
+                        <p className="text-amber-500/50 text-[9px] font-bold uppercase tracking-widest leading-none">DAY</p>
+                        <p className="text-amber-400 text-2xl font-bold leading-tight">{day.day}</p>
+                      </div>
+
+                      {/* Title, date, location */}
+                      <div className="flex-1 min-w-0">
+                        <p className="text-white font-bold text-sm leading-snug tracking-wide uppercase">
+                          {day.title && day.title !== `Day ${day.day}` ? day.title : `Day ${day.day}`}
+                        </p>
+                        {dateStr && <p className="text-white/30 text-xs mt-0.5">{dateStr}</p>}
+                        {day.destination && (
+                          <p className="text-amber-400/60 text-xs mt-0.5 font-medium">📍 {day.destination}</p>
+                        )}
+                      </div>
+
+                      {/* Action buttons */}
+                      <div className="flex items-center gap-1 flex-shrink-0">
+                        <button
+                          type="button"
+                          onClick={() => moveDay(day.day, 'up')}
+                          className="text-white/20 hover:text-white/50 w-7 h-7 flex items-center justify-center rounded text-sm hover:bg-white/5 transition"
+                          aria-label={`Move day ${day.day} up`}
+                        >↑</button>
+                        <button
+                          type="button"
+                          onClick={() => moveDay(day.day, 'down')}
+                          className="text-white/20 hover:text-white/50 w-7 h-7 flex items-center justify-center rounded text-sm hover:bg-white/5 transition"
+                          aria-label={`Move day ${day.day} down`}
+                        >↓</button>
+                        <button
+                          type="button"
+                          aria-expanded={false}
+                          onClick={() => { void switchToDay(day.day) }}
+                          className="bg-white/5 hover:bg-white/10 text-white/70 hover:text-white border border-white/10 px-3 py-1.5 rounded-lg text-xs font-bold transition ml-1"
+                        >Edit Day</button>
+                      </div>
+                    </div>
+
+                    {/* Weather + dress badges */}
+                    {(day.weather || day.dressCode) && (
+                      <div className="flex gap-3 mt-2.5 flex-wrap">
+                        {day.weather && <span className="text-white/35 text-xs">🌤 {day.weather}</span>}
+                        {day.dressCode && <span className="text-white/35 text-xs">👔 {day.dressCode}</span>}
+                      </div>
+                    )}
+
+                    {/* Description */}
+                    {day.description && (
+                      <p className="mt-3 text-white/50 text-sm leading-relaxed line-clamp-3">{day.description}</p>
+                    )}
+
+                    {/* Activities timeline */}
+                    {visibleActivities.length > 0 && (
+                      <div className="mt-4 space-y-1.5">
+                        {visibleActivities.map((act, i) => {
+                          const { time, body } = parseAct(act)
+                          const icon = actIcon(act)
+                          return (
+                            <div key={i} className="flex items-start gap-2">
+                              <span className="text-white/25 text-[10px] font-mono tabular-nums w-10 flex-shrink-0 pt-0.5 text-right leading-none">
+                                {time ?? ''}
+                              </span>
+                              <span className="text-[13px] flex-shrink-0 leading-none pt-px">{icon || '·'}</span>
+                              <span className="text-white/65 text-xs leading-relaxed">{body}</span>
+                            </div>
+                          )
+                        })}
+                      </div>
+                    )}
+
+                    {/* Intentional empty day */}
+                    {visibleActivities.length === 0 && !day.description && (
+                      <div className="mt-3 flex items-center gap-3">
+                        <p className="text-white/20 text-sm italic">No activities planned yet.</p>
+                        <button
+                          type="button"
+                          onClick={() => { void switchToDay(day.day) }}
+                          className="text-amber-400/50 text-xs hover:text-amber-400 transition"
+                        >+ Add plans</button>
+                      </div>
+                    )}
+
+                    {/* Accommodation + meals footer */}
+                    {(day.accommodation || day.meals) && (
+                      <div className="mt-4 pt-3 border-t border-white/[0.05] flex items-center gap-4 flex-wrap">
+                        {day.accommodation && (
+                          <span className="text-white/35 text-xs">🏨 {day.accommodation}</span>
+                        )}
+                        {day.meals && (
+                          <span className="text-white/35 text-xs">🍽 {day.meals}</span>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Client note (shown to client, visible in summary) */}
+                    {day.clientNotes && (
+                      <div className="mt-3 px-3 py-2 bg-green-500/[0.06] border border-green-500/[0.12] rounded-lg">
+                        <p className="text-green-400/50 text-[9px] font-bold uppercase tracking-wider mb-0.5">Client Note</p>
+                        <p className="text-white/45 text-xs leading-relaxed">{day.clientNotes}</p>
+                      </div>
+                    )}
                   </div>
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                    <div>
-                      <label className="text-white/40 text-xs font-bold uppercase tracking-wider block mb-1.5">Location / City</label>
-                      <input value={day.destination || ''} onChange={e => updDay(day.day, 'destination', e.target.value)} placeholder="e.g. Dubai" className={inp} />
-                    </div>
-                    <div>
-                      <label className="text-white/40 text-xs font-bold uppercase tracking-wider block mb-1.5">Weather</label>
-                      <input value={day.weather || ''} onChange={e => updDay(day.day, 'weather', e.target.value)} placeholder="e.g. Warm 28°C, sunny" className={inp} />
-                    </div>
-                    <div>
-                      <label className="text-white/40 text-xs font-bold uppercase tracking-wider block mb-1.5">Dress Code</label>
-                      <input value={day.dressCode || ''} onChange={e => updDay(day.day, 'dressCode', e.target.value)} placeholder="e.g. Smart casual" className={inp} />
-                    </div>
-                  </div>
-                  <div>
-                    <div className="flex items-center justify-between mb-1.5">
-                      <label className="text-white/40 text-xs font-bold uppercase tracking-wider">Activities</label>
-                      <button onClick={() => addActivity(day.day)} className="text-amber-400 text-xs hover:text-amber-300 transition">+ Add</button>
-                    </div>
-                    <div className="space-y-2">
-                      {day.activities.map((act, ai) => (
-                        <div key={ai} className="flex gap-2">
-                          <input value={act} onChange={e => updActivity(day.day, ai, e.target.value)} placeholder={`Activity ${ai + 1}`} className={inp + ' flex-1'} />
-                          <button onClick={() => removeActivity(day.day, ai)} className="text-white/20 hover:text-red-400 px-2 transition">✕</button>
-                        </div>
-                      ))}
-                      {day.activities.length === 0 && (
-                        <button onClick={() => addActivity(day.day)} className="w-full border border-dashed border-white/10 rounded-xl py-2.5 text-white/20 text-sm hover:border-amber-500/30 hover:text-amber-400/50 transition">
-                          + Add activity
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div>
-                      <label className="text-white/40 text-xs font-bold uppercase tracking-wider block mb-1.5">Accommodation</label>
-                      <input value={day.accommodation} onChange={e => updDay(day.day, 'accommodation', e.target.value)} placeholder="Hotel name" className={inp} />
-                    </div>
-                    <div>
-                      <label className="text-white/40 text-xs font-bold uppercase tracking-wider block mb-1.5">Meals</label>
-                      <input value={day.meals} onChange={e => updDay(day.day, 'meals', e.target.value)} placeholder="B / L / D" className={inp} />
-                    </div>
-                  </div>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div>
-                      <label className="text-green-400/70 text-xs font-bold uppercase tracking-wider block mb-1.5">Client Notes <span className="text-white/20 font-normal normal-case">(shown to client)</span></label>
-                      <input value={day.clientNotes || ''} onChange={e => updDay(day.day, 'clientNotes', e.target.value)} placeholder="Tips, highlights shown on the client page…" className={inp} />
-                    </div>
-                    <div>
-                      <label className="text-amber-400/70 text-xs font-bold uppercase tracking-wider block mb-1.5">Internal Notes <span className="text-white/20 font-normal normal-case">(admin only)</span></label>
-                      <input value={day.internalNotes || ''} onChange={e => updDay(day.day, 'internalNotes', e.target.value)} placeholder="Supplier instructions, margins, internal reminders…" className={inp} />
-                    </div>
-                  </div>
-                </div>
-              )}
-            </div>
-          ))}
+                )}
+              </div>
+            )
+          })}
         </div>
       )}
 
+      {/* Bottom bar */}
       <div className="flex justify-between mt-6">
-        <button onClick={addDay} className="border border-white/10 text-white/50 px-5 py-2.5 rounded-xl text-sm hover:text-white hover:border-white/20 transition">
+        <button type="button" onClick={addDay} className="border border-white/10 text-white/50 px-5 py-2.5 rounded-xl text-sm hover:text-white hover:border-white/20 transition">
           + Add Day
         </button>
         <button
+          type="button"
           onClick={handleSave}
           disabled={saving}
           className="bg-amber-500 hover:bg-amber-400 text-black font-bold px-8 py-3 rounded-xl transition disabled:opacity-50 flex items-center gap-2"
@@ -1363,7 +1655,11 @@ function SupplierPicker({ value, onChange }: { value: string; onChange: (id: str
   )
 }
 
-function BookingsTab({ itin, onSave }: { itin: ItineraryData; onSave: (u: Record<string, unknown>) => Promise<void> }) {
+function BookingsTab({ itin, onSave, onContextChange }: {
+  itin: ItineraryData
+  onSave: (u: Record<string, unknown>) => Promise<void>
+  onContextChange?: (ctx: JadeContext) => void
+}) {
   const [bookingTab, setBookingTab] = useState('flights')
   const [flights, setFlights] = useState<Flight[]>(safeParse<Flight[]>(itin.flights, []))
   const [hotels, setHotels] = useState<Hotel[]>(safeParse<Hotel[]>(itin.hotels, []))
@@ -1372,6 +1668,38 @@ function BookingsTab({ itin, onSave }: { itin: ItineraryData; onSave: (u: Record
   const [trains, setTrains] = useState<Train[]>(safeParse<Train[]>(itin.trains || '[]', []))
   const [ferries, setFerries] = useState<Ferry[]>(safeParse<Ferry[]>(itin.ferries || '[]', []))
   const [saving, setSaving] = useState(false)
+  const [saveError, setSaveError] = useState<string | null>(null)
+  const [editingId, setEditingId] = useState<{ type: string; id: string } | null>(null)
+
+  // Update Jade context when editing state or booking tab changes
+  useEffect(() => {
+    if (!onContextChange) return
+    if (!editingId) {
+      onContextChange({ activeTab: 'bookings', bookingType: bookingTab })
+      return
+    }
+    let summary = ''
+    if (editingId.type === 'flight') {
+      const f = flights.find(x => x.id === editingId.id)
+      if (f) summary = [f.airline, f.flightNumber, f.from && f.to ? `${f.from}→${f.to}` : ''].filter(Boolean).join(' ')
+    } else if (editingId.type === 'hotel') {
+      const h = hotels.find(x => x.id === editingId.id)
+      if (h) summary = h.name
+    } else if (editingId.type === 'transfer') {
+      const t = transfers.find(x => x.id === editingId.id)
+      if (t) summary = [t.from, t.to].filter(Boolean).join(' → ')
+    } else if (editingId.type === 'tour') {
+      const t = tours.find(x => x.id === editingId.id)
+      if (t) summary = t.name
+    } else if (editingId.type === 'train') {
+      const t = trains.find(x => x.id === editingId.id)
+      if (t) summary = [t.from, t.to].filter(Boolean).join(' → ')
+    } else if (editingId.type === 'ferry') {
+      const f = ferries.find(x => x.id === editingId.id)
+      if (f) summary = [f.from, f.to].filter(Boolean).join(' → ')
+    }
+    onContextChange({ activeTab: 'bookings', bookingType: editingId.type, editingBookingSummary: summary || undefined })
+  }, [editingId, bookingTab]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const sym = CURRENCY_SYM[itin.currency] || ''
 
@@ -1380,77 +1708,155 @@ function BookingsTab({ itin, onSave }: { itin: ItineraryData; onSave: (u: Record
     tours: tours.length, trains: trains.length, ferries: ferries.length,
   }
 
+  const isEditing = (type: string, id: string) => editingId?.type === type && editingId?.id === id
+  const startEdit = (type: string, id: string) => setEditingId({ type, id })
+
   const handleSave = async () => {
     setSaving(true)
-    await onSave({
-      flights: JSON.stringify(flights),
-      hotels: JSON.stringify(hotels),
-      transfers: JSON.stringify(transfers),
-      tours: JSON.stringify(tours),
-      trains: JSON.stringify(trains),
-      ferries: JSON.stringify(ferries),
-    })
-    setSaving(false)
+    setSaveError(null)
+    try {
+      await onSave({
+        flights: JSON.stringify(flights),
+        hotels: JSON.stringify(hotels),
+        transfers: JSON.stringify(transfers),
+        tours: JSON.stringify(tours),
+        trains: JSON.stringify(trains),
+        ferries: JSON.stringify(ferries),
+      })
+    } catch (e) {
+      setSaveError('Save failed — check your connection and try again.')
+      throw e
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const doneEditing = async () => {
+    try { await handleSave(); setEditingId(null) } catch { /* saveError is set; editor stays open */ }
   }
 
   // ── Flights ──────────────────────────────────────────────────────────────
 
-  const addFlight = () => setFlights(prev => [...prev, {
-    id: uid(), from: '', to: '', airline: '', iataCode: '', flightNumber: '',
-    date: '', time: '', arrivalTime: '', class: 'Economy', pnr: '',
-    cost: null, supplierCost: null, status: 'confirmed', notes: '',
-    supplierId: '', duffelOrderId: '',
-  }])
+  const addFlight = () => {
+    const newId = uid()
+    setFlights(prev => [...prev, {
+      id: newId, from: '', to: '', airline: '', iataCode: '', flightNumber: '',
+      date: '', time: '', arrivalTime: '', class: 'Economy', pnr: '',
+      cost: null, supplierCost: null, status: 'confirmed', notes: '',
+      supplierId: '', duffelOrderId: '',
+    }])
+    setEditingId({ type: 'flight', id: newId })
+  }
   const updFlight = (id: string, f: keyof Flight, v: unknown) => setFlights(prev => prev.map(fl => fl.id === id ? { ...fl, [f]: v } : fl))
-  const rmFlight = (id: string) => setFlights(prev => prev.filter(f => f.id !== id))
+  const rmFlight = (id: string) => { if (!window.confirm('Remove this flight? This cannot be undone until you cancel without saving.')) return; setFlights(prev => prev.filter(fl => fl.id !== id)); setEditingId(null) }
 
   // ── Hotels ───────────────────────────────────────────────────────────────
 
-  const addHotel = () => setHotels(prev => [...prev, {
-    id: uid(), name: '', location: '', websiteUrl: '', checkIn: '', checkOut: '',
-    roomType: '', nights: 1, cost: null, supplierCost: null, status: 'confirmed',
-    notes: '', image: '', images: [], supplierId: '', hotelbedsCancellationReference: '',
-  }])
+  const addHotel = () => {
+    const newId = uid()
+    setHotels(prev => [...prev, {
+      id: newId, name: '', location: '', websiteUrl: '', checkIn: '', checkOut: '',
+      roomType: '', nights: 1, cost: null, supplierCost: null, status: 'confirmed',
+      notes: '', image: '', images: [], supplierId: '', hotelbedsCancellationReference: '',
+    }])
+    setEditingId({ type: 'hotel', id: newId })
+  }
   const updHotel = (id: string, f: keyof Hotel, v: unknown) => setHotels(prev => prev.map(h => h.id === id ? { ...h, [f]: v } : h))
-  const rmHotel = (id: string) => setHotels(prev => prev.filter(h => h.id !== id))
+  const rmHotel = (id: string) => { if (!window.confirm('Remove this hotel? This cannot be undone until you cancel without saving.')) return; setHotels(prev => prev.filter(h => h.id !== id)); setEditingId(null) }
 
   // ── Transfers ────────────────────────────────────────────────────────────
 
-  const addTransfer = () => setTransfers(prev => [...prev, {
-    id: uid(), type: 'Private Car', from: '', to: '', date: '', time: '',
-    vehicle: '', provider: '', cost: null, supplierCost: null, notes: '', image: '', images: [], supplierId: '',
-  }])
+  const addTransfer = () => {
+    const newId = uid()
+    setTransfers(prev => [...prev, {
+      id: newId, type: 'Private Car', from: '', to: '', date: '', time: '',
+      vehicle: '', provider: '', cost: null, supplierCost: null, notes: '', image: '', images: [], supplierId: '',
+    }])
+    setEditingId({ type: 'transfer', id: newId })
+  }
   const updTransfer = (id: string, f: keyof Transfer, v: unknown) => setTransfers(prev => prev.map(t => t.id === id ? { ...t, [f]: v } : t))
-  const rmTransfer = (id: string) => setTransfers(prev => prev.filter(t => t.id !== id))
+  const rmTransfer = (id: string) => { if (!window.confirm('Remove this transfer? This cannot be undone until you cancel without saving.')) return; setTransfers(prev => prev.filter(t => t.id !== id)); setEditingId(null) }
 
   // ── Tours ─────────────────────────────────────────────────────────────────
 
-  const addTour = () => setTours(prev => [...prev, {
-    id: uid(), name: '', location: '', date: '', time: '',
-    duration: '', provider: '', cost: null, supplierCost: null, notes: '', image: '', images: [], supplierId: '',
-  }])
+  const addTour = () => {
+    const newId = uid()
+    setTours(prev => [...prev, {
+      id: newId, name: '', location: '', date: '', time: '',
+      duration: '', provider: '', cost: null, supplierCost: null, notes: '', image: '', images: [], supplierId: '',
+    }])
+    setEditingId({ type: 'tour', id: newId })
+  }
   const updTour = (id: string, f: keyof Tour, v: unknown) => setTours(prev => prev.map(t => t.id === id ? { ...t, [f]: v } : t))
-  const rmTour = (id: string) => setTours(prev => prev.filter(t => t.id !== id))
+  const rmTour = (id: string) => { if (!window.confirm('Remove this tour? This cannot be undone until you cancel without saving.')) return; setTours(prev => prev.filter(t => t.id !== id)); setEditingId(null) }
 
   // ── Trains ────────────────────────────────────────────────────────────────
 
-  const addTrain = () => setTrains(prev => [...prev, {
-    id: uid(), from: '', to: '', date: '', departureTime: '', arrivalTime: '',
-    trainNumber: '', class: 'Standard', provider: '', pnr: '',
-    cost: null, supplierCost: null, notes: '', image: '', supplierId: '',
-  }])
+  const addTrain = () => {
+    const newId = uid()
+    setTrains(prev => [...prev, {
+      id: newId, from: '', to: '', date: '', departureTime: '', arrivalTime: '',
+      trainNumber: '', class: 'Standard', provider: '', pnr: '',
+      cost: null, supplierCost: null, notes: '', image: '', supplierId: '',
+    }])
+    setEditingId({ type: 'train', id: newId })
+  }
   const updTrain = (id: string, f: keyof Train, v: unknown) => setTrains(prev => prev.map(t => t.id === id ? { ...t, [f]: v } : t))
-  const rmTrain = (id: string) => setTrains(prev => prev.filter(t => t.id !== id))
+  const rmTrain = (id: string) => { if (!window.confirm('Remove this train? This cannot be undone until you cancel without saving.')) return; setTrains(prev => prev.filter(t => t.id !== id)); setEditingId(null) }
 
   // ── Ferries ───────────────────────────────────────────────────────────────
 
-  const addFerry = () => setFerries(prev => [...prev, {
-    id: uid(), from: '', to: '', date: '', departureTime: '', arrivalTime: '',
-    operator: '', class: 'Standard', vessel: '',
-    cost: null, supplierCost: null, notes: '', image: '', supplierId: '',
-  }])
+  const addFerry = () => {
+    const newId = uid()
+    setFerries(prev => [...prev, {
+      id: newId, from: '', to: '', date: '', departureTime: '', arrivalTime: '',
+      operator: '', class: 'Standard', vessel: '',
+      cost: null, supplierCost: null, notes: '', image: '', supplierId: '',
+    }])
+    setEditingId({ type: 'ferry', id: newId })
+  }
   const updFerry = (id: string, f: keyof Ferry, v: unknown) => setFerries(prev => prev.map(fe => fe.id === id ? { ...fe, [f]: v } : fe))
-  const rmFerry = (id: string) => setFerries(prev => prev.filter(fe => fe.id !== id))
+  const rmFerry = (id: string) => { if (!window.confirm('Remove this ferry? This cannot be undone until you cancel without saving.')) return; setFerries(prev => prev.filter(fe => fe.id !== id)); setEditingId(null) }
+
+  // ── Shared card primitives ────────────────────────────────────────────────
+
+  const editBtnCls = 'bg-white/5 hover:bg-white/10 text-white/70 hover:text-white border border-white/10 px-3 py-1.5 rounded-lg text-xs font-bold transition'
+  const rmBtnCls   = 'text-white/20 hover:text-red-400 text-xs transition px-3 py-1.5 rounded-lg hover:bg-red-500/10'
+
+  const MarginPill = ({ cost, supplierCost: sc }: { cost: number | null; supplierCost: number | null }) => {
+    if (cost == null || sc == null || cost <= 0 || sc <= 0) return null
+    const m = cost - sc; const pct = Math.round((m / cost) * 100)
+    return <span className={`text-[11px] font-bold px-2 py-0.5 rounded-full ${m >= 0 ? 'bg-green-500/15 text-green-400' : 'bg-red-500/15 text-red-400'}`}>{m >= 0 ? '+' : ''}{sym}{m.toLocaleString()} ({pct}%)</span>
+  }
+
+  const SBadge = ({ status }: { status: string }) => {
+    const cls = status === 'confirmed' ? 'bg-green-500/15 text-green-400'
+      : status === 'pending' ? 'bg-amber-500/15 text-amber-400'
+      : status === 'cancelled' ? 'bg-red-500/15 text-red-400' : 'bg-white/10 text-white/40'
+    return <span className={`text-[10px] font-bold uppercase px-2 py-0.5 rounded-full ${cls}`}>{status}</span>
+  }
+
+  const EditHeader = ({ label, onDone, onRemove }: { label: string; onDone: () => void; onRemove: () => void }) => (
+    <div className="mb-4 pb-3 border-b border-white/[0.08]">
+      <div className="flex items-center justify-between">
+        <p className="text-amber-400 text-xs font-bold uppercase tracking-wider">✏️ Editing: {label}</p>
+        <div className="flex gap-2">
+          <button type="button" onClick={onDone} disabled={saving} className="bg-amber-500 hover:bg-amber-400 text-black font-bold px-4 py-1.5 rounded-lg text-xs transition disabled:opacity-50">
+            {saving ? 'Saving…' : '✓ Done'}
+          </button>
+          <button type="button" onClick={onRemove} className="bg-red-500/10 hover:bg-red-500/20 text-red-400 border border-red-500/20 px-3 py-1.5 rounded-lg text-xs font-bold transition">
+            Remove
+          </button>
+        </div>
+      </div>
+      {saveError && (
+        <p className="mt-2 text-red-400 text-xs flex items-center gap-1.5">
+          <span>⚠</span> {saveError}
+          <button type="button" onClick={onDone} className="underline ml-1 hover:text-red-300 transition">Retry</button>
+        </p>
+      )}
+    </div>
+  )
 
   return (
     <div className="max-w-4xl">
@@ -1488,102 +1894,73 @@ function BookingsTab({ itin, onSave }: { itin: ItineraryData; onSave: (u: Record
               <button onClick={addFlight} className="text-amber-400 text-sm hover:text-amber-300 transition">+ Add first flight</button>
             </div>
           ) : (
-            <div className="space-y-5">
+            <div className="space-y-3">
               {flights.map(f => (
-                <div key={f.id} className="bg-white/5 rounded-xl p-4 border border-white/[0.06]">
-                  <div className="flex justify-between items-start mb-4">
-                    <div className="flex items-center gap-3">
-                      {f.iataCode && (
-                        <img
-                          src={`https://content.airhex.com/content/logos/airlines_${f.iataCode.toUpperCase()}_350_100_r.png`}
-                          alt={f.airline || f.iataCode}
-                          className="h-9 max-w-[100px] object-contain bg-white rounded px-2 py-1"
-                          onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }}
-                        />
-                      )}
-                      <p className="text-white/50 text-xs font-bold uppercase tracking-wider">Flight</p>
-                    </div>
-                    <button onClick={() => rmFlight(f.id)} className="text-white/20 hover:text-red-400 text-xs transition">✕ Remove</button>
-                  </div>
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-3">
-                    <div>
-                      <label className="text-white/30 text-[10px] font-bold uppercase block mb-1">From</label>
-                      <input value={f.from} onChange={e => updFlight(f.id, 'from', e.target.value)} placeholder="LHR" className={inp} />
-                    </div>
-                    <div>
-                      <label className="text-white/30 text-[10px] font-bold uppercase block mb-1">To</label>
-                      <input value={f.to} onChange={e => updFlight(f.id, 'to', e.target.value)} placeholder="DXB" className={inp} />
-                    </div>
-                    <div>
-                      <label className="text-white/30 text-[10px] font-bold uppercase block mb-1">Date</label>
-                      <input type="date" value={f.date} onChange={e => updFlight(f.id, 'date', e.target.value)} className={inp} />
-                    </div>
-                    <div>
-                      <label className="text-white/30 text-[10px] font-bold uppercase block mb-1">Departs</label>
-                      <input type="time" value={f.time} onChange={e => updFlight(f.id, 'time', e.target.value)} className={inp} />
-                    </div>
-                  </div>
-                  <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-3">
-                    <div>
-                      <label className="text-white/30 text-[10px] font-bold uppercase block mb-1">Airline</label>
-                      <input value={f.airline} onChange={e => updFlight(f.id, 'airline', e.target.value)} placeholder="Emirates" className={inp} />
-                    </div>
-                    <div>
-                      <label className="text-white/30 text-[10px] font-bold uppercase block mb-1">IATA Code</label>
-                      <input
-                        value={f.iataCode}
-                        onChange={e => updFlight(f.id, 'iataCode', e.target.value.toUpperCase())}
-                        placeholder="EK"
-                        maxLength={3}
-                        className={inp}
+                <div key={f.id} className="bg-white/[0.04] rounded-xl border border-white/[0.06] overflow-hidden">
+                  {isEditing('flight', f.id) ? (
+                    <div className="p-4">
+                      <EditHeader
+                        label={f.airline && f.flightNumber ? `${f.airline} ${f.flightNumber}` : 'New Flight'}
+                        onDone={doneEditing}
+                        onRemove={() => rmFlight(f.id)}
                       />
+                      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-3">
+                        <div><label className="text-white/30 text-[10px] font-bold uppercase block mb-1">From</label><input value={f.from} onChange={e => updFlight(f.id, 'from', e.target.value)} placeholder="LHR" className={inp} /></div>
+                        <div><label className="text-white/30 text-[10px] font-bold uppercase block mb-1">To</label><input value={f.to} onChange={e => updFlight(f.id, 'to', e.target.value)} placeholder="DXB" className={inp} /></div>
+                        <div><label className="text-white/30 text-[10px] font-bold uppercase block mb-1">Date</label><input type="date" value={f.date} onChange={e => updFlight(f.id, 'date', e.target.value)} className={inp} /></div>
+                        <div><label className="text-white/30 text-[10px] font-bold uppercase block mb-1">Departs</label><input type="time" value={f.time} onChange={e => updFlight(f.id, 'time', e.target.value)} className={inp} /></div>
+                      </div>
+                      <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-3">
+                        <div><label className="text-white/30 text-[10px] font-bold uppercase block mb-1">Airline</label><input value={f.airline} onChange={e => updFlight(f.id, 'airline', e.target.value)} placeholder="Emirates" className={inp} /></div>
+                        <div><label className="text-white/30 text-[10px] font-bold uppercase block mb-1">IATA Code</label><input value={f.iataCode} onChange={e => updFlight(f.id, 'iataCode', e.target.value.toUpperCase())} placeholder="EK" maxLength={3} className={inp} /></div>
+                        <div><label className="text-white/30 text-[10px] font-bold uppercase block mb-1">Flight No.</label><input value={f.flightNumber} onChange={e => updFlight(f.id, 'flightNumber', e.target.value)} placeholder="EK001" className={inp} /></div>
+                        <div><label className="text-white/30 text-[10px] font-bold uppercase block mb-1">Arrives</label><input type="time" value={f.arrivalTime} onChange={e => updFlight(f.id, 'arrivalTime', e.target.value)} className={inp} /></div>
+                        <div><label className="text-white/30 text-[10px] font-bold uppercase block mb-1">Class</label><select value={f.class} onChange={e => updFlight(f.id, 'class', e.target.value)} className={sel}><option>Economy</option><option>Premium Economy</option><option>Business</option><option>First Class</option></select></div>
+                      </div>
+                      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                        <div><label className="text-white/30 text-[10px] font-bold uppercase block mb-1">PNR</label><input value={f.pnr} onChange={e => updFlight(f.id, 'pnr', e.target.value)} placeholder="ABC123" className={inp} /></div>
+                        <div><label className="text-green-400/70 text-[10px] font-bold uppercase block mb-1">Client Price ({sym})</label><input type="number" value={f.cost ?? ''} onChange={e => updFlight(f.id, 'cost', e.target.value ? Number(e.target.value) : null)} placeholder="0.00" className={inp} /></div>
+                        <div><label className="text-amber-400/70 text-[10px] font-bold uppercase block mb-1">Supplier Cost ({sym}) <span className="text-white/20 font-normal normal-case">internal</span></label><input type="number" value={f.supplierCost ?? ''} onChange={e => updFlight(f.id, 'supplierCost', e.target.value ? Number(e.target.value) : null)} placeholder="0.00" className={inp} /></div>
+                        <div><label className="text-white/30 text-[10px] font-bold uppercase block mb-1">Notes</label><input value={f.notes} onChange={e => updFlight(f.id, 'notes', e.target.value)} placeholder="Baggage, meals…" className={inp} /></div>
+                      </div>
+                      <div className="mt-2"><label className="text-white/30 text-[10px] font-bold uppercase block mb-1">Supplier</label><SupplierPicker value={f.supplierId} onChange={(id, name) => { updFlight(f.id, 'supplierId', id); updFlight(f.id, 'airline', name || f.airline) }} /></div>
+                      {(f.cost != null && f.supplierCost != null && f.cost > 0 && f.supplierCost > 0) && (
+                        <div className="mt-2 px-3 py-2 bg-white/[0.03] rounded-lg flex items-center gap-4 text-xs">
+                          <span className="text-white/40">Margin:</span>
+                          <span className={`font-bold ${(f.cost - f.supplierCost) >= 0 ? 'text-green-400' : 'text-red-400'}`}>{sym}{(f.cost - f.supplierCost).toLocaleString()} ({f.supplierCost > 0 ? Math.round(((f.cost - f.supplierCost) / f.cost) * 100) : 0}%)</span>
+                        </div>
+                      )}
                     </div>
-                    <div>
-                      <label className="text-white/30 text-[10px] font-bold uppercase block mb-1">Flight No.</label>
-                      <input value={f.flightNumber} onChange={e => updFlight(f.id, 'flightNumber', e.target.value)} placeholder="EK001" className={inp} />
-                    </div>
-                    <div>
-                      <label className="text-white/30 text-[10px] font-bold uppercase block mb-1">Arrives</label>
-                      <input type="time" value={f.arrivalTime} onChange={e => updFlight(f.id, 'arrivalTime', e.target.value)} className={inp} />
-                    </div>
-                    <div>
-                      <label className="text-white/30 text-[10px] font-bold uppercase block mb-1">Class</label>
-                      <select value={f.class} onChange={e => updFlight(f.id, 'class', e.target.value)} className={sel}>
-                        <option>Economy</option>
-                        <option>Premium Economy</option>
-                        <option>Business</option>
-                        <option>First Class</option>
-                      </select>
-                    </div>
-                  </div>
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                    <div>
-                      <label className="text-white/30 text-[10px] font-bold uppercase block mb-1">PNR</label>
-                      <input value={f.pnr} onChange={e => updFlight(f.id, 'pnr', e.target.value)} placeholder="ABC123" className={inp} />
-                    </div>
-                    <div>
-                      <label className="text-green-400/70 text-[10px] font-bold uppercase block mb-1">Client Price ({sym})</label>
-                      <input type="number" value={f.cost ?? ''} onChange={e => updFlight(f.id, 'cost', e.target.value ? Number(e.target.value) : null)} placeholder="0.00" className={inp} />
-                    </div>
-                    <div>
-                      <label className="text-amber-400/70 text-[10px] font-bold uppercase block mb-1">Supplier Cost ({sym}) <span className="text-white/20 font-normal normal-case">internal</span></label>
-                      <input type="number" value={f.supplierCost ?? ''} onChange={e => updFlight(f.id, 'supplierCost', e.target.value ? Number(e.target.value) : null)} placeholder="0.00" className={inp} />
-                    </div>
-                    <div>
-                      <label className="text-white/30 text-[10px] font-bold uppercase block mb-1">Notes</label>
-                      <input value={f.notes} onChange={e => updFlight(f.id, 'notes', e.target.value)} placeholder="Baggage, meals…" className={inp} />
-                    </div>
-                  </div>
-                  <div className="mt-2">
-                    <label className="text-white/30 text-[10px] font-bold uppercase block mb-1">Supplier</label>
-                    <SupplierPicker value={f.supplierId} onChange={(id, name) => { updFlight(f.id, 'supplierId', id); updFlight(f.id, 'airline', name || f.airline) }} />
-                  </div>
-                  {(f.cost != null && f.supplierCost != null && f.cost > 0 && f.supplierCost > 0) && (
-                    <div className="mt-2 px-3 py-2 bg-white/[0.03] rounded-lg flex items-center gap-4 text-xs">
-                      <span className="text-white/40">Margin:</span>
-                      <span className={`font-bold ${(f.cost - f.supplierCost) >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                        {sym}{(f.cost - f.supplierCost).toLocaleString()} ({f.supplierCost > 0 ? Math.round(((f.cost - f.supplierCost) / f.cost) * 100) : 0}%)
-                      </span>
+                  ) : (
+                    <div className="flex items-center gap-4 p-4">
+                      <div className="flex-shrink-0 w-[72px] flex items-center justify-center">
+                        {f.iataCode
+                          ? <img src={`https://content.airhex.com/content/logos/airlines_${f.iataCode.toUpperCase()}_350_100_r.png`} alt={f.airline || f.iataCode} className="h-9 max-w-[72px] object-contain bg-white rounded-lg px-2 py-1" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }} />
+                          : <span className="text-3xl">✈️</span>}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 mb-0.5 flex-wrap">
+                          <span className="text-white font-bold text-sm">{f.airline || 'Airline'} {f.flightNumber}</span>
+                          {f.status && <SBadge status={f.status} />}
+                        </div>
+                        <div className="flex items-center gap-2 mb-1 flex-wrap">
+                          <span className="text-white font-semibold text-sm font-mono">{f.from || '—'}</span>
+                          <span className="text-white/30 text-xs">──✈──</span>
+                          <span className="text-white font-semibold text-sm font-mono">{f.to || '—'}</span>
+                          {(f.time || f.arrivalTime) && <span className="text-white/40 text-xs ml-1">{f.time}{f.arrivalTime ? ` → ${f.arrivalTime}` : ''}</span>}
+                        </div>
+                        <div className="flex items-center gap-3 flex-wrap">
+                          {f.date && <span className="text-white/40 text-xs">{fmtDate(f.date)}</span>}
+                          {f.class && <span className="text-white/40 text-xs">{f.class}</span>}
+                          {f.pnr && <span className="text-white/30 text-xs font-mono">PNR: {f.pnr}</span>}
+                          {f.cost != null && f.cost > 0 && <span className="text-green-400 text-xs font-bold">{sym}{f.cost.toLocaleString()}</span>}
+                          <MarginPill cost={f.cost} supplierCost={f.supplierCost} />
+                        </div>
+                      </div>
+                      <div className="flex flex-col gap-1.5 flex-shrink-0">
+                        <button type="button" aria-expanded={false} onClick={() => startEdit('flight', f.id)} className={editBtnCls}>Edit</button>
+                        <button type="button" onClick={() => rmFlight(f.id)} className={rmBtnCls}>Remove</button>
+                      </div>
                     </div>
                   )}
                 </div>
@@ -1607,82 +1984,61 @@ function BookingsTab({ itin, onSave }: { itin: ItineraryData; onSave: (u: Record
               <button onClick={addHotel} className="text-amber-400 text-sm hover:text-amber-300 transition">+ Add first hotel</button>
             </div>
           ) : (
-            <div className="space-y-5">
+            <div className="space-y-3">
               {hotels.map(h => (
-                <div key={h.id} className="bg-white/5 rounded-xl p-4 border border-white/[0.06]">
-                  <div className="flex justify-between items-start mb-4">
-                    <p className="text-white/50 text-xs font-bold uppercase tracking-wider">Hotel / Accommodation</p>
-                    <button onClick={() => rmHotel(h.id)} className="text-white/20 hover:text-red-400 text-xs transition">✕ Remove</button>
-                  </div>
-                  <div className="grid grid-cols-2 gap-3 mb-3">
-                    <div>
-                      <label className="text-white/30 text-[10px] font-bold uppercase block mb-1">Hotel Name</label>
-                      <input value={h.name} onChange={e => updHotel(h.id, 'name', e.target.value)} placeholder="Burj Al Arab" className={inp} />
+                <div key={h.id} className="bg-white/[0.04] rounded-xl border border-white/[0.06] overflow-hidden">
+                  {isEditing('hotel', h.id) ? (
+                    <div className="p-4">
+                      <EditHeader label={h.name || 'New Hotel'} onDone={doneEditing} onRemove={() => rmHotel(h.id)} />
+                      <div className="grid grid-cols-2 gap-3 mb-3">
+                        <div><label className="text-white/30 text-[10px] font-bold uppercase block mb-1">Hotel Name</label><input value={h.name} onChange={e => updHotel(h.id, 'name', e.target.value)} placeholder="Burj Al Arab" className={inp} /></div>
+                        <div><label className="text-white/30 text-[10px] font-bold uppercase block mb-1">Location</label><input value={h.location} onChange={e => updHotel(h.id, 'location', e.target.value)} placeholder="Dubai, UAE" className={inp} /></div>
+                      </div>
+                      <div className="mb-3"><label className="text-white/30 text-[10px] font-bold uppercase block mb-1">Hotel Website URL</label><input value={h.websiteUrl} onChange={e => updHotel(h.id, 'websiteUrl', e.target.value)} placeholder="https://www.burjalarab.com" className={inp} /></div>
+                      <MultiImageGallery itinId={itin.id} itemType="hotel" itemId={h.id} images={h.images ?? (h.image ? [h.image] : [])} websiteUrl={h.websiteUrl} destination={h.location || itin.destination} onImagesChange={imgs => { updHotel(h.id, 'images', imgs); updHotel(h.id, 'image', imgs[0] ?? '') }} autoSave={handleSave} />
+                      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-3">
+                        <div><label className="text-white/30 text-[10px] font-bold uppercase block mb-1">Check-In</label><input type="date" value={h.checkIn} onChange={e => updHotel(h.id, 'checkIn', e.target.value)} className={inp} /></div>
+                        <div><label className="text-white/30 text-[10px] font-bold uppercase block mb-1">Check-Out</label><input type="date" value={h.checkOut} onChange={e => updHotel(h.id, 'checkOut', e.target.value)} className={inp} /></div>
+                        <div><label className="text-white/30 text-[10px] font-bold uppercase block mb-1">Nights</label><input type="number" min="1" value={h.nights} onChange={e => updHotel(h.id, 'nights', Number(e.target.value))} className={inp} /></div>
+                        <div><label className="text-white/30 text-[10px] font-bold uppercase block mb-1">Room Type</label><input value={h.roomType} onChange={e => updHotel(h.id, 'roomType', e.target.value)} placeholder="Deluxe Suite" className={inp} /></div>
+                      </div>
+                      <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
+                        <div><label className="text-green-400/70 text-[10px] font-bold uppercase block mb-1">Client Price ({sym})</label><input type="number" value={h.cost ?? ''} onChange={e => updHotel(h.id, 'cost', e.target.value ? Number(e.target.value) : null)} placeholder="0.00" className={inp} /></div>
+                        <div><label className="text-amber-400/70 text-[10px] font-bold uppercase block mb-1">Supplier Cost ({sym}) <span className="text-white/20 font-normal normal-case">internal</span></label><input type="number" value={h.supplierCost ?? ''} onChange={e => updHotel(h.id, 'supplierCost', e.target.value ? Number(e.target.value) : null)} placeholder="0.00" className={inp} /></div>
+                        <div><label className="text-white/30 text-[10px] font-bold uppercase block mb-1">Notes</label><input value={h.notes} onChange={e => updHotel(h.id, 'notes', e.target.value)} placeholder="Breakfast included, pool view…" className={inp} /></div>
+                      </div>
+                      <div className="mt-2"><label className="text-white/30 text-[10px] font-bold uppercase block mb-1">Supplier</label><SupplierPicker value={h.supplierId} onChange={(id) => updHotel(h.id, 'supplierId', id)} /></div>
+                      {(h.cost != null && h.supplierCost != null && h.cost > 0 && h.supplierCost > 0) && (
+                        <div className="mt-2 px-3 py-2 bg-white/[0.03] rounded-lg flex items-center gap-4 text-xs">
+                          <span className="text-white/40">Margin:</span>
+                          <span className={`font-bold ${(h.cost - h.supplierCost) >= 0 ? 'text-green-400' : 'text-red-400'}`}>{sym}{(h.cost - h.supplierCost).toLocaleString()} ({h.cost > 0 ? Math.round(((h.cost - h.supplierCost) / h.cost) * 100) : 0}%)</span>
+                        </div>
+                      )}
                     </div>
-                    <div>
-                      <label className="text-white/30 text-[10px] font-bold uppercase block mb-1">Location</label>
-                      <input value={h.location} onChange={e => updHotel(h.id, 'location', e.target.value)} placeholder="Dubai, UAE" className={inp} />
-                    </div>
-                  </div>
-                  <div className="mb-3">
-                    <label className="text-white/30 text-[10px] font-bold uppercase block mb-1">Hotel Website URL</label>
-                    <input value={h.websiteUrl} onChange={e => updHotel(h.id, 'websiteUrl', e.target.value)} placeholder="https://www.burjalarab.com" className={inp} />
-                  </div>
-                  <MultiImageGallery
-                    itinId={itin.id}
-                    itemType="hotel"
-                    itemId={h.id}
-                    images={h.images ?? (h.image ? [h.image] : [])}
-                    websiteUrl={h.websiteUrl}
-                    destination={h.location || itin.destination}
-                    onImagesChange={imgs => {
-                      updHotel(h.id, 'images', imgs)
-                      updHotel(h.id, 'image', imgs[0] ?? '')
-                    }}
-                    autoSave={handleSave}
-                  />
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-3">
-                    <div>
-                      <label className="text-white/30 text-[10px] font-bold uppercase block mb-1">Check-In</label>
-                      <input type="date" value={h.checkIn} onChange={e => updHotel(h.id, 'checkIn', e.target.value)} className={inp} />
-                    </div>
-                    <div>
-                      <label className="text-white/30 text-[10px] font-bold uppercase block mb-1">Check-Out</label>
-                      <input type="date" value={h.checkOut} onChange={e => updHotel(h.id, 'checkOut', e.target.value)} className={inp} />
-                    </div>
-                    <div>
-                      <label className="text-white/30 text-[10px] font-bold uppercase block mb-1">Nights</label>
-                      <input type="number" min="1" value={h.nights} onChange={e => updHotel(h.id, 'nights', Number(e.target.value))} className={inp} />
-                    </div>
-                    <div>
-                      <label className="text-white/30 text-[10px] font-bold uppercase block mb-1">Room Type</label>
-                      <input value={h.roomType} onChange={e => updHotel(h.id, 'roomType', e.target.value)} placeholder="Deluxe Suite" className={inp} />
-                    </div>
-                  </div>
-                  <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-                    <div>
-                      <label className="text-green-400/70 text-[10px] font-bold uppercase block mb-1">Client Price ({sym})</label>
-                      <input type="number" value={h.cost ?? ''} onChange={e => updHotel(h.id, 'cost', e.target.value ? Number(e.target.value) : null)} placeholder="0.00" className={inp} />
-                    </div>
-                    <div>
-                      <label className="text-amber-400/70 text-[10px] font-bold uppercase block mb-1">Supplier Cost ({sym}) <span className="text-white/20 font-normal normal-case">internal</span></label>
-                      <input type="number" value={h.supplierCost ?? ''} onChange={e => updHotel(h.id, 'supplierCost', e.target.value ? Number(e.target.value) : null)} placeholder="0.00" className={inp} />
-                    </div>
-                    <div>
-                      <label className="text-white/30 text-[10px] font-bold uppercase block mb-1">Notes</label>
-                      <input value={h.notes} onChange={e => updHotel(h.id, 'notes', e.target.value)} placeholder="Breakfast included, pool view…" className={inp} />
-                    </div>
-                  </div>
-                  <div className="mt-2">
-                    <label className="text-white/30 text-[10px] font-bold uppercase block mb-1">Supplier</label>
-                    <SupplierPicker value={h.supplierId} onChange={(id) => updHotel(h.id, 'supplierId', id)} />
-                  </div>
-                  {(h.cost != null && h.supplierCost != null && h.cost > 0 && h.supplierCost > 0) && (
-                    <div className="mt-2 px-3 py-2 bg-white/[0.03] rounded-lg flex items-center gap-4 text-xs">
-                      <span className="text-white/40">Margin:</span>
-                      <span className={`font-bold ${(h.cost - h.supplierCost) >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-                        {sym}{(h.cost - h.supplierCost).toLocaleString()} ({h.cost > 0 ? Math.round(((h.cost - h.supplierCost) / h.cost) * 100) : 0}%)
-                      </span>
+                  ) : (
+                    <div className="flex items-center gap-4 p-4">
+                      <div className="flex-shrink-0 w-16 h-16 rounded-lg overflow-hidden bg-white/10">
+                        {(h.image || (h.images && h.images[0]))
+                          ? <img src={h.image || h.images![0]} alt={h.name} className="w-full h-full object-cover" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }} />
+                          : <div className="w-full h-full flex items-center justify-center text-2xl">🏨</div>}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 mb-0.5 flex-wrap">
+                          <span className="text-white font-bold text-sm">{h.name || 'Hotel'}</span>
+                          {h.status && <SBadge status={h.status} />}
+                        </div>
+                        {h.location && <p className="text-white/50 text-xs mb-1">{h.location}</p>}
+                        <div className="flex items-center gap-3 flex-wrap">
+                          {(h.checkIn || h.checkOut) && <span className="text-white/40 text-xs">{fmtDate(h.checkIn)} → {fmtDate(h.checkOut)}{h.nights ? ` · ${h.nights}n` : ''}</span>}
+                          {h.roomType && <span className="text-white/40 text-xs">{h.roomType}</span>}
+                          {h.cost != null && h.cost > 0 && <span className="text-green-400 text-xs font-bold">{sym}{h.cost.toLocaleString()}</span>}
+                          <MarginPill cost={h.cost} supplierCost={h.supplierCost} />
+                        </div>
+                      </div>
+                      <div className="flex flex-col gap-1.5 flex-shrink-0">
+                        <button type="button" aria-expanded={false} onClick={() => startEdit('hotel', h.id)} className={editBtnCls}>Edit</button>
+                        <button type="button" onClick={() => rmHotel(h.id)} className={rmBtnCls}>Remove</button>
+                      </div>
                     </div>
                   )}
                 </div>
@@ -1706,83 +2062,59 @@ function BookingsTab({ itin, onSave }: { itin: ItineraryData; onSave: (u: Record
               <button onClick={addTransfer} className="text-amber-400 text-sm hover:text-amber-300 transition">+ Add first transfer</button>
             </div>
           ) : (
-            <div className="space-y-5">
+            <div className="space-y-3">
               {transfers.map(t => (
-                <div key={t.id} className="bg-white/5 rounded-xl p-4 border border-white/[0.06]">
-                  <div className="flex justify-between items-start mb-3">
-                    <p className="text-white/50 text-xs font-bold uppercase tracking-wider">Transfer</p>
-                    <button onClick={() => rmTransfer(t.id)} className="text-white/20 hover:text-red-400 text-xs transition">✕ Remove</button>
-                  </div>
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-3">
-                    <div>
-                      <label className="text-white/30 text-[10px] font-bold uppercase block mb-1">Type</label>
-                      <select value={t.type} onChange={e => updTransfer(t.id, 'type', e.target.value)} className={sel}>
-                        <option>Private Car</option>
-                        <option>Taxi</option>
-                        <option>Shuttle</option>
-                        <option>Minibus</option>
-                        <option>Coach</option>
-                        <option>Limousine</option>
-                        <option>Airport Transfer</option>
-                      </select>
+                <div key={t.id} className="bg-white/[0.04] rounded-xl border border-white/[0.06] overflow-hidden">
+                  {isEditing('transfer', t.id) ? (
+                    <div className="p-4">
+                      <EditHeader label={t.from && t.to ? `${t.from} → ${t.to}` : 'New Transfer'} onDone={doneEditing} onRemove={() => rmTransfer(t.id)} />
+                      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-3">
+                        <div><label className="text-white/30 text-[10px] font-bold uppercase block mb-1">Type</label><select value={t.type} onChange={e => updTransfer(t.id, 'type', e.target.value)} className={sel}><option>Private Car</option><option>Taxi</option><option>Shuttle</option><option>Minibus</option><option>Coach</option><option>Limousine</option><option>Airport Transfer</option></select></div>
+                        <div><label className="text-white/30 text-[10px] font-bold uppercase block mb-1">From</label><input value={t.from} onChange={e => updTransfer(t.id, 'from', e.target.value)} placeholder="Airport / Hotel" className={inp} /></div>
+                        <div><label className="text-white/30 text-[10px] font-bold uppercase block mb-1">To</label><input value={t.to} onChange={e => updTransfer(t.id, 'to', e.target.value)} placeholder="Hotel / Venue" className={inp} /></div>
+                        <div><label className="text-white/30 text-[10px] font-bold uppercase block mb-1">Date</label><input type="date" value={t.date} onChange={e => updTransfer(t.id, 'date', e.target.value)} className={inp} /></div>
+                      </div>
+                      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-3">
+                        <div><label className="text-white/30 text-[10px] font-bold uppercase block mb-1">Time</label><input type="time" value={t.time} onChange={e => updTransfer(t.id, 'time', e.target.value)} className={inp} /></div>
+                        <div><label className="text-white/30 text-[10px] font-bold uppercase block mb-1">Vehicle</label><input value={t.vehicle} onChange={e => updTransfer(t.id, 'vehicle', e.target.value)} placeholder="Mercedes V-Class" className={inp} /></div>
+                        <div><label className="text-white/30 text-[10px] font-bold uppercase block mb-1">Provider</label><input value={t.provider} onChange={e => updTransfer(t.id, 'provider', e.target.value)} placeholder="Company name" className={inp} /></div>
+                        <div><label className="text-green-400/70 text-[10px] font-bold uppercase block mb-1">Client Price ({sym})</label><input type="number" value={t.cost ?? ''} onChange={e => updTransfer(t.id, 'cost', e.target.value ? Number(e.target.value) : null)} placeholder="0.00" className={inp} /></div>
+                      </div>
+                      <div className="grid grid-cols-2 gap-3">
+                        <div><label className="text-amber-400/70 text-[10px] font-bold uppercase block mb-1">Supplier Cost ({sym}) <span className="text-white/20 font-normal normal-case">internal</span></label><input type="number" value={t.supplierCost ?? ''} onChange={e => updTransfer(t.id, 'supplierCost', e.target.value ? Number(e.target.value) : null)} placeholder="0.00" className={inp} /></div>
+                        <div><label className="text-white/30 text-[10px] font-bold uppercase block mb-1">Notes</label><input value={t.notes} onChange={e => updTransfer(t.id, 'notes', e.target.value)} placeholder="Meet & greet, sign…" className={inp} /></div>
+                      </div>
+                      <MultiImageGallery itinId={itin.id} itemType="transfer" itemId={t.id} images={t.images ?? (t.image ? [t.image] : [])} destination={t.from || itin.destination} onImagesChange={imgs => { updTransfer(t.id, 'images', imgs); updTransfer(t.id, 'image', imgs[0] ?? '') }} autoSave={handleSave} />
+                      <div className="mt-2"><label className="text-white/30 text-[10px] font-bold uppercase block mb-1">Supplier</label><SupplierPicker value={t.supplierId} onChange={(id) => updTransfer(t.id, 'supplierId', id)} /></div>
                     </div>
-                    <div>
-                      <label className="text-white/30 text-[10px] font-bold uppercase block mb-1">From</label>
-                      <input value={t.from} onChange={e => updTransfer(t.id, 'from', e.target.value)} placeholder="Airport / Hotel" className={inp} />
+                  ) : (
+                    <div className="flex items-center gap-4 p-4">
+                      <div className="flex-shrink-0 w-10 h-10 rounded-lg bg-white/10 flex items-center justify-center text-xl">
+                        {t.type === 'Shuttle' || t.type === 'Minibus' || t.type === 'Coach' ? '🚌' : t.type === 'Airport Transfer' ? '🛫' : '🚗'}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 mb-0.5 flex-wrap">
+                          <span className="text-white font-bold text-sm">{t.type || 'Transfer'}</span>
+                          {t.date && <span className="text-white/40 text-xs">{fmtDate(t.date)}{t.time ? ` · ${t.time}` : ''}</span>}
+                        </div>
+                        <div className="flex items-center gap-2 mb-1">
+                          <span className="text-white/70 text-sm">{t.from || '—'}</span>
+                          <span className="text-white/30 text-xs">→</span>
+                          <span className="text-white/70 text-sm">{t.to || '—'}</span>
+                        </div>
+                        <div className="flex items-center gap-3 flex-wrap">
+                          {t.vehicle && <span className="text-white/40 text-xs">{t.vehicle}</span>}
+                          {t.provider && <span className="text-white/40 text-xs">{t.provider}</span>}
+                          {t.cost != null && t.cost > 0 && <span className="text-green-400 text-xs font-bold">{sym}{t.cost.toLocaleString()}</span>}
+                          <MarginPill cost={t.cost} supplierCost={t.supplierCost} />
+                        </div>
+                      </div>
+                      <div className="flex flex-col gap-1.5 flex-shrink-0">
+                        <button type="button" aria-expanded={false} onClick={() => startEdit('transfer', t.id)} className={editBtnCls}>Edit</button>
+                        <button type="button" onClick={() => rmTransfer(t.id)} className={rmBtnCls}>Remove</button>
+                      </div>
                     </div>
-                    <div>
-                      <label className="text-white/30 text-[10px] font-bold uppercase block mb-1">To</label>
-                      <input value={t.to} onChange={e => updTransfer(t.id, 'to', e.target.value)} placeholder="Hotel / Venue" className={inp} />
-                    </div>
-                    <div>
-                      <label className="text-white/30 text-[10px] font-bold uppercase block mb-1">Date</label>
-                      <input type="date" value={t.date} onChange={e => updTransfer(t.id, 'date', e.target.value)} className={inp} />
-                    </div>
-                  </div>
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-3">
-                    <div>
-                      <label className="text-white/30 text-[10px] font-bold uppercase block mb-1">Time</label>
-                      <input type="time" value={t.time} onChange={e => updTransfer(t.id, 'time', e.target.value)} className={inp} />
-                    </div>
-                    <div>
-                      <label className="text-white/30 text-[10px] font-bold uppercase block mb-1">Vehicle</label>
-                      <input value={t.vehicle} onChange={e => updTransfer(t.id, 'vehicle', e.target.value)} placeholder="Mercedes V-Class" className={inp} />
-                    </div>
-                    <div>
-                      <label className="text-white/30 text-[10px] font-bold uppercase block mb-1">Provider</label>
-                      <input value={t.provider} onChange={e => updTransfer(t.id, 'provider', e.target.value)} placeholder="Company name" className={inp} />
-                    </div>
-                    <div>
-                      <label className="text-green-400/70 text-[10px] font-bold uppercase block mb-1">Client Price ({sym})</label>
-                      <input type="number" value={t.cost ?? ''} onChange={e => updTransfer(t.id, 'cost', e.target.value ? Number(e.target.value) : null)} placeholder="0.00" className={inp} />
-                    </div>
-                  </div>
-                  <div className="grid grid-cols-2 gap-3">
-                    <div>
-                      <label className="text-amber-400/70 text-[10px] font-bold uppercase block mb-1">Supplier Cost ({sym}) <span className="text-white/20 font-normal normal-case">internal</span></label>
-                      <input type="number" value={t.supplierCost ?? ''} onChange={e => updTransfer(t.id, 'supplierCost', e.target.value ? Number(e.target.value) : null)} placeholder="0.00" className={inp} />
-                    </div>
-                    <div>
-                      <label className="text-white/30 text-[10px] font-bold uppercase block mb-1">Notes</label>
-                      <input value={t.notes} onChange={e => updTransfer(t.id, 'notes', e.target.value)} placeholder="Meet & greet, sign…" className={inp} />
-                    </div>
-                  </div>
-                  <MultiImageGallery
-                    itinId={itin.id}
-                    itemType="transfer"
-                    itemId={t.id}
-                    images={t.images ?? (t.image ? [t.image] : [])}
-                    destination={t.from || itin.destination}
-                    onImagesChange={imgs => {
-                      updTransfer(t.id, 'images', imgs)
-                      updTransfer(t.id, 'image', imgs[0] ?? '')
-                    }}
-                    autoSave={handleSave}
-                  />
-                  <div className="mt-2">
-                    <label className="text-white/30 text-[10px] font-bold uppercase block mb-1">Supplier</label>
-                    <SupplierPicker value={t.supplierId} onChange={(id) => updTransfer(t.id, 'supplierId', id)} />
-                  </div>
+                  )}
                 </div>
               ))}
             </div>
@@ -1804,71 +2136,54 @@ function BookingsTab({ itin, onSave }: { itin: ItineraryData; onSave: (u: Record
               <button onClick={addTour} className="text-amber-400 text-sm hover:text-amber-300 transition">+ Add first tour</button>
             </div>
           ) : (
-            <div className="space-y-5">
+            <div className="space-y-3">
               {tours.map(t => (
-                <div key={t.id} className="bg-white/5 rounded-xl p-4 border border-white/[0.06]">
-                  <div className="flex justify-between items-start mb-3">
-                    <p className="text-white/50 text-xs font-bold uppercase tracking-wider">Tour / Activity</p>
-                    <button onClick={() => rmTour(t.id)} className="text-white/20 hover:text-red-400 text-xs transition">✕ Remove</button>
-                  </div>
-                  <div className="grid grid-cols-2 gap-3 mb-3">
-                    <div>
-                      <label className="text-white/30 text-[10px] font-bold uppercase block mb-1">Tour / Activity Name</label>
-                      <input value={t.name} onChange={e => updTour(t.id, 'name', e.target.value)} placeholder="Desert Safari" className={inp} />
+                <div key={t.id} className="bg-white/[0.04] rounded-xl border border-white/[0.06] overflow-hidden">
+                  {isEditing('tour', t.id) ? (
+                    <div className="p-4">
+                      <EditHeader label={t.name || 'New Tour'} onDone={doneEditing} onRemove={() => rmTour(t.id)} />
+                      <div className="grid grid-cols-2 gap-3 mb-3">
+                        <div><label className="text-white/30 text-[10px] font-bold uppercase block mb-1">Tour / Activity Name</label><input value={t.name} onChange={e => updTour(t.id, 'name', e.target.value)} placeholder="Desert Safari" className={inp} /></div>
+                        <div><label className="text-white/30 text-[10px] font-bold uppercase block mb-1">Location</label><input value={t.location} onChange={e => updTour(t.id, 'location', e.target.value)} placeholder="Dubai Desert" className={inp} /></div>
+                      </div>
+                      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-3">
+                        <div><label className="text-white/30 text-[10px] font-bold uppercase block mb-1">Date</label><input type="date" value={t.date} onChange={e => updTour(t.id, 'date', e.target.value)} className={inp} /></div>
+                        <div><label className="text-white/30 text-[10px] font-bold uppercase block mb-1">Time</label><input type="time" value={t.time} onChange={e => updTour(t.id, 'time', e.target.value)} className={inp} /></div>
+                        <div><label className="text-white/30 text-[10px] font-bold uppercase block mb-1">Duration</label><input value={t.duration} onChange={e => updTour(t.id, 'duration', e.target.value)} placeholder="3 hours" className={inp} /></div>
+                        <div><label className="text-green-400/70 text-[10px] font-bold uppercase block mb-1">Client Price ({sym})</label><input type="number" value={t.cost ?? ''} onChange={e => updTour(t.id, 'cost', e.target.value ? Number(e.target.value) : null)} placeholder="0.00" className={inp} /></div>
+                      </div>
+                      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-3">
+                        <div><label className="text-white/30 text-[10px] font-bold uppercase block mb-1">Provider</label><input value={t.provider} onChange={e => updTour(t.id, 'provider', e.target.value)} placeholder="Tour operator" className={inp} /></div>
+                        <div><label className="text-amber-400/70 text-[10px] font-bold uppercase block mb-1">Supplier Cost ({sym}) <span className="text-white/20 font-normal normal-case">internal</span></label><input type="number" value={t.supplierCost ?? ''} onChange={e => updTour(t.id, 'supplierCost', e.target.value ? Number(e.target.value) : null)} placeholder="0.00" className={inp} /></div>
+                        <div className="col-span-2"><label className="text-white/30 text-[10px] font-bold uppercase block mb-1">Notes</label><input value={t.notes} onChange={e => updTour(t.id, 'notes', e.target.value)} placeholder="What's included…" className={inp} /></div>
+                      </div>
+                      <div className="mt-2"><label className="text-white/30 text-[10px] font-bold uppercase block mb-1">Supplier</label><SupplierPicker value={t.supplierId} onChange={(id) => updTour(t.id, 'supplierId', id)} /></div>
+                      <MultiImageGallery itinId={itin.id} itemType="tour" itemId={t.id} images={t.images ?? (t.image ? [t.image] : [])} destination={t.location || itin.destination} onImagesChange={imgs => { updTour(t.id, 'images', imgs); updTour(t.id, 'image', imgs[0] ?? '') }} autoSave={handleSave} />
                     </div>
-                    <div>
-                      <label className="text-white/30 text-[10px] font-bold uppercase block mb-1">Location</label>
-                      <input value={t.location} onChange={e => updTour(t.id, 'location', e.target.value)} placeholder="Dubai Desert" className={inp} />
+                  ) : (
+                    <div className="flex items-center gap-4 p-4">
+                      <div className="flex-shrink-0 w-16 h-16 rounded-lg overflow-hidden bg-white/10">
+                        {(t.image || (t.images && t.images[0]))
+                          ? <img src={t.image || t.images![0]} alt={t.name} className="w-full h-full object-cover" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none' }} />
+                          : <div className="w-full h-full flex items-center justify-center text-2xl">🎭</div>}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-white font-bold text-sm mb-0.5">{t.name || 'Tour / Activity'}</p>
+                        {t.location && <p className="text-white/50 text-xs mb-1">{t.location}</p>}
+                        <div className="flex items-center gap-3 flex-wrap">
+                          {t.date && <span className="text-white/40 text-xs">{fmtDate(t.date)}{t.time ? ` · ${t.time}` : ''}</span>}
+                          {t.duration && <span className="text-white/40 text-xs">{t.duration}</span>}
+                          {t.provider && <span className="text-white/40 text-xs">{t.provider}</span>}
+                          {t.cost != null && t.cost > 0 && <span className="text-green-400 text-xs font-bold">{sym}{t.cost.toLocaleString()}</span>}
+                          <MarginPill cost={t.cost} supplierCost={t.supplierCost} />
+                        </div>
+                      </div>
+                      <div className="flex flex-col gap-1.5 flex-shrink-0">
+                        <button type="button" aria-expanded={false} onClick={() => startEdit('tour', t.id)} className={editBtnCls}>Edit</button>
+                        <button type="button" onClick={() => rmTour(t.id)} className={rmBtnCls}>Remove</button>
+                      </div>
                     </div>
-                  </div>
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-3">
-                    <div>
-                      <label className="text-white/30 text-[10px] font-bold uppercase block mb-1">Date</label>
-                      <input type="date" value={t.date} onChange={e => updTour(t.id, 'date', e.target.value)} className={inp} />
-                    </div>
-                    <div>
-                      <label className="text-white/30 text-[10px] font-bold uppercase block mb-1">Time</label>
-                      <input type="time" value={t.time} onChange={e => updTour(t.id, 'time', e.target.value)} className={inp} />
-                    </div>
-                    <div>
-                      <label className="text-white/30 text-[10px] font-bold uppercase block mb-1">Duration</label>
-                      <input value={t.duration} onChange={e => updTour(t.id, 'duration', e.target.value)} placeholder="3 hours" className={inp} />
-                    </div>
-                    <div>
-                      <label className="text-green-400/70 text-[10px] font-bold uppercase block mb-1">Client Price ({sym})</label>
-                      <input type="number" value={t.cost ?? ''} onChange={e => updTour(t.id, 'cost', e.target.value ? Number(e.target.value) : null)} placeholder="0.00" className={inp} />
-                    </div>
-                  </div>
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-3">
-                    <div>
-                      <label className="text-white/30 text-[10px] font-bold uppercase block mb-1">Provider</label>
-                      <input value={t.provider} onChange={e => updTour(t.id, 'provider', e.target.value)} placeholder="Tour operator" className={inp} />
-                    </div>
-                    <div>
-                      <label className="text-amber-400/70 text-[10px] font-bold uppercase block mb-1">Supplier Cost ({sym}) <span className="text-white/20 font-normal normal-case">internal</span></label>
-                      <input type="number" value={t.supplierCost ?? ''} onChange={e => updTour(t.id, 'supplierCost', e.target.value ? Number(e.target.value) : null)} placeholder="0.00" className={inp} />
-                    </div>
-                    <div className="col-span-2">
-                      <label className="text-white/30 text-[10px] font-bold uppercase block mb-1">Notes</label>
-                      <input value={t.notes} onChange={e => updTour(t.id, 'notes', e.target.value)} placeholder="What's included…" className={inp} />
-                    </div>
-                  </div>
-                  <div className="mt-2">
-                    <label className="text-white/30 text-[10px] font-bold uppercase block mb-1">Supplier</label>
-                    <SupplierPicker value={t.supplierId} onChange={(id) => updTour(t.id, 'supplierId', id)} />
-                  </div>
-                  <MultiImageGallery
-                    itinId={itin.id}
-                    itemType="tour"
-                    itemId={t.id}
-                    images={t.images ?? (t.image ? [t.image] : [])}
-                    destination={t.location || itin.destination}
-                    onImagesChange={imgs => {
-                      updTour(t.id, 'images', imgs)
-                      updTour(t.id, 'image', imgs[0] ?? '')
-                    }}
-                    autoSave={handleSave}
-                  />
+                  )}
                 </div>
               ))}
             </div>
@@ -1890,73 +2205,56 @@ function BookingsTab({ itin, onSave }: { itin: ItineraryData; onSave: (u: Record
               <button onClick={addTrain} className="text-amber-400 text-sm hover:text-amber-300 transition">+ Add first train</button>
             </div>
           ) : (
-            <div className="space-y-5">
+            <div className="space-y-3">
               {trains.map(t => (
-                <div key={t.id} className="bg-white/5 rounded-xl p-4 border border-white/[0.06]">
-                  <div className="flex justify-between items-start mb-3">
-                    <p className="text-white/50 text-xs font-bold uppercase tracking-wider">Train Journey</p>
-                    <button onClick={() => rmTrain(t.id)} className="text-white/20 hover:text-red-400 text-xs transition">✕ Remove</button>
-                  </div>
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-3">
-                    <div>
-                      <label className="text-white/30 text-[10px] font-bold uppercase block mb-1">From</label>
-                      <input value={t.from} onChange={e => updTrain(t.id, 'from', e.target.value)} placeholder="London St Pancras" className={inp} />
+                <div key={t.id} className="bg-white/[0.04] rounded-xl border border-white/[0.06] overflow-hidden">
+                  {isEditing('train', t.id) ? (
+                    <div className="p-4">
+                      <EditHeader label={t.from && t.to ? `${t.from} → ${t.to}` : 'New Train'} onDone={doneEditing} onRemove={() => rmTrain(t.id)} />
+                      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-3">
+                        <div><label className="text-white/30 text-[10px] font-bold uppercase block mb-1">From</label><input value={t.from} onChange={e => updTrain(t.id, 'from', e.target.value)} placeholder="London St Pancras" className={inp} /></div>
+                        <div><label className="text-white/30 text-[10px] font-bold uppercase block mb-1">To</label><input value={t.to} onChange={e => updTrain(t.id, 'to', e.target.value)} placeholder="Paris Gare du Nord" className={inp} /></div>
+                        <div><label className="text-white/30 text-[10px] font-bold uppercase block mb-1">Date</label><input type="date" value={t.date} onChange={e => updTrain(t.id, 'date', e.target.value)} className={inp} /></div>
+                        <div><label className="text-white/30 text-[10px] font-bold uppercase block mb-1">Departs</label><input type="time" value={t.departureTime} onChange={e => updTrain(t.id, 'departureTime', e.target.value)} className={inp} /></div>
+                      </div>
+                      <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-3">
+                        <div><label className="text-white/30 text-[10px] font-bold uppercase block mb-1">Arrives</label><input type="time" value={t.arrivalTime} onChange={e => updTrain(t.id, 'arrivalTime', e.target.value)} className={inp} /></div>
+                        <div><label className="text-white/30 text-[10px] font-bold uppercase block mb-1">Train / Service</label><input value={t.trainNumber} onChange={e => updTrain(t.id, 'trainNumber', e.target.value)} placeholder="9028" className={inp} /></div>
+                        <div><label className="text-white/30 text-[10px] font-bold uppercase block mb-1">Operator</label><input value={t.provider} onChange={e => updTrain(t.id, 'provider', e.target.value)} placeholder="Eurostar" className={inp} /></div>
+                        <div><label className="text-white/30 text-[10px] font-bold uppercase block mb-1">Class</label><select value={t.class} onChange={e => updTrain(t.id, 'class', e.target.value)} className={sel}><option>Standard</option><option>Standard Premier</option><option>Business Premier</option><option>First Class</option></select></div>
+                        <div><label className="text-white/30 text-[10px] font-bold uppercase block mb-1">PNR / Ref</label><input value={t.pnr} onChange={e => updTrain(t.id, 'pnr', e.target.value)} placeholder="Booking ref" className={inp} /></div>
+                      </div>
+                      <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mb-3">
+                        <div><label className="text-green-400/70 text-[10px] font-bold uppercase block mb-1">Client Price ({sym})</label><input type="number" value={t.cost ?? ''} onChange={e => updTrain(t.id, 'cost', e.target.value ? Number(e.target.value) : null)} placeholder="0.00" className={inp} /></div>
+                        <div><label className="text-amber-400/70 text-[10px] font-bold uppercase block mb-1">Supplier Cost ({sym}) <span className="text-white/20 font-normal normal-case">internal</span></label><input type="number" value={t.supplierCost ?? ''} onChange={e => updTrain(t.id, 'supplierCost', e.target.value ? Number(e.target.value) : null)} placeholder="0.00" className={inp} /></div>
+                        <div><label className="text-white/30 text-[10px] font-bold uppercase block mb-1">Notes</label><input value={t.notes} onChange={e => updTrain(t.id, 'notes', e.target.value)} placeholder="Seat number, coach…" className={inp} /></div>
+                      </div>
+                      <ImageField value={t.image} onChange={v => updTrain(t.id, 'image', v)} />
                     </div>
-                    <div>
-                      <label className="text-white/30 text-[10px] font-bold uppercase block mb-1">To</label>
-                      <input value={t.to} onChange={e => updTrain(t.id, 'to', e.target.value)} placeholder="Paris Gare du Nord" className={inp} />
+                  ) : (
+                    <div className="flex items-center gap-4 p-4">
+                      <div className="flex-shrink-0 w-10 h-10 rounded-lg bg-white/10 flex items-center justify-center text-xl">🚂</div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 mb-0.5 flex-wrap">
+                          <span className="text-white font-bold text-sm">{t.from || '—'}</span>
+                          <span className="text-white/30 text-xs">→</span>
+                          <span className="text-white font-bold text-sm">{t.to || '—'}</span>
+                        </div>
+                        <div className="flex items-center gap-3 flex-wrap">
+                          {t.date && <span className="text-white/40 text-xs">{fmtDate(t.date)}</span>}
+                          {(t.departureTime || t.arrivalTime) && <span className="text-white/40 text-xs">{t.departureTime}{t.arrivalTime ? ` → ${t.arrivalTime}` : ''}</span>}
+                          {(t.provider || t.trainNumber) && <span className="text-white/40 text-xs">{t.provider}{t.trainNumber ? ` ${t.trainNumber}` : ''}</span>}
+                          {t.class && <span className="text-white/40 text-xs">{t.class}</span>}
+                          {t.cost != null && t.cost > 0 && <span className="text-green-400 text-xs font-bold">{sym}{t.cost.toLocaleString()}</span>}
+                          <MarginPill cost={t.cost} supplierCost={t.supplierCost} />
+                        </div>
+                      </div>
+                      <div className="flex flex-col gap-1.5 flex-shrink-0">
+                        <button type="button" aria-expanded={false} onClick={() => startEdit('train', t.id)} className={editBtnCls}>Edit</button>
+                        <button type="button" onClick={() => rmTrain(t.id)} className={rmBtnCls}>Remove</button>
+                      </div>
                     </div>
-                    <div>
-                      <label className="text-white/30 text-[10px] font-bold uppercase block mb-1">Date</label>
-                      <input type="date" value={t.date} onChange={e => updTrain(t.id, 'date', e.target.value)} className={inp} />
-                    </div>
-                    <div>
-                      <label className="text-white/30 text-[10px] font-bold uppercase block mb-1">Departs</label>
-                      <input type="time" value={t.departureTime} onChange={e => updTrain(t.id, 'departureTime', e.target.value)} className={inp} />
-                    </div>
-                  </div>
-                  <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-3">
-                    <div>
-                      <label className="text-white/30 text-[10px] font-bold uppercase block mb-1">Arrives</label>
-                      <input type="time" value={t.arrivalTime} onChange={e => updTrain(t.id, 'arrivalTime', e.target.value)} className={inp} />
-                    </div>
-                    <div>
-                      <label className="text-white/30 text-[10px] font-bold uppercase block mb-1">Train / Service</label>
-                      <input value={t.trainNumber} onChange={e => updTrain(t.id, 'trainNumber', e.target.value)} placeholder="9028" className={inp} />
-                    </div>
-                    <div>
-                      <label className="text-white/30 text-[10px] font-bold uppercase block mb-1">Operator</label>
-                      <input value={t.provider} onChange={e => updTrain(t.id, 'provider', e.target.value)} placeholder="Eurostar" className={inp} />
-                    </div>
-                    <div>
-                      <label className="text-white/30 text-[10px] font-bold uppercase block mb-1">Class</label>
-                      <select value={t.class} onChange={e => updTrain(t.id, 'class', e.target.value)} className={sel}>
-                        <option>Standard</option>
-                        <option>Standard Premier</option>
-                        <option>Business Premier</option>
-                        <option>First Class</option>
-                      </select>
-                    </div>
-                    <div>
-                      <label className="text-white/30 text-[10px] font-bold uppercase block mb-1">PNR / Ref</label>
-                      <input value={t.pnr} onChange={e => updTrain(t.id, 'pnr', e.target.value)} placeholder="Booking ref" className={inp} />
-                    </div>
-                  </div>
-                  <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mb-3">
-                    <div>
-                      <label className="text-green-400/70 text-[10px] font-bold uppercase block mb-1">Client Price ({sym})</label>
-                      <input type="number" value={t.cost ?? ''} onChange={e => updTrain(t.id, 'cost', e.target.value ? Number(e.target.value) : null)} placeholder="0.00" className={inp} />
-                    </div>
-                    <div>
-                      <label className="text-amber-400/70 text-[10px] font-bold uppercase block mb-1">Supplier Cost ({sym}) <span className="text-white/20 font-normal normal-case">internal</span></label>
-                      <input type="number" value={t.supplierCost ?? ''} onChange={e => updTrain(t.id, 'supplierCost', e.target.value ? Number(e.target.value) : null)} placeholder="0.00" className={inp} />
-                    </div>
-                    <div>
-                      <label className="text-white/30 text-[10px] font-bold uppercase block mb-1">Notes</label>
-                      <input value={t.notes} onChange={e => updTrain(t.id, 'notes', e.target.value)} placeholder="Seat number, coach…" className={inp} />
-                    </div>
-                  </div>
-                  <ImageField value={t.image} onChange={v => updTrain(t.id, 'image', v)} />
+                  )}
                 </div>
               ))}
             </div>
@@ -1978,69 +2276,56 @@ function BookingsTab({ itin, onSave }: { itin: ItineraryData; onSave: (u: Record
               <button onClick={addFerry} className="text-amber-400 text-sm hover:text-amber-300 transition">+ Add first ferry</button>
             </div>
           ) : (
-            <div className="space-y-5">
+            <div className="space-y-3">
               {ferries.map(fe => (
-                <div key={fe.id} className="bg-white/5 rounded-xl p-4 border border-white/[0.06]">
-                  <div className="flex justify-between items-start mb-3">
-                    <p className="text-white/50 text-xs font-bold uppercase tracking-wider">Ferry Crossing</p>
-                    <button onClick={() => rmFerry(fe.id)} className="text-white/20 hover:text-red-400 text-xs transition">✕ Remove</button>
-                  </div>
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-3">
-                    <div>
-                      <label className="text-white/30 text-[10px] font-bold uppercase block mb-1">From</label>
-                      <input value={fe.from} onChange={e => updFerry(fe.id, 'from', e.target.value)} placeholder="Port / City" className={inp} />
+                <div key={fe.id} className="bg-white/[0.04] rounded-xl border border-white/[0.06] overflow-hidden">
+                  {isEditing('ferry', fe.id) ? (
+                    <div className="p-4">
+                      <EditHeader label={fe.from && fe.to ? `${fe.from} → ${fe.to}` : 'New Ferry'} onDone={doneEditing} onRemove={() => rmFerry(fe.id)} />
+                      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-3">
+                        <div><label className="text-white/30 text-[10px] font-bold uppercase block mb-1">From</label><input value={fe.from} onChange={e => updFerry(fe.id, 'from', e.target.value)} placeholder="Port / City" className={inp} /></div>
+                        <div><label className="text-white/30 text-[10px] font-bold uppercase block mb-1">To</label><input value={fe.to} onChange={e => updFerry(fe.id, 'to', e.target.value)} placeholder="Port / City" className={inp} /></div>
+                        <div><label className="text-white/30 text-[10px] font-bold uppercase block mb-1">Date</label><input type="date" value={fe.date} onChange={e => updFerry(fe.id, 'date', e.target.value)} className={inp} /></div>
+                        <div><label className="text-white/30 text-[10px] font-bold uppercase block mb-1">Departs</label><input type="time" value={fe.departureTime} onChange={e => updFerry(fe.id, 'departureTime', e.target.value)} className={inp} /></div>
+                      </div>
+                      <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-3">
+                        <div><label className="text-white/30 text-[10px] font-bold uppercase block mb-1">Arrives</label><input type="time" value={fe.arrivalTime} onChange={e => updFerry(fe.id, 'arrivalTime', e.target.value)} className={inp} /></div>
+                        <div><label className="text-white/30 text-[10px] font-bold uppercase block mb-1">Operator</label><input value={fe.operator} onChange={e => updFerry(fe.id, 'operator', e.target.value)} placeholder="Stena Line" className={inp} /></div>
+                        <div><label className="text-white/30 text-[10px] font-bold uppercase block mb-1">Vessel</label><input value={fe.vessel} onChange={e => updFerry(fe.id, 'vessel', e.target.value)} placeholder="MS Britannica" className={inp} /></div>
+                        <div><label className="text-white/30 text-[10px] font-bold uppercase block mb-1">Class</label><select value={fe.class} onChange={e => updFerry(fe.id, 'class', e.target.value)} className={sel}><option>Standard</option><option>Club Class</option><option>Premium</option><option>Private Cabin</option></select></div>
+                      </div>
+                      <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mb-3">
+                        <div><label className="text-green-400/70 text-[10px] font-bold uppercase block mb-1">Client Price ({sym})</label><input type="number" value={fe.cost ?? ''} onChange={e => updFerry(fe.id, 'cost', e.target.value ? Number(e.target.value) : null)} placeholder="0.00" className={inp} /></div>
+                        <div><label className="text-amber-400/70 text-[10px] font-bold uppercase block mb-1">Supplier Cost ({sym}) <span className="text-white/20 font-normal normal-case">internal</span></label><input type="number" value={fe.supplierCost ?? ''} onChange={e => updFerry(fe.id, 'supplierCost', e.target.value ? Number(e.target.value) : null)} placeholder="0.00" className={inp} /></div>
+                        <div><label className="text-white/30 text-[10px] font-bold uppercase block mb-1">Notes</label><input value={fe.notes} onChange={e => updFerry(fe.id, 'notes', e.target.value)} placeholder="Cabin type, vehicle…" className={inp} /></div>
+                      </div>
+                      <ImageField value={fe.image} onChange={v => updFerry(fe.id, 'image', v)} />
                     </div>
-                    <div>
-                      <label className="text-white/30 text-[10px] font-bold uppercase block mb-1">To</label>
-                      <input value={fe.to} onChange={e => updFerry(fe.id, 'to', e.target.value)} placeholder="Port / City" className={inp} />
+                  ) : (
+                    <div className="flex items-center gap-4 p-4">
+                      <div className="flex-shrink-0 w-10 h-10 rounded-lg bg-white/10 flex items-center justify-center text-xl">⛴️</div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 mb-0.5 flex-wrap">
+                          <span className="text-white font-bold text-sm">{fe.from || '—'}</span>
+                          <span className="text-white/30 text-xs">→</span>
+                          <span className="text-white font-bold text-sm">{fe.to || '—'}</span>
+                        </div>
+                        <div className="flex items-center gap-3 flex-wrap">
+                          {fe.date && <span className="text-white/40 text-xs">{fmtDate(fe.date)}</span>}
+                          {(fe.departureTime || fe.arrivalTime) && <span className="text-white/40 text-xs">{fe.departureTime}{fe.arrivalTime ? ` → ${fe.arrivalTime}` : ''}</span>}
+                          {fe.operator && <span className="text-white/40 text-xs">{fe.operator}</span>}
+                          {fe.vessel && <span className="text-white/40 text-xs">{fe.vessel}</span>}
+                          {fe.class && <span className="text-white/40 text-xs">{fe.class}</span>}
+                          {fe.cost != null && fe.cost > 0 && <span className="text-green-400 text-xs font-bold">{sym}{fe.cost.toLocaleString()}</span>}
+                          <MarginPill cost={fe.cost} supplierCost={fe.supplierCost} />
+                        </div>
+                      </div>
+                      <div className="flex flex-col gap-1.5 flex-shrink-0">
+                        <button type="button" aria-expanded={false} onClick={() => startEdit('ferry', fe.id)} className={editBtnCls}>Edit</button>
+                        <button type="button" onClick={() => rmFerry(fe.id)} className={rmBtnCls}>Remove</button>
+                      </div>
                     </div>
-                    <div>
-                      <label className="text-white/30 text-[10px] font-bold uppercase block mb-1">Date</label>
-                      <input type="date" value={fe.date} onChange={e => updFerry(fe.id, 'date', e.target.value)} className={inp} />
-                    </div>
-                    <div>
-                      <label className="text-white/30 text-[10px] font-bold uppercase block mb-1">Departs</label>
-                      <input type="time" value={fe.departureTime} onChange={e => updFerry(fe.id, 'departureTime', e.target.value)} className={inp} />
-                    </div>
-                  </div>
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-3">
-                    <div>
-                      <label className="text-white/30 text-[10px] font-bold uppercase block mb-1">Arrives</label>
-                      <input type="time" value={fe.arrivalTime} onChange={e => updFerry(fe.id, 'arrivalTime', e.target.value)} className={inp} />
-                    </div>
-                    <div>
-                      <label className="text-white/30 text-[10px] font-bold uppercase block mb-1">Operator</label>
-                      <input value={fe.operator} onChange={e => updFerry(fe.id, 'operator', e.target.value)} placeholder="Stena Line" className={inp} />
-                    </div>
-                    <div>
-                      <label className="text-white/30 text-[10px] font-bold uppercase block mb-1">Vessel</label>
-                      <input value={fe.vessel} onChange={e => updFerry(fe.id, 'vessel', e.target.value)} placeholder="MS Britannica" className={inp} />
-                    </div>
-                    <div>
-                      <label className="text-white/30 text-[10px] font-bold uppercase block mb-1">Class</label>
-                      <select value={fe.class} onChange={e => updFerry(fe.id, 'class', e.target.value)} className={sel}>
-                        <option>Standard</option>
-                        <option>Club Class</option>
-                        <option>Premium</option>
-                        <option>Private Cabin</option>
-                      </select>
-                    </div>
-                  </div>
-                  <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mb-3">
-                    <div>
-                      <label className="text-green-400/70 text-[10px] font-bold uppercase block mb-1">Client Price ({sym})</label>
-                      <input type="number" value={fe.cost ?? ''} onChange={e => updFerry(fe.id, 'cost', e.target.value ? Number(e.target.value) : null)} placeholder="0.00" className={inp} />
-                    </div>
-                    <div>
-                      <label className="text-amber-400/70 text-[10px] font-bold uppercase block mb-1">Supplier Cost ({sym}) <span className="text-white/20 font-normal normal-case">internal</span></label>
-                      <input type="number" value={fe.supplierCost ?? ''} onChange={e => updFerry(fe.id, 'supplierCost', e.target.value ? Number(e.target.value) : null)} placeholder="0.00" className={inp} />
-                    </div>
-                    <div>
-                      <label className="text-white/30 text-[10px] font-bold uppercase block mb-1">Notes</label>
-                      <input value={fe.notes} onChange={e => updFerry(fe.id, 'notes', e.target.value)} placeholder="Cabin type, vehicle…" className={inp} />
-                    </div>
-                  </div>
-                  <ImageField value={fe.image} onChange={v => updFerry(fe.id, 'image', v)} />
+                  )}
                 </div>
               ))}
             </div>
@@ -2091,8 +2376,42 @@ function PricingTab({ itin, onSave }: { itin: ItineraryData; onSave: (u: Record<
     setSaving(false)
   }
 
+  const pricingSnap = parseSnap(itin.selectedOption)
+  const currentTotal = totalPrice !== '' ? Number(totalPrice) : (autoTotal > 0 ? autoTotal : null)
+  const acceptedTotalNum = pricingSnap?.acceptedTotal ?? null
+  const hasDivergence = itin.status === 'approved' && acceptedTotalNum != null && currentTotal != null && Math.abs(acceptedTotalNum - currentTotal) > 0.01
+
   return (
     <div className="max-w-3xl space-y-6">
+      {/* Accepted total + divergence warning — approved itineraries only */}
+      {itin.status === 'approved' && pricingSnap?.acceptedBy && (
+        <div className={`rounded-2xl p-5 border ${hasDivergence ? 'bg-amber-500/10 border-amber-500/30' : 'bg-green-500/10 border-green-500/25'}`}>
+          <div className="flex items-start justify-between">
+            <div>
+              <p className={`text-xs font-bold uppercase tracking-wider mb-1 ${hasDivergence ? 'text-amber-400' : 'text-green-400'}`}>
+                {hasDivergence ? '⚠️ Price Divergence' : '✅ Accepted Total'}
+              </p>
+              <p className="text-white/50 text-xs">
+                {pricingSnap.acceptedBy} accepted {pricingSnap.acceptedAt ? `on ${fmtDate(pricingSnap.acceptedAt)}` : 'this proposal'}
+              </p>
+            </div>
+            <div className="text-right">
+              <p className="text-white/30 text-[10px] uppercase tracking-wider mb-0.5">Accepted</p>
+              <p className="text-amber-400 font-bold text-lg">{sym}{acceptedTotalNum != null ? Number(acceptedTotalNum).toLocaleString() : '—'}</p>
+            </div>
+          </div>
+          {hasDivergence && currentTotal != null && (
+            <div className="mt-3 pt-3 border-t border-amber-500/20 flex justify-between items-center">
+              <p className="text-amber-300/70 text-xs">Any billing must use the accepted total, not the current figure.</p>
+              <div className="text-right text-xs">
+                <p className="text-white/30">Current: {sym}{Number(currentTotal).toLocaleString()}</p>
+                <p className="text-amber-400 font-semibold">Accepted: {sym}{Number(acceptedTotalNum).toLocaleString()}</p>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
       <div className="bg-white/5 border border-white/[0.08] rounded-2xl p-6">
         <div className="flex items-center justify-between mb-5">
           <h2 className="text-white font-bold text-base">Price Breakdown</h2>
@@ -2561,6 +2880,51 @@ function PreviewTab({
 
       {/* Right: Actions */}
       <div className="space-y-5">
+        {/* Acceptance premium card — replaces send emphasis for approved itineraries */}
+        {itin.status === 'approved' && (() => {
+          const previewSnap = parseSnap(itin.selectedOption)
+          return previewSnap?.acceptedBy ? (
+            <div className="bg-green-500/10 border border-green-500/30 rounded-2xl p-5">
+              <div className="flex items-center gap-2 mb-3">
+                <span className="text-xl">✅</span>
+                <h3 className="text-green-400 font-bold text-sm">Client Accepted</h3>
+              </div>
+              <div className="space-y-2">
+                <div className="flex justify-between">
+                  <span className="text-white/30 text-xs">Accepted by</span>
+                  <span className="text-white text-xs font-semibold">{previewSnap.acceptedBy}</span>
+                </div>
+                {previewSnap.acceptedAt && (
+                  <div className="flex justify-between">
+                    <span className="text-white/30 text-xs">Accepted on</span>
+                    <span className="text-white text-xs">{fmtDateTime(previewSnap.acceptedAt)}</span>
+                  </div>
+                )}
+                {previewSnap.acceptedTotal != null && (
+                  <div className="flex justify-between">
+                    <span className="text-white/30 text-xs">Accepted total</span>
+                    <span className="text-amber-400 text-xs font-bold">{sym}{Number(previewSnap.acceptedTotal).toLocaleString()}</span>
+                  </div>
+                )}
+                {previewSnap.options && previewSnap.options.length > 0 && (
+                  <div className="flex justify-between">
+                    <span className="text-white/30 text-xs">Package</span>
+                    <span className="text-white text-xs">{previewSnap.options.map(o => o.label).join(', ')}</span>
+                  </div>
+                )}
+              </div>
+              <p className="text-green-400/50 text-[10px] mt-3 pt-3 border-t border-green-500/20">
+                Acceptance is locked — do not alter pricing without client consent.
+              </p>
+            </div>
+          ) : (
+            <div className="bg-green-500/10 border border-green-500/25 rounded-2xl p-5">
+              <p className="text-green-400 text-sm font-semibold">✅ Proposal accepted</p>
+              {itin.approvedAt && <p className="text-green-400/60 text-xs mt-1">{fmtDateTime(itin.approvedAt)}</p>}
+            </div>
+          )
+        })()}
+
         <div className="bg-white/5 border border-white/[0.08] rounded-2xl p-5">
           <h3 className="text-white font-bold text-sm mb-4">Status</h3>
           <div className="grid grid-cols-2 gap-2">

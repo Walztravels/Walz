@@ -98,6 +98,13 @@ const s = StyleSheet.create({
   contactLabel: { fontSize: 8, color: '#94a3b8', marginBottom: 3 },
   contactVal:   { fontSize: 9, fontFamily: 'Helvetica-Bold', color: WHITE },
   contactCTA:   { fontSize: 9, fontFamily: 'Helvetica-Bold', color: GOLD },
+
+  // ── Acceptance section ──────────────────────────────────────────────────────
+  acceptBanner:  { backgroundColor: '#f0fdf4', borderRadius: 5, padding: '12 16', marginTop: 16, borderWidth: 1, borderColor: '#86efac' },
+  acceptTitle:   { fontSize: 8, fontFamily: 'Helvetica-Bold', color: '#15803d', letterSpacing: 1.5, textTransform: 'uppercase', marginBottom: 8 },
+  acceptRow:     { flexDirection: 'row', marginBottom: 4 },
+  acceptKey:     { fontSize: 8, color: '#6b7280', width: 90 },
+  acceptVal:     { fontSize: 8, fontFamily: 'Helvetica-Bold', color: '#1f2937', flex: 1 },
 })
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -159,6 +166,11 @@ export interface ItineraryPDFProps {
   contactWhatsApp?: string
   contactEmail?: string
   contactWebsite?: string
+
+  // GA6: acceptance details — only present for approved itineraries
+  acceptedBy?: string
+  acceptedAt?: string
+  acceptedTotal?: number | null
 }
 
 // ── PDF Component ─────────────────────────────────────────────────────────────
@@ -501,6 +513,29 @@ export function ItineraryPDF(p: ItineraryPDFProps) {
             <View style={[s.priceLine, { marginTop: 10 }]}>
               <Text style={s.priceLabel}>Deposit due</Text>
               <Text style={s.priceVal}>{fmtMoney(p.deposit, p.currency)}</Text>
+            </View>
+          )}
+
+          {/* Acceptance confirmation — only present for approved itineraries */}
+          {p.acceptedBy && (
+            <View style={s.acceptBanner}>
+              <Text style={s.acceptTitle}>Proposal Accepted</Text>
+              <View style={s.acceptRow}>
+                <Text style={s.acceptKey}>Accepted by</Text>
+                <Text style={s.acceptVal}>{p.acceptedBy}</Text>
+              </View>
+              {p.acceptedAt && (
+                <View style={s.acceptRow}>
+                  <Text style={s.acceptKey}>Accepted on</Text>
+                  <Text style={s.acceptVal}>{fmtDate(p.acceptedAt)}</Text>
+                </View>
+              )}
+              {p.acceptedTotal != null && (
+                <View style={s.acceptRow}>
+                  <Text style={s.acceptKey}>Accepted total</Text>
+                  <Text style={[s.acceptVal, { color: '#15803d', fontFamily: 'Helvetica-Bold' }]}>{fmtMoney(p.acceptedTotal, p.currency)}</Text>
+                </View>
+              )}
             </View>
           )}
 

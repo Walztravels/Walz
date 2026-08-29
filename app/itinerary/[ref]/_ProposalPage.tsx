@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import type { PublicProposalDTO, ProposalFlight, ProposalHotel, ProposalTransfer, ProposalTour, ProposalDay } from './_types'
 
 // ── Utilities ─────────────────────────────────────────────────────────────────
@@ -73,7 +73,7 @@ function activityIcon(text: string): string {
 // HEADER
 // ─────────────────────────────────────────────────────────────────────────────
 
-function ProposalHeader({ proposal, compact }: { proposal: PublicProposalDTO; compact: boolean }) {
+function ProposalHeader({ proposal, compact, onAccept }: { proposal: PublicProposalDTO; compact: boolean; onAccept: () => void }) {
   const [menuOpen, setMenuOpen] = useState(false)
 
   const navItems = [
@@ -124,16 +124,14 @@ function ProposalHeader({ proposal, compact }: { proposal: PublicProposalDTO; co
         </nav>
 
         {/* Accept CTA */}
-        {proposal.status === 'proposal' && (
-          <a
-            href={waLink}
-            target="_blank"
-            rel="noopener noreferrer"
+        {proposal.status === 'proposal' && proposal.approvalToken && (
+          <button
+            onClick={onAccept}
             className="hidden sm:flex items-center gap-2"
-            style={{ background: '#C9A84C', color: '#0B1F3A', fontWeight: 700, fontSize: 13, padding: '9px 20px', borderRadius: 10, textDecoration: 'none', whiteSpace: 'nowrap', flexShrink: 0 }}
+            style={{ background: '#C9A84C', color: '#0B1F3A', fontWeight: 700, fontSize: 13, padding: '9px 20px', borderRadius: 10, border: 'none', cursor: 'pointer', whiteSpace: 'nowrap', flexShrink: 0 }}
           >
-            Accept Trip →
-          </a>
+            Review & Accept →
+          </button>
         )}
 
         {/* Mobile menu */}
@@ -163,15 +161,13 @@ function ProposalHeader({ proposal, compact }: { proposal: PublicProposalDTO; co
               {n.label}
             </button>
           ))}
-          {proposal.status === 'proposal' && (
-            <a
-              href={waLink}
-              target="_blank"
-              rel="noopener noreferrer"
-              style={{ display: 'block', marginTop: 12, background: '#C9A84C', color: '#0B1F3A', fontWeight: 700, padding: '12px 0', borderRadius: 10, textAlign: 'center', textDecoration: 'none' }}
+          {proposal.status === 'proposal' && proposal.approvalToken && (
+            <button
+              onClick={() => { setMenuOpen(false); onAccept() }}
+              style={{ display: 'block', width: '100%', marginTop: 12, background: '#C9A84C', color: '#0B1F3A', fontWeight: 700, padding: '12px 0', borderRadius: 10, textAlign: 'center', border: 'none', cursor: 'pointer' }}
             >
-              Accept This Proposal →
-            </a>
+              Review & Accept →
+            </button>
           )}
         </div>
       )}
@@ -751,11 +747,9 @@ function ProposalInclusions({ proposal }: { proposal: PublicProposalDTO }) {
 // PRICING
 // ─────────────────────────────────────────────────────────────────────────────
 
-function ProposalPricing({ proposal }: { proposal: PublicProposalDTO }) {
+function ProposalPricing({ proposal, onAccept }: { proposal: PublicProposalDTO; onAccept?: () => void }) {
   const hasData = proposal.totalPrice != null || proposal.priceBreakdown.length > 0 || proposal.paymentSchedule.length > 0
   if (!hasData) return null
-
-  const waLink = `https://wa.me/${proposal.contact.globalWhatsAppE164}?text=${encodeURIComponent(`Hi Walz Travels, I'd like to accept the proposal for ${proposal.title} (${proposal.referenceNumber}).`)}`
 
   return (
     <Section id={SECTIONS.investment} eyebrow="Your Investment" title="Trip Pricing" alt>
@@ -832,14 +826,23 @@ function ProposalPricing({ proposal }: { proposal: PublicProposalDTO }) {
 
         {/* Accept CTA */}
         {proposal.status === 'proposal' && (
-          <a
-            href={waLink}
-            target="_blank"
-            rel="noopener noreferrer"
-            style={{ display: 'block', background: '#C9A84C', color: '#0B1F3A', fontWeight: 800, fontSize: 17, padding: '18px 32px', borderRadius: 16, textAlign: 'center', textDecoration: 'none', marginTop: 24 }}
-          >
-            Accept This Proposal →
-          </a>
+          onAccept && proposal.approvalToken ? (
+            <button
+              onClick={onAccept}
+              style={{ display: 'block', width: '100%', background: '#C9A84C', color: '#0B1F3A', fontWeight: 800, fontSize: 17, padding: '18px 32px', borderRadius: 16, textAlign: 'center', border: 'none', cursor: 'pointer', marginTop: 24 }}
+            >
+              Review & Accept →
+            </button>
+          ) : (
+            <a
+              href={`https://wa.me/${proposal.contact.globalWhatsAppE164}?text=${encodeURIComponent(`Hi Walz Travels, I'd like to accept the proposal for ${proposal.title} (${proposal.referenceNumber}).`)}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{ display: 'block', background: '#C9A84C', color: '#0B1F3A', fontWeight: 800, fontSize: 17, padding: '18px 32px', borderRadius: 16, textAlign: 'center', textDecoration: 'none', marginTop: 24 }}
+            >
+              Accept This Proposal →
+            </a>
+          )
         )}
       </div>
     </Section>
@@ -973,8 +976,7 @@ function ProposalContact({ proposal }: { proposal: PublicProposalDTO }) {
 // MOBILE STICKY BAR
 // ─────────────────────────────────────────────────────────────────────────────
 
-function MobileStickyBar({ proposal }: { proposal: PublicProposalDTO }) {
-  const waLink = `https://wa.me/${proposal.contact.globalWhatsAppE164}?text=${encodeURIComponent(`Hi Walz Travels, I'd like to accept the proposal for ${proposal.title} (${proposal.referenceNumber}).`)}`
+function MobileStickyBar({ proposal, onAccept }: { proposal: PublicProposalDTO; onAccept?: () => void }) {
   return (
     <div className="sm:hidden" style={{ position: 'fixed', bottom: 0, left: 0, right: 0, zIndex: 40, background: 'rgba(11,31,58,0.97)', backdropFilter: 'blur(16px)', borderTop: '1px solid rgba(201,168,76,0.2)', padding: '12px 16px 20px' }}>
       <div style={{ display: 'flex', gap: 10, maxWidth: 480, margin: '0 auto' }}>
@@ -985,10 +987,23 @@ function MobileStickyBar({ proposal }: { proposal: PublicProposalDTO }) {
           </div>
         )}
         {proposal.status === 'proposal' ? (
-          <a href={waLink} target="_blank" rel="noopener noreferrer"
-            style={{ flex: 2, display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#C9A84C', color: '#0B1F3A', fontWeight: 800, fontSize: 15, borderRadius: 12, textDecoration: 'none', padding: '12px 0' }}>
-            Accept Trip →
-          </a>
+          onAccept && proposal.approvalToken ? (
+            <button
+              onClick={onAccept}
+              style={{ flex: 2, display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#C9A84C', color: '#0B1F3A', fontWeight: 800, fontSize: 15, borderRadius: 12, border: 'none', cursor: 'pointer', padding: '12px 0' }}
+            >
+              Review & Accept →
+            </button>
+          ) : (
+            <a
+              href={`https://wa.me/${proposal.contact.globalWhatsAppE164}?text=${encodeURIComponent(`Hi Walz Travels, I'd like to accept the proposal for ${proposal.title} (${proposal.referenceNumber}).`)}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{ flex: 2, display: 'flex', alignItems: 'center', justifyContent: 'center', background: '#C9A84C', color: '#0B1F3A', fontWeight: 800, fontSize: 15, borderRadius: 12, textDecoration: 'none', padding: '12px 0' }}
+            >
+              Accept Trip →
+            </a>
+          )
         ) : (
           <a href={`/api/itinerary/${proposal.referenceNumber}/pdf`} download
             style={{ flex: 2, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, background: '#C9A84C', color: '#0B1F3A', fontWeight: 800, fontSize: 15, borderRadius: 12, textDecoration: 'none', padding: '12px 0' }}>
@@ -1004,7 +1019,7 @@ function MobileStickyBar({ proposal }: { proposal: PublicProposalDTO }) {
 // PACKAGE OPTIONS (if present)
 // ─────────────────────────────────────────────────────────────────────────────
 
-function ProposalPackageOptions({ proposal }: { proposal: PublicProposalDTO }) {
+function ProposalPackageOptions({ proposal, onAccept }: { proposal: PublicProposalDTO; onAccept?: (optionId?: string) => void }) {
   if (proposal.packageOptions.length === 0) return null
   const waLink = (pkgName: string) => `https://wa.me/${proposal.contact.globalWhatsAppE164}?text=${encodeURIComponent(`Hi Walz Travels, I'd like to select the "${pkgName}" package for ${proposal.referenceNumber}.`)}`
 
@@ -1044,14 +1059,23 @@ function ProposalPackageOptions({ proposal }: { proposal: PublicProposalDTO }) {
               </ul>
             )}
             {!pkg.isSelected && (
-              <a
-                href={waLink(pkg.name)}
-                target="_blank"
-                rel="noopener noreferrer"
-                style={{ display: 'block', textAlign: 'center', background: '#0B1F3A', color: '#fff', fontWeight: 700, fontSize: 14, padding: '12px 0', borderRadius: 12, textDecoration: 'none' }}
-              >
-                Select this package →
-              </a>
+              onAccept ? (
+                <button
+                  onClick={() => onAccept(pkg.id)}
+                  style={{ display: 'block', width: '100%', textAlign: 'center', background: '#0B1F3A', color: '#fff', fontWeight: 700, fontSize: 14, padding: '12px 0', borderRadius: 12, border: 'none', cursor: 'pointer' }}
+                >
+                  Accept with this package →
+                </button>
+              ) : (
+                <a
+                  href={waLink(pkg.name)}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={{ display: 'block', textAlign: 'center', background: '#0B1F3A', color: '#fff', fontWeight: 700, fontSize: 14, padding: '12px 0', borderRadius: 12, textDecoration: 'none' }}
+                >
+                  Select this package →
+                </a>
+              )
             )}
           </div>
         ))}
@@ -1064,13 +1088,20 @@ function ProposalPackageOptions({ proposal }: { proposal: PublicProposalDTO }) {
 // STATUS BANNER (approved / live)
 // ─────────────────────────────────────────────────────────────────────────────
 
-function StatusBanner({ status }: { status: string }) {
+function StatusBanner({ status, acceptedBy, acceptedAt, acceptedTotal, currency }: {
+  status: string
+  acceptedBy?: string
+  acceptedAt?: string
+  acceptedTotal?: number | null
+  currency?: string
+}) {
   if (status === 'approved') {
     return (
-      <div style={{ background: '#16a34a', padding: '12px 24px', textAlign: 'center' }}>
+      <div style={{ background: '#16a34a', padding: '14px 24px', textAlign: 'center' }}>
         <p style={{ color: '#fff', fontSize: 14, fontWeight: 700, margin: 0 }}>
-          ✓ Proposal accepted — your trip is being arranged
+          ✓ Proposal accepted{acceptedBy ? ` by ${acceptedBy}` : ''}{acceptedAt ? ` on ${fmtShortDate(acceptedAt)}` : ''}{acceptedTotal != null && currency ? ` · ${fmtMoney(acceptedTotal, currency)}` : ''}
         </p>
+        <p style={{ color: 'rgba(255,255,255,0.8)', fontSize: 12, margin: '2px 0 0' }}>Your trip is being arranged by our team</p>
       </div>
     )
   }
@@ -1087,11 +1118,430 @@ function StatusBanner({ status }: { status: string }) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// ACCEPTANCE MODAL (GA5)
+// ─────────────────────────────────────────────────────────────────────────────
+
+function AcceptanceModal({
+  proposal,
+  initialOptionId,
+  onClose,
+}: {
+  proposal: PublicProposalDTO
+  initialOptionId: string | null
+  onClose: () => void
+}) {
+  const hasOptions = proposal.packageOptions.length > 0
+  const startStep: 1 | 2 | 3 = hasOptions ? 1 : 2
+
+  const [step, setStep] = useState<1 | 2 | 3>(startStep)
+  const [selectedIds, setSelectedIds] = useState<string[]>(
+    initialOptionId ? [initialOptionId] : []
+  )
+  const [name, setName] = useState('')
+  const [terms, setTerms] = useState(false)
+  const [nameError, setNameError] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+  const [success, setSuccess] = useState<{ acceptedTotal: number | null; currency: string } | null>(null)
+  const [apiError, setApiError] = useState<{ kind: 'stale' | 'expired' | 'conflict' | 'other'; msg: string } | null>(null)
+  const nameRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    const prev = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    return () => { document.body.style.overflow = prev }
+  }, [])
+
+  useEffect(() => {
+    if (step === 3) {
+      const t = setTimeout(() => nameRef.current?.focus(), 60)
+      return () => clearTimeout(t)
+    }
+  }, [step])
+
+  const selectedOption = proposal.packageOptions.find(p => selectedIds.includes(p.id)) ?? null
+  const previewTotal   = selectedOption?.price ?? proposal.totalPrice ?? null
+  const previewCcy     = selectedOption?.currency ?? proposal.currency
+
+  function toggleOption(id: string) {
+    setSelectedIds(prev => prev.includes(id) ? [] : [id])
+  }
+
+  function goBack() {
+    setStep(prev => {
+      if (prev === 3) return 2
+      if (prev === 2 && hasOptions) return 1
+      return prev
+    })
+  }
+
+  async function handleSubmit() {
+    const trimmed = name.trim()
+    if (trimmed.length < 2) {
+      setNameError('Please enter your full name (minimum 2 characters).')
+      return
+    }
+    if (trimmed.length > 100) {
+      setNameError('Name must be 100 characters or fewer.')
+      return
+    }
+    setSubmitting(true)
+    setNameError('')
+    try {
+      const res = await fetch(`/api/itinerary/${proposal.referenceNumber}/approve`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          token: proposal.approvalToken,
+          name: trimmed,
+          selectedOptionIds: selectedIds,
+          termsAccepted: true,
+          acceptanceVersion: 1,
+        }),
+      })
+      if (res.ok) {
+        const data = await res.json() as { acceptedTotal?: number | null; currency?: string }
+        setSuccess({
+          acceptedTotal: data.acceptedTotal ?? null,
+          currency: data.currency ?? proposal.currency,
+        })
+        return
+      }
+      const body = await res.json().catch(() => ({})) as { error?: string }
+      const msg = body?.error ?? 'An unexpected error occurred.'
+      if (res.status === 410) {
+        setApiError({ kind: 'expired', msg })
+      } else if (res.status === 409) {
+        const lower = msg.toLowerCase()
+        if (lower.includes('changed') || lower.includes('stale') || lower.includes('hash') || lower.includes('update')) {
+          setApiError({ kind: 'stale', msg })
+        } else if (lower.includes('active') || lower.includes('already') || lower.includes('accepted')) {
+          setApiError({ kind: 'conflict', msg })
+        } else {
+          setApiError({ kind: 'conflict', msg })
+        }
+      } else {
+        setApiError({ kind: 'other', msg })
+      }
+    } catch {
+      setApiError({ kind: 'other', msg: 'Network error. Please check your connection and try again.' })
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  const canSubmit = name.trim().length >= 2 && name.trim().length <= 100 && terms && !submitting
+
+  const waContactLink = `https://wa.me/${proposal.contact.globalWhatsAppE164}?text=${encodeURIComponent(`Hi Walz Travels, I need help with proposal ${proposal.referenceNumber}.`)}`
+
+  // Step labels shown in indicator
+  const stepLabels = hasOptions ? ['Customize', 'Review', 'Accept'] : ['Review', 'Accept']
+  const currentLabelIdx = hasOptions ? step - 1 : step - 2
+
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-label="Accept Proposal"
+      onClick={e => { if (e.target === e.currentTarget) onClose() }}
+      style={{ position: 'fixed', inset: 0, zIndex: 200, background: 'rgba(11,31,58,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '16px' }}
+    >
+      <div
+        onClick={e => e.stopPropagation()}
+        style={{ background: '#fff', borderRadius: 20, width: '100%', maxWidth: 560, maxHeight: '90vh', display: 'flex', flexDirection: 'column', overflow: 'hidden', boxShadow: '0 24px 80px rgba(11,31,58,0.28)' }}
+      >
+        {/* Header */}
+        <div style={{ background: '#0B1F3A', padding: '18px 22px', display: 'flex', alignItems: 'center', gap: 14, flexShrink: 0 }}>
+          <button onClick={onClose} aria-label="Close" style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'rgba(255,255,255,0.55)', fontSize: 18, padding: 4, lineHeight: 1, flexShrink: 0 }}>✕</button>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <p style={{ color: 'rgba(255,255,255,0.45)', fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em', margin: 0 }}>Accept Proposal</p>
+            <p style={{ color: '#fff', fontSize: 14, fontWeight: 700, margin: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{proposal.title}</p>
+          </div>
+          <span style={{ color: 'rgba(255,255,255,0.35)', fontSize: 12 }}>{proposal.referenceNumber}</span>
+        </div>
+
+        {/* Step indicator */}
+        {!success && !apiError && (
+          <div style={{ display: 'flex', background: '#FAFAF8', borderBottom: '1px solid #f0ede8', flexShrink: 0 }}>
+            {stepLabels.map((label, idx) => {
+              const active = idx === currentLabelIdx
+              const done   = idx < currentLabelIdx
+              return (
+                <div key={label} style={{ flex: 1, padding: '10px 8px', textAlign: 'center', borderBottom: active ? '2px solid #C9A84C' : '2px solid transparent' }}>
+                  <p style={{ fontSize: 11, fontWeight: 700, color: active ? '#C9A84C' : done ? '#16a34a' : '#9ca3af', margin: 0 }}>
+                    {done ? '✓ ' : ''}{label}
+                  </p>
+                </div>
+              )
+            })}
+          </div>
+        )}
+
+        {/* Body — scrollable */}
+        <div style={{ flex: 1, overflowY: 'auto', padding: '26px 22px' }}>
+
+          {/* ── SUCCESS ── */}
+          {success && (
+            <div style={{ textAlign: 'center', padding: '12px 0' }}>
+              <div style={{ width: 60, height: 60, borderRadius: '50%', background: '#dcfce7', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 18px', fontSize: 28 }}>✓</div>
+              <h2 style={{ color: '#16a34a', fontSize: 22, fontWeight: 700, fontFamily: '"Playfair Display", Georgia, serif', marginBottom: 8 }}>Proposal Accepted!</h2>
+              <p style={{ color: '#374151', fontSize: 14, marginBottom: 8 }}>Thank you, <strong>{name.trim()}</strong>.</p>
+              {success.acceptedTotal != null && (
+                <p style={{ color: '#C9A84C', fontSize: 24, fontWeight: 800, marginBottom: 4 }}>{fmtMoney(success.acceptedTotal, success.currency)}</p>
+              )}
+              <p style={{ color: '#9ca3af', fontSize: 13, marginBottom: 20 }}>Reference: <strong>{proposal.referenceNumber}</strong></p>
+              <p style={{ color: '#6b7280', fontSize: 14, lineHeight: 1.6 }}>
+                Your acceptance has been recorded. Our team will be in touch shortly with next steps.
+              </p>
+            </div>
+          )}
+
+          {/* ── ERROR ── */}
+          {apiError && (
+            <div style={{ textAlign: 'center', padding: '12px 0' }}>
+              <div style={{ width: 60, height: 60, borderRadius: '50%', background: '#fef2f2', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 18px', fontSize: 28 }}>⚠</div>
+              {apiError.kind === 'expired' && (
+                <>
+                  <h2 style={{ color: '#0B1F3A', fontSize: 20, fontWeight: 700, marginBottom: 8 }}>Link Expired</h2>
+                  <p style={{ color: '#6b7280', fontSize: 14, lineHeight: 1.6 }}>This acceptance link has expired. Please contact us for a new link.</p>
+                </>
+              )}
+              {apiError.kind === 'stale' && (
+                <>
+                  <h2 style={{ color: '#0B1F3A', fontSize: 20, fontWeight: 700, marginBottom: 8 }}>Proposal Updated</h2>
+                  <p style={{ color: '#6b7280', fontSize: 14, lineHeight: 1.6 }}>This proposal has been updated since it was sent. Please contact us to get the latest version.</p>
+                </>
+              )}
+              {apiError.kind === 'conflict' && (
+                <>
+                  <h2 style={{ color: '#0B1F3A', fontSize: 20, fontWeight: 700, marginBottom: 8 }}>Already Confirmed</h2>
+                  <p style={{ color: '#6b7280', fontSize: 14, lineHeight: 1.6 }}>This proposal has already been accepted. Please contact us if you have any questions.</p>
+                </>
+              )}
+              {apiError.kind === 'other' && (
+                <>
+                  <h2 style={{ color: '#0B1F3A', fontSize: 20, fontWeight: 700, marginBottom: 8 }}>Something went wrong</h2>
+                  <p style={{ color: '#6b7280', fontSize: 14, lineHeight: 1.6 }}>{apiError.msg}</p>
+                </>
+              )}
+              <a href={waContactLink} target="_blank" rel="noopener noreferrer"
+                style={{ display: 'inline-flex', alignItems: 'center', gap: 8, background: '#16a34a', color: '#fff', fontWeight: 700, fontSize: 14, padding: '12px 24px', borderRadius: 12, textDecoration: 'none', marginTop: 20 }}>
+                💬 Contact Us on WhatsApp
+              </a>
+            </div>
+          )}
+
+          {/* ── STEP 1: CUSTOMIZE TRIP ── */}
+          {!success && !apiError && step === 1 && hasOptions && (
+            <div>
+              <p style={{ color: '#9ca3af', fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.08em', marginBottom: 14 }}>
+                Select a package upgrade — or continue with the base price
+              </p>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                {proposal.packageOptions.map(pkg => {
+                  const sel = selectedIds.includes(pkg.id)
+                  return (
+                    <button
+                      key={pkg.id}
+                      onClick={() => toggleOption(pkg.id)}
+                      style={{ background: sel ? '#FAFAF8' : '#fff', border: `2px solid ${sel ? '#C9A84C' : '#f0ede8'}`, borderRadius: 14, padding: '16px 18px', cursor: 'pointer', textAlign: 'left', width: '100%', position: 'relative', transition: 'border-color 0.15s' }}
+                    >
+                      {sel && (
+                        <div style={{ position: 'absolute', top: 10, right: 10, width: 20, height: 20, borderRadius: '50%', background: '#C9A84C', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                          <span style={{ color: '#0B1F3A', fontSize: 11, fontWeight: 800, lineHeight: 1 }}>✓</span>
+                        </div>
+                      )}
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: pkg.description || pkg.features.length > 0 ? 6 : 0 }}>
+                        <h3 style={{ color: '#0B1F3A', fontSize: 15, fontWeight: 700, margin: 0 }}>{pkg.name}</h3>
+                        <p style={{ color: '#C9A84C', fontSize: 15, fontWeight: 800, margin: 0, marginLeft: 10, flexShrink: 0 }}>{fmtMoney(pkg.price, pkg.currency)}</p>
+                      </div>
+                      {pkg.description && <p style={{ color: '#6b7280', fontSize: 13, margin: '4px 0 6px' }}>{pkg.description}</p>}
+                      {pkg.features.length > 0 && (
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+                          {pkg.features.map((f, i) => (
+                            <span key={i} style={{ background: '#f0ede8', color: '#92700c', fontSize: 11, padding: '2px 7px', borderRadius: 20, fontWeight: 500 }}>{f}</span>
+                          ))}
+                        </div>
+                      )}
+                    </button>
+                  )
+                })}
+              </div>
+              {previewTotal != null && (
+                <div style={{ marginTop: 16, padding: '12px 16px', background: '#f5f2ed', borderRadius: 10, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <p style={{ color: '#6b7280', fontSize: 13, margin: 0 }}>Preview total</p>
+                  <p style={{ color: '#0B1F3A', fontSize: 17, fontWeight: 800, margin: 0 }}>{fmtMoney(previewTotal, previewCcy)}</p>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* ── STEP 2: REVIEW ── */}
+          {!success && !apiError && step === 2 && (
+            <div>
+              <p style={{ color: '#C9A84C', fontSize: 10, fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', marginBottom: 14 }}>Confirm your details</p>
+
+              <div style={{ background: '#FAFAF8', borderRadius: 12, padding: '14px 18px', marginBottom: 12 }}>
+                <p style={{ color: '#0B1F3A', fontSize: 15, fontWeight: 700, marginBottom: 4 }}>{proposal.title}</p>
+                {proposal.destination && <p style={{ color: '#6b7280', fontSize: 13, margin: '2px 0' }}>📍 {proposal.destination}</p>}
+                {(proposal.startDate || proposal.endDate) && (
+                  <p style={{ color: '#6b7280', fontSize: 13, margin: '2px 0' }}>
+                    📅 {proposal.startDate ? fmtDate(proposal.startDate) : ''}
+                    {proposal.startDate && proposal.endDate ? ' — ' : ''}
+                    {proposal.endDate ? fmtDate(proposal.endDate) : ''}
+                  </p>
+                )}
+                {proposal.numberOfTravellers > 0 && (
+                  <p style={{ color: '#6b7280', fontSize: 13, margin: '2px 0' }}>👤 {proposal.numberOfTravellers} traveller{proposal.numberOfTravellers > 1 ? 's' : ''}</p>
+                )}
+              </div>
+
+              {selectedOption ? (
+                <div style={{ background: '#fff', border: '2px solid #C9A84C', borderRadius: 12, padding: '14px 18px', marginBottom: 12 }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div>
+                      <p style={{ color: '#9ca3af', fontSize: 10, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.08em', margin: 0 }}>Package</p>
+                      <p style={{ color: '#0B1F3A', fontSize: 14, fontWeight: 700, margin: '2px 0 0' }}>{selectedOption.name}</p>
+                    </div>
+                    <p style={{ color: '#C9A84C', fontSize: 15, fontWeight: 800, margin: 0 }}>{fmtMoney(selectedOption.price, selectedOption.currency)}</p>
+                  </div>
+                  {hasOptions && (
+                    <button onClick={() => setStep(1)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#9ca3af', fontSize: 12, padding: '6px 0 0', textDecoration: 'underline' }}>
+                      Change selection
+                    </button>
+                  )}
+                </div>
+              ) : hasOptions ? (
+                <div style={{ background: '#FAFAF8', borderRadius: 12, padding: '14px 18px', marginBottom: 12, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <p style={{ color: '#6b7280', fontSize: 13, margin: 0 }}>No upgrade — base package</p>
+                  <button onClick={() => setStep(1)} style={{ background: 'none', border: 'none', cursor: 'pointer', color: '#9ca3af', fontSize: 12, textDecoration: 'underline' }}>Change</button>
+                </div>
+              ) : null}
+
+              <div style={{ background: '#0B1F3A', borderRadius: 12, padding: '16px 18px', marginBottom: 12 }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <div>
+                    <p style={{ color: 'rgba(255,255,255,0.5)', fontSize: 11, margin: 0 }}>Preview total (indicative)</p>
+                    {proposal.deposit != null && (
+                      <p style={{ color: 'rgba(255,255,255,0.4)', fontSize: 11, margin: '2px 0 0' }}>
+                        Deposit: {fmtMoney(proposal.deposit, proposal.currency)}{proposal.depositDue ? ` due ${fmtDate(proposal.depositDue)}` : ''}
+                      </p>
+                    )}
+                  </div>
+                  {previewTotal != null && (
+                    <p style={{ color: '#C9A84C', fontSize: 20, fontWeight: 800, margin: 0 }}>{fmtMoney(previewTotal, previewCcy)}</p>
+                  )}
+                </div>
+              </div>
+              <p style={{ color: '#9ca3af', fontSize: 11, lineHeight: 1.6, margin: 0 }}>
+                * Preview only. Your authoritative total will be confirmed in your acceptance receipt.
+              </p>
+            </div>
+          )}
+
+          {/* ── STEP 3: ACCEPT & CONFIRM ── */}
+          {!success && !apiError && step === 3 && (
+            <div>
+              <p style={{ color: '#C9A84C', fontSize: 10, fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase', marginBottom: 16 }}>Your acceptance</p>
+
+              <div style={{ marginBottom: 18 }}>
+                <label style={{ display: 'block', color: '#374151', fontSize: 13, fontWeight: 600, marginBottom: 6 }}>
+                  Full name — electronic signature
+                </label>
+                <input
+                  ref={nameRef}
+                  type="text"
+                  value={name}
+                  onChange={e => { setName(e.target.value); if (nameError) setNameError('') }}
+                  placeholder="Type your full name to sign"
+                  maxLength={100}
+                  style={{ width: '100%', padding: '11px 13px', borderRadius: 10, border: `2px solid ${nameError ? '#dc2626' : '#e5e7eb'}`, fontSize: 15, color: '#0B1F3A', outline: 'none', fontFamily: 'inherit', boxSizing: 'border-box' }}
+                />
+                {nameError && <p style={{ color: '#dc2626', fontSize: 12, margin: '4px 0 0' }}>{nameError}</p>}
+                <p style={{ color: '#9ca3af', fontSize: 11, margin: '4px 0 0' }}>Your typed name serves as your electronic signature.</p>
+              </div>
+
+              <label style={{ display: 'flex', gap: 10, cursor: 'pointer', marginBottom: 18, alignItems: 'flex-start' }}>
+                <input
+                  type="checkbox"
+                  checked={terms}
+                  onChange={e => setTerms(e.target.checked)}
+                  style={{ width: 17, height: 17, flexShrink: 0, marginTop: 2, accentColor: '#C9A84C' }}
+                />
+                <span style={{ color: '#374151', fontSize: 14, lineHeight: 1.5 }}>
+                  I have read and agree to the <span style={{ fontWeight: 600, color: '#0B1F3A' }}>terms & conditions</span> of this proposal.
+                </span>
+              </label>
+
+              {name.trim().length >= 2 && terms && (
+                <div style={{ background: '#f0ede8', borderRadius: 10, padding: '11px 14px', marginBottom: 4 }}>
+                  <p style={{ color: '#92700c', fontSize: 13, margin: 0 }}>
+                    By clicking "Accept & Confirm", <strong>{name.trim()}</strong> agrees to this proposal electronically.
+                  </p>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* Footer */}
+        {!success && !apiError && (
+          <div style={{ borderTop: '1px solid #f0ede8', padding: '14px 22px', background: '#FAFAF8', display: 'flex', gap: 10, alignItems: 'center', flexShrink: 0 }}>
+            {step > startStep ? (
+              <button onClick={goBack} style={{ background: 'none', border: '1px solid #e5e7eb', color: '#374151', fontWeight: 600, fontSize: 13, padding: '11px 18px', borderRadius: 10, cursor: 'pointer' }}>
+                ← Back
+              </button>
+            ) : (
+              <button onClick={onClose} style={{ background: 'none', border: '1px solid #e5e7eb', color: '#374151', fontWeight: 600, fontSize: 13, padding: '11px 18px', borderRadius: 10, cursor: 'pointer' }}>
+                Cancel
+              </button>
+            )}
+            <div style={{ flex: 1 }} />
+            {step === 1 && (
+              <button onClick={() => setStep(2)} style={{ background: '#0B1F3A', color: '#fff', fontWeight: 700, fontSize: 13, padding: '11px 22px', borderRadius: 10, border: 'none', cursor: 'pointer' }}>
+                Next: Review →
+              </button>
+            )}
+            {step === 2 && (
+              <button onClick={() => setStep(3)} style={{ background: '#0B1F3A', color: '#fff', fontWeight: 700, fontSize: 13, padding: '11px 22px', borderRadius: 10, border: 'none', cursor: 'pointer' }}>
+                Next: Accept →
+              </button>
+            )}
+            {step === 3 && (
+              <button
+                onClick={handleSubmit}
+                disabled={!canSubmit}
+                style={{ background: canSubmit ? '#C9A84C' : '#e5e7eb', color: canSubmit ? '#0B1F3A' : '#9ca3af', fontWeight: 800, fontSize: 13, padding: '11px 22px', borderRadius: 10, border: 'none', cursor: canSubmit ? 'pointer' : 'not-allowed' }}
+              >
+                {submitting ? 'Accepting...' : 'Accept & Confirm'}
+              </button>
+            )}
+          </div>
+        )}
+        {(success || apiError) && (
+          <div style={{ borderTop: '1px solid #f0ede8', padding: '14px 22px', background: '#FAFAF8', flexShrink: 0 }}>
+            <button onClick={onClose} style={{ width: '100%', background: '#0B1F3A', color: '#fff', fontWeight: 700, fontSize: 14, padding: '12px', borderRadius: 10, border: 'none', cursor: 'pointer' }}>
+              Close
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // MAIN PROPOSAL PAGE
 // ─────────────────────────────────────────────────────────────────────────────
 
 export function ProposalPage({ proposal }: { proposal: PublicProposalDTO }) {
   const [compact, setCompact] = useState(false)
+  const [acceptOpen, setAcceptOpen] = useState(false)
+  const [initialOptionId, setInitialOptionId] = useState<string | null>(null)
+
+  const handleAccept = useCallback((optionId?: string) => {
+    setInitialOptionId(optionId ?? null)
+    setAcceptOpen(true)
+  }, [])
 
   const onScroll = useCallback(() => {
     setCompact(window.scrollY > 120)
@@ -1137,11 +1587,17 @@ export function ProposalPage({ proposal }: { proposal: PublicProposalDTO }) {
       `}</style>
 
       <div id="proposal-root">
-        <ProposalHeader proposal={proposal} compact={compact} />
+        <ProposalHeader proposal={proposal} compact={compact} onAccept={handleAccept} />
 
         {/* Status banners for approved / live */}
         <div style={{ paddingTop: compact ? 52 : 68 }}>
-          <StatusBanner status={proposal.status} />
+          <StatusBanner
+            status={proposal.status}
+            acceptedBy={proposal.acceptedBy}
+            acceptedAt={proposal.acceptedAt}
+            acceptedTotal={proposal.acceptedTotal}
+            currency={proposal.currency}
+          />
         </div>
 
         {/* Hero — full bleed */}
@@ -1151,16 +1607,26 @@ export function ProposalPage({ proposal }: { proposal: PublicProposalDTO }) {
         <ProposalIntro proposal={proposal} />
 
         {/* Sections */}
-        <ProposalPackageOptions proposal={proposal} />
+        <ProposalPackageOptions
+          proposal={proposal}
+          onAccept={proposal.status === 'proposal' && proposal.approvalToken ? handleAccept : undefined}
+        />
         <ProposalFlights proposal={proposal} />
         <ProposalHotels proposal={proposal} />
         <ProposalExperiences proposal={proposal} />
         <ProposalDayByDay proposal={proposal} />
         <ProposalInclusions proposal={proposal} />
-        <ProposalPricing proposal={proposal} />
+        <ProposalPricing proposal={proposal} onAccept={handleAccept} />
         <ProposalTerms proposal={proposal} />
         <ProposalContact proposal={proposal} />
-        {hasMobileBar && <MobileStickyBar proposal={proposal} />}
+        {hasMobileBar && <MobileStickyBar proposal={proposal} onAccept={handleAccept} />}
+        {acceptOpen && proposal.approvalToken && proposal.status === 'proposal' && (
+          <AcceptanceModal
+            proposal={proposal}
+            initialOptionId={initialOptionId}
+            onClose={() => setAcceptOpen(false)}
+          />
+        )}
       </div>
     </>
   )

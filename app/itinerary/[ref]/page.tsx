@@ -99,6 +99,16 @@ export default async function ClientItineraryPage({ params }: Params) {
   type RawOptions = {
     packageOptions?: RawPkgOption[]
     paymentSchedule?: RawPayment[]
+    approvalToken?: string
+    approvalTokenUsed?: boolean
+    approvalTokenExpiresAt?: string
+  }
+
+  type RawAcceptanceSnapshot = {
+    acceptedAt?: string
+    acceptedBy?: string
+    acceptedTotal?: number | null
+    selectedOptionIds?: string[]
   }
 
   const rawFlights   = safeParse<RawFlight[]>(itin.flights, [])
@@ -107,6 +117,23 @@ export default async function ClientItineraryPage({ params }: Params) {
   const rawTours     = safeParse<RawTour[]>(itin.tours, [])
   const rawDays      = safeParse<RawDay[]>(itin.days, [])
   const rawOptions   = safeParse<RawOptions>(itin.options, {})
+
+  // GA5: expose approval token only when still valid (proposal, not used, not expired)
+  const rawToken = rawOptions.approvalToken
+  const approvalToken = (
+    itin.status === 'proposal' &&
+    typeof rawToken === 'string' &&
+    rawToken.length > 0 &&
+    !rawOptions.approvalTokenUsed &&
+    (!rawOptions.approvalTokenExpiresAt || new Date(rawOptions.approvalTokenExpiresAt) > new Date())
+  ) ? rawToken : undefined
+
+  // GA5: parse acceptance snapshot for approved status display
+  const rawSnap = safeParse<RawAcceptanceSnapshot>(itin.selectedOption, {})
+  const acceptedAt        = itin.status === 'approved' ? rawSnap.acceptedAt : undefined
+  const acceptedTotal     = itin.status === 'approved' ? (rawSnap.acceptedTotal ?? null) : undefined
+  const acceptedBy        = itin.status === 'approved' ? rawSnap.acceptedBy : undefined
+  const acceptedOptionIds = itin.status === 'approved' ? (rawSnap.selectedOptionIds ?? []) : undefined
 
   // ── Explicit client-safe field selection ─────────────────────────────────────
   // No internal pricing, supplier costs, or admin metadata passes through.
@@ -231,6 +258,11 @@ export default async function ClientItineraryPage({ params }: Params) {
       emergencyPhoneE164: BUSINESS.contacts.emergencyPhone.e164,
       emergencyPhoneDisplay: BUSINESS.contacts.emergencyPhone.display,
     },
+    approvalToken,
+    acceptedAt,
+    acceptedTotal: acceptedTotal ?? undefined,
+    acceptedBy,
+    acceptedOptionIds,
   }
 
   return <ProposalPage proposal={dto} />

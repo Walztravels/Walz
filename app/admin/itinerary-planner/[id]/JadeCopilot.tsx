@@ -47,6 +47,141 @@ interface FlightResult {
   stops: number
 }
 
+// ── Admin Jade trip context — ONLY fields Jade actually reads ─────────────
+// Never add supplierCost, rateKey, offerId, PNRs, passport data, or
+// payment credentials here. Server re-fetches authoritative data from DB.
+
+export interface AdminJadeTripContext {
+  id: string
+  title?: string
+  destination?: string
+  currency?: string
+  numberOfTravellers?: number
+}
+
+// ── Context model ──────────────────────────────────────────────────────────
+
+export interface JadeContext {
+  activeTab: string
+  bookingType?: string
+  editingBookingSummary?: string
+  dayNumber?: number
+  dayTitle?: string
+}
+
+type Suggestion = { label: string; prompt?: string; special?: 'flights' | 'hotels' }
+
+function getContextLabel(ctx: JadeContext): string {
+  const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1)
+  switch (ctx.activeTab) {
+    case 'days':
+      if (ctx.dayNumber) {
+        const t = ctx.dayTitle && ctx.dayTitle !== `Day ${ctx.dayNumber}` ? ctx.dayTitle : ''
+        return `Day ${ctx.dayNumber}${t ? ` · ${t}` : ''}`
+      }
+      return 'Day-by-Day'
+    case 'bookings':
+      if (ctx.editingBookingSummary) return `${cap(ctx.bookingType || 'Booking')} · ${ctx.editingBookingSummary}`
+      if (ctx.bookingType) return `Bookings · ${cap(ctx.bookingType)}`
+      return 'Bookings'
+    case 'pricing': return 'Pricing'
+    case 'overview': return 'Overview'
+    case 'research': return 'Research'
+    case 'notes': return 'Notes'
+    case 'preview': return 'Preview & Send'
+    case 'travelers': return 'Travelers'
+    case 'tasks': return 'Tasks'
+    default: return cap(ctx.activeTab)
+  }
+}
+
+function getContextSuggestions(ctx: JadeContext | undefined): Suggestion[] {
+  if (!ctx) return [
+    { label: '✈ Search Flights', special: 'flights' },
+    { label: '🏨 Search Hotels', special: 'hotels' },
+    { label: '✨ Generate itinerary', prompt: '' },
+  ]
+  const rec = ctx.editingBookingSummary
+  const d = ctx.dayNumber
+    ? `Day ${ctx.dayNumber}${ctx.dayTitle && ctx.dayTitle !== `Day ${ctx.dayNumber}` ? ` — ${ctx.dayTitle}` : ''}`
+    : null
+  switch (ctx.activeTab) {
+    case 'bookings': {
+      const bt = ctx.bookingType || 'flights'
+      if (bt === 'flights') return rec ? [
+        { label: 'Review flight', prompt: `Review this flight: ${rec}. Check timing, connections, and flag any issues.` },
+        { label: 'Client summary', prompt: `Write a client-facing summary for this flight: ${rec}.` },
+        { label: 'Suggest alternatives', prompt: `Suggest 2–3 alternative flight options to ${rec}.` },
+        { label: '✈ Search Flights', special: 'flights' },
+      ] : [
+        { label: 'Review all flights', prompt: 'Review all flights in this itinerary. Check timing and flag any connections or gaps.' },
+        { label: 'Check connections', prompt: 'Check all flight connections and flag any tight layovers or potential issues.' },
+        { label: '✈ Search Flights', special: 'flights' },
+      ]
+      if (bt === 'hotels') return rec ? [
+        { label: 'Improve description', prompt: `Write a compelling client-facing description for ${rec}.` },
+        { label: 'Review stay', prompt: `Review the hotel stay at ${rec}. Check dates, room type, and suggest improvements.` },
+        { label: '🏨 Search Hotels', special: 'hotels' },
+      ] : [
+        { label: 'Review accommodation', prompt: 'Review all hotels. Check check-in/out dates and flag any gaps or overlaps.' },
+        { label: '🏨 Search Hotels', special: 'hotels' },
+      ]
+      if (bt === 'transfers') return [
+        { label: 'Review transfers', prompt: 'Review all transfers. Flag any flight arrivals with no transfer or ground coverage gaps.' },
+        { label: 'Suggest vehicles', prompt: 'Suggest appropriate vehicle types for each transfer based on group size and destination.' },
+      ]
+      if (bt === 'tours') return [
+        { label: 'Suggest experiences', prompt: rec ? `Suggest complementary experiences for: ${rec}.` : 'Suggest additional tour experiences for this itinerary destination.' },
+        { label: 'Improve description', prompt: rec ? `Write a compelling description for: ${rec}.` : 'Improve the tour descriptions in this itinerary.' },
+      ]
+      return [
+        { label: 'Review bookings', prompt: 'Review all bookings in this itinerary. Flag gaps, mismatches, or missing elements.' },
+        { label: 'Check dates', prompt: 'Check all booking dates for consistency. Flag any mismatches.' },
+      ]
+    }
+    case 'days': return d ? [
+      { label: 'Improve this day', prompt: `Improve ${d}. Enhance the description, activity sequencing, and make it more client-ready.` },
+      { label: 'Add activities', prompt: `Suggest 3–4 additional activities for ${d} that complement the existing plan.` },
+      { label: 'Rewrite description', prompt: `Rewrite the client-facing description for ${d} to be more vivid and engaging.` },
+      { label: 'Fill free time', prompt: `Suggest optional activities to fill any free time on ${d}.` },
+    ] : [
+      { label: 'Balance schedule', prompt: 'Review all days and flag any that are overloaded or too sparse. Suggest rebalancing.' },
+      { label: 'Add meal suggestions', prompt: 'Suggest restaurant and dining recommendations for the itinerary days.' },
+      { label: 'Reduce travel fatigue', prompt: 'Suggest ways to reduce travel fatigue across the itinerary.' },
+    ]
+    case 'pricing': return [
+      { label: 'Review prices', prompt: 'Review the price breakdown. Flag any zero prices, missing items, or inconsistencies.' },
+      { label: 'Explain margin', prompt: 'Explain the current margin on this itinerary in simple terms for the team.' },
+      { label: 'Check totals', prompt: 'Check that all pricing totals are consistent and complete.' },
+    ]
+    case 'overview': return [
+      { label: 'Improve overview', prompt: 'Improve the trip overview text to be more compelling and client-ready.' },
+      { label: 'Summarize itinerary', prompt: 'Write a 3-sentence summary of this itinerary suitable for a client email.' },
+      { label: 'Identify gaps', prompt: 'Review this itinerary and identify any missing elements — transfers, accommodation gaps, or incomplete days.' },
+    ]
+    case 'research': return [
+      { label: 'Research destination', prompt: 'Research the destination and provide practical travel information.' },
+      { label: 'Activity ideas', prompt: 'Suggest unique activities and experiences for this destination.' },
+      { label: 'Practical info', prompt: 'Provide practical travel information — visa requirements, currency, weather, and local customs.' },
+    ]
+    case 'notes': return [
+      { label: 'Summarize notes', prompt: 'Summarize all notes in this itinerary into key action points.' },
+      { label: 'Convert to tasks', prompt: 'Convert the notes into actionable tasks for the team.' },
+      { label: 'Unresolved items', prompt: 'Identify any unresolved items or open questions from the notes.' },
+    ]
+    case 'preview': return [
+      { label: 'Audit proposal', prompt: 'Audit this proposal for completeness. Identify anything that would prevent sending it to the client.' },
+      { label: 'Check client info', prompt: 'Check that all client-facing information is complete — name, dates, prices, inclusions, and contact details.' },
+      { label: 'Review readiness', prompt: 'Is this itinerary ready to send to the client? What still needs attention?' },
+    ]
+    default: return [
+      { label: '✈ Search Flights', special: 'flights' },
+      { label: '🏨 Search Hotels', special: 'hotels' },
+      { label: '✨ Generate itinerary', prompt: '' },
+    ]
+  }
+}
+
 const EXAMPLE_PROMPTS = [
   '7-night luxury honeymoon Dubai, 2 pax, £8,000 budget, Emirates business class from LHR',
   '10 days Canada family trip, 4 people (2 adults, kids 8 & 12), fly Toronto then Vancouver, CAD 15,000',
@@ -100,12 +235,14 @@ export function JadeCopilot({
   onClose,
   initialSearchHint,
   onSearchHintConsumed,
+  jadeContext,
 }: {
-  itinerary: Record<string, unknown> | null
+  itinerary: AdminJadeTripContext | null
   onItineraryUpdate: () => Promise<void>
   onClose: () => void
   initialSearchHint?: { type: string; destination: string; date: string } | null
   onSearchHintConsumed?: () => void
+  jadeContext?: JadeContext
 }) {
   const [messages, setMessages] = useState<Message[]>([
     {
@@ -287,13 +424,9 @@ export function JadeCopilot({
           itineraryId: itinerary?.id,
           conversationHistory: history,
           mode: detectedMode,
-          currentItinerary: detectedMode === 'refine' && itinerary ? {
-            title: itinerary.title,
-            destination: itinerary.destination,
-            days: safeParseJson(String(itinerary.days || '[]')),
-            flights: safeParseJson(String(itinerary.flights || '[]')),
-            hotels: safeParseJson(String(itinerary.hotels || '[]')),
-          } : null,
+          // currentItinerary intentionally omitted: server re-fetches
+          // authoritative data from DB using itineraryId. Never send
+          // booking arrays here — they contain supplierCost fields.
         }),
       })
 
@@ -381,6 +514,14 @@ export function JadeCopilot({
         <button onClick={onClose} className="text-white/30 hover:text-white transition text-2xl leading-none w-8 h-8 flex items-center justify-center rounded-lg hover:bg-white/5">×</button>
       </div>
 
+      {/* Context chip — shows what the advisor is currently working on */}
+      {jadeContext && (
+        <div className="px-4 py-2 border-b border-white/[0.05] flex items-center gap-2 flex-shrink-0 bg-white/[0.015]">
+          <span className="text-white/20 text-[9px] uppercase tracking-widest font-bold flex-shrink-0">Working on</span>
+          <span className="text-amber-400/65 text-xs font-medium truncate">{getContextLabel(jadeContext)}</span>
+        </div>
+      )}
+
       {/* Messages */}
       <div className="flex-1 overflow-y-auto px-4 py-4 space-y-4">
         {messages.map((msg, idx) => (
@@ -450,27 +591,23 @@ export function JadeCopilot({
         <div ref={messagesEndRef} />
       </div>
 
-      {/* Quick action buttons — only shown on first load */}
-      {messages.length <= 1 && !loading && (
-        <div className="px-4 pb-2 flex gap-2 flex-wrap flex-shrink-0">
-          <button
-            onClick={() => setSearchMode('flights')}
-            className="text-xs bg-blue-500/20 text-blue-300 border border-blue-500/30 px-3 py-1.5 rounded-xl font-bold hover:bg-blue-500/30 transition"
-          >
-            ✈ Search Flights
-          </button>
-          <button
-            onClick={() => setSearchMode('hotels')}
-            className="text-xs bg-purple-500/20 text-purple-300 border border-purple-500/30 px-3 py-1.5 rounded-xl font-bold hover:bg-purple-500/30 transition"
-          >
-            🏨 Search Hotels
-          </button>
-          <button
-            onClick={() => setSearchMode('activities')}
-            className="text-xs bg-green-500/20 text-green-300 border border-green-500/30 px-3 py-1.5 rounded-xl font-bold hover:bg-green-500/30 transition"
-          >
-            🎭 Activities
-          </button>
+      {/* Context-aware suggestions — always visible, updates with active tab and record */}
+      {!loading && (
+        <div className="px-4 pb-2 flex gap-1.5 flex-wrap flex-shrink-0">
+          {getContextSuggestions(jadeContext).map((s, i) => (
+            <button
+              key={i}
+              type="button"
+              onClick={() => {
+                if (s.special === 'flights') { setSearchMode('flights'); return }
+                if (s.special === 'hotels') { setSearchMode('hotels'); return }
+                if (s.prompt !== undefined) setInput(s.prompt)
+              }}
+              className="text-[11px] bg-white/[0.05] hover:bg-white/[0.10] text-white/45 hover:text-white/75 border border-white/[0.07] px-2.5 py-1 rounded-lg font-medium transition"
+            >
+              {s.label}
+            </button>
+          ))}
         </div>
       )}
 
@@ -642,8 +779,4 @@ export function JadeCopilot({
       </div>
     </div>
   )
-}
-
-function safeParseJson(s: string) {
-  try { return JSON.parse(s) } catch { return [] }
 }
