@@ -354,12 +354,14 @@ function ActivityBookingContent() {
           bookingAttemptId:  bookingAttemptRef.current,
         }),
       })
-      const data = await res.json()
-      if (!res.ok) throw new Error(data.error ?? 'Booking failed')
+      const text = await res.text()
+      let data: Record<string, unknown> = {}
+      try { data = JSON.parse(text) } catch { /* non-JSON body — use empty object */ }
+      if (!res.ok) throw new Error((data.error as string) ?? `Booking failed (${res.status})`)
       setDone({
-        walzReference:     data.walzReference,
-        bookingId:         data.bookingId,
-        supplierReference: data.supplierReference,
+        walzReference:     data.walzReference as string,
+        bookingId:         data.bookingId as string,
+        supplierReference: data.supplierReference as string,
       })
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Booking failed')

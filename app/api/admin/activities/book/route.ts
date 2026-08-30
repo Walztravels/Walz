@@ -42,32 +42,37 @@ export async function POST(req: NextRequest) {
   // Generate a Walz reference
   const walzReference = `WALZ-ACT-${Date.now().toString(36).toUpperCase()}`
 
-  const booking = await prisma.activityBooking.create({
-    data: {
-      supplier:          supplier ?? 'MANUAL',
-      supplierProductId: supplierProductId ?? null,
-      supplierReference: supplierReference ?? null,
-      walzReference,
-      bookingSource:     'ADMIN',
-      bookedByStaffId:   session.staffId ?? null,
-      clientName,
-      clientEmail,
-      clientPhone:       clientPhone ?? null,
-      activityTitle,
-      location:          location ?? null,
-      travelDate:        travelDate ?? null,
-      adults:            adults ?? 1,
-      children,
-      infants,
-      totalAmount:       totalAmount ?? null,
-      supplierNetAmount: supplierNetAmount ?? null,
-      markupAmount:      markupAmount ?? null,
-      currency,
-      status:            'CONFIRMED',
-      paymentStatus:     'UNPAID',
-      notes:             notes ?? null,
-    },
-  })
-
-  return NextResponse.json({ success: true, walzReference, bookingId: booking.id })
+  try {
+    const booking = await prisma.activityBooking.create({
+      data: {
+        supplier:          supplier ?? 'MANUAL',
+        supplierProductId: supplierProductId ?? null,
+        supplierReference: supplierReference ?? null,
+        walzReference,
+        bookingSource:     'ADMIN',
+        bookedByStaffId:   session.staffId ?? null,
+        clientName,
+        clientEmail,
+        clientPhone:       clientPhone ?? null,
+        activityTitle,
+        location:          location ?? null,
+        travelDate:        travelDate ?? null,
+        adults:            Number(adults) || 1,
+        children:          Number(children) || 0,
+        infants:           Number(infants)  || 0,
+        totalAmount:       totalAmount       != null ? Number(totalAmount)       : null,
+        supplierNetAmount: supplierNetAmount != null ? Number(supplierNetAmount) : null,
+        markupAmount:      markupAmount      != null ? Number(markupAmount)      : null,
+        currency,
+        status:            'CONFIRMED',
+        paymentStatus:     'UNPAID',
+        notes:             notes ?? null,
+      },
+    })
+    return NextResponse.json({ success: true, walzReference, bookingId: booking.id })
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Database error creating booking'
+    console.error('[admin/activities/book] Prisma create failed:', message)
+    return NextResponse.json({ error: message }, { status: 500 })
+  }
 }
