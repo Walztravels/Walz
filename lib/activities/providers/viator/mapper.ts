@@ -1,4 +1,3 @@
-import { applyActivityMarkup } from '../../pricing'
 import type { NormalizedActivity } from '../../types'
 import type { ViatorProductSummary } from './types'
 
@@ -82,12 +81,11 @@ export function mapViatorProduct(
   // Search API: pricing.summary.fromPrice (nested — NOT pricing.fromPrice)
   // Detail API: pricingInfo has no prices, only age-band definitions
   const pricingCurrency = product.pricing?.currency ?? currency
-  const fromPrice = product.pricing?.summary?.fromPrice ?? 0
-  // fromPrice from search is the recommended retail price (customer-facing).
-  // We display it as-is since it represents the supplier's own customer price.
-  // supplierNetPrice = 0 when we only have RRP (no partnerNetPrice available from search).
-  const supplierNetPrice = fromPrice
-  const { sellingPrice } = applyActivityMarkup(supplierNetPrice, 'VIATOR', pricingCurrency)
+  // fromPrice from the Viator search API is the customer-facing retail price (RRP).
+  // partnerNetPrice is only available via the schedule/availability endpoint, not search.
+  // Do NOT apply markup on top of RRP — that would price 18% above Viator's own rates.
+  const fromPrice    = product.pricing?.summary?.fromPrice ?? 0
+  const sellingPrice = Math.round(fromPrice * 100) / 100
 
   const rating = product.reviews?.combinedAverageRating
   const reviewCount = product.reviews?.totalReviews
@@ -149,7 +147,7 @@ export function mapViatorProduct(
     currency:         pricingCurrency,
     sellingPrice,
     originalPrice:    product.pricing?.summary?.fromPriceBeforeDiscount ?? undefined,
-    supplierNetPrice: supplierNetPrice || undefined,
+    supplierNetPrice: undefined, // not available from search endpoint; use schedule API for net price
 
     source: 'viator',
   }

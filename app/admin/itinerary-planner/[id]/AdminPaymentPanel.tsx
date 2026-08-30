@@ -72,18 +72,23 @@ function RecordPaymentModal({
   onClose: () => void
   onRecorded: () => void
 }) {
-  const [type, setType]     = useState('BANK_TRANSFER')
-  const [method, setMethod] = useState('BANK_TRANSFER')
-  const [amount, setAmount] = useState('')
-  const [notes, setNotes]   = useState('')
-  const [status, setStatus] = useState<'PAID' | 'PENDING'>('PAID')
-  const [saving, setSaving] = useState(false)
-  const [error, setError]   = useState<string | null>(null)
+  const [type, setType]         = useState('BANK_TRANSFER')
+  const [method, setMethod]     = useState('BANK_TRANSFER')
+  const [amount, setAmount]     = useState('')
+  const [notes, setNotes]       = useState('')
+  const [providerRef, setProviderRef] = useState('')
+  const [status, setStatus]     = useState<'PAID' | 'PENDING'>('PAID')
+  const [saving, setSaving]     = useState(false)
+  const [error, setError]       = useState<string | null>(null)
 
   async function submit(e: React.FormEvent) {
     e.preventDefault()
     const amt = parseFloat(amount)
     if (!Number.isFinite(amt) || amt <= 0) { setError('Enter a valid positive amount.'); return }
+    if (method === 'PAYSTACK' && !providerRef.trim()) {
+      setError('Enter the Paystack transaction reference.')
+      return
+    }
     setSaving(true)
     setError(null)
 
@@ -91,7 +96,10 @@ function RecordPaymentModal({
       const res = await fetch(`/api/admin/itineraries/${itineraryId}/payments`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ type, method, amount: amt, currency, notes, status }),
+        body: JSON.stringify({
+          type, method, amount: amt, currency, notes, status,
+          ...(providerRef.trim() ? { providerReference: providerRef.trim() } : {}),
+        }),
       })
       const data = await res.json() as { error?: string }
       if (!res.ok) { setError(data.error ?? 'Failed to record payment.'); setSaving(false); return }
@@ -133,6 +141,22 @@ function RecordPaymentModal({
               <option value="PAYSTACK">Paystack (offline)</option>
             </select>
           </div>
+
+          {method === 'PAYSTACK' && (
+            <div>
+              <label style={{ color: 'rgba(255,255,255,0.4)', fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', display: 'block', marginBottom: 6 }}>
+                Paystack Transaction Reference <span style={{ color: '#f87171' }}>*</span>
+              </label>
+              <input
+                type="text"
+                value={providerRef}
+                onChange={e => setProviderRef(e.target.value)}
+                placeholder="e.g. PSK_20250823_abcdef123"
+                required
+                className={inp}
+              />
+            </div>
+          )}
 
           <div>
             <label style={{ color: 'rgba(255,255,255,0.4)', fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.08em', display: 'block', marginBottom: 6 }}>Amount ({currency})</label>

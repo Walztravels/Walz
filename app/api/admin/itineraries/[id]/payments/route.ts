@@ -119,7 +119,7 @@ export async function POST(req: NextRequest, { params }: Params) {
 
   let body: {
     type?: unknown; method?: unknown; amount?: unknown; currency?: unknown
-    notes?: unknown; status?: unknown
+    notes?: unknown; status?: unknown; providerReference?: unknown
   }
   try { body = await req.json() as typeof body } catch {
     return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 })
@@ -132,9 +132,19 @@ export async function POST(req: NextRequest, { params }: Params) {
   const type     = typeof body.type   === 'string' ? body.type.toUpperCase()   : null
   const method   = typeof body.method === 'string' ? body.method.toUpperCase() : null
   const amount   = typeof body.amount === 'number' ? body.amount : parseFloat(String(body.amount ?? ''))
-  const currency = typeof body.currency === 'string' ? body.currency.toUpperCase()
-    : (safeParse<{ currency?: string }>(itin.selectedOption, {}).currency ?? itin.currency ?? 'GBP').toUpperCase()
-  const notes    = typeof body.notes  === 'string' ? body.notes.slice(0, 500) : ''
+
+  // AcceptanceSnapshot currency is authoritative — never allow the client to dictate currency
+  const snapCurrency = (safeParse<{ currency?: string }>(itin.selectedOption, {}).currency ?? itin.currency ?? 'GBP').toUpperCase()
+  if (typeof body.currency === 'string' && body.currency.toUpperCase() !== snapCurrency) {
+    return NextResponse.json(
+      { error: `Payment must be recorded in ${snapCurrency} (the accepted total currency). Cannot record in ${body.currency.toUpperCase()}.` },
+      { status: 422 },
+    )
+  }
+  const currency = snapCurrency
+
+  const notes             = typeof body.notes             === 'string' ? body.notes.slice(0, 500) : ''
+  const providerReference = typeof body.providerReference === 'string' ? body.providerReference.trim() : null
   const status   = typeof body.status === 'string' && VALID_STATUSES.includes(body.status.toUpperCase())
     ? body.status.toUpperCase()
     : 'PAID'
@@ -147,6 +157,9 @@ export async function POST(req: NextRequest, { params }: Params) {
   }
   if (!Number.isFinite(amount) || amount <= 0) {
     return NextResponse.json({ error: 'amount must be a positive number' }, { status: 400 })
+  }
+  if (method === 'PAYSTACK' && !providerReference) {
+    return NextResponse.json({ error: 'providerReference is required for Paystack (offline) payments — enter the Paystack transaction reference' }, { status: 400 })
   }
 
   const snap = safeParse<{ acceptedTotal?: number }>(itin.selectedOption, {})
@@ -181,9 +194,11 @@ export async function POST(req: NextRequest, { params }: Params) {
   }
 
   try {
-    const sb = getSupabaseAdmin()
-    const providerRef = `MANUAL-${itin.referenceNumber}-${Date.now()}`
+    const sb      = getSupabaseAdmin()
     const staffId = session.email ?? session.name ?? 'admin'
+
+    const autoRef    = `MANUAL-${itin.referenceNumber}-${Date.now()}`
+    const resolvedRef = providerReference ?? autoRef
 
     const { data, error } = await sb
       .from('itinerary_payments')
@@ -195,7 +210,7 @@ export async function POST(req: NextRequest, { params }: Params) {
         type,
         method,
         status,
-        provider_reference: providerRef,
+        provider_reference: resolvedRef,
         paid_at:            status === 'PAID' ? new Date().toISOString() : null,
         notes:              `${notes ? notes + ' · ' : ''}Recorded by ${staffId}`,
         recorded_by:        String(staffId),
@@ -205,7 +220,10 @@ export async function POST(req: NextRequest, { params }: Params) {
 
     if (error) {
       console.error('[admin/payments] Supabase insert error:', error)
-      return NextResponse.json({ error: 'Failed to record payment' }, { status: 500 })
+      const safeMsg = error.code === 'PGRST205'
+        ? 'Payment table not found — the itinerary_payments table must be created in Supabase. Contact your system administrator.'
+        : (error.message ?? 'Failed to record payment')
+      return NextResponse.json({ error: safeMsg }, { status: 500 })
     }
 
     return NextResponse.json({ recorded: true, payment: data })

@@ -525,7 +525,7 @@ async function execSearchActivities(input: Record<string, unknown>, ctx: JadeTri
 
   if (!destination) return JSON.stringify({ error: 'destination is required' })
 
-  const params = { destination, adults, children, infants, currency, dateFrom }
+  const params = { destination, adults, children, infants, currency, dateFrom, keyword: interests }
 
   // Viator first (priority), then Hotelbeds as secondary/fallback
   let activities: import('@/lib/activities/types').NormalizedActivity[] = []
