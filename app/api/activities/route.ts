@@ -263,7 +263,7 @@ export async function GET(req: NextRequest) {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const cacheData: any = await hotelbedsRequest(
           'activities-cache',
-          `/portfolio?destination=${destCode}&limit=40&offset=0`,
+          `/portfolio?destination=${destCode}&limit=100&offset=0`,
         )
 
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -505,6 +505,7 @@ export async function GET(req: NextRequest) {
       const provider = new ViatorActivityProvider()
       const results = await provider.search({
         destination,
+        keyword:  q || undefined,
         dateFrom: dateFrom ?? undefined,
         dateTo:   dateTo   ?? undefined,
         adults:   1,

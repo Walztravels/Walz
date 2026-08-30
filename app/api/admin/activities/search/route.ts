@@ -13,11 +13,11 @@ export async function POST(req: NextRequest) {
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const body = await req.json()
-  const { destination, dateFrom, dateTo, adults = 1, children = 0, currency = 'GBP' } = body
+  const { destination, keyword, dateFrom, dateTo, adults = 1, children = 0, currency = 'GBP' } = body
 
   if (!destination) return NextResponse.json({ error: 'destination is required' }, { status: 400 })
 
-  const params: ActivitySearchParams = { destination, dateFrom, dateTo, adults, children, currency }
+  const params: ActivitySearchParams = { destination, keyword, dateFrom, dateTo, adults, children, currency }
 
   const [hbResult, viatorResult] = await Promise.allSettled([
     new HotelbedsActivityProvider().search(params),

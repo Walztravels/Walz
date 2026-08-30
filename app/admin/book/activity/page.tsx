@@ -22,6 +22,7 @@ type Step = 0 | 1 | 2 | 3 | 4 | 5
 
 interface SearchForm {
   destination: string
+  keyword:     string
   dateFrom:    string
   dateTo:      string
   adults:      number
@@ -174,7 +175,7 @@ function ActivityBookingContent() {
 
   // Search
   const [searchForm, setSearchForm] = useState<SearchForm>({
-    destination: '', dateFrom: '', dateTo: '',
+    destination: '', keyword: '', dateFrom: '', dateTo: '',
     adults: 1, children: 0, infants: 0, currency: 'GBP',
   })
   const [searching, setSearching] = useState(false)
@@ -258,6 +259,7 @@ function ActivityBookingContent() {
         headers: { 'Content-Type': 'application/json' },
         body:    JSON.stringify({
           destination: searchForm.destination,
+          keyword:     searchForm.keyword.trim() || undefined,
           dateFrom:    searchForm.dateFrom  || undefined,
           dateTo:      searchForm.dateTo    || undefined,
           adults:      searchForm.adults,
@@ -373,7 +375,7 @@ function ActivityBookingContent() {
     setDone(null)
     setConfirming(false)
     setError(null)
-    setSearchForm({ destination: '', dateFrom: '', dateTo: '', adults: 1, children: 0, infants: 0, currency: 'GBP' })
+    setSearchForm({ destination: '', keyword: '', dateFrom: '', dateTo: '', adults: 1, children: 0, infants: 0, currency: 'GBP' })
     setResults([])
     setSelected(null)
     setOptions([])
@@ -521,6 +523,21 @@ function ActivityBookingContent() {
                 onChange={e => setSearchForm(f => ({ ...f, destination: e.target.value }))}
                 placeholder="e.g. Dubai, London, Cape Town"
                 required
+                className="w-full bg-[#061320] border border-[#1a2f4a] rounded-xl px-4 py-3 text-white
+                  placeholder-gray-600 text-sm focus:outline-none focus:border-[#C9A84C] transition-colors"
+              />
+            </div>
+
+            {/* Keyword */}
+            <div>
+              <label className="text-xs text-gray-400 font-semibold uppercase tracking-wider block mb-2">
+                Keyword <span className="text-gray-600 normal-case font-normal">(optional — e.g. boat party, snorkelling, safari)</span>
+              </label>
+              <input
+                type="text"
+                value={searchForm.keyword}
+                onChange={e => setSearchForm(f => ({ ...f, keyword: e.target.value }))}
+                placeholder="Filter by activity type…"
                 className="w-full bg-[#061320] border border-[#1a2f4a] rounded-xl px-4 py-3 text-white
                   placeholder-gray-600 text-sm focus:outline-none focus:border-[#C9A84C] transition-colors"
               />

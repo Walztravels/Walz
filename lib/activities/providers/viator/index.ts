@@ -19,42 +19,104 @@ import type {
   ViatorScheduleResponse,
 } from './types'
 
-const MAX_RESULTS = 100
+const PAGE_SIZE  = 100   // Viator API max per request
+const HARD_CAP   = 1000  // absolute ceiling — prevents memory blow-out on huge destinations
 
 export class ViatorActivityProvider implements ActivityProvider {
   readonly name = 'VIATOR' as const
 
   async search(params: ActivitySearchParams): Promise<NormalizedActivity[]> {
+    const currency = params.currency ?? 'GBP'
+
+    // ── Keyword search: use /search/freetext which actually ranks by relevance ──
+    // /products/search ignores searchText in filtering; freetext is the correct endpoint.
+    if (params.keyword?.trim()) {
+      return this.keywordSearch(params, currency)
+    }
+
+    // ── Destination browse: paginate all results ──────────────────────────────
+    return this.browseAll(params, currency)
+  }
+
+  private async keywordSearch(params: ActivitySearchParams, currency: string): Promise<NormalizedActivity[]> {
+    const searchTerm = `${params.destination} ${params.keyword!.trim()}`
+    try {
+      const { status, data } = await viatorPost<{
+        products?: { totalCount?: number; results?: ViatorProductSummary[] }
+      }>('/search/freetext', {
+        searchTerm,
+        searchTypes: [{ searchType: 'PRODUCTS', pagination: { start: 1, count: PAGE_SIZE } }],
+        currency,
+      })
+      if (status !== 200) {
+        console.error('[ViatorActivityProvider] Freetext search failed', status)
+        return []
+      }
+      return (data.products?.results ?? []).map(p => mapViatorProduct(p, params.destination, currency))
+    } catch (err) {
+      console.error('[ViatorActivityProvider] Freetext search error:', err instanceof Error ? err.message : err)
+      return []
+    }
+  }
+
+  private async browseAll(params: ActivitySearchParams, currency: string): Promise<NormalizedActivity[]> {
     const destId = resolveViatorDestId(params.destination)
     if (!destId) {
       console.warn('[ViatorActivityProvider] No destination ID for:', params.destination)
       return []
     }
 
-    const body: ViatorProductSearchRequest = {
-      filtering:  { destination: destId },
-      pagination: { start: 1, count: MAX_RESULTS },
-      currency:   params.currency ?? 'GBP',
+    const baseBody = {
+      filtering: {
+        destination: destId,
+        ...(params.dateFrom ? { startDate: params.dateFrom } : {}),
+        ...(params.dateTo   ? { endDate:   params.dateTo   } : {}),
+      },
+      currency,
     }
 
-    if (params.dateFrom) body.filtering.startDate = params.dateFrom
-    if (params.dateTo)   body.filtering.endDate   = params.dateTo
-
     try {
-      const { status, data } = await viatorPost<ViatorProductSearchResponse>(
+      // First page — reveals totalCount
+      const { status: s1, data: d1 } = await viatorPost<ViatorProductSearchResponse>(
         '/products/search',
-        body,
+        { ...baseBody, pagination: { start: 1, count: PAGE_SIZE } },
       )
-
-      if (status !== 200) {
-        console.error('[ViatorActivityProvider] Search failed', status, (data as { message?: string }).message)
+      if (s1 !== 200) {
+        console.error('[ViatorActivityProvider] Browse failed', s1)
         return []
       }
 
-      const products: ViatorProductSummary[] = data.products ?? []
-      return products.map(p => mapViatorProduct(p, params.destination, params.currency ?? 'GBP'))
+      const products: ViatorProductSummary[] = [...(d1.products ?? [])]
+      const total = d1.totalCount ?? products.length
+
+      // Fetch remaining pages in parallel (respecting the hard cap)
+      if (total > PAGE_SIZE) {
+        const remainingStart = PAGE_SIZE + 1
+        const cap = Math.min(total, HARD_CAP)
+        const pages: Array<{ start: number; count: number }> = []
+        for (let start = remainingStart; start <= cap; start += PAGE_SIZE) {
+          pages.push({ start, count: Math.min(PAGE_SIZE, cap - start + 1) })
+        }
+
+        const pageResults = await Promise.allSettled(
+          pages.map(pg =>
+            viatorPost<ViatorProductSearchResponse>('/products/search', {
+              ...baseBody,
+              pagination: pg,
+            }),
+          ),
+        )
+
+        for (const result of pageResults) {
+          if (result.status === 'fulfilled' && result.value.status === 200) {
+            products.push(...(result.value.data.products ?? []))
+          }
+        }
+      }
+
+      return products.map(p => mapViatorProduct(p, params.destination, currency))
     } catch (err) {
-      console.error('[ViatorActivityProvider] Search error:', err instanceof Error ? err.message : err)
+      console.error('[ViatorActivityProvider] Browse error:', err instanceof Error ? err.message : err)
       return []
     }
   }

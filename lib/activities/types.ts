@@ -95,6 +95,8 @@ export interface NormalizedActivity {
 export interface ActivitySearchParams {
   /** Human-readable destination name e.g. "Dubai", "London" */
   destination: string
+  /** Free-text keyword to filter within the destination e.g. "boat party", "snorkelling" */
+  keyword?: string
   /** YYYY-MM-DD */
   dateFrom?: string
   /** YYYY-MM-DD */
