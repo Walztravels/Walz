@@ -38,8 +38,22 @@ export interface PortalAcceptance {
   paymentConfirming: boolean
 }
 
+/** Safe portal DTO for a confirmed fulfilment item.
+ *  Server projects ONLY these fields — notes/assignedTo/internal fields never included.
+ *  supplierReference (PNR) is included only for CONFIRMED/BOOKED items via server-side allowlist. */
+export interface PortalConfirmedItem {
+  id: string
+  type: string        // FLIGHT | HOTEL | TRANSFER | TOUR | TRAIN | FERRY | ESIM | OTHER
+  description: string
+  status: string      // CONFIRMED | BOOKED
+  clientReference: string | null
+  supplierReference: string | null  // PNR / hotel confirmation / booking ref — shown to client only after CONFIRMED
+}
+
 export type PortalDTO = PublicProposalDTO & {
   acceptance: PortalAcceptance
+  /** Confirmed booking items — safe DTO allowlist, projected server-side. Empty until items confirmed. */
+  confirmedItems?: PortalConfirmedItem[]
 }
 
 // ── Utilities ─────────────────────────────────────────────────────────────────
@@ -1099,8 +1113,104 @@ export function PortalPage({ portal }: { portal: PortalDTO }) {
         </div>
       )}
 
+      {/* ── ACTION_REQUIRED banner ── calm client copy, no internal supplier details ── */}
+      {portal.acceptance.portalStatus === 'ACTION_REQUIRED' && (
+        <div style={{ background: '#1a0a0a', borderBottom: '2px solid #7f1d1d', padding: '20px 24px' }}>
+          <div className="max-w-3xl mx-auto flex flex-col sm:flex-row items-start sm:items-center gap-4">
+            <div className="flex-1">
+              <p style={{ color: '#fca5a5', fontWeight: 700, fontSize: 15, margin: 0 }}>
+                ⚠ We&apos;re looking into a small issue with your booking
+              </p>
+              <p style={{ color: 'rgba(252,165,165,0.7)', fontSize: 13, marginTop: 6 }}>
+                Our team is already working on it and will be in touch shortly. Your trip is not affected — we&apos;ll resolve this and keep you updated.
+              </p>
+            </div>
+            <a
+              href={buildWaLink(contact.globalWhatsAppE164, `Hi Walz Travels, I noticed an issue on my trip portal. My booking reference is ${portal.referenceNumber}.`)}
+              target="_blank"
+              rel="noopener noreferrer"
+              style={{ flexShrink: 0, background: '#25D366', color: '#fff', fontWeight: 700, fontSize: 13, padding: '10px 18px', borderRadius: 10, textDecoration: 'none', display: 'inline-block' }}
+            >
+              Contact Advisor →
+            </a>
+          </div>
+        </div>
+      )}
+
       {/* ── Page content ── */}
       <div className="max-w-3xl mx-auto px-4 py-10 space-y-12">
+
+        {/* ── TRIP_CONFIRMED celebration ── shown once all bookings are confirmed */}
+        {portal.acceptance.portalStatus === 'TRIP_CONFIRMED' && (
+          <section
+            className="rounded-2xl border p-8 text-center"
+            style={{ background: 'linear-gradient(135deg, #0a1f0a 0%, #0d2b0d 100%)', borderColor: 'rgba(74,222,128,0.3)' }}
+          >
+            <div style={{ fontSize: 48, marginBottom: 14 }} aria-hidden="true">🎉</div>
+            <h2 style={{ color: '#4ade80', fontWeight: 800, fontSize: 22, marginBottom: 8 }}>
+              Your Trip is Confirmed
+            </h2>
+            <p style={{ color: 'rgba(74,222,128,0.75)', fontSize: 14, lineHeight: 1.7, maxWidth: 440, margin: '0 auto 20px' }}>
+              Every booking is confirmed and locked in. Your travel documents and booking references are below.
+              Safe travels — we&apos;re excited for your journey!
+            </p>
+            <div
+              style={{ display: 'inline-block', background: 'rgba(74,222,128,0.12)', border: '1px solid rgba(74,222,128,0.3)', borderRadius: 12, padding: '10px 22px' }}
+            >
+              <span style={{ color: '#4ade80', fontWeight: 700, fontSize: 13, fontFamily: 'monospace', letterSpacing: '0.05em' }}>
+                {portal.referenceNumber}
+              </span>
+            </div>
+          </section>
+        )}
+
+        {/* ── Confirmed booking references — shown after fulfilment items CONFIRMED ── */}
+        {(portal.confirmedItems?.length ?? 0) > 0 && (
+          <section>
+            <SectionHeading label="Your Confirmed Bookings" icon="✅" />
+            <div className="space-y-3">
+              {portal.confirmedItems!.map(item => {
+                const typeIcons: Record<string, string> = {
+                  FLIGHT: '✈️', HOTEL: '🏨', TRANSFER: '🚘', TOUR: '🗺️',
+                  TRAIN: '🚆', FERRY: '⛴️', ESIM: '📶', OTHER: '📦',
+                }
+                const icon = typeIcons[item.type] ?? '📦'
+                const ref  = item.clientReference || item.supplierReference
+                return (
+                  <div
+                    key={item.id}
+                    className="rounded-xl border p-5 flex items-start gap-4"
+                    style={{ background: '#faf8f3', borderColor: '#e8dfd0' }}
+                  >
+                    <span style={{ fontSize: 24, flexShrink: 0 }} aria-hidden="true">{icon}</span>
+                    <div className="flex-1 min-w-0">
+                      <p className="font-semibold text-sm" style={{ color: '#0f1c3f' }}>
+                        {item.description}
+                      </p>
+                      {ref && (
+                        <p className="text-xs mt-1" style={{ color: '#7a6f5e' }}>
+                          Booking reference:{' '}
+                          <span
+                            className="font-mono font-bold"
+                            style={{ color: '#b8963e', fontSize: 13 }}
+                          >
+                            {ref}
+                          </span>
+                        </p>
+                      )}
+                    </div>
+                    <span
+                      className="text-xs font-semibold px-2.5 py-1 rounded-full shrink-0"
+                      style={{ background: '#dcfce7', color: '#15803d' }}
+                    >
+                      ✓ Confirmed
+                    </span>
+                  </div>
+                )
+              })}
+            </div>
+          </section>
+        )}
 
         {/* 1. Reference */}
         <section

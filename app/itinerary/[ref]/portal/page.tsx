@@ -5,7 +5,7 @@ import type { Metadata } from 'next'
 import { BUSINESS } from '@/lib/config/business'
 import { getSupabaseAdmin } from '@/lib/supabase'
 import { PortalPage } from './_PortalPage'
-import type { PortalDTO, PortalAcceptance } from './_PortalPage'
+import type { PortalDTO, PortalAcceptance, PortalConfirmedItem } from './_PortalPage'
 import { derivePortalStatus } from '@/lib/v2/portal-status'
 import type { FulfilmentSummary, PaymentSummary } from '@/lib/v2/portal-status'
 import type {
@@ -450,14 +450,16 @@ export default async function ClientPortalPage({ params, searchParams }: Params)
   dto.optionGroups      = optionGroups
   dto.acceptanceVersion = isV2 ? 2 : 1
 
-  // ── Fetch fulfilment items and payments (graceful — if tables absent portal renders with ACCEPTED) ──
+  // ── Fetch fulfilment items, payments, and confirmed item details ──────────────
+  // (graceful — if tables absent portal renders with ACCEPTED)
   let fulfilmentItems: FulfilmentSummary[] = []
   let payments: PaymentSummary[] = []
+  let confirmedItems: PortalConfirmedItem[] = []
 
   try {
     const supabase = getSupabaseAdmin()
 
-    const [{ data: rawFulfilment }, { data: rawPayments }] = await Promise.all([
+    const [{ data: rawFulfilment }, { data: rawPayments }, { data: rawConfirmed }] = await Promise.all([
       supabase
         .from('itinerary_fulfilment_items')
         .select('id, status')
@@ -468,6 +470,15 @@ export default async function ClientPortalPage({ params, searchParams }: Params)
         // P0: itinerary_payments stores itinerary_id as the reference string (WALZ-XXX),
         // not the Prisma CUID. Webhooks and initiate route both write it by reference.
         .eq('itinerary_id', itin.referenceNumber),
+      // Safe DTO — only confirmed items, only client-safe fields.
+      // supplierReference (PNR) is included because the portal IS the secure
+      // client-facing surface and PNR is needed for check-in. Internal fields
+      // (notes, assigned_to, created_at) are never returned.
+      supabase
+        .from('itinerary_fulfilment_items')
+        .select('id, type, description, status, client_reference, supplier_reference')
+        .eq('itinerary_id', itin.id)
+        .in('status', ['CONFIRMED', 'BOOKED']),
     ])
 
     if (rawFulfilment) {
@@ -485,10 +496,26 @@ export default async function ClientPortalPage({ params, searchParams }: Params)
         .filter(r => r.status === 'PAID')
         .reduce((sum, r) => sum + Number(r.amount ?? 0), 0)
     }
+    if (rawConfirmed) {
+      confirmedItems = (rawConfirmed as {
+        id: string; type: string; description: string; status: string
+        client_reference: string | null; supplier_reference: string | null
+      }[]).map(r => ({
+        id:               r.id,
+        type:             r.type,
+        description:      r.description,
+        status:           r.status,
+        clientReference:  r.client_reference,
+        // supplierReference exposed only for CONFIRMED/BOOKED items via this explicit
+        // server-side projection — never included for PENDING/IN_PROGRESS/FAILED items
+        supplierReference: r.supplier_reference,
+      }))
+    }
   } catch {
     // Supabase not configured or tables absent — degrade gracefully (status stays ACCEPTED)
     fulfilmentItems = []
     payments = []
+    confirmedItems = []
   }
 
   const portalStatus = derivePortalStatus(fulfilmentItems, payments, itin.status)
@@ -498,6 +525,7 @@ export default async function ClientPortalPage({ params, searchParams }: Params)
   const portalDto: PortalDTO = {
     ...dto,
     acceptance,
+    confirmedItems,
   }
 
   return <PortalPage portal={portalDto} />

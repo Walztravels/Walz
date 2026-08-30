@@ -4509,6 +4509,7 @@ function FulfilmentTab({ itineraryId }: { itineraryId: string }) {
   const [saving, setSaving]             = useState(false)
   const [deleting, setDeleting]         = useState(false)
   const [msg, setMsg]                   = useState<{ ok: boolean; text: string } | null>(null)
+  const [paymentGate, setPaymentGate]   = useState<{ paidTotal: number; required: number } | null>(null)
 
   const apiBase = `/api/admin/itineraries/${itineraryId}/fulfilment`
 
@@ -4555,16 +4556,27 @@ function FulfilmentTab({ itineraryId }: { itineraryId: string }) {
     setMsg(null)
   }
 
-  const handleSaveEdit = async () => {
+  const handleSaveEdit = async (overridePaymentGate = false, overrideNote = '') => {
     if (!editingId) return
     setSaving(true)
     setMsg(null)
+    setPaymentGate(null)
     try {
       const res = await fetch(apiBase, {
         method:  'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({ itemId: editingId, ...fulfilmentFormToBody(editForm) }),
+        body:    JSON.stringify({
+          itemId: editingId,
+          ...fulfilmentFormToBody(editForm),
+          ...(overridePaymentGate ? { overridePaymentGate: true, overrideNote } : {}),
+        }),
       })
+      if (res.status === 402) {
+        const data = await res.json() as { paidTotal?: number; required?: number }
+        setPaymentGate({ paidTotal: data.paidTotal ?? 0, required: data.required ?? 0 })
+        setSaving(false)
+        return
+      }
       if (!res.ok) throw new Error(await res.text())
       setMsg({ ok: true, text: 'Saved' })
       setEditingId(null)
@@ -4820,16 +4832,45 @@ function FulfilmentTab({ itineraryId }: { itineraryId: string }) {
               {editingId === item.id && (
                 <div className="bg-white/[0.04] border border-amber-500/20 border-t-0 rounded-b-2xl px-6 py-5">
                   <FulfilmentFields form={editForm} setForm={setEditForm} />
+
+                  {/* Payment gate warning — shown when API returns 402 */}
+                  {paymentGate && (
+                    <div className="mt-4 rounded-xl bg-yellow-500/10 border border-yellow-500/30 p-4">
+                      <p className="text-yellow-300 font-semibold text-sm mb-1">⚠ Payment not yet received</p>
+                      <p className="text-yellow-200/70 text-xs mb-3">
+                        Paid: <strong>{paymentGate.paidTotal}</strong> · Required: <strong>{paymentGate.required}</strong>.
+                        A minimum payment must be confirmed before fulfilment can begin.
+                      </p>
+                      <div className="flex gap-2 flex-wrap">
+                        <button
+                          onClick={() => {
+                            const note = window.prompt('Override reason (required for audit):')
+                            if (note && note.trim()) void handleSaveEdit(true, note.trim())
+                          }}
+                          className="bg-yellow-500/20 hover:bg-yellow-500/30 text-yellow-300 border border-yellow-500/40 font-bold px-4 py-2 rounded-xl text-xs transition"
+                        >
+                          Override & Save (Admin)
+                        </button>
+                        <button
+                          onClick={() => setPaymentGate(null)}
+                          className="bg-white/5 hover:bg-white/10 text-white/50 border border-white/10 font-bold px-4 py-2 rounded-xl text-xs transition"
+                        >
+                          Dismiss
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
                   <div className="flex gap-3 mt-5">
                     <button
-                      onClick={handleSaveEdit}
+                      onClick={() => void handleSaveEdit()}
                       disabled={saving || !editForm.description.trim()}
                       className="bg-amber-500 hover:bg-amber-400 text-black font-bold px-5 py-2.5 rounded-xl text-sm transition disabled:opacity-50 flex items-center gap-2"
                     >
                       {saving ? <><span className="w-4 h-4 border-2 border-black border-t-transparent rounded-full animate-spin" /> Saving…</> : 'Save Changes'}
                     </button>
                     <button
-                      onClick={() => { setEditingId(null); setMsg(null) }}
+                      onClick={() => { setEditingId(null); setPaymentGate(null); setMsg(null) }}
                       className="bg-white/5 hover:bg-white/10 text-white/60 border border-white/10 font-bold px-5 py-2.5 rounded-xl text-sm transition"
                     >
                       Cancel
