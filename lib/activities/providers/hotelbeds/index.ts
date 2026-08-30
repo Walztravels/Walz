@@ -261,7 +261,7 @@ export class HotelbedsActivityProvider implements ActivityProvider {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const cacheData: any = await hotelbedsRequest(
         'activities-cache',
-        `/portfolio?destination=${destCode}&limit=40&offset=0`,
+        `/portfolio?destination=${destCode}&limit=100&offset=0`,
       )
       const rawItems = Array.isArray(cacheData) ? cacheData : (cacheData?.activities ?? [])
       activities = rawItems
@@ -281,7 +281,7 @@ export class HotelbedsActivityProvider implements ActivityProvider {
       const codes = activities
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         .filter((a: any) => a.supplierProductId && a._modalities?.length > 0)
-        .slice(0, 40)
+        .slice(0, 100)
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         .map((a: any) => ({
           activityCode:  a.supplierProductId,
@@ -387,7 +387,7 @@ export class HotelbedsActivityProvider implements ActivityProvider {
         body: {
           filters: [{ searchFilterItems: [{ type: 'destination', value: destCode }] }],
           from, to, language: 'en',
-          pagination: { itemsPerPage: 40, page: 1 },
+          pagination: { itemsPerPage: 100, page: 1 },
           order: 'DEFAULT',
         },
       })

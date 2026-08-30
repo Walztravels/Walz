@@ -19,7 +19,7 @@ import type {
   ViatorScheduleResponse,
 } from './types'
 
-const MAX_RESULTS = 40
+const MAX_RESULTS = 100
 
 export class ViatorActivityProvider implements ActivityProvider {
   readonly name = 'VIATOR' as const
