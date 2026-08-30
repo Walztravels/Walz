@@ -196,9 +196,12 @@ function ActivityBookingContent() {
   const [discount,   setDiscount]   = useState(0)
 
   // Payment
-  const [paymentMethod, setPaymentMethod] = useState('MARK_PAID')
-  const [paymentRef,    setPaymentRef]    = useState('')
-  const [notes,         setNotes]         = useState('')
+  const [paymentMethod,         setPaymentMethod]         = useState('MARK_PAID')
+  const [paymentRef,            setPaymentRef]            = useState('')
+  const [notes,                 setNotes]                 = useState('')
+  // Manual supplier reference — if filled, skips live Viator API and records this ref directly.
+  // Use when the booking was placed directly on the Viator portal outside this system.
+  const [manualSupplierRef,     setManualSupplierRef]     = useState('')
 
   // Anti-double-submit refs
   const bookingAttemptRef = useRef<string | null>(null)
@@ -350,24 +353,34 @@ function ActivityBookingContent() {
           markupAmount:      pricing.markupAmount,
           currency:          pricing.currency,
           paymentMethod,
-          paymentRef:        paymentRef || undefined,
-          notes:             notes || undefined,
-          bookingAttemptId:  bookingAttemptRef.current,
+          paymentRef:              paymentRef        || undefined,
+          notes:                   notes             || undefined,
+          bookingAttemptId:        bookingAttemptRef.current,
+          manualSupplierReference: manualSupplierRef || undefined,
         }),
       })
       const text = await res.text()
       let data: Record<string, unknown> = {}
       try { data = JSON.parse(text) } catch { /* non-JSON body — use empty object */ }
 
-      // supplierFailed: Viator rejected the booking but the DB record was saved.
-      // Show success with a warning rather than blocking the flow.
+      // Viator definite rejection — booking saved but needs retry or manual resolution
       if (data.supplierFailed) {
-        setDone({
-          walzReference:     data.walzReference as string,
-          bookingId:         data.bookingId as string,
-          supplierReference: undefined,
-        })
-        setError('Booking saved, but Viator rejected the live booking request. Go to Activity Bookings to retry or contact Viator support.')
+        setDone({ walzReference: data.walzReference as string, bookingId: data.bookingId as string, supplierReference: undefined })
+        setError((data.error as string) ?? 'Viator rejected the booking. Go to Activity Bookings to retry.')
+        return
+      }
+
+      // Viator uncertain outcome (timeout / 5xx) — must reconcile before retrying
+      if (data.reconciliationRequired) {
+        setDone({ walzReference: data.walzReference as string, bookingId: data.bookingId as string, supplierReference: undefined })
+        setError((data.error as string) ?? 'Viator outcome unknown — check Activity Bookings and reconcile before retrying.')
+        return
+      }
+
+      // Price changed beyond tolerance — booking saved as PRICE_CHANGE_REQUIRES_ACTION
+      if (data.priceChanged) {
+        setDone({ walzReference: data.walzReference as string, bookingId: data.bookingId as string, supplierReference: undefined })
+        setError((data.error as string) ?? `Supplier price changed. Review in Activity Bookings before confirming.`)
         return
       }
 
@@ -1009,6 +1022,26 @@ function ActivityBookingContent() {
               className="w-full bg-[#061320] border border-[#1a2f4a] rounded-xl px-4 py-3 text-white text-sm
                 placeholder-gray-600 focus:outline-none focus:border-[#C9A84C] transition-colors"
             />
+          )}
+
+          {/* Manual Viator reference — skips live API */}
+          {selected?.supplier === 'VIATOR' && (
+            <div>
+              <label className="text-xs text-gray-400 font-semibold uppercase tracking-wider block mb-1">
+                Viator Booking Reference (optional)
+              </label>
+              <p className="text-xs text-gray-500 mb-2">
+                Only fill this if you already booked on the Viator portal. Providing a reference skips the live API call.
+              </p>
+              <input
+                type="text"
+                value={manualSupplierRef}
+                onChange={e => setManualSupplierRef(e.target.value)}
+                placeholder="e.g. BR-12345678 (leave blank to book live)"
+                className="w-full bg-[#061320] border border-[#1a2f4a] rounded-xl px-4 py-3 text-white text-sm
+                  placeholder-gray-600 focus:outline-none focus:border-[#C9A84C] transition-colors"
+              />
+            </div>
           )}
 
           {/* Internal notes */}

@@ -225,6 +225,13 @@ export class ViatorActivityProvider implements ActivityProvider {
         : [],
     })
 
+    // 5xx: Viator server error — request may have been processed; outcome is UNKNOWN.
+    // Throw so the caller can record RECONCILIATION_REQUIRED (not SUPPLIER_BOOKING_FAILED).
+    if (status >= 500) {
+      throw new Error(`Viator HTTP ${status} — booking outcome uncertain, reconciliation required`)
+    }
+
+    // 4xx: Viator definitively rejected the request (sold out, validation, etc.)
     if (status !== 200 || !data.bookingRef) {
       return {
         success: false,
