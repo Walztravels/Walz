@@ -334,7 +334,8 @@ function ActivityBookingContent() {
         body:    JSON.stringify({
           supplier:          selected.supplier,
           supplierProductId: selected.supplierProductId,
-          supplierReference: selectedOption.availabilityToken ?? undefined,
+          optionCode:        selectedOption.code,
+          startTime:         selectedOption.startTimes?.[0] ?? undefined,
           activityTitle:     selected.title,
           location:          selected.destination?.name ?? searchForm.destination,
           travelDate:        searchForm.dateFrom || undefined,
@@ -357,6 +358,19 @@ function ActivityBookingContent() {
       const text = await res.text()
       let data: Record<string, unknown> = {}
       try { data = JSON.parse(text) } catch { /* non-JSON body — use empty object */ }
+
+      // supplierFailed: Viator rejected the booking but the DB record was saved.
+      // Show success with a warning rather than blocking the flow.
+      if (data.supplierFailed) {
+        setDone({
+          walzReference:     data.walzReference as string,
+          bookingId:         data.bookingId as string,
+          supplierReference: undefined,
+        })
+        setError('Booking saved, but Viator rejected the live booking request. Go to Activity Bookings to retry or contact Viator support.')
+        return
+      }
+
       if (!res.ok) throw new Error((data.error as string) ?? `Booking failed (${res.status})`)
       setDone({
         walzReference:     data.walzReference as string,
