@@ -1,87 +1,113 @@
 // Viator destination IDs (numeric strings) for common markets.
 // These are Viator's own internal IDs — distinct from IATA or HB codes.
-// Verified against the Viator Partner API v2 /search/freetext endpoint on 2026-08-25.
+// All IDs verified against the Viator Partner API v2 /search/freetext endpoint on 2026-08-30.
 // To look up more: POST /search/freetext with searchType DESTINATIONS
 
 export const VIATOR_DEST_MAP: Record<string, string> = {
-  // UK & Europe
+  // UK & Ireland
   'london':          '737',
   'united kingdom':  '737',
   'uk':              '737',
   'england':         '737',
-  'paris':           '479',
-  'france':          '479',
-  'rome':            '511',
-  'italy':           '511',
+  'edinburgh':       '739',
+  'scotland':        '739',
+  'dublin':          '503',
+  'ireland':         '503',
+
+  // Spain
   'barcelona':       '562',
   'spain':           '562',
-  'madrid':          '575',
-  'ibiza':           '665',
-  'mallorca':        '666',
-  'majorca':         '666',
-  'menorca':         '667',
-  'seville':         '576',
-  'granada':         '580',
-  'valencia':        '579',
-  'milan':           '519',
-  'milan italy':     '519',
-  'venice':          '515',
-  'florence':        '512',
-  'naples':          '516',
-  'sicily':          '517',
-  'sardinia':        '518',
-  'amalfi':          '516',
-  'positano':        '516',
-  'capri':           '516',
+  'madrid':          '566',
+  'ibiza':           '4217',
+  'mallorca':        '955',
+  'majorca':         '955',
+  'menorca':         '4216',
+  'seville':         '556',
+  'granada':         '4853',
+  'valencia':        '811',
+
+  // France
+  'paris':           '479',
+  'france':          '479',
+
+  // Italy
+  'rome':            '511',
+  'italy':           '511',
+  'milan':           '512',
+  'milan italy':     '512',
+  'venice':          '522',
+  'florence':        '519',
+  'naples':          '22381',
+  'sicily':          '205',
+  'sardinia':        '24293',
+  'amalfi':          '33601',
+  'positano':        '33602',
+  'capri':           '4223',
+
+  // Greece
   'athens':          '496',
   'greece':          '496',
-  'santorini':       '782',
-  'mykonos':         '673',
-  'crete':           '498',
-  'rhodes':          '499',
-  'corfu':           '495',
+  'santorini':       '959',
+  'mykonos':         '958',
+  'crete':           '960',
+  'rhodes':          '4272',
+  'corfu':           '4279',
+
+  // Germany
   'berlin':          '488',
   'germany':         '488',
-  'munich':          '581',
-  'vienna':          '531',
-  'austria':         '531',
-  'prague':          '534',
-  'czech republic':  '534',
-  'budapest':        '533',
-  'hungary':         '533',
-  'zurich':          '551',
-  'switzerland':     '551',
-  'geneva':          '552',
-  'copenhagen':      '540',
-  'denmark':         '540',
-  'stockholm':       '542',
-  'sweden':          '542',
-  'oslo':            '543',
-  'norway':          '543',
-  'helsinki':        '541',
-  'finland':         '541',
-  'brussels':        '521',
-  'belgium':         '521',
-  'dublin':          '737',
-  'ireland':         '737',
-  'edinburgh':       '737',
-  'scotland':        '737',
+  'munich':          '487',
+
+  // Austria
+  'vienna':          '454',
+  'austria':         '454',
+
+  // Czech Republic
+  'prague':          '462',
+  'czech republic':  '462',
+
+  // Hungary
+  'budapest':        '499',
+  'hungary':         '499',
+
+  // Switzerland
+  'zurich':          '577',
+  'switzerland':     '577',
+  'geneva':          '578',
+
+  // Scandinavia
+  'copenhagen':      '463',
+  'denmark':         '463',
+  'stockholm':       '907',
+  'sweden':          '907',
+  'oslo':            '902',
+  'norway':          '902',
+  'helsinki':        '803',
+  'finland':         '803',
+
+  // Belgium & Netherlands
+  'brussels':        '458',
+  'belgium':         '458',
   'amsterdam':       '525',
   'netherlands':     '525',
-  'lisbon':          '678',
-  'portugal':        '678',
-  'porto':           '679',
+
+  // Portugal
+  'lisbon':          '538',
+  'portugal':        '538',
+  'porto':           '26879',
+
+  // Turkey
   'istanbul':        '585',
   'turkey':          '585',
-  'cappadocia':      '584',
+  'cappadocia':      '5609',
   'antalya':         '586',
-  'bodrum':          '587',
+  'bodrum':          '4292',
 
   // Middle East
   'dubai':           '828',
   'dubai uae':       '828',
   'uae':             '828',
-  'abu dhabi':       '1020',
+  'abu dhabi':       '4474',
 
   // Asia Pacific
   'tokyo':           '334',
@@ -96,21 +122,21 @@ export const VIATOR_DEST_MAP: Record<string, string> = {
   'new york':        '687',
   'usa':             '687',
   'united states':   '687',
-  'toronto':         '648',
-  'canada':          '648',
-  'vancouver':       '649',
+  'toronto':         '623',
+  'canada':          '623',
+  'vancouver':       '616',
 
   // Africa
   'cape town':       '318',
   'south africa':    '318',
-  'johannesburg':    '1357',
+  'johannesburg':    '314',
   'nairobi':         '5280',
   'kenya':           '5280',
   'zanzibar':        '24350',
   'tanzania':        '24350',
-  'dar es salaam':   '24350',
-  'serengeti':       '1386',
-  'kilimanjaro':     '1387',
+  'dar es salaam':   '22688',
+  'serengeti':       '27084',
+  'kilimanjaro':     '24050',
   'cairo':           '782',
   'egypt':           '782',
   'marrakech':       '5408',
@@ -119,7 +145,7 @@ export const VIATOR_DEST_MAP: Record<string, string> = {
   'ghana':           '5517',
   'lagos':           '24049',
   'nigeria':         '24049',
-  'abuja':           '1374',
+  'abuja':           '50443',
 
   // Indian Ocean
   'maldives':        '4672',
