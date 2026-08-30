@@ -164,15 +164,34 @@ export async function POST(req: NextRequest) {
   }
 
   // ── 3. H-5: Validate payment token — server-verifiable entitlement ──────────
-  // Two valid token forms:
-  //   (a) Short-lived HMAC token: portal/page.tsx generates HMAC-SHA256(secret, ref:hourSlot)
-  //       valid for the current or previous hour to handle clock drift / page load time.
-  //       This is the primary path and prevents the raw approvalToken from appearing in HTML.
-  //   (b) Legacy: raw approvalToken stored in itin.options (backward compat for clients whose
-  //       portal loaded before this change was deployed, or in dev without the secret set).
-  const opts         = parseOptions(itinerary.options) as Record<string, unknown>
-  const storedToken  = opts.approvalToken as string | undefined
+  // HMAC token: portal/page.tsx generates HMAC-SHA256(secret, ref:version:hourSlot).
+  // Payload binds reference + acceptance version + hour slot so a token from one
+  // itinerary cannot be replayed against another, and stale tokens expire automatically.
+  // Valid for current hour OR previous hour to absorb page-load time and clock drift.
+  //
+  // Production rule: PAYMENT_HMAC_SECRET or NEXTAUTH_SECRET MUST be set.
+  // If neither is present in production, payment is refused with 503.
+  // Raw approvalToken fallback is development-only and must never run in production.
+
+  // Pre-parse acceptance version to bind it in the HMAC (full snapshot parse at step 4)
+  const acceptanceVersion: number = (() => {
+    try {
+      const s = JSON.parse(itinerary.selectedOption ?? '{}') as { version?: number }
+      return typeof s.version === 'number' ? s.version : 1
+    } catch { return 1 }
+  })()
+
   const PAYMENT_SECRET = process.env.PAYMENT_HMAC_SECRET ?? process.env.NEXTAUTH_SECRET ?? ''
+  const isProduction   = process.env.NODE_ENV === 'production'
+
+  if (!PAYMENT_SECRET && isProduction) {
+    console.error('[itinerary-payments/initiate] PAYMENT_CONFIGURATION_ERROR — PAYMENT_HMAC_SECRET not set in production')
+    return NextResponse.json(
+      { error: 'Payment service configuration error', code: 'PAYMENT_CONFIGURATION_ERROR' },
+      { status: 503 },
+    )
+  }
+
   const hourSlot = Math.floor(Date.now() / (60 * 60 * 1000))
 
   function isTimingSafeEqual(a: string, b: string): boolean {
@@ -182,16 +201,25 @@ export async function POST(req: NextRequest) {
     } catch { return false }
   }
 
+  function hmacFor(slot: number): string {
+    // Payload: ref:acceptanceVersion:hourSlot — binds token to this specific itinerary + snapshot
+    return createHmac('sha256', PAYMENT_SECRET)
+      .update(`${itineraryReference}:${acceptanceVersion}:${slot}`)
+      .digest('hex')
+  }
+
   let tokenValid = false
   if (approvalToken && PAYMENT_SECRET) {
-    // Preferred: validate as HMAC for current or previous hour
-    const hmacCurrent  = createHmac('sha256', PAYMENT_SECRET).update(`${itineraryReference}:${hourSlot}`).digest('hex')
-    const hmacPrevious = createHmac('sha256', PAYMENT_SECRET).update(`${itineraryReference}:${hourSlot - 1}`).digest('hex')
-    tokenValid = isTimingSafeEqual(approvalToken, hmacCurrent) || isTimingSafeEqual(approvalToken, hmacPrevious)
+    tokenValid = isTimingSafeEqual(approvalToken, hmacFor(hourSlot)) ||
+                 isTimingSafeEqual(approvalToken, hmacFor(hourSlot - 1))
   }
-  if (!tokenValid && storedToken && approvalToken) {
-    // Fallback: validate as raw approvalToken (dev / legacy portal loads)
-    tokenValid = isTimingSafeEqual(storedToken, approvalToken)
+  if (!tokenValid && !isProduction) {
+    // Dev / legacy: fall back to stored raw approvalToken (never runs in production)
+    const opts        = parseOptions(itinerary.options) as Record<string, unknown>
+    const storedToken = opts.approvalToken as string | undefined
+    if (storedToken && approvalToken) {
+      tokenValid = isTimingSafeEqual(storedToken, approvalToken)
+    }
   }
   if (!tokenValid) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 403 })
@@ -346,14 +374,44 @@ export async function POST(req: NextRequest) {
   }
 
   if (method === 'BANK_TRANSFER') {
+    // Create PENDING record so the admin dashboard shows the transfer intent and can
+    // promote it to PAID after verifying receipt. The client is NOT marked as paid here.
+    const bankRef = `BANK-${itineraryReference}-${randomBytes(4).toString('hex')}`
+    let pendingId: string | null = null
+    try {
+      const sb = getSupabaseAdmin()
+      const { data: inserted } = await sb
+        .from('itinerary_payments')
+        .insert({
+          itinerary_id:       itineraryReference,
+          acceptance_version: snapshot.version ?? 1,
+          amount,
+          currency,
+          type:               paymentType,
+          method:             'BANK_TRANSFER',
+          status:             'PENDING',
+          provider_reference: bankRef,
+          paid_at:            null,
+          notes:              'Bank transfer initiated from client portal — awaiting admin confirmation',
+        })
+        .select('id')
+        .single()
+      if (inserted) pendingId = (inserted as { id: string }).id
+    } catch (err) {
+      console.error('[initiate] Bank transfer PENDING record insert failed:', err)
+      // Non-fatal — instructions still returned; admin can manually record
+    }
+
     return NextResponse.json({
       method:            'BANK_TRANSFER',
       amount,
       currency,
       paymentType,
       itineraryReference,
+      pendingReference:  bankRef,
+      pendingId,
       instructions: {
-        message:   'Bank transfer details have been noted. An advisor will send bank details to your email. Please quote your itinerary reference in the transfer description.',
+        message:   'Bank transfer details have been noted. An advisor will send bank details to your email. Please quote your reference in the transfer description.',
         reference: itineraryReference,
       },
     })

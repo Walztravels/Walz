@@ -160,18 +160,25 @@ export default async function ClientPortalPage({ params, searchParams }: Params)
   const rawOptsAll   = safeParse<Record<string, unknown>>(itin.options, {})
 
   // Derive a short-lived HMAC payment token instead of exposing the raw approvalToken.
+  // Payload: ref:acceptanceVersion:hourSlot — matches the initiate route's HMAC validation.
   // The raw token (email credential) must never appear in portal HTML — anyone with
   // WALZ-XXXX can view the portal, so exposing the raw token would let anyone initiate
-  // payment. The HMAC token is valid for 1–2 hours; the initiate route validates it
-  // server-side using the same secret. Falls back to raw token in dev if secret absent.
+  // payment. The HMAC token is valid for 1–2 hours; the initiate route validates it.
   const _rawApprovalToken = typeof rawOptsAll.approvalToken === 'string' ? rawOptsAll.approvalToken : ''
-  const PAYMENT_SECRET = process.env.PAYMENT_HMAC_SECRET ?? process.env.NEXTAUTH_SECRET ?? ''
+  const PAYMENT_SECRET    = process.env.PAYMENT_HMAC_SECRET ?? process.env.NEXTAUTH_SECRET ?? ''
+  // Parse acceptance version directly from selectedOption (snap is declared later)
+  const acceptanceVersion: number = (() => {
+    try {
+      const s = JSON.parse(itin.selectedOption ?? '{}') as { version?: unknown }
+      return typeof s.version === 'number' ? s.version : 1
+    } catch { return 1 }
+  })()
   const hourSlot = Math.floor(Date.now() / (60 * 60 * 1000))
-  const approvalToken = PAYMENT_SECRET
+  const approvalToken     = PAYMENT_SECRET
     ? createHmac('sha256', PAYMENT_SECRET)
-        .update(`${itin.referenceNumber}:${hourSlot}`)
+        .update(`${itin.referenceNumber}:${acceptanceVersion}:${hourSlot}`)
         .digest('hex')
-    : _rawApprovalToken  // dev fallback only — configure PAYMENT_HMAC_SECRET or NEXTAUTH_SECRET
+    : _rawApprovalToken  // dev fallback only — PAYMENT_HMAC_SECRET or NEXTAUTH_SECRET required in production
   const rawTrains    = safeParse<RawTrain[]>((itin as Record<string, unknown>).trains as string | null, [])
   const rawFerries   = safeParse<RawFerry[]>((itin as Record<string, unknown>).ferries as string | null, [])
 

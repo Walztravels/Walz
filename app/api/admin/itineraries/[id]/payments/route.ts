@@ -150,11 +150,34 @@ export async function POST(req: NextRequest, { params }: Params) {
   }
 
   const snap = safeParse<{ acceptedTotal?: number }>(itin.selectedOption, {})
-  if (snap.acceptedTotal != null && amount > snap.acceptedTotal * 1.01) {
-    return NextResponse.json(
-      { error: `Amount ${amount} exceeds accepted total ${snap.acceptedTotal} — overpayment rejected` },
-      { status: 422 },
-    )
+
+  // Authoritative cumulative overpayment guard:
+  // Re-query current PAID total and reject if newAmount would exceed acceptedTotal.
+  // A single-record check (amount > acceptedTotal) is insufficient — multiple records
+  // can accumulate beyond the total without triggering it.
+  if (snap.acceptedTotal != null) {
+    let currentPaidTotal = 0
+    try {
+      const sb2 = getSupabaseAdmin()
+      const { data: paidRows } = await sb2
+        .from('itinerary_payments')
+        .select('amount')
+        .eq('itinerary_id', itin.referenceNumber)
+        .eq('status', 'PAID')
+      if (paidRows) {
+        currentPaidTotal = (paidRows as { amount: number }[]).reduce((s, r) => s + Number(r.amount), 0)
+      }
+    } catch { /* non-fatal — conservative: proceed without check if Supabase unavailable */ }
+
+    if (status === 'PAID' && currentPaidTotal + amount > snap.acceptedTotal) {
+      return NextResponse.json(
+        {
+          error: `Recording this payment (${amount}) would exceed the accepted total (${snap.acceptedTotal}). ` +
+                 `Already paid: ${currentPaidTotal}. Outstanding: ${Math.max(0, snap.acceptedTotal - currentPaidTotal)}.`,
+        },
+        { status: 422 },
+      )
+    }
   }
 
   try {
@@ -188,6 +211,110 @@ export async function POST(req: NextRequest, { params }: Params) {
     return NextResponse.json({ recorded: true, payment: data })
   } catch (err) {
     console.error('[admin/payments] Unexpected error:', err)
+    return NextResponse.json({ error: 'Service temporarily unavailable' }, { status: 503 })
+  }
+}
+
+// PATCH: promote a PENDING payment record to PAID — used for bank transfer confirmation.
+// Promotes the SAME row rather than creating a duplicate PAID transaction.
+// Body: { paymentId: string, notes?: string }
+export async function PATCH(req: NextRequest, { params }: Params) {
+  const session = await getAdminSession()
+  if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
+  const { id } = await params
+
+  const itin = await prisma.itinerary.findUnique({
+    where: { id },
+    select: { id: true, referenceNumber: true, selectedOption: true, status: true },
+  }).catch(() => null)
+
+  if (!itin) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+  if (itin.status !== 'approved' && itin.status !== 'revision_accepted') {
+    return NextResponse.json({ error: 'Itinerary is not in an accepted state' }, { status: 409 })
+  }
+
+  let body: { paymentId?: unknown; notes?: unknown }
+  try { body = await req.json() as typeof body } catch {
+    return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 })
+  }
+
+  const paymentId = typeof body.paymentId === 'string' ? body.paymentId.trim() : null
+  const notes     = typeof body.notes     === 'string' ? body.notes.slice(0, 500) : ''
+
+  if (!paymentId) {
+    return NextResponse.json({ error: 'paymentId is required' }, { status: 400 })
+  }
+
+  try {
+    const sb = getSupabaseAdmin()
+
+    // Load the specific payment record and verify it belongs to this itinerary
+    const { data: record, error: readErr } = await sb
+      .from('itinerary_payments')
+      .select('id, status, amount, itinerary_id')
+      .eq('id', paymentId)
+      .eq('itinerary_id', itin.referenceNumber)
+      .single()
+
+    if (readErr || !record) {
+      return NextResponse.json({ error: 'Payment record not found for this itinerary' }, { status: 404 })
+    }
+
+    const row = record as { id: string; status: string; amount: number; itinerary_id: string }
+
+    if (row.status === 'PAID') {
+      return NextResponse.json({ error: 'Payment record is already marked as PAID' }, { status: 409 })
+    }
+    if (row.status !== 'PENDING') {
+      return NextResponse.json({ error: `Can only promote PENDING records to PAID (current: ${row.status})` }, { status: 409 })
+    }
+
+    // Cumulative overpayment guard before promoting
+    const snap2 = safeParse<{ acceptedTotal?: number }>(itin.selectedOption, {})
+    if (snap2.acceptedTotal != null) {
+      const { data: paidRows } = await sb
+        .from('itinerary_payments')
+        .select('amount')
+        .eq('itinerary_id', itin.referenceNumber)
+        .eq('status', 'PAID')
+      const currentPaidTotal = paidRows
+        ? (paidRows as { amount: number }[]).reduce((s, r) => s + Number(r.amount), 0)
+        : 0
+      if (currentPaidTotal + Number(row.amount) > snap2.acceptedTotal) {
+        return NextResponse.json(
+          {
+            error: `Promoting this record would exceed the accepted total (${snap2.acceptedTotal}). ` +
+                   `Already paid: ${currentPaidTotal}. This record amount: ${row.amount}.`,
+          },
+          { status: 422 },
+        )
+      }
+    }
+
+    const staffId = session.email ?? session.name ?? 'admin'
+    const now     = new Date().toISOString()
+
+    const { data: updated, error: updateErr } = await sb
+      .from('itinerary_payments')
+      .update({
+        status:      'PAID',
+        paid_at:     now,
+        notes:       notes ? `${notes} · Confirmed by ${staffId}` : `Bank transfer confirmed by ${staffId}`,
+        recorded_by: String(staffId),
+      })
+      .eq('id', paymentId)
+      .select()
+      .single()
+
+    if (updateErr) {
+      console.error('[admin/payments PATCH] Supabase update error:', updateErr)
+      return NextResponse.json({ error: 'Failed to update payment record' }, { status: 500 })
+    }
+
+    return NextResponse.json({ confirmed: true, payment: updated })
+  } catch (err) {
+    console.error('[admin/payments PATCH] Unexpected error:', err)
     return NextResponse.json({ error: 'Service temporarily unavailable' }, { status: 503 })
   }
 }

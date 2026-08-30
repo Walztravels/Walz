@@ -117,6 +117,7 @@ type PayPhase =
   | 'stripe_form'
   | 'paystack_redirect'
   | 'bank_instructions'
+  | 'bank_confirmed'
   | 'confirming'
   | 'timeout'
   | 'error'
@@ -131,6 +132,7 @@ interface InitiateResult {
   reference?: string
   // Bank
   instructions?: { message: string; reference: string }
+  pendingReference?: string
   // Common
   amount: number
   currency: string
@@ -390,6 +392,30 @@ function PaymentPanel({
     )
   }
 
+  // Bank transfer — confirmed (after "I've made the transfer")
+  if (phase === 'bank_confirmed') {
+    return (
+      <div style={{ textAlign: 'center', padding: '20px 0' }}>
+        <div style={{ fontSize: 36, marginBottom: 12 }}>🏛️</div>
+        <p style={{ color: '#0f1c3f', fontWeight: 700, fontSize: 15, marginBottom: 6 }}>
+          Transfer noted — thank you
+        </p>
+        <p style={{ color: '#7a6f5e', fontSize: 13, lineHeight: 1.6, marginBottom: 16 }}>
+          Your transfer intention has been logged. Our team will verify receipt and update your payment status.
+          {initiateResult?.pendingReference && (
+            <> Your transfer reference is <code style={{ fontFamily: 'monospace', background: '#f0ebe0', borderRadius: 4, padding: '1px 5px' }}>{initiateResult.pendingReference}</code>.</>
+          )}
+        </p>
+        <button
+          onClick={() => { setPhase('idle'); setInitiateResult(null) }}
+          style={{ padding: '11px 24px', borderRadius: 10, border: '1px solid #e8dfd0', background: '#faf8f3', color: '#5a4f3e', fontWeight: 600, fontSize: 13, cursor: 'pointer' }}
+        >
+          Return to Trip
+        </button>
+      </div>
+    )
+  }
+
   // Bank transfer instructions
   if (phase === 'bank_instructions' && initiateResult?.instructions) {
     return (
@@ -407,14 +433,22 @@ function PaymentPanel({
           </div>
         </div>
         <div style={{ background: '#fff8ed', borderLeft: '3px solid #b8963e', borderRadius: '0 8px 8px 0', padding: '10px 14px', marginBottom: 16, fontSize: 12, color: '#7a6f5e' }}>
-          Your payment will be recorded once our team has confirmed receipt. You do not need to do anything further.
+          Once you have made the transfer, tap the button below. Your advisor will verify receipt and update your payment status.
         </div>
-        <button
-          onClick={() => { setPhase('idle'); setInitiateResult(null) }}
-          style={{ width: '100%', padding: '11px 0', borderRadius: 10, border: '1px solid #e8dfd0', background: '#faf8f3', color: '#5a4f3e', fontWeight: 600, fontSize: 13, cursor: 'pointer' }}
-        >
-          Back
-        </button>
+        <div style={{ display: 'flex', gap: 10 }}>
+          <button
+            onClick={() => { setPhase('idle'); setInitiateResult(null) }}
+            style={{ flex: 1, padding: '11px 0', borderRadius: 10, border: '1px solid #e8dfd0', background: 'transparent', color: '#7a6f5e', fontWeight: 600, fontSize: 13, cursor: 'pointer' }}
+          >
+            Back
+          </button>
+          <button
+            onClick={() => setPhase('bank_confirmed')}
+            style={{ flex: 2, padding: '11px 0', borderRadius: 10, border: 'none', background: '#0f1c3f', color: '#fff', fontWeight: 700, fontSize: 13, cursor: 'pointer' }}
+          >
+            I&apos;ve Made the Transfer
+          </button>
+        </div>
       </div>
     )
   }

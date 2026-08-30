@@ -193,6 +193,26 @@ export function AdminPaymentPanel({ itineraryId }: { itineraryId: string }) {
   const [loading, setLoading]     = useState(true)
   const [error, setError]         = useState<string | null>(null)
   const [recording, setRecording] = useState(false)
+  const [confirming, setConfirming] = useState<string | null>(null) // paymentId being confirmed
+
+  async function confirmPayment(paymentId: string) {
+    if (!window.confirm('Confirm this bank transfer as PAID? This cannot be undone.')) return
+    setConfirming(paymentId)
+    try {
+      const res = await fetch(`/api/admin/itineraries/${itineraryId}/payments`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ paymentId }),
+      })
+      const json = await res.json() as { error?: string }
+      if (!res.ok) { alert(json.error ?? 'Failed to confirm payment'); setConfirming(null); return }
+      setConfirming(null)
+      void load()
+    } catch {
+      alert('Network error. Please try again.')
+      setConfirming(null)
+    }
+  }
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -293,7 +313,7 @@ export function AdminPaymentPanel({ itineraryId }: { itineraryId: string }) {
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12 }}>
               <thead>
                 <tr>
-                  {['Date', 'Type', 'Method', 'Amount', 'Status', 'Reference', 'Notes'].map(h => (
+                  {['Date', 'Type', 'Method', 'Amount', 'Status', 'Reference', 'Notes', ''].map(h => (
                     <th key={h} style={{ textAlign: 'left', color: 'rgba(255,255,255,0.3)', fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em', fontSize: 10, padding: '0 10px 10px 0', borderBottom: '1px solid rgba(255,255,255,0.08)', whiteSpace: 'nowrap' }}>
                       {h}
                     </th>
@@ -313,6 +333,17 @@ export function AdminPaymentPanel({ itineraryId }: { itineraryId: string }) {
                     </td>
                     <td style={{ padding: '10px 10px 10px 0', color: 'rgba(255,255,255,0.4)', maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                       {tx.notes ?? '—'}
+                    </td>
+                    <td style={{ padding: '10px 0 10px 0', whiteSpace: 'nowrap' }}>
+                      {tx.status === 'PENDING' && canRecord && (
+                        <button
+                          onClick={() => void confirmPayment(tx.id)}
+                          disabled={confirming === tx.id}
+                          style={{ padding: '4px 10px', borderRadius: 6, border: 'none', background: confirming === tx.id ? 'rgba(22,163,74,0.3)' : 'rgba(22,163,74,0.15)', color: '#4ade80', fontWeight: 700, fontSize: 11, cursor: confirming === tx.id ? 'wait' : 'pointer' }}
+                        >
+                          {confirming === tx.id ? '…' : 'Confirm PAID'}
+                        </button>
+                      )}
                     </td>
                   </tr>
                 ))}
