@@ -32,12 +32,23 @@ export async function POST(req: NextRequest) {
     supplierNetAmount,
     markupAmount,
     currency = 'GBP',
+    // paymentMethod: 'MARK_PAID' | 'BANK_TRANSFER' | 'STRIPE' | 'PAYSTACK' | ...
+    // MARK_PAID and BANK_TRANSFER are admin-manual confirmations; Stripe/Paystack
+    // are gateway payments confirmed by webhook — never set paymentStatus=PAID for
+    // gateway methods here; those are reconciled by the payment webhook handlers.
+    paymentMethod = 'MARK_PAID',
+    paymentRef,
     notes,
   } = body
 
   if (!clientName || !clientEmail || !activityTitle) {
     return NextResponse.json({ error: 'clientName, clientEmail, activityTitle are required' }, { status: 400 })
   }
+
+  // Only admin-manual confirmation methods count as PAID at booking time.
+  // Gateway payments (STRIPE, PAYSTACK) must be confirmed by their webhook handlers.
+  const manualPaymentMethods = ['MARK_PAID', 'BANK_TRANSFER', 'CASH']
+  const resolvedPaymentStatus = manualPaymentMethods.includes(paymentMethod) ? 'PAID' : 'UNPAID'
 
   // Generate a Walz reference
   const walzReference = `WALZ-ACT-${Date.now().toString(36).toUpperCase()}`
@@ -65,7 +76,8 @@ export async function POST(req: NextRequest) {
         markupAmount:      markupAmount      != null ? Number(markupAmount)      : null,
         currency,
         status:            'CONFIRMED',
-        paymentStatus:     'UNPAID',
+        paymentStatus:     resolvedPaymentStatus,
+        paymentRef:        paymentRef ?? null,
         notes:             notes ?? null,
       },
     })
