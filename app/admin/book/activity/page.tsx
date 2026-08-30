@@ -296,7 +296,8 @@ function ActivityBookingContent() {
         body:    JSON.stringify({
           supplier:          activity.supplier,
           supplierProductId: activity.supplierProductId,
-          dateFrom:          searchForm.dateFrom || today,
+          destination:       searchForm.destination,
+          date:              searchForm.dateFrom || today,
           adults:            searchForm.adults,
           children:          searchForm.children,
           infants:           searchForm.infants,
