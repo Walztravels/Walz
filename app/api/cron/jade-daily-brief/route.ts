@@ -57,18 +57,38 @@ export async function GET(req: Request) {
   }
 
   // ── Generate motivation ───────────────────────────────────────────────────────
-  const recentHistory = await prisma.motivationHistory.findMany({
-    orderBy: { usedOn: 'desc' },
-    take: 20,
-    select: { theme: true },
-  })
-  const usedThemes = recentHistory.map(h => h.theme)
+  const [recentHistory, recentBriefs] = await Promise.all([
+    prisma.motivationHistory.findMany({
+      orderBy: { usedOn: 'desc' },
+      take: 20,
+      select: { theme: true },
+    }),
+    prisma.jadeDailyBrief.findMany({
+      orderBy: { briefDate: 'desc' },
+      take: 5,
+      select: { motivation: true, motivationTheme: true },
+    }),
+  ])
+
+  const usedThemes    = recentHistory.map(h => h.theme)
+  const recentQuotes  = recentBriefs.map(b => b.motivation)
   const availableThemes = THEMES.filter(t => !usedThemes.includes(t))
   const themePool = availableThemes.length > 0 ? availableThemes : THEMES
-  const selectedTheme = themePool[Math.floor(themePool.length / 2)] // deterministic pick
 
-  let motivation   = 'Doing the right thing consistently is the foundation of every great client relationship.'
-  let motivationThought = 'Every call you handle with care today is an investment in a client who returns tomorrow.'
+  // Date-seeded pick: varies every day, reproducible within a day for idempotency
+  const daySeed = today.split('-').reduce((acc, p) => acc + parseInt(p, 10), 0)
+  const selectedTheme = themePool[daySeed % themePool.length]
+
+  const FALLBACKS = [
+    'Every trip we book is a promise kept — keep that standard on every call today.',
+    'Consistency in the small things is what builds the reputation clients tell their friends about.',
+    'A detail you notice that no one asked about is the difference between good and exceptional service.',
+    'The client who feels heard today becomes the referral that walks in tomorrow.',
+    'Professionalism is not a mood — it is a decision you make at the start of every conversation.',
+  ]
+  const fallbackIndex = daySeed % FALLBACKS.length
+  let motivation        = FALLBACKS[fallbackIndex]
+  let motivationThought = 'Bring that same standard to every client interaction today, however small it feels.'
   let motivationTheme   = selectedTheme
 
   try {
@@ -81,11 +101,15 @@ export async function GET(req: Request) {
         content: `You generate daily motivational messages for Walz Travels staff — a premium travel agency.
 
 Theme for today: "${selectedTheme}"
-Recent themes used (avoid similar): ${usedThemes.slice(0,10).join(', ')}
+Recent themes used (avoid repeating): ${usedThemes.slice(0, 10).join(', ')}
+
+Recent quotes already sent (do NOT repeat similar phrasing or ideas):
+${recentQuotes.map((q, i) => `${i + 1}. "${q}"`).join('\n')}
 
 Requirements:
 - Professional, positive, grounded — not inspirational-poster cheesy
-- Original phrasing — do not falsely attribute quotes to famous people
+- Original phrasing — must be meaningfully different from the recent quotes above
+- Do not falsely attribute quotes to famous people
 - Relevant to travel, customer service, or professional excellence
 - "quote": 1–2 short sentences
 - "thought": 1–2 sentences that Jade adds as a practical daily follow-through
