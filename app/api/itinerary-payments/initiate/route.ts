@@ -9,7 +9,7 @@
 // CRYPTO and MANUAL return a pending record (no provider call yet).
 
 import { NextRequest, NextResponse } from 'next/server'
-import { timingSafeEqual, randomBytes } from 'crypto'
+import { timingSafeEqual, randomBytes, createHmac } from 'crypto'
 import { prisma } from '@/lib/db'
 import { stripe } from '@/lib/stripe'
 import { parseOptions } from '@/lib/itinerary-options'
@@ -163,17 +163,36 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Itinerary not found' }, { status: 404 })
   }
 
-  // ── 3. H-5: Validate approvalToken — server-verifiable entitlement ─────────
-  // Anyone who merely knows WALZ-XXXX must NOT be able to initiate payment.
-  // The approvalToken is stored in options and issued only to the client at send time.
+  // ── 3. H-5: Validate payment token — server-verifiable entitlement ──────────
+  // Two valid token forms:
+  //   (a) Short-lived HMAC token: portal/page.tsx generates HMAC-SHA256(secret, ref:hourSlot)
+  //       valid for the current or previous hour to handle clock drift / page load time.
+  //       This is the primary path and prevents the raw approvalToken from appearing in HTML.
+  //   (b) Legacy: raw approvalToken stored in itin.options (backward compat for clients whose
+  //       portal loaded before this change was deployed, or in dev without the secret set).
   const opts         = parseOptions(itinerary.options) as Record<string, unknown>
   const storedToken  = opts.approvalToken as string | undefined
-  const tokenValid   = storedToken != null && approvalToken != null && (() => {
+  const PAYMENT_SECRET = process.env.PAYMENT_HMAC_SECRET ?? process.env.NEXTAUTH_SECRET ?? ''
+  const hourSlot = Math.floor(Date.now() / (60 * 60 * 1000))
+
+  function isTimingSafeEqual(a: string, b: string): boolean {
     try {
-      const a = Buffer.from(storedToken); const b = Buffer.from(approvalToken)
-      return a.length === b.length && timingSafeEqual(a, b)
+      const ba = Buffer.from(a); const bb = Buffer.from(b)
+      return ba.length === bb.length && timingSafeEqual(ba, bb)
     } catch { return false }
-  })()
+  }
+
+  let tokenValid = false
+  if (approvalToken && PAYMENT_SECRET) {
+    // Preferred: validate as HMAC for current or previous hour
+    const hmacCurrent  = createHmac('sha256', PAYMENT_SECRET).update(`${itineraryReference}:${hourSlot}`).digest('hex')
+    const hmacPrevious = createHmac('sha256', PAYMENT_SECRET).update(`${itineraryReference}:${hourSlot - 1}`).digest('hex')
+    tokenValid = isTimingSafeEqual(approvalToken, hmacCurrent) || isTimingSafeEqual(approvalToken, hmacPrevious)
+  }
+  if (!tokenValid && storedToken && approvalToken) {
+    // Fallback: validate as raw approvalToken (dev / legacy portal loads)
+    tokenValid = isTimingSafeEqual(storedToken, approvalToken)
+  }
   if (!tokenValid) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 403 })
   }

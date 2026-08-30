@@ -1,3 +1,4 @@
+import { createHmac } from 'crypto'
 import { prisma } from '@/lib/db'
 import { notFound } from 'next/navigation'
 import type { Metadata } from 'next'
@@ -157,7 +158,20 @@ export default async function ClientPortalPage({ params, searchParams }: Params)
   const rawDays      = safeParse<RawDay[]>(itin.days, [])
   const rawOptions   = safeParse<RawOptions>(itin.options, {})
   const rawOptsAll   = safeParse<Record<string, unknown>>(itin.options, {})
-  const approvalToken = typeof rawOptsAll.approvalToken === 'string' ? rawOptsAll.approvalToken : ''
+
+  // Derive a short-lived HMAC payment token instead of exposing the raw approvalToken.
+  // The raw token (email credential) must never appear in portal HTML — anyone with
+  // WALZ-XXXX can view the portal, so exposing the raw token would let anyone initiate
+  // payment. The HMAC token is valid for 1–2 hours; the initiate route validates it
+  // server-side using the same secret. Falls back to raw token in dev if secret absent.
+  const _rawApprovalToken = typeof rawOptsAll.approvalToken === 'string' ? rawOptsAll.approvalToken : ''
+  const PAYMENT_SECRET = process.env.PAYMENT_HMAC_SECRET ?? process.env.NEXTAUTH_SECRET ?? ''
+  const hourSlot = Math.floor(Date.now() / (60 * 60 * 1000))
+  const approvalToken = PAYMENT_SECRET
+    ? createHmac('sha256', PAYMENT_SECRET)
+        .update(`${itin.referenceNumber}:${hourSlot}`)
+        .digest('hex')
+    : _rawApprovalToken  // dev fallback only — configure PAYMENT_HMAC_SECRET or NEXTAUTH_SECRET
   const rawTrains    = safeParse<RawTrain[]>((itin as Record<string, unknown>).trains as string | null, [])
   const rawFerries   = safeParse<RawFerry[]>((itin as Record<string, unknown>).ferries as string | null, [])
 

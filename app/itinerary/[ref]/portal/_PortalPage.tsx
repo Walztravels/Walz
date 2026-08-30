@@ -32,7 +32,7 @@ export interface PortalAcceptance {
   portalStatus: PortalStatus
   /** Server-computed sum of PAID itinerary_payments rows */
   paidTotal: number
-  /** Required to call /api/itinerary-payments/initiate — issued at send time */
+  /** Short-lived HMAC token (1–2 h) for /api/itinerary-payments/initiate — derived server-side, never the raw approvalToken */
   approvalToken: string
   /** True when ?payment=confirming is in URL — set by server from searchParams */
   paymentConfirming: boolean
@@ -352,11 +352,27 @@ function PaymentPanel({
   if (phase === 'timeout') {
     return (
       <div style={{ textAlign: 'center', padding: '20px 0' }}>
-        <div style={{ fontSize: 36, marginBottom: 12 }}>✅</div>
-        <p style={{ color: '#0f1c3f', fontWeight: 700, fontSize: 15, marginBottom: 6 }}>Payment submitted</p>
-        <p style={{ color: '#7a6f5e', fontSize: 13, lineHeight: 1.6 }}>
-          Your payment is being processed. We'll confirm it within 24 hours and email you once it's received.
+        <div style={{ fontSize: 36, marginBottom: 12 }}>⏳</div>
+        <p style={{ color: '#0f1c3f', fontWeight: 700, fontSize: 15, marginBottom: 6 }}>
+          Payment confirmation is taking a little longer.
         </p>
+        <p style={{ color: '#7a6f5e', fontSize: 13, lineHeight: 1.6, marginBottom: 20 }}>
+          Your payment may already be confirmed — tap below to check the latest status.
+        </p>
+        <div style={{ display: 'flex', gap: 10, justifyContent: 'center', flexWrap: 'wrap' }}>
+          <button
+            onClick={() => { setPhase('confirming') }}
+            style={{ padding: '11px 20px', borderRadius: 10, border: 'none', background: '#0f1c3f', color: '#fff', fontWeight: 700, fontSize: 13, cursor: 'pointer' }}
+          >
+            Check Payment Status
+          </button>
+          <button
+            onClick={() => router.replace(`/itinerary/${referenceNumber}/portal`)}
+            style={{ padding: '11px 20px', borderRadius: 10, border: '1px solid #e8dfd0', background: '#faf8f3', color: '#5a4f3e', fontWeight: 600, fontSize: 13, cursor: 'pointer' }}
+          >
+            Return to Trip
+          </button>
+        </div>
       </div>
     )
   }
