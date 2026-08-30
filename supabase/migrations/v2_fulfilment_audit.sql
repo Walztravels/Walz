@@ -18,6 +18,14 @@ CREATE TABLE IF NOT EXISTS itinerary_fulfilment_audit (
 CREATE INDEX IF NOT EXISTS idx_fulfilment_audit_itinerary ON itinerary_fulfilment_audit (itinerary_id);
 CREATE INDEX IF NOT EXISTS idx_fulfilment_audit_item      ON itinerary_fulfilment_audit (item_id);
 
+-- Partial unique index: prevents duplicate Trip Confirmed emails under concurrent PATCHes.
+-- Two simultaneous final-confirmation PATCHes race to INSERT event='TRIP_CONFIRMED_EMAIL'.
+-- The second INSERT hits this constraint (error code 23505) and skips sending.
+-- Allows any number of STATUS_CHANGED / REFERENCE_CHANGED entries for the same itinerary.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_audit_trip_confirmed_once
+  ON itinerary_fulfilment_audit (itinerary_id)
+  WHERE event = 'TRIP_CONFIRMED_EMAIL';
+
 ALTER TABLE itinerary_fulfilment_audit ENABLE ROW LEVEL SECURITY;
 
 CREATE POLICY service_role_full_access ON itinerary_fulfilment_audit

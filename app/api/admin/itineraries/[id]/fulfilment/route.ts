@@ -20,27 +20,35 @@ function safeParse<T>(json: string | null | undefined, fallback: T): T {
   try { return JSON.parse(json) as T } catch { return fallback }
 }
 
+// writeAudit returns the Supabase error so callers can inspect the code.
+// 42P01 = table doesn't exist (migration not run yet) — callers treat as non-fatal.
+// 23505 = unique violation — used by email concurrency guard to skip duplicate send.
 async function writeAudit(
   supabase: ReturnType<typeof getSupabaseAdmin>,
-  {
-    itinerary_id, item_id, staff_id, event,
-    old_status, new_status, old_ref, new_ref, note,
-  }: {
+  entry: {
     itinerary_id: string; item_id: string; staff_id: string; event: string
     old_status?: string; new_status?: string; old_ref?: string; new_ref?: string; note?: string
   },
-) {
+): Promise<{ code: string } | null> {
   try {
     const { error } = await supabase.from('itinerary_fulfilment_audit').insert({
-      itinerary_id, item_id, staff_id, event,
-      old_status: old_status ?? null, new_status: new_status ?? null,
-      old_ref:    old_ref    ?? null, new_ref:    new_ref    ?? null,
-      note:       note        ?? null,
+      itinerary_id: entry.itinerary_id,
+      item_id:      entry.item_id,
+      staff_id:     entry.staff_id,
+      event:        entry.event,
+      old_status:   entry.old_status  ?? null,
+      new_status:   entry.new_status  ?? null,
+      old_ref:      entry.old_ref     ?? null,
+      new_ref:      entry.new_ref     ?? null,
+      note:         entry.note        ?? null,
     })
-    if (error && error.code !== '42P01') {
-      console.error('[fulfilment audit] insert failed:', error.message)
+    if (error && error.code !== '42P01' && error.code !== '23505') {
+      console.error('[fulfilment audit] insert failed:', error.message, error.code)
     }
-  } catch { /* non-fatal */ }
+    return error ? { code: error.code } : null
+  } catch {
+    return null
+  }
 }
 
 export const dynamic = 'force-dynamic'
@@ -86,7 +94,6 @@ export async function GET(_req: NextRequest, { params }: Params) {
     return NextResponse.json({ error: dbErr.message }, { status: 500 })
   }
 
-  // Map snake_case → camelCase
   const items = (data ?? []).map(row => ({
     id:                row.id,
     itineraryId:       row.itinerary_id,
@@ -113,7 +120,6 @@ export async function POST(req: NextRequest, { params }: Params) {
   const body = await req.json().catch(() => null)
   if (!body) return NextResponse.json({ error: 'Invalid JSON body' }, { status: 400 })
 
-  // Required fields
   if (!body.type || !VALID_TYPES.includes(body.type as FulfilmentItemType)) {
     return NextResponse.json(
       { error: `type must be one of: ${VALID_TYPES.join(', ')}` },
@@ -135,17 +141,50 @@ export async function POST(req: NextRequest, { params }: Params) {
   const { supabase, error } = getSupabaseOrFail()
   if (error) return error
 
+  const description = body.description.trim()
+
+  // ── Duplicate guard ───────────────────────────────────────────────────────────
+  // Prevent accidental double-creation of the same booking work item.
+  // Active = status != CANCELLED. CANCELLED items are excluded so a cancelled
+  // item can be re-created if needed.
+  // source_booking_id is not in the current schema; type+description is the
+  // idempotency key for manual workflow.
+  try {
+    const { data: existing } = await supabase!
+      .from('itinerary_fulfilment_items')
+      .select('id')
+      .eq('itinerary_id', itinerary_id)
+      .eq('type', body.type)
+      .eq('description', description)
+      .neq('status', 'CANCELLED')
+      .limit(1)
+      .maybeSingle()
+
+    if (existing) {
+      return NextResponse.json(
+        {
+          error:      'An active fulfilment item with the same type and description already exists.',
+          code:       'DUPLICATE_FULFILMENT_ITEM',
+          existingId: (existing as { id: string }).id,
+        },
+        { status: 409 },
+      )
+    }
+  } catch {
+    // Duplicate check failed — proceed with insert (non-fatal; DB constraint is last line of defence)
+  }
+
   const { data, error: dbErr } = await supabase!
     .from('itinerary_fulfilment_items')
     .insert({
       itinerary_id,
       type:               body.type,
-      description:        body.description.trim(),
+      description,
       status,
       supplier_reference: body.supplierReference?.trim() || null,
-      client_reference:   body.clientReference?.trim() || null,
-      assigned_to:        body.assignedTo?.trim() || null,
-      notes:              body.notes?.trim() || null,
+      client_reference:   body.clientReference?.trim()   || null,
+      assigned_to:        body.assignedTo?.trim()         || null,
+      notes:              body.notes?.trim()              || null,
     })
     .select()
     .single()
@@ -218,7 +257,7 @@ export async function PATCH(req: NextRequest, { params }: Params) {
   const { supabase, error } = getSupabaseOrFail()
   if (error) return error
 
-  // ── 1. Fetch current item (for audit trail, FAILED notification, gate check) ──
+  // ── 1. Fetch current item ─────────────────────────────────────────────────────
   const { data: currentItem } = await supabase!
     .from('itinerary_fulfilment_items')
     .select('id, status, type, description, supplier_reference')
@@ -230,72 +269,104 @@ export async function PATCH(req: NextRequest, { params }: Params) {
     return NextResponse.json({ error: 'Not found' }, { status: 404 })
   }
 
-  const staffId    = session.email ?? session.name ?? 'admin'
-  const newStatus  = typeof rest.status === 'string' ? rest.status : undefined
-  const newRef     = typeof rest.supplierReference === 'string' ? rest.supplierReference : undefined
+  const staffId   = session.email ?? session.name ?? 'admin'
+  const newStatus = typeof rest.status === 'string' ? rest.status : undefined
+  const newRef    = typeof rest.supplierReference === 'string' ? rest.supplierReference : undefined
 
-  // ── 2. Payment gating — applies when transitioning from PENDING → IN_PROGRESS ──
-  // Guard: at least the deposit must be confirmed PAID before fulfilment starts.
-  // Admin can bypass with overridePaymentGate + overrideNote.
+  // ── 2. Payment gating (PENDING → IN_PROGRESS) ────────────────────────────────
+  // FAIL CLOSED: if payment verification cannot be completed, return 503.
+  // Admin can bypass with overridePaymentGate + overrideNote — this is always audited.
   if (newStatus === 'IN_PROGRESS' && currentItem.status === 'PENDING') {
+    let gateCheckFailed = false
+    let paidTotal = 0
+    let required  = 0
+
     try {
       const itin = await prisma.itinerary.findUnique({
         where:  { id: itinerary_id },
         select: { referenceNumber: true, selectedOption: true },
       })
-      if (itin) {
+      if (!itin) {
+        // Itinerary not found in Prisma — cannot verify payment
+        gateCheckFailed = true
+      } else {
         const snap = safeParse<{ acceptedTotal?: number; deposit?: number }>(
           itin.selectedOption, {}
         )
-        const required = snap.deposit ?? snap.acceptedTotal ?? 0
+        required = snap.deposit ?? snap.acceptedTotal ?? 0
 
         if (required > 0) {
-          const { data: paidRows } = await supabase!
+          const { data: paidRows, error: payErr } = await supabase!
             .from('itinerary_payments')
             .select('amount')
             .eq('itinerary_id', itin.referenceNumber)
             .eq('status', 'PAID')
-          const paidTotal = (paidRows ?? []).reduce((s, r: { amount: number }) => s + Number(r.amount), 0)
 
-          if (paidTotal < required) {
-            if (!overridePaymentGate) {
-              return NextResponse.json(
-                {
-                  error:    'Payment not yet received. A minimum deposit must be confirmed PAID before booking can begin.',
-                  code:     'PAYMENT_GATE',
-                  paidTotal,
-                  required,
-                  hint:     'Re-submit with overridePaymentGate:true and overrideNote to proceed as admin override.',
-                },
-                { status: 402 },
-              )
-            }
-            // Admin override — write to audit immediately
-            await writeAudit(supabase!, {
-              itinerary_id, item_id: itemId, staff_id: staffId,
-              event:     'PAYMENT_GATE_OVERRIDE',
-              old_status: currentItem.status, new_status: 'IN_PROGRESS',
-              note:      typeof overrideNote === 'string' && overrideNote.trim()
-                ? overrideNote.trim()
-                : 'Admin override — payment gate bypassed',
-            })
+          if (payErr) {
+            // Payment table query failed — cannot verify
+            gateCheckFailed = true
+          } else {
+            paidTotal = (paidRows ?? []).reduce((s, r: { amount: number }) => s + Number(r.amount), 0)
           }
         }
       }
-    } catch (gateErr) {
-      // Payment check failed — let admin proceed (fail open); gate is a soft guard
-      console.warn('[fulfilment PATCH] payment gate check failed:', gateErr)
+    } catch {
+      gateCheckFailed = true
+    }
+
+    if (gateCheckFailed) {
+      // Payment status unavailable — FAIL CLOSED.
+      // Admin override still allowed (audited).
+      if (!overridePaymentGate) {
+        return NextResponse.json(
+          {
+            error: 'Unable to verify payment status right now. Please retry or use the admin override if payment is confirmed.',
+            code:  'PAYMENT_STATUS_UNAVAILABLE',
+            hint:  'Re-submit with overridePaymentGate:true and overrideNote to proceed.',
+          },
+          { status: 503 },
+        )
+      }
+      await writeAudit(supabase!, {
+        itinerary_id, item_id: itemId, staff_id: staffId,
+        event:      'PAYMENT_GATE_OVERRIDE',
+        old_status: currentItem.status, new_status: 'IN_PROGRESS',
+        note: typeof overrideNote === 'string' && overrideNote.trim()
+          ? `${overrideNote.trim()} (payment verification unavailable)`
+          : 'Admin override — payment verification unavailable',
+      })
+    } else if (required > 0 && paidTotal < required) {
+      // Payment verified — insufficient funds, FAIL CLOSED unless override.
+      if (!overridePaymentGate) {
+        return NextResponse.json(
+          {
+            error:    'Payment not yet received. A minimum deposit must be confirmed PAID before booking can begin.',
+            code:     'PAYMENT_GATE',
+            paidTotal,
+            required,
+            hint:     'Re-submit with overridePaymentGate:true and overrideNote to proceed as admin override.',
+          },
+          { status: 402 },
+        )
+      }
+      await writeAudit(supabase!, {
+        itinerary_id, item_id: itemId, staff_id: staffId,
+        event:      'PAYMENT_GATE_OVERRIDE',
+        old_status: currentItem.status, new_status: 'IN_PROGRESS',
+        note: typeof overrideNote === 'string' && overrideNote.trim()
+          ? overrideNote.trim()
+          : 'Admin override — payment gate bypassed',
+      })
     }
   }
 
-  // ── 3. Fetch all items for this itinerary (needed for Trip Confirmed trigger) ──
-  // Fetch BEFORE the update so we can compare pre/post state.
+  // ── 3. Fetch all items before update (for Trip Confirmed state transition) ────
   const { data: allItemsBefore } = await supabase!
     .from('itinerary_fulfilment_items')
     .select('id, status')
     .eq('itinerary_id', itinerary_id)
 
-  // ── 4. Build and apply update ─────────────────────────────────────────────────
+  // ── 4. Apply update ───────────────────────────────────────────────────────────
   const allowed = [
     'type', 'description', 'status', 'supplierReference',
     'clientReference', 'assignedTo', 'notes', 'completedAt',
@@ -303,8 +374,7 @@ export async function PATCH(req: NextRequest, { params }: Params) {
   const updates: Record<string, unknown> = {}
   for (const key of allowed) {
     if (key in rest) {
-      const col = key.replace(/([A-Z])/g, '_$1').toLowerCase()
-      updates[col] = rest[key]
+      updates[key.replace(/([A-Z])/g, '_$1').toLowerCase()] = rest[key]
     }
   }
 
@@ -327,15 +397,13 @@ export async function PATCH(req: NextRequest, { params }: Params) {
   if (newStatus && newStatus !== currentItem.status) {
     await writeAudit(supabase!, {
       itinerary_id, item_id: itemId, staff_id: staffId,
-      event:      'STATUS_CHANGED',
-      old_status: currentItem.status,
-      new_status: newStatus,
+      event: 'STATUS_CHANGED', old_status: currentItem.status, new_status: newStatus,
     })
   }
   if (newRef !== undefined && newRef !== currentItem.supplier_reference) {
     await writeAudit(supabase!, {
       itinerary_id, item_id: itemId, staff_id: staffId,
-      event:   'REFERENCE_CHANGED',
+      event: 'REFERENCE_CHANGED',
       old_ref: currentItem.supplier_reference ?? undefined,
       new_ref: newRef || undefined,
     })
@@ -364,55 +432,75 @@ export async function PATCH(req: NextRequest, { params }: Params) {
     } catch { /* non-fatal */ }
   }
 
-  // ── 7. Trip Confirmed email — fired once when ALL active items reach terminal state ──
-  // "Active" = not CANCELLED. "Terminal" = CONFIRMED or BOOKED.
-  // Fires only when this PATCH is the transition that causes the last active
-  // item to reach terminal state (was not all done before, is all done after).
+  // ── 7. Trip Confirmed email ───────────────────────────────────────────────────
+  // Conditions for firing:
+  //   A. The new status is CONFIRMED or BOOKED.
+  //   B. Pre-update: not all active items were already terminal (wasDone = false).
+  //   C. Post-update: all active items are now terminal (allDone = true).
+  //   D. There was at least one pre-existing active item (guards against
+  //      all-CANCELLED → one-CONFIRMED edge case where [].every() = true).
+  //
+  // Concurrency: the email is claimed atomically via INSERT into the audit table.
+  // A partial unique index on (itinerary_id) WHERE event='TRIP_CONFIRMED_EMAIL'
+  // ensures only one concurrent PATCH wins the INSERT. The loser gets error 23505
+  // and skips sending. If the audit table doesn't exist yet (42P01), the email
+  // is sent non-atomically (migration pending).
   if (newStatus && ['CONFIRMED', 'BOOKED'].includes(newStatus)) {
     try {
       const items = allItemsBefore ?? []
-      const active = items.filter(i => {
-        const effectiveStatus = i.id === itemId ? newStatus : i.status
-        return effectiveStatus !== 'CANCELLED'
+
+      // Pre-update active: items not CANCELLED at their old (pre-update) status
+      const preActive = items.filter(i => i.status !== 'CANCELLED')
+      // Post-update active: items not CANCELLED considering the new status for this item
+      const postActive = items.filter(i => {
+        const eff = i.id === itemId ? newStatus : i.status
+        return eff !== 'CANCELLED'
       })
-      const allDone = active.length > 0 && active.every(i =>
-        ['CONFIRMED', 'BOOKED'].includes(i.id === itemId ? newStatus : i.status)
-      )
-      const wasDone = items.filter(i => i.status !== 'CANCELLED').length > 0 &&
-        items.filter(i => i.status !== 'CANCELLED').every(i => ['CONFIRMED', 'BOOKED'].includes(i.status))
 
-      if (allDone && !wasDone) {
-        // Fetch itinerary details and confirmed items for the email
-        const [itin, { data: confirmedRows }] = await Promise.all([
-          prisma.itinerary.findUnique({
-            where:  { id: itinerary_id },
-            select: { referenceNumber: true, destination: true, clientEmail: true, clientName: true },
-          }),
-          supabase!
-            .from('itinerary_fulfilment_items')
-            .select('type, description, client_reference, supplier_reference, status')
-            .eq('itinerary_id', itinerary_id)
-            .in('status', ['CONFIRMED', 'BOOKED']),
-        ])
+      const wasDone = preActive.length > 0 &&
+        preActive.every(i => ['CONFIRMED', 'BOOKED'].includes(i.status))
+      const allDone = postActive.length > 0 &&
+        postActive.every(i => ['CONFIRMED', 'BOOKED'].includes(i.id === itemId ? newStatus : i.status))
 
-        if (itin?.clientEmail) {
-          await sendTripConfirmedEmail({
-            to:              itin.clientEmail,
-            clientName:      itin.clientName ?? '',
-            referenceNumber: itin.referenceNumber,
-            destination:     itin.destination ?? undefined,
-            confirmedItems:  (confirmedRows ?? []).map(r => ({
-              type:              r.type,
-              description:       r.description,
-              clientReference:   r.client_reference,
-              supplierReference: r.supplier_reference,
-            })),
-          })
-          await writeAudit(supabase!, {
+      // Guard D: require at least one pre-existing active item
+      if (allDone && !wasDone && preActive.length > 0) {
+        const itinData = await prisma.itinerary.findUnique({
+          where:  { id: itinerary_id },
+          select: { referenceNumber: true, destination: true, clientEmail: true, clientName: true },
+        })
+
+        if (itinData?.clientEmail) {
+          // Atomic claim: INSERT the TRIP_CONFIRMED_EMAIL audit record first.
+          // If the partial unique index rejects it (23505), another request already
+          // claimed email sending — skip.
+          const claimErr = await writeAudit(supabase!, {
             itinerary_id, item_id: itemId, staff_id: staffId,
             event: 'TRIP_CONFIRMED_EMAIL',
-            note:  `Trip Confirmed email sent to ${itin.clientEmail}`,
+            note:  `Trip Confirmed email sent to ${itinData.clientEmail}`,
           })
+
+          const claimWon = !claimErr || claimErr.code === '42P01'
+          if (claimWon) {
+            const { data: confirmedRows } = await supabase!
+              .from('itinerary_fulfilment_items')
+              .select('type, description, client_reference, supplier_reference')
+              .eq('itinerary_id', itinerary_id)
+              .in('status', ['CONFIRMED', 'BOOKED'])
+
+            await sendTripConfirmedEmail({
+              to:              itinData.clientEmail,
+              clientName:      itinData.clientName ?? '',
+              referenceNumber: itinData.referenceNumber,
+              destination:     itinData.destination ?? undefined,
+              confirmedItems:  (confirmedRows ?? []).map(r => ({
+                type:              r.type,
+                description:       r.description,
+                clientReference:   r.client_reference,
+                supplierReference: r.supplier_reference,
+              })),
+            })
+          }
+          // claimErr.code === '23505': another request won the claim — skip silently
         }
       }
     } catch (emailErr) {

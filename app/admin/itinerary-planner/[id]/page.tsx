@@ -4615,6 +4615,12 @@ function FulfilmentTab({ itineraryId }: { itineraryId: string }) {
         headers: { 'Content-Type': 'application/json' },
         body:    JSON.stringify(fulfilmentFormToBody(createForm)),
       })
+      if (res.status === 409) {
+        const body = await res.json().catch(() => ({}))
+        setMsg({ ok: false, text: body.error ?? 'A work item with this type and description already exists. Cancel or edit the existing item first.' })
+        setSaving(false)
+        return
+      }
       if (!res.ok) throw new Error(await res.text())
       setMsg({ ok: true, text: 'Work item created' })
       setShowCreate(false)
