@@ -1,6 +1,7 @@
 import { NextResponse }       from 'next/server'
 import { getAdminSession }    from '@/lib/admin-auth'
 import { hotelbedsRequest }   from '@/lib/hotelbeds'
+import { viatorTestConnection } from '@/lib/activities/providers/viator/client'
 
 // In-memory cache — results are good for 2 minutes
 interface HealthResult { status: 'ONLINE' | 'DEGRADED' | 'OFFLINE' | 'UNKNOWN'; latencyMs?: number; lastChecked: number }
@@ -60,11 +61,9 @@ async function viatorHealth(): Promise<HealthResult> {
   if (cached && Date.now() - cached.lastChecked < CACHE_TTL_MS) return cached
   if (!process.env.VIATOR_API_KEY) return { status: 'UNKNOWN', lastChecked: Date.now() }
   const result = await probe(async () => {
-    const res = await fetch('https://api.viator.com/partner/v2/exchange-rates', {
-      headers: { 'exp-api-key': process.env.VIATOR_API_KEY!, 'Accept-Language': 'en-US' },
-      signal: AbortSignal.timeout(PROBE_TIMEOUT_MS),
-    })
-    if (!res.ok && res.status !== 404) throw new Error(`HTTP ${res.status}`)
+    const { status } = await viatorTestConnection()
+    // 200 = OK; 400 = bad request but API is up; anything else = error
+    if (status >= 500) throw new Error(`HTTP ${status}`)
   }, 'VIATOR')
   cache.set('VIATOR', result)
   return result
