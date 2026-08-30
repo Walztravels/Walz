@@ -5,7 +5,10 @@ import { UserPlus, Loader2 } from 'lucide-react'
 
 interface ABooking {
   id: string; clientName: string; clientEmail: string; clientPhone?: string
-  activityId: string; activity?: { title: string; location: string }
+  activityId?: string; activity?: { title: string; location: string }
+  // Admin bookings store title/location/date as strings directly (no Activity FK)
+  activityTitle?: string; location?: string; travelDate?: string
+  supplier?: string; supplierProductId?: string; walzReference?: string
   date?: string; adults: number; totalAmount?: number; currency: string
   status: string; paymentStatus: string; convertedToLeadId?: string
   createdAt: string
@@ -110,10 +113,10 @@ export default function ActivityBookingsPage() {
                   <p className="text-xs text-gray-400">{b.clientEmail}</p>
                 </td>
                 <td className="px-4 py-3">
-                  <p className="font-medium text-[#0B1F3A]">{b.activity?.title ?? '—'}</p>
-                  <p className="text-xs text-gray-400">{b.activity?.location}</p>
+                  <p className="font-medium text-[#0B1F3A]">{b.activityTitle ?? b.activity?.title ?? '—'}</p>
+                  <p className="text-xs text-gray-400">{b.location ?? b.activity?.location ?? b.supplier}</p>
                 </td>
-                <td className="px-4 py-3 text-gray-500 text-xs">{fmt(b.date)}</td>
+                <td className="px-4 py-3 text-gray-500 text-xs">{fmt(b.travelDate ?? b.date)}</td>
                 <td className="px-4 py-3 text-gray-600 text-center">{b.adults}</td>
                 <td className="px-4 py-3 font-semibold text-[#0B1F3A]">
                   {b.totalAmount ? `${b.currency} ${b.totalAmount.toLocaleString()}` : '—'}
