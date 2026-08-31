@@ -234,7 +234,19 @@ async function execSearchFlights(input: Record<string, unknown>, ctx: JadeTripTo
   }
 
   // Filter direct-only if requested (Duffel doesn't always honour the flag)
-  const filtered = directOnly ? raw.filter(f => f.stops === 0) : raw
+  const postFilter = directOnly ? raw.filter(f => f.stops === 0) : raw
+
+  // Deduplicate Duffel fare variants: same physical flight (same segments) → keep cheapest offer.
+  // Grouping key: each segment's flightNumber + departureTime joined in sequence.
+  const groupBest = new Map<string, typeof postFilter[0]>()
+  for (const flight of postFilter) {
+    const key = flight.segments.map(s => `${s.flightNumber}|${s.departureTime}`).join('::')
+    const existing = groupBest.get(key)
+    if (!existing || flight.price.total < existing.price.total) {
+      groupBest.set(key, flight)
+    }
+  }
+  const filtered = Array.from(groupBest.values())
   const top5 = filtered.slice(0, 5)
 
   // Fire CommercialEvent (non-blocking)
@@ -324,7 +336,16 @@ async function execSearchFlights(input: Record<string, unknown>, ctx: JadeTripTo
     }
   }))
 
-  return JSON.stringify({ ok: true, productType: 'FLIGHT', count: results.length, results })
+  // Server-enforced FX boundary — Jade MUST NOT convert these prices to another currency.
+  // See Release 5.2.1: RULE 2 in commercial-grounding.ts.
+  const resultCurrency = results[0]?.currency ?? 'GBP'
+  const fxBoundary = {
+    FX_CONVERSION_ALLOWED: false,
+    result_currency: resultCurrency,
+    note: `All prices are in ${resultCurrency}. DO_NOT_CONVERT to any other currency. Do not multiply by any exchange rate. If the customer's budget is in a different currency, keep them separate.`,
+  }
+
+  return JSON.stringify({ ok: true, productType: 'FLIGHT', count: results.length, fx_boundary: fxBoundary, results })
 }
 
 // ── Destination → Hotelbeds code helpers ─────────────────────────────────────

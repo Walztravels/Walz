@@ -172,27 +172,33 @@ export function duffelOfferToItinerary(offer: any, paxCount: number): FlightItin
 }
 
 // ── Assign badges to a list of itineraries ──────────────────────────────
+// Rules (Release 5.2.1):
+//   CHEAPEST  — lowest authoritative price only; never estimated or cross-currency.
+//   FASTEST   — uniquely lowest duration only; omitted when there is a tie.
+//   LUXURY    — price ≥ 2.5× cheapest AND business/first cabin.
+//   RECOMMENDED — NOT assigned here; requires Release 5B scoring engine.
 export function assignBadges(results: FlightItinerary[]): FlightItinerary[] {
   if (!results.length) return results
   const prices    = results.map(r => r.price.total)
   const durations = results.map(r => r.totalDuration)
-  const cheapestPrice  = Math.min(...prices)
+  const cheapestPrice   = Math.min(...prices)
   const fastestDuration = Math.min(...durations)
 
-  let recommendedSet = false
-  let cheapestSet    = false
-  let fastestSet     = false
+  // Only label "Fastest" when one result holds the minimum duration exclusively
+  const fastestIsUnique = durations.filter(d => d === fastestDuration).length === 1
+
+  let cheapestSet = false
+  let fastestSet  = false
 
   return results.map(r => {
     const isCheapest = r.price.total === cheapestPrice && !cheapestSet
-    const isFastest  = r.totalDuration === fastestDuration && !fastestSet
+    const isFastest  = fastestIsUnique && r.totalDuration === fastestDuration && !fastestSet
     const isLuxury   = r.price.total >= cheapestPrice * 2.5 && (r.fareType === 'business' || r.fareType === 'first')
 
-    if (isLuxury) return { ...r, badge: 'luxury', badgeLabel: 'Business Class' }
-    if (isCheapest) { cheapestSet = true; return { ...r, badge: 'cheapest', badgeLabel: 'Cheapest' } }
-    if (isFastest)  { fastestSet  = true; return { ...r, badge: 'fastest',  badgeLabel: 'Fastest'  } }
-    if (!recommendedSet) { recommendedSet = true; return { ...r, badge: 'recommended', badgeLabel: 'Recommended' } }
-    return r
+    if (isLuxury)   return { ...r, badge: 'luxury'   as const, badgeLabel: 'Business Class' }
+    if (isCheapest) { cheapestSet = true; return { ...r, badge: 'cheapest' as const, badgeLabel: 'Cheapest' } }
+    if (isFastest)  { fastestSet  = true; return { ...r, badge: 'fastest'  as const, badgeLabel: 'Fastest'  } }
+    return { ...r, badge: undefined, badgeLabel: undefined }
   })
 }
 
