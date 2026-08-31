@@ -16,6 +16,7 @@
 
 import prisma from '@/lib/db'
 import { checkSuppression, MAX_AUTO_CONTACTS } from './suppression'
+import { checkAndAudit } from '@/lib/automation/audit'
 import {
   buildAbandonedCartHtml,
   buildUnpaidProposalHtml,
@@ -244,6 +245,11 @@ function buildTrackingUrl(opportunityId: string, targetUrl: string): string {
 
 // ── Main dispatcher ───────────────────────────────────────────────────────────
 export async function sendRecoveryMessage(opportunityId: string): Promise<void> {
+  // FIX 1 (Blocker Fix): Master kill switch.
+  // canAutomateRecovery() also checks this flag, but the dispatcher itself
+  // must enforce it — not only the pre-flight function that callers may skip.
+  if (process.env.JADE_AUTOMATED_FOLLOWUP_ENABLED !== 'true') return
+
   if (
     process.env.RECOVERY_EMAIL_ENABLED !== 'true' &&
     process.env.RECOVERY_WHATSAPP_ENABLED !== 'true'
@@ -277,6 +283,47 @@ export async function sendRecoveryMessage(opportunityId: string): Promise<void> 
   const suppression = await checkSuppression(opp)
   if (suppression.suppressed) {
     console.log('[RecoveryMsg] suppressed:', opp.id, suppression.reason)
+    return
+  }
+
+  // FIX 2 (Blocker Fix): Audit the automation decision and enforce fail-closed behavior.
+  // Must run AFTER suppression (to avoid flooding audit log with suppressed items)
+  // and BEFORE the atomic gate (before any autonomous action is taken).
+  const { result: eligibility, auditId } = await checkAndAudit(
+    {
+      action:        'RECOVERY_EMAIL',
+      opportunityId: opp.id,
+      leadId:        opp.leadId ?? undefined,
+    },
+    {
+      opportunityId: opp.id,
+      leadId:        opp.leadId ?? undefined,
+      entityType:    'RecoveryOpportunity',
+      entityId:      opp.id,
+      correlationId: `recovery-${opp.id}`,
+      actor:         'system',
+    },
+  )
+
+  if (eligibility.automationClass === 'BLOCKED' || eligibility.automationClass === 'MANUAL_ONLY') {
+    console.log('[RecoveryMsg] eligibility check prevented autonomous send:', opp.id, eligibility.automationClass, eligibility.blockers)
+    return
+  }
+
+  if (eligibility.automationClass === 'STAFF_APPROVAL_REQUIRED') {
+    const { bridgeToApprovalQueue } = await import('@/lib/automation/autopilot')
+    await bridgeToApprovalQueue({
+      action:     'RECOVERY_EMAIL',
+      entityId:   opp.id,
+      entityType: 'RecoveryOpportunity',
+      reason:     eligibility.reasons.join('; ') || 'Staff review required',
+    }).catch(err => console.warn('[RecoveryMsg] bridgeToApprovalQueue failed:', (err as Error).message))
+    return
+  }
+
+  // AUTO_ALLOWED — fail closed if the audit write failed
+  if (auditId === null) {
+    console.error('[RecoveryMsg] Audit write failed for AUTO_ALLOWED decision — aborting autonomous send:', opp.id)
     return
   }
 
