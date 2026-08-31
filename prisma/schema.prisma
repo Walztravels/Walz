@@ -15,8 +15,10 @@ datasource db {
 // NextAuth Required Models
 // ===========================
 
+
 model User {
   id                   String    @id @default(cuid())
+  referredByCode   String?
   name                 String?
   email                String?   @unique
   emailVerified        DateTime?
@@ -55,6 +57,7 @@ model User {
   groupSessionsCreated GroupSession[]
   tripRequests         TripRequest[]
   walzRewards          WalzRewardsMembership?
+  travellerProfiles    TravellerProfile[]
 }
 
 model Account {
@@ -2971,9 +2974,13 @@ model PortalNotification {
   body      String
   data      Json?
   read      Boolean  @default(false)
+  category   String   @default("ACCOUNT")
+  href       String?
+  dedupeKey  String?  @unique
   createdAt DateTime @default(now())
 
   @@index([userId])
+  @@index([userId, read])
 }
 
 model FamilyGroup {
@@ -3106,6 +3113,7 @@ model WalzMilesTransaction {
   membership   WalzRewardsMembership @relation(fields: [membershipId], references: [id], onDelete: Cascade)
 
   @@index([membershipId])
+  @@unique([bookingId, type])
 }
 
 // ===========================
@@ -4814,4 +4822,59 @@ model JadeSearchRef {
   @@index([userId])
   @@index([sessionId])
   @@index([expiresAt])
+}
+
+// ===========================
+// Traveller Profiles (Release 6.4)
+// ===========================
+
+model TravellerProfile {
+  id           String    @id @default(cuid())
+  userId       String
+  relationship String    @default("Other")
+  firstName    String
+  middleName   String?
+  lastName     String
+  dateOfBirth  DateTime?
+  gender       String?
+  nationality  String?
+  phone        String?
+  email        String?
+  passportMeta Json?
+  isDeleted    Boolean   @default(false)
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([isDeleted])
+}
+
+// ── Release 7.6: Automation Audit Log ────────────────────────────────────────
+// Stub for type generation. Actual table created via Supabase SQL editor.
+// See: lib/automation/MIGRATION_SQL.md
+model AutomationAuditLog {
+  id                String   @id @default(cuid())
+  createdAt         DateTime @default(now())
+  action            String
+  automationClass   String
+  entityType        String?
+  entityId          String?
+  tripId            String?
+  leadId            String?
+  opportunityId     String?
+  staffId           String?
+  blockers          Json     @default("[]")
+  reasons           Json     @default("[]")
+  warnings          Json     @default("[]")
+  auditMetadata     Json     @default("{}")
+  approved          Boolean?
+  approvalRequestId String?
+
+  @@index([entityId])
+  @@index([leadId])
+  @@index([opportunityId])
+  @@index([createdAt])
+  @@index([action])
 }
