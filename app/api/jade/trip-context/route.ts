@@ -4,6 +4,7 @@ import { authOptions }               from '@/lib/auth'
 import prisma                        from '@/lib/db'
 import { getTripItemsFulfillmentStatuses, type FulfillmentStatus } from '@/lib/trips/fulfillment'
 import { getCrossSellRecommendations } from '@/lib/commercial/cross-sell'
+import { getSmartRecommendations }     from '@/lib/jade/recommendations'
 
 export const dynamic = 'force-dynamic'
 
@@ -39,6 +40,12 @@ export interface JadeTripSummary {
   itemCount:          number
   items:              JadeTripItem[]
   missingCategories:  string[]            // 2D.5: product types absent from this trip
+  smartRecommendations?: Array<{          // Release 7.3: jade-engine recs (optional — non-fatal)
+    type:     string
+    reason:   string
+    ctaLabel: string
+    ctaHref?: string
+  }>
 }
 
 // GET /api/jade/trip-context?tripId=xxx
@@ -128,6 +135,26 @@ export async function GET(req: NextRequest) {
     missingCategories = [...new Set(recs.map(r => r.type))]
   } catch { /* non-fatal */ }
 
+  // ── Release 7.3: Smart recommendations via jade engine ───────────────────
+  // getSmartRecommendations also fires jade_cross_sell_eligible/offered events.
+  let smartRecommendations: JadeTripSummary['smartRecommendations'] = []
+  try {
+    smartRecommendations = getSmartRecommendations(
+      {
+        destination: trip.destination ?? '',
+        origin:      trip.origin ?? null,
+        startDate:   null,
+        endDate:     null,
+        adults:      trip.adults,
+        children:    trip.children,
+        currency:    'GBP',
+        budget:      null,
+        items:       trip.items.map(i => ({ type: i.type, metadata: {} })),
+      },
+      trip.id,
+    )
+  } catch { /* non-fatal */ }
+
   const summary: JadeTripSummary = {
     id:          trip.id,
     destination: trip.destination ?? null,
@@ -138,6 +165,7 @@ export async function GET(req: NextRequest) {
     status:      trip.status,
     itemCount:   trip.items.length,
     missingCategories,
+    smartRecommendations,
     items: trip.items.map(i => ({
       id:                i.id,
       type:              i.type,

@@ -49,6 +49,10 @@ export type CommercialEventName =
   | 'jade_lead_qualified'
   | 'jade_proposal_requested'
   | 'jade_proposal_created'
+  // Release 7.1 — Sales qualification & staff handoff events
+  | 'jade_sales_qualified'       // deterministic: destination + dates + adults > 0 all present
+  | 'jade_option_selected'       // customer explicitly confirms adding a search result
+  | 'jade_staff_handoff'         // automation class is BLOCKED or MANUAL_ONLY
   // Release 4D — Jade checkout handoff
   | 'jade_checkout_requested'    // Jade called prepare_trip_checkout
   | 'jade_checkout_ready'        // All items valid — review URL generated
@@ -97,22 +101,45 @@ export type CommercialEventName =
   | 'jade_package_checkout_started'
   | 'jade_package_paid'
   | 'jade_package_confirmed'
+  // Release 7.4 — Loyalty & Referrals
+  | 'referral_link_generated'
+  | 'referral_converted'         // fires on confirmed booking by referred user — never on link click alone
+  | 'referral_credit_awarded'    // fires after referral credit is applied to referrer account
+  | 'loyalty_enrolled'           // fires when a user joins Walz Rewards
+  | 'miles_earned'               // fires when miles are credited for a CONFIRMED booking
+  | 'miles_redeemed'             // fires when miles are applied toward a booking
+  | 'repeat_booking_started'     // fires when a loyalty member initiates a subsequent booking
 
 export interface TrackOptions {
-  eventId?:     string   // client dedup key — reject duplicates from browser
-  sessionId?:   string
-  userId?:      string
-  leadId?:      string
-  bookingId?:   string
-  productType?: string
-  productId?:   string
-  destination?: string
-  currency?:    string
-  amount?:      number
-  metadata?:    Record<string, unknown>
+  eventId?:      string   // client dedup key — reject duplicates from browser
+  sessionId?:    string
+  userId?:       string
+  leadId?:       string
+  bookingId?:    string
+  productType?:  string
+  productId?:    string
+  destination?:  string
+  currency?:     string
+  amount?:       number
+  metadata?:     Record<string, unknown>
+  // Release 7.5 — experiment attribution (UX variants only).
+  // These are stored inside CommercialEvent.metadata, NOT as top-level columns.
+  // Never use for security, payment, or ownership decisions.
+  experimentId?: string
+  variantId?:    string
 }
 
 function buildData(event: CommercialEventName, opts: TrackOptions) {
+  // Merge experimentId/variantId into metadata when provided.
+  // They live in metadata (Json), not as top-level CommercialEvent fields.
+  const experimentMeta: Record<string, unknown> = {}
+  if (opts.experimentId !== undefined) experimentMeta.experimentId = opts.experimentId
+  if (opts.variantId    !== undefined) experimentMeta.variantId    = opts.variantId
+  const hasMeta = opts.metadata !== undefined || Object.keys(experimentMeta).length > 0
+  const mergedMeta = hasMeta
+    ? { ...experimentMeta, ...(opts.metadata ?? {}) }
+    : undefined
+
   return {
     id:          generateId(),
     event,
@@ -126,7 +153,7 @@ function buildData(event: CommercialEventName, opts: TrackOptions) {
     destination: opts.destination ?? null,
     currency:    opts.currency    ?? null,
     amount:      opts.amount      ?? null,
-    metadata:    opts.metadata ? (opts.metadata as Prisma.InputJsonValue) : undefined,
+    metadata:    mergedMeta !== undefined ? (mergedMeta as Prisma.InputJsonValue) : undefined,
   }
 }
 

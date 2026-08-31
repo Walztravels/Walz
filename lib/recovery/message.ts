@@ -28,6 +28,38 @@ import { sendRecoveryWhatsApp } from './whatsapp-recovery'
 
 const BASE_URL = process.env.NEXT_PUBLIC_BASE_URL ?? 'https://walztravels.com'
 
+// ── Portal notification helpers — safe strings only, no price/availability claims ──
+export function portalTitle(type: string, destination?: string): string {
+  const dest = destination || 'trip'
+  switch (type) {
+    case 'ABANDONED_CART':
+      return `Continue planning your ${dest}`
+    case 'UNPAID_PROPOSAL':
+      return 'Your travel proposal is waiting'
+    case 'FAILED_PAYMENT':
+      return 'Action needed on your booking'
+    case 'INCOMPLETE_TRIP':
+      return `Your ${dest} plan is still saved`
+    default:
+      return 'Update from Walz Travels'
+  }
+}
+
+export function portalBody(type: string): string {
+  switch (type) {
+    case 'ABANDONED_CART':
+      return 'You have an incomplete booking. Tap to continue.'
+    case 'UNPAID_PROPOSAL':
+      return 'Your proposal is ready to review. Tap to view or ask questions.'
+    case 'FAILED_PAYMENT':
+      return 'There was an issue with your payment. Tap to resolve.'
+    case 'INCOMPLETE_TRIP':
+      return 'Your trip plan is saved and waiting. Tap to pick up where you left off.'
+    default:
+      return 'You have an update. Tap to view your dashboard.'
+  }
+}
+
 // ── Contact scheduling: delay to second contact after first ──────────────────
 const SECOND_CONTACT_DELAY_MS: Record<string, number> = {
   ABANDONED_CART:  20 * 60 * 60 * 1000,  // 20 hours
@@ -241,10 +273,27 @@ export async function sendRecoveryMessage(opportunityId: string): Promise<void> 
 
   if (!opp) return
 
-  // ── Suppression check ──────────────────────────────────────────────────────
+  // ── Suppression check (excludes contact-cap — that is the atomic gate below) ──
   const suppression = await checkSuppression(opp)
   if (suppression.suppressed) {
     console.log('[RecoveryMsg] suppressed:', opp.id, suppression.reason)
+    return
+  }
+
+  // ── Atomic pre-claim: increment contactCount only if still below cap ──────
+  // This is the TOCTOU fix. Concurrent cron runs will race on this updateMany;
+  // only the first to succeed (count=1) proceeds. The loser sees count=0 and exits.
+  const claimed = await prisma.recoveryOpportunity.updateMany({
+    where: {
+      id:           opp.id,
+      contactCount: { lt: MAX_AUTO_CONTACTS },
+      status:       { notIn: ['RECOVERED', 'LOST', 'DISMISSED'] },
+    },
+    data: { contactCount: { increment: 1 } },
+  }).catch(() => ({ count: 0 }))
+
+  if (claimed.count === 0) {
+    console.log('[RecoveryMsg] claim lost or cap reached (concurrent run):', opp.id)
     return
   }
 
@@ -292,17 +341,39 @@ export async function sendRecoveryMessage(opportunityId: string): Promise<void> 
   }
 
   // ── Send WhatsApp ─────────────────────────────────────────────────────────
-  if (contact.phone) {
-    await sendRecoveryWhatsApp({
-      toPhone:    contact.phone,
-      clientName: contact.name,
-      type:       opp.type,
-      destination: contact.destination,
-      resumeUrl:  trackingUrl,
-    })
+  let waSent = false
+  if (contact.phone && process.env.RECOVERY_WHATSAPP_ENABLED === 'true') {
+    try {
+      await sendRecoveryWhatsApp({
+        toPhone:    contact.phone,
+        clientName: contact.name,
+        type:       opp.type,
+        destination: contact.destination,
+        resumeUrl:  trackingUrl,
+      })
+      waSent = true
+    } catch (err) {
+      console.warn('[RecoveryMsg] WhatsApp send failed:', opp.id, (err as Error).message)
+    }
   }
 
-  if (!emailSent && !contact.phone) return // nothing was sent
+  // ── Send portal notification ──────────────────────────────────────────────
+  if (opp.userId && process.env.RECOVERY_PORTAL_ENABLED === 'true') {
+    try {
+      const { createCustomerNotification } = await import('@/lib/portal/notifications')
+      await createCustomerNotification({
+        userId:    opp.userId,
+        category:  'ACTION',
+        type:      'RECOVERY',
+        title:     portalTitle(opp.type, contact.destination),
+        body:      portalBody(opp.type),
+        href:      '/' + (opp.type === 'UNPAID_PROPOSAL' ? 'dashboard/proposals' : 'dashboard'),
+        dedupeKey: `recovery_portal_${opp.id}_${opp.contactCount}`,
+      })
+    } catch { /* non-fatal */ }
+  }
+
+  if (!emailSent && !waSent) return // nothing was sent
 
   // ── Record commercial event ───────────────────────────────────────────────
   try {
@@ -316,10 +387,11 @@ export async function sendRecoveryMessage(opportunityId: string): Promise<void> 
     })
   } catch { /* non-fatal */ }
 
-  // ── Update opportunity: increment count, schedule next contact ────────────
-  const newCount        = opp.contactCount + 1
-  const delayMs         = SECOND_CONTACT_DELAY_MS[opp.type] ?? 0
-  const nextActionAt    = newCount < MAX_AUTO_CONTACTS && delayMs > 0
+  // ── Finalise opportunity: contactCount already incremented atomically above ─
+  // Compute new count from the pre-claim read + 1 (the atomic gate already wrote it).
+  const newCount     = opp.contactCount + 1
+  const delayMs      = SECOND_CONTACT_DELAY_MS[opp.type] ?? 0
+  const nextActionAt = newCount < MAX_AUTO_CONTACTS && delayMs > 0
     ? new Date(Date.now() + delayMs)
     : null
 
@@ -327,7 +399,6 @@ export async function sendRecoveryMessage(opportunityId: string): Promise<void> 
     await prisma.recoveryOpportunity.update({
       where: { id: opp.id },
       data: {
-        contactCount:    newCount,
         lastContactedAt: new Date(),
         status:          opp.status === 'OPEN' ? 'CONTACTED' : opp.status,
         nextActionAt,

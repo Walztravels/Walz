@@ -4,6 +4,46 @@ import { recordPaymentSucceeded }             from '@/lib/commercial/payment'
 import { setTripPaid }                        from '@/lib/trips/lifecycle'
 import { handleSuccessfulTripPayment }        from '@/lib/payments/handle-success'
 
+// Server-side transaction verification to confirm the webhook payload is genuine.
+// The verif-hash header is a static secret (not an HMAC of the body), so a forged
+// payload that knows the secret passes the header check — this verification call
+// ensures the transaction details actually exist on Flutterwave's servers.
+async function verifyFlutterwaveTransaction(
+  txId: string,
+  expectedAmount: number,
+  expectedCurrency: string,
+): Promise<boolean> {
+  const secretKey = process.env.FLW_SECRET_KEY ?? process.env.FLUTTERWAVE_SECRET_KEY
+  if (!secretKey) {
+    console.warn('[FLW] FLW_SECRET_KEY not set — skipping server-side verification')
+    return true // fail open only in dev; production must set the key
+  }
+  try {
+    const resp = await fetch(`https://api.flw-rave.com/v3/transactions/${txId}/verify`, {
+      headers: { Authorization: `Bearer ${secretKey}` },
+    })
+    if (!resp.ok) {
+      console.warn('[FLW] verification API returned', resp.status, 'for tx', txId)
+      return false
+    }
+    const result = await resp.json() as { status: string; data?: { amount: number; currency: string; status: string } }
+    if (result.status !== 'success' || result.data?.status !== 'successful') return false
+    if (result.data.currency !== expectedCurrency) {
+      console.warn('[FLW] currency mismatch: expected', expectedCurrency, 'got', result.data.currency)
+      return false
+    }
+    // Allow small rounding tolerance (1 unit) but reject meaningful amount mismatch
+    if (Math.abs(result.data.amount - expectedAmount) > 1) {
+      console.warn('[FLW] amount mismatch: expected', expectedAmount, 'got', result.data.amount)
+      return false
+    }
+    return true
+  } catch (err) {
+    console.warn('[FLW] verification failed:', (err as Error).message)
+    return false
+  }
+}
+
 export async function POST(req: NextRequest) {
   const hash = req.headers.get('verif-hash')
 
@@ -31,6 +71,18 @@ export async function POST(req: NextRequest) {
       // M-5: Idempotency guard — prevent duplicate lifecycle processing.
       // Use data.id (Flutterwave's unique transaction ID) as the idempotency key.
       const providerPaymentId = String(data.id)
+
+      // Server-side verification: confirm the transaction is genuine on Flutterwave's servers.
+      // The static verif-hash header cannot authenticate body content — this call does.
+      const verified = await verifyFlutterwaveTransaction(
+        providerPaymentId,
+        typeof data.amount === 'number' ? data.amount : 0,
+        (data.currency as string | undefined)?.toUpperCase() ?? 'NGN',
+      )
+      if (!verified) {
+        console.warn('[FLW] server-side verification failed for tx', providerPaymentId)
+        return NextResponse.json({ error: 'Verification failed' }, { status: 400 })
+      }
       const existingPayment = await prisma.paymentLink.findUnique({
         where: { txRef: providerPaymentId },
         select: { status: true },

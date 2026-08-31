@@ -36,6 +36,23 @@ export async function POST(req: NextRequest) {
       const customer = data.customer     as Record<string, unknown> | undefined
       const channel  = data.channel as string | undefined
 
+      // ── Top-level idempotency gate ─────────────────────────────────────────
+      // Paystack always receives 200 to prevent retries; without a pre-check,
+      // recordPaymentSucceeded + handleSuccessfulTripPayment fire on every retry.
+      // Check by Paystack reference first; fall back to walz_tx_ref.
+      const paystackRef = (data.reference as string | undefined) ?? null
+      const txRefForGate = paystackRef ?? (meta?.walz_tx_ref as string | undefined) ?? null
+      if (txRefForGate) {
+        const existing = await prisma.paymentLink.findFirst({
+          where: { txRef: txRefForGate, status: 'paid' },
+          select: { id: true },
+        })
+        if (existing) {
+          console.log('[ps-hook] Duplicate charge.success ignored for ref', txRefForGate)
+          return new NextResponse('', { status: 200 })
+        }
+      }
+
       const txRef   = (meta?.walz_tx_ref as string | undefined) ?? null
       const payerName = customer?.first_name
         ? `${customer.first_name} ${customer.last_name ?? ''}`.trim()

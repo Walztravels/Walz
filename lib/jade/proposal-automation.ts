@@ -129,7 +129,23 @@ export async function evaluateProposalAutomationEligibility(
     warnings.push('No live search refs — all prices should be verified before sending')
   }
 
-  // ── Value threshold ─────────────────────────────────────────────────────────
+  // ── Multi-currency guard (NEVER sum different currencies without authoritative FX) ──
+  // If any priced item uses a different currency than the trip, require staff review.
+  // Previously these items were silently excluded from the cost sum, allowing trips
+  // worth e.g. £3k + $15k to pass a £5k threshold. That was a critical undercount bug.
+  const foreignCurrencyItems = trip.items.filter(
+    i => i.cost && i.currency && i.currency !== trip.currency,
+  )
+  if (foreignCurrencyItems.length > 0) {
+    requiresStaffReview = true
+    riskLevel = 'HIGH'
+    const foreignCurrencies = [...new Set(foreignCurrencyItems.map(i => i.currency))].join('/')
+    reasons.push(
+      `${foreignCurrencyItems.length} item(s) priced in ${foreignCurrencies} (trip currency: ${trip.currency}) — cross-currency trip requires staff review`,
+    )
+  }
+
+  // ── Value threshold — native-currency items only ────────────────────────────
   const tripCost = trip.items.reduce((sum, i) => {
     if (i.currency !== trip.currency) return sum
     return sum + (i.cost ? Number(i.cost) : 0)

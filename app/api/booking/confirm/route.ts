@@ -3,6 +3,7 @@ import { z } from 'zod'
 import { stripe } from '@/lib/stripe'
 import prisma from '@/lib/db'
 import { sendBookingConfirmation, sendBookingNotificationToAdmin } from '@/lib/email'
+import { createCustomerNotification, resolveUserIdForBookingNotification } from '@/lib/portal/notifications'
 
 /**
  * POST /api/booking/confirm
@@ -162,6 +163,24 @@ export async function POST(request: NextRequest) {
     } catch (dbErr) {
       console.error('[Booking Confirm] DB save failed (non-fatal):', dbErr)
     }
+
+    // ── 2b. Portal notification — "Payment received" (NOT "Booking confirmed") ──
+    resolveUserIdForBookingNotification({ userId: null, contactEmail: data.contactEmail })
+      .then(uid => {
+        if (!uid) return
+        return createCustomerNotification({
+          userId: uid,
+          category: 'PAYMENT',
+          type: 'payment_received',
+          title: 'Payment received',
+          body: `We've received your payment for booking ${data.bookingReference}. We're confirming your booking with the supplier.`,
+          href: '/dashboard/bookings',
+          entityType: 'booking',
+          entityId: data.bookingReference,
+          dedupeKey: `payment_received_${data.bookingReference}`,
+        })
+      })
+      .catch(err => console.error('[Booking Confirm] Notification failed (non-fatal):', err))
 
     // ── 3. Send emails ───────────────────────────────────────────────────────────
     const firstOutbound = data.flight.outbound[0]

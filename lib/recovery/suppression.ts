@@ -56,14 +56,20 @@ export async function checkSuppression(
     return { suppressed: true, reason: `contact cap reached (${opp.contactCount}/${MAX_AUTO_CONTACTS})` }
   }
 
-  // ── Lead marketing opt-out ────────────────────────────────────────────────
+  // ── Lead: marketing opt-out + staff assignment ────────────────────────────
   if (opp.leadId) {
     const lead = await prisma.lead.findUnique({
       where:  { id: opp.leadId },
-      select: { marketingOptOut: true },
+      select: { marketingOptOut: true, assignedToId: true },
     })
     if (lead?.marketingOptOut) {
       return { suppressed: true, reason: 'lead has opted out of marketing' }
+    }
+    // Staff-assigned leads must not receive automated messages — escalate to staff.
+    // This mirrors the rule in recovery-automation.ts:requiresStaffEscalation()
+    // which was previously orphaned from the main dispatch path.
+    if (lead?.assignedToId) {
+      return { suppressed: true, reason: `lead is assigned to staff (${lead.assignedToId}) — escalate, do not auto-contact` }
     }
   }
 

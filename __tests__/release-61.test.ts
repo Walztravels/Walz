@@ -357,7 +357,7 @@ describe('K22 — customer-identity: email fallback in resolveCustomerOwnership'
   it('normalizes both sides of email comparison', () => {
     const src = readSource('lib/portal/customer-identity.ts')
     expect(src).toContain('normalizeEmail(itinerary.clientEmail)')
-    expect(src).toContain('normalizeEmail(user.email)')
+    expect(src).toMatch(/normalizeEmail\(user\.email(\s*\?\?\s*'')?/)  // null-safe form accepted
   })
 })
 

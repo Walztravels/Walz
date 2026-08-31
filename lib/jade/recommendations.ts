@@ -1,5 +1,6 @@
 // lib/jade/recommendations.ts
 // Release 5B — Smart Recommendations & Next-Best-Action
+// Release 7.3 — jade_cross_sell_eligible / jade_cross_sell_offered events wired
 //
 // Context-aware commercial recommendations. Extends and supersedes
 // lib/commercial/cross-sell.ts for Jade-driven recommendation contexts.
@@ -8,6 +9,8 @@
 //   - Never exposes internal priority scores, markup, or supplier net rates
 //   - Budget comparison only within the same currency — never cross-currency
 //   - Schedule conflict detection prevents impossible recommendations
+
+import { trackCommercialEvent } from '@/lib/commercial/track'
 
 export type RecommendationType = 'HOTEL' | 'TRANSFER' | 'ACTIVITY' | 'ESIM' | 'FLIGHT'
 
@@ -54,8 +57,8 @@ interface ScoredRec extends Recommendation {
 
 const MAX_RECS = 3
 
-export function getSmartRecommendations(trip: TripForRec): Recommendation[] {
-  const recs: ScoredRec[] = [
+export function getSmartRecommendations(trip: TripForRec, tripId?: string): Recommendation[] {
+  const candidates: ScoredRec[] = [
     ...flightRecommendations(trip),
     ...hotelRecommendations(trip),
     ...transferRecommendations(trip),
@@ -63,10 +66,22 @@ export function getSmartRecommendations(trip: TripForRec): Recommendation[] {
     ...esimRecommendations(trip),
   ]
 
-  return recs
+  // Release 7.3 — jade_cross_sell_eligible: fires once candidates are known
+  trackCommercialEvent('jade_cross_sell_eligible', {
+    metadata: { tripId, candidateCount: candidates.length },
+  })
+
+  const final = candidates
     .sort((a, b) => b._priority - a._priority)
     .slice(0, MAX_RECS)
     .map(({ _priority: _p, ...rec }) => rec)
+
+  // Release 7.3 — jade_cross_sell_offered: fires after final list is determined
+  trackCommercialEvent('jade_cross_sell_offered', {
+    metadata: { tripId, offeredCount: final.length },
+  })
+
+  return final
 }
 
 // ─── Product-specific rules ───────────────────────────────────────────────────

@@ -2,15 +2,15 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { LayoutDashboard, FileText, Compass, Shield, UserCircle } from 'lucide-react'
+import { LayoutDashboard, Package2, Users, Sparkles, UserCircle } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 const ITEMS = [
-  { href: '/dashboard',           label: 'Home',         icon: LayoutDashboard },
-  { href: '/plan/library',       label: 'My Trips',     icon: Compass         },
-  { href: '/portal/application', label: 'Applications', icon: FileText        },
-  { href: '/insurance',          label: 'Insurance',    icon: Shield          },
-  { href: '/portal/profile',     label: 'Account',      icon: UserCircle      },
+  { href: '/dashboard',            label: 'Home',      icon: LayoutDashboard },
+  { href: '/dashboard/bookings',   label: 'Bookings',  icon: Package2        },
+  { href: '/dashboard/jade',       label: 'Jade',      icon: Sparkles        },
+  { href: '/dashboard/travellers', label: 'Travellers', icon: Users           },
+  { href: '/portal/profile',       label: 'Account',   icon: UserCircle      },
 ]
 
 export function PortalBottomNav() {

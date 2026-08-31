@@ -4,6 +4,7 @@ import crypto from 'crypto'
 import prisma from '@/lib/db'
 import { Resend } from 'resend'
 import { signupRateLimit } from '@/lib/rate-limit'
+import { trackCommercialEvent } from '@/lib/commercial/track'
 
 const FROM  = 'Walz Travels <noreply@walztravels.com>'
 const ADMIN = 'contact@walztravels.com'
@@ -78,7 +79,11 @@ export async function POST(req: NextRequest) {
     const rl = signupRateLimit(ip)
     if (!rl.allowed) return NextResponse.json({ error: 'Too many requests. Try again later.' }, { status: 429 })
 
-    const { name, email, password } = await req.json()
+    const body = await req.json()
+    const { name, email, password } = body
+    // Referral code — may arrive as query param (?ref=) or request body field
+    const ref: string | null =
+      req.nextUrl?.searchParams?.get('ref') ?? body?.ref ?? null
 
     if (!email || !password) {
       return NextResponse.json({ error: 'Email and password are required.' }, { status: 400 })
@@ -139,6 +144,27 @@ export async function POST(req: NextRequest) {
         return NextResponse.json({ error: 'Database connection failed. Please try again shortly.' }, { status: 503 })
       }
       return NextResponse.json({ error: 'Could not create account. Please try again.' }, { status: 500 })
+    }
+
+    // ── Referral conversion capture ─────────────────────────────────────────
+    // SQL to run in Supabase: ALTER TABLE "User" ADD COLUMN IF NOT EXISTS "referredByCode" TEXT;
+    // Until that migration runs we capture the conversion in CommercialEvent only.
+    if (ref) {
+      try {
+        const referralCode = await prisma.referralCode.findUnique({ where: { code: ref } })
+        // Guard: code must exist and referrer must not be the new user (no self-referral)
+        if (referralCode && referralCode.userId !== user.id) {
+          trackCommercialEvent('referral_converted', {
+            userId: user.id,
+            metadata: { code: ref, referrerId: referralCode.userId },
+          })
+          // Atomically increment uses — never read-then-write
+          prisma.referralCode.update({
+            where: { id: referralCode.id },
+            data: { uses: { increment: 1 } },
+          }).catch(() => { /* non-fatal */ })
+        }
+      } catch { /* non-fatal — never block signup */ }
     }
 
     // Auto-detect unlinked applications

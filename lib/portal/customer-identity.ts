@@ -45,7 +45,8 @@ export async function findUserByVerifiedEmail(
 
   if (matches.length === 0) return null
   if (matches.length > 1)   return null  // ambiguous — never guess
-  return matches[0]
+  const m = matches[0]
+  return { id: m.id, email: m.email ?? '' }
 }
 
 /**
@@ -173,7 +174,7 @@ export async function resolveCustomerOwnership(
       select: { email: true },
     })
     if (!user) return false
-    return normalizeEmail(itinerary.clientEmail) === normalizeEmail(user.email)
+    return normalizeEmail(itinerary.clientEmail) === normalizeEmail(user.email ?? '')
   }
 
   return false

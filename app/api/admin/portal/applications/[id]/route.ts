@@ -4,6 +4,7 @@ import { getSupabaseAdmin } from '@/lib/supabase'
 import prisma from '@/lib/db'
 import { getResend } from '@/lib/resend'
 import { z } from 'zod'
+import { createCustomerNotification } from '@/lib/portal/notifications'
 
 
 const updateSchema = z.object({
@@ -54,6 +55,41 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
     data:  parsed.data,
     include: { user: { select: { name: true, email: true } } },
   })
+
+  // Portal notification on stage change
+  if (parsed.data.stage && parsed.data.stage !== prev.stage && application.userId) {
+    const notifMap: Partial<Record<string, { title: string; body: string; category: 'DOCUMENT' | 'ACCOUNT' }>> = {
+      DOCUMENTS_PENDING: {
+        category: 'DOCUMENT',
+        title: 'Documents required',
+        body: `Your application "${application.title}" requires documents. Please upload them at your earliest convenience.`,
+      },
+      APPROVED: {
+        category: 'ACCOUNT',
+        title: 'Application approved',
+        body: `Great news — your application "${application.title}" has been approved.`,
+      },
+      REJECTED: {
+        category: 'ACCOUNT',
+        title: 'Application update',
+        body: `There has been an update to your application "${application.title}". Please log in for details.`,
+      },
+    }
+    const notif = notifMap[parsed.data.stage]
+    if (notif) {
+      createCustomerNotification({
+        userId: application.userId,
+        category: notif.category,
+        type: `application_${parsed.data.stage.toLowerCase()}`,
+        title: notif.title,
+        body: notif.body,
+        href: '/portal/application',
+        entityType: 'application',
+        entityId: application.id,
+        dedupeKey: `application_${parsed.data.stage.toLowerCase()}_${application.id}`,
+      }).catch(err => console.error('[Admin Applications] Notification failed (non-fatal):', err))
+    }
+  }
 
   // Email client on stage change
   if (parsed.data.stage && parsed.data.stage !== prev.stage && application.user?.email) {

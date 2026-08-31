@@ -7,7 +7,9 @@
 //   - Only fires for authenticated users in this release (userId required)
 //   - Fire-and-forget: CRM sync failure must never break the trip flow
 
-import prisma from '@/lib/db'
+import prisma                        from '@/lib/db'
+import { trackCommercialEvent }      from '@/lib/commercial/track'
+import { hasQualifiedSalesIntent }   from './sales-qualification'
 
 interface TripForCrmSync {
   id:          string
@@ -86,6 +88,24 @@ export async function syncJadeLeadForTrip(
           metadata: { tripId: tripCtx.id, source: 'jade_trip_created' },
         },
       }).catch(() => {})
+
+      // jade_sales_qualified — fires only when deterministic criteria are met.
+      // Values come from tripCtx (DB record), never from LLM model input.
+      if (hasQualifiedSalesIntent({
+        destination: tripCtx.destination,
+        startDate:   tripCtx.startDate ? tripCtx.startDate.toISOString().slice(0, 10) : null,
+        adults:      tripCtx.adults,
+      })) {
+        void trackCommercialEvent('jade_sales_qualified', {
+          leadId:   existing.id,
+          metadata: {
+            destination: tripCtx.destination,
+            startDate:   tripCtx.startDate ? tripCtx.startDate.toISOString().slice(0, 10) : null,
+            adults:      tripCtx.adults,
+          },
+        })
+      }
+
       return existing.id
     }
 
@@ -118,6 +138,24 @@ export async function syncJadeLeadForTrip(
         metadata: { tripId: tripCtx.id, source: 'jade_trip_created' },
       },
     }).catch(() => {})
+
+    // jade_sales_qualified — fires only when deterministic criteria are met.
+    // Values come from tripCtx (DB record), never from LLM model input.
+    if (hasQualifiedSalesIntent({
+      destination: tripCtx.destination,
+      startDate:   tripCtx.startDate ? tripCtx.startDate.toISOString().slice(0, 10) : null,
+      adults:      tripCtx.adults,
+    })) {
+      void trackCommercialEvent('jade_sales_qualified', {
+        leadId:   lead.id,
+        metadata: {
+          destination: tripCtx.destination,
+          startDate:   tripCtx.startDate ? tripCtx.startDate.toISOString().slice(0, 10) : null,
+          adults:      tripCtx.adults,
+        },
+      })
+    }
+
     return lead.id
   } catch (err) {
     console.error('[jade-crm-sync] syncJadeLeadForTrip failed:', err)

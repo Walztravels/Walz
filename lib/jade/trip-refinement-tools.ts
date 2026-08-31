@@ -17,6 +17,7 @@ import prisma                      from '@/lib/db'
 import {
   getTripItemFulfillmentStatus,
 }                                  from '@/lib/trips/fulfillment'
+import { trackCommercialEvent }    from '@/lib/commercial/track'
 import { resolveSearchRef }        from './search-ref'
 import { prepareJadeTripCheckout } from './checkout-handoff'
 import type { JadeTripToolContext } from './trip-tools'
@@ -242,6 +243,18 @@ async function replaceTripItem(
       },
     },
   }).catch(() => {})
+
+  // jade_option_selected: customer explicitly confirmed selecting this search result.
+  // Fires at the same site as jade_trip_item_replaced — the selection is explicit (replace_trip_item
+  // requires the customer to have chosen the replacement).
+  void trackCommercialEvent('jade_option_selected', {
+    ...(ctx.userId ? {} : {}),
+    metadata: {
+      tripId,
+      type:  ref.productType,
+      title: ref.title,
+    },
+  })
 
   return JSON.stringify({
     ok:          true,

@@ -78,6 +78,15 @@ export async function prepareJadeTripCheckout(
   // ── Lifecycle guard ─────────────────────────────────────────────────────────
   // Only DRAFT/PLANNING trips can initiate a new checkout
   if (!['DRAFT', 'PLANNING', 'CHECKOUT_STARTED'].includes(trip.status)) {
+    // jade_staff_handoff: automation BLOCKED — trip lifecycle prevents checkout.
+    void trackCommercialEvent('jade_staff_handoff', {
+      leadId:   trip.leadId ?? undefined,
+      metadata: {
+        automationClass: 'BLOCKED',
+        reason:          `trip_status_${trip.status.toLowerCase()}`,
+        tripId,
+      },
+    })
     return JSON.stringify({
       status: 'BLOCKED',
       reason: `This trip is already in ${trip.status} status and cannot be checked out again.`,
@@ -87,6 +96,15 @@ export async function prepareJadeTripCheckout(
   // ── Eligible items ──────────────────────────────────────────────────────────
   const eligible = trip.items.filter(i => CART_ELIGIBLE_TYPES.has(i.type.toUpperCase()))
   if (eligible.length === 0) {
+    // jade_staff_handoff: automation BLOCKED — no eligible items.
+    void trackCommercialEvent('jade_staff_handoff', {
+      leadId:   trip.leadId ?? undefined,
+      metadata: {
+        automationClass: 'BLOCKED',
+        reason:          'no_eligible_items',
+        tripId,
+      },
+    })
     return JSON.stringify({
       status: 'BLOCKED',
       reason: 'There are no checkout-eligible items in this trip. Add flights, hotels, activities, or transfers first.',
@@ -100,6 +118,16 @@ export async function prepareJadeTripCheckout(
       .map(i => (i.currency || trip.currency).toUpperCase())
   )]
   if (currencies.length > 1) {
+    // jade_staff_handoff: automation BLOCKED — multi-currency trip cannot be auto-checked out.
+    void trackCommercialEvent('jade_staff_handoff', {
+      leadId:   trip.leadId ?? undefined,
+      metadata: {
+        automationClass: 'BLOCKED',
+        reason:          'multi_currency',
+        tripId,
+        currencies,
+      },
+    })
     return JSON.stringify({
       status: 'BLOCKED',
       reason: `Your trip contains items in multiple currencies (${currencies.join(', ')}). Checkout requires a single currency. Please remove or adjust items until all unpurchased items share one currency.`,
@@ -132,6 +160,17 @@ export async function prepareJadeTripCheckout(
 
   // ── BLOCKED — sold out, expired, stale ─────────────────────────────────────
   if (revalResult.status === 'BLOCKED') {
+    // jade_staff_handoff: automation is BLOCKED — customer needs staff assistance.
+    // Never fires for AUTO_ALLOWED (READY / ACTION_REQUIRED with review URL).
+    void trackCommercialEvent('jade_staff_handoff', {
+      leadId:   trip.leadId ?? undefined,
+      metadata: {
+        automationClass: 'BLOCKED',
+        reason:          'revalidation_blocked',
+        tripId,
+      },
+    })
+
     const soldOut  = revalResult.items.filter(i => i.status === 'SOLD_OUT')
     const expired  = revalResult.items.filter(i => i.status === 'EXPIRED')
     const stale    = revalResult.items.filter(i => i.status === 'STALE')

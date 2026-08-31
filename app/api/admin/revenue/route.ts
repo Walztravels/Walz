@@ -323,12 +323,35 @@ export async function GET(req: NextRequest) {
     return acc
   }, {})
 
-  const FUNNEL_STEPS = [
-    'flight_search', 'hotel_search', 'activity_search', 'transfer_search',
-    'product_view', 'lead_created', 'checkout_started',
-    'payment_started', 'payment_succeeded', 'booking_confirmed',
+  // FUNNEL_STEPS: the 10 legacy coarse steps are preserved unchanged.
+  // Jade-specific stages (already emitted) are added after search/lead steps
+  // and before payment, surfacing them in the admin funnel view without
+  // removing or reordering any existing step.
+  const FUNNEL_STEPS: Array<{ event: string; label?: string }> = [
+    { event: 'flight_search' },
+    { event: 'hotel_search' },
+    { event: 'activity_search' },
+    { event: 'transfer_search' },
+    { event: 'product_view' },
+    { event: 'lead_created' },
+    // ── Jade funnel stages (Release 7.5) ────────────────────────────────────
+    { event: 'jade_started',            label: 'Jade Conversations' },
+    { event: 'jade_trip_intent',        label: 'Jade Trip Intent' },
+    { event: 'jade_trip_build_started', label: 'Trip Build Started' },
+    { event: 'jade_proposal_requested', label: 'Proposal Requested' },
+    { event: 'jade_checkout_started',   label: 'Checkout Started (Jade)' },
+    { event: 'jade_checkout_converted', label: 'Payment Captured (Jade)' },
+    // ── Existing post-search/lead steps (unchanged) ─────────────────────────
+    { event: 'checkout_started' },
+    { event: 'payment_started' },
+    { event: 'payment_succeeded' },
+    { event: 'booking_confirmed' },
   ]
-  const funnelData = FUNNEL_STEPS.map(step => ({ event: step, count: eventMap[step] ?? 0 }))
+  const funnelData = FUNNEL_STEPS.map(step => ({
+    event: step.event,
+    count: eventMap[step.event] ?? 0,
+    ...(step.label ? { label: step.label } : {}),
+  }))
   const trackingStarted = commercialEventFunnel.length > 0
 
   // ── Jade Commerce Analytics (Release 4E-B → 4E-F) ─────────────────────────
