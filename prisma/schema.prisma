@@ -2774,6 +2774,8 @@ model Itinerary {
   tours           String?  @default("[]")
   trains          String?  @default("[]")
   ferries         String?  @default("[]")
+  // Release 6.1: linked portal User. Added via release61_identity_bridge.sql — NOT prisma db push.
+  userId          String?  @map("user_id")
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 }

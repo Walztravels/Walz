@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { timingSafeEqual } from 'crypto'
 import { prisma } from '@/lib/db'
+import { tryLinkItineraryByEmail } from '@/lib/portal/customer-identity'
 import { getResend } from '@/lib/email-internal'
 import { getSupabaseAdmin } from '@/lib/supabase'
 import { getCurrencySymbol } from '@/lib/currency'
@@ -459,6 +460,10 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ ref
              <p><a href="${BASE}/admin/itinerary-planner/${itin.id}">Open in admin →</a></p>`,
     })
   } catch { /* non-fatal */ }
+
+  // Release 6.1 — Track 2: Link itinerary to verified portal User on acceptance.
+  // Non-blocking: identity errors must never prevent proposal acceptance from completing.
+  void tryLinkItineraryByEmail(itin.id, itin.clientEmail, 'acceptance')
 
   return NextResponse.json({
     ok:              true,

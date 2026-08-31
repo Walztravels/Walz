@@ -28,6 +28,9 @@ import {
   buildGroundingContract,
   EMPTY_COMMERCIAL_FACTS,
 } from '@/lib/jade/commercial-grounding'
+// Release 6.1 — Track 5: Server-side tripId ownership validation
+import { resolveOwnedTripId } from '@/lib/portal/identity-security'
+import { logIdentityEvent, IDENTITY_EVENT } from '@/lib/portal/identity-logging'
 
 export const maxDuration = 60
 export const dynamic     = 'force-dynamic'
@@ -159,8 +162,10 @@ interface JadeChatRequest {
   customerName?:       string
   pageContext?:        string
   sessionId?:          string   // anonymous session ID for trip ownership (4A)
-  tripId?:             string   // active trip hint (5A)
-  leadId?:             string   // lead context hint (5A)
+  tripId?:             string   // active trip hint (5A) — ownership verified server-side (6.1)
+  // leadId is intentionally NOT accepted from the client (6.1):
+  // Lead is an internal CRM model with no userId field — there is no server-side
+  // ownership proof available for a client-supplied leadId.
 }
 
 // ─── PRIMARY: CLAUDE ──────────────────────────────────────────────────────────
@@ -236,8 +241,8 @@ export async function POST(req: NextRequest) {
     customerName = '',
     pageContext = '',
     sessionId = '',
-    tripId,
-    leadId,
+    tripId: clientTripId,
+    // leadId intentionally excluded — no ownership proof possible for client-supplied Lead IDs
   } = await req.json() as JadeChatRequest
 
   if (!message?.trim()) {
@@ -272,6 +277,25 @@ export async function POST(req: NextRequest) {
     sessionId: sessionId || null,
   }
 
+  // ── Release 6.1 — Track 5: Verify tripId ownership server-side ────────────
+  // Client-supplied tripId is a hint only. We must confirm the trip belongs to
+  // this user/session before using it as commercial context input. An unverified
+  // tripId could expose another customer's trip data (IDOR).
+  const verifiedTripId = await resolveOwnedTripId({
+    clientTripId: clientTripId || null,
+    userId,
+    sessionId:    sessionId || null,
+    prisma,
+  })
+
+  if (clientTripId && !verifiedTripId) {
+    logIdentityEvent(IDENTITY_EVENT.TRIP_ID_OWNERSHIP_DENIED, {
+      tripId:    clientTripId,
+      userId:    userId ?? undefined,
+      sessionId: sessionId || undefined,
+    })
+  }
+
   // ── Release 5A: Commercial context injection ───────────────────────────────
   // Fetched in parallel with tool setup. Non-fatal — Jade continues without it.
   let commercialContextSummary = ''
@@ -281,8 +305,8 @@ export async function POST(req: NextRequest) {
       const ctx = await getJadeCommercialContext({
         userId,
         sessionId: sessionId || null,
-        leadId:    leadId   || null,
-        tripId:    tripId   || null,
+        leadId:    null,             // 6.1: never accept client-supplied leadId
+        tripId:    verifiedTripId,   // 6.1: only pass ownership-verified tripId
       })
       commercialContextSummary = buildCommercialContextSummary(ctx)
     } catch { /* non-fatal — Jade continues without commercial context */ }
