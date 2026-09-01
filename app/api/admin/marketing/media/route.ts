@@ -11,17 +11,41 @@ export async function GET(req: NextRequest) {
   if (!session) return NextResponse.json({ error: 'Unauthorised' }, { status: 401 })
 
   const { searchParams } = new URL(req.url)
-  const tag = searchParams.get('tag')
+  const tag    = searchParams.get('tag')
+  const type   = searchParams.get('type')   // 'image' | 'video' | null
+  const search = searchParams.get('search') // filename or altText substring
+  const limit  = Math.min(Number(searchParams.get('limit') ?? '100'), 200)
+  const offset = Number(searchParams.get('offset') ?? '0')
 
-  const media = await prisma.marketingMedia.findMany({
-    where: tag
-      ? { tags: { array_contains: [tag] } }
-      : undefined,
-    orderBy: { createdAt: 'desc' },
-    take: 100,
-  })
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const where: Record<string, any> = {}
 
-  return NextResponse.json({ media })
+  if (tag) {
+    where.tags = { array_contains: [tag] }
+  }
+  if (type === 'image') {
+    where.mimeType = { startsWith: 'image/' }
+  } else if (type === 'video') {
+    where.mimeType = { startsWith: 'video/' }
+  }
+  if (search) {
+    where.OR = [
+      { filename: { contains: search, mode: 'insensitive' } },
+      { altText:  { contains: search, mode: 'insensitive' } },
+    ]
+  }
+
+  const [media, total] = await prisma.$transaction([
+    prisma.marketingMedia.findMany({
+      where,
+      orderBy: { createdAt: 'desc' },
+      take:    limit,
+      skip:    offset,
+    }),
+    prisma.marketingMedia.count({ where }),
+  ])
+
+  return NextResponse.json({ media, total, limit, offset })
 }
 
 export async function POST(req: NextRequest) {

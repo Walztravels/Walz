@@ -6,6 +6,21 @@ import { BRAND_PRESETS, FORMAT_PRESETS } from '@/lib/orbit/creative-presets'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
+type ImageSource  = 'ai' | 'library' | 'upload'
+type VideoSrcMode = 'assets' | 'library' | 'upload'
+
+interface LibraryMedia {
+  id:         string
+  filename:   string
+  url:        string
+  mimeType:   string
+  sizeBytes:  number | null
+  tags:       string[]
+  altText:    string | null
+  uploadedBy: string
+  createdAt:  string
+}
+
 interface Asset {
   id:               string
   source:           'generated' | 'uploaded'
@@ -241,6 +256,341 @@ function AssetThumb({
   )
 }
 
+// ── Source badge (ASSETS tab) ─────────────────────────────────────────────────
+
+function SourceBadge({ provider, source }: { provider: string | null; source: string }) {
+  if (provider === 'media_library') {
+    return <span className="bg-teal-900/60 text-teal-400 text-xs px-1.5 py-0.5 rounded">Media Library</span>
+  }
+  if (provider === 'openai') {
+    return <span className="bg-purple-900/60 text-purple-400 text-xs px-1.5 py-0.5 rounded">AI • OpenAI</span>
+  }
+  if (provider === 'fal') {
+    return <span className="bg-blue-900/60 text-blue-400 text-xs px-1.5 py-0.5 rounded">AI • FAL</span>
+  }
+  if (provider === 'replicate') {
+    return <span className="bg-orange-900/60 text-orange-400 text-xs px-1.5 py-0.5 rounded">AI • Flux</span>
+  }
+  if (provider === 'uploaded' || source === 'uploaded') {
+    return <span className="bg-gray-700 text-gray-400 text-xs px-1.5 py-0.5 rounded">Uploaded</span>
+  }
+  return null
+}
+
+// ── Media Library Picker modal ────────────────────────────────────────────────
+
+function MediaLibraryPicker({
+  typeFilter,
+  onSelect,
+  onClose,
+}: {
+  typeFilter: 'all' | 'image' | 'video'
+  onSelect:  (item: LibraryMedia) => void
+  onClose:   () => void
+}) {
+  const [items,      setItems]      = useState<LibraryMedia[]>([])
+  const [loading,    setLoading]    = useState(false)
+  const [search,     setSearch]     = useState('')
+  const [mediaType,  setMediaType]  = useState<'all' | 'image' | 'video'>(typeFilter)
+  const [selected,   setSelected]   = useState<string | null>(null)
+  const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const load = useCallback(async (q: string, t: 'all' | 'image' | 'video') => {
+    setLoading(true)
+    try {
+      const params = new URLSearchParams({ limit: '60' })
+      if (q)          params.set('search', q)
+      if (t !== 'all') params.set('type', t)
+      const res  = await fetch(`/api/admin/marketing/media?${params}`)
+      const data = await res.json()
+      setItems(data.media ?? [])
+    } catch { setItems([]) }
+    finally { setLoading(false) }
+  }, [])
+
+  useEffect(() => { load('', typeFilter) }, [load, typeFilter])
+
+  function handleSearch(value: string) {
+    setSearch(value)
+    if (searchTimer.current) clearTimeout(searchTimer.current)
+    searchTimer.current = setTimeout(() => load(value, mediaType), 350)
+  }
+
+  function handleTypeChange(t: 'all' | 'image' | 'video') {
+    setMediaType(t)
+    load(search, t)
+  }
+
+  const selectedItem = items.find(i => i.id === selected)
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70" onClick={e => { if (e.target === e.currentTarget) onClose() }}>
+      <div className="bg-gray-950 border border-gray-800 rounded-2xl w-full max-w-4xl max-h-[90vh] flex flex-col" role="dialog" aria-label="Select from Media Library">
+        {/* Header */}
+        <div className="flex items-center justify-between px-5 py-4 border-b border-gray-800">
+          <h2 className="text-sm font-semibold text-white">Select from Media Library</h2>
+          <div className="flex items-center gap-3">
+            <a
+              href="/admin/marketing/media"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-xs text-indigo-400 hover:text-indigo-300 transition-colors"
+            >
+              Open full Media Library ↗
+            </a>
+            <button
+              onClick={onClose}
+              className="text-gray-500 hover:text-gray-300 text-xl leading-none"
+              aria-label="Close picker"
+            >
+              ×
+            </button>
+          </div>
+        </div>
+
+        {/* Filters */}
+        <div className="flex items-center gap-3 px-5 py-3 border-b border-gray-800">
+          <input
+            type="search"
+            value={search}
+            onChange={e => handleSearch(e.target.value)}
+            placeholder="Search by name or description…"
+            className="flex-1 bg-gray-900 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-white placeholder-gray-600 focus:outline-none focus:border-indigo-500"
+            aria-label="Search media library"
+          />
+          <div className="flex gap-1">
+            {(['all', 'image', 'video'] as const).map(t => (
+              <button
+                key={t}
+                onClick={() => handleTypeChange(t)}
+                className={`px-3 py-1.5 rounded-lg text-xs font-medium capitalize transition-colors ${
+                  mediaType === t
+                    ? 'bg-indigo-700 text-white'
+                    : 'text-gray-400 hover:text-gray-300 border border-gray-700'
+                }`}
+              >
+                {t === 'all' ? 'All' : t === 'image' ? 'Images' : 'Videos'}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Grid */}
+        <div className="flex-1 overflow-y-auto p-5">
+          {loading ? (
+            <div className="flex justify-center py-16">
+              <div className="w-6 h-6 border-2 border-indigo-400 border-t-transparent rounded-full animate-spin" />
+            </div>
+          ) : items.length === 0 ? (
+            <div className="text-center py-16">
+              <p className="text-gray-500 text-sm">No media found.</p>
+              <p className="text-gray-600 text-xs mt-1">Try a different search or upload via the full Media Library.</p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 gap-3" role="list">
+              {items.map(item => {
+                const isVid = item.mimeType.startsWith('video/')
+                return (
+                  <button
+                    key={item.id}
+                    role="listitem"
+                    onClick={() => setSelected(item.id === selected ? null : item.id)}
+                    className={`group relative rounded-xl overflow-hidden border-2 aspect-square transition-all focus:outline-none focus:ring-2 focus:ring-indigo-500 ${
+                      selected === item.id
+                        ? 'border-indigo-500 ring-1 ring-indigo-500'
+                        : 'border-gray-800 hover:border-gray-600'
+                    }`}
+                    title={item.filename}
+                    aria-pressed={selected === item.id}
+                    aria-label={item.filename}
+                  >
+                    {isVid ? (
+                      <video src={item.url} className="w-full h-full object-cover" muted />
+                    ) : (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img src={item.url} alt={item.altText ?? item.filename} className="w-full h-full object-cover" />
+                    )}
+                    {isVid && (
+                      <span className="absolute top-1 left-1 bg-blue-900/80 text-blue-300 text-xs px-1 py-0.5 rounded">Video</span>
+                    )}
+                    {selected === item.id && (
+                      <div className="absolute inset-0 bg-indigo-500/20 flex items-center justify-center">
+                        <span className="w-6 h-6 bg-indigo-500 rounded-full flex items-center justify-center text-white text-sm font-bold">✓</span>
+                      </div>
+                    )}
+                    <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 to-transparent p-1.5 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
+                      <p className="text-xs text-white truncate">{item.filename}</p>
+                    </div>
+                  </button>
+                )
+              })}
+            </div>
+          )}
+        </div>
+
+        {/* Selected preview + action */}
+        <div className="border-t border-gray-800 px-5 py-4 flex items-center justify-between gap-4">
+          {selectedItem ? (
+            <div className="flex items-center gap-3 min-w-0">
+              <div className="w-10 h-10 rounded-lg overflow-hidden border border-gray-700 flex-shrink-0">
+                {selectedItem.mimeType.startsWith('video/')
+                  ? <video src={selectedItem.url} className="w-full h-full object-cover" muted />
+                  // eslint-disable-next-line @next/next/no-img-element
+                  : <img src={selectedItem.url} alt="" className="w-full h-full object-cover" />
+                }
+              </div>
+              <div className="min-w-0">
+                <p className="text-xs text-white font-medium truncate">{selectedItem.filename}</p>
+                <p className="text-xs text-gray-500">{selectedItem.mimeType} · {selectedItem.sizeBytes ? `${(selectedItem.sizeBytes / 1024 / 1024).toFixed(1)} MB` : ''}</p>
+              </div>
+            </div>
+          ) : (
+            <p className="text-xs text-gray-600">No item selected</p>
+          )}
+          <button
+            onClick={() => { if (selectedItem) onSelect(selectedItem) }}
+            disabled={!selectedItem}
+            className="px-5 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 disabled:cursor-not-allowed text-white text-sm font-medium rounded-lg transition-colors whitespace-nowrap"
+          >
+            Use this asset
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ── Upload zone (drag-and-drop + browse) ──────────────────────────────────────
+
+function uploadWithXHR(url: string, file: File, onProgress: (pct: number) => void): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest()
+    xhr.upload.addEventListener('progress', e => {
+      if (e.lengthComputable) onProgress(Math.round((e.loaded / e.total) * 100))
+    })
+    xhr.addEventListener('load', () => {
+      if (xhr.status >= 200 && xhr.status < 300) resolve()
+      else reject(new Error(`Upload failed: ${xhr.status}`))
+    })
+    xhr.addEventListener('error', () => reject(new Error('Network error during upload')))
+    xhr.open('PUT', url)
+    xhr.setRequestHeader('Content-Type', file.type)
+    xhr.send(file)
+  })
+}
+
+function UploadZone({
+  accept,
+  label,
+  sublabel,
+  progress,
+  error,
+  disabled,
+  onFiles,
+}: {
+  accept:    string
+  label:     string
+  sublabel?: string
+  progress:  number | null
+  error:     string | null
+  disabled?: boolean
+  onFiles:   (files: File[]) => void
+}) {
+  const [isDragOver, setIsDragOver] = useState(false)
+  const inputRef = useRef<HTMLInputElement>(null)
+
+  function handleDrop(e: React.DragEvent) {
+    e.preventDefault()
+    setIsDragOver(false)
+    if (disabled) return
+    const files = Array.from(e.dataTransfer.files)
+    if (files.length) onFiles(files)
+  }
+
+  return (
+    <div
+      role="button"
+      tabIndex={0}
+      aria-label={label}
+      onDragOver={e => { e.preventDefault(); if (!disabled) setIsDragOver(true) }}
+      onDragLeave={() => setIsDragOver(false)}
+      onDrop={handleDrop}
+      onClick={() => !disabled && inputRef.current?.click()}
+      onKeyDown={e => { if ((e.key === 'Enter' || e.key === ' ') && !disabled) inputRef.current?.click() }}
+      className={`border-2 border-dashed rounded-xl px-4 py-8 text-center cursor-pointer transition-all select-none ${
+        disabled
+          ? 'border-gray-800 opacity-50 cursor-not-allowed'
+          : isDragOver
+            ? 'border-indigo-500 bg-indigo-500/10'
+            : 'border-gray-700 hover:border-gray-500 hover:bg-gray-800/30'
+      }`}
+    >
+      {progress !== null ? (
+        <div className="space-y-3">
+          <div className="w-full bg-gray-800 rounded-full h-1.5 overflow-hidden">
+            <div
+              className="bg-indigo-500 h-1.5 rounded-full transition-all duration-300"
+              style={{ width: `${progress}%` }}
+            />
+          </div>
+          <p className="text-xs text-gray-400">
+            {progress < 100 ? `Uploading ${progress}%` : 'Processing…'}
+          </p>
+        </div>
+      ) : (
+        <div className="space-y-1.5">
+          <p className="text-sm text-gray-300">{label}</p>
+          {sublabel && <p className="text-xs text-gray-600">{sublabel}</p>}
+          <p className="text-xs text-indigo-400 hover:text-indigo-300 font-medium mt-2">Browse files</p>
+        </div>
+      )}
+      {error && <p className="mt-2 text-xs text-red-400">{error}</p>}
+      <input
+        ref={inputRef}
+        type="file"
+        accept={accept}
+        className="hidden"
+        aria-hidden="true"
+        onChange={e => {
+          const files = Array.from(e.target.files ?? [])
+          if (files.length) { onFiles(files); e.target.value = '' }
+        }}
+      />
+    </div>
+  )
+}
+
+// ── Source selector (3-button toggle) ────────────────────────────────────────
+
+function SourceSelector<T extends string>({
+  value,
+  options,
+  onChange,
+}: {
+  value:    T
+  options:  { key: T; icon: string; label: string }[]
+  onChange: (v: T) => void
+}) {
+  return (
+    <div className="grid gap-2" style={{ gridTemplateColumns: `repeat(${options.length}, 1fr)` }}>
+      {options.map(o => (
+        <button
+          key={o.key}
+          onClick={() => onChange(o.key)}
+          className={`flex flex-col items-center gap-1 px-2 py-2.5 rounded-xl border text-xs font-medium transition-colors ${
+            value === o.key
+              ? 'bg-indigo-700/40 border-indigo-600 text-white'
+              : 'border-gray-700 text-gray-400 hover:border-gray-600 hover:text-gray-300'
+          }`}
+        >
+          <span className="text-base">{o.icon}</span>
+          <span>{o.label}</span>
+        </button>
+      ))}
+    </div>
+  )
+}
+
 // ── Main component ────────────────────────────────────────────────────────────
 
 export function CreativeStudioSection({
@@ -253,6 +603,26 @@ export function CreativeStudioSection({
   const [testingHealth, setTestingHealth] = useState(false)
   const [healthPanel,   setHealthPanel]   = useState(false)
   const [healthReport,  setHealthReport]  = useState<Record<string, unknown> | null>(null)
+  // ── Image / asset source selector state ──────────────────────────────────────
+  const [imageSource,    setImageSource]    = useState<ImageSource>('ai')
+  const [videoSrcMode,   setVideoSrcMode]   = useState<VideoSrcMode>('assets')
+
+  // ── Library picker state ──────────────────────────────────────────────────────
+  const [showLibraryPicker,    setShowLibraryPicker]    = useState(false)
+  const [libraryPickerFilter,  setLibraryPickerFilter]  = useState<'all' | 'image' | 'video'>('image')
+  const [libraryPickerTarget,  setLibraryPickerTarget]  = useState<'creative' | 'video-source'>('creative')
+  const [libraryFormat,        setLibraryFormat]        = useState<string>('1080x1080')
+  const [attachingLibrary,     setAttachingLibrary]     = useState(false)
+  const [libraryError,         setLibraryError]         = useState<string | null>(null)
+
+  // ── Direct upload state ───────────────────────────────────────────────────────
+  const [uploadProgress,  setUploadProgress]  = useState<number | null>(null)
+  const [uploadError,     setUploadError]     = useState<string | null>(null)
+  const [videoUploadProgress, setVideoUploadProgress] = useState<number | null>(null)
+  const [videoUploadError,    setVideoUploadError]    = useState<string | null>(null)
+  const [showExistingVideo,   setShowExistingVideo]   = useState(false)
+
+  // ── AI generation state ───────────────────────────────────────────────────────
   const [generating,   setGenerating]   = useState(false)
   const [genError,     setGenError]     = useState<string | null>(null)
   const [genErrorCode, setGenErrorCode] = useState<string | null>(null)
@@ -343,7 +713,10 @@ export function CreativeStudioSection({
   }, [selectedId, assets])
 
   const selectedAsset   = assets.find(a => a.id === selectedId) ?? null
-  const generatedImages = assets.filter(a => !a.isReference && a.mediaType === 'image')
+  // All non-reference images regardless of source (AI / library / uploaded)
+  const campaignImages  = assets.filter(a => !a.isReference && a.mediaType === 'image')
+  // Backward-compat alias used in GenerationControls
+  const generatedImages = campaignImages
   const referenceImages = assets.filter(a => a.isReference)
   const videoAssets     = assets.filter(a => a.mediaType === 'video')
 
@@ -457,6 +830,120 @@ export function CreativeStudioSection({
       setAssets(prev => prev.filter(a => a.id !== assetId))
       if (selectedId === assetId) setSelectedId(null)
     } catch { /* non-fatal */ }
+  }
+
+  // ── Attach from Media Library ─────────────────────────────────────────────
+
+  async function attachFromLibrary(
+    item: LibraryMedia,
+    asTarget: 'creative' | 'video-source',
+    fmt?: string,
+  ): Promise<string | null> {
+    setAttachingLibrary(true)
+    setLibraryError(null)
+    try {
+      const res  = await fetch(`/api/admin/orbit/campaigns/${campaignId}/creative/library`, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ mediaLibraryId: item.id, format: fmt ?? '1080x1080' }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error ?? 'Could not attach asset')
+
+      if (data.media) {
+        if (!data.alreadyAttached) {
+          setAssets(prev => [data.media, ...prev])
+        }
+        setShowLibraryPicker(false)
+        if (asTarget === 'creative') {
+          setSelectedId(data.media.id)
+        } else if (asTarget === 'video-source') {
+          setVideoSource(data.media.id)
+        }
+        return data.media.id
+      }
+    } catch (e) {
+      setLibraryError(e instanceof Error ? e.message : 'Attach failed')
+    } finally {
+      setAttachingLibrary(false)
+    }
+    return null
+  }
+
+  // ── Direct upload (non-reference) ─────────────────────────────────────────
+
+  async function uploadDirectAsset(
+    file: File,
+    fmt: string,
+    isVideo: boolean,
+    onProgress: (pct: number) => void,
+  ): Promise<void> {
+    onProgress(0)
+
+    // Step 1: get presigned URL
+    const presignRes = await fetch(
+      `/api/admin/orbit/campaigns/${campaignId}/creative/upload`,
+      {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({
+          mimeType:  file.type,
+          fileSize:  file.size,
+          format:    fmt,
+          mediaType: isVideo ? 'video' : 'image',
+        }),
+      },
+    )
+    const presignData = await presignRes.json()
+    if (!presignRes.ok) throw new Error(presignData.error ?? 'Upload init failed')
+
+    // Step 2: upload directly to Supabase with progress tracking
+    await uploadWithXHR(presignData.uploadUrl, file, pct => onProgress(Math.round(pct * 0.9)))
+
+    // Step 3: confirm upload (marks generationStatus=completed)
+    const confirmRes = await fetch(
+      `/api/admin/orbit/campaigns/${campaignId}/creative/upload`,
+      {
+        method:  'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ mediaId: presignData.mediaId, altText: file.name }),
+      },
+    )
+    const confirmData = await confirmRes.json()
+    if (!confirmRes.ok) throw new Error(confirmData.error ?? 'Upload confirm failed')
+
+    onProgress(100)
+
+    if (confirmData.media) {
+      setAssets(prev => [confirmData.media, ...prev])
+      setSelectedId(confirmData.media.id)
+    }
+  }
+
+  async function handleImageUpload(files: File[], fmt: string) {
+    const file = files[0]
+    if (!file) return
+    setUploadError(null)
+    try {
+      await uploadDirectAsset(file, fmt, false, setUploadProgress)
+    } catch (e) {
+      setUploadError(e instanceof Error ? e.message : 'Upload failed')
+    } finally {
+      setTimeout(() => setUploadProgress(null), 1200)
+    }
+  }
+
+  async function handleVideoFileUpload(files: File[], fmt: string) {
+    const file = files[0]
+    if (!file) return
+    setVideoUploadError(null)
+    try {
+      await uploadDirectAsset(file, fmt, true, setVideoUploadProgress)
+    } catch (e) {
+      setVideoUploadError(e instanceof Error ? e.message : 'Upload failed')
+    } finally {
+      setTimeout(() => setVideoUploadProgress(null), 1200)
+    }
   }
 
   // ── Save poster data ───────────────────────────────────────────────────────
@@ -722,8 +1209,29 @@ export function CreativeStudioSection({
   const formatPreset = FORMAT_PRESETS[format] ?? FORMAT_PRESETS['1080x1920']
   const bgUrl = selectedAsset?.publicUrl ?? null
 
+  const IMAGE_SOURCE_OPTIONS: { key: ImageSource; icon: string; label: string }[] = [
+    { key: 'ai',      icon: '✨', label: 'Generate AI' },
+    { key: 'library', icon: '🖼',  label: 'Media Library' },
+    { key: 'upload',  icon: '⬆',  label: 'Upload' },
+  ]
+
+  const VIDEO_SRC_OPTIONS: { key: VideoSrcMode; icon: string; label: string }[] = [
+    { key: 'assets',  icon: '🎨', label: 'Campaign Assets' },
+    { key: 'library', icon: '🖼',  label: 'Media Library' },
+    { key: 'upload',  icon: '⬆',  label: 'Upload' },
+  ]
+
   return (
     <div className="space-y-4">
+      {/* Library picker modal */}
+      {showLibraryPicker && (
+        <MediaLibraryPicker
+          typeFilter={libraryPickerFilter}
+          onClose={() => { setShowLibraryPicker(false); setLibraryError(null) }}
+          onSelect={item => attachFromLibrary(item, libraryPickerTarget, libraryFormat)}
+        />
+      )}
+
       {/* Header */}
       <div className="flex items-start justify-between gap-4">
         <div>
@@ -823,13 +1331,65 @@ export function CreativeStudioSection({
       {activeTab === 'POSTER' && (
         <div className="grid grid-cols-1 xl:grid-cols-[380px_1fr] gap-4">
           <div className="space-y-4">
-            <GenerationControls tab="POSTER" />
+            {/* Source selector */}
+            <div className="bg-gray-900 border border-gray-800 rounded-xl p-4 space-y-3">
+              <h3 className="text-sm font-semibold text-white">Artwork Source</h3>
+              <SourceSelector
+                value={imageSource}
+                options={IMAGE_SOURCE_OPTIONS}
+                onChange={setImageSource}
+              />
+            </div>
 
-            {generatedImages.length > 0 && (
+            {/* Source panels */}
+            {imageSource === 'ai' && <GenerationControls tab="POSTER" />}
+
+            {imageSource === 'library' && (
+              <div className="bg-gray-900 border border-gray-800 rounded-xl p-4 space-y-3">
+                <p className="text-xs text-gray-500">Select an existing image from your Media Library to use as the poster background.</p>
+                {libraryError && <p className="text-xs text-red-400">{libraryError}</p>}
+                <button
+                  onClick={() => {
+                    setLibraryPickerFilter('image')
+                    setLibraryPickerTarget('creative')
+                    setLibraryFormat(format)
+                    setShowLibraryPicker(true)
+                  }}
+                  disabled={attachingLibrary}
+                  className="w-full px-4 py-2.5 border border-gray-700 hover:border-indigo-600 text-gray-300 hover:text-white text-sm rounded-xl transition-colors disabled:opacity-50"
+                >
+                  {attachingLibrary ? 'Attaching…' : 'Browse Media Library'}
+                </button>
+                {selectedAsset && selectedAsset.provider === 'media_library' && (
+                  <div className="flex items-center gap-2 bg-gray-800 rounded-lg px-3 py-2">
+                    <div className="w-8 h-8 rounded overflow-hidden flex-shrink-0">
+                      {selectedAsset.publicUrl && <img src={selectedAsset.publicUrl} alt="" className="w-full h-full object-cover" />}
+                    </div>
+                    <p className="text-xs text-gray-300 truncate">{selectedAsset.altText || 'Media Library asset'}</p>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {imageSource === 'upload' && (
+              <div className="bg-gray-900 border border-gray-800 rounded-xl p-4 space-y-3">
+                <p className="text-xs text-gray-500">Upload an image to use as the poster background (JPEG, PNG, or WebP, max 50 MB).</p>
+                <UploadZone
+                  accept="image/jpeg,image/png,image/webp"
+                  label="Drop image here"
+                  sublabel="JPEG, PNG, WebP · max 50 MB"
+                  progress={uploadProgress}
+                  error={uploadError}
+                  onFiles={files => handleImageUpload(files, format)}
+                />
+              </div>
+            )}
+
+            {campaignImages.length > 0 && (
               <div>
                 <p className="text-xs text-gray-500 mb-2">Select background for compositor</p>
                 <div className="grid grid-cols-3 gap-2">
-                  {generatedImages.map(a => (
+                  {campaignImages.map(a => (
                     <AssetThumb
                       key={a.id}
                       asset={a}
@@ -868,9 +1428,9 @@ export function CreativeStudioSection({
               onExport={handleExport}
             />
 
-            {!selectedId && generatedImages.length === 0 && (
+            {!selectedId && campaignImages.length === 0 && (
               <p className="text-xs text-gray-600 text-center">
-                Generate artwork above, then select it to compose the poster.
+                Generate artwork, select from Media Library, or upload an image — then select it to compose the poster.
               </p>
             )}
 
@@ -887,18 +1447,63 @@ export function CreativeStudioSection({
       {/* ── SOCIAL TAB ─────────────────────────────────────────────────────── */}
       {activeTab === 'SOCIAL' && (
         <div className="grid grid-cols-1 lg:grid-cols-[360px_1fr] gap-4">
-          <GenerationControls tab="SOCIAL" />
+          <div className="space-y-4">
+            {/* Source selector */}
+            <div className="bg-gray-900 border border-gray-800 rounded-xl p-4 space-y-3">
+              <h3 className="text-sm font-semibold text-white">Artwork Source</h3>
+              <SourceSelector
+                value={imageSource}
+                options={IMAGE_SOURCE_OPTIONS}
+                onChange={setImageSource}
+              />
+            </div>
+
+            {imageSource === 'ai'      && <GenerationControls tab="SOCIAL" />}
+
+            {imageSource === 'library' && (
+              <div className="bg-gray-900 border border-gray-800 rounded-xl p-4 space-y-3">
+                <p className="text-xs text-gray-500">Pick an image from your Media Library to add to this campaign.</p>
+                {libraryError && <p className="text-xs text-red-400">{libraryError}</p>}
+                <button
+                  onClick={() => {
+                    setLibraryPickerFilter('image')
+                    setLibraryPickerTarget('creative')
+                    setLibraryFormat('1080x1080')
+                    setShowLibraryPicker(true)
+                  }}
+                  disabled={attachingLibrary}
+                  className="w-full px-4 py-2.5 border border-gray-700 hover:border-indigo-600 text-gray-300 hover:text-white text-sm rounded-xl transition-colors disabled:opacity-50"
+                >
+                  {attachingLibrary ? 'Attaching…' : 'Browse Media Library'}
+                </button>
+              </div>
+            )}
+
+            {imageSource === 'upload' && (
+              <div className="bg-gray-900 border border-gray-800 rounded-xl p-4 space-y-3">
+                <p className="text-xs text-gray-500">Upload an image directly (JPEG, PNG, or WebP, max 50 MB).</p>
+                <UploadZone
+                  accept="image/jpeg,image/png,image/webp"
+                  label="Drop image here"
+                  sublabel="JPEG, PNG, WebP · max 50 MB"
+                  progress={uploadProgress}
+                  error={uploadError}
+                  onFiles={files => handleImageUpload(files, '1080x1080')}
+                />
+              </div>
+            )}
+          </div>
 
           <div>
             <h3 className="text-sm font-semibold text-white mb-3">Social Assets</h3>
-            {generatedImages.length === 0 ? (
+            {campaignImages.length === 0 ? (
               <div className="bg-gray-900 border border-gray-800 rounded-xl py-16 text-center">
                 <p className="text-gray-500 text-sm">No social assets yet.</p>
-                <p className="text-gray-600 text-xs mt-1">Generate artwork from the controls panel.</p>
+                <p className="text-gray-600 text-xs mt-1">Generate, pick from Media Library, or upload an image.</p>
               </div>
             ) : (
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
-                {generatedImages.map(a => (
+                {campaignImages.map(a => (
                   <div key={a.id} className="space-y-1">
                     <AssetThumb
                       asset={a}
@@ -961,23 +1566,75 @@ export function CreativeStudioSection({
               </div>
             </div>
 
-            {/* Source image */}
-            <div>
-              <label className="text-xs text-gray-500 mb-1 block">Source image (required)</label>
-              <select
-                value={videoSource}
-                onChange={e => setVideoSource(e.target.value)}
-                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white"
-              >
-                <option value="">— Select a generated image —</option>
-                {generatedImages.filter(a => a.publicUrl && a.generationStatus === 'completed').map(a => (
-                  <option key={a.id} value={a.id}>
-                    {a.format} · {a.provider ?? 'generated'} · {new Date(a.createdAt).toLocaleDateString()}
-                  </option>
-                ))}
-              </select>
-              <p className="text-xs text-gray-600 mt-0.5">
-                Select clean artwork without commercial text overlaid. Add prices in Poster Compositor instead.
+            {/* Source image — 3-source selector */}
+            <div className="space-y-2">
+              <label className="text-xs text-gray-500 block">Source image</label>
+              <SourceSelector
+                value={videoSrcMode}
+                options={VIDEO_SRC_OPTIONS}
+                onChange={setVideoSrcMode}
+              />
+
+              {videoSrcMode === 'assets' && (
+                <select
+                  value={videoSource}
+                  onChange={e => setVideoSource(e.target.value)}
+                  className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white"
+                >
+                  <option value="">— Select a campaign image —</option>
+                  {campaignImages.filter(a => a.publicUrl && a.generationStatus === 'completed').map(a => (
+                    <option key={a.id} value={a.id}>
+                      {a.format} · {a.provider ?? 'uploaded'} · {new Date(a.createdAt).toLocaleDateString()}
+                    </option>
+                  ))}
+                </select>
+              )}
+
+              {videoSrcMode === 'library' && (
+                <div className="space-y-2">
+                  {libraryError && <p className="text-xs text-red-400">{libraryError}</p>}
+                  <button
+                    onClick={() => {
+                      setLibraryPickerFilter('image')
+                      setLibraryPickerTarget('video-source')
+                      setLibraryFormat('1080x1920')
+                      setShowLibraryPicker(true)
+                    }}
+                    disabled={attachingLibrary}
+                    className="w-full px-3 py-2 border border-gray-700 hover:border-indigo-600 text-gray-300 hover:text-white text-sm rounded-lg transition-colors disabled:opacity-50"
+                  >
+                    {attachingLibrary ? 'Attaching…' : 'Pick from Media Library'}
+                  </button>
+                  {videoSource && (
+                    <p className="text-xs text-green-400">Image selected — ready to animate</p>
+                  )}
+                </div>
+              )}
+
+              {videoSrcMode === 'upload' && (
+                <UploadZone
+                  accept="image/jpeg,image/png,image/webp"
+                  label="Upload source image"
+                  sublabel="JPEG, PNG, WebP · max 50 MB"
+                  progress={uploadProgress}
+                  error={uploadError}
+                  onFiles={async files => {
+                    const file = files[0]
+                    if (!file) return
+                    setUploadError(null)
+                    try {
+                      await uploadDirectAsset(file, '1080x1920', false, pct => setUploadProgress(Math.round(pct * 0.9)))
+                      // After upload, select the newest campaign image
+                      await loadAssets()
+                      setVideoSrcMode('assets')
+                    } catch (e) {
+                      setUploadError(e instanceof Error ? e.message : 'Upload failed')
+                    } finally { setTimeout(() => setUploadProgress(null), 1200) }
+                  }}
+                />
+              )}
+              <p className="text-xs text-gray-600">
+                Use clean artwork — no prices. Add commercial text in Poster Compositor.
               </p>
             </div>
 
@@ -1062,8 +1719,55 @@ export function CreativeStudioSection({
 
             <p className="text-xs text-gray-600">
               Video generation is async — status updates every 4 seconds automatically.
-              Do not animate artwork with prices or commercial text baked in; add those in Poster Compositor.
+              Do not animate artwork with prices baked in; add those in Poster Compositor.
             </p>
+
+            {/* Use existing video — attach without animation */}
+            <div className="border-t border-gray-800 pt-4">
+              <button
+                onClick={() => setShowExistingVideo(v => !v)}
+                className="w-full flex items-center justify-between text-xs text-gray-500 hover:text-gray-300 transition-colors"
+              >
+                <span>Use existing video (no AI animation)</span>
+                <span>{showExistingVideo ? '▲' : '▼'}</span>
+              </button>
+              {showExistingVideo && (
+                <div className="mt-3 space-y-3">
+                  <p className="text-xs text-gray-600">
+                    Attach a video directly from your Media Library or upload one. It will not be sent to FAL.
+                  </p>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => {
+                        setLibraryPickerFilter('video')
+                        setLibraryPickerTarget('creative')
+                        setLibraryFormat('1080x1920')
+                        setShowLibraryPicker(true)
+                      }}
+                      disabled={attachingLibrary}
+                      className="flex-1 px-3 py-2 border border-gray-700 hover:border-indigo-600 text-gray-300 hover:text-white text-xs rounded-lg transition-colors disabled:opacity-50"
+                    >
+                      🖼 From Media Library
+                    </button>
+                    <button
+                      onClick={() => {/* trigger video upload input */}}
+                      className="flex-1 px-3 py-2 border border-gray-700 hover:border-gray-600 text-gray-300 hover:text-white text-xs rounded-lg transition-colors"
+                      aria-label="Upload video"
+                    >
+                      ⬆ Upload video
+                    </button>
+                  </div>
+                  <UploadZone
+                    accept="video/mp4,video/quicktime,video/webm"
+                    label="Drop video here"
+                    sublabel="MP4, MOV, WebM · max 300 MB"
+                    progress={videoUploadProgress}
+                    error={videoUploadError}
+                    onFiles={files => handleVideoFileUpload(files, '1080x1920')}
+                  />
+                </div>
+              )}
+            </div>
           </div>
 
           {/* Video assets */}
@@ -1073,7 +1777,7 @@ export function CreativeStudioSection({
               <div className="bg-gray-900 border border-gray-800 rounded-xl py-16 text-center">
                 <p className="text-gray-500 text-sm">No videos yet.</p>
                 <p className="text-gray-600 text-xs mt-1">
-                  Select a source image and click Generate Video.
+                  Select a source image and animate it, or attach an existing video.
                 </p>
               </div>
             ) : (
@@ -1121,7 +1825,7 @@ export function CreativeStudioSection({
           {assets.length === 0 ? (
             <div className="bg-gray-900 border border-gray-800 rounded-xl py-16 text-center">
               <p className="text-gray-500 text-sm">No assets yet.</p>
-              <p className="text-gray-600 text-xs mt-1">Generate artwork in the Poster or Social tabs.</p>
+              <p className="text-gray-600 text-xs mt-1">Generate with AI, select from Media Library, or upload in the Poster or Social tabs.</p>
             </div>
           ) : (
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-5 gap-3">
@@ -1140,13 +1844,13 @@ export function CreativeStudioSection({
                     <div className="flex items-center gap-1 flex-wrap">
                       <StatusBadge status={a.generationStatus ?? a.status} />
                       {a.isReference && (
-                        <span className="text-purple-400">Ref</span>
+                        <span className="bg-purple-900/60 text-purple-400 text-xs px-1.5 py-0.5 rounded">Ref</span>
                       )}
                     </div>
-                    <p className="text-gray-600 truncate">
-                      {a.provider ? (PROVIDER_LABELS[a.provider] ?? a.provider) : 'uploaded'}
-                      {a.model ? ` / ${a.model}` : ''}
-                    </p>
+                    <SourceBadge provider={a.provider} source={a.source} />
+                    {a.model && (
+                      <p className="text-gray-600 truncate">{a.model}</p>
+                    )}
                     <p className="text-gray-700">
                       {a.format} · ${Number(a.costUsd).toFixed(3)}
                     </p>
