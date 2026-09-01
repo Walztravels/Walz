@@ -232,13 +232,13 @@ export async function POST(req: NextRequest) {
         },
       }).catch((e: unknown) => console.error('ActivityLog create failed:', e))
 
-      // Send login alert — skip for Admin role
+      // Send login alert — fire-and-forget so it never blocks the login response
       if (!SILENT_ROLES.includes(staffRole)) {
         const resend = getResend()
         if (resend) {
           const subject = `Staff Login Alert — ${staffName} — ${fmtDateTime(loginAt)}`
           const html    = buildLoginAlertHtml(staffName, staffRbacRole, normalizedEmail, ipAddress, browser, operatingSystem, loginAt)
-          await Promise.all([
+          void Promise.all([
             resend.emails.send({
               from:    'Walz Travels <noreply@walztravels.com>',
               to:      'contact@walztravels.com',
