@@ -17,6 +17,7 @@ import {
   isRunwayConfigured,
   submitRunwayImageToVideo,
   RUNWAY_COST_PER_SECOND,
+  getRunwayModel,
 } from '@/lib/orbit/runway-adapter'
 
 export const dynamic   = 'force-dynamic'
@@ -85,7 +86,7 @@ export async function POST(
       campaignId:       params.id,
       createdBy:        session.email,
       provider:         'runway',
-      model:            'gen4_turbo',
+      model:            getRunwayModel(),
       generationStatus: 'pending',
       costUsd:          duration * RUNWAY_COST_PER_SECOND,
     },

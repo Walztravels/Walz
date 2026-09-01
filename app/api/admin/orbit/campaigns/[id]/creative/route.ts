@@ -21,6 +21,7 @@ import {
   isOpenAIImageConfigured,
   generateOpenAIImage,
   editOpenAIImage,
+  getOpenAIImageModel,
 } from '@/lib/orbit/openai-image-adapter'
 import {
   isReplicateConfigured,
@@ -31,6 +32,7 @@ import {
   isRunwayConfigured,
   submitRunwayImageToVideo,
   RUNWAY_COST_PER_SECOND,
+  getRunwayModel,
 } from '@/lib/orbit/runway-adapter'
 import Anthropic from '@anthropic-ai/sdk'
 
@@ -135,7 +137,7 @@ export async function POST(
           campaignId:       params.id,
           createdBy:        session.email,
           provider:         'openai',
-          model:            'gpt-image-1',
+          model:            getOpenAIImageModel(),
           generationStatus: 'processing',
         },
       })
@@ -324,7 +326,7 @@ export async function POST(
         campaignId:       params.id,
         createdBy:        session.email,
         provider:         'runway',
-        model:            'gen4_turbo',
+        model:            getRunwayModel(),
         generationStatus: 'pending',
         costUsd:          duration * RUNWAY_COST_PER_SECOND,
       },

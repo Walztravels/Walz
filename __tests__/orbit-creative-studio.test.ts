@@ -20,11 +20,13 @@ import { buildCreativePrompt, BRAND_PRESETS, FORMAT_PRESETS } from '../lib/orbit
 import { defaultPosterData, COMMERCIAL_LAYERS } from '../lib/orbit/poster-data'
 import {
   isOpenAIImageConfigured,
+  getOpenAIImageModel,
 } from '../lib/orbit/openai-image-adapter'
 import {
   isRunwayConfigured,
   aspectRatioToRunwayRatio,
   RUNWAY_COST_PER_SECOND,
+  getRunwayModel,
 } from '../lib/orbit/runway-adapter'
 
 // ── Shared test env cleanup ───────────────────────────────────────────────────
@@ -277,5 +279,33 @@ describe('Feature flags default to off', () => {
     delete process.env.ORBIT_RUNWAY_VIDEO_ENABLED
     delete process.env.RUNWAY_API_SECRET
     expect(isRunwayConfigured()).toBe(false)
+  })
+})
+
+// ── getOpenAIImageModel ───────────────────────────────────────────────────────
+
+describe('getOpenAIImageModel', () => {
+  it('returns gpt-image-2 when ORBIT_OPENAI_IMAGE_MODEL is unset', () => {
+    delete process.env.ORBIT_OPENAI_IMAGE_MODEL
+    expect(getOpenAIImageModel()).toBe('gpt-image-2')
+  })
+
+  it('returns the override value when ORBIT_OPENAI_IMAGE_MODEL is set', () => {
+    process.env.ORBIT_OPENAI_IMAGE_MODEL = 'gpt-image-3'
+    expect(getOpenAIImageModel()).toBe('gpt-image-3')
+  })
+})
+
+// ── getRunwayModel ────────────────────────────────────────────────────────────
+
+describe('getRunwayModel', () => {
+  it('returns gen4_turbo when ORBIT_RUNWAY_MODEL is unset', () => {
+    delete process.env.ORBIT_RUNWAY_MODEL
+    expect(getRunwayModel()).toBe('gen4_turbo')
+  })
+
+  it('returns the override value when ORBIT_RUNWAY_MODEL is set', () => {
+    process.env.ORBIT_RUNWAY_MODEL = 'gen4_ultra'
+    expect(getRunwayModel()).toBe('gen4_ultra')
   })
 })

@@ -12,12 +12,19 @@
  *   NEXT_PUBLIC_SUPABASE_URL
  *   SUPABASE_SERVICE_ROLE_KEY
  *
+ * Optional env vars:
+ *   ORBIT_RUNWAY_MODEL  — defaults to 'gen4_turbo'; set to override without code changes
+ *
  * API reference: https://api.dev.runwayml.com/v1
  */
 
 const RUNWAY_BASE    = 'https://api.dev.runwayml.com/v1'
 const RUNWAY_VERSION = '2024-11-06'
-const DEFAULT_MODEL  = 'gen4_turbo'
+
+// Read model at call time. Override via ORBIT_RUNWAY_MODEL (server-side only).
+export function getRunwayModel(): string {
+  return process.env.ORBIT_RUNWAY_MODEL ?? 'gen4_turbo'
+}
 
 // Cost approximation: Gen-4 Turbo ~$0.05/second
 export const RUNWAY_COST_PER_SECOND = 0.05
@@ -76,7 +83,7 @@ export async function submitRunwayImageToVideo(opts: {
   }
 
   const body = {
-    model:       opts.model ?? DEFAULT_MODEL,
+    model:       opts.model ?? getRunwayModel(),
     promptImage: opts.promptImage,
     promptText:  opts.promptText,
     duration:    opts.duration,

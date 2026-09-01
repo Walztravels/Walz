@@ -1,5 +1,5 @@
 /**
- * Orbit — OpenAI GPT-Image-1 adapter.
+ * Orbit — OpenAI GPT-Image-2 adapter.
  *
  * Server-side only. NEVER import from client components.
  * OPENAI_API_KEY must never be exposed to the browser.
@@ -15,14 +15,21 @@
  *   ORBIT_AI_IMAGE_ENABLED=true
  *   NEXT_PUBLIC_SUPABASE_URL
  *   SUPABASE_SERVICE_ROLE_KEY
+ *
+ * Optional env vars:
+ *   ORBIT_OPENAI_IMAGE_MODEL  — defaults to 'gpt-image-2'; set to override without code changes
  */
 
 import OpenAI from 'openai'
 import { getFormatPreset } from './creative-presets'
 
-const MODEL = 'gpt-image-1'
+// Read model at call time so env var changes take effect on next request without rebuild.
+// Default: gpt-image-2. Override via ORBIT_OPENAI_IMAGE_MODEL (server-side only).
+export function getOpenAIImageModel(): string {
+  return process.env.ORBIT_OPENAI_IMAGE_MODEL ?? 'gpt-image-2'
+}
 
-// Approximate cost per image (gpt-image-1, medium quality)
+// Approximate cost per image (gpt-image-2, medium quality)
 // 1024x1024: ~$0.04, 1024x1536 / 1536x1024: ~$0.08
 export const OPENAI_IMAGE_COST: Record<string, number> = {
   '1024x1024': 0.04,
@@ -95,7 +102,7 @@ export async function generateOpenAIImage(opts: {
   const quality = opts.quality ?? 'medium'
 
   const response = await client.images.generate({
-    model:   MODEL,
+    model:   getOpenAIImageModel(),
     prompt:  opts.prompt,
     n:       1,
     size,
@@ -151,7 +158,7 @@ export async function editOpenAIImage(opts: {
   const imageFile  = await toFile(refBuffer, `reference.${ext}`, { type: mimeType })
 
   const response = await client.images.edit({
-    model:   MODEL,
+    model:   getOpenAIImageModel(),
     image:   imageFile,
     prompt:  opts.prompt,
     n:       1,
