@@ -32,6 +32,14 @@ export const maxDuration = 15
 
 const BUCKET = 'orbit-media'
 
+function prismaErrDetail(err: unknown): string {
+  if (err instanceof Error) {
+    const p = err as { code?: string; meta?: unknown }
+    return `${err.message.slice(0, 200)} [code=${p.code ?? '?'} meta=${JSON.stringify(p.meta ?? {})}]`
+  }
+  return String(err)
+}
+
 const ALLOWED_IMAGE_MIME: Record<string, string> = {
   'image/jpeg': 'jpg',
   'image/png':  'png',
@@ -53,12 +61,21 @@ export async function POST(
   req: NextRequest,
   { params }: { params: { id: string } },
 ) {
-  const session = await getAdminSession()
-  if (!session)                       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  if (session.role !== 'super_admin') return NextResponse.json({ error: 'Forbidden' },    { status: 403 })
+  const traceId = `orb_up_${Date.now().toString(36).slice(-5)}`
+  try {
 
-  const campaign = await prisma.orbitCampaign.findUnique({ where: { id: params.id } })
-  if (!campaign) return NextResponse.json({ error: 'Campaign not found' }, { status: 404 })
+  const session = await getAdminSession()
+  if (!session)                       return NextResponse.json({ error: 'Unauthorized', traceId }, { status: 401 })
+  if (session.role !== 'super_admin') return NextResponse.json({ error: 'Forbidden', traceId },    { status: 403 })
+
+  let campaign: Awaited<ReturnType<typeof prisma.orbitCampaign.findUnique>>
+  try {
+    campaign = await prisma.orbitCampaign.findUnique({ where: { id: params.id } })
+  } catch (dbErr) {
+    console.error(`[upload/POST] traceId=${traceId} stage=campaign_lookup_failed ${prismaErrDetail(dbErr)}`)
+    return NextResponse.json({ error: 'Database error looking up campaign.', errorCode: 'INTERNAL_SERVER_ERROR', traceId }, { status: 500 })
+  }
+  if (!campaign) return NextResponse.json({ error: 'Campaign not found', traceId }, { status: 404 })
 
   const body = await req.json().catch(() => ({})) as {
     mimeType?:  string
@@ -112,10 +129,12 @@ export async function POST(
       },
     })
   } catch (dbErr) {
-    console.error('[upload/POST] OrbitMedia create failed:', dbErr instanceof Error ? dbErr.message : String(dbErr))
+    const detail = prismaErrDetail(dbErr)
+    console.error(`[upload/POST] traceId=${traceId} stage=db_create_failed ${detail}`)
     return NextResponse.json({
       error: 'Could not create upload record.',
       errorCode: 'ORBIT_MEDIA_CREATE_FAILED',
+      traceId,
     }, { status: 500 })
   }
 
@@ -133,7 +152,7 @@ export async function POST(
 
   if (uploadErr || !uploadData?.signedUrl) {
     await prisma.orbitMedia.delete({ where: { id: placeholder.id } }).catch(() => {})
-    return NextResponse.json({ error: 'Could not create upload URL. Please try again.' }, { status: 500 })
+    return NextResponse.json({ error: 'Could not create upload URL. Please try again.', traceId }, { status: 500 })
   }
 
   return NextResponse.json({
@@ -144,6 +163,11 @@ export async function POST(
     mediaType:   isImage ? 'image' : 'video',
     format,
   })
+
+  } catch (fatal) {
+    console.error(`[upload/POST] traceId=${traceId} stage=fatal_unhandled ${fatal instanceof Error ? fatal.message : String(fatal)}`)
+    return NextResponse.json({ error: 'An unexpected error occurred.', errorCode: 'INTERNAL_SERVER_ERROR', traceId }, { status: 500 })
+  }
 }
 
 // ── PATCH — confirm upload complete ───────────────────────────────────────────

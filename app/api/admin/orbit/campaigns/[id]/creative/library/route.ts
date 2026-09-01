@@ -36,6 +36,14 @@ import { prisma } from '@/lib/db'
 
 export const dynamic = 'force-dynamic'
 
+function prismaErrDetail(err: unknown): string {
+  if (err instanceof Error) {
+    const p = err as { code?: string; meta?: unknown }
+    return `${err.message.slice(0, 200)} [code=${p.code ?? '?'} meta=${JSON.stringify(p.meta ?? {})}]`
+  }
+  return String(err)
+}
+
 const ALLOWED_IMAGE_MIME = new Set([
   'image/jpeg', 'image/png', 'image/webp',
 ])
@@ -47,12 +55,21 @@ export async function POST(
   req: NextRequest,
   { params }: { params: { id: string } },
 ) {
-  const session = await getAdminSession()
-  if (!session)                       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  if (session.role !== 'super_admin') return NextResponse.json({ error: 'Forbidden' },    { status: 403 })
+  const traceId = `orb_lib_${Date.now().toString(36).slice(-5)}`
+  try {
 
-  const campaign = await prisma.orbitCampaign.findUnique({ where: { id: params.id } })
-  if (!campaign) return NextResponse.json({ error: 'Campaign not found' }, { status: 404 })
+  const session = await getAdminSession()
+  if (!session)                       return NextResponse.json({ error: 'Unauthorized', traceId }, { status: 401 })
+  if (session.role !== 'super_admin') return NextResponse.json({ error: 'Forbidden', traceId },    { status: 403 })
+
+  let campaign: Awaited<ReturnType<typeof prisma.orbitCampaign.findUnique>>
+  try {
+    campaign = await prisma.orbitCampaign.findUnique({ where: { id: params.id } })
+  } catch (dbErr) {
+    console.error(`[library/POST] traceId=${traceId} stage=campaign_lookup_failed ${prismaErrDetail(dbErr)}`)
+    return NextResponse.json({ error: 'Database error looking up campaign.', errorCode: 'INTERNAL_SERVER_ERROR', traceId }, { status: 500 })
+  }
+  if (!campaign) return NextResponse.json({ error: 'Campaign not found', traceId }, { status: 404 })
 
   const body = await req.json().catch(() => ({})) as {
     mediaLibraryId?: string
@@ -64,11 +81,15 @@ export async function POST(
   }
 
   // ── Fetch the Media Library asset (IDOR protection) ───────────────────────────
-  const libraryAsset = await prisma.marketingMedia.findUnique({
-    where: { id: body.mediaLibraryId },
-  })
+  let libraryAsset: Awaited<ReturnType<typeof prisma.marketingMedia.findUnique>>
+  try {
+    libraryAsset = await prisma.marketingMedia.findUnique({ where: { id: body.mediaLibraryId } })
+  } catch (dbErr) {
+    console.error(`[library/POST] traceId=${traceId} stage=asset_lookup_failed ${prismaErrDetail(dbErr)}`)
+    return NextResponse.json({ error: 'Database error looking up asset.', errorCode: 'INTERNAL_SERVER_ERROR', traceId }, { status: 500 })
+  }
   if (!libraryAsset) {
-    return NextResponse.json({ error: 'Media Library asset not found' }, { status: 404 })
+    return NextResponse.json({ error: 'Media Library asset not found', traceId }, { status: 404 })
   }
 
   // ── Validate the MIME type is supported in Creative Studio ────────────────────
@@ -145,12 +166,19 @@ export async function POST(
       },
     })
   } catch (dbErr) {
-    console.error('[library/POST] OrbitMedia create failed:', dbErr instanceof Error ? dbErr.message : String(dbErr))
+    const detail = prismaErrDetail(dbErr)
+    console.error(`[library/POST] traceId=${traceId} stage=db_create_failed ${detail}`)
     return NextResponse.json({
       error: 'Could not attach Media Library asset.',
       errorCode: 'ORBIT_MEDIA_CREATE_FAILED',
+      traceId,
     }, { status: 500 })
   }
 
   return NextResponse.json({ media }, { status: 201 })
+
+  } catch (fatal) {
+    console.error(`[library/POST] traceId=${traceId} stage=fatal_unhandled ${fatal instanceof Error ? fatal.message : String(fatal)}`)
+    return NextResponse.json({ error: 'An unexpected error occurred.', errorCode: 'INTERNAL_SERVER_ERROR', traceId }, { status: 500 })
+  }
 }

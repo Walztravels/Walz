@@ -650,10 +650,11 @@ export function CreativeStudioSection({
   const [videoError,      setVideoError]      = useState<string | null>(null)
   const [generatingVideo, setGeneratingVideo] = useState(false)
 
-  // Reference image upload
+  // Reference image upload / removal
   const refInputRef = useRef<HTMLInputElement>(null)
   const [uploadingRef, setUploadingRef] = useState(false)
   const [refError,     setRefError]     = useState<string | null>(null)
+  const [removingRefId, setRemovingRefId] = useState<string | null>(null)
 
   // Polling timers for pending jobs
   const pollTimers = useRef<Record<string, ReturnType<typeof setInterval>>>({})
@@ -1009,10 +1010,33 @@ export function CreativeStudioSection({
       })
       if (!upRes.ok) throw new Error('[REFERENCE_UPLOAD_FAILED] File upload to storage failed')
 
+      // Reset input so the same file can be picked again after removal
+      if (refInputRef.current) refInputRef.current.value = ''
       await loadAssets()
     } catch (e) {
       setRefError(e instanceof Error ? e.message : 'Upload failed')
     } finally { setUploadingRef(false) }
+  }
+
+  // ── Remove reference image ────────────────────────────────────────────────
+
+  async function removeReference(mediaId: string) {
+    setRemovingRefId(mediaId); setRefError(null)
+    try {
+      const res = await fetch(
+        `/api/admin/orbit/campaigns/${campaignId}/creative/reference?mediaId=${encodeURIComponent(mediaId)}`,
+        { method: 'DELETE' },
+      )
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({})) as { error?: string }
+        throw new Error(data.error ?? 'Could not remove reference image')
+      }
+      // Reset input so the same file can be re-uploaded immediately
+      if (refInputRef.current) refInputRef.current.value = ''
+      setAssets(prev => prev.filter(a => a.id !== mediaId))
+    } catch (e) {
+      setRefError(e instanceof Error ? e.message : 'Remove failed')
+    } finally { setRemovingRefId(null) }
   }
 
   // ── Provider health test ───────────────────────────────────────────────────
@@ -1188,11 +1212,21 @@ export function CreativeStudioSection({
           {referenceImages.length > 0 && (
             <div className="flex gap-2 mt-2 flex-wrap">
               {referenceImages.map(r => (
-                <div key={r.id} className="relative w-14 h-14 rounded overflow-hidden border border-gray-700">
+                <div key={r.id} className="relative w-14 h-14 rounded overflow-hidden border border-gray-700 group">
                   {r.publicUrl && <img src={r.publicUrl} alt={r.altText} className="w-full h-full object-cover" />}
                   <div className="absolute inset-0 bg-black/40 flex items-end p-0.5">
                     <span className="text-xs text-white/80 truncate" style={{ fontSize: 8 }}>Ref</span>
                   </div>
+                  {/* Remove button — visible on hover */}
+                  <button
+                    onClick={() => removeReference(r.id)}
+                    disabled={removingRefId === r.id}
+                    title="Remove reference image"
+                    className="absolute top-0.5 right-0.5 w-4 h-4 rounded-full bg-red-600 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity disabled:opacity-50 text-xs leading-none"
+                    style={{ fontSize: 10 }}
+                  >
+                    {removingRefId === r.id ? '…' : '×'}
+                  </button>
                 </div>
               ))}
             </div>
