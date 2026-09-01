@@ -18,10 +18,12 @@ import { prisma } from '@/lib/db'
 import { assertContentSafe } from '@/lib/orbit/content-filter'
 import { buildCreativePrompt } from '@/lib/orbit/creative-presets'
 import {
+  isOpenAIImageEnabled,
   isOpenAIImageConfigured,
   generateOpenAIImage,
   editOpenAIImage,
   getOpenAIImageModel,
+  OrbitImageError,
 } from '@/lib/orbit/openai-image-adapter'
 import {
   isReplicateConfigured,
@@ -64,7 +66,7 @@ export async function GET(
   return NextResponse.json({
     assets,
     // Backward-compat booleans
-    openaiEnabled:    isOpenAIImageConfigured(),
+    openaiEnabled:    isOpenAIImageEnabled(),
     replicateEnabled: isReplicateConfigured(),
     runwayEnabled:    false,                    // Runway removed; kept for client backward compat
     falVideoEnabled:  isFalVideoConfigured(),
@@ -210,6 +212,10 @@ export async function POST(
 
       } catch (err) {
         await prisma.orbitMedia.delete({ where: { id: placeholder.id } }).catch(() => {})
+        if (err instanceof OrbitImageError) {
+          const httpStatus = err.httpStatus && err.httpStatus >= 400 ? err.httpStatus : 500
+          return NextResponse.json({ error: err.message, errorCode: err.code }, { status: httpStatus })
+        }
         const msg = err instanceof Error ? err.message : String(err)
         return NextResponse.json({ error: msg }, { status: 500 })
       }

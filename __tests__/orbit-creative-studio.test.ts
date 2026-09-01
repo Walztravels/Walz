@@ -20,7 +20,9 @@ import { buildCreativePrompt, BRAND_PRESETS, FORMAT_PRESETS } from '../lib/orbit
 import { defaultPosterData, COMMERCIAL_LAYERS } from '../lib/orbit/poster-data'
 import {
   isOpenAIImageConfigured,
+  isOpenAIImageEnabled,
   getOpenAIImageModel,
+  OrbitImageError,
 } from '../lib/orbit/openai-image-adapter'
 import {
   isRunwayConfigured,
@@ -112,38 +114,70 @@ describe('FORMAT_PRESETS', () => {
   })
 })
 
-// ── isOpenAIImageConfigured ───────────────────────────────────────────────────
+// ── isOpenAIImageEnabled (new — Supabase NOT required) ───────────────────────
+
+describe('isOpenAIImageEnabled', () => {
+  it('returns false when ORBIT_AI_IMAGE_ENABLED is missing', () => {
+    delete process.env.ORBIT_AI_IMAGE_ENABLED
+    process.env.OPENAI_API_KEY = 'sk-test'
+    expect(isOpenAIImageEnabled()).toBe(false)
+  })
+
+  it('returns false when ORBIT_AI_IMAGE_ENABLED=false', () => {
+    process.env.ORBIT_AI_IMAGE_ENABLED = 'false'
+    process.env.OPENAI_API_KEY         = 'sk-test'
+    expect(isOpenAIImageEnabled()).toBe(false)
+  })
+
+  it('returns false when OPENAI_API_KEY is missing', () => {
+    process.env.ORBIT_AI_IMAGE_ENABLED = 'true'
+    delete process.env.OPENAI_API_KEY
+    expect(isOpenAIImageEnabled()).toBe(false)
+  })
+
+  it('returns true with only flag + key (Supabase NOT required)', () => {
+    process.env.ORBIT_AI_IMAGE_ENABLED = 'true'
+    process.env.OPENAI_API_KEY         = 'sk-test'
+    delete process.env.NEXT_PUBLIC_SUPABASE_URL
+    delete process.env.SUPABASE_SERVICE_ROLE_KEY
+    expect(isOpenAIImageEnabled()).toBe(true)
+  })
+
+  it('returns true with flag + key even when Supabase vars are also present', () => {
+    process.env.ORBIT_AI_IMAGE_ENABLED    = 'true'
+    process.env.OPENAI_API_KEY            = 'sk-test'
+    process.env.NEXT_PUBLIC_SUPABASE_URL  = 'https://x.supabase.co'
+    process.env.SUPABASE_SERVICE_ROLE_KEY = 'service-role-key'
+    expect(isOpenAIImageEnabled()).toBe(true)
+  })
+})
+
+// ── isOpenAIImageConfigured (alias of isOpenAIImageEnabled) ──────────────────
 
 describe('isOpenAIImageConfigured', () => {
   it('returns false when ORBIT_AI_IMAGE_ENABLED is missing', () => {
     delete process.env.ORBIT_AI_IMAGE_ENABLED
-    process.env.OPENAI_API_KEY            = 'sk-test'
-    process.env.NEXT_PUBLIC_SUPABASE_URL  = 'https://x.supabase.co'
-    process.env.SUPABASE_SERVICE_ROLE_KEY = 'service-role-key'
+    process.env.OPENAI_API_KEY = 'sk-test'
     expect(isOpenAIImageConfigured()).toBe(false)
   })
 
   it('returns false when ORBIT_AI_IMAGE_ENABLED=false', () => {
-    process.env.ORBIT_AI_IMAGE_ENABLED    = 'false'
-    process.env.OPENAI_API_KEY            = 'sk-test'
-    process.env.NEXT_PUBLIC_SUPABASE_URL  = 'https://x.supabase.co'
-    process.env.SUPABASE_SERVICE_ROLE_KEY = 'service-role-key'
+    process.env.ORBIT_AI_IMAGE_ENABLED = 'false'
+    process.env.OPENAI_API_KEY         = 'sk-test'
     expect(isOpenAIImageConfigured()).toBe(false)
   })
 
   it('returns false when OPENAI_API_KEY is missing', () => {
-    process.env.ORBIT_AI_IMAGE_ENABLED    = 'true'
+    process.env.ORBIT_AI_IMAGE_ENABLED = 'true'
     delete process.env.OPENAI_API_KEY
-    process.env.NEXT_PUBLIC_SUPABASE_URL  = 'https://x.supabase.co'
-    process.env.SUPABASE_SERVICE_ROLE_KEY = 'service-role-key'
     expect(isOpenAIImageConfigured()).toBe(false)
   })
 
-  it('returns true when all required vars are set', () => {
+  it('returns true with flag + key — Supabase no longer required', () => {
     process.env.ORBIT_AI_IMAGE_ENABLED    = 'true'
     process.env.OPENAI_API_KEY            = 'sk-test'
-    process.env.NEXT_PUBLIC_SUPABASE_URL  = 'https://x.supabase.co'
-    process.env.SUPABASE_SERVICE_ROLE_KEY = 'service-role-key'
+    delete process.env.NEXT_PUBLIC_SUPABASE_URL
+    delete process.env.SUPABASE_SERVICE_ROLE_KEY
     expect(isOpenAIImageConfigured()).toBe(true)
   })
 })
@@ -652,5 +686,90 @@ describe('getProviderHealth — report structure', () => {
   it('video.provider is always "fal"', () => {
     const r = getProviderHealth()
     expect(r.video.provider).toBe('fal')
+  })
+})
+
+// ── getProviderHealth — envPresence includes Supabase storage vars ────────────
+
+describe('getProviderHealth — envPresence Supabase storage tracking', () => {
+  it('reports NEXT_PUBLIC_SUPABASE_URL as PRESENT when set', () => {
+    process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://x.supabase.co'
+    const r = getProviderHealth()
+    expect(r.envPresence.NEXT_PUBLIC_SUPABASE_URL).toBe(true)
+  })
+
+  it('reports NEXT_PUBLIC_SUPABASE_URL as MISSING when unset', () => {
+    delete process.env.NEXT_PUBLIC_SUPABASE_URL
+    const r = getProviderHealth()
+    expect(r.envPresence.NEXT_PUBLIC_SUPABASE_URL).toBe(false)
+  })
+
+  it('reports SUPABASE_SERVICE_ROLE_KEY as PRESENT when set', () => {
+    process.env.SUPABASE_SERVICE_ROLE_KEY = 'service-role-key'
+    const r = getProviderHealth()
+    expect(r.envPresence.SUPABASE_SERVICE_ROLE_KEY).toBe(true)
+  })
+
+  it('reports SUPABASE_SERVICE_ROLE_KEY as MISSING when unset', () => {
+    delete process.env.SUPABASE_SERVICE_ROLE_KEY
+    const r = getProviderHealth()
+    expect(r.envPresence.SUPABASE_SERVICE_ROLE_KEY).toBe(false)
+  })
+
+  it('never leaks the actual Supabase URL or service key value', () => {
+    process.env.NEXT_PUBLIC_SUPABASE_URL  = 'https://secret.supabase.co'
+    process.env.SUPABASE_SERVICE_ROLE_KEY = 'super-secret-service-key'
+    const r = getProviderHealth()
+    const serialized = JSON.stringify(r.envPresence)
+    expect(serialized).not.toContain('https://secret.supabase.co')
+    expect(serialized).not.toContain('super-secret-service-key')
+  })
+
+  it('image status is configured when flag+key set, even when Supabase is absent', () => {
+    process.env.ORBIT_AI_IMAGE_ENABLED = 'true'
+    process.env.OPENAI_API_KEY         = 'sk-test'
+    delete process.env.NEXT_PUBLIC_SUPABASE_URL
+    delete process.env.SUPABASE_SERVICE_ROLE_KEY
+    const r = getProviderHealth()
+    expect(r.image.status).toBe('configured')
+    expect(r.image.configured).toBe(true)
+  })
+})
+
+// ── OrbitImageError ───────────────────────────────────────────────────────────
+
+describe('OrbitImageError', () => {
+  it('carries the error code', () => {
+    const err = new OrbitImageError('test message', 'INVALID_API_KEY', 401)
+    expect(err.code).toBe('INVALID_API_KEY')
+    expect(err.message).toBe('test message')
+    expect(err.httpStatus).toBe(401)
+  })
+
+  it('name is OrbitImageError', () => {
+    const err = new OrbitImageError('x', 'FEATURE_DISABLED')
+    expect(err.name).toBe('OrbitImageError')
+  })
+
+  it('is instanceof Error', () => {
+    const err = new OrbitImageError('x', 'MISSING_API_KEY')
+    expect(err).toBeInstanceOf(Error)
+  })
+
+  it('httpStatus is undefined when not provided', () => {
+    const err = new OrbitImageError('x', 'OPENAI_REQUEST_FAILED')
+    expect(err.httpStatus).toBeUndefined()
+  })
+
+  it('supports all OrbitImageErrorCode values', () => {
+    const codes = [
+      'FEATURE_DISABLED', 'MISSING_API_KEY', 'INVALID_API_KEY',
+      'MODEL_NOT_AVAILABLE', 'BILLING_OR_QUOTA', 'RATE_LIMIT',
+      'OPENAI_REQUEST_FAILED', 'STORAGE_UPLOAD_FAILED', 'STORAGE_NOT_CONFIGURED',
+    ] as const
+    for (const code of codes) {
+      const err = new OrbitImageError(`msg for ${code}`, code)
+      expect(err.code).toBe(code)
+    }
   })
 })

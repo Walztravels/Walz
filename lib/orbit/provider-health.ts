@@ -8,10 +8,10 @@
  *   configured          — feature enabled AND key present AND model resolves
  *   disabled            — feature flag is not set to true
  *   missing_key         — feature enabled but API key absent
- *   invalid_configuration — key present but model resolution failed
+ *   invalid_configuration — model resolution failed (registry issue)
  */
 
-import { getOpenAIImageModel } from './openai-image-adapter'
+import { isOpenAIImageEnabled, getOpenAIImageModel } from './openai-image-adapter'
 import { resolveVideoModel } from './video-models'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -45,6 +45,8 @@ export interface EnvPresence {
   OPENAI_API_KEY:           boolean  // true = present, never the value
   ORBIT_AI_IMAGE_ENABLED:   boolean
   ORBIT_OPENAI_IMAGE_MODEL: boolean
+  NEXT_PUBLIC_SUPABASE_URL: boolean  // storage — required at upload time
+  SUPABASE_SERVICE_ROLE_KEY:boolean  // storage — required at upload time
   FALAI_API_KEY:            boolean
   ORBIT_AI_VIDEO_ENABLED:   boolean
   ORBIT_VIDEO_PROVIDER:     boolean
@@ -62,6 +64,12 @@ export interface ProviderHealthReport {
 
 export function getProviderHealth(): ProviderHealthReport {
   // ── OpenAI image ─────────────────────────────────────────────────────
+  //
+  // isOpenAIImageEnabled() checks ONLY flag + key.
+  // Supabase storage credentials are checked at upload time — not here.
+  // Bundling Supabase into the provider check causes false "not configured"
+  // states when OpenAI is properly set up but Supabase credentials are absent.
+
   const imageEnabled = process.env.ORBIT_AI_IMAGE_ENABLED === 'true'
   const hasOpenAIKey = !!process.env.OPENAI_API_KEY
   const imageModel   = getOpenAIImageModel()  // returns model name, never the key
@@ -80,11 +88,9 @@ export function getProviderHealth(): ProviderHealthReport {
   }
 
   // ── FAL video ─────────────────────────────────────────────────────────
-  const videoEnabled = process.env.ORBIT_AI_VIDEO_ENABLED === 'true'
-  const hasFalKey    = !!process.env.FALAI_API_KEY
-
-  // resolveVideoModel reads ORBIT_FAL_VIDEO_MODEL from env if set
-  const klingResolved = resolveVideoModel('kling')
+  const videoEnabled  = process.env.ORBIT_AI_VIDEO_ENABLED === 'true'
+  const hasFalKey     = !!process.env.FALAI_API_KEY
+  const klingResolved = resolveVideoModel('kling')  // reads ORBIT_FAL_VIDEO_MODEL if set
 
   let videoStatus: ProviderStatus
   let videoReason: string
@@ -123,13 +129,15 @@ export function getProviderHealth(): ProviderHealthReport {
       reason:     videoReason,
     },
     envPresence: {
-      OPENAI_API_KEY:           hasOpenAIKey,
-      ORBIT_AI_IMAGE_ENABLED:   process.env.ORBIT_AI_IMAGE_ENABLED !== undefined,
-      ORBIT_OPENAI_IMAGE_MODEL: !!process.env.ORBIT_OPENAI_IMAGE_MODEL,
-      FALAI_API_KEY:            hasFalKey,
-      ORBIT_AI_VIDEO_ENABLED:   process.env.ORBIT_AI_VIDEO_ENABLED !== undefined,
-      ORBIT_VIDEO_PROVIDER:     !!process.env.ORBIT_VIDEO_PROVIDER,
-      ORBIT_FAL_VIDEO_MODEL:    !!process.env.ORBIT_FAL_VIDEO_MODEL,
+      OPENAI_API_KEY:            hasOpenAIKey,
+      ORBIT_AI_IMAGE_ENABLED:    process.env.ORBIT_AI_IMAGE_ENABLED !== undefined,
+      ORBIT_OPENAI_IMAGE_MODEL:  !!process.env.ORBIT_OPENAI_IMAGE_MODEL,
+      NEXT_PUBLIC_SUPABASE_URL:  !!process.env.NEXT_PUBLIC_SUPABASE_URL,
+      SUPABASE_SERVICE_ROLE_KEY: !!process.env.SUPABASE_SERVICE_ROLE_KEY,
+      FALAI_API_KEY:             hasFalKey,
+      ORBIT_AI_VIDEO_ENABLED:    process.env.ORBIT_AI_VIDEO_ENABLED !== undefined,
+      ORBIT_VIDEO_PROVIDER:      !!process.env.ORBIT_VIDEO_PROVIDER,
+      ORBIT_FAL_VIDEO_MODEL:     !!process.env.ORBIT_FAL_VIDEO_MODEL,
     },
     checkedAt: new Date().toISOString(),
   }

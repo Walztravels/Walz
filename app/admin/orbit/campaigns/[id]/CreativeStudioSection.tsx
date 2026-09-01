@@ -255,6 +255,7 @@ export function CreativeStudioSection({
   const [healthReport,  setHealthReport]  = useState<Record<string, unknown> | null>(null)
   const [generating,   setGenerating]   = useState(false)
   const [genError,     setGenError]     = useState<string | null>(null)
+  const [genErrorCode, setGenErrorCode] = useState<string | null>(null)
   const [selectedId,   setSelectedId]   = useState<string | null>(null)
 
   // Image generation form state
@@ -349,7 +350,7 @@ export function CreativeStudioSection({
   // ── Generate image ─────────────────────────────────────────────────────────
 
   async function generateImage(tab: 'POSTER' | 'SOCIAL') {
-    setGenerating(true); setGenError(null)
+    setGenerating(true); setGenError(null); setGenErrorCode(null)
     try {
       const body: Record<string, unknown> = {
         mode:         'image',
@@ -366,7 +367,10 @@ export function CreativeStudioSection({
         body:    JSON.stringify(body),
       })
       const data = await res.json()
-      if (!res.ok) throw new Error(data.error ?? 'Generation failed')
+      if (!res.ok) {
+        if (data.errorCode) setGenErrorCode(data.errorCode)
+        throw new Error(data.error ?? 'Generation failed')
+      }
       if (data.media) {
         setAssets(prev => [data.media, ...prev])
         setSelectedId(data.media.id)
@@ -565,11 +569,19 @@ export function CreativeStudioSection({
               </button>
             )}
           </div>
-          {!caps.openaiEnabled && !caps.replicateEnabled && (
-            <p className="mt-1 text-xs text-red-400">
-              No image provider configured. Set ORBIT_AI_IMAGE_ENABLED=true or REPLICATE_API_TOKEN.
-            </p>
-          )}
+          {!caps.openaiEnabled && !caps.replicateEnabled && (() => {
+            const s = caps.imageHealth?.status
+            const msgs: Record<string, string> = {
+              disabled:             'Image generation is disabled. Set ORBIT_AI_IMAGE_ENABLED=true.',
+              missing_key:          'Image generation is enabled but OPENAI_API_KEY is not set.',
+              invalid_configuration: 'Image provider configuration is invalid. Check the provider diagnostic.',
+            }
+            return (
+              <p className="mt-1 text-xs text-red-400">
+                {s && msgs[s] ? msgs[s] : 'No image provider configured. Set ORBIT_AI_IMAGE_ENABLED=true or REPLICATE_API_TOKEN.'}
+              </p>
+            )
+          })()}
         </div>
 
         {/* Format */}
@@ -673,8 +685,11 @@ export function CreativeStudioSection({
         </div>
 
         {genError && (
-          <div className="bg-red-950 border border-red-800 text-red-300 text-xs rounded-lg px-3 py-2">
-            {genError}
+          <div className="bg-red-950 border border-red-800 text-red-300 text-xs rounded-lg px-3 py-2 space-y-1">
+            <p>{genError}</p>
+            {genErrorCode && (
+              <p className="text-red-500 font-mono">{genErrorCode}</p>
+            )}
           </div>
         )}
 
