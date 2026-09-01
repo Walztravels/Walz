@@ -603,6 +603,8 @@ export function CreativeStudioSection({
   const [testingHealth, setTestingHealth] = useState(false)
   const [healthPanel,   setHealthPanel]   = useState(false)
   const [healthReport,  setHealthReport]  = useState<Record<string, unknown> | null>(null)
+  // Authoritative provider state — fetched from the health endpoint (no DB dependency)
+  const [providerHealth, setProviderHealth] = useState<{ image?: ProviderHealth; video?: ProviderHealth } | null>(null)
   // ── Image / asset source selector state ──────────────────────────────────────
   const [imageSource,    setImageSource]    = useState<ImageSource>('ai')
   const [videoSrcMode,   setVideoSrcMode]   = useState<VideoSrcMode>('assets')
@@ -659,22 +661,31 @@ export function CreativeStudioSection({
   async function loadAssets() {
     try {
       const res  = await fetch(`/api/admin/orbit/campaigns/${campaignId}/creative`)
+      if (!res.ok) return
       const data = await res.json()
       if (data.assets) setAssets(data.assets)
-      setCaps({
-        openaiEnabled:    data.openaiEnabled    ?? false,
+      setCaps(prev => ({
+        ...prev,
         replicateEnabled: data.replicateEnabled ?? false,
         runwayEnabled:    false,
-        falVideoEnabled:  data.falVideoEnabled  ?? false,
-        imageHealth:      data.imageHealth      ?? undefined,
-        videoHealth:      data.videoHealth      ?? undefined,
-      })
+      }))
     } catch { /* non-fatal */ }
     finally { setLoading(false) }
   }
 
+  async function loadHealth() {
+    try {
+      const res  = await fetch('/api/admin/orbit/creative/health')
+      if (!res.ok) return
+      const data = await res.json()
+      setProviderHealth(data)
+      setHealthReport(data)
+    } catch { /* non-fatal */ }
+  }
+
   useEffect(() => {
     loadAssets()
+    loadHealth()
     return () => { Object.values(pollTimers.current).forEach(clearInterval) }
   }, [campaignId]) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -713,6 +724,11 @@ export function CreativeStudioSection({
   }, [selectedId, assets])
 
   const selectedAsset   = assets.find(a => a.id === selectedId) ?? null
+
+  // Derived from authoritative health endpoint — single source of truth for provider readiness
+  const imageReady = providerHealth?.image?.configured === true
+  const videoReady = providerHealth?.video?.configured === true
+
   // All non-reference images regardless of source (AI / library / uploaded)
   const campaignImages  = assets.filter(a => !a.isReference && a.mediaType === 'image')
   // Backward-compat alias used in GenerationControls
@@ -1029,7 +1045,7 @@ export function CreativeStudioSection({
         <div>
           <label className="text-xs text-gray-500 mb-1 block">Provider</label>
           <div className="flex gap-2">
-            {(caps.openaiEnabled || !caps.replicateEnabled) && (
+            {(imageReady || !caps.replicateEnabled) && (
               <button
                 onClick={() => setProvider('openai')}
                 className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors ${
@@ -1037,10 +1053,10 @@ export function CreativeStudioSection({
                     ? 'bg-indigo-700 border-indigo-600 text-white'
                     : 'border-gray-700 text-gray-400 hover:border-gray-600'
                 }`}
-                disabled={!caps.openaiEnabled}
+                disabled={!imageReady}
               >
                 {PROVIDER_LABELS.openai}
-                {!caps.openaiEnabled && <span className="ml-1 text-gray-600">(off)</span>}
+                {!imageReady && providerHealth !== null && <span className="ml-1 text-gray-600">(off)</span>}
               </button>
             )}
             {caps.replicateEnabled && (
@@ -1056,16 +1072,17 @@ export function CreativeStudioSection({
               </button>
             )}
           </div>
-          {!caps.openaiEnabled && !caps.replicateEnabled && (() => {
-            const s = caps.imageHealth?.status
+          {!imageReady && !caps.replicateEnabled && providerHealth !== null && (() => {
+            const s = providerHealth?.image?.status
+            const reason = providerHealth?.image?.reason
             const msgs: Record<string, string> = {
-              disabled:             'Image generation is disabled. Set ORBIT_AI_IMAGE_ENABLED=true.',
-              missing_key:          'Image generation is enabled but OPENAI_API_KEY is not set.',
+              disabled:             'OpenAI image generation is disabled.',
+              missing_key:          'OpenAI image generation is enabled but OPENAI_API_KEY is not set.',
               invalid_configuration: 'Image provider configuration is invalid. Check the provider diagnostic.',
             }
             return (
               <p className="mt-1 text-xs text-red-400">
-                {s && msgs[s] ? msgs[s] : 'No image provider configured. Set ORBIT_AI_IMAGE_ENABLED=true or REPLICATE_API_TOKEN.'}
+                {s && msgs[s] ? msgs[s] : reason ? `Image provider unavailable: ${reason}` : 'OpenAI image provider is unavailable.'}
               </p>
             )
           })()}
@@ -1182,7 +1199,7 @@ export function CreativeStudioSection({
 
         <button
           onClick={() => generateImage(tab)}
-          disabled={generating || (!caps.openaiEnabled && !caps.replicateEnabled)}
+          disabled={generating || (!imageReady && !caps.replicateEnabled)}
           className="w-full bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-medium py-2.5 rounded-lg transition-colors"
         >
           {generating ? (
@@ -1245,15 +1262,15 @@ export function CreativeStudioSection({
           <div className="flex items-center gap-2 text-xs">
             <ProviderStatusPill
               label="Image"
-              name={caps.imageHealth?.model ?? 'OpenAI'}
-              status={caps.imageHealth?.status ?? (caps.openaiEnabled ? 'configured' : 'disabled')}
-              reason={caps.imageHealth?.reason}
+              name={providerHealth?.image?.model ?? 'OpenAI'}
+              status={providerHealth?.image?.status ?? (providerHealth === null ? 'configured' : 'disabled')}
+              reason={providerHealth?.image?.reason}
             />
             <ProviderStatusPill
               label="Video"
-              name={caps.videoHealth?.model ?? 'Kling'}
-              status={caps.videoHealth?.status ?? (caps.falVideoEnabled ? 'configured' : 'disabled')}
-              reason={caps.videoHealth?.reason}
+              name={providerHealth?.video?.model ?? 'Kling'}
+              status={providerHealth?.video?.status ?? (providerHealth === null ? 'configured' : 'disabled')}
+              reason={providerHealth?.video?.reason}
             />
           </div>
           <button
@@ -1397,7 +1414,7 @@ export function CreativeStudioSection({
                       onSelect={() => setSelectedId(a.id)}
                       onAnimate={() => animateAsset(a.id)}
                       onDelete={() => archiveAsset(a.id)}
-                      falVideoEnabled={caps.falVideoEnabled}
+                      falVideoEnabled={videoReady}
                     />
                   ))}
                 </div>
@@ -1511,7 +1528,7 @@ export function CreativeStudioSection({
                       onSelect={() => setSelectedId(a.id)}
                       onAnimate={() => animateAsset(a.id)}
                       onDelete={() => archiveAsset(a.id)}
-                      falVideoEnabled={caps.falVideoEnabled}
+                      falVideoEnabled={videoReady}
                     />
                     <p className="text-xs text-gray-500 truncate">{a.format}</p>
                     <StatusBadge status={a.generationStatus} />
@@ -1530,17 +1547,18 @@ export function CreativeStudioSection({
           <div className="bg-gray-900 border border-gray-800 rounded-xl p-4 space-y-4">
             <h3 className="text-sm font-semibold text-white">Animate / Generate Video</h3>
 
-            {!caps.falVideoEnabled && (() => {
-              const vs = caps.videoHealth?.status
+            {!videoReady && providerHealth !== null && (() => {
+              const vs = providerHealth?.video?.status
+              const vreason = providerHealth?.video?.reason
               const videoMsgs: Record<string, string> = {
-                disabled:             'Video generation is disabled. Set ORBIT_AI_VIDEO_ENABLED=true.',
-                missing_key:          'Video generation is enabled but FALAI_API_KEY is not set.',
+                disabled:             'FAL video generation is disabled.',
+                missing_key:          'FAL API key is not configured.',
                 invalid_configuration: 'Video provider configuration is invalid. Check the provider diagnostic.',
               }
               return (
                 <div className="bg-yellow-950/40 border border-yellow-900/50 rounded-lg px-3 py-2">
                   <p className="text-xs text-yellow-600">
-                    {vs && videoMsgs[vs] ? videoMsgs[vs] : 'FAL.ai video is not enabled. Set ORBIT_AI_VIDEO_ENABLED=true and FALAI_API_KEY.'}
+                    {vs && videoMsgs[vs] ? videoMsgs[vs] : vreason ? `FAL video provider unavailable: ${vreason}` : 'FAL.ai video provider is unavailable.'}
                   </p>
                 </div>
               )
@@ -1554,7 +1572,7 @@ export function CreativeStudioSection({
                   <button
                     key={m.key}
                     onClick={() => setVideoModel(m.key)}
-                    disabled={!caps.falVideoEnabled}
+                    disabled={!videoReady}
                     className={`w-full flex items-center justify-between px-3 py-2 rounded-lg text-sm border transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
                       videoModel === m.key
                         ? 'bg-indigo-700/40 border-indigo-600 text-white'
@@ -1714,7 +1732,7 @@ export function CreativeStudioSection({
 
             <button
               onClick={generateVideo}
-              disabled={generatingVideo || !caps.falVideoEnabled || !videoSource}
+              disabled={generatingVideo || !videoReady || !videoSource}
               className="w-full bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-medium py-2.5 rounded-lg transition-colors"
             >
               {generatingVideo ? (

@@ -57,10 +57,15 @@ export async function GET(
   if (!session)                     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   if (session.role !== 'super_admin') return NextResponse.json({ error: 'Forbidden' },    { status: 403 })
 
-  const assets = await prisma.orbitMedia.findMany({
-    where:   { campaignId: params.id },
-    orderBy: { createdAt: 'desc' },
-  })
+  let assets: Awaited<ReturnType<typeof prisma.orbitMedia.findMany>> = []
+  try {
+    assets = await prisma.orbitMedia.findMany({
+      where:   { campaignId: params.id },
+      orderBy: { createdAt: 'desc' },
+    })
+  } catch (dbErr) {
+    console.error('[Orbit Creative GET] DB query failed:', dbErr instanceof Error ? dbErr.message : String(dbErr))
+  }
 
   const health = getProviderHealth()
 
