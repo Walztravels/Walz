@@ -650,11 +650,12 @@ export function CreativeStudioSection({
   const [videoError,      setVideoError]      = useState<string | null>(null)
   const [generatingVideo, setGeneratingVideo] = useState(false)
 
-  // Reference image upload / removal
-  const refInputRef = useRef<HTMLInputElement>(null)
-  const [uploadingRef, setUploadingRef] = useState(false)
-  const [refError,     setRefError]     = useState<string | null>(null)
-  const [removingRefId, setRemovingRefId] = useState<string | null>(null)
+  // Reference image upload / removal / selection
+  const refInputRef   = useRef<HTMLInputElement>(null)
+  const [uploadingRef,    setUploadingRef]    = useState(false)
+  const [refError,        setRefError]        = useState<string | null>(null)
+  const [removingRefId,   setRemovingRefId]   = useState<string | null>(null)
+  const [activeRefId,     setActiveRefId]     = useState<string | null>(null)
 
   // Polling timers for pending jobs
   const pollTimers = useRef<Record<string, ReturnType<typeof setInterval>>>({})
@@ -742,14 +743,18 @@ export function CreativeStudioSection({
   async function generateImage(tab: 'POSTER' | 'SOCIAL') {
     setGenerating(true); setGenError(null); setGenErrorCode(null)
     try {
+      // Use explicitly selected reference, otherwise first available
+      const chosenRefId = activeRefId
+        ? referenceImages.find(r => r.id === activeRefId)?.id
+        : referenceImages[0]?.id
       const body: Record<string, unknown> = {
-        mode:         'image',
+        mode:             'image',
         provider,
         format,
-        promptHint:   customPrompt || promptHint || promotionDetails,
-        brandPreset:  brandPreset || undefined,
-        prompt:       customPrompt || undefined,
-        referenceMediaId: referenceImages[0]?.id ?? undefined,
+        promptHint:       customPrompt || promptHint || promotionDetails,
+        brandPreset:      brandPreset || undefined,
+        prompt:           customPrompt || undefined,
+        referenceMediaId: chosenRefId,
       }
       const res  = await fetch(`/api/admin/orbit/campaigns/${campaignId}/creative`, {
         method:  'POST',
@@ -1012,7 +1017,18 @@ export function CreativeStudioSection({
 
       // Reset input so the same file can be picked again after removal
       if (refInputRef.current) refInputRef.current.value = ''
-      await loadAssets()
+      const freshData = await fetch(`/api/admin/orbit/campaigns/${campaignId}/creative`)
+      if (freshData.ok) {
+        const d = await freshData.json()
+        if (d.assets) {
+          setAssets(d.assets)
+          // Auto-select the newly uploaded reference
+          const newRef = (d.assets as typeof assets).find(
+            a => a.isReference && !assets.some(existing => existing.id === a.id)
+          )
+          if (newRef) setActiveRefId(newRef.id)
+        }
+      }
     } catch (e) {
       setRefError(e instanceof Error ? e.message : 'Upload failed')
     } finally { setUploadingRef(false) }
@@ -1034,6 +1050,8 @@ export function CreativeStudioSection({
       // Reset input so the same file can be re-uploaded immediately
       if (refInputRef.current) refInputRef.current.value = ''
       setAssets(prev => prev.filter(a => a.id !== mediaId))
+      // Clear active selection if the removed image was selected
+      setActiveRefId(prev => prev === mediaId ? null : prev)
     } catch (e) {
       setRefError(e instanceof Error ? e.message : 'Remove failed')
     } finally { setRemovingRefId(null) }
@@ -1210,31 +1228,71 @@ export function CreativeStudioSection({
           />
           {refError && <p className="text-xs text-red-400 mt-1">{refError}</p>}
           {referenceImages.length > 0 && (
-            <div className="flex gap-2 mt-2 flex-wrap">
-              {referenceImages.map(r => (
-                <div key={r.id} className="relative w-14 h-14 rounded overflow-hidden border border-gray-700 group">
-                  {r.publicUrl && <img src={r.publicUrl} alt={r.altText} className="w-full h-full object-cover" />}
-                  <div className="absolute inset-0 bg-black/40 flex items-end p-0.5">
-                    <span className="text-xs text-white/80 truncate" style={{ fontSize: 8 }}>Ref</span>
-                  </div>
-                  {/* Remove button — visible on hover */}
-                  <button
-                    onClick={() => removeReference(r.id)}
-                    disabled={removingRefId === r.id}
-                    title="Remove reference image"
-                    className="absolute top-0.5 right-0.5 w-4 h-4 rounded-full bg-red-600 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity disabled:opacity-50 text-xs leading-none"
-                    style={{ fontSize: 10 }}
-                  >
-                    {removingRefId === r.id ? '…' : '×'}
-                  </button>
-                </div>
-              ))}
-            </div>
+            <>
+              <p className="text-xs text-gray-500 mt-1 mb-1">
+                Click a reference to select it for generation
+              </p>
+              <div className="flex gap-2 flex-wrap">
+                {referenceImages.map(r => {
+                  const isActive = activeRefId === r.id || (!activeRefId && r.id === referenceImages[0]?.id)
+                  return (
+                    <div
+                      key={r.id}
+                      className={`relative w-16 h-16 rounded overflow-hidden border-2 cursor-pointer group transition-all ${
+                        isActive ? 'border-indigo-400 ring-2 ring-indigo-500/50' : 'border-gray-700 hover:border-gray-500'
+                      }`}
+                      onClick={() => setActiveRefId(r.id)}
+                      title={isActive ? 'Active reference — will be used for generation' : 'Click to use as reference'}
+                    >
+                      {r.publicUrl && <img src={r.publicUrl} alt={r.altText} className="w-full h-full object-cover" />}
+                      {/* Active badge */}
+                      {isActive && (
+                        <div className="absolute top-0 left-0 right-0 bg-indigo-500/80 text-white text-center py-0.5" style={{ fontSize: 8 }}>
+                          ACTIVE
+                        </div>
+                      )}
+                      {/* Remove button — visible on hover */}
+                      <button
+                        onClick={e => { e.stopPropagation(); removeReference(r.id) }}
+                        disabled={removingRefId === r.id}
+                        title="Remove this reference image"
+                        className="absolute bottom-0.5 right-0.5 w-4 h-4 rounded-full bg-red-600/90 text-white flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity disabled:opacity-50"
+                        style={{ fontSize: 10 }}
+                      >
+                        {removingRefId === r.id ? '…' : '×'}
+                      </button>
+                    </div>
+                  )
+                })}
+              </div>
+            </>
           )}
           <p className="text-xs text-gray-600 mt-1">
             Staff-uploaded reference images (destination, aircraft, hotel). Not for customer documents.
           </p>
         </div>
+
+        {/* Reference active indicator — shown above Generate when a reference is selected */}
+        {referenceImages.length > 0 && (() => {
+          const activeRef = referenceImages.find(r =>
+            activeRefId ? r.id === activeRefId : r.id === referenceImages[0]?.id
+          )
+          return activeRef ? (
+            <div className="flex items-center gap-2 bg-indigo-950/60 border border-indigo-800/60 rounded-lg px-2.5 py-1.5">
+              {activeRef.publicUrl && (
+                <img
+                  src={activeRef.publicUrl}
+                  alt="Active reference"
+                  className="w-8 h-8 rounded object-cover flex-shrink-0 border border-indigo-700"
+                />
+              )}
+              <div className="min-w-0">
+                <p className="text-xs text-indigo-300 font-medium leading-tight">Generating with reference</p>
+                <p className="text-xs text-indigo-400/70 truncate leading-tight">{activeRef.altText || 'Reference image'}</p>
+              </div>
+            </div>
+          ) : null
+        })()}
 
         {genError && (
           <div className="bg-red-950 border border-red-800 text-red-300 text-xs rounded-lg px-3 py-2 space-y-1">
