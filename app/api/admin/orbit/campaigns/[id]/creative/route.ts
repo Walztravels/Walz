@@ -55,6 +55,9 @@ import {
   listVideoModels,
 } from '@/lib/orbit/video-models'
 import { getProviderHealth } from '@/lib/orbit/provider-health'
+import { TEMPLATE_MAP } from '@/lib/orbit/templates'
+import { buildVisualPrompt, buildFallbackVisualPrompt } from '@/lib/orbit/visual-prompt-builder'
+import type { CreativeBrief, CampaignType } from '@/lib/orbit/templates/schema'
 import Anthropic from '@anthropic-ai/sdk'
 
 export const dynamic   = 'force-dynamic'
@@ -129,6 +132,12 @@ interface GenerateBody {
   referenceMediaId?: string
   quality?:          'low' | 'medium' | 'high' | 'auto'
   videoModelKey?:    string
+  // Graphic Designer Mode
+  designerMode?:     boolean
+  templateKey?:      string
+  campaignType?:     CampaignType
+  visualBrief?:      string
+  commercialFields?: Record<string, string>
 }
 
 export async function POST(
@@ -208,18 +217,40 @@ export async function POST(
         // STAGE: build prompt
         let prompt: string
         try {
-          prompt = body.prompt?.trim() || buildCreativePrompt({
-            destination: campaign.destination,
-            objective:   campaign.objective,
-            promptHint:  promptHint ?? campaign.promotionDetails,
-            brandPreset,
-          })
+          if (body.designerMode && body.templateKey) {
+            // Graphic Designer Mode — use template art direction, never generate commercial values
+            const template = TEMPLATE_MAP[body.templateKey]
+            if (!template) throw new Error(`Unknown template key: ${body.templateKey}`)
+            if (body.visualBrief) {
+              const brief: CreativeBrief = {
+                campaignType:            body.campaignType ?? 'general_promotion',
+                templateKey:             template.key,
+                visualMood:              template.artDirection.visualMood,
+                subject:                 body.visualBrief,
+                environment:             '',
+                lighting:                '',
+                composition:             '',
+                decorativeElements:      [],
+                requiredCommercialFields: [],
+              }
+              prompt = buildVisualPrompt(brief, template, { brandPreset })
+            } else {
+              prompt = buildFallbackVisualPrompt(template)
+            }
+          } else {
+            prompt = body.prompt?.trim() || buildCreativePrompt({
+              destination: campaign.destination,
+              objective:   campaign.objective,
+              promptHint:  promptHint ?? campaign.promotionDetails,
+              brandPreset,
+            })
+          }
         } catch (promptErr) {
           const msg = promptErr instanceof Error ? promptErr.message : String(promptErr)
           console.error(`[Orbit Creative] traceId=${traceId} stage=prompt_build_failed error="${msg}"`)
           return NextResponse.json({ error: 'Could not build generation prompt.', errorCode: 'PROMPT_BUILD_FAILED', traceId }, { status: 500 })
         }
-        console.log(`[Orbit Creative] traceId=${traceId} stage=prompt_built length=${prompt.length}`)
+        console.log(`[Orbit Creative] traceId=${traceId} stage=prompt_built length=${prompt.length} designerMode=${!!body.designerMode}`)
 
         // STAGE: create placeholder row
         console.log(`[Orbit Creative] traceId=${traceId} stage=db_create_start`)

@@ -3,6 +3,10 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { PosterCompositor, defaultPosterData, type PosterData } from './PosterCompositor'
 import { BRAND_PRESETS, FORMAT_PRESETS } from '@/lib/orbit/creative-presets'
+import {
+  ALL_TEMPLATES, TEMPLATE_MAP, templatesForCampaignType,
+  type WalzTemplate, type CampaignType, CAMPAIGN_TYPE_LABELS,
+} from '@/lib/orbit/templates'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -72,7 +76,7 @@ interface Props {
 
 // ── Tab definition ────────────────────────────────────────────────────────────
 
-type Tab = 'POSTER' | 'SOCIAL' | 'VIDEO' | 'ASSETS'
+type Tab = 'POSTER' | 'SOCIAL' | 'VIDEO' | 'ASSETS' | 'DESIGNER'
 
 // ── Provider / model display labels ──────────────────────────────────────────
 
@@ -591,6 +595,197 @@ function SourceSelector<T extends string>({
   )
 }
 
+// ── Designer Mode Panel ───────────────────────────────────────────────────────
+
+function DesignerModePanel({
+  templateKey, campaignType, brief, commercialFields, format,
+  generating, error,
+  onTemplateChange, onCampaignTypeChange, onBriefChange,
+  onCommercialFieldChange, onFormatChange, onGenerate,
+}: {
+  campaignId:              string
+  templateKey:             string
+  campaignType:            CampaignType
+  brief:                   string
+  commercialFields:        Record<string, string>
+  format:                  string
+  generating:              boolean
+  error:                   string | null
+  onTemplateChange:        (key: string) => void
+  onCampaignTypeChange:    (t: CampaignType) => void
+  onBriefChange:           (v: string) => void
+  onCommercialFieldChange: (fieldKey: string, val: string) => void
+  onFormatChange:          (f: string) => void
+  onGenerate:              () => void
+}) {
+  const template: WalzTemplate = TEMPLATE_MAP[templateKey] ?? ALL_TEMPLATES[0]
+  const eligibleTemplates = templatesForCampaignType(campaignType)
+  const displayTemplates  = eligibleTemplates.length > 0 ? eligibleTemplates : ALL_TEMPLATES
+
+  const FORMAT_OPTIONS = [
+    { key: '1080x1920', label: 'Story 9:16' },
+    { key: '1080x1350', label: 'Portrait 4:5' },
+    { key: '1080x1080', label: 'Square 1:1' },
+    { key: '1200x628',  label: 'Banner 16:9' },
+  ]
+
+  return (
+    <div className="space-y-6">
+      {/* Header */}
+      <div className="bg-gradient-to-r from-indigo-950 to-indigo-900 border border-indigo-800 rounded-xl p-4">
+        <p className="text-xs text-indigo-300 font-semibold uppercase tracking-widest mb-0.5">Graphic Designer Mode</p>
+        <p className="text-sm text-indigo-100">
+          AI generates the visual background only. All text and commercial values are set by you.
+        </p>
+      </div>
+
+      {/* Campaign Type */}
+      <div>
+        <label className="block text-xs text-gray-500 mb-2 font-medium uppercase tracking-wider">Campaign Type</label>
+        <select
+          value={campaignType}
+          onChange={e => onCampaignTypeChange(e.target.value as CampaignType)}
+          className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white"
+        >
+          {(Object.entries(CAMPAIGN_TYPE_LABELS) as [CampaignType, string][]).map(([k, v]) => (
+            <option key={k} value={k}>{v}</option>
+          ))}
+        </select>
+      </div>
+
+      {/* Template Picker */}
+      <div>
+        <label className="block text-xs text-gray-500 mb-2 font-medium uppercase tracking-wider">Template</label>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+          {(displayTemplates.length > 0 ? displayTemplates : ALL_TEMPLATES).map(t => (
+            <button
+              key={t.key}
+              onClick={() => onTemplateChange(t.key)}
+              className={`text-left px-3 py-2.5 rounded-xl border transition-colors ${
+                templateKey === t.key
+                  ? 'border-indigo-500 bg-indigo-900/30 text-white'
+                  : 'border-gray-800 text-gray-400 hover:border-gray-600 hover:text-gray-200'
+              }`}
+            >
+              <p className="text-sm font-semibold">{t.label}</p>
+              <p className="text-xs text-gray-500 mt-0.5 line-clamp-2">{t.description}</p>
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* Visual Brief */}
+      <div>
+        <label className="block text-xs text-gray-500 mb-1.5 font-medium uppercase tracking-wider">
+          Visual Brief
+          <span className="ml-1 text-gray-600 normal-case">(optional — describe what you want to see in the image)</span>
+        </label>
+        <textarea
+          value={brief}
+          onChange={e => onBriefChange(e.target.value)}
+          placeholder={`e.g. ${template.artDirection.visualMood}`}
+          rows={3}
+          className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-gray-600 resize-none"
+        />
+        <p className="text-xs text-gray-600 mt-1">
+          Art direction: {template.artDirection.subjectPlacement} subject · {template.artDirection.visualMood}
+        </p>
+      </div>
+
+      {/* Commercial Fields — staff fills these in */}
+      {template.commercialFields.length > 0 && (
+        <div className="space-y-3">
+          <div className="flex items-center gap-2">
+            <label className="text-xs text-gray-500 font-medium uppercase tracking-wider">Text Layers</label>
+            <span className="text-xs bg-amber-900/40 text-amber-400 border border-amber-800 px-1.5 py-0.5 rounded">Staff fills — AI never generates these</span>
+          </div>
+          <div className="space-y-2">
+            {template.commercialFields.map(field => (
+              <div key={field.layerKey}>
+                <label className="block text-xs text-gray-500 mb-1">
+                  {field.label}
+                  {field.required && <span className="text-red-500 ml-1">*</span>}
+                  {field.helpText && <span className="ml-1 text-gray-600">· {field.helpText}</span>}
+                </label>
+                {field.type === 'multiline' ? (
+                  <textarea
+                    value={commercialFields[field.layerKey] ?? ''}
+                    onChange={e => onCommercialFieldChange(field.layerKey, e.target.value)}
+                    placeholder={field.placeholder}
+                    rows={2}
+                    className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-gray-600 resize-none"
+                  />
+                ) : (
+                  <input
+                    type="text"
+                    value={commercialFields[field.layerKey] ?? ''}
+                    onChange={e => onCommercialFieldChange(field.layerKey, e.target.value)}
+                    placeholder={field.placeholder}
+                    className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-gray-600"
+                  />
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Format */}
+      <div>
+        <label className="block text-xs text-gray-500 mb-2 font-medium uppercase tracking-wider">Canvas Format</label>
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+          {FORMAT_OPTIONS.map(f => {
+            const supported = template.canvases.some(c => c.key === f.key)
+            return (
+              <button
+                key={f.key}
+                onClick={() => supported && onFormatChange(f.key)}
+                disabled={!supported}
+                className={`px-2 py-2 rounded-lg border text-xs font-medium transition-colors ${
+                  format === f.key
+                    ? 'border-indigo-500 bg-indigo-900/30 text-white'
+                    : supported
+                      ? 'border-gray-700 text-gray-400 hover:border-gray-600'
+                      : 'border-gray-800 text-gray-700 cursor-not-allowed'
+                }`}
+              >
+                {f.label}
+                {!supported && <span className="block text-xs text-gray-700">—</span>}
+              </button>
+            )
+          })}
+        </div>
+      </div>
+
+      {/* Error */}
+      {error && (
+        <div className="bg-red-950 border border-red-800 rounded-xl p-3">
+          <p className="text-red-300 text-sm">{error}</p>
+        </div>
+      )}
+
+      {/* Generate button */}
+      <button
+        onClick={onGenerate}
+        disabled={generating}
+        className="w-full py-3 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed text-white font-semibold rounded-xl transition-colors flex items-center justify-center gap-2"
+      >
+        {generating ? (
+          <>
+            <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+            Generating visual…
+          </>
+        ) : (
+          'Generate Graphic Design'
+        )}
+      </button>
+      <p className="text-xs text-gray-600 text-center">
+        AI generates the background image only. Your text layers are composited separately.
+      </p>
+    </div>
+  )
+}
+
 // ── Main component ────────────────────────────────────────────────────────────
 
 export function CreativeStudioSection({
@@ -656,6 +851,15 @@ export function CreativeStudioSection({
   const [refError,        setRefError]        = useState<string | null>(null)
   const [removingRefId,   setRemovingRefId]   = useState<string | null>(null)
   const [activeRefId,     setActiveRefId]     = useState<string | null>(null)
+
+  // Designer Mode state
+  const [designerTemplateKey,      setDesignerTemplateKey]      = useState<string>(ALL_TEMPLATES[0].key)
+  const [designerCampaignType,     setDesignerCampaignType]     = useState<CampaignType>('general_promotion')
+  const [designerBrief,            setDesignerBrief]            = useState('')
+  const [designerCommercialFields, setDesignerCommercialFields] = useState<Record<string, string>>({})
+  const [designerFormat,           setDesignerFormat]           = useState('1080x1350')
+  const [generatingDesigner,       setGeneratingDesigner]       = useState(false)
+  const [designerError,            setDesignerError]            = useState<string | null>(null)
 
   // Polling timers for pending jobs
   const pollTimers = useRef<Record<string, ReturnType<typeof setInterval>>>({})
@@ -779,6 +983,46 @@ export function CreativeStudioSection({
       setGenError(e instanceof Error ? e.message : 'Generation failed')
     } finally {
       setGenerating(false)
+    }
+  }
+
+  // ── Graphic Designer Mode generation ─────────────────────────────────────
+
+  async function generateDesignerImage() {
+    setGeneratingDesigner(true); setDesignerError(null)
+    try {
+      const body = {
+        mode:             'image',
+        designerMode:     true,
+        templateKey:      designerTemplateKey,
+        campaignType:     designerCampaignType,
+        visualBrief:      designerBrief || undefined,
+        commercialFields: designerCommercialFields,
+        format:           designerFormat,
+        provider:         'openai',
+      }
+      const res = await fetch(`/api/admin/orbit/campaigns/${campaignId}/creative`, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify(body),
+      })
+      let data: Record<string, unknown> = {}
+      try { data = await res.json() } catch {
+        throw new Error('[INTERNAL_SERVER_ERROR] Server returned an unexpected response. Please try again.')
+      }
+      if (!res.ok) {
+        if (data.errorCode) setGenErrorCode(data.errorCode as string)
+        throw new Error((data.error as string) ?? 'Designer generation failed')
+      }
+      if (data.media) {
+        setAssets(prev => [data.media as typeof prev[0], ...prev])
+        setSelectedId((data.media as { id: string }).id)
+        setActiveTab('ASSETS')
+      }
+    } catch (e) {
+      setDesignerError(e instanceof Error ? e.message : 'Designer generation failed')
+    } finally {
+      setGeneratingDesigner(false)
     }
   }
 
@@ -1430,7 +1674,7 @@ export function CreativeStudioSection({
 
       {/* Tabs */}
       <div className="flex gap-1 border-b border-gray-800">
-        {(['POSTER', 'SOCIAL', 'VIDEO', 'ASSETS'] as Tab[]).map(t => (
+        {(['POSTER', 'SOCIAL', 'VIDEO', 'ASSETS', 'DESIGNER'] as Tab[]).map(t => (
           <button
             key={t}
             onClick={() => setActiveTab(t)}
@@ -1995,6 +2239,28 @@ export function CreativeStudioSection({
             </div>
           )}
         </div>
+      )}
+
+      {/* ── DESIGNER TAB ───────────────────────────────────────────────────── */}
+      {activeTab === 'DESIGNER' && (
+        <DesignerModePanel
+          campaignId={campaignId}
+          templateKey={designerTemplateKey}
+          campaignType={designerCampaignType}
+          brief={designerBrief}
+          commercialFields={designerCommercialFields}
+          format={designerFormat}
+          generating={generatingDesigner}
+          error={designerError}
+          onTemplateChange={(key) => { setDesignerTemplateKey(key); setDesignerCommercialFields({}) }}
+          onCampaignTypeChange={setDesignerCampaignType}
+          onBriefChange={setDesignerBrief}
+          onCommercialFieldChange={(fieldKey, val) =>
+            setDesignerCommercialFields(prev => ({ ...prev, [fieldKey]: val }))
+          }
+          onFormatChange={setDesignerFormat}
+          onGenerate={generateDesignerImage}
+        />
       )}
     </div>
   )
