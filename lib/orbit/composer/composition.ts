@@ -1,0 +1,280 @@
+/**
+ * Walz Orbit Composer — Template → DesignComposition bridge.
+ *
+ * buildTemplateComposition() is the single entry point that converts:
+ *   WalzTemplate + commercialFields + visual asset + canvas
+ *   → deterministic DesignComposition ready for rendering.
+ *
+ * INVARIANT: commercialFields come from staff only. This function
+ * does not call any AI system and never generates commercial values.
+ */
+
+import type { WalzTemplate, TemplateCanvas, ZoneVariantMap } from '@/lib/orbit/templates/schema'
+import type {
+  DesignComposition, DesignLayer, DesignCanvas,
+  ImageLayer, TextLayer, LogoLayer, CTAButtonLayer,
+  RouteCardLayer, PriceBlockLayer, ContactBarLayer,
+} from './layer-model'
+import { buildContactBarLayer } from './contact-footer'
+import { BUSINESS } from '@/lib/config/business'
+
+export interface CompositionInput {
+  template:         WalzTemplate
+  commercialFields: Record<string, string>
+  visualAsset?:     { url: string; id?: string }
+  canvas:           TemplateCanvas
+  layerOverrides?:  Record<string, Partial<DesignLayer>>
+}
+
+/**
+ * Returns a `DesignCanvas` from a `TemplateCanvas`.
+ */
+function toDesignCanvas(c: TemplateCanvas): DesignCanvas {
+  return { key: c.key, width: c.width, height: c.height }
+}
+
+/**
+ * Resolve zone overrides for a specific canvas key.
+ * Templates can define per-canvas layout variants in `zoneVariants`.
+ * Zone variants override position/style but never text (text comes from commercialFields).
+ */
+function resolveZones(
+  template: WalzTemplate,
+  canvasKey: string,
+): WalzTemplate['zones'] {
+  const variants: Record<string, ZoneVariantMap> | undefined = template.zoneVariants
+  if (!variants || !variants[canvasKey]) return template.zones
+
+  const variantOverrides = variants[canvasKey]
+  const merged = { ...template.zones } as WalzTemplate['zones']
+  for (const key of Object.keys(variantOverrides) as Array<keyof ZoneVariantMap>) {
+    const base    = template.zones[key]
+    const override = variantOverrides[key]
+    if (base && override) {
+      // Merge override into base — preserve `text` from base (staff-only)
+      ;(merged as Record<string, object>)[key] = { ...base, ...override, text: base.text }
+    }
+  }
+  return merged
+}
+
+/**
+ * Build the image background layer from the visual asset (if present).
+ */
+function buildImageLayer(url: string): ImageLayer {
+  return {
+    id: 'bg_image', type: 'image', src: url, objectFit: 'cover',
+    x: 0, y: 0, width: 1, height: 1, zIndex: 0, visible: true,
+  }
+}
+
+/**
+ * Build the logo layer from the template zone config.
+ */
+function buildLogoLayer(zone: NonNullable<WalzTemplate['zones']['logo']>): LogoLayer {
+  return {
+    id:         'logo',
+    type:       'logo',
+    text:       zone.text || 'WALZ TRAVELS',
+    fontWeight: '800',
+    fontSize:   zone.fontSize ?? 28,
+    color:      zone.color ?? '#ffffff',
+    align:      zone.align ?? 'center',
+    x:          zone.x ?? 0.5,
+    y:          zone.y ?? 0.06,
+    zIndex:     10,
+    visible:    zone.visible ?? true,
+  }
+}
+
+/**
+ * Build a TextLayer from a PosterLayer zone config and optional staff text.
+ */
+function buildTextLayer(
+  id:        string,
+  zone:      NonNullable<WalzTemplate['zones'][keyof WalzTemplate['zones']]>,
+  staffText: string,
+  zIndex:    number,
+): TextLayer {
+  return {
+    id,
+    type:       'text',
+    text:       staffText,
+    fontFamily: "'Helvetica Neue', Arial, sans-serif",
+    fontWeight: zone.fontWeight ?? '800',
+    fontSize:   zone.fontSize ?? 32,
+    color:      zone.color ?? '#ffffff',
+    align:      zone.align ?? 'center',
+    x:          zone.x ?? 0.5,
+    y:          zone.y ?? 0.5,
+    maxWidth:   zone.maxWidth,
+    zIndex,
+    visible:    (zone.visible ?? true) && !!staffText,
+    autoFit:    true,
+    shadow:     true,
+  }
+}
+
+/**
+ * Build a CTA button layer.
+ */
+function buildCTALayer(
+  zone:    NonNullable<WalzTemplate['zones']['cta']>,
+  text:    string,
+): CTAButtonLayer {
+  return {
+    id:              'cta',
+    type:            'cta_button',
+    text,
+    backgroundColor: '#d4af37',
+    textColor:       '#1a1a2e',
+    borderRadius:    24,
+    fontSize:        zone.fontSize ?? 26,
+    x:               zone.x ?? 0.5,
+    y:               zone.y ?? 0.90,
+    zIndex:          50,
+    visible:         !!text,
+    paddingX:        0.08,
+    paddingY:        0.02,
+  }
+}
+
+/**
+ * Build a route card layer from comma/bullet-separated routes.
+ */
+function buildRouteCardLayer(
+  zone:    NonNullable<WalzTemplate['zones']['route']>,
+  raw:     string,
+): RouteCardLayer {
+  const routes = raw
+    .split(/[•,|]/)
+    .map(r => r.trim())
+    .filter(Boolean)
+    .slice(0, 4)
+
+  return {
+    id:        'route_card',
+    type:      'route_card',
+    routes,
+    fontSize:  zone.fontSize ?? 20,
+    cardColor: '#1a3060',
+    textColor: '#d4af37',
+    x:         zone.x ?? 0.5,
+    y:         zone.y ?? 0.62,
+    zIndex:    40,
+    visible:   routes.length > 0,
+  }
+}
+
+/**
+ * Build a price block from currency + amount fields.
+ */
+function buildPriceLayer(
+  priceZone:    NonNullable<WalzTemplate['zones']['price']>,
+  currencyZone: NonNullable<WalzTemplate['zones']['currency']>,
+  amount:       string,
+  currency:     string,
+): PriceBlockLayer {
+  return {
+    id:           'price_block',
+    type:         'price_block',
+    currency:     currency || 'NGN',
+    amount,
+    fontSize:     priceZone.fontSize ?? 80,
+    color:        priceZone.color ?? '#ffffff',
+    currencyColor: currencyZone.color ?? '#d4af37',
+    x:            priceZone.x ?? 0.5,
+    y:            priceZone.y ?? 0.80,
+    zIndex:       45,
+    visible:      !!amount,
+  }
+}
+
+// ── Main builder ──────────────────────────────────────────────────────────────
+
+export function buildTemplateComposition(input: CompositionInput): DesignComposition {
+  const { template, commercialFields, visualAsset, canvas, layerOverrides = {} } = input
+  const zones = resolveZones(template, canvas.key)
+  const layers: DesignLayer[] = []
+
+  // 1. Background image
+  if (visualAsset?.url) {
+    layers.push(buildImageLayer(visualAsset.url))
+  }
+
+  // 2. Logo
+  if (zones.logo) {
+    layers.push(buildLogoLayer(zones.logo))
+  }
+
+  // 3. Headline
+  const headlineText = commercialFields['headline'] ?? ''
+  if (zones.headline) {
+    layers.push(buildTextLayer('headline', zones.headline, headlineText, 20))
+  }
+
+  // 4. Subheadline
+  const subText = commercialFields['subheadline'] ?? ''
+  if (zones.subheadline) {
+    layers.push(buildTextLayer('subheadline', zones.subheadline, subText, 21))
+  }
+
+  // 5. Route cards (split on • or ,)
+  const routeRaw = commercialFields['route'] ?? ''
+  if (routeRaw && zones.route) {
+    layers.push(buildRouteCardLayer(zones.route, routeRaw))
+  }
+
+  // 6. Price block
+  const priceAmount = commercialFields['price'] ?? ''
+  const priceCurrency = commercialFields['currency'] ?? ''
+  if ((priceAmount || priceCurrency) && zones.price && zones.currency) {
+    layers.push(buildPriceLayer(zones.price, zones.currency, priceAmount, priceCurrency))
+  }
+
+  // 7. CTA button
+  const ctaText = commercialFields['cta'] ?? ''
+  if (zones.cta) {
+    layers.push(buildCTALayer(zones.cta, ctaText))
+  }
+
+  // 8. Terms
+  const termsText = commercialFields['terms'] ?? ''
+  if (termsText && zones.terms) {
+    layers.push(buildTextLayer('terms', zones.terms, termsText, 60))
+  }
+
+  // 9. Contact bar — always from central BUSINESS config
+  const footerVariant = template.background === 'light_editorial' || template.background === 'white_card'
+    ? 'light'
+    : 'dark'
+  layers.push(buildContactBarLayer(footerVariant, {
+    y:      zones.contact?.y ?? 0.975,
+    zIndex: 80,
+  }))
+
+  // 10. Apply any layer overrides
+  const finalLayers = layers.map(layer => {
+    const override = layerOverrides[layer.id]
+    if (!override) return layer
+    return { ...layer, ...override } as DesignLayer
+  })
+
+  return {
+    canvas:          toDesignCanvas(canvas),
+    templateKey:     template.key,
+    layers:          finalLayers.sort((a, b) => a.zIndex - b.zIndex),
+    visualAssetId:   visualAsset?.id,
+    commercialFields,
+    layerOverrides,
+  }
+}
+
+/**
+ * Build the contact string to display in a simple text layer fallback.
+ * Used when ContactBarLayer rendering is not available.
+ */
+export function buildContactString(): string {
+  const { contacts } = BUSINESS
+  return `${contacts.nigeriaWhatsapp.display}  |  ${contacts.email}  |  @walz_travels`
+}

@@ -4,9 +4,10 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import { PosterCompositor, defaultPosterData, type PosterData } from './PosterCompositor'
 import { BRAND_PRESETS, FORMAT_PRESETS } from '@/lib/orbit/creative-presets'
 import {
-  ALL_TEMPLATES, TEMPLATE_MAP, templatesForCampaignType,
+  ALL_TEMPLATES, TEMPLATE_MAP, templatesForCampaignType, TEMPLATE_CANVASES,
   type WalzTemplate, type CampaignType, CAMPAIGN_TYPE_LABELS,
 } from '@/lib/orbit/templates'
+import { buildTemplateComposition, type DesignComposition } from '@/lib/orbit/composer'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -599,9 +600,9 @@ function SourceSelector<T extends string>({
 
 function DesignerModePanel({
   templateKey, campaignType, brief, commercialFields, format,
-  generating, error,
+  generating, error, artDirecting, artDirectorSuggestion,
   onTemplateChange, onCampaignTypeChange, onBriefChange,
-  onCommercialFieldChange, onFormatChange, onGenerate,
+  onCommercialFieldChange, onFormatChange, onGenerate, onArtDirect,
 }: {
   campaignId:              string
   templateKey:             string
@@ -611,12 +612,15 @@ function DesignerModePanel({
   format:                  string
   generating:              boolean
   error:                   string | null
+  artDirecting:            boolean
+  artDirectorSuggestion:   string | null
   onTemplateChange:        (key: string) => void
   onCampaignTypeChange:    (t: CampaignType) => void
   onBriefChange:           (v: string) => void
   onCommercialFieldChange: (fieldKey: string, val: string) => void
   onFormatChange:          (f: string) => void
   onGenerate:              () => void
+  onArtDirect:             () => void
 }) {
   const template: WalzTemplate = TEMPLATE_MAP[templateKey] ?? ALL_TEMPLATES[0]
   const eligibleTemplates = templatesForCampaignType(campaignType)
@@ -687,9 +691,27 @@ function DesignerModePanel({
           rows={3}
           className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white placeholder:text-gray-600 resize-none"
         />
-        <p className="text-xs text-gray-600 mt-1">
-          Art direction: {template.artDirection.subjectPlacement} subject · {template.artDirection.visualMood}
-        </p>
+        <div className="flex items-center gap-2 mt-2">
+          <p className="text-xs text-gray-600 flex-1">
+            Art direction: {template.artDirection.subjectPlacement} subject · {template.artDirection.visualMood}
+          </p>
+          <button
+            onClick={onArtDirect}
+            disabled={artDirecting || !brief.trim()}
+            className="text-xs bg-indigo-900/50 hover:bg-indigo-800 disabled:opacity-40 disabled:cursor-not-allowed border border-indigo-700 text-indigo-300 px-3 py-1.5 rounded-lg transition-colors whitespace-nowrap flex items-center gap-1.5"
+          >
+            {artDirecting ? (
+              <><span className="w-3 h-3 border border-indigo-400 border-t-transparent rounded-full animate-spin" />Thinking…</>
+            ) : (
+              'Suggest Creative Direction'
+            )}
+          </button>
+        </div>
+        {artDirectorSuggestion && (
+          <div className="mt-2 bg-indigo-950/40 border border-indigo-800 rounded-lg px-3 py-2">
+            <p className="text-xs text-indigo-300">Art Director: {artDirectorSuggestion}</p>
+          </div>
+        )}
       </div>
 
       {/* Commercial Fields — staff fills these in */}
@@ -860,6 +882,9 @@ export function CreativeStudioSection({
   const [designerFormat,           setDesignerFormat]           = useState('1080x1350')
   const [generatingDesigner,       setGeneratingDesigner]       = useState(false)
   const [designerError,            setDesignerError]            = useState<string | null>(null)
+  const [designerComposition,      setDesignerComposition]      = useState<DesignComposition | null>(null)
+  const [artDirecting,             setArtDirecting]             = useState(false)
+  const [artDirectorSuggestion,    setArtDirectorSuggestion]    = useState<string | null>(null)
 
   // Polling timers for pending jobs
   const pollTimers = useRef<Record<string, ReturnType<typeof setInterval>>>({})
@@ -1015,14 +1040,60 @@ export function CreativeStudioSection({
         throw new Error((data.error as string) ?? 'Designer generation failed')
       }
       if (data.media) {
-        setAssets(prev => [data.media as typeof prev[0], ...prev])
-        setSelectedId((data.media as { id: string }).id)
-        setActiveTab('ASSETS')
+        const media = data.media as Asset
+        setAssets(prev => [media, ...prev])
+        setSelectedId(media.id)
+
+        // Build composition immediately and navigate to POSTER tab
+        const template = TEMPLATE_MAP[designerTemplateKey]
+        const canvasConfig = TEMPLATE_CANVASES[designerFormat]
+        if (template && canvasConfig && media.publicUrl) {
+          const composition = buildTemplateComposition({
+            template,
+            commercialFields: designerCommercialFields,
+            visualAsset: { url: media.publicUrl, id: media.id },
+            canvas: canvasConfig,
+          })
+          setDesignerComposition(composition)
+          // Apply to POSTER compositor dimensions
+          setFormat(designerFormat)
+          setActiveTab('POSTER')
+        } else {
+          setActiveTab('ASSETS')
+        }
       }
     } catch (e) {
       setDesignerError(e instanceof Error ? e.message : 'Designer generation failed')
     } finally {
       setGeneratingDesigner(false)
+    }
+  }
+
+  // ── Art Director — suggest creative direction ───────────────────────────────
+
+  async function runArtDirector() {
+    if (!designerBrief.trim()) return
+    setArtDirecting(true); setArtDirectorSuggestion(null)
+    try {
+      const res = await fetch(`/api/admin/orbit/campaigns/${campaignId}/creative/art-direct`, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({
+          campaignDescription: designerBrief,
+          campaignType:        designerCampaignType,
+          preferredTemplate:   designerTemplateKey,
+        }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error ?? 'Art Director failed')
+      if (data.templateKey) setDesignerTemplateKey(data.templateKey)
+      setArtDirectorSuggestion(data.reasoning ?? null)
+      // Optionally update brief with the subject description
+      if (data.subject) setDesignerBrief(data.subject)
+    } catch (e) {
+      setArtDirectorSuggestion(`⚠ ${e instanceof Error ? e.message : 'Suggestion failed'}`)
+    } finally {
+      setArtDirecting(false)
     }
   }
 
@@ -1793,6 +1864,7 @@ export function CreativeStudioSection({
               canvasWidth={formatPreset.width}
               canvasHeight={formatPreset.height}
               onExport={handleExport}
+              composition={designerComposition ?? undefined}
             />
 
             {!selectedId && campaignImages.length === 0 && (
@@ -2252,6 +2324,8 @@ export function CreativeStudioSection({
           format={designerFormat}
           generating={generatingDesigner}
           error={designerError}
+          artDirecting={artDirecting}
+          artDirectorSuggestion={artDirectorSuggestion}
           onTemplateChange={(key) => { setDesignerTemplateKey(key); setDesignerCommercialFields({}) }}
           onCampaignTypeChange={setDesignerCampaignType}
           onBriefChange={setDesignerBrief}
@@ -2260,6 +2334,7 @@ export function CreativeStudioSection({
           }
           onFormatChange={setDesignerFormat}
           onGenerate={generateDesignerImage}
+          onArtDirect={runArtDirector}
         />
       )}
     </div>

@@ -108,6 +108,29 @@ export const walzHeroSplit: WalzTemplate = {
     suggestedBrandPresets: ['premium_travel', 'december_flights_home', 'luxury_escape', 'concierge'],
   },
 
+  zoneVariants: {
+    // 9:16 story — more vertical real-estate, push elements down slightly
+    '1080x1920': {
+      logo:        { x: 0.5,  y: 0.045, fontSize: 30, fontWeight: '800', color: '#ffffff', align: 'center', visible: true },
+      headline:    { x: 0.06, y: 0.20,  fontSize: 68, fontWeight: '800', color: '#ffffff', align: 'left', visible: true, maxWidth: 0.52 },
+      subheadline: { x: 0.06, y: 0.42,  fontSize: 26, fontWeight: '400', color: '#c8e8f4', align: 'left', visible: true, maxWidth: 0.52 },
+      route:       { x: 0.06, y: 0.54,  fontSize: 22, fontWeight: '600', color: '#d4af37', align: 'left', visible: true },
+      currency:    { x: 0.06, y: 0.64,  fontSize: 20, fontWeight: '600', color: '#d4af37', align: 'left', visible: true },
+      price:       { x: 0.06, y: 0.72,  fontSize: 76, fontWeight: '800', color: '#ffffff', align: 'left', visible: true },
+      cta:         { x: 0.18, y: 0.83,  fontSize: 26, fontWeight: '700', color: '#1a1a2e', align: 'center', visible: true },
+      terms:       { x: 0.5,  y: 0.91,  fontSize: 13, fontWeight: '400', color: '#9cafc0', align: 'center', visible: true, maxWidth: 0.9 },
+      contact:     { x: 0.5,  y: 0.96,  fontSize: 15, fontWeight: '600', color: '#d4af37', align: 'center', visible: true },
+    },
+    // Square — both halves equal, headline more centered
+    '1080x1080': {
+      headline:    { x: 0.06, y: 0.22,  fontSize: 58, fontWeight: '800', color: '#ffffff', align: 'left', visible: true, maxWidth: 0.52 },
+      subheadline: { x: 0.06, y: 0.40,  fontSize: 22, fontWeight: '400', color: '#c8e8f4', align: 'left', visible: true, maxWidth: 0.52 },
+      price:       { x: 0.06, y: 0.70,  fontSize: 64, fontWeight: '800', color: '#ffffff', align: 'left', visible: true },
+      cta:         { x: 0.18, y: 0.82,  fontSize: 22, fontWeight: '700', color: '#1a1a2e', align: 'center', visible: true },
+      terms:       { x: 0.5,  y: 0.92,  fontSize: 11, fontWeight: '400', color: '#9cafc0', align: 'center', visible: true, maxWidth: 0.9 },
+    },
+  },
+
   commercialFields: [
     {
       layerKey: 'headline', label: 'Headline', type: 'text', required: true,

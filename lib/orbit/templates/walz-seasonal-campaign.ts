@@ -109,6 +109,23 @@ export const walzSeasonalCampaign: WalzTemplate = {
     suggestedBrandPresets: ['december_flights_home', 'family_holiday', 'premium_travel'],
   },
 
+  zoneVariants: {
+    '1080x1920': {
+      headline:    { x: 0.5, y: 0.20, fontSize: 64, fontWeight: '800', color: '#ffffff', align: 'center', visible: true, maxWidth: 0.88 },
+      subheadline: { x: 0.5, y: 0.35, fontSize: 28, fontWeight: '400', color: '#ffe8b0', align: 'center', visible: true, maxWidth: 0.82 },
+      route:       { x: 0.5, y: 0.56, fontSize: 20, fontWeight: '600', color: '#ffd580', align: 'center', visible: true },
+      price:       { x: 0.5, y: 0.74, fontSize: 72, fontWeight: '800', color: '#ffffff', align: 'center', visible: false },
+      cta:         { x: 0.5, y: 0.86, fontSize: 24, fontWeight: '700', color: '#1a1a2e', align: 'center', visible: true },
+      terms:       { x: 0.5, y: 0.92, fontSize: 13, fontWeight: '400', color: '#ffd580', align: 'center', visible: true, maxWidth: 0.88 },
+    },
+    '1080x1080': {
+      headline:    { x: 0.5, y: 0.18, fontSize: 58, fontWeight: '800', color: '#ffffff', align: 'center', visible: true, maxWidth: 0.88 },
+      subheadline: { x: 0.5, y: 0.32, fontSize: 24, fontWeight: '400', color: '#ffe8b0', align: 'center', visible: true, maxWidth: 0.82 },
+      route:       { x: 0.5, y: 0.55, fontSize: 18, fontWeight: '600', color: '#ffd580', align: 'center', visible: true },
+      cta:         { x: 0.5, y: 0.84, fontSize: 22, fontWeight: '700', color: '#1a1a2e', align: 'center', visible: true },
+    },
+  },
+
   commercialFields: [
     {
       layerKey: 'headline', label: 'Headline', type: 'text', required: true,

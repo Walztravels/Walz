@@ -110,6 +110,21 @@ export const walzDestinationEditorial: WalzTemplate = {
     suggestedBrandPresets: ['premium_travel', 'family_holiday', 'dubai', 'europe', 'africa'],
   },
 
+  zoneVariants: {
+    '1080x1920': {
+      headline:    { x: 0.5, y: 0.18, fontSize: 58, fontWeight: '800', color: '#0a1f3c', align: 'center', visible: true, maxWidth: 0.88 },
+      subheadline: { x: 0.5, y: 0.29, fontSize: 26, fontWeight: '400', color: '#1a4080', align: 'center', visible: true, maxWidth: 0.80 },
+      route:       { x: 0.5, y: 0.88, fontSize: 20, fontWeight: '600', color: '#0a7eb4', align: 'center', visible: true },
+      cta:         { x: 0.5, y: 0.94, fontSize: 24, fontWeight: '700', color: '#ffffff', align: 'center', visible: true },
+    },
+    '1080x1080': {
+      headline:    { x: 0.5, y: 0.18, fontSize: 52, fontWeight: '800', color: '#0a1f3c', align: 'center', visible: true, maxWidth: 0.88 },
+      subheadline: { x: 0.5, y: 0.28, fontSize: 22, fontWeight: '400', color: '#1a4080', align: 'center', visible: true, maxWidth: 0.84 },
+      route:       { x: 0.5, y: 0.84, fontSize: 18, fontWeight: '600', color: '#0a7eb4', align: 'center', visible: true },
+      cta:         { x: 0.5, y: 0.92, fontSize: 22, fontWeight: '700', color: '#ffffff', align: 'center', visible: true },
+    },
+  },
+
   commercialFields: [
     {
       layerKey: 'headline', label: 'Headline', type: 'text', required: true,

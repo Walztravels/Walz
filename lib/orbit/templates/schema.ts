@@ -9,7 +9,11 @@
  * Templates enforce this by declaring which fields are `aiMustNotGenerate`.
  */
 
-import type { PosterData } from '@/lib/orbit/poster-data'
+import type { PosterData, PosterLayer } from '@/lib/orbit/poster-data'
+
+/** Zone overrides per canvas — text is always staff-controlled so omit it from variants. */
+export type ZoneVariantEntry = Partial<Omit<PosterLayer, 'text'>>
+export type ZoneVariantMap   = Partial<Record<keyof PosterData, ZoneVariantEntry>>
 
 // ── Canvas sizes ──────────────────────────────────────────────────────────────
 
@@ -100,6 +104,13 @@ export interface WalzTemplate {
   artDirection:     ArtDirection
   /** Which commercial layers have staff-entry UI */
   commercialFields: CommercialFieldConfig[]
+  /**
+   * Per-canvas layout overrides — reposition zones without scaling.
+   * E.g. the 9:16 story format needs different y-positions than 4:5 portrait.
+   * Keys are canvas key strings (e.g. '1080x1920').
+   * Values are partial zone overrides merged on top of `zones`.
+   */
+  zoneVariants?: Record<string, ZoneVariantMap>
 }
 
 // ── Creative brief (Art Director output) ─────────────────────────────────────
