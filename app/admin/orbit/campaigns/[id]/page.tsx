@@ -5,7 +5,6 @@ import { useParams } from 'next/navigation'
 import Link from 'next/link'
 import { ImagesSection } from './ImagesSection'
 import { PublishSection } from './PublishSection'
-import { VideoGeneratorSection } from './VideoGeneratorSection'
 import { CreativeStudioSection } from './CreativeStudioSection'
 
 interface Campaign {
@@ -389,17 +388,6 @@ export default function CampaignDetailPage() {
           cta: campaign.cta,
           promotionDetails: campaign.promotionDetails,
         }}
-      />
-
-      {/* Video Generator */}
-      <VideoGeneratorSection
-        campaignId={campaign.id}
-        destination={campaign.destination}
-        objective={campaign.objective}
-        tone={campaign.tone}
-        promotionDetails={campaign.promotionDetails}
-        cta={campaign.cta}
-        onVideoAdded={() => setMediaRefreshKey(k => k + 1)}
       />
 
       {/* Buffer Publishing */}
