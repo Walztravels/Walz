@@ -3467,25 +3467,34 @@ model OrbitCampaign {
 }
 
 model OrbitMedia {
-  id           String    @id @default(cuid())
-  source       String    // 'generated' | 'uploaded'
-  storagePath  String    @map("storage_path")   // path inside orbit-media bucket
-  publicUrl    String?   @map("public_url")     // cached public URL
-  format       String    // images: '1080x1350'|'1080x1920'|'1200x628'|'1024x1024'; video: 'reel'|'story'|'feed_video'
-  mediaType    String    @default("image")  @map("media_type")   // 'image' | 'video'
-  durationMs   Int?                          @map("duration_ms")  // video only, milliseconds
-  destination  String?                          // 'lagos' | 'dubai' | 'harare' …
-  campaignType String?   @map("campaign_type")  // 'december_flights' | 'visa' …
-  prompt       String?                          // generation prompt (generated only)
-  altText      String    @default("") @map("alt_text")
-  costUsd      Decimal   @default(0) @map("cost_usd") @db.Decimal(10, 4)
-  status       String    @default("draft")      // draft | approved | rejected
-  approvedBy   String?   @map("approved_by")
-  approvedAt   DateTime? @map("approved_at")
-  campaignId   String?   @map("campaign_id")
-  createdBy    String?   @map("created_by")
-  createdAt    DateTime  @default(now()) @map("created_at")
-  updatedAt    DateTime  @default(now()) @updatedAt @map("updated_at")
+  id               String    @id @default(cuid())
+  source           String    // 'generated' | 'uploaded'
+  storagePath      String    @map("storage_path")   // path inside orbit-media bucket
+  publicUrl        String?   @map("public_url")     // cached public URL
+  format           String    // images: '1080x1350'|'1080x1920'|'1200x628'|'1024x1024'; video: 'reel'|'story'|'feed_video'
+  mediaType        String    @default("image")  @map("media_type")   // 'image' | 'video'
+  durationMs       Int?                          @map("duration_ms")  // video only, milliseconds
+  destination      String?                          // 'lagos' | 'dubai' | 'harare' …
+  campaignType     String?   @map("campaign_type")  // 'december_flights' | 'visa' …
+  prompt           String?                          // generation prompt (generated only)
+  altText          String    @default("") @map("alt_text")
+  costUsd          Decimal   @default(0) @map("cost_usd") @db.Decimal(10, 4)
+  status           String    @default("draft")      // draft | approved | rejected
+  approvedBy       String?   @map("approved_by")
+  approvedAt       DateTime? @map("approved_at")
+  campaignId       String?   @map("campaign_id")
+  createdBy        String?   @map("created_by")
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @default(now()) @updatedAt @map("updated_at")
+  // Creative Studio fields
+  provider         String?                           // 'replicate' | 'openai' | 'falai' | 'runway' | 'uploaded'
+  model            String?   @map("model")           // model name used for generation
+  providerJobId    String?   @map("provider_job_id") // async job/task ID (Runway, FAL.ai)
+  generationStatus String?   @default("completed") @map("generation_status") // pending|processing|completed|failed
+  width            Int?                              // pixel width of generated asset
+  height           Int?                              // pixel height of generated asset
+  posterData       Json?     @map("poster_data")     // editable poster text-layer config (JSON)
+  isReference      Boolean   @default(false) @map("is_reference") // staff-uploaded reference/source image
 
   campaign OrbitCampaign? @relation(fields: [campaignId], references: [id], onDelete: SetNull)
 

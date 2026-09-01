@@ -6,6 +6,7 @@ import Link from 'next/link'
 import { ImagesSection } from './ImagesSection'
 import { PublishSection } from './PublishSection'
 import { VideoGeneratorSection } from './VideoGeneratorSection'
+import { CreativeStudioSection } from './CreativeStudioSection'
 
 interface Campaign {
   id: string
@@ -367,6 +368,16 @@ export default function CampaignDetailPage() {
           ) : null}
         </div>
       )}
+
+      {/* Creative Studio — AI image, poster compositor, Runway video */}
+      <CreativeStudioSection
+        campaignId={campaign.id}
+        destination={campaign.destination}
+        objective={campaign.objective}
+        promotionDetails={campaign.promotionDetails}
+        cta={campaign.cta}
+        tone={campaign.tone}
+      />
 
       {/* Campaign Images */}
       <ImagesSection
