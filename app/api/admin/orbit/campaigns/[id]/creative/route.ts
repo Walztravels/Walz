@@ -36,6 +36,7 @@ import {
   resolveVideoModel,
   listVideoModels,
 } from '@/lib/orbit/video-models'
+import { getProviderHealth } from '@/lib/orbit/provider-health'
 import Anthropic from '@anthropic-ai/sdk'
 
 export const dynamic   = 'force-dynamic'
@@ -58,13 +59,19 @@ export async function GET(
     orderBy: { createdAt: 'desc' },
   })
 
+  const health = getProviderHealth()
+
   return NextResponse.json({
     assets,
+    // Backward-compat booleans
     openaiEnabled:    isOpenAIImageConfigured(),
     replicateEnabled: isReplicateConfigured(),
     runwayEnabled:    false,                    // Runway removed; kept for client backward compat
     falVideoEnabled:  isFalVideoConfigured(),
     availableVideoModels: listVideoModels(),    // display metadata only, no endpoints
+    // Structured provider health (no secrets)
+    imageHealth: health.image,
+    videoHealth: health.video,
   })
 }
 

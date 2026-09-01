@@ -28,11 +28,22 @@ interface Asset {
   durationMs:       number | null
 }
 
+interface ProviderHealth {
+  status:     string   // 'configured' | 'disabled' | 'missing_key' | 'invalid_configuration'
+  provider:   string
+  model:      string
+  enabled:    boolean
+  configured: boolean
+  reason:     string
+}
+
 interface Capabilities {
   openaiEnabled:    boolean
   replicateEnabled: boolean
   runwayEnabled:    boolean      // always false; kept for backward compat
   falVideoEnabled:  boolean
+  imageHealth?:     ProviderHealth
+  videoHealth?:     ProviderHealth
 }
 
 interface Props {
@@ -78,6 +89,67 @@ const MOTION_PRESETS = [
   { key: 'aircraft_movement',   label: 'Aircraft Movement',     prompt: 'Aircraft in graceful motion against a clear sky, contrails, sense of journey' },
   { key: 'celebration',         label: 'Celebration',           prompt: 'Joyful celebration atmosphere, people smiling and connecting, warm ambient light' },
 ]
+
+// ── Provider status pill ──────────────────────────────────────────────────────
+
+function ProviderStatusPill({ label, name, status, reason }: {
+  label:   string
+  name:    string
+  status:  string
+  reason?: string
+}) {
+  const colors: Record<string, string> = {
+    configured:           'text-green-500',
+    disabled:             'text-gray-600',
+    missing_key:          'text-red-400',
+    invalid_configuration: 'text-orange-400',
+  }
+  const dots: Record<string, string> = {
+    configured:           '●',
+    disabled:             '○',
+    missing_key:          '●',
+    invalid_configuration: '●',
+  }
+  const labels: Record<string, string> = {
+    configured:           'Ready',
+    disabled:             'Disabled',
+    missing_key:          'Key missing',
+    invalid_configuration: 'Bad config',
+  }
+  const color = colors[status] ?? 'text-gray-500'
+  const dot   = dots[status]   ?? '○'
+  const badge = labels[status] ?? status
+
+  return (
+    <div className="flex flex-col items-end" title={reason}>
+      <span className="text-gray-600">{label}</span>
+      <span className={`font-medium ${color}`}>
+        {dot} {name} · {badge}
+      </span>
+    </div>
+  )
+}
+
+// ── Health row (for diagnostic panel) ────────────────────────────────────────
+
+function HealthRow({ health }: { health: Record<string, unknown> | null | undefined }) {
+  if (!health) return <p className="text-gray-600">No data</p>
+  const statusColors: Record<string, string> = {
+    configured:           'text-green-400',
+    disabled:             'text-gray-500',
+    missing_key:          'text-red-400',
+    invalid_configuration: 'text-orange-400',
+  }
+  return (
+    <div className="flex items-center gap-3">
+      <span className={`font-semibold capitalize ${statusColors[String(health.status)] ?? 'text-gray-400'}`}>
+        {String(health.status).replace(/_/g, ' ')}
+      </span>
+      <span className="text-gray-400">{String(health.model ?? '')}</span>
+      <span className="text-gray-600">{String(health.reason ?? '')}</span>
+    </div>
+  )
+}
 
 // ── Status badge ──────────────────────────────────────────────────────────────
 
@@ -176,8 +248,11 @@ export function CreativeStudioSection({
 }: Props) {
   const [activeTab,    setActiveTab]    = useState<Tab>('POSTER')
   const [assets,       setAssets]       = useState<Asset[]>([])
-  const [caps,         setCaps]         = useState<Capabilities>({ openaiEnabled: false, replicateEnabled: false, runwayEnabled: false, falVideoEnabled: false })
+  const [caps,         setCaps]         = useState<Capabilities>({ openaiEnabled: false, replicateEnabled: false, runwayEnabled: false, falVideoEnabled: false, imageHealth: undefined, videoHealth: undefined })
   const [loading,      setLoading]      = useState(true)
+  const [testingHealth, setTestingHealth] = useState(false)
+  const [healthPanel,   setHealthPanel]   = useState(false)
+  const [healthReport,  setHealthReport]  = useState<Record<string, unknown> | null>(null)
   const [generating,   setGenerating]   = useState(false)
   const [genError,     setGenError]     = useState<string | null>(null)
   const [selectedId,   setSelectedId]   = useState<string | null>(null)
@@ -220,6 +295,8 @@ export function CreativeStudioSection({
         replicateEnabled: data.replicateEnabled ?? false,
         runwayEnabled:    false,
         falVideoEnabled:  data.falVideoEnabled  ?? false,
+        imageHealth:      data.imageHealth      ?? undefined,
+        videoHealth:      data.videoHealth      ?? undefined,
       })
     } catch { /* non-fatal */ }
     finally { setLoading(false) }
@@ -415,6 +492,22 @@ export function CreativeStudioSection({
     } catch (e) {
       setRefError(e instanceof Error ? e.message : 'Upload failed')
     } finally { setUploadingRef(false) }
+  }
+
+  // ── Provider health test ───────────────────────────────────────────────────
+
+  async function runHealthTest() {
+    setTestingHealth(true)
+    setHealthPanel(true)
+    try {
+      const res  = await fetch('/api/admin/orbit/creative/health')
+      const data = await res.json()
+      setHealthReport(data)
+    } catch {
+      setHealthReport({ error: 'Could not reach health endpoint' })
+    } finally {
+      setTestingHealth(false)
+    }
   }
 
   // ── Export poster composite ────────────────────────────────────────────────
@@ -617,22 +710,77 @@ export function CreativeStudioSection({
   return (
     <div className="space-y-4">
       {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex items-start justify-between gap-4">
         <div>
           <h2 className="text-base font-semibold text-white">Creative Studio</h2>
           <p className="text-xs text-gray-500">
             Generate artwork · Compose poster · Animate with FAL.ai
           </p>
         </div>
-        <div className="flex items-center gap-2 text-xs text-gray-600">
-          {caps.openaiEnabled    && <span className="text-green-600">● OpenAI</span>}
-          {caps.replicateEnabled && <span className="text-green-600">● Replicate</span>}
-          {caps.falVideoEnabled  && <span className="text-green-600">● FAL Video</span>}
-          {!caps.openaiEnabled && !caps.replicateEnabled && !caps.falVideoEnabled && (
-            <span className="text-yellow-600">No AI providers configured</span>
-          )}
+        <div className="flex items-center gap-3 flex-shrink-0">
+          {/* Per-provider status indicators */}
+          <div className="flex items-center gap-2 text-xs">
+            <ProviderStatusPill
+              label="Image"
+              name={caps.imageHealth?.model ?? 'OpenAI'}
+              status={caps.imageHealth?.status ?? (caps.openaiEnabled ? 'configured' : 'disabled')}
+              reason={caps.imageHealth?.reason}
+            />
+            <ProviderStatusPill
+              label="Video"
+              name={caps.videoHealth?.model ?? 'Kling'}
+              status={caps.videoHealth?.status ?? (caps.falVideoEnabled ? 'configured' : 'disabled')}
+              reason={caps.videoHealth?.reason}
+            />
+          </div>
+          <button
+            onClick={runHealthTest}
+            disabled={testingHealth}
+            className="text-xs text-gray-500 hover:text-indigo-400 border border-gray-700 hover:border-indigo-600 px-2.5 py-1 rounded-lg transition-colors disabled:opacity-50 whitespace-nowrap"
+          >
+            {testingHealth ? 'Testing…' : 'Test providers'}
+          </button>
         </div>
       </div>
+
+      {/* Health diagnostic panel */}
+      {healthPanel && healthReport && (
+        <div className="bg-gray-950 border border-gray-800 rounded-xl p-4 space-y-3 text-xs">
+          <div className="flex items-center justify-between">
+            <span className="font-medium text-white">Provider Diagnostics</span>
+            <button onClick={() => { setHealthPanel(false); setHealthReport(null) }} className="text-gray-600 hover:text-gray-400">✕</button>
+          </div>
+          {(healthReport as Record<string, unknown>).error ? (
+            <p className="text-red-400">{String((healthReport as Record<string, unknown>).error)}</p>
+          ) : (
+            <div className="space-y-3">
+              {/* Image */}
+              <div>
+                <p className="text-gray-500 uppercase tracking-wide mb-1">Image</p>
+                <HealthRow health={(healthReport as Record<string, unknown>).image as Record<string, unknown>} />
+              </div>
+              {/* Video */}
+              <div>
+                <p className="text-gray-500 uppercase tracking-wide mb-1">Video</p>
+                <HealthRow health={(healthReport as Record<string, unknown>).video as Record<string, unknown>} />
+              </div>
+              {/* Env presence */}
+              <div>
+                <p className="text-gray-500 uppercase tracking-wide mb-1">Environment Variables</p>
+                <div className="grid grid-cols-2 gap-1">
+                  {Object.entries((healthReport as Record<string, unknown>).envPresence as Record<string, boolean> ?? {}).map(([k, v]) => (
+                    <div key={k} className="flex items-center gap-1.5">
+                      <span className={v ? 'text-green-500' : 'text-red-500'}>{v ? '●' : '○'}</span>
+                      <span className="text-gray-400 font-mono">{k}</span>
+                      <span className={v ? 'text-green-600' : 'text-red-600'}>{v ? 'PRESENT' : 'MISSING'}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Tabs */}
       <div className="flex gap-1 border-b border-gray-800">

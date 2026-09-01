@@ -37,6 +37,9 @@ import {
   listVideoModels,
   MOTION_PRESETS,
 } from '../lib/orbit/video-models'
+import {
+  getProviderHealth,
+} from '../lib/orbit/provider-health'
 
 // ── Shared test env cleanup ───────────────────────────────────────────────────
 
@@ -483,5 +486,171 @@ describe('FAL API key protection', () => {
     for (const key of maliciousKeys) {
       expect(resolveVideoModel(key)).toBeNull()
     }
+  })
+})
+
+// ── Kling default endpoint ─────────────────────────────────────────────────────
+
+describe('Kling default FAL endpoint', () => {
+  it('uses v3/pro (not v2.1/standard) as the default endpoint', () => {
+    delete process.env.ORBIT_FAL_VIDEO_MODEL
+    const m = resolveVideoModel('kling')
+    expect(m?.falEndpoint).toBe('fal-ai/kling-video/v3/pro/image-to-video')
+  })
+
+  it('ORBIT_FAL_VIDEO_MODEL env var overrides the default', () => {
+    process.env.ORBIT_FAL_VIDEO_MODEL = 'fal-ai/kling-video/v3/pro/image-to-video'
+    const m = resolveVideoModel('kling')
+    expect(m?.falEndpoint).toBe('fal-ai/kling-video/v3/pro/image-to-video')
+  })
+})
+
+// ── getProviderHealth ─────────────────────────────────────────────────────────
+
+describe('getProviderHealth — image', () => {
+  it('returns disabled when ORBIT_AI_IMAGE_ENABLED is not set', () => {
+    delete process.env.ORBIT_AI_IMAGE_ENABLED
+    delete process.env.OPENAI_API_KEY
+    const r = getProviderHealth()
+    expect(r.image.status).toBe('disabled')
+    expect(r.image.configured).toBe(false)
+    expect(r.image.enabled).toBe(false)
+  })
+
+  it('returns disabled when ORBIT_AI_IMAGE_ENABLED=false with key present', () => {
+    process.env.ORBIT_AI_IMAGE_ENABLED = 'false'
+    process.env.OPENAI_API_KEY         = 'sk-test'
+    const r = getProviderHealth()
+    expect(r.image.status).toBe('disabled')
+    expect(r.image.configured).toBe(false)
+  })
+
+  it('returns missing_key when enabled but OPENAI_API_KEY absent', () => {
+    process.env.ORBIT_AI_IMAGE_ENABLED = 'true'
+    delete process.env.OPENAI_API_KEY
+    const r = getProviderHealth()
+    expect(r.image.status).toBe('missing_key')
+    expect(r.image.configured).toBe(false)
+    expect(r.image.enabled).toBe(true)
+  })
+
+  it('returns configured when both flag and key are present', () => {
+    process.env.ORBIT_AI_IMAGE_ENABLED    = 'true'
+    process.env.OPENAI_API_KEY            = 'sk-test'
+    process.env.NEXT_PUBLIC_SUPABASE_URL  = 'https://x.supabase.co'
+    process.env.SUPABASE_SERVICE_ROLE_KEY = 'service-key'
+    const r = getProviderHealth()
+    expect(r.image.status).toBe('configured')
+    expect(r.image.configured).toBe(true)
+    expect(r.image.provider).toBe('openai')
+  })
+
+  it('image health reports model name not API key value', () => {
+    process.env.ORBIT_AI_IMAGE_ENABLED = 'true'
+    process.env.OPENAI_API_KEY         = 'sk-super-secret'
+    const r = getProviderHealth()
+    expect(r.image.model).not.toContain('sk-super-secret')
+    expect(r.image.reason).not.toContain('sk-super-secret')
+    // Model should be a display name like 'gpt-image-2'
+    expect(r.image.model.length).toBeGreaterThan(0)
+  })
+})
+
+describe('getProviderHealth — video', () => {
+  it('returns disabled when ORBIT_AI_VIDEO_ENABLED is not set', () => {
+    delete process.env.ORBIT_AI_VIDEO_ENABLED
+    delete process.env.FALAI_API_KEY
+    const r = getProviderHealth()
+    expect(r.video.status).toBe('disabled')
+    expect(r.video.configured).toBe(false)
+    expect(r.video.enabled).toBe(false)
+  })
+
+  it('returns disabled when ORBIT_AI_VIDEO_ENABLED=false with key present', () => {
+    process.env.ORBIT_AI_VIDEO_ENABLED = 'false'
+    process.env.FALAI_API_KEY          = 'fal-test'
+    const r = getProviderHealth()
+    expect(r.video.status).toBe('disabled')
+    expect(r.video.configured).toBe(false)
+  })
+
+  it('returns missing_key when enabled but FALAI_API_KEY absent', () => {
+    process.env.ORBIT_AI_VIDEO_ENABLED = 'true'
+    delete process.env.FALAI_API_KEY
+    const r = getProviderHealth()
+    expect(r.video.status).toBe('missing_key')
+    expect(r.video.configured).toBe(false)
+    expect(r.video.enabled).toBe(true)
+  })
+
+  it('returns configured when both flag and key are present', () => {
+    process.env.ORBIT_AI_VIDEO_ENABLED = 'true'
+    process.env.FALAI_API_KEY          = 'fal-test'
+    const r = getProviderHealth()
+    expect(r.video.status).toBe('configured')
+    expect(r.video.configured).toBe(true)
+    expect(r.video.provider).toBe('fal')
+    expect(r.video.modelKey).toBe('kling')
+  })
+
+  it('video health never returns FALAI_API_KEY value', () => {
+    process.env.ORBIT_AI_VIDEO_ENABLED = 'true'
+    process.env.FALAI_API_KEY          = 'fal-secret-key'
+    const r = getProviderHealth()
+    const serialized = JSON.stringify(r)
+    expect(serialized).not.toContain('fal-secret-key')
+  })
+})
+
+describe('getProviderHealth — envPresence', () => {
+  it('reports PRESENT/MISSING without exposing values', () => {
+    process.env.ORBIT_AI_IMAGE_ENABLED = 'true'
+    process.env.OPENAI_API_KEY         = 'sk-secret'
+    process.env.ORBIT_AI_VIDEO_ENABLED = 'false'
+    delete process.env.FALAI_API_KEY
+    const r = getProviderHealth()
+
+    expect(r.envPresence.OPENAI_API_KEY).toBe(true)
+    expect(r.envPresence.ORBIT_AI_IMAGE_ENABLED).toBe(true)
+    expect(r.envPresence.FALAI_API_KEY).toBe(false)
+    expect(r.envPresence.ORBIT_AI_VIDEO_ENABLED).toBe(true)
+
+    // Verify values never appear — only booleans
+    const serialized = JSON.stringify(r.envPresence)
+    expect(serialized).not.toContain('sk-secret')
+    expect(serialized).not.toContain('fal-')
+  })
+
+  it('reports ORBIT_FAL_VIDEO_MODEL presence without its value', () => {
+    process.env.ORBIT_FAL_VIDEO_MODEL = 'fal-ai/kling-video/v3/pro/image-to-video'
+    const r = getProviderHealth()
+    expect(r.envPresence.ORBIT_FAL_VIDEO_MODEL).toBe(true)
+    // The endpoint path should NOT appear in the envPresence block
+    expect(JSON.stringify(r.envPresence)).not.toContain('fal-ai/kling-video')
+  })
+})
+
+describe('getProviderHealth — report structure', () => {
+  it('always returns checkedAt as an ISO timestamp string', () => {
+    const r = getProviderHealth()
+    expect(typeof r.checkedAt).toBe('string')
+    expect(r.checkedAt).toMatch(/^\d{4}-\d{2}-\d{2}T/)
+  })
+
+  it('always returns image and video health blocks', () => {
+    const r = getProviderHealth()
+    expect(r.image).toBeDefined()
+    expect(r.video).toBeDefined()
+    expect(r.envPresence).toBeDefined()
+  })
+
+  it('image.provider is always "openai"', () => {
+    const r = getProviderHealth()
+    expect(r.image.provider).toBe('openai')
+  })
+
+  it('video.provider is always "fal"', () => {
+    const r = getProviderHealth()
+    expect(r.video.provider).toBe('fal')
   })
 })

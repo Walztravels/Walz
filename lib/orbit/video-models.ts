@@ -11,7 +11,7 @@
  *
  * Optional env vars:
  *   ORBIT_FAL_VIDEO_MODEL  — overrides the primary Kling endpoint;
- *                            e.g. fal-ai/kling-video/v3.0/pro/image-to-video
+ *                            e.g. fal-ai/kling-video/v3/pro/image-to-video
  *   ORBIT_VIDEO_PROVIDER   — must be 'fal' (default; reserved for future providers)
  */
 
@@ -41,8 +41,8 @@ const _REGISTRY: Record<string, {
     key:            'kling',
     name:           'Kling 3.0',
     tier:           'recommended',
-    // Default endpoint — override via ORBIT_FAL_VIDEO_MODEL
-    _endpoint:      'fal-ai/kling-video/v2.1/standard/image-to-video',
+    // Default endpoint — override via ORBIT_FAL_VIDEO_MODEL env var
+    _endpoint:      'fal-ai/kling-video/v3/pro/image-to-video',
     supportsImage:  true,
     maxDurationSec: 10,
     costPerSecond:  0.045,
