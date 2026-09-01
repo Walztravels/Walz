@@ -84,13 +84,16 @@ export async function POST(
   }
 
   // Duplicate-click guard
-  const existing = await prisma.orbitMedia.findFirst({
-    where: {
-      campaignId:       params.id,
-      provider:         'fal',
-      generationStatus: { in: ['pending', 'processing'] },
-    },
-  })
+  let existing: Awaited<ReturnType<typeof prisma.orbitMedia.findFirst>> | null = null
+  try {
+    existing = await prisma.orbitMedia.findFirst({
+      where: {
+        campaignId:       params.id,
+        provider:         'fal',
+        generationStatus: { in: ['pending', 'processing'] },
+      },
+    })
+  } catch { /* non-fatal — let generation proceed */ }
   if (existing) {
     return NextResponse.json(
       { error: 'A video is already being generated', mediaId: existing.id },
@@ -121,8 +124,8 @@ export async function POST(
   } catch (dbErr) {
     console.error('[animate/POST] OrbitMedia create failed:', dbErr instanceof Error ? dbErr.message : String(dbErr))
     return NextResponse.json({
-      error: 'Could not initialize video record. Run prisma/orbit_media_source_fields.sql in Supabase SQL editor.',
-      errorCode: 'OPENAI_REQUEST_BUILD_FAILED',
+      error: 'Could not initialize video record.',
+      errorCode: 'ORBIT_MEDIA_CREATE_FAILED',
     }, { status: 500 })
   }
 

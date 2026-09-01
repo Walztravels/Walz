@@ -147,8 +147,8 @@ export async function POST(
   } catch (dbErr) {
     console.error('[library/POST] OrbitMedia create failed:', dbErr instanceof Error ? dbErr.message : String(dbErr))
     return NextResponse.json({
-      error: 'Could not attach Media Library asset. Run prisma/orbit_media_source_fields.sql in Supabase SQL editor.',
-      errorCode: 'REFERENCE_RECORD_FAILED',
+      error: 'Could not attach Media Library asset.',
+      errorCode: 'ORBIT_MEDIA_CREATE_FAILED',
     }, { status: 500 })
   }
 

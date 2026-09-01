@@ -114,8 +114,8 @@ export async function POST(
   } catch (dbErr) {
     console.error('[upload/POST] OrbitMedia create failed:', dbErr instanceof Error ? dbErr.message : String(dbErr))
     return NextResponse.json({
-      error: 'Could not create upload record. Run prisma/orbit_media_source_fields.sql in Supabase SQL editor.',
-      errorCode: 'REFERENCE_RECORD_FAILED',
+      error: 'Could not create upload record.',
+      errorCode: 'ORBIT_MEDIA_CREATE_FAILED',
     }, { status: 500 })
   }
 

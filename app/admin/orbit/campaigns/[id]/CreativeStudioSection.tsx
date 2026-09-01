@@ -759,7 +759,7 @@ export function CreativeStudioSection({
       try {
         data = await res.json()
       } catch {
-        throw new Error('[OPENAI_REQUEST_BUILD_FAILED] Server error. If this persists, run the pending DB migration in Supabase SQL editor.')
+        throw new Error('[INTERNAL_SERVER_ERROR] Server returned an unexpected response. Please try again or contact support.')
       }
       if (!res.ok) {
         if (data.errorCode) setGenErrorCode(data.errorCode as string)
@@ -995,7 +995,7 @@ export function CreativeStudioSection({
       try {
         presignData = await presignRes.json()
       } catch {
-        throw new Error('[REFERENCE_PRESIGN_FAILED] Upload service unavailable. Run the pending DB migration in Supabase SQL editor.')
+        throw new Error('[REFERENCE_PRESIGN_FAILED] Upload service unavailable. Please try again.')
       }
       if (!presignRes.ok) throw new Error(presignData.error ?? '[REFERENCE_PRESIGN_FAILED] Upload init failed')
       if (!presignData.uploadUrl) throw new Error('[REFERENCE_UPLOAD_URL_INVALID] No upload URL returned from server')
