@@ -55,6 +55,32 @@ function wrapText(
 }
 
 /**
+ * Anti-widow pass: if the last line has only one word and there are
+ * 3+ lines, move the second-to-last word down to reduce visual orphan.
+ * Returns a new line array — safe to call on empty input.
+ */
+function avoidWidow(lines: string[]): string[] {
+  if (lines.length < 3) return lines
+  const last = lines[lines.length - 1]
+  const lastWords = last.split(' ').filter(Boolean)
+  if (lastWords.length !== 1) return lines
+
+  const penultimate = lines[lines.length - 2]
+  const penWords    = penultimate.split(' ').filter(Boolean)
+  if (penWords.length < 2) return lines
+
+  const movedWord   = penWords[penWords.length - 1]
+  const newPen      = penWords.slice(0, -1).join(' ')
+  const newLast     = `${movedWord} ${last}`
+
+  return [
+    ...lines.slice(0, -2),
+    newPen,
+    newLast,
+  ]
+}
+
+/**
  * Auto-fit text to a box using binary search on font size.
  * Caller must provide a `measure` function — e.g. a bound ctx.measureText call.
  */
@@ -92,6 +118,9 @@ export function autoFitText(input: AutoFitInput, measure: MeasureFn): AutoFitRes
       hi = mid - 1
     }
   }
+
+  // Anti-widow pass on the final line set
+  bestLines = avoidWidow(bestLines)
 
   const totalHeight    = bestLines.length * bestSize * lineHeight
   const anyLineToWide  = bestLines.some(l => measure(l, bestSize, fontSpec) > boxWidth)

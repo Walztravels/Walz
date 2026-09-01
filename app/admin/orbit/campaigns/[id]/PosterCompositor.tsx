@@ -14,6 +14,8 @@ import type {
 } from '@/lib/orbit/composer/layer-model'
 import { autoFitText } from '@/lib/orbit/composer/auto-fit'
 import { checkCompositionQuality } from '@/lib/orbit/composer/quality-checks'
+import type { TemplateSafeZones } from '@/lib/orbit/composer/safe-zones'
+import { CanvasGuides } from './CanvasGuides'
 
 export type { PosterLayer, PosterData }
 export { COMMERCIAL_LAYERS, defaultPosterData, checkCompositionQuality }
@@ -22,14 +24,21 @@ export type { QualityWarning } from '@/lib/orbit/composer/quality-checks'
 // ── Props ─────────────────────────────────────────────────────────────────────
 
 interface Props {
-  backgroundUrl: string | null
-  posterData:    PosterData
-  onChange:      (data: PosterData) => void
-  canvasWidth:   number
-  canvasHeight:  number
-  onExport?:     (blob: Blob, format: 'image/jpeg' | 'image/png') => void
+  backgroundUrl:   string | null
+  posterData:      PosterData
+  onChange:        (data: PosterData) => void
+  canvasWidth:     number
+  canvasHeight:    number
+  onExport?:       (blob: Blob, format: 'image/jpeg' | 'image/png') => void
   // Designer Mode: when composition is set, render using the rich layer model
-  composition?:  DesignComposition
+  composition?:    DesignComposition
+  // Original (pre-modification) composition for before/after toggle
+  baseComposition?: DesignComposition
+  // Safe zones for guide overlay
+  safeZones?:      TemplateSafeZones
+  showGuides?:     boolean
+  overlayStrength?: number   // 0–100 (from DesignControls)
+  onLayerChange?:  (layerId: string, patch: Partial<DesignLayer>) => void
 }
 
 const LAYER_ORDER: Array<keyof PosterData> = [
@@ -309,6 +318,7 @@ function renderComposition(
   composition: DesignComposition,
   bgImg: HTMLImageElement | null,
   cw: number, ch: number,
+  overlayStrength?: number,
 ) {
   ctx.clearRect(0, 0, cw, ch)
 
@@ -337,13 +347,18 @@ function renderComposition(
           ctx.fillStyle = '#0d1b2a'
           ctx.fillRect(0, 0, cw, ch)
         }
-        // Legibility gradient overlay
+        // Legibility gradient overlay — strength controlled by DesignControls
         {
+          const strength = (overlayStrength ?? 55) / 100
+          const top      = Math.round(50 * strength) / 100
+          const mid1     = Math.round(10 * strength) / 100
+          const mid2     = Math.round(20 * strength) / 100
+          const bot      = Math.round(60 * strength) / 100
           const grad = ctx.createLinearGradient(0, 0, 0, ch)
-          grad.addColorStop(0,   'rgba(0,0,0,0.50)')
-          grad.addColorStop(0.3, 'rgba(0,0,0,0.10)')
-          grad.addColorStop(0.6, 'rgba(0,0,0,0.20)')
-          grad.addColorStop(1,   'rgba(0,0,0,0.60)')
+          grad.addColorStop(0,   `rgba(0,0,0,${top})`)
+          grad.addColorStop(0.3, `rgba(0,0,0,${mid1})`)
+          grad.addColorStop(0.6, `rgba(0,0,0,${mid2})`)
+          grad.addColorStop(1,   `rgba(0,0,0,${bot})`)
           ctx.fillStyle = grad
           ctx.fillRect(0, 0, cw, ch)
         }
@@ -406,15 +421,24 @@ export function PosterCompositor({
   canvasHeight,
   onExport,
   composition,
+  baseComposition,
+  safeZones,
+  showGuides,
+  overlayStrength,
+  onLayerChange,
 }: Props) {
   const canvasRef  = useRef<HTMLCanvasElement>(null)
   const bgImgRef   = useRef<HTMLImageElement | null>(null)
   const [bgLoaded, setBgLoaded] = useState(false)
   const [activeLayer, setActiveLayer] = useState<keyof PosterData>('headline')
   const [exportFormat, setExportFormat] = useState<'image/jpeg' | 'image/png'>('image/jpeg')
+  const [showBefore, setShowBefore] = useState(false)
+  const [activeDesignerLayer, setActiveDesignerLayer] = useState<string | null>(null)
 
-  const effectiveBackground = composition
-    ? (composition.layers.find(l => l.type === 'image') as { src?: string } | undefined)?.src ?? null
+  const activeComposition = showBefore && baseComposition ? baseComposition : composition
+
+  const effectiveBackground = activeComposition
+    ? (activeComposition.layers.find(l => l.type === 'image') as { src?: string } | undefined)?.src ?? null
     : backgroundUrl
 
   useEffect(() => {
@@ -433,8 +457,8 @@ export function PosterCompositor({
     const ctx = canvas.getContext('2d')
     if (!ctx) return
 
-    if (composition) {
-      renderComposition(ctx, composition, bgImgRef.current, canvasWidth, canvasHeight)
+    if (activeComposition) {
+      renderComposition(ctx, activeComposition, bgImgRef.current, canvasWidth, canvasHeight, overlayStrength)
       return
     }
 
@@ -486,7 +510,7 @@ export function PosterCompositor({
     }
   }, [posterData, bgLoaded, canvasWidth, canvasHeight, composition])
 
-  useEffect(() => { drawCanvas() }, [drawCanvas])
+  useEffect(() => { drawCanvas() }, [drawCanvas, showBefore, overlayStrength])
 
   function exportPoster() {
     const canvas = canvasRef.current
@@ -508,6 +532,28 @@ export function PosterCompositor({
     <div className="flex gap-4 flex-wrap lg:flex-nowrap">
       {/* Canvas preview */}
       <div className="flex-shrink-0">
+        {/* Before/After toggle — only shown in designer mode when base exists */}
+        {composition && baseComposition && (
+          <div className="flex gap-1 mb-2">
+            <button
+              onClick={() => setShowBefore(false)}
+              className={`flex-1 py-1 rounded-l-lg text-xs font-medium transition-colors ${
+                !showBefore ? 'bg-indigo-700 text-white' : 'bg-gray-800 text-gray-400 hover:bg-gray-700'
+              }`}
+            >
+              Current
+            </button>
+            <button
+              onClick={() => setShowBefore(true)}
+              className={`flex-1 py-1 rounded-r-lg text-xs font-medium transition-colors ${
+                showBefore ? 'bg-indigo-700 text-white' : 'bg-gray-800 text-gray-400 hover:bg-gray-700'
+              }`}
+            >
+              Original
+            </button>
+          </div>
+        )}
+
         <div className="relative" style={{ width: displayW, height: displayH }}>
           <canvas
             ref={canvasRef}
@@ -516,6 +562,14 @@ export function PosterCompositor({
             style={{ width: displayW, height: displayH, borderRadius: 8, display: 'block' }}
             className="border border-gray-700"
           />
+          {/* Canvas guides overlay */}
+          {showGuides && !showBefore && (
+            <CanvasGuides
+              displayWidth={displayW}
+              displayHeight={displayH}
+              safeZones={safeZones}
+            />
+          )}
         </div>
         {onExport && (
           <div className="mt-2 flex gap-1">
@@ -642,24 +696,113 @@ export function PosterCompositor({
         </div>
       )}
 
-      {/* Designer Mode layer summary */}
-      {composition && (
+      {/* Designer Mode layer controls */}
+      {composition && !showBefore && (
         <div className="flex-1 min-w-0 space-y-2">
           <p className="text-xs text-gray-500 font-medium uppercase tracking-wider">
-            Template: {composition.templateKey}
+            Layers — {composition.templateKey.replace(/walz_/, '').replace(/_/g, ' ')}
           </p>
           <div className="space-y-1.5 max-h-80 overflow-y-auto pr-1">
-            {composition.layers.filter(l => l.visible).map(l => (
-              <div key={l.id} className="bg-gray-900 border border-gray-800 rounded-lg px-3 py-2 flex items-center justify-between gap-2">
-                <span className="text-xs text-gray-400 capitalize">{l.id.replace(/_/g, ' ')}</span>
-                <span className="text-xs text-gray-300 truncate">
-                  {'text' in l ? String(l.text).slice(0, 40) : l.type}
-                </span>
-              </div>
-            ))}
+            {[...composition.layers].sort((a, b) => b.zIndex - a.zIndex).map((l, idx, arr) => {
+              const isActive = activeDesignerLayer === l.id
+              return (
+                <div
+                  key={l.id}
+                  className={`bg-gray-900 border rounded-lg px-3 py-2 cursor-pointer transition-colors ${
+                    isActive ? 'border-indigo-600' : 'border-gray-800 hover:border-gray-700'
+                  } ${l.locked ? 'opacity-50' : ''}`}
+                  onClick={() => setActiveDesignerLayer(isActive ? null : l.id)}
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <div className="flex items-center gap-2 min-w-0">
+                      {/* Visibility toggle */}
+                      <button
+                        onClick={e => {
+                          e.stopPropagation()
+                          onLayerChange?.(l.id, { visible: !l.visible })
+                        }}
+                        className="text-xs shrink-0"
+                        title={l.visible ? 'Hide' : 'Show'}
+                      >
+                        {l.visible ? '👁' : '🙈'}
+                      </button>
+                      {/* Lock toggle */}
+                      <button
+                        onClick={e => {
+                          e.stopPropagation()
+                          onLayerChange?.(l.id, { locked: !l.locked })
+                        }}
+                        className="text-xs shrink-0"
+                        title={l.locked ? 'Unlock' : 'Lock'}
+                      >
+                        {l.locked ? '🔒' : '🔓'}
+                      </button>
+                      <span className="text-xs text-gray-400 capitalize truncate">
+                        {l.id.replace(/_/g, ' ')}
+                      </span>
+                    </div>
+                    <span className="text-xs text-gray-500 shrink-0">z{l.zIndex}</span>
+                  </div>
+
+                  {/* Expanded layer controls */}
+                  {isActive && !l.locked && (
+                    <div className="mt-2 pt-2 border-t border-gray-800 space-y-2" onClick={e => e.stopPropagation()}>
+                      <div className="grid grid-cols-2 gap-2">
+                        <div>
+                          <label className="text-xs text-gray-600 block mb-0.5">X (0–1)</label>
+                          <input
+                            type="number" step="0.01" min={0} max={1}
+                            value={Number(l.x.toFixed(3))}
+                            onChange={e => onLayerChange?.(l.id, { x: Number(e.target.value) })}
+                            className="w-full bg-gray-800 border border-gray-700 rounded px-2 py-1 text-xs text-white"
+                          />
+                        </div>
+                        <div>
+                          <label className="text-xs text-gray-600 block mb-0.5">Y (0–1)</label>
+                          <input
+                            type="number" step="0.01" min={0} max={1}
+                            value={Number(l.y.toFixed(3))}
+                            onChange={e => onLayerChange?.(l.id, { y: Number(e.target.value) })}
+                            className="w-full bg-gray-800 border border-gray-700 rounded px-2 py-1 text-xs text-white"
+                          />
+                        </div>
+                      </div>
+                      <div className="grid grid-cols-2 gap-2">
+                        <div>
+                          <label className="text-xs text-gray-600 block mb-0.5">Opacity</label>
+                          <input
+                            type="range" min={0} max={1} step={0.05}
+                            value={l.opacity ?? 1}
+                            onChange={e => onLayerChange?.(l.id, { opacity: Number(e.target.value) })}
+                            className="w-full accent-indigo-600"
+                          />
+                        </div>
+                        {'color' in l && (
+                          <div>
+                            <label className="text-xs text-gray-600 block mb-0.5">Color</label>
+                            <input
+                              type="color"
+                              value={String((l as { color?: string }).color ?? '#ffffff')}
+                              onChange={e => onLayerChange?.(l.id, { color: e.target.value } as Partial<DesignLayer>)}
+                              className="w-full h-7 bg-gray-800 border border-gray-700 rounded px-0.5 cursor-pointer"
+                            />
+                          </div>
+                        )}
+                      </div>
+                      <button
+                        onClick={() => onLayerChange?.(l.id, {})}
+                        className="text-xs text-gray-500 hover:text-gray-300 transition-colors"
+                      >
+                        Reset to template default
+                      </button>
+                    </div>
+                  )}
+                </div>
+              )
+            })}
           </div>
           <p className="text-xs text-gray-600">
-            Edit commercial fields in the Designer tab to update this composition.
+            Click a layer to edit. Lock to protect. Eye to toggle visibility.
           </p>
         </div>
       )}

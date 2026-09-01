@@ -7,7 +7,15 @@ import {
   ALL_TEMPLATES, TEMPLATE_MAP, templatesForCampaignType, TEMPLATE_CANVASES,
   type WalzTemplate, type CampaignType, CAMPAIGN_TYPE_LABELS,
 } from '@/lib/orbit/templates'
-import { buildTemplateComposition, type DesignComposition } from '@/lib/orbit/composer'
+import {
+  buildTemplateComposition, type DesignComposition,
+  defaultDesignControls, type DesignControls,
+  scoreComposition, type QualityScoreResult,
+  applyPolishAction, type PolishAction,
+  applyVariationControls, type DesignVariation,
+  TEMPLATE_SAFE_ZONES, type TemplateSafeZones,
+} from '@/lib/orbit/composer'
+import { DesignerControlsPanel } from './DesignerControlsPanel'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -883,8 +891,37 @@ export function CreativeStudioSection({
   const [generatingDesigner,       setGeneratingDesigner]       = useState(false)
   const [designerError,            setDesignerError]            = useState<string | null>(null)
   const [designerComposition,      setDesignerComposition]      = useState<DesignComposition | null>(null)
+  const [baseComposition,          setBaseComposition]          = useState<DesignComposition | null>(null)
   const [artDirecting,             setArtDirecting]             = useState(false)
   const [artDirectorSuggestion,    setArtDirectorSuggestion]    = useState<string | null>(null)
+  // Phase 3 designer controls
+  const [designerControls,         setDesignerControls]         = useState<DesignControls>(defaultDesignControls())
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const [designerLayerOverrides,   setDesignerLayerOverrides]   = useState<Record<string, any>>({})
+  const [qualityScore,             setQualityScore]             = useState<QualityScoreResult | null>(null)
+
+  // Derived safe zones for current template
+  const currentSafeZones: TemplateSafeZones | undefined = TEMPLATE_SAFE_ZONES[designerTemplateKey]
+
+  // Rebuild composition when controls or layer overrides change
+  function rebuildComposition(
+    templateKey:      string,
+    fields:           Record<string, string>,
+    controls:         DesignControls,
+    layerOverrides:   Record<string, Partial<DesignComposition['layers'][0]>>,
+    visualAsset?:     { url: string; id?: string },
+  ): DesignComposition {
+    const template = TEMPLATE_MAP[templateKey] ?? ALL_TEMPLATES[0]
+    const canvas   = TEMPLATE_CANVASES[designerFormat] ?? TEMPLATE_CANVASES['1080x1350']
+    return buildTemplateComposition({
+      template,
+      commercialFields: fields,
+      visualAsset,
+      canvas,
+      controls,
+      layerOverrides: layerOverrides as Record<string, Partial<import('@/lib/orbit/composer/layer-model').DesignLayer>>,
+    })
+  }
 
   // Polling timers for pending jobs
   const pollTimers = useRef<Record<string, ReturnType<typeof setInterval>>>({})
@@ -1048,13 +1085,24 @@ export function CreativeStudioSection({
         const template = TEMPLATE_MAP[designerTemplateKey]
         const canvasConfig = TEMPLATE_CANVASES[designerFormat]
         if (template && canvasConfig && media.publicUrl) {
-          const composition = buildTemplateComposition({
+          const visualAsset = { url: media.publicUrl, id: media.id }
+          const base = buildTemplateComposition({
             template,
             commercialFields: designerCommercialFields,
-            visualAsset: { url: media.publicUrl, id: media.id },
+            visualAsset,
             canvas: canvasConfig,
           })
+          const composition = rebuildComposition(
+            designerTemplateKey,
+            designerCommercialFields,
+            designerControls,
+            designerLayerOverrides,
+            visualAsset,
+          )
+          setBaseComposition(base)
           setDesignerComposition(composition)
+          // Compute initial quality score
+          setQualityScore(scoreComposition(composition, designerControls, TEMPLATE_SAFE_ZONES[designerTemplateKey]))
           // Apply to POSTER compositor dimensions
           setFormat(designerFormat)
           setActiveTab('POSTER')
@@ -1865,6 +1913,27 @@ export function CreativeStudioSection({
               canvasHeight={formatPreset.height}
               onExport={handleExport}
               composition={designerComposition ?? undefined}
+              baseComposition={baseComposition ?? undefined}
+              safeZones={currentSafeZones}
+              showGuides={designerControls.showGuides}
+              overlayStrength={designerControls.overlayStrength}
+              onLayerChange={(layerId, patch) => {
+                const updated = { ...designerLayerOverrides, [layerId]: { ...(designerLayerOverrides[layerId] ?? {}), ...patch } }
+                setDesignerLayerOverrides(updated)
+                // Rebuild composition with the override applied
+                if (designerComposition) {
+                  const visual = designerComposition.layers.find(l => l.type === 'image') as { src?: string; id?: string } | undefined
+                  const newComp = rebuildComposition(
+                    designerTemplateKey,
+                    designerCommercialFields,
+                    designerControls,
+                    updated,
+                    visual?.src ? { url: visual.src, id: visual.id ?? undefined } : undefined,
+                  )
+                  setDesignerComposition(newComp)
+                  setQualityScore(scoreComposition(newComp, designerControls, currentSafeZones))
+                }
+              }}
             />
 
             {!selectedId && campaignImages.length === 0 && (
@@ -2315,27 +2384,76 @@ export function CreativeStudioSection({
 
       {/* ── DESIGNER TAB ───────────────────────────────────────────────────── */}
       {activeTab === 'DESIGNER' && (
-        <DesignerModePanel
-          campaignId={campaignId}
-          templateKey={designerTemplateKey}
-          campaignType={designerCampaignType}
-          brief={designerBrief}
-          commercialFields={designerCommercialFields}
-          format={designerFormat}
-          generating={generatingDesigner}
-          error={designerError}
-          artDirecting={artDirecting}
-          artDirectorSuggestion={artDirectorSuggestion}
-          onTemplateChange={(key) => { setDesignerTemplateKey(key); setDesignerCommercialFields({}) }}
-          onCampaignTypeChange={setDesignerCampaignType}
-          onBriefChange={setDesignerBrief}
-          onCommercialFieldChange={(fieldKey, val) =>
-            setDesignerCommercialFields(prev => ({ ...prev, [fieldKey]: val }))
-          }
-          onFormatChange={setDesignerFormat}
-          onGenerate={generateDesignerImage}
-          onArtDirect={runArtDirector}
-        />
+        <div className="grid grid-cols-1 xl:grid-cols-[1fr_300px] gap-4">
+          {/* Left: form */}
+          <DesignerModePanel
+            campaignId={campaignId}
+            templateKey={designerTemplateKey}
+            campaignType={designerCampaignType}
+            brief={designerBrief}
+            commercialFields={designerCommercialFields}
+            format={designerFormat}
+            generating={generatingDesigner}
+            error={designerError}
+            artDirecting={artDirecting}
+            artDirectorSuggestion={artDirectorSuggestion}
+            onTemplateChange={(key) => { setDesignerTemplateKey(key); setDesignerCommercialFields({}) }}
+            onCampaignTypeChange={setDesignerCampaignType}
+            onBriefChange={setDesignerBrief}
+            onCommercialFieldChange={(fieldKey, val) =>
+              setDesignerCommercialFields(prev => ({ ...prev, [fieldKey]: val }))
+            }
+            onFormatChange={setDesignerFormat}
+            onGenerate={generateDesignerImage}
+            onArtDirect={runArtDirector}
+          />
+          {/* Right: design controls panel */}
+          <div className="bg-gray-900/50 border border-gray-800 rounded-xl p-4">
+            <p className="text-xs text-gray-500 font-medium uppercase tracking-wider mb-3">Design Controls</p>
+            <DesignerControlsPanel
+              controls={designerControls}
+              qualityScore={qualityScore ?? undefined}
+              generating={generatingDesigner}
+              onChange={newControls => {
+                setDesignerControls(newControls)
+                // Rebuild live if we have a composition
+                if (designerComposition) {
+                  const visual = designerComposition.layers.find(l => l.type === 'image') as { src?: string; id?: string } | undefined
+                  const newComp = rebuildComposition(
+                    designerTemplateKey,
+                    designerCommercialFields,
+                    newControls,
+                    designerLayerOverrides,
+                    visual?.src ? { url: visual.src, id: visual.id ?? undefined } : undefined,
+                  )
+                  setDesignerComposition(newComp)
+                  setQualityScore(scoreComposition(newComp, newControls, currentSafeZones))
+                }
+              }}
+              onPolish={(action: PolishAction) => {
+                const newControls = applyPolishAction(designerControls, action)
+                setDesignerControls(newControls)
+                if (designerComposition) {
+                  const visual = designerComposition.layers.find(l => l.type === 'image') as { src?: string; id?: string } | undefined
+                  const newComp = rebuildComposition(
+                    designerTemplateKey,
+                    designerCommercialFields,
+                    newControls,
+                    designerLayerOverrides,
+                    visual?.src ? { url: visual.src, id: visual.id ?? undefined } : undefined,
+                  )
+                  setDesignerComposition(newComp)
+                  setQualityScore(scoreComposition(newComp, newControls, currentSafeZones))
+                }
+              }}
+              onVariation={(variation: DesignVariation) => {
+                const newControls = applyVariationControls(designerControls, variation)
+                setDesignerControls(newControls)
+                setDesignerBrief(variation.visualMoodModifier)
+              }}
+            />
+          </div>
+        </div>
       )}
     </div>
   )

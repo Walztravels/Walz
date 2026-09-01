@@ -161,13 +161,15 @@ export interface DesignCanvas {
 }
 
 export interface DesignComposition {
-  canvas:           DesignCanvas
-  templateKey:      string
-  layers:           DesignLayer[]
+  canvas:             DesignCanvas
+  templateKey:        string
+  layers:             DesignLayer[]
   // Persistence fields (serialized to posterData JSON column)
-  visualAssetId?:   string
-  commercialFields?: Record<string, string>
-  layerOverrides?:  Record<string, Partial<DesignLayer>>
+  visualAssetId?:     string
+  commercialFields?:  Record<string, string>
+  layerOverrides?:    Record<string, Partial<DesignLayer>>
+  // Phase 3: designer controls snapshot embedded in composition
+  controls?:          import('./design-controls').DesignControls
 }
 
 // ── Serialization tag (stored in posterData JSON) ─────────────────────────────

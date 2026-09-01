@@ -17,6 +17,9 @@ import type {
 } from './layer-model'
 import { buildContactBarLayer } from './contact-footer'
 import { BUSINESS } from '@/lib/config/business'
+import type { DesignControls } from './design-controls'
+import { overlayAlpha } from './design-controls'
+import { getTypographyPreset } from './typography-presets'
 
 export interface CompositionInput {
   template:         WalzTemplate
@@ -24,6 +27,7 @@ export interface CompositionInput {
   visualAsset?:     { url: string; id?: string }
   canvas:           TemplateCanvas
   layerOverrides?:  Record<string, Partial<DesignLayer>>
+  controls?:        DesignControls
 }
 
 /**
@@ -61,9 +65,11 @@ function resolveZones(
 /**
  * Build the image background layer from the visual asset (if present).
  */
-function buildImageLayer(url: string): ImageLayer {
+function buildImageLayer(url: string, controls?: DesignControls): ImageLayer {
+  let objectFit: ImageLayer['objectFit'] = 'cover'
+  if (controls?.imageCrop === 'contain') objectFit = 'contain'
   return {
-    id: 'bg_image', type: 'image', src: url, objectFit: 'cover',
+    id: 'bg_image', type: 'image', src: url, objectFit,
     x: 0, y: 0, width: 1, height: 1, zIndex: 0, visible: true,
   }
 }
@@ -95,16 +101,23 @@ function buildTextLayer(
   zone:      NonNullable<WalzTemplate['zones'][keyof WalzTemplate['zones']]>,
   staffText: string,
   zIndex:    number,
+  controls?: DesignControls,
 ): TextLayer {
+  const preset   = controls?.typographyPreset ? getTypographyPreset(controls.typographyPreset) : null
+  const baseSize = zone.fontSize ?? 32
+  const fontSize = preset ? Math.round(baseSize * preset.sizeScale) : baseSize
+  const align    = (controls?.textAlignment ?? zone.align ?? 'center') as 'left' | 'center' | 'right'
+
   return {
     id,
     type:       'text',
     text:       staffText,
-    fontFamily: "'Helvetica Neue', Arial, sans-serif",
-    fontWeight: zone.fontWeight ?? '800',
-    fontSize:   zone.fontSize ?? 32,
+    fontFamily: preset?.headlineFamily ?? "'Helvetica Neue', Arial, sans-serif",
+    fontWeight: preset?.headlineWeight ?? zone.fontWeight ?? '800',
+    fontSize,
+    lineHeight: preset?.lineHeight,
     color:      zone.color ?? '#ffffff',
-    align:      zone.align ?? 'center',
+    align,
     x:          zone.x ?? 0.5,
     y:          zone.y ?? 0.5,
     maxWidth:   zone.maxWidth,
@@ -193,13 +206,13 @@ function buildPriceLayer(
 // ── Main builder ──────────────────────────────────────────────────────────────
 
 export function buildTemplateComposition(input: CompositionInput): DesignComposition {
-  const { template, commercialFields, visualAsset, canvas, layerOverrides = {} } = input
+  const { template, commercialFields, visualAsset, canvas, layerOverrides = {}, controls } = input
   const zones = resolveZones(template, canvas.key)
   const layers: DesignLayer[] = []
 
   // 1. Background image
   if (visualAsset?.url) {
-    layers.push(buildImageLayer(visualAsset.url))
+    layers.push(buildImageLayer(visualAsset.url, controls))
   }
 
   // 2. Logo
@@ -210,44 +223,50 @@ export function buildTemplateComposition(input: CompositionInput): DesignComposi
   // 3. Headline
   const headlineText = commercialFields['headline'] ?? ''
   if (zones.headline) {
-    layers.push(buildTextLayer('headline', zones.headline, headlineText, 20))
+    layers.push(buildTextLayer('headline', zones.headline, headlineText, 20, controls))
   }
 
   // 4. Subheadline
   const subText = commercialFields['subheadline'] ?? ''
   if (zones.subheadline) {
-    layers.push(buildTextLayer('subheadline', zones.subheadline, subText, 21))
+    layers.push(buildTextLayer('subheadline', zones.subheadline, subText, 21, controls))
   }
 
-  // 5. Route cards (split on • or ,)
+  // 5. Route cards — only show if not minimal density
   const routeRaw = commercialFields['route'] ?? ''
-  if (routeRaw && zones.route) {
+  if (routeRaw && zones.route && controls?.contentDensity !== 'minimal') {
     layers.push(buildRouteCardLayer(zones.route, routeRaw))
   }
 
   // 6. Price block
-  const priceAmount = commercialFields['price'] ?? ''
+  const priceAmount   = commercialFields['price'] ?? ''
   const priceCurrency = commercialFields['currency'] ?? ''
   if ((priceAmount || priceCurrency) && zones.price && zones.currency) {
     layers.push(buildPriceLayer(zones.price, zones.currency, priceAmount, priceCurrency))
   }
 
-  // 7. CTA button
+  // 7. CTA button — always shown when text is present
   const ctaText = commercialFields['cta'] ?? ''
   if (zones.cta) {
     layers.push(buildCTALayer(zones.cta, ctaText))
   }
 
-  // 8. Terms
+  // 8. Terms — hidden in minimal density
   const termsText = commercialFields['terms'] ?? ''
-  if (termsText && zones.terms) {
-    layers.push(buildTextLayer('terms', zones.terms, termsText, 60))
+  if (termsText && zones.terms && controls?.contentDensity !== 'minimal') {
+    layers.push(buildTextLayer('terms', zones.terms, termsText, 60, controls))
   }
 
-  // 9. Contact bar — always from central BUSINESS config
-  const footerVariant = template.background === 'light_editorial' || template.background === 'white_card'
+  // 9. Contact bar — variant driven by footer control and template background
+  const baseFooterVariant = template.background === 'light_editorial' || template.background === 'white_card'
     ? 'light'
     : 'dark'
+  const footerVariant = controls?.footer === 'full'
+    ? 'full'
+    : controls?.footer === 'minimal'
+    ? 'compact'
+    : baseFooterVariant
+
   layers.push(buildContactBarLayer(footerVariant, {
     y:      zones.contact?.y ?? 0.975,
     zIndex: 80,
@@ -267,8 +286,12 @@ export function buildTemplateComposition(input: CompositionInput): DesignComposi
     visualAssetId:   visualAsset?.id,
     commercialFields,
     layerOverrides,
+    controls,
   }
 }
+
+// Export overlayAlpha for compositor use
+export { overlayAlpha }
 
 /**
  * Build the contact string to display in a simple text layer fallback.
