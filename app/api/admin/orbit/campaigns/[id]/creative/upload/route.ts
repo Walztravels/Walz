@@ -100,6 +100,7 @@ export async function POST(
     data: {
       source:           'uploaded',
       provider:         'uploaded',
+      sourceType:       'manual_upload',
       storagePath:      '',
       format,
       mediaType:        isImage ? 'image' : 'video',

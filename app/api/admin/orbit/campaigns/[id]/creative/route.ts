@@ -143,6 +143,7 @@ export async function POST(
       const placeholder = await prisma.orbitMedia.create({
         data: {
           source:           'generated',
+          sourceType:       'ai',
           storagePath:      '',
           format,
           destination:      campaign.destination || null,
@@ -245,7 +246,7 @@ export async function POST(
 
       const placeholder = await prisma.orbitMedia.create({
         data: {
-          source: 'generated', storagePath: '',
+          source: 'generated', sourceType: 'ai', storagePath: '',
           format, destination: campaign.destination || null,
           campaignType: campaign.objective || null,
           prompt, campaignId: params.id, createdBy: session.email,
@@ -341,6 +342,7 @@ export async function POST(
     const placeholder = await prisma.orbitMedia.create({
       data: {
         source:           'generated',
+        sourceType:       'ai',
         storagePath:      '',
         format:           aspectRatio === '9:16' ? '1080x1920' : aspectRatio === '1:1' ? '1024x1024' : '1200x628',
         mediaType:        'video',

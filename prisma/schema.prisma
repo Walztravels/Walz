@@ -3495,10 +3495,18 @@ model OrbitMedia {
   height           Int?                              // pixel height of generated asset
   posterData       Json?     @map("poster_data")     // editable poster text-layer config (JSON)
   isReference      Boolean   @default(false) @map("is_reference") // staff-uploaded reference/source image
+  // Explicit source reference — new model (nullable for backward compat with older rows).
+  // sourceType: 'ai' | 'media_library' | 'manual_upload'
+  // sourceMediaId: MarketingMedia.id when sourceType='media_library'; null otherwise.
+  // Legacy rows without these fields use storagePath='media_library:<id>' as a sentinel
+  // and are resolved via the backward-compat path in resolveOrbitMediaAsset().
+  sourceType       String?   @map("source_type")
+  sourceMediaId    String?   @map("source_media_id")
 
   campaign OrbitCampaign? @relation(fields: [campaignId], references: [id], onDelete: SetNull)
 
   @@index([destination, campaignType], name: "idx_orbit_media_dest")
+  @@index([campaignId, sourceType, sourceMediaId], name: "idx_orbit_media_campaign_source")
   @@map("orbit_media")
 }
 

@@ -21,6 +21,7 @@ import {
   submitFalImageToVideo,
 } from '@/lib/orbit/fal-video-adapter'
 import { resolveVideoModel } from '@/lib/orbit/video-models'
+import { resolveAnimationSourceUrl } from '@/lib/orbit/media-resolver'
 
 export const dynamic   = 'force-dynamic'
 export const maxDuration = 30
@@ -43,7 +44,10 @@ export async function POST(
   const sourceAsset = await prisma.orbitMedia.findFirst({
     where: { id: params.assetId, campaignId: params.id, mediaType: 'image' },
   })
-  if (!sourceAsset?.publicUrl) {
+  // Resolve via central resolver — handles AI, Media Library, and uploaded assets.
+  // URL is always read from the DB record (never from the browser), preventing SSRF.
+  const sourceImageUrl = sourceAsset ? resolveAnimationSourceUrl(sourceAsset as Parameters<typeof resolveAnimationSourceUrl>[0]) : null
+  if (!sourceImageUrl) {
     return NextResponse.json({ error: 'Source image asset not found' }, { status: 404 })
   }
 
@@ -57,8 +61,8 @@ export async function POST(
   const prompt      = (body.prompt ?? 'Slow cinematic camera movement, gentle parallax, golden hour light').trim()
   const duration    = body.duration === 10 ? 10 : 5
   const aspectRatio = body.aspectRatio ?? (
-    sourceAsset.format === '1080x1920' ? '9:16' :
-    sourceAsset.format === '1024x1024' ? '1:1'  : '16:9'
+    sourceAsset?.format === '1080x1920' ? '9:16' :
+    sourceAsset?.format === '1024x1024' ? '1:1'  : '16:9'
   )
   const modelKey    = body.videoModelKey ?? 'kling'
 
@@ -88,12 +92,13 @@ export async function POST(
   const placeholder = await prisma.orbitMedia.create({
     data: {
       source:           'generated',
+      sourceType:       'ai',
       storagePath:      '',
       format:           aspectRatio === '9:16' ? '1080x1920' : aspectRatio === '1:1' ? '1024x1024' : '1200x628',
       mediaType:        'video',
       durationMs:       duration * 1000,
-      destination:      sourceAsset.destination,
-      campaignType:     sourceAsset.campaignType,
+      destination:      sourceAsset?.destination ?? null,
+      campaignType:     sourceAsset?.campaignType ?? null,
       prompt,
       campaignId:       params.id,
       createdBy:        session.email,
@@ -107,7 +112,7 @@ export async function POST(
   try {
     const { requestId } = await submitFalImageToVideo({
       modelKey:    resolvedModel.key,
-      imageUrl:    sourceAsset.publicUrl,
+      imageUrl:    sourceImageUrl,
       prompt,
       duration,
       aspectRatio,

@@ -12,12 +12,20 @@
  *   - Duplicate-attach idempotency: returns existing attachment if already attached
  *   - RBAC: super_admin only
  *
- * Storage:
+ * Storage model (new):
+ *   sourceType    = 'media_library'
+ *   sourceMediaId = MarketingMedia.id
+ *   storagePath   = '' (Orbit does not own this binary)
+ *   providerJobId = null (not an AI generation job)
+ *   publicUrl     = copy of MarketingMedia.url (for fast reads without a JOIN)
+ *
  *   The original file stays in the marketing-media Supabase bucket.
- *   Only metadata (publicUrl, mimeType, etc.) is copied to OrbitMedia.
- *   storagePath is set to 'media_library:<marketingMediaId>' as a sentinel.
- *   The DELETE (archive) route uses soft-delete and does not touch storage,
- *   so detaching is safe.
+ *   Archiving/detaching is safe because soft-delete never touches storage
+ *   when isLibraryRef=true (see resolveOrbitMediaAsset).
+ *
+ * Backward compat:
+ *   Idempotency lookup checks BOTH new fields AND the legacy
+ *   storagePath='media_library:<id>' sentinel used by rows created before this change.
  *
  * RBAC: super_admin only.
  */
@@ -74,17 +82,29 @@ export async function POST(
   }
 
   // ── Duplicate-attach idempotency ──────────────────────────────────────────────
-  // providerJobId stores the MarketingMedia ID when provider='media_library'
+  // Check both new sourceType/sourceMediaId fields AND the legacy providerJobId sentinel
+  // so existing rows created before this change are still recognised.
   const existing = await prisma.orbitMedia.findFirst({
     where: {
-      campaignId:    params.id,
-      provider:      'media_library',
-      providerJobId: body.mediaLibraryId,
+      OR: [
+        // New model
+        {
+          campaignId:    params.id,
+          sourceType:    'media_library',
+          sourceMediaId: body.mediaLibraryId,
+        },
+        // Legacy sentinel (rows created before sourceType/sourceMediaId existed)
+        {
+          campaignId:    params.id,
+          provider:      'media_library',
+          providerJobId: body.mediaLibraryId,
+        },
+      ],
     },
   })
   if (existing) {
     return NextResponse.json({
-      media:          existing,
+      media:           existing,
       alreadyAttached: true,
     })
   }
@@ -92,14 +112,18 @@ export async function POST(
   const mediaType = isVideo ? 'video' : 'image'
   const format    = body.format ?? (isVideo ? '1080x1920' : '1080x1080')
 
-  // ── Create OrbitMedia (metadata only, no binary re-upload) ────────────────────
+  // ── Create OrbitMedia (metadata only — no binary re-upload) ──────────────────
   const media = await prisma.orbitMedia.create({
     data: {
       source:           'media_library',
       provider:         'media_library',
-      providerJobId:    body.mediaLibraryId,        // sentinel: source MarketingMedia ID
-      storagePath:      `media_library:${body.mediaLibraryId}`,
-      publicUrl:        libraryAsset.url,            // points to marketing-media bucket
+      // NEW explicit source reference (clean; no providerJobId overloading)
+      sourceType:       'media_library',
+      sourceMediaId:    body.mediaLibraryId,
+      // storagePath is empty: Orbit does not own this binary
+      storagePath:      '',
+      // providerJobId intentionally NOT set: not an AI generation job
+      publicUrl:        libraryAsset.url,   // copy for fast reads; resolved via sourceMediaId if needed
       format,
       mediaType,
       campaignId:       params.id,
