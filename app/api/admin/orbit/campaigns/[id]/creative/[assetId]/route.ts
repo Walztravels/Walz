@@ -19,7 +19,13 @@ import {
   pollRunwayTask,
   uploadRunwayVideoToStorage,
   RUNWAY_COST_PER_SECOND,
+  isRunwayConfigured,
 } from '@/lib/orbit/runway-adapter'
+import {
+  pollFalVideoTask,
+  uploadFalVideoToStorage,
+} from '@/lib/orbit/fal-video-adapter'
+import { resolveVideoModel } from '@/lib/orbit/video-models'
 
 export const dynamic   = 'force-dynamic'
 export const maxDuration = 30
@@ -44,8 +50,8 @@ export async function GET(
 
   let { asset } = guard
 
-  // Poll Runway job if this is a pending/processing runway video
-  if (asset.provider === 'runway' && asset.providerJobId &&
+  // Poll Runway job for historical runway assets (only if still configured)
+  if (asset.provider === 'runway' && asset.providerJobId && isRunwayConfigured() &&
       (asset.generationStatus === 'pending' || asset.generationStatus === 'processing')) {
     try {
       const task = await pollRunwayTask(asset.providerJobId)
@@ -82,21 +88,75 @@ export async function GET(
             },
           })
         } catch (uploadErr) {
-          // If Supabase upload fails, store the Runway URL temporarily
           asset = await prisma.orbitMedia.update({
             where: { id: asset.id },
-            data: {
-              storagePath:      videoUrl,
-              publicUrl:        videoUrl,
-              generationStatus: 'completed',
-            },
+            data: { storagePath: videoUrl, publicUrl: videoUrl, generationStatus: 'completed' },
           })
           console.error('[creative/assetId] Runway video upload to Supabase failed:', uploadErr)
         }
       }
     } catch (pollErr) {
       console.error('[creative/assetId] Runway poll error:', pollErr)
-      // Non-fatal — return current state
+    }
+  }
+
+  // Poll FAL.ai job for pending/processing fal video assets
+  if (asset.provider === 'fal' && asset.providerJobId && asset.model &&
+      (asset.generationStatus === 'pending' || asset.generationStatus === 'processing')) {
+    try {
+      const resolvedModel = resolveVideoModel(asset.model)
+      if (resolvedModel) {
+        const result = await pollFalVideoTask({
+          requestId:   asset.providerJobId,
+          falEndpoint: resolvedModel.falEndpoint,
+        })
+
+        if (result.status === 'processing') {
+          asset = await prisma.orbitMedia.update({
+            where: { id: asset.id },
+            data:  { generationStatus: 'processing' },
+          })
+        }
+
+        if (result.status === 'failed') {
+          asset = await prisma.orbitMedia.update({
+            where: { id: asset.id },
+            data:  { generationStatus: 'failed' },
+          })
+        }
+
+        if (result.status === 'completed' && result.videoUrl) {
+          try {
+            const { storagePath, publicUrl } = await uploadFalVideoToStorage({
+              videoUrl: result.videoUrl,
+              mediaId:  asset.id,
+            })
+            const durationS = asset.durationMs ? asset.durationMs / 1000 : 5
+            asset = await prisma.orbitMedia.update({
+              where: { id: asset.id },
+              data: {
+                storagePath,
+                publicUrl,
+                generationStatus: 'completed',
+                costUsd: durationS * resolvedModel.costPerSecond,
+              },
+            })
+          } catch (uploadErr) {
+            // Fallback: store FAL CDN URL temporarily (expires ~30 days)
+            asset = await prisma.orbitMedia.update({
+              where: { id: asset.id },
+              data: {
+                storagePath:      result.videoUrl,
+                publicUrl:        result.videoUrl,
+                generationStatus: 'completed',
+              },
+            })
+            console.error('[creative/assetId] FAL video upload to Supabase failed:', uploadErr)
+          }
+        }
+      }
+    } catch (pollErr) {
+      console.error('[creative/assetId] FAL poll error:', pollErr)
     }
   }
 

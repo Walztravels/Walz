@@ -1,24 +1,26 @@
 /**
- * Orbit Creative Studio — animate an existing image asset with Runway.
+ * Orbit Creative Studio — animate an existing image asset with FAL.ai.
  *
  * POST /api/admin/orbit/campaigns/[id]/creative/[assetId]/animate
- *   Submits the image at [assetId] to Runway for image-to-video animation.
+ *   Submits the image at [assetId] to FAL.ai for image-to-video animation.
  *   Returns immediately with a new pending video asset.
  *   Poll /api/admin/orbit/campaigns/[id]/creative/[videoAssetId] for status.
  *
  * RBAC: super_admin only.
- * Gate: ORBIT_RUNWAY_VIDEO_ENABLED=true.
+ * Gate: ORBIT_AI_VIDEO_ENABLED=true.
+ *
+ * Security: FALAI_API_KEY is server-side only. Only campaign creative assets
+ * (never customer documents) may be submitted to FAL.ai.
  */
 
 import { NextRequest, NextResponse } from 'next/server'
 import { getAdminSession } from '@/lib/admin-auth'
 import { prisma } from '@/lib/db'
 import {
-  isRunwayConfigured,
-  submitRunwayImageToVideo,
-  RUNWAY_COST_PER_SECOND,
-  getRunwayModel,
-} from '@/lib/orbit/runway-adapter'
+  isFalVideoConfigured,
+  submitFalImageToVideo,
+} from '@/lib/orbit/fal-video-adapter'
+import { resolveVideoModel } from '@/lib/orbit/video-models'
 
 export const dynamic   = 'force-dynamic'
 export const maxDuration = 30
@@ -31,9 +33,9 @@ export async function POST(
   if (!session)                     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   if (session.role !== 'super_admin') return NextResponse.json({ error: 'Forbidden' },    { status: 403 })
 
-  if (!isRunwayConfigured()) {
+  if (!isFalVideoConfigured()) {
     return NextResponse.json({
-      error: 'Runway is not enabled. Set ORBIT_RUNWAY_VIDEO_ENABLED=true and RUNWAY_API_SECRET.',
+      error: 'FAL.ai video is not enabled. Set ORBIT_AI_VIDEO_ENABLED=true and FALAI_API_KEY.',
       notConfigured: true,
     }, { status: 503 })
   }
@@ -46,9 +48,10 @@ export async function POST(
   }
 
   const body = await req.json().catch(() => ({})) as {
-    prompt?:      string
-    duration?:    5 | 10
-    aspectRatio?: string
+    prompt?:       string
+    duration?:     5 | 10
+    aspectRatio?:  string
+    videoModelKey?: string   // 'kling' | 'veo' | 'seedance'; validated server-side
   }
 
   const prompt      = (body.prompt ?? 'Slow cinematic camera movement, gentle parallax, golden hour light').trim()
@@ -57,12 +60,21 @@ export async function POST(
     sourceAsset.format === '1080x1920' ? '9:16' :
     sourceAsset.format === '1024x1024' ? '1:1'  : '16:9'
   )
+  const modelKey    = body.videoModelKey ?? 'kling'
+
+  // Validate model key server-side — browser cannot inject arbitrary FAL endpoints
+  const resolvedModel = resolveVideoModel(modelKey)
+  if (!resolvedModel) {
+    return NextResponse.json({
+      error: `Unknown video model key: "${modelKey}". Allowed: kling, veo, seedance.`,
+    }, { status: 400 })
+  }
 
   // Duplicate-click guard
   const existing = await prisma.orbitMedia.findFirst({
     where: {
       campaignId:       params.id,
-      provider:         'runway',
+      provider:         'fal',
       generationStatus: { in: ['pending', 'processing'] },
     },
   })
@@ -85,30 +97,31 @@ export async function POST(
       prompt,
       campaignId:       params.id,
       createdBy:        session.email,
-      provider:         'runway',
-      model:            getRunwayModel(),
+      provider:         'fal',
+      model:            resolvedModel.key,       // e.g. 'kling' — never the raw FAL endpoint
       generationStatus: 'pending',
-      costUsd:          duration * RUNWAY_COST_PER_SECOND,
+      costUsd:          duration * resolvedModel.costPerSecond,
     },
   })
 
   try {
-    const { taskId } = await submitRunwayImageToVideo({
-      promptImage: sourceAsset.publicUrl,
-      promptText:  prompt,
+    const { requestId } = await submitFalImageToVideo({
+      modelKey:    resolvedModel.key,
+      imageUrl:    sourceAsset.publicUrl,
+      prompt,
       duration,
-      ratio:       aspectRatio,
+      aspectRatio,
     })
 
     const media = await prisma.orbitMedia.update({
       where: { id: placeholder.id },
-      data:  { providerJobId: taskId },
+      data:  { providerJobId: requestId },
     })
 
     return NextResponse.json({
       media,
-      taskId,
-      status:       'pending',
+      requestId,
+      status:        'pending',
       sourceAssetId: params.assetId,
     })
 

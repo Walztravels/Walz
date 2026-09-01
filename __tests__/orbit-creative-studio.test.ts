@@ -28,6 +28,15 @@ import {
   RUNWAY_COST_PER_SECOND,
   getRunwayModel,
 } from '../lib/orbit/runway-adapter'
+import {
+  isFalVideoConfigured,
+} from '../lib/orbit/fal-video-adapter'
+import {
+  resolveVideoModel,
+  listVideoModelKeys,
+  listVideoModels,
+  MOTION_PRESETS,
+} from '../lib/orbit/video-models'
 
 // ── Shared test env cleanup ───────────────────────────────────────────────────
 
@@ -307,5 +316,172 @@ describe('getRunwayModel', () => {
   it('returns the override value when ORBIT_RUNWAY_MODEL is set', () => {
     process.env.ORBIT_RUNWAY_MODEL = 'gen4_ultra'
     expect(getRunwayModel()).toBe('gen4_ultra')
+  })
+})
+
+// ── isFalVideoConfigured ──────────────────────────────────────────────────────
+
+describe('isFalVideoConfigured', () => {
+  it('returns false when ORBIT_AI_VIDEO_ENABLED is missing', () => {
+    delete process.env.ORBIT_AI_VIDEO_ENABLED
+    process.env.FALAI_API_KEY = 'fal-test-key'
+    expect(isFalVideoConfigured()).toBe(false)
+  })
+
+  it('returns false when ORBIT_AI_VIDEO_ENABLED=false', () => {
+    process.env.ORBIT_AI_VIDEO_ENABLED = 'false'
+    process.env.FALAI_API_KEY          = 'fal-test-key'
+    expect(isFalVideoConfigured()).toBe(false)
+  })
+
+  it('returns false when FALAI_API_KEY is missing', () => {
+    process.env.ORBIT_AI_VIDEO_ENABLED = 'true'
+    delete process.env.FALAI_API_KEY
+    expect(isFalVideoConfigured()).toBe(false)
+  })
+
+  it('returns true when both vars are set', () => {
+    process.env.ORBIT_AI_VIDEO_ENABLED = 'true'
+    process.env.FALAI_API_KEY          = 'fal-test-key'
+    expect(isFalVideoConfigured()).toBe(true)
+  })
+
+  it('ORBIT_AI_VIDEO_ENABLED defaults to disabled', () => {
+    delete process.env.ORBIT_AI_VIDEO_ENABLED
+    delete process.env.FALAI_API_KEY
+    expect(isFalVideoConfigured()).toBe(false)
+  })
+})
+
+// ── Video model registry ──────────────────────────────────────────────────────
+
+describe('resolveVideoModel', () => {
+  it('returns a valid model for "kling"', () => {
+    const m = resolveVideoModel('kling')
+    expect(m).not.toBeNull()
+    expect(m?.key).toBe('kling')
+    expect(m?.tier).toBe('recommended')
+    expect(m?.supportsImage).toBe(true)
+    expect(m?.costPerSecond).toBeGreaterThan(0)
+    expect(m?.maxDurationSec).toBeGreaterThan(0)
+    // falEndpoint must be a non-empty string
+    expect(typeof m?.falEndpoint).toBe('string')
+    expect(m!.falEndpoint.length).toBeGreaterThan(0)
+  })
+
+  it('returns a valid model for "veo"', () => {
+    const m = resolveVideoModel('veo')
+    expect(m).not.toBeNull()
+    expect(m?.tier).toBe('premium')
+  })
+
+  it('returns a valid model for "seedance"', () => {
+    const m = resolveVideoModel('seedance')
+    expect(m).not.toBeNull()
+    expect(m?.tier).toBe('alternative')
+  })
+
+  it('returns null for an unknown model key', () => {
+    expect(resolveVideoModel('arbitrary-fal-endpoint')).toBeNull()
+    expect(resolveVideoModel('')).toBeNull()
+    expect(resolveVideoModel('../../etc/passwd')).toBeNull()
+  })
+
+  it('uses ORBIT_FAL_VIDEO_MODEL env var to override kling endpoint', () => {
+    process.env.ORBIT_FAL_VIDEO_MODEL = 'fal-ai/kling-video/v3.0/pro/image-to-video'
+    const m = resolveVideoModel('kling')
+    expect(m?.falEndpoint).toBe('fal-ai/kling-video/v3.0/pro/image-to-video')
+  })
+
+  it('does NOT override veo/seedance with ORBIT_FAL_VIDEO_MODEL', () => {
+    process.env.ORBIT_FAL_VIDEO_MODEL = 'fal-ai/kling-video/v3.0/pro/image-to-video'
+    const veo = resolveVideoModel('veo')
+    expect(veo?.falEndpoint).not.toBe('fal-ai/kling-video/v3.0/pro/image-to-video')
+  })
+})
+
+describe('listVideoModelKeys', () => {
+  it('includes kling, veo, and seedance', () => {
+    const keys = listVideoModelKeys()
+    expect(keys).toContain('kling')
+    expect(keys).toContain('veo')
+    expect(keys).toContain('seedance')
+  })
+})
+
+describe('listVideoModels', () => {
+  it('does NOT include falEndpoint in returned objects (server secret)', () => {
+    const models = listVideoModels()
+    for (const m of models) {
+      expect((m as Record<string, unknown>).falEndpoint).toBeUndefined()
+    }
+  })
+
+  it('all models have required display fields', () => {
+    const models = listVideoModels()
+    for (const m of models) {
+      expect(typeof m.key).toBe('string')
+      expect(typeof m.name).toBe('string')
+      expect(['recommended', 'premium', 'alternative']).toContain(m.tier)
+      expect(m.costPerSecond).toBeGreaterThan(0)
+      expect(m.maxDurationSec).toBeGreaterThan(0)
+    }
+  })
+
+  it('has exactly one recommended model', () => {
+    const recommended = listVideoModels().filter(m => m.tier === 'recommended')
+    expect(recommended.length).toBe(1)
+    expect(recommended[0].key).toBe('kling')
+  })
+})
+
+// ── MOTION_PRESETS ────────────────────────────────────────────────────────────
+
+describe('MOTION_PRESETS', () => {
+  it('has 10 presets', () => {
+    expect(MOTION_PRESETS.length).toBe(10)
+  })
+
+  it('all presets have non-empty prompt strings', () => {
+    for (const p of MOTION_PRESETS) {
+      expect(typeof p.prompt).toBe('string')
+      expect(p.prompt.length).toBeGreaterThan(20)
+    }
+  })
+
+  it('no preset includes price or commercial values', () => {
+    const forbidden = ['price', 'fare', '₦', 'ngn', 'gbp', 'discount', '%']
+    for (const p of MOTION_PRESETS) {
+      for (const kw of forbidden) {
+        expect(p.prompt.toLowerCase()).not.toContain(kw)
+      }
+    }
+  })
+
+  it('all presets have unique keys', () => {
+    const keys = MOTION_PRESETS.map(p => p.key)
+    expect(new Set(keys).size).toBe(keys.length)
+  })
+})
+
+// ── FAL API key protection ────────────────────────────────────────────────────
+
+describe('FAL API key protection', () => {
+  it('FALAI_API_KEY is not accessible without process.env', () => {
+    delete process.env.FALAI_API_KEY
+    delete process.env.ORBIT_AI_VIDEO_ENABLED
+    expect(isFalVideoConfigured()).toBe(false)
+  })
+
+  it('browser cannot inject arbitrary model endpoint — resolveVideoModel rejects unknown keys', () => {
+    const maliciousKeys = [
+      'fal-ai/malicious-model',
+      '../../../secret',
+      'kling; DROP TABLE orbit_media',
+      '',
+    ]
+    for (const key of maliciousKeys) {
+      expect(resolveVideoModel(key)).toBeNull()
+    }
   })
 })

@@ -29,11 +29,13 @@ import {
   FLUX_COST_USD,
 } from '@/lib/orbit/replicate-adapter'
 import {
-  isRunwayConfigured,
-  submitRunwayImageToVideo,
-  RUNWAY_COST_PER_SECOND,
-  getRunwayModel,
-} from '@/lib/orbit/runway-adapter'
+  isFalVideoConfigured,
+  submitFalImageToVideo,
+} from '@/lib/orbit/fal-video-adapter'
+import {
+  resolveVideoModel,
+  listVideoModels,
+} from '@/lib/orbit/video-models'
 import Anthropic from '@anthropic-ai/sdk'
 
 export const dynamic   = 'force-dynamic'
@@ -58,25 +60,28 @@ export async function GET(
 
   return NextResponse.json({
     assets,
-    openaiEnabled:  isOpenAIImageConfigured(),
+    openaiEnabled:    isOpenAIImageConfigured(),
     replicateEnabled: isReplicateConfigured(),
-    runwayEnabled:  isRunwayConfigured(),
+    runwayEnabled:    false,                    // Runway removed; kept for client backward compat
+    falVideoEnabled:  isFalVideoConfigured(),
+    availableVideoModels: listVideoModels(),    // display metadata only, no endpoints
   })
 }
 
 // ── POST — generate a new creative asset ─────────────────────────────────────
 
 interface GenerateBody {
-  mode:           'image' | 'video'
-  provider:       'openai' | 'replicate' | 'runway'
-  format:         string
-  prompt?:        string
-  promptHint?:    string
-  brandPreset?:   string
-  aspectRatio?:   string
-  duration?:      5 | 10
-  referenceMediaId?: string   // OrbitMedia ID of a reference image (isReference=true)
-  quality?:       'low' | 'medium' | 'high' | 'auto'
+  mode:            'image' | 'video'
+  provider:        'openai' | 'replicate' | 'fal' | 'runway'  // runway=legacy, returns 503
+  format:          string
+  prompt?:         string
+  promptHint?:     string
+  brandPreset?:    string
+  aspectRatio?:    string
+  duration?:       5 | 10
+  referenceMediaId?: string    // OrbitMedia ID of a reference image (isReference=true)
+  quality?:        'low' | 'medium' | 'high' | 'auto'
+  videoModelKey?:  string      // 'kling' | 'veo' | 'seedance'; validated server-side
 }
 
 export async function POST(
@@ -272,22 +277,30 @@ export async function POST(
     return NextResponse.json({ error: `Unknown provider: ${provider}` }, { status: 400 })
   }
 
-  // ── Video generation (Runway — async) ─────────────────────────────────────
+  // ── Video generation (FAL.ai — async, DB-tracked) ─────────────────────────
 
-  if (mode === 'video' && provider === 'runway') {
-    if (!isRunwayConfigured()) {
+  if (mode === 'video' && provider === 'fal') {
+    if (!isFalVideoConfigured()) {
       return NextResponse.json({
-        error: 'Runway is not enabled. Set ORBIT_RUNWAY_VIDEO_ENABLED=true and RUNWAY_API_SECRET.',
+        error: 'FAL.ai video is not enabled. Set ORBIT_AI_VIDEO_ENABLED=true and FALAI_API_KEY.',
         notConfigured: true,
       }, { status: 503 })
     }
 
-    const prompt = (body.prompt ?? '').trim()
-    if (!prompt) return NextResponse.json({ error: 'prompt required for video' }, { status: 400 })
+    const prompt    = (body.prompt ?? '').trim()
+    const modelKey  = body.videoModelKey ?? 'kling'
 
-    // Source image is required for image-to-video
+    if (!prompt) return NextResponse.json({ error: 'prompt required for video' }, { status: 400 })
     if (!body.referenceMediaId) {
-      return NextResponse.json({ error: 'referenceMediaId required for Runway image-to-video' }, { status: 400 })
+      return NextResponse.json({ error: 'referenceMediaId required for image-to-video' }, { status: 400 })
+    }
+
+    // Validate model key server-side — browser cannot inject arbitrary FAL endpoints
+    const resolvedModel = resolveVideoModel(modelKey)
+    if (!resolvedModel) {
+      return NextResponse.json({
+        error: `Unknown video model key: "${modelKey}". Allowed: kling, veo, seedance.`,
+      }, { status: 400 })
     }
 
     const sourceMedia = await prisma.orbitMedia.findFirst({
@@ -297,11 +310,11 @@ export async function POST(
       return NextResponse.json({ error: 'Source image not found' }, { status: 404 })
     }
 
-    // Duplicate-click guard: only one pending/processing Runway job per campaign
+    // Duplicate-click guard: only one pending/processing FAL job per campaign
     const existing = await prisma.orbitMedia.findFirst({
       where: {
-        campaignId: params.id,
-        provider:   'runway',
+        campaignId:       params.id,
+        provider:         'fal',
         generationStatus: { in: ['pending', 'processing'] },
       },
     })
@@ -312,7 +325,6 @@ export async function POST(
       )
     }
 
-    // Create pending placeholder
     const placeholder = await prisma.orbitMedia.create({
       data: {
         source:           'generated',
@@ -325,29 +337,30 @@ export async function POST(
         prompt,
         campaignId:       params.id,
         createdBy:        session.email,
-        provider:         'runway',
-        model:            getRunwayModel(),
+        provider:         'fal',
+        model:            resolvedModel.key,     // e.g. 'kling' — never the raw FAL endpoint
         generationStatus: 'pending',
-        costUsd:          duration * RUNWAY_COST_PER_SECOND,
+        costUsd:          duration * resolvedModel.costPerSecond,
       },
     })
 
     try {
-      const { taskId } = await submitRunwayImageToVideo({
-        promptImage: sourceMedia.publicUrl,
-        promptText:  prompt,
+      const { requestId } = await submitFalImageToVideo({
+        modelKey:    resolvedModel.key,
+        imageUrl:    sourceMedia.publicUrl,
+        prompt,
         duration,
-        ratio:       aspectRatio,
+        aspectRatio,
       })
 
       await prisma.orbitMedia.update({
         where: { id: placeholder.id },
-        data:  { providerJobId: taskId },
+        data:  { providerJobId: requestId },
       })
 
       return NextResponse.json({
-        media:    { ...placeholder, providerJobId: taskId },
-        taskId,
+        media:    { ...placeholder, providerJobId: requestId },
+        requestId,
         status:   'pending',
       })
 
@@ -355,6 +368,14 @@ export async function POST(
       await prisma.orbitMedia.delete({ where: { id: placeholder.id } }).catch(() => {})
       return NextResponse.json({ error: err instanceof Error ? err.message : String(err) }, { status: 500 })
     }
+  }
+
+  // Runway removed — backward compat message for any legacy callers
+  if (mode === 'video' && provider === 'runway') {
+    return NextResponse.json({
+      error: 'Runway video provider has been replaced by FAL.ai. Use provider: "fal" instead.',
+      migrated: true,
+    }, { status: 503 })
   }
 
   return NextResponse.json({ error: `Unsupported mode/provider combination: ${mode}/${provider}` }, { status: 400 })

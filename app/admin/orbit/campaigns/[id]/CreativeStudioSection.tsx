@@ -31,30 +31,53 @@ interface Asset {
 interface Capabilities {
   openaiEnabled:    boolean
   replicateEnabled: boolean
-  runwayEnabled:    boolean
+  runwayEnabled:    boolean      // always false; kept for backward compat
+  falVideoEnabled:  boolean
 }
 
 interface Props {
-  campaignId:      string
-  destination:     string
-  objective:       string
+  campaignId:       string
+  destination:      string
+  objective:        string
   promotionDetails: string
-  cta:             string
-  tone:            string
+  cta:              string
+  tone:             string
 }
 
 // ── Tab definition ────────────────────────────────────────────────────────────
 
 type Tab = 'POSTER' | 'SOCIAL' | 'VIDEO' | 'ASSETS'
 
-// ── Provider labels ───────────────────────────────────────────────────────────
+// ── Provider / model display labels ──────────────────────────────────────────
 
 const PROVIDER_LABELS: Record<string, string> = {
   openai:    'OpenAI GPT-Image',
   replicate: 'Replicate / Flux',
-  runway:    'Runway Gen-4',
-  falai:     'FAL.ai / Kling',
+  fal:       'FAL.ai',
+  runway:    'Runway (legacy)',
 }
+
+// Video model options shown in the VIDEO tab.
+// Server validates these keys — never send arbitrary FAL endpoints.
+const VIDEO_MODEL_OPTIONS = [
+  { key: 'kling',    name: 'Kling 3.0',  tier: 'Recommended' },
+  { key: 'veo',      name: 'Veo 3',      tier: 'Premium'     },
+  { key: 'seedance', name: 'Seedance',   tier: 'Alternative' },
+] as const
+
+// Motion preset prompts — staff-friendly descriptions
+const MOTION_PRESETS = [
+  { key: 'cinematic_push',      label: 'Cinematic Push In',     prompt: 'Slow cinematic push-in camera movement, golden hour light, cinematic depth of field' },
+  { key: 'slow_zoom',           label: 'Slow Zoom',             prompt: 'Gentle slow zoom into the scene, smooth parallax, soft ambient natural light' },
+  { key: 'airport_arrival',     label: 'Airport Arrival',       prompt: 'Bustling airport arrival atmosphere, travellers in motion, warm terminal lighting' },
+  { key: 'luxury_reveal',       label: 'Luxury Reveal',         prompt: 'Elegant luxury reveal with slow pan, premium atmosphere, rich warm tones' },
+  { key: 'destination_panorama',label: 'Destination Panorama',  prompt: 'Wide sweeping panorama across the destination landscape, drone-like perspective' },
+  { key: 'people_walking',      label: 'People Walking',        prompt: 'Travellers walking through the destination, natural movement, lively atmosphere' },
+  { key: 'ocean_movement',      label: 'Ocean Movement',        prompt: 'Gentle ocean waves and coastal atmosphere, slow rhythmic movement, serene' },
+  { key: 'city_motion',         label: 'City Motion',           prompt: 'City in motion with subtle camera drift, urban energy, vibrant street life' },
+  { key: 'aircraft_movement',   label: 'Aircraft Movement',     prompt: 'Aircraft in graceful motion against a clear sky, contrails, sense of journey' },
+  { key: 'celebration',         label: 'Celebration',           prompt: 'Joyful celebration atmosphere, people smiling and connecting, warm ambient light' },
+]
 
 // ── Status badge ──────────────────────────────────────────────────────────────
 
@@ -62,6 +85,7 @@ function StatusBadge({ status }: { status: string | null }) {
   const colors: Record<string, string> = {
     pending:    'bg-yellow-900 text-yellow-300',
     processing: 'bg-blue-900 text-blue-300',
+    queued:     'bg-yellow-900 text-yellow-300',
     completed:  'bg-green-900 text-green-300',
     failed:     'bg-red-900 text-red-300',
     draft:      'bg-gray-700 text-gray-300',
@@ -79,16 +103,16 @@ function StatusBadge({ status }: { status: string | null }) {
 // ── Asset thumbnail ───────────────────────────────────────────────────────────
 
 function AssetThumb({
-  asset, selected, onSelect, onAnimate, onDelete, runwayEnabled,
+  asset, selected, onSelect, onAnimate, onDelete, falVideoEnabled,
 }: {
-  asset:         Asset
-  selected:      boolean
-  onSelect:      () => void
-  onAnimate:     () => void
-  onDelete:      () => void
-  runwayEnabled: boolean
+  asset:           Asset
+  selected:        boolean
+  onSelect:        () => void
+  onAnimate:       () => void
+  onDelete:        () => void
+  falVideoEnabled: boolean
 }) {
-  const isPending = asset.generationStatus === 'pending' || asset.generationStatus === 'processing'
+  const isPending = asset.generationStatus === 'pending' || asset.generationStatus === 'processing' || asset.generationStatus === 'queued'
 
   return (
     <div
@@ -126,7 +150,7 @@ function AssetThumb({
 
       {/* Actions overlay */}
       <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 to-transparent p-2 flex gap-1 opacity-0 hover:opacity-100 transition-opacity" onClick={e => e.stopPropagation()}>
-        {asset.mediaType === 'image' && !asset.isReference && runwayEnabled && (
+        {asset.mediaType === 'image' && !asset.isReference && falVideoEnabled && (
           <button
             onClick={onAnimate}
             className="text-xs bg-indigo-700 hover:bg-indigo-600 text-white px-2 py-0.5 rounded transition-colors"
@@ -152,13 +176,13 @@ export function CreativeStudioSection({
 }: Props) {
   const [activeTab,    setActiveTab]    = useState<Tab>('POSTER')
   const [assets,       setAssets]       = useState<Asset[]>([])
-  const [caps,         setCaps]         = useState<Capabilities>({ openaiEnabled: false, replicateEnabled: false, runwayEnabled: false })
+  const [caps,         setCaps]         = useState<Capabilities>({ openaiEnabled: false, replicateEnabled: false, runwayEnabled: false, falVideoEnabled: false })
   const [loading,      setLoading]      = useState(true)
   const [generating,   setGenerating]   = useState(false)
   const [genError,     setGenError]     = useState<string | null>(null)
   const [selectedId,   setSelectedId]   = useState<string | null>(null)
 
-  // Generation form state
+  // Image generation form state
   const [format,       setFormat]       = useState('1080x1920')
   const [provider,     setProvider]     = useState<'openai' | 'replicate'>('openai')
   const [brandPreset,  setBrandPreset]  = useState('')
@@ -170,12 +194,12 @@ export function CreativeStudioSection({
   const [savingPoster, setSavingPoster] = useState(false)
 
   // Video state
-  const [videoProvider,  setVideoProvider]  = useState<'runway' | 'falai'>('runway')
-  const [videoPrompt,    setVideoPrompt]    = useState('Slow cinematic camera movement, gentle parallax, golden hour light movement')
-  const [videoDuration,  setVideoDuration]  = useState<5 | 10>(5)
-  const [videoAspect,    setVideoAspect]    = useState('9:16')
-  const [videoSource,    setVideoSource]    = useState<string>('') // mediaId of source image
-  const [videoError,     setVideoError]     = useState<string | null>(null)
+  const [videoModel,      setVideoModel]      = useState<string>('kling')
+  const [videoPrompt,     setVideoPrompt]     = useState('Slow cinematic camera movement, gentle parallax, golden hour light movement')
+  const [videoDuration,   setVideoDuration]   = useState<5 | 10>(5)
+  const [videoAspect,     setVideoAspect]     = useState('9:16')
+  const [videoSource,     setVideoSource]     = useState<string>('')   // mediaId of source image
+  const [videoError,      setVideoError]      = useState<string | null>(null)
   const [generatingVideo, setGeneratingVideo] = useState(false)
 
   // Reference image upload
@@ -183,18 +207,19 @@ export function CreativeStudioSection({
   const [uploadingRef, setUploadingRef] = useState(false)
   const [refError,     setRefError]     = useState<string | null>(null)
 
-  // Polling for pending jobs
+  // Polling timers for pending jobs
   const pollTimers = useRef<Record<string, ReturnType<typeof setInterval>>>({})
 
   async function loadAssets() {
     try {
-      const res = await fetch(`/api/admin/orbit/campaigns/${campaignId}/creative`)
+      const res  = await fetch(`/api/admin/orbit/campaigns/${campaignId}/creative`)
       const data = await res.json()
       if (data.assets) setAssets(data.assets)
       setCaps({
         openaiEnabled:    data.openaiEnabled    ?? false,
         replicateEnabled: data.replicateEnabled ?? false,
-        runwayEnabled:    data.runwayEnabled    ?? false,
+        runwayEnabled:    false,
+        falVideoEnabled:  data.falVideoEnabled  ?? false,
       })
     } catch { /* non-fatal */ }
     finally { setLoading(false) }
@@ -205,7 +230,7 @@ export function CreativeStudioSection({
     return () => { Object.values(pollTimers.current).forEach(clearInterval) }
   }, [campaignId]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Start polling for any pending async jobs
+  // Server-side polling: FAL async jobs tracked in DB
   const pollAsset = useCallback((assetId: string) => {
     if (pollTimers.current[assetId]) return
     pollTimers.current[assetId] = setInterval(async () => {
@@ -215,7 +240,7 @@ export function CreativeStudioSection({
         if (data.asset) {
           setAssets(prev => prev.map(a => a.id === assetId ? data.asset : a))
           const s = data.asset.generationStatus
-          if (s !== 'pending' && s !== 'processing') {
+          if (s !== 'pending' && s !== 'processing' && s !== 'queued') {
             clearInterval(pollTimers.current[assetId])
             delete pollTimers.current[assetId]
           }
@@ -224,10 +249,10 @@ export function CreativeStudioSection({
     }, 4000)
   }, [campaignId])
 
-  // Auto-poll pending jobs
   useEffect(() => {
     assets.forEach(a => {
-      if (a.generationStatus === 'pending' || a.generationStatus === 'processing') {
+      const s = a.generationStatus
+      if (s === 'pending' || s === 'processing' || s === 'queued') {
         pollAsset(a.id)
       }
     })
@@ -239,7 +264,7 @@ export function CreativeStudioSection({
     if (sel?.posterData) setPosterData(sel.posterData as PosterData)
   }, [selectedId, assets])
 
-  const selectedAsset = assets.find(a => a.id === selectedId) ?? null
+  const selectedAsset   = assets.find(a => a.id === selectedId) ?? null
   const generatedImages = assets.filter(a => !a.isReference && a.mediaType === 'image')
   const referenceImages = assets.filter(a => a.isReference)
   const videoAssets     = assets.filter(a => a.mediaType === 'video')
@@ -250,12 +275,12 @@ export function CreativeStudioSection({
     setGenerating(true); setGenError(null)
     try {
       const body: Record<string, unknown> = {
-        mode: 'image',
+        mode:         'image',
         provider,
-        format: tab === 'SOCIAL' ? format : format,
-        promptHint:  customPrompt || promptHint || promotionDetails,
-        brandPreset: brandPreset || undefined,
-        prompt:      customPrompt || undefined,
+        format,
+        promptHint:   customPrompt || promptHint || promotionDetails,
+        brandPreset:  brandPreset || undefined,
+        prompt:       customPrompt || undefined,
         referenceMediaId: referenceImages[0]?.id ?? undefined,
       }
       const res  = await fetch(`/api/admin/orbit/campaigns/${campaignId}/creative`, {
@@ -276,43 +301,31 @@ export function CreativeStudioSection({
     }
   }
 
-  // ── Generate video ─────────────────────────────────────────────────────────
+  // ── Generate video via FAL.ai (async, DB-tracked) ─────────────────────────
 
   async function generateVideo() {
     setGeneratingVideo(true); setVideoError(null)
     try {
-      if (videoProvider === 'runway') {
-        if (!videoSource) throw new Error('Select a source image to animate')
-        const body = {
-          mode: 'video', provider: 'runway',
-          prompt: videoPrompt, duration: videoDuration,
-          aspectRatio: videoAspect, referenceMediaId: videoSource,
-        }
-        const res  = await fetch(`/api/admin/orbit/campaigns/${campaignId}/creative`, {
-          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
-        })
-        const data = await res.json()
-        if (!res.ok) throw new Error(data.error ?? 'Video generation failed')
-        if (data.media) setAssets(prev => [data.media, ...prev])
-      } else {
-        // FAL.ai via existing route
-        const body = {
-          mode: videoSource ? 'image' : 'text',
-          prompt: videoPrompt, duration: videoDuration,
-          aspectRatio: videoAspect, imageUrl: videoSource
-            ? assets.find(a => a.id === videoSource)?.publicUrl : undefined,
-        }
-        const res  = await fetch(`/api/admin/orbit/campaigns/${campaignId}/generate-video`, {
-          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
-        })
-        const data = await res.json()
-        if (!res.ok) throw new Error(data.error ?? 'Video generation failed')
-        // FAL returns requestId — poll existing endpoint
-        if (data.requestId) {
-          const pollRes = await pollFAL(data.requestId, data.model, data.aspectRatio, data.duration, data.prompt)
-          if (pollRes) setAssets(prev => [pollRes, ...prev])
-        }
+      if (!videoSource) throw new Error('Select a source image to animate')
+
+      const body = {
+        mode:            'video',
+        provider:        'fal',
+        videoModelKey:   videoModel,
+        prompt:          videoPrompt,
+        duration:        videoDuration,
+        aspectRatio:     videoAspect,
+        referenceMediaId: videoSource,
       }
+      const res  = await fetch(`/api/admin/orbit/campaigns/${campaignId}/creative`, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify(body),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error ?? 'Video generation failed')
+      // Asset starts as pending; pollAsset() timer picks it up automatically
+      if (data.media) setAssets(prev => [data.media, ...prev])
     } catch (e) {
       setVideoError(e instanceof Error ? e.message : 'Video generation failed')
     } finally {
@@ -320,27 +333,18 @@ export function CreativeStudioSection({
     }
   }
 
-  async function pollFAL(requestId: string, model: string, aspectRatio: string, duration: number, prompt: string): Promise<Asset | null> {
-    for (let i = 0; i < 60; i++) {
-      await new Promise(r => setTimeout(r, 3000))
-      const res  = await fetch(
-        `/api/admin/orbit/campaigns/${campaignId}/generate-video?requestId=${requestId}&model=${encodeURIComponent(model)}&aspectRatio=${aspectRatio}&duration=${duration}&prompt=${encodeURIComponent(prompt)}`
-      )
-      const data = await res.json()
-      if (data.status === 'done') return data as unknown as Asset
-      if (data.status === 'failed') throw new Error(data.error ?? 'FAL.ai generation failed')
-    }
-    throw new Error('FAL.ai generation timed out')
-  }
-
-  // ── Animate image with Runway ──────────────────────────────────────────────
+  // ── Animate image with FAL.ai ──────────────────────────────────────────────
 
   async function animateAsset(assetId: string) {
     try {
       const res  = await fetch(`/api/admin/orbit/campaigns/${campaignId}/creative/${assetId}/animate`, {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({ prompt: 'Slow cinematic camera movement, gentle parallax', duration: 5 }),
+        body:    JSON.stringify({
+          prompt:        'Slow cinematic camera movement, gentle parallax',
+          duration:      5,
+          videoModelKey: videoModel,
+        }),
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error ?? 'Failed to start animation')
@@ -393,7 +397,6 @@ export function CreativeStudioSection({
   async function uploadReference(file: File) {
     setUploadingRef(true); setRefError(null)
     try {
-      // Get presigned URL
       const presignRes = await fetch(`/api/admin/orbit/campaigns/${campaignId}/creative/reference`, {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -402,14 +405,12 @@ export function CreativeStudioSection({
       const presignData = await presignRes.json()
       if (!presignRes.ok) throw new Error(presignData.error ?? 'Upload init failed')
 
-      // Upload directly to Supabase
       const upRes = await fetch(presignData.uploadUrl, {
         method: 'PUT', body: file,
         headers: { 'Content-Type': file.type },
       })
       if (!upRes.ok) throw new Error('File upload failed')
 
-      // Reload assets
       await loadAssets()
     } catch (e) {
       setRefError(e instanceof Error ? e.message : 'Upload failed')
@@ -429,7 +430,7 @@ export function CreativeStudioSection({
     URL.revokeObjectURL(url)
   }
 
-  // ── Render controls shared between POSTER and SOCIAL tabs ─────────────────
+  // ── Generation controls (shared POSTER / SOCIAL) ──────────────────────────
 
   function GenerationControls({ tab }: { tab: 'POSTER' | 'SOCIAL' }) {
     const availableFormats = tab === 'POSTER'
@@ -620,14 +621,14 @@ export function CreativeStudioSection({
         <div>
           <h2 className="text-base font-semibold text-white">Creative Studio</h2>
           <p className="text-xs text-gray-500">
-            Generate artwork · Compose poster · Animate with Runway
+            Generate artwork · Compose poster · Animate with FAL.ai
           </p>
         </div>
         <div className="flex items-center gap-2 text-xs text-gray-600">
           {caps.openaiEnabled    && <span className="text-green-600">● OpenAI</span>}
           {caps.replicateEnabled && <span className="text-green-600">● Replicate</span>}
-          {caps.runwayEnabled    && <span className="text-green-600">● Runway</span>}
-          {!caps.openaiEnabled && !caps.replicateEnabled && !caps.runwayEnabled && (
+          {caps.falVideoEnabled  && <span className="text-green-600">● FAL Video</span>}
+          {!caps.openaiEnabled && !caps.replicateEnabled && !caps.falVideoEnabled && (
             <span className="text-yellow-600">No AI providers configured</span>
           )}
         </div>
@@ -658,11 +659,9 @@ export function CreativeStudioSection({
       {/* ── POSTER TAB ─────────────────────────────────────────────────────── */}
       {activeTab === 'POSTER' && (
         <div className="grid grid-cols-1 xl:grid-cols-[380px_1fr] gap-4">
-          {/* Left: controls + asset grid */}
           <div className="space-y-4">
             <GenerationControls tab="POSTER" />
 
-            {/* Generated assets for selection */}
             {generatedImages.length > 0 && (
               <div>
                 <p className="text-xs text-gray-500 mb-2">Select background for compositor</p>
@@ -675,7 +674,7 @@ export function CreativeStudioSection({
                       onSelect={() => setSelectedId(a.id)}
                       onAnimate={() => animateAsset(a.id)}
                       onDelete={() => archiveAsset(a.id)}
-                      runwayEnabled={caps.runwayEnabled}
+                      falVideoEnabled={caps.falVideoEnabled}
                     />
                   ))}
                 </div>
@@ -683,7 +682,6 @@ export function CreativeStudioSection({
             )}
           </div>
 
-          {/* Right: Poster Compositor */}
           <div className="space-y-3">
             <div className="flex items-center justify-between">
               <h3 className="text-sm font-semibold text-white">Poster Compositor</h3>
@@ -745,7 +743,7 @@ export function CreativeStudioSection({
                       onSelect={() => setSelectedId(a.id)}
                       onAnimate={() => animateAsset(a.id)}
                       onDelete={() => archiveAsset(a.id)}
-                      runwayEnabled={caps.runwayEnabled}
+                      falVideoEnabled={caps.falVideoEnabled}
                     />
                     <p className="text-xs text-gray-500 truncate">{a.format}</p>
                     <StatusBadge status={a.generationStatus} />
@@ -764,60 +762,92 @@ export function CreativeStudioSection({
           <div className="bg-gray-900 border border-gray-800 rounded-xl p-4 space-y-4">
             <h3 className="text-sm font-semibold text-white">Animate / Generate Video</h3>
 
-            {/* Provider */}
+            {!caps.falVideoEnabled && (
+              <div className="bg-yellow-950/40 border border-yellow-900/50 rounded-lg px-3 py-2">
+                <p className="text-xs text-yellow-600">
+                  FAL.ai video is not enabled. Set ORBIT_AI_VIDEO_ENABLED=true and FALAI_API_KEY.
+                </p>
+              </div>
+            )}
+
+            {/* Video model */}
             <div>
-              <label className="text-xs text-gray-500 mb-1 block">Video provider</label>
-              <div className="flex gap-2">
-                <button
-                  onClick={() => setVideoProvider('runway')}
-                  disabled={!caps.runwayEnabled}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors ${
-                    videoProvider === 'runway'
-                      ? 'bg-indigo-700 border-indigo-600 text-white'
-                      : 'border-gray-700 text-gray-400 hover:border-gray-600'
-                  } disabled:opacity-40 disabled:cursor-not-allowed`}
-                >
-                  Runway Gen-4 {!caps.runwayEnabled && '(off)'}
-                </button>
-                <button
-                  onClick={() => setVideoProvider('falai')}
-                  className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-colors ${
-                    videoProvider === 'falai'
-                      ? 'bg-indigo-700 border-indigo-600 text-white'
-                      : 'border-gray-700 text-gray-400 hover:border-gray-600'
-                  }`}
-                >
-                  FAL.ai / Kling
-                </button>
+              <label className="text-xs text-gray-500 mb-1.5 block">Video model</label>
+              <div className="space-y-1.5">
+                {VIDEO_MODEL_OPTIONS.map(m => (
+                  <button
+                    key={m.key}
+                    onClick={() => setVideoModel(m.key)}
+                    disabled={!caps.falVideoEnabled}
+                    className={`w-full flex items-center justify-between px-3 py-2 rounded-lg text-sm border transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
+                      videoModel === m.key
+                        ? 'bg-indigo-700/40 border-indigo-600 text-white'
+                        : 'border-gray-700 text-gray-400 hover:border-gray-600 hover:text-gray-300'
+                    }`}
+                  >
+                    <span className="font-medium">{m.name}</span>
+                    <span className={`text-xs px-2 py-0.5 rounded-full ${
+                      m.tier === 'Recommended' ? 'bg-green-900/60 text-green-400' :
+                      m.tier === 'Premium'     ? 'bg-indigo-900/60 text-indigo-400' :
+                                                 'bg-gray-800 text-gray-500'
+                    }`}>
+                      {m.tier}
+                    </span>
+                  </button>
+                ))}
               </div>
             </div>
 
             {/* Source image */}
             <div>
-              <label className="text-xs text-gray-500 mb-1 block">Source image (image-to-video)</label>
+              <label className="text-xs text-gray-500 mb-1 block">Source image (required)</label>
               <select
                 value={videoSource}
                 onChange={e => setVideoSource(e.target.value)}
                 className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white"
               >
-                <option value="">Text-to-video (no source)</option>
+                <option value="">— Select a generated image —</option>
                 {generatedImages.filter(a => a.publicUrl && a.generationStatus === 'completed').map(a => (
                   <option key={a.id} value={a.id}>
-                    {a.format} — {a.provider ?? 'generated'} — {new Date(a.createdAt).toLocaleDateString()}
+                    {a.format} · {a.provider ?? 'generated'} · {new Date(a.createdAt).toLocaleDateString()}
                   </option>
                 ))}
               </select>
+              <p className="text-xs text-gray-600 mt-0.5">
+                Select clean artwork without commercial text overlaid. Add prices in Poster Compositor instead.
+              </p>
+            </div>
+
+            {/* Motion preset picker */}
+            <div>
+              <label className="text-xs text-gray-500 mb-1 block">Motion preset</label>
+              <div className="grid grid-cols-2 gap-1">
+                {MOTION_PRESETS.map(p => (
+                  <button
+                    key={p.key}
+                    onClick={() => setVideoPrompt(p.prompt)}
+                    className={`px-2 py-1.5 rounded text-xs border text-left transition-colors truncate ${
+                      videoPrompt === p.prompt
+                        ? 'bg-indigo-700/30 border-indigo-600 text-white'
+                        : 'border-gray-700 text-gray-400 hover:border-gray-600'
+                    }`}
+                    title={p.prompt}
+                  >
+                    {p.label}
+                  </button>
+                ))}
+              </div>
             </div>
 
             {/* Motion prompt */}
             <div>
               <label className="text-xs text-gray-500 mb-1 block">Motion instruction</label>
               <textarea
-                rows={3}
+                rows={2}
                 value={videoPrompt}
                 onChange={e => setVideoPrompt(e.target.value)}
                 className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white resize-none"
-                placeholder="e.g. Slow cinematic camera movement, aircraft lights in background, golden-hour glow"
+                placeholder="e.g. Slow cinematic camera movement, golden hour glow"
               />
             </div>
 
@@ -856,8 +886,8 @@ export function CreativeStudioSection({
 
             <button
               onClick={generateVideo}
-              disabled={generatingVideo}
-              className="w-full bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white text-sm font-medium py-2.5 rounded-lg transition-colors"
+              disabled={generatingVideo || !caps.falVideoEnabled || !videoSource}
+              className="w-full bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-medium py-2.5 rounded-lg transition-colors"
             >
               {generatingVideo ? (
                 <span className="flex items-center justify-center gap-2">
@@ -868,7 +898,8 @@ export function CreativeStudioSection({
             </button>
 
             <p className="text-xs text-gray-600">
-              Video generation is async. Status updates every 4 seconds. Do not animate text baked into source images.
+              Video generation is async — status updates every 4 seconds automatically.
+              Do not animate artwork with prices or commercial text baked in; add those in Poster Compositor.
             </p>
           </div>
 
@@ -878,6 +909,9 @@ export function CreativeStudioSection({
             {videoAssets.length === 0 ? (
               <div className="bg-gray-900 border border-gray-800 rounded-xl py-16 text-center">
                 <p className="text-gray-500 text-sm">No videos yet.</p>
+                <p className="text-gray-600 text-xs mt-1">
+                  Select a source image and click Generate Video.
+                </p>
               </div>
             ) : (
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
@@ -889,11 +923,11 @@ export function CreativeStudioSection({
                       onSelect={() => setSelectedId(a.id)}
                       onAnimate={() => {}}
                       onDelete={() => archiveAsset(a.id)}
-                      runwayEnabled={false}
+                      falVideoEnabled={false}
                     />
                     <div className="flex items-center gap-1.5">
                       <StatusBadge status={a.generationStatus} />
-                      <span className="text-xs text-gray-600">{a.provider}</span>
+                      <span className="text-xs text-gray-600">{a.model ?? a.provider}</span>
                     </div>
                     {a.durationMs && (
                       <p className="text-xs text-gray-600">{a.durationMs / 1000}s</p>
@@ -936,7 +970,7 @@ export function CreativeStudioSection({
                     onSelect={() => { setSelectedId(a.id); setActiveTab(a.mediaType === 'video' ? 'VIDEO' : 'POSTER') }}
                     onAnimate={() => animateAsset(a.id)}
                     onDelete={() => archiveAsset(a.id)}
-                    runwayEnabled={caps.runwayEnabled}
+                    falVideoEnabled={caps.falVideoEnabled}
                   />
 
                   <div className="space-y-0.5 text-xs">
@@ -947,7 +981,8 @@ export function CreativeStudioSection({
                       )}
                     </div>
                     <p className="text-gray-600 truncate">
-                      {a.provider ? PROVIDER_LABELS[a.provider] ?? a.provider : 'uploaded'}
+                      {a.provider ? (PROVIDER_LABELS[a.provider] ?? a.provider) : 'uploaded'}
+                      {a.model ? ` / ${a.model}` : ''}
                     </p>
                     <p className="text-gray-700">
                       {a.format} · ${Number(a.costUsd).toFixed(3)}
