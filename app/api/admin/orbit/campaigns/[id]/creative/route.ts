@@ -156,22 +156,30 @@ export async function POST(
       })
 
       // Create placeholder
-      const placeholder = await prisma.orbitMedia.create({
-        data: {
-          source:           'generated',
-          sourceType:       'ai',
-          storagePath:      '',
-          format,
-          destination:      campaign.destination || null,
-          campaignType:     campaign.objective   || null,
-          prompt,
-          campaignId:       params.id,
-          createdBy:        session.email,
-          provider:         'openai',
-          model:            getOpenAIImageModel(),
-          generationStatus: 'processing',
-        },
-      })
+      let placeholder: Awaited<ReturnType<typeof prisma.orbitMedia.create>>
+      try {
+        placeholder = await prisma.orbitMedia.create({
+          data: {
+            source:           'generated',
+            storagePath:      '',
+            format,
+            destination:      campaign.destination || null,
+            campaignType:     campaign.objective   || null,
+            prompt,
+            campaignId:       params.id,
+            createdBy:        session.email,
+            provider:         'openai',
+            model:            getOpenAIImageModel(),
+            generationStatus: 'processing',
+          },
+        })
+      } catch (dbErr) {
+        console.error('[creative/POST openai] placeholder create failed:', dbErr instanceof Error ? dbErr.message : String(dbErr))
+        return NextResponse.json({
+          error: 'Could not initialize generation record. Run prisma/orbit_media_source_fields.sql in Supabase SQL editor.',
+          errorCode: 'OPENAI_REQUEST_BUILD_FAILED',
+        }, { status: 500 })
+      }
 
       try {
         // Resolve optional reference image
@@ -260,16 +268,25 @@ export async function POST(
         brandPreset,
       })
 
-      const placeholder = await prisma.orbitMedia.create({
-        data: {
-          source: 'generated', sourceType: 'ai', storagePath: '',
-          format, destination: campaign.destination || null,
-          campaignType: campaign.objective || null,
-          prompt, campaignId: params.id, createdBy: session.email,
-          provider: 'replicate', model: 'flux-dev',
-          generationStatus: 'processing',
-        },
-      })
+      let placeholder: Awaited<ReturnType<typeof prisma.orbitMedia.create>>
+      try {
+        placeholder = await prisma.orbitMedia.create({
+          data: {
+            source: 'generated', storagePath: '',
+            format, destination: campaign.destination || null,
+            campaignType: campaign.objective || null,
+            prompt, campaignId: params.id, createdBy: session.email,
+            provider: 'replicate', model: 'flux-dev',
+            generationStatus: 'processing',
+          },
+        })
+      } catch (dbErr) {
+        console.error('[creative/POST replicate] placeholder create failed:', dbErr instanceof Error ? dbErr.message : String(dbErr))
+        return NextResponse.json({
+          error: 'Could not initialize generation record. Run prisma/orbit_media_source_fields.sql in Supabase SQL editor.',
+          errorCode: 'OPENAI_REQUEST_BUILD_FAILED',
+        }, { status: 500 })
+      }
 
       try {
         const { buildPrompt } = await import('@/lib/orbit/replicate-adapter')
@@ -363,25 +380,33 @@ export async function POST(
       )
     }
 
-    const placeholder = await prisma.orbitMedia.create({
-      data: {
-        source:           'generated',
-        sourceType:       'ai',
-        storagePath:      '',
-        format:           aspectRatio === '9:16' ? '1080x1920' : aspectRatio === '1:1' ? '1024x1024' : '1200x628',
-        mediaType:        'video',
-        durationMs:       duration * 1000,
-        destination:      campaign.destination || null,
-        campaignType:     campaign.objective   || null,
-        prompt,
-        campaignId:       params.id,
-        createdBy:        session.email,
-        provider:         'fal',
-        model:            resolvedModel.key,     // e.g. 'kling' — never the raw FAL endpoint
-        generationStatus: 'pending',
-        costUsd:          duration * resolvedModel.costPerSecond,
-      },
-    })
+    let placeholder: Awaited<ReturnType<typeof prisma.orbitMedia.create>>
+    try {
+      placeholder = await prisma.orbitMedia.create({
+        data: {
+          source:           'generated',
+          storagePath:      '',
+          format:           aspectRatio === '9:16' ? '1080x1920' : aspectRatio === '1:1' ? '1024x1024' : '1200x628',
+          mediaType:        'video',
+          durationMs:       duration * 1000,
+          destination:      campaign.destination || null,
+          campaignType:     campaign.objective   || null,
+          prompt,
+          campaignId:       params.id,
+          createdBy:        session.email,
+          provider:         'fal',
+          model:            resolvedModel.key,
+          generationStatus: 'pending',
+          costUsd:          duration * resolvedModel.costPerSecond,
+        },
+      })
+    } catch (dbErr) {
+      console.error('[creative/POST fal] placeholder create failed:', dbErr instanceof Error ? dbErr.message : String(dbErr))
+      return NextResponse.json({
+        error: 'Could not initialize video record. Run prisma/orbit_media_source_fields.sql in Supabase SQL editor.',
+        errorCode: 'OPENAI_REQUEST_BUILD_FAILED',
+      }, { status: 500 })
+    }
 
     console.log(`[Orbit Creative] provider=fal model=${resolvedModel.key} campaignId=${params.id} generation_started=true`)
 

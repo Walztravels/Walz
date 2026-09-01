@@ -65,26 +65,44 @@ export async function POST(
   const supabase    = getSupabaseAdmin()
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
 
-  const placeholder = await prisma.orbitMedia.create({
-    data: {
-      source:      'uploaded',
-      storagePath: '',
-      format:      'reference',
-      mediaType:   'image',
-      campaignId:  params.id,
-      createdBy:   session.email,
-      isReference: true,
-      altText:     body.label ?? 'Reference image',
-    },
-  })
+  let placeholder: Awaited<ReturnType<typeof prisma.orbitMedia.create>>
+  try {
+    placeholder = await prisma.orbitMedia.create({
+      data: {
+        source:      'uploaded',
+        storagePath: '',
+        format:      'reference',
+        mediaType:   'image',
+        campaignId:  params.id,
+        createdBy:   session.email,
+        isReference: true,
+        altText:     body.label ?? 'Reference image',
+      },
+    })
+  } catch (dbErr) {
+    console.error('[reference/POST] OrbitMedia create failed:', dbErr instanceof Error ? dbErr.message : String(dbErr))
+    return NextResponse.json({
+      error: 'Could not create upload record. The orbit_media table may be missing columns — run prisma/orbit_media_source_fields.sql in Supabase SQL editor.',
+      errorCode: 'REFERENCE_RECORD_FAILED',
+    }, { status: 500 })
+  }
 
   const storagePath = `orbit/${placeholder.id}.${ext}`
   const publicUrl   = `${supabaseUrl}/storage/v1/object/public/${BUCKET}/${storagePath}`
 
-  await prisma.orbitMedia.update({
-    where: { id: placeholder.id },
-    data:  { storagePath, publicUrl },
-  })
+  try {
+    await prisma.orbitMedia.update({
+      where: { id: placeholder.id },
+      data:  { storagePath, publicUrl },
+    })
+  } catch (dbErr) {
+    await prisma.orbitMedia.delete({ where: { id: placeholder.id } }).catch(() => {})
+    console.error('[reference/POST] OrbitMedia update failed:', dbErr instanceof Error ? dbErr.message : String(dbErr))
+    return NextResponse.json({
+      error: 'Could not save upload path. Please try again.',
+      errorCode: 'REFERENCE_RECORD_FAILED',
+    }, { status: 500 })
+  }
 
   const { data: uploadData, error: uploadErr } = await supabase.storage
     .from(BUCKET)
@@ -92,7 +110,10 @@ export async function POST(
 
   if (uploadErr || !uploadData?.signedUrl) {
     await prisma.orbitMedia.delete({ where: { id: placeholder.id } }).catch(() => {})
-    return NextResponse.json({ error: 'Could not create upload URL' }, { status: 500 })
+    return NextResponse.json({
+      error: 'Could not create upload URL. Check Supabase storage bucket.',
+      errorCode: 'REFERENCE_UPLOAD_URL_INVALID',
+    }, { status: 500 })
   }
 
   return NextResponse.json({

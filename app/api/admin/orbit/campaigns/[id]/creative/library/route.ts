@@ -82,26 +82,37 @@ export async function POST(
   }
 
   // ── Duplicate-attach idempotency ──────────────────────────────────────────────
-  // Check both new sourceType/sourceMediaId fields AND the legacy providerJobId sentinel
-  // so existing rows created before this change are still recognised.
-  const existing = await prisma.orbitMedia.findFirst({
-    where: {
-      OR: [
-        // New model
-        {
-          campaignId:    params.id,
-          sourceType:    'media_library',
-          sourceMediaId: body.mediaLibraryId,
-        },
-        // Legacy sentinel (rows created before sourceType/sourceMediaId existed)
-        {
+  // Fall back to legacy providerJobId sentinel only when source_type column may not exist.
+  let existing: Awaited<ReturnType<typeof prisma.orbitMedia.findFirst>> | null = null
+  try {
+    existing = await prisma.orbitMedia.findFirst({
+      where: {
+        OR: [
+          {
+            campaignId:    params.id,
+            sourceType:    'media_library',
+            sourceMediaId: body.mediaLibraryId,
+          },
+          {
+            campaignId:    params.id,
+            provider:      'media_library',
+            providerJobId: body.mediaLibraryId,
+          },
+        ],
+      },
+    })
+  } catch {
+    // source_type column may not yet exist — fall back to legacy sentinel only
+    try {
+      existing = await prisma.orbitMedia.findFirst({
+        where: {
           campaignId:    params.id,
           provider:      'media_library',
           providerJobId: body.mediaLibraryId,
         },
-      ],
-    },
-  })
+      })
+    } catch { /* no existing record found */ }
+  }
   if (existing) {
     return NextResponse.json({
       media:           existing,
@@ -113,27 +124,33 @@ export async function POST(
   const format    = body.format ?? (isVideo ? '1080x1920' : '1080x1080')
 
   // ── Create OrbitMedia (metadata only — no binary re-upload) ──────────────────
-  const media = await prisma.orbitMedia.create({
-    data: {
-      source:           'media_library',
-      provider:         'media_library',
-      // NEW explicit source reference (clean; no providerJobId overloading)
-      sourceType:       'media_library',
-      sourceMediaId:    body.mediaLibraryId,
-      // storagePath is empty: Orbit does not own this binary
-      storagePath:      '',
-      // providerJobId intentionally NOT set: not an AI generation job
-      publicUrl:        libraryAsset.url,   // copy for fast reads; resolved via sourceMediaId if needed
-      format,
-      mediaType,
-      campaignId:       params.id,
-      createdBy:        session.email,
-      altText:          libraryAsset.altText || libraryAsset.filename,
-      isReference:      false,
-      generationStatus: 'completed',
-      costUsd:          0,
-    },
-  })
+  let media: Awaited<ReturnType<typeof prisma.orbitMedia.create>>
+  try {
+    media = await prisma.orbitMedia.create({
+      data: {
+        source:           'media_library',
+        provider:         'media_library',
+        sourceType:       'media_library',
+        sourceMediaId:    body.mediaLibraryId,
+        storagePath:      '',
+        publicUrl:        libraryAsset.url,
+        format,
+        mediaType,
+        campaignId:       params.id,
+        createdBy:        session.email,
+        altText:          libraryAsset.altText || libraryAsset.filename,
+        isReference:      false,
+        generationStatus: 'completed',
+        costUsd:          0,
+      },
+    })
+  } catch (dbErr) {
+    console.error('[library/POST] OrbitMedia create failed:', dbErr instanceof Error ? dbErr.message : String(dbErr))
+    return NextResponse.json({
+      error: 'Could not attach Media Library asset. Run prisma/orbit_media_source_fields.sql in Supabase SQL editor.',
+      errorCode: 'REFERENCE_RECORD_FAILED',
+    }, { status: 500 })
+  }
 
   return NextResponse.json({ media }, { status: 201 })
 }

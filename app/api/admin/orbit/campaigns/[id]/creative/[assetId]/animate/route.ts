@@ -98,25 +98,33 @@ export async function POST(
     )
   }
 
-  const placeholder = await prisma.orbitMedia.create({
-    data: {
-      source:           'generated',
-      sourceType:       'ai',
-      storagePath:      '',
-      format:           aspectRatio === '9:16' ? '1080x1920' : aspectRatio === '1:1' ? '1024x1024' : '1200x628',
-      mediaType:        'video',
-      durationMs:       duration * 1000,
-      destination:      sourceAsset?.destination ?? null,
-      campaignType:     sourceAsset?.campaignType ?? null,
-      prompt,
-      campaignId:       params.id,
-      createdBy:        session.email,
-      provider:         'fal',
-      model:            resolvedModel.key,       // e.g. 'kling' — never the raw FAL endpoint
-      generationStatus: 'pending',
-      costUsd:          duration * resolvedModel.costPerSecond,
-    },
-  })
+  let placeholder: Awaited<ReturnType<typeof prisma.orbitMedia.create>>
+  try {
+    placeholder = await prisma.orbitMedia.create({
+      data: {
+        source:           'generated',
+        storagePath:      '',
+        format:           aspectRatio === '9:16' ? '1080x1920' : aspectRatio === '1:1' ? '1024x1024' : '1200x628',
+        mediaType:        'video',
+        durationMs:       duration * 1000,
+        destination:      sourceAsset?.destination ?? null,
+        campaignType:     sourceAsset?.campaignType ?? null,
+        prompt,
+        campaignId:       params.id,
+        createdBy:        session.email,
+        provider:         'fal',
+        model:            resolvedModel.key,
+        generationStatus: 'pending',
+        costUsd:          duration * resolvedModel.costPerSecond,
+      },
+    })
+  } catch (dbErr) {
+    console.error('[animate/POST] OrbitMedia create failed:', dbErr instanceof Error ? dbErr.message : String(dbErr))
+    return NextResponse.json({
+      error: 'Could not initialize video record. Run prisma/orbit_media_source_fields.sql in Supabase SQL editor.',
+      errorCode: 'OPENAI_REQUEST_BUILD_FAILED',
+    }, { status: 500 })
+  }
 
   try {
     const { requestId } = await submitFalImageToVideo({

@@ -755,14 +755,19 @@ export function CreativeStudioSection({
         headers: { 'Content-Type': 'application/json' },
         body:    JSON.stringify(body),
       })
-      const data = await res.json()
+      let data: Record<string, unknown> = {}
+      try {
+        data = await res.json()
+      } catch {
+        throw new Error('[OPENAI_REQUEST_BUILD_FAILED] Server error. If this persists, run the pending DB migration in Supabase SQL editor.')
+      }
       if (!res.ok) {
-        if (data.errorCode) setGenErrorCode(data.errorCode)
-        throw new Error(data.error ?? 'Generation failed')
+        if (data.errorCode) setGenErrorCode(data.errorCode as string)
+        throw new Error((data.error as string) ?? 'Generation failed')
       }
       if (data.media) {
-        setAssets(prev => [data.media, ...prev])
-        setSelectedId(data.media.id)
+        setAssets(prev => [data.media as typeof prev[0], ...prev])
+        setSelectedId((data.media as { id: string }).id)
       }
     } catch (e) {
       setGenError(e instanceof Error ? e.message : 'Generation failed')
@@ -986,14 +991,23 @@ export function CreativeStudioSection({
         headers: { 'Content-Type': 'application/json' },
         body:    JSON.stringify({ mimeType: file.type, fileSize: file.size, label: file.name }),
       })
-      const presignData = await presignRes.json()
-      if (!presignRes.ok) throw new Error(presignData.error ?? 'Upload init failed')
+      let presignData: { mediaId?: string; uploadUrl?: string; storagePath?: string; publicUrl?: string; error?: string; errorCode?: string } = {}
+      try {
+        presignData = await presignRes.json()
+      } catch {
+        throw new Error('[REFERENCE_PRESIGN_FAILED] Upload service unavailable. Run the pending DB migration in Supabase SQL editor.')
+      }
+      if (!presignRes.ok) throw new Error(presignData.error ?? '[REFERENCE_PRESIGN_FAILED] Upload init failed')
+      if (!presignData.uploadUrl) throw new Error('[REFERENCE_UPLOAD_URL_INVALID] No upload URL returned from server')
+      try { new URL(presignData.uploadUrl) } catch {
+        throw new Error('[REFERENCE_UPLOAD_URL_INVALID] Server returned an invalid upload URL')
+      }
 
       const upRes = await fetch(presignData.uploadUrl, {
         method: 'PUT', body: file,
         headers: { 'Content-Type': file.type },
       })
-      if (!upRes.ok) throw new Error('File upload failed')
+      if (!upRes.ok) throw new Error('[REFERENCE_UPLOAD_FAILED] File upload to storage failed')
 
       await loadAssets()
     } catch (e) {
