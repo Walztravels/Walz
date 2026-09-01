@@ -24,6 +24,7 @@ import {
   editOpenAIImage,
   getOpenAIImageModel,
   OrbitImageError,
+  envFlag,
 } from '@/lib/orbit/openai-image-adapter'
 import {
   isReplicateConfigured,
@@ -116,9 +117,17 @@ export async function POST(
 
   if (mode === 'image') {
     if (provider === 'openai') {
-      if (!isOpenAIImageConfigured()) {
+      if (!envFlag('ORBIT_AI_IMAGE_ENABLED')) {
         return NextResponse.json({
-          error: 'OpenAI image generation is not enabled. Set ORBIT_AI_IMAGE_ENABLED=true and OPENAI_API_KEY.',
+          error: 'OpenAI image generation is disabled. Set ORBIT_AI_IMAGE_ENABLED=true.',
+          errorCode: 'IMAGE_FEATURE_DISABLED',
+          notConfigured: true,
+        }, { status: 503 })
+      }
+      if (!process.env.OPENAI_API_KEY) {
+        return NextResponse.json({
+          error: 'OPENAI_API_KEY is not configured.',
+          errorCode: 'OPENAI_KEY_MISSING',
           notConfigured: true,
         }, { status: 503 })
       }
@@ -130,6 +139,8 @@ export async function POST(
       if (used >= cap) {
         return NextResponse.json({ error: `Image cap of ${cap} reached`, capReached: true }, { status: 429 })
       }
+
+      console.log(`[Orbit Creative] provider=openai model=${getOpenAIImageModel()} campaignId=${params.id} generation_started=true`)
 
       // Build prompt
       const prompt = body.prompt?.trim() || buildCreativePrompt({
@@ -294,9 +305,17 @@ export async function POST(
   // ── Video generation (FAL.ai — async, DB-tracked) ─────────────────────────
 
   if (mode === 'video' && provider === 'fal') {
-    if (!isFalVideoConfigured()) {
+    if (!envFlag('ORBIT_AI_VIDEO_ENABLED')) {
       return NextResponse.json({
-        error: 'FAL.ai video is not enabled. Set ORBIT_AI_VIDEO_ENABLED=true and FALAI_API_KEY.',
+        error: 'FAL.ai video generation is disabled. Set ORBIT_AI_VIDEO_ENABLED=true.',
+        errorCode: 'VIDEO_FEATURE_DISABLED',
+        notConfigured: true,
+      }, { status: 503 })
+    }
+    if (!process.env.FALAI_API_KEY?.trim()) {
+      return NextResponse.json({
+        error: 'FALAI_API_KEY is not configured.',
+        errorCode: 'FAL_KEY_MISSING',
         notConfigured: true,
       }, { status: 503 })
     }
@@ -358,6 +377,8 @@ export async function POST(
         costUsd:          duration * resolvedModel.costPerSecond,
       },
     })
+
+    console.log(`[Orbit Creative] provider=fal model=${resolvedModel.key} campaignId=${params.id} generation_started=true`)
 
     try {
       const { requestId } = await submitFalImageToVideo({

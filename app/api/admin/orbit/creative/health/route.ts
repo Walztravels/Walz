@@ -22,6 +22,7 @@ import {
   isOpenAIImageEnabled,
   getOpenAIImageModel,
   testOpenAIConnectivity,
+  envFlag,
 } from '@/lib/orbit/openai-image-adapter'
 
 export const dynamic   = 'force-dynamic'
@@ -38,7 +39,7 @@ export async function GET(req: NextRequest) {
   // Standard health calls do NOT consume generation credits or make API requests.
   const live = req.nextUrl.searchParams.get('live') === 'true'
 
-  const featureEnabled = process.env.ORBIT_AI_IMAGE_ENABLED === 'true'
+  const featureEnabled = envFlag('ORBIT_AI_IMAGE_ENABLED')
   const apiKeyPresent  = !!process.env.OPENAI_API_KEY
   const model          = getOpenAIImageModel()
 

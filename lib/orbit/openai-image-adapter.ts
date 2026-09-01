@@ -66,6 +66,16 @@ export const OPENAI_IMAGE_COST: Record<string, number> = {
 // ── Provider detection ────────────────────────────────────────────────────────
 
 /**
+ * Normalized boolean flag parser.
+ * Trims whitespace and lowercases before comparing so "True", "TRUE", " true "
+ * all behave the same as "true".
+ * Exported so health reporters can use the same normalization.
+ */
+export function envFlag(name: string): boolean {
+  return process.env[name]?.trim().toLowerCase() === 'true'
+}
+
+/**
  * True when OpenAI image generation is enabled and the API key is present.
  *
  * USE THIS for UI capability flags and health indicators.
@@ -73,10 +83,7 @@ export const OPENAI_IMAGE_COST: Record<string, number> = {
  * and are checked at upload time.
  */
 export function isOpenAIImageEnabled(): boolean {
-  return !!(
-    process.env.ORBIT_AI_IMAGE_ENABLED === 'true' &&
-    process.env.OPENAI_API_KEY
-  )
+  return !!(envFlag('ORBIT_AI_IMAGE_ENABLED') && process.env.OPENAI_API_KEY)
 }
 
 /**

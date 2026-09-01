@@ -25,16 +25,14 @@
  */
 
 import { resolveVideoModel } from './video-models'
+import { envFlag } from './openai-image-adapter'
 
 const FAL_QUEUE_BASE = 'https://queue.fal.run'
 
 // ── Configuration ─────────────────────────────────────────────────────────────
 
 export function isFalVideoConfigured(): boolean {
-  return !!(
-    process.env.FALAI_API_KEY &&
-    process.env.ORBIT_AI_VIDEO_ENABLED === 'true'
-  )
+  return !!(envFlag('ORBIT_AI_VIDEO_ENABLED') && process.env.FALAI_API_KEY?.trim())
 }
 
 function falHeaders(): Record<string, string> {

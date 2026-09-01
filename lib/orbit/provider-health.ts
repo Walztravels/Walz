@@ -11,7 +11,7 @@
  *   invalid_configuration — model resolution failed (registry issue)
  */
 
-import { isOpenAIImageEnabled, getOpenAIImageModel } from './openai-image-adapter'
+import { isOpenAIImageEnabled, getOpenAIImageModel, envFlag } from './openai-image-adapter'
 import { resolveVideoModel } from './video-models'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -70,7 +70,7 @@ export function getProviderHealth(): ProviderHealthReport {
   // Bundling Supabase into the provider check causes false "not configured"
   // states when OpenAI is properly set up but Supabase credentials are absent.
 
-  const imageEnabled = process.env.ORBIT_AI_IMAGE_ENABLED === 'true'
+  const imageEnabled = envFlag('ORBIT_AI_IMAGE_ENABLED')
   const hasOpenAIKey = !!process.env.OPENAI_API_KEY
   const imageModel   = getOpenAIImageModel()  // returns model name, never the key
 
@@ -88,7 +88,7 @@ export function getProviderHealth(): ProviderHealthReport {
   }
 
   // ── FAL video ─────────────────────────────────────────────────────────
-  const videoEnabled  = process.env.ORBIT_AI_VIDEO_ENABLED === 'true'
+  const videoEnabled  = envFlag('ORBIT_AI_VIDEO_ENABLED')
   const hasFalKey     = !!process.env.FALAI_API_KEY
   const klingResolved = resolveVideoModel('kling')  // reads ORBIT_FAL_VIDEO_MODEL if set
 
@@ -130,12 +130,12 @@ export function getProviderHealth(): ProviderHealthReport {
     },
     envPresence: {
       OPENAI_API_KEY:            hasOpenAIKey,
-      ORBIT_AI_IMAGE_ENABLED:    process.env.ORBIT_AI_IMAGE_ENABLED !== undefined,
+      ORBIT_AI_IMAGE_ENABLED:    envFlag('ORBIT_AI_IMAGE_ENABLED'),
       ORBIT_OPENAI_IMAGE_MODEL:  !!process.env.ORBIT_OPENAI_IMAGE_MODEL,
       NEXT_PUBLIC_SUPABASE_URL:  !!process.env.NEXT_PUBLIC_SUPABASE_URL,
       SUPABASE_SERVICE_ROLE_KEY: !!process.env.SUPABASE_SERVICE_ROLE_KEY,
       FALAI_API_KEY:             hasFalKey,
-      ORBIT_AI_VIDEO_ENABLED:    process.env.ORBIT_AI_VIDEO_ENABLED !== undefined,
+      ORBIT_AI_VIDEO_ENABLED:    envFlag('ORBIT_AI_VIDEO_ENABLED'),
       ORBIT_VIDEO_PROVIDER:      !!process.env.ORBIT_VIDEO_PROVIDER,
       ORBIT_FAL_VIDEO_MODEL:     !!process.env.ORBIT_FAL_VIDEO_MODEL,
     },

@@ -1530,13 +1530,21 @@ export function CreativeStudioSection({
           <div className="bg-gray-900 border border-gray-800 rounded-xl p-4 space-y-4">
             <h3 className="text-sm font-semibold text-white">Animate / Generate Video</h3>
 
-            {!caps.falVideoEnabled && (
-              <div className="bg-yellow-950/40 border border-yellow-900/50 rounded-lg px-3 py-2">
-                <p className="text-xs text-yellow-600">
-                  FAL.ai video is not enabled. Set ORBIT_AI_VIDEO_ENABLED=true and FALAI_API_KEY.
-                </p>
-              </div>
-            )}
+            {!caps.falVideoEnabled && (() => {
+              const vs = caps.videoHealth?.status
+              const videoMsgs: Record<string, string> = {
+                disabled:             'Video generation is disabled. Set ORBIT_AI_VIDEO_ENABLED=true.',
+                missing_key:          'Video generation is enabled but FALAI_API_KEY is not set.',
+                invalid_configuration: 'Video provider configuration is invalid. Check the provider diagnostic.',
+              }
+              return (
+                <div className="bg-yellow-950/40 border border-yellow-900/50 rounded-lg px-3 py-2">
+                  <p className="text-xs text-yellow-600">
+                    {vs && videoMsgs[vs] ? videoMsgs[vs] : 'FAL.ai video is not enabled. Set ORBIT_AI_VIDEO_ENABLED=true and FALAI_API_KEY.'}
+                  </p>
+                </div>
+              )
+            })()}
 
             {/* Video model */}
             <div>

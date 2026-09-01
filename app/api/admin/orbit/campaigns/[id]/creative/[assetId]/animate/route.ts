@@ -20,6 +20,7 @@ import {
   isFalVideoConfigured,
   submitFalImageToVideo,
 } from '@/lib/orbit/fal-video-adapter'
+import { envFlag } from '@/lib/orbit/openai-image-adapter'
 import { resolveVideoModel } from '@/lib/orbit/video-models'
 import { resolveAnimationSourceUrl } from '@/lib/orbit/media-resolver'
 
@@ -34,9 +35,17 @@ export async function POST(
   if (!session)                     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   if (session.role !== 'super_admin') return NextResponse.json({ error: 'Forbidden' },    { status: 403 })
 
-  if (!isFalVideoConfigured()) {
+  if (!envFlag('ORBIT_AI_VIDEO_ENABLED')) {
     return NextResponse.json({
-      error: 'FAL.ai video is not enabled. Set ORBIT_AI_VIDEO_ENABLED=true and FALAI_API_KEY.',
+      error: 'FAL.ai video generation is disabled. Set ORBIT_AI_VIDEO_ENABLED=true.',
+      errorCode: 'VIDEO_FEATURE_DISABLED',
+      notConfigured: true,
+    }, { status: 503 })
+  }
+  if (!process.env.FALAI_API_KEY?.trim()) {
+    return NextResponse.json({
+      error: 'FALAI_API_KEY is not configured.',
+      errorCode: 'FAL_KEY_MISSING',
       notConfigured: true,
     }, { status: 503 })
   }

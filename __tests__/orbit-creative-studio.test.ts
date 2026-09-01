@@ -637,7 +637,7 @@ describe('getProviderHealth — video', () => {
 })
 
 describe('getProviderHealth — envPresence', () => {
-  it('reports PRESENT/MISSING without exposing values', () => {
+  it('reports flag VALUE (true/false) without exposing secret values', () => {
     process.env.ORBIT_AI_IMAGE_ENABLED = 'true'
     process.env.OPENAI_API_KEY         = 'sk-secret'
     process.env.ORBIT_AI_VIDEO_ENABLED = 'false'
@@ -645,11 +645,13 @@ describe('getProviderHealth — envPresence', () => {
     const r = getProviderHealth()
 
     expect(r.envPresence.OPENAI_API_KEY).toBe(true)
+    // Flag value true — reports true
     expect(r.envPresence.ORBIT_AI_IMAGE_ENABLED).toBe(true)
     expect(r.envPresence.FALAI_API_KEY).toBe(false)
-    expect(r.envPresence.ORBIT_AI_VIDEO_ENABLED).toBe(true)
+    // Flag value false — reports false (not merely "present")
+    expect(r.envPresence.ORBIT_AI_VIDEO_ENABLED).toBe(false)
 
-    // Verify values never appear — only booleans
+    // Verify secret values never appear — only booleans
     const serialized = JSON.stringify(r.envPresence)
     expect(serialized).not.toContain('sk-secret')
     expect(serialized).not.toContain('fal-')
