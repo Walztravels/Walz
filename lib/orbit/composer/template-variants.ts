@@ -31,6 +31,8 @@ export interface TemplateVariant {
   createdBy:          string
   createdAt:          string   // ISO date
   updatedAt:          string
+  /** Optional description shown in the starters library */
+  description?:       string
 }
 
 /**

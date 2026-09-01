@@ -323,12 +323,13 @@ describe('Quality scoring', () => {
     expect(blocking.length).toBeGreaterThan(0)
   })
 
-  it('scoreColor returns correct band', () => {
+  it('scoreColor returns correct band (Phase 4 calibration: green≥80, yellow≥60)', () => {
     expect(scoreColor(80)).toBe('green')
+    expect(scoreColor(90)).toBe('green')
+    expect(scoreColor(79)).toBe('yellow')
     expect(scoreColor(60)).toBe('yellow')
+    expect(scoreColor(59)).toBe('red')
     expect(scoreColor(30)).toBe('red')
-    expect(scoreColor(75)).toBe('green')
-    expect(scoreColor(74)).toBe('yellow')
   })
 
   it('low overlay produces contrast warning', () => {

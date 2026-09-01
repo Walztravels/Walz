@@ -6,8 +6,8 @@ export type { CompositionInput }                                        from './
 export { checkCompositionQuality }     from './quality-checks'
 export type { QualityWarning }         from './quality-checks'
 
-// Quality scoring (Phase 3)
-export { scoreComposition, scoreColor } from './quality-score'
+// Quality scoring (Phase 3 + Phase 4 calibration)
+export { scoreComposition, scoreColor, scoreToVerdict } from './quality-score'
 export type { QualityScoreResult, QualityScores } from './quality-score'
 
 // Contact footer
@@ -90,3 +90,11 @@ export type { PolishAction, PolishActionDef } from './one-click-polish'
 // Template variants (Phase 3)
 export { extractTemplateVariant, validateVariantIsCommercialFree } from './template-variants'
 export type { TemplateVariant } from './template-variants'
+
+// Decorative restraint (Phase 4)
+export {
+  TEMPLATE_DECORATIVE_RESTRAINTS,
+  checkDecorativeRestraints,
+  sanitiseDecoratives,
+} from './decorative-restraint'
+export type { TemplateDecorativeRestraint, DecorativeViolation } from './decorative-restraint'

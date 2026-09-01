@@ -30,43 +30,53 @@ export interface TemplateSafeZones {
 // ── Per-template default safe zones ──────────────────────────────────────────
 
 export const HERO_SPLIT_SAFE_ZONES: TemplateSafeZones = {
-  subjectZone: { x: 0.50, y: 0.10, width: 0.50, height: 0.75 },
-  textZone:    { x: 0.02, y: 0.15, width: 0.48, height: 0.60 },
-  logoZone:    { x: 0.02, y: 0.02, width: 0.30, height: 0.08 },
-  footerZone:  { x: 0.00, y: 0.90, width: 1.00, height: 0.10 },
+  // Subject: large human right half, from y=0.08 (above logo) to y=0.88
+  subjectZone: { x: 0.48, y: 0.08, width: 0.52, height: 0.80 },
+  // Text: left column, headline starts at y=0.20, ends before footer
+  textZone:    { x: 0.02, y: 0.12, width: 0.46, height: 0.68 },
+  logoZone:    { x: 0.30, y: 0.02, width: 0.40, height: 0.06 },
+  footerZone:  { x: 0.00, y: 0.88, width: 1.00, height: 0.12 },
   margin:      0.04,
 }
 
 export const DESTINATION_EDITORIAL_SAFE_ZONES: TemplateSafeZones = {
-  subjectZone: { x: 0.10, y: 0.08, width: 0.80, height: 0.50 },
-  textZone:    { x: 0.05, y: 0.55, width: 0.90, height: 0.35 },
-  logoZone:    { x: 0.35, y: 0.02, width: 0.30, height: 0.07 },
-  footerZone:  { x: 0.00, y: 0.90, width: 1.00, height: 0.10 },
+  // Subject: fills center section, headline text is at top and bottom
+  subjectZone: { x: 0.05, y: 0.36, width: 0.90, height: 0.48 },
+  // Text: top zone for headline/subheadline, bottom zone for route/CTA
+  textZone:    { x: 0.05, y: 0.10, width: 0.90, height: 0.28 },
+  logoZone:    { x: 0.30, y: 0.02, width: 0.40, height: 0.06 },
+  footerZone:  { x: 0.00, y: 0.88, width: 1.00, height: 0.12 },
   margin:      0.04,
 }
 
 export const SEASONAL_CAMPAIGN_SAFE_ZONES: TemplateSafeZones = {
-  subjectZone: { x: 0.15, y: 0.05, width: 0.70, height: 0.50 },
-  textZone:    { x: 0.05, y: 0.10, width: 0.90, height: 0.40 },
-  logoZone:    { x: 0.35, y: 0.02, width: 0.30, height: 0.07 },
-  footerZone:  { x: 0.00, y: 0.90, width: 1.00, height: 0.10 },
+  // Full-bleed image — subject should be centered, top half preferred
+  subjectZone: { x: 0.10, y: 0.05, width: 0.80, height: 0.55 },
+  // Headline text zone: center-top overlay
+  textZone:    { x: 0.04, y: 0.12, width: 0.92, height: 0.40 },
+  logoZone:    { x: 0.30, y: 0.02, width: 0.40, height: 0.06 },
+  footerZone:  { x: 0.00, y: 0.88, width: 1.00, height: 0.12 },
   margin:      0.04,
 }
 
 export const INFORMATION_POSTER_SAFE_ZONES: TemplateSafeZones = {
-  subjectZone: { x: 0.05, y: 0.05, width: 0.90, height: 0.35 },
-  textZone:    { x: 0.04, y: 0.38, width: 0.92, height: 0.52 },
-  logoZone:    { x: 0.35, y: 0.02, width: 0.30, height: 0.06 },
-  footerZone:  { x: 0.00, y: 0.92, width: 1.00, height: 0.08 },
+  // Very subtle background — subject zone is narrow top strip only
+  subjectZone: { x: 0.05, y: 0.03, width: 0.90, height: 0.20 },
+  // Text zone: nearly the whole canvas — this is an information-heavy layout
+  textZone:    { x: 0.04, y: 0.12, width: 0.92, height: 0.72 },
+  logoZone:    { x: 0.30, y: 0.02, width: 0.40, height: 0.06 },
+  footerZone:  { x: 0.00, y: 0.88, width: 1.00, height: 0.12 },
   margin:      0.04,
 }
 
 export const TRAVEL_COLLAGE_SAFE_ZONES: TemplateSafeZones = {
-  subjectZone: { x: 0.05, y: 0.05, width: 0.90, height: 0.70 },
-  textZone:    { x: 0.05, y: 0.70, width: 0.90, height: 0.22 },
-  logoZone:    { x: 0.35, y: 0.02, width: 0.30, height: 0.07 },
-  footerZone:  { x: 0.00, y: 0.92, width: 1.00, height: 0.08 },
-  margin:      0.04,
+  // Right 55% is the destination collage image zone
+  subjectZone: { x: 0.45, y: 0.05, width: 0.55, height: 0.88 },
+  // Left 45% is reserved for text
+  textZone:    { x: 0.02, y: 0.08, width: 0.43, height: 0.82 },
+  logoZone:    { x: 0.02, y: 0.05, width: 0.30, height: 0.08 },
+  footerZone:  { x: 0.00, y: 0.90, width: 1.00, height: 0.10 },
+  margin:      0.03,
 }
 
 export const TEMPLATE_SAFE_ZONES: Record<string, TemplateSafeZones> = {
