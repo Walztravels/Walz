@@ -25,6 +25,12 @@ import {
 import {
   type WalzBrandAssets, resolveLogoVariant, analyzeBackgroundBrightness,
 } from '@/lib/orbit/brand'
+import type {
+  ReferenceMode, DesignMatchStrength, StructuredRoute, ReferenceDesignProfile,
+} from '@/lib/orbit/reference/types'
+import { structuredRoutesToString } from '@/lib/orbit/reference/types'
+import { applyReferenceDesignProfile } from '@/lib/orbit/reference/apply-profile'
+import { scoreReferenceMatch, type ReferenceMatchScoreDetail } from '@/lib/orbit/reference/match-score'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -619,6 +625,7 @@ function DesignerModePanel({
   templateKey, campaignType, brief, commercialFields, format,
   generating, error, artDirecting, artDirectorSuggestion,
   controls, activeStarterKey, hasVisual, qualityScore,
+  structuredRoutes, onStructuredRoutesChange,
   onTemplateChange, onCampaignTypeChange, onBriefChange,
   onCommercialFieldChange, onFormatChange, onGenerate, onArtDirect,
   onStarterLoad, onControlChange,
@@ -637,6 +644,8 @@ function DesignerModePanel({
   activeStarterKey:        string | null
   hasVisual:               boolean
   qualityScore:            QualityScoreResult | null
+  structuredRoutes:        StructuredRoute[]
+  onStructuredRoutesChange:(routes: StructuredRoute[]) => void
   onTemplateChange:        (key: string) => void
   onCampaignTypeChange:    (t: CampaignType) => void
   onBriefChange:           (v: string) => void
@@ -816,7 +825,54 @@ function DesignerModePanel({
                   {field.required && <span className="text-red-500 ml-1">*</span>}
                   {field.helpText && <span className="ml-1 text-gray-600">· {field.helpText}</span>}
                 </label>
-                {field.type === 'multiline' ? (
+
+                {/* ── Structured route editor (replaces single text input for route fields) ── */}
+                {field.type === 'route' ? (
+                  <div className="space-y-2">
+                    {structuredRoutes.map((route, i) => (
+                      <div key={i} className="flex items-center gap-2">
+                        <input
+                          type="text"
+                          value={route.from}
+                          onChange={e => {
+                            const updated = structuredRoutes.map((r, idx) => idx === i ? { ...r, from: e.target.value } : r)
+                            onStructuredRoutesChange(updated)
+                          }}
+                          placeholder="From city"
+                          className="flex-1 bg-gray-900 border border-gray-700 rounded-lg px-2 py-1.5 text-sm text-white placeholder:text-gray-600"
+                        />
+                        <span className="text-gray-500 text-sm flex-shrink-0">→</span>
+                        <input
+                          type="text"
+                          value={route.to}
+                          onChange={e => {
+                            const updated = structuredRoutes.map((r, idx) => idx === i ? { ...r, to: e.target.value } : r)
+                            onStructuredRoutesChange(updated)
+                          }}
+                          placeholder="To city"
+                          className="flex-1 bg-gray-900 border border-gray-700 rounded-lg px-2 py-1.5 text-sm text-white placeholder:text-gray-600"
+                        />
+                        {structuredRoutes.length > 1 && (
+                          <button
+                            onClick={() => onStructuredRoutesChange(structuredRoutes.filter((_, idx) => idx !== i))}
+                            className="flex-shrink-0 text-gray-600 hover:text-red-400 text-sm w-5 h-5 flex items-center justify-center rounded transition-colors"
+                            title="Remove route"
+                          >
+                            ×
+                          </button>
+                        )}
+                      </div>
+                    ))}
+                    {structuredRoutes.length < 4 && (
+                      <button
+                        onClick={() => onStructuredRoutesChange([...structuredRoutes, { from: '', to: '' }])}
+                        className="text-xs text-indigo-400 hover:text-indigo-300 transition-colors"
+                      >
+                        + Add Route
+                      </button>
+                    )}
+                  </div>
+                ) : field.type === 'multiline' ? (
                   <textarea
                     value={commercialFields[field.layerKey] ?? ''}
                     onChange={e => onCommercialFieldChange(field.layerKey, e.target.value)}
@@ -1038,6 +1094,15 @@ export function CreativeStudioSection({
   const [refError,        setRefError]        = useState<string | null>(null)
   const [removingRefId,   setRemovingRefId]   = useState<string | null>(null)
   const [activeRefId,     setActiveRefId]     = useState<string | null>(null)
+  // Reference design matching
+  const [referenceMode,          setReferenceMode]          = useState<ReferenceMode>('visual_style')
+  const [designMatchStrength,    setDesignMatchStrength]    = useState<DesignMatchStrength>('balanced')
+  const [referenceProfile,       setReferenceProfile]       = useState<ReferenceDesignProfile | null>(null)
+  const [analyzingReference,     setAnalyzingReference]     = useState(false)
+  const [referenceAnalysisErr,   setReferenceAnalysisErr]   = useState<string | null>(null)
+  const [referenceMatchScore,    setReferenceMatchScore]    = useState<ReferenceMatchScoreDetail | null>(null)
+  // Structured multi-route editor
+  const [designerStructuredRoutes, setDesignerStructuredRoutes] = useState<StructuredRoute[]>([{ from: '', to: '' }])
 
   // Designer Mode state
   const [designerTemplateKey,      setDesignerTemplateKey]      = useState<string>(ALL_TEMPLATES[0].key)
@@ -1077,11 +1142,12 @@ export function CreativeStudioSection({
 
   // Rebuild composition when controls or layer overrides change
   function rebuildComposition(
-    templateKey:      string,
-    fields:           Record<string, string>,
-    controls:         DesignControls,
-    layerOverrides:   Record<string, Partial<DesignComposition['layers'][0]>>,
-    visualAsset?:     { url: string; id?: string },
+    templateKey:       string,
+    fields:            Record<string, string>,
+    controls:          DesignControls,
+    layerOverrides:    Record<string, Partial<DesignComposition['layers'][0]>>,
+    visualAsset?:      { url: string; id?: string },
+    structuredRoutes?: StructuredRoute[],
   ): DesignComposition {
     const template = TEMPLATE_MAP[templateKey] ?? ALL_TEMPLATES[0]
     const canvas   = TEMPLATE_CANVASES[designerFormat] ?? TEMPLATE_CANVASES['1080x1350']
@@ -1092,6 +1158,7 @@ export function CreativeStudioSection({
       canvas,
       controls,
       layerOverrides: layerOverrides as Record<string, Partial<import('@/lib/orbit/composer/layer-model').DesignLayer>>,
+      structuredRoutes: structuredRoutes?.filter(r => r.from.trim() && r.to.trim()),
     })
   }
 
@@ -1314,15 +1381,31 @@ export function CreativeStudioSection({
   async function generateDesignerImage() {
     setGeneratingDesigner(true); setDesignerError(null)
     try {
+      // Resolve active reference image
+      const referenceImages = assets.filter(a => a.isReference)
+      const chosenRef = referenceImages.find(r => activeRefId ? r.id === activeRefId : r.id === referenceImages[0]?.id)
+      const useVisualRef = (referenceMode === 'visual_style' || referenceMode === 'both') && chosenRef
+
+      // Merge structured routes into commercial fields
+      const validStructuredRoutes = designerStructuredRoutes.filter(r => r.from.trim() && r.to.trim())
+      const effectiveFields: Record<string, string> = {
+        ...designerCommercialFields,
+        ...(validStructuredRoutes.length > 0
+          ? { route: structuredRoutesToString(validStructuredRoutes) }
+          : {}
+        ),
+      }
+
       const body = {
         mode:             'image',
         designerMode:     true,
         templateKey:      designerTemplateKey,
         campaignType:     designerCampaignType,
         visualBrief:      designerBrief || undefined,
-        commercialFields: designerCommercialFields,
+        commercialFields: effectiveFields,
         format:           designerFormat,
         provider:         'openai',
+        referenceMediaId: useVisualRef ? chosenRef!.id : undefined,
       }
       const res = await fetch(`/api/admin/orbit/campaigns/${campaignId}/creative`, {
         method:  'POST',
@@ -1344,23 +1427,31 @@ export function CreativeStudioSection({
         setDesignerVisualAssetId(media.id)
 
         // Build composition immediately and navigate to POSTER tab
-        const template = TEMPLATE_MAP[designerTemplateKey]
+        const template     = TEMPLATE_MAP[designerTemplateKey]
         const canvasConfig = TEMPLATE_CANVASES[designerFormat]
         if (template && canvasConfig && media.publicUrl) {
           const visualAsset = { url: media.publicUrl, id: media.id }
           const base = buildTemplateComposition({
             template,
-            commercialFields: designerCommercialFields,
+            commercialFields: effectiveFields,
             visualAsset,
             canvas: canvasConfig,
+            structuredRoutes: validStructuredRoutes.length > 0 ? validStructuredRoutes : undefined,
           })
-          const composition = rebuildComposition(
+          let composition = rebuildComposition(
             designerTemplateKey,
-            designerCommercialFields,
+            effectiveFields,
             designerControls,
             designerLayerOverrides,
             visualAsset,
+            validStructuredRoutes.length > 0 ? validStructuredRoutes : undefined,
           )
+          // Apply reference design profile when requested
+          const useLayoutRef = (referenceMode === 'design_layout' || referenceMode === 'both')
+          if (useLayoutRef && referenceProfile) {
+            composition = applyReferenceDesignProfile(composition, referenceProfile, designMatchStrength)
+            setReferenceMatchScore(scoreReferenceMatch(composition, referenceProfile))
+          }
           setBaseComposition(base)
           setDesignerComposition(composition)
           // Compute initial quality score
@@ -1680,6 +1771,33 @@ export function CreativeStudioSection({
     } catch (e) {
       setRefError(e instanceof Error ? e.message : 'Remove failed')
     } finally { setRemovingRefId(null) }
+  }
+
+  // ── Analyze reference poster layout ───────────────────────────────────────
+
+  async function analyzeActiveReference() {
+    const refImages = assets.filter(a => a.isReference)
+    const activeRef = refImages.find(r => activeRefId ? r.id === activeRefId : r.id === refImages[0]?.id)
+    if (!activeRef) return
+    setAnalyzingReference(true); setReferenceAnalysisErr(null)
+    try {
+      const res  = await fetch(
+        `/api/admin/orbit/campaigns/${campaignId}/creative/reference/analyze`,
+        { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ mediaId: activeRef.id }) },
+      )
+      const data = await res.json() as { profile?: ReferenceDesignProfile; error?: string }
+      if (!res.ok) throw new Error(data.error ?? 'Analysis failed')
+      if (data.profile) {
+        setReferenceProfile(data.profile)
+        if (designerComposition) {
+          setReferenceMatchScore(scoreReferenceMatch(designerComposition, data.profile))
+        }
+      }
+    } catch (e) {
+      setReferenceAnalysisErr(e instanceof Error ? e.message : 'Analysis failed')
+    } finally {
+      setAnalyzingReference(false)
+    }
   }
 
   // ── Provider health test ───────────────────────────────────────────────────
@@ -2715,6 +2833,114 @@ export function CreativeStudioSection({
           )
         })()}
 
+        {/* ── Reference Design Card ─────────────────────────────────────────── */}
+        {(() => {
+          const refImages = assets.filter(a => a.isReference)
+          if (refImages.length === 0) return null
+          const activeRef = refImages.find(r => activeRefId ? r.id === activeRefId : r.id === refImages[0]?.id)
+          return (
+            <div className="bg-gray-900/50 border border-gray-800 rounded-xl p-4 mb-4">
+              <p className="text-xs text-gray-500 font-medium uppercase tracking-wider mb-3">Reference Design</p>
+
+              {/* Thumbnail + reference info */}
+              {activeRef && (
+                <div className="flex items-start gap-3 mb-4">
+                  {activeRef.publicUrl && (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={activeRef.publicUrl} alt="Reference" className="w-16 h-20 object-cover rounded-lg border border-gray-700 flex-shrink-0" />
+                  )}
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs text-white font-medium truncate">{activeRef.altText || 'Reference image'}</p>
+                    {referenceProfile && (
+                      <div className="mt-1 space-y-0.5">
+                        <p className="text-xs text-gray-400">Layout: <span className="text-gray-300">{referenceProfile.layoutFamily.replace(/_/g, ' ')}</span></p>
+                        <p className="text-xs text-gray-400">Subject: <span className="text-gray-300">{referenceProfile.subjectPosition}</span></p>
+                        <p className="text-xs text-gray-400">Routes in ref: <span className="text-gray-300">{referenceProfile.routeLayout.count}</span></p>
+                        <p className="text-xs text-gray-400">Confidence: <span className="text-gray-300">{Math.round(referenceProfile.confidence * 100)}%</span></p>
+                      </div>
+                    )}
+                    {referenceMatchScore && (
+                      <div className="mt-2 bg-gray-800 rounded-lg px-2 py-1.5">
+                        <p className="text-xs text-gray-400">Match score: <span className={`font-semibold ${referenceMatchScore.total >= 70 ? 'text-green-400' : referenceMatchScore.total >= 40 ? 'text-yellow-400' : 'text-red-400'}`}>{Math.round(referenceMatchScore.total)}/100</span></p>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* Reference Purpose selector */}
+              <div className="mb-3">
+                <p className="text-xs text-gray-500 mb-1.5">Reference Purpose</p>
+                <div className="flex gap-1.5">
+                  {(['visual_style', 'design_layout', 'both'] as const).map(mode => (
+                    <button
+                      key={mode}
+                      onClick={() => setReferenceMode(mode)}
+                      className={`flex-1 text-xs py-1.5 px-2 rounded-lg border transition-colors ${
+                        referenceMode === mode
+                          ? 'bg-indigo-600 border-indigo-500 text-white'
+                          : 'bg-gray-800 border-gray-700 text-gray-400 hover:text-gray-300'
+                      }`}
+                    >
+                      {mode === 'visual_style' ? 'Visual Style' : mode === 'design_layout' ? 'Design / Layout' : 'Both'}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Design Match Strength — only when layout mode active */}
+              {(referenceMode === 'design_layout' || referenceMode === 'both') && (
+                <div className="mb-3">
+                  <p className="text-xs text-gray-500 mb-1.5">Design Match Strength</p>
+                  <div className="flex gap-1.5">
+                    {(['loose', 'balanced', 'close'] as const).map(strength => (
+                      <button
+                        key={strength}
+                        onClick={() => setDesignMatchStrength(strength)}
+                        className={`flex-1 text-xs py-1.5 px-2 rounded-lg border transition-colors capitalize ${
+                          designMatchStrength === strength
+                            ? 'bg-violet-600 border-violet-500 text-white'
+                            : 'bg-gray-800 border-gray-700 text-gray-400 hover:text-gray-300'
+                        }`}
+                      >
+                        {strength}
+                      </button>
+                    ))}
+                  </div>
+                  <p className="text-xs text-gray-600 mt-1">
+                    {designMatchStrength === 'loose' ? 'Mood and general composition only' :
+                     designMatchStrength === 'balanced' ? 'Match hierarchy, zones and density' :
+                     'Closely reproduce layout proportions and visual hierarchy'}
+                  </p>
+                </div>
+              )}
+
+              {/* Analyze button */}
+              {(referenceMode === 'design_layout' || referenceMode === 'both') && (
+                <button
+                  onClick={analyzeActiveReference}
+                  disabled={analyzingReference || !activeRef}
+                  className="w-full text-xs py-2 px-3 rounded-lg bg-gray-800 border border-gray-700 text-gray-300 hover:bg-gray-700 hover:text-white disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                >
+                  {analyzingReference ? (
+                    <span className="flex items-center justify-center gap-2">
+                      <svg className="w-3 h-3 animate-spin" fill="none" viewBox="0 0 24 24">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                      </svg>
+                      Analysing layout…
+                    </span>
+                  ) : referenceProfile ? 'Re-analyse Layout' : 'Analyse Layout'}
+                </button>
+              )}
+
+              {referenceAnalysisErr && (
+                <p className="mt-2 text-xs text-red-400">{referenceAnalysisErr}</p>
+              )}
+            </div>
+          )
+        })()}
+
         <div className="grid grid-cols-1 xl:grid-cols-[1fr_300px] gap-4">
           {/* Left: form */}
           <DesignerModePanel
@@ -2732,6 +2958,8 @@ export function CreativeStudioSection({
             activeStarterKey={activeStarterKey}
             hasVisual={!!designerVisualAssetId}
             qualityScore={qualityScore}
+            structuredRoutes={designerStructuredRoutes}
+            onStructuredRoutesChange={setDesignerStructuredRoutes}
             onTemplateChange={(key) => {
               const newTemplate = TEMPLATE_MAP[key] ?? ALL_TEMPLATES[0]
               const compatible  = preserveCompatibleFields(
@@ -2759,6 +2987,7 @@ export function CreativeStudioSection({
                   designerTemplateKey, designerCommercialFields, newControls,
                   designerLayerOverrides,
                   visual?.src ? { url: visual.src, id: visual.id ?? undefined } : undefined,
+                  designerStructuredRoutes,
                 )
                 setDesignerComposition(newComp)
                 setQualityScore(scoreComposition(newComp, newControls, currentSafeZones))
@@ -2785,7 +3014,7 @@ export function CreativeStudioSection({
                   if (canvas) {
                     const visual  = { url: asset.publicUrl, id: asset.id }
                     const base    = buildTemplateComposition({ template: newTemplate, commercialFields: compatible, visualAsset: visual, canvas })
-                    const comp    = rebuildComposition(newTemplateKey, compatible, newControls, starter.layerOverrides, visual)
+                    const comp    = rebuildComposition(newTemplateKey, compatible, newControls, starter.layerOverrides, visual, designerStructuredRoutes)
                     setBaseComposition(base)
                     setDesignerComposition(comp)
                     setQualityScore(scoreComposition(comp, newControls, TEMPLATE_SAFE_ZONES[newTemplateKey]))
@@ -2813,6 +3042,7 @@ export function CreativeStudioSection({
                     newControls,
                     designerLayerOverrides,
                     visual?.src ? { url: visual.src, id: visual.id ?? undefined } : undefined,
+                    designerStructuredRoutes,
                   )
                   setDesignerComposition(newComp)
                   setQualityScore(scoreComposition(newComp, newControls, currentSafeZones))
@@ -2829,6 +3059,7 @@ export function CreativeStudioSection({
                     newControls,
                     designerLayerOverrides,
                     visual?.src ? { url: visual.src, id: visual.id ?? undefined } : undefined,
+                    designerStructuredRoutes,
                   )
                   setDesignerComposition(newComp)
                   setQualityScore(scoreComposition(newComp, newControls, currentSafeZones))

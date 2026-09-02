@@ -119,11 +119,12 @@ export interface ContactBarLayer extends BaseLayer {
 }
 
 export interface RouteCardLayer extends BaseLayer {
-  type:       'route_card'
-  routes:     string[]   // max 4
-  fontSize?:  number
-  cardColor?: string
-  textColor?: string
+  type:              'route_card'
+  routes:            string[]   // max 4 — each entry rendered as one pill
+  structuredRoutes?: Array<{ from: string; to: string }>  // source data when using structured editor
+  fontSize?:         number
+  cardColor?:        string
+  textColor?:        string
 }
 
 export interface PriceBlockLayer extends BaseLayer {

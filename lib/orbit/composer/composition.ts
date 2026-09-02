@@ -22,12 +22,14 @@ import { overlayAlpha } from './design-controls'
 import { getTypographyPreset } from './typography-presets'
 
 export interface CompositionInput {
-  template:         WalzTemplate
-  commercialFields: Record<string, string>
-  visualAsset?:     { url: string; id?: string }
-  canvas:           TemplateCanvas
-  layerOverrides?:  Record<string, Partial<DesignLayer>>
-  controls?:        DesignControls
+  template:          WalzTemplate
+  commercialFields:  Record<string, string>
+  visualAsset?:      { url: string; id?: string }
+  canvas:            TemplateCanvas
+  layerOverrides?:   Record<string, Partial<DesignLayer>>
+  controls?:         DesignControls
+  /** Structured routes — when present, take precedence over commercialFields['route'] */
+  structuredRoutes?: Array<{ from: string; to: string }>
 }
 
 /**
@@ -153,22 +155,39 @@ function buildCTALayer(
 }
 
 /**
- * Build a route card layer from comma/bullet-separated routes.
+ * Build a route card layer from either structured routes or a
+ * comma/bullet-separated string. Structured routes take precedence.
+ *
+ * Each entry in routes[] is rendered as one pill on the canvas, so three
+ * structured routes produce three distinct, readable cards rather than
+ * one compressed string.
  */
 function buildRouteCardLayer(
-  zone:    NonNullable<WalzTemplate['zones']['route']>,
-  raw:     string,
+  zone:            NonNullable<WalzTemplate['zones']['route']>,
+  raw:             string,
+  structuredInput?: Array<{ from: string; to: string }>,
 ): RouteCardLayer {
-  const routes = raw
-    .split(/[•,|]/)
-    .map(r => r.trim())
-    .filter(Boolean)
-    .slice(0, 4)
+  let routes: string[]
+  let structuredRoutes: Array<{ from: string; to: string }> | undefined
+
+  if (structuredInput && structuredInput.length > 0) {
+    // Structured editor — each route is its own pill
+    structuredRoutes = structuredInput.filter(r => r.from.trim() && r.to.trim()).slice(0, 4)
+    routes = structuredRoutes.map(r => `${r.from.trim()} → ${r.to.trim()}`)
+  } else {
+    // Legacy: split delimited string
+    routes = raw
+      .split(/[•,|→]/)
+      .map(r => r.trim())
+      .filter(Boolean)
+      .slice(0, 4)
+  }
 
   return {
     id:        'route_card',
     type:      'route_card',
     routes,
+    ...(structuredRoutes ? { structuredRoutes } : {}),
     fontSize:  zone.fontSize ?? 20,
     cardColor: '#1a3060',
     textColor: '#d4af37',
@@ -206,7 +225,7 @@ function buildPriceLayer(
 // ── Main builder ──────────────────────────────────────────────────────────────
 
 export function buildTemplateComposition(input: CompositionInput): DesignComposition {
-  const { template, commercialFields, visualAsset, canvas, layerOverrides = {}, controls } = input
+  const { template, commercialFields, visualAsset, canvas, layerOverrides = {}, controls, structuredRoutes } = input
   const zones = resolveZones(template, canvas.key)
   const layers: DesignLayer[] = []
 
@@ -234,8 +253,9 @@ export function buildTemplateComposition(input: CompositionInput): DesignComposi
 
   // 5. Route cards — only show if not minimal density
   const routeRaw = commercialFields['route'] ?? ''
-  if (routeRaw && zones.route && controls?.contentDensity !== 'minimal') {
-    layers.push(buildRouteCardLayer(zones.route, routeRaw))
+  const hasRoutes = structuredRoutes ? structuredRoutes.some(r => r.from.trim() && r.to.trim()) : !!routeRaw
+  if (hasRoutes && zones.route && controls?.contentDensity !== 'minimal') {
+    layers.push(buildRouteCardLayer(zones.route, routeRaw, structuredRoutes))
   }
 
   // 6. Price block
