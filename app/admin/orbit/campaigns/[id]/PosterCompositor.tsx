@@ -228,27 +228,56 @@ function renderRouteCards(
   const gap      = 10 * scale
   const font     = `600 ${fs}px 'Helvetica Neue', Arial, sans-serif`
   ctx.font = font
+  const cx = cw * layer.x
+  const cy = ch * layer.y
 
-  const widths   = layer.routes.map(r => ctx.measureText(r).width + padding * 2)
-  const totalW   = widths.reduce((s, w) => s + w, 0) + gap * (layer.routes.length - 1)
-  let startX     = cw * layer.x - totalW / 2
+  const strategy = layer.layoutStrategy ?? 'horizontal'
 
-  for (let i = 0; i < layer.routes.length; i++) {
-    const cardW = widths[i]
-    const cardX = startX
-    const cardY = ch * layer.y - cardH / 2
-    const r     = cardH * 0.4
+  if (strategy === 'vertical') {
+    // Stack pills vertically, each centered at cx
+    const totalH = layer.routes.length * cardH + (layer.routes.length - 1) * gap
+    let startY   = cy - totalH / 2
 
-    ctx.save()
-    ctx.fillStyle = layer.cardColor ?? '#1a3060'
-    ctx.beginPath(); ctx.roundRect(cardX, cardY, cardW, cardH, r); ctx.fill()
-    ctx.fillStyle   = layer.textColor ?? '#d4af37'
-    ctx.textAlign   = 'center'
-    ctx.textBaseline = 'middle'
-    ctx.fillText(layer.routes[i], cardX + cardW / 2, ch * layer.y)
-    ctx.restore()
+    for (let i = 0; i < layer.routes.length; i++) {
+      const cardW = ctx.measureText(layer.routes[i]).width + padding * 2
+      const cardX = cx - cardW / 2
+      const cardY = startY
+      const r     = cardH * 0.4
 
-    startX += cardW + gap
+      ctx.save()
+      ctx.fillStyle = layer.cardColor ?? '#1a3060'
+      ctx.beginPath(); ctx.roundRect(cardX, cardY, cardW, cardH, r); ctx.fill()
+      ctx.fillStyle    = layer.textColor ?? '#d4af37'
+      ctx.textAlign    = 'center'
+      ctx.textBaseline = 'middle'
+      ctx.fillText(layer.routes[i], cx, cardY + cardH / 2)
+      ctx.restore()
+
+      startY += cardH + gap
+    }
+  } else {
+    // Horizontal: pills laid out left-to-right, group centered at cx
+    const widths = layer.routes.map(r => ctx.measureText(r).width + padding * 2)
+    const totalW = widths.reduce((s, w) => s + w, 0) + gap * (layer.routes.length - 1)
+    let startX   = cx - totalW / 2
+
+    for (let i = 0; i < layer.routes.length; i++) {
+      const cardW = widths[i]
+      const cardX = startX
+      const cardY = cy - cardH / 2
+      const r     = cardH * 0.4
+
+      ctx.save()
+      ctx.fillStyle = layer.cardColor ?? '#1a3060'
+      ctx.beginPath(); ctx.roundRect(cardX, cardY, cardW, cardH, r); ctx.fill()
+      ctx.fillStyle    = layer.textColor ?? '#d4af37'
+      ctx.textAlign    = 'center'
+      ctx.textBaseline = 'middle'
+      ctx.fillText(layer.routes[i], cardX + cardW / 2, cy)
+      ctx.restore()
+
+      startX += cardW + gap
+    }
   }
 }
 

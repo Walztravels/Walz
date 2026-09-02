@@ -121,11 +121,13 @@ describe('Logo layer', () => {
 // ── Contact footer ────────────────────────────────────────────────────────────
 
 describe('Contact footer', () => {
-  it('contact bar items contain BUSINESS phone number', () => {
+  it('contact bar items highlight the central globalWhatsapp number', () => {
+    // The highlighted (primary) contact in dark/light/compact must be the central
+    // global number (+1 231 790 2336), not the Nigeria-local number.
     const items = buildContactBarItems('dark')
-    const phones = items.map(i => i.text)
-    const hasNigeriaPhone = phones.some(p => p.includes(BUSINESS.contacts.nigeriaWhatsapp.display))
-    expect(hasNigeriaPhone).toBe(true)
+    const highlighted = items.filter(i => i.highlight)
+    expect(highlighted.length).toBeGreaterThan(0)
+    expect(highlighted[0].text).toBe(BUSINESS.contacts.globalWhatsapp.display)
   })
 
   it('contact bar items contain BUSINESS email', () => {

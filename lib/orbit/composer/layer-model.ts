@@ -23,17 +23,18 @@ export type LayerType =
   | 'cta_button'
 
 interface BaseLayer {
-  id:        string
-  type:      LayerType
-  x:         number   // 0-1 fractional from canvas left
-  y:         number   // 0-1 fractional from canvas top
-  width?:    number   // 0-1 fractional; undefined = auto
-  height?:   number   // 0-1 fractional; undefined = auto
-  zIndex:    number
-  visible:   boolean
-  locked?:   boolean
-  opacity?:  number   // 0-1
-  rotation?: number   // degrees
+  id:          string
+  type:        LayerType
+  x:           number   // 0-1 fractional from canvas left
+  y:           number   // 0-1 fractional from canvas top
+  width?:      number   // 0-1 fractional; undefined = auto
+  height?:     number   // 0-1 fractional; undefined = auto
+  zIndex:      number
+  visible:     boolean
+  locked?:     boolean
+  opacity?:    number   // 0-1
+  rotation?:   number   // degrees
+  allowBleed?: boolean  // when true, layer may extend to canvas edge (background images only)
 }
 
 // ── Layer types ───────────────────────────────────────────────────────────────
@@ -125,6 +126,8 @@ export interface RouteCardLayer extends BaseLayer {
   fontSize?:         number
   cardColor?:        string
   textColor?:        string
+  /** Layout strategy chosen by buildRouteGroupLayout(). Vertical for 3+ routes in narrow left column (x<0.35). */
+  layoutStrategy?:   'horizontal' | 'vertical' | 'grid'
 }
 
 export interface PriceBlockLayer extends BaseLayer {

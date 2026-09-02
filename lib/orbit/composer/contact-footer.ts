@@ -19,7 +19,7 @@ export function buildContactBarItems(variant: FooterVariant): ContactBarItem[] {
 
   if (variant === 'compact') {
     return [
-      { icon: '📱', text: contacts.nigeriaWhatsapp.display,  highlight: true },
+      { icon: '📱', text: contacts.globalWhatsapp.display,  highlight: true },
       { icon: '✉',  text: contacts.email },
     ]
   }
@@ -27,8 +27,8 @@ export function buildContactBarItems(variant: FooterVariant): ContactBarItem[] {
   if (variant === 'full') {
     return [
       { icon: '🇬🇧', text: contacts.visaWhatsapp.display },
-      { icon: '🇨🇦', text: contacts.globalWhatsapp.display },
-      { icon: '🇳🇬', text: contacts.nigeriaWhatsapp.display, highlight: true },
+      { icon: '🇨🇦', text: contacts.globalWhatsapp.display, highlight: true },
+      { icon: '🇳🇬', text: contacts.nigeriaWhatsapp.display },
       { icon: '✉',   text: contacts.email },
       { icon: '📸',  text: '@walz_travels' },
     ]
@@ -36,7 +36,7 @@ export function buildContactBarItems(variant: FooterVariant): ContactBarItem[] {
 
   // dark / light — standard 3-item bar
   return [
-    { icon: '📱', text: contacts.nigeriaWhatsapp.display, highlight: true },
+    { icon: '📱', text: contacts.globalWhatsapp.display, highlight: true },
     { icon: '✉',  text: contacts.email },
     { icon: '📸', text: '@walz_travels' },
   ]

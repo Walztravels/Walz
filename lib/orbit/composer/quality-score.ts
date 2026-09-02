@@ -20,6 +20,7 @@ import type { QualityWarning } from './quality-checks'
 import type { DesignControls } from './design-controls'
 import type { TemplateSafeZones } from './safe-zones'
 import { layerOverlapsFooter } from './safe-zones'
+import { detectLayerOverflow } from './bounds'
 
 export interface QualityScores {
   brand:            number   // logo present, colors consistent
@@ -271,6 +272,10 @@ export function scoreComposition(
   controls?:   DesignControls,
   safeZones?:  TemplateSafeZones,
 ): QualityScoreResult {
+  // ── Overflow check FIRST — canvas geometry safety always takes priority ───────
+  const overflows = detectLayerOverflow(composition)
+  const criticalOverflows = overflows.filter(w => w.critical)
+
   const brand      = scoreBrand(composition)
   const typography = scoreTypography(composition)
   const spacing    = scoreSpacing(composition, controls, safeZones)
@@ -290,7 +295,7 @@ export function scoreComposition(
   }
 
   // Weighted total — weights sum to 100
-  const total = Math.round(
+  let total = Math.round(
     (scores.brand         * WEIGHTS.brand +
      scores.typography    * WEIGHTS.typography +
      scores.spacing       * WEIGHTS.spacing +
@@ -301,7 +306,23 @@ export function scoreComposition(
     / 100
   )
 
+  // ── Overflow cap — a 90+ score MUST mean geometrically publishable ────────────
+  // If critical layers overflow canvas bounds, cap the score regardless of
+  // how well other dimensions score. This prevents high scores on clipped posters.
+  if (criticalOverflows.length >= 2) {
+    total = Math.min(total, 39)
+  } else if (criticalOverflows.length === 1) {
+    total = Math.min(total, 59)
+  }
+
+  const overflowWarnings: QualityWarning[] = overflows.map(w => ({
+    field:    w.code,
+    message:  w.message,
+    blocking: w.critical,
+  }))
+
   const warnings = [
+    ...overflowWarnings,
     ...brand.warnings,
     ...typography.warnings,
     ...spacing.warnings,

@@ -189,11 +189,14 @@ describe('applyReferenceDesignProfile', () => {
     expect(newHeadline.text).toBe(origHeadline.text)
   })
 
-  it('updates controls.textAlignment from headline.alignment', () => {
+  it('does NOT override controls.textAlignment — alignment is owned by the template layout', () => {
+    // ALIGNMENT SAFETY RULE: applyReferenceDesignProfile must never change textAlignment.
+    // Changing it without also adjusting layer.x would clip left-column layouts.
     const profile = makeProfile({ headline: { ...makeProfile().headline, alignment: 'left' } })
     const comp    = makeComposition()
+    const origAlignment = comp.controls?.textAlignment ?? 'center'
     const result  = applyReferenceDesignProfile(comp, profile, 'balanced')
-    expect(result.controls?.textAlignment).toBe('left')
+    expect(result.controls?.textAlignment).toBe(origAlignment)
   })
 
   it('hides subheadline in close mode when profile says invisible', () => {

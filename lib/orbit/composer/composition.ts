@@ -20,6 +20,7 @@ import { BUSINESS } from '@/lib/config/business'
 import type { DesignControls } from './design-controls'
 import { overlayAlpha } from './design-controls'
 import { getTypographyPreset } from './typography-presets'
+import { normalizeCompositionBounds } from './bounds'
 
 export interface CompositionInput {
   template:          WalzTemplate
@@ -183,6 +184,13 @@ function buildRouteCardLayer(
       .slice(0, 4)
   }
 
+  const zoneX = zone.x ?? 0.5
+  // Auto-select vertical layout for 3+ routes in a narrow left-column zone (x < 0.35).
+  // Horizontal pill groups at x=0.05 with 3 pills would extend ~600px left of the anchor,
+  // clipping completely off the left canvas boundary.
+  const layoutStrategy: 'horizontal' | 'vertical' | 'grid' =
+    (routes.length >= 3 && zoneX < 0.35) ? 'vertical' : 'horizontal'
+
   return {
     id:        'route_card',
     type:      'route_card',
@@ -191,10 +199,11 @@ function buildRouteCardLayer(
     fontSize:  zone.fontSize ?? 20,
     cardColor: '#1a3060',
     textColor: '#d4af37',
-    x:         zone.x ?? 0.5,
+    x:         zoneX,
     y:         zone.y ?? 0.62,
     zIndex:    40,
     visible:   routes.length > 0,
+    layoutStrategy,
   }
 }
 
@@ -299,7 +308,7 @@ export function buildTemplateComposition(input: CompositionInput): DesignComposi
     return { ...layer, ...override } as DesignLayer
   })
 
-  return {
+  const rawComposition: DesignComposition = {
     canvas:          toDesignCanvas(canvas),
     templateKey:     template.key,
     layers:          finalLayers.sort((a, b) => a.zIndex - b.zIndex),
@@ -308,6 +317,10 @@ export function buildTemplateComposition(input: CompositionInput): DesignComposi
     layerOverrides,
     controls,
   }
+
+  // Final mandatory bounds normalization — clamps all layers to safe margins.
+  // Must run AFTER all transforms and BEFORE preview / quality scoring / export.
+  return normalizeCompositionBounds(rawComposition)
 }
 
 // Export overlayAlpha for compositor use

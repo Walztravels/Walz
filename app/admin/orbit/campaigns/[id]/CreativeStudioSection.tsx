@@ -31,6 +31,7 @@ import type {
 import { structuredRoutesToString } from '@/lib/orbit/reference/types'
 import { applyReferenceDesignProfile } from '@/lib/orbit/reference/apply-profile'
 import { scoreReferenceMatch, type ReferenceMatchScoreDetail } from '@/lib/orbit/reference/match-score'
+import { normalizeCompositionBounds } from '@/lib/orbit/composer/bounds'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -1450,6 +1451,8 @@ export function CreativeStudioSection({
           const useLayoutRef = (referenceMode === 'design_layout' || referenceMode === 'both')
           if (useLayoutRef && referenceProfile) {
             composition = applyReferenceDesignProfile(composition, referenceProfile, designMatchStrength)
+            // Normalize bounds again: reference profile may have moved layers near edges
+            composition = normalizeCompositionBounds(composition)
             setReferenceMatchScore(scoreReferenceMatch(composition, referenceProfile))
           }
           setBaseComposition(base)
