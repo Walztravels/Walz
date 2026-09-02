@@ -19,6 +19,11 @@ export interface DesignControls {
   typographyPreset:    string   // key into TYPOGRAPHY_PRESETS
   showGuides:          boolean
   accentColor:         string   // hex — default '#d4af37'
+  // Brand / Logo controls (Phase 5 brand patch — all optional for backwards compatibility)
+  logoVariant?:    'AUTO' | 'PRIMARY' | 'LIGHT' | 'DARK' | 'MONOCHROME' | 'ICON'
+  logoTreatment?:  'AUTO' | 'NONE' | 'SHADOW' | 'GLOW' | 'DARK_PLATE' | 'LIGHT_PLATE' | 'GLASS'
+  logoScale?:      'small' | 'standard' | 'prominent'
+  logoPosition?:   'top_left' | 'top_center' | 'top_right'
 }
 
 export function defaultDesignControls(): DesignControls {

@@ -39,6 +39,8 @@ interface Props {
   showGuides?:     boolean
   overlayStrength?: number   // 0–100 (from DesignControls)
   onLayerChange?:  (layerId: string, patch: Partial<DesignLayer>) => void
+  // Brand Asset patch — resolved logo image URL (already selected variant)
+  resolvedLogoUrl?: string | null
 }
 
 const LAYER_ORDER: Array<keyof PosterData> = [
@@ -311,6 +313,58 @@ function renderContactBar(
   ctx.restore()
 }
 
+// ── Logo image renderer (Brand Asset patch) ───────────────────────────────────
+
+function renderLogoImage(
+  ctx: CanvasRenderingContext2D,
+  layer: LogoLayer,
+  img: HTMLImageElement,
+  cw: number, ch: number,
+) {
+  const scale     = cw / 1080
+  const baseWidth = layer.logoScale === 'prominent' ? 210 : layer.logoScale === 'small' ? 100 : 150
+  const lw        = baseWidth * scale
+  const lh        = img.naturalWidth > 0 ? (lw / img.naturalWidth) * img.naturalHeight : lw * 0.35
+  const cx        = cw * layer.x
+  const cy        = ch * layer.y
+  const x         = layer.align === 'center' ? cx - lw / 2 : layer.align === 'right' ? cx - lw : cx
+  const y         = cy - lh / 2
+  const pad       = 12 * scale
+
+  const treatment    = layer.treatment ?? 'NONE'
+  const treatOpacity = layer.treatmentOpacity ?? 0.5
+
+  ctx.save()
+
+  // Draw plate/glass background behind logo (never distorts logo itself)
+  if (treatment === 'DARK_PLATE') {
+    ctx.fillStyle = `rgba(0,0,0,${treatOpacity})`
+    ctx.beginPath(); ctx.roundRect(x - pad, y - pad, lw + pad * 2, lh + pad * 2, 6 * scale); ctx.fill()
+  } else if (treatment === 'LIGHT_PLATE') {
+    ctx.fillStyle = `rgba(255,255,255,${treatOpacity})`
+    ctx.beginPath(); ctx.roundRect(x - pad, y - pad, lw + pad * 2, lh + pad * 2, 6 * scale); ctx.fill()
+  } else if (treatment === 'GLASS') {
+    ctx.fillStyle = `rgba(255,255,255,${Math.min(treatOpacity * 0.4, 0.25)})`
+    ctx.strokeStyle = `rgba(255,255,255,${Math.min(treatOpacity * 0.6, 0.4)})`
+    ctx.lineWidth = 1
+    ctx.beginPath(); ctx.roundRect(x - pad, y - pad, lw + pad * 2, lh + pad * 2, 8 * scale)
+    ctx.fill(); ctx.stroke()
+  }
+
+  // Apply shadow / glow to the logo itself (not the plate — the plate has its own opacity)
+  if (treatment === 'SHADOW') {
+    ctx.shadowColor   = 'rgba(0,0,0,0.75)'
+    ctx.shadowBlur    = 16 * scale
+    ctx.shadowOffsetY = 2 * scale
+  } else if (treatment === 'GLOW') {
+    ctx.shadowColor = 'rgba(255,255,255,0.65)'
+    ctx.shadowBlur  = 22 * scale
+  }
+
+  ctx.drawImage(img, x, y, lw, lh)
+  ctx.restore()
+}
+
 // ── Design composition renderer ───────────────────────────────────────────────
 
 function renderComposition(
@@ -319,6 +373,7 @@ function renderComposition(
   bgImg: HTMLImageElement | null,
   cw: number, ch: number,
   overlayStrength?: number,
+  logoImg?: HTMLImageElement | null,
 ) {
   ctx.clearRect(0, 0, cw, ch)
 
@@ -364,9 +419,18 @@ function renderComposition(
         }
         break
 
-      case 'logo':
-        renderTextOnCanvas(ctx, layer as LogoLayer, cw, ch)
+      case 'logo': {
+        const ll = layer as LogoLayer
+        if (ll.logoUrl && logoImg) {
+          // Render the real uploaded logo image with optional treatment
+          renderLogoImage(ctx, ll, logoImg, cw, ch)
+        } else if (!ll.logoUrl) {
+          // No brand asset configured yet — render text as legacy fallback
+          renderTextOnCanvas(ctx, ll, cw, ch)
+        }
+        // If logoUrl is set but image failed to load: render nothing (warning shown in UI)
         break
+      }
 
       case 'text':
         renderTextOnCanvas(ctx, layer as TextLayer, cw, ch)
@@ -426,10 +490,13 @@ export function PosterCompositor({
   showGuides,
   overlayStrength,
   onLayerChange,
+  resolvedLogoUrl,
 }: Props) {
   const canvasRef  = useRef<HTMLCanvasElement>(null)
   const bgImgRef   = useRef<HTMLImageElement | null>(null)
-  const [bgLoaded, setBgLoaded] = useState(false)
+  const logoImgRef = useRef<HTMLImageElement | null>(null)
+  const [bgLoaded,   setBgLoaded]   = useState(false)
+  const [logoLoaded, setLogoLoaded] = useState(false)
   const [activeLayer, setActiveLayer] = useState<keyof PosterData>('headline')
   const [exportFormat, setExportFormat] = useState<'image/jpeg' | 'image/png'>('image/jpeg')
   const [showBefore, setShowBefore] = useState(false)
@@ -451,6 +518,16 @@ export function PosterCompositor({
     img.src = effectiveBackground
   }, [effectiveBackground])
 
+  useEffect(() => {
+    if (!resolvedLogoUrl) { logoImgRef.current = null; setLogoLoaded(false); return }
+    setLogoLoaded(false)
+    const img = new Image()
+    img.crossOrigin = 'anonymous'
+    img.onload  = () => { logoImgRef.current = img; setLogoLoaded(true) }
+    img.onerror = () => { logoImgRef.current = null; setLogoLoaded(false) }
+    img.src = resolvedLogoUrl
+  }, [resolvedLogoUrl])
+
   const drawCanvas = useCallback(() => {
     const canvas = canvasRef.current
     if (!canvas) return
@@ -458,7 +535,7 @@ export function PosterCompositor({
     if (!ctx) return
 
     if (activeComposition) {
-      renderComposition(ctx, activeComposition, bgImgRef.current, canvasWidth, canvasHeight, overlayStrength)
+      renderComposition(ctx, activeComposition, bgImgRef.current, canvasWidth, canvasHeight, overlayStrength, logoImgRef.current)
       return
     }
 
@@ -508,9 +585,9 @@ export function PosterCompositor({
       } else { ctx.fillText(layer.text, x, y) }
       ctx.restore()
     }
-  }, [posterData, bgLoaded, canvasWidth, canvasHeight, composition])
+  }, [posterData, bgLoaded, logoLoaded, canvasWidth, canvasHeight, activeComposition, overlayStrength])
 
-  useEffect(() => { drawCanvas() }, [drawCanvas, showBefore, overlayStrength])
+  useEffect(() => { drawCanvas() }, [drawCanvas])
 
   function exportPoster() {
     const canvas = canvasRef.current

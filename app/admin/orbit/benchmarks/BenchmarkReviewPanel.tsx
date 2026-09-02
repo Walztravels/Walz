@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import type {
   BenchmarkDefinition,
   PublishabilityVerdict,
@@ -20,11 +20,59 @@ interface Props {
   reviewerName: string
 }
 
+const DRAFT_KEY = (key: string) => `orbit_benchmark_draft_${key}`
+
 export function BenchmarkReviewPanel({ benchmark, campaignId, onSave, reviewerName }: Props) {
-  const [verdict,   setVerdict]   = useState<PublishabilityVerdict | null>(null)
-  const [issues,    setIssues]    = useState<ReviewIssueType[]>([])
-  const [notes,     setNotes]     = useState('')
-  const [submitted, setSubmitted] = useState(false)
+  const [verdict,        setVerdict]        = useState<PublishabilityVerdict | null>(null)
+  const [issues,         setIssues]         = useState<ReviewIssueType[]>([])
+  const [notes,          setNotes]          = useState('')
+  const [submitted,      setSubmitted]      = useState(false)
+  const [submitting,     setSubmitting]     = useState(false)
+  const [submitError,    setSubmitError]    = useState<string | null>(null)
+  const [savedFromDb,    setSavedFromDb]    = useState(false)
+
+  // On mount: load from API first, fall back to localStorage draft
+  useEffect(() => {
+    let cancelled = false
+    async function fetchExisting() {
+      try {
+        const res = await fetch(`/api/admin/orbit/benchmarks/reviews?benchmarkKey=${encodeURIComponent(benchmark.key)}`)
+        if (!res.ok) throw new Error('fetch failed')
+        const data = await res.json() as { reviews: { verdict: string; issues: string[]; notes: string | null }[] }
+        const existing = data.reviews[0]
+        if (existing && !cancelled) {
+          setVerdict(existing.verdict as PublishabilityVerdict)
+          setIssues((existing.issues ?? []) as ReviewIssueType[])
+          setNotes(existing.notes ?? '')
+          setSubmitted(true)
+          setSavedFromDb(true)
+          return
+        }
+      } catch { /* API unavailable — fall back to localStorage draft */ }
+
+      // localStorage draft recovery
+      if (cancelled) return
+      try {
+        const raw = localStorage.getItem(DRAFT_KEY(benchmark.key))
+        if (raw) {
+          const draft = JSON.parse(raw) as { verdict?: string; issues?: string[]; notes?: string }
+          if (draft.verdict) setVerdict(draft.verdict as PublishabilityVerdict)
+          if (draft.issues)  setIssues(draft.issues as ReviewIssueType[])
+          if (draft.notes)   setNotes(draft.notes)
+        }
+      } catch { /* ignore */ }
+    }
+    fetchExisting()
+    return () => { cancelled = true }
+  }, [benchmark.key])
+
+  // Persist to localStorage as unsaved draft while editing (not yet submitted)
+  useEffect(() => {
+    if (submitted) return
+    try {
+      localStorage.setItem(DRAFT_KEY(benchmark.key), JSON.stringify({ verdict, issues, notes }))
+    } catch { /* non-fatal */ }
+  }, [verdict, issues, notes, submitted, benchmark.key])
 
   function toggleIssue(key: ReviewIssueType) {
     setIssues(prev =>
@@ -32,8 +80,10 @@ export function BenchmarkReviewPanel({ benchmark, campaignId, onSave, reviewerNa
     )
   }
 
-  function handleSave() {
+  async function handleSave() {
     if (!verdict) return
+    setSubmitting(true)
+    setSubmitError(null)
     const record: BenchmarkReviewRecord = {
       benchmarkKey: benchmark.key,
       campaignId,
@@ -43,15 +93,40 @@ export function BenchmarkReviewPanel({ benchmark, campaignId, onSave, reviewerNa
       reviewedBy:   reviewerName,
       reviewedAt:   new Date().toISOString(),
     }
-    onSave(record)
-    setSubmitted(true)
+    try {
+      const res = await fetch('/api/admin/orbit/benchmarks/reviews', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ benchmarkKey: benchmark.key, verdict, issues, notes }),
+      })
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({})) as { error?: string }
+        throw new Error(data.error ?? 'Save failed')
+      }
+      // Clear localStorage draft on successful API save
+      try { localStorage.removeItem(DRAFT_KEY(benchmark.key)) } catch { /* non-fatal */ }
+      setSavedFromDb(true)
+      setSubmitted(true)
+      onSave(record)
+    } catch (e) {
+      setSubmitError(e instanceof Error ? e.message : 'Save failed')
+    } finally {
+      setSubmitting(false)
+    }
   }
 
   if (submitted) {
     const desc = verdict ? getVerdictDescriptor(verdict) : null
     return (
       <div className="rounded-xl border border-gray-800 bg-gray-950 p-6 space-y-3">
-        <p className="text-sm text-gray-400">Review submitted</p>
+        <div className="flex items-center gap-2">
+          <p className="text-sm text-gray-400">Review submitted</p>
+          {savedFromDb && (
+            <span className="text-xs bg-green-950 border border-green-800 text-green-400 px-2 py-0.5 rounded">
+              Saved to database
+            </span>
+          )}
+        </div>
         {desc && (
           <div className={`inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border ${desc.border} ${desc.bg}`}>
             <span className={`text-sm font-bold ${desc.color}`}>{desc.label}</span>
@@ -61,7 +136,7 @@ export function BenchmarkReviewPanel({ benchmark, campaignId, onSave, reviewerNa
           <p className="text-xs text-gray-500">{issues.length} issue(s) logged.</p>
         )}
         <button
-          onClick={() => { setSubmitted(false); setVerdict(null); setIssues([]); setNotes('') }}
+          onClick={() => { setSubmitted(false); setSavedFromDb(false) }}
           className="text-xs text-indigo-400 hover:text-indigo-300 underline"
         >
           Revise review
@@ -160,13 +235,18 @@ export function BenchmarkReviewPanel({ benchmark, campaignId, onSave, reviewerNa
         />
       </div>
 
+      {/* Submit error */}
+      {submitError && (
+        <p className="text-xs text-red-400 bg-red-950/50 border border-red-800 rounded-lg px-3 py-2">{submitError}</p>
+      )}
+
       {/* Submit */}
       <button
         onClick={handleSave}
-        disabled={!verdict}
+        disabled={!verdict || submitting}
         className="w-full py-2.5 bg-indigo-700 hover:bg-indigo-600 disabled:opacity-40 disabled:cursor-not-allowed rounded-xl text-sm font-semibold text-white transition-colors"
       >
-        Save Review
+        {submitting ? 'Saving…' : 'Save Review'}
       </button>
     </div>
   )

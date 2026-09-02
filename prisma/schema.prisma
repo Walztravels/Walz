@@ -4895,3 +4895,46 @@ model AutomationAuditLog {
   @@index([createdAt])
   @@index([action])
 }
+
+// ── Orbit Benchmark Reviews ────────────────────────────────────────────────────
+// Shared reviewer verdicts for production benchmark designs.
+// Stub for type generation. Actual table created via Supabase SQL editor.
+// See: prisma/migrations/orbit_benchmark_review.sql
+// RBAC: super_admin only (enforced in API route).
+model OrbitBenchmarkReview {
+  id           String   @id @default(cuid())
+  benchmarkKey String   @map("benchmark_key")
+  reviewerId   String   @map("reviewer_id")
+  verdict      String
+  issues       String[]
+  notes        String?
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt     @map("updated_at")
+
+  @@index([benchmarkKey])
+  @@index([reviewerId])
+  @@map("orbit_benchmark_reviews")
+}
+
+// ── Orbit Brand Assets ─────────────────────────────────────────────────────────
+// Uploaded logo variants for the Walz Travels brand.
+// Only ONE active asset per variant at any time (enforced in API).
+// Actual table created via Supabase SQL editor.
+// See: prisma/migrations/orbit_brand_asset.sql
+// RBAC: super_admin only (enforced in API route).
+model OrbitBrandAsset {
+  id          String   @id @default(cuid())
+  variant     String                        // PRIMARY | LIGHT | DARK | MONOCHROME | ICON
+  storagePath String   @map("storage_path") // Supabase storage object path
+  publicUrl   String   @map("public_url")
+  mimeType    String   @map("mime_type")
+  width       Int?
+  height      Int?
+  createdBy   String   @map("created_by")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt     @map("updated_at")
+
+  @@index([variant])
+  @@index([createdBy])
+  @@map("orbit_brand_assets")
+}

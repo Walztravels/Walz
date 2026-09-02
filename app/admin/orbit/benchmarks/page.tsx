@@ -1,6 +1,5 @@
 import { ALL_BENCHMARKS } from '@/lib/orbit/benchmarks'
 import { BenchmarkReviewPanel } from './BenchmarkReviewPanel'
-import type { BenchmarkReviewRecord } from '@/lib/orbit/benchmarks'
 
 export const dynamic = 'force-dynamic'
 
@@ -48,12 +47,6 @@ export default function BenchmarksPage() {
 // ── Benchmark card (server component — passes onSave stub to client panel) ────
 
 function BenchmarkCard({ benchmark }: { benchmark: (typeof ALL_BENCHMARKS)[0] }) {
-  function handleSave(_record: BenchmarkReviewRecord) {
-    // In production: persist to Supabase orbit_benchmark_reviews table
-    // For now: log to console
-    console.log('[Benchmark review]', _record)
-  }
-
   return (
     <div className="rounded-2xl border border-gray-800 bg-gray-900 overflow-hidden">
 
@@ -125,7 +118,7 @@ function BenchmarkCard({ benchmark }: { benchmark: (typeof ALL_BENCHMARKS)[0] })
           <BenchmarkReviewPanel
             benchmark={benchmark}
             reviewerName="admin"
-            onSave={handleSave}
+            onSave={() => {}}
           />
         </div>
 

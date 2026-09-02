@@ -16,6 +16,15 @@ import {
   TEMPLATE_SAFE_ZONES, type TemplateSafeZones,
 } from '@/lib/orbit/composer'
 import { DesignerControlsPanel } from './DesignerControlsPanel'
+import { STARTERS_BY_TEMPLATE, ALL_STARTERS } from '@/lib/orbit/starters'
+import type { TemplateVariant } from '@/lib/orbit/composer'
+import { TYPOGRAPHY_PRESETS } from '@/lib/orbit/composer'
+import {
+  serializeDraft, saveDraft, loadDraft, clearDraft, preserveCompatibleFields,
+} from '@/lib/orbit/designer-draft'
+import {
+  type WalzBrandAssets, resolveLogoVariant, analyzeBackgroundBrightness,
+} from '@/lib/orbit/brand'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -609,8 +618,10 @@ function SourceSelector<T extends string>({
 function DesignerModePanel({
   templateKey, campaignType, brief, commercialFields, format,
   generating, error, artDirecting, artDirectorSuggestion,
+  controls, activeStarterKey, hasVisual, qualityScore,
   onTemplateChange, onCampaignTypeChange, onBriefChange,
   onCommercialFieldChange, onFormatChange, onGenerate, onArtDirect,
+  onStarterLoad, onControlChange,
 }: {
   campaignId:              string
   templateKey:             string
@@ -622,6 +633,10 @@ function DesignerModePanel({
   error:                   string | null
   artDirecting:            boolean
   artDirectorSuggestion:   string | null
+  controls:                DesignControls
+  activeStarterKey:        string | null
+  hasVisual:               boolean
+  qualityScore:            QualityScoreResult | null
   onTemplateChange:        (key: string) => void
   onCampaignTypeChange:    (t: CampaignType) => void
   onBriefChange:           (v: string) => void
@@ -629,7 +644,10 @@ function DesignerModePanel({
   onFormatChange:          (f: string) => void
   onGenerate:              () => void
   onArtDirect:             () => void
+  onStarterLoad?:          (starter: TemplateVariant) => void
+  onControlChange:         (patch: Partial<DesignControls>) => void
 }) {
+  const [starterToast, setStarterToast] = useState<string | null>(null)
   const template: WalzTemplate = TEMPLATE_MAP[templateKey] ?? ALL_TEMPLATES[0]
   const eligibleTemplates = templatesForCampaignType(campaignType)
   const displayTemplates  = eligibleTemplates.length > 0 ? eligibleTemplates : ALL_TEMPLATES
@@ -650,6 +668,67 @@ function DesignerModePanel({
           AI generates the visual background only. All text and commercial values are set by you.
         </p>
       </div>
+
+      {/* Production Starters */}
+      {onStarterLoad && (() => {
+        const starters = STARTERS_BY_TEMPLATE[templateKey] ?? []
+        if (starters.length === 0) return null
+        return (
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <label className="text-xs text-gray-500 font-medium uppercase tracking-wider">
+                Production Starters
+              </label>
+              {activeStarterKey && (() => {
+                const active = ALL_STARTERS.find(s => s.key === activeStarterKey)
+                return active ? (
+                  <span className="text-xs bg-indigo-950 border border-indigo-700 text-indigo-300 px-2 py-0.5 rounded">
+                    Active: {active.label}
+                  </span>
+                ) : null
+              })()}
+            </div>
+            {/* Confirmation toast */}
+            {starterToast && (
+              <div className="mb-2 flex items-center gap-2 bg-green-950/60 border border-green-800 rounded-lg px-3 py-1.5">
+                <span className="text-green-400 text-xs font-medium">✓ {starterToast} applied</span>
+                {hasVisual && <span className="text-green-600 text-xs">· visual reused</span>}
+              </div>
+            )}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              {starters.map(starter => {
+                const isActive = activeStarterKey === starter.key
+                return (
+                  <button
+                    key={starter.key}
+                    onClick={() => {
+                      onStarterLoad(starter)
+                      setStarterToast(starter.label)
+                      setTimeout(() => setStarterToast(null), 3000)
+                    }}
+                    className={`text-left px-3 py-2.5 rounded-xl border transition-colors group ${
+                      isActive
+                        ? 'border-indigo-500 bg-indigo-900/30'
+                        : 'border-gray-800 bg-gray-900/60 hover:border-indigo-600 hover:bg-indigo-900/20'
+                    }`}
+                  >
+                    <p className={`text-xs font-semibold ${isActive ? 'text-indigo-200' : 'text-gray-200 group-hover:text-white'}`}>
+                      {isActive && <span className="mr-1 text-indigo-400">✓</span>}
+                      {starter.label}
+                    </p>
+                    {starter.description && (
+                      <p className="text-xs text-gray-500 mt-0.5 line-clamp-2">{starter.description}</p>
+                    )}
+                    <p className="text-xs text-gray-600 mt-1">
+                      {starter.typographyPreset.replace(/_/g, ' ')} · overlay {starter.controls.overlayStrength}
+                    </p>
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+        )
+      })()}
 
       {/* Campaign Type */}
       <div>
@@ -787,6 +866,82 @@ function DesignerModePanel({
         </div>
       </div>
 
+      {/* Quick Design Controls */}
+      <div className="bg-gray-900 border border-gray-800 rounded-xl p-4 space-y-4">
+        <div className="flex items-center justify-between">
+          <p className="text-xs text-gray-400 font-medium uppercase tracking-wider">Quick Design</p>
+          <p className="text-xs text-gray-600">Full controls →</p>
+        </div>
+
+        {/* Overlay strength */}
+        <div>
+          <div className="flex items-center justify-between mb-1">
+            <label className="text-xs text-gray-500">Overlay</label>
+            <span className="text-xs text-gray-400 font-mono">{controls.overlayStrength}</span>
+          </div>
+          <input
+            type="range" min={0} max={100} step={1}
+            value={controls.overlayStrength}
+            onChange={e => onControlChange({ overlayStrength: +e.target.value })}
+            className="w-full h-1.5 rounded-full appearance-none bg-gray-700 accent-indigo-500"
+          />
+        </div>
+
+        {/* Subject position */}
+        <div>
+          <label className="text-xs text-gray-500 mb-1.5 block">Subject position</label>
+          <div className="flex gap-1.5">
+            {(['left', 'center', 'right'] as const).map(pos => (
+              <button
+                key={pos}
+                onClick={() => onControlChange({ subjectPosition: pos })}
+                className={`flex-1 py-1.5 rounded-lg text-xs font-medium border transition-colors ${
+                  controls.subjectPosition === pos
+                    ? 'bg-indigo-700 border-indigo-600 text-white'
+                    : 'border-gray-700 text-gray-500 hover:border-gray-600'
+                }`}
+              >
+                {pos.charAt(0).toUpperCase() + pos.slice(1)}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Subject scale */}
+        <div>
+          <label className="text-xs text-gray-500 mb-1.5 block">Subject scale</label>
+          <div className="flex gap-1.5">
+            {(['small', 'medium', 'large'] as const).map(scale => (
+              <button
+                key={scale}
+                onClick={() => onControlChange({ subjectScale: scale })}
+                className={`flex-1 py-1.5 rounded-lg text-xs font-medium border transition-colors ${
+                  controls.subjectScale === scale
+                    ? 'bg-indigo-700 border-indigo-600 text-white'
+                    : 'border-gray-700 text-gray-500 hover:border-gray-600'
+                }`}
+              >
+                {scale.charAt(0).toUpperCase() + scale.slice(1)}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Typography preset */}
+        <div>
+          <label className="text-xs text-gray-500 mb-1.5 block">Typography</label>
+          <select
+            value={controls.typographyPreset}
+            onChange={e => onControlChange({ typographyPreset: e.target.value })}
+            className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-xs text-white"
+          >
+            {Object.keys(TYPOGRAPHY_PRESETS).map(key => (
+              <option key={key} value={key}>{key.replace(/_/g, ' ')}</option>
+            ))}
+          </select>
+        </div>
+      </div>
+
       {/* Error */}
       {error && (
         <div className="bg-red-950 border border-red-800 rounded-xl p-3">
@@ -794,7 +949,7 @@ function DesignerModePanel({
         </div>
       )}
 
-      {/* Generate button */}
+      {/* Generate / Regenerate button */}
       <button
         onClick={onGenerate}
         disabled={generating}
@@ -805,6 +960,8 @@ function DesignerModePanel({
             <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
             Generating visual…
           </>
+        ) : hasVisual ? (
+          'Regenerate Visual'
         ) : (
           'Generate Graphic Design'
         )}
@@ -899,9 +1056,24 @@ export function CreativeStudioSection({
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const [designerLayerOverrides,   setDesignerLayerOverrides]   = useState<Record<string, any>>({})
   const [qualityScore,             setQualityScore]             = useState<QualityScoreResult | null>(null)
+  // Active starter tracking + draft persistence
+  const [activeStarterKey,         setActiveStarterKey]         = useState<string | null>(null)
+  const [designerVisualAssetId,    setDesignerVisualAssetId]    = useState<string | null>(null)
+  const [draftSavedAt,             setDraftSavedAt]             = useState<string | null>(null)
+  const [draftRestored,            setDraftRestored]            = useState(false)
+  const autosaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // Brand assets (fetched once on mount)
+  const [brandAssets, setBrandAssets] = useState<WalzBrandAssets>({})
 
   // Derived safe zones for current template
   const currentSafeZones: TemplateSafeZones | undefined = TEMPLATE_SAFE_ZONES[designerTemplateKey]
+
+  // Resolved logo URL: auto-select variant based on overlay strength
+  const resolvedLogoUrl: string | null = (() => {
+    const brightness = analyzeBackgroundBrightness(designerControls.overlayStrength)
+    const variant = resolveLogoVariant(brightness, brandAssets, designerControls.logoVariant ?? 'AUTO')
+    return variant && brandAssets[variant] ? brandAssets[variant]!.publicUrl : null
+  })()
 
   // Rebuild composition when controls or layer overrides change
   function rebuildComposition(
@@ -957,6 +1129,27 @@ export function CreativeStudioSection({
     return () => { Object.values(pollTimers.current).forEach(clearInterval) }
   }, [campaignId]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Brand assets: fetch once on mount (non-fatal — logo falls back to text if unavailable)
+  useEffect(() => {
+    fetch('/api/admin/orbit/brand')
+      .then(r => r.ok ? r.json() : null)
+      .then((data: { assets?: Array<{ variant: string; publicUrl: string; id: string; mimeType: string; createdAt: string }> } | null) => {
+        if (!data?.assets) return
+        const map: WalzBrandAssets = {}
+        for (const a of data.assets) {
+          map[a.variant as keyof WalzBrandAssets] = {
+            id:        a.id,
+            variant:   a.variant as keyof WalzBrandAssets,
+            publicUrl: a.publicUrl,
+            mimeType:  a.mimeType,
+            createdAt: a.createdAt,
+          }
+        }
+        setBrandAssets(map)
+      })
+      .catch(() => { /* non-fatal: logo renders as text if brand API unavailable */ })
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
   // Server-side polling: FAL async jobs tracked in DB
   const pollAsset = useCallback((assetId: string) => {
     if (pollTimers.current[assetId]) return
@@ -990,6 +1183,74 @@ export function CreativeStudioSection({
     const sel = assets.find(a => a.id === selectedId)
     if (sel?.posterData) setPosterData(sel.posterData as PosterData)
   }, [selectedId, assets])
+
+  // Restore designer draft once assets have loaded
+  useEffect(() => {
+    if (loading) return
+    const draft = loadDraft(campaignId)
+    if (!draft) return
+    setDesignerTemplateKey(draft.templateKey)
+    setDesignerFormat(draft.format)
+    setDesignerCommercialFields(draft.commercialFields)
+    setDesignerControls(draft.controls)
+    setDesignerLayerOverrides(draft.layerOverrides as Record<string, never>)
+    if (draft.starterKey) setActiveStarterKey(draft.starterKey)
+    if (draft.visualAssetId) {
+      setDesignerVisualAssetId(draft.visualAssetId)
+      const asset = assets.find(a => a.id === draft.visualAssetId)
+      if (asset?.publicUrl) {
+        const template = TEMPLATE_MAP[draft.templateKey] ?? ALL_TEMPLATES[0]
+        const canvas   = TEMPLATE_CANVASES[draft.format] ?? TEMPLATE_CANVASES['1080x1350']
+        const visual   = { url: asset.publicUrl, id: asset.id }
+        const base = buildTemplateComposition({ template, commercialFields: draft.commercialFields, visualAsset: visual, canvas })
+        const comp = buildTemplateComposition({ template, commercialFields: draft.commercialFields, visualAsset: visual, canvas,
+          controls: draft.controls, layerOverrides: draft.layerOverrides as Record<string, Partial<import('@/lib/orbit/composer/layer-model').DesignLayer>> })
+        setBaseComposition(base)
+        setDesignerComposition(comp)
+        setQualityScore(scoreComposition(comp, draft.controls, TEMPLATE_SAFE_ZONES[draft.templateKey]))
+      }
+    }
+    setDraftSavedAt(draft.savedAt)
+    setDraftRestored(true)
+  }, [loading]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Autosave designer draft (debounced 1500ms)
+  useEffect(() => {
+    if (autosaveTimer.current) clearTimeout(autosaveTimer.current)
+    autosaveTimer.current = setTimeout(() => {
+      const draft = serializeDraft(
+        designerTemplateKey, activeStarterKey, designerFormat,
+        designerVisualAssetId, designerCommercialFields, designerControls,
+        designerLayerOverrides as Record<string, unknown>,
+      )
+      saveDraft(campaignId, draft)
+      setDraftSavedAt(draft.savedAt)
+    }, 1500)
+    return () => { if (autosaveTimer.current) clearTimeout(autosaveTimer.current) }
+  }, [ // eslint-disable-line react-hooks/exhaustive-deps
+    designerTemplateKey, activeStarterKey, designerFormat, designerVisualAssetId,
+    designerCommercialFields, designerControls, designerLayerOverrides, campaignId,
+  ])
+
+  // Reset all designer state + clear draft
+  function resetDesign() {
+    if (!confirm('Reset design? Controls and fields will clear. Generated images stay in Assets.')) return
+    clearDraft(campaignId)
+    setDesignerTemplateKey(ALL_TEMPLATES[0].key)
+    setDesignerCampaignType('general_promotion')
+    setDesignerBrief('')
+    setDesignerCommercialFields({})
+    setDesignerFormat('1080x1350')
+    setDesignerControls(defaultDesignControls())
+    setDesignerLayerOverrides({})
+    setDesignerComposition(null)
+    setBaseComposition(null)
+    setActiveStarterKey(null)
+    setDesignerVisualAssetId(null)
+    setDraftSavedAt(null)
+    setDraftRestored(false)
+    setQualityScore(null)
+  }
 
   const selectedAsset   = assets.find(a => a.id === selectedId) ?? null
 
@@ -1080,6 +1341,7 @@ export function CreativeStudioSection({
         const media = data.media as Asset
         setAssets(prev => [media, ...prev])
         setSelectedId(media.id)
+        setDesignerVisualAssetId(media.id)
 
         // Build composition immediately and navigate to POSTER tab
         const template = TEMPLATE_MAP[designerTemplateKey]
@@ -1917,6 +2179,7 @@ export function CreativeStudioSection({
               safeZones={currentSafeZones}
               showGuides={designerControls.showGuides}
               overlayStrength={designerControls.overlayStrength}
+              resolvedLogoUrl={resolvedLogoUrl}
               onLayerChange={(layerId, patch) => {
                 const updated = { ...designerLayerOverrides, [layerId]: { ...(designerLayerOverrides[layerId] ?? {}), ...patch } }
                 setDesignerLayerOverrides(updated)
@@ -2384,6 +2647,57 @@ export function CreativeStudioSection({
 
       {/* ── DESIGNER TAB ───────────────────────────────────────────────────── */}
       {activeTab === 'DESIGNER' && (
+        <>
+        {/* Draft restored banner */}
+        {draftRestored && (
+          <div className="mb-4 flex items-center justify-between bg-blue-950/60 border border-blue-800 rounded-xl px-4 py-2.5">
+            <p className="text-xs text-blue-300">Draft restored from previous session</p>
+            <button
+              onClick={() => setDraftRestored(false)}
+              className="text-xs text-blue-500 hover:text-blue-400"
+            >
+              Dismiss
+            </button>
+          </div>
+        )}
+
+        {/* Active Design Status bar */}
+        {(() => {
+          const activeTemplate = TEMPLATE_MAP[designerTemplateKey] ?? ALL_TEMPLATES[0]
+          const activeStarter  = ALL_STARTERS.find(s => s.key === activeStarterKey)
+          const qs = qualityScore?.total
+          const qColor = qs != null ? (qs >= 80 ? 'text-green-400' : qs >= 60 ? 'text-yellow-400' : 'text-red-400') : 'text-gray-500'
+          return (
+            <div className="mb-4 flex items-center gap-3 flex-wrap bg-gray-900/50 border border-gray-800 rounded-xl px-4 py-2.5 text-xs text-gray-500">
+              <span>Template: <span className="text-gray-300">{activeTemplate.label}</span></span>
+              <span className="text-gray-700">·</span>
+              <span>Starter: <span className="text-gray-300">{activeStarter?.label ?? '—'}</span></span>
+              <span className="text-gray-700">·</span>
+              <span>Format: <span className="text-gray-300">{designerFormat}</span></span>
+              <span className="text-gray-700">·</span>
+              <span>Visual: <span className="text-gray-300">{designerVisualAssetId ? 'Loaded' : 'None'}</span></span>
+              {qs != null && (
+                <>
+                  <span className="text-gray-700">·</span>
+                  <span>Quality: <span className={qColor + ' font-semibold'}>{qs}</span></span>
+                </>
+              )}
+              <span className="text-gray-700">·</span>
+              <span className={draftSavedAt ? 'text-gray-400' : 'text-gray-600'}>
+                {draftSavedAt ? 'Draft saved' : 'Unsaved'}
+              </span>
+              <div className="ml-auto">
+                <button
+                  onClick={resetDesign}
+                  className="text-xs text-red-500 hover:text-red-400 border border-red-900 hover:border-red-700 px-2 py-0.5 rounded transition-colors"
+                >
+                  Reset Design
+                </button>
+              </div>
+            </div>
+          )
+        })()}
+
         <div className="grid grid-cols-1 xl:grid-cols-[1fr_300px] gap-4">
           {/* Left: form */}
           <DesignerModePanel
@@ -2397,7 +2711,20 @@ export function CreativeStudioSection({
             error={designerError}
             artDirecting={artDirecting}
             artDirectorSuggestion={artDirectorSuggestion}
-            onTemplateChange={(key) => { setDesignerTemplateKey(key); setDesignerCommercialFields({}) }}
+            controls={designerControls}
+            activeStarterKey={activeStarterKey}
+            hasVisual={!!designerVisualAssetId}
+            qualityScore={qualityScore}
+            onTemplateChange={(key) => {
+              const newTemplate = TEMPLATE_MAP[key] ?? ALL_TEMPLATES[0]
+              const compatible  = preserveCompatibleFields(
+                designerCommercialFields,
+                newTemplate.commercialFields.map(f => f.layerKey),
+              )
+              setDesignerTemplateKey(key)
+              setDesignerCommercialFields(compatible)
+              setActiveStarterKey(null)
+            }}
             onCampaignTypeChange={setDesignerCampaignType}
             onBriefChange={setDesignerBrief}
             onCommercialFieldChange={(fieldKey, val) =>
@@ -2406,6 +2733,50 @@ export function CreativeStudioSection({
             onFormatChange={setDesignerFormat}
             onGenerate={generateDesignerImage}
             onArtDirect={runArtDirector}
+            onControlChange={(patch) => {
+              const newControls = { ...designerControls, ...patch }
+              setDesignerControls(newControls)
+              if (designerComposition) {
+                const visual = designerComposition.layers.find(l => l.type === 'image') as { src?: string; id?: string } | undefined
+                const newComp = rebuildComposition(
+                  designerTemplateKey, designerCommercialFields, newControls,
+                  designerLayerOverrides,
+                  visual?.src ? { url: visual.src, id: visual.id ?? undefined } : undefined,
+                )
+                setDesignerComposition(newComp)
+                setQualityScore(scoreComposition(newComp, newControls, currentSafeZones))
+              }
+            }}
+            onStarterLoad={(starter) => {
+              const newTemplateKey = starter.baseTemplateKey
+              const newTemplate    = TEMPLATE_MAP[newTemplateKey] ?? ALL_TEMPLATES[0]
+              const compatible     = preserveCompatibleFields(
+                designerCommercialFields,
+                newTemplate.commercialFields.map(f => f.layerKey),
+              )
+              const newControls = { ...designerControls, ...starter.controls }
+              setDesignerTemplateKey(newTemplateKey)
+              setActiveStarterKey(starter.key)
+              setDesignerCommercialFields(compatible)
+              setDesignerControls(newControls)
+              setDesignerLayerOverrides(starter.layerOverrides)
+              // Reflow existing visual into new design — no AI call needed
+              if (designerVisualAssetId) {
+                const asset = assets.find(a => a.id === designerVisualAssetId)
+                if (asset?.publicUrl) {
+                  const canvas  = TEMPLATE_CANVASES[designerFormat]
+                  if (canvas) {
+                    const visual  = { url: asset.publicUrl, id: asset.id }
+                    const base    = buildTemplateComposition({ template: newTemplate, commercialFields: compatible, visualAsset: visual, canvas })
+                    const comp    = rebuildComposition(newTemplateKey, compatible, newControls, starter.layerOverrides, visual)
+                    setBaseComposition(base)
+                    setDesignerComposition(comp)
+                    setQualityScore(scoreComposition(comp, newControls, TEMPLATE_SAFE_ZONES[newTemplateKey]))
+                    setActiveTab('POSTER')
+                  }
+                }
+              }
+            }}
           />
           {/* Right: design controls panel */}
           <div className="bg-gray-900/50 border border-gray-800 rounded-xl p-4">
@@ -2454,6 +2825,7 @@ export function CreativeStudioSection({
             />
           </div>
         </div>
+        </> /* end DESIGNER tab fragment */
       )}
     </div>
   )

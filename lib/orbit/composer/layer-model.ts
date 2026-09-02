@@ -88,13 +88,19 @@ export interface ShapeLayer extends BaseLayer {
 }
 
 export interface LogoLayer extends BaseLayer {
-  type:           'logo'
-  text:           string
-  fontWeight:     '700' | '800'
-  fontSize:       number
-  color:          string
-  align:          'left' | 'center' | 'right'
-  letterSpacing?: number   // em units
+  type:              'logo'
+  text:              string              // fallback display text (used when no logoUrl is uploaded)
+  fontWeight:        '700' | '800'
+  fontSize:          number
+  color:             string
+  align:             'left' | 'center' | 'right'
+  letterSpacing?:    number             // em units
+  // Brand Asset fields (Phase 5 brand patch)
+  logoUrl?:          string             // URL of uploaded logo — when set, renders image instead of text
+  logoVariant?:      'PRIMARY' | 'LIGHT' | 'DARK' | 'MONOCHROME' | 'ICON'
+  treatment?:        'NONE' | 'SHADOW' | 'GLOW' | 'DARK_PLATE' | 'LIGHT_PLATE' | 'GLASS'
+  treatmentOpacity?: number             // 0–1, default 0.5
+  logoScale?:        'small' | 'standard' | 'prominent'
 }
 
 export interface ContactBarItem {

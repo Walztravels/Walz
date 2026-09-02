@@ -57,17 +57,33 @@ function clamp(n: number, lo: number, hi: number): number {
 function scoreBrand(composition: DesignComposition): { score: number; warnings: QualityWarning[] } {
   const warnings: QualityWarning[] = []
   const logo = composition.layers.find(l => l.id === 'logo')
+
   if (!logo || !logo.visible) {
     warnings.push({ field: 'logo', message: 'Logo is hidden — brand not visible.', blocking: false })
     return { score: 30, warnings }
   }
+
+  let score = 100
+
+  // Brand asset image vs. text fallback check
+  const logoLayer = logo as LogoLayer
+  if (!logoLayer.logoUrl) {
+    score -= 20
+    warnings.push({
+      field:    'logo_image',
+      message:  'Logo is rendering as text — upload the official Walz Travels logo in Brand Assets to score full brand points.',
+      blocking: false,
+    })
+  }
+
   // Contact bar present and filled is a positive brand signal
   const contact = composition.layers.find(l => l.id === 'contact_bar' || l.id === 'contact')
   if (!contact || !contact.visible) {
+    score -= 20
     warnings.push({ field: 'contact', message: 'No contact info — consider adding a contact bar.', blocking: false })
-    return { score: 80, warnings }
   }
-  return { score: 100, warnings }
+
+  return { score, warnings }
 }
 
 function scoreTypography(composition: DesignComposition): { score: number; warnings: QualityWarning[] } {
