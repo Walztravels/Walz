@@ -234,13 +234,14 @@ function renderRouteCards(
   const strategy = layer.layoutStrategy ?? 'horizontal'
 
   if (strategy === 'vertical') {
-    // Stack pills vertically, each centered at cx
+    // Stack pills vertically, LEFT-anchored at cx so they sit flush with the
+    // text column (headline/subheadline start at the same x in split layouts)
     const totalH = layer.routes.length * cardH + (layer.routes.length - 1) * gap
     let startY   = cy - totalH / 2
 
     for (let i = 0; i < layer.routes.length; i++) {
       const cardW = ctx.measureText(layer.routes[i]).width + padding * 2
-      const cardX = cx - cardW / 2
+      const cardX = cx
       const cardY = startY
       const r     = cardH * 0.4
 
@@ -250,7 +251,7 @@ function renderRouteCards(
       ctx.fillStyle    = layer.textColor ?? '#d4af37'
       ctx.textAlign    = 'center'
       ctx.textBaseline = 'middle'
-      ctx.fillText(layer.routes[i], cx, cardY + cardH / 2)
+      ctx.fillText(layer.routes[i], cardX + cardW / 2, cardY + cardH / 2)
       ctx.restore()
 
       startY += cardH + gap

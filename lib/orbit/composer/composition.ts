@@ -20,7 +20,7 @@ import { BUSINESS } from '@/lib/config/business'
 import type { DesignControls } from './design-controls'
 import { overlayAlpha } from './design-controls'
 import { getTypographyPreset } from './typography-presets'
-import { normalizeCompositionBounds } from './bounds'
+import { normalizeCompositionBounds, reflowComposition } from './bounds'
 
 export interface CompositionInput {
   template:          WalzTemplate
@@ -318,9 +318,13 @@ export function buildTemplateComposition(input: CompositionInput): DesignComposi
     controls,
   }
 
+  // Reflow chains vertical positions (headline → subheadline → routes → price →
+  // CTA → terms): closes egregious gaps and pushes apart overlaps.
+  const reflowed = reflowComposition(rawComposition, canvas.width, canvas.height)
+
   // Final mandatory bounds normalization — clamps all layers to safe margins.
   // Must run AFTER all transforms and BEFORE preview / quality scoring / export.
-  return normalizeCompositionBounds(rawComposition)
+  return normalizeCompositionBounds(reflowed)
 }
 
 // Export overlayAlpha for compositor use

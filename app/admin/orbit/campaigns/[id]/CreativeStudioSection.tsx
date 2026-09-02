@@ -31,7 +31,7 @@ import type {
 import { structuredRoutesToString } from '@/lib/orbit/reference/types'
 import { applyReferenceDesignProfile } from '@/lib/orbit/reference/apply-profile'
 import { scoreReferenceMatch, type ReferenceMatchScoreDetail } from '@/lib/orbit/reference/match-score'
-import { normalizeCompositionBounds } from '@/lib/orbit/composer/bounds'
+import { normalizeCompositionBounds, reflowComposition } from '@/lib/orbit/composer/bounds'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -1451,7 +1451,9 @@ export function CreativeStudioSection({
           const useLayoutRef = (referenceMode === 'design_layout' || referenceMode === 'both')
           if (useLayoutRef && referenceProfile) {
             composition = applyReferenceDesignProfile(composition, referenceProfile, designMatchStrength)
-            // Normalize bounds again: reference profile may have moved layers near edges
+            // Re-run layout safety: reference profile may have moved layers near
+            // edges or opened large vertical gaps. Safety always beats similarity.
+            composition = reflowComposition(composition, composition.canvas.width, composition.canvas.height)
             composition = normalizeCompositionBounds(composition)
             setReferenceMatchScore(scoreReferenceMatch(composition, referenceProfile))
           }

@@ -1,7 +1,8 @@
 /**
  * Walz Orbit Compositor — Composition Bounds Normalization.
  *
- * Every composition MUST pass through normalizeCompositionBounds() AFTER:
+ * Every composition MUST pass through reflowComposition() + normalizeCompositionBounds()
+ * AFTER:
  *   - template construction
  *   - reference profile application
  *   - design controls
@@ -14,13 +15,15 @@
  *   - export
  *
  * All coordinates are 0–1 fractional normalized to canvas dimensions.
+ * Width estimates mirror the actual PosterCompositor render math
+ * (Helvetica ≈ fontSize × 0.55 average char width at the 1080px baseline).
  *
  * Pure functions — no AI, no network, no JSX.
  */
 
 import type {
   DesignComposition, DesignLayer,
-  TextLayer, RouteCardLayer, CTAButtonLayer,
+  TextLayer, RouteCardLayer, CTAButtonLayer, PriceBlockLayer,
 } from './layer-model'
 
 // ── Safe margin constants ─────────────────────────────────────────────────────
@@ -34,8 +37,101 @@ export const FOOTER_RESERVED_H = 0.10
 /** Content must stay above this y value (=1 - FOOTER_RESERVED_H). */
 export const MAX_CONTENT_BOTTOM = 1 - FOOTER_RESERVED_H  // 0.90
 
-// ── Estimated character width factor for font size ───────────────────────────
-const CHAR_WIDTH_FACTOR = 0.55  // average character width ≈ fontSize × 0.55
+// ── Width estimation (mirrors PosterCompositor render math) ───────────────────
+
+/** Average character width as a fraction of canvas width, for a fontSize in 1080-baseline pt. */
+function charWidthFrac(fontSize: number): number {
+  return (fontSize * 0.55) / 1080
+}
+
+/**
+ * Estimated half-width (0–1 canvas fraction) of a rendered CTA button.
+ * Mirrors renderCTAButton: bw = measuredTextWidth + 2 × paddingX(0.08 × cw).
+ */
+export function estimateCtaHalfWidth(layer: Pick<CTAButtonLayer, 'text' | 'fontSize' | 'paddingX'>): number {
+  const chars = layer.text?.length ?? 10
+  const fs    = layer.fontSize ?? 26
+  // paddingX is a canvas-width fraction; tolerate legacy pixel values (>1 → px at 1080 baseline)
+  const rawPad   = layer.paddingX ?? 0.08
+  const paddingX = rawPad > 1 ? rawPad / 1080 : rawPad
+  const textW    = chars * charWidthFrac(fs)
+  return Math.min(textW / 2 + paddingX, 0.42)
+}
+
+/**
+ * Estimated width (0–1 canvas fraction) of one route pill.
+ * Mirrors renderRouteCards: cardW = measuredTextWidth + 2 × padding(16px).
+ */
+export function estimateRoutePillWidth(routeText: string, fontSize = 20): number {
+  return routeText.length * charWidthFrac(fontSize) + (16 * 2) / 1080
+}
+
+/** Estimated half-width of the full horizontal route pill group. */
+export function estimateRouteGroupHalfWidth(layer: Pick<RouteCardLayer, 'routes' | 'fontSize'>): number {
+  const fs   = layer.fontSize ?? 20
+  const gap  = 10 / 1080
+  const total = layer.routes.reduce((s, r) => s + estimateRoutePillWidth(r, fs), 0)
+    + gap * Math.max(0, layer.routes.length - 1)
+  return total / 2
+}
+
+/** Estimated widest single pill in a route group (for vertical stacking). */
+export function estimateMaxRoutePillWidth(layer: Pick<RouteCardLayer, 'routes' | 'fontSize'>): number {
+  const fs = layer.fontSize ?? 20
+  return layer.routes.reduce((m, r) => Math.max(m, estimateRoutePillWidth(r, fs)), 0)
+}
+
+/** Estimated half-width of a rendered price amount (always centered by renderPriceBlock). */
+export function estimatePriceHalfWidth(layer: Pick<PriceBlockLayer, 'amount' | 'fontSize'>): number {
+  const chars = layer.amount?.length ?? 0
+  const fs    = layer.fontSize ?? 80
+  return (chars * charWidthFrac(fs)) / 2
+}
+
+/**
+ * Estimate the LEFT-most x coordinate (0–1) reached by a layer's rendered content.
+ * Rendering semantics:
+ *   text align='left'    → x is the left edge
+ *   text align='center'  → x is the center
+ *   text align='right'   → x is the right edge
+ *   cta_button / price_block            → x is the center
+ *   route_card horizontal               → group centered at x
+ *   route_card vertical                 → pills LEFT-anchored at x
+ */
+export function estimateLayerLeft(layer: DesignLayer): number {
+  if (layer.type === 'route_card') {
+    const rc = layer as RouteCardLayer
+    if ((rc.layoutStrategy ?? 'horizontal') === 'vertical') return layer.x
+    return layer.x - estimateRouteGroupHalfWidth(rc)
+  }
+  if (layer.type === 'cta_button') return layer.x - estimateCtaHalfWidth(layer as CTAButtonLayer)
+  if (layer.type === 'price_block') return layer.x - estimatePriceHalfWidth(layer as PriceBlockLayer)
+  if (layer.type === 'text') {
+    const tl = layer as TextLayer
+    if (tl.align === 'left')   return layer.x
+    if (tl.align === 'center') return layer.x - (tl.maxWidth ?? 0.60) / 2
+    return layer.x - (tl.maxWidth ?? 0.50)
+  }
+  return layer.x
+}
+
+/** Estimate the RIGHT-most x coordinate (0–1) reached by a layer's rendered content. */
+export function estimateLayerRight(layer: DesignLayer): number {
+  if (layer.type === 'route_card') {
+    const rc = layer as RouteCardLayer
+    if ((rc.layoutStrategy ?? 'horizontal') === 'vertical') return layer.x + estimateMaxRoutePillWidth(rc)
+    return layer.x + estimateRouteGroupHalfWidth(rc)
+  }
+  if (layer.type === 'cta_button') return layer.x + estimateCtaHalfWidth(layer as CTAButtonLayer)
+  if (layer.type === 'price_block') return layer.x + estimatePriceHalfWidth(layer as PriceBlockLayer)
+  if (layer.type === 'text') {
+    const tl = layer as TextLayer
+    if (tl.align === 'left')   return layer.x + (tl.maxWidth ?? 0.50)
+    if (tl.align === 'center') return layer.x + (tl.maxWidth ?? 0.60) / 2
+    return layer.x
+  }
+  return layer.x + (layer.width ?? 0)
+}
 
 // ── Overflow warnings ─────────────────────────────────────────────────────────
 
@@ -65,47 +161,9 @@ function codeFor(id: string, type: string): OverflowWarningCode {
 }
 
 /**
- * Estimate the right-most x coordinate (0–1) reached by a layer.
- * Used to detect right-boundary overflow.
- * Horizontal center of route_card / cta_button is layer.x; text left-anchored when align='left'.
- */
-export function estimateLayerRight(layer: DesignLayer): number {
-  if (layer.type === 'route_card') {
-    const rc = layer as RouteCardLayer
-    if ((rc.layoutStrategy ?? 'horizontal') === 'vertical') {
-      return layer.x + 0.30  // one pill — estimated width
-    }
-    // Horizontal: estimate ~0.22 per pill + small gaps, centered at layer.x
-    const pillW = 0.22
-    const gapW  = 0.01
-    const halfTotal = (rc.routes.length * pillW + (rc.routes.length - 1) * gapW) / 2
-    return layer.x + halfTotal
-  }
-
-  if (layer.type === 'cta_button') {
-    const cta = layer as CTAButtonLayer
-    const charCount = cta.text?.length ?? 10
-    // paddingX ≈ 0.08 canvas frac × 2 sides + text width estimate
-    const estimatedHalfW = Math.min((charCount * 0.011 + 0.10), 0.42)
-    return layer.x + estimatedHalfW
-  }
-
-  if (layer.type === 'text') {
-    const tl = layer as TextLayer
-    if (tl.align === 'left') return layer.x + (tl.maxWidth ?? 0.50)
-    if (tl.align === 'center') return layer.x + (tl.maxWidth ?? 0.60) / 2
-    return layer.x  // right-aligned: x is the right edge
-  }
-
-  return layer.x + (layer.width ?? 0)
-}
-
-/**
- * Detect layers that exceed canvas bounds or overlap the footer zone.
+ * Detect layers whose rendered content exceeds canvas bounds or overlaps the footer.
  * Returns an empty array when the composition is clean.
- *
- * Only checks visible non-bleed layers.
- * Uses estimated bounding boxes — conservative (favours fewer false positives).
+ * Only checks visible non-bleed layers. Uses render-math-matched bounding estimates.
  */
 export function detectLayerOverflow(composition: DesignComposition): OverflowWarning[] {
   const warnings: OverflowWarning[] = []
@@ -113,18 +171,19 @@ export function detectLayerOverflow(composition: DesignComposition): OverflowWar
   for (const layer of composition.layers) {
     if (!layer.visible) continue
     // Background images may bleed — don't check them
-    if (layer.type === 'image') continue
-    // Contact bar always pins to bottom — skip
+    if (layer.type === 'image' || layer.allowBleed) continue
+    // Contact bar always pins to bottom, full width — skip
     if (layer.id === 'contact_bar' || layer.id === 'contact') continue
 
     const isCritical = CRITICAL_IDS.has(layer.id) ||
       layer.type === 'cta_button' || layer.type === 'route_card' || layer.type === 'price_block'
 
-    // Left boundary
-    if (layer.x < 0) {
+    // Left boundary — estimated content edge, not just the anchor
+    const left = estimateLayerLeft(layer)
+    if (left < -0.005) {
       warnings.push({
         layerId: layer.id, code: codeFor(layer.id, layer.type),
-        message:  `Layer "${layer.id}" x=${layer.x.toFixed(3)} — extends left of canvas.`,
+        message:  `Layer "${layer.id}" estimated left edge ${left.toFixed(3)} — extends left of canvas.`,
         critical: isCritical,
       })
     }
@@ -164,9 +223,8 @@ export function detectLayerOverflow(composition: DesignComposition): OverflowWar
 // ── Estimated height helpers ──────────────────────────────────────────────────
 
 /**
- * Estimate the normalized height of a text layer block on a given canvas height.
- * Uses fontSize, lineHeight, and a character-count heuristic for line count.
- * Returns a fraction 0–1 of canvas height.
+ * Estimate the normalized height of a text layer block on a given canvas.
+ * Uses fontSize, lineHeight, and a word-wrap heuristic for line count.
  */
 export function estimateTextHeight(
   text: string,
@@ -176,10 +234,10 @@ export function estimateTextHeight(
   canvasHeight: number,
   lineHeightMult = 1.25,
 ): number {
-  const scale     = canvasWidth / 1080
-  const fsPx      = fontSize * scale
-  const maxWidthPx = maxWidthFrac * canvasWidth
-  const charWidthPx = fsPx * CHAR_WIDTH_FACTOR
+  const scale       = canvasWidth / 1080
+  const fsPx        = fontSize * scale
+  const maxWidthPx  = maxWidthFrac * canvasWidth
+  const charWidthPx = fsPx * 0.55
   const charsPerLine = Math.max(1, Math.floor(maxWidthPx / charWidthPx))
   const words = text.trim().split(/\s+/)
   let lines = 1, lineChars = 0
@@ -190,134 +248,126 @@ export function estimateTextHeight(
       lineChars += (lineChars > 0 ? 1 : 0) + w.length
     }
   }
-  const totalHeightPx = lines * fsPx * lineHeightMult
-  return totalHeightPx / canvasHeight
+  return (lines * fsPx * lineHeightMult) / canvasHeight
 }
 
 /**
  * Estimate the normalized height of a route card group.
- * strategy='vertical': cards stacked vertically.
- * strategy='horizontal': single row height.
+ * strategy='vertical': cards stacked vertically. Others: single row.
  */
 export function estimateRouteGroupHeight(
   routeCount:    number,
-  fontSizePt:    number,   // design points at 1080 baseline
+  fontSizePt:    number,
   canvasWidth:   number,
   canvasHeight:  number,
   strategy:      'horizontal' | 'vertical' | 'grid' = 'horizontal',
 ): number {
-  const scale    = canvasWidth / 1080
-  const fsPx     = fontSizePt * scale
-  const padding  = 16 * scale
-  const cardH    = fsPx + padding * 2
-  const gap      = 10 * scale
+  const scale   = canvasWidth / 1080
+  const fsPx    = fontSizePt * scale
+  const cardH   = fsPx + (16 * scale) * 2
+  const gap     = 10 * scale
   if (strategy === 'vertical') {
     return (routeCount * cardH + (routeCount - 1) * gap) / canvasHeight
   }
-  return cardH / canvasHeight  // single row
+  return cardH / canvasHeight
 }
 
 // ── reflowComposition ─────────────────────────────────────────────────────────
 
+interface ChainSpec {
+  id:      string
+  /** Maximum allowed gap above this layer (canvas-height fraction). Gaps beyond this are closed. */
+  maxGap:  number
+  /** When true the layer is only pushed DOWN to avoid overlap, never pulled up. */
+  pushOnly?: boolean
+}
+
+// Vertical dependency chain below the headline. Gaps larger than maxGap are
+// closed (the "large unexplained vertical gaps" defect); overlaps are pushed apart.
+const REFLOW_CHAIN: ChainSpec[] = [
+  { id: 'subheadline', maxGap: 0.035 },
+  { id: 'route_card',  maxGap: 0.050 },
+  { id: 'price_block', maxGap: 0.050 },
+  { id: 'cta',         maxGap: 0.080 },
+  { id: 'terms',       maxGap: 0.030, pushOnly: true },  // terms belong near the footer — never pulled up
+]
+
+const MIN_GAP = 0.010  // minimum breathing room between stacked elements
+
 /**
- * Reflow a composition so that downstream layers follow the rendered bounds of
- * upstream layers, rather than relying on fixed Y percentages.
+ * Reflow a composition so downstream layers follow the rendered bounds of
+ * upstream layers instead of relying on fixed template Y percentages.
  *
- * Dependency chain:
- *   logo → headline → subheadline → routes → CTA → terms → (footer fixed)
+ * Behavior per layer in the chain (headline → subheadline → routes → price → CTA → terms):
+ *   - PUSH DOWN when the layer would overlap the element above it.
+ *   - PULL UP only when the gap above it exceeds maxGap (closes egregious gaps
+ *     while preserving the template's vertical rhythm).
+ *   - Never move a layer below MAX_CONTENT_BOTTOM.
  *
- * Uses estimated text heights — accurate enough for layout, not pixel-perfect.
+ * Heights are estimates — accurate enough for layout, not pixel-perfect.
  * Always followed by normalizeCompositionBounds() as the final safety pass.
- *
- * Only reflowed when the canvas dimensions are provided; otherwise returns unchanged.
  */
 export function reflowComposition(
-  composition: DesignComposition,
+  composition:  DesignComposition,
   canvasWidth:  number,
   canvasHeight: number,
 ): DesignComposition {
+  if (!canvasWidth || !canvasHeight) return composition
+
   const layers = [...composition.layers]
-  const byId   = (id: string) => layers.find(l => l.id === id)
+  const byId   = (id: string) => layers.findIndex(l => l.id === id)
 
-  const headline    = byId('headline')   as (TextLayer | undefined)
-  const subheadline = byId('subheadline')
-  const routeCard   = byId('route_card') as (RouteCardLayer | undefined)
-  const cta         = byId('cta')
-  const terms       = byId('terms')
-
-  // Gap constants (normalized)
-  const GAP_S = 18 / canvasHeight  // small gap between headline and subheadline
-  const GAP_M = 28 / canvasHeight  // gap between subheadline and routes
-  const GAP_L = 36 / canvasHeight  // gap between routes and CTA
-  const GAP_T = 18 / canvasHeight  // gap between CTA and terms
-
-  let cursor = 0  // tracks the bottom of the last placed element
-
-  if (headline?.visible && headline.text) {
-    const hh = estimateTextHeight(
-      headline.text, headline.fontSize, headline.maxWidth ?? 0.7, canvasWidth, canvasHeight,
-    )
-    // headline.y is the CENTER of the text block; top = y - hh/2, bottom = y + hh/2
-    cursor = headline.y + hh / 2
+  function estimateHeight(layer: DesignLayer): number {
+    if (layer.type === 'text') {
+      const tl = layer as TextLayer
+      return estimateTextHeight(tl.text ?? '', tl.fontSize ?? 24, tl.maxWidth ?? 0.7, canvasWidth, canvasHeight)
+    }
+    if (layer.type === 'route_card') {
+      const rc = layer as RouteCardLayer
+      return estimateRouteGroupHeight(rc.routes.length, rc.fontSize ?? 20, canvasWidth, canvasHeight, rc.layoutStrategy ?? 'horizontal')
+    }
+    if (layer.type === 'cta_button') {
+      const cta = layer as CTAButtonLayer
+      const scale = canvasWidth / 1080
+      return ((cta.fontSize ?? 26) * scale + 2 * ((cta.paddingY ?? 0.02) * canvasHeight)) / canvasHeight
+    }
+    if (layer.type === 'price_block') {
+      const pb = layer as PriceBlockLayer
+      const scale = canvasWidth / 1080
+      return ((pb.fontSize ?? 80) * scale * 1.4) / canvasHeight  // amount + currency label
+    }
+    return layer.height ?? 0.04
   }
 
-  if (subheadline?.visible) {
-    const sh = subheadline as TextLayer
-    if (cursor > 0) {
-      const shH = estimateTextHeight(
-        sh.text ?? '', sh.fontSize ?? 26, sh.maxWidth ?? 0.7, canvasWidth, canvasHeight,
-      )
-      const newY = cursor + GAP_S + shH / 2
-      // Only reflow if it would produce a meaningful movement
-      if (Math.abs(newY - subheadline.y) > 0.015) {
-        const idx = layers.indexOf(subheadline)
-        layers[idx] = { ...subheadline, y: newY }
-        cursor = newY + shH / 2
-      } else {
-        cursor = subheadline.y + shH / 2
-      }
-    }
-  }
+  // Anchor: headline bottom
+  const headlineIdx = byId('headline')
+  if (headlineIdx === -1) return composition
+  const headline = layers[headlineIdx] as TextLayer
+  if (!headline.visible || !headline.text) return composition
 
-  if (routeCard?.visible && routeCard.routes.length > 0) {
-    const strategy = routeCard.layoutStrategy ?? 'horizontal'
-    const rh = estimateRouteGroupHeight(
-      routeCard.routes.length, routeCard.fontSize ?? 20, canvasWidth, canvasHeight, strategy,
-    )
-    if (cursor > 0) {
-      const newY = cursor + GAP_M + rh / 2
-      if (Math.abs(newY - routeCard.y) > 0.015) {
-        const idx = layers.indexOf(routeCard)
-        layers[idx] = { ...routeCard, y: newY } as DesignLayer
-        cursor = newY + rh / 2
-      } else {
-        cursor = routeCard.y + rh / 2
-      }
-    }
-  }
+  let cursor = headline.y + estimateHeight(headline) / 2
 
-  if (cta?.visible) {
-    const ctaH = 52 / canvasHeight  // approximate CTA button height
-    if (cursor > 0) {
-      const newY = cursor + GAP_L + ctaH / 2
-      if (Math.abs(newY - cta.y) > 0.015) {
-        const idx = layers.indexOf(cta)
-        layers[idx] = { ...cta, y: newY }
-        cursor = newY + ctaH / 2
-      } else {
-        cursor = cta.y + ctaH / 2
-      }
-    }
-  }
+  for (const spec of REFLOW_CHAIN) {
+    const idx = byId(spec.id)
+    if (idx === -1) continue
+    const layer = layers[idx]
+    if (!layer.visible) continue
+    if (layer.type === 'route_card' && (layer as RouteCardLayer).routes.length === 0) continue
 
-  if (terms?.visible) {
-    if (cursor > 0) {
-      const newY = cursor + GAP_T
-      if (Math.abs(newY - terms.y) > 0.01) {
-        const idx = layers.indexOf(terms)
-        layers[idx] = { ...terms, y: newY }
-      }
+    const h    = estimateHeight(layer)
+    const minY = cursor + MIN_GAP + h / 2         // pushed down to avoid overlap
+    const maxY = cursor + spec.maxGap + h / 2     // pulled up to close egregious gaps
+
+    let newY = layer.y
+    if (newY < minY) newY = minY
+    else if (!spec.pushOnly && newY > maxY) newY = maxY
+
+    newY = Math.min(newY, MAX_CONTENT_BOTTOM - h / 2)
+
+    if (Math.abs(newY - layer.y) > 0.002) {
+      layers[idx] = { ...layer, y: newY } as DesignLayer
     }
+    cursor = newY + h / 2
   }
 
   return { ...composition, layers }
@@ -325,63 +375,65 @@ export function reflowComposition(
 
 // ── normalizeCompositionBounds ────────────────────────────────────────────────
 
+function clampRange(v: number, lo: number, hi: number): number {
+  if (hi < lo) return lo
+  return Math.min(hi, Math.max(lo, v))
+}
+
 /**
  * Final bounds normalization pass.
  *
- * Clamps every visible non-bleed layer so it remains within canvas safe margins.
- * Background image layers (type='image') and contact bars are exempt.
+ * Clamps every visible non-bleed layer so its rendered content remains within
+ * canvas safe margins. Background image layers and contact bars are exempt.
+ * Uses the same width estimates as detectLayerOverflow, which mirror the
+ * PosterCompositor render math.
  *
  * Called after ALL composition transforms and before quality scoring / export.
  */
 export function normalizeCompositionBounds(composition: DesignComposition): DesignComposition {
   const normalizedLayers = composition.layers.map(layer => {
     // Background images: may bleed to edges — exempt
-    if (layer.type === 'image') return layer
-    // Contact bar: pinned to bottom — exempt from y clamping
+    if (layer.type === 'image' || layer.allowBleed) return layer
+    // Contact bar: pinned to bottom, full width — exempt
     if (layer.id === 'contact_bar' || layer.id === 'contact') return layer
 
     const p = { ...layer }
 
-    // ── X clamping ────────────────────────────────────────────────────────────
+    // ── X clamping (per rendered-content semantics) ───────────────────────────
 
     if (layer.type === 'route_card') {
       const rc = layer as RouteCardLayer
-      const strategy = rc.layoutStrategy ?? 'horizontal'
-      if (strategy === 'horizontal') {
-        // Centered at x — ensure the entire pill group fits
-        const pillW  = 0.22
-        const gapW   = 0.01
-        const halfW  = (rc.routes.length * pillW + (rc.routes.length - 1) * gapW) / 2
-        const minX   = SAFE_MARGIN_H + halfW
-        const maxX   = 1 - SAFE_MARGIN_H - halfW
-        p.x = Math.min(maxX, Math.max(minX, layer.x))
+      if ((rc.layoutStrategy ?? 'horizontal') === 'vertical') {
+        // Vertical pills are LEFT-anchored at x (flush with the text column)
+        const maxPillW = estimateMaxRoutePillWidth(rc)
+        p.x = clampRange(layer.x, SAFE_MARGIN_H, 1 - SAFE_MARGIN_H - maxPillW)
       } else {
-        // Vertical: x is the center of each pill — clamp to fit one pill
-        const maxPillHalfW = 0.20
-        p.x = Math.max(SAFE_MARGIN_H + maxPillHalfW, Math.min(layer.x, 1 - SAFE_MARGIN_H - maxPillHalfW))
+        // Horizontal group centered at x — the whole pill row must fit
+        const halfW = estimateRouteGroupHalfWidth(rc)
+        p.x = clampRange(layer.x, SAFE_MARGIN_H + halfW, 1 - SAFE_MARGIN_H - halfW)
       }
     } else if (layer.type === 'cta_button') {
-      const cta = layer as CTAButtonLayer
-      const charCount = cta.text?.length ?? 10
-      const halfBtnW = Math.min((charCount * 0.011 + 0.10), 0.42)
-      const minX = SAFE_MARGIN_H + halfBtnW
-      const maxX = 1 - SAFE_MARGIN_H - halfBtnW
-      p.x = Math.min(maxX, Math.max(minX, layer.x))
+      const halfW = estimateCtaHalfWidth(layer as CTAButtonLayer)
+      p.x = clampRange(layer.x, SAFE_MARGIN_H + halfW, 1 - SAFE_MARGIN_H - halfW)
+    } else if (layer.type === 'price_block') {
+      // renderPriceBlock always centers at x
+      const halfW = estimatePriceHalfWidth(layer as PriceBlockLayer)
+      p.x = clampRange(layer.x, SAFE_MARGIN_H + halfW, 1 - SAFE_MARGIN_H - halfW)
     } else if (layer.type === 'text') {
       const tl = layer as TextLayer
       if (tl.align === 'left') {
-        // x is the left edge — clamp to safe margin
-        p.x = Math.max(SAFE_MARGIN_H, layer.x)
+        const w = tl.maxWidth ?? 0.50
+        p.x = clampRange(layer.x, SAFE_MARGIN_H, 1 - SAFE_MARGIN_H - w)
       } else if (tl.align === 'center') {
-        // x is the text center — ensure half-maxWidth fits inside margins
         const halfW = (tl.maxWidth ?? 0.60) / 2
-        p.x = Math.min(1 - SAFE_MARGIN_H - halfW, Math.max(SAFE_MARGIN_H + halfW, layer.x))
+        p.x = clampRange(layer.x, SAFE_MARGIN_H + halfW, 1 - SAFE_MARGIN_H - halfW)
       } else {
         // right-aligned: x is the right edge
-        p.x = Math.min(1 - SAFE_MARGIN_H, layer.x)
+        const w = tl.maxWidth ?? 0.50
+        p.x = clampRange(layer.x, Math.min(SAFE_MARGIN_H + w, 1 - SAFE_MARGIN_H), 1 - SAFE_MARGIN_H)
       }
     } else {
-      p.x = Math.max(SAFE_MARGIN_H, Math.min(layer.x, 1 - SAFE_MARGIN_H))
+      p.x = clampRange(layer.x, SAFE_MARGIN_H, 1 - SAFE_MARGIN_H)
     }
 
     // ── Y clamping ────────────────────────────────────────────────────────────

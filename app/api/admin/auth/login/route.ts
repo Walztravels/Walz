@@ -171,7 +171,10 @@ export async function POST(req: NextRequest) {
     const loginAt = new Date()
 
     // ── 1. Check Staff table (database accounts) ─────────────────────────────
-    const staffMember = await prisma.staff.findUnique({
+    // Login is the one query that must not fail on a transient pool spike:
+    // retry once on connection-pool timeout (P2024 / checkout timeout) so a
+    // busy dashboard elsewhere can't lock staff out with "Login failed".
+    const findStaff = () => prisma.staff.findUnique({
       where:  { email: normalizedEmail },
       select: {
         id:           true,
@@ -183,6 +186,18 @@ export async function POST(req: NextRequest) {
         isActive:     true,
       },
     })
+    let staffMember: Awaited<ReturnType<typeof findStaff>>
+    try {
+      staffMember = await findStaff()
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e)
+      const isPoolTimeout = msg.includes('connection pool') || msg.includes('ECHECKOUTTIMEOUT')
+        || (typeof e === 'object' && e !== null && (e as { code?: string }).code === 'P2024')
+      if (!isPoolTimeout) throw e
+      console.warn('[login POST] pool timeout on staff lookup — retrying once')
+      await new Promise(r => setTimeout(r, 1500))
+      staffMember = await findStaff()
+    }
     if (staffMember) {
       if (!staffMember.isActive) {
         return NextResponse.json(

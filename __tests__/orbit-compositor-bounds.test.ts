@@ -21,6 +21,8 @@ import {
   SAFE_MARGIN_TOP,
   MAX_CONTENT_BOTTOM,
   estimateLayerRight,
+  estimateCtaHalfWidth,
+  estimateRouteGroupHalfWidth,
 } from '@/lib/orbit/composer/bounds'
 import { scoreComposition } from '@/lib/orbit/composer/quality-score'
 import { buildContactBarItems } from '@/lib/orbit/composer/contact-footer'
@@ -116,7 +118,7 @@ describe('detectLayerOverflow', () => {
     // After normalization, x should be pushed right so full button fits
     const norm = normalizeCompositionBounds(comp)
     const normalizedCta = norm.layers[0] as CTAButtonLayer
-    const halfBtnW = Math.min((normalizedCta.text.length * 0.011 + 0.10), 0.42)
+    const halfBtnW = estimateCtaHalfWidth(normalizedCta)
     expect(normalizedCta.x).toBeGreaterThanOrEqual(SAFE_MARGIN_H + halfBtnW - 0.001)
   })
 
@@ -191,7 +193,7 @@ describe('normalizeCompositionBounds', () => {
     const comp = makeComposition([ctaLayer(0.17, 0.76, 'Secure your December flight today')])
     const norm = normalizeCompositionBounds(comp)
     const cta = norm.layers[0] as CTAButtonLayer
-    const halfBtnW = Math.min((cta.text.length * 0.011 + 0.10), 0.42)
+    const halfBtnW = estimateCtaHalfWidth(cta)
     expect(cta.x).toBeGreaterThanOrEqual(SAFE_MARGIN_H + halfBtnW - 0.001)
   })
 
@@ -229,18 +231,21 @@ describe('normalizeCompositionBounds', () => {
     const comp = makeComposition([rc])
     const norm = normalizeCompositionBounds(comp)
     const nrc = norm.layers[0] as RouteCardLayer
-    const pillW = 0.22, gapW = 0.01
-    const halfW = (3 * pillW + 2 * gapW) / 2
+    const halfW = estimateRouteGroupHalfWidth(nrc)
     expect(nrc.x).toBeGreaterThanOrEqual(SAFE_MARGIN_H + halfW - 0.001)
+    // Estimated left edge must now be on-canvas
+    expect(nrc.x - halfW).toBeGreaterThanOrEqual(SAFE_MARGIN_H - 0.001)
   })
 
-  it('adjusts vertical route group x to fit single pill width', () => {
+  it('vertical route group is left-anchored: clamped to safe margin, flush with text column', () => {
     const rc = routeCardLayer(0.05, 0.62, ['LOS → LHR', 'LOS → JFK', 'LOS → YYZ'])
     rc.layoutStrategy = 'vertical'
     const comp = makeComposition([rc])
     const norm = normalizeCompositionBounds(comp)
     const nrc = norm.layers[0] as RouteCardLayer
-    expect(nrc.x).toBeGreaterThanOrEqual(SAFE_MARGIN_H + 0.20 - 0.001)
+    // Left-anchored pills: x is the LEFT edge — clamped up to margin, not pushed to center
+    expect(nrc.x).toBeGreaterThanOrEqual(SAFE_MARGIN_H - 0.001)
+    expect(nrc.x).toBeLessThan(0.15)
   })
 })
 
