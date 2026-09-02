@@ -65,13 +65,13 @@ function scoreBrand(composition: DesignComposition): { score: number; warnings: 
 
   let score = 100
 
-  // Brand asset image vs. text fallback check
+  // Brand asset missing check — logo layer present but no uploaded image
   const logoLayer = logo as LogoLayer
   if (!logoLayer.logoUrl) {
-    score -= 20
+    score -= 25
     warnings.push({
-      field:    'logo_image',
-      message:  'Logo is rendering as text — upload the official Walz Travels logo in Brand Assets to score full brand points.',
+      field:    'LOGO_ASSET_MISSING',
+      message:  'No brand logo uploaded. Go to Orbit → Brand to upload the official Walz Travels logo. Poster will export without a logo.',
       blocking: false,
     })
   }

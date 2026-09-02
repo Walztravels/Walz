@@ -2167,6 +2167,23 @@ export function CreativeStudioSection({
               )}
             </div>
 
+            {/* Missing logo warning */}
+            {!resolvedLogoUrl && designerComposition && (
+              <div className="flex items-center justify-between gap-3 px-3 py-2 rounded-lg border border-amber-800/60 bg-amber-950/30">
+                <p className="text-xs text-amber-300">
+                  Brand logo missing — poster will export without a logo.
+                </p>
+                <a
+                  href="/admin/orbit/brand"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="flex-shrink-0 text-xs font-medium text-amber-400 hover:text-amber-200 underline"
+                >
+                  Upload Logo
+                </a>
+              </div>
+            )}
+
             <PosterCompositor
               backgroundUrl={bgUrl}
               posterData={posterData}

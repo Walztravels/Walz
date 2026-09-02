@@ -422,13 +422,10 @@ function renderComposition(
       case 'logo': {
         const ll = layer as LogoLayer
         if (ll.logoUrl && logoImg) {
-          // Render the real uploaded logo image with optional treatment
           renderLogoImage(ctx, ll, logoImg, cw, ch)
-        } else if (!ll.logoUrl) {
-          // No brand asset configured yet — render text as legacy fallback
-          renderTextOnCanvas(ctx, ll, cw, ch)
         }
-        // If logoUrl is set but image failed to load: render nothing (warning shown in UI)
+        // No logoUrl or image not yet loaded: render nothing.
+        // The UI shows "Upload logo in Orbit → Brand" — text is never substituted.
         break
       }
 

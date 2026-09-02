@@ -80,18 +80,18 @@ export function resolveLogoVariant(
 
   // AUTO selection by background brightness
   if (bgBrightness < 0.38) {
-    // Dark background — prefer light logo for maximum contrast
-    for (const v of ['LIGHT', 'PRIMARY', 'MONOCHROME', 'ICON', 'DARK'] as LogoVariant[]) {
+    // Dark background — LIGHT → MONOCHROME → PRIMARY → DARK → ICON
+    for (const v of ['LIGHT', 'MONOCHROME', 'PRIMARY', 'DARK', 'ICON'] as LogoVariant[]) {
       if (assets[v]) return v
     }
   } else if (bgBrightness > 0.62) {
-    // Light background — prefer dark logo for maximum contrast
-    for (const v of ['DARK', 'PRIMARY', 'MONOCHROME', 'ICON', 'LIGHT'] as LogoVariant[]) {
+    // Light background — PRIMARY → DARK → MONOCHROME → LIGHT → ICON
+    for (const v of ['PRIMARY', 'DARK', 'MONOCHROME', 'LIGHT', 'ICON'] as LogoVariant[]) {
       if (assets[v]) return v
     }
   } else {
-    // Mid-range — prefer primary
-    for (const v of ['PRIMARY', 'DARK', 'LIGHT', 'MONOCHROME', 'ICON'] as LogoVariant[]) {
+    // Mid-range / complex photo — PRIMARY → DARK → MONOCHROME → LIGHT → ICON
+    for (const v of ['PRIMARY', 'DARK', 'MONOCHROME', 'LIGHT', 'ICON'] as LogoVariant[]) {
       if (assets[v]) return v
     }
   }

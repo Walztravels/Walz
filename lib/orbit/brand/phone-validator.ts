@@ -4,10 +4,13 @@
  * Validates phone numbers by country code prefix rules.
  * Used to flag invalid numbers before they appear in brand config.
  *
- * CURRENT ALERT: +1217902336 was submitted as a candidate number.
- * US/Canada (+1) requires exactly 10 digits after the country code.
- * The submitted number has only 9 digits and is therefore invalid.
- * The existing production number +1 231 790 2336 (e164: 12317902336) remains in use.
+ * CONFIRMED PRODUCTION NUMBER:
+ *   Display  : +1 231 790 2336
+ *   E.164    : 12317902336
+ *   WhatsApp : https://wa.me/12317902336
+ *
+ * This is already set in lib/config/business.ts → BUSINESS.contacts.globalWhatsapp.
+ * Do not hardcode this number elsewhere — always read from BUSINESS config.
  */
 
 export interface PhoneValidationResult {
@@ -28,7 +31,7 @@ export interface PhoneValidationResult {
 const COUNTRY_RULES: Record<string, { min: number; max: number; name: string }> = {
   '1':   { min: 10, max: 10, name: 'US/Canada' },
   '44':  { min: 10, max: 10, name: 'UK' },
-  '234': { min: 7,  max: 8,  name: 'Nigeria' },
+  '234': { min: 7,  max: 10, name: 'Nigeria' },
   '233': { min: 9,  max: 9,  name: 'Ghana' },
   '254': { min: 9,  max: 9,  name: 'Kenya' },
   '27':  { min: 9,  max: 9,  name: 'South Africa' },
@@ -55,7 +58,7 @@ function matchCountryCode(digits: string): { code: string; local: string } | nul
 /**
  * Validate an international phone number string.
  *
- * @param raw Raw phone string (e.g. '+1217902336', '+1 231 790 2336', '00447949448680')
+ * @param raw Raw phone string (e.g. '+12317902336', '+1 231 790 2336', '0012317902336')
  */
 export function validatePhone(raw: string): PhoneValidationResult {
   if (!raw || !raw.trim()) {
@@ -117,11 +120,5 @@ export function validatePhone(raw: string): PhoneValidationResult {
   }
 }
 
-/**
- * Pre-checked alert: the submitted candidate number +1217902336.
- *
- * Digit count after +1: 9 (US/Canada requires 10). This is INVALID.
- * Do NOT update the production BUSINESS config with this number.
- * The existing number +1 231 790 2336 (e164: 12317902336) is valid and remains in use.
- */
-export const SUBMITTED_PHONE_ALERT = validatePhone('+1217902336')
+/** Validate the confirmed production global WhatsApp number. */
+export const CONFIRMED_PHONE = validatePhone('+1 231 790 2336')
