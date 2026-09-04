@@ -820,13 +820,14 @@ export function JadeChatWidget() {
                     isHandedOff={isHandedOff}
                     conversationId={conversationId}
                     channel="website chat"
-                    onHandoffConfirmed={(name, categoryLabel) => {
+                    customerName={customerName}
+                    onHandoffConfirmed={(name) => {
                       setIsHandedOff(true)
                       setAgentName(name)
                       setMessages(prev => [...prev, {
                         id:              `handoff-${Date.now()}`,
                         role:            'system',
-                        content:         `👤 Connecting you with our ${categoryLabel} team${name ? ` — ${name} will be with you shortly` : ''}. Jade has stepped aside.`,
+                        content:         `👤 Connecting you with a team member${name ? ` — ${name} will be with you shortly` : ''}. Jade has stepped aside.`,
                         timestamp:       new Date(),
                         isSystemMessage: true,
                       }])

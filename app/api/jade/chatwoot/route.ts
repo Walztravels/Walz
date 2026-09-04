@@ -1888,7 +1888,7 @@ export async function POST(req: NextRequest) {
         if (isExplicitHumanRequest(message)) {
           void requestHumanHandoff({
             conversationId: actualConvId,
-            category:       'other',
+            category:       'general',
             source:         'typed',
             channel:        'website chat',
           }).catch(e => console.error('[Jade→CW] typed handoff failed:', e))

@@ -145,8 +145,9 @@ export async function applyRouting(
   dec:            RoutingDecision,
   messagePreview: string,
   channel:        string,
-): Promise<void> {
-  if (dec.reason === 'previously_routed') return
+  opts?:          { suppressAssignmentEmail?: boolean },
+): Promise<boolean> {
+  if (dec.reason === 'previously_routed') return false
 
   const supabase = getSupabaseAdmin()
 
@@ -165,7 +166,8 @@ export async function applyRouting(
   }
 
   // Email the agent only when Chatwoot assignment succeeded
-  if (assignmentSucceeded && dec.agentEmail) {
+  // (callers that send their own notification pass suppressAssignmentEmail)
+  if (assignmentSucceeded && dec.agentEmail && !opts?.suppressAssignmentEmail) {
     sendConversationAssignedEmail({
       agentName:      dec.agentName,
       agentEmail:     dec.agentEmail,
@@ -188,4 +190,5 @@ export async function applyRouting(
   })
 
   console.log(`[router] ${conversationId} → ${dec.agentName} (${dec.reason})`)
+  return assignmentSucceeded
 }

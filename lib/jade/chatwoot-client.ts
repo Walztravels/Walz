@@ -117,10 +117,10 @@ export async function handoffToHuman(conversationId: number, reason: string, cha
     /complain|angry|frustrat/.test(lower)     ? "complaint"      :
     /partner|business|b2b|corporate/.test(lower) ? "partnership" :
     /book|flight|hotel|reservation/.test(lower)  ? "booking_support" :
-    "other";
+    "general";
   await requestHumanHandoff({
     conversationId,
-    category: isHandoffCategory(category) ? category : "other",
+    category: isHandoffCategory(category) ? category : "general",
     source:   "jade_tool",
     reason,
     channel,

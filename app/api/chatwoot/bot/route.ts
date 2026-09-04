@@ -217,7 +217,7 @@ async function processTurn(
       if (isExplicitHumanRequest(content)) {
         const result = await requestHumanHandoff({
           conversationId,
-          category: "other",
+          category: "general",
           source:   "typed",
           channel,
         });
