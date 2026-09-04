@@ -207,6 +207,31 @@ async function processTurn(
       messages.push({ role: "user", content });
     }
 
+    // ---- 4b. Deterministic "speak to a human" pre-check --------------------
+    // Explicit phrases skip the AI turn entirely and use the exact same
+    // canonical handoff path as the floating button (no separate logic).
+    // Replying here is safe for Meta/Instagram: it's a direct response to an
+    // inbound message, so it is inside the messaging window by definition.
+    {
+      const { isExplicitHumanRequest, requestHumanHandoff } = await import("@/lib/jade/human-handoff");
+      if (isExplicitHumanRequest(content)) {
+        const result = await requestHumanHandoff({
+          conversationId,
+          category: "other",
+          source:   "typed",
+          channel,
+        });
+        if (!result.alreadyRequested) {
+          await sendReply(
+            conversationId,
+            "Of course — I'm connecting you with one of our travel specialists now. They'll be with you shortly. 🤝"
+          );
+        }
+        console.log(`[jade] conv=${conversationId} typed human request → canonical handoff`);
+        return;
+      }
+    }
+
     const system = buildSystemPrompt({
       contactName,
       channel,

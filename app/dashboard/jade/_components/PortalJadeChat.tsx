@@ -5,6 +5,8 @@ import Link                                           from 'next/link'
 import { Send, X, Loader2, Sparkles, ChevronRight }  from 'lucide-react'
 import { cn }                                         from '@/lib/utils'
 import type { PortalContextHint }                     from '@/lib/portal/portal-jade-context'
+import { SpeakToHuman }                               from '@/components/common/SpeakToHuman'
+import { BUSINESS }                                   from '@/lib/config/business'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -231,6 +233,18 @@ export default function PortalJadeChat({
           </div>
         </div>
       )}
+
+      {/* ── Speak to a Human — portal has no Chatwoot conversation, so
+             selection opens WhatsApp prefilled (the customer sends it) ─────── */}
+      <SpeakToHuman
+        chatOpen
+        isHandedOff={false}
+        conversationId={null}
+        channel="portal chat"
+        whatsappFallbackE164={BUSINESS.contacts.globalWhatsapp.e164}
+        dark
+        onHandoffConfirmed={() => {}}
+      />
 
       {/* ── Input ───────────────────────────────────────────────────────────── */}
       <div className="flex-shrink-0 bg-[#0B1F3A]/80 border-t border-white/8 px-4 py-3 pb-[max(12px,env(safe-area-inset-bottom))]">

@@ -2,8 +2,6 @@
 // Chatwoot API client for Jade 2.0 (WhatsApp + all channels)
 // Account 1 @ chat.walztravels.com
 
-import { routeConversation, applyRouting } from "@/lib/conversation-router";
-
 const CHATWOOT_BASE = process.env.CHATWOOT_BASE_URL || "https://chat.walztravels.com";
 const ACCOUNT_ID = process.env.CHATWOOT_ACCOUNT_ID || "1";
 const API_TOKEN = process.env.CHATWOOT_API_TOKEN!; // agent-bot or admin user token
@@ -103,49 +101,30 @@ export async function openConversation(conversationId: number) {
 }
 
 /**
- * Human handoff:
- *  1. Move conversation pending → open
- *  2. Round-robin assign to next available agent via conversation-router
- *  3. Drop a private note with reason + assigned agent (staff-only context)
- *
- * The private note is INTERNAL only (private:true) — customers never see it.
- * The customer-facing message is whatever Jade sent before calling the tool.
+ * Human handoff — thin wrapper over the canonical requestHumanHandoff() path
+ * in lib/jade/human-handoff.ts. Kept for the Jade model tool; button, typed
+ * phrases, and this tool all share ONE assignment path (open → route via
+ * conversation-router → private note → audit). Never sends a customer-facing
+ * message — the customer-facing text is whatever Jade sent before the tool.
  */
-export async function handoffToHuman(conversationId: number, reason: string) {
-  // 1. Open the conversation so it enters the agent queue
-  await fetch(api(`/conversations/${conversationId}/toggle_status`), {
-    method: "POST",
-    headers,
-    body: JSON.stringify({ status: "open" }),
-  }).catch((e) => console.error("[jade] toggle_status error:", e));
-
-  // 2. Route via round-robin — gets the next agent and calls Chatwoot assignment API
-  let assignedAgentName = "the team";
-  try {
-    const dec = await routeConversation(
-      String(conversationId),
-      reason,
-      "WhatsApp",
-    );
-    if (dec) {
-      await applyRouting(String(conversationId), dec, reason, "WhatsApp");
-      assignedAgentName = dec.agentName;
-    }
-  } catch (e) {
-    // Assignment failure is non-fatal — private note still lands below
-    console.error("[jade] routing/assignment error:", e);
-  }
-
-  // 3. Private note for staff context (🔒 never customer-facing)
-  await fetch(api(`/conversations/${conversationId}/messages`), {
-    method: "POST",
-    headers,
-    body: JSON.stringify({
-      content: `🤖→👤 Jade handoff → ${assignedAgentName}\nReason: ${reason}`,
-      message_type: "outgoing",
-      private: true,
-    }),
-  }).catch((e) => console.error("[jade] private-note error:", e));
+export async function handoffToHuman(conversationId: number, reason: string, channel = "WhatsApp") {
+  const { requestHumanHandoff, isHandoffCategory } = await import("@/lib/jade/human-handoff");
+  // Infer category from the model-provided reason when it names one
+  const lower = reason.toLowerCase();
+  const category =
+    /visa/.test(lower)                        ? "visa_support"   :
+    /payment|refund|charge/.test(lower)       ? "payment_issue"  :
+    /complain|angry|frustrat/.test(lower)     ? "complaint"      :
+    /partner|business|b2b|corporate/.test(lower) ? "partnership" :
+    /book|flight|hotel|reservation/.test(lower)  ? "booking_support" :
+    "other";
+  await requestHumanHandoff({
+    conversationId,
+    category: isHandoffCategory(category) ? category : "other",
+    source:   "jade_tool",
+    reason,
+    channel,
+  });
 }
 
 /** Read conversation meta (status, contact, custom attributes). */

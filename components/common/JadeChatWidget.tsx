@@ -9,6 +9,7 @@ import {
 } from 'lucide-react'
 import type { TravelDNA } from '@/app/api/jade/chatwoot/route'
 import { BUSINESS, waLink } from '@/lib/config/business'
+import { SpeakToHuman } from '@/components/common/SpeakToHuman'
 
 // ─── Session persistence ───────────────────────────────────────────────────────
 const SESSION_KEY      = 'walz_jade_session'
@@ -805,6 +806,32 @@ export function JadeChatWidget() {
                       {s}
                     </button>
                   ))}
+                </div>
+              )}
+
+              {/* Floating "Speak to a Human" control — above the composer.
+                  Rendering it never sends a message or assigns staff; handoff
+                  fires only on explicit category selection. Human-owned chats
+                  show a passive "Human Support Active" pill instead. */}
+              {!handover && (
+                <div className="bg-white flex-shrink-0">
+                  <SpeakToHuman
+                    chatOpen={isOpen && !isMinimized}
+                    isHandedOff={isHandedOff}
+                    conversationId={conversationId}
+                    channel="website chat"
+                    onHandoffConfirmed={(name, categoryLabel) => {
+                      setIsHandedOff(true)
+                      setAgentName(name)
+                      setMessages(prev => [...prev, {
+                        id:              `handoff-${Date.now()}`,
+                        role:            'system',
+                        content:         `👤 Connecting you with our ${categoryLabel} team${name ? ` — ${name} will be with you shortly` : ''}. Jade has stepped aside.`,
+                        timestamp:       new Date(),
+                        isSystemMessage: true,
+                      }])
+                    }}
+                  />
                 </div>
               )}
 

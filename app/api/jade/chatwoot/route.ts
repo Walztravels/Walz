@@ -1880,6 +1880,20 @@ export async function POST(req: NextRequest) {
       if (handover.needed && !b2b) {
         void sendHandoverEmail(customerName, customerEmail, handover, dna, profile, actualConvId, message)
       }
+      // Explicit typed "speak to a human" → the SAME canonical handoff path as
+      // the floating button (attrs + open + deterministic routing + private
+      // note + audit). Duplicate-guarded inside requestHumanHandoff.
+      if (actualConvId) {
+        const { isExplicitHumanRequest, requestHumanHandoff } = await import('@/lib/jade/human-handoff')
+        if (isExplicitHumanRequest(message)) {
+          void requestHumanHandoff({
+            conversationId: actualConvId,
+            category:       'other',
+            source:         'typed',
+            channel:        'website chat',
+          }).catch(e => console.error('[Jade→CW] typed handoff failed:', e))
+        }
+      }
     } catch (e) {
       console.error('[Jade→CW] Background push failed:', String(e).slice(0, 100))
     }
