@@ -468,8 +468,20 @@ function ProposalFlights({ proposal }: { proposal: PublicProposalDTO }) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 function HotelCard({ h, currency }: { h: ProposalHotel; currency: string }) {
-  const hasImages = h.images && h.images.length > 0
+  const images    = h.images ?? []
+  const hasImages = images.length > 0
   const [activeImg, setActiveImg] = useState(0)
+  const count = images.length
+  const prev  = () => setActiveImg(i => (i - 1 + count) % count)
+  const next  = () => setActiveImg(i => (i + 1) % count)
+
+  const navBtn: React.CSSProperties = {
+    position: 'absolute', top: '50%', transform: 'translateY(-50%)',
+    width: 34, height: 34, borderRadius: '50%', border: 'none', cursor: 'pointer',
+    background: 'rgba(11,31,58,0.55)', color: '#fff', fontSize: 16, lineHeight: '34px',
+    display: 'flex', alignItems: 'center', justifyContent: 'center',
+    transition: 'background 0.2s',
+  }
 
   return (
     <div style={{ background: '#fff', borderRadius: 24, overflow: 'hidden', boxShadow: '0 4px 24px rgba(0,0,0,0.08)', marginBottom: 24 }}>
@@ -479,27 +491,38 @@ function HotelCard({ h, currency }: { h: ProposalHotel; currency: string }) {
           <div style={{ position: 'relative', overflow: 'hidden', background: '#e8e0d4', aspectRatio: '4/3', minHeight: 260 }}>
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img
-              src={h.images![activeImg]}
+              src={images[activeImg]}
               alt={h.name || 'Hotel'}
               onError={imgFallback}
               loading="lazy"
               decoding="async"
               style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', objectFit: 'cover', display: 'block' }}
             />
-            {h.images!.length > 1 && (
-              <div style={{ position: 'absolute', bottom: 12, left: 0, right: 0, display: 'flex', justifyContent: 'center', gap: 6 }}>
-                {h.images!.slice(0, 4).map((_, idx) => (
-                  <button
-                    key={idx}
-                    onClick={() => setActiveImg(idx)}
-                    style={{
-                      width: 8, height: 8, borderRadius: '50%', border: 'none', cursor: 'pointer',
-                      background: idx === activeImg ? '#C9A84C' : 'rgba(255,255,255,0.6)',
-                      transition: 'background 0.2s',
-                    }}
-                  />
-                ))}
-              </div>
+            {count > 1 && (
+              <>
+                <button onClick={prev} aria-label="Previous photo" style={{ ...navBtn, left: 10 }}>‹</button>
+                <button onClick={next} aria-label="Next photo" style={{ ...navBtn, right: 10 }}>›</button>
+                <div style={{
+                  position: 'absolute', top: 12, right: 12, background: 'rgba(11,31,58,0.55)',
+                  color: '#fff', fontSize: 11, fontWeight: 600, padding: '3px 10px', borderRadius: 999,
+                }}>
+                  {activeImg + 1} / {count}
+                </div>
+                <div style={{ position: 'absolute', bottom: 12, left: 12, right: 12, display: 'flex', justifyContent: 'center', flexWrap: 'wrap', gap: 6 }}>
+                  {images.map((_, idx) => (
+                    <button
+                      key={idx}
+                      onClick={() => setActiveImg(idx)}
+                      aria-label={`Photo ${idx + 1}`}
+                      style={{
+                        width: 8, height: 8, borderRadius: '50%', border: 'none', cursor: 'pointer', padding: 0,
+                        background: idx === activeImg ? '#C9A84C' : 'rgba(255,255,255,0.6)',
+                        transition: 'background 0.2s',
+                      }}
+                    />
+                  ))}
+                </div>
+              </>
             )}
           </div>
         )}
