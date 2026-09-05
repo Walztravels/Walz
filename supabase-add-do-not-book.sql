@@ -13,21 +13,21 @@ ALTER TABLE "ClientRiskScore"
 -- Resolved via the itinerary's linked account (userId), falling back to the
 -- account matching the itinerary's clientEmail — never by name or phone.
 -- Verify first (expect exactly ONE row):
-SELECT i."referenceNumber", i."clientName", i."clientEmail", i."userId",
+SELECT i."referenceNumber", i."clientName", i."clientEmail", i.user_id,
        u.id AS resolved_user_id, u.email AS resolved_email
 FROM "Itinerary" i
 LEFT JOIN "User" u
-  ON u.id = i."userId"
-  OR (i."userId" IS NULL AND lower(u.email) = lower(i."clientEmail"))
+  ON u.id = i.user_id
+  OR (i.user_id IS NULL AND lower(u.email) = lower(i."clientEmail"))
 WHERE i."referenceNumber" = 'WALZ-HA8H86';
 
 -- ── 3. Set the flag (upserts the risk score row if the client has none) ──────
 WITH target AS (
-  SELECT u.id AS user_id
+  SELECT u.id AS resolved_id
   FROM "Itinerary" i
   JOIN "User" u
-    ON u.id = i."userId"
-    OR (i."userId" IS NULL AND lower(u.email) = lower(i."clientEmail"))
+    ON u.id = i.user_id
+    OR (i.user_id IS NULL AND lower(u.email) = lower(i."clientEmail"))
   WHERE i."referenceNumber" = 'WALZ-HA8H86'
   LIMIT 1
 )
@@ -37,7 +37,7 @@ INSERT INTO "ClientRiskScore" (
 )
 SELECT
   'crs_' || substr(md5(random()::text || clock_timestamp()::text), 1, 21),
-  target.user_id,
+  target.resolved_id,
   true,
   'Repeated conduct issues toward staff; disputed a signed, accepted proposal. See internal records dated 30 Aug – 4 Sep 2026.',
   'contact@walztravels.com (Super Admin)',
