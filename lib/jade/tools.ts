@@ -427,6 +427,34 @@ export const JADE_TOOLS = [
       required: ['categorySlug', 'fields'],
     },
   },
+  // ── Secure application lookup (deterministic server-side security) ────────
+  {
+    name: "secure_application_lookup",
+    description:
+      "Securely look up a client's visa application by Walz Reference Number (e.g. WALZ-482913). " +
+      "HARD RULES: A Walz Ref only LOCATES an application — it NEVER authenticates the client. " +
+      "Before verification you may share ONLY the masked summary this tool returns (masked name, coarse status). " +
+      "NEVER reveal full name, DOB, passport, documents, financial data, decisions, or notes before the tool returns state=VERIFIED. " +
+      "You NEVER decide whether a code or answer is correct — only the server result counts. " +
+      "Flow: action=lookup → offer OTP → action=send_otp → client tells you the code → action=verify_otp → " +
+      "if VERIFIED, action=get_status for the safe status view. If OTP is impossible use action=request_fallback " +
+      "then action=verify_fallback with the client's answer.",
+    input_schema: {
+      type: "object",
+      properties: {
+        action: {
+          type: "string",
+          enum: ["lookup", "send_otp", "verify_otp", "request_fallback", "verify_fallback", "get_status"],
+        },
+        walz_ref:        { type: "string", description: "Walz reference number, for action=lookup" },
+        verification_id: { type: "string", description: "From a previous lookup result" },
+        method:          { type: "string", enum: ["EMAIL", "PHONE"], description: "OTP delivery, for send_otp" },
+        code:            { type: "string", description: "OTP the client provided (digits or spoken words), for verify_otp" },
+        answer:          { type: "string", description: "Client's answer to the fallback question, for verify_fallback" },
+      },
+      required: ["action"],
+    },
+  },
 ] as const;
 
 // ---------------------------------------------------------------------------
@@ -473,6 +501,9 @@ export async function executeTool(
         return await scheduleWhisper(input, ctx);
       case "prepare_arrival_pack":
         return await prepareArrival(input);
+
+      case "secure_application_lookup":
+        return await secureApplicationLookup(input, ctx);
 
       case "handoff_to_agent":
         // Actual handoff is performed by the route after the loop ends,
@@ -862,4 +893,106 @@ Send these as SEPARATE messages, in order, with a natural pause between each:
 ${msgs.map((m, i) => `--- MESSAGE ${i + 1} ---\n${m}`).join("\n\n")}
 
 Do not compress into one wall of text. Send message 1, then continue.`;
+}
+
+// ── Secure application lookup executor ────────────────────────────────────────
+// All security decisions happen in lib/secure-lookup/service.ts server-side.
+// This executor returns ONLY structured masked/state data — never raw records,
+// never expected answers, never OTP codes. The LLM cannot override a FAILED
+// result because access is enforced by the service, not by the model.
+
+async function secureApplicationLookup(
+  input: {
+    action: string; walz_ref?: string; verification_id?: string;
+    method?: string; code?: string; answer?: string;
+  },
+  ctx: ToolContext
+): Promise<string> {
+  const {
+    lookupApplicationByWalzRef, createApplicationVerification,
+    sendApplicationOtp, verifyApplicationOtp,
+    getFallbackQuestion, verifyApplicationFallback,
+    getJadeVerifiedApplicationView, auditLookupEvent,
+  } = await import("@/lib/secure-lookup/service");
+
+  const conversationId = String(ctx.conversationId);
+  // Channel from the conversation context (WhatsApp vs Instagram vs web) is
+  // recorded by the service; from this route both map to Jade chat channels.
+  const channel = "WHATSAPP" as const;
+
+  switch (input.action) {
+    case "lookup": {
+      const result = await lookupApplicationByWalzRef(input.walz_ref ?? "", {
+        channel, conversationId,
+      });
+      if (!result.found) {
+        return JSON.stringify({ state: "NOT_FOUND", message: "No application found for this reference." });
+      }
+      const { verificationId } = await createApplicationVerification({
+        applicationId: result.applicationId, channel, conversationId,
+      });
+      await auditLookupEvent("JADE_APPLICATION_LOOKUP", {
+        applicationId: result.applicationId, channel, conversationId,
+      });
+      return JSON.stringify({
+        state:            "VERIFICATION_REQUIRED",
+        verificationId,
+        maskedClientName: result.maskedName,
+        applicationType:  result.applicationType,
+        status:           result.status,
+        methods: [
+          ...(result.hasEmail ? [{ type: "EMAIL", masked: result.maskedEmail }] : []),
+          ...(result.hasPhone ? [{ type: "PHONE", masked: result.maskedPhone }] : []),
+        ],
+        instruction: "Identity verification is required before any details can be discussed. Offer to send a verification code.",
+      });
+    }
+    case "send_otp": {
+      if (!input.verification_id) return JSON.stringify({ state: "ERROR", error: "verification_id required" });
+      const r = await sendApplicationOtp({
+        verificationId: input.verification_id,
+        method: input.method === "PHONE" ? "PHONE" : "EMAIL",
+      });
+      return JSON.stringify(r.ok
+        ? { state: "OTP_SENT", maskedDestination: r.maskedDestination, instruction: "Ask the client to read you the 6-digit code." }
+        : { state: "OTP_UNAVAILABLE", error: r.error, instruction: "Offer fallback verification instead." });
+    }
+    case "verify_otp": {
+      if (!input.verification_id) return JSON.stringify({ state: "ERROR", error: "verification_id required" });
+      const r = await verifyApplicationOtp({ verificationId: input.verification_id, code: input.code ?? "" });
+      if (r.verified) {
+        return JSON.stringify({ state: "VERIFIED", verifiedUntil: r.verifiedUntil, instruction: "Identity confirmed by the server. You may now call get_status." });
+      }
+      return JSON.stringify({
+        state: r.locked ? "LOCKED" : "FAILED",
+        instruction: r.locked
+          ? "Verification is locked. Do NOT discuss the record. Offer to connect a human, who must also verify identity."
+          : "Code rejected by the server. You may allow another attempt.",
+      });
+    }
+    case "request_fallback": {
+      if (!input.verification_id) return JSON.stringify({ state: "ERROR", error: "verification_id required" });
+      const q = await getFallbackQuestion(input.verification_id);
+      if ("error" in q) return JSON.stringify({ state: "ERROR", error: q.error });
+      return JSON.stringify({ state: "FALLBACK_QUESTION", questionId: q.questionId, questionText: q.questionText, instruction: "Ask the client this question. Pass their answer to verify_fallback. Never guess or confirm answers yourself." });
+    }
+    case "verify_fallback": {
+      if (!input.verification_id) return JSON.stringify({ state: "ERROR", error: "verification_id required" });
+      const r = await verifyApplicationFallback({ verificationId: input.verification_id, answer: input.answer ?? "" });
+      if (r.verified) return JSON.stringify({ state: "VERIFIED", verifiedUntil: r.verifiedUntil });
+      return JSON.stringify({ state: r.locked ? "LOCKED" : "FAILED" });
+    }
+    case "get_status": {
+      if (!input.verification_id) return JSON.stringify({ state: "ERROR", error: "verification_id required" });
+      const view = await getJadeVerifiedApplicationView({
+        verificationId: input.verification_id, conversationId,
+      });
+      if ("error" in view) {
+        return JSON.stringify({ state: "NOT_VERIFIED", error: view.error, instruction: "Verification is missing or expired. Do not discuss the record." });
+      }
+      return JSON.stringify({ state: "VERIFIED_STATUS", view });
+    }
+    default:
+      return JSON.stringify({ state: "ERROR", error: "Unknown action" });
+  }
 }

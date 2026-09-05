@@ -224,10 +224,24 @@ export async function requestHumanHandoff(req: HandoffRequest): Promise<HandoffR
     console.error('[handoff] routing/assignment error:', e)
   }
 
-  // 5. Staff-only private note
+  // 5. Staff-only private note. If this conversation carries a still-valid
+  //    application identity verification, surface the safe indicator so staff
+  //    don't re-verify unnecessarily — never OTPs or answers.
+  let verifiedLine = ''
+  try {
+    const activeVerification = await prisma.applicationVerification.findFirst({
+      where: {
+        conversationId: String(conversationId),
+        status:        'verified',
+        verifiedUntil: { gt: new Date() },
+      },
+      select: { id: true },
+    })
+    if (activeVerification) verifiedLine = '\n\nCLIENT_IDENTITY_VERIFIED (application lookup — still valid)'
+  } catch { /* verification table not migrated yet — skip indicator */ }
   await postPrivateNote(
     conversationId,
-    `Jade → Human Handoff\n\nReason:\n${reason}\n\nCategory:\n${def.label}\n\nAssigned to:\n${assignedAgentName ?? 'Team queue'}`,
+    `Jade → Human Handoff\n\nReason:\n${reason}\n\nCategory:\n${def.label}\n\nAssigned to:\n${assignedAgentName ?? 'Team queue'}${verifiedLine}`,
   )
 
   // 6. Silence Jade for this conversation (widget/portal switch to human mode)

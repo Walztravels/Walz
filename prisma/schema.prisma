@@ -352,6 +352,32 @@ model VisaApplication {
   @@index([whatsappBsuid])
 }
 
+// Secure application lookup — short-lived identity verification records.
+// One row per verification attempt session; OTPs stored ONLY as SHA-256
+// hashes; verification is bound to staff/channel/conversation and expires.
+// Table created via supabase-add-application-verification.sql — NOT db push.
+model ApplicationVerification {
+  id             String    @id @default(cuid())
+  applicationId  String
+  channel        String    // STAFF_SUPPORT | CHAT | WHATSAPP | INSTAGRAM | VOICE
+  staffEmail     String?   // set for STAFF_SUPPORT — verification is bound to this staff member
+  conversationId String?   // Chatwoot conversation / call session binding
+  method         String?   // EMAIL_OTP | PHONE_OTP | FALLBACK
+  status         String    @default("pending") // pending | verified | locked
+  otpHash        String?   // sha256(code + verificationId) — never plaintext
+  otpExpiresAt   DateTime?
+  attemptCount   Int       @default(0)
+  lockedUntil    DateTime?
+  questionId     String?   // active fallback question
+  verifiedAt     DateTime?
+  verifiedUntil  DateTime? // session-bound expiry of the unlocked view
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@index([applicationId])
+  @@index([conversationId])
+}
+
 model VisaApplicationNote {
   id            String          @id @default(cuid())
   applicationId String

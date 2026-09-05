@@ -6,6 +6,7 @@ import { CWConversation, CWMessage, CWAgent, AdminProfile, EMAIL_TO_AGENT } from
 import { ConversationList } from './components/ConversationList'
 import { ChatWindow } from './components/ChatWindow'
 import { ClientInfo } from './components/ClientInfo'
+import { ApplicationLookupDrawer } from '@/components/admin/ApplicationLookupDrawer'
 import { StaffModal } from './components/StaffModal'
 
 type Tab = 'all' | 'mine' | 'unassigned' | 'resolved'
@@ -35,6 +36,7 @@ export default function InboxPage() {
   const [allPayload, setAllPayload] = useState<CWConversation[]>([])
   const [metaCounts, setMetaCounts] = useState({ all: 0, mine: 0, unassigned: 0 })
   const [selected,   setSelected]   = useState<CWConversation | null>(null)
+  const [showAppLookup, setShowAppLookup] = useState(false)
   const [messages,   setMessages]   = useState<CWMessage[]>([])
   const [agents,     setAgents]     = useState<CWAgent[]>([])
   const [tab,        setTab]        = useState<Tab>('mine')
@@ -393,16 +395,26 @@ export default function InboxPage() {
         ${mobileView === 'chat' ? 'flex' : 'hidden'} md:flex
       `}>
         {selected ? (
-          <ChatWindow
-            conv={selected}
-            messages={messages}
-            agents={agents}
-            onSend={handleSend}
-            onAssign={handleAssign}
-            onResolve={handleResolve}
-            onReopen={handleReopen}
-            onBack={() => setMobileView('list')}
-          />
+          <div className="flex-1 flex flex-col relative min-w-0">
+            {/* Secure Application Lookup — quick action while handling a chat */}
+            <button
+              onClick={() => setShowAppLookup(true)}
+              className="absolute top-2 right-2 z-20 inline-flex items-center gap-1.5 rounded-full border border-[#C9A84C]/40 bg-[#0B1F3A]/90 px-3 py-1 text-[11px] font-semibold text-[#C9A84C] hover:bg-[#C9A84C]/15 transition-colors"
+              title="Search an application by Walz Reference (identity verification required)"
+            >
+              🔎 Application Lookup
+            </button>
+            <ChatWindow
+              conv={selected}
+              messages={messages}
+              agents={agents}
+              onSend={handleSend}
+              onAssign={handleAssign}
+              onResolve={handleResolve}
+              onReopen={handleReopen}
+              onBack={() => setMobileView('list')}
+            />
+          </div>
         ) : (
           <div className="flex-1 flex flex-col items-center justify-center text-white/20">
             <div className="text-5xl mb-4">💬</div>
@@ -410,6 +422,14 @@ export default function InboxPage() {
           </div>
         )}
       </div>
+
+      {/* Secure Application Lookup drawer — stays inside the Inbox */}
+      {showAppLookup && (
+        <ApplicationLookupDrawer
+          conversationId={selected ? String(selected.id) : undefined}
+          onClose={() => setShowAppLookup(false)}
+        />
+      )}
 
       {/* Client info — hidden on mobile, visible on large screens only */}
       {selected && (
