@@ -66,7 +66,14 @@ function CheckItem({ text }: { text: string }) {
 
 function fmtDate(s?: string): string {
   if (!s) return ''
-  try { return new Date(s).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) }
+  try {
+    // Date-only strings ("2026-09-24") parse as UTC midnight; in any timezone
+    // behind UTC that renders as the PREVIOUS day (24th shown as 23rd).
+    // Anchor at local noon so the calendar date is stable in every timezone —
+    // same guard FlightTicketTemplate uses.
+    const anchored = /^\d{4}-\d{2}-\d{2}$/.test(s) ? `${s}T12:00:00` : s
+    return new Date(anchored).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
+  }
   catch { return s }
 }
 
