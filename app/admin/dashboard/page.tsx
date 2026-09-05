@@ -9,6 +9,7 @@ import { format } from 'date-fns'
 import Link from 'next/link'
 import { cn } from '@/lib/utils'
 import { StaffCheckInWidget } from './StaffCheckInWidget'
+import { ApplicationLookupLauncher } from '@/components/admin/ApplicationLookupLauncher'
 import { JadeDailyBriefCard } from '@/components/admin/JadeDailyBriefCard'
 
 export const dynamic = 'force-dynamic'
@@ -240,6 +241,11 @@ export default async function DashboardPage() {
 
       {/* ── Staff Check-In Widget (only renders for tracked staff) ──────────── */}
       <StaffCheckInWidget />
+
+      {/* ── Secure Application Lookup — search by Walz Ref ─────────────────── */}
+      <div className="mb-6">
+        <ApplicationLookupLauncher />
+      </div>
 
       {/* ── Stats Grid ─────────────────────────────────────────────────────── */}
       <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4 mb-8">

@@ -6,6 +6,7 @@ import {
   FileText, CreditCard, CheckSquare, RefreshCw, UserPlus, Loader2, KeyRound, Copy, X,
 } from 'lucide-react'
 import { format } from 'date-fns'
+import { DoNotBookManager } from '@/components/admin/DoNotBookManager'
 
 type Stage = 'ENQUIRY' | 'DOCUMENTS_PENDING' | 'DOCUMENTS_RECEIVED' | 'PROCESSING' | 'SUBMITTED' | 'APPROVED' | 'REJECTED' | 'COMPLETED'
 
@@ -44,6 +45,8 @@ interface Client {
   portalApplications: PortalApp[]
   visaApplications: VisaApp[]
   _count: { bookings: number }
+  doNotBook?: boolean
+  doNotBookReason?: string | null
 }
 
 const STAGE_LABEL: Record<Stage, string> = {
@@ -280,7 +283,14 @@ export default function AdminClientsPage() {
                   </span>
                 </div>
                 <div className="flex-1 min-w-0">
-                  <div className="font-semibold text-white truncate">{c.name ?? c.email}</div>
+                  <div className="flex items-center gap-2 min-w-0">
+                    <div className="font-semibold text-white truncate">{c.name ?? c.email}</div>
+                    {c.doNotBook && (
+                      <span className="flex-shrink-0 inline-flex items-center rounded-full bg-red-600 px-2 py-0.5 text-[10px] font-black text-white">
+                        DO NOT BOOK
+                      </span>
+                    )}
+                  </div>
                   <div className="flex items-center gap-3 text-xs text-white/35 mt-0.5 flex-wrap">
                     {c.name && <span>{c.email}</span>}
                     <span>{c._count?.bookings ?? 0} booking{(c._count?.bookings ?? 0) !== 1 ? 's' : ''}</span>
@@ -321,6 +331,16 @@ export default function AdminClientsPage() {
               {/* Expanded: visa applications */}
               {isOpen && (
                 <div className="border-t border-white/5 px-5 py-4 bg-black/10 space-y-2">
+                  {/* Do-Not-Book management (management roles only — enforced server-side) */}
+                  <div className="pb-2">
+                    <DoNotBookManager
+                      userId={c.id}
+                      clientName={c.name ?? c.email}
+                      doNotBook={c.doNotBook ?? false}
+                      reason={c.doNotBookReason ?? null}
+                      onChanged={() => void load()}
+                    />
+                  </div>
                   {visaApps.length === 0 ? (
                     <p className="text-sm text-white/30 py-2">No applications found for this client.</p>
                   ) : visaApps.map(app => (

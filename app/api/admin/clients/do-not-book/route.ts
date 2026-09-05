@@ -100,3 +100,75 @@ export async function POST(req: NextRequest) {
 
   return NextResponse.json({ ok: true, overriddenBy: identity, at: new Date().toISOString() })
 }
+
+/**
+ * PUT /api/admin/clients/do-not-book — set or clear the flag from the admin UI.
+ * Body: { userId, doNotBook: boolean, reason? }
+ *
+ * Management-only: super_admin, operations_manager, general_manager,
+ * senior_manager (or the env super-admin). Every change is written with
+ * WHO set it and WHEN, plus an ActivityLog entry.
+ */
+export async function PUT(req: NextRequest) {
+  const session = await getAdminSession()
+  if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
+  const { getStaffPermissionsByEmail } = await import('@/lib/getStaffPermissions')
+  const perms = await getStaffPermissionsByEmail(session.email)
+  const MANAGEMENT_ROLES = ['super_admin', 'operations_manager', 'general_manager', 'senior_manager']
+  const isEnvAdmin = perms.staffId === null
+  if (!isEnvAdmin && !MANAGEMENT_ROLES.includes(perms.role ?? '')) {
+    return NextResponse.json({ error: 'Only management can change the Do Not Book flag.' }, { status: 403 })
+  }
+
+  let body: { userId?: string; doNotBook?: boolean; reason?: string } | null = null
+  try { body = await req.json() } catch { /* below */ }
+  if (!body?.userId || typeof body.doNotBook !== 'boolean') {
+    return NextResponse.json({ error: 'userId and doNotBook required' }, { status: 400 })
+  }
+  if (body.doNotBook && !body.reason?.trim()) {
+    return NextResponse.json({ error: 'A reason is required to flag a client.' }, { status: 400 })
+  }
+
+  const user = await prisma.user.findUnique({ where: { id: body.userId }, select: { id: true, name: true, email: true } })
+  if (!user) return NextResponse.json({ error: 'Client not found' }, { status: 404 })
+
+  const setBy = session.email
+  try {
+    await prisma.clientRiskScore.upsert({
+      where:  { userId: user.id },
+      create: {
+        userId:          user.id,
+        doNotBook:       body.doNotBook,
+        doNotBookReason: body.doNotBook ? body.reason!.trim() : null,
+        doNotBookSetBy:  setBy,
+        doNotBookSetAt:  new Date(),
+      },
+      update: {
+        doNotBook:       body.doNotBook,
+        doNotBookReason: body.doNotBook ? body.reason!.trim() : null,
+        doNotBookSetBy:  setBy,
+        doNotBookSetAt:  new Date(),
+      },
+    })
+  } catch (e) {
+    console.error('[do-not-book PUT] upsert failed:', e)
+    return NextResponse.json(
+      { error: 'Database not migrated — run supabase-add-do-not-book.sql in the Supabase SQL editor first.' },
+      { status: 500 },
+    )
+  }
+
+  const staff = await prisma.staff.findUnique({ where: { email: session.email }, select: { id: true, name: true } }).catch(() => null)
+  await prisma.activityLog.create({
+    data: {
+      staffId:   staff?.id ?? null,
+      staffName: staff?.name ?? session.email,
+      action:    body.doNotBook ? 'Do Not Book Flag Set' : 'Do Not Book Flag Cleared',
+      detail:    `${staff?.name ?? session.email} ${body.doNotBook ? 'flagged' : 'unflagged'} ${user.name ?? user.email}` +
+                 (body.doNotBook ? ` — reason: ${body.reason!.trim().slice(0, 200)}` : ''),
+    },
+  }).catch(() => {})
+
+  return NextResponse.json({ ok: true, doNotBook: body.doNotBook })
+}
