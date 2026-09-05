@@ -15,10 +15,14 @@ declare global {
  * produces P2024 "Timed out fetching a new connection from the connection pool"
  * and ECHECKOUTTIMEOUT errors, which surfaced as "Login failed" on /admin/login.
  *
- * Supabase's documented recommendation for serverless + transaction pooler is
- * connection_limit=1 per client. We also raise pool_timeout to smooth brief
- * spikes. Applied in code (not via Vercel env) so the DATABASE_URL env var
- * stays untouched; explicit params already present in the URL are respected.
+ * connection_limit=1 (tried 2026-09-02) fixed cross-lambda exhaustion but
+ * starved requests that fan out queries in parallel WITHIN one lambda
+ * (admin dashboard/inbox run 5+ queries via Promise.all): all queries
+ * queued on a single connection and timed out at 20s (P2024, incident
+ * 2026-09-05). connection_limit=3 is the balance — parallel per-request
+ * queries proceed while total pooler pressure stays ~40% below the old
+ * default of 5. Applied in code (not via Vercel env) so the DATABASE_URL
+ * env var stays untouched; explicit params already in the URL win.
  */
 function tunedDatabaseUrl(): string | undefined {
   const raw = process.env.DATABASE_URL
@@ -27,7 +31,7 @@ function tunedDatabaseUrl(): string | undefined {
   if (process.env.NODE_ENV !== 'production') return raw
   try {
     const url = new URL(raw)
-    if (!url.searchParams.has('connection_limit')) url.searchParams.set('connection_limit', '1')
+    if (!url.searchParams.has('connection_limit')) url.searchParams.set('connection_limit', '3')
     if (!url.searchParams.has('pool_timeout'))     url.searchParams.set('pool_timeout', '20')
     return url.toString()
   } catch {
