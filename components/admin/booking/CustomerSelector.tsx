@@ -1,6 +1,7 @@
 'use client'
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { Search, User, Plus, X, Loader2, Phone, Mail } from 'lucide-react'
+import { Search, User, Plus, X, Loader2, Phone, Mail, AlertTriangle } from 'lucide-react'
+import { DoNotBookWarning } from '@/components/admin/DoNotBookWarning'
 
 export interface AdminCustomer {
   id:          string
@@ -8,6 +9,8 @@ export interface AdminCustomer {
   email:       string
   phone?:      string | null
   nationality?: string | null
+  doNotBook?:       boolean
+  doNotBookReason?: string | null
 }
 
 interface NewCustomerForm {
@@ -42,6 +45,9 @@ export default function CustomerSelector({ value, onChange, className, required 
   const [saving,    setSaving]    = useState(false)
   const [newForm,   setNewForm]   = useState<NewCustomerForm>({ name: '', email: '', phone: '' })
   const [error,     setError]     = useState<string | null>(null)
+  // Do-Not-Book: a flagged client selection is held here until the staff
+  // member explicitly acknowledges the warning (logged server-side).
+  const [dnbPending, setDnbPending] = useState<AdminCustomer | null>(null)
   const containerRef = useRef<HTMLDivElement>(null)
 
   // Close dropdown on outside click
@@ -75,12 +81,33 @@ export default function CustomerSelector({ value, onChange, className, required 
 
   useEffect(() => { search(query) }, [query, search])
 
-  function select(c: AdminCustomer) {
+  function completeSelect(c: AdminCustomer) {
     onChange(c)
     setOpen(false)
     setQuery('')
     setCreating(false)
     setError(null)
+    setDnbPending(null)
+  }
+
+  async function select(c: AdminCustomer) {
+    // Fast path: search results already carry the flag
+    if (c.doNotBook) {
+      setDnbPending(c)
+      setOpen(false)
+      return
+    }
+    // Definitive check on selection (covers stale search data / other entry paths)
+    try {
+      const res  = await fetch(`/api/admin/clients/do-not-book?userId=${encodeURIComponent(c.id)}`)
+      const data = await res.json() as { doNotBook?: boolean; reason?: string | null }
+      if (data.doNotBook) {
+        setDnbPending({ ...c, doNotBook: true, doNotBookReason: data.reason ?? null })
+        setOpen(false)
+        return
+      }
+    } catch { /* check failure never blocks a normal client */ }
+    completeSelect(c)
   }
 
   async function createCustomer() {
@@ -116,7 +143,16 @@ export default function CustomerSelector({ value, onChange, className, required 
 
   if (value) {
     return (
-      <div className={`rounded-xl border border-[#2a3f5f] bg-[#0d2035] p-4 ${className ?? ''}`}>
+      <div className={`rounded-xl border ${value.doNotBook ? 'border-red-500/60' : 'border-[#2a3f5f]'} bg-[#0d2035] p-4 ${className ?? ''}`}>
+        {value.doNotBook && (
+          <div className="mb-3 flex items-start gap-2 rounded-lg bg-red-600/15 border border-red-500/40 px-3 py-2">
+            <AlertTriangle className="w-4 h-4 text-red-400 flex-shrink-0 mt-0.5" />
+            <p className="text-xs text-red-300">
+              <span className="font-bold">DO NOT BOOK — override recorded.</span>{' '}
+              {value.doNotBookReason ?? 'No reason recorded.'}
+            </p>
+          </div>
+        )}
         <div className="flex items-start justify-between gap-3">
           <div className="flex items-center gap-3 min-w-0">
             <div className="w-9 h-9 rounded-full bg-[#C9A84C]/20 flex items-center justify-center flex-shrink-0">
@@ -145,6 +181,17 @@ export default function CustomerSelector({ value, onChange, className, required 
 
   return (
     <div ref={containerRef} className={`relative ${className ?? ''}`}>
+      {dnbPending && (
+        <DoNotBookWarning
+          clientName={dnbPending.name}
+          reason={dnbPending.doNotBookReason ?? null}
+          userId={dnbPending.id}
+          email={dnbPending.email}
+          context="booking client selection"
+          onCancel={() => setDnbPending(null)}
+          onOverride={() => completeSelect(dnbPending)}
+        />
+      )}
       {!creating ? (
         <>
           {/* Search input */}
@@ -186,7 +233,15 @@ export default function CustomerSelector({ value, onChange, className, required 
                           <User className="w-3.5 h-3.5 text-[#C9A84C]" />
                         </div>
                         <div className="min-w-0 flex-1">
-                          <p className="text-sm font-medium text-white truncate">{c.name}</p>
+                          <div className="flex items-center gap-2">
+                            <p className="text-sm font-medium text-white truncate">{c.name}</p>
+                            {c.doNotBook && (
+                              <span className="inline-flex items-center gap-1 rounded-full bg-red-600 px-2 py-0.5 text-[10px] font-black text-white flex-shrink-0">
+                                <AlertTriangle className="w-2.5 h-2.5" />
+                                DO NOT BOOK
+                              </span>
+                            )}
+                          </div>
                           <div className="flex items-center gap-3 mt-0.5">
                             <span className="flex items-center gap-1 text-xs text-gray-400">
                               <Mail className="w-3 h-3" />{c.email}

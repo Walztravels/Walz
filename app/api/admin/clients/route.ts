@@ -80,7 +80,27 @@ export async function GET(req: NextRequest) {
       })
     )
 
-    return NextResponse.json({ clients: clientsWithVisa, total, page, limit })
+    // Attach Do-Not-Book hard-block flags. Separate resilient query so a
+    // pre-migration database (columns not yet added) degrades to "no flags"
+    // instead of breaking client search.
+    let dnbByUser = new Map<string, string | null>()
+    try {
+      const flags = await prisma.clientRiskScore.findMany({
+        where:  { userId: { in: users.map(u => u.id) }, doNotBook: true },
+        select: { userId: true, doNotBookReason: true },
+      })
+      dnbByUser = new Map(flags.map(f => [f.userId, f.doNotBookReason]))
+    } catch (e) {
+      console.error('[clients GET] doNotBook lookup skipped:', e)
+    }
+
+    const clientsWithFlags = clientsWithVisa.map(c => ({
+      ...c,
+      doNotBook:       dnbByUser.has(c.id),
+      doNotBookReason: dnbByUser.get(c.id) ?? null,
+    }))
+
+    return NextResponse.json({ clients: clientsWithFlags, total, page, limit })
   } catch (err) {
     console.error('[clients GET]', err)
     return NextResponse.json({ error: 'Failed to load clients' }, { status: 500 })

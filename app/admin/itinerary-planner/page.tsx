@@ -2,6 +2,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
+import { DoNotBookWarning } from '@/components/admin/DoNotBookWarning'
 
 interface Itinerary {
   id: string
@@ -316,6 +317,9 @@ function CreateModal({ onClose, onCreated }: { onClose: () => void; onCreated: (
   })
   const [saving, setSaving] = useState(false)
   const [err, setErr] = useState('')
+  // Do-Not-Book: blocked-client warning awaiting explicit logged acknowledgment
+  const [dnbWarning, setDnbWarning] = useState<{ reason: string | null } | null>(null)
+  const [dnbAcknowledged, setDnbAcknowledged] = useState(false)
 
   const upd = (k: string, v: unknown) => setForm(f => ({ ...f, [k]: v }))
 
@@ -323,6 +327,18 @@ function CreateModal({ onClose, onCreated }: { onClose: () => void; onCreated: (
     if (!form.title || !form.clientName || !form.clientEmail || !form.destination) {
       setErr('Please fill in Title, Client Name, Email, and Destination.')
       return
+    }
+    // Hard-block check: proposal creation for a Do-Not-Book client requires
+    // the explicit, logged override before proceeding.
+    if (!dnbAcknowledged) {
+      try {
+        const res  = await fetch(`/api/admin/clients/do-not-book?email=${encodeURIComponent(form.clientEmail.trim())}`)
+        const data = await res.json() as { doNotBook?: boolean; reason?: string | null }
+        if (data.doNotBook) {
+          setDnbWarning({ reason: data.reason ?? null })
+          return
+        }
+      } catch { /* check failure never blocks a normal client */ }
     }
     setSaving(true)
     setErr('')
@@ -342,7 +358,25 @@ function CreateModal({ onClose, onCreated }: { onClose: () => void; onCreated: (
 
   return (
     <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+      {dnbWarning && (
+        <DoNotBookWarning
+          clientName={form.clientName}
+          reason={dnbWarning.reason}
+          email={form.clientEmail.trim()}
+          context="itinerary/proposal creation"
+          onCancel={() => setDnbWarning(null)}
+          onOverride={() => {
+            setDnbAcknowledged(true)
+            setDnbWarning(null)
+          }}
+        />
+      )}
       <div className="bg-[#0B1F3A] border border-white/10 rounded-2xl w-full max-w-lg p-6 max-h-[90vh] overflow-y-auto">
+        {dnbAcknowledged && (
+          <div className="mb-4 rounded-lg bg-red-600/15 border border-red-500/40 px-3 py-2">
+            <p className="text-xs text-red-300 font-semibold">DO NOT BOOK override recorded — you may proceed.</p>
+          </div>
+        )}
         <div className="flex items-center justify-between mb-6">
           <h2 className="text-white font-bold text-lg">New Itinerary</h2>
           <button onClick={onClose} className="text-white/30 hover:text-white transition text-2xl leading-none">×</button>

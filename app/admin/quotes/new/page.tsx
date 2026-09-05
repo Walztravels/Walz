@@ -2,6 +2,7 @@
 
 import { useState, useCallback, useEffect, useRef, Suspense } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
+import { DoNotBookWarning } from '@/components/admin/DoNotBookWarning'
 import Link from 'next/link'
 import {
   Plane, Building2 as Hotel, Activity, Car, Plus, Star,
@@ -1288,6 +1289,9 @@ function NewQuoteInner() {
   const [internalNote,setInternalNote]= useState('')
   const [saving,      setSaving]      = useState(false)
   const [saveError,   setSaveError]   = useState<string | null>(null)
+  // Do-Not-Book: pending blocked submit awaiting explicit logged acknowledgment
+  const [dnbWarning,  setDnbWarning]  = useState<{ reason: string | null; send: boolean } | null>(null)
+  const dnbAcknowledged = useRef(false)
 
   const validUntil = (() => {
     const d = new Date(); d.setDate(d.getDate() + validDays); return d
@@ -1297,6 +1301,18 @@ function NewQuoteInner() {
   const removeFromCart = (id: string)  => setCart(prev => prev.filter(i => i.id !== id))
 
   const submit = async (send = false) => {
+    // Do-Not-Book hard-block: if the client email matches a blocked account,
+    // require the explicit logged acknowledgment before the quote is created.
+    if (!dnbAcknowledged.current && clientEmail.trim()) {
+      try {
+        const res  = await fetch(`/api/admin/clients/do-not-book?email=${encodeURIComponent(clientEmail.trim())}`)
+        const data = await res.json() as { doNotBook?: boolean; reason?: string | null }
+        if (data.doNotBook) {
+          setDnbWarning({ reason: data.reason ?? null, send })
+          return
+        }
+      } catch { /* check failure never blocks a normal client */ }
+    }
     setSaving(true); setSaveError(null)
     try {
       const flightOptions = cart.filter(i => i.type === 'flight' && i.offer).map(i => {
@@ -1381,6 +1397,21 @@ function NewQuoteInner() {
 
   return (
     <div className="min-h-screen bg-gray-50">
+      {dnbWarning && (
+        <DoNotBookWarning
+          clientName={clientName}
+          reason={dnbWarning.reason}
+          email={clientEmail.trim()}
+          context="quote creation"
+          onCancel={() => setDnbWarning(null)}
+          onOverride={() => {
+            dnbAcknowledged.current = true
+            const send = dnbWarning.send
+            setDnbWarning(null)
+            void submit(send)
+          }}
+        />
+      )}
       {/* Header */}
       <div className="bg-white border-b border-gray-200 px-6 py-4">
         <div className="max-w-7xl mx-auto">

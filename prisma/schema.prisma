@@ -2218,6 +2218,14 @@ model ClientRiskScore {
   overReliant         Boolean  @default(false)
   flaggedForReview    Boolean  @default(false)
   notes               String?  @db.Text
+  // Hard block — distinct from flaggedForReview (soft "look closer" signal).
+  // doNotBook means this client must not be accepted for future bookings;
+  // admin booking flows show a blocking banner requiring a logged override.
+  // Columns added via supabase-add-do-not-book.sql — NOT prisma db push.
+  doNotBook           Boolean   @default(false)
+  doNotBookReason     String?   @db.Text
+  doNotBookSetBy      String?
+  doNotBookSetAt      DateTime?
   user                User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   computedAt          DateTime @default(now())
   updatedAt           DateTime @updatedAt
