@@ -12,7 +12,7 @@ import type {
   TextLayer, TextSegmentsLayer, LogoLayer,
   ContactBarLayer, RouteCardLayer, PriceBlockLayer, CTAButtonLayer,
 } from '@/lib/orbit/composer/layer-model'
-import { autoFitText } from '@/lib/orbit/composer/auto-fit'
+import { autoFitText, wrapTextLines } from '@/lib/orbit/composer/auto-fit'
 import { checkCompositionQuality } from '@/lib/orbit/composer/quality-checks'
 import type { TemplateSafeZones } from '@/lib/orbit/composer/safe-zones'
 import { CanvasGuides } from './CanvasGuides'
@@ -39,6 +39,11 @@ interface Props {
   showGuides?:     boolean
   overlayStrength?: number   // 0–100 (from DesignControls)
   onLayerChange?:  (layerId: string, patch: Partial<DesignLayer>) => void
+  // Clears every override on one layer, restoring its template defaults
+  onLayerReset?:   (layerId: string) => void
+  // Undo the last layer edit (history lives in the studio parent)
+  onUndo?:         () => void
+  canUndo?:        boolean
   // Brand Asset patch — resolved logo image URL (already selected variant)
   resolvedLogoUrl?: string | null
 }
@@ -58,6 +63,14 @@ const COMMERCIAL_NOTE: Record<keyof PosterData, string> = {
   route: '* Staff input only', logo: '', headline: '', subheadline: '', cta: '', terms: '', contact: '',
 }
 
+// Sensible typography bounds for layer controls (pt at the 1080px baseline)
+const MIN_FONT_PT = 8
+const MAX_FONT_PT = 200
+
+function clamp(n: number, lo: number, hi: number): number {
+  return Number.isFinite(n) ? Math.min(hi, Math.max(lo, n)) : lo
+}
+
 // ── Canvas render helpers ─────────────────────────────────────────────────────
 
 function measureText(ctx: CanvasRenderingContext2D, text: string, fontSize: number, fontSpec: string): number {
@@ -66,17 +79,8 @@ function measureText(ctx: CanvasRenderingContext2D, text: string, fontSize: numb
 }
 
 function wrapWords(ctx: CanvasRenderingContext2D, text: string, maxPx: number, font: string): string[] {
-  ctx.font = font
-  const words = text.split(' ')
-  const lines: string[] = []
-  let cur = ''
-  for (const w of words) {
-    const attempt = cur ? `${cur} ${w}` : w
-    if (ctx.measureText(attempt).width > maxPx && cur) { lines.push(cur); cur = w }
-    else cur = attempt
-  }
-  if (cur) lines.push(cur)
-  return lines
+  // Shared wrapping (honours manual "\n" breaks) so every text renderer agrees
+  return wrapTextLines(text, maxPx, 0, font, t => { ctx.font = font; return ctx.measureText(t).width })
 }
 
 function renderTextOnCanvas(
@@ -89,18 +93,36 @@ function renderTextOnCanvas(
   const y  = ch * layer.y
   const scale = cw / 1080
   let fs = layer.fontSize * scale
+  const lhMult = 'lineHeight' in layer && layer.lineHeight ? layer.lineHeight : 1.25
+  const lsPx   = 'letterSpacing' in layer && layer.letterSpacing ? layer.letterSpacing * scale : 0
   const mwPx = 'maxWidth' in layer && layer.maxWidth ? cw * layer.maxWidth : undefined
 
-  // auto-fit if needed
+  // Letter spacing applies to measurement AND drawing (modern canvas API;
+  // silently ignored where unsupported so output degrades gracefully)
+  if ('letterSpacing' in ctx) {
+    (ctx as CanvasRenderingContext2D & { letterSpacing: string }).letterSpacing = `${lsPx}px`
+  }
+
+  const fontFor = (size: number) => `${layer.fontWeight} ${size}px 'Helvetica Neue', Arial, sans-serif`
+  const measure = (t: string, size: number) => { ctx.font = fontFor(size); return ctx.measureText(t).width }
+
+  // "Fit text to box": shrink to the layer's box, honouring manual breaks.
+  // Same font family/weight as drawing so preview, fit and export agree.
   if ('autoFit' in layer && layer.autoFit && mwPx) {
     const result = autoFitText(
-      { text: layer.text, boxWidth: mwPx, boxHeight: ch * 0.3, maxFontSize: layer.fontSize * scale, minFontSize: 12, fontFamily: 'Arial', fontWeight: layer.fontWeight },
-      (t, size) => { ctx.font = `${layer.fontWeight} ${size}px Arial, sans-serif`; return ctx.measureText(t).width }
+      {
+        text: layer.text, boxWidth: mwPx, boxHeight: ch * 0.3,
+        maxFontSize: layer.fontSize * scale, minFontSize: 8 * scale,
+        maxLines: ('maxLines' in layer && layer.maxLines) || 10,
+        fontFamily: "'Helvetica Neue', Arial, sans-serif", fontWeight: layer.fontWeight,
+        lineHeight: lhMult,
+      },
+      (t, size) => measure(t, size),
     )
     fs = result.fontSize
   }
 
-  const font = `${layer.fontWeight} ${fs}px 'Helvetica Neue', Arial, sans-serif`
+  const font = fontFor(fs)
   ctx.save()
   ctx.fillStyle   = layer.color
   ctx.font        = font
@@ -111,16 +133,16 @@ function renderTextOnCanvas(
     ctx.shadowBlur    = fs * 0.3
     ctx.shadowOffsetY = fs * 0.04
   }
-  const lh = fs * 1.25
+  const lh = fs * lhMult
 
-  if (mwPx) {
-    const lines = wrapWords(ctx, layer.text, mwPx, font)
-    const totalH = lines.length * lh
-    lines.forEach((l, i) => ctx.fillText(l, x, y - totalH / 2 + i * lh + lh / 2))
-  } else {
-    ctx.fillText(layer.text, x, y)
-  }
+  // Manual line breaks always honoured; word-wrap applies within each hard line
+  const lines = wrapTextLines(layer.text, mwPx ?? cw, fs, font, t => { ctx.font = font; return ctx.measureText(t).width })
+  const totalH = lines.length * lh
+  lines.forEach((l, i) => ctx.fillText(l, x, y - totalH / 2 + i * lh + lh / 2))
   ctx.restore()
+  if ('letterSpacing' in ctx) {
+    (ctx as CanvasRenderingContext2D & { letterSpacing: string }).letterSpacing = '0px'
+  }
 }
 
 function renderTextSegments(
@@ -451,11 +473,16 @@ function renderComposition(
 
       case 'logo': {
         const ll = layer as LogoLayer
-        if (ll.logoUrl && logoImg) {
+        // The resolved official logo image (brand-asset variant, or the
+        // built-in /walz-logo.png) is the source of truth. It renders
+        // whenever loaded — the layer's own logoUrl is NOT required (that
+        // requirement was the bug that kept the logo off every poster).
+        if (logoImg) {
           renderLogoImage(ctx, ll, logoImg, cw, ch)
         }
-        // No logoUrl or image not yet loaded: render nothing.
-        // The UI shows "Upload logo in Orbit → Brand" — text is never substituted.
+        // Image missing/failed: render nothing on canvas. Text is never
+        // substituted for the official mark; the UI shows a clear error
+        // banner and export asks for confirmation instead of going silent.
         break
       }
 
@@ -517,6 +544,9 @@ export function PosterCompositor({
   showGuides,
   overlayStrength,
   onLayerChange,
+  onLayerReset,
+  onUndo,
+  canUndo,
   resolvedLogoUrl,
 }: Props) {
   const canvasRef  = useRef<HTMLCanvasElement>(null)
@@ -524,6 +554,7 @@ export function PosterCompositor({
   const logoImgRef = useRef<HTMLImageElement | null>(null)
   const [bgLoaded,   setBgLoaded]   = useState(false)
   const [logoLoaded, setLogoLoaded] = useState(false)
+  const [logoError,  setLogoError]  = useState(false)
   const [activeLayer, setActiveLayer] = useState<keyof PosterData>('headline')
   const [exportFormat, setExportFormat] = useState<'image/jpeg' | 'image/png'>('image/jpeg')
   const [showBefore, setShowBefore] = useState(false)
@@ -546,14 +577,20 @@ export function PosterCompositor({
   }, [effectiveBackground])
 
   useEffect(() => {
-    if (!resolvedLogoUrl) { logoImgRef.current = null; setLogoLoaded(false); return }
+    if (!resolvedLogoUrl) { logoImgRef.current = null; setLogoLoaded(false); setLogoError(false); return }
     setLogoLoaded(false)
+    setLogoError(false)
     const img = new Image()
     img.crossOrigin = 'anonymous'
-    img.onload  = () => { logoImgRef.current = img; setLogoLoaded(true) }
-    img.onerror = () => { logoImgRef.current = null; setLogoLoaded(false) }
+    img.onload  = () => { logoImgRef.current = img; setLogoLoaded(true); setLogoError(false) }
+    img.onerror = () => { logoImgRef.current = null; setLogoLoaded(false); setLogoError(true) }
     img.src = resolvedLogoUrl
   }, [resolvedLogoUrl])
+
+  // The composition wants a logo but no image is on the canvas — surfaced as
+  // a visible error and re-confirmed before export (never a silent omission).
+  const wantsLogo   = !!activeComposition?.layers.some(l => l.type === 'logo' && l.visible)
+  const logoMissing = wantsLogo && (!resolvedLogoUrl || logoError || !logoLoaded)
 
   const drawCanvas = useCallback(() => {
     const canvas = canvasRef.current
@@ -619,6 +656,24 @@ export function PosterCompositor({
   function exportPoster() {
     const canvas = canvasRef.current
     if (!canvas || !onExport) return
+
+    // Never silently export a defective poster: missing logo and
+    // unreadable small print require explicit confirmation.
+    const problems: string[] = []
+    if (logoMissing) {
+      problems.push(logoError
+        ? 'The official logo FAILED TO LOAD and is not on the canvas.'
+        : 'The official logo is not on the canvas.')
+    }
+    if (activeComposition) {
+      for (const w of checkCompositionQuality(activeComposition)) {
+        if (w.message.includes('readable minimum')) problems.push(w.message)
+      }
+    }
+    if (problems.length > 0 &&
+        !confirm(`This export has problems:\n\n• ${problems.join('\n• ')}\n\nExport anyway?`)) {
+      return
+    }
     canvas.toBlob(blob => { if (blob) onExport(blob, exportFormat) }, exportFormat, 0.92)
   }
 
@@ -655,6 +710,19 @@ export function PosterCompositor({
             >
               Original
             </button>
+          </div>
+        )}
+
+        {/* Logo load failure — clear error, never a silent export */}
+        {logoMissing && (
+          <div className="mb-2 px-3 py-2 rounded-lg border border-red-800/70 bg-red-950/40">
+            <p className="text-xs text-red-300 font-medium">
+              {logoError
+                ? 'Official logo failed to load — it is NOT on the canvas.'
+                : !resolvedLogoUrl
+                ? 'No official logo available — it is NOT on the canvas.'
+                : 'Official logo is still loading…'}
+            </p>
           </div>
         )}
 
@@ -803,9 +871,21 @@ export function PosterCompositor({
       {/* Designer Mode layer controls */}
       {composition && !showBefore && (
         <div className="flex-1 min-w-0 space-y-2">
-          <p className="text-xs text-gray-500 font-medium uppercase tracking-wider">
-            Layers — {composition.templateKey.replace(/walz_/, '').replace(/_/g, ' ')}
-          </p>
+          <div className="flex items-center justify-between gap-2">
+            <p className="text-xs text-gray-500 font-medium uppercase tracking-wider">
+              Layers — {composition.templateKey.replace(/walz_/, '').replace(/_/g, ' ')}
+            </p>
+            {onUndo && (
+              <button
+                onClick={onUndo}
+                disabled={!canUndo}
+                className="text-xs bg-gray-800 hover:bg-gray-700 text-gray-300 px-2.5 py-1 rounded-lg transition-colors disabled:opacity-40"
+                title="Undo last layer edit"
+              >
+                ↩ Undo
+              </button>
+            )}
+          </div>
           <div className="space-y-1.5 max-h-80 overflow-y-auto pr-1">
             {[...composition.layers].sort((a, b) => b.zIndex - a.zIndex).map((l, idx, arr) => {
               const isActive = activeDesignerLayer === l.id
@@ -848,6 +928,13 @@ export function PosterCompositor({
                     <span className="text-xs text-gray-500 shrink-0">z{l.zIndex}</span>
                   </div>
 
+                  {/* Locked: movement/edits protected, but never permanently — the 🔓 above unlocks */}
+                  {isActive && l.locked && (
+                    <p className="mt-2 pt-2 border-t border-gray-800 text-xs text-gray-500">
+                      Layer is locked. Click 🔒 above to unlock and edit.
+                    </p>
+                  )}
+
                   {/* Expanded layer controls */}
                   {isActive && !l.locked && (
                     <div className="mt-2 pt-2 border-t border-gray-800 space-y-2" onClick={e => e.stopPropagation()}>
@@ -857,7 +944,7 @@ export function PosterCompositor({
                           <input
                             type="number" step="0.01" min={0} max={1}
                             value={Number(l.x.toFixed(3))}
-                            onChange={e => onLayerChange?.(l.id, { x: Number(e.target.value) })}
+                            onChange={e => onLayerChange?.(l.id, { x: clamp(Number(e.target.value), 0, 1) })}
                             className="w-full bg-gray-800 border border-gray-700 rounded px-2 py-1 text-xs text-white"
                           />
                         </div>
@@ -866,11 +953,86 @@ export function PosterCompositor({
                           <input
                             type="number" step="0.01" min={0} max={1}
                             value={Number(l.y.toFixed(3))}
-                            onChange={e => onLayerChange?.(l.id, { y: Number(e.target.value) })}
+                            onChange={e => onLayerChange?.(l.id, { y: clamp(Number(e.target.value), 0, 1) })}
                             className="w-full bg-gray-800 border border-gray-700 rounded px-2 py-1 text-xs text-white"
                           />
                         </div>
                       </div>
+
+                      {/* Typography — any layer with a font size (headline, subheadline,
+                          terms, contact, contact bar, CTA…) gets the full set */}
+                      {'fontSize' in l && (
+                        <div className="grid grid-cols-2 gap-2">
+                          <div>
+                            <label className="text-xs text-gray-600 block mb-0.5">Font size (pt)</label>
+                            <input
+                              type="number" step={1} min={MIN_FONT_PT} max={MAX_FONT_PT}
+                              value={(l as { fontSize?: number }).fontSize ?? 32}
+                              onChange={e => onLayerChange?.(l.id, { fontSize: clamp(Number(e.target.value), MIN_FONT_PT, MAX_FONT_PT) } as Partial<DesignLayer>)}
+                              className="w-full bg-gray-800 border border-gray-700 rounded px-2 py-1 text-xs text-white"
+                            />
+                          </div>
+                          <div>
+                            <label className="text-xs text-gray-600 block mb-0.5">Line height</label>
+                            <input
+                              type="number" step={0.05} min={0.8} max={2}
+                              value={(l as { lineHeight?: number }).lineHeight ?? 1.25}
+                              onChange={e => onLayerChange?.(l.id, { lineHeight: clamp(Number(e.target.value), 0.8, 2) } as Partial<DesignLayer>)}
+                              className="w-full bg-gray-800 border border-gray-700 rounded px-2 py-1 text-xs text-white"
+                            />
+                          </div>
+                        </div>
+                      )}
+                      {(l.type === 'text' || l.type === 'text_segments') && (
+                        <div className="grid grid-cols-2 gap-2">
+                          <div>
+                            <label className="text-xs text-gray-600 block mb-0.5">Letter spacing (px)</label>
+                            <input
+                              type="number" step={0.5} min={-2} max={20}
+                              value={(l as { letterSpacing?: number }).letterSpacing ?? 0}
+                              onChange={e => onLayerChange?.(l.id, { letterSpacing: clamp(Number(e.target.value), -2, 20) } as Partial<DesignLayer>)}
+                              className="w-full bg-gray-800 border border-gray-700 rounded px-2 py-1 text-xs text-white"
+                            />
+                          </div>
+                          <div>
+                            <label className="text-xs text-gray-600 block mb-0.5">Width (0.1–1)</label>
+                            <input
+                              type="number" step={0.05} min={0.1} max={1}
+                              value={(l as { maxWidth?: number }).maxWidth ?? 0.9}
+                              onChange={e => onLayerChange?.(l.id, { maxWidth: clamp(Number(e.target.value), 0.1, 1) } as Partial<DesignLayer>)}
+                              className="w-full bg-gray-800 border border-gray-700 rounded px-2 py-1 text-xs text-white"
+                            />
+                          </div>
+                        </div>
+                      )}
+                      {'align' in l && (
+                        <div className="grid grid-cols-2 gap-2">
+                          <div>
+                            <label className="text-xs text-gray-600 block mb-0.5">Align</label>
+                            <select
+                              value={String((l as { align?: string }).align ?? 'left')}
+                              onChange={e => onLayerChange?.(l.id, { align: e.target.value as 'left' | 'center' | 'right' } as Partial<DesignLayer>)}
+                              className="w-full bg-gray-800 border border-gray-700 rounded px-2 py-1 text-xs text-white"
+                            >
+                              <option value="left">Left</option>
+                              <option value="center">Center</option>
+                              <option value="right">Right</option>
+                            </select>
+                          </div>
+                          {(l.type === 'text' || l.type === 'text_segments') && (
+                            <label className="flex items-end gap-1.5 pb-1 text-xs text-gray-400 cursor-pointer">
+                              <input
+                                type="checkbox"
+                                checked={!!(l as { autoFit?: boolean }).autoFit}
+                                onChange={e => onLayerChange?.(l.id, { autoFit: e.target.checked } as Partial<DesignLayer>)}
+                                className="rounded"
+                              />
+                              Fit text to box
+                            </label>
+                          )}
+                        </div>
+                      )}
+
                       <div className="grid grid-cols-2 gap-2">
                         <div>
                           <label className="text-xs text-gray-600 block mb-0.5">Opacity</label>
@@ -893,12 +1055,14 @@ export function PosterCompositor({
                           </div>
                         )}
                       </div>
-                      <button
-                        onClick={() => onLayerChange?.(l.id, {})}
-                        className="text-xs text-gray-500 hover:text-gray-300 transition-colors"
-                      >
-                        Reset to template default
-                      </button>
+                      {onLayerReset && (
+                        <button
+                          onClick={() => onLayerReset(l.id)}
+                          className="text-xs text-gray-500 hover:text-gray-300 transition-colors"
+                        >
+                          Reset to template default
+                        </button>
+                      )}
                     </div>
                   )}
                 </div>

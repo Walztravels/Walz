@@ -114,6 +114,41 @@ export function DesignerControlsPanel({ controls, onChange, onPolish, onVariatio
       {/* Divider */}
       <div className="border-t border-gray-800" />
 
+      {/* Brand logo — approved official variants only; AUTO picks by background */}
+      <div className="space-y-3">
+        <p className="text-xs text-gray-500 font-medium uppercase tracking-wider">Logo</p>
+        <Seg
+          label="Variant (approved brand assets)"
+          value={controls.logoVariant ?? 'AUTO'}
+          options={[
+            { value: 'AUTO',       label: 'Auto' },
+            { value: 'PRIMARY',    label: 'Primary' },
+            { value: 'LIGHT',      label: 'Light' },
+            { value: 'DARK',       label: 'Dark' },
+            { value: 'MONOCHROME', label: 'Mono' },
+            { value: 'ICON',       label: 'Icon' },
+          ]}
+          onChange={v => set('logoVariant', v)}
+        />
+        <Seg
+          label="Logo size"
+          value={controls.logoScale ?? 'standard'}
+          options={[
+            { value: 'small',     label: 'Small' },
+            { value: 'standard',  label: 'Standard' },
+            { value: 'prominent', label: 'Prominent' },
+          ]}
+          onChange={v => set('logoScale', v)}
+        />
+        <p className="text-xs text-gray-600">
+          Variants come from Orbit → Brand uploads; missing variants fall back to the
+          official site logo. The mark is never recoloured or stretched.
+        </p>
+      </div>
+
+      {/* Divider */}
+      <div className="border-t border-gray-800" />
+
       {/* Image controls */}
       <div className="space-y-3">
         <p className="text-xs text-gray-500 font-medium uppercase tracking-wider">Image</p>

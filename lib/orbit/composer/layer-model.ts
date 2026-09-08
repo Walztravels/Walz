@@ -55,8 +55,9 @@ export interface TextLayer extends BaseLayer {
   color:       string
   align:       'left' | 'center' | 'right'
   maxLines?:   number
-  autoFit?:    boolean  // shrink font to fit box
+  autoFit?:    boolean  // shrink font to fit box ("Fit text to box")
   maxWidth?:   number   // 0-1 fractional
+  letterSpacing?: number // px at 1080px baseline; scaled proportionally
   shadow?:     boolean
 }
 

@@ -873,7 +873,10 @@ function DesignerModePanel({
                       </button>
                     )}
                   </div>
-                ) : field.type === 'multiline' ? (
+                ) : field.type === 'multiline' || field.type === 'text' || field.type === 'terms' ? (
+                  // Text fields accept MANUAL LINE BREAKS (Enter) — e.g. a
+                  // headline set as "WALZ TRAVELS⏎IS HIRING" renders exactly
+                  // that way instead of auto-wrapping awkwardly.
                   <textarea
                     value={commercialFields[field.layerKey] ?? ''}
                     onChange={e => onCommercialFieldChange(field.layerKey, e.target.value)}
@@ -1121,6 +1124,8 @@ export function CreativeStudioSection({
   const [designerControls,         setDesignerControls]         = useState<DesignControls>(defaultDesignControls())
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const [designerLayerOverrides,   setDesignerLayerOverrides]   = useState<Record<string, any>>({})
+  // Undo history for layer edits (bounded stack of previous override maps)
+  const [overrideHistory,          setOverrideHistory]          = useState<Array<Record<string, any>>>([])
   const [qualityScore,             setQualityScore]             = useState<QualityScoreResult | null>(null)
   // Active starter tracking + draft persistence
   const [activeStarterKey,         setActiveStarterKey]         = useState<string | null>(null)
@@ -1134,11 +1139,16 @@ export function CreativeStudioSection({
   // Derived safe zones for current template
   const currentSafeZones: TemplateSafeZones | undefined = TEMPLATE_SAFE_ZONES[designerTemplateKey]
 
-  // Resolved logo URL: auto-select variant based on overlay strength
+  // Resolved logo URL: auto-select an uploaded brand variant based on overlay
+  // strength; when no brand assets are uploaded (or none matches), fall back
+  // to the OFFICIAL site logo shipped with the app — the poster is never
+  // silently left without the Walz Travels mark.
+  const OFFICIAL_LOGO_FALLBACK = '/walz-logo.png'
   const resolvedLogoUrl: string | null = (() => {
     const brightness = analyzeBackgroundBrightness(designerControls.overlayStrength)
     const variant = resolveLogoVariant(brightness, brandAssets, designerControls.logoVariant ?? 'AUTO')
-    return variant && brandAssets[variant] ? brandAssets[variant]!.publicUrl : null
+    if (variant && brandAssets[variant]) return brandAssets[variant]!.publicUrl
+    return OFFICIAL_LOGO_FALLBACK
   })()
 
   // Rebuild composition when controls or layer overrides change
@@ -1161,6 +1171,24 @@ export function CreativeStudioSection({
       layerOverrides: layerOverrides as Record<string, Partial<import('@/lib/orbit/composer/layer-model').DesignLayer>>,
       structuredRoutes: structuredRoutes?.filter(r => r.from.trim() && r.to.trim()),
     })
+  }
+
+  // Apply a new layer-overrides map: set state + rebuild the composition so
+  // the preview updates immediately (change, reset and undo all route here).
+  function applyLayerOverrides(updated: Record<string, any>) {
+    setDesignerLayerOverrides(updated)
+    if (!designerComposition) return
+    const visual = designerComposition.layers.find(l => l.type === 'image') as { src?: string; id?: string } | undefined
+    const newComp = rebuildComposition(
+      designerTemplateKey,
+      designerCommercialFields,
+      designerControls,
+      updated,
+      visual?.src ? { url: visual.src, id: visual.id ?? undefined } : undefined,
+      designerStructuredRoutes,
+    )
+    setDesignerComposition(newComp)
+    setQualityScore(scoreComposition(newComp, designerControls, currentSafeZones))
   }
 
   // Polling timers for pending jobs
@@ -1700,6 +1728,17 @@ export function CreativeStudioSection({
     if (!selectedId) return
     setSavingPoster(true)
     try {
+      // Flush the designer draft immediately (layer overrides, fields,
+      // controls) so Save layers + reload always restores the exact state —
+      // no dependence on the debounced autosave having fired.
+      const draft = serializeDraft(
+        designerTemplateKey, activeStarterKey, designerFormat,
+        designerVisualAssetId, designerCommercialFields, designerControls,
+        designerLayerOverrides as Record<string, unknown>,
+      )
+      saveDraft(campaignId, draft)
+      setDraftSavedAt(draft.savedAt)
+
       await fetch(`/api/admin/orbit/campaigns/${campaignId}/creative/${selectedId}`, {
         method:  'PATCH',
         headers: { 'Content-Type': 'application/json' },
@@ -2290,19 +2329,20 @@ export function CreativeStudioSection({
               )}
             </div>
 
-            {/* Missing logo warning */}
-            {!resolvedLogoUrl && designerComposition && (
-              <div className="flex items-center justify-between gap-3 px-3 py-2 rounded-lg border border-amber-800/60 bg-amber-950/30">
-                <p className="text-xs text-amber-300">
-                  Brand logo missing — poster will export without a logo.
+            {/* Logo source notice: fallback = built-in official mark */}
+            {Object.keys(brandAssets).length === 0 && designerComposition && (
+              <div className="flex items-center justify-between gap-3 px-3 py-2 rounded-lg border border-gray-700 bg-gray-900">
+                <p className="text-xs text-gray-400">
+                  Using the built-in official Walz Travels logo. Upload brand variants
+                  (light/dark/mono) for better contrast control.
                 </p>
                 <a
                   href="/admin/orbit/brand"
                   target="_blank"
                   rel="noreferrer"
-                  className="flex-shrink-0 text-xs font-medium text-amber-400 hover:text-amber-200 underline"
+                  className="flex-shrink-0 text-xs font-medium text-indigo-400 hover:text-indigo-300 underline"
                 >
-                  Upload Logo
+                  Upload Variants
                 </a>
               </div>
             )}
@@ -2321,22 +2361,24 @@ export function CreativeStudioSection({
               overlayStrength={designerControls.overlayStrength}
               resolvedLogoUrl={resolvedLogoUrl}
               onLayerChange={(layerId, patch) => {
+                setOverrideHistory(h => [...h.slice(-29), designerLayerOverrides])
                 const updated = { ...designerLayerOverrides, [layerId]: { ...(designerLayerOverrides[layerId] ?? {}), ...patch } }
-                setDesignerLayerOverrides(updated)
-                // Rebuild composition with the override applied
-                if (designerComposition) {
-                  const visual = designerComposition.layers.find(l => l.type === 'image') as { src?: string; id?: string } | undefined
-                  const newComp = rebuildComposition(
-                    designerTemplateKey,
-                    designerCommercialFields,
-                    designerControls,
-                    updated,
-                    visual?.src ? { url: visual.src, id: visual.id ?? undefined } : undefined,
-                  )
-                  setDesignerComposition(newComp)
-                  setQualityScore(scoreComposition(newComp, designerControls, currentSafeZones))
-                }
+                applyLayerOverrides(updated)
               }}
+              onLayerReset={(layerId) => {
+                setOverrideHistory(h => [...h.slice(-29), designerLayerOverrides])
+                const updated = { ...designerLayerOverrides }
+                delete updated[layerId]
+                applyLayerOverrides(updated)
+              }}
+              onUndo={() => {
+                setOverrideHistory(h => {
+                  if (h.length === 0) return h
+                  applyLayerOverrides(h[h.length - 1])
+                  return h.slice(0, -1)
+                })
+              }}
+              canUndo={overrideHistory.length > 0}
             />
 
             {!selectedId && campaignImages.length === 0 && (

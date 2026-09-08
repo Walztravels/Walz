@@ -38,19 +38,38 @@ function wrapText(
   fontSpec:  string,
   measure:   MeasureFn,
 ): string[] {
-  const words = text.split(' ').filter(Boolean)
+  return wrapTextLines(text, maxWidth, fontSize, fontSpec, measure)
+}
+
+/**
+ * Word-wraps text into lines, honouring MANUAL LINE BREAKS ("\n"):
+ * each hard line is word-wrapped independently, and an empty hard line
+ * is preserved as a blank line. This is the single wrapping routine the
+ * compositor uses, so preview, auto-fit and export always agree.
+ */
+export function wrapTextLines(
+  text:      string,
+  maxWidth:  number,
+  fontSize:  number,
+  fontSpec:  string,
+  measure:   MeasureFn,
+): string[] {
   const lines: string[] = []
-  let current = ''
-  for (const word of words) {
-    const attempt = current ? `${current} ${word}` : word
-    if (measure(attempt, fontSize, fontSpec) <= maxWidth) {
-      current = attempt
-    } else {
-      if (current) lines.push(current)
-      current = word
+  for (const hard of (text ?? '').split('\n')) {
+    const words = hard.split(' ').filter(Boolean)
+    if (words.length === 0) { if (hard === '' && lines.length > 0) lines.push(''); continue }
+    let current = ''
+    for (const word of words) {
+      const attempt = current ? `${current} ${word}` : word
+      if (measure(attempt, fontSize, fontSpec) <= maxWidth) {
+        current = attempt
+      } else {
+        if (current) lines.push(current)
+        current = word
+      }
     }
+    if (current) lines.push(current)
   }
-  if (current) lines.push(current)
   return lines
 }
 
@@ -119,8 +138,9 @@ export function autoFitText(input: AutoFitInput, measure: MeasureFn): AutoFitRes
     }
   }
 
-  // Anti-widow pass on the final line set
-  bestLines = avoidWidow(bestLines)
+  // Anti-widow pass on the final line set — skipped when the staff member
+  // placed manual line breaks (their intent always wins over heuristics)
+  if (!text.includes('\n')) bestLines = avoidWidow(bestLines)
 
   const totalHeight    = bestLines.length * bestSize * lineHeight
   const anyLineToWide  = bestLines.some(l => measure(l, bestSize, fontSpec) > boxWidth)

@@ -80,7 +80,10 @@ function buildImageLayer(url: string, controls?: DesignControls): ImageLayer {
 /**
  * Build the logo layer from the template zone config.
  */
-function buildLogoLayer(zone: NonNullable<WalzTemplate['zones']['logo']>): LogoLayer {
+function buildLogoLayer(
+  zone: NonNullable<WalzTemplate['zones']['logo']>,
+  controls?: DesignControls,
+): LogoLayer {
   return {
     id:         'logo',
     type:       'logo',
@@ -93,6 +96,10 @@ function buildLogoLayer(zone: NonNullable<WalzTemplate['zones']['logo']>): LogoL
     y:          zone.y ?? 0.06,
     zIndex:     10,
     visible:    zone.visible ?? true,
+    // Brand-asset controls: the actual image URL is resolved at render time
+    // (official /walz-logo.png fallback lives in the studio, not here)
+    logoVariant: controls?.logoVariant === 'AUTO' ? undefined : controls?.logoVariant,
+    logoScale:   controls?.logoScale ?? 'standard',
   }
 }
 
@@ -245,7 +252,7 @@ export function buildTemplateComposition(input: CompositionInput): DesignComposi
 
   // 2. Logo
   if (zones.logo) {
-    layers.push(buildLogoLayer(zones.logo))
+    layers.push(buildLogoLayer(zones.logo, controls))
   }
 
   // 3. Headline
@@ -286,20 +293,27 @@ export function buildTemplateComposition(input: CompositionInput): DesignComposi
     layers.push(buildTextLayer('terms', zones.terms, termsText, 60, controls))
   }
 
-  // 9. Contact bar — variant driven by footer control and template background
-  const baseFooterVariant = template.background === 'light_editorial' || template.background === 'white_card'
-    ? 'light'
-    : 'dark'
-  const footerVariant = controls?.footer === 'full'
-    ? 'full'
-    : controls?.footer === 'minimal'
-    ? 'compact'
-    : baseFooterVariant
+  // 9. Contact footer. Staff-entered contact text (e.g. a campaign URL like
+  // walztravels.com/careers) replaces the default BUSINESS contact bar, per
+  // the template contract "Leave blank to use default Walz contact bar".
+  const contactText = commercialFields['contact'] ?? ''
+  if (contactText.trim() && zones.contact) {
+    layers.push(buildTextLayer('contact', zones.contact, contactText, 80, controls))
+  } else {
+    const baseFooterVariant = template.background === 'light_editorial' || template.background === 'white_card'
+      ? 'light'
+      : 'dark'
+    const footerVariant = controls?.footer === 'full'
+      ? 'full'
+      : controls?.footer === 'minimal'
+      ? 'compact'
+      : baseFooterVariant
 
-  layers.push(buildContactBarLayer(footerVariant, {
-    y:      zones.contact?.y ?? 0.975,
-    zIndex: 80,
-  }))
+    layers.push(buildContactBarLayer(footerVariant, {
+      y:      zones.contact?.y ?? 0.975,
+      zIndex: 80,
+    }))
+  }
 
   // 10. Apply any layer overrides
   const finalLayers = layers.map(layer => {
