@@ -526,6 +526,7 @@ export const NAV_ITEMS: NavSection[] = [
       { href: '/admin/recruitment/jobs',      label: 'Job Openings',    icon: 'Briefcase', permission: 'content' },
       { href: '/admin/recruitment/templates',   label: 'Email Templates', icon: 'Mail',      permission: 'content' },
       { href: '/admin/recruitment/talent-pool', label: 'Talent Pool',     icon: 'Star',      permission: 'content' },
+      { href: '/admin/recruitment/compliance',  label: 'Compliance',      icon: 'ShieldCheck', permission: 'content' },
     ],
   },
   {
