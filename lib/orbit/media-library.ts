@@ -27,10 +27,13 @@ export type Readiness = typeof READINESS[number]
 
 const BUCKET = 'orbit-media'
 
-/** True when the URL points at storage WE own (never expires under us). */
+/** True when the URL points at storage WE own (never expires under us).
+ *  Any public object in our Supabase storage counts — orbit-media plus the
+ *  marketing-media bucket that library-reference attachments point at.
+ *  Provider CDNs (fal.media, replicate.delivery, …) never match. */
 export function isOwnedStorageUrl(url: string | null | undefined): boolean {
   if (!url) return false
-  return url.includes(`/storage/v1/object/public/${BUCKET}/`)
+  return url.includes('/storage/v1/object/public/')
 }
 
 /** Only ready, non-archived, owned-storage assets may be published. */

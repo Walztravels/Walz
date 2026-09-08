@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getAdminSession } from '@/lib/admin-auth'
 import { prisma } from '@/lib/db'
-import { publishToBuffer, isBufferConfigured } from '@/lib/orbit/buffer-publisher'
+import { publishToBuffer, isBufferConfigured, getBufferPostStatus } from '@/lib/orbit/buffer-publisher'
 import { notifyPublishComplete } from '@/lib/orbit/notify'
 import { canPublishAsset } from '@/lib/orbit/media-library'
 import {
@@ -340,9 +340,15 @@ export async function POST(
   return NextResponse.json({ results, skippedProtected, counts, summary, tone, published: counts.queued > 0 })
 }
 
-// PATCH — manual reconciliation of an 'unknown' channel outcome. Staff check
-// Buffer's dashboard, then record what actually happened; retry stays
-// blocked until this is done.
+// PATCH — reconciliation of a channel outcome.
+//
+// Provider-first: when the log row carries a bufferUpdateId, the ONLY path
+// is querying Buffer itself (getBufferPostStatus) — Buffer's own status is
+// the evidence, and its 'sent' (network-delivered) is the sole way a
+// channel becomes 'published'. Manual resolution exists only for rows with
+// NO provider id (the acknowledgement never arrived) and requires written
+// evidence of what the staff member checked; "Mark failed" can never
+// bypass duplicate protection on a post Buffer knows about.
 export async function PATCH(
   req: NextRequest,
   { params }: { params: { id: string } },
@@ -351,24 +357,85 @@ export async function PATCH(
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   if (session.role !== SUPER_ADMIN) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
-  const body = await req.json().catch(() => ({})) as { logId?: string; resolvedStatus?: string }
-  if (!body.logId || !['failed', 'queued_buffer'].includes(body.resolvedStatus ?? '')) {
-    return NextResponse.json({ error: 'logId and resolvedStatus (failed | queued_buffer) are required' }, { status: 400 })
+  const body = await req.json().catch(() => ({})) as {
+    logId?: string
+    resolvedStatus?: string
+    evidence?: string
   }
+  if (!body.logId) return NextResponse.json({ error: 'logId is required' }, { status: 400 })
+
   const log = await prisma.orbitPublishLog.findFirst({
     where: { id: body.logId, campaignId: params.id },
   })
   if (!log) return NextResponse.json({ error: 'Log entry not found' }, { status: 404 })
   const current = normalizeLogStatus(log.status)
+
+  // ── Provider reconciliation (row has a Buffer post id) ───────────────────
+  if (log.bufferUpdateId) {
+    if (!['unknown', 'queued_buffer', 'submitting'].includes(current)) {
+      return NextResponse.json({ error: `Nothing to reconcile — this entry is already ${current}` }, { status: 400 })
+    }
+    const integration = await prisma.orbitIntegration.findUnique({ where: { id: 'buffer' } })
+    const meta = (integration?.meta ?? {}) as Record<string, unknown>
+    if (!integration?.connected || !isBufferConfigured(meta)) {
+      return NextResponse.json({ error: 'Buffer is not connected — cannot reconcile against the provider' }, { status: 400 })
+    }
+    try {
+      const providerState = await getBufferPostStatus(
+        { accessToken: meta.accessToken as string, channels: {} },
+        log.bufferUpdateId,
+      )
+      let status: string
+      let note: string
+      if (!providerState.found) {
+        status = 'failed'
+        note   = 'Buffer has no post with this id — the submission did not take.'
+      } else if (providerState.status === 'sent') {
+        // Buffer's 'sent' = delivered to the network → provider-confirmed.
+        status = 'published'
+        note   = `Provider-confirmed published${providerState.sentAt ? ` at ${providerState.sentAt}` : ''}${providerState.externalLink ? ` (${providerState.externalLink})` : ''}.`
+      } else if (providerState.status === 'error') {
+        status = 'failed'
+        note   = `Buffer reports failure: ${providerState.errorMessage ?? 'no message'}.`
+      } else {
+        status = 'queued_buffer'
+        note   = `Buffer reports "${providerState.status}" — still queued, not yet delivered.`
+      }
+      const updated = await prisma.orbitPublishLog.update({
+        where: { id: log.id },
+        data: {
+          status,
+          providerStatus: providerState.status ?? 'not_found',
+          checkedAt: new Date(),
+          error: `${note} Reconciled with Buffer by ${session.email}.`.slice(0, 500),
+        },
+      })
+      return NextResponse.json({ log: updated, provider: providerState })
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err)
+      return NextResponse.json({ error: `Could not reach Buffer to reconcile: ${msg.slice(0, 200)}` }, { status: 502 })
+    }
+  }
+
+  // ── Manual resolution (no provider id — the ack never arrived) ───────────
+  if (!['failed', 'queued_buffer'].includes(body.resolvedStatus ?? '')) {
+    return NextResponse.json({ error: 'resolvedStatus (failed | queued_buffer) is required for manual resolution' }, { status: 400 })
+  }
   if (current !== 'unknown' && !(current === 'submitting' && isStaleSubmitting(log))) {
-    return NextResponse.json({ error: `Only unknown/stale entries can be reconciled (this one is ${current})` }, { status: 400 })
+    return NextResponse.json({ error: `Only unknown/stale entries can be resolved manually (this one is ${current})` }, { status: 400 })
+  }
+  const evidence = typeof body.evidence === 'string' ? body.evidence.trim() : ''
+  if (evidence.length < 15) {
+    return NextResponse.json({
+      error: 'Manual resolution requires written evidence (min 15 chars) of what you checked in Buffer, e.g. "Checked Buffer queue for Instagram at 14:32 — post not present."',
+    }, { status: 400 })
   }
   const updated = await prisma.orbitPublishLog.update({
     where: { id: log.id },
     data: {
       status:    body.resolvedStatus!,
       checkedAt: new Date(),
-      error:     `${log.error ?? ''} · Reconciled as ${body.resolvedStatus} by ${session.email}`.slice(0, 500),
+      error:     `${log.error ?? ''} · Resolved as ${body.resolvedStatus} by ${session.email}. Evidence: ${evidence}`.slice(0, 500),
     },
   })
   return NextResponse.json({ log: updated })

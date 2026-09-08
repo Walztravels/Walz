@@ -282,15 +282,40 @@ export function PublishSection({ campaignId, platforms, campaignStatus, content,
     } finally { setRetrying(false) }
   }
 
-  async function reconcile(logId: string, resolvedStatus: 'failed' | 'queued_buffer') {
+  // Provider-first reconciliation: rows WITH a Buffer post id are checked
+  // against Buffer itself (its 'sent' is the only path to Published); rows
+  // without one require written evidence of what was checked.
+  async function reconcileWithBuffer(logId: string) {
+    setError(null)
     const res = await fetch(`/api/admin/orbit/campaigns/${campaignId}/publish`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ logId, resolvedStatus }),
+      body: JSON.stringify({ logId }),
     })
     if (!res.ok) {
       const d = await res.json().catch(() => ({})) as { error?: string }
       setError(d.error ?? 'Reconciliation failed')
+    }
+    loadLogs()
+  }
+
+  async function resolveManually(logId: string, resolvedStatus: 'failed' | 'queued_buffer') {
+    const evidence = prompt(
+      `Manual resolution requires evidence. Describe exactly what you checked in Buffer, e.g.\n"Checked Buffer queue for Instagram at 14:32 — post not present."`,
+    )
+    if (!evidence || evidence.trim().length < 15) {
+      if (evidence !== null) setError('Evidence must be at least 15 characters — say what you checked and when.')
+      return
+    }
+    setError(null)
+    const res = await fetch(`/api/admin/orbit/campaigns/${campaignId}/publish`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ logId, resolvedStatus, evidence }),
+    })
+    if (!res.ok) {
+      const d = await res.json().catch(() => ({})) as { error?: string }
+      setError(d.error ?? 'Resolution failed')
     }
     loadLogs()
   }
@@ -527,12 +552,21 @@ export function PublishSection({ campaignId, platforms, campaignStatus, content,
                   <span className="text-gray-600" title={log.mediaIds!.join(', ')}>{log.mediaIds!.length} media</span>
                 )}
                 {log.error && <span className="text-red-400 truncate max-w-[220px]" title={log.error}>{log.error}</span>}
-                {log.status === 'unknown' && (
+                {(log.status === 'unknown' || log.status === 'queued_buffer' || log.status === 'sent') && log.bufferUpdateId && (
+                  <button onClick={() => void reconcileWithBuffer(log.id)}
+                    className="text-[10px] text-indigo-300 hover:text-indigo-100 underline"
+                    title="Query Buffer for this post's real status — its 'sent' is the only path to Published">
+                    Check Buffer status
+                  </button>
+                )}
+                {log.status === 'unknown' && !log.bufferUpdateId && (
                   <span className="flex gap-1">
-                    <button onClick={() => void reconcile(log.id, 'failed')}
-                      className="text-[10px] text-amber-300 hover:text-amber-100 underline">Mark failed</button>
-                    <button onClick={() => void reconcile(log.id, 'queued_buffer')}
-                      className="text-[10px] text-amber-300 hover:text-amber-100 underline">Mark queued</button>
+                    <button onClick={() => void resolveManually(log.id, 'failed')}
+                      className="text-[10px] text-amber-300 hover:text-amber-100 underline"
+                      title="Requires written evidence of what you checked in Buffer">Mark failed (evidence)</button>
+                    <button onClick={() => void resolveManually(log.id, 'queued_buffer')}
+                      className="text-[10px] text-amber-300 hover:text-amber-100 underline"
+                      title="Requires written evidence of what you checked in Buffer">Mark queued (evidence)</button>
                   </span>
                 )}
                 <span className="text-gray-600 ml-auto flex-shrink-0">

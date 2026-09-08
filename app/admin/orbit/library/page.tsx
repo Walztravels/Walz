@@ -51,6 +51,7 @@ export default function MediaLibraryPage() {
   const [selected, setSelected] = useState<LibAsset | null>(null)
   const [usage,    setUsage]    = useState<Usage[]>([])
   const [versions, setVersions] = useState<Version[]>([])
+  const [fileCheck, setFileCheck] = useState<{ reachable: boolean; note: string } | null>(null)
   const [busy,     setBusy]     = useState(false)
   const [notice,   setNotice]   = useState('')
   const [renaming, setRenaming] = useState('')
@@ -88,12 +89,12 @@ export default function MediaLibraryPage() {
   }, [])
 
   async function openDetail(asset: LibAsset) {
-    setSelected(asset); setUsage([]); setVersions([]); setNotice('')
+    setSelected(asset); setUsage([]); setVersions([]); setNotice(''); setFileCheck(null)
     setRenaming(asset.title ?? ''); setTagsDraft((asset.tags ?? []).join(', '))
     try {
       const res  = await fetch(`/api/admin/orbit/library/${asset.id}`)
       const data = await res.json()
-      if (res.ok) { setUsage(data.usage ?? []); setVersions(data.versions ?? []) }
+      if (res.ok) { setUsage(data.usage ?? []); setVersions(data.versions ?? []); setFileCheck(data.fileCheck ?? null) }
     } catch { /* detail extras are non-fatal */ }
   }
 
@@ -261,6 +262,13 @@ export default function MediaLibraryPage() {
             </div>
             <Preview a={selected} className="w-full max-h-72 object-contain rounded-lg bg-gray-900" />
 
+            {fileCheck && (
+              <p className={`text-[11px] px-3 py-1.5 rounded-lg border ${fileCheck.reachable
+                ? 'text-green-300 bg-green-950/40 border-green-900'
+                : 'text-red-300 bg-red-950/40 border-red-900'}`}>
+                Storage check: {fileCheck.note}
+              </p>
+            )}
             {notice && <p className="text-xs text-indigo-300 bg-indigo-950/40 border border-indigo-900 rounded-lg px-3 py-2">{notice}</p>}
             {selected.saveError && (
               <p className="text-xs text-red-300 bg-red-950/40 border border-red-900 rounded-lg px-3 py-2">{selected.saveError}</p>

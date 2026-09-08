@@ -25,15 +25,30 @@ export async function GET(_req: NextRequest, { params }: { params: { mediaId: st
     const asset = await prisma.orbitMedia.findUnique({ where: { id: params.mediaId } })
     if (!asset) return NextResponse.json({ error: 'Asset not found' }, { status: 404 })
     const groupId = asset.assetGroupId ?? asset.id
-    const [usage, versions] = await Promise.all([
+    const [usage, versions, fileCheck] = await Promise.all([
       getAssetUsage(asset.id),
       prisma.orbitMedia.findMany({
         where:   { OR: [{ assetGroupId: groupId }, { id: groupId }] },
         orderBy: { version: 'desc' },
         select:  { id: true, version: true, readiness: true, publicUrl: true, createdAt: true, createdBy: true },
       }),
+      // A storage URL alone does not prove the file exists — HEAD-check it.
+      (async () => {
+        if (!asset.publicUrl) return { reachable: false, note: 'no file URL' }
+        try {
+          const head = await fetch(asset.publicUrl, { method: 'HEAD', signal: AbortSignal.timeout(5000) })
+          return {
+            reachable: head.ok,
+            note: head.ok
+              ? `file verified (HTTP ${head.status}, ${head.headers.get('content-length') ?? '?'} bytes)`
+              : `file NOT reachable (HTTP ${head.status})`,
+          }
+        } catch {
+          return { reachable: false, note: 'file check timed out or failed' }
+        }
+      })(),
     ])
-    return NextResponse.json({ asset, usage, versions })
+    return NextResponse.json({ asset, usage, versions, fileCheck })
   } catch (err) {
     console.error('[library asset GET]', err)
     return NextResponse.json({ error: 'Failed to load asset' }, { status: 500 })

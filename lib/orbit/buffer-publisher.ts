@@ -143,3 +143,70 @@ export async function publishToBuffer(
 export function isBufferConfigured(meta: Record<string, unknown>): boolean {
   return typeof meta.accessToken === 'string' && (meta.accessToken as string).length > 10
 }
+
+// ── Post status reconciliation ───────────────────────────────────────────────
+// Buffer's GraphQL schema (verified via introspection) exposes
+//   post(input: { id }) { status sentAt error { message } }
+// with status ∈ draft | error | needs_approval | scheduled | sending | sent.
+// Buffer's "sent" means DELIVERED to the social network — this is the
+// provider confirmation that allows our channel state to become published.
+// CreatePostInput has no idempotency key, so reconciliation + per-channel
+// records remain the duplicate protection.
+
+const POST_STATUS_QUERY = `
+  query PostStatus($input: PostInput!) {
+    post(input: $input) {
+      id
+      status
+      sentAt
+      externalLink
+      error { message }
+    }
+  }
+`
+
+export interface BufferPostStatus {
+  found:         boolean
+  status?:       string          // Buffer's own status enum value
+  sentAt?:       string | null
+  externalLink?: string | null
+  errorMessage?: string | null
+}
+
+export async function getBufferPostStatus(
+  creds: BufferCredentials,
+  postId: string,
+): Promise<BufferPostStatus> {
+  const res = await fetch(BUFFER_GRAPHQL, {
+    method: 'POST',
+    headers: {
+      Authorization:  `Bearer ${creds.accessToken}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ query: POST_STATUS_QUERY, variables: { input: { id: postId } } }),
+  })
+  if (!res.ok) {
+    throw new Error(`Buffer GraphQL ${res.status} while checking post status`)
+  }
+  const result = await res.json() as {
+    data?: { post?: { id: string; status: string; sentAt?: string | null; externalLink?: string | null; error?: { message: string } | null } }
+    errors?: Array<{ message: string }>
+  }
+  if (result.errors?.length) {
+    // A not-found post surfaces as a GraphQL error — that IS evidence:
+    // Buffer has no such post, so the submission did not take.
+    if (/not found|NotFound|does not exist/i.test(result.errors[0].message)) {
+      return { found: false }
+    }
+    throw new Error(`Buffer GraphQL error: ${result.errors[0].message}`)
+  }
+  const post = result.data?.post
+  if (!post?.id) return { found: false }
+  return {
+    found:        true,
+    status:       post.status,
+    sentAt:       post.sentAt ?? null,
+    externalLink: post.externalLink ?? null,
+    errorMessage: post.error?.message ?? null,
+  }
+}

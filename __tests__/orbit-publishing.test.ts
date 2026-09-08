@@ -281,7 +281,7 @@ describe('PublishSection UI', () => {
   })
   it('offers Validate, Retry failed channels only, blockers display and reconciliation', () => {
     for (const needle of ['Validate', 'Retry failed channels only', 'Blockers — nothing was sent',
-                          'Mark failed', 'Mark queued', 'hasRetryableFailures']) {
+                          'Check Buffer status', 'Mark failed (evidence)', 'hasRetryableFailures']) {
       expect(src).toContain(needle)
     }
   })
