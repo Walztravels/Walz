@@ -5,7 +5,12 @@ import { generateCampaign } from '@/lib/orbit/campaign-generator'
 import { notifyCampaignNeedsApproval } from '@/lib/orbit/notify'
 
 export const dynamic = 'force-dynamic'
-export const maxDuration = 60
+// Generating up to the full token cap across 6-7 platforms in one Claude
+// call regularly takes over a minute. At 60s Vercel killed the function
+// mid-generation and returned a plain-text 504 — which the browser then
+// surfaced as Safari's cryptic "The string did not match the expected
+// pattern." JSON-parse error. 300s is the Pro-plan ceiling.
+export const maxDuration = 300
 
 export async function POST(
   req: NextRequest,

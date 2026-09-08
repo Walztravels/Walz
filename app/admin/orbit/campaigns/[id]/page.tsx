@@ -71,6 +71,25 @@ function StringField({ value }: { value: unknown }) {
   return <p className="text-sm text-gray-200 whitespace-pre-wrap">{String(value ?? '')}</p>
 }
 
+/**
+ * Parse a fetch Response that SHOULD be JSON but may be a plain-text
+ * platform error (a Vercel 504 timeout page, for example). Without this,
+ * res.json() on a text body surfaces as Safari's baffling "The string did
+ * not match the expected pattern." — this returns a human explanation
+ * instead.
+ */
+async function safeJson(res: Response): Promise<Record<string, unknown>> {
+  const text = await res.text()
+  try {
+    return JSON.parse(text)
+  } catch {
+    if (res.status === 504 || res.status === 502 || res.status === 503 || /timeout/i.test(text)) {
+      return { error: 'The server timed out while generating — this can take a few minutes for large campaigns. Please try again.' }
+    }
+    return { error: `Server returned an unexpected response (HTTP ${res.status}). Please try again.` }
+  }
+}
+
 export default function CampaignDetailPage() {
   const params = useParams()
   const id = params.id as string
@@ -101,8 +120,8 @@ export default function CampaignDetailPage() {
     setGenerating(true); setGenError(null)
     try {
       const res = await fetch(`/api/admin/orbit/campaigns/${id}/generate`, { method: 'POST' })
-      const data = await res.json()
-      if (!res.ok) throw new Error(data.error ?? 'Generation failed')
+      const data = await safeJson(res)
+      if (!res.ok) throw new Error(String(data.error ?? 'Generation failed'))
       await load()
     } catch (e) {
       setGenError(e instanceof Error ? e.message : 'Unknown error')
@@ -119,9 +138,9 @@ export default function CampaignDetailPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: act, ...extra }),
       })
-      const data = await res.json()
-      if (!res.ok) throw new Error(data.error ?? 'Action failed')
-      if (data.campaign) setCampaign(data.campaign)
+      const data = await safeJson(res)
+      if (!res.ok) throw new Error(String(data.error ?? 'Action failed'))
+      if (data.campaign) setCampaign(data.campaign as Campaign)
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Unknown error')
     } finally {
