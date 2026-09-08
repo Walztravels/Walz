@@ -68,7 +68,7 @@ AND NOT EXISTS (                                    -- topic-guarded (no duplica
 -- Verify:
 SELECT "location", "applicationInstructions" FROM "JobOpening"
 WHERE "slug" = 'sales-marketing-representative-o38270';
-SELECT "sortOrder", "kind", "required", "question" FROM "JobScreeningQuestion" q
+SELECT q."sortOrder", q."kind", q."required", q."question" FROM "JobScreeningQuestion" q
 JOIN "JobOpening" j ON j.id = q."jobId"
 WHERE j."slug" = 'sales-marketing-representative-o38270'
 ORDER BY q."sortOrder";
