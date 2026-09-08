@@ -6,6 +6,7 @@ import { Loader2, Mail, Phone, Globe, FileText, StickyNote, History } from 'luci
 import InterviewsSection from '@/components/admin/recruitment/InterviewsSection'
 import AiScreeningSection from '@/components/admin/recruitment/AiScreeningSection'
 import AiInterviewSection from '@/components/admin/recruitment/AiInterviewSection'
+import SendEmailSection from '@/components/admin/recruitment/SendEmailSection'
 
 interface Stage { key: string; label: string }
 interface Detail {
@@ -164,6 +165,9 @@ export default function ApplicationDetailPage() {
 
           {/* Interviews & scorecards */}
           <InterviewsSection applicationId={app.id} jobId={job?.id ?? null} />
+
+          {/* Candidate communication — explicit human sends only */}
+          <SendEmailSection applicationId={app.id} candidateEmail={app.candidate.email} />
 
           {/* Internal notes */}
           <div className="bg-white rounded-2xl shadow-sm p-5 space-y-3">

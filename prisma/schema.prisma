@@ -2453,6 +2453,21 @@ model AiInterview {
   @@index([applicationId, createdAt])
 }
 
+// Recruitment communication templates — staff-editable, placeholder-based.
+// Every send is an explicit human action from the application page; no
+// template is ever sent automatically on a stage move or by AI.
+model RecruitmentEmailTemplate {
+  id        String   @id @default(cuid())
+  key       String   @unique              // stable seed key (e.g. rejection_after_review)
+  name      String
+  subject   String
+  body      String   @db.Text             // plain text with {{placeholders}}
+  isActive  Boolean  @default(true)
+  updatedBy String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
 model Testimonial {
   id        String   @id @default(cuid())
   name      String
