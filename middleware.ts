@@ -121,8 +121,11 @@ export async function middleware(req: NextRequest) {
     if (pathname === '/api/admin/extras' && req.method === 'GET') {
       return NextResponse.next()
     }
-    // Resend inbound webhook — authenticated by its own ?secret= param, not staff session
-    if (pathname === '/api/admin/suppliers/inbound') {
+    // Resend inbound webhooks — authenticated by their own ?secret= param
+    // (timing-safe check inside each route), not by a staff session. Without
+    // this bypass the edge middleware 401s Resend's deliveries before the
+    // route's secret check ever runs.
+    if (pathname === '/api/admin/suppliers/inbound' || pathname === '/api/admin/careers/inbound') {
       return NextResponse.next()
     }
     // Allow CRON_SECRET bearer token (used by CLI migration triggers)
