@@ -27,13 +27,40 @@ export type Readiness = typeof READINESS[number]
 
 const BUCKET = 'orbit-media'
 
+/** Public storage buckets this application owns and may publish from. */
+export const APPROVED_PUBLIC_BUCKETS = ['orbit-media', 'marketing-media'] as const
+
 /** True when the URL points at storage WE own (never expires under us).
- *  Any public object in our Supabase storage counts — orbit-media plus the
- *  marketing-media bucket that library-reference attachments point at.
- *  Provider CDNs (fal.media, replicate.delivery, …) never match. */
+ *  Strict: the URL must be on the EXACT configured Supabase host AND in an
+ *  approved public bucket — a public object on someone else's Supabase
+ *  project, or any provider CDN (fal.media, replicate.delivery, …), never
+ *  matches. Fails closed when the storage host is not configured. */
 export function isOwnedStorageUrl(url: string | null | undefined): boolean {
   if (!url) return false
-  return url.includes('/storage/v1/object/public/')
+  const base = process.env.NEXT_PUBLIC_SUPABASE_URL?.replace(/\/+$/, '')
+  if (!base) return false
+  return APPROVED_PUBLIC_BUCKETS.some(bucket =>
+    url.startsWith(`${base}/storage/v1/object/public/${bucket}/`))
+}
+
+/**
+ * Verify a stored file actually exists and is fetchable — a storage URL
+ * alone proves nothing. Used both by the asset detail drawer and by the
+ * publish preflight before any asset is handed to a provider.
+ */
+export async function verifyStoredFile(url: string | null | undefined): Promise<{ reachable: boolean; note: string }> {
+  if (!url) return { reachable: false, note: 'no file URL' }
+  try {
+    const head = await fetch(url, { method: 'HEAD', signal: AbortSignal.timeout(5000) })
+    return {
+      reachable: head.ok,
+      note: head.ok
+        ? `file verified (HTTP ${head.status}, ${head.headers.get('content-length') ?? '?'} bytes)`
+        : `file NOT reachable (HTTP ${head.status})`,
+    }
+  } catch {
+    return { reachable: false, note: 'file check timed out or failed' }
+  }
 }
 
 /** Only ready, non-archived, owned-storage assets may be published. */

@@ -13,6 +13,7 @@ interface PublishLog {
   attempt?: number
   channelId?: string | null
   mediaIds?: string[]
+  providerStatus?: string | null
 }
 
 interface PreflightEntry { platform: string; channelId: string | null; blockers: string[] }
@@ -301,21 +302,35 @@ export function PublishSection({ campaignId, platforms, campaignStatus, content,
 
   async function resolveManually(logId: string, resolvedStatus: 'failed' | 'queued_buffer') {
     const evidence = prompt(
-      `Manual resolution requires evidence. Describe exactly what you checked in Buffer, e.g.\n"Checked Buffer queue for Instagram at 14:32 — post not present."`,
+      `Manual override requires evidence. Describe exactly what you checked in Buffer, e.g.\n"Checked Buffer queue for Instagram at 14:32 — post not present."`,
     )
     if (!evidence || evidence.trim().length < 15) {
       if (evidence !== null) setError('Evidence must be at least 15 characters — say what you checked and when.')
       return
     }
+    // Marking failed enables a resend that could DUPLICATE a post that
+    // actually went out — evidence alone is insufficient; the risk must be
+    // explicitly acknowledged, and the override is audited.
+    let riskAcknowledgement: string | undefined
+    if (resolvedStatus === 'failed') {
+      const typed = prompt(
+        'Marking failed makes this channel retryable. If the post actually went out, retrying will DUPLICATE it.\n\nType exactly: ACCEPT DUPLICATE RISK',
+      )
+      if (typed !== 'ACCEPT DUPLICATE RISK') {
+        if (typed !== null) setError('Override cancelled — the duplicate-post risk was not acknowledged.')
+        return
+      }
+      riskAcknowledgement = typed
+    }
     setError(null)
     const res = await fetch(`/api/admin/orbit/campaigns/${campaignId}/publish`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ logId, resolvedStatus, evidence }),
+      body: JSON.stringify({ logId, resolvedStatus, evidence, riskAcknowledgement }),
     })
     if (!res.ok) {
       const d = await res.json().catch(() => ({})) as { error?: string }
-      setError(d.error ?? 'Resolution failed')
+      setError(d.error ?? 'Override failed')
     }
     loadLogs()
   }
@@ -559,7 +574,7 @@ export function PublishSection({ campaignId, platforms, campaignStatus, content,
                     Check Buffer status
                   </button>
                 )}
-                {log.status === 'unknown' && !log.bufferUpdateId && (
+                {log.status === 'unknown' && (!log.bufferUpdateId || log.providerStatus === 'not_found' || log.providerStatus === 'lookup_failed') && (
                   <span className="flex gap-1">
                     <button onClick={() => void resolveManually(log.id, 'failed')}
                       className="text-[10px] text-amber-300 hover:text-amber-100 underline"

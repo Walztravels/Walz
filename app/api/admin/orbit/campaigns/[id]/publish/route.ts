@@ -3,7 +3,7 @@ import { getAdminSession } from '@/lib/admin-auth'
 import { prisma } from '@/lib/db'
 import { publishToBuffer, isBufferConfigured, getBufferPostStatus } from '@/lib/orbit/buffer-publisher'
 import { notifyPublishComplete } from '@/lib/orbit/notify'
-import { canPublishAsset } from '@/lib/orbit/media-library'
+import { canPublishAsset, verifyStoredFile } from '@/lib/orbit/media-library'
 import {
   preflightChannel, summarizeResults, latestPerChannel, normalizeLogStatus,
   RETRYABLE_STATUSES, isStaleSubmitting, isAmbiguousSubmitError,
@@ -206,9 +206,19 @@ export async function POST(
   }
 
   // Load publishable media (legacy + shared-library attachments)
-  const { ready: publishMediaAll, notReady } = await loadPublishableMedia(
+  const loaded = await loadPublishableMedia(
     params.id, (campaign.mediaOrder as string[]) ?? [],
   )
+  // Storage verification runs BEFORE publishing, not only in the detail
+  // drawer: every selected file is HEAD-checked; an unreachable file is
+  // treated as not-ready and becomes a visible preflight blocker.
+  const fileChecks = await Promise.all(loaded.ready.map(m => verifyStoredFile(m.publicUrl)))
+  const publishMediaAll: typeof loaded.ready = []
+  const notReady = [...loaded.notReady]
+  loaded.ready.forEach((m, i) => {
+    if (fileChecks[i].reachable) publishMediaAll.push(m)
+    else notReady.push({ ...m, title: `${m.title ?? m.id} — storage check failed: ${fileChecks[i].note}` })
+  })
   const videoItems = publishMediaAll.filter(m => m.mediaType === 'video')
   const imageItems = publishMediaAll.filter(m => !m.mediaType || m.mediaType === 'image')
   const isVideoPost  = videoItems.length === 1 && imageItems.length === 0
@@ -342,13 +352,16 @@ export async function POST(
 
 // PATCH — reconciliation of a channel outcome.
 //
-// Provider-first: when the log row carries a bufferUpdateId, the ONLY path
-// is querying Buffer itself (getBufferPostStatus) — Buffer's own status is
-// the evidence, and its 'sent' (network-delivered) is the sole way a
-// channel becomes 'published'. Manual resolution exists only for rows with
-// NO provider id (the acknowledgement never arrived) and requires written
-// evidence of what the staff member checked; "Mark failed" can never
-// bypass duplicate protection on a post Buffer knows about.
+// Provider-first and CONSERVATIVE: when the log row carries a
+// bufferUpdateId, Buffer is queried and only its definitive answers move
+// state — 'sent' (network-delivered) → published, 'error' → failed
+// (provider-confirmed, retry becomes possible). "Not found", permission
+// errors, lookup failures and anything ambiguous leave the row
+// UNRESOLVED (unknown) — never auto-failed, never retry-eligible.
+//
+// The only other way a channel becomes retryable is an explicit, audited
+// staff override: written evidence of what was checked PLUS a typed
+// acknowledgement of the duplicate-post risk. A note alone is not enough.
 export async function PATCH(
   req: NextRequest,
   { params }: { params: { id: string } },
@@ -361,6 +374,7 @@ export async function PATCH(
     logId?: string
     resolvedStatus?: string
     evidence?: string
+    riskAcknowledgement?: string
   }
   if (!body.logId) return NextResponse.json({ error: 'logId is required' }, { status: 400 })
 
@@ -371,7 +385,7 @@ export async function PATCH(
   const current = normalizeLogStatus(log.status)
 
   // ── Provider reconciliation (row has a Buffer post id) ───────────────────
-  if (log.bufferUpdateId) {
+  if (log.bufferUpdateId && !body.resolvedStatus) {
     if (!['unknown', 'queued_buffer', 'submitting'].includes(current)) {
       return NextResponse.json({ error: `Nothing to reconcile — this entry is already ${current}` }, { status: 400 })
     }
@@ -388,13 +402,15 @@ export async function PATCH(
       let status: string
       let note: string
       if (!providerState.found) {
-        status = 'failed'
-        note   = 'Buffer has no post with this id — the submission did not take.'
+        // NOT definitive: could be permissions, propagation, or a deleted
+        // post. Stays UNRESOLVED — no auto-fail, no retry eligibility.
+        status = 'unknown'
+        note   = 'Buffer lookup could not find this post — possibly permissions or deletion, NOT proof of failure. Verify in the Buffer dashboard; retry requires the audited override.'
       } else if (providerState.status === 'sent') {
-        // Buffer's 'sent' = delivered to the network → provider-confirmed.
         status = 'published'
         note   = `Provider-confirmed published${providerState.sentAt ? ` at ${providerState.sentAt}` : ''}${providerState.externalLink ? ` (${providerState.externalLink})` : ''}.`
       } else if (providerState.status === 'error') {
+        // The one provider-confirmed failure — retry becomes possible.
         status = 'failed'
         note   = `Buffer reports failure: ${providerState.errorMessage ?? 'no message'}.`
       } else {
@@ -412,22 +428,41 @@ export async function PATCH(
       })
       return NextResponse.json({ log: updated, provider: providerState })
     } catch (err) {
+      // Lookup failure is itself ambiguous — the row is left untouched.
       const msg = err instanceof Error ? err.message : String(err)
-      return NextResponse.json({ error: `Could not reach Buffer to reconcile: ${msg.slice(0, 200)}` }, { status: 502 })
+      await prisma.orbitPublishLog.update({
+        where: { id: log.id },
+        data:  { providerStatus: 'lookup_failed', checkedAt: new Date() },
+      }).catch(() => {})
+      return NextResponse.json({ error: `Could not reach Buffer to reconcile — the channel stays unresolved: ${msg.slice(0, 200)}` }, { status: 502 })
     }
   }
 
-  // ── Manual resolution (no provider id — the ack never arrived) ───────────
+  // ── Audited staff override (unresolved rows only) ────────────────────────
   if (!['failed', 'queued_buffer'].includes(body.resolvedStatus ?? '')) {
-    return NextResponse.json({ error: 'resolvedStatus (failed | queued_buffer) is required for manual resolution' }, { status: 400 })
+    return NextResponse.json({ error: 'resolvedStatus (failed | queued_buffer) is required for a manual override' }, { status: 400 })
   }
   if (current !== 'unknown' && !(current === 'submitting' && isStaleSubmitting(log))) {
-    return NextResponse.json({ error: `Only unknown/stale entries can be resolved manually (this one is ${current})` }, { status: 400 })
+    return NextResponse.json({ error: `Only unresolved entries can be overridden manually (this one is ${current})` }, { status: 400 })
+  }
+  // A row Buffer KNOWS about must be reconciled with the provider first;
+  // the override applies only when the provider genuinely cannot answer.
+  if (log.bufferUpdateId && !['not_found', 'lookup_failed'].includes(log.providerStatus ?? '')) {
+    return NextResponse.json({
+      error: 'This channel has a Buffer post id — run "Check Buffer status" first. The manual override is only for posts the provider cannot account for.',
+    }, { status: 400 })
   }
   const evidence = typeof body.evidence === 'string' ? body.evidence.trim() : ''
   if (evidence.length < 15) {
     return NextResponse.json({
-      error: 'Manual resolution requires written evidence (min 15 chars) of what you checked in Buffer, e.g. "Checked Buffer queue for Instagram at 14:32 — post not present."',
+      error: 'Manual override requires written evidence (min 15 chars) of what you checked in Buffer, e.g. "Checked Buffer queue for Instagram at 14:32 — post not present."',
+    }, { status: 400 })
+  }
+  // Marking FAILED makes the channel retry-eligible — a duplicate-post risk
+  // that must be explicitly acknowledged. Evidence alone is insufficient.
+  if (body.resolvedStatus === 'failed' && body.riskAcknowledgement !== 'ACCEPT DUPLICATE RISK') {
+    return NextResponse.json({
+      error: 'Marking failed enables a resend that could duplicate a post that actually went out. Type ACCEPT DUPLICATE RISK as riskAcknowledgement to proceed.',
     }, { status: 400 })
   }
   const updated = await prisma.orbitPublishLog.update({
@@ -435,8 +470,18 @@ export async function PATCH(
     data: {
       status:    body.resolvedStatus!,
       checkedAt: new Date(),
-      error:     `${log.error ?? ''} · Resolved as ${body.resolvedStatus} by ${session.email}. Evidence: ${evidence}`.slice(0, 500),
+      error:     `${log.error ?? ''} · Overridden as ${body.resolvedStatus} by ${session.email}. Evidence: ${evidence}${body.resolvedStatus === 'failed' ? ' · Duplicate-post risk acknowledged.' : ''}`.slice(0, 500),
     },
   })
+  // Audit trail for the override (who, what, evidence, risk acknowledgement)
+  await prisma.activityLog.create({
+    data: {
+      staffId:   session.id ?? null,
+      staffName: session.name ?? session.email,
+      action:    'Orbit: Publish Override',
+      module:    'content',
+      detail:    `Channel ${log.platform} (campaign ${params.id}) overridden to ${body.resolvedStatus}. Evidence: ${evidence}${body.resolvedStatus === 'failed' ? '. Duplicate-post risk acknowledged.' : ''}`.slice(0, 800),
+    },
+  }).catch((e: unknown) => console.error('[publish override] audit failed:', e))
   return NextResponse.json({ log: updated })
 }

@@ -264,7 +264,7 @@ describe('orbit_media_library_refactor migration', () => {
     expect(sql).toContain("WHERE readiness = 'draft'")
   })
   it('never marks provider-hosted files READY — they are reported as missing_source', () => {
-    expect(sql).toContain("LIKE '%/storage/v1/object/public/orbit-media/%' THEN 'ready'")
+    expect(sql).toContain("LIKE '%/storage/v1/object/public/%'           THEN 'ready'")
     expect(sql).toContain("'missing_source'")
   })
 })

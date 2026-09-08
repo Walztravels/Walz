@@ -51,6 +51,7 @@ const db = {
     findUnique: jest.fn(async () => ({ connected: true, meta: { accessToken: 'tok-123456789012', channels: { instagram: 'ch_ig' } } })),
   },
   orbitSettings: { findUnique: jest.fn(async () => ({})) },
+  activityLog:   { create: jest.fn(async (x: unknown) => x) },
   orbitPublishLog: {
     findMany: jest.fn(async () => [...logs].sort((a, b) => new Date(b.sentAt as string).getTime() - new Date(a.sentAt as string).getTime())),
     findFirst: jest.fn(async ({ where }: { where: { id: string } }) => logs.find(l => l.id === where.id) ?? null),
@@ -91,6 +92,11 @@ beforeEach(() => {
   publishMock.mockImplementation(async () => ({ bufferUpdateId: 'buf_new' }))
   process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://xyz.supabase.co'
   process.env.SUPABASE_SERVICE_ROLE_KEY = 'srk-test'
+  // Publish preflight HEAD-verifies stored files
+  global.fetch = jest.fn(async (_url: RequestInfo | URL, init?: RequestInit) => {
+    if (init?.method === 'HEAD') return new Response(null, { status: 200, headers: { 'content-length': '9' } })
+    return new Response('{}', { status: 200 })
+  }) as typeof fetch
 })
 afterAll(() => { global.fetch = realFetch })
 
@@ -181,36 +187,83 @@ describe('publish reconciliation (PATCH)', () => {
     postStatusMock.mockResolvedValueOnce({ found: false })
     res = await publishPATCH(makeReq({ logId: 'log_nf' }), { params: { id: 'c1' } })
     const nf = await res.json()
-    expect(nf.log.status).toBe('failed')
-    expect(String(nf.log.error)).toContain('no post with this id')
+    // Not-found is NOT proof of failure — the channel stays unresolved.
+    expect(nf.log.status).toBe('unknown')
+    expect(nf.log.providerStatus).toBe('not_found')
+    expect(String(nf.log.error)).toContain('NOT proof of failure')
   })
 
-  it('"Mark failed" cannot bypass provider truth when a Buffer post id exists', async () => {
+  it('"Mark failed" cannot bypass provider truth when Buffer knows the post', async () => {
+    // Row with an id and no prior not_found lookup: the override is refused
+    seedLog({ bufferUpdateId: 'abc123abc123abc123abc123', providerStatus: null })
+    const res = await publishPATCH(makeReq({
+      logId: 'log_u', resolvedStatus: 'failed',
+      evidence: 'I want to resend this channel right now please',
+      riskAcknowledgement: 'ACCEPT DUPLICATE RISK',
+    }), { params: { id: 'c1' } })
+    expect(res.status).toBe(400)
+    expect((await res.json()).error).toContain('Check Buffer status')
+    expect(postStatusMock).not.toHaveBeenCalled()
+  })
+
+  it('a Buffer lookup failure leaves the channel unresolved (502, no state change)', async () => {
     seedLog({ bufferUpdateId: 'abc123abc123abc123abc123' })
-    postStatusMock.mockResolvedValueOnce({ found: true, status: 'scheduled' })
-    // even when the caller ASKS for failed, the provider answer governs
-    const res = await publishPATCH(makeReq({ logId: 'log_u', resolvedStatus: 'failed', evidence: 'I want to resend this' }), { params: { id: 'c1' } })
-    const data = await res.json()
-    expect(data.log.status).toBe('queued_buffer')        // provider says still queued
-    expect(postStatusMock).toHaveBeenCalled()
+    postStatusMock.mockRejectedValueOnce(new Error('Buffer GraphQL 500 while checking post status'))
+    const res = await publishPATCH(makeReq({ logId: 'log_u' }), { params: { id: 'c1' } })
+    expect(res.status).toBe(502)
+    const row = logs.find(l => l.id === 'log_u')!
+    expect(row.status).toBe('unknown')                  // untouched — still unresolved
+    expect(row.providerStatus).toBe('lookup_failed')
   })
 
-  it('manual resolution (no provider id) demands written evidence', async () => {
+  it('manual override demands evidence AND an explicit duplicate-risk acknowledgement', async () => {
     seedLog()
+    // no evidence
     let res = await publishPATCH(makeReq({ logId: 'log_u', resolvedStatus: 'failed' }), { params: { id: 'c1' } })
     expect(res.status).toBe(400)
     expect((await res.json()).error).toContain('written evidence')
-
+    // short evidence
     res = await publishPATCH(makeReq({ logId: 'log_u', resolvedStatus: 'failed', evidence: 'short' }), { params: { id: 'c1' } })
     expect(res.status).toBe(400)
-
+    // long evidence but NO risk acknowledgement — a note alone is insufficient
     res = await publishPATCH(makeReq({
       logId: 'log_u', resolvedStatus: 'failed',
       evidence: 'Checked Buffer queue for Instagram at 14:32 — post not present.',
     }), { params: { id: 'c1' } })
+    expect(res.status).toBe(400)
+    expect((await res.json()).error).toContain('ACCEPT DUPLICATE RISK')
+    // evidence + typed acknowledgement → allowed, audited
+    res = await publishPATCH(makeReq({
+      logId: 'log_u', resolvedStatus: 'failed',
+      evidence: 'Checked Buffer queue for Instagram at 14:32 — post not present.',
+      riskAcknowledgement: 'ACCEPT DUPLICATE RISK',
+    }), { params: { id: 'c1' } })
     const data = await res.json()
     expect(data.log.status).toBe('failed')
     expect(String(data.log.error)).toContain('Evidence: Checked Buffer queue')
+    expect(String(data.log.error)).toContain('Duplicate-post risk acknowledged')
+    expect(db.activityLog.create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ action: 'Orbit: Publish Override' }),
+    }))
+  })
+
+  it('marking queued (protective direction) needs evidence but not the risk acknowledgement', async () => {
+    seedLog()
+    const res = await publishPATCH(makeReq({
+      logId: 'log_u', resolvedStatus: 'queued_buffer',
+      evidence: 'Found the post sitting in the Buffer queue at 14:40.',
+    }), { params: { id: 'c1' } })
+    expect((await res.json()).log.status).toBe('queued_buffer')
+  })
+
+  it('an id-row whose lookup already said not_found may be overridden with full requirements', async () => {
+    seedLog({ bufferUpdateId: 'abc123abc123abc123abc123', providerStatus: 'not_found' })
+    const res = await publishPATCH(makeReq({
+      logId: 'log_u', resolvedStatus: 'failed',
+      evidence: 'Buffer dashboard checked 14:45 — no Instagram post exists for this campaign.',
+      riskAcknowledgement: 'ACCEPT DUPLICATE RISK',
+    }), { params: { id: 'c1' } })
+    expect((await res.json()).log.status).toBe('failed')
   })
 
   it('a resolved (failed) channel becomes retryable; unresolved and fresh-submitting stay protected', async () => {
@@ -249,10 +302,27 @@ describe('hardening source invariants', () => {
     expect(src).toContain('getBufferPostStatus')
     expect(src).toContain("Buffer's \"sent\" means DELIVERED")
   })
-  it('library asset detail HEAD-checks the stored file (a URL alone proves nothing)', () => {
-    const src = read('app/api/admin/orbit/library/[mediaId]/route.ts')
-    expect(src).toContain("method: 'HEAD'")
-    expect(src).toContain('fileCheck')
+  it('stored files are HEAD-verified in the detail drawer AND before publishing', () => {
+    const helper = read('lib/orbit/media-library.ts')
+    expect(helper).toContain("method: 'HEAD'")
+    expect(read('app/api/admin/orbit/library/[mediaId]/route.ts')).toContain('verifyStoredFile')
     expect(read('app/admin/orbit/library/page.tsx')).toContain('Storage check:')
+    // publish preflight verifies storage BEFORE any asset reaches a provider
+    const publish = read('app/api/admin/orbit/campaigns/[id]/publish/route.ts')
+    expect(publish).toContain('verifyStoredFile')
+    expect(publish.indexOf('verifyStoredFile(')).toBeLessThan(publish.indexOf('preflightChannel({'))
+    expect(publish).toContain('storage check failed')
+  })
+  it('storage ownership is pinned to the configured host and approved buckets', () => {
+    const helper = read('lib/orbit/media-library.ts')
+    expect(helper).toContain("APPROVED_PUBLIC_BUCKETS = ['orbit-media', 'marketing-media']")
+    expect(helper).toContain('NEXT_PUBLIC_SUPABASE_URL')
+    // fails closed without configuration; foreign Supabase hosts rejected
+    const prev = process.env.NEXT_PUBLIC_SUPABASE_URL
+    delete process.env.NEXT_PUBLIC_SUPABASE_URL
+    expect(isOwnedStorageUrl('https://xyz.supabase.co/storage/v1/object/public/orbit-media/a.jpg')).toBe(false)
+    process.env.NEXT_PUBLIC_SUPABASE_URL = prev
+    expect(isOwnedStorageUrl('https://attacker.supabase.co/storage/v1/object/public/orbit-media/a.jpg')).toBe(false)
+    expect(isOwnedStorageUrl('https://xyz.supabase.co/storage/v1/object/public/random-bucket/a.jpg')).toBe(false)
   })
 })

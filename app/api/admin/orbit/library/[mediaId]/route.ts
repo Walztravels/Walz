@@ -6,7 +6,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getAdminSession } from '@/lib/admin-auth'
 import { prisma } from '@/lib/db'
-import { archiveAsset, createAssetVersion, getAssetUsage } from '@/lib/orbit/media-library'
+import { archiveAsset, createAssetVersion, getAssetUsage, verifyStoredFile, isOwnedStorageUrl } from '@/lib/orbit/media-library'
 
 export const dynamic = 'force-dynamic'
 
@@ -33,20 +33,7 @@ export async function GET(_req: NextRequest, { params }: { params: { mediaId: st
         select:  { id: true, version: true, readiness: true, publicUrl: true, createdAt: true, createdBy: true },
       }),
       // A storage URL alone does not prove the file exists — HEAD-check it.
-      (async () => {
-        if (!asset.publicUrl) return { reachable: false, note: 'no file URL' }
-        try {
-          const head = await fetch(asset.publicUrl, { method: 'HEAD', signal: AbortSignal.timeout(5000) })
-          return {
-            reachable: head.ok,
-            note: head.ok
-              ? `file verified (HTTP ${head.status}, ${head.headers.get('content-length') ?? '?'} bytes)`
-              : `file NOT reachable (HTTP ${head.status})`,
-          }
-        } catch {
-          return { reachable: false, note: 'file check timed out or failed' }
-        }
-      })(),
+      verifyStoredFile(asset.publicUrl),
     ])
     return NextResponse.json({ asset, usage, versions, fileCheck })
   } catch (err) {
@@ -103,7 +90,7 @@ export async function POST(req: NextRequest, { params }: { params: { mediaId: st
       if (!asset) return NextResponse.json({ error: 'Asset not found' }, { status: 404 })
       await prisma.orbitMedia.update({
         where: { id: params.mediaId },
-        data:  { readiness: asset.publicUrl?.includes('/storage/v1/object/public/orbit-media/') ? 'ready' : 'draft' },
+        data:  { readiness: isOwnedStorageUrl(asset.publicUrl) ? 'ready' : 'draft' },
       })
       return NextResponse.json({ ok: true })
     }

@@ -6,6 +6,17 @@
 -- and legacy campaign_id links keep working during the transition.
 -- ══════════════════════════════════════════════════════════════════════════
 
+-- ── 0. PREFLIGHT — run this block first and check the output ───────────────
+-- All three base tables must exist; note the "before" counts so the
+-- post-migration verification can be compared against them.
+SELECT 'PREFLIGHT: orbit_media rows'        AS check, count(*)::text AS value FROM orbit_media
+UNION ALL SELECT 'PREFLIGHT: orbit_campaigns rows',   count(*)::text FROM orbit_campaigns
+UNION ALL SELECT 'PREFLIGHT: orbit_publish_log rows', count(*)::text FROM orbit_publish_log
+UNION ALL SELECT 'PREFLIGHT: media with campaign link (legacy)',
+  count(*)::text FROM orbit_media WHERE campaign_id IS NOT NULL AND is_reference = FALSE
+UNION ALL SELECT 'PREFLIGHT: campaigns with a media_order array',
+  count(*)::text FROM orbit_campaigns WHERE jsonb_typeof(media_order) = 'array' AND jsonb_array_length(media_order) > 0;
+
 -- ── 1. orbit_media: library + version + save-lifecycle columns ─────────────
 ALTER TABLE orbit_media
   ADD COLUMN IF NOT EXISTS title              TEXT,
@@ -81,12 +92,14 @@ WHERE title IS NULL;
 
 -- 5c. Readiness from actual storage location — provider-hosted URLs are
 --     NEVER marked ready (their links expire); they are reported as
---     missing_source for the retry-save flow to re-ingest.
+--     missing_source for the retry-save flow to re-ingest. "Ready" covers
+--     any public object in OUR OWN Supabase storage (orbit-media plus the
+--     marketing-media bucket that library references point at).
 UPDATE orbit_media SET readiness = CASE
     WHEN generation_status IN ('pending', 'processing', 'queued') THEN 'draft'
     WHEN generation_status = 'failed'                             THEN 'draft'
     WHEN public_url IS NULL OR public_url = ''                    THEN 'draft'
-    WHEN public_url LIKE '%/storage/v1/object/public/orbit-media/%' THEN 'ready'
+    WHEN public_url LIKE '%/storage/v1/object/public/%'           THEN 'ready'
     WHEN storage_path LIKE 'media_library:%'                      THEN 'ready'  -- MarketingMedia ref
     WHEN source_type = 'media_library'                            THEN 'ready'  -- MarketingMedia ref
     ELSE 'missing_source'                                          -- expiring provider URL
@@ -113,9 +126,27 @@ WHERE m.campaign_id IS NOT NULL
   AND m.is_reference = FALSE
 ON CONFLICT (campaign_id, media_id) DO NOTHING;
 
--- ── 6. Report (run output) ─────────────────────────────────────────────────
-SELECT 'library assets' AS t, count(*) FROM orbit_media
-UNION ALL SELECT 'ready',            count(*) FROM orbit_media WHERE readiness = 'ready'
-UNION ALL SELECT 'missing_source (expired provider URLs — need re-ingest)', count(*) FROM orbit_media WHERE readiness = 'missing_source'
-UNION ALL SELECT 'campaign links',   count(*) FROM orbit_campaign_media
-UNION ALL SELECT 'design projects',  count(*) FROM orbit_design_projects;
+-- ── 6. POST-MIGRATION VERIFICATION — paste this output back for review ─────
+-- 6a. Nothing lost: these counts must EQUAL the PREFLIGHT values.
+SELECT 'VERIFY: orbit_media rows (must equal preflight)'        AS check, count(*)::text AS value FROM orbit_media
+UNION ALL SELECT 'VERIFY: orbit_publish_log rows (must equal preflight)', count(*)::text FROM orbit_publish_log
+-- 6b. Backfill completeness
+UNION ALL SELECT 'VERIFY: media without version identity (must be 0)',
+  count(*)::text FROM orbit_media WHERE asset_group_id IS NULL
+UNION ALL SELECT 'VERIFY: media without a title (must be 0)',
+  count(*)::text FROM orbit_media WHERE title IS NULL
+UNION ALL SELECT 'VERIFY: legacy campaign media missing a link row (must be 0)',
+  count(*)::text FROM orbit_media m
+  WHERE m.campaign_id IS NOT NULL AND m.is_reference = FALSE
+    AND NOT EXISTS (SELECT 1 FROM orbit_campaign_media l WHERE l.campaign_id = m.campaign_id AND l.media_id = m.id)
+-- 6c. Readiness distribution
+UNION ALL SELECT 'VERIFY: ready',          count(*)::text FROM orbit_media WHERE readiness = 'ready'
+UNION ALL SELECT 'VERIFY: draft',          count(*)::text FROM orbit_media WHERE readiness = 'draft'
+UNION ALL SELECT 'VERIFY: missing_source (expired provider URLs — recover via Retry save)',
+  count(*)::text FROM orbit_media WHERE readiness = 'missing_source'
+-- 6d. New structures
+UNION ALL SELECT 'VERIFY: campaign links created',  count(*)::text FROM orbit_campaign_media
+UNION ALL SELECT 'VERIFY: design projects (0 until Studio use)', count(*)::text FROM orbit_design_projects
+-- 6e. Publish history untouched: no row was upgraded to published
+UNION ALL SELECT 'VERIFY: publish rows marked published (must be 0 pre-reconciliation)',
+  count(*)::text FROM orbit_publish_log WHERE status = 'published';

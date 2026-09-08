@@ -73,9 +73,18 @@ function makeReq(body: Record<string, unknown>) {
   return { json: async () => body } as never
 }
 
+const realFetch = global.fetch
+afterAll(() => { global.fetch = realFetch })
+
 beforeEach(() => {
   logs.length = 0; logSeq = 0
   publishMock.mockClear()
+  // Strict ownership + pre-publish storage verification need these:
+  process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://xyz.supabase.co'
+  global.fetch = jest.fn(async (_url: RequestInfo | URL, init?: RequestInit) => {
+    if (init?.method === 'HEAD') return new Response(null, { status: 200, headers: { 'content-length': '123' } })
+    return new Response('{}', { status: 200 })
+  }) as typeof fetch
   publishMock.mockImplementation(async () => ({ bufferUpdateId: `buf_${++logSeq}00` }))
   campaignRow = {
     id: 'c1', status: 'approved',
