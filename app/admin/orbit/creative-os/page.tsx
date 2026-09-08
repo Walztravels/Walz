@@ -64,6 +64,7 @@ function StudioForm({ capability, fields, format }: {
   const [busy, setBusy] = useState(false)
   const [result, setResult] = useState<string | null>(null)
   const [preview, setPreview] = useState<{ label: string; cost: number | null } | null>(null)
+  const [routeBlock, setRouteBlock] = useState<string | null>(null)
 
   useEffect(() => {
     fetch('/api/admin/orbit/creative-os', {
@@ -71,7 +72,9 @@ function StudioForm({ capability, fields, format }: {
       body: JSON.stringify({ capability, lane: lane === 'AUTO' ? undefined : lane, mode }),
     }).then(r => r.json()).then(d => {
       setPreview(d.ok ? { label: d.choice.label, cost: d.choice.costUsd } : null)
-    }).catch(() => setPreview(null))
+      // LOCAL_ONLY with local unavailable → actionable block, Generate disabled
+      setRouteBlock(d.ok ? null : (d.error ?? 'No provider available for this mode.'))
+    }).catch(() => { setPreview(null); setRouteBlock(null) })
   }, [capability, lane, mode])
 
   async function submit() {
@@ -124,7 +127,10 @@ function StudioForm({ capability, fields, format }: {
         <div><span className={label}>Duration (seconds)</span>
           <input className={inp} value={vals.durationSec ?? ''} onChange={e => setVals(v => ({ ...v, durationSec: e.target.value }))} placeholder="5" /></div>
       )}
-      <button onClick={() => void submit()} disabled={busy} className={btn}>{busy ? 'Submitting…' : 'Generate'}</button>
+      {routeBlock && (
+        <p className="text-xs text-amber-300 bg-amber-500/10 border border-amber-400/30 rounded-lg px-3 py-2">{routeBlock}</p>
+      )}
+      <button onClick={() => void submit()} disabled={busy || !!routeBlock} className={btn}>{busy ? 'Submitting…' : 'Generate'}</button>
       {result && <p className={`text-xs ${result.startsWith('✓') ? 'text-emerald-400' : 'text-red-400'} break-all`}>{result}</p>}
     </div>
   )
@@ -132,7 +138,12 @@ function StudioForm({ capability, fields, format }: {
 
 export default function CreativeOSPage() {
   const [tab, setTab] = useState<Tab>('Director')
-  const [status, setStatus] = useState<{ localAI?: { reachable: boolean }; capabilities?: Record<string, { available: boolean; lanes: string[] }> } | null>(null)
+  const [status, setStatus] = useState<{
+    providers?: {
+      local: { configured: boolean; status: string }
+      note:  string | null
+    }
+  } | null>(null)
 
   // Director state
   const [brief, setBrief] = useState('')
@@ -189,11 +200,27 @@ export default function CreativeOSPage() {
             <h1 className="text-xl font-black">Orbit Creative OS</h1>
             <p className="text-xs text-white/40">Multimodal studios · cost-aware routing · deterministic commercial facts</p>
           </div>
-          {status && (
-            <span className={`text-[11px] px-2.5 py-1 rounded-full border ${status.localAI?.reachable ? 'border-emerald-400/40 text-emerald-300' : 'border-white/15 text-white/40'}`}>
-              Local AI: {status.localAI?.reachable ? 'online' : 'offline'}
-            </span>
-          )}
+          {status?.providers && (() => {
+            const s = status.providers.local.status
+            const label =
+              s === 'healthy'               ? 'Ready' :
+              s === 'missing_configuration' ? 'Not configured' :
+              s === 'model_unavailable'     ? 'Capability unavailable' :
+              s === 'timeout'               ? 'Starting' : 'Offline'
+            const tone = s === 'healthy'
+              ? 'border-emerald-400/40 text-emerald-300'
+              : s === 'missing_configuration'
+              ? 'border-white/15 text-white/40'
+              : 'border-amber-400/40 text-amber-300'
+            return (
+              <div className="text-right">
+                <span className={`text-[11px] px-2.5 py-1 rounded-full border ${tone}`}>Local AI: {label}</span>
+                {status.providers.note && (
+                  <p className="text-[10px] text-white/30 mt-1">{status.providers.note}</p>
+                )}
+              </div>
+            )
+          })()}
         </div>
 
         <div className="flex flex-wrap gap-1.5">

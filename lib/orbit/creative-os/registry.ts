@@ -14,6 +14,7 @@
  * fall back to cloud.
  */
 
+import { getLocalAIHealth, localCapabilityUsable, LOCAL_AI_UNAVAILABLE, LOCAL_AI_UNAVAILABLE_MESSAGE } from './local-health'
 import type {
   ModelEntry, CapabilityKind, CostLane, RouterMode, RouteDecision, ProviderId,
 } from './types'
@@ -131,8 +132,15 @@ export interface RouteRequest {
 /**
  * Resolve a concrete model for a capability under a mode/lane policy.
  * Deterministic. LOCAL_ONLY (or lane LOCAL) NEVER returns a cloud entry.
+ *
+ * Capability awareness: a configured local provider only participates when
+ * the CACHED health snapshot says it is healthy AND reports the requested
+ * capability's model (a healthy box without the txt2vid model is excluded).
+ * An unknown (never-probed) snapshot keeps local eligible so the executor
+ * can probe once before dispatch — resolveRoute itself never touches the
+ * network.
  */
-export function resolveRoute(req: RouteRequest): RouteDecision | { error: string } {
+export function resolveRoute(req: RouteRequest): RouteDecision | { error: string; code?: string } {
   const mode: RouterMode = req.mode ?? (
     req.lane === 'LOCAL'    ? 'LOCAL_ONLY' :
     req.lane === 'PREMIUM'  ? 'BEST_QUALITY' :
@@ -140,11 +148,19 @@ export function resolveRoute(req: RouteRequest): RouteDecision | { error: string
   )
   let pool = availableEntries(req.capability)
 
+  // Health-based exclusion of local entries (cached snapshot only)
+  const health = getLocalAIHealth()
+  const localKnownBad = health.configured && health.checkedAt > 0 && !localCapabilityUsable(req.capability, health)
+  if (localKnownBad && mode !== 'LOCAL_ONLY' && req.lane !== 'LOCAL') {
+    pool = pool.filter(e => e.provider !== 'local')
+  }
+
   if (mode === 'LOCAL_ONLY' || req.lane === 'LOCAL') {
     pool = pool.filter(e => e.provider === 'local')
-    if (pool.length === 0) {
-      // Never silently fall back to a paid provider under a LOCAL policy.
-      return { error: `LOCAL_ONLY: no local provider available for ${req.capability}. Configure ORBIT_LOCAL_AI_URL / ORBIT_LOCAL_AI_TOKEN or change the lane.` }
+    if (pool.length === 0 || localKnownBad) {
+      // Never silently fall back to a paid provider under a LOCAL policy —
+      // this is what prevents surprise API charges.
+      return { error: LOCAL_AI_UNAVAILABLE_MESSAGE, code: LOCAL_AI_UNAVAILABLE }
     }
   } else if (req.lane === 'PREMIUM') {
     const premium = pool.filter(e => e.lane === 'PREMIUM')

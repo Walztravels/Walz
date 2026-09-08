@@ -52,11 +52,17 @@ jest.mock('@/lib/orbit/replicate-adapter', () => ({
 }))
 
 const fetchCalls: Array<{ url: string; body?: string }> = []
-beforeEach(() => { fetchCalls.length = 0 })
 global.fetch = jest.fn(async (url: RequestInfo | URL, init?: RequestInit) => {
-  fetchCalls.push({ url: String(url), body: init?.body ? String(init.body) : undefined })
+  const u = String(url)
+  fetchCalls.push({ url: u, body: init?.body ? String(init.body) : undefined })
+  if (u.endsWith('/api/v1/health')) {
+    return { ok: true, json: async () => ({ ok: true, capabilities: ['sdxl', 'img2img', 'inpaint', 'upscale', 'rembg', 'vectorize', 'img2vid', 'txt2vid'] }), text: async () => '' } as Response
+  }
   return { ok: true, json: async () => ({ request_id: 'fal-req-1' }), text: async () => '' } as Response
 }) as unknown as typeof fetch
+
+import { _resetLocalHealthCache } from '@/lib/orbit/creative-os/local-health'
+beforeEach(() => { fetchCalls.length = 0; _resetLocalHealthCache() })
 
 // Prisma mock (jobs + audit + media)
 const jobRows = new Map<string, Record<string, unknown>>()
@@ -108,7 +114,10 @@ describe('cost lanes and model router', () => {
     delete process.env.ORBIT_LOCAL_AI_URL
     const r = resolveRoute({ capability: 'text_to_image', mode: 'LOCAL_ONLY' })
     expect('error' in r).toBe(true)
-    if ('error' in r) expect(r.error).toContain('LOCAL_ONLY')
+    if ('error' in r) {
+      expect(r.code).toBe('LOCAL_AI_UNAVAILABLE')
+      expect(r.error).toContain('Local AI is currently unavailable')
+    }
   })
 
   it('PREMIUM lane selects the premium tier', () => {

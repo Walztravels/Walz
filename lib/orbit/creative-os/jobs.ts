@@ -39,7 +39,17 @@ export async function submitCreativeJob(opts: {
       modelKey:      result.modelKey ?? 'none',
       status:        result.ok ? (result.async ? 'processing' : 'completed') : 'failed',
       providerJobId: result.providerJobId ?? null,
-      inputRefs:     opts.inputRefs ? JSON.parse(JSON.stringify(opts.inputRefs)) : undefined,
+      // Routing metadata persisted alongside refs: attemptedProvider chain,
+      // selectedProvider, fallbackReason — duplicate-charge forensics.
+      inputRefs:     JSON.parse(JSON.stringify({
+        refs:    opts.inputRefs ?? [],
+        routing: {
+          attempted:        result.attempted ?? [],
+          selectedProvider: result.provider ?? null,
+          fallbackReason:   result.fallbackReason ?? null,
+          code:             result.code ?? null,
+        },
+      })),
       outputUrl:     result.outputUrl ?? null,
       costUsd:       result.costUsd ?? null,
       error:         result.error ?? null,

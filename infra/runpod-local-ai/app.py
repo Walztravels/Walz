@@ -229,7 +229,8 @@ CAPABILITIES = {"sdxl", "img2img", "inpaint", "upscale", "rembg", "vectorize", "
 
 @app.get("/api/v1/health")
 def health():
-    return {"ok": True, "queued": WORK.qsize(), "svd": ENABLE_SVD}
+    caps = sorted(CAPABILITIES - ({"img2vid"} if not ENABLE_SVD else set()))
+    return {"ok": True, "queued": WORK.qsize(), "svd": ENABLE_SVD, "capabilities": caps}
 
 @app.get("/api/v1/models")
 def models(request: Request):

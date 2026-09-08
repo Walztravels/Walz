@@ -171,7 +171,10 @@ async function executeNode(
       format:   node.config.format as string,
     })
     if (!result.ok) {
-      return { nodeId: node.id, type: node.type, status: 'failed', detail: result.error }
+      // A LOCAL_ONLY node without local AI fails with the structured code;
+      // unrelated nodes in the graph are unaffected.
+      const detail = result.code ? `${result.code}: ${result.error}` : result.error
+      return { nodeId: node.id, type: node.type, status: 'failed', detail }
     }
     return {
       nodeId: node.id, type: node.type,

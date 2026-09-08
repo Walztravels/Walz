@@ -15,6 +15,10 @@
 
 import { resolveRoute, type RouteRequest } from './registry'
 import { submitLocalJob } from './local-adapter'
+import {
+  checkLocalAIHealth, localCapabilityUsable,
+  LOCAL_AI_UNAVAILABLE, LOCAL_AI_UNAVAILABLE_MESSAGE,
+} from './local-health'
 import { generateOpenAIImage, editOpenAIImage } from '@/lib/orbit/openai-image-adapter'
 import { generateBackground } from '@/lib/orbit/replicate-adapter'
 import { filterContent } from '@/lib/orbit/content-filter'
@@ -54,7 +58,11 @@ export interface ExecuteResult {
   providerJobId?: string
   async?:        boolean
   error?:        string
+  /** Structured error code, e.g. LOCAL_AI_UNAVAILABLE. */
+  code?:         string
   attempted?:    string[]       // model keys tried, in order
+  /** Why failover left the first choice (persisted into job metadata). */
+  fallbackReason?: string
 }
 
 /** Map a Creative OS format to provider-ish size/aspect hints. */
@@ -142,23 +150,46 @@ export async function executeCapability(input: ExecuteInput): Promise<ExecuteRes
   }
 
   const route = resolveRoute({ capability: input.capability, mode: input.mode, lane: input.lane })
-  if ('error' in route) return { ok: false, error: route.error }
+  if ('error' in route) return { ok: false, error: route.error, code: route.code }
 
   const localPolicy = input.mode === 'LOCAL_ONLY' || input.lane === 'LOCAL'
-  const chain = [route.entry, ...route.failover.filter(e => !localPolicy || e.provider === 'local')]
+  let chain = [route.entry, ...route.failover.filter(e => !localPolicy || e.provider === 'local')]
+
+  // If local participates, probe its health ONCE (short timeout, cached) before
+  // dispatching — a dead or capability-less GPU box is skipped up front rather
+  // than costing a submit timeout, and LOCAL_ONLY fails with the structured code.
+  if (chain.some(e => e.provider === 'local')) {
+    const health = await checkLocalAIHealth()
+    if (!localCapabilityUsable(input.capability, health)) {
+      if (localPolicy) {
+        return { ok: false, error: LOCAL_AI_UNAVAILABLE_MESSAGE, code: LOCAL_AI_UNAVAILABLE }
+      }
+      chain = chain.filter(e => e.provider !== 'local')
+      if (chain.length === 0) {
+        return { ok: false, error: 'No configured provider is currently available for this capability.' }
+      }
+    }
+  }
+
   const attempted: string[] = []
   let lastError = 'NO_PROVIDER'
+  let fallbackReason: string | undefined
 
   for (const entry of chain) {
     attempted.push(entry.key)
     try {
       const result = await dispatchToEntry(entry, input)
-      if (result.ok) return { ...result, attempted }
+      // DUPLICATE-JOB PROTECTION: the moment ANY provider accepts (sync output
+      // or a real providerJobId), we return — the same generation is never also
+      // submitted to another provider. Failover only happens when the previous
+      // provider provably did NOT accept (threw, or returned no acceptance).
+      if (result.ok) return { ...result, attempted, fallbackReason }
       lastError = result.error ?? 'UNKNOWN'
     } catch (e) {
       lastError = e instanceof Error ? e.message : String(e)
     }
+    if (!fallbackReason) fallbackReason = `${entry.key}: ${lastError}`.slice(0, 200)
   }
 
-  return { ok: false, error: lastError, attempted }
+  return { ok: false, error: lastError, attempted, fallbackReason }
 }
