@@ -31,6 +31,7 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { getAdminSession } from '@/lib/admin-auth'
+import { isStudioScope, scopedCampaignId } from '@/lib/orbit/studio-scope'
 import { prisma } from '@/lib/db'
 import { assertContentSafe } from '@/lib/orbit/content-filter'
 import { buildCreativePrompt } from '@/lib/orbit/creative-presets'
@@ -97,7 +98,7 @@ export async function GET(
   let assets: Awaited<ReturnType<typeof prisma.orbitMedia.findMany>> = []
   try {
     assets = await prisma.orbitMedia.findMany({
-      where:   { campaignId: params.id },
+      where:   { campaignId: scopedCampaignId(params.id) },
       orderBy: { createdAt: 'desc' },
     })
   } catch (dbErr) {
@@ -157,15 +158,16 @@ export async function POST(
     console.log(`[Orbit Creative] traceId=${traceId} stage=auth_passed user=${session.email}`)
 
     // STAGE: campaign lookup
-    let campaign: Awaited<ReturnType<typeof prisma.orbitCampaign.findUnique>>
+    // Studio scope: campaign-less workspace (campaignId stays null in the DB)
+    let campaign: Awaited<ReturnType<typeof prisma.orbitCampaign.findUnique>> = null
     try {
-      campaign = await prisma.orbitCampaign.findUnique({ where: { id: params.id } })
+      campaign = isStudioScope(params.id) ? null : await prisma.orbitCampaign.findUnique({ where: { id: params.id } })
     } catch (dbErr) {
       const msg = dbErr instanceof Error ? dbErr.message : String(dbErr)
       console.error(`[Orbit Creative] traceId=${traceId} stage=campaign_lookup_failed error="${msg}"`)
       return NextResponse.json({ error: 'Database error looking up campaign.', errorCode: 'INTERNAL_SERVER_ERROR', traceId }, { status: 500 })
     }
-    if (!campaign) return NextResponse.json({ error: 'Campaign not found', errorCode: 'CAMPAIGN_NOT_FOUND', traceId }, { status: 404 })
+    if (!campaign && !isStudioScope(params.id)) return NextResponse.json({ error: 'Campaign not found', errorCode: 'CAMPAIGN_NOT_FOUND', traceId }, { status: 404 })
     console.log(`[Orbit Creative] traceId=${traceId} stage=campaign_loaded campaignId=${params.id}`)
 
     // STAGE: parse request
@@ -204,7 +206,7 @@ export async function POST(
         try {
           const settings = await prisma.orbitSettings.findUnique({ where: { id: 'singleton' } })
           const cap = settings?.imageCapPerCampaign ?? 8
-          used = await prisma.orbitMedia.count({ where: { campaignId: params.id, isReference: false } })
+          used = await prisma.orbitMedia.count({ where: { campaignId: scopedCampaignId(params.id), isReference: false } })
           if (used >= cap) {
             return NextResponse.json({ error: `Image cap of ${cap} reached`, capReached: true, traceId }, { status: 429 })
           }
@@ -239,9 +241,9 @@ export async function POST(
             }
           } else {
             prompt = body.prompt?.trim() || buildCreativePrompt({
-              destination: campaign.destination,
-              objective:   campaign.objective,
-              promptHint:  promptHint ?? campaign.promotionDetails,
+              destination: (campaign?.destination ?? ''),
+              objective:   (campaign?.objective ?? 'studio asset'),
+              promptHint:  promptHint ?? (campaign?.promotionDetails ?? ''),
               brandPreset,
             })
           }
@@ -261,10 +263,10 @@ export async function POST(
               source:           'generated',
               storagePath:      '',
               format,
-              destination:      campaign.destination || null,
-              campaignType:     campaign.objective   || null,
+              destination:      (campaign?.destination ?? '') || null,
+              campaignType:     (campaign?.objective ?? 'studio asset')   || null,
               prompt,
-              campaignId:       params.id,
+              campaignId:       scopedCampaignId(params.id),
               createdBy:        session.email,
               provider:         'openai',
               model:            getOpenAIImageModel(),
@@ -288,7 +290,7 @@ export async function POST(
           if (body.referenceMediaId) {
             // STAGE: resolve reference image
             const ref = await prisma.orbitMedia.findFirst({
-              where: { id: body.referenceMediaId, campaignId: params.id, isReference: true },
+              where: { id: body.referenceMediaId, campaignId: scopedCampaignId(params.id), isReference: true },
             })
             if (!ref?.publicUrl) {
               await prisma.orbitMedia.delete({ where: { id: placeholder.id } }).catch(() => {})
@@ -303,14 +305,14 @@ export async function POST(
           console.log(`[Orbit Creative] traceId=${traceId} stage=openai_response_received storagePath=${result.storagePath}`)
 
           // Alt text via Claude (non-fatal)
-          let altText = `Travel scene of ${campaign.destination || 'destination'}`
+          let altText = `Travel scene of ${(campaign?.destination ?? '') || 'destination'}`
           try {
             const altMsg = await anthropic.messages.create({
               model:      'claude-sonnet-4-6',
               max_tokens: 120,
               messages:   [{ role: 'user', content:
                 `Write a concise, factual alt text (max 100 chars) for a travel background image of ` +
-                `${campaign.destination || 'a travel destination'} used in a ${campaign.objective} campaign. ` +
+                `${(campaign?.destination ?? '') || 'a travel destination'} used in a ${(campaign?.objective ?? 'studio asset')} campaign. ` +
                 `No marketing language.`,
               }],
             })
@@ -377,7 +379,7 @@ export async function POST(
         try {
           const settings = await prisma.orbitSettings.findUnique({ where: { id: 'singleton' } })
           const cap = settings?.imageCapPerCampaign ?? 8
-          usedReplicate = await prisma.orbitMedia.count({ where: { campaignId: params.id, isReference: false } })
+          usedReplicate = await prisma.orbitMedia.count({ where: { campaignId: scopedCampaignId(params.id), isReference: false } })
           if (usedReplicate >= cap) {
             return NextResponse.json({ error: `Image cap of ${cap} reached`, capReached: true, traceId }, { status: 429 })
           }
@@ -386,9 +388,9 @@ export async function POST(
         }
 
         const prompt = body.prompt?.trim() || buildCreativePrompt({
-          destination: campaign.destination,
-          objective:   campaign.objective,
-          promptHint:  promptHint ?? campaign.promotionDetails,
+          destination: (campaign?.destination ?? ''),
+          objective:   (campaign?.objective ?? 'studio asset'),
+          promptHint:  promptHint ?? (campaign?.promotionDetails ?? ''),
           brandPreset,
         })
 
@@ -398,9 +400,9 @@ export async function POST(
           placeholder = await prisma.orbitMedia.create({
             data: {
               source: 'generated', storagePath: '',
-              format, destination: campaign.destination || null,
-              campaignType: campaign.objective || null,
-              prompt, campaignId: params.id, createdBy: session.email,
+              format, destination: (campaign?.destination ?? '') || null,
+              campaignType: (campaign?.objective ?? 'studio asset') || null,
+              prompt, campaignId: scopedCampaignId(params.id), createdBy: session.email,
               provider: 'replicate', model: 'flux-dev',
               generationStatus: 'processing',
             },
@@ -414,18 +416,18 @@ export async function POST(
 
         try {
           const { buildPrompt } = await import('@/lib/orbit/replicate-adapter')
-          const finalPrompt = buildPrompt(campaign.destination, campaign.objective, promptHint ?? campaign.promotionDetails)
+          const finalPrompt = buildPrompt((campaign?.destination ?? ''), (campaign?.objective ?? 'studio asset'), promptHint ?? (campaign?.promotionDetails ?? ''))
           console.log(`[Orbit Creative] traceId=${traceId} stage=replicate_request_start`)
           const result = await generateBackground(finalPrompt, format as Parameters<typeof generateBackground>[1], placeholder.id)
           console.log(`[Orbit Creative] traceId=${traceId} stage=replicate_response_received`)
 
-          let altText = `Travel scene of ${campaign.destination || 'destination'}`
+          let altText = `Travel scene of ${(campaign?.destination ?? '') || 'destination'}`
           try {
             const altMsg = await anthropic.messages.create({
               model: 'claude-sonnet-4-6', max_tokens: 120,
               messages: [{ role: 'user', content:
                 `Write a concise, factual alt text (max 100 chars) for a travel background image of ` +
-                `${campaign.destination || 'a travel destination'} for a ${campaign.objective} campaign. No marketing language.`,
+                `${(campaign?.destination ?? '') || 'a travel destination'} for a ${(campaign?.objective ?? 'studio asset')} campaign. No marketing language.`,
               }],
             })
             const raw = altMsg.content[0].type === 'text' ? altMsg.content[0].text.trim() : ''
@@ -500,7 +502,7 @@ export async function POST(
       let sourceMedia: Awaited<ReturnType<typeof prisma.orbitMedia.findFirst>>
       try {
         sourceMedia = await prisma.orbitMedia.findFirst({
-          where: { id: body.referenceMediaId, campaignId: params.id },
+          where: { id: body.referenceMediaId, campaignId: scopedCampaignId(params.id) },
         })
       } catch (dbErr) {
         const msg = dbErr instanceof Error ? dbErr.message : String(dbErr)
@@ -515,7 +517,7 @@ export async function POST(
       let existing: Awaited<ReturnType<typeof prisma.orbitMedia.findFirst>>
       try {
         existing = await prisma.orbitMedia.findFirst({
-          where: { campaignId: params.id, provider: 'fal', generationStatus: { in: ['pending', 'processing'] } },
+          where: { campaignId: scopedCampaignId(params.id), provider: 'fal', generationStatus: { in: ['pending', 'processing'] } },
         })
       } catch { existing = null }
       if (existing) {
@@ -535,10 +537,10 @@ export async function POST(
             format:           aspectRatio === '9:16' ? '1080x1920' : aspectRatio === '1:1' ? '1024x1024' : '1200x628',
             mediaType:        'video',
             durationMs:       duration * 1000,
-            destination:      campaign.destination || null,
-            campaignType:     campaign.objective   || null,
+            destination:      (campaign?.destination ?? '') || null,
+            campaignType:     (campaign?.objective ?? 'studio asset')   || null,
             prompt,
-            campaignId:       params.id,
+            campaignId:       scopedCampaignId(params.id),
             createdBy:        session.email,
             provider:         'fal',
             model:            resolvedModel.key,

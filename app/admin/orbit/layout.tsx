@@ -39,6 +39,8 @@ export default async function OrbitLayout({ children }: { children: React.ReactN
           <a href="/admin/orbit/analytics"     className="text-gray-300 hover:text-white transition-colors">Analytics</a>
           <a href="/admin/orbit/competitors"   className="text-gray-300 hover:text-white transition-colors">Competitors</a>
           <a href="/admin/orbit/audit"         className="text-gray-300 hover:text-white transition-colors">Audits</a>
+          <a href="/admin/orbit/studio"        className="text-gray-300 hover:text-white transition-colors">Studio</a>
+          <a href="/admin/orbit/library"       className="text-gray-300 hover:text-white transition-colors">Library</a>
           <a href="/admin/orbit/campaigns"     className="text-gray-300 hover:text-white transition-colors">Campaigns</a>
           <a href="/admin/orbit/integrations"  className="text-gray-300 hover:text-white transition-colors">Integrations</a>
           <a href="/admin/orbit/settings"      className="text-gray-300 hover:text-white transition-colors">Settings</a>

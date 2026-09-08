@@ -20,6 +20,7 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { getAdminSession } from '@/lib/admin-auth'
+import { isStudioScope, scopedCampaignId } from '@/lib/orbit/studio-scope'
 import { getSupabaseAdmin } from '@/lib/supabase'
 import { prisma } from '@/lib/db'
 
@@ -56,14 +57,15 @@ export async function POST(
     if (!session)                     return NextResponse.json({ error: 'Unauthorized', traceId }, { status: 401 })
     if (session.role !== 'super_admin') return NextResponse.json({ error: 'Forbidden', traceId },    { status: 403 })
 
-    let campaign: Awaited<ReturnType<typeof prisma.orbitCampaign.findUnique>>
+    // Studio scope: campaign-less workspace
+    let campaign: Awaited<ReturnType<typeof prisma.orbitCampaign.findUnique>> = null
     try {
-      campaign = await prisma.orbitCampaign.findUnique({ where: { id: params.id } })
+      campaign = isStudioScope(params.id) ? null : await prisma.orbitCampaign.findUnique({ where: { id: params.id } })
     } catch (dbErr) {
       console.error(`[reference/POST] traceId=${traceId} stage=campaign_lookup_failed ${prismaErrDetail(dbErr)}`)
       return NextResponse.json({ error: 'Database error looking up campaign.', errorCode: 'INTERNAL_SERVER_ERROR', traceId }, { status: 500 })
     }
-    if (!campaign) return NextResponse.json({ error: 'Campaign not found', traceId }, { status: 404 })
+    if (!campaign && !isStudioScope(params.id)) return NextResponse.json({ error: 'Campaign not found', traceId }, { status: 404 })
 
     const body = await req.json().catch(() => ({})) as { mimeType?: string; fileSize?: number; label?: string }
     const mimeType = body.mimeType ?? 'image/jpeg'
@@ -84,7 +86,7 @@ export async function POST(
           storagePath: '',
           format:      'reference',
           mediaType:   'image',
-          campaignId:  params.id,
+          campaignId:  scopedCampaignId(params.id),
           createdBy:   session.email,
           isReference: true,
           altText:     body.label ?? 'Reference image',
@@ -150,7 +152,7 @@ export async function DELETE(
     let ref: Awaited<ReturnType<typeof prisma.orbitMedia.findFirst>>
     try {
       ref = await prisma.orbitMedia.findFirst({
-        where: { id: mediaId, campaignId: params.id, isReference: true },
+        where: { id: mediaId, campaignId: scopedCampaignId(params.id), isReference: true },
       })
     } catch (dbErr) {
       console.error(`[reference/DELETE] traceId=${traceId} stage=lookup_failed ${prismaErrDetail(dbErr)}`)

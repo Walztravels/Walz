@@ -97,6 +97,8 @@ interface Props {
   promotionDetails: string
   cta:              string
   tone:             string
+  // Reopen an existing durable design project (Studio "open project" flow)
+  initialProjectId?: string | null
 }
 
 // ── Tab definition ────────────────────────────────────────────────────────────
@@ -1037,6 +1039,7 @@ function DesignerModePanel({
 
 export function CreativeStudioSection({
   campaignId, destination, objective, promotionDetails, cta, tone,
+  initialProjectId = null,
 }: Props) {
   const [activeTab,    setActiveTab]    = useState<Tab>('POSTER')
   const [assets,       setAssets]       = useState<Asset[]>([])
@@ -1126,6 +1129,13 @@ export function CreativeStudioSection({
   const [designerLayerOverrides,   setDesignerLayerOverrides]   = useState<Record<string, any>>({})
   // Undo history for layer edits (bounded stack of previous override maps)
   const [overrideHistory,          setOverrideHistory]          = useState<Array<Record<string, any>>>([])
+  // Durable server-side design project (survives browsers; concurrency-safe)
+  const [designProjectId,          setDesignProjectId]          = useState<string | null>(initialProjectId)
+  const projectSeqRef = useRef<number>(0)
+  const [serverSave,               setServerSave]               = useState<'idle' | 'saving' | 'saved' | 'error' | 'conflict'>('idle')
+  // Poster export → Media Library save status ("Saved" only after persistence)
+  const [exportSave,               setExportSave]               = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
+  const [exportSaveMsg,            setExportSaveMsg]            = useState<string>('')
   const [qualityScore,             setQualityScore]             = useState<QualityScoreResult | null>(null)
   // Active starter tracking + draft persistence
   const [activeStarterKey,         setActiveStarterKey]         = useState<string | null>(null)
@@ -1171,6 +1181,48 @@ export function CreativeStudioSection({
       layerOverrides: layerOverrides as Record<string, Partial<import('@/lib/orbit/composer/layer-model').DesignLayer>>,
       structuredRoutes: structuredRoutes?.filter(r => r.from.trim() && r.to.trim()),
     })
+  }
+
+  // Load the durable project's concurrency sequence when reopening one
+  useEffect(() => {
+    if (!initialProjectId) return
+    fetch(`/api/admin/orbit/design-projects/${initialProjectId}`)
+      .then(r => r.ok ? r.json() : null)
+      .then(d => { if (d?.project) projectSeqRef.current = d.project.updateSeq })
+      .catch(() => { /* seq stays 0; first save may 409 and prompt reload */ })
+  }, [initialProjectId])
+
+  // Durable server-side autosave of the design project. Optimistic
+  // concurrency: a colleague's newer save produces a visible conflict
+  // instead of a silent overwrite. Runs alongside the localStorage draft.
+  async function saveProjectToServer() {
+    const hasDesignerState = !!designerComposition || Object.keys(designerCommercialFields).length > 0
+    if (!hasDesignerState) return
+    setServerSave('saving')
+    try {
+      const res = await fetch('/api/admin/orbit/design-projects', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id:              designProjectId ?? undefined,
+          expectedSeq:     designProjectId ? projectSeqRef.current : undefined,
+          title:           (designerCommercialFields['headline'] ?? '').split('\n')[0].slice(0, 60) || undefined,
+          templateKey:     designerTemplateKey,
+          format:          designerFormat,
+          campaignId:      campaignId === 'studio' ? null : campaignId,
+          commercialFields: designerCommercialFields,
+          controls:         designerControls,
+          layerOverrides:   designerLayerOverrides,
+          structuredRoutes: designerStructuredRoutes,
+          visualMediaId:    designerVisualAssetId,
+        }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (res.status === 409) { setServerSave('conflict'); return }
+      if (!res.ok || !data.project) { setServerSave('error'); return }
+      if (data.project.id) setDesignProjectId(data.project.id)
+      if (typeof data.project.updateSeq === 'number') projectSeqRef.current = data.project.updateSeq
+      setServerSave('saved')
+    } catch { setServerSave('error') }
   }
 
   // Apply a new layer-overrides map: set state + rebuild the composition so
@@ -1321,6 +1373,7 @@ export function CreativeStudioSection({
       )
       saveDraft(campaignId, draft)
       setDraftSavedAt(draft.savedAt)
+      void saveProjectToServer()   // durable copy — survives closed tabs and other browsers
     }, 1500)
     return () => { if (autosaveTimer.current) clearTimeout(autosaveTimer.current) }
   }, [ // eslint-disable-line react-hooks/exhaustive-deps
@@ -1862,15 +1915,54 @@ export function CreativeStudioSection({
 
   // ── Export poster composite ────────────────────────────────────────────────
 
-  async function handleExport(blob: Blob) {
+  async function handleExport(blob: Blob, format: 'image/jpeg' | 'image/png' = 'image/jpeg') {
+    // 1. Save to the Media Library FIRST (durable storage + DB). "Saved" is
+    //    only shown after the server confirms; a failure is shown loudly —
+    //    the export is never silently lost to a browser download alone.
+    setExportSave('saving'); setExportSaveMsg('Saving export to Media Library…')
+    const ext = format === 'image/png' ? 'png' : 'jpg'
+    let savedOk = false
+    try {
+      const snapshot = {
+        templateKey:      designerTemplateKey,
+        format:           designerFormat,
+        commercialFields: designerCommercialFields,
+        controls:         designerControls,
+        layerOverrides:   designerLayerOverrides,
+        structuredRoutes: designerStructuredRoutes,
+      }
+      const form = new FormData()
+      form.set('file', new File([blob], `poster.${ext}`, { type: format }))
+      form.set('format', designerFormat)
+      form.set('title', (designerCommercialFields['headline'] ?? '').split('\n')[0].slice(0, 80) || 'Poster export')
+      if (designProjectId) form.set('designProjectId', designProjectId)
+      form.set('designSnapshot', JSON.stringify(snapshot))
+      const res  = await fetch(`/api/admin/orbit/campaigns/${campaignId}/creative/export`, { method: 'POST', body: form })
+      const data = await res.json().catch(() => ({}))
+      if (res.ok && data.ok) {
+        savedOk = true
+        setExportSave('saved')
+        setExportSaveMsg('Export saved to Media Library ✓')
+        void loadAssets()
+      } else {
+        setExportSave('error')
+        setExportSaveMsg(String(data.error ?? 'Export was NOT saved to the Media Library — it only downloaded locally.'))
+      }
+    } catch {
+      setExportSave('error')
+      setExportSaveMsg('Export was NOT saved to the Media Library (network error) — it only downloaded locally.')
+    }
+
+    // 2. Local download for immediate use (regardless of save outcome)
     const url  = URL.createObjectURL(blob)
     const link = document.createElement('a')
     link.href     = url
-    link.download = `walz-poster-${campaignId.slice(-6)}.jpg`
+    link.download = `walz-poster-${campaignId.slice(-6)}.${ext}`
     document.body.appendChild(link)
     link.click()
     document.body.removeChild(link)
     URL.revokeObjectURL(url)
+    if (!savedOk) console.warn('[studio export] library save failed — local download only')
   }
 
   // ── Generation controls (shared POSTER / SOCIAL) ──────────────────────────
@@ -2328,6 +2420,17 @@ export function CreativeStudioSection({
                 </button>
               )}
             </div>
+
+            {/* Export → Media Library save status ("Saved" only after persistence) */}
+            {exportSave !== 'idle' && (
+              <div className={`px-3 py-2 rounded-lg border text-xs ${
+                exportSave === 'saved' ? 'border-green-800 bg-green-950/40 text-green-300'
+                : exportSave === 'saving' ? 'border-gray-700 bg-gray-900 text-gray-400'
+                : 'border-red-800 bg-red-950/40 text-red-300'
+              }`}>
+                {exportSaveMsg}
+              </div>
+            )}
 
             {/* Logo source notice: fallback = built-in official mark */}
             {Object.keys(brandAssets).length === 0 && designerComposition && (
@@ -2867,6 +2970,19 @@ export function CreativeStudioSection({
               <span className="text-gray-700">·</span>
               <span className={draftSavedAt ? 'text-gray-400' : 'text-gray-600'}>
                 {draftSavedAt ? 'Draft saved' : 'Unsaved'}
+              </span>
+              <span className="text-gray-700">·</span>
+              <span className={
+                serverSave === 'saved' ? 'text-green-500'
+                : serverSave === 'saving' ? 'text-gray-400'
+                : serverSave === 'conflict' || serverSave === 'error' ? 'text-red-400'
+                : 'text-gray-600'
+              }>
+                {serverSave === 'saved' ? 'Project saved ✓'
+                  : serverSave === 'saving' ? 'Saving project…'
+                  : serverSave === 'conflict' ? 'Conflict — edited elsewhere, reload before saving'
+                  : serverSave === 'error' ? 'Project save failed — retrying on next edit'
+                  : 'Project not yet saved'}
               </span>
               <div className="ml-auto">
                 <button

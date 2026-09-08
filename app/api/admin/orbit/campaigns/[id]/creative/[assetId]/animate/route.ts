@@ -15,6 +15,7 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { getAdminSession } from '@/lib/admin-auth'
+import { scopedCampaignId } from '@/lib/orbit/studio-scope'
 import { prisma } from '@/lib/db'
 import {
   isFalVideoConfigured,
@@ -51,7 +52,7 @@ export async function POST(
   }
 
   const sourceAsset = await prisma.orbitMedia.findFirst({
-    where: { id: params.assetId, campaignId: params.id, mediaType: 'image' },
+    where: { id: params.assetId, campaignId: scopedCampaignId(params.id), mediaType: 'image' },
   })
   // Resolve via central resolver — handles AI, Media Library, and uploaded assets.
   // URL is always read from the DB record (never from the browser), preventing SSRF.
@@ -88,7 +89,7 @@ export async function POST(
   try {
     existing = await prisma.orbitMedia.findFirst({
       where: {
-        campaignId:       params.id,
+        campaignId:       scopedCampaignId(params.id),
         provider:         'fal',
         generationStatus: { in: ['pending', 'processing'] },
       },
@@ -113,7 +114,7 @@ export async function POST(
         destination:      sourceAsset?.destination ?? null,
         campaignType:     sourceAsset?.campaignType ?? null,
         prompt,
-        campaignId:       params.id,
+        campaignId:       scopedCampaignId(params.id),
         createdBy:        session.email,
         provider:         'fal',
         model:            resolvedModel.key,

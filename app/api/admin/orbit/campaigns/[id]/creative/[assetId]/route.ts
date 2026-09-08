@@ -14,6 +14,7 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { getAdminSession } from '@/lib/admin-auth'
+import { scopedCampaignId } from '@/lib/orbit/studio-scope'
 import { prisma } from '@/lib/db'
 import {
   pollRunwayTask,
@@ -33,7 +34,7 @@ export const maxDuration = 30
 async function guardAsset(id: string, assetId: string, session: Awaited<ReturnType<typeof getAdminSession>>) {
   if (!session)                     return { error: 'Unauthorized', status: 401 }
   if (session.role !== 'super_admin') return { error: 'Forbidden',    status: 403 }
-  const asset = await prisma.orbitMedia.findFirst({ where: { id: assetId, campaignId: id } })
+  const asset = await prisma.orbitMedia.findFirst({ where: { id: assetId, campaignId: scopedCampaignId(id) } })
   if (!asset) return { error: 'Asset not found', status: 404 }
   return { asset }
 }

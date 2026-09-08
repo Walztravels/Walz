@@ -19,6 +19,7 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { getAdminSession }           from '@/lib/admin-auth'
+import { scopedCampaignId }          from '@/lib/orbit/studio-scope'
 import { prisma }                    from '@/lib/db'
 import { analyzeReferenceDesign, defaultReferenceProfile } from '@/lib/orbit/reference/analyzer'
 
@@ -43,7 +44,7 @@ export async function POST(
 
     // Verify the reference image belongs to this campaign
     const ref = await prisma.orbitMedia.findFirst({
-      where: { id: body.mediaId, campaignId: params.id, isReference: true },
+      where: { id: body.mediaId, campaignId: scopedCampaignId(params.id), isReference: true },
     }).catch(() => null)
 
     if (!ref) {

@@ -32,6 +32,7 @@
 
 import { NextRequest, NextResponse } from 'next/server'
 import { getAdminSession } from '@/lib/admin-auth'
+import { isStudioScope, scopedCampaignId } from '@/lib/orbit/studio-scope'
 import { prisma } from '@/lib/db'
 
 export const dynamic = 'force-dynamic'
@@ -62,14 +63,15 @@ export async function POST(
   if (!session)                       return NextResponse.json({ error: 'Unauthorized', traceId }, { status: 401 })
   if (session.role !== 'super_admin') return NextResponse.json({ error: 'Forbidden', traceId },    { status: 403 })
 
-  let campaign: Awaited<ReturnType<typeof prisma.orbitCampaign.findUnique>>
+  // Studio scope: campaign-less workspace (campaignId stays null in the DB)
+  let campaign: Awaited<ReturnType<typeof prisma.orbitCampaign.findUnique>> = null
   try {
-    campaign = await prisma.orbitCampaign.findUnique({ where: { id: params.id } })
+    campaign = isStudioScope(params.id) ? null : await prisma.orbitCampaign.findUnique({ where: { id: params.id } })
   } catch (dbErr) {
     console.error(`[library/POST] traceId=${traceId} stage=campaign_lookup_failed ${prismaErrDetail(dbErr)}`)
     return NextResponse.json({ error: 'Database error looking up campaign.', errorCode: 'INTERNAL_SERVER_ERROR', traceId }, { status: 500 })
   }
-  if (!campaign) return NextResponse.json({ error: 'Campaign not found', traceId }, { status: 404 })
+  if (!campaign && !isStudioScope(params.id)) return NextResponse.json({ error: 'Campaign not found', traceId }, { status: 404 })
 
   const body = await req.json().catch(() => ({})) as {
     mediaLibraryId?: string
@@ -110,12 +112,12 @@ export async function POST(
       where: {
         OR: [
           {
-            campaignId:    params.id,
+            campaignId:    scopedCampaignId(params.id),
             sourceType:    'media_library',
             sourceMediaId: body.mediaLibraryId,
           },
           {
-            campaignId:    params.id,
+            campaignId:    scopedCampaignId(params.id),
             provider:      'media_library',
             providerJobId: body.mediaLibraryId,
           },
@@ -127,7 +129,7 @@ export async function POST(
     try {
       existing = await prisma.orbitMedia.findFirst({
         where: {
-          campaignId:    params.id,
+          campaignId:    scopedCampaignId(params.id),
           provider:      'media_library',
           providerJobId: body.mediaLibraryId,
         },
@@ -157,7 +159,7 @@ export async function POST(
         publicUrl:        libraryAsset.url,
         format,
         mediaType,
-        campaignId:       params.id,
+        campaignId:       scopedCampaignId(params.id),
         createdBy:        session.email,
         altText:          libraryAsset.altText || libraryAsset.filename,
         isReference:      false,
