@@ -6,6 +6,7 @@ import Link from 'next/link'
 import { ImagesSection } from './ImagesSection'
 import { PublishSection } from './PublishSection'
 import { CreativeStudioSection } from './CreativeStudioSection'
+import { CampaignAttachments } from './CampaignAttachments'
 
 interface Campaign {
   id: string
@@ -396,6 +397,9 @@ export default function CampaignDetailPage() {
         cta={campaign.cta}
         tone={campaign.tone}
       />
+
+      {/* Shared Media Library attachments — the primary media action */}
+      <CampaignAttachments campaignId={campaign.id} brief={campaign.promotionDetails || campaign.objective} />
 
       {/* Campaign Images */}
       <ImagesSection
