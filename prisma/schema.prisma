@@ -2253,6 +2253,7 @@ model JobApplication {
   notes        CandidateNote[]
   interviews   Interview[]
   aiScreenings AiScreeningResult[]
+  aiInterviews AiInterview[]
 
   @@unique([candidateId, jobId])              // duplicate-application detection
   @@index([jobId, stageKey])
@@ -2403,6 +2404,51 @@ model AiScreeningResult {
   reviewedBy         String?                              // human review acknowledgment
   reviewedAt         DateTime?
   createdAt          DateTime       @default(now())
+
+  @@index([applicationId, createdAt])
+}
+
+// Reusable AI interview question sets. questions = [{key, question}].
+model AiInterviewQuestionSet {
+  id        String   @id @default(cuid())
+  name      String
+  jobId     String?
+  questions Json     @default("[]")
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  aiInterviews AiInterview[]
+
+  @@index([jobId])
+}
+
+// Text-based AI screening interview, taken by the candidate through a
+// hashed, expiring token link. No audio, video, facial analysis, emotion
+// detection or accent scoring exist anywhere in this flow. The AI asks the
+// pre-approved questions and summarizes answers for HUMAN review — it never
+// scores candidates into a decision and never rejects.
+model AiInterview {
+  id             String                  @id @default(cuid())
+  applicationId  String
+  application    JobApplication          @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  tokenHash      String                  @unique
+  tokenExpiresAt DateTime
+  status         String                  @default("invited")   // invited | in_progress | completed | expired | cancelled
+  questionSetId  String?
+  questionSet    AiInterviewQuestionSet? @relation(fields: [questionSetId], references: [id], onDelete: SetNull)
+  questions      Json                    @default("[]")        // snapshot at invite time
+  currentIndex   Int                     @default(0)
+  transcript     Json                    @default("[]")        // [{question, answer, answeredAt}]
+  aiSummary      String?                 @db.Text              // advisory, generated at completion
+  aiHighlights   Json                    @default("[]")
+  reviewedBy     String?                                        // human review acknowledgment
+  reviewedAt     DateTime?
+  invitedBy      String
+  startedAt      DateTime?
+  completedAt    DateTime?
+  createdAt      DateTime                @default(now())
+  updatedAt      DateTime                @updatedAt
 
   @@index([applicationId, createdAt])
 }

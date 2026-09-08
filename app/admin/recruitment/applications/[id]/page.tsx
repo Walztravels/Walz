@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { Loader2, Mail, Phone, Globe, FileText, StickyNote, History } from 'lucide-react'
 import InterviewsSection from '@/components/admin/recruitment/InterviewsSection'
 import AiScreeningSection from '@/components/admin/recruitment/AiScreeningSection'
+import AiInterviewSection from '@/components/admin/recruitment/AiInterviewSection'
 
 interface Stage { key: string; label: string }
 interface Detail {
@@ -157,6 +158,9 @@ export default function ApplicationDetailPage() {
 
           {/* Advisory AI screening — human-triggered, human-reviewed */}
           <AiScreeningSection applicationId={app.id} />
+
+          {/* AI screening interview — invited by staff, reviewed by staff */}
+          <AiInterviewSection applicationId={app.id} />
 
           {/* Interviews & scorecards */}
           <InterviewsSection applicationId={app.id} jobId={job?.id ?? null} />
