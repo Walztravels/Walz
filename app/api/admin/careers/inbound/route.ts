@@ -56,6 +56,7 @@ interface ResendInboundEmail {
   html?:        string
   message_id?:  string
   email_id?:    string
+  id?:          string
   attachments?: InboundAttachment[]
   headers?:     Array<{ name: string; value: string }> | Record<string, string>
 }
@@ -159,6 +160,54 @@ export async function POST(req: NextRequest) {
   }
 
   // ── Attachments: metadata always; content upload best-effort ───────────────
+  // Production evidence: the email.received webhook carries attachment
+  // METADATA ONLY (content_disposition, content_id, content_type, filename,
+  // id) — no bytes and no download_url. The file itself must be fetched via
+  // GET https://api.resend.com/emails/receiving/{email_id}/attachments,
+  // whose response carries a 1-hour download_url per attachment. One list
+  // call per email, keyed back to the webhook attachments by id.
+  const attachmentUrlById  = new Map<string, string>()
+  let   attachmentListNote: string | null = null
+  const resendEmailId = email.email_id ?? email.id ?? null
+  const needsApiLookup = (email.attachments ?? []).some(
+    a => !a.content && !(a.download_url ?? a.downloadUrl ?? a.url),
+  )
+  if (needsApiLookup) {
+    if (!resendEmailId) {
+      attachmentListNote = 'no email id in webhook'
+      console.error('[careers inbound] cannot list attachments — no email_id in payload; keys:', Object.keys(email).join(', '))
+    } else if (!process.env.RESEND_API_KEY) {
+      attachmentListNote = 'RESEND_API_KEY not configured'
+      console.error('[careers inbound] cannot list attachments — RESEND_API_KEY not set')
+    } else {
+      try {
+        const listRes = await fetch(
+          `https://api.resend.com/emails/receiving/${encodeURIComponent(resendEmailId)}/attachments`,
+          {
+            headers: { Authorization: `Bearer ${process.env.RESEND_API_KEY}` },
+            signal:  AbortSignal.timeout(10_000),
+          },
+        )
+        if (listRes.ok) {
+          const listData = await listRes.json() as { data?: Array<{ id?: string; filename?: string; download_url?: string }> }
+          for (const a of listData.data ?? []) {
+            if (a.id && a.download_url) attachmentUrlById.set(a.id, a.download_url)
+          }
+          if (attachmentUrlById.size === 0) {
+            attachmentListNote = 'provider returned no download links'
+            console.error('[careers inbound] attachment list returned no download_urls for', resendEmailId)
+          }
+        } else {
+          attachmentListNote = `provider list HTTP ${listRes.status}`
+          console.error(`[careers inbound] attachment list HTTP ${listRes.status} for ${resendEmailId}`)
+        }
+      } catch (e) {
+        attachmentListNote = 'provider list request failed'
+        console.error('[careers inbound] attachment list failed:', e instanceof Error ? e.message : e)
+      }
+    }
+  }
+
   const attachmentMeta: Array<{ filename: string; contentType: string; size: number; url?: string; stored: boolean; error?: string }> = []
   for (const att of (email.attachments ?? []).slice(0, 10)) {
     const contentType = (att.content_type ?? att.contentType ?? 'application/octet-stream').toLowerCase()
@@ -168,7 +217,9 @@ export async function POST(req: NextRequest) {
     // Resolve the file bytes: inline base64 (legacy payloads) or, per
     // current Resend inbound behaviour, fetch the 1-hour download_url NOW —
     // webhook processing happens within seconds of delivery.
-    const downloadUrl = att.download_url ?? att.downloadUrl ?? att.url
+    const downloadUrl =
+      att.download_url ?? att.downloadUrl ?? att.url ??
+      (att.id ? attachmentUrlById.get(att.id) : undefined)
     let contentBuf: Buffer | null = null
     if (allowed) {
       if (att.content) {
@@ -215,8 +266,10 @@ export async function POST(req: NextRequest) {
       // Neither inline content nor a fetchable download URL yielded bytes.
       // Log the payload's field names (never content) so the real shape is
       // visible in production logs if Resend changes it again.
-      console.error(`[careers inbound] attachment not retrievable (${filename}) — payload keys: ${Object.keys(att).join(', ')}`)
-      meta.error = downloadUrl ? 'download from provider failed' : 'file content not included by provider'
+      console.error(`[careers inbound] attachment not retrievable (${filename}) — payload keys: ${Object.keys(att).join(', ')}; list note: ${attachmentListNote ?? 'n/a'}`)
+      meta.error = downloadUrl
+        ? 'download from provider failed'
+        : (attachmentListNote ?? 'file content not included by provider')
     }
     attachmentMeta.push(meta)
   }

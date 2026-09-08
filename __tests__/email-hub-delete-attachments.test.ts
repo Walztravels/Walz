@@ -39,6 +39,24 @@ describe('inbound attachment storage', () => {
     expect(src).toContain('fetch(downloadUrl')
     expect(src).toContain('AbortSignal.timeout')
   })
+  it('lists attachments via the Resend receiving API when the webhook carries metadata only', () => {
+    // Production log evidence: webhook attachment objects hold only
+    // content_disposition/content_id/content_type/filename/id — the bytes
+    // live behind GET /emails/receiving/{email_id}/attachments.
+    expect(src).toContain('https://api.resend.com/emails/receiving/')
+    expect(src).toContain('/attachments')
+    expect(src).toContain('Bearer ${process.env.RESEND_API_KEY}')
+    expect(src).toContain('attachmentUrlById.set(a.id, a.download_url)')
+    expect(src).toContain('attachmentUrlById.get(att.id)')
+    // The list call is keyed off the webhook email id, both shapes
+    expect(src).toContain('email.email_id ?? email.id')
+  })
+  it('surfaces the specific list failure instead of a generic message', () => {
+    expect(src).toContain('provider list HTTP')
+    expect(src).toContain('provider returned no download links')
+    expect(src).toContain('RESEND_API_KEY not configured')
+    expect(src).toContain('attachmentListNote ??')
+  })
   it('explains unretrievable attachments and logs payload field names (never content)', () => {
     expect(src).toContain('file content not included by provider')
     expect(src).toContain('download from provider failed')
