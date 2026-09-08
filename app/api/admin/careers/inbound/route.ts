@@ -125,6 +125,14 @@ export async function POST(req: NextRequest) {
   const toRaw = Array.isArray(email.to) ? email.to[0] : email.to
   const recipient = (toRaw ?? 'careers@walztravels.com').toString()
 
+  // Scope guard: if the Resend webhook fires for the whole inbound domain,
+  // only process mail actually addressed to a careers address — anything else
+  // is acknowledged untouched so other inbound flows keep owning it.
+  const allTo = (Array.isArray(email.to) ? email.to : [email.to ?? '']).join(',').toLowerCase()
+  if (allTo && !allTo.includes('careers@')) {
+    return NextResponse.json({ ok: false, reason: 'not a careers address' })
+  }
+
   // ── Idempotency: stable provider identifier ────────────────────────────────
   const messageId =
     stripAngleBrackets(extractHeader(email.headers, 'Message-ID')) ??
