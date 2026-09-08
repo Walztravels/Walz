@@ -7,6 +7,7 @@ import InterviewsSection from '@/components/admin/recruitment/InterviewsSection'
 import AiScreeningSection from '@/components/admin/recruitment/AiScreeningSection'
 import AiInterviewSection from '@/components/admin/recruitment/AiInterviewSection'
 import SendEmailSection from '@/components/admin/recruitment/SendEmailSection'
+import OffersSection from '@/components/admin/recruitment/OffersSection'
 
 interface Stage { key: string; label: string }
 interface Detail {
@@ -165,6 +166,9 @@ export default function ApplicationDetailPage() {
 
           {/* Interviews & scorecards */}
           <InterviewsSection applicationId={app.id} jobId={job?.id ?? null} />
+
+          {/* Offers — management-only, candidate responds via token link */}
+          <OffersSection applicationId={app.id} />
 
           {/* Candidate communication — explicit human sends only */}
           <SendEmailSection applicationId={app.id} candidateEmail={app.candidate.email} />

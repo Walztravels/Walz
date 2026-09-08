@@ -2254,6 +2254,7 @@ model JobApplication {
   interviews   Interview[]
   aiScreenings AiScreeningResult[]
   aiInterviews AiInterview[]
+  offers       JobOffer[]
 
   @@unique([candidateId, jobId])              // duplicate-application detection
   @@index([jobId, stageKey])
@@ -2451,6 +2452,48 @@ model AiInterview {
   updatedAt      DateTime                @updatedAt
 
   @@index([applicationId, createdAt])
+}
+
+// A job offer for one application. Created and sent only by management-role
+// humans; the candidate views and responds through a hashed, expiring token
+// link. A response records the candidate's answer — staff still move the
+// pipeline stage themselves (hiring stays a human decision end to end).
+model JobOffer {
+  id                String         @id @default(cuid())
+  applicationId     String
+  application       JobApplication @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  status            String         @default("draft")   // draft | sent | accepted | declined | withdrawn | expired
+  jobTitle          String                              // snapshot at offer time
+  compensationType  String         @default("salary")  // salary | hourly | commission | mixed
+  compensationAmount Decimal?      @db.Decimal(12, 2)
+  currency          String         @default("NGN")
+  compensationNotes String?        @db.Text
+  startDate         DateTime?
+  terms             String?        @db.Text
+  tokenHash         String?        @unique             // set when sent
+  tokenExpiresAt    DateTime?
+  createdBy         String
+  sentAt            DateTime?
+  respondedAt       DateTime?
+  candidateNote     String?        @db.Text            // optional note from the candidate response
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
+
+  @@index([applicationId, createdAt])
+}
+
+// Cross-job talent pool: candidates staff chose to keep in view for future
+// roles. One active entry per candidate; removal honours candidate requests.
+model TalentPoolEntry {
+  id          String   @id @default(cuid())
+  candidateId String   @unique
+  addedBy     String
+  reason      String?  @db.Text
+  tags        Json     @default("[]")
+  sourceApplicationId String?
+  createdAt   DateTime @default(now())
+
+  @@index([createdAt])
 }
 
 // Recruitment communication templates — staff-editable, placeholder-based.

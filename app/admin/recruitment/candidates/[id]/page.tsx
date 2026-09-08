@@ -2,7 +2,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useParams } from 'next/navigation'
 import Link from 'next/link'
-import { Loader2, Mail, Phone, Globe, FileText, StickyNote } from 'lucide-react'
+import { Loader2, Mail, Phone, Globe, FileText, StickyNote, Star } from 'lucide-react'
 import { DEFAULT_PIPELINE_STAGES } from '@/lib/recruitment/core'
 
 interface CandidateDetail {
@@ -23,6 +23,8 @@ export default function CandidateProfilePage() {
   const [jobs,      setJobs]      = useState<JobRef[]>([])
   const [loading,   setLoading]   = useState(true)
   const [error,     setError]     = useState('')
+  const [poolBusy,  setPoolBusy]  = useState(false)
+  const [poolMsg,   setPoolMsg]   = useState('')
 
   const load = useCallback(async () => {
     try {
@@ -36,6 +38,19 @@ export default function CandidateProfilePage() {
   }, [params.id])
   useEffect(() => { void load() }, [load])
 
+  async function addToPool() {
+    if (!candidate) return
+    if (!confirm(`Add ${candidate.firstName} ${candidate.lastName} to the talent pool for future roles?`)) return
+    setPoolBusy(true); setPoolMsg('')
+    const res  = await fetch('/api/admin/recruitment/talent-pool', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ candidateId: candidate.id }),
+    })
+    const data = await res.json()
+    setPoolBusy(false)
+    setPoolMsg(res.ok ? 'Added to the talent pool.' : (data.error ?? 'Failed to add'))
+  }
+
   const jobTitle = (id: string) => jobs.find(j => j.id === id)?.title ?? 'Unknown role'
   const fmt = (iso: string) => new Date(iso).toLocaleDateString('en-GB', { dateStyle: 'medium' })
 
@@ -48,7 +63,14 @@ export default function CandidateProfilePage() {
         <p className="text-xs text-gray-400 mb-1">
           <Link href="/admin/recruitment" className="hover:underline">Recruitment</Link> › Candidate
         </p>
-        <h1 className="text-2xl font-bold text-[#0B1F3A]">{candidate.firstName} {candidate.lastName}</h1>
+        <div className="flex items-center gap-3 flex-wrap">
+          <h1 className="text-2xl font-bold text-[#0B1F3A]">{candidate.firstName} {candidate.lastName}</h1>
+          <button onClick={() => void addToPool()} disabled={poolBusy}
+            className="inline-flex items-center gap-1 text-xs font-bold text-[#0B1F3A] bg-[#C9A84C]/20 hover:bg-[#C9A84C]/40 px-3 py-1.5 rounded-lg disabled:opacity-40">
+            <Star className="w-3.5 h-3.5 text-[#C9A84C]" /> Add to talent pool
+          </button>
+          {poolMsg && <span className="text-xs text-gray-500">{poolMsg}</span>}
+        </div>
         <div className="flex items-center gap-4 text-xs text-gray-400 mt-1 flex-wrap">
           <span className="flex items-center gap-1"><Mail className="w-3 h-3" />{candidate.email}</span>
           {candidate.phone && <span className="flex items-center gap-1"><Phone className="w-3 h-3" />{candidate.phone}</span>}
