@@ -510,7 +510,6 @@ export const NAV_ITEMS: NavSection[] = [
       { href: '/admin/blog/new',        label: 'New Post',          icon: 'Plus',          permission: 'blog.publish' },
       { href: '/admin/content',         label: 'Website Content',   icon: 'Edit',          permission: 'content'      },
       { href: '/admin/testimonials',    label: 'Testimonials',      icon: 'Star',          permission: 'content'      },
-      { href: '/admin/careers',         label: 'Careers',           icon: 'Briefcase',     permission: 'content'      },
       { href: '/admin/destinations',     label: 'Featured Destinations', icon: 'MapPin',     permission: 'content'      },
       { href: '/admin/stats',           label: 'Homepage Stats',    icon: 'TrendingUp',    permission: 'content'      },
       { href: '/admin/featured-deals',  label: 'Featured Deals',    icon: 'Tag',           permission: 'bookings'     },
@@ -518,6 +517,13 @@ export const NAV_ITEMS: NavSection[] = [
       { href: '/admin/newsletter',      label: 'Newsletter',        icon: 'Mail',          permission: 'clients'      },
       { href: '/admin/referrals',       label: 'Referral Codes',    icon: 'Users',         permission: 'clients'      },
       { href: '/admin/site-settings',   label: 'Site Settings',     icon: 'Sliders',       permission: 'settings'     },
+    ],
+  },
+  {
+    section: 'RECRUITMENT',
+    items: [
+      { href: '/admin/recruitment',      label: 'Overview',     icon: 'Users',     permission: 'content' },
+      { href: '/admin/recruitment/jobs', label: 'Job Openings', icon: 'Briefcase', permission: 'content' },
     ],
   },
   {

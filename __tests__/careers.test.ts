@@ -153,8 +153,10 @@ describe('careers CRUD', () => {
 describe('public careers page', () => {
   const src = fs.readFileSync(path.join(process.cwd(), 'app/careers/page.tsx'), 'utf-8')
 
-  it('public query excludes inactive listings with deterministic ordering', () => {
-    expect(src).toContain('isActive: true')
+  it('public query excludes non-published listings with deterministic ordering', () => {
+    // Upgraded by Recruitment Hub R1: publicJobWhere() = status 'published'
+    // AND not past deadline — strictly stronger than the old isActive filter.
+    expect(src).toContain('publicJobWhere()')
     expect(src).toMatch(/orderBy:\s*\[\{ sortOrder: 'asc' \}, \{ createdAt: 'asc' \}\]/)
   })
 

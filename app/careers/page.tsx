@@ -1,6 +1,8 @@
 import type { Metadata } from 'next'
-import { MapPin, Clock, ArrowRight, MessageCircle } from 'lucide-react'
+import Link from 'next/link'
+import { MapPin, Clock, ArrowRight, MessageCircle, CalendarDays } from 'lucide-react'
 import prisma from '@/lib/db'
+import { publicJobWhere } from '@/lib/recruitment/core'
 
 export const metadata: Metadata = {
   title: 'Careers',
@@ -16,6 +18,10 @@ interface Opening {
   type: string
   location: string
   description: string
+  slug?: string | null
+  department?: string | null
+  workplaceType?: string | null
+  deadline?: Date | null
 }
 
 // Pre-migration / database-failure fallback: the original four listings,
@@ -50,10 +56,14 @@ const FALLBACK_OPENINGS: Opening[] = [
 
 async function getOpenings(): Promise<{ openings: Opening[]; fromDb: boolean }> {
   try {
+    // Published jobs only, auto-hidden after their deadline (Recruitment Hub)
     const rows = await prisma.jobOpening.findMany({
-      where:   { isActive: true },
+      where:   publicJobWhere(),
       orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
-      select:  { title: true, type: true, location: true, description: true },
+      select:  {
+        title: true, type: true, location: true, description: true,
+        slug: true, department: true, workplaceType: true, deadline: true,
+      },
     })
     return { openings: rows, fromDb: true }
   } catch (err) {
@@ -61,6 +71,8 @@ async function getOpenings(): Promise<{ openings: Opening[]; fromDb: boolean }> 
     return { openings: FALLBACK_OPENINGS, fromDb: false }
   }
 }
+
+const WORKPLACE_LABEL: Record<string, string> = { remote: 'Remote', hybrid: 'Hybrid', onsite: 'On-site' }
 
 const VALUES = [
   { emoji: '✈️', title: 'Real expertise', desc: 'We\'ve been to the places we sell. Every recommendation comes from genuine first-hand experience.' },
@@ -117,27 +129,44 @@ export default async function CareersPage() {
             </div>
           ) : (
             <div className="space-y-4">
-              {openings.map(({ title, type, location, description }) => (
+              {openings.map(({ title, type, location, description, slug, department, workplaceType, deadline }) => (
                 <div key={title} className="bg-white rounded-2xl border border-[#E2D9CC] p-6">
                   <div className="flex flex-wrap items-start justify-between gap-4 mb-3">
                     <h3 className="font-display text-lg font-bold text-[#0B1F3A]">{title}</h3>
                     <div className="flex items-center gap-2 flex-wrap">
+                      {department && (
+                        <span className="text-xs font-semibold text-[#0B1F3A]/60 bg-[#0B1F3A]/5 px-2.5 py-1 rounded-full">
+                          {department}
+                        </span>
+                      )}
                       <span className="text-xs font-semibold text-[#C9A84C] bg-[#C9A84C]/10 px-2.5 py-1 rounded-full">
                         {type}
                       </span>
                     </div>
                   </div>
-                  <div className="flex items-center gap-4 mb-3 text-xs text-[#0B1F3A]/50">
-                    <span className="flex items-center gap-1"><MapPin className="w-3.5 h-3.5" />{location}</span>
+                  <div className="flex items-center gap-4 mb-3 text-xs text-[#0B1F3A]/50 flex-wrap">
+                    <span className="flex items-center gap-1"><MapPin className="w-3.5 h-3.5" />{location}{workplaceType ? ` · ${WORKPLACE_LABEL[workplaceType] ?? workplaceType}` : ''}</span>
                     <span className="flex items-center gap-1"><Clock className="w-3.5 h-3.5" />{type}</span>
+                    {deadline && (
+                      <span className="flex items-center gap-1"><CalendarDays className="w-3.5 h-3.5" />Closes {new Date(deadline).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}</span>
+                    )}
                   </div>
                   <p className="text-[#0B1F3A]/60 text-sm leading-relaxed mb-4">{description}</p>
-                  <a
-                    href={`mailto:careers@walztravels.com?subject=${encodeURIComponent(`Application for ${title}`)}`}
-                    className="inline-flex items-center gap-1.5 text-sm font-semibold text-[#C9A84C] hover:underline"
-                  >
-                    Apply Now <ArrowRight className="w-3.5 h-3.5" />
-                  </a>
+                  {slug ? (
+                    <Link
+                      href={`/careers/${slug}`}
+                      className="inline-flex items-center gap-1.5 text-sm font-semibold text-[#C9A84C] hover:underline"
+                    >
+                      View Job <ArrowRight className="w-3.5 h-3.5" />
+                    </Link>
+                  ) : (
+                    <a
+                      href={`mailto:careers@walztravels.com?subject=${encodeURIComponent(`Application for ${title}`)}`}
+                      className="inline-flex items-center gap-1.5 text-sm font-semibold text-[#C9A84C] hover:underline"
+                    >
+                      Apply Now <ArrowRight className="w-3.5 h-3.5" />
+                    </a>
+                  )}
                 </div>
               ))}
             </div>
