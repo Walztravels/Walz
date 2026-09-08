@@ -49,7 +49,10 @@ export default function JobCandidatesPage() {
           <Link href={`/admin/recruitment/jobs/${params.id}`} className="hover:underline">{job?.title ?? 'Job'}</Link> › Candidates
         </p>
         <h1 className="text-2xl font-bold text-[#0B1F3A]">Applications{job ? ` — ${job.title}` : ''}</h1>
-        <p className="text-gray-400 text-sm mt-0.5">{apps.length} application{apps.length !== 1 ? 's' : ''}</p>
+        <p className="text-gray-400 text-sm mt-0.5">
+          {apps.length} application{apps.length !== 1 ? 's' : ''} ·{' '}
+          <Link href={`/admin/recruitment/jobs/${params.id}/pipeline`} className="text-[#C9A84C] hover:underline">open pipeline board</Link>
+        </p>
       </div>
 
       {error && <p className="text-sm text-red-500 bg-red-50 rounded-xl px-4 py-2.5">{error}</p>}
@@ -68,9 +71,10 @@ export default function JobCandidatesPage() {
               <div className="flex items-start justify-between gap-3 flex-wrap">
                 <div className="min-w-0">
                   <div className="flex items-center gap-2 flex-wrap">
-                    <p className="font-bold text-[#0B1F3A] text-sm">
+                    <Link href={`/admin/recruitment/applications/${app.id}`}
+                      className="font-bold text-[#0B1F3A] text-sm hover:underline">
                       {app.candidate.firstName} {app.candidate.lastName}
-                    </p>
+                    </Link>
                     <span className="text-[10px] font-semibold text-[#C9A84C] bg-[#C9A84C]/10 px-2 py-0.5 rounded-full">
                       {STAGE_LABEL[app.stageKey] ?? app.stageKey}
                     </span>

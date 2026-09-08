@@ -2216,6 +2216,7 @@ model Candidate {
 
   applications JobApplication[]
   documents    CandidateDocument[]
+  notes        CandidateNote[]
 
   @@index([mergedIntoId])
 }
@@ -2249,6 +2250,7 @@ model JobApplication {
   answers      ApplicationAnswer[]
   documents    CandidateDocument[]
   stageHistory ApplicationStageHistory[]
+  notes        CandidateNote[]
 
   @@unique([candidateId, jobId])              // duplicate-application detection
   @@index([jobId, stageKey])
@@ -2299,6 +2301,23 @@ model ApplicationStageHistory {
   createdAt     DateTime       @default(now())
 
   @@index([applicationId, createdAt])
+}
+
+// Internal recruiter notes on a candidate (optionally scoped to one
+// application). Never shown to candidates; deleted notes leave an audit trail.
+model CandidateNote {
+  id            String          @id @default(cuid())
+  candidateId   String
+  candidate     Candidate       @relation(fields: [candidateId], references: [id], onDelete: Restrict)
+  applicationId String?
+  application   JobApplication? @relation(fields: [applicationId], references: [id], onDelete: SetNull)
+  authorEmail   String
+  authorName    String?
+  body          String          @db.Text
+  createdAt     DateTime        @default(now())
+
+  @@index([candidateId, createdAt])
+  @@index([applicationId])
 }
 
 model Testimonial {
