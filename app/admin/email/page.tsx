@@ -5,7 +5,7 @@ import {
   Mail, Send, Edit3, Clock, Inbox, FolderOpen,
   Hotel, Users, Map, FileText, Settings, ChevronDown,
   X, Plus, RefreshCw, Loader2, CheckCircle, AlertCircle,
-  Sparkles, Eye, Reply, Paperclip, Trash2,
+  Sparkles, Eye, Reply, Paperclip, Trash2, Briefcase,
 } from 'lucide-react'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -43,6 +43,7 @@ interface Message {
   readAt:      string | null
   openCount:   number
   status:      string
+  attachments?: Array<{ filename: string; contentType: string; size: number; url?: string; stored?: boolean; error?: string }>
 }
 
 interface ContactSuggestion {
@@ -232,11 +233,12 @@ const FOLDERS = [
 ]
 
 const CATEGORIES = [
-  { id: 'hotel',  label: 'Hotels',   icon: Hotel     },
-  { id: 'client', label: 'Clients',  icon: Users     },
-  { id: 'tours',  label: 'Tours',    icon: Map       },
-  { id: 'visa',   label: 'Visa',     icon: FileText  },
-  { id: 'admin',  label: 'Admin',    icon: Settings  },
+  { id: 'hotel',   label: 'Hotels',   icon: Hotel     },
+  { id: 'client',  label: 'Clients',  icon: Users     },
+  { id: 'tours',   label: 'Tours',    icon: Map       },
+  { id: 'visa',    label: 'Visa',     icon: FileText  },
+  { id: 'careers', label: 'Careers',  icon: Briefcase },
+  { id: 'admin',   label: 'Admin',    icon: Settings  },
 ]
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -333,6 +335,17 @@ export default function EmailHubPage() {
   }, [activeFolder, search])
 
   useEffect(() => { loadThreads() }, [loadThreads])
+
+  // Deep links: /admin/email?thread={id}&category={cat} — used by careers
+  // notification emails to open the exact thread. window-based so no
+  // Suspense boundary is needed for useSearchParams.
+  useEffect(() => {
+    const params   = new URLSearchParams(window.location.search)
+    const thread   = params.get('thread')
+    const category = params.get('category')
+    if (category) setActiveFolder(category)
+    if (thread)   setSelectedThreadId(thread)
+  }, [])
 
   // ── Load thread messages ────────────────────────────────────────────────────
 
@@ -706,7 +719,14 @@ export default function EmailHubPage() {
                     </div>
                     <span className="text-xs text-gray-500 shrink-0">{lastTime}</span>
                   </div>
-                  <p className="text-xs text-gray-400 truncate mt-0.5 pl-4">{thread.subject}</p>
+                  <p className="text-xs text-gray-400 truncate mt-0.5 pl-4">
+                    {thread.category === 'careers' && (
+                      <span className="inline-flex items-center gap-1 mr-1.5 text-[10px] font-bold text-[#C9A84C] bg-[#C9A84C]/15 px-1.5 py-0.5 rounded align-middle">
+                        <Briefcase className="w-2.5 h-2.5" />Careers
+                      </span>
+                    )}
+                    {thread.subject}
+                  </p>
                   {preview && (
                     <p className="text-xs text-gray-600 truncate mt-0.5 pl-4">{preview}</p>
                   )}
@@ -1037,6 +1057,24 @@ export default function EmailHubPage() {
                         <p className="px-4 py-3 text-sm text-gray-200 whitespace-pre-wrap leading-relaxed">
                           {msg.bodyText}
                         </p>
+                        {/* Attachments (careers CVs etc.) */}
+                        {(msg.attachments?.length ?? 0) > 0 && (
+                          <div className="px-4 pb-3 flex flex-wrap gap-2">
+                            {msg.attachments!.map((att, i) => (
+                              att.url ? (
+                                <a key={i} href={att.url} target="_blank" rel="noreferrer"
+                                  className="inline-flex items-center gap-1.5 text-xs text-[#C9A84C] bg-[#C9A84C]/10 border border-[#C9A84C]/20 px-2.5 py-1 rounded-lg hover:bg-[#C9A84C]/20">
+                                  <Paperclip className="w-3 h-3" />{att.filename}
+                                </a>
+                              ) : (
+                                <span key={i} title={att.error ?? 'not stored'}
+                                  className="inline-flex items-center gap-1.5 text-xs text-gray-400 bg-gray-800 px-2.5 py-1 rounded-lg">
+                                  <Paperclip className="w-3 h-3" />{att.filename}{att.error ? ` (${att.error})` : ''}
+                                </span>
+                              )
+                            ))}
+                          </div>
+                        )}
                       </div>
                     </div>
                   )

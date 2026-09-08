@@ -1,12 +1,27 @@
 import type { Metadata } from 'next'
 import { MapPin, Clock, ArrowRight, MessageCircle } from 'lucide-react'
+import prisma from '@/lib/db'
 
 export const metadata: Metadata = {
   title: 'Careers',
   description: 'Join the Walz Travels team. We\'re looking for passionate travel experts, visa specialists and tech talent.',
 }
 
-const OPENINGS = [
+// ISR: admin changes appear within a minute — no redeploy needed, and
+// visitors still get a cached page.
+export const revalidate = 60
+
+interface Opening {
+  title: string
+  type: string
+  location: string
+  description: string
+}
+
+// Pre-migration / database-failure fallback: the original four listings,
+// verbatim. Guarantees /careers is never empty between the code deploy and
+// the SQL migration, and never exposes a database error to visitors.
+const FALLBACK_OPENINGS: Opening[] = [
   {
     title: 'Visa Application Specialist',
     type: 'Full-time',
@@ -33,6 +48,20 @@ const OPENINGS = [
   },
 ]
 
+async function getOpenings(): Promise<{ openings: Opening[]; fromDb: boolean }> {
+  try {
+    const rows = await prisma.jobOpening.findMany({
+      where:   { isActive: true },
+      orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
+      select:  { title: true, type: true, location: true, description: true },
+    })
+    return { openings: rows, fromDb: true }
+  } catch (err) {
+    console.error('[careers] DB read failed, using fallback listings:', err)
+    return { openings: FALLBACK_OPENINGS, fromDb: false }
+  }
+}
+
 const VALUES = [
   { emoji: '✈️', title: 'Real expertise', desc: 'We\'ve been to the places we sell. Every recommendation comes from genuine first-hand experience.' },
   { emoji: '🌍', title: 'Global team', desc: 'We operate across the UK, Nigeria, Canada and beyond — bringing diverse perspectives to travel.' },
@@ -40,7 +69,9 @@ const VALUES = [
   { emoji: '🚀', title: 'Move fast', desc: 'We\'re a lean, ambitious team. If you want to build something significant, you\'ll fit right in.' },
 ]
 
-export default function CareersPage() {
+export default async function CareersPage() {
+  const { openings } = await getOpenings()
+
   return (
     <div className="min-h-screen bg-[#F5F2EE]">
 
@@ -76,31 +107,41 @@ export default function CareersPage() {
         {/* Open positions */}
         <div>
           <h2 className="font-display text-2xl font-bold text-[#0B1F3A] mb-8">Open Positions</h2>
-          <div className="space-y-4">
-            {OPENINGS.map(({ title, type, location, description }) => (
-              <div key={title} className="bg-white rounded-2xl border border-[#E2D9CC] p-6">
-                <div className="flex flex-wrap items-start justify-between gap-4 mb-3">
-                  <h3 className="font-display text-lg font-bold text-[#0B1F3A]">{title}</h3>
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <span className="text-xs font-semibold text-[#C9A84C] bg-[#C9A84C]/10 px-2.5 py-1 rounded-full">
-                      {type}
-                    </span>
+          {openings.length === 0 ? (
+            <div className="bg-white rounded-2xl border border-[#E2D9CC] p-10 text-center">
+              <p className="font-display text-lg font-bold text-[#0B1F3A] mb-2">No open positions right now</p>
+              <p className="text-[#0B1F3A]/55 text-sm leading-relaxed">
+                We&apos;re not hiring for specific roles at the moment — but we&apos;re always keen to meet great people.
+                Send us your CV below and we&apos;ll keep you in mind.
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              {openings.map(({ title, type, location, description }) => (
+                <div key={title} className="bg-white rounded-2xl border border-[#E2D9CC] p-6">
+                  <div className="flex flex-wrap items-start justify-between gap-4 mb-3">
+                    <h3 className="font-display text-lg font-bold text-[#0B1F3A]">{title}</h3>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-xs font-semibold text-[#C9A84C] bg-[#C9A84C]/10 px-2.5 py-1 rounded-full">
+                        {type}
+                      </span>
+                    </div>
                   </div>
+                  <div className="flex items-center gap-4 mb-3 text-xs text-[#0B1F3A]/50">
+                    <span className="flex items-center gap-1"><MapPin className="w-3.5 h-3.5" />{location}</span>
+                    <span className="flex items-center gap-1"><Clock className="w-3.5 h-3.5" />{type}</span>
+                  </div>
+                  <p className="text-[#0B1F3A]/60 text-sm leading-relaxed mb-4">{description}</p>
+                  <a
+                    href={`mailto:careers@walztravels.com?subject=${encodeURIComponent(`Application for ${title}`)}`}
+                    className="inline-flex items-center gap-1.5 text-sm font-semibold text-[#C9A84C] hover:underline"
+                  >
+                    Apply Now <ArrowRight className="w-3.5 h-3.5" />
+                  </a>
                 </div>
-                <div className="flex items-center gap-4 mb-3 text-xs text-[#0B1F3A]/50">
-                  <span className="flex items-center gap-1"><MapPin className="w-3.5 h-3.5" />{location}</span>
-                  <span className="flex items-center gap-1"><Clock className="w-3.5 h-3.5" />{type}</span>
-                </div>
-                <p className="text-[#0B1F3A]/60 text-sm leading-relaxed mb-4">{description}</p>
-                <a
-                  href={`mailto:contact@walztravels.com?subject=Application: ${encodeURIComponent(title)}`}
-                  className="inline-flex items-center gap-1.5 text-sm font-semibold text-[#C9A84C] hover:underline"
-                >
-                  Apply Now <ArrowRight className="w-3.5 h-3.5" />
-                </a>
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
+          )}
         </div>
 
         {/* Speculative */}
@@ -115,7 +156,7 @@ export default function CareersPage() {
             </div>
           </div>
           <a
-            href="mailto:contact@walztravels.com?subject=Speculative%20Application"
+            href="mailto:careers@walztravels.com?subject=Speculative%20Application"
             className="flex-shrink-0 inline-flex items-center gap-2 px-6 py-3 bg-[#C9A84C] hover:bg-[#b8943d] text-[#0B1F3A] font-bold text-sm rounded-xl transition-colors"
           >
             Send Your CV

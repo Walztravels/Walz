@@ -2118,6 +2118,24 @@ model DocumentUpload {
   @@index([requestId])
 }
 
+// Careers job openings — managed in /admin/careers, rendered on /careers.
+// Table + seed created via prisma/migrations/add_job_openings_and_seed_existing_careers.sql
+// (Supabase SQL editor — this repo's production migration convention; NOT db push).
+model JobOpening {
+  id          String   @id @default(cuid())
+  title       String
+  type        String   // 'Full-time' | 'Contract' | 'Part-time'
+  location    String
+  description String   @db.Text
+  isActive    Boolean  @default(true)
+  sortOrder   Int      @default(0)
+  createdBy   String?  // admin email — matches sibling content models (no staff relation convention here)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([isActive])
+}
+
 model Testimonial {
   id        String   @id @default(cuid())
   name      String
@@ -3956,6 +3974,9 @@ model EmailMessage {
   sentBy      String?
   inReplyTo   String?
   trackingId  String?     @unique
+  // Attachment metadata: [{ filename, contentType, size, url? }] — added for
+  // careers inbound (additive; existing rows default to []).
+  attachments Json        @default("[]")
 
   @@index([threadId, sentAt])
   @@index([resendId])
