@@ -2196,6 +2196,111 @@ model JobPipelineStage {
   @@index([jobId, sortOrder])
 }
 
+// A person. One candidate can hold many applications; duplicate emails
+// resolve to the same candidate (case-insensitive canonical email).
+model Candidate {
+  id           String   @id @default(cuid())
+  email        String   @unique              // stored lowercase
+  firstName    String
+  lastName     String
+  phone        String?
+  country      String?
+  city         String?
+  linkedinUrl  String?
+  portfolioUrl String?
+  source       String   @default("website")
+  tags         Json     @default("[]")
+  mergedIntoId String?                        // set when merged into another candidate (audit-preserving)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  applications JobApplication[]
+  documents    CandidateDocument[]
+
+  @@index([mergedIntoId])
+}
+
+// One application = one candidate × one job. Never cascade-deleted by job
+// removal (history preserved; jobs archive rather than delete).
+model JobApplication {
+  id            String     @id @default(cuid())
+  reference     String     @unique            // WALZ-CAREERS-2026-XXXXXX (public-safe)
+  candidateId   String
+  candidate     Candidate  @relation(fields: [candidateId], references: [id], onDelete: Restrict)
+  jobId         String
+  stageKey      String     @default("new")    // JobPipelineStage.key
+  status        String     @default("active") // active | withdrawn | rejected | hired
+  coverLetter   String?    @db.Text
+  howHeard      String?
+  referral      String?
+  workAuthorization String?
+  accommodation String?    @db.Text
+  source        String     @default("website")
+  // Secure candidate status link: token stored HASHED, time-limited, revocable
+  statusTokenHash      String?
+  statusTokenExpiresAt DateTime?
+  // Consent (privacy minimization: versions + timestamp only, no IP/UA)
+  consentPrivacyVersion String?
+  consentAiVersion      String?
+  consentAt             DateTime?
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+
+  answers      ApplicationAnswer[]
+  documents    CandidateDocument[]
+  stageHistory ApplicationStageHistory[]
+
+  @@unique([candidateId, jobId])              // duplicate-application detection
+  @@index([jobId, stageKey])
+  @@index([reference])
+}
+
+// Screening answers — question text snapshotted so later edits to the job's
+// questions never rewrite what the candidate actually answered.
+model ApplicationAnswer {
+  id            String         @id @default(cuid())
+  applicationId String
+  application   JobApplication @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  questionId    String?
+  question      String         @db.Text
+  answer        String         @db.Text
+
+  @@index([applicationId])
+}
+
+// Private candidate files (CVs etc.) in the private recruitment-docs bucket.
+// No public URLs — downloads only via the authorized signed-URL route.
+model CandidateDocument {
+  id            String          @id @default(cuid())
+  candidateId   String
+  candidate     Candidate       @relation(fields: [candidateId], references: [id], onDelete: Restrict)
+  applicationId String?
+  application   JobApplication? @relation(fields: [applicationId], references: [id], onDelete: SetNull)
+  kind          String          @default("cv")   // cv | cover_letter | other
+  filename      String
+  contentType   String
+  size          Int             @default(0)
+  storagePath   String                            // private bucket path — never exposed raw
+  createdAt     DateTime        @default(now())
+
+  @@index([candidateId])
+  @@index([applicationId])
+}
+
+// Pipeline movement history — the audit spine of the ATS.
+model ApplicationStageHistory {
+  id            String         @id @default(cuid())
+  applicationId String
+  application   JobApplication @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  fromKey       String?
+  toKey         String
+  movedBy       String?                           // staff email | 'system' | 'candidate'
+  note          String?        @db.Text
+  createdAt     DateTime       @default(now())
+
+  @@index([applicationId, createdAt])
+}
+
 model Testimonial {
   id        String   @id @default(cuid())
   name      String

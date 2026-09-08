@@ -1,7 +1,7 @@
 'use client'
 import { useState, useEffect, useCallback } from 'react'
 import Link from 'next/link'
-import { Plus, Loader2, Briefcase, ArrowUp, ArrowDown, Copy, ExternalLink } from 'lucide-react'
+import { Plus, Loader2, Briefcase, ArrowUp, ArrowDown, Copy, ExternalLink, Users } from 'lucide-react'
 
 interface JobRow {
   id: string; slug: string | null; title: string; department: string | null
@@ -121,6 +121,11 @@ export default function RecruitmentJobsPage() {
                   {job.positions > 1 ? ` · ${job.positions} positions` : ''}
                 </p>
               </div>
+              <Link href={`/admin/recruitment/jobs/${job.id}/candidates`} title="View applications"
+                aria-label={`View applications for ${job.title}`}
+                className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400 hover:text-[#0B1F3A]">
+                <Users className="w-4 h-4" />
+              </Link>
               {job.status === 'published' && job.slug && (
                 <a href={`/careers/${job.slug}`} target="_blank" rel="noreferrer" title="View public page"
                   className="p-1.5 rounded-lg hover:bg-gray-100 text-gray-400 hover:text-[#0B1F3A]">

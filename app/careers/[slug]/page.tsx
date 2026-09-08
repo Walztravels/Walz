@@ -110,12 +110,17 @@ export default async function JobDetailPage({ params }: { params: { slug: string
         <div className="bg-[#0B1F3A] rounded-2xl p-8 mb-8">
           <p className="text-white font-bold text-lg mb-1.5">Ready to apply?</p>
           <p className="text-white/50 text-sm mb-5">Send your CV and a short introduction — we review every application.</p>
-          <a
-            href={`mailto:careers@walztravels.com?subject=${encodeURIComponent(`Application for ${job.title}`)}`}
+          <Link
+            href={`/careers/${job.slug}/apply`}
             className="inline-flex items-center gap-2 px-6 py-3 bg-[#C9A84C] hover:bg-[#b8943d] text-[#0B1F3A] font-bold text-sm rounded-xl transition-colors"
           >
             Apply Now <ArrowRight className="w-4 h-4" />
-          </a>
+          </Link>
+          <p className="text-white/30 text-xs mt-4">
+            Prefer email? Send your CV to{' '}
+            <a href={`mailto:careers@walztravels.com?subject=${encodeURIComponent(`Application for ${job.title}`)}`}
+              className="text-[#C9A84C]/80 hover:underline">careers@walztravels.com</a>
+          </p>
         </div>
 
         {/* AI-use disclosure */}
