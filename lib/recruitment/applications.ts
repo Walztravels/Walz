@@ -42,6 +42,14 @@ export function generateReference(year = new Date().getFullYear()): string {
   return `WALZ-CAREERS-${year}-${suffix}`
 }
 
+/** Matches an application reference anywhere in free text (subject/body). */
+export const REFERENCE_PATTERN = /WALZ-CAREERS-\d{4}-[A-HJ-NP-Z2-9]{6}/i
+
+export function extractApplicationReference(text: string): string | null {
+  const m = (text || '').match(REFERENCE_PATTERN)
+  return m ? m[0].toUpperCase() : null
+}
+
 export async function uniqueReference(): Promise<string> {
   for (let i = 0; i < 10; i++) {
     const ref = generateReference()

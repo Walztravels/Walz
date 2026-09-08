@@ -7,6 +7,7 @@ import {
   X, Plus, RefreshCw, Loader2, CheckCircle, AlertCircle,
   Sparkles, Eye, Reply, Paperclip, Trash2, Briefcase,
 } from 'lucide-react'
+import CareersEmailPanel from '@/components/admin/recruitment/CareersEmailPanel'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -1003,6 +1004,11 @@ export default function EmailHubPage() {
                   </span>
                 </div>
               </div>
+            )}
+
+            {/* Recruitment context for careers threads */}
+            {selectedThread?.category === 'careers' && (
+              <CareersEmailPanel threadId={selectedThread.id} />
             )}
 
             {/* Messages */}

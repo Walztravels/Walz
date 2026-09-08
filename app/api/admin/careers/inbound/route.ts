@@ -3,6 +3,7 @@ import { createHash, timingSafeEqual } from 'crypto'
 import prisma from '@/lib/db'
 import { getResend } from '@/lib/resend'
 import { getSupabaseAdmin } from '@/lib/supabase'
+import { extractApplicationReference } from '@/lib/recruitment/applications'
 
 export const dynamic = 'force-dynamic'
 
@@ -184,6 +185,40 @@ export async function POST(req: NextRequest) {
     attachmentMeta.push(meta)
   }
 
+  // ── Recruitment matching (best-effort — a failure here NEVER blocks intake) ─
+  // Priority: application reference quoted in subject/body → the sender's
+  // candidate record by email → unmatched (plain careers thread).
+  let refType = 'careers'
+  let refId: string | null = null
+  let matchedLabel: string | null = null
+  try {
+    const reference = extractApplicationReference(`${subject}\n${bodyText.slice(0, 2000)}`)
+    if (reference) {
+      const application = await prisma.jobApplication.findUnique({
+        where:  { reference },
+        select: { id: true, reference: true, candidate: { select: { firstName: true, lastName: true } } },
+      })
+      if (application) {
+        refType = 'application'
+        refId = application.id
+        matchedLabel = `${application.candidate.firstName} ${application.candidate.lastName} (${application.reference})`
+      }
+    }
+    if (!refId) {
+      const candidate = await prisma.candidate.findUnique({
+        where:  { email: fromEmail },
+        select: { id: true, firstName: true, lastName: true },
+      })
+      if (candidate) {
+        refType = 'candidate'
+        refId = candidate.id
+        matchedLabel = `${candidate.firstName} ${candidate.lastName}`
+      }
+    }
+  } catch (err) {
+    console.error('[careers inbound] recruitment match failed (continuing unmatched):', err instanceof Error ? err.message : err)
+  }
+
   // ── 1+2. Create thread + first inbound message ATOMICALLY ─────────────────
   let threadId: string
   try {
@@ -195,7 +230,8 @@ export async function POST(req: NextRequest) {
         status:       'open',
         lastEmailAt:  now,
         participants: JSON.parse(JSON.stringify([{ email: fromEmail, name: fromName }])),
-        refType:      'careers',
+        refType,
+        refId,
         messages: {
           create: {
             direction:  'inbound',
@@ -239,6 +275,7 @@ export async function POST(req: NextRequest) {
           <tr><td style="padding:8px 14px;color:#999;width:110px">From</td><td style="padding:8px 14px;color:#0B1F3A;font-weight:600">${escapeHtml(fromName ?? '')} &lt;${escapeHtml(fromEmail)}&gt;</td></tr>
           <tr><td style="padding:8px 14px;color:#999">Subject</td><td style="padding:8px 14px;color:#0B1F3A">${escapeHtml(subject)}</td></tr>
           <tr><td style="padding:8px 14px;color:#999">Attachments</td><td style="padding:8px 14px;color:#0B1F3A">${attachmentMeta.length}</td></tr>
+          ${matchedLabel ? `<tr><td style="padding:8px 14px;color:#999">Candidate</td><td style="padding:8px 14px;color:#0B1F3A">${escapeHtml(matchedLabel)}</td></tr>` : ''}
         </table>
         ${preview ? `<p style="color:#555;font-size:13px;background:#fafafa;border-left:3px solid #C9A84C;padding:10px 14px;margin:16px 0;white-space:pre-wrap">${preview}</p>` : ''}
         <a href="${threadUrl}" style="display:inline-block;background:#C9A84C;color:#0B1F3A;text-decoration:none;padding:11px 22px;border-radius:8px;font-weight:700;font-size:13px">View in Email Hub →</a>
