@@ -2252,6 +2252,7 @@ model JobApplication {
   stageHistory ApplicationStageHistory[]
   notes        CandidateNote[]
   interviews   Interview[]
+  aiScreenings AiScreeningResult[]
 
   @@unique([candidateId, jobId])              // duplicate-application detection
   @@index([jobId, stageKey])
@@ -2379,6 +2380,31 @@ model InterviewScorecard {
 
   @@unique([interviewId, reviewerEmail])   // one scorecard per reviewer per interview
   @@index([applicationId])
+}
+
+// Advisory AI résumé screening. Results NEVER move stages, reject candidates
+// or make decisions — a human triggers each run, and a human marks it
+// reviewed. matchScore is an advisory signal, not a verdict.
+model AiScreeningResult {
+  id                 String         @id @default(cuid())
+  applicationId      String
+  application        JobApplication @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  model              String
+  promptVersion      String         @default("2026-09")
+  status             String         @default("completed") // completed | failed
+  summary            String?        @db.Text
+  strengths          Json           @default("[]")
+  concerns           Json           @default("[]")
+  suggestedQuestions Json           @default("[]")
+  matchScore         Int?                                 // 0-100, advisory only
+  cvUsed             Boolean        @default(false)
+  error              String?
+  requestedBy        String                               // staff email who triggered the run
+  reviewedBy         String?                              // human review acknowledgment
+  reviewedAt         DateTime?
+  createdAt          DateTime       @default(now())
+
+  @@index([applicationId, createdAt])
 }
 
 model Testimonial {
