@@ -10,7 +10,12 @@ interface PublishLog {
   error: string | null
   sentAt: string
   createdBy: string
+  attempt?: number
+  channelId?: string | null
+  mediaIds?: string[]
 }
+
+interface PreflightEntry { platform: string; channelId: string | null; blockers: string[] }
 
 interface Props {
   campaignId: string
@@ -55,10 +60,31 @@ const PLATFORM_ICON: Record<string, string> = {
   googlebusiness: '🏢',
 }
 
+// Per-channel status chips. 'sent' is a legacy value — it meant the post
+// was accepted into Buffer's queue, which is NOT proof of publication, so
+// it is displayed as queued (unconfirmed), never as Published.
 const STATUS_STYLE: Record<string, string> = {
-  sent:    'bg-green-900 text-green-300',
-  skipped: 'bg-gray-700 text-gray-400',
-  error:   'bg-red-900 text-red-300',
+  sent:              'bg-blue-900 text-blue-300',
+  queued_buffer:     'bg-blue-900 text-blue-300',
+  published:         'bg-green-900 text-green-300',
+  submitting:        'bg-indigo-900 text-indigo-300',
+  skipped:           'bg-gray-700 text-gray-400',
+  error:             'bg-red-900 text-red-300',
+  failed:            'bg-red-900 text-red-300',
+  unknown:           'bg-amber-900 text-amber-300',
+  validation_failed: 'bg-amber-900 text-amber-300',
+}
+
+const STATUS_LABEL: Record<string, string> = {
+  sent:              'queued on Buffer (unconfirmed)',
+  queued_buffer:     'queued on Buffer (unconfirmed)',
+  published:         'published',
+  submitting:        'submitting…',
+  skipped:           'skipped',
+  error:             'failed',
+  failed:            'failed',
+  unknown:           'unknown — reconcile',
+  validation_failed: 'blocked by validation',
 }
 
 // Twitter-safe truncation (Buffer counts chars differently)
@@ -103,6 +129,10 @@ export function PublishSection({ campaignId, platforms, campaignStatus, content,
   const [publishing, setPublishing] = useState(false)
   const [error, setError]           = useState<string | null>(null)
   const [result, setResult]         = useState<string | null>(null)
+  const [resultTone, setResultTone] = useState<'success' | 'partial' | 'failure'>('success')
+  const [blockers, setBlockers]     = useState<PreflightEntry[]>([])
+  const [validating, setValidating] = useState(false)
+  const [retrying, setRetrying]     = useState(false)
 
   // Edit & Re-send state
   const [editOpen, setEditOpen]         = useState(false)
@@ -113,6 +143,11 @@ export function PublishSection({ campaignId, platforms, campaignStatus, content,
   const [editResult, setEditResult]     = useState<string | null>(null)
 
   const canPublish = campaignStatus === 'approved' || campaignStatus === 'published'
+
+  // Latest state per channel — drives the Retry-failed-only affordance
+  const latestByChannel = new Map<string, PublishLog>()
+  for (const log of logs) if (!latestByChannel.has(log.platform)) latestByChannel.set(log.platform, log)
+  const hasRetryableFailures = [...latestByChannel.values()].some(l => l.status === 'failed' || l.status === 'error' || l.status === 'validation_failed')
 
   // Load configured Buffer channel IDs so we can show all connected platforms
   useEffect(() => {
@@ -167,36 +202,97 @@ export function PublishSection({ campaignId, platforms, campaignStatus, content,
     setEditResult(null)
   }
 
-  async function publish() {
-    setPublishing(true); setError(null); setResult(null)
+  interface PublishResponse {
+    results?: Array<{ platform: string; status: string; error?: string }>
+    error?: string
+    summary?: string
+    tone?: 'success' | 'partial' | 'failure'
+    preflight?: PreflightEntry[]
+    skippedProtected?: Array<{ platform: string; reason: string }>
+    counts?: { queued: number; failed: number; skipped: number; unknown: number }
+  }
+
+  async function runPublish(bodyExtra: Record<string, unknown>) {
+    setError(null); setResult(null); setBlockers([])
+    const res  = await fetch(`/api/admin/orbit/campaigns/${campaignId}/publish`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ platforms: selected, ...bodyExtra }),
+    })
+    const data = await res.json() as PublishResponse
+    if (res.status === 422 && data.preflight) {
+      // Blockers are shown BEFORE anything is sent — never silently skipped
+      setBlockers(data.preflight.filter(p => p.blockers.length > 0))
+      setError(data.error ?? 'Validation blockers found — nothing was sent.')
+      return null
+    }
+    if (!res.ok) throw new Error(data.error ?? 'Publish failed')
+    return data
+  }
+
+  async function validateOnly() {
+    setValidating(true)
     try {
-      const res = await fetch(`/api/admin/orbit/campaigns/${campaignId}/publish`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ platforms: selected }),
-      })
-      const data = await res.json() as { results?: Array<{ platform: string; status: string; error?: string }>; error?: string }
-      if (!res.ok) throw new Error(data.error ?? 'Publish failed')
-
-      const sent    = data.results?.filter(r => r.status === 'sent').map(r => r.platform) ?? []
-      const skipped = data.results?.filter(r => r.status === 'skipped').length ?? 0
-      const errors  = data.results?.filter(r => r.status === 'error').length ?? 0
-
-      if (sent.length > 0) {
-        setResult(`Queued on Buffer: ${sent.join(', ')}${errors > 0 ? ` · ${errors} error(s)` : ''}`)
-        onPublished()
-      } else if (errors > 0) {
-        setError(`All ${errors} platforms failed — check Buffer configuration`)
-      } else {
-        setResult(`${skipped} platform(s) skipped — check channel IDs in settings`)
+      const data = await runPublish({ dryRun: true })
+      if (data?.preflight) {
+        const withBlockers = data.preflight.filter(p => p.blockers.length > 0)
+        setBlockers(withBlockers)
+        if (withBlockers.length === 0) {
+          setResultTone('success')
+          setResult('Validation passed for every selected channel.')
+        }
       }
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Validation failed')
+    } finally { setValidating(false) }
+  }
 
+  async function publish() {
+    setPublishing(true)
+    try {
+      const data = await runPublish({})
+      if (data) {
+        setResultTone(data.tone ?? 'partial')
+        setResult(data.summary ?? 'Done')
+        if ((data.counts?.queued ?? 0) > 0) onPublished()
+      }
       loadLogs()
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Unknown error')
     } finally {
       setPublishing(false)
     }
+  }
+
+  async function retryFailedOnly() {
+    setRetrying(true)
+    try {
+      const data = await runPublish({ retryFailedOnly: true })
+      if (data) {
+        setResultTone(data.tone ?? 'partial')
+        const protectedNote = (data.skippedProtected?.length ?? 0) > 0
+          ? ` Protected (not resubmitted): ${data.skippedProtected!.map(sp => `${sp.platform} — ${sp.reason}`).join('; ')}`
+          : ''
+        setResult(`${data.summary ?? 'Done'}${protectedNote}`)
+        if ((data.counts?.queued ?? 0) > 0) onPublished()
+      }
+      loadLogs()
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Retry failed')
+    } finally { setRetrying(false) }
+  }
+
+  async function reconcile(logId: string, resolvedStatus: 'failed' | 'queued_buffer') {
+    const res = await fetch(`/api/admin/orbit/campaigns/${campaignId}/publish`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ logId, resolvedStatus }),
+    })
+    if (!res.ok) {
+      const d = await res.json().catch(() => ({})) as { error?: string }
+      setError(d.error ?? 'Reconciliation failed')
+    }
+    loadLogs()
   }
 
   async function sendEdit() {
@@ -223,11 +319,11 @@ export function PublishSection({ campaignId, platforms, campaignStatus, content,
       const pubData = await pubRes.json() as { results?: Array<{ platform: string; status: string; error?: string }>; error?: string }
       if (!pubRes.ok) throw new Error(pubData.error ?? 'Publish failed')
 
-      const sent = pubData.results?.filter(r => r.status === 'sent') ?? []
-      const err  = pubData.results?.find(r => r.status === 'error')
+      const sent = pubData.results?.filter(r => r.status === 'sent' || r.status === 'queued_buffer') ?? []
+      const err  = pubData.results?.find(r => r.status === 'error' || r.status === 'failed' || r.status === 'unknown')
 
       if (sent.length > 0) {
-        setEditResult(`Sent to ${PLATFORM_LABEL[editPlatform]} ✓`)
+        setEditResult(`Queued on Buffer for ${PLATFORM_LABEL[editPlatform]} ✓ (delivery not yet confirmed)`)
         onPublished()
         loadLogs()
       } else if (err) {
@@ -252,13 +348,31 @@ export function PublishSection({ campaignId, platforms, campaignStatus, content,
           <p className="text-xs text-gray-500 mt-0.5">Queue approved content directly to your social channels</p>
         </div>
         {canPublish && selected.length > 0 && (
-          <button
-            onClick={publish}
-            disabled={publishing}
-            className="bg-green-700 hover:bg-green-600 disabled:opacity-50 text-white text-xs font-medium px-3 py-1.5 rounded-lg transition-colors whitespace-nowrap"
-          >
-            {publishing ? 'Queuing…' : `Queue to ${selected.length} platform${selected.length !== 1 ? 's' : ''} →`}
-          </button>
+          <div className="flex gap-2">
+            <button
+              onClick={validateOnly}
+              disabled={validating || publishing || retrying}
+              className="bg-gray-800 hover:bg-gray-700 disabled:opacity-50 text-gray-300 text-xs font-medium px-3 py-1.5 rounded-lg transition-colors whitespace-nowrap"
+            >
+              {validating ? 'Checking…' : 'Validate'}
+            </button>
+            {hasRetryableFailures && (
+              <button
+                onClick={retryFailedOnly}
+                disabled={retrying || publishing || validating}
+                className="bg-amber-800 hover:bg-amber-700 disabled:opacity-50 text-white text-xs font-medium px-3 py-1.5 rounded-lg transition-colors whitespace-nowrap"
+              >
+                {retrying ? 'Retrying…' : 'Retry failed channels only'}
+              </button>
+            )}
+            <button
+              onClick={publish}
+              disabled={publishing || validating || retrying}
+              className="bg-green-700 hover:bg-green-600 disabled:opacity-50 text-white text-xs font-medium px-3 py-1.5 rounded-lg transition-colors whitespace-nowrap"
+            >
+              {publishing ? 'Queuing…' : `Queue to ${selected.length} platform${selected.length !== 1 ? 's' : ''} →`}
+            </button>
+          </div>
         )}
       </div>
 
@@ -296,7 +410,25 @@ export function PublishSection({ campaignId, platforms, campaignStatus, content,
         <div className="bg-red-950 border border-red-800 text-red-300 text-xs rounded-lg px-3 py-2">{error}</div>
       )}
       {result && (
-        <div className="bg-green-950 border border-green-800 text-green-300 text-xs rounded-lg px-3 py-2">{result}</div>
+        <div className={`text-xs rounded-lg px-3 py-2 border ${
+          resultTone === 'success' ? 'bg-green-950 border-green-800 text-green-300'
+          : resultTone === 'partial' ? 'bg-amber-950 border-amber-800 text-amber-300'
+          : 'bg-red-950 border-red-800 text-red-300'
+        }`}>{result}</div>
+      )}
+
+      {blockers.length > 0 && (
+        <div className="bg-amber-950/40 border border-amber-800 rounded-lg px-3 py-2 space-y-1">
+          <p className="text-xs font-medium text-amber-300">Blockers — nothing was sent:</p>
+          {blockers.map(b => (
+            <div key={b.platform} className="text-xs text-amber-200/90">
+              <span className="font-medium capitalize">{PLATFORM_LABEL[b.platform] ?? b.platform}:</span>
+              <ul className="list-disc pl-5">
+                {b.blockers.map((msg, i) => <li key={i}>{msg}</li>)}
+              </ul>
+            </div>
+          ))}
+        </div>
       )}
 
       {/* ── Edit & Re-send ───────────────────────────────────────────── */}
@@ -380,16 +512,29 @@ export function PublishSection({ campaignId, platforms, campaignStatus, content,
           <p className="text-xs text-gray-500 font-medium uppercase tracking-wide mb-2">Publish History</p>
           <div className="space-y-1.5">
             {logs.map(log => (
-              <div key={log.id} className="flex items-center gap-2 bg-gray-950 rounded-lg px-3 py-2 text-xs">
+              <div key={log.id} className="flex items-center gap-2 bg-gray-950 rounded-lg px-3 py-2 text-xs flex-wrap">
                 <span className="w-4 text-center">{PLATFORM_ICON[log.platform] ?? '📢'}</span>
                 <span className="text-gray-300 capitalize w-20 flex-shrink-0">{log.platform}</span>
-                <span className={`px-1.5 py-0.5 rounded font-medium ${STATUS_STYLE[log.status] ?? 'bg-gray-700 text-gray-400'}`}>
-                  {log.status}
+                <span className={`px-1.5 py-0.5 rounded font-medium ${STATUS_STYLE[log.status] ?? 'bg-gray-700 text-gray-400'}`}
+                  title={log.channelId ? `Channel ${log.channelId}` : undefined}>
+                  {STATUS_LABEL[log.status] ?? log.status}
                 </span>
+                {(log.attempt ?? 1) > 1 && <span className="text-gray-600">attempt {log.attempt}</span>}
                 {log.bufferUpdateId && (
-                  <span className="text-gray-600 font-mono text-[10px]">{log.bufferUpdateId.slice(0, 10)}</span>
+                  <span className="text-gray-600 font-mono text-[10px]" title="Buffer post ID">{log.bufferUpdateId.slice(0, 12)}</span>
                 )}
-                {log.error && <span className="text-red-400 truncate max-w-[180px]" title={log.error}>{log.error}</span>}
+                {(log.mediaIds?.length ?? 0) > 0 && (
+                  <span className="text-gray-600" title={log.mediaIds!.join(', ')}>{log.mediaIds!.length} media</span>
+                )}
+                {log.error && <span className="text-red-400 truncate max-w-[220px]" title={log.error}>{log.error}</span>}
+                {log.status === 'unknown' && (
+                  <span className="flex gap-1">
+                    <button onClick={() => void reconcile(log.id, 'failed')}
+                      className="text-[10px] text-amber-300 hover:text-amber-100 underline">Mark failed</button>
+                    <button onClick={() => void reconcile(log.id, 'queued_buffer')}
+                      className="text-[10px] text-amber-300 hover:text-amber-100 underline">Mark queued</button>
+                  </span>
+                )}
                 <span className="text-gray-600 ml-auto flex-shrink-0">
                   {new Date(log.sentAt).toLocaleString('en-GB', { dateStyle: 'short', timeStyle: 'short' })}
                 </span>
