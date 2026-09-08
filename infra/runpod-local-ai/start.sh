@@ -13,7 +13,7 @@ pip install --quiet --no-input \
   "rembg[gpu]" vtracer
 
 : "${ORBIT_LOCAL_AI_TOKEN:?Set ORBIT_LOCAL_AI_TOKEN in the pod's environment}"
-: "${PUBLIC_BASE_URL:?Set PUBLIC_BASE_URL to https://<podId>-8000.proxy.runpod.net}"
+# PUBLIC_BASE_URL auto-derives from RUNPOD_POD_ID inside app.py when unset
 
 echo "[walz-local-ai] starting on :8000 (SVD=${ENABLE_SVD:-false})"
 exec uvicorn app:app --host 0.0.0.0 --port 8000

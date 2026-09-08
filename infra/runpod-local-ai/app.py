@@ -35,14 +35,45 @@ from fastapi.staticfiles import StaticFiles
 from PIL import Image, ImageFilter
 
 TOKEN       = os.environ.get("ORBIT_LOCAL_AI_TOKEN", "")
-BASE_URL    = os.environ.get("PUBLIC_BASE_URL", "").rstrip("/")
+# Auto-derive the RunPod proxy URL when PUBLIC_BASE_URL isn't set explicitly
+BASE_URL    = (os.environ.get("PUBLIC_BASE_URL", "").rstrip("/")
+               or (f"https://{os.environ['RUNPOD_POD_ID']}-8000.proxy.runpod.net"
+                   if os.environ.get("RUNPOD_POD_ID") else ""))
 OUTPUT_DIR  = os.environ.get("OUTPUT_DIR", "/workspace/outputs")
 ENABLE_SVD  = os.environ.get("ENABLE_SVD", "false").lower() == "true"
+
+MAX_JSON_BYTES  = 1_000_000        # request bodies are JSON descriptors only
+MAX_IMAGE_BYTES = 30_000_000       # fetched source assets
+RATE_LIMIT_PER_MIN = 30            # generation submissions per minute
+
+# Model registry with license metadata — recorded on every job.
+# Licenses verified for Walz commercial use; caveats noted explicitly.
+MODELS = {
+    "sdxl":      {"name": "stabilityai/stable-diffusion-xl-base-1.0", "source": "huggingface",
+                  "license": "CreativeML Open RAIL++-M (commercial use permitted, use restrictions apply)"},
+    "svd":       {"name": "stabilityai/stable-video-diffusion-img2vid-xt", "source": "huggingface",
+                  "license": "Stability AI Community License (commercial use permitted for orgs under $1M annual revenue)"},
+    "rembg":     {"name": "u2net (rembg)", "source": "github.com/danielgatis/rembg",
+                  "license": "MIT (rembg) / Apache-2.0 (U-2-Net weights)"},
+    "vectorize": {"name": "vtracer", "source": "github.com/visioncortex/vtracer", "license": "GPL-3.0 (binary use as a service; no code distribution)"},
+    "upscale":   {"name": "Lanczos4x+unsharp (model-free)", "source": "Pillow", "license": "HPND (Pillow)"},
+}
 
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
 app = FastAPI(title="Walz Orbit Local AI", docs_url=None, redoc_url=None)
 app.mount("/outputs", StaticFiles(directory=OUTPUT_DIR), name="outputs")
+
+# ── Rate limiting (per-minute token bucket, single-tenant service) ────────────
+_rl_window: list[float] = []
+
+def check_rate_limit() -> None:
+    now = time.time()
+    while _rl_window and now - _rl_window[0] > 60:
+        _rl_window.pop(0)
+    if len(_rl_window) >= RATE_LIMIT_PER_MIN:
+        raise HTTPException(429, "rate limit exceeded")
+    _rl_window.append(now)
 
 # ── Auth ──────────────────────────────────────────────────────────────────────
 
@@ -60,8 +91,10 @@ WORK: "queue.Queue[str]" = queue.Queue()
 
 def submit(endpoint: str, payload: dict) -> str:
     job_id = uuid.uuid4().hex
+    model_key = {"sdxl": "sdxl", "img2img": "sdxl", "inpaint": "sdxl", "img2vid": "svd"}.get(endpoint, endpoint)
     JOBS[job_id] = {"status": "queued", "endpoint": endpoint, "payload": payload,
-                    "created": time.time(), "output_url": None, "error": None}
+                    "created": time.time(), "output_url": None, "error": None,
+                    "model": MODELS.get(model_key, {})}
     WORK.put(job_id)
     return job_id
 
@@ -74,9 +107,20 @@ def save_image(img: Image.Image, ext: str = "png") -> str:
     return out_url(name)
 
 def fetch_image(url: str) -> Image.Image:
-    r = http.get(url, timeout=60)
+    # Source-asset validation: scheme, MIME type, size cap
+    if not url.startswith(("https://", "http://")):
+        raise RuntimeError("image_url must be http(s)")
+    r = http.get(url, timeout=60, stream=True)
     r.raise_for_status()
-    return Image.open(io.BytesIO(r.content)).convert("RGB")
+    ctype = r.headers.get("content-type", "")
+    if not ctype.startswith("image/"):
+        raise RuntimeError(f"source is not an image (content-type {ctype})")
+    data = b""
+    for chunk in r.iter_content(65536):
+        data += chunk
+        if len(data) > MAX_IMAGE_BYTES:
+            raise RuntimeError("source image exceeds 30MB limit")
+    return Image.open(io.BytesIO(data)).convert("RGB")
 
 # Lazy model holders — loaded on first use, kept resident
 _models: dict = {}
@@ -187,13 +231,21 @@ CAPABILITIES = {"sdxl", "img2img", "inpaint", "upscale", "rembg", "vectorize", "
 def health():
     return {"ok": True, "queued": WORK.qsize(), "svd": ENABLE_SVD}
 
+@app.get("/api/v1/models")
+def models(request: Request):
+    check_auth(request)
+    return {"models": MODELS}
+
 @app.post("/api/v1/{endpoint}")
 async def create_job(endpoint: str, request: Request):
     check_auth(request)
+    check_rate_limit()
     if endpoint == "txt2vid":
         raise HTTPException(501, "txt2vid not available in local v1 — use a cloud lane")
     if endpoint not in CAPABILITIES:
         raise HTTPException(404, f"unknown capability {endpoint}")
+    if int(request.headers.get("content-length") or 0) > MAX_JSON_BYTES:
+        raise HTTPException(413, "request body too large")
     payload = await request.json()
     if endpoint in {"img2img", "inpaint", "rembg", "vectorize", "upscale", "img2vid"} and not payload.get("image_url"):
         raise HTTPException(400, "image_url required")
@@ -207,4 +259,5 @@ def job_status(job_id: str, request: Request):
     job = JOBS.get(job_id)
     if not job:
         raise HTTPException(404, "job not found")
-    return {"status": job["status"], "output_url": job["output_url"], "error": job["error"]}
+    return {"status": job["status"], "output_url": job["output_url"],
+            "error": job["error"], "model": job.get("model", {})}
