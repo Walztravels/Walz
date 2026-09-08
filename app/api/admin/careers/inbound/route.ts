@@ -38,8 +38,14 @@ interface InboundAttachment {
   filename?:     string
   content_type?: string
   contentType?:  string
-  content?:      string   // base64 when Resend includes it inline
+  content?:      string   // base64 — older payloads only; current Resend
+                          // inbound webhooks send METADATA + download_url
   size?:         number
+  // Resend receiving: a time-limited (1 hour) URL to fetch the file from.
+  download_url?: string
+  downloadUrl?:  string
+  url?:          string
+  id?:           string
 }
 
 interface ResendInboundEmail {
@@ -159,9 +165,28 @@ export async function POST(req: NextRequest) {
     const filename    = safeFilename(att.filename ?? 'attachment')
     const allowed     = ALLOWED_ATTACHMENT_TYPES.some(t => contentType.startsWith(t))
     const meta = { filename, contentType, size: att.size ?? 0, stored: false as boolean, url: undefined as string | undefined, error: undefined as string | undefined }
-    if (allowed && att.content) {
+    // Resolve the file bytes: inline base64 (legacy payloads) or, per
+    // current Resend inbound behaviour, fetch the 1-hour download_url NOW —
+    // webhook processing happens within seconds of delivery.
+    const downloadUrl = att.download_url ?? att.downloadUrl ?? att.url
+    let contentBuf: Buffer | null = null
+    if (allowed) {
+      if (att.content) {
+        try { contentBuf = Buffer.from(att.content, 'base64') } catch { contentBuf = null }
+      } else if (downloadUrl && /^https:\/\//.test(downloadUrl)) {
+        try {
+          const dlRes = await fetch(downloadUrl, { signal: AbortSignal.timeout(15_000) })
+          if (dlRes.ok) contentBuf = Buffer.from(await dlRes.arrayBuffer())
+          else console.error(`[careers inbound] attachment download HTTP ${dlRes.status} (${filename})`)
+        } catch (e) {
+          console.error(`[careers inbound] attachment download failed (${filename}):`, e instanceof Error ? e.message : e)
+        }
+      }
+    }
+
+    if (allowed && contentBuf) {
       try {
-        const buf = Buffer.from(att.content, 'base64')
+        const buf = contentBuf
         meta.size = buf.length
         if (buf.length > 0 && buf.length <= MAX_ATTACHMENT_BYTES) {
           const supabase = getSupabaseAdmin()
@@ -187,9 +212,11 @@ export async function POST(req: NextRequest) {
     } else if (!allowed) {
       meta.error = 'type not allowed'
     } else {
-      // Resend delivered metadata without inline file content — say so
-      // instead of showing a dead chip with no explanation.
-      meta.error = 'file content not included by provider'
+      // Neither inline content nor a fetchable download URL yielded bytes.
+      // Log the payload's field names (never content) so the real shape is
+      // visible in production logs if Resend changes it again.
+      console.error(`[careers inbound] attachment not retrievable (${filename}) — payload keys: ${Object.keys(att).join(', ')}`)
+      meta.error = downloadUrl ? 'download from provider failed' : 'file content not included by provider'
     }
     attachmentMeta.push(meta)
   }

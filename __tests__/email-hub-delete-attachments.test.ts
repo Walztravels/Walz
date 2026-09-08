@@ -34,8 +34,15 @@ describe('inbound attachment storage', () => {
     expect(src).toContain("createBucket('email-attachments', { public: true })")
     expect(src).toContain('/not.?found|bucket/i.test(error.message)')
   })
-  it('explains when the provider omitted the file content instead of a dead chip', () => {
+  it('fetches the 1-hour download_url when content is not inlined (current Resend behaviour)', () => {
+    expect(src).toContain('att.download_url ?? att.downloadUrl ?? att.url')
+    expect(src).toContain('fetch(downloadUrl')
+    expect(src).toContain('AbortSignal.timeout')
+  })
+  it('explains unretrievable attachments and logs payload field names (never content)', () => {
     expect(src).toContain('file content not included by provider')
+    expect(src).toContain('download from provider failed')
+    expect(src).toContain('Object.keys(att)')
   })
   it('unstored attachments render with their reason in the Hub', () => {
     const page = read('app/admin/email/page.tsx')
