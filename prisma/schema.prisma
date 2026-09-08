@@ -3544,6 +3544,32 @@ model OrbitMedia {
   @@map("orbit_media")
 }
 
+// Creative OS async generation jobs — one row per capability execution.
+// Table created via supabase-add-creative-os.sql — NOT prisma db push.
+model OrbitCreativeJob {
+  id            String    @id @default(cuid())
+  campaignId    String?   @map("campaign_id")
+  capability    String    // CapabilityKind
+  lane          String    // LOCAL | STANDARD | PREMIUM
+  provider      String    // local | fal | openai | replicate
+  modelKey      String    @map("model_key")
+  status        String    @default("queued") // queued|processing|completed|failed|cancelled
+  providerJobId String?   @map("provider_job_id")
+  inputRefs     Json?     @map("input_refs")     // ReferenceInput[] (purpose-tagged)
+  outputMediaId String?   @map("output_media_id")
+  outputUrl     String?   @map("output_url")
+  costUsd       Decimal?  @map("cost_usd") @db.Decimal(10, 4)
+  error         String?
+  retryCount    Int       @default(0) @map("retry_count")
+  staffEmail    String?   @map("staff_email")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @default(now()) @updatedAt @map("updated_at")
+
+  @@index([campaignId])
+  @@index([status])
+  @@map("orbit_creative_jobs")
+}
+
 model OrbitPublishLog {
   id             String   @id @default(cuid())
   campaignId     String   @map("campaign_id")
