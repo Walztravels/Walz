@@ -161,6 +161,7 @@ export async function handoffToCampaignMedia(jobId: string): Promise<{ ok: boole
       provider:         job.provider,
       model:            job.modelKey,
       generationStatus: 'completed',
+                readiness:        'ready',
     },
     select: { id: true },
   }).catch((e: unknown) => { console.error('[creative-os] handoff failed:', e); return null })

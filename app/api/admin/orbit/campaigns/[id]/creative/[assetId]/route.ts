@@ -84,13 +84,22 @@ export async function GET(
               storagePath,
               publicUrl,
               generationStatus: 'completed',
+                readiness:        'ready',
               costUsd: durationS * RUNWAY_COST_PER_SECOND,
             },
           })
         } catch (uploadErr) {
+          // Generation SUCCEEDED but durable save failed. Never persist the
+          // expiring provider URL as 'completed' — record the source URL and
+          // mark save_failed so retry-save re-ingests WITHOUT regenerating.
           asset = await prisma.orbitMedia.update({
             where: { id: asset.id },
-            data: { storagePath: videoUrl, publicUrl: videoUrl, generationStatus: 'completed' },
+            data: {
+              publicUrl:        videoUrl,           // recorded source for retrySave()
+              generationStatus: 'completed',
+              readiness:        'save_failed',
+              saveError:        'Video generated, but saving to Walz storage failed. Use Retry save — it will not regenerate.',
+            },
           })
           console.error('[creative/assetId] Runway video upload to Supabase failed:', uploadErr)
         }
@@ -138,17 +147,21 @@ export async function GET(
                 storagePath,
                 publicUrl,
                 generationStatus: 'completed',
+                readiness:        'ready',
                 costUsd: durationS * resolvedModel.costPerSecond,
               },
             })
           } catch (uploadErr) {
-            // Fallback: store FAL CDN URL temporarily (expires ~30 days)
+            // Generation SUCCEEDED but durable save failed. The FAL CDN URL
+            // expires (~30 days) so it is never marked ready/'completed'-and-
+            // done — it is kept only as the retrySave() source.
             asset = await prisma.orbitMedia.update({
               where: { id: asset.id },
               data: {
-                storagePath:      result.videoUrl,
-                publicUrl:        result.videoUrl,
+                publicUrl:        result.videoUrl,   // recorded source for retrySave()
                 generationStatus: 'completed',
+                readiness:        'save_failed',
+                saveError:        'Video generated, but saving to Walz storage failed. Use Retry save — it will not regenerate.',
               },
             })
             console.error('[creative/assetId] FAL video upload to Supabase failed:', uploadErr)

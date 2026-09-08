@@ -196,6 +196,7 @@ export async function PATCH(
     where: { id: body.mediaId },
     data:  {
       generationStatus: 'completed',
+                readiness:        'ready',
       ...(body.altText ? { altText: body.altText } : {}),
     },
   })

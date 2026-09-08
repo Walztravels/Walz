@@ -3888,6 +3888,7 @@ model OrbitCampaign {
   updatedAt        DateTime  @default(now()) @updatedAt @map("updated_at")
 
   media       OrbitMedia[]
+  mediaLinks  OrbitCampaignMedia[]
   publishLogs OrbitPublishLog[]
 
   @@map("orbit_campaigns")
@@ -3929,12 +3930,84 @@ model OrbitMedia {
   // and are resolved via the backward-compat path in resolveOrbitMediaAsset().
   sourceType       String?   @map("source_type")
   sourceMediaId    String?   @map("source_media_id")
+  // ── Shared Media Library fields (Creative Studio refactor) ──────────────────
+  title            String?                            // staff-facing name (searchable)
+  tags             Json      @default("[]")           // string[]
+  // Durable save lifecycle. 'ready' means the binary is in OWNED storage and
+  // DB persistence succeeded — never set from a provider URL.
+  // draft | saving | ready | save_failed | missing_source | archived
+  readiness        String    @default("draft")
+  assetGroupId     String?   @map("asset_group_id")   // stable across versions (v1's id)
+  version          Int       @default(1)
+  parentMediaId    String?   @map("parent_media_id")  // version lineage
+  mimeType         String?   @map("mime_type")
+  sizeBytes        Int?      @map("size_bytes")
+  saveError        String?   @map("save_error")       // sanitized failure detail for staff
+  // Design linkage: an export knows its project and the exact layer config
+  // that produced it (a project document is NOT a publishable image).
+  designProjectId  String?   @map("design_project_id")
+  designSnapshot   Json?     @map("design_snapshot")
 
-  campaign OrbitCampaign? @relation(fields: [campaignId], references: [id], onDelete: SetNull)
+  campaign      OrbitCampaign?       @relation(fields: [campaignId], references: [id], onDelete: SetNull)
+  campaignLinks OrbitCampaignMedia[]
+  designProject OrbitDesignProject?  @relation(fields: [designProjectId], references: [id], onDelete: SetNull)
 
   @@index([destination, campaignType], name: "idx_orbit_media_dest")
   @@index([campaignId, sourceType, sourceMediaId], name: "idx_orbit_media_campaign_source")
+  @@index([assetGroupId, version], name: "idx_orbit_media_group_version")
+  @@index([readiness, mediaType], name: "idx_orbit_media_readiness")
   @@map("orbit_media")
+}
+
+// Many-to-many campaign↔asset references (an asset can back several
+// campaigns without the file ever being copied). Attachments pin a
+// SPECIFIC OrbitMedia row (= a specific version) — editing a library
+// design never silently changes an attached campaign.
+model OrbitCampaignMedia {
+  id              String        @id @default(cuid())
+  campaignId      String        @map("campaign_id")
+  mediaId         String        @map("media_id")
+  position        Int           @default(0)
+  platformVariant String?       @map("platform_variant")  // optional per-platform override key
+  addedBy         String        @map("added_by")
+  addedAt         DateTime      @default(now()) @map("added_at")
+
+  campaign OrbitCampaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  media    OrbitMedia    @relation(fields: [mediaId], references: [id], onDelete: Restrict)
+
+  @@unique([campaignId, mediaId])
+  @@index([mediaId])
+  @@map("orbit_campaign_media")
+}
+
+// Editable design project — the durable, server-side home of a poster's
+// layer configuration (template, commercial fields, controls, overrides).
+// Exports reference it via OrbitMedia.designProjectId + designSnapshot.
+model OrbitDesignProject {
+  id               String    @id @default(cuid())
+  title            String    @default("Untitled design")
+  templateKey      String    @map("template_key")
+  format           String    @default("1080x1350")     // canvas key
+  campaignId       String?   @map("campaign_id")        // origin campaign (optional)
+  commercialFields Json      @default("{}") @map("commercial_fields")
+  controls         Json      @default("{}")
+  layerOverrides   Json      @default("{}") @map("layer_overrides")
+  structuredRoutes Json      @default("[]") @map("structured_routes")
+  visualMediaId    String?   @map("visual_media_id")    // background OrbitMedia id
+  // Optimistic concurrency: writes must present the current seq; a stale
+  // write is rejected instead of silently overwriting a colleague's edit.
+  updateSeq        Int       @default(0) @map("update_seq")
+  archived         Boolean   @default(false)
+  createdBy        String    @map("created_by")
+  lastEditedBy     String?   @map("last_edited_by")
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @default(now()) @updatedAt @map("updated_at")
+
+  exports OrbitMedia[]
+
+  @@index([campaignId])
+  @@index([archived, updatedAt])
+  @@map("orbit_design_projects")
 }
 
 // Creative OS async generation jobs — one row per capability execution.
@@ -3968,14 +4041,26 @@ model OrbitPublishLog {
   campaignId     String   @map("campaign_id")
   platform       String
   bufferUpdateId String?  @map("buffer_update_id")
-  status         String   @default("sent")   // sent | skipped | error
+  // Per-channel publishing state. New vocabulary:
+  //   submitting | queued_buffer | published | failed | skipped | unknown
+  // Legacy rows keep 'sent'/'error' and are read as queued_buffer/failed —
+  // 'sent' is NEVER retroactively upgraded to published without provider
+  // confirmation.
+  status         String   @default("sent")
   error          String?
   sentAt         DateTime @default(now()) @map("sent_at")
   createdBy      String   @map("created_by")
+  // Publishing-refactor fields
+  attempt        Int      @default(1)                    // attempt number for this channel
+  mediaIds       Json     @default("[]") @map("media_ids") // exact OrbitMedia version ids submitted
+  channelId      String?  @map("channel_id")             // Buffer destination channel
+  providerStatus String?  @map("provider_status")        // raw provider post status, when checked
+  checkedAt      DateTime? @map("checked_at")            // last reconciliation time
 
   campaign OrbitCampaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
 
   @@index([campaignId])
+  @@index([campaignId, platform, sentAt], name: "idx_publish_log_channel")
   @@map("orbit_publish_log")
 }
 

@@ -332,6 +332,7 @@ export async function POST(
                 width:            result.width,
                 height:           result.height,
                 generationStatus: 'completed',
+                readiness:        'ready',
               },
             })
           } catch (updateErr) {
@@ -438,6 +439,7 @@ export async function POST(
               data: {
                 storagePath: result.storagePath, publicUrl: result.publicUrl,
                 altText, costUsd: result.costUsd, generationStatus: 'completed',
+                readiness:        'ready',
               },
             })
           } catch (updateErr) {

@@ -162,6 +162,7 @@ export async function POST(
         altText:          libraryAsset.altText || libraryAsset.filename,
         isReference:      false,
         generationStatus: 'completed',
+                readiness:        'ready',
         costUsd:          0,
       },
     })
