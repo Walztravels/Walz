@@ -2251,6 +2251,7 @@ model JobApplication {
   documents    CandidateDocument[]
   stageHistory ApplicationStageHistory[]
   notes        CandidateNote[]
+  interviews   Interview[]
 
   @@unique([candidateId, jobId])              // duplicate-application detection
   @@index([jobId, stageKey])
@@ -2317,6 +2318,66 @@ model CandidateNote {
   createdAt     DateTime        @default(now())
 
   @@index([candidateId, createdAt])
+  @@index([applicationId])
+}
+
+// Reusable interview scorecard definitions. criteria = [{key,label,weight}]
+// with weights summing to 100. jobId null = available to every job.
+model ScorecardTemplate {
+  id        String   @id @default(cuid())
+  name      String
+  jobId     String?
+  criteria  Json     @default("[]")
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  interviews Interview[]
+
+  @@index([jobId])
+}
+
+// A scheduled human interview for one application. AI screening interviews
+// (Release 7) are a separate flow — these are people talking to people.
+model Interview {
+  id                  String             @id @default(cuid())
+  applicationId       String
+  application         JobApplication     @relation(fields: [applicationId], references: [id], onDelete: Cascade)
+  kind                String             @default("video")     // phone | video | onsite
+  status              String             @default("scheduled") // scheduled | completed | cancelled | no_show
+  scheduledAt         DateTime?
+  durationMins        Int                @default(45)
+  location            String?
+  meetingUrl          String?
+  interviewers        Json               @default("[]")        // staff emails
+  scorecardTemplateId String?
+  scorecardTemplate   ScorecardTemplate? @relation(fields: [scorecardTemplateId], references: [id], onDelete: SetNull)
+  notes               String?            @db.Text
+  createdBy           String?
+  createdAt           DateTime           @default(now())
+  updatedAt           DateTime           @updatedAt
+
+  scorecards InterviewScorecard[]
+
+  @@index([applicationId, scheduledAt])
+}
+
+// One reviewer's structured evaluation of one interview. Scores criteria
+// only — never appearance, emotion, accent or protected characteristics.
+model InterviewScorecard {
+  id             String    @id @default(cuid())
+  interviewId    String
+  interview      Interview @relation(fields: [interviewId], references: [id], onDelete: Cascade)
+  applicationId  String
+  reviewerEmail  String
+  reviewerName   String?
+  scores         Json      @default("[]")   // [{key,label,weight,score 1-5,comment}]
+  overallScore   Int       @default(0)      // weighted 0-100, computed server-side
+  recommendation String                     // strong_yes | yes | neutral | no | strong_no
+  comment        String?   @db.Text
+  submittedAt    DateTime  @default(now())
+
+  @@unique([interviewId, reviewerEmail])   // one scorecard per reviewer per interview
   @@index([applicationId])
 }
 

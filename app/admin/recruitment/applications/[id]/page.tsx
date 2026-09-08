@@ -3,6 +3,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { useParams } from 'next/navigation'
 import Link from 'next/link'
 import { Loader2, Mail, Phone, Globe, FileText, StickyNote, History } from 'lucide-react'
+import InterviewsSection from '@/components/admin/recruitment/InterviewsSection'
 
 interface Stage { key: string; label: string }
 interface Detail {
@@ -152,6 +153,9 @@ export default function ApplicationDetailPage() {
               ))}
             </div>
           )}
+
+          {/* Interviews & scorecards */}
+          <InterviewsSection applicationId={app.id} jobId={job?.id ?? null} />
 
           {/* Internal notes */}
           <div className="bg-white rounded-2xl shadow-sm p-5 space-y-3">
