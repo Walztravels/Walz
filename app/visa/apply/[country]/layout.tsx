@@ -16,7 +16,7 @@ export async function generateMetadata(
 ): Promise<Metadata> {
   const name = resolveCountryName(params.country)
   return {
-    title: `Apply for ${name} Visa — Walz Travels`,
+    title: `Apply for ${name} Visa`,
     description: `Start your ${name} visa application with Walz Travels. We handle everything end-to-end — documents, submission, and real-time tracking.`,
     alternates: { canonical: `https://www.walztravels.com/visa/apply/${params.country}` },
   }

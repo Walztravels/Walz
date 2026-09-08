@@ -1,7 +1,7 @@
 import type { Metadata } from 'next'
 
 export const metadata: Metadata = {
-  title: 'Currency Converter',
+  title: 'Travel Currency & Exchange Rates',
   description:
     'Convert between USD, GBP, CAD, NGN, GHS, AED and more. Live rates for international travellers — updated every hour.',
   alternates: {

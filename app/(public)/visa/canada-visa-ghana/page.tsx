@@ -3,7 +3,7 @@ import Link from 'next/link'
 import { BUSINESS, waLink } from '@/lib/config/business'
 
 export const metadata: Metadata = {
-  title: 'Canada Visa Ghana: TRV Requirements 2026 | Walz Travels',
+  title: 'Canada Visa Ghana: TRV Requirements 2026',
   description: 'Canada TRV requirements for Ghanaians 2026. Documents checklist, biometrics in Accra, processing times and CAD $185 fee. Apply with Walz Travels.',
   alternates: { canonical: 'https://www.walztravels.com/visa/canada-visa-ghana' },
   openGraph: {

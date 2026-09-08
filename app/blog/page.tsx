@@ -4,7 +4,7 @@ import { SoroEmbed } from './SoroEmbed'
 export const revalidate = 300
 
 export const metadata: Metadata = {
-  title: 'Travel Blog | Visa Guides & Tips | Walz Travels',
+  title: 'Travel Blog | Visa Guides & Tips',
   description: 'Expert visa guides, flight tips, destination inspiration and travel advice from Walz Travels — updated daily.',
   openGraph: {
     type: 'website',

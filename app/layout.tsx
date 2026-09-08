@@ -74,8 +74,12 @@ export const metadata: Metadata = {
   authors: [{ name: 'Walz Travels Ltd' }],
   creator: 'Walz Travels Ltd',
   publisher: 'Walz Travels Ltd',
+  metadataBase: new URL('https://www.walztravels.com'),
+  // './' resolves per-route (self-canonical, query strings ignored). A fixed
+  // homepage URL here would be inherited as the canonical of EVERY page that
+  // doesn't set its own — which is exactly the bug this replaces.
   alternates: {
-    canonical: 'https://www.walztravels.com',
+    canonical: './',
   },
   openGraph: {
     type: 'website',

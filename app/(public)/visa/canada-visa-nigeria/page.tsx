@@ -3,7 +3,7 @@ import Link from 'next/link'
 import { BUSINESS, waLink } from '@/lib/config/business'
 
 export const metadata: Metadata = {
-  title: 'Canada Visa Nigeria: TRV Requirements 2026 | Walz Travels',
+  title: 'Canada Visa Nigeria: TRV Requirements 2026',
   description: 'Canada TRV requirements for Nigerians 2026. Documents checklist, biometrics, processing times and fees. How to avoid refusals. Apply with Walz Travels.',
   alternates: { canonical: 'https://www.walztravels.com/visa/canada-visa-nigeria' },
   openGraph: {

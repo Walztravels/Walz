@@ -28,7 +28,7 @@ function getDisplayName(slug: string): string {
 export async function generateMetadata({ params }: { params: { country: string } }): Promise<Metadata> {
   const name = getDisplayName(params.country)
   return {
-    title: `Apply for ${name} Visa — Walz Travels`,
+    title: `Apply for ${name} Visa`,
     description: `Start your ${name} visa application online. Expert document preparation, fast processing and dedicated support from Walz Travels.`,
     alternates: { canonical: `https://www.walztravels.com/visa/apply/${params.country}` },
     openGraph: {

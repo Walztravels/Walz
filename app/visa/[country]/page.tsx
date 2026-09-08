@@ -42,9 +42,9 @@ function AdvisoryBadge({ level }: { level: number }) {
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const iso2 = resolveIso2(params.country)
   const portal = await getPortal(iso2)
-  if (!portal) return { title: 'Visa Requirements — Walz Travels' }
+  if (!portal) return { title: 'Visa Requirements' }
   return {
-    title: `${portal.countryName} Visa Requirements — Walz Travels`,
+    title: `${portal.countryName} Visa Requirements`,
     description: `Visa fees, processing times, required documents and Jade's insider tips for ${portal.countryName}. Expert visa assistance from Walz Travels.`,
   }
 }

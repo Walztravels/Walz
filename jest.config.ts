@@ -12,6 +12,8 @@ const config: Config = {
         // Relax some checks for test environment
         esModuleInterop: true,
         allowSyntheticDefaultImports: true,
+        // Compile JSX so tests can import page/layout modules (metadata tests)
+        jsx: 'react-jsx',
       },
     }],
   },

@@ -48,7 +48,7 @@ type Params = { params: Promise<{ reference: string }> }
 export async function generateMetadata({ params }: Params): Promise<Metadata> {
   const { reference } = await params
   return {
-    title:       `Track ${reference} | Walz Travels`,
+    title:       `Track ${reference}`,
     description: 'Track your visa application status in real time.',
     robots:      { index: false },
   }

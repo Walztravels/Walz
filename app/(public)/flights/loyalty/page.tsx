@@ -3,7 +3,7 @@ import { Suspense } from 'react'
 import { LoyaltyDashboard } from '@/components/flights/loyalty/LoyaltyDashboard'
 
 export const metadata: Metadata = {
-  title: 'Walz Rewards — Loyalty Programme | Walz Travels',
+  title: 'Walz Rewards — Loyalty Programme',
   description: 'Earn Walz Miles on every booking. Bronze, Silver, Gold and Platinum tiers with exclusive benefits.',
 }
 

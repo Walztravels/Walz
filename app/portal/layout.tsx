@@ -1,10 +1,15 @@
+import type { Metadata } from 'next'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { redirect } from 'next/navigation'
 import { PortalSidebar } from '@/components/portal/PortalSidebar'
 import { PortalBottomNav } from '@/components/portal/PortalBottomNav'
+import { privateMetadata } from '@/lib/seo'
 
 export const dynamic = 'force-dynamic'
+
+// Authenticated client area — never indexed; no client data in metadata.
+export const metadata: Metadata = privateMetadata('Client Portal', 'Sign in to manage your Walz Travels bookings, documents and applications.')
 
 export default async function PortalLayout({ children }: { children: React.ReactNode }) {
   const session = await getServerSession(authOptions)

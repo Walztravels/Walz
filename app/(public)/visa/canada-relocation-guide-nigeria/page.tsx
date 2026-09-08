@@ -4,7 +4,7 @@ import { IRPA_DISCLAIMER } from '@/lib/config/credentials'
 import { BUSINESS, waLink } from '@/lib/config/business'
 
 export const metadata: Metadata = {
-  title: 'How to Relocate to Canada from Nigeria 2026 | Walz Travels',
+  title: 'How to Relocate to Canada from Nigeria 2026',
   description: 'How to relocate from Nigeria to Canada in 2026. Express Entry, Provincial Nominee, study permit routes, costs and timelines explained by Walz Travels.',
   alternates: { canonical: 'https://www.walztravels.com/visa/canada-relocation-guide-nigeria' },
   openGraph: {

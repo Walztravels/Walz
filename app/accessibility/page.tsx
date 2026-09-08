@@ -3,7 +3,7 @@ import Link from 'next/link'
 import { BUSINESS, waLink } from '@/lib/config/business'
 
 export const metadata: Metadata = {
-  title: 'Accessibility | Walz Travels',
+  title: 'Accessibility',
   description: 'Walz Travels accessibility statement and our commitment to WCAG 2.1 AA.',
 }
 

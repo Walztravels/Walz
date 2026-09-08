@@ -4,6 +4,8 @@ import { notFound } from 'next/navigation'
 import { MapPin, Clock, ArrowRight, ArrowLeft, CalendarDays, Users } from 'lucide-react'
 import prisma from '@/lib/db'
 import { publicJobWhere, DEFAULT_AI_DISCLOSURE } from '@/lib/recruitment/core'
+import { parseBulletBlocks } from '@/lib/recruitment/format'
+import { absoluteUrl, socialPreview, truncateDescription } from '@/lib/seo'
 
 export const revalidate = 60
 
@@ -23,19 +25,38 @@ async function getJob(slug: string) {
 
 export async function generateMetadata({ params }: { params: { slug: string } }): Promise<Metadata> {
   const job = await getJob(params.slug)
-  if (!job) return { title: 'Careers' }
+  if (!job) {
+    // Draft/paused/closed/archived/unknown jobs must not surface as vacancies.
+    return { title: 'Careers', robots: { index: false, follow: true } }
+  }
+  const title = `${job.title} — Careers`   // root template appends "| Walz Travels"
+  const description = truncateDescription(
+    `${job.title} at Walz Travels — ${job.location} · ${job.type}. ${job.description}`,
+  )
+  const url = absoluteUrl(`/careers/${job.slug}`)
   return {
-    title: `${job.title} — Careers`,
-    description: job.description.slice(0, 160),
+    title,
+    description,
+    alternates: { canonical: url },
+    ...socialPreview(`${job.title} — Careers at Walz Travels`, description, url),
   }
 }
 
 function Section({ title, body }: { title: string; body: string | null }) {
   if (!body?.trim()) return null
+  const blocks = parseBulletBlocks(body)
   return (
     <div className="mb-8">
       <h2 className="font-display text-xl font-bold text-[#0B1F3A] mb-3">{title}</h2>
-      <p className="text-[#0B1F3A]/65 text-sm leading-relaxed whitespace-pre-wrap">{body}</p>
+      {blocks.map((block, i) =>
+        block.kind === 'ul' ? (
+          <ul key={i} className="list-disc pl-5 space-y-1.5 text-[#0B1F3A]/65 text-sm leading-relaxed mb-3">
+            {block.items.map((item, j) => <li key={j}>{item}</li>)}
+          </ul>
+        ) : (
+          <p key={i} className="text-[#0B1F3A]/65 text-sm leading-relaxed mb-3">{block.items[0]}</p>
+        ),
+      )}
     </div>
   )
 }
@@ -48,7 +69,16 @@ export default async function JobDetailPage({ params }: { params: { slug: string
     ? `${job.currency} ${job.compensationMin ? Number(job.compensationMin).toLocaleString() : ''}${job.compensationMin && job.compensationMax ? ' – ' : ''}${job.compensationMax ? Number(job.compensationMax).toLocaleString() : ''}${job.compensationType === 'commission' ? ' (commission)' : ''}`
     : job.compensationType === 'commission' ? 'Commission-based' : null
 
-  // Structured job-posting metadata for search engines
+  // Structured job-posting metadata for search engines — schema.org enum
+  // values, database values only, and compensation ONLY when real figures
+  // are stored (salary is never invented).
+  const EMPLOYMENT_TYPE_SCHEMA: Record<string, string> = {
+    'Full-time': 'FULL_TIME', 'Part-time': 'PART_TIME', 'Contract': 'CONTRACTOR',
+    'Internship': 'INTERN', 'Commission-based': 'OTHER',
+  }
+  // "Nigeria & Ghana" / "UK, Canada" → applicant location countries for remote roles
+  const locationParts = job.location.split(/\s*[&,\/]\s*/).map(s => s.trim()).filter(Boolean)
+  const hasRealComp = job.compensationMin != null || job.compensationMax != null
   const jsonLd = {
     '@context': 'https://schema.org',
     '@type': 'JobPosting',
@@ -56,10 +86,32 @@ export default async function JobDetailPage({ params }: { params: { slug: string
     description: job.description,
     datePosted: (job.publishedAt ?? job.createdAt).toISOString(),
     ...(job.deadline ? { validThrough: job.deadline.toISOString() } : {}),
-    employmentType: job.type.toUpperCase().replace(/-| /g, '_'),
+    employmentType: EMPLOYMENT_TYPE_SCHEMA[job.type] ?? 'OTHER',
     hiringOrganization: { '@type': 'Organization', name: 'Walz Travels', sameAs: 'https://www.walztravels.com' },
-    jobLocation: { '@type': 'Place', address: { '@type': 'PostalAddress', addressLocality: job.location } },
-    ...(job.workplaceType === 'remote' ? { jobLocationType: 'TELECOMMUTE' } : {}),
+    ...(job.workplaceType === 'remote'
+      ? {
+          jobLocationType: 'TELECOMMUTE',
+          applicantLocationRequirements: locationParts.map(name => ({ '@type': 'Country', name })),
+        }
+      : {
+          jobLocation: { '@type': 'Place', address: { '@type': 'PostalAddress', addressLocality: job.location } },
+        }),
+    ...(hasRealComp
+      ? {
+          baseSalary: {
+            '@type': 'MonetaryAmount',
+            currency: job.currency,
+            value: {
+              '@type': 'QuantitativeValue',
+              ...(job.compensationMin != null ? { minValue: Number(job.compensationMin) } : {}),
+              ...(job.compensationMax != null ? { maxValue: Number(job.compensationMax) } : {}),
+              unitText: 'YEAR',
+            },
+          },
+        }
+      : {}),
+    directApply: true,
+    url: absoluteUrl(`/careers/${job.slug}`),
   }
 
   return (

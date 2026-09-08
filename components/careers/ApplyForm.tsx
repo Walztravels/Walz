@@ -70,7 +70,7 @@ export function ApplyForm({ jobSlug, jobTitle, questions, aiDisclosure }: {
           <div><span className={label}>Portfolio URL</span><input name="portfolioUrl" maxLength={300} className={inp} placeholder="https://…" /></div>
         </div>
         <div><span className={label}>Are you authorized to work in the role&apos;s location?</span>
-          <input name="workAuthorization" maxLength={200} className={inp} placeholder="e.g. Yes — UK citizen / require sponsorship" /></div>
+          <input name="workAuthorization" maxLength={200} className={inp} placeholder="e.g. Yes — authorized to work in the role's location" /></div>
       </div>
 
       <div className="bg-white rounded-2xl border border-[#E2D9CC] p-6 space-y-4">

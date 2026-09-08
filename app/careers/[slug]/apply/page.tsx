@@ -1,11 +1,28 @@
+import type { Metadata } from 'next'
 import Link from 'next/link'
 import { notFound } from 'next/navigation'
 import { ArrowLeft } from 'lucide-react'
 import prisma from '@/lib/db'
 import { publicJobWhere, DEFAULT_AI_DISCLOSURE } from '@/lib/recruitment/core'
 import { ApplyForm } from '@/components/careers/ApplyForm'
+import { absoluteUrl, transactionalMetadata } from '@/lib/seo'
 
 export const revalidate = 60
+
+// Application forms are purpose-titled but not indexed — the job detail
+// page is the search result; its canonical consolidates the signals there.
+export async function generateMetadata({ params }: { params: { slug: string } }): Promise<Metadata> {
+  const job = await prisma.jobOpening.findFirst({
+    where: { slug: params.slug, ...publicJobWhere() },
+    select: { title: true, slug: true },
+  }).catch(() => null)
+  if (!job) return { title: 'Apply — Careers', robots: { index: false, follow: true } }
+  return transactionalMetadata(
+    `Apply for ${job.title}`,   // template → "Apply for {title} | Walz Travels"
+    `Apply online for the ${job.title} position at Walz Travels.`,
+    absoluteUrl(`/careers/${job.slug}`),
+  )
+}
 
 export default async function ApplyPage({ params }: { params: { slug: string } }) {
   const job = await prisma.jobOpening.findFirst({

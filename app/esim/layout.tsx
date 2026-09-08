@@ -1,13 +1,13 @@
 import type { Metadata } from 'next'
 
 export const metadata: Metadata = {
-  title: 'Jade Connect eSIM',
+  title: 'International Travel eSIM',
   description:
     'Stay connected in 150+ countries with Jade Connect eSIM from Walz Travels. Instant activation, no roaming fees, data plans from $9.99.',
   openGraph: {
     type: 'website',
     url: 'https://www.walztravels.com/esim',
-    title: 'Jade Connect eSIM | Walz Travels',
+    title: 'International Travel eSIM — Jade Connect | Walz Travels',
     description:
       'Stay connected in 150+ countries with Jade Connect eSIM. Instant activation, no roaming fees.',
     images: [
@@ -21,7 +21,7 @@ export const metadata: Metadata = {
   },
   twitter: {
     card: 'summary_large_image',
-    title: 'Jade Connect eSIM | Walz Travels',
+    title: 'International Travel eSIM — Jade Connect | Walz Travels',
     description: 'Stay connected in 150+ countries — instant eSIM activation from $9.99.',
   },
   alternates: {

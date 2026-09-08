@@ -4,7 +4,7 @@ import { UK_VISA_FEES } from '@/lib/config/visa-fees'
 import { BUSINESS, waLink } from '@/lib/config/business'
 
 export const metadata: Metadata = {
-  title: 'UK Visa Nigeria: Requirements & How to Apply | Walz Travels',
+  title: 'UK Visa Nigeria: Requirements & How to Apply',
   description: 'UK visitor visa requirements for Nigerians 2026. Documents checklist, bank statement guide, processing times and how to avoid refusals. 90%+ approval rate.',
   alternates: { canonical: 'https://www.walztravels.com/visa/uk-visa-nigeria' },
   openGraph: {

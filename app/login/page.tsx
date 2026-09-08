@@ -5,7 +5,7 @@ import LoginForm from './LoginForm'
 export const dynamic = 'force-dynamic'
 
 export const metadata: Metadata = {
-  title: 'Sign In — Walz Travels',
+  title: 'Sign In',
   description: 'Sign in to your Walz Travels account to manage bookings, visa applications, and more.',
   robots: { index: false, follow: false },
 }

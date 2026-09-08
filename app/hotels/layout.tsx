@@ -1,12 +1,12 @@
 import type { Metadata } from 'next'
 
 export const metadata: Metadata = {
-  title: 'Book Hotels Worldwide | 500,000+ Properties | Walz Travels',
+  title: 'Hotel Booking Services',
   description: 'Find and book hotels worldwide. Best rate guarantee and free cancellation available.',
   openGraph: {
     type: 'website',
     url: 'https://www.walztravels.com/hotels',
-    title: 'Book Hotels | Walz Travels',
+    title: 'Hotel Booking Services | Walz Travels',
     description:
       'Find and book hotels worldwide with Walz Travels. Compare rates, read reviews, and book luxury stays with expert guidance and 24/7 support.',
     images: [
@@ -20,7 +20,7 @@ export const metadata: Metadata = {
   },
   twitter: {
     card: 'summary_large_image',
-    title: 'Book Hotels | Walz Travels',
+    title: 'Hotel Booking Services | Walz Travels',
     description:
       'Compare rates and book luxury hotels worldwide — expert support from Walz Travels.',
   },

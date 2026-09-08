@@ -1,8 +1,14 @@
+import type { Metadata } from 'next'
 import Link from 'next/link'
 import prisma from '@/lib/db'
 import { hashToken, candidateSafeStatus } from '@/lib/recruitment/applications'
+import { privateMetadata } from '@/lib/seo'
 
 export const dynamic = 'force-dynamic'
+
+// Static, generic metadata — the candidate's name, reference and token must
+// never appear in the document head, and the page is never indexed.
+export const metadata: Metadata = privateMetadata('Application Status')
 
 // Candidate-safe status page. Requires the signed, time-limited token from
 // the confirmation email. Exposes ONLY coarse candidate-safe statuses —

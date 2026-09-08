@@ -13,7 +13,7 @@ export async function generateMetadata(
   const location = tour?.location
 
   return {
-    title: `${name}${location ? ` in ${location}` : ''} — Walz Travels`,
+    title: `${name}${location ? ` in ${location}` : ''}`,
     description: tour?.description
       ? tour.description.slice(0, 155)
       : `Book the ${name} private tour with Walz Travels. Expert guides, curated itineraries, and bespoke experiences.`,

@@ -1,13 +1,13 @@
 import type { Metadata } from 'next'
 
 export const metadata: Metadata = {
-  title: 'Airport Transfers',
+  title: 'Airport Transfer Services',
   description:
     'Book reliable airport transfers worldwide with Walz Travels. Private vehicles, meet-and-greet service and fixed prices — no hidden fees.',
   openGraph: {
     type: 'website',
     url: 'https://www.walztravels.com/transfers',
-    title: 'Airport Transfers | Walz Travels',
+    title: 'Airport Transfer Services | Walz Travels',
     description:
       'Reliable airport transfers worldwide — private vehicles, fixed prices, no hidden fees.',
     images: [
@@ -21,7 +21,7 @@ export const metadata: Metadata = {
   },
   twitter: {
     card: 'summary_large_image',
-    title: 'Airport Transfers | Walz Travels',
+    title: 'Airport Transfer Services | Walz Travels',
     description: 'Private airport transfers worldwide — fixed prices, meet and greet included.',
   },
   alternates: {

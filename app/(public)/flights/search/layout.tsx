@@ -5,7 +5,7 @@ import type { Metadata } from 'next'
 // date/passenger/cabin parameter combinations that create
 // near-duplicate content at scale.
 export const metadata: Metadata = {
-  title: 'Flight Search Results | Walz Travels',
+  title: 'Flight Search Results',
   description: 'Compare live flight prices across hundreds of airlines. Book with Walz Travels for the best fares and expert support.',
   robots: { index: false, follow: true },
   alternates: { canonical: 'https://www.walztravels.com/flights/search' },

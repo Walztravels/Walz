@@ -4,7 +4,7 @@ import Script from 'next/script'
 import { BUSINESS, waLink } from '@/lib/config/business'
 
 export const metadata: Metadata = {
-  title: 'Cheap Flights from Lagos 2026 | Best Fares | Walz Travels',
+  title: 'Cheap Flights from Lagos 2026 | Best Fares',
   description: 'Cheap flights from Lagos (LOS) to London, Dubai, Toronto, New York and more. Best fares from £280. 24/7 expert support.',
   alternates: { canonical: 'https://www.walztravels.com/flights/cheap-flights-from-lagos' },
   openGraph: {

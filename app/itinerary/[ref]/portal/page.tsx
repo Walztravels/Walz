@@ -27,25 +27,12 @@ export const dynamic = 'force-dynamic'
 
 type Params = { params: Promise<{ ref: string }>; searchParams?: Promise<Record<string, string | undefined>> }
 
-// ── SEO: noindex — private confirmed-trip pages must not be crawled ───────────
-export async function generateMetadata({ params }: Params): Promise<Metadata> {
-  const { ref } = await params
-  const itin = await prisma.itinerary.findUnique({
-    where: { referenceNumber: ref },
-    select: { title: true, destination: true, status: true },
-  })
-
-  const title = itin?.title
-    ? `${itin.title} — My Trip | Walz Travels`
-    : 'My Trip | Walz Travels'
-
-  return {
-    title,
-    description: itin?.destination
-      ? `Your confirmed trip to ${itin.destination}, curated by Walz Travels.`
-      : 'Your confirmed trip, curated by Walz Travels.',
-    robots: { index: false, follow: false },
-  }
+// ── SEO: private confirmed-trip page. Generic metadata only — the itinerary
+// title/destination can identify the client and never reaches the head.
+export const metadata: Metadata = {
+  title: { absolute: 'My Trip | Walz Travels' },
+  description: 'Your confirmed trip, curated by Walz Travels.',
+  robots: { index: false, follow: false, noarchive: true, nosnippet: true },
 }
 
 // ── Helpers (mirror the proposal page — do not share across files) ────────────

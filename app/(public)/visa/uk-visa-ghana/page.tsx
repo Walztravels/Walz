@@ -4,7 +4,7 @@ import { UK_VISA_FEES } from '@/lib/config/visa-fees'
 import { BUSINESS, waLink } from '@/lib/config/business'
 
 export const metadata: Metadata = {
-  title: 'UK Visa Ghana: Requirements & Documents 2026 | Walz Travels',
+  title: 'UK Visa Ghana: Requirements & Documents 2026',
   description: 'UK visitor visa for Ghanaians 2026. Documents checklist, bank statement guide, processing times and how to avoid refusals. Apply with Walz Travels.',
   alternates: { canonical: 'https://www.walztravels.com/visa/uk-visa-ghana' },
   openGraph: {

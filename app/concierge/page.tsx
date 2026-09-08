@@ -6,7 +6,7 @@ import { ConciergePageClient } from '@/components/concierge/ConciergePageClient'
 export const dynamic = 'force-dynamic'
 
 export const metadata: Metadata = {
-  title: 'Walz Concierge — White-Glove Travel Services',
+  title: 'Luxury Travel Concierge',
   description: 'Bespoke travel services handled by personal specialists. Private aviation, yacht charters, airport VIP, and more — all arranged by Jade.',
   alternates: { canonical: 'https://www.walztravels.com/concierge' },
   openGraph: {

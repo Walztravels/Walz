@@ -158,6 +158,27 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
       }))
   } catch {}
 
+  // Published, in-deadline job openings only — drafts, paused, closed and
+  // archived jobs never enter the sitemap, and application/status/interview
+  // URLs are never listed.
+  let jobPages: MetadataRoute.Sitemap = []
+  try {
+    const jobs = await prisma.jobOpening.findMany({
+      where: {
+        status: 'published',
+        slug:   { not: null },
+        OR: [{ deadline: null }, { deadline: { gt: new Date() } }],
+      },
+      select: { slug: true, updatedAt: true },
+    })
+    jobPages = jobs.map(job => ({
+      url:             `${BASE}/careers/${job.slug}`,
+      lastModified:    job.updatedAt,
+      changeFrequency: 'weekly' as const,
+      priority:        0.6,
+    }))
+  } catch {}
+
   let tourPages: MetadataRoute.Sitemap = []
   let packagePages: MetadataRoute.Sitemap = []
   try {
@@ -183,5 +204,5 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
       }))
   } catch {}
 
-  return [...staticPages, ...visaInfoPages, ...blogPages, ...tourPages, ...packagePages]
+  return [...staticPages, ...visaInfoPages, ...blogPages, ...jobPages, ...tourPages, ...packagePages]
 }

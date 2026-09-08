@@ -313,7 +313,7 @@ export async function generateStaticParams() {
 
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const data = ROUTES[params.route]
-  if (!data) return { title: 'Flights — Walz Travels' }
+  if (!data) return { title: 'Flights' }
   const title = data.titleOverride ??
     `Flights ${data.from} to ${data.to} (${data.fromIata}–${data.toIata}) from ${data.estimatedFrom} | Walz Travels`
   return {

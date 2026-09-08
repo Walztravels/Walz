@@ -3,10 +3,16 @@ import Link from 'next/link'
 import { MapPin, Clock, ArrowRight, MessageCircle, CalendarDays } from 'lucide-react'
 import prisma from '@/lib/db'
 import { publicJobWhere } from '@/lib/recruitment/core'
+import { absoluteUrl, socialPreview } from '@/lib/seo'
+
+const CAREERS_DESCRIPTION =
+  'Join the Walz Travels team. Open roles for travel experts, visa specialists, sales representatives and tech talent — apply online.'
 
 export const metadata: Metadata = {
   title: 'Careers',
-  description: 'Join the Walz Travels team. We\'re looking for passionate travel experts, visa specialists and tech talent.',
+  description: CAREERS_DESCRIPTION,
+  alternates: { canonical: absoluteUrl('/careers') },
+  ...socialPreview('Careers at Walz Travels', CAREERS_DESCRIPTION, absoluteUrl('/careers')),
 }
 
 // ISR: admin changes appear within a minute — no redeploy needed, and

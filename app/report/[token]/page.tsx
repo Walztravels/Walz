@@ -8,7 +8,7 @@ interface Props {
 
 export async function generateMetadata({ params }: Props): Promise<Metadata> {
   return {
-    title: 'Financial Eligibility Report — Walz Travels',
+    title: 'Financial Eligibility Report',
     description: 'Your bank statement financial assessment, prepared by Walz Travels Visa Intelligence.',
     robots: 'noindex, nofollow',
   }

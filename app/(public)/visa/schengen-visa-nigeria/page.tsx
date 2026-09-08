@@ -3,7 +3,7 @@ import Link from 'next/link'
 import { BUSINESS, waLink } from '@/lib/config/business'
 
 export const metadata: Metadata = {
-  title: 'Schengen Visa Nigeria: Which Country to Apply | Walz Travels',
+  title: 'Schengen Visa Nigeria: Which Country to Apply',
   description: 'Schengen visa for Nigerians 2026. Which country embassy to apply through, documents checklist, €90 fee and processing times. Apply with Walz Travels.',
   alternates: { canonical: 'https://www.walztravels.com/visa/schengen-visa-nigeria' },
   openGraph: {

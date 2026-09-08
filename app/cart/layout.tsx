@@ -1,7 +1,7 @@
 import type { Metadata } from 'next'
 
 export const metadata: Metadata = {
-  title: 'Your Cart — Walz Travels',
+  title: 'Your Cart',
   description: 'Review and complete your Walz Travels booking — visas, flights, tours, and more.',
   robots: { index: false, follow: false },
 }

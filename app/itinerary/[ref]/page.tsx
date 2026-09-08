@@ -11,25 +11,14 @@ export const dynamic = 'force-dynamic'
 
 type Params = { params: Promise<{ ref: string }> }
 
-// ── SEO: noindex (private itinerary links must not be crawled) ─────────────────
-export async function generateMetadata({ params }: Params): Promise<Metadata> {
-  const { ref } = await params
-  const itin = await prisma.itinerary.findUnique({
-    where: { referenceNumber: ref },
-    select: { title: true, destination: true, status: true },
-  })
-
-  const title = itin?.title
-    ? `${itin.title} | Walz Travels`
-    : 'Your Trip Proposal | Walz Travels'
-
-  return {
-    title,
-    description: itin?.destination
-      ? `Your personalised trip to ${itin.destination}, curated by Walz Travels.`
-      : 'Your personalised trip proposal, curated by Walz Travels.',
-    robots: { index: false, follow: false },
-  }
+// ── SEO: client itineraries are private. Metadata is deliberately generic —
+// no itinerary title (it can carry client names), destination, reference or
+// pricing ever reaches the document head — and the page is never indexed,
+// archived or snippeted.
+export const metadata: Metadata = {
+  title: { absolute: 'Your Travel Itinerary | Walz Travels' },
+  description: 'Review your customized travel itinerary from Walz Travels.',
+  robots: { index: false, follow: false, noarchive: true, nosnippet: true },
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────────

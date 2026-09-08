@@ -9,7 +9,7 @@ import { JadeMilesSection }   from '@/components/flights/JadeMilesSection'
 import { AiAssistantTeaser }  from '@/components/flights/AiAssistantTeaser'
 
 export const metadata: Metadata = {
-  title:       'Book Flights Worldwide | Walz Travels',
+  title:       'Flight Booking Services',
   description: 'Search and book flights on hundreds of airlines. Business class, first class and economy fares with 24/7 expert support and Jade AI concierge.',
   keywords: [
     'cheap flights Lagos London', 'flights Accra London', 'Nigeria UK flights',
@@ -18,8 +18,9 @@ export const metadata: Metadata = {
     'Jade Miles loyalty', 'AI flight booking',
   ],
   openGraph: {
-    title:       'Fly Higher. Further. Better. — Walz Travels',
-    description: 'Premium flight booking on hundreds of airlines with Jade AI concierge and 24/7 expert support.',
+    title:       'Flight Booking Services | Walz Travels',
+    description: 'Search and book domestic and international flights with expert support and Jade AI concierge from Walz Travels.',
+    url:         'https://www.walztravels.com/flights',
     images: [{ url: 'https://images.unsplash.com/photo-1436491865332-7a61a109cc05?w=1200&h=630&fit=crop', width: 1200, height: 630, alt: 'Book flights with Walz Travels' }],
   },
   alternates: { canonical: 'https://www.walztravels.com/flights' },

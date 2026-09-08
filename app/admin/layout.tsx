@@ -16,6 +16,10 @@ export const viewport: Viewport = {
 }
 
 export const metadata: Metadata = {
+  // Internal staff area — never indexed. Authentication is the real
+  // protection; robots directives are defence in depth.
+  title: 'Walz Admin',
+  robots: { index: false, follow: false, noarchive: true, nosnippet: true },
   manifest: '/staff-manifest.json',
   appleWebApp: {
     capable: true,

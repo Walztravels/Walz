@@ -15,7 +15,7 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
   const name = countryName(iso2)
   const flag = countryFlag(iso2)
   return {
-    title:       `${flag} ${name} eSIM Plans — Jade Connect | Walz Travels`,
+    title:       `${flag} ${name} eSIM Plans — Jade Connect`,
     description: `Buy a ${name} eSIM from Jade Connect. Instant QR delivery, 4G/5G data, from $9.99. No roaming charges.`,
     openGraph: {
       title:       `${name} eSIM Plans — Jade Connect`,

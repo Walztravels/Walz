@@ -9,7 +9,7 @@ import { EsimTicker, EsimHowItWorks, EsimCompatibility, EsimFAQ, EsimCTA } from 
 export const revalidate = 21600
 
 export const metadata: Metadata = {
-  title:       'Jade Connect eSIM | 150+ Countries',
+  title:       'International Travel eSIM',
   description: 'Instant eSIM for 150+ countries from USD 9.99. No roaming charges, no physical SIM. Activate before you land.',
   keywords: [
     'eSIM', 'travel eSIM', 'international eSIM', 'no roaming', 'Jade Connect',
@@ -17,7 +17,7 @@ export const metadata: Metadata = {
     'instant eSIM activation', 'Walz Travels eSIM',
   ],
   openGraph: {
-    title:       'Jade Connect eSIM | Walz Travels',
+    title:       'International Travel eSIM — Jade Connect | Walz Travels',
     description: 'Stay connected in 150+ countries. Instant eSIM — no roaming, no physical SIM, from $9.99.',
     url:         'https://www.walztravels.com/esim',
     images: [{
@@ -29,7 +29,7 @@ export const metadata: Metadata = {
   },
   twitter: {
     card:        'summary_large_image',
-    title:       'Jade Connect eSIM | Walz Travels',
+    title:       'International Travel eSIM — Jade Connect | Walz Travels',
     description: 'Stay connected in 150+ countries — instant eSIM from $9.99.',
   },
   alternates: { canonical: 'https://www.walztravels.com/esim' },
