@@ -370,6 +370,42 @@ export default function EmailHubPage() {
     loadThread(id)
   }, [loadThread])
 
+  // ── Delete (thread or single message) ───────────────────────────────────
+  async function deleteThread(threadId: string) {
+    if (!confirm('Delete this entire thread and all its messages? This cannot be undone.')) return
+    try {
+      const res = await fetch(`/api/admin/email/threads/${threadId}`, { method: 'DELETE' })
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}))
+        setError(d.error ?? 'Delete failed')
+        return
+      }
+      setSelectedThreadId(null)
+      setThreadMessages([])
+      loadThreads()
+    } catch { setError('Delete failed — network error') }
+  }
+
+  async function deleteMessage(threadId: string, messageId: string) {
+    if (!confirm('Delete this message? This cannot be undone.')) return
+    try {
+      const res = await fetch(`/api/admin/email/threads/${threadId}`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ messageId }),
+      })
+      const d = await res.json().catch(() => ({}))
+      if (!res.ok) { setError(d.error ?? 'Delete failed'); return }
+      if (d.threadDeleted) {
+        setSelectedThreadId(null)
+        setThreadMessages([])
+      } else {
+        loadThread(threadId)
+      }
+      loadThreads()
+    } catch { setError('Delete failed — network error') }
+  }
+
   // ── Contact autocomplete ────────────────────────────────────────────────────
 
   const searchContacts = useCallback((q: string) => {
@@ -989,7 +1025,16 @@ export default function EmailHubPage() {
             {/* Thread header */}
             {selectedThread && (
               <div className="px-6 py-4 border-b border-gray-800 bg-gray-900/50">
-                <h2 className="text-base font-semibold text-white truncate">{selectedThread.subject}</h2>
+                <div className="flex items-start justify-between gap-3">
+                  <h2 className="text-base font-semibold text-white truncate">{selectedThread.subject}</h2>
+                  <button
+                    onClick={() => void deleteThread(selectedThread.id)}
+                    title="Delete thread"
+                    className="shrink-0 p-1.5 rounded-lg text-gray-500 hover:text-red-400 hover:bg-red-950/40 transition-colors"
+                  >
+                    <Trash2 size={15} />
+                  </button>
+                </div>
                 <div className="flex flex-wrap gap-2 mt-2">
                   {selectedThread.participants.map((p, i) => (
                     <span
@@ -1057,6 +1102,13 @@ export default function EmailHubPage() {
                               </span>
                             )}
                             <span>{relativeTime(msg.sentAt ?? msg.receivedAt)}</span>
+                            <button
+                              onClick={() => selectedThreadId && void deleteMessage(selectedThreadId, msg.id)}
+                              title="Delete message"
+                              className="p-0.5 text-gray-600 hover:text-red-400 transition-colors"
+                            >
+                              <Trash2 size={11} />
+                            </button>
                           </div>
                         </div>
                         {/* Body */}

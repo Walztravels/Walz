@@ -166,7 +166,12 @@ export async function POST(req: NextRequest) {
         if (buf.length > 0 && buf.length <= MAX_ATTACHMENT_BYTES) {
           const supabase = getSupabaseAdmin()
           const path = `careers/${Date.now()}_${filename}`
-          const { error } = await supabase.storage.from('email-attachments').upload(path, buf, { contentType, upsert: false })
+          let { error } = await supabase.storage.from('email-attachments').upload(path, buf, { contentType, upsert: false })
+          // First-run resilience: create the bucket on demand and retry once
+          if (error && /not.?found|bucket/i.test(error.message)) {
+            await supabase.storage.createBucket('email-attachments', { public: true }).catch(() => {})
+            ;({ error } = await supabase.storage.from('email-attachments').upload(path, buf, { contentType, upsert: false }))
+          }
           if (error) throw new Error(error.message)
           const { data } = supabase.storage.from('email-attachments').getPublicUrl(path)
           meta.url = data.publicUrl
@@ -181,6 +186,10 @@ export async function POST(req: NextRequest) {
       }
     } else if (!allowed) {
       meta.error = 'type not allowed'
+    } else {
+      // Resend delivered metadata without inline file content — say so
+      // instead of showing a dead chip with no explanation.
+      meta.error = 'file content not included by provider'
     }
     attachmentMeta.push(meta)
   }
