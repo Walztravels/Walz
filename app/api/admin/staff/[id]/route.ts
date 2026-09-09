@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import bcrypt from 'bcryptjs'
-import { getAdminSession } from '@/lib/admin-auth'
+import { getAdminSession, invalidateAdminSessionCache } from '@/lib/admin-auth'
 import prisma from '@/lib/db'
 
 // ── GET — fetch a single staff member ─────────────────────────────────────────
@@ -107,6 +107,9 @@ export async function PUT(
       lastLoginAt: true, createdAt: true,
     },
   })
+  // Session cache: role/active changes apply immediately on this instance
+  // (other warm instances converge within the 60s cache TTL).
+  invalidateAdminSessionCache(staff.email)
 
   const changedFields = Object.keys(updateData)
   const detail = changedFields.includes('role')

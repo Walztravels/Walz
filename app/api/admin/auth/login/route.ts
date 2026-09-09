@@ -215,37 +215,38 @@ export async function POST(req: NextRequest) {
       const staffRole    = staffMember.accessLevel
       const staffRbacRole = staffMember.role ?? staffMember.accessLevel
 
-      // Update last login timestamp
-      await prisma.staff.update({
-        where:  { id: staffMember.id },
-        data:   { lastLoginAt: new Date() },
-        select: { id: true },
-      }).catch((e: unknown) => console.error('lastLoginAt update failed:', e))
-
-      // Log to StaffLoginLog
-      await prisma.staffLoginLog.create({
-        data: {
-          staffId:         staffMember.id,
-          staffName,
-          staffEmail:      normalizedEmail,
-          staffRole,
-          ipAddress,
-          userAgent:       ua,
-          browser,
-          operatingSystem,
-          loginAt,
-        },
-      }).catch((e: unknown) => console.error('StaffLoginLog create failed:', e))
-
-      // Log to ActivityLog
-      await prisma.activityLog.create({
-        data: {
-          staffId:   staffMember.id,
-          staffName,
-          action:    'Staff Login',
-          detail:    `${staffName} signed in (${staffRbacRole})${ipAddress ? ` from ${ipAddress}` : ''}`,
-        },
-      }).catch((e: unknown) => console.error('ActivityLog create failed:', e))
+      // Post-auth bookkeeping — three independent writes that used to run
+      // as sequential awaits (three pooler round-trips added to every
+      // login). Run them in parallel; each still logs its own failure and
+      // none can fail the login.
+      await Promise.allSettled([
+        prisma.staff.update({
+          where:  { id: staffMember.id },
+          data:   { lastLoginAt: new Date() },
+          select: { id: true },
+        }).catch((e: unknown) => console.error('lastLoginAt update failed:', e)),
+        prisma.staffLoginLog.create({
+          data: {
+            staffId:         staffMember.id,
+            staffName,
+            staffEmail:      normalizedEmail,
+            staffRole,
+            ipAddress,
+            userAgent:       ua,
+            browser,
+            operatingSystem,
+            loginAt,
+          },
+        }).catch((e: unknown) => console.error('StaffLoginLog create failed:', e)),
+        prisma.activityLog.create({
+          data: {
+            staffId:   staffMember.id,
+            staffName,
+            action:    'Staff Login',
+            detail:    `${staffName} signed in (${staffRbacRole})${ipAddress ? ` from ${ipAddress}` : ''}`,
+          },
+        }).catch((e: unknown) => console.error('ActivityLog create failed:', e)),
+      ])
 
       // Send login alert — fire-and-forget so it never blocks the login response
       if (!SILENT_ROLES.includes(staffRole)) {

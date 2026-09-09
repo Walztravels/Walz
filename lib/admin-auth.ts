@@ -74,6 +74,27 @@ export async function verifyAdminToken(token: string): Promise<JwtClaims | null>
   }
 }
 
+// ── Per-lambda session cache ──────────────────────────────────────────────────
+// Every admin API call used to run staff.findUnique + rolePermission.findUnique
+// (plus the lastActiveAt touch below) — 3-4 pool checkouts per request, and an
+// admin page fires several requests in parallel against a 3-connection pool.
+// A short per-instance cache collapses that to one DB load per staff per 60s
+// per warm lambda. Tradeoff (accepted): deactivating a staff member or editing
+// role permissions takes up to 60s to reach already-warm instances; the JWT
+// itself still expires on its own schedule and a missing/invalid token is
+// never cached.
+const SESSION_CACHE_MS = 60 * 1000
+const sessionCache = new Map<string, { session: AdminSession; expiresAt: number }>()
+
+const LAST_ACTIVE_THROTTLE_MS = 2 * 60 * 1000
+const lastActiveTouchAt = new Map<string, number>()
+
+/** Test/ops helper + immediate local invalidation after staff edits. */
+export function invalidateAdminSessionCache(email?: string): void {
+  if (email) sessionCache.delete(email.toLowerCase())
+  else sessionCache.clear()
+}
+
 /**
  * Server component / API route helper.
  * Reads the cookie → verifies JWT → fetches Staff from DB → returns full session.
@@ -85,6 +106,13 @@ export async function getAdminSession(): Promise<AdminSession | null> {
 
   const decoded = await verifyAdminToken(token)
   if (!decoded?.email) return null
+
+  // ── Per-lambda cache hit: skip the DB entirely ─────────────────────────────
+  const cacheKey = decoded.email.toLowerCase()
+  const cached = sessionCache.get(cacheKey)
+  if (cached && Date.now() < cached.expiresAt) {
+    return cached.session
+  }
 
   // ── Fetch staff record from DB ─────────────────────────────────────────────
   const staff = await prisma.staff.findUnique({
@@ -105,35 +133,36 @@ export async function getAdminSession(): Promise<AdminSession | null> {
   })
 
   // ── Touch lastActiveAt — throttled to one write per 2 minutes ─────────────
-  // Wrapped in try/catch so a missing DB column (pre-migration) never crashes
-  // the session. The column is added via add_offline_notification_fields.sql.
+  // This used to read-then-update on EVERY admin API call. A dashboard fires
+  // many calls in parallel, all targeting the SAME Staff row, so concurrent
+  // lambdas formed a row-lock convoy: updates sat waiting until Postgres
+  // killed them (57014 statement timeout), each pinning one of the 3 pooled
+  // connections the whole time — starving every other query into P2024
+  // 20-second pool timeouts (incident 2026-09-09, admin login + dashboard).
+  //
+  // Now: (a) a per-lambda in-memory throttle means each warm instance
+  // attempts at most one write per staff per 2 minutes, and (b) the write is
+  // a single conditional UPDATE (no pre-read) that matches zero rows when
+  // another instance already touched the row — cheap either way. Still
+  // fire-and-forget and swallowed on error (pre-migration column missing).
   if (staff?.isActive) {
-    void (async () => {
-      try {
-        const TWO_MIN_MS = 2 * 60 * 1000
-        const row = await prisma.staff.findUnique({
-          where:  { id: staff.id },
-          select: { lastActiveAt: true },
-        })
-        const stale = !row?.lastActiveAt
-          || (Date.now() - row.lastActiveAt.getTime()) > TWO_MIN_MS
-        if (stale) {
-          await prisma.staff.update({
-            where: { id: staff.id },
-            data:  { lastActiveAt: new Date() },
-          })
-        }
-      } catch {
-        // Column not yet migrated — silently skip
-      }
-    })()
+    const now = Date.now()
+    const lastAttempt = lastActiveTouchAt.get(staff.id) ?? 0
+    if (now - lastAttempt > LAST_ACTIVE_THROTTLE_MS) {
+      lastActiveTouchAt.set(staff.id, now)
+      void prisma.$executeRaw`
+        UPDATE "Staff" SET "lastActiveAt" = NOW()
+        WHERE id = ${staff.id}
+          AND ("lastActiveAt" IS NULL OR "lastActiveAt" < NOW() - interval '2 minutes')
+      `.catch(() => { /* column not yet migrated — silently skip */ })
+    }
   }
 
   // ── Fallback: env-var super admin with no Staff record yet ─────────────────
   if (!staff) {
     if (!ALLOWED_EMAILS.includes(decoded.email.toLowerCase())) return null
 
-    return {
+    const envSession: AdminSession = {
       id:               'env-admin',
       email:            decoded.email,
       name:             decoded.email.split('@')[0],
@@ -148,6 +177,8 @@ export async function getAdminSession(): Promise<AdminSession | null> {
       isActive:    true,
       staffId:     decoded.staffId,
     }
+    sessionCache.set(cacheKey, { session: envSession, expiresAt: Date.now() + SESSION_CACHE_MS })
+    return envSession
   }
 
   if (!staff.isActive) return null
@@ -162,7 +193,7 @@ export async function getAdminSession(): Promise<AdminSession | null> {
   const staffOverrides = (staff.permissions       ?? {}) as Record<string, boolean>
   const mergedPerms    = mergePermissions(roleDefaults, staffOverrides)
 
-  return {
+  const session: AdminSession = {
     id:               staff.id,
     email:            staff.email,
     name:             staff.name,
@@ -177,6 +208,8 @@ export async function getAdminSession(): Promise<AdminSession | null> {
     isActive:    staff.isActive,
     staffId:     staff.id,
   }
+  sessionCache.set(cacheKey, { session, expiresAt: Date.now() + SESSION_CACHE_MS })
+  return session
 }
 
 export { COOKIE_NAME }

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
-import { getAdminSession } from '@/lib/admin-auth'
+import { getAdminSession, invalidateAdminSessionCache } from '@/lib/admin-auth'
 
 export async function PATCH(
   req: NextRequest,
@@ -39,6 +39,9 @@ export async function PATCH(
     data:   updates,
     select: { id: true, name: true, email: true, role: true, branch: true, department: true, permissions: true },
   })
+  // Session cache: apply permission changes immediately on this instance
+  // (other warm instances converge within the 60s cache TTL).
+  invalidateAdminSessionCache(staff.email)
 
   await prisma.activityLog.create({
     data: {
