@@ -4,20 +4,23 @@ import { prisma }                          from '@/lib/db'
 import { recordPaymentSucceeded }          from '@/lib/commercial/payment'
 import { setTripPaid }                     from '@/lib/trips/lifecycle'
 import { handleSuccessfulTripPayment }     from '@/lib/payments/handle-success'
-import { paystackMinorToMajor }            from '@/lib/currency'
+import { paystackMinorToMajor, paystackMajorToMinor } from '@/lib/currency'
 
 export const dynamic = 'force-dynamic'
 
 /**
  * Mark a PaymentLink paid ONLY when the webhook's verified amount matches
- * the amount the link was created for. Under/overpayment beyond ±1 major
- * unit or a currency mismatch becomes `reconciliation_required` — visible
- * to staff, never silently accepted, and NEVER treated as paid. Links
- * created without an amount (legacy) keep the old match-by-ref behaviour.
+ * the amount the link was created for — EXACT minor-unit equality: the
+ * webhook's `data.amount` is an exact kobo/pesewa integer and the link's
+ * Decimal(10,2) amount converts losslessly, so there is no tolerance to
+ * grant. Any under/overpayment or currency mismatch becomes
+ * `reconciliation_required` — visible to staff, never silently accepted,
+ * and NEVER treated as paid. Links created without an amount (legacy)
+ * keep the old match-by-ref behaviour.
  */
 async function settlePaymentLink(
   where: { txRef: string } | { accountNumber: string },
-  paidMajor: number,
+  paidMinor: number,
   currency: string,
   extra: { payerName: string | null; payerBank: string | null },
 ): Promise<number> {
@@ -29,10 +32,11 @@ async function settlePaymentLink(
 
   const expected = row.amount != null ? Number(row.amount) : null
   const matches  = expected == null ||
-    (row.currency.toUpperCase() === currency.toUpperCase() && Math.abs(paidMajor - expected) <= 1)
+    (row.currency.toUpperCase() === currency.toUpperCase() &&
+     paidMinor === paystackMajorToMinor(expected, row.currency))
 
   if (!matches) {
-    console.error(`[ps-hook] PAYMENT_RECONCILIATION_REQUIRED txRef=${row.txRef} expected=${row.currency} ${expected} got=${currency} ${paidMajor}`)
+    console.error(`[ps-hook] PAYMENT_RECONCILIATION_REQUIRED txRef=${row.txRef} expected=${row.currency} ${expected} got=${currency} ${paystackMinorToMajor(paidMinor, currency)}`)
     await prisma.paymentLink.update({
       where: { id: row.id },
       data:  { status: 'reconciliation_required', payerName: extra.payerName, payerBank: extra.payerBank },
@@ -101,7 +105,8 @@ export async function POST(req: NextRequest) {
       // Paystack sends `amount` in MINOR units (kobo/pesewas). Business
       // records store MAJOR units — normalize once here, use everywhere.
       const hookCurrency  = ((data.currency as string | undefined) ?? 'NGN').toUpperCase()
-      const paidMajor     = paystackMinorToMajor(data.amount as number | undefined, hookCurrency)
+      const paidMinor     = typeof data.amount === 'number' ? data.amount : 0
+      const paidMajor     = paystackMinorToMajor(paidMinor, hookCurrency)
 
       // package_bookings settlement — deposit_amount_paid is MAJOR units,
       // and 'deposit_paid' is only written when the paid amount covers the
@@ -119,7 +124,8 @@ export async function POST(req: NextRequest) {
         // (converted) payments are matched via the PaymentLink intent above,
         // so a matched link is the authority there.
         const sameCurrency = pkgCurrency && pkgCurrency === hookCurrency
-        const covered      = expected == null || !sameCurrency || paidMajor >= expected - 1
+        const covered      = expected == null || !sameCurrency ||
+          paystackMajorToMinor(paidMajor, hookCurrency) >= paystackMajorToMinor(expected, hookCurrency)
         if (!covered) {
           console.error(`[ps-hook] ${label}: PAYMENT_RECONCILIATION_REQUIRED booking=${bookingRef} expected=${pkgCurrency} ${expected} got=${hookCurrency} ${paidMajor}`)
           return
@@ -150,12 +156,12 @@ export async function POST(req: NextRequest) {
         let updated = 0
 
         if (txRef) {
-          updated = await settlePaymentLink({ txRef }, paidMajor, hookCurrency, { payerName, payerBank })
+          updated = await settlePaymentLink({ txRef }, paidMinor, hookCurrency, { payerName, payerBank })
           console.log('[ps-hook] VA: PaymentLink update by txRef', { txRef, updated })
         }
 
         if (updated === 0 && acctNum) {
-          updated = await settlePaymentLink({ accountNumber: acctNum }, paidMajor, hookCurrency, { payerName, payerBank })
+          updated = await settlePaymentLink({ accountNumber: acctNum }, paidMinor, hookCurrency, { payerName, payerBank })
           console.log('[ps-hook] VA: PaymentLink update by accountNumber', { acctNum, updated })
         }
 
@@ -174,7 +180,7 @@ export async function POST(req: NextRequest) {
         let updated = 0
 
         if (resolvedRef) {
-          updated = await settlePaymentLink({ txRef: resolvedRef }, paidMajor, hookCurrency, { payerName, payerBank })
+          updated = await settlePaymentLink({ txRef: resolvedRef }, paidMinor, hookCurrency, { payerName, payerBank })
           console.log('[ps-hook] checkout: PaymentLink update', { ref: resolvedRef, channel, updated })
         }
 

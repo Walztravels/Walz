@@ -45,8 +45,11 @@ export async function POST(req: NextRequest) {
       select: { amount: true, currency: true },
     }).catch(() => null)
     if (link?.amount != null) {
+      // Exact minor-unit reconciliation — Paystack reports an exact integer
+      // and the snapshot converts losslessly, so no tolerance is granted:
+      // any under/overpayment routes to human reconciliation.
       const expectedMinor = paystackMajorToMinor(Number(link.amount), link.currency)
-      if (data.data.amount < expectedMinor || paidCurrency.toUpperCase() !== link.currency.toUpperCase()) {
+      if (data.data.amount !== expectedMinor || paidCurrency.toUpperCase() !== link.currency.toUpperCase()) {
         console.error(`[ps-verify] PAYMENT_RECONCILIATION_REQUIRED ref=${reference} expected=${link.currency} ${link.amount} got=${paidCurrency} ${paystackMinorToMajor(data.data.amount, paidCurrency)}`)
         return NextResponse.json({ verified: false, error: 'PAYMENT_RECONCILIATION_REQUIRED' }, { status: 409 })
       }

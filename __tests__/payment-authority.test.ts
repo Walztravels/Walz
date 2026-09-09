@@ -80,6 +80,16 @@ describe('Paystack minor-unit normalization (canonical helper)', () => {
     expect(hook).toContain('PAYMENT_RECONCILIATION_REQUIRED')
   })
 
+  it('reconciliation is EXACT minor-unit equality — no ±1 major-unit tolerance', () => {
+    const hook = read('app/api/webhooks/paystack/route.ts')
+    expect(hook).toContain('paidMinor === paystackMajorToMinor(expected, row.currency)')
+    expect(hook).not.toMatch(/Math\.abs\(paidMajor - expected\) <= 1/)
+    expect(hook).not.toContain('expected - 1')
+    const verify = read('app/api/payments/paystack/verify/route.ts')
+    expect(verify).toContain('data.data.amount !== expectedMinor')
+    expect(verify).not.toContain('data.data.amount < expectedMinor')
+  })
+
   it('paystack verify prefers the server snapshot and normalizes units', () => {
     const src = read('app/api/payments/paystack/verify/route.ts')
     expect(src).toContain('prisma.paymentLink.findUnique')
