@@ -35,6 +35,29 @@ export async function POST(req: NextRequest) {
   const d = parsed.data
   const origin = req.headers.get('origin') ?? 'https://walztravels.com'
 
+  // ── Authoritative pricing: revalidate against the supplier catalogue ──────
+  // Browser retailUsd/wholesaleUsd are display echoes only.
+  const { fetchCountryPackages } = await import('@/lib/esim/api')
+  let authoritative
+  try {
+    const packages = await fetchCountryPackages(d.destinationIso2.toUpperCase())
+    authoritative  = packages.find(p => p.packageCode === d.packageCode)
+  } catch (err) {
+    console.error('[esim/stripe-session] package revalidation failed:', err instanceof Error ? err.message : err)
+    return NextResponse.json({ error: 'eSIM pricing is temporarily unavailable. Please try again shortly.' }, { status: 503 })
+  }
+  if (!authoritative || !Number.isFinite(authoritative.retailUsd) || authoritative.retailUsd <= 0) {
+    return NextResponse.json({ error: 'This eSIM package is no longer available. Please pick another.' }, { status: 409 })
+  }
+  if (Math.abs(authoritative.retailUsd - d.retailUsd) > 0.01) {
+    return NextResponse.json(
+      { error: 'PRICE_CHANGED', message: `The price of this package is now $${authoritative.retailUsd.toFixed(2)}. Please review and try again.`, retailUsd: authoritative.retailUsd },
+      { status: 409 },
+    )
+  }
+  d.retailUsd    = authoritative.retailUsd
+  d.wholesaleUsd = authoritative.wholesaleUsd
+
   // Encode eSIM details in metadata for webhook
   const stripeSession = await getStripe().checkout.sessions.create({
     payment_method_types: ['card'],
