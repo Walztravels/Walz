@@ -177,7 +177,7 @@ export default function CurrencyFxSettingsPage() {
       {/* ── Live Monierate rates ── */}
       <section className="bg-white border border-gray-100 rounded-2xl p-5 shadow-sm space-y-3">
         <div className="flex items-center justify-between">
-          <h2 className="text-xs font-bold text-[#0B1F3A]/60 uppercase tracking-wider">Current Monierate Rates (parallel-market reference)</h2>
+          <h2 className="text-xs font-bold text-[#0B1F3A]/60 uppercase tracking-wider">Current Monierate Rates (parallel-market BUY side)</h2>
           <button
             type="button"
             onClick={() => load(true)}
@@ -219,7 +219,11 @@ export default function CurrencyFxSettingsPage() {
 
       {/* ── Manual rates ── */}
       <section className="bg-white border border-gray-100 rounded-2xl p-5 shadow-sm space-y-3">
-        <h2 className="text-xs font-bold text-[#0B1F3A]/60 uppercase tracking-wider">Manual Walz Rates (₦ per 1 unit)</h2>
+        <h2 className="text-xs font-bold text-[#0B1F3A]/60 uppercase tracking-wider">Manual Walz Rates — commercial buy-side (₦ per 1 unit)</h2>
+        <p className="text-xs text-gray-500">
+          Walz commercial buy-side rate — NGN required per 1 unit of foreign currency.
+          E.g. USD/NGN = NGN required for Walz to recover $1; GBP/NGN = NGN required to recover £1.
+        </p>
         <div className="grid grid-cols-2 md:grid-cols-3 gap-3 max-w-xl">
           {currencies.map(cur => (
             <label key={cur} className="block">

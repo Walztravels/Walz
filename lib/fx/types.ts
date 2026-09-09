@@ -5,9 +5,11 @@ export const Decimal = Prisma.Decimal
 
 /** Where the raw NGN rate came from. */
 export type FxRateSource =
-  | 'MONIERATE_PARALLEL'  // Monierate aggregated parallel-market rate
-  | 'WALZ_MANUAL'         // super_admin-configured manual rate
-  | 'STANDARD_MARKET'     // existing standard provider (non-NGN conversions)
+  | 'MONIERATE_PARALLEL_BUY'  // Monierate parallel-market BUY price (NGN to obtain 1 unit)
+  | 'MONIERATE_PARALLEL'      // LEGACY: composite parallel rate — persisted on old
+                              // lock rows only; never produced for new quotes
+  | 'WALZ_MANUAL'             // super_admin-configured manual (buy-side) rate
+  | 'STANDARD_MARKET'         // existing standard provider (non-NGN conversions)
 
 /**
  * Pricing context decides whether a quote is persisted and how it may be

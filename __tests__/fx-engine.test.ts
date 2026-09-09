@@ -45,12 +45,24 @@ beforeAll(() => {
   }) as unknown as typeof fetch
 })
 
-function monierateOk(rate: number, opts: { timestamp?: number } = {}) {
+// Pair-endpoint shape (GET /pairs/{code}) — `rate` is the BUY side the
+// engine selects; sell/current sit realistically just below it.
+function monierateOk(rate: number, opts: { timestamp?: number; sell?: number; current?: number } = {}) {
   return {
     ok: true,
     json: {
       status: 'success',
-      data:   { timestamp: opts.timestamp ?? Date.now(), base: 'USD', market: 'parallel', rates: rate },
+      data: {
+        pair: {
+          price: {
+            buy:     rate,
+            sell:    opts.sell    ?? rate * 0.995,
+            current: opts.current ?? rate * 0.999,
+            average: opts.current ?? rate * 0.999,
+          },
+          updatedAt: new Date(opts.timestamp ?? Date.now()).toISOString(),
+        },
+      },
     },
   }
 }
@@ -87,30 +99,30 @@ beforeEach(() => {
 
 // ═════════════════════════════════════════════════════════════════════════════
 describe('NGN routing policy', () => {
-  it('1. USD→NGN uses the Monierate parallel market', async () => {
+  it('1. USD→NGN uses the Monierate parallel BUY side', async () => {
     fetchHandler = url => url.includes('monierate') ? monierateOk(1397) : standardOk({})
     const rate = await getNgnRate('USD')
-    expect(rate.rateSource).toBe('MONIERATE_PARALLEL')
+    expect(rate.rateSource).toBe('MONIERATE_PARALLEL_BUY')
     expect(rate.rawRate.toString()).toBe('1397')
-    expect(fetchCalls.some(u => u.includes('market=parallel'))).toBe(true)
+    expect(fetchCalls.some(u => u.includes('/pairs/usdngn'))).toBe(true)
   })
 
-  it('2. GBP→NGN uses Monierate (direct parallel pair)', async () => {
-    fetchHandler = url => url.includes('base=GBP') ? monierateOk(1800) : monierateOk(1397)
+  it('2. GBP→NGN uses Monierate (direct parallel pair, BUY side)', async () => {
+    fetchHandler = url => url.includes('/pairs/gbpngn') ? monierateOk(1800) : monierateOk(1397)
     const rate = await getNgnRate('GBP')
-    expect(rate.rateSource).toBe('MONIERATE_PARALLEL')
+    expect(rate.rateSource).toBe('MONIERATE_PARALLEL_BUY')
     expect(rate.rawRate.toString()).toBe('1800')
   })
 
   it('3. CAD→NGN uses Monierate, bridging deterministically via USD when the direct pair is missing', async () => {
     fetchHandler = url => {
-      if (url.includes('base=CAD') && url.includes('monierate')) return { ok: false, status: 404 }
-      if (url.includes('base=USD') && url.includes('monierate')) return monierateOk(1400)
+      if (url.includes('/pairs/cadngn')) return { ok: false, status: 404 }
+      if (url.includes('/pairs/usdngn')) return monierateOk(1400)
       if (url.includes('exchangerate-api') && url.includes('CAD')) return standardOk({ USD: 0.73 })
       return { ok: false, status: 500 }
     }
     const rate = await getNgnRate('CAD')
-    expect(rate.rateSource).toBe('MONIERATE_PARALLEL')
+    expect(rate.rateSource).toBe('MONIERATE_PARALLEL_BUY')
     expect(rate.provider).toBe('monierate+usd-bridge')
     // 1400 × 0.73 = 1022 NGN per CAD
     expect(rate.rawRate.toNumber()).toBeCloseTo(1022, 6)
@@ -200,7 +212,7 @@ describe('USD $5 adjustment', () => {
 
   it('14. CAD adjustment converted correctly (5 USD × USD→CAD)', async () => {
     fetchHandler = url => {
-      if (url.includes('monierate') && url.includes('base=CAD')) return monierateOk(1022)
+      if (url.includes('/pairs/cadngn')) return monierateOk(1022)
       if (url.includes('exchangerate-api') && url.includes('/USD')) return standardOk({ CAD: 1.37 })
       return { ok: false, status: 500 }
     }
@@ -230,7 +242,7 @@ describe('rate locks', () => {
     expect(chk.lockId).toBe('lock_1')
     const data = mockDb.fxQuoteLock.create.mock.calls[0][0].data
     expect(data.rawRate.toString()).toBe('1400')
-    expect(data.rateSource).toBe('MONIERATE_PARALLEL')
+    expect(data.rateSource).toBe('MONIERATE_PARALLEL_BUY')
     expect(data.adjustmentUsd.toString()).toBe('5')
     expect(data.convertedAmount.toNumber()).toBe(105 * 1400)
     expect(data.expiresAt).toBeInstanceOf(Date)
