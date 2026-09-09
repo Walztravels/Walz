@@ -26,11 +26,33 @@ export async function POST(req: NextRequest) {
       passengers,
       paymentRef, paymentMethod, paidAmount, quotedAmount, currency,
       searchedOrigin, searchedDest, departDate, returnDate,
-      cabinClass, tripType,
+      cabinClass, tripType, fxLockId,
     } = body
 
     if (!clientEmail || !offerId) {
       return NextResponse.json({ error: 'Missing required fields: clientEmail, offerId' }, { status: 400 })
+    }
+
+    // Central FX engine audit: an NGN payment made against a rate lock is
+    // reconciled with the locked amount. The payment is already captured at
+    // this point, so a mismatch never blocks the booking — it is logged
+    // loudly for finance review and the lock is stamped as consumed.
+    if (fxLockId && currency === 'NGN') {
+      try {
+        const { isNgnFxEngineEnabled, loadFxLock, markFxLockUsed } = await import('@/lib/fx')
+        if (isNgnFxEngineEnabled()) {
+          const lock = await loadFxLock(String(fxLockId))
+          if (lock) {
+            const paid = Number(paidAmount)
+            if (Number.isFinite(paid) && Math.abs(paid - lock.convertedAmount.toNumber()) > 1) {
+              console.error(`[flights/book] fx_amount_mismatch lock=${lock.id} locked=${lock.convertedAmount.toString()} paid=${paid} ref=${paymentRef ?? '-'}`)
+            }
+            await markFxLockUsed(lock.id)
+          }
+        }
+      } catch (e) {
+        console.error('[flights/book] fx lock audit failed:', e instanceof Error ? e.message : e)
+      }
     }
 
     const reference = generateRef()

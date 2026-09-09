@@ -336,6 +336,21 @@ export const JADE_TOOLS = [
     },
   },
 
+  // ── Walz NGN rate (central FX engine) ───────────────────────────────────────
+  {
+    name: "get_walz_ngn_rate",
+    description:
+      "Get the authoritative Walz NGN rate for converting a price into Naira. This is the ONLY permitted source of NGN pricing — never estimate, recall or calculate an exchange rate yourself. Use when a client asks what a price is in Naira or what rate Walz applies. If this tool reports unavailable, say NGN pricing is temporarily unavailable — do not guess.",
+    input_schema: {
+      type: "object" as const,
+      properties: {
+        base_currency: { type: "string", enum: ["USD","GBP","EUR","CAD","AED"], description: "Currency the price is in" },
+        amount:        { type: "number", description: "Optional amount in base currency to convert" },
+      },
+      required: ["base_currency"],
+    },
+  },
+
   // ── FEATURE 11: Family Constellation ────────────────────────────────────────
   {
     name: "remember_family_member",
@@ -493,6 +508,8 @@ export async function executeTool(
         return `Voice note acknowledged. Intent: ${input.understood_intent}. Reply in ${input.reply_language || "the client's language"}. Never ask them to repeat in text.`;
       case "check_fx_timing":
         return await checkFx(input);
+      case "get_walz_ngn_rate":
+        return await getWalzNgnRate(input);
       case "remember_family_member":
         return await rememberFamily(input, ctx);
       case "analyse_visa_refusal":
@@ -762,6 +779,39 @@ Advice: ${advice.advice.replace('_', ' ')}
 SAY THIS NATURALLY: "${advice.message}"
 
 Only raise it when payment or price comes up. Never as a hard sell — this is you being on their side financially.`;
+}
+
+async function getWalzNgnRate(input: any): Promise<string> {
+  // Jade NEVER invents an FX rate: this consumes the central server-side FX
+  // engine (Monierate parallel → manual → fail closed). Anything other than
+  // a served quote means Jade must say NGN pricing is unavailable.
+  try {
+    const { isNgnFxEngineEnabled, createNgnQuote } = await import("@/lib/fx");
+    if (!isNgnFxEngineEnabled()) {
+      return "NGN pricing service is not active. Tell the client NGN pricing is temporarily unavailable and offer the base-currency price. Do NOT estimate a rate.";
+    }
+    const base   = String(input.base_currency ?? "USD").toUpperCase();
+    const amount = Number(input.amount);
+    const q = await createNgnQuote({
+      baseCurrency: base,
+      baseAmount:   Number.isFinite(amount) && amount > 0 ? amount : 1,
+      context:      "DISPLAY_ESTIMATE",
+      traceId:      "jade",
+    });
+    const validUntil = q.expiresAt.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", timeZone: "Africa/Lagos" });
+    const lines = [
+      `WALZ NGN RATE (authoritative — quote exactly, never adjust):`,
+      `Rate: ₦${q.rawRate.toFixed(2)} per 1 ${base} (valid until ${validUntil} Lagos time)`,
+      `FX adjustment: $${q.adjustmentUsd.toFixed(2)} USD applied once per total (shown separately, not hidden in the rate)`,
+    ];
+    if (Number.isFinite(amount) && amount > 0) {
+      lines.push(`${base} ${amount.toLocaleString()} → ₦${q.convertedAmount.toNumber().toLocaleString()} (includes the adjustment)`);
+    }
+    lines.push(`Call this the "Walz NGN rate" — never "CBN rate", "official rate" or "bank rate". Final checkout total comes from the checkout page.`);
+    return lines.join("\n");
+  } catch {
+    return "NGN pricing is temporarily unavailable. Tell the client so and offer the base-currency price. Do NOT estimate, recall or calculate any exchange rate.";
+  }
 }
 
 async function rememberFamily(input: any, ctx: ToolContext): Promise<string> {

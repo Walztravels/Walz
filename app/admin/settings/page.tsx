@@ -210,6 +210,7 @@ export default function SettingsPage() {
           { href: '/admin/settings/contact',       icon: Phone,  label: 'Contact & Numbers',  desc: 'Office addresses and phone numbers'    },
           { href: '/admin/settings/signature',      icon: Pen,    label: 'Email Signature',    desc: 'Logo, colors, office cities, tagline'  },
           { href: '/admin/settings/inbox-mapping',  icon: Link2,  label: 'Inbox Mapping',      desc: 'Route inbound email to categories'     },
+          { href: '/admin/settings/currency',       icon: RefreshCw, label: 'Currency & FX',   desc: 'NGN rates, Monierate, FX adjustment'   },
         ].map(({ href, icon: Icon, label, desc }) => (
           <a
             key={href}

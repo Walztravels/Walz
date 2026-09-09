@@ -619,6 +619,19 @@ export default function PackageBookingModal({ pkg: initialPkg, isOpen: controlle
                       : pkg.currency === 'CAD' ? depositDue! * 0.73
                       : depositDue!
                     setFwDepositLocal(Math.round(depositUSD * (currency === 'NGN' ? 1620 : 16.5)))
+                    // Central FX engine (when enabled): replace the rough
+                    // NGN approximation above with the authoritative Walz
+                    // NGN amount (real parallel rate + separate adjustment).
+                    if (currency === 'NGN') {
+                      fetch(`/api/fx/quote?base=${encodeURIComponent(pkg.currency || 'USD')}&amount=${depositDue!}`)
+                        .then(r => (r.ok ? r.json() : null))
+                        .then(d => {
+                          if (d?.available && d.quote?.convertedAmount) {
+                            setFwDepositLocal(Math.round(Number(d.quote.convertedAmount)))
+                          }
+                        })
+                        .catch(() => {})
+                    }
                   }
                 }}
               />

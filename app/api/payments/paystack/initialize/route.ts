@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma }                   from '@/lib/db'
+import { isNgnFxEngineEnabled, loadFxLock, markFxLockUsed } from '@/lib/fx'
 
 export const dynamic = 'force-dynamic'
 
@@ -12,7 +13,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Paystack not configured' }, { status: 500 })
     }
 
-    const {
+    let {
       email,
       amount,
       currency     = 'NGN',
@@ -26,6 +27,8 @@ export async function POST(req: NextRequest) {
       fxMargin,
       fxSource,
       fxQuotedAt,
+      // Central FX engine rate-lock id (server-authoritative NGN amount)
+      fxLockId,
     } = await req.json() as {
       email:          string
       amount:         number
@@ -39,10 +42,38 @@ export async function POST(req: NextRequest) {
       fxMargin?:      number
       fxSource?:      string
       fxQuotedAt?:    string
+      fxLockId?:      string
     }
 
     if (!email || !amount) {
       return NextResponse.json({ error: 'email and amount are required' }, { status: 400 })
+    }
+
+    // ── Central FX engine: the server is price authority for NGN ──────────────
+    // When a rate lock accompanies an NGN charge, EVERY browser-supplied FX
+    // value is discarded and replaced with the locked server-side quote. An
+    // expired lock is a 409 — the client must revalidate and show the price
+    // change; the amount is never silently altered.
+    if (isNgnFxEngineEnabled() && currency.toUpperCase() === 'NGN' && fxLockId) {
+      const lock = await loadFxLock(fxLockId)
+      if (!lock || lock.quoteCurrency !== 'NGN') {
+        return NextResponse.json({ error: 'Invalid FX quote reference' }, { status: 400 })
+      }
+      if (lock.expired) {
+        return NextResponse.json(
+          { error: 'FX_QUOTE_EXPIRED', message: 'Exchange rate expired. Please refresh your total before paying.' },
+          { status: 409 },
+        )
+      }
+      amount       = lock.convertedAmount.toNumber()
+      fareCurrency = lock.baseCurrency
+      fareAmount   = lock.baseAmount.toNumber()
+      fxRate       = lock.rawRate.toNumber()
+      // Adjustment is separate from the rate; recorded via source tag + lock audit row.
+      fxMargin     = undefined
+      fxSource     = `walz-fx:${lock.rateSource}`
+      fxQuotedAt   = lock.createdAt.toISOString()
+      await markFxLockUsed(lock.id)
     }
 
     const { randomBytes: _rb } = require('crypto') as typeof import('crypto')

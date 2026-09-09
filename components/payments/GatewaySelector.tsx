@@ -34,6 +34,23 @@ export default function GatewaySelector({ currency, amount, selected, onSelect }
   const [fwCurrency, setFwCurrency] = useState<'NGN' | 'GHS'>(() =>
     currency === 'GHS' ? 'GHS' : 'NGN'
   )
+  // Central FX engine NGN estimate (Walz NGN rate + adjustment). When the
+  // engine flag is off the endpoint answers { available: false } and the
+  // legacy approximation below stays in charge.
+  const [engineNgn, setEngineNgn] = useState<number | null>(null)
+
+  useEffect(() => {
+    setEngineNgn(null)
+    if (currency === 'NGN' || !(amount > 0)) return
+    fetch(`/api/fx/quote?base=${encodeURIComponent(currency)}&amount=${amount}`)
+      .then(r => (r.ok ? r.json() : null))
+      .then(d => {
+        if (d?.available && d.quote?.convertedAmount) {
+          setEngineNgn(Math.round(Number(d.quote.convertedAmount)))
+        }
+      })
+      .catch(() => {})
+  }, [currency, amount])
 
   useEffect(() => {
     fetch('/api/currency')
@@ -66,6 +83,8 @@ export default function GatewaySelector({ currency, amount, selected, onSelect }
 
   function localAmount(cur: string): number {
     if (currency === cur) return amount
+    // NGN prefers the authoritative Walz engine estimate when served.
+    if (cur === 'NGN' && engineNgn != null) return engineNgn
     return Math.round(amountUSD * (fxRates[cur] ?? 1))
   }
 

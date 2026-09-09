@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
 import { BUSINESS, waLink } from '@/lib/config/business'
 import { loadStripe } from '@stripe/stripe-js'
@@ -12,6 +12,20 @@ import type { Processor } from '@/lib/payments/processors'
 import GatewaySelector from '@/components/payments/GatewaySelector'
 import { useCurrency } from '@/lib/context/CurrencyContext'
 import type { FxQuote } from '@/lib/payments/fx'
+
+// Extra fields present when the central Walz FX engine served the quote
+// (WALZ_NGN_FX_ENGINE_ENABLED): the server persisted a rate lock and the
+// payment routes recompute the NGN amount from it — the browser total is
+// display-only in that flow.
+type CheckoutFxQuote = FxQuote & {
+  engine?:           boolean
+  lockId?:           string
+  expiresAt?:        string
+  rateSource?:       string
+  rateLabel?:        string
+  adjustmentUsd?:    number
+  adjustmentInBase?: number
+}
 
 const stripePromise = process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY
   ? loadStripe(process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY)
@@ -143,12 +157,14 @@ function FlutterwaveCheckout({
   chargeAmount,
   validateOffer,
   disabled,
+  fxQuote,
 }: {
   grand:           number
   chargeCurrency:  string
   chargeAmount:    number
   validateOffer:   () => Promise<boolean>
   disabled?:       boolean
+  fxQuote?:        CheckoutFxQuote | null
 }) {
   const router   = useRouter()
   const { setConfirmed, selected, passengers } = useFlightStore()
@@ -265,6 +281,7 @@ function FlutterwaveCheckout({
                   currency:        chargeCurrency,
                   fareCurrency:    selected?.price.currency ?? 'GBP',
                   fareAmount:      String(grand),
+                  ...(chargeCurrency === 'NGN' && fxQuote?.lockId ? { fxLockId: fxQuote.lockId } : {}),
                   paymentMethod:   'flutterwave',
                   paymentRef:      String(response.transaction_id),
                   searchedOrigin:  segs[0]?.departureIata ?? '',
@@ -498,12 +515,14 @@ function PaystackCheckout({
   fxQuote,
   validateOffer,
   disabled,
+  onFxExpired,
 }: {
   grand:           number
   currency:        string
   chargeCurrency:  string
   chargeAmount:    number
-  fxQuote:         FxQuote | null
+  fxQuote:         CheckoutFxQuote | null
+  onFxExpired?:    () => void
   validateOffer:   () => Promise<boolean>
   disabled?:       boolean
 }) {
@@ -545,9 +564,18 @@ function PaystackCheckout({
             fxSource:    fxQuote.source,
             fxQuotedAt:  fxQuote.fetchedAt,
           } : {}),
+          // Central FX engine: the server recomputes the NGN amount from
+          // this lock — everything above becomes informational.
+          ...(fxQuote?.lockId ? { fxLockId: fxQuote.lockId } : {}),
         }),
       })
       const data = await res.json()
+      if (res.status === 409 && data.error === 'FX_QUOTE_EXPIRED') {
+        setError('Your exchange rate expired. We’ve refreshed it — please review the updated total before paying.')
+        setProcessing(false)
+        onFxExpired?.()
+        return
+      }
       if (data.url) {
         // Store the reference so on-return the page can verify + book
         sessionStorage.setItem('ps_pending_ref', data.reference)
@@ -692,7 +720,8 @@ export default function CheckoutPage() {
   const [psReturnError,       setPsReturnError]       = useState<string | null>(null)
 
   // FX — Naira option
-  const [fxQuote,        setFxQuote]        = useState<FxQuote | null>(null)
+  const [fxQuote,        setFxQuote]        = useState<CheckoutFxQuote | null>(null)
+  const [fxNotice,       setFxNotice]       = useState<string | null>(null)
   const [fxLoading,      setFxLoading]      = useState(false)
   const [chargeCurrency, setChargeCurrency] = useState<'GBP' | 'NGN'>('GBP')
 
@@ -719,19 +748,32 @@ export default function CheckoutPage() {
   }, [effectiveCurrency]) // eslint-disable-line
 
   // Fetch FX quote when fare currency is GBP (only currency we convert from Duffel)
-  useEffect(() => {
+  const refreshFxQuote = useCallback(async (announceChange = false) => {
     if (CURRENCY !== 'GBP' || grand <= 0) return
     setFxLoading(true)
-    fetch(`/api/flights/fx-quote?from=GBP&to=NGN&amount=${grand}`)
-      .then(r => r.ok ? r.json() : null)
-      .then(data => {
-        if (data?.available && data.quote) {
-          setFxQuote(data.quote as FxQuote)
-        }
-      })
-      .catch(() => {})
-      .finally(() => setFxLoading(false))
-  }, [grand, CURRENCY]) // eslint-disable-line
+    try {
+      const r    = await fetch(`/api/flights/fx-quote?from=GBP&to=NGN&amount=${grand}`)
+      const data = await r.json().catch(() => null)
+      if (data?.available && data.quote) {
+        const next = data.quote as CheckoutFxQuote
+        setFxQuote(prev => {
+          // Never change the payable amount silently — say exactly what moved.
+          if (announceChange && prev && prev.amountTo !== next.amountTo) {
+            setFxNotice(`Exchange rate updated. Your total has changed from ₦${prev.amountTo.toLocaleString()} to ₦${next.amountTo.toLocaleString()}.`)
+          }
+          return next
+        })
+      } else if (announceChange) {
+        setFxQuote(null)
+        setFxNotice(data?.message ?? 'NGN pricing is temporarily unavailable. Please try again shortly.')
+      }
+    } catch { /* keep previous quote */ }
+    finally { setFxLoading(false) }
+  }, [CURRENCY, grand])
+
+  useEffect(() => {
+    refreshFxQuote()
+  }, [refreshFxQuote]) // eslint-disable-line
 
   // Offer expiry countdown
   useEffect(() => {
@@ -1076,9 +1118,25 @@ export default function CheckoutPage() {
                     <p className="text-[10px] text-[#0B1F3A]/40 ml-5">Flutterwave · Paystack</p>
                   </button>
                 </div>
-                {chargeCurrency === 'NGN' && (
+                {chargeCurrency === 'NGN' && fxQuote.engine && (
+                  <div className="text-[10px] text-[#0B1F3A]/50 text-center space-y-0.5">
+                    <p>{fxQuote.rateLabel ?? 'Walz NGN rate'}: ₦{Math.round(fxQuote.rate).toLocaleString()} = £1</p>
+                    {typeof fxQuote.adjustmentUsd === 'number' && fxQuote.adjustmentUsd > 0 && (
+                      <p>FX adjustment: ${fxQuote.adjustmentUsd.toFixed(2)}</p>
+                    )}
+                    {fxQuote.expiresAt && (
+                      <p>Rate guaranteed until {new Date(fxQuote.expiresAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</p>
+                    )}
+                  </div>
+                )}
+                {chargeCurrency === 'NGN' && !fxQuote.engine && (
                   <p className="text-[10px] text-[#0B1F3A]/40 text-center">
                     Rate includes FX margin · Settled in NGN · No hidden bank charges
+                  </p>
+                )}
+                {fxNotice && (
+                  <p className="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 text-center">
+                    {fxNotice}
                   </p>
                 )}
               </div>
@@ -1106,6 +1164,7 @@ export default function CheckoutPage() {
                 chargeAmount={effectiveAmount}
                 validateOffer={validateOffer}
                 disabled={offerExpired}
+                fxQuote={fxQuote}
               />
             ) : payMethod === 'paystack' ? (
               <PaystackCheckout
@@ -1116,6 +1175,7 @@ export default function CheckoutPage() {
                 fxQuote={fxQuote}
                 validateOffer={validateOffer}
                 disabled={offerExpired}
+                onFxExpired={() => refreshFxQuote(true)}
               />
             ) : loadingIntent ? (
               <div className="bg-white rounded-2xl border border-black/5 p-8 flex items-center justify-center">

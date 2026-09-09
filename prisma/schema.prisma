@@ -5479,3 +5479,49 @@ model OrbitBrandAsset {
   @@index([createdBy])
   @@map("orbit_brand_assets")
 }
+
+// ── Walz central FX engine ───────────────────────────────────────────────────
+// Admin-configured NGN pricing policy. Single row (id = 'fx-settings').
+model FxSettings {
+  id            String   @id
+  rateMode      String   @default("AUTO_MONIERATE") // AUTO_MONIERATE | MANUAL
+  // NGN per 1 unit of base currency, decimal strings: { "USD": "1397", ... }
+  manualRates   Json     @default("{}") @map("manual_rates")
+  adjustmentUsd Decimal  @default(5.00) @db.Decimal(10, 2) @map("adjustment_usd")
+  cacheMinutes  Int      @default(10) @map("cache_minutes")
+  lockMinutes   Int      @default(15) @map("lock_minutes")
+  isEnabled     Boolean  @default(true) @map("is_enabled")
+  updatedBy     String?  @map("updated_by")
+  createdAt     DateTime @default(now()) @map("created_at")
+  updatedAt     DateTime @updatedAt @map("updated_at")
+
+  @@map("fx_settings")
+}
+
+// One persisted customer-facing FX quote (QUOTE / CHECKOUT / ADMIN_QUOTE).
+// The raw rate is the real Monierate/manual rate; the USD adjustment is a
+// separate audited figure — never folded into the rate.
+model FxQuoteLock {
+  id            String   @id @default(cuid())
+  context       String   // QUOTE | CHECKOUT | ADMIN_QUOTE
+  baseCurrency  String   @map("base_currency")
+  quoteCurrency String   @map("quote_currency")
+  baseAmount    Decimal  @db.Decimal(14, 2) @map("base_amount")
+  rawRate       Decimal  @db.Decimal(18, 8) @map("raw_rate")
+  effectiveRate Decimal  @db.Decimal(18, 8) @map("effective_rate")
+  rateSource    String   @map("rate_source") // MONIERATE_PARALLEL | WALZ_MANUAL
+  provider      String?
+  adjustmentUsd Decimal  @db.Decimal(10, 2) @map("adjustment_usd")
+  adjustmentInBaseCurrency Decimal @db.Decimal(14, 4) @map("adjustment_in_base_currency")
+  adjustedBaseAmount       Decimal @db.Decimal(16, 4) @map("adjusted_base_amount")
+  convertedAmount          Decimal @db.Decimal(18, 2) @map("converted_amount")
+  rateTimestamp DateTime? @map("rate_timestamp")
+  reference     String?
+  usedAt        DateTime? @map("used_at")
+  createdAt     DateTime @default(now()) @map("created_at")
+  expiresAt     DateTime @map("expires_at")
+
+  @@index([expiresAt])
+  @@index([reference])
+  @@map("fx_quote_locks")
+}
