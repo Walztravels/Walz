@@ -4,7 +4,7 @@ import Script from 'next/script'
 import { BUSINESS } from '@/lib/config/business'
 import './globals.css'
 import { PublicShell } from '@/components/common/PublicShell'
-import { JadeChatWidget } from '@/components/common/JadeChatWidget'
+import JadeChatWidgetLazy from '@/components/common/JadeChatWidgetLazy'
 import CookieConsent from '@/components/cookie-consent/CookieConsent'
 import { SessionProvider } from '@/components/providers/SessionProvider'
 import { LenisProvider } from '@/components/providers/LenisProvider'
@@ -242,7 +242,7 @@ export default async function RootLayout({
                 <PublicShell>
                   {children}
                 </PublicShell>
-                <JadeChatWidget />
+                <JadeChatWidgetLazy />
                 <CookieConsent />
               </LenisProvider>
             </CartProvider>

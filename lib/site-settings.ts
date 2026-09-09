@@ -3,51 +3,12 @@ import db from '@/lib/db'
 import { unstable_cache, revalidateTag } from 'next/cache'
 import { BUSINESS } from '@/lib/config/business'
 
-export type SiteSettings = {
-  whatsapp_header: string
-  whatsapp_header_display: string
-  whatsapp_cta: string
-  whatsapp_cta_display: string
-  phone_uk: string
-  phone_canada: string
-  phone_uae: string
-  phone_nigeria: string
-  phone_ghana: string
-  footer_wa_1_label: string
-  footer_wa_1_number: string
-  footer_wa_2_label: string
-  footer_wa_2_number: string
-  footer_wa_3_label: string
-  footer_wa_3_number: string
-  footer_wa_4_label: string
-  footer_wa_4_number: string
-  business_address: string
-  business_email: string
-  business_name: string
-}
-
-export const SETTING_DEFAULTS: SiteSettings = {
-  whatsapp_header:         BUSINESS.contacts.globalWhatsapp.display,
-  whatsapp_header_display: BUSINESS.contacts.globalWhatsapp.display,
-  whatsapp_cta:            BUSINESS.contacts.globalWhatsapp.display,
-  whatsapp_cta_display:    BUSINESS.contacts.globalWhatsapp.display,
-  phone_uk:                BUSINESS.contacts.globalWhatsapp.display,
-  phone_canada:            '+13657200865',
-  phone_uae:               '+971000000000',
-  phone_nigeria:           BUSINESS.contacts.nigeriaWhatsapp.display,
-  phone_ghana:             '+2330000000000',
-  footer_wa_1_label:       'WhatsApp UK',
-  footer_wa_1_number:      BUSINESS.contacts.globalWhatsapp.display,
-  footer_wa_2_label:       'WhatsApp Canada',
-  footer_wa_2_number:      '+13657200865',
-  footer_wa_3_label:       '',
-  footer_wa_3_number:      '',
-  footer_wa_4_label:       '',
-  footer_wa_4_number:      '',
-  business_address:        'THE WALZ TRAVELS INC · Ontario, Canada · Registered in England & Wales',
-  business_email:          'contact@walztravels.com',
-  business_name:           'Walz Travels Ltd',
-}
+// Type + defaults moved to lib/site-settings-defaults.ts (client-safe) —
+// re-exported here so existing server imports keep working. Client modules
+// must import the defaults module directly, never this file.
+export type { SiteSettings } from './site-settings-defaults'
+export { SETTING_DEFAULTS } from './site-settings-defaults'
+import { SETTING_DEFAULTS, type SiteSettings } from './site-settings-defaults'
 
 // unstable_cache caches the result across ALL requests for 1 hour.
 // Site settings change at most once per deploy — revalidateTag('site-settings')
@@ -75,8 +36,7 @@ export async function revalidateSiteSettings() {
   revalidateTag('site-settings')
 }
 
-export function whatsappLink(number: string, message = '') {
-  const clean = number.replace(/\D/g, '')
-  const msg = message ? `?text=${encodeURIComponent(message)}` : ''
-  return `https://wa.me/${clean}${msg}`
-}
+// Re-exported from the client-safe module — kept here so existing server
+// imports keep working. Client components must import '@/lib/whatsapp-link'
+// directly (this file imports Prisma and must never enter a client bundle).
+export { whatsappLink } from './whatsapp-link'

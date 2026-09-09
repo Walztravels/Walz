@@ -410,9 +410,12 @@ export const VISA_AGENTS = [
 
 // ── Reference number generator ───────────────────────────────────────────────
 export function generateVisaRef(): string {
-  const { randomBytes } = require('crypto') as typeof import('crypto')
+  // Web Crypto (Node 18+ and browsers) — require('crypto') here dragged the
+  // ~100 KB crypto-browserify polyfill into every client bundle importing
+  // this module (the public /visa pages import ISO2_TO_SLUG from it).
   const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'
-  const bytes = randomBytes(6)
+  const bytes = new Uint8Array(6)
+  globalThis.crypto.getRandomValues(bytes)
   let ref = 'WALZ-'
   for (let i = 0; i < 6; i++) ref += chars[bytes[i] % chars.length]
   return ref

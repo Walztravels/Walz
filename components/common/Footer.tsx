@@ -4,7 +4,7 @@ import Link from 'next/link'
 import { useState, useEffect } from 'react'
 import { Mail, MapPin, MessageCircle, Award, Lock } from 'lucide-react'
 import { useSettings } from '@/lib/settings-context'
-import { whatsappLink } from '@/lib/site-settings'
+import { whatsappLink } from '@/lib/whatsapp-link'
 import { BUSINESS } from '@/lib/config/business'
 
 const LOGO_CACHE_KEY = 'walz_logo_url'

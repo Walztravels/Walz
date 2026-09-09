@@ -61,8 +61,11 @@ export function truncate(text: string, maxLength: number): string {
 
 export function generateBookingReference(): string {
   const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
-  const { randomBytes } = require('crypto') as typeof import('crypto')
-  const bytes = randomBytes(6)
+  // Web Crypto — available in Node 18+ AND browsers. require('crypto') here
+  // made Next bundle its ~100 KB crypto-browserify polyfill into the client
+  // first-load of every page (this module is imported by Navbar via cn()).
+  const bytes = new Uint8Array(6)
+  globalThis.crypto.getRandomValues(bytes)
   let result = 'WZ'
   for (let i = 0; i < 6; i++) {
     result += chars.charAt(bytes[i] % chars.length)

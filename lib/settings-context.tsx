@@ -1,8 +1,8 @@
 'use client'
 
 import { createContext, useContext } from 'react'
-import type { SiteSettings } from './site-settings'
-import { SETTING_DEFAULTS } from './site-settings'
+import type { SiteSettings } from './site-settings-defaults'
+import { SETTING_DEFAULTS } from './site-settings-defaults'
 
 const SettingsContext = createContext<SiteSettings>(SETTING_DEFAULTS)
 

@@ -6,7 +6,7 @@ import gsap from 'gsap'
 import ScrollTrigger from 'gsap/ScrollTrigger'
 import { MessageCircle, FileText } from 'lucide-react'
 import { useSettings } from '@/lib/settings-context'
-import { whatsappLink } from '@/lib/site-settings'
+import { whatsappLink } from '@/lib/whatsapp-link'
 
 export function FinalCTA() {
   const settings    = useSettings()

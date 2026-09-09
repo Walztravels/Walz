@@ -19,7 +19,7 @@
 //    opens a prefilled WhatsApp draft the CUSTOMER sends — no fake assignment.
 
 import { useState, useCallback } from 'react'
-import { speakToHumanControlState } from '@/lib/jade/human-handoff'
+import { speakToHumanControlState } from '@/lib/jade/handoff-ui'
 
 export interface SpeakToHumanProps {
   chatOpen:       boolean

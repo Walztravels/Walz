@@ -288,16 +288,9 @@ export async function requestHumanHandoff(req: HandoffRequest): Promise<HandoffR
 
 // ── UI state helper (shared by widget + portal; unit-tested) ──────────────────
 
-export type SpeakToHumanControlState = 'speak_button' | 'human_active' | 'hidden'
+// Moved to lib/jade/handoff-ui.ts (client-safe) — re-exported for server
+// callers; client components import '@/lib/jade/handoff-ui' directly.
+export type { SpeakToHumanControlState } from './handoff-ui'
+export { speakToHumanControlState } from './handoff-ui'
 
-/**
- * Pure state function for the floating control:
- *  - Jade-owned open chat → "Speak to a Human" button
- *  - human-owned chat     → "Human Support Active" pill (no handoff action)
- *  - chat closed          → hidden
- * Cancelling the selector performs NO transition — ownership stays with Jade.
- */
-export function speakToHumanControlState(opts: { chatOpen: boolean; isHandedOff: boolean }): SpeakToHumanControlState {
-  if (!opts.chatOpen) return 'hidden'
-  return opts.isHandedOff ? 'human_active' : 'speak_button'
-}
+

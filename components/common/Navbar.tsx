@@ -4,7 +4,7 @@ import { useState, useEffect, useRef } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { useSettings } from '@/lib/settings-context'
-import { whatsappLink } from '@/lib/site-settings'
+import { whatsappLink } from '@/lib/whatsapp-link'
 import { useSession, signOut } from 'next-auth/react'
 import {
   Menu, X, Plane, Building2, Map, FileText, ChevronDown,

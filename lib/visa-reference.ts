@@ -1,7 +1,8 @@
 export function generateVisaReference(): string {
-  const { randomBytes } = require('crypto') as typeof import('crypto')
+  // Web Crypto — works in Node 18+ and browsers without the polyfill.
   const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
-  const bytes = randomBytes(5)
+  const bytes = new Uint8Array(5)
+  globalThis.crypto.getRandomValues(bytes)
   const year  = new Date().getFullYear().toString().slice(-2)
   let random  = ''
   for (let i = 0; i < 5; i++) random += chars[bytes[i] % chars.length]
