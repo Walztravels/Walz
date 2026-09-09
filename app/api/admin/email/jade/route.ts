@@ -46,6 +46,8 @@ export async function POST(req: NextRequest) {
     context?:       string
     refType?:       string
     refId?:         string
+    /** Subject already typed by staff — preserved by the plain-text fallback. */
+    existingSubject?: string
   }
 
   if (!body.purpose) {
@@ -116,15 +118,34 @@ Hard rules:
 - Do not add a signature — it will be appended automatically.
 - Sign off as "Warm regards," with no name (the system adds the name).
 
-Output JSON only with this exact shape:
-{ "subject": "...", "body": "..." }`
+Use the draft_email tool to return the finished draft.`
+
+  const generationId = crypto.randomUUID()
+  const model        = 'claude-sonnet-4-6'
 
   try {
     const anthropic = getAnthropic()
+    // Structured output via a FORCED tool call: the model must invoke
+    // draft_email with schema-conforming input, so the draft arrives as
+    // real JSON — no text parsing on the happy path, and the browser never
+    // parses arbitrary LLM output.
     const message   = await anthropic.messages.create({
-      model:      'claude-sonnet-4-6',
+      model,
       max_tokens: 1000,
       system:     systemPrompt,
+      tools: [{
+        name:        'draft_email',
+        description: 'Return the finished email draft.',
+        input_schema: {
+          type: 'object' as const,
+          properties: {
+            subject: { type: 'string', description: 'Email subject line' },
+            body:    { type: 'string', description: 'Plain-text email body' },
+          },
+          required: ['subject', 'body'],
+        },
+      }],
+      tool_choice: { type: 'tool', name: 'draft_email' },
       messages:   [
         {
           role:    'user',
@@ -133,30 +154,50 @@ Output JSON only with this exact shape:
       ],
     })
 
-    const raw = message.content
-      .filter(b => b.type === 'text')
-      .map(b => (b as { type: 'text'; text: string }).text)
-      .join('')
+    // ── Extract the draft: forced tool input first, text fallback second ─────
+    const { parseJadeEmailDraft, validateDraftShape, JADE_DRAFT_FAILED_MESSAGE } =
+      await import('@/lib/email/jade-draft-parse')
 
-    // Strip markdown code fences if present
-    const cleaned = raw.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/, '').trim()
+    let result: ReturnType<typeof validateDraftShape> | ReturnType<typeof parseJadeEmailDraft> | null = null
+    let structuredOutputUsed = false
 
-    let parsed: { subject: string; body: string }
-    try {
-      parsed = JSON.parse(cleaned)
-    } catch {
-      return NextResponse.json({ error: 'Jade returned invalid JSON', raw }, { status: 500 })
+    const toolBlock = message.content.find(
+      (b): b is Extract<typeof b, { type: 'tool_use' }> => b.type === 'tool_use' && b.name === 'draft_email',
+    )
+    if (toolBlock) {
+      structuredOutputUsed = true
+      result = validateDraftShape(toolBlock.input, 'structured_tool')
+    }
+
+    if (!result || !result.ok) {
+      // Defensive path: the model answered in text (or the tool input was
+      // unusable) — run the central normalizing parser.
+      const raw = message.content
+        .filter(b => b.type === 'text')
+        .map(b => (b as { type: 'text'; text: string }).text)
+        .join('')
+      result = parseJadeEmailDraft(raw, body.existingSubject)
+    }
+
+    if (!result.ok) {
+      // Technical detail stays server-side; the admin UI gets friendly copy.
+      console.error(`[email/jade] jadeEmailGenerationId=${generationId} model=${model} structuredOutputUsed=${structuredOutputUsed} parseStrategy=none validationResult=fail failureReason=${result.reason}`)
+      return NextResponse.json({ error: JADE_DRAFT_FAILED_MESSAGE }, { status: 500 })
     }
 
     // Cost-leakage scan
-    const leakage = scanForCostLeakage(parsed.body) ?? scanForCostLeakage(parsed.subject)
+    const leakage = scanForCostLeakage(result.body) ?? scanForCostLeakage(result.subject)
     if (leakage) {
+      console.error(`[email/jade] jadeEmailGenerationId=${generationId} model=${model} structuredOutputUsed=${structuredOutputUsed} parseStrategy=${result.parseStrategy} validationResult=fail failureReason=cost_leakage`)
       return NextResponse.json({ error: leakage }, { status: 422 })
     }
 
-    return NextResponse.json({ subject: parsed.subject, body: parsed.body })
+    // Observability — lengths only, never full email bodies.
+    console.log(`[email/jade] jadeEmailGenerationId=${generationId} model=${model} structuredOutputUsed=${structuredOutputUsed} parseStrategy=${result.parseStrategy} validationResult=ok subjectLen=${result.subject.length} bodyLen=${result.body.length}`)
+
+    return NextResponse.json({ subject: result.subject, body: result.body })
   } catch (err) {
-    console.error('[email/jade POST]', err)
-    return NextResponse.json({ error: 'Jade failed to generate email' }, { status: 500 })
+    console.error(`[email/jade] jadeEmailGenerationId=${generationId} model=${model} failureReason=provider_error`, err instanceof Error ? err.message : err)
+    return NextResponse.json({ error: 'Jade failed to generate email. Please try again.' }, { status: 500 })
   }
 }

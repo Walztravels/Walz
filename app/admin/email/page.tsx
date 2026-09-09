@@ -462,11 +462,13 @@ export default function EmailHubPage() {
           context:        compose.body || undefined,
           refType:        compose.refType || undefined,
           refId:          compose.refId   || undefined,
+          existingSubject: compose.subject || undefined,
         }),
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error ?? 'Jade failed')
-      setCompose(c => ({ ...c, subject: data.subject, body: data.body }))
+      // An empty subject from Jade never wipes what staff already typed.
+      setCompose(c => ({ ...c, subject: data.subject || c.subject, body: data.body }))
       setJadePrompt('')
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Jade failed')
