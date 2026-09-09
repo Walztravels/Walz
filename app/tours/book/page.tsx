@@ -10,6 +10,7 @@ import {
 import NextImage from 'next/image'
 import GatewaySelector, { type Gateway } from '@/components/payments/GatewaySelector'
 import { processorsFor } from '@/lib/payments/processors'
+import { TOUR_ADDONS } from '@/lib/tours/addons'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -29,12 +30,10 @@ interface Details {
 
 // ── Constants ─────────────────────────────────────────────────────────────────
 
-const ADDONS: Addon[] = [
-  { id: 'transfer', name: 'Private Transfer', description: 'Airport or hotel pickup and drop-off included', price: 45 },
-  { id: 'photos', name: 'Photography Package', description: 'Professional photographer for the full tour (digital download)', price: 75 },
-  { id: 'lunch', name: 'Gourmet Lunch', description: 'Three-course lunch at a top-rated local restaurant', price: 35 },
-  { id: 'guide', name: 'Audio Guide Device', description: 'Multilingual audio guide for the entire tour', price: 15 },
-]
+// Single source of truth shared with the server payment authority
+// (lib/tours/pricing.ts) — the server recomputes every total from this
+// same catalogue; the browser only submits the selected ids.
+const ADDONS: Addon[] = TOUR_ADDONS
 
 const COUNTRY_CODES = ['+44', '+1', '+234', '+971', '+61', '+49', '+33', '+91', '+27', '+65', '+60', '+55', '+52']
 
@@ -456,7 +455,28 @@ function StepThree({ tour, date, groupSize, addons, details, onBack, onSuccess }
     }
     setPaying(true)
     setError('')
-    const txRef = 'WLZ-TOUR-' + Date.now()
+    // Server payment authority: the amount, currency and reference come
+    // from a server-created intent — never from this page's own math.
+    let intent: { txRef: string; amount: number; currency: string }
+    try {
+      const intentRes = await fetch('/api/payments/intent', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          kind: 'tour', tourId: tour.id, groupSize, addonIds: addons,
+          clientEmail: details.email,
+          clientName: `${details.firstName} ${details.lastName}`,
+        }),
+      })
+      const intentData = await intentRes.json() as { intent?: { txRef: string; amount: number; currency: string }; error?: string }
+      if (!intentRes.ok || !intentData.intent) throw new Error(intentData.error ?? 'Could not prepare payment')
+      intent = intentData.intent
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not prepare payment. Please try again.')
+      setPaying(false)
+      return
+    }
+    const txRef = intent.txRef
     try {
       await new Promise<void>((resolve, reject) => {
         const win = window as unknown as Record<string, unknown>
@@ -494,8 +514,8 @@ function StepThree({ tour, date, groupSize, addons, details, onBack, onSuccess }
       ;(window as any).FlutterwaveCheckout({
         public_key: flwKey,
         tx_ref: txRef,
-        amount: total,
-        currency,
+        amount: intent.amount,
+        currency: intent.currency,
         payment_options: 'card,mobilemoney,ussd',
         customer: { email: details.email, name: `${details.firstName} ${details.lastName}`, phone_number: `${details.countryCode}${details.whatsapp}` },
         customizations: { title: 'Walz Travels', description: `Tour: ${tour.name}`, logo: '/favicon.ico' },
@@ -506,10 +526,10 @@ function StepThree({ tour, date, groupSize, addons, details, onBack, onSuccess }
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
-                  tourId: tour.id, tourName: tour.name, tourSlug: tour.slug,
-                  date, groupSize, currency,
-                  addons: selectedAddons.map(a => ({ id: a.id, name: a.name, price: a.price })),
-                  basePrice, addonsTotal, totalAmount: total,
+                  // Identifiers only — the server derives all pricing itself
+                  tourId: tour.id,
+                  date, groupSize,
+                  addons,
                   firstName: details.firstName, lastName: details.lastName,
                   email: details.email,
                   whatsapp: `${details.countryCode}${details.whatsapp}`,
@@ -572,13 +592,28 @@ function StepThree({ tour, date, groupSize, addons, details, onBack, onSuccess }
     setPaying(true)
     setError('')
     try {
+      // Server payment authority: create the intent, then initialize with
+      // its reference — the Paystack route charges the intent's amount.
+      const intentRes = await fetch('/api/payments/intent', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          kind: 'tour', tourId: tour.id, groupSize, addonIds: addons,
+          clientEmail: details.email,
+          clientName: `${details.firstName} ${details.lastName}`,
+        }),
+      })
+      const intentData = await intentRes.json() as { intent?: { txRef: string; amount: number; currency: string }; error?: string }
+      if (!intentRes.ok || !intentData.intent) throw new Error(intentData.error ?? 'Could not prepare payment')
+
       const res = await fetch('/api/payments/paystack/initialize', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           email: details.email,
-          amount: total,
-          currency,
+          amount: intentData.intent.amount,
+          currency: intentData.intent.currency,
+          intentRef: intentData.intent.txRef,
           metadata: {
             tourId: tour.id, tourName: tour.name, tourSlug: tour.slug,
             tourLocation: tour.location,

@@ -58,6 +58,33 @@ export async function POST(req: NextRequest) {
   const d      = parsed.data
   const origin = req.headers.get('origin') ?? process.env.NEXT_PUBLIC_APP_URL ?? 'https://www.walztravels.com'
 
+  // ── Amount authority: bounded by the live Duffel offer ────────────────────
+  // The invoice may include seats/extras on top of the fare, but can never
+  // be below the fare (underpayment) nor implausibly above it. Currency must
+  // be the offer's own. If the offer can't be verified, no invoice.
+  try {
+    const { duffelGet } = await import('@/lib/duffel/client')
+    const offer = await duffelGet<{ data?: { total_amount?: string; total_currency?: string } }>(`/air/offers/${d.offerId}`)
+    const fareTotal    = Number(offer.data?.total_amount)
+    const fareCurrency = (offer.data?.total_currency ?? '').toUpperCase()
+    if (!Number.isFinite(fareTotal) || fareTotal <= 0) throw new Error('offer total missing')
+    if (d.currency.toUpperCase() !== fareCurrency) {
+      return NextResponse.json({ error: 'Currency does not match the flight offer.' }, { status: 409 })
+    }
+    if (d.amount < fareTotal - 0.01 || d.amount > fareTotal * 2) {
+      return NextResponse.json(
+        { error: 'Amount does not match the flight offer. Please refresh and try again.' },
+        { status: 409 },
+      )
+    }
+  } catch (err) {
+    console.error('[flights/crypto-invoice] offer verification failed:', err instanceof Error ? err.message : err)
+    return NextResponse.json(
+      { error: 'Flight offer could not be verified. Please refresh your search.' },
+      { status: 409 },
+    )
+  }
+
   if (!process.env.NOWPAYMENTS_API_KEY) {
     return NextResponse.json({ error: 'Crypto payments not configured' }, { status: 500 })
   }

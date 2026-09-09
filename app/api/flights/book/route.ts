@@ -33,22 +33,51 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Missing required fields: clientEmail, offerId' }, { status: 400 })
     }
 
-    // Central FX engine audit: an NGN payment made against a rate lock is
-    // reconciled with the locked amount. The payment is already captured at
-    // this point, so a mismatch never blocks the booking — it is logged
-    // loudly for finance review and the lock is stamped as consumed.
+    // ── Flutterwave payments must be provider-verified and reconciled ────────
+    // The provider (not the browser) says what was charged, and it must
+    // match the server intent snapshot. An unverifiable transaction cannot
+    // create a booking; a verified-but-mismatched amount is recorded as
+    // payment_reconciliation_required — never fulfilled as normal, and
+    // never supplier-confirmed (that invariant is untouched: all flight
+    // bookings start pending human review regardless).
+    let bookingStatus = 'pending_review'
+    let reconNote: string | null = null
+    if (paymentMethod === 'flutterwave') {
+      if (!paymentRef) {
+        return NextResponse.json({ error: 'Payment reference missing' }, { status: 400 })
+      }
+      const { reconcileFlutterwavePayment, PAYMENT_RECONCILIATION_REQUIRED } = await import('@/lib/payments/authority')
+      const recon = await reconcileFlutterwavePayment(String(paymentRef))
+      if (!recon.ok) {
+        if (recon.code === PAYMENT_RECONCILIATION_REQUIRED || recon.code === 'INTENT_NOT_FOUND') {
+          // Money verifiably moved but doesn't match a snapshot — keep the
+          // record, flag it, and route to humans instead of normal flow.
+          if (recon.verified?.ok) {
+            bookingStatus = 'payment_reconciliation_required'
+            reconNote = recon.detail ?? recon.code ?? null
+            console.error(`[flights/book] PAYMENT_RECONCILIATION_REQUIRED ref=${paymentRef} ${reconNote ?? ''}`)
+          } else {
+            return NextResponse.json(
+              { error: 'Payment could not be verified. Please contact us with your payment reference.' },
+              { status: 402 },
+            )
+          }
+        } else {
+          return NextResponse.json(
+            { error: 'Payment could not be verified. Please contact us with your payment reference.' },
+            { status: 402 },
+          )
+        }
+      }
+    }
+
+    // FX lock consumption audit (NGN engine flow)
     if (fxLockId && currency === 'NGN') {
       try {
         const { isNgnFxEngineEnabled, loadFxLock, markFxLockUsed } = await import('@/lib/fx')
         if (isNgnFxEngineEnabled()) {
           const lock = await loadFxLock(String(fxLockId))
-          if (lock) {
-            const paid = Number(paidAmount)
-            if (Number.isFinite(paid) && Math.abs(paid - lock.convertedAmount.toNumber()) > 1) {
-              console.error(`[flights/book] fx_amount_mismatch lock=${lock.id} locked=${lock.convertedAmount.toString()} paid=${paid} ref=${paymentRef ?? '-'}`)
-            }
-            await markFxLockUsed(lock.id)
-          }
+          if (lock) await markFxLockUsed(lock.id)
         }
       } catch (e) {
         console.error('[flights/book] fx lock audit failed:', e instanceof Error ? e.message : e)
@@ -62,7 +91,7 @@ export async function POST(req: NextRequest) {
       .from('FlightBooking')
       .insert({
         reference,
-        status:         'pending_review',
+        status:         bookingStatus,
         clientName:     clientName     ?? null,
         clientEmail,
         clientPhone:    clientPhone    ?? null,

@@ -15,6 +15,7 @@ async function handleVirtualAccountPayment(payload: Record<string, unknown>) {
 
     const tx_ref          = data.tx_ref      as string | undefined
     const amount          = data.amount      as number | undefined
+    const hookCurrency    = data.currency    as string | undefined
     const status          = data.status      as string | undefined
     const flw_ref         = data.flw_ref     as string | undefined
     const originatorname  = meta.originatorname  as string | undefined
@@ -47,16 +48,31 @@ async function handleVirtualAccountPayment(payload: Record<string, unknown>) {
         currency    = record.currency ?? 'NGN'
 
         if (record.status !== 'paid') {
+          // Reconcile amount + currency against the link before marking
+          // paid — under/overpayment beyond ±1 major unit becomes
+          // reconciliation_required, never silently accepted as paid.
+          const expected = record.amount != null ? Number(record.amount) : null
+          const matches  = expected == null || (
+            typeof amount === 'number' &&
+            Math.abs(amount - expected) <= 1 &&
+            // Webhook may omit currency on VA credits — then the link's own
+            // currency stands; when present it must agree.
+            (!hookCurrency || (record.currency ?? 'NGN').toUpperCase() === hookCurrency.toUpperCase())
+          )
           // Update by id (not txRef) — txRef is not @unique so update-by-txRef throws
           await prisma.paymentLink.update({
             where: { id: record.id },
             data: {
-              status:    'paid',
-              paidAt:    new Date(),
+              status:    matches ? 'paid' : 'reconciliation_required',
+              ...(matches ? { paidAt: new Date() } : {}),
               payerName: originatorname ?? null,
               payerBank: bankname       ?? null,
             },
           })
+          if (!matches) {
+            console.error(`[flw-webhook] PAYMENT_RECONCILIATION_REQUIRED tx_ref=${tx_ref} expected=${record.currency} ${expected} got=${hookCurrency ?? '?'} ${amount}`)
+            return
+          }
           console.log('[flw-webhook] ✅ Marked paid:', tx_ref)
         } else {
           console.log('[flw-webhook] Already paid, skipping update:', tx_ref)

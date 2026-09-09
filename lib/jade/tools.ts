@@ -766,9 +766,16 @@ DELIVERY: Give the number first — clients respect honesty. Then the fixes. Nev
 }
 
 async function checkFx(input: any): Promise<string> {
+  // Direction matters: the advisor's percentile logic assumes the rate is
+  // quoted as LOCAL units per 1 BILLING unit (e.g. NGN per GBP), where a
+  // 30-day HIGH means the client pays MORE local currency (wait) and a LOW
+  // means the rate is favourable (pay now). So billing is the base and
+  // local is the quote — passing them the other way round inverts the
+  // advice. (The rate source has no NGN/GHS/KES data; those pairs return
+  // "unavailable", which is the safe advisory answer — never a guess.)
   const advice = await getFxAdvice(
-    input.local_currency ?? "NGN",
     input.billing_currency ?? "GBP",
+    input.local_currency ?? "NGN",
   );
   if (!advice) return "FX data unavailable right now. Do not mention exchange rates this turn.";
 

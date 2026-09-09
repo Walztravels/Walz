@@ -25,10 +25,16 @@ export async function POST(req: NextRequest) {
   if (!app)               return NextResponse.json({ error: 'Not found' }, { status: 404 })
   if (app.serviceFeePaid) return NextResponse.json({ error: 'Already paid' }, { status: 400 })
 
-  const config     = getVisaConfig(app.destinationIso2)
-  const feeGbp     = config?.serviceFeeUsd ?? 150
-  const clientName = [app.firstName, app.lastName].filter(Boolean).join(' ') || 'Applicant'
-  const ref        = app.referenceNumber ?? app.id
+  // ── Canonical price: exactly ONE amount + currency, fixed BEFORE gateway
+  // selection. The config field is serviceFeeUsd and the public visa pages
+  // advertise it as USD (<Price from="USD">), so USD is the economic price —
+  // every provider charges the same USD amount. Gateway choice must never
+  // change what the customer pays.
+  const config      = getVisaConfig(app.destinationIso2)
+  const feeAmount   = config?.serviceFeeUsd ?? 150
+  const FEE_CURRENCY = 'USD' as const
+  const clientName  = [app.firstName, app.lastName].filter(Boolean).join(' ') || 'Applicant'
+  const ref         = app.referenceNumber ?? app.id
 
   // ── STRIPE ────────────────────────────────────────────────────────────────
   if (gateway === 'stripe') {
@@ -38,8 +44,8 @@ export async function POST(req: NextRequest) {
       customer_email:       app.email ?? undefined,
       line_items: [{
         price_data: {
-          currency:    'gbp',
-          unit_amount: Math.round(feeGbp * 100),
+          currency:    FEE_CURRENCY.toLowerCase(),
+          unit_amount: Math.round(feeAmount * 100),
           product_data: {
             name:        `Visa Service — ${config?.name ?? app.destinationIso2}`,
             description: `Application Ref: ${ref}`,
@@ -56,8 +62,8 @@ export async function POST(req: NextRequest) {
       where: { id: app.id },
       data:  {
         stripePaymentIntentId: session.id,
-        serviceFeeAmount:      feeGbp,
-        serviceFeeCurrency:    'GBP',
+        serviceFeeAmount:      feeAmount,
+        serviceFeeCurrency:    FEE_CURRENCY,
       },
     })
 
@@ -81,8 +87,8 @@ export async function POST(req: NextRequest) {
       },
       body: JSON.stringify({
         tx_ref:       txRef,
-        amount:       feeGbp,
-        currency:     'USD',
+        amount:       feeAmount,
+        currency:     FEE_CURRENCY,
         redirect_url: `${SITE}/visa/payment/success?ref=${ref}&gateway=flutterwave`,
         customer: {
           email: app.email ?? 'client@walztravels.com',
@@ -111,8 +117,8 @@ export async function POST(req: NextRequest) {
     await prisma.visaApplication.update({
       where: { id: app.id },
       data:  {
-        serviceFeeAmount:   feeGbp,
-        serviceFeeCurrency: 'USD',
+        serviceFeeAmount:   feeAmount,
+        serviceFeeCurrency: FEE_CURRENCY,
       },
     })
 

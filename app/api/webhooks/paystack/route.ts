@@ -4,8 +4,48 @@ import { prisma }                          from '@/lib/db'
 import { recordPaymentSucceeded }          from '@/lib/commercial/payment'
 import { setTripPaid }                     from '@/lib/trips/lifecycle'
 import { handleSuccessfulTripPayment }     from '@/lib/payments/handle-success'
+import { paystackMinorToMajor }            from '@/lib/currency'
 
 export const dynamic = 'force-dynamic'
+
+/**
+ * Mark a PaymentLink paid ONLY when the webhook's verified amount matches
+ * the amount the link was created for. Under/overpayment beyond ±1 major
+ * unit or a currency mismatch becomes `reconciliation_required` — visible
+ * to staff, never silently accepted, and NEVER treated as paid. Links
+ * created without an amount (legacy) keep the old match-by-ref behaviour.
+ */
+async function settlePaymentLink(
+  where: { txRef: string } | { accountNumber: string },
+  paidMajor: number,
+  currency: string,
+  extra: { payerName: string | null; payerBank: string | null },
+): Promise<number> {
+  const row = await prisma.paymentLink.findFirst({
+    where: { ...where, status: 'pending' },
+    select: { id: true, txRef: true, amount: true, currency: true },
+  })
+  if (!row) return 0
+
+  const expected = row.amount != null ? Number(row.amount) : null
+  const matches  = expected == null ||
+    (row.currency.toUpperCase() === currency.toUpperCase() && Math.abs(paidMajor - expected) <= 1)
+
+  if (!matches) {
+    console.error(`[ps-hook] PAYMENT_RECONCILIATION_REQUIRED txRef=${row.txRef} expected=${row.currency} ${expected} got=${currency} ${paidMajor}`)
+    await prisma.paymentLink.update({
+      where: { id: row.id },
+      data:  { status: 'reconciliation_required', payerName: extra.payerName, payerBank: extra.payerBank },
+    })
+    return 0
+  }
+
+  await prisma.paymentLink.update({
+    where: { id: row.id },
+    data:  { status: 'paid', paidAt: new Date(), payerName: extra.payerName, payerBank: extra.payerBank },
+  })
+  return 1
+}
 
 export async function POST(req: NextRequest) {
   const raw  = await req.text()
@@ -58,6 +98,50 @@ export async function POST(req: NextRequest) {
         ? `${customer.first_name} ${customer.last_name ?? ''}`.trim()
         : null
 
+      // Paystack sends `amount` in MINOR units (kobo/pesewas). Business
+      // records store MAJOR units — normalize once here, use everywhere.
+      const hookCurrency  = ((data.currency as string | undefined) ?? 'NGN').toUpperCase()
+      const paidMajor     = paystackMinorToMajor(data.amount as number | undefined, hookCurrency)
+
+      // package_bookings settlement — deposit_amount_paid is MAJOR units,
+      // and 'deposit_paid' is only written when the paid amount covers the
+      // booking's recorded deposit in the same currency context. Anything
+      // else is left for reconciliation rather than silently confirmed.
+      const settlePackageBooking = async (bookingRef: string, label: string) => {
+        const rows = await prisma.$queryRawUnsafe<Array<{ deposit_amount: number | string | null; currency: string | null }>>(
+          `SELECT deposit_amount, currency FROM package_bookings WHERE booking_ref = $1 LIMIT 1`,
+          bookingRef,
+        )
+        if (!rows || rows.length === 0) return
+        const expected     = rows[0].deposit_amount != null ? Number(rows[0].deposit_amount) : null
+        const pkgCurrency  = (rows[0].currency ?? '').toUpperCase()
+        // Same-currency payments must cover the deposit; local-currency
+        // (converted) payments are matched via the PaymentLink intent above,
+        // so a matched link is the authority there.
+        const sameCurrency = pkgCurrency && pkgCurrency === hookCurrency
+        const covered      = expected == null || !sameCurrency || paidMajor >= expected - 1
+        if (!covered) {
+          console.error(`[ps-hook] ${label}: PAYMENT_RECONCILIATION_REQUIRED booking=${bookingRef} expected=${pkgCurrency} ${expected} got=${hookCurrency} ${paidMajor}`)
+          return
+        }
+        const pkgRows = await prisma.$executeRawUnsafe(
+          `UPDATE package_bookings
+           SET payment_status     = 'deposit_paid',
+               payment_gateway    = 'paystack',
+               payment_intent_id  = $1,
+               deposit_paid_at    = NOW(),
+               deposit_amount_paid = $2,
+               payment_currency   = $3,
+               updated_at         = NOW()
+           WHERE booking_ref = $4`,
+          String(data.id ?? data.reference),
+          paidMajor,
+          hookCurrency,
+          bookingRef,
+        )
+        console.log(`[ps-hook] ${label}: package_bookings rows updated:`, pkgRows)
+      }
+
       if (channel === 'dedicated_nuban') {
         // ── Virtual account path (Phase 1) ────────────────────────────────
         const acctNum   = authData?.receiver_bank_account_number as string | undefined
@@ -66,20 +150,12 @@ export async function POST(req: NextRequest) {
         let updated = 0
 
         if (txRef) {
-          const res = await prisma.paymentLink.updateMany({
-            where: { txRef, status: 'pending' },
-            data:  { status: 'paid', paidAt: new Date(), payerName, payerBank },
-          })
-          updated = res.count
+          updated = await settlePaymentLink({ txRef }, paidMajor, hookCurrency, { payerName, payerBank })
           console.log('[ps-hook] VA: PaymentLink update by txRef', { txRef, updated })
         }
 
         if (updated === 0 && acctNum) {
-          const res = await prisma.paymentLink.updateMany({
-            where: { accountNumber: acctNum, status: 'pending' },
-            data:  { status: 'paid', paidAt: new Date(), payerName, payerBank },
-          })
-          updated = res.count
+          updated = await settlePaymentLink({ accountNumber: acctNum }, paidMajor, hookCurrency, { payerName, payerBank })
           console.log('[ps-hook] VA: PaymentLink update by accountNumber', { acctNum, updated })
         }
 
@@ -88,24 +164,7 @@ export async function POST(req: NextRequest) {
         }
 
         const booking_ref = txRef ?? (data.reference as string | undefined)
-        if (booking_ref) {
-          const pkgRows = await prisma.$executeRawUnsafe(
-            `UPDATE package_bookings
-             SET payment_status     = 'deposit_paid',
-                 payment_gateway    = 'paystack',
-                 payment_intent_id  = $1,
-                 deposit_paid_at    = NOW(),
-                 deposit_amount_paid = $2,
-                 payment_currency   = $3,
-                 updated_at         = NOW()
-             WHERE booking_ref = $4`,
-            String(data.id ?? data.reference),
-            data.amount,
-            (data.currency as string | undefined) ?? 'NGN',
-            booking_ref,
-          )
-          console.log('[ps-hook] VA: package_bookings rows updated:', pkgRows)
-        }
+        if (booking_ref) await settlePackageBooking(booking_ref, 'VA')
       } else {
         // ── Checkout path (Phase 2) — card, bank, ussd, mobile_money, etc. ─
         const refFromData = (data.reference as string | undefined) ?? null
@@ -115,11 +174,7 @@ export async function POST(req: NextRequest) {
         let updated = 0
 
         if (resolvedRef) {
-          const res = await prisma.paymentLink.updateMany({
-            where: { txRef: resolvedRef, status: 'pending' },
-            data:  { status: 'paid', paidAt: new Date(), payerName, payerBank },
-          })
-          updated = res.count
+          updated = await settlePaymentLink({ txRef: resolvedRef }, paidMajor, hookCurrency, { payerName, payerBank })
           console.log('[ps-hook] checkout: PaymentLink update', { ref: resolvedRef, channel, updated })
         }
 
@@ -127,25 +182,7 @@ export async function POST(req: NextRequest) {
           console.warn('[ps-hook] checkout: NO_MATCH', { ref: resolvedRef, channel })
         }
 
-        const booking_ref = resolvedRef
-        if (booking_ref) {
-          const pkgRows = await prisma.$executeRawUnsafe(
-            `UPDATE package_bookings
-             SET payment_status     = 'deposit_paid',
-                 payment_gateway    = 'paystack',
-                 payment_intent_id  = $1,
-                 deposit_paid_at    = NOW(),
-                 deposit_amount_paid = $2,
-                 payment_currency   = $3,
-                 updated_at         = NOW()
-             WHERE booking_ref = $4`,
-            String(data.id ?? data.reference),
-            data.amount,
-            (data.currency as string | undefined) ?? 'NGN',
-            booking_ref,
-          )
-          console.log('[ps-hook] checkout: package_bookings rows updated:', pkgRows)
-        }
+        if (resolvedRef) await settlePackageBooking(resolvedRef, 'checkout')
       }
     }
     // Normalized payment event — deduplicates by reference, fires once per charge.success
@@ -160,7 +197,7 @@ export async function POST(req: NextRequest) {
       recordPaymentSucceeded({
         provider,
         providerPaymentId: paystackRef,
-        amount:   amountKobo / 100, // kobo → major unit
+        amount:   paystackMinorToMajor(amountKobo, currency), // minor → major
         currency,
         metadata: { source: 'paystack_webhook', channel },
       }).catch(err => console.warn('[Payment] Paystack payment_succeeded tracking failed:', (err as Error).message))
@@ -184,7 +221,7 @@ export async function POST(req: NextRequest) {
           sessionId:         psSessionId ?? null,
           leadId:            (meta2?.walz_lead_id as string | undefined) ?? null,
           jadeAssisted:      meta2?.jade_assisted === 'true',
-          amount:            amountKobo / 100,
+          amount:            paystackMinorToMajor(amountKobo, currency),
           currency,
           holder: {
             name:  psHolderName,

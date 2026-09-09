@@ -19,11 +19,11 @@ interface RevenueData {
   failedAfterPayment:  GbvRow[]
   bookingsToday:       number
   bookingsWeek:        number
-  activity:            { count: number; revenue: number; margin: number; supplierNet: number; currency: string; note: string }
+  activity: { count: number; byCurrency: Array<{ currency: string; count: number; revenue: number; margin: number; supplierNet: number }>; note: string }
   esim:                { count: number; revenue: number; margin: number; currency: string }
   leads:               { today: number; week: number; total: number; funnel: LeadRow[] }
   quotes:              { pipeline: QuotePipeline; byStatus: Record<string, number>; totalOpen: number }
-  cart:                { active: number; abandoned: number; converted: number; abandonedValue: number; thresholdMinutes: number }
+  cart:                { active: number; abandoned: number; converted: number; abandonedValueByCurrency: Record<string, number>; thresholdMinutes: number }
   paymentsByProvider:  ProviderRow[]
   paymentProviderNote: string
   formAbandoned:       number
@@ -257,16 +257,20 @@ export default function RevenueCommandCenter() {
               {data.activity.count === 0 ? (
                 <p className="text-gray-400 text-sm">No confirmed activity bookings in this period.</p>
               ) : (
-                <div className="grid grid-cols-2 gap-3">
-                  <KpiTile label="Revenue"       value={fmt(data.activity.revenue, data.activity.currency)} sub={`${data.activity.count} bookings`} />
-                  <KpiTile label="Gross Margin"  value={fmt(data.activity.margin, data.activity.currency)} sub="Markup collected" accent />
-                  <KpiTile label="Supplier Cost" value={fmt(data.activity.supplierNet, data.activity.currency)} sub="Net to supplier" />
-                  <KpiTile
-                    label="Margin %"
-                    value={data.activity.revenue > 0
-                      ? `${((data.activity.margin / data.activity.revenue) * 100).toFixed(1)}%`
-                      : '—'}
-                  />
+                <div className="space-y-3">
+                  {data.activity.byCurrency.map(row => (
+                    <div key={row.currency} className="grid grid-cols-2 gap-3">
+                      <KpiTile label={`Revenue (${row.currency})`}  value={fmt(row.revenue, row.currency)} sub={`${row.count} bookings`} />
+                      <KpiTile label="Gross Margin"  value={fmt(row.margin, row.currency)} sub="Markup collected" accent />
+                      <KpiTile label="Supplier Cost" value={fmt(row.supplierNet, row.currency)} sub="Net to supplier" />
+                      <KpiTile
+                        label="Margin %"
+                        value={row.revenue > 0
+                          ? `${((row.margin / row.revenue) * 100).toFixed(1)}%`
+                          : '—'}
+                      />
+                    </div>
+                  ))}
                 </div>
               )}
             </Card>
@@ -371,7 +375,13 @@ export default function RevenueCommandCenter() {
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
               <KpiTile label="Active Carts"     value={fmtNum(data.cart.active)}    sub="Items + recent activity" />
               <KpiTile label="Abandoned Carts"  value={fmtNum(data.cart.abandoned)} sub={`>${data.cart.thresholdMinutes}min inactive`} warn={data.cart.abandoned > 0} />
-              <KpiTile label="Abandoned Value"  value={`~£${fmtNum(Math.round(data.cart.abandonedValue))}`} sub="Mixed currencies" warn={data.cart.abandoned > 0} />
+              <KpiTile
+                label="Abandoned Value"
+                value={Object.entries(data.cart.abandonedValueByCurrency ?? {})
+                  .map(([cur, v]) => fmt(Math.round(v), cur)).join(' · ') || '—'}
+                sub="Per currency"
+                warn={data.cart.abandoned > 0}
+              />
               <KpiTile label="Converted Carts"  value={fmtNum(data.cart.converted)} sub="Payment confirmed" accent />
             </div>
             {data.cart.active === 0 && data.cart.abandoned === 0 && (

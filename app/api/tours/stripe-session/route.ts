@@ -36,8 +36,19 @@ export async function POST(req: NextRequest) {
     const d = parsed.data
     const origin = req.headers.get('origin') ?? process.env.NEXT_PUBLIC_APP_URL ?? 'https://walztravels.com'
 
+    // Authoritative pricing — browser money fields are accepted for
+    // backward compatibility but never used for the charge or metadata.
+    const { priceTour, TourPricingError } = await import('@/lib/tours/pricing')
+    let pricing
+    try {
+      pricing = await priceTour(d.tourId, d.groupSize, d.addons.map(a => a.id))
+    } catch (e) {
+      if (e instanceof TourPricingError) return NextResponse.json({ error: e.message }, { status: e.status })
+      throw e
+    }
+
     // Build readable description for the Stripe invoice line
-    const addonNames = d.addons.map((a) => a.name).join(', ')
+    const addonNames = pricing.selectedAddons.map((a) => a.name).join(', ')
     const description = [
       `${d.groupSize} ${d.groupSize === 1 ? 'person' : 'people'}`,
       addonNames ? `Add-ons: ${addonNames}` : null,
@@ -47,16 +58,16 @@ export async function POST(req: NextRequest) {
 
     // Store ALL booking data in Stripe metadata so we can recreate the booking on return
     const metadata: Record<string, string> = {
-      tour_id: d.tourId,
-      tour_name: d.tourName.slice(0, 300),
-      tour_slug: d.tourSlug,
-      tour_location: (d.tourLocation ?? '').slice(0, 100),
+      tour_id: pricing.tour.id,
+      tour_name: pricing.tour.name.slice(0, 300),
+      tour_slug: pricing.tour.slug,
+      tour_location: pricing.tour.location.slice(0, 100),
       date: d.date,
       group_size: String(d.groupSize),
-      currency: d.currency,
-      base_price: String(d.basePrice),
-      addons_total: String(d.addonsTotal),
-      total_amount: String(d.totalAmount),
+      currency: pricing.currency,
+      base_price: String(pricing.basePrice),
+      addons_total: String(pricing.addonsTotal),
+      total_amount: String(pricing.total),
       first_name: d.firstName.slice(0, 100),
       last_name: d.lastName.slice(0, 100),
       email: d.email.slice(0, 200),
@@ -64,7 +75,7 @@ export async function POST(req: NextRequest) {
       country: d.country.slice(0, 100),
       requirements: d.requirements.slice(0, 450),
       message: d.message.slice(0, 450),
-      addons_json: JSON.stringify(d.addons).slice(0, 490),
+      addons_json: JSON.stringify(pricing.selectedAddons.map(a => ({ id: a.id, name: a.name, price: a.price }))).slice(0, 490),
     }
 
     const images: string[] = []
@@ -76,13 +87,13 @@ export async function POST(req: NextRequest) {
       line_items: [
         {
           price_data: {
-            currency: d.currency.toLowerCase(),
+            currency: pricing.currency.toLowerCase(),
             product_data: {
-              name: `${d.tourName} — Private Tour`,
+              name: `${pricing.tour.name} — Private Tour`,
               description,
               ...(images.length > 0 ? { images } : {}),
             },
-            unit_amount: Math.round(d.totalAmount * 100), // Stripe works in pence/cents
+            unit_amount: Math.round(pricing.total * 100), // Stripe works in pence/cents
           },
           quantity: 1,
         },

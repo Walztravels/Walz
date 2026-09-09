@@ -35,9 +35,19 @@ export async function POST(req: NextRequest) {
     // Use tourSlug + timestamp as invoice number for traceability
     const invoiceNumber = `TOUR-${d.tourSlug.slice(0, 20).toUpperCase()}-${Date.now()}`
 
+    // Authoritative pricing — the browser's totalAmount/currency are ignored.
+    const { priceTour, TourPricingError } = await import('@/lib/tours/pricing')
+    let pricing
+    try {
+      pricing = await priceTour(d.tourId, d.groupSize, d.addons.map(a => a.id))
+    } catch (e) {
+      if (e instanceof TourPricingError) return NextResponse.json({ error: e.message }, { status: e.status })
+      throw e
+    }
+
     const session = await initializeHelcimCheckout({
-      amount:        d.totalAmount,
-      currency:      d.currency,
+      amount:        pricing.total,
+      currency:      pricing.currency,
       invoiceNumber,
     })
 

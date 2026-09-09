@@ -52,3 +52,23 @@ export function formatCurrencyMinor(amountMinor: number | bigint, currency: stri
     currency: currency.toUpperCase(),
   }).format(minorToDecimal(amountMinor, currency))
 }
+
+/**
+ * Canonical Paystack minor→major conversion (kobo → NGN, pesewas → GHS, …).
+ *
+ * Paystack webhooks and API responses always carry `amount` in the
+ * currency's minor unit. Business-domain fields in our database
+ * (deposit_amount_paid, PaymentLink.amount, CommercialEvent amounts, …)
+ * are MAJOR units. Every Paystack amount read must pass through this
+ * helper — never a bare `/ 100`, and never stored raw.
+ */
+export function paystackMinorToMajor(amountMinor: number | string | null | undefined, currency = 'NGN'): number {
+  const n = typeof amountMinor === 'string' ? Number(amountMinor) : (amountMinor ?? 0)
+  if (!Number.isFinite(n)) return 0
+  return n / Math.pow(10, getCurrencyExponent(currency))
+}
+
+/** Canonical Paystack major→minor conversion (NGN → kobo …) for charge creation. */
+export function paystackMajorToMinor(amountMajor: number, currency = 'NGN'): number {
+  return Math.round(amountMajor * Math.pow(10, getCurrencyExponent(currency)))
+}

@@ -84,8 +84,17 @@ const COUNTRY_WEIGHTS: Record<string, CountryWeight> = {
 
 const STRONG_TRAVEL_HISTORY = ['US','GB','CA','AU','JP','DE','FR','NL','IE','AE','CH','SE','NO','DK','SG','NZ']
 
-// Units of local currency per 1 GBP (approximate — not live)
-const UNITS_PER_GBP: Record<string, number> = {
+// ── VISA-ASSESSMENT NORMALIZATION CONSTANTS — NOT LIVE FX RATES ─────────────
+// Fixed units-of-local-currency-per-GBP used ONLY to normalize a visa
+// applicant's self-reported bank balance against the per-day funding
+// thresholds above (which are calibrated in GBP alongside these values).
+// They are deliberately static scoring parameters: updating them means
+// recalibrating the thresholds too, not syncing to the market. They must
+// NEVER be used for commercial pricing, checkout, quotes or any customer
+// payment amount — commercial NGN conversion goes through the central FX
+// engine (lib/fx), and Jade's only rate source is get_walz_ngn_rate.
+// Client-facing output derived from these is labelled an estimate ("≈").
+const VISA_ASSESSMENT_UNITS_PER_GBP: Record<string, number> = {
   NGN: 1923, GHS: 15.4, KES: 172, ZAR: 23.8,
   GBP: 1, USD: 1.27, EUR: 1.16, CAD: 1.73, AED: 4.66,
 }
@@ -100,17 +109,17 @@ export function calculateVisaProbability(p: VisaApplicantProfile): VisaAssessmen
   const dest = p.destination.toLowerCase().trim()
   const w = COUNTRY_WEIGHTS[dest] || { perDayGBP: 70, refusalPenalty: 15, feeGBP: 80, scrutinyLevel: 'medium' as const }
 
-  const unitsPerGBP = UNITS_PER_GBP[p.incomeCurrency] || 1000
+  const unitsPerGBP = VISA_ASSESSMENT_UNITS_PER_GBP[p.incomeCurrency] || 1000
   const balanceGBP  = p.averageBalanceLocal / unitsPerGBP
   const requiredGBP = w.perDayGBP * p.intendedStayDays
   const ratio       = balanceGBP / Math.max(requiredGBP, 1)
 
   // 1. Financial standing (0-30)
-  if (ratio >= 3)        { score += 30; strengths.push(`Strong funds: £${Math.round(balanceGBP).toLocaleString()} — ${Math.round(ratio)}× the ${p.intendedStayDays}-day requirement`) }
-  else if (ratio >= 2)   { score += 22; strengths.push(`Adequate funds: £${Math.round(balanceGBP).toLocaleString()} — ${Math.round(ratio)}× the requirement`) }
+  if (ratio >= 3)        { score += 30; strengths.push(`Strong funds: ≈£${Math.round(balanceGBP).toLocaleString()} (assessment estimate) — ${Math.round(ratio)}× the ${p.intendedStayDays}-day requirement`) }
+  else if (ratio >= 2)   { score += 22; strengths.push(`Adequate funds: ≈£${Math.round(balanceGBP).toLocaleString()} (assessment estimate) — ${Math.round(ratio)}× the requirement`) }
   else if (ratio >= 1.2) { score += 14; quickWins.push(`Increase bank balance to at least £${Math.round(requiredGBP * 2).toLocaleString()} (2× required) before applying`) }
-  else if (ratio >= 0.8) { score += 6;  risks.push({ issue: `Low funds: £${Math.round(balanceGBP).toLocaleString()} vs £${Math.round(requiredGBP).toLocaleString()} required`, fix: 'Raise balance to 2× minimum before applying', timeline: '2-3 months', fatal: false }) }
-  else                   { blockers.push(`Critically low funds: have £${Math.round(balanceGBP).toLocaleString()}, need at least £${Math.round(requiredGBP).toLocaleString()}`) }
+  else if (ratio >= 0.8) { score += 6;  risks.push({ issue: `Low funds: ≈£${Math.round(balanceGBP).toLocaleString()} (assessment estimate) vs £${Math.round(requiredGBP).toLocaleString()} required`, fix: 'Raise balance to 2× minimum before applying', timeline: '2-3 months', fatal: false }) }
+  else                   { blockers.push(`Critically low funds: have ≈£${Math.round(balanceGBP).toLocaleString()} (assessment estimate), need at least £${Math.round(requiredGBP).toLocaleString()}`) }
 
   // 2. Bank history (0-10)
   if (p.monthsOfBankHistory >= 6)      { score += 10; strengths.push(`${p.monthsOfBankHistory} months of bank statements`) }

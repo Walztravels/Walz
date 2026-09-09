@@ -29,6 +29,8 @@ export async function POST(req: NextRequest) {
       fxQuotedAt,
       // Central FX engine rate-lock id (server-authoritative NGN amount)
       fxLockId,
+      // Server payment-intent reference (server-authoritative amount)
+      intentRef,
     } = await req.json() as {
       email:          string
       amount:         number
@@ -43,10 +45,44 @@ export async function POST(req: NextRequest) {
       fxSource?:      string
       fxQuotedAt?:    string
       fxLockId?:      string
+      intentRef?:     string
     }
 
     if (!email || !amount) {
       return NextResponse.json({ error: 'email and amount are required' }, { status: 400 })
+    }
+
+    // ── Server payment-intent authority ───────────────────────────────────────
+    // When the request references a server-created intent, the snapshot's
+    // amount and currency replace whatever the browser sent, wholesale.
+    if (intentRef) {
+      const intent = await prisma.paymentLink.findUnique({
+        where:  { txRef: intentRef },
+        select: { amount: true, currency: true, status: true, type: true, fareCurrency: true, fareAmount: true, fxRate: true, fxSource: true, fxQuotedAt: true },
+      })
+      if (!intent || intent.type !== 'payment_intent' || intent.amount == null) {
+        return NextResponse.json({ error: 'Invalid payment intent reference' }, { status: 400 })
+      }
+      if (intent.status !== 'pending') {
+        return NextResponse.json({ error: 'Payment intent already used' }, { status: 409 })
+      }
+      amount       = Number(intent.amount)
+      currency     = intent.currency
+      fareCurrency = intent.fareCurrency ?? undefined
+      fareAmount   = intent.fareAmount != null ? Number(intent.fareAmount) : undefined
+      fxRate       = intent.fxRate != null ? Number(intent.fxRate) : undefined
+      fxMargin     = undefined
+      fxSource     = intent.fxSource ?? undefined
+      fxQuotedAt   = intent.fxQuotedAt?.toISOString()
+    } else if (extraMeta && (extraMeta.flight_offer_id || extraMeta.tourId)) {
+      // Product checkouts must come through the server intent (or the FX
+      // lock below) — a bare browser amount is not accepted for them.
+      if (!(currency.toUpperCase() === 'NGN' && fxLockId)) {
+        return NextResponse.json(
+          { error: 'This checkout requires a server payment intent. Please refresh the page and try again.' },
+          { status: 400 },
+        )
+      }
     }
 
     // ── Central FX engine: the server is price authority for NGN ──────────────
@@ -77,9 +113,12 @@ export async function POST(req: NextRequest) {
     }
 
     const { randomBytes: _rb } = require('crypto') as typeof import('crypto')
-    const txRef = `WALZ-PS-${Date.now()}-${_rb(4).toString('hex').toUpperCase()}`
+    // With a server intent, the intent's txRef IS the Paystack reference so
+    // the webhook reconciles the charge against the snapshot row directly.
+    const txRef = intentRef ?? `WALZ-PS-${Date.now()}-${_rb(4).toString('hex').toUpperCase()}`
     // Paystack requires amount in minor units (kobo for NGN, pesewas for GHS, etc.)
-    const amountMinor = Math.round(Number(amount) * 100)
+    const { paystackMajorToMinor } = require('@/lib/currency') as typeof import('@/lib/currency')
+    const amountMinor = paystackMajorToMinor(Number(amount), currency)
 
     const res  = await fetch(`${PS_BASE}/transaction/initialize`, {
       method:  'POST',
@@ -109,6 +148,21 @@ export async function POST(req: NextRequest) {
     }
 
     try {
+      if (intentRef) {
+        // Snapshot row already holds the authoritative amount — attach the
+        // checkout URL and payer identity to it instead of duplicating.
+        await prisma.paymentLink.update({
+          where: { txRef },
+          data:  { paymentUrl: data.data.authorization_url, clientEmail: email, provider: 'paystack' },
+        })
+        return NextResponse.json({
+          success:   true,
+          url:       data.data.authorization_url,
+          reference: txRef,
+          amount:    Number(amount),
+          currency,
+        })
+      }
       await prisma.paymentLink.create({
         data: {
           txRef,

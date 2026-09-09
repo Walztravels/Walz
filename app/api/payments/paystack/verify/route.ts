@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
+import prisma from '@/lib/db'
+import { paystackMinorToMajor, paystackMajorToMinor } from '@/lib/currency'
 
 export const dynamic = 'force-dynamic'
 
@@ -33,8 +35,25 @@ export async function POST(req: NextRequest) {
       )
     }
 
+    const paidCurrency = String(data.data.currency ?? 'NGN')
+
+    // Server snapshot is the FIRST authority: when the reference matches a
+    // PaymentLink created with an amount, the verified charge must match it
+    // — the browser's expected_* fields are only a secondary sanity check.
+    const link = await prisma.paymentLink.findUnique({
+      where:  { txRef: reference },
+      select: { amount: true, currency: true },
+    }).catch(() => null)
+    if (link?.amount != null) {
+      const expectedMinor = paystackMajorToMinor(Number(link.amount), link.currency)
+      if (data.data.amount < expectedMinor || paidCurrency.toUpperCase() !== link.currency.toUpperCase()) {
+        console.error(`[ps-verify] PAYMENT_RECONCILIATION_REQUIRED ref=${reference} expected=${link.currency} ${link.amount} got=${paidCurrency} ${paystackMinorToMajor(data.data.amount, paidCurrency)}`)
+        return NextResponse.json({ verified: false, error: 'PAYMENT_RECONCILIATION_REQUIRED' }, { status: 409 })
+      }
+    }
+
     // Use != null (not &&) so that zero values still trigger the check
-    if (expected_amount != null && data.data.amount < Math.round(Number(expected_amount) * 100)) {
+    if (expected_amount != null && data.data.amount < paystackMajorToMinor(Number(expected_amount), paidCurrency)) {
       return NextResponse.json({ verified: false, error: 'Amount mismatch' }, { status: 400 })
     }
 
@@ -45,7 +64,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({
       verified:   true,
       reference,
-      amount:     data.data.amount / 100,
+      amount:     paystackMinorToMajor(data.data.amount, paidCurrency),
       currency:   data.data.currency,
       channel:    data.data.channel,
       paidAt:     data.data.paid_at,

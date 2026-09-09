@@ -15,15 +15,42 @@ function PaystackRedirect({
 }: { email: string; amount: number; currency: string; bookingRef: string; onBack: () => void }) {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
+  // Server payment authority: the deposit amount (including any currency
+  // conversion) comes from a server intent, never from this component.
+  const [intent, setIntent] = useState<{ txRef: string; amount: number; currency: string } | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    fetch('/api/payments/intent', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ kind: 'package', bookingRef, payCurrency: currency }),
+    })
+      .then(r => r.json().then(d => ({ ok: r.ok, d })))
+      .then(({ ok, d }) => {
+        if (cancelled) return
+        if (ok && d.intent) setIntent(d.intent)
+        else setError(d.error ?? 'Could not prepare payment. Please try again.')
+      })
+      .catch(() => { if (!cancelled) setError('Could not prepare payment. Please try again.') })
+    return () => { cancelled = true }
+  }, [bookingRef, currency])
 
   async function redirect() {
+    if (!intent) return
     setLoading(true)
     setError('')
     try {
       const res = await fetch('/api/payments/paystack/initialize', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, amount, currency, bookingRef }),
+        body: JSON.stringify({
+          email,
+          amount:    intent.amount,
+          currency:  intent.currency,
+          intentRef: intent.txRef,
+          bookingRef,
+        }),
       })
       const data = await res.json()
       if (!res.ok || !data.url) throw new Error(data.error ?? 'Failed to initialize Paystack')
@@ -39,7 +66,9 @@ function PaystackRedirect({
       <div className="rounded-xl px-4 py-3 space-y-1" style={{ background: '#F7F4EF', borderLeft: '4px solid #C9A84C' }}>
         <p className="text-xs text-gray-500 uppercase tracking-wide font-semibold">Amount to pay</p>
         <p className="font-display text-2xl font-bold" style={{ color: '#C9A84C' }}>
-          {new Intl.NumberFormat('en-US', { style: 'currency', currency, minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(amount)}
+          {intent
+            ? new Intl.NumberFormat('en-US', { style: 'currency', currency: intent.currency, minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(intent.amount)
+            : '…'}
         </p>
         <p className="text-xs text-gray-500">Card, bank transfer, or USSD via Paystack</p>
       </div>
@@ -48,7 +77,7 @@ function PaystackRedirect({
           {error}
         </div>
       )}
-      <button type="button" onClick={redirect} disabled={loading}
+      <button type="button" onClick={redirect} disabled={loading || !intent}
         className="w-full py-4 rounded-xl font-bold text-base transition-opacity hover:opacity-90 disabled:opacity-60"
         style={{ backgroundColor: '#00C46F', color: '#fff' }}>
         {loading ? 'Redirecting to Paystack…' : 'Pay with Paystack →'}
@@ -193,6 +222,30 @@ export default function PackageBookingModal({ pkg: initialPkg, isOpen: controlle
   // For FW, the local (NGN/GHS) amount is computed when the gateway is selected
   // and passed to FlutterwavePaymentStep which charges in that currency.
   const [fwDepositLocal, setFwDepositLocal] = useState<number>(0)
+  // Server payment intent — the authoritative charge amount/currency/tx_ref
+  // for the Flutterwave step. The local estimates above are display-only.
+  const [fwIntent, setFwIntent] = useState<{ txRef: string; amount: number; currency: string } | null>(null)
+  const [fwIntentError, setFwIntentError] = useState('')
+
+  useEffect(() => {
+    if (step !== 4 || selectedGateway !== 'flutterwave' || !bookingRef) return
+    let cancelled = false
+    setFwIntent(null)
+    setFwIntentError('')
+    fetch('/api/payments/intent', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ kind: 'package', bookingRef, payCurrency: selectedCurrency }),
+    })
+      .then(r => r.json().then(d => ({ ok: r.ok, d })))
+      .then(({ ok, d }) => {
+        if (cancelled) return
+        if (ok && d.intent) setFwIntent(d.intent)
+        else setFwIntentError(d.error ?? 'Could not prepare payment. Please try again.')
+      })
+      .catch(() => { if (!cancelled) setFwIntentError('Could not prepare payment. Please try again.') })
+    return () => { cancelled = true }
+  }, [step, selectedGateway, bookingRef, selectedCurrency])
 
   const resetModal = useCallback(() => {
     setStep(1)
@@ -209,6 +262,8 @@ export default function PackageBookingModal({ pkg: initialPkg, isOpen: controlle
     setError('')
     setLoading(false)
     setFwDepositLocal(0)
+    setFwIntent(null)
+    setFwIntentError('')
   }, [pkg.currency])
 
   const closeModal = useCallback(() => {
@@ -684,11 +739,23 @@ export default function PackageBookingModal({ pkg: initialPkg, isOpen: controlle
                   onBack={() => setStep(3)}
                 />
               )}
-              {selectedGateway === 'flutterwave' && (
+              {selectedGateway === 'flutterwave' && fwIntentError && (
+                <div className="rounded-xl px-4 py-3 text-sm" style={{ background: '#FEF2F2', color: '#C0392B', border: '1px solid #FECACA' }}>
+                  {fwIntentError}
+                </div>
+              )}
+              {selectedGateway === 'flutterwave' && !fwIntentError && !fwIntent && (
+                <div className="py-8 flex flex-col items-center gap-3">
+                  <div className="w-8 h-8 rounded-full border-2 animate-spin" style={{ borderColor: '#C9A84C', borderTopColor: 'transparent' }} />
+                  <p className="text-sm text-gray-500">Preparing your payment…</p>
+                </div>
+              )}
+              {selectedGateway === 'flutterwave' && fwIntent && (
                 <FlutterwavePaymentStep
                   bookingRef={bookingRef}
-                  depositAmount={fwDepositAmount}
-                  currency={selectedCurrency as 'NGN' | 'GHS'}
+                  txRef={fwIntent.txRef}
+                  depositAmount={fwIntent.amount}
+                  currency={fwIntent.currency as 'NGN' | 'GHS'}
                   packageTitle={pkg.title}
                   clientEmail={clientEmail}
                   clientName={clientName}

@@ -39,6 +39,36 @@ export async function POST(req: NextRequest) {
 
   const d = parsed.data
 
+  // ── Authoritative pricing: re-fetch the supplier package server-side ──────
+  // The browser's wholesaleUsd/retailUsd are display echoes only. The charge
+  // is priced from the live supplier catalogue (which already applies the
+  // markup tiers in lib/esim-pricing at parse time). Unknown package → no
+  // payment.
+  const { fetchCountryPackages } = await import('@/lib/esim/api')
+  let authoritative
+  try {
+    const packages = await fetchCountryPackages(d.destinationIso2.toUpperCase())
+    authoritative  = packages.find(p => p.packageCode === d.packageCode)
+  } catch (err) {
+    console.error('[esim/checkout] package revalidation failed:', err instanceof Error ? err.message : err)
+    return NextResponse.json({ error: 'eSIM pricing is temporarily unavailable. Please try again shortly.' }, { status: 503 })
+  }
+  if (!authoritative) {
+    return NextResponse.json({ error: 'This eSIM package is no longer available. Please pick another.' }, { status: 409 })
+  }
+  const retailUsd    = authoritative.retailUsd
+  const wholesaleUsd = authoritative.wholesaleUsd
+  if (!Number.isFinite(retailUsd) || retailUsd <= 0) {
+    return NextResponse.json({ error: 'eSIM pricing is temporarily unavailable. Please try again shortly.' }, { status: 503 })
+  }
+  if (Math.abs(retailUsd - d.retailUsd) > 0.01) {
+    // Price moved since the page rendered — surface it, never silently charge
+    return NextResponse.json(
+      { error: 'PRICE_CHANGED', message: `The price of this package is now $${retailUsd.toFixed(2)}. Please review and try again.`, retailUsd },
+      { status: 409 },
+    )
+  }
+
   // Look up user phone for WhatsApp delivery
   const user = await prisma.user.findUnique({
     where:  { email: session.user.email },
@@ -59,7 +89,7 @@ export async function POST(req: NextRequest) {
       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${FLW_SECRET}` },
       body: JSON.stringify({
         tx_ref:       txRef,
-        amount:       d.retailUsd,
+        amount:       retailUsd,
         currency:     'USD',
         redirect_url: `${SITE}/esim?paid=1`,
         customer: {
@@ -80,8 +110,8 @@ export async function POST(req: NextRequest) {
           durationDays:    String(d.durationDays),
           dataAmount:      String(d.dataAmount ?? ''),
           dataUnit:        d.dataUnit,
-          wholesaleUsd:    String(d.wholesaleUsd),
-          retailUsd:       String(d.retailUsd),
+          wholesaleUsd:    String(wholesaleUsd),
+          retailUsd:       String(retailUsd),
           customerEmail:   session.user.email,
           customerPhone,
           tripId:          d.tripId ?? '',
@@ -100,7 +130,7 @@ export async function POST(req: NextRequest) {
 
   // ── Stripe (default) ─────────────────────────────────────────────────────────
   const intent = await getStripe().paymentIntents.create({
-    amount:        Math.round(d.retailUsd * 100),
+    amount:        Math.round(retailUsd * 100),
     currency:      'usd',
     receipt_email: session.user.email,
     metadata: {
@@ -113,8 +143,8 @@ export async function POST(req: NextRequest) {
       dataAmount:      String(d.dataAmount ?? ''),
       dataUnit:        d.dataUnit,
       dataLabel:       d.dataLabel,
-      wholesaleUsd:    String(d.wholesaleUsd),
-      retailUsd:       String(d.retailUsd),
+      wholesaleUsd:    String(wholesaleUsd),
+      retailUsd:       String(retailUsd),
       speed:           d.speed,
       tripId:          d.tripId ?? '',
       customerEmail:   session.user.email,

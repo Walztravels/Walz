@@ -5,6 +5,9 @@ import { useFlutterwave, closePaymentModal } from 'flutterwave-react-v3'
 
 interface Props {
   bookingRef: string
+  /** Server payment-intent reference — the Flutterwave tx_ref. The verify
+   *  route reconciles the charge against the intent snapshot behind it. */
+  txRef?: string
   depositAmount: number
   currency: 'NGN' | 'GHS'
   packageTitle: string
@@ -30,6 +33,7 @@ function fmtAmount(amount: number, currency: string) {
 
 export default function FlutterwavePaymentStep({
   bookingRef,
+  txRef,
   depositAmount,
   currency,
   packageTitle,
@@ -44,7 +48,7 @@ export default function FlutterwavePaymentStep({
 
   const config = {
     public_key: process.env.NEXT_PUBLIC_FLW_PUBLIC_KEY ?? '',
-    tx_ref: bookingRef,
+    tx_ref: txRef ?? bookingRef,
     amount: depositAmount,
     currency,
     payment_options: 'card,mobilemoney,ussd,banktransfer',

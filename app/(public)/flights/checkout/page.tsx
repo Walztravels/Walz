@@ -188,11 +188,41 @@ function FlutterwaveCheckout({
 
     setProcessing(true)
     setError(null)
-    const txRef = `WLZ-FLT-${Date.now()}`
 
     // Ensure customer name is never empty — Flutterwave silently fails with an empty name
     const customerName = `${lead?.firstName ?? ''} ${lead?.lastName ?? ''}`.trim() || 'Customer'
     const customerEmail = lead?.email || 'customer@walztravels.com'
+
+    // Server payment authority: the charge amount, currency and tx_ref come
+    // from a server-created intent derived from the Duffel offer (and the
+    // FX lock for NGN) — this page's own numbers are display-only.
+    let intent: { txRef: string; amount: number; currency: string }
+    try {
+      const st = useFlightStore.getState()
+      const intentRes = await fetch('/api/payments/intent', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          kind:           'flight',
+          offerId:        selected?.id ?? '',
+          chargeCurrency,
+          fxLockId:       fxQuote?.lockId ?? null,
+          seatsTotal:     st.seatsTotal(),
+          extrasTotal:    st.extrasTotal(),
+          discountGBP:    st.discountGBP,
+          clientEmail:    customerEmail,
+          clientName:     customerName,
+        }),
+      })
+      const intentData = await intentRes.json() as { intent?: { txRef: string; amount: number; currency: string }; error?: string }
+      if (!intentRes.ok || !intentData.intent) throw new Error(intentData.error ?? 'Could not prepare payment')
+      intent = intentData.intent
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not prepare payment. Please try again.')
+      setProcessing(false)
+      return
+    }
+    const txRef = intent.txRef
 
     try {
       // Load Flutterwave v3 script — inject once, poll if already injecting
@@ -237,12 +267,12 @@ function FlutterwaveCheckout({
 
       setProcessing(false)
 
-      console.log('[FLW] popup config:', { amount: chargeAmount, currency: chargeCurrency })
+      console.log('[FLW] popup config:', { amount: intent.amount, currency: intent.currency })
       ;(win.FlutterwaveCheckout as (config: unknown) => void)({
         public_key:      flwKey,
         tx_ref:          txRef,
-        amount:          chargeAmount,
-        currency:        chargeCurrency,
+        amount:          intent.amount,
+        currency:        intent.currency,
         payment_options: 'card,banktransfer,ussd,mobilemoney',
         customer: {
           email:        customerEmail,
@@ -277,10 +307,11 @@ function FlutterwaveCheckout({
                     email:        p.email ?? '',
                     phone_number: p.phone ?? '',
                   })),
-                  paidAmount:      String(chargeAmount),
-                  currency:        chargeCurrency,
+                  paidAmount:      String(intent.amount),
+                  currency:        intent.currency,
                   fareCurrency:    selected?.price.currency ?? 'GBP',
                   fareAmount:      String(grand),
+                  fxIntentRef:     intent.txRef,
                   ...(chargeCurrency === 'NGN' && fxQuote?.lockId ? { fxLockId: fxQuote.lockId } : {}),
                   paymentMethod:   'flutterwave',
                   paymentRef:      String(response.transaction_id),
@@ -542,30 +573,45 @@ function PaystackCheckout({
       const origin      = window.location.origin
       const callbackUrl = `${origin}/flights/checkout?ps_ref=WALZ_PS_REF`
 
+      // Server payment authority: create an intent from the Duffel offer
+      // (and FX lock for NGN); the initialize route charges the intent's
+      // amount — the numbers this page holds are display-only.
+      const st = useFlightStore.getState()
+      const intentRes = await fetch('/api/payments/intent', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          kind:           'flight',
+          offerId:        selected?.id ?? '',
+          chargeCurrency,
+          fxLockId:       fxQuote?.lockId ?? null,
+          seatsTotal:     st.seatsTotal(),
+          extrasTotal:    st.extrasTotal(),
+          discountGBP:    st.discountGBP,
+          clientEmail:    lead?.email || 'customer@walztravels.com',
+          clientName:     `${lead?.firstName ?? ''} ${lead?.lastName ?? ''}`.trim(),
+        }),
+      })
+      const intentData = await intentRes.json() as { intent?: { txRef: string; amount: number; currency: string }; error?: string }
+      if (!intentRes.ok || !intentData.intent) {
+        setError(intentData.error ?? 'Could not prepare payment. Please try again.')
+        setProcessing(false)
+        return
+      }
+
       const res = await fetch('/api/payments/paystack/initialize', {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           email:       lead?.email || 'customer@walztravels.com',
-          // chargeAmount is in Naira (whole number); route multiplies by 100 for kobo
-          amount:      chargeAmount,
-          currency:    chargeCurrency,
+          amount:      intentData.intent.amount,
+          currency:    intentData.intent.currency,
+          intentRef:   intentData.intent.txRef,
           callbackUrl,
           metadata: {
             flight_offer_id: selected?.id ?? '',
             client_name: `${lead?.firstName ?? ''} ${lead?.lastName ?? ''}`.trim(),
           },
-          // FX tracking
-          fareCurrency: currency,
-          fareAmount:   grand,
-          ...(fxQuote ? {
-            fxRate:      fxQuote.rate,
-            fxMargin:    fxQuote.marginRate / fxQuote.rate - 1,
-            fxSource:    fxQuote.source,
-            fxQuotedAt:  fxQuote.fetchedAt,
-          } : {}),
-          // Central FX engine: the server recomputes the NGN amount from
-          // this lock — everything above becomes informational.
           ...(fxQuote?.lockId ? { fxLockId: fxQuote.lockId } : {}),
         }),
       })
@@ -957,13 +1003,15 @@ export default function CheckoutPage() {
       return
     }
 
-    // Normal flow: create a new payment intent
+    // Normal flow: create a new payment intent — the server verifies the
+    // amount against the Duffel offer before charging.
     fetch('/api/flights/checkout/intent', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         amount: Math.round(grand * 100),
         currency: (selected?.price.currency ?? 'GBP').toLowerCase(),
+        offerId: selected?.id ?? '',
         metadata: {
           itinerary_id: selected?.id ?? '',
           airline:      selected?.segments[0]?.airlineName ?? '',

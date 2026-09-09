@@ -317,16 +317,18 @@ describe('integration invariants (source)', () => {
 
   it('23. Paystack NGN amounts stay in major units into the route, kobo at the provider call', () => {
     const src = read('app/api/payments/paystack/initialize/route.ts')
-    expect(src).toContain('Math.round(Number(amount) * 100)') // kobo conversion preserved
+    // Canonical helper — never a bare *100 for the provider call
+    expect(src).toContain('paystackMajorToMinor(Number(amount), currency)')
     // The lock supplies MAJOR units (convertedAmount), same as the legacy amount field
     expect(src).toContain('lock.convertedAmount.toNumber()')
   })
 
-  it('24. Flutterwave flight amounts remain major-unit; lock id audited at booking', () => {
+  it('24. Flutterwave flight payments are provider-verified and reconciled at booking', () => {
     const book = read('app/api/flights/book/route.ts')
     expect(book).toContain('fxLockId')
     expect(book).toContain('markFxLockUsed')
-    expect(book).toContain('fx_amount_mismatch')
+    expect(book).toContain('reconcileFlutterwavePayment')
+    expect(book).toContain('PAYMENT_RECONCILIATION_REQUIRED')
   })
 
   it('25/26/27. FX adjustment is separate from markup/service charges/supplier pricing', () => {

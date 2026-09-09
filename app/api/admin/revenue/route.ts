@@ -120,8 +120,10 @@ export async function GET(req: NextRequest) {
     prisma.booking.count({ where: { paymentStatus: 'SUCCEEDED', createdAt: { gte: today } } }),
     prisma.booking.count({ where: { paymentStatus: 'SUCCEEDED', createdAt: { gte: week  } } }),
 
-    // Activity margin — only CONFIRMED bookings for realized margin
-    prisma.activityBooking.aggregate({
+    // Activity margin — only CONFIRMED bookings for realized margin,
+    // grouped by currency so mixed-currency sums never happen.
+    prisma.activityBooking.groupBy({
+      by: ['currency'],
       where: { status: 'CONFIRMED', createdAt: { gte: since } },
       _sum: { markupAmount: true, totalAmount: true, supplierNetAmount: true },
       _count: { id: true },
@@ -164,7 +166,8 @@ export async function GET(req: NextRequest) {
       where: { convertedAt: null, updatedAt: { lt: abandonThreshold }, totalAmount: { gt: 0 } },
     }),
     prisma.cartSession.count({ where: { convertedAt: { not: null } } }),
-    prisma.cartSession.aggregate({
+    prisma.cartSession.groupBy({
+      by: ['currency'],
       where: { convertedAt: null, updatedAt: { lt: abandonThreshold }, totalAmount: { gt: 0 } },
       _sum: { totalAmount: true },
     }),
@@ -529,13 +532,17 @@ export async function GET(req: NextRequest) {
     bookingsToday,
     bookingsWeek,
 
+    // Per-currency rows — never a single cross-currency sum with one label.
     activity: {
-      count:       activityMargin._count.id,
-      revenue:     activityMargin._sum.totalAmount ?? 0,
-      margin:      activityMargin._sum.markupAmount ?? 0,
-      supplierNet: activityMargin._sum.supplierNetAmount ?? 0,
-      currency:    'GBP',
-      note:        'Confirmed bookings only — at-risk margin excluded',
+      count: activityMargin.reduce((s, g) => s + g._count.id, 0),
+      byCurrency: activityMargin.map(g => ({
+        currency:    g.currency,
+        count:       g._count.id,
+        revenue:     g._sum.totalAmount ?? 0,
+        margin:      g._sum.markupAmount ?? 0,
+        supplierNet: g._sum.supplierNetAmount ?? 0,
+      })),
+      note: 'Confirmed bookings only — at-risk margin excluded · currencies shown separately',
     },
 
     esim: {
@@ -563,7 +570,10 @@ export async function GET(req: NextRequest) {
       active:           cartActive,
       abandoned:        cartAbandoned,
       converted:        cartConverted,
-      abandonedValue:   cartAbandonedValue._sum.totalAmount ?? 0,
+      // Per-currency — an all-currency numeric sum is meaningless.
+      abandonedValueByCurrency: Object.fromEntries(
+        cartAbandonedValue.map(g => [g.currency, g._sum.totalAmount ?? 0]),
+      ),
       thresholdMinutes: ABANDON_MINUTES,
     },
 

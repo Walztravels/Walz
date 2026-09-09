@@ -45,6 +45,19 @@ export async function POST(req: NextRequest) {
   const d = parsed.data
   const origin = req.headers.get('origin') ?? process.env.NEXT_PUBLIC_APP_URL ?? 'https://walztravels.com'
 
+  // ── 0. Authoritative pricing — the browser's money fields are ignored ─────
+  const { priceTour, TourPricingError } = await import('@/lib/tours/pricing')
+  let pricing
+  try {
+    pricing = await priceTour(d.tourId, d.groupSize, d.addons.map(a => a.id))
+  } catch (e) {
+    if (e instanceof TourPricingError) return NextResponse.json({ error: e.message }, { status: e.status })
+    throw e
+  }
+  const serverTotal    = pricing.total
+  const serverCurrency = pricing.currency
+  const serverAddons   = pricing.selectedAddons
+
   // ── 1. Create a pending Booking record ────────────────────────────────────
   // Retry on reference collision (extremely unlikely but possible)
   let bookingReference = generateBookingRef()
@@ -62,21 +75,21 @@ export async function POST(req: NextRequest) {
       type:          'PACKAGE',
       status:        'PENDING',
       paymentStatus: 'PENDING',
-      totalAmount:   d.totalAmount,
-      currency:      d.currency,
+      totalAmount:   serverTotal,
+      currency:      serverCurrency,
       contactEmail:  d.email,
       contactPhone:  d.whatsapp,
       paymentProvider: 'nowpayments',
       hotelDetails: {
         type:        'tour',
-        tourId:      d.tourId,
-        tourName:    d.tourName,
-        tourSlug:    d.tourSlug,
-        tourLocation: d.tourLocation,
+        tourId:      pricing.tour.id,
+        tourName:    pricing.tour.name,
+        tourSlug:    pricing.tour.slug,
+        tourLocation: pricing.tour.location,
         date:        d.date,
         groupSize:   d.groupSize,
-        basePrice:   d.basePrice,
-        addonsTotal: d.addonsTotal,
+        basePrice:   pricing.basePrice,
+        addonsTotal: pricing.addonsTotal,
       },
       passengers: [{
         firstName:    d.firstName,
@@ -87,9 +100,9 @@ export async function POST(req: NextRequest) {
         requirements: d.requirements,
         message:      d.message,
       }],
-      addons: d.addons.map(a => ({
+      addons: serverAddons.map(a => ({
         id: a.id, name: a.name, price: a.price,
-        currency: d.currency, selected: true, description: a.name,
+        currency: serverCurrency, selected: true, description: a.name,
       })),
       notes: `NOWPayments crypto invoice pending`,
     },
@@ -103,15 +116,15 @@ export async function POST(req: NextRequest) {
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({
-      price_amount:       d.totalAmount,
-      price_currency:     d.currency.toLowerCase(),
+      price_amount:       serverTotal,
+      price_currency:     serverCurrency.toLowerCase(),
       // pay_currency intentionally omitted — lets customer choose USDC or USDT
       // on NOWPayments' hosted page
       order_id:           bookingReference,
-      order_description:  `Walz Travels: ${d.tourName} (${d.groupSize} person${d.groupSize > 1 ? 's' : ''}, ${d.date})`,
+      order_description:  `Walz Travels: ${pricing.tour.name} (${d.groupSize} person${d.groupSize > 1 ? 's' : ''}, ${d.date})`,
       ipn_callback_url:   `${process.env.NEXT_PUBLIC_APP_URL}/api/webhooks/nowpayments`,
       success_url:        `${origin}/tours/book/crypto-return?ref=${bookingReference}`,
-      cancel_url:         `${origin}/tours/book?slug=${d.tourSlug}`,
+      cancel_url:         `${origin}/tours/book?slug=${pricing.tour.slug}`,
     }),
   })
 

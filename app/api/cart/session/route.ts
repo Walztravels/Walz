@@ -82,7 +82,10 @@ export async function GET() {
     }),
   ])
 
-  const abandonedValue = await prisma.cartSession.aggregate({
+  // Grouped by currency — abandoned carts span currencies and a single
+  // numeric sum across them is meaningless.
+  const abandonedValue = await prisma.cartSession.groupBy({
+    by: ['currency'],
     where: { convertedAt: null, updatedAt: { lt: threshold }, totalAmount: { gt: 0 } },
     _sum: { totalAmount: true },
   })
@@ -91,7 +94,9 @@ export async function GET() {
     active,
     abandoned,
     converted,
-    abandonedValue: abandonedValue._sum.totalAmount ?? 0,
+    abandonedValueByCurrency: Object.fromEntries(
+      abandonedValue.map(g => [g.currency, g._sum.totalAmount ?? 0]),
+    ),
     abandonThresholdMinutes: ABANDON_MINUTES,
   })
 }

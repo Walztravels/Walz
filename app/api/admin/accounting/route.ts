@@ -137,11 +137,16 @@ export async function GET(req: NextRequest) {
       summary[cur]   = { totalIn, totalOut, net: totalIn - totalOut, count: forCur.length }
     }
 
-    // Category breakdown (inflows only)
-    const byCategory: Record<string, number> = {}
+    // Category breakdown (inflows only), grouped BY CURRENCY inside each
+    // category — amounts in different currencies are never numerically
+    // summed (NGN link amounts, GBP visa fees and NGN slips previously
+    // landed in one number).
+    const byCategory: Record<string, Record<string, number>> = {}
     transactions.filter(t => t.type === 'inflow').forEach(t => {
       const cat = t.category as string
-      byCategory[cat] = (byCategory[cat] ?? 0) + (t.amount as number)
+      const cur = (t.currency as string) ?? 'UNKNOWN'
+      byCategory[cat] ??= {}
+      byCategory[cat][cur] = (byCategory[cat][cur] ?? 0) + (t.amount as number)
     })
 
     return NextResponse.json({

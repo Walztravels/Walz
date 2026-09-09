@@ -2,24 +2,23 @@ import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import prisma from '@/lib/db'
 import { Resend } from 'resend'
+import { priceTour, TourPricingError } from '@/lib/tours/pricing'
+import { reconcileFlutterwavePayment, PAYMENT_RECONCILIATION_REQUIRED } from '@/lib/payments/authority'
 
 // ── Validation ────────────────────────────────────────────────────────────────
+// The browser submits IDENTIFIERS and contact details only. All money
+// (base price, add-on prices, totals, currency) is derived server-side from
+// the Tour row and the shared add-on catalogue — browser-supplied money
+// fields are accepted for backward compatibility but NEVER read.
 
 const bookingSchema = z.object({
   tourId: z.string().min(1),
-  tourName: z.string().min(1),
-  tourSlug: z.string().min(1),
   date: z.string().min(1),
   groupSize: z.number().int().min(1).max(50),
-  currency: z.string().length(3),
-  addons: z.array(z.object({
-    id: z.string(),
-    name: z.string(),
-    price: z.number(),
-  })),
-  basePrice: z.number().min(0),
-  addonsTotal: z.number().min(0),
-  totalAmount: z.number().min(0),
+  addons: z.array(z.union([
+    z.string(),
+    z.object({ id: z.string() }).passthrough().transform(a => a.id),
+  ])).default([]),
   firstName: z.string().min(1),
   lastName: z.string().min(1),
   email: z.string().email(),
@@ -234,6 +233,45 @@ export async function POST(request: NextRequest) {
 
     const d = parsed.data
 
+    // ── Authoritative pricing — Tour row + shared add-on catalogue ────────────
+    let pricing
+    try {
+      pricing = await priceTour(d.tourId, d.groupSize, d.addons)
+    } catch (e) {
+      if (e instanceof TourPricingError) return NextResponse.json({ error: e.message }, { status: e.status })
+      throw e
+    }
+    const { tour, currency, basePrice, addonsTotal, total, selectedAddons } = pricing
+
+    // ── Payment verification — the provider, never the browser, says what
+    //    was paid; and it must match the server-derived total. ────────────────
+    if (d.gateway === 'flutterwave') {
+      if (!d.flutterwaveTransactionId) {
+        return NextResponse.json({ error: 'Payment reference missing' }, { status: 400 })
+      }
+      const recon = await reconcileFlutterwavePayment(d.flutterwaveTransactionId)
+      const verified = recon.verified
+      // Intent snapshot match, or (legacy) direct match against the server
+      // total in the tour's own currency.
+      const legacyOk = recon.code === 'INTENT_NOT_FOUND' && verified?.ok &&
+        verified.currency === currency.toUpperCase() &&
+        (verified.amount ?? 0) >= total - 1
+      if (!recon.ok && !legacyOk) {
+        console.error(`[tours/book] payment not fulfillable: ${recon.code} — ${recon.detail ?? ''}`)
+        return NextResponse.json(
+          {
+            error: recon.code === PAYMENT_RECONCILIATION_REQUIRED
+              ? 'Your payment was received but did not match the expected amount. Our team will contact you to resolve it.'
+              : 'Payment could not be verified. Please contact us with your payment reference.',
+            code: recon.code ?? 'NOT_VERIFIED',
+          },
+          { status: 402 },
+        )
+      }
+    }
+    // (Stripe-gateway bookings are created by /api/tours/stripe-verify after
+    //  the Checkout Session is confirmed paid — not through this route.)
+
     // Generate a unique booking reference (retry on collision)
     let bookingReference = generateBookingRef()
     let attempts = 0
@@ -250,21 +288,21 @@ export async function POST(request: NextRequest) {
         bookingReference,
         type: 'PACKAGE',
         status: 'PENDING',         // pending tour confirmation by our team
-        paymentStatus: 'SUCCEEDED', // Flutterwave payment succeeded
-        totalAmount: d.totalAmount,
-        currency: d.currency,
+        paymentStatus: 'SUCCEEDED', // provider-verified above
+        totalAmount: total,
+        currency,
         contactEmail: d.email,
         contactPhone: d.whatsapp,
         // Store tour details in hotelDetails JSON (reusing the flexible JSON field)
         hotelDetails: {
           type: 'tour',
-          tourId: d.tourId,
-          tourName: d.tourName,
-          tourSlug: d.tourSlug,
+          tourId: tour.id,
+          tourName: tour.name,
+          tourSlug: tour.slug,
           date: d.date,
           groupSize: d.groupSize,
-          basePrice: d.basePrice,
-          addonsTotal: d.addonsTotal,
+          basePrice,
+          addonsTotal,
         },
         // Store traveller in passengers JSON
         passengers: [{
@@ -276,12 +314,12 @@ export async function POST(request: NextRequest) {
           requirements: d.requirements,
           message: d.message,
         }],
-        // Store selected add-ons
-        addons: d.addons.map(a => ({
+        // Store selected add-ons (server catalogue prices)
+        addons: selectedAddons.map(a => ({
           id: a.id,
           name: a.name,
           price: a.price,
-          currency: d.currency,
+          currency,
           selected: true,
           description: a.name,
         })),
@@ -295,14 +333,14 @@ export async function POST(request: NextRequest) {
       to: d.email,
       bookingRef: bookingReference,
       firstName: d.firstName,
-      tourName: d.tourName,
+      tourName: tour.name,
       date: d.date,
       groupSize: d.groupSize,
-      addons: d.addons,
-      basePrice: d.basePrice,
-      addonsTotal: d.addonsTotal,
-      totalAmount: d.totalAmount,
-      currency: d.currency,
+      addons: selectedAddons,
+      basePrice,
+      addonsTotal,
+      totalAmount: total,
+      currency,
       whatsapp: d.whatsapp,
       country: d.country,
       requirements: d.requirements,
@@ -319,13 +357,13 @@ export async function POST(request: NextRequest) {
           resend.emails.send({
             from: fromAddress,
             to: d.email,
-            subject: `Booking Confirmed: ${d.tourName} — ${bookingReference} | Walz Travels`,
+            subject: `Booking Confirmed: ${tour.name} — ${bookingReference} | Walz Travels`,
             html: buildGuestEmail(emailData),
           }),
           resend.emails.send({
             from: fromAddress,
             to: adminEmail,
-            subject: `🎯 New Tour Booking ${bookingReference} — ${d.tourName} (${fmt(d.totalAmount, d.currency)})`,
+            subject: `🎯 New Tour Booking ${bookingReference} — ${tour.name} (${fmt(total, currency)})`,
             html: buildAdminEmail({ ...emailData, txRef: d.txRef, flutterwaveId: d.flutterwaveTransactionId }),
           }),
         ])
