@@ -11,9 +11,9 @@ export const maxDuration = 60
 // GET — screening results for an application (newest first).
 export async function GET(_req: NextRequest, { params }: { params: { id: string } }) {
   const session = await getAdminSession()
-  if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  if (!session) return NextResponse.json({ ok: false, code: 'UNAUTHENTICATED', message: 'Your session has expired — please sign in again.', error: 'Unauthorized' }, { status: 401 })
   if (!hasRecruitmentPermission(session, 'recruitment.candidates.view')) {
-    return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+    return NextResponse.json({ ok: false, code: 'FORBIDDEN', message: 'Your role does not include AI screening review.', error: 'Forbidden' }, { status: 403 })
   }
   try {
     const results = await prisma.aiScreeningResult.findMany({
@@ -32,30 +32,42 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
 // never a decision: the run stores an advisory result and nothing else.
 export async function POST(req: NextRequest, { params }: { params: { id: string } }) {
   const session = await getAdminSession()
-  if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  if (!session) return NextResponse.json({ ok: false, code: 'UNAUTHENTICATED', message: 'Your session has expired — please sign in again.', error: 'Unauthorized' }, { status: 401 })
   if (!hasRecruitmentPermission(session, 'recruitment.ai.review')) {
-    return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+    return NextResponse.json({ ok: false, code: 'FORBIDDEN', message: 'Your role does not include AI screening review.', error: 'Forbidden' }, { status: 403 })
   }
   const limited = rateLimit({ key: `ai-screening:${session.id}`, limit: 20, windowMs: 60 * 60 * 1000 })
   if (!limited.allowed) {
-    return NextResponse.json({ error: 'Too many screening runs — try again later' }, { status: 429 })
+    return NextResponse.json(
+      { ok: false, code: 'RATE_LIMITED', error: 'Too many screening runs — try again later', message: 'Too many screening runs — try again later' },
+      { status: 429 },
+    )
   }
   try {
     const result = await runAiScreening(session, params.id)
-    if (!result.ok) return NextResponse.json({ error: result.error }, { status: result.status })
-    return NextResponse.json({ ok: true, resultId: result.resultId })
+    if (!result.ok) {
+      // Structured, user-safe error: { ok, code, message } (+ legacy `error`).
+      return NextResponse.json(
+        { ok: false, code: result.code, message: result.message, error: result.message },
+        { status: result.status },
+      )
+    }
+    return NextResponse.json({ ok: true, resultId: result.resultId, cvStatus: result.cvStatus, cvMessage: result.cvMessage })
   } catch (err) {
     console.error('[ai-screening POST]', err)
-    return NextResponse.json({ error: 'Screening failed' }, { status: 500 })
+    return NextResponse.json(
+      { ok: false, code: 'DATABASE_ERROR', message: 'Screening failed unexpectedly. Please try again.', error: 'Screening failed unexpectedly. Please try again.' },
+      { status: 500 },
+    )
   }
 }
 
 // PATCH — a human marks a screening result as reviewed (identity from session).
 export async function PATCH(req: NextRequest, { params }: { params: { id: string } }) {
   const session = await getAdminSession()
-  if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  if (!session) return NextResponse.json({ ok: false, code: 'UNAUTHENTICATED', message: 'Your session has expired — please sign in again.', error: 'Unauthorized' }, { status: 401 })
   if (!hasRecruitmentPermission(session, 'recruitment.ai.review')) {
-    return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+    return NextResponse.json({ ok: false, code: 'FORBIDDEN', message: 'Your role does not include AI screening review.', error: 'Forbidden' }, { status: 403 })
   }
   try {
     const body = await req.json().catch(() => ({}))

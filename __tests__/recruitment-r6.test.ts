@@ -93,7 +93,8 @@ describe('AI never decides', () => {
   })
   it('screening requires recorded candidate AI consent', () => {
     expect(lib).toContain('consentAiVersion')
-    expect(lib).toContain('no recorded AI-processing consent')
+    expect(lib).toContain("code: 'AI_CONSENT_REQUIRED'")
+    expect(lib).toContain('did not consent to AI-assisted')
   })
   it('every run records the requesting human', () => {
     expect(lib).toContain('requestedBy:   session.email')

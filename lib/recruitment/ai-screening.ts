@@ -67,28 +67,56 @@ export function parseScreeningResponse(raw: string): ScreeningOutput | null {
   }
 }
 
-async function loadCvText(applicationId: string): Promise<{ text: string; used: boolean }> {
+/** Why the CV text was or wasn't included — surfaced to staff so a run
+ *  without CV text is never a silent mystery. The run itself continues
+ *  (assessing the application answers is the designed behaviour); staff
+ *  see exactly which limitation applied. */
+export type CvStatus =
+  | 'ok'                 // PDF/text CV parsed and included
+  | 'none'               // no CV document attached to the application
+  | 'download_failed'    // storage download failed
+  | 'extraction_failed'  // PDF present but text extraction failed
+  | 'scanned'            // image-only PDF — no machine-readable text
+  | 'unsupported'        // e.g. Word doc — human reads the file directly
+
+export const CV_STATUS_MESSAGES: Record<CvStatus, string> = {
+  ok:                'CV text included in the screening.',
+  none:              'No CV is attached to this application — screened from the application answers only.',
+  download_failed:   'The CV could not be downloaded from storage — screened from the application answers only.',
+  extraction_failed: 'The CV could not be read as text — screened from the application answers only.',
+  scanned:           'The CV appears to be a scanned image with no readable text — screened from the application answers only.',
+  unsupported:       'The CV file type is not machine-readable — screened from the application answers only.',
+}
+
+async function loadCvText(applicationId: string): Promise<{ text: string; used: boolean; cvStatus: CvStatus }> {
   try {
     const doc = await prisma.candidateDocument.findFirst({
       where:   { applicationId, kind: 'cv' },
       orderBy: { createdAt: 'desc' },
       select:  { storagePath: true, contentType: true },
     })
-    if (!doc) return { text: '', used: false }
+    if (!doc) return { text: '', used: false, cvStatus: 'none' }
     const { data, error } = await getSupabaseAdmin().storage.from(RECRUITMENT_BUCKET).download(doc.storagePath)
-    if (error || !data) return { text: '', used: false }
+    if (error || !data) return { text: '', used: false, cvStatus: 'download_failed' }
     const buf = Buffer.from(await data.arrayBuffer())
     if (doc.contentType.includes('pdf')) {
-      const { text, isLikelyScanned } = await extractPdfText(buf)
-      return isLikelyScanned ? { text: '', used: false } : { text: text.slice(0, MAX_CV_CHARS), used: true }
+      try {
+        const { text, isLikelyScanned } = await extractPdfText(buf)
+        return isLikelyScanned
+          ? { text: '', used: false, cvStatus: 'scanned' }
+          : { text: text.slice(0, MAX_CV_CHARS), used: true, cvStatus: 'ok' }
+      } catch (err) {
+        console.error('[ai-screening] CV extraction failed (continuing without):', err instanceof Error ? err.message : err)
+        return { text: '', used: false, cvStatus: 'extraction_failed' }
+      }
     }
     if (doc.contentType.startsWith('text/')) {
-      return { text: buf.toString('utf8').slice(0, MAX_CV_CHARS), used: true }
+      return { text: buf.toString('utf8').slice(0, MAX_CV_CHARS), used: true, cvStatus: 'ok' }
     }
-    return { text: '', used: false }   // Word docs: not parsed — the human reads the file
+    return { text: '', used: false, cvStatus: 'unsupported' }   // Word docs: the human reads the file
   } catch (err) {
     console.error('[ai-screening] CV load failed (continuing without):', err instanceof Error ? err.message : err)
-    return { text: '', used: false }
+    return { text: '', used: false, cvStatus: 'download_failed' }
   }
 }
 
@@ -110,27 +138,93 @@ export function buildScreeningUserPrompt(input: {
   return parts.join('\n\n')
 }
 
+export type ScreeningErrorCode =
+  | 'APPLICATION_NOT_FOUND'
+  | 'AI_CONSENT_REQUIRED'
+  | 'AI_NOT_CONFIGURED'
+  | 'SCREENING_ALREADY_RUNNING'
+  | 'DATABASE_ERROR'
+
+export type RunScreeningResult =
+  | { ok: true; resultId: string; cvStatus: CvStatus; cvMessage: string }
+  | { ok: false; code: ScreeningErrorCode; message: string; status: number }
+
+/** A 'running' row older than this is treated as a dead run (lambda died),
+ *  auto-marked failed, and no longer blocks a fresh run. */
+export const RUNNING_STALE_MS = 3 * 60 * 1000
+
 export async function runAiScreening(
   session: Pick<AdminSession, 'id' | 'email' | 'name'>,
   applicationId: string,
-): Promise<{ ok: true; resultId: string } | { ok: false; error: string; status: number }> {
-  const application = await prisma.jobApplication.findUnique({
-    where: { id: applicationId },
-    select: {
-      id: true, reference: true, jobId: true, coverLetter: true, consentAiVersion: true,
-      answers: { select: { question: true, answer: true } },
-    },
-  })
-  if (!application) return { ok: false, error: 'Application not found', status: 404 }
+): Promise<RunScreeningResult> {
+  // ── Configuration first: no row, no charge, clear message ─────────────────
+  if (!process.env.ANTHROPIC_API_KEY) {
+    return { ok: false, code: 'AI_NOT_CONFIGURED', status: 503,
+      message: 'AI screening is not configured on this server (missing provider key). Contact the administrator.' }
+  }
+
+  let application
+  try {
+    application = await prisma.jobApplication.findUnique({
+      where: { id: applicationId },
+      select: {
+        id: true, reference: true, jobId: true, coverLetter: true, consentAiVersion: true,
+        answers: { select: { question: true, answer: true } },
+      },
+    })
+  } catch (err) {
+    console.error('[ai-screening] application load failed:', err instanceof Error ? err.message : err)
+    return { ok: false, code: 'DATABASE_ERROR', status: 500, message: 'Could not load the application. Please try again.' }
+  }
+  if (!application) {
+    return { ok: false, code: 'APPLICATION_NOT_FOUND', status: 404, message: 'Application not found.' }
+  }
   if (!application.consentAiVersion) {
     // Candidates who applied without recording AI consent are never AI-screened.
-    return { ok: false, error: 'This candidate has no recorded AI-processing consent — screen manually', status: 400 }
+    return { ok: false, code: 'AI_CONSENT_REQUIRED', status: 403,
+      message: 'This applicant did not consent to AI-assisted résumé screening — please review manually.' }
   }
   const job = await prisma.jobOpening.findUnique({
     where:  { id: application.jobId },
     select: { title: true, requirements: true, description: true },
-  })
-  if (!job) return { ok: false, error: 'Job not found for this application', status: 404 }
+  }).catch(() => null)
+  if (!job) {
+    return { ok: false, code: 'APPLICATION_NOT_FOUND', status: 404, message: 'The job for this application no longer exists.' }
+  }
+
+  // ── In-progress guard: no duplicate paid provider calls ───────────────────
+  // A double-click or a second tab must not start a second run. Stale
+  // 'running' rows (dead lambdas) are closed out rather than blocking forever.
+  let runningRow: { id: string }
+  try {
+    const staleCutoff = new Date(Date.now() - RUNNING_STALE_MS)
+    await prisma.aiScreeningResult.updateMany({
+      where: { applicationId, status: 'running', createdAt: { lt: staleCutoff } },
+      data:  { status: 'failed', error: 'Run timed out' },
+    })
+    const active = await prisma.aiScreeningResult.findFirst({
+      where:  { applicationId, status: 'running', createdAt: { gte: staleCutoff } },
+      select: { id: true },
+    })
+    if (active) {
+      return { ok: false, code: 'SCREENING_ALREADY_RUNNING', status: 409,
+        message: 'A screening run is already in progress for this application.' }
+    }
+    // The 'running' row is the idempotency lock AND the audit-visible record.
+    runningRow = await prisma.aiScreeningResult.create({
+      data: {
+        applicationId,
+        model:         SCREENING_MODEL,
+        promptVersion: PROMPT_VERSION,
+        status:        'running',
+        requestedBy:   session.email,
+      },
+      select: { id: true },
+    })
+  } catch (err) {
+    console.error('[ai-screening] run-guard failed:', err instanceof Error ? err.message : err)
+    return { ok: false, code: 'DATABASE_ERROR', status: 500, message: 'Could not start the screening run. Please try again.' }
+  }
 
   const cv = await loadCvText(applicationId)
   const userPrompt = buildScreeningUserPrompt({
@@ -155,30 +249,33 @@ export async function runAiScreening(
       .map(b => (b.type === 'text' ? b.text : ''))
       .join('\n')
     output = parseScreeningResponse(text)
-    if (!output) failure = 'Model reply was not valid screening JSON'
+    if (!output) failure = 'The AI reply could not be read as a screening result'
   } catch (err) {
-    failure = err instanceof Error ? err.message.slice(0, 300) : 'AI request failed'
+    // Raw provider errors stay server-side; the stored/displayed message is safe.
+    console.error('[ai-screening] provider call failed:', err instanceof Error ? err.message : err)
+    failure = 'AI provider request failed — you can run the screening again'
   }
 
-  const result = await prisma.aiScreeningResult.create({
-    data: {
-      applicationId,
-      model:         SCREENING_MODEL,
-      promptVersion: PROMPT_VERSION,
-      status:        output ? 'completed' : 'failed',
-      summary:       output?.summary ?? null,
-      strengths:     output?.strengths ?? [],
-      concerns:      output?.concerns ?? [],
-      suggestedQuestions: output?.suggestedQuestions ?? [],
-      matchScore:    output?.matchScore ?? null,
-      cvUsed:        cv.used,
-      error:         failure,
-      requestedBy:   session.email,
-    },
-    select: { id: true },
-  })
+  try {
+    await prisma.aiScreeningResult.update({
+      where: { id: runningRow.id },
+      data: {
+        status:        output ? 'completed' : 'failed',
+        summary:       output?.summary ?? null,
+        strengths:     output?.strengths ?? [],
+        concerns:      output?.concerns ?? [],
+        suggestedQuestions: output?.suggestedQuestions ?? [],
+        matchScore:    output?.matchScore ?? null,
+        cvUsed:        cv.used,
+        error:         failure,
+      },
+    })
+  } catch (err) {
+    console.error('[ai-screening] result save failed:', err instanceof Error ? err.message : err)
+    return { ok: false, code: 'DATABASE_ERROR', status: 500, message: 'The screening ran but the result could not be saved.' }
+  }
   await recruitmentAudit(session, 'AI Screening Run',
     `${application.reference}: ${output ? `completed (advisory score ${output.matchScore ?? 'n/a'})` : `failed — ${failure}`}`)
   // Deliberately no stage or status change: screening informs humans only.
-  return { ok: true, resultId: result.id }
+  return { ok: true, resultId: runningRow.id, cvStatus: cv.cvStatus, cvMessage: CV_STATUS_MESSAGES[cv.cvStatus] }
 }

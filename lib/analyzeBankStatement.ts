@@ -1082,10 +1082,12 @@ function normalise(a: BankStatementAnalysis) {
 
 async function extractPdfText(pdfBuffer: Buffer): Promise<string> {
   try {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const mod = await import('pdf-parse') as any
-    const pp  = mod.default ?? mod
-    return (await pp(pdfBuffer)).text ?? ''
+    // Shared safe loader: lazy pdf-parse v2 with the DOM stubs the Vercel
+    // lambda needs (no @napi-rs/canvas there), and the correct PDFParse
+    // class API — the old `pp(buffer)` call was v1-shaped and could never
+    // work against the installed v2 package.
+    const { extractPdfText: extract } = await import('@/lib/extractPdfText')
+    return (await extract(pdfBuffer)).text
   } catch {
     return ''
   }
