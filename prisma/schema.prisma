@@ -2400,6 +2400,10 @@ model AiScreeningResult {
   suggestedQuestions Json           @default("[]")
   matchScore         Int?                                 // 0-100, advisory only
   cvUsed             Boolean        @default(false)
+  // What material fed this assessment — the UI labels results from this,
+  // so an answers-only run can never be mistaken for full CV screening:
+  // CV_AND_APPLICATION | CV_ONLY | APPLICATION_ANSWERS_ONLY
+  screeningSource    String         @default("APPLICATION_ANSWERS_ONLY")
   error              String?
   requestedBy        String                               // staff email who triggered the run
   reviewedBy         String?                              // human review acknowledgment

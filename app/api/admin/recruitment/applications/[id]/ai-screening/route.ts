@@ -16,11 +16,25 @@ export async function GET(_req: NextRequest, { params }: { params: { id: string 
     return NextResponse.json({ ok: false, code: 'FORBIDDEN', message: 'Your role does not include AI screening review.', error: 'Forbidden' }, { status: 403 })
   }
   try {
-    const results = await prisma.aiScreeningResult.findMany({
-      where:   { applicationId: params.id },
-      orderBy: { createdAt: 'desc' },
-      take:    10,
-    })
+    let results
+    try {
+      results = await prisma.aiScreeningResult.findMany({
+        where:   { applicationId: params.id },
+        orderBy: { createdAt: 'desc' },
+        take:    10,
+      })
+    } catch (colErr) {
+      // Pre-migration fallback: screeningSource column not present yet —
+      // select the legacy columns and derive the source from cvUsed so the
+      // UI can still label every result correctly.
+      if (!(colErr instanceof Error && /screeningSource|column/i.test(colErr.message))) throw colErr
+      const rows = await prisma.$queryRaw<Array<Record<string, unknown>>>`
+        SELECT "id","applicationId","model","promptVersion","status","summary","strengths","concerns",
+               "suggestedQuestions","matchScore","cvUsed","error","requestedBy","reviewedBy","reviewedAt","createdAt"
+        FROM "AiScreeningResult" WHERE "applicationId" = ${params.id}
+        ORDER BY "createdAt" DESC LIMIT 10`
+      results = rows.map(r => ({ ...r, screeningSource: r.cvUsed ? 'CV_AND_APPLICATION' : 'APPLICATION_ANSWERS_ONLY' }))
+    }
     return NextResponse.json({ results })
   } catch (err) {
     console.error('[ai-screening GET]', err)
@@ -44,15 +58,22 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     )
   }
   try {
-    const result = await runAiScreening(session, params.id)
+    // Answers-only (partial) screening is a deliberate staff choice: it runs
+    // ONLY when the request explicitly confirms it — never as a silent
+    // fallback when the CV cannot be read.
+    const body = await req.json().catch(() => ({})) as { confirmAnswersOnly?: boolean }
+    const result = await runAiScreening(session, params.id, {
+      allowAnswersOnly: body.confirmAnswersOnly === true,
+    })
     if (!result.ok) {
       // Structured, user-safe error: { ok, code, message } (+ legacy `error`).
       return NextResponse.json(
-        { ok: false, code: result.code, message: result.message, error: result.message },
+        { ok: false, code: result.code, message: result.message, error: result.message,
+          ...(result.cvStatus ? { cvStatus: result.cvStatus, cvMessage: result.cvMessage } : {}) },
         { status: result.status },
       )
     }
-    return NextResponse.json({ ok: true, resultId: result.resultId, cvStatus: result.cvStatus, cvMessage: result.cvMessage })
+    return NextResponse.json({ ok: true, resultId: result.resultId, cvStatus: result.cvStatus, cvMessage: result.cvMessage, screeningSource: result.screeningSource })
   } catch (err) {
     console.error('[ai-screening POST]', err)
     return NextResponse.json(

@@ -208,6 +208,17 @@ const nextConfig = {
 
   experimental: {
     serverComponentsExternalPackages: ['@prisma/client', 'prisma', 'pdf-parse', 'pdfjs-dist'],
+    // pdf-parse v2's pdfjs engine dynamically imports pdf.worker.mjs at
+    // parse time — Vercel's file tracer cannot see dynamic imports, so the
+    // worker was missing from the lambda ("Setting up fake worker failed",
+    // production 2026-09-11). Force the whole cjs dist (3.3 MB) into the
+    // functions that parse PDFs.
+    outputFileTracingIncludes: {
+      '/api/admin/recruitment/applications/[id]/ai-screening':   ['./node_modules/pdf-parse/dist/pdf-parse/cjs/**'],
+      '/api/admin/recruitment/applications/[id]/cv-extraction':  ['./node_modules/pdf-parse/dist/pdf-parse/cjs/**'],
+      '/api/admin/visa/analyse':                                 ['./node_modules/pdf-parse/dist/pdf-parse/cjs/**'],
+      '/api/admin/bank-analyser/analyse-v2':                     ['./node_modules/pdf-parse/dist/pdf-parse/cjs/**'],
+    },
     serverActions: {
       bodySizeLimit: '10mb',
     },

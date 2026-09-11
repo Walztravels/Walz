@@ -146,7 +146,7 @@ describe('runAiScreening — structured outcomes and guards', () => {
   it('a run already in progress → SCREENING_ALREADY_RUNNING, no second paid call', async () => {
     consentedApplication()
     mockDb.aiScreeningResult.findFirst.mockResolvedValue({ id: 'already' })
-    const r = await runAiScreening(session, 'app1')
+    const r = await runAiScreening(session, 'app1', { allowAnswersOnly: true })
     expect(r).toMatchObject({ ok: false, code: 'SCREENING_ALREADY_RUNNING', status: 409 })
     expect(mockCreate).not.toHaveBeenCalled()
   })
@@ -154,7 +154,7 @@ describe('runAiScreening — structured outcomes and guards', () => {
   it('stale running rows are closed out (not blocking forever)', async () => {
     consentedApplication()
     mockCreate.mockResolvedValue({ content: [{ type: 'text', text: '{"summary":"Fine.","strengths":[],"concerns":[],"suggestedQuestions":[],"matchScore":70}' }] })
-    await runAiScreening(session, 'app1')
+    await runAiScreening(session, 'app1', { allowAnswersOnly: true })
     expect(mockDb.aiScreeningResult.updateMany).toHaveBeenCalledWith(expect.objectContaining({
       where: expect.objectContaining({ status: 'running' }),
       data:  { status: 'failed', error: 'Run timed out' },
@@ -165,8 +165,9 @@ describe('runAiScreening — structured outcomes and guards', () => {
   it('success: running row created BEFORE the provider call, updated to completed after', async () => {
     consentedApplication()
     mockCreate.mockResolvedValue({ content: [{ type: 'text', text: '{"summary":"Good fit for stated requirements.","strengths":["sales"],"concerns":[],"suggestedQuestions":["Tell me about a sale"],"matchScore":82}' }] })
-    const r = await runAiScreening(session, 'app1')
-    expect(r).toMatchObject({ ok: true, resultId: 'run1', cvStatus: 'none' })
+    // The fixture has no CV — this run is an explicitly confirmed answers-only one.
+    const r = await runAiScreening(session, 'app1', { allowAnswersOnly: true })
+    expect(r).toMatchObject({ ok: true, resultId: 'run1', cvStatus: 'none', screeningSource: 'APPLICATION_ANSWERS_ONLY' })
     expect(r.ok && r.cvMessage).toContain('No CV is attached')
     const createArg = mockDb.aiScreeningResult.create.mock.calls[0][0].data
     expect(createArg.status).toBe('running')
@@ -179,7 +180,7 @@ describe('runAiScreening — structured outcomes and guards', () => {
   it('provider failure → failed row with a SAFE message, run remains retryable', async () => {
     consentedApplication()
     mockCreate.mockRejectedValue(new Error('401 invalid x-api-key sk-ant-secret'))
-    const r = await runAiScreening(session, 'app1')
+    const r = await runAiScreening(session, 'app1', { allowAnswersOnly: true })
     expect(r.ok).toBe(true)   // row saved for audit; UI shows failed chip
     const updateArg = mockDb.aiScreeningResult.update.mock.calls[0][0].data
     expect(updateArg.status).toBe('failed')
@@ -190,7 +191,7 @@ describe('runAiScreening — structured outcomes and guards', () => {
   it('screening NEVER changes pipeline stage or application status', async () => {
     consentedApplication()
     mockCreate.mockResolvedValue({ content: [{ type: 'text', text: '{"summary":"ok","strengths":[],"concerns":[],"suggestedQuestions":[],"matchScore":10}' }] })
-    await runAiScreening(session, 'app1')
+    await runAiScreening(session, 'app1', { allowAnswersOnly: true })
     // No update surface for JobApplication exists in the mock — and the
     // source contains no stage/status writes at all:
     const lib = read('lib/recruitment/ai-screening.ts')

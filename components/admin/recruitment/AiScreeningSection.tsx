@@ -20,7 +20,18 @@ interface ScreeningResult {
   matchScore: number | null; cvUsed: boolean; error: string | null
   model: string; requestedBy: string; reviewedBy: string | null
   reviewedAt: string | null; createdAt: string
+  screeningSource?: 'CV_AND_APPLICATION' | 'CV_ONLY' | 'APPLICATION_ANSWERS_ONLY'
 }
+
+/** What fed a result. Older rows predate the column — derive from cvUsed. */
+function sourceOf(r: ScreeningResult): 'CV_AND_APPLICATION' | 'CV_ONLY' | 'APPLICATION_ANSWERS_ONLY' {
+  return r.screeningSource ?? (r.cvUsed ? 'CV_AND_APPLICATION' : 'APPLICATION_ANSWERS_ONLY')
+}
+const SOURCE_LABELS = {
+  CV_AND_APPLICATION:       'CV + application answers',
+  CV_ONLY:                  'CV only',
+  APPLICATION_ANSWERS_ONLY: 'Application answers only — partial',
+} as const
 
 /** Parse a response that may not be JSON (crash pages, gateway errors). */
 async function safeJson(res: Response): Promise<Record<string, unknown>> {
@@ -34,6 +45,9 @@ export default function AiScreeningSection({ applicationId }: { applicationId: s
   const [running,  setRunning]  = useState(false)
   const [busy,     setBusy]     = useState(false)
   const [loadFail, setLoadFail] = useState(false)
+  // Set when a run was refused because the CV is unreadable: the staff
+  // member must now explicitly choose retry / answers-only / cancel.
+  const [cvChoice, setCvChoice] = useState<string | null>(null)
   const inFlight = useRef(false)
 
   // ── CV extraction state ─────────────────────────────────────────────────
@@ -103,16 +117,33 @@ export default function AiScreeningSection({ applicationId }: { applicationId: s
   }, [applicationId])
   useEffect(() => { void load() }, [load])
 
-  async function run() {
+  async function run(confirmAnswersOnly = false) {
     // Single-flight: state alone isn't enough against double-clicks that
     // land before React re-renders the disabled button.
     if (inFlight.current) return
+    // Answers-only screening is partial and permanent on the audit record —
+    // it never runs without this explicit confirmation.
+    if (confirmAnswersOnly && !window.confirm(
+      'Run a PARTIAL screening from the application answers only?\n\n' +
+      'The attached CV will NOT be included because its text could not be extracted. ' +
+      'The result will be permanently labelled "Application answers only — partial" ' +
+      'and recorded against your name.')) return
     inFlight.current = true
-    setRunning(true); setError(''); setNotice('')
+    setRunning(true); setError(''); setNotice(''); setCvChoice(null)
     try {
-      const res  = await fetch(`/api/admin/recruitment/applications/${applicationId}/ai-screening`, { method: 'POST' })
+      const res  = await fetch(`/api/admin/recruitment/applications/${applicationId}/ai-screening`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ confirmAnswersOnly }),
+      })
       const data = await safeJson(res)
       if (!res.ok) {
+        if (data.code === 'CV_UNAVAILABLE') {
+          // Not an error — a decision point. No silent fallback: the staff
+          // member chooses retry, answers-only (with confirmation), or cancel.
+          setCvChoice((data.message as string) ?? 'The CV text could not be extracted.')
+          void loadExtraction()
+          return
+        }
         setError((data.message as string) ?? (data.error as string) ?? `Screening failed (HTTP ${res.status}). Please try again.`)
         return
       }
@@ -223,14 +254,84 @@ export default function AiScreeningSection({ applicationId }: { applicationId: s
       )}
       {error  && <p className="text-xs text-red-600 bg-red-50 rounded-lg px-3 py-2">{error}</p>}
       {notice && <p className="text-xs text-amber-700 bg-amber-50 rounded-lg px-3 py-2">{notice}</p>}
+
+      {/* ── CV unreadable: explicit staff decision, never a silent fallback ── */}
+      {cvChoice && !running && (
+        <div className="border border-amber-300 bg-amber-50 rounded-xl p-4 space-y-2">
+          <p className="text-xs font-bold text-amber-800 flex items-center gap-1.5">
+            <AlertTriangle className="w-3.5 h-3.5" /> The CV could not be included in screening
+          </p>
+          <p className="text-xs text-amber-800">{cvChoice}</p>
+          <p className="text-xs text-amber-700">
+            Choose how to proceed — screening will not continue without your decision:
+          </p>
+          <div className="flex items-center gap-2 flex-wrap pt-1">
+            <button onClick={() => { setCvChoice(null); void runExtraction('native', true) }}
+              className="text-xs font-bold text-[#0B1F3A] bg-white border border-amber-300 px-3 py-1.5 rounded-lg hover:bg-amber-100">
+              Retry CV extraction
+            </button>
+            <button onClick={() => void run(true)}
+              className="text-xs font-bold text-amber-800 bg-white border border-amber-300 px-3 py-1.5 rounded-lg hover:bg-amber-100">
+              Screen application answers only
+            </button>
+            <button onClick={() => setCvChoice(null)}
+              className="text-xs font-semibold text-gray-500 px-3 py-1.5 rounded-lg hover:bg-amber-100">
+              Cancel
+            </button>
+          </div>
+          <p className="text-[10px] text-amber-700">
+            Answers-only screening is a partial assessment: it is permanently labelled as such, recorded
+            against your name, and can never be mistaken for full résumé screening. You can also ask the
+            candidate to re-send a text-based CV (Replace CV) and screen again afterwards.
+          </p>
+        </div>
+      )}
+
+      {/* ── Extraction fixed after a partial run: offer the full screening ── */}
+      {extraction?.status === 'completed' && !running && !cvChoice &&
+        results.some(r => r.status === 'completed') &&
+        sourceOf(results.filter(r => r.status === 'completed')[0]) === 'APPLICATION_ANSWERS_ONLY' && (
+        <div className="border border-green-200 bg-green-50 rounded-xl px-4 py-3 flex items-center gap-3 flex-wrap">
+          <p className="text-xs text-green-800">
+            The CV text has now been extracted. The latest result below is a partial, answers-only
+            assessment — it will be kept for audit; a full run creates a new result.
+          </p>
+          <button onClick={() => void run()}
+            className="text-xs font-bold text-white bg-green-700 px-3 py-1.5 rounded-lg hover:bg-green-800">
+            Run full CV screening
+          </button>
+        </div>
+      )}
       {loadFail && !error && (
         <p className="text-xs text-amber-700 bg-amber-50 rounded-lg px-3 py-2">
           Screening history could not be loaded — <button className="underline font-semibold" onClick={() => void load()}>retry</button>
         </p>
       )}
 
-      {results.map(r => (
-        <div key={r.id} className="border border-gray-100 rounded-xl p-4 space-y-2">
+      {results.map(r => {
+        const source  = sourceOf(r)
+        const partial = source === 'APPLICATION_ANSWERS_ONLY'
+        return (
+        <div key={r.id} className={`border rounded-xl p-4 space-y-2 ${partial ? 'border-amber-200' : 'border-gray-100'}`}>
+          {/* Heading names what was screened — a partial run is never titled
+              as résumé screening. */}
+          <p className="text-[11px] font-bold uppercase tracking-wide text-gray-400 flex items-center gap-2 flex-wrap">
+            {partial ? 'Application-answer screening' : 'Résumé screening'}
+            <span className={`normal-case tracking-normal font-semibold px-2 py-0.5 rounded-full ${partial ? 'text-amber-800 bg-amber-100' : 'text-gray-500 bg-gray-100'}`}>
+              {SOURCE_LABELS[source]}
+            </span>
+            {partial && (
+              <span className="normal-case tracking-normal inline-flex items-center gap-1 text-amber-800 bg-amber-100 px-2 py-0.5 rounded-full font-bold">
+                <AlertTriangle className="w-3 h-3" /> Partial assessment
+              </span>
+            )}
+          </p>
+          {partial && r.status === 'completed' && (
+            <p className="text-xs text-amber-800 bg-amber-50 rounded-lg px-3 py-2">
+              The attached CV was not included because its text could not be extracted.
+              This result reflects the application answers only.
+            </p>
+          )}
           <div className="flex items-center gap-2 flex-wrap text-xs">
             {r.status === 'running' ? (
               <span className="inline-flex items-center gap-1 text-[#0B1F3A] bg-[#FFF8E6] px-2 py-0.5 rounded-full font-semibold">
@@ -245,7 +346,7 @@ export default function AiScreeningSection({ applicationId }: { applicationId: s
                 Advisory match {r.matchScore !== null ? `${r.matchScore}/100` : '—'}
               </span>
             )}
-            <span className="text-gray-400">{fmt(r.createdAt)} · run by {r.requestedBy}{r.status === 'completed' ? (r.cvUsed ? ' · CV text included' : ' · CV not machine-readable') : ''}</span>
+            <span className="text-gray-400">{fmt(r.createdAt)} · run by {r.requestedBy}</span>
             {r.reviewedBy ? (
               <span className="inline-flex items-center gap-1 text-green-700 bg-green-50 px-2 py-0.5 rounded-full font-semibold">
                 <CheckCircle2 className="w-3 h-3" /> reviewed by {r.reviewedBy}
@@ -286,7 +387,8 @@ export default function AiScreeningSection({ applicationId }: { applicationId: s
             </div>
           )}
         </div>
-      ))}
+        )
+      })}
     </div>
   )
 }
