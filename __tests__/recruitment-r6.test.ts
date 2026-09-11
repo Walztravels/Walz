@@ -70,14 +70,14 @@ describe('screening prompt guardrails', () => {
     })
     expect(prompt).toContain('ROLE: Sales Rep')
     expect(prompt).toContain('Q: Q1')
-    expect(prompt).toContain('CV TEXT:\nCV')
+    expect(prompt).toContain('<<<CV_START>>>\nCV\n<<<CV_END>>>')
     expect(prompt.length).toBeLessThan(10_000)   // clipped
   })
   it('notes the limitation when the CV is not machine-readable', () => {
     const prompt = buildScreeningUserPrompt({
       jobTitle: 'X', requirements: 'Y', description: '', answers: [], coverLetter: '', cvText: '',
     })
-    expect(prompt).toContain('not machine-readable')
+    expect(prompt).toContain('no machine-readable CV text')
   })
 })
 

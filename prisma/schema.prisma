@@ -5525,3 +5525,32 @@ model FxQuoteLock {
   @@index([reference])
   @@map("fx_quote_locks")
 }
+
+// ── Recruitment: CV text extraction (server-only text, audit history) ────────
+// One row per extraction attempt. The checksum lets unchanged files reuse a
+// completed extraction instead of repeating OCR/paid processing; a replaced
+// CV (new document row / new checksum) gets a fresh row and the old rows
+// remain as audit history under the recruitment retention policy. The
+// extracted text lives ONLY here and is never exposed by list APIs.
+model CvExtraction {
+  id               String    @id @default(cuid())
+  documentId       String    @map("document_id")       // CandidateDocument.id
+  applicationId    String    @map("application_id")
+  checksum         String                               // sha256 of the file bytes
+  status           String    @default("pending")        // pending | processing | completed | failed
+  method           String?                              // native_pdf | docx | ocr | plain_text
+  extractorVersion String    @default("1") @map("extractor_version")
+  pageCount        Int?      @map("page_count")
+  failureCode      String?   @map("failure_code")       // safe machine code, never raw errors
+  text             String?   @db.Text                   // server-only extracted text
+  charCount        Int       @default(0) @map("char_count")
+  mimeStored       String?   @map("mime_stored")        // contentType recorded at upload
+  mimeDetected     String?   @map("mime_detected")      // real file-signature type
+  requestedBy      String?   @map("requested_by")       // staff email (null = system/screening)
+  createdAt        DateTime  @default(now()) @map("created_at")
+  completedAt      DateTime? @map("completed_at")
+
+  @@index([documentId, checksum])
+  @@index([applicationId, createdAt])
+  @@map("cv_extractions")
+}

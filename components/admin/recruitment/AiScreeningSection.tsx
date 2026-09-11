@@ -36,6 +36,57 @@ export default function AiScreeningSection({ applicationId }: { applicationId: s
   const [loadFail, setLoadFail] = useState(false)
   const inFlight = useRef(false)
 
+  // ── CV extraction state ─────────────────────────────────────────────────
+  interface ExtractionMeta {
+    id?: string; status: string; method: string | null; pageCount: number | null
+    charCount: number; failureCode: string | null; message: string | null
+    completedAt: string | null
+  }
+  const [extraction,   setExtraction]   = useState<ExtractionMeta | null>(null)
+  const [extracting,   setExtracting]   = useState<false | 'native' | 'ocr'>(false)
+  const [extractError, setExtractError] = useState('')
+  const extractFlight = useRef(false)
+
+  const loadExtraction = useCallback(async () => {
+    try {
+      const res  = await fetch(`/api/admin/recruitment/applications/${applicationId}/cv-extraction`)
+      const data = await safeJson(res)
+      if (res.ok) setExtraction((data.extraction as ExtractionMeta | null) ?? null)
+    } catch { /* panel shows nothing on network failure */ }
+  }, [applicationId])
+  useEffect(() => { void loadExtraction() }, [loadExtraction])
+
+  async function runExtraction(mode: 'native' | 'ocr', force = false) {
+    if (extractFlight.current) return
+    extractFlight.current = true
+    setExtracting(mode); setExtractError('')
+    try {
+      const res  = await fetch(`/api/admin/recruitment/applications/${applicationId}/cv-extraction`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ mode, force }),
+      })
+      const data = await safeJson(res)
+      if (!res.ok && data.status !== 'needs_ocr') {
+        setExtractError((data.message as string) ?? `CV could not be read (HTTP ${res.status}).`)
+      } else if (data.status === 'needs_ocr') {
+        // Real two-phase state: the document is scanned — run OCR now.
+        setExtracting('ocr')
+        const ocrRes  = await fetch(`/api/admin/recruitment/applications/${applicationId}/cv-extraction`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ mode: 'ocr' }),
+        })
+        const ocrData = await safeJson(ocrRes)
+        if (!ocrRes.ok) setExtractError((ocrData.message as string) ?? 'OCR failed. Please try again.')
+      }
+      await loadExtraction()
+    } catch {
+      setExtractError('Network error while reading the CV — please try again.')
+    } finally {
+      extractFlight.current = false
+      setExtracting(false)
+    }
+  }
+
   const load = useCallback(async () => {
     try {
       const res  = await fetch(`/api/admin/recruitment/applications/${applicationId}/ai-screening`)
@@ -108,7 +159,7 @@ export default function AiScreeningSection({ applicationId }: { applicationId: s
           <Sparkles className="w-4 h-4 text-[#C9A84C]" /> AI screening
           <span className="text-[10px] font-semibold text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full">advisory only</span>
         </h2>
-        <button onClick={() => void run()} disabled={running}
+        <button onClick={() => void run()} disabled={running || extracting !== false}
           className="text-xs font-bold text-[#0B1F3A] bg-[#C9A84C] px-3 py-1.5 rounded-lg disabled:opacity-40 inline-flex items-center gap-1.5">
           {running && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
           {running ? 'Screening application…' : hasCompleted ? 'Run screening again' : 'Run AI screening'}
@@ -119,6 +170,52 @@ export default function AiScreeningSection({ applicationId }: { applicationId: s
         never moves the pipeline, and its output must be reviewed by a person. All hiring decisions are made by staff.
         {hasCompleted && ' Previous results stay below for audit history.'}
       </p>
+      {/* ── CV extraction status ── */}
+      <div className="border border-gray-100 rounded-xl px-3 py-2 text-xs flex items-center gap-2 flex-wrap">
+        {extracting === 'native' ? (
+          <span className="inline-flex items-center gap-1.5 text-[#0B1F3A] font-semibold">
+            <Loader2 className="w-3.5 h-3.5 animate-spin text-[#C9A84C]" /> Reading CV…
+          </span>
+        ) : extracting === 'ocr' ? (
+          <span className="inline-flex items-center gap-1.5 text-[#0B1F3A] font-semibold">
+            <Loader2 className="w-3.5 h-3.5 animate-spin text-[#C9A84C]" /> Scanned CV detected — running OCR…
+          </span>
+        ) : extraction?.status === 'completed' ? (
+          <>
+            <span className="inline-flex items-center gap-1 text-green-700 bg-green-50 px-2 py-0.5 rounded-full font-semibold">
+              <CheckCircle2 className="w-3 h-3" /> CV text extracted
+            </span>
+            <span className="text-gray-400">
+              {extraction.method === 'ocr' ? 'OCR' : extraction.method === 'native_pdf' ? 'PDF text' : extraction.method === 'docx' ? 'Word document' : 'plain text'}
+              {extraction.pageCount ? ` · ${extraction.pageCount} page${extraction.pageCount === 1 ? '' : 's'}` : ''}
+              {` · ${extraction.charCount.toLocaleString()} chars`}
+              {extraction.completedAt ? ` · ${new Date(extraction.completedAt).toLocaleString('en-GB', { dateStyle: 'medium', timeStyle: 'short' })}` : ''}
+            </span>
+          </>
+        ) : extraction?.status === 'failed' ? (
+          <>
+            <span className="inline-flex items-center gap-1 text-amber-700 bg-amber-50 px-2 py-0.5 rounded-full font-semibold">
+              <AlertTriangle className="w-3 h-3" /> CV could not be read
+            </span>
+            {extraction.message && <span className="text-gray-500">{extraction.message}</span>}
+            <button onClick={() => void runExtraction('native', true)}
+              className="font-semibold text-[#C9A84C] hover:underline">Retry extraction</button>
+            <span className="text-gray-400">Or ask the candidate to re-send a text-based CV.</span>
+          </>
+        ) : extraction?.status === 'processing' ? (
+          <span className="inline-flex items-center gap-1.5 text-[#0B1F3A] font-semibold">
+            <Loader2 className="w-3.5 h-3.5 animate-spin text-[#C9A84C]" /> Reading CV…
+          </span>
+        ) : (
+          <>
+            <span className="text-gray-400">CV text not extracted yet.</span>
+            <button onClick={() => void runExtraction('native')}
+              className="font-semibold text-[#C9A84C] hover:underline">Read CV</button>
+          </>
+        )}
+      </div>
+      {extractError && <p className="text-xs text-red-600 bg-red-50 rounded-lg px-3 py-2">{extractError}</p>}
+
       {running && (
         <p className="text-xs text-[#0B1F3A] bg-[#FFF8E6] border border-[#C9A84C]/30 rounded-lg px-3 py-2 inline-flex items-center gap-2">
           <Loader2 className="w-3.5 h-3.5 animate-spin text-[#C9A84C]" /> Screening application… this usually takes a few seconds.

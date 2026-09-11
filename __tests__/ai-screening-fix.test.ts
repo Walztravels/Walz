@@ -218,7 +218,7 @@ describe('route + UI invariants', () => {
     expect(ui).toContain('async function safeJson')
     // The only res.json() lives inside the try/catch of safeJson itself:
     expect(ui.match(/await res\.json\(\)/g)?.length).toBe(1)
-    expect(ui.match(/await safeJson\(res\)/g)?.length).toBe(3)
+    expect((ui.match(/await safeJson\(/g)?.length ?? 0)).toBeGreaterThanOrEqual(3)
     // Every failure path sets a visible message:
     expect(ui).toContain('Network error while screening')
     expect(ui).toContain('Screening history could not be loaded')
@@ -228,7 +228,7 @@ describe('route + UI invariants', () => {
     expect(ui).toContain('const inFlight = useRef(false)')
     expect(ui).toContain('if (inFlight.current) return')
     expect(ui).toContain('inFlight.current = true')
-    expect(ui).toContain('disabled={running}')
+    expect(ui).toContain('disabled={running || extracting !== false}')
   })
 
   it('UI: explicit re-run action and audit history retained', () => {
