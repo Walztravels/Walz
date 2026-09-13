@@ -166,8 +166,11 @@ const nextConfig = {
               "style-src 'self' 'unsafe-inline' https:",
               "font-src 'self' https://fonts.gstatic.com",
               "img-src 'self' data: blob: https:",
-              "frame-src 'self' https://workspace.aircall.io https://phone.aircall.io https://*.aircall.io https://js.stripe.com https://hooks.stripe.com",
-              "child-src 'self' https://workspace.aircall.io https://phone.aircall.io https://*.aircall.io",
+              // blob: — the doc-auth Flight Itinerary / Hotel Voucher PDF preview
+              // frames a same-origin blob URL (blob URLs are origin-bound, so this
+              // opens no cross-site framing); *.supabase.co — its pdfUrl fallback.
+              "frame-src 'self' blob: https://*.supabase.co https://workspace.aircall.io https://phone.aircall.io https://*.aircall.io https://js.stripe.com https://hooks.stripe.com",
+              "child-src 'self' blob: https://workspace.aircall.io https://phone.aircall.io https://*.aircall.io",
               "connect-src 'self' https: wss: https://*.aircall.io wss://*.aircall.io",
               "media-src 'self' https:",
               "object-src 'none'",
