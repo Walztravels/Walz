@@ -1,4 +1,4 @@
-import { Resend } from 'resend'
+import { Resend } from '@/lib/resend-hardened'
 import { createHmac } from 'crypto'
 import type { BookingPassenger, BookingAddon } from '@/types/booking'
 import { TRUSTPILOT_AFS_EMAIL } from '@/lib/email-visa'

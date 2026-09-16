@@ -4,7 +4,7 @@ import { prisma } from '@/lib/db'
 import { BUSINESS } from '@/lib/config/business'
 import bcrypt from 'bcryptjs'
 import crypto from 'crypto'
-import { Resend } from 'resend'
+import { Resend } from '@/lib/resend-hardened'
 
 function getResend() {
   if (!process.env.RESEND_API_KEY) return null

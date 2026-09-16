@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getStripe } from '@/lib/stripe'
-import { Resend } from 'resend'
+import { Resend } from '@/lib/resend-hardened'
 import prisma from '@/lib/db'
 
 

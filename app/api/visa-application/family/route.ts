@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/db'
-import { Resend } from 'resend'
+import { Resend } from '@/lib/resend-hardened'
 import { ensurePortalAccount } from '@/lib/portal-account'
 
 export const dynamic = 'force-dynamic'

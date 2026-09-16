@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getAdminSession } from '@/lib/admin-auth'
 import { getStaffPermissionsByEmail } from '@/lib/getStaffPermissions'
 import prisma from '@/lib/db'
-import { Resend } from 'resend'
+import { Resend } from '@/lib/resend-hardened'
 
 function getResend() {
   if (!process.env.RESEND_API_KEY) return null

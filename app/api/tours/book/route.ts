@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import prisma from '@/lib/db'
-import { Resend } from 'resend'
+import { Resend } from '@/lib/resend-hardened'
 import { priceTour, TourPricingError } from '@/lib/tours/pricing'
 import { reconcileFlutterwavePayment, PAYMENT_RECONCILIATION_REQUIRED } from '@/lib/payments/authority'
 

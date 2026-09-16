@@ -1,4 +1,4 @@
-import { Resend } from 'resend'
+import { Resend } from '@/lib/resend-hardened'
 
 /** Internal helper — returns a Resend client, throws if key not set */
 export function getResend(): Resend {

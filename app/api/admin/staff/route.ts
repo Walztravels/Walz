@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import bcrypt from 'bcryptjs'
-import { Resend } from 'resend'
+import { Resend } from '@/lib/resend-hardened'
 import { getAdminSession } from '@/lib/admin-auth'
 import prisma from '@/lib/db'
 

@@ -1,4 +1,4 @@
-import { Resend } from 'resend'
+import { Resend } from '@/lib/resend-hardened'
 import { BUSINESS } from '@/lib/config/business'
 
 function getResend() {

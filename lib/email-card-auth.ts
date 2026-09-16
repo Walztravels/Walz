@@ -1,4 +1,4 @@
-import { Resend } from 'resend'
+import { Resend } from '@/lib/resend-hardened'
 import { formatCurrencyMinor } from '@/lib/currency'
 
 function getResend(): Resend {

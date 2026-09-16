@@ -1,4 +1,4 @@
-import { Resend } from 'resend'
+import { Resend } from '@/lib/resend-hardened'
 
 export function getResend(): Resend {
   if (!process.env.RESEND_API_KEY) {

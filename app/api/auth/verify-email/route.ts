@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import crypto from 'crypto'
 import prisma from '@/lib/db'
-import { Resend } from 'resend'
+import { Resend } from '@/lib/resend-hardened'
 
 const FROM = 'Walz Travels <noreply@walztravels.com>'
 

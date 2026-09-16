@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import bcrypt from 'bcryptjs'
 import crypto from 'crypto'
 import prisma from '@/lib/db'
-import { Resend } from 'resend'
+import { Resend } from '@/lib/resend-hardened'
 import { signupRateLimit } from '@/lib/rate-limit'
 import { trackCommercialEvent } from '@/lib/commercial/track'
 

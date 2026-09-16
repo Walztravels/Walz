@@ -3,7 +3,7 @@ import bcrypt from 'bcryptjs'
 import { signAdminToken, COOKIE_NAME } from '@/lib/admin-auth'
 import { z } from 'zod'
 import prisma from '@/lib/db'
-import { Resend } from 'resend'
+import { Resend } from '@/lib/resend-hardened'
 import { adminLoginRateLimit } from '@/lib/rate-limit'
 
 const schema = z.object({

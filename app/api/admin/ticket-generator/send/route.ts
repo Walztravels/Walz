@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getAdminSession } from '@/lib/admin-auth'
 import prisma from '@/lib/db'
-import { Resend } from 'resend'
+import { Resend } from '@/lib/resend-hardened'
 import { BUSINESS } from '@/lib/config/business'
 import { renderToBuffer } from '@react-pdf/renderer'
 import React from 'react'

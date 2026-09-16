@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { verifyPagaTransaction }    from '@/lib/paga'
 import { prisma }                   from '@/lib/db'
-import { Resend }                   from 'resend'
+import { Resend }                   from '@/lib/resend-hardened'
 
 export const dynamic = 'force-dynamic'
 

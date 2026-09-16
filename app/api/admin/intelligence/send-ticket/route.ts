@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { Resend } from 'resend'
+import { Resend } from '@/lib/resend-hardened'
 import { getAdminSession } from '@/lib/admin-auth'
 
 export const dynamic     = 'force-dynamic'

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { verifyPagaWebhookHash }     from '@/lib/paga'
 import { prisma }                    from '@/lib/db'
-import { Resend }                    from 'resend'
+import { Resend }                    from '@/lib/resend-hardened'
 
 const SYMBOLS: Record<string, string> = {
   GBP: '£', USD: '$', EUR: '€', NGN: '₦', GHS: 'GH₵', CAD: 'CA$', KES: 'KSh', AED: 'AED',
