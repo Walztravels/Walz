@@ -1,5 +1,6 @@
 'use client'
 
+import { fetchRecords } from '@/lib/intelligence/fetch-records'
 import { useState, useEffect, useCallback } from 'react'
 
 interface Conversation {
@@ -41,15 +42,15 @@ export default function ConversationPage() {
     intent: '',
   })
 
+  const [loadError, setLoadError] = useState('')
+
   const load = useCallback(async () => {
     setLoading(true)
-    try {
-      const res = await fetch('/api/admin/intelligence/conversation')
-      const data = await res.json()
-      setConversations(data.conversations ?? data ?? [])
-    } finally {
-      setLoading(false)
-    }
+    setLoadError('')
+    const result = await fetchRecords<Conversation>('/api/admin/intelligence/conversation', 'conversations')
+    if (result.ok) setConversations(result.records)
+    else { setConversations([]); setLoadError(result.error) }
+    setLoading(false)
   }, [])
 
   useEffect(() => { load() }, [load])
@@ -161,6 +162,11 @@ export default function ConversationPage() {
         {loading ? (
           <div className="p-12 text-center">
             <div className="w-6 h-6 border-2 border-[#C9A84C] border-t-transparent rounded-full animate-spin mx-auto" />
+          </div>
+        ) : loadError ? (
+          <div className="p-12 text-center">
+            <p className="text-sm text-red-600 mb-2">{loadError}</p>
+            <button onClick={() => void load()} className="text-sm font-semibold text-[#C9A84C] hover:underline">Retry</button>
           </div>
         ) : filtered.length === 0 ? (
           <div className="p-12 text-center text-sm text-gray-400">

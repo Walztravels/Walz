@@ -1,5 +1,6 @@
 'use client'
 
+import { fetchRecords } from '@/lib/intelligence/fetch-records'
 import { useState, useEffect, useCallback } from 'react'
 
 type Severity = 'all' | 'low' | 'medium' | 'high' | 'critical'
@@ -62,15 +63,15 @@ export default function EmbassyFeedPage() {
     detail: '',
   })
 
+  const [loadError, setLoadError] = useState('')
+
   const load = useCallback(async () => {
     setLoading(true)
-    try {
-      const res = await fetch('/api/admin/intelligence/embassy-feed?limit=50')
-      const data = await res.json()
-      setFeeds(data.feeds ?? data ?? [])
-    } finally {
-      setLoading(false)
-    }
+    setLoadError('')
+    const result = await fetchRecords<FeedItem>('/api/admin/intelligence/embassy-feed?limit=50', 'feeds')
+    if (result.ok) setFeeds(result.records)
+    else { setFeeds([]); setLoadError(result.error) }
+    setLoading(false)
   }, [])
 
   useEffect(() => { load() }, [load])
@@ -183,7 +184,12 @@ export default function EmbassyFeedPage() {
         <div className="bg-white rounded-xl p-12 text-center border border-gray-100 shadow-sm">
           <div className="w-6 h-6 border-2 border-[#C9A84C] border-t-transparent rounded-full animate-spin mx-auto" />
         </div>
-      ) : filtered.length === 0 ? (
+      ) : loadError ? (
+          <div className="p-12 text-center">
+            <p className="text-sm text-red-600 mb-2">{loadError}</p>
+            <button onClick={() => void load()} className="text-sm font-semibold text-[#C9A84C] hover:underline">Retry</button>
+          </div>
+        ) : filtered.length === 0 ? (
         <div className="bg-white rounded-xl p-12 text-center text-sm text-gray-400 border border-gray-100 shadow-sm">
           No alerts found.
         </div>

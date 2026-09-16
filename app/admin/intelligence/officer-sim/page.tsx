@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
+import { fetchRecords } from '@/lib/intelligence/fetch-records'
 
 interface SimSession {
   id: string
@@ -37,16 +38,16 @@ export default function OfficerSimPage() {
   })
   const [simResult, setSimResult] = useState<SimResult | null>(null)
   const [simLoading, setSimLoading] = useState(false)
+  const [simError, setSimError] = useState('')
+  const [loadError, setLoadError] = useState('')
 
   const load = useCallback(async () => {
     setLoading(true)
-    try {
-      const res = await fetch('/api/admin/intelligence/officer-sim')
-      const data = await res.json()
-      setSessions(data.sessions ?? data ?? [])
-    } finally {
-      setLoading(false)
-    }
+    setLoadError('')
+    const result = await fetchRecords<SimSession>('/api/admin/intelligence/officer-sim', 'sessions')
+    if (result.ok) setSessions(result.records)
+    else { setSessions([]); setLoadError(result.error) }
+    setLoading(false)
   }, [])
 
   useEffect(() => { load() }, [load])
@@ -55,15 +56,37 @@ export default function OfficerSimPage() {
     e.preventDefault()
     setSimLoading(true)
     setSimResult(null)
+    setSimError('')
     try {
       const res = await fetch('/api/admin/intelligence/officer-sim', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(form),
       })
-      const data = await res.json()
-      setSimResult(data.result ?? data)
+      const data = await res.json().catch(() => ({})) as {
+        simulation?: { objections?: string[]; idealResponses?: string[]; weakestDoc?: string; resistanceScore?: number; sessionNotes?: string }
+        error?: string
+      }
+      // The API returns { session, simulation } — never read arrays off an
+      // unknown response shape.
+      const sim = data.simulation
+      if (!res.ok || !sim || !Array.isArray(sim.objections)) {
+        setSimError(data.error ?? `Simulation failed (HTTP ${res.status}). Please try again.`)
+        return
+      }
+      setSimResult({
+        resistanceScore: sim.resistanceScore ?? 0,
+        weakestDoc:      sim.weakestDoc ?? '',
+        sessionNotes:    sim.sessionNotes ?? '',
+        // Pair each objection with its ideal response for display.
+        objections: sim.objections.map((objection, i) => ({
+          objection,
+          response: sim.idealResponses?.[i] ?? '',
+        })),
+      })
       await load()
+    } catch {
+      setSimError('Network error while running the simulation — please try again.')
     } finally {
       setSimLoading(false)
     }
@@ -138,6 +161,12 @@ export default function OfficerSimPage() {
             </form>
           </div>
 
+          {simError && (
+            <div className="bg-red-50 border border-red-200 rounded-xl p-4">
+              <p className="text-sm text-red-700">{simError}</p>
+            </div>
+          )}
+
           {simResult && (
             <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 space-y-4">
               <h2 className="text-sm font-semibold text-[#0B1F3A]">Simulation Result</h2>
@@ -184,6 +213,11 @@ export default function OfficerSimPage() {
           {loading ? (
             <div className="p-12 text-center">
               <div className="w-6 h-6 border-2 border-[#C9A84C] border-t-transparent rounded-full animate-spin mx-auto" />
+            </div>
+          ) : loadError ? (
+            <div className="p-8 text-center">
+              <p className="text-sm text-red-600 mb-2">{loadError}</p>
+              <button onClick={() => void load()} className="text-sm font-semibold text-[#C9A84C] hover:underline">Retry</button>
             </div>
           ) : sessions.length === 0 ? (
             <div className="p-8 text-center text-sm text-gray-400">No sessions yet.</div>

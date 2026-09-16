@@ -217,6 +217,7 @@ const nextConfig = {
     // production 2026-09-11). Force the whole cjs dist (3.3 MB) into the
     // functions that parse PDFs.
     outputFileTracingIncludes: {
+      '/api/admin/intelligence/visa-doc-upload':                 ['./node_modules/pdf-parse/dist/pdf-parse/cjs/**'],
       '/api/admin/recruitment/applications/[id]/ai-screening':   ['./node_modules/pdf-parse/dist/pdf-parse/cjs/**'],
       '/api/admin/recruitment/applications/[id]/cv-extraction':  ['./node_modules/pdf-parse/dist/pdf-parse/cjs/**'],
       '/api/admin/visa/analyse':                                 ['./node_modules/pdf-parse/dist/pdf-parse/cjs/**'],

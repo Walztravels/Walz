@@ -16,36 +16,26 @@ export async function GET(req: NextRequest) {
   if (applicationId) where.applicationId = applicationId
   if (verdict) where.verdict = verdict
 
-  const checks = await prisma.documentAuthenticityCheck.findMany({ where })
+  const checks = await prisma.documentAuthenticityCheck.findMany({
+    where,
+    orderBy: { checkedAt: 'desc' },
+    take: 100,
+  })
 
   return NextResponse.json({ checks })
 }
 
-export async function POST(req: NextRequest) {
-  const session = await getAdminSession()
-  if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-
-  const { applicationId, documentType, fileName } = await req.json()
-
-  const authenticityScore = Math.floor(Math.random() * 40) + 60
-  const verdict =
-    authenticityScore >= 80 ? 'authentic' : authenticityScore >= 60 ? 'suspicious' : 'fraudulent'
-  const stampDetected = Math.random() > 0.7
-  const signatureDetected = Math.random() > 0.5
-  const flags = verdict === 'authentic' ? [] : ['inconsistent_metadata']
-
-  const check = await prisma.documentAuthenticityCheck.create({
-    data: {
-      applicationId,
-      documentType,
-      fileName,
-      authenticityScore,
-      verdict,
-      stampDetected,
-      signatureDetected,
-      flags,
+/**
+ * Disabled: forensic checks are created only by the real analysis
+ * pipeline at /api/admin/intelligence/visa-doc-upload — never fabricated
+ * here. GET remains; Document History depends on it.
+ */
+export async function POST() {
+  return NextResponse.json(
+    {
+      error: 'This endpoint no longer creates document checks. Use the Document Upload & Analysis pipeline instead.',
+      code:  'ENDPOINT_DISABLED',
     },
-  })
-
-  return NextResponse.json({ check })
+    { status: 405, headers: { Allow: 'GET' } },
+  )
 }

@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
+import { fetchRecords } from '@/lib/intelligence/fetch-records'
 
 interface DnaRecord {
   id: string
@@ -27,15 +28,10 @@ export default function FinancialDnaPage() {
   const load = useCallback(async () => {
     setLoading(true)
     setError(null)
-    try {
-      const res = await fetch('/api/admin/intelligence/dna')
-      const data = await res.json()
-      setRecords(data.records ?? data ?? [])
-    } catch {
-      setError('Failed to load Financial DNA records.')
-    } finally {
-      setLoading(false)
-    }
+    const result = await fetchRecords<DnaRecord>('/api/admin/intelligence/dna', 'records')
+    if (result.ok) setRecords(result.records)
+    else { setRecords([]); setError(result.error) }
+    setLoading(false)
   }, [])
 
   useEffect(() => { load() }, [load])

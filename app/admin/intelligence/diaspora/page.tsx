@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
+import { fetchRecords } from '@/lib/intelligence/fetch-records'
 
 interface DiasporaRecord {
   id: string
@@ -30,16 +31,15 @@ export default function DiasporaPage() {
     outcome: 'approved',
   })
   const [submitting, setSubmitting] = useState(false)
+  const [loadError, setLoadError] = useState('')
 
   const load = useCallback(async () => {
     setLoading(true)
-    try {
-      const res = await fetch('/api/admin/intelligence/diaspora')
-      const json = await res.json()
-      setData(json.records ?? json ?? [])
-    } finally {
-      setLoading(false)
-    }
+    setLoadError('')
+    const result = await fetchRecords<DiasporaRecord>('/api/admin/intelligence/diaspora', 'records')
+    if (result.ok) setData(result.records)
+    else { setData([]); setLoadError(result.error) }
+    setLoading(false)
   }, [])
 
   useEffect(() => { load() }, [load])
@@ -131,8 +131,13 @@ export default function DiasporaPage() {
           <div className="p-12 text-center">
             <div className="w-6 h-6 border-2 border-[#C9A84C] border-t-transparent rounded-full animate-spin mx-auto" />
           </div>
+        ) : loadError ? (
+          <div className="p-12 text-center">
+            <p className="text-sm text-red-600 mb-3">{loadError}</p>
+            <button onClick={() => void load()} className="text-sm font-semibold text-[#C9A84C] hover:underline">Retry</button>
+          </div>
         ) : filtered.length === 0 ? (
-          <div className="p-12 text-center text-sm text-gray-400">No diaspora data found.</div>
+          <div className="p-12 text-center text-sm text-gray-400">No diaspora records yet. Outcomes recorded above will appear here.</div>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
@@ -160,15 +165,21 @@ export default function DiasporaPage() {
                     <td className="px-4 py-3 text-xs text-green-700 font-semibold">{d.approvals}</td>
                     <td className="px-4 py-3 text-xs text-red-600 font-semibold">{d.refusals}</td>
                     <td className="px-4 py-3">
-                      <div className="flex items-center gap-2">
-                        <div className="w-16 h-1.5 rounded-full bg-gray-200 overflow-hidden">
-                          <div
-                            className={`h-full rounded-full ${d.approvalRate >= 70 ? 'bg-green-500' : d.approvalRate >= 40 ? 'bg-yellow-500' : 'bg-red-500'}`}
-                            style={{ width: `${d.approvalRate ?? 0}%` }}
-                          />
-                        </div>
-                        <span className="text-xs font-semibold text-[#0B1F3A]">{d.approvalRate?.toFixed(0)}%</span>
-                      </div>
+                      {/* DB stores a 0–1 fraction; display converts to percent. */}
+                      {(() => {
+                        const ratePct = Math.min(100, Math.max(0, Math.round((d.approvalRate ?? 0) * 100)))
+                        return (
+                          <div className="flex items-center gap-2">
+                            <div className="w-16 h-1.5 rounded-full bg-gray-200 overflow-hidden">
+                              <div
+                                className={`h-full rounded-full ${ratePct >= 70 ? 'bg-green-500' : ratePct >= 40 ? 'bg-yellow-500' : 'bg-red-500'}`}
+                                style={{ width: `${ratePct}%` }}
+                              />
+                            </div>
+                            <span className="text-xs font-semibold text-[#0B1F3A]">{ratePct}%</span>
+                          </div>
+                        )
+                      })()}
                     </td>
                     <td className="px-4 py-3 text-xs text-gray-700">£{d.avgApprovedBalance?.toLocaleString()}</td>
                     <td className="px-4 py-3 text-xs text-gray-500">{d.peakMonths?.join(', ') ?? '—'}</td>

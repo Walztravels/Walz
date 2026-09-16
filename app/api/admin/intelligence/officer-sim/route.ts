@@ -61,17 +61,31 @@ resistanceScore must be 0-100. Return only valid JSON, no markdown.`,
     sessionNotes: string
   }
 
+  // A simulation that cannot be parsed is a FAILED run: it is reported as
+  // a controlled error and nothing is persisted — canned substitute output
+  // must never be saved indistinguishably from real analysis.
   try {
-    const text = content.type === 'text' ? content.text : ''
-    simulation = JSON.parse(text)
-  } catch {
-    simulation = {
-      objections: ['Insufficient funds', 'Weak ties to home country', 'Incomplete documentation'],
-      idealResponses: ['Provide bank statements', 'Show property ownership', 'Submit all required forms'],
-      weakestDoc: 'Bank statement',
-      resistanceScore: 65,
-      sessionNotes: 'Standard simulation completed',
+    const text = content.type === 'text' ? content.text.trim() : ''
+    const cleaned = text.replace(/^```json\s*/i, '').replace(/```\s*$/, '').trim()
+    const parsed = JSON.parse(cleaned) as Record<string, unknown>
+    if (!Array.isArray(parsed.objections) || !Array.isArray(parsed.idealResponses)) {
+      throw new Error('missing arrays')
     }
+    simulation = {
+      objections:      (parsed.objections as unknown[]).map(String).slice(0, 10),
+      idealResponses:  (parsed.idealResponses as unknown[]).map(String).slice(0, 10),
+      weakestDoc:      String(parsed.weakestDoc ?? ''),
+      resistanceScore: Math.min(100, Math.max(0, Math.round(Number(parsed.resistanceScore) || 0))),
+      sessionNotes:    String(parsed.sessionNotes ?? ''),
+    }
+  } catch {
+    return NextResponse.json(
+      {
+        ok: false, code: 'AI_PARSE_FAILED',
+        error: 'The simulation response could not be parsed — nothing was saved. Please run the simulation again.',
+      },
+      { status: 502 },
+    )
   }
 
   const record = await prisma.officerSimulationSession.create({

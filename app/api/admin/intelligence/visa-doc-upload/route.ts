@@ -2,6 +2,11 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getAnthropic } from '@/lib/anthropic'
 import { getAdminSession } from '@/lib/admin-auth'
 import prisma from '@/lib/db'
+import { extractPdfText, PdfExtractionError } from '@/lib/extractPdfText'
+import {
+  assessPdfText, buildPdfTextAnalysisPrompt, reviewStateFromVerdict,
+  PDF_UNREADABLE_MESSAGE,
+} from '@/lib/intelligence/doc-analysis'
 
 export const dynamic     = 'force-dynamic'
 export const maxDuration = 60
@@ -82,27 +87,56 @@ export async function POST(req: NextRequest) {
           const cleaned = text.replace(/^```json\s*/i, '').replace(/```\s*$/, '').trim()
           analysisResult = JSON.parse(cleaned)
         } catch {
-          analysisResult = {
-            authenticityScore: 50, verdict: 'suspicious',
-            flags: ['parse_error'], officerNotes: text.slice(0, 300),
-          }
+          // Never persist a fabricated verdict when the model reply is
+          // unparseable — return a controlled error instead.
+          return NextResponse.json({
+            ok: false, analysisStatus: 'analysis_failed',
+            message: 'The analysis response could not be read. Please run the analysis again.',
+          }, { status: 502 })
         }
       } else {
-        // PDF — text-based analysis prompt
+        // PDF — extract the ACTUAL text and analyze real document content.
+        // We analyze evidence, never a hypothetical document guessed from
+        // its filename. Unreadable PDFs are reported as such.
+        let extraction
+        try {
+          extraction = await extractPdfText(Buffer.from(buffer))
+        } catch (err) {
+          if (!(err instanceof PdfExtractionError)) throw err
+          return NextResponse.json({
+            ok: false, analysisStatus: 'unable_to_read', message: PDF_UNREADABLE_MESSAGE,
+          }, { status: 422 })
+        }
+        const assessment = assessPdfText(extraction)
+        if (!assessment.ok) {
+          return NextResponse.json({
+            ok: false, analysisStatus: 'unable_to_read', reason: assessment.reason,
+            message: PDF_UNREADABLE_MESSAGE,
+          }, { status: 422 })
+        }
         const res = await getAnthropic().messages.create({
           model:      'claude-sonnet-4-6',
-          max_tokens: 800,
+          max_tokens: 1000,
           messages: [{
             role: 'user',
-            content: `A PDF document named "${fileName}" of type "${documentType}" was uploaded for visa application ID "${applicationId}". Based on typical ${documentType.replace(/_/g,' ')} documents for immigration, provide a preliminary assessment. ${ANALYSIS_PROMPT}`,
+            content: buildPdfTextAnalysisPrompt({
+              documentType,
+              extractedText:  extraction.text,
+              pageCount:      extraction.pageCount,
+              analysisPrompt: ANALYSIS_PROMPT,
+            }),
           }],
         })
         const text = res.content[0].type === 'text' ? res.content[0].text.trim() : '{}'
         try {
           const cleaned = text.replace(/^```json\s*/i, '').replace(/```\s*$/, '').trim()
           analysisResult = JSON.parse(cleaned)
+          analysisResult.analysisBasis = `pdf_text:${extraction.charCount}_chars:${extraction.pageCount}_pages`
         } catch {
-          analysisResult = { authenticityScore: 60, verdict: 'suspicious', flags: ['pdf_limited_analysis'] }
+          return NextResponse.json({
+            ok: false, analysisStatus: 'analysis_failed',
+            message: 'The analysis response could not be read. Please run the analysis again.',
+          }, { status: 502 })
         }
       }
     } else {
@@ -118,6 +152,9 @@ export async function POST(req: NextRequest) {
 
     const score   = Number(analysisResult.authenticityScore ?? 50)
     const verdict = String(analysisResult.verdict ?? (score >= 80 ? 'authentic' : score >= 50 ? 'suspicious' : 'fraudulent'))
+    // Staff-facing review state — AI output is a review signal, not proof
+    // of authenticity. Legacy verdict stays on the row for compatibility.
+    const reviewState = reviewStateFromVerdict(verdict, score)
 
     const check = await prisma.documentAuthenticityCheck.create({
       data: {
@@ -130,6 +167,8 @@ export async function POST(req: NextRequest) {
         signatureDetected: Boolean(analysisResult.signatureDetected),
         flags:             (analysisResult.flags as string[]) ?? [],
         evidence:          JSON.stringify({
+          reviewState,
+          analysisBasis:         analysisResult.analysisBasis ?? 'image_vision',
           holderName:            analysisResult.holderName,
           documentNumber:        analysisResult.documentNumber,
           expiryDate:            analysisResult.expiryDate,
@@ -144,7 +183,7 @@ export async function POST(req: NextRequest) {
       },
     })
 
-    return NextResponse.json({ check, analysis: analysisResult })
+    return NextResponse.json({ check, analysis: analysisResult, reviewState })
   } catch (e) {
     console.error('[visa-doc-upload]', e)
     return NextResponse.json({ error: String(e) }, { status: 500 })

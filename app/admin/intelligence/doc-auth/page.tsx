@@ -217,17 +217,33 @@ function CopyBtn({ text }: { text: string }) {
 
 // ─── Application search ───────────────────────────────────────────────────────
 
+/** Human-readable label for a selected application (shared everywhere). */
+function appLabel(app: AppSearchResult): string {
+  return `${app.referenceNumber} — ${app.firstName ?? ''} ${app.lastName ?? ''} (${app.destinationIso2})`
+}
+
+/** Props each tab receives so the shared Active Visa Case flows into it.
+ *  null = no active case: every tab keeps its existing standalone flow. */
+interface TabProps { activeCase: AppSearchResult | null }
+
 function AppSearch({
-  value, onChange, onSelect,
+  value, onChange, onSelect, syncLabel,
 }: {
   value:     string
   onChange:  (id: string, label: string) => void
   onSelect?: (app: AppSearchResult) => void
+  /** Label to show when the selection was driven from outside (Active Visa Case). */
+  syncLabel?: string
 }) {
   const [query,   setQuery]   = useState('')
   const [results, setResults] = useState<AppSearchResult[]>([])
   const [open,    setOpen]    = useState(false)
   const [label,   setLabel]   = useState(value ? `Selected: ${value}` : '')
+
+  // Reflect a selection made in the shared Active Visa Case bar.
+  useEffect(() => {
+    if (syncLabel) setLabel(syncLabel)
+  }, [syncLabel])
 
   const search = useCallback(async (q: string) => {
     if (q.length < 2) { setResults([]); return }
@@ -245,7 +261,7 @@ function AppSearch({
   }, [query, search])
 
   const select = (app: AppSearchResult) => {
-    const lbl = `${app.referenceNumber} — ${app.firstName ?? ''} ${app.lastName ?? ''} (${app.destinationIso2})`
+    const lbl = appLabel(app)
     setLabel(lbl); setQuery(''); setOpen(false)
     onChange(app.id, lbl)
     onSelect?.(app)
@@ -279,7 +295,7 @@ function AppSearch({
 
 // ─── Tab: Document Upload & Analysis ─────────────────────────────────────────
 
-function UploadTab() {
+function UploadTab({ activeCase }: TabProps) {
   const [file,        setFile]        = useState<File | null>(null)
   const [dragging,    setDragging]    = useState(false)
   const [docType,     setDocType]     = useState('passport')
@@ -287,7 +303,14 @@ function UploadTab() {
   const [loading,     setLoading]     = useState(false)
   const [analysis,    setAnalysis]    = useState<UploadAnalysis | null>(null)
   const [checkRecord, setCheckRecord] = useState<DocCheck | null>(null)
+  const [uploadError, setUploadError] = useState('')
+  const [reviewState, setReviewState] = useState('')
   const fileRef = useRef<HTMLInputElement>(null)
+
+  // Adopt the shared Active Visa Case; the tab-level selector still works.
+  useEffect(() => {
+    if (activeCase && activeCase.id !== appId) setAppId(activeCase.id)
+  }, [activeCase]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault(); setDragging(false)
@@ -297,17 +320,23 @@ function UploadTab() {
 
   const submit = async () => {
     if (!file) return
-    setLoading(true); setAnalysis(null)
+    setLoading(true); setAnalysis(null); setUploadError(''); setReviewState('')
     try {
       const fd = new FormData()
       fd.append('file', file)
       fd.append('documentType', docType)
       fd.append('applicationId', appId)
       const res  = await fetch('/api/admin/intelligence/visa-doc-upload', { method: 'POST', body: fd })
-      const data = await res.json()
-      if (data.analysis)  setAnalysis(data.analysis)
-      if (data.check)     setCheckRecord(data.check)
-    } catch (e) { console.error(e) }
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        // unable_to_read / analysis_failed — a real answer, never a guess.
+        setUploadError((data.message as string) ?? `Analysis failed (HTTP ${res.status}). Please try again.`)
+        return
+      }
+      if (data.analysis)     setAnalysis(data.analysis)
+      if (data.check)        setCheckRecord(data.check)
+      if (data.reviewState)  setReviewState(String(data.reviewState))
+    } catch { setUploadError('Network error during analysis — please try again.') }
     finally { setLoading(false) }
   }
 
@@ -329,7 +358,8 @@ function UploadTab() {
           </div>
           <div>
             <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1 block">Linked Application (optional)</label>
-            <AppSearch value={appId} onChange={(id) => setAppId(id)} />
+            <AppSearch value={appId} onChange={(id) => setAppId(id)}
+              syncLabel={activeCase && appId === activeCase.id ? appLabel(activeCase) : undefined} />
           </div>
         </div>
 
@@ -363,6 +393,9 @@ function UploadTab() {
           className="mt-4 h-10 px-6 bg-[#0B1F3A] text-white text-sm font-semibold rounded-lg hover:bg-[#0d2345] disabled:opacity-40 transition-colors flex items-center gap-2">
           {loading ? <><Loader2 className="w-4 h-4 animate-spin" /> Analysing with AI…</> : <><ShieldCheck className="w-4 h-4" /> Run AI Analysis</>}
         </button>
+        {uploadError && (
+          <p className="mt-3 text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-4 py-3">{uploadError}</p>
+        )}
       </div>
 
       {analysis && (
@@ -370,9 +403,17 @@ function UploadTab() {
           <div className={`px-6 py-4 border-b ${scoreBg} border`}>
             <div className="flex items-center justify-between">
               <div>
-                <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide">AI Verdict</div>
+                <div className="text-xs font-semibold text-gray-500 uppercase tracking-wide">AI Review Signal</div>
                 <div className={`text-3xl font-black mt-1 ${scoreColor}`}>{analysis.authenticityScore}/100</div>
-                <VerdictBadge verdict={analysis.verdict} />
+                <div className="flex items-center gap-2 flex-wrap">
+                  <VerdictBadge verdict={analysis.verdict} />
+                  {reviewState && (
+                    <span className="px-2 py-0.5 rounded-full text-[11px] font-bold bg-[#0B1F3A] text-[#C9A84C]">
+                      {reviewState.replace(/_/g, ' ')}
+                    </span>
+                  )}
+                </div>
+                <p className="text-[10px] text-gray-400 mt-1">AI analysis is a review aid — it is not proof of authenticity. Staff make the decision.</p>
               </div>
               <div className="text-right">
                 <div className="text-xs text-gray-500 mb-1">Embassy Readiness</div>
@@ -474,13 +515,18 @@ function UploadTab() {
 
 // ─── Tab: Embassy Form Cross-Checker ─────────────────────────────────────────
 
-function FormCheckTab() {
+function FormCheckTab({ activeCase }: TabProps) {
   const [file,     setFile]     = useState<File | null>(null)
   const [formType, setFormType] = useState(FORM_TYPES[0])
   const [appId,    setAppId]    = useState('')
   const [loading,  setLoading]  = useState(false)
   const [result,   setResult]   = useState<FormCheckResult | null>(null)
   const fileRef = useRef<HTMLInputElement>(null)
+
+  // Adopt the shared Active Visa Case; the tab-level selector still works.
+  useEffect(() => {
+    if (activeCase && activeCase.id !== appId) setAppId(activeCase.id)
+  }, [activeCase]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const submit = async () => {
     if (!appId) return
@@ -516,7 +562,8 @@ function FormCheckTab() {
           </div>
           <div>
             <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1 block">Visa Application <span className="text-red-500">*</span></label>
-            <AppSearch value={appId} onChange={(id) => setAppId(id)} />
+            <AppSearch value={appId} onChange={(id) => setAppId(id)}
+              syncLabel={activeCase && appId === activeCase.id ? appLabel(activeCase) : undefined} />
           </div>
         </div>
 
@@ -624,13 +671,18 @@ function FormCheckTab() {
 
 // ─── Tab: Letter Generator ────────────────────────────────────────────────────
 
-function LettersTab() {
+function LettersTab({ activeCase }: TabProps) {
   const [letterType,   setLetterType]   = useState(LETTER_TYPES[0].id)
   const [appId,        setAppId]        = useState('')
   const [extraContext, setExtraContext] = useState('')
   const [loading,      setLoading]      = useState(false)
   const [letter,       setLetter]       = useState('')
   const [letterLabel,  setLetterLabel]  = useState('')
+
+  // Adopt the shared Active Visa Case; generation logic is unchanged.
+  useEffect(() => {
+    if (activeCase && activeCase.id !== appId) setAppId(activeCase.id)
+  }, [activeCase]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const generate = async () => {
     if (!appId) return
@@ -663,7 +715,8 @@ function LettersTab() {
           </div>
           <div>
             <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1 block">Visa Application <span className="text-red-500">*</span></label>
-            <AppSearch value={appId} onChange={(id) => setAppId(id)} />
+            <AppSearch value={appId} onChange={(id) => setAppId(id)}
+              syncLabel={activeCase && appId === activeCase.id ? appLabel(activeCase) : undefined} />
           </div>
         </div>
 
@@ -918,7 +971,7 @@ const VISA_DESTINATIONS = [
   { iso2: 'MX', name: 'Mexico' },
 ]
 
-function DummyTicketTab() {
+function DummyTicketTab({ activeCase }: TabProps) {
   type TicketMode = 'live' | 'manual' | 'hotel'
   const [mode,          setMode]          = useState<TicketMode>('live')
   const [appId,         setAppId]         = useState('')
@@ -1027,6 +1080,16 @@ function DummyTicketTab() {
     const destCode = app.destinationIso2 ? (COUNTRY_IATA[app.destinationIso2] ?? '') : ''
     if (destCode) { setDestIata(destCode); setMToCode(destCode) }
   }
+
+  // Adopt the shared Active Visa Case: same partial autofill as a tab-level
+  // selection, then setAppId triggers the existing full-application fetch
+  // above — the working autofill logic is untouched.
+  useEffect(() => {
+    if (activeCase && activeCase.id !== appId) {
+      handleAppSelect(activeCase)
+      setAppId(activeCase.id)
+    }
+  }, [activeCase]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const searchHotels = async () => {
     if (!hDestIso2 || !hCheckIn || !hCheckOut) return
@@ -1165,6 +1228,7 @@ function DummyTicketTab() {
               value={appId}
               onChange={(id) => { setAppId(id); if (!id) { setClientName(''); setPassportNo(''); setDestIata(''); setOriginIata(''); setDepDate(''); setRetDate('') } }}
               onSelect={handleAppSelect}
+              syncLabel={activeCase && appId === activeCase.id ? appLabel(activeCase) : undefined}
             />
           </div>
           <div>
@@ -1549,20 +1613,22 @@ function DummyTicketTab() {
 
 // ─── Tab: Document History ────────────────────────────────────────────────────
 
-function HistoryTab() {
+function HistoryTab({ activeCase }: TabProps) {
   const [checks,   setChecks]   = useState<DocCheck[]>([])
   const [loading,  setLoading]  = useState(true)
   const [verdict,  setVerdict]  = useState<Verdict>('all')
   const [expanded, setExpanded] = useState<string | null>(null)
 
+  // Newest-first from the API; scoped to the Active Visa Case when set.
   const load = useCallback(async () => {
     setLoading(true)
     try {
-      const res  = await fetch('/api/admin/intelligence/doc-auth')
-      const data = await res.json()
-      setChecks(data.checks ?? [])
+      const qs   = activeCase ? `?applicationId=${encodeURIComponent(activeCase.id)}` : ''
+      const res  = await fetch(`/api/admin/intelligence/doc-auth${qs}`)
+      const data = await res.json().catch(() => ({}))
+      setChecks(res.ok && Array.isArray(data.checks) ? data.checks : [])
     } finally { setLoading(false) }
-  }, [])
+  }, [activeCase])
 
   useEffect(() => { void load() }, [load])
 
@@ -1570,6 +1636,11 @@ function HistoryTab() {
 
   return (
     <div className="space-y-4">
+      {activeCase && (
+        <p className="text-xs text-gray-500">
+          Showing checks for <span className="font-semibold text-[#0B1F3A]">{appLabel(activeCase)}</span> — clear the Active Visa Case to see all.
+        </p>
+      )}
       <div className="flex gap-1 border-b border-gray-200">
         {VERDICT_TABS.map(v => (
           <button key={v} onClick={() => setVerdict(v)}
@@ -1664,8 +1735,43 @@ function HistoryTab() {
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
+/** Case summary shown in the Active Visa Case bar — real DB fields only. */
+function ActiveCaseSummary({ appId }: { appId: string }) {
+  const [summary, setSummary] = useState<{ visaType?: string; arrival?: string | null; ret?: string | null } | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    setSummary(null)
+    fetch(`/api/admin/intelligence/case-context?applicationId=${encodeURIComponent(appId)}`)
+      .then(r => (r.ok ? r.json() : null))
+      .then(data => {
+        if (cancelled || !data?.context) return
+        setSummary({
+          visaType: data.context.application?.visaType,
+          arrival:  data.context.travel?.arrivalDate ?? null,
+          ret:      data.context.travel?.returnDate ?? null,
+        })
+      })
+      .catch(() => {})
+    return () => { cancelled = true }
+  }, [appId])
+
+  if (!summary) return null
+  const fmt = (iso: string | null | undefined) => iso ? new Date(iso).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : null
+  const travel = [fmt(summary.arrival), fmt(summary.ret)].filter(Boolean).join(' – ')
+  return (
+    <p className="text-xs text-gray-500 mt-1">
+      {summary.visaType && <span className="capitalize">{summary.visaType} visa</span>}
+      {travel && <span> · Travel: {travel}</span>}
+    </p>
+  )
+}
+
 export default function DocAuthPage() {
-  const [activeTab, setActiveTab] = useState<TabId>('upload')
+  const [activeTab,  setActiveTab]  = useState<TabId>('upload')
+  // The shared case every tab works around. null = tabs behave standalone
+  // exactly as before — backward compatibility is mandatory.
+  const [activeCase, setActiveCase] = useState<AppSearchResult | null>(null)
 
   return (
     <div>
@@ -1676,8 +1782,31 @@ export default function DocAuthPage() {
         </div>
         <div className="flex items-center gap-2 px-3 py-1.5 bg-[#0B1F3A] rounded-lg">
           <ShieldCheck className="w-4 h-4 text-[#C9A84C]" />
-          <span className="text-xs font-semibold text-white">Powered by Claude Sonnet</span>
+          <span className="text-xs font-semibold text-white">Jade Intelligence</span>
         </div>
+      </div>
+
+      {/* Active Visa Case — selected once, retained across every tab */}
+      <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-4 mb-6">
+        <div className="flex items-center justify-between gap-3 mb-2">
+          <label className="text-xs font-bold text-[#0B1F3A] uppercase tracking-wide">Active Visa Case</label>
+          {activeCase && (
+            <button onClick={() => setActiveCase(null)} className="text-xs text-gray-400 hover:text-red-500">
+              Clear case
+            </button>
+          )}
+        </div>
+        <AppSearch
+          value={activeCase?.id ?? ''}
+          onChange={(id) => { if (!id) setActiveCase(null) }}
+          onSelect={setActiveCase}
+        />
+        {activeCase && <ActiveCaseSummary appId={activeCase.id} />}
+        {!activeCase && (
+          <p className="text-[11px] text-gray-400 mt-1.5">
+            Optional — select a case once and every tab below will use it. Tabs also keep their own selectors.
+          </p>
+        )}
       </div>
 
       {/* Tab nav */}
@@ -1703,11 +1832,11 @@ export default function DocAuthPage() {
         })}
       </div>
 
-      {activeTab === 'upload'       && <UploadTab />}
-      {activeTab === 'form-check'   && <FormCheckTab />}
-      {activeTab === 'letters'      && <LettersTab />}
-      {activeTab === 'dummy-ticket' && <DummyTicketTab />}
-      {activeTab === 'history'      && <HistoryTab />}
+      {activeTab === 'upload'       && <UploadTab activeCase={activeCase} />}
+      {activeTab === 'form-check'   && <FormCheckTab activeCase={activeCase} />}
+      {activeTab === 'letters'      && <LettersTab activeCase={activeCase} />}
+      {activeTab === 'dummy-ticket' && <DummyTicketTab activeCase={activeCase} />}
+      {activeTab === 'history'      && <HistoryTab activeCase={activeCase} />}
     </div>
   )
 }

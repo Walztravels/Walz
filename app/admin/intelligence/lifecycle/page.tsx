@@ -1,5 +1,6 @@
 'use client'
 
+import { fetchRecords } from '@/lib/intelligence/fetch-records'
 import { useState, useEffect, useCallback } from 'react'
 
 type Cohort = 'all' | 'champion' | 'loyal' | 'new' | 'at_risk'
@@ -38,15 +39,15 @@ export default function LifecyclePage() {
   const [userId, setUserId] = useState('')
   const [computing, setComputing] = useState(false)
 
+  const [loadError, setLoadError] = useState('')
+
   const load = useCallback(async () => {
     setLoading(true)
-    try {
-      const res = await fetch('/api/admin/intelligence/lifecycle')
-      const data = await res.json()
-      setPredictions(data.predictions ?? data ?? [])
-    } finally {
-      setLoading(false)
-    }
+    setLoadError('')
+    const result = await fetchRecords<LifecyclePrediction>('/api/admin/intelligence/lifecycle', 'predictions')
+    if (result.ok) setPredictions(result.records)
+    else { setPredictions([]); setLoadError(result.error) }
+    setLoading(false)
   }, [])
 
   useEffect(() => { load() }, [load])
@@ -132,6 +133,11 @@ export default function LifecyclePage() {
         {loading ? (
           <div className="p-12 text-center">
             <div className="w-6 h-6 border-2 border-[#C9A84C] border-t-transparent rounded-full animate-spin mx-auto" />
+          </div>
+        ) : loadError ? (
+          <div className="p-12 text-center">
+            <p className="text-sm text-red-600 mb-2">{loadError}</p>
+            <button onClick={() => void load()} className="text-sm font-semibold text-[#C9A84C] hover:underline">Retry</button>
           </div>
         ) : filtered.length === 0 ? (
           <div className="p-12 text-center text-sm text-gray-400">No lifecycle predictions found.</div>

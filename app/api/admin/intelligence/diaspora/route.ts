@@ -16,12 +16,14 @@ export async function GET(req: NextRequest) {
   if (passportCountry) where.passportCountry = passportCountry
   if (destinationIso2) where.destinationIso2 = destinationIso2
 
-  const intelligence = await prisma.diasporaIntelligence.findMany({
+  const records = await prisma.diasporaIntelligence.findMany({
     where,
     orderBy: { totalApplications: 'desc' },
   })
 
-  return NextResponse.json({ intelligence })
+  // Contract: { records: [...] } — the key the UI consumes. The old key
+  // ("intelligence") never matched the frontend and crashed every load.
+  return NextResponse.json({ records })
 }
 
 export async function POST(req: NextRequest) {

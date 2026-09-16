@@ -1,5 +1,6 @@
 'use client'
 
+import { fetchRecords } from '@/lib/intelligence/fetch-records'
 import { useState, useEffect, useCallback } from 'react'
 
 type Status = 'all' | 'open' | 'converted' | 'dismissed'
@@ -47,15 +48,15 @@ export default function RevenueOpportunitiesPage() {
     userId: '',
   })
 
+  const [loadError, setLoadError] = useState('')
+
   const load = useCallback(async () => {
     setLoading(true)
-    try {
-      const res = await fetch('/api/admin/intelligence/revenue?status=open')
-      const data = await res.json()
-      setOpportunities(data.opportunities ?? data ?? [])
-    } finally {
-      setLoading(false)
-    }
+    setLoadError('')
+    const result = await fetchRecords<Opportunity>('/api/admin/intelligence/revenue?status=open', 'opportunities')
+    if (result.ok) setOpportunities(result.records)
+    else { setOpportunities([]); setLoadError(result.error) }
+    setLoading(false)
   }, [])
 
   useEffect(() => { load() }, [load])
@@ -183,7 +184,12 @@ export default function RevenueOpportunitiesPage() {
         <div className="bg-white rounded-xl p-12 text-center border border-gray-100 shadow-sm">
           <div className="w-6 h-6 border-2 border-[#C9A84C] border-t-transparent rounded-full animate-spin mx-auto" />
         </div>
-      ) : filtered.length === 0 ? (
+      ) : loadError ? (
+          <div className="p-12 text-center">
+            <p className="text-sm text-red-600 mb-2">{loadError}</p>
+            <button onClick={() => void load()} className="text-sm font-semibold text-[#C9A84C] hover:underline">Retry</button>
+          </div>
+        ) : filtered.length === 0 ? (
         <div className="bg-white rounded-xl p-12 text-center text-sm text-gray-400 border border-gray-100 shadow-sm">No opportunities found.</div>
       ) : (
         <div className="space-y-4">
