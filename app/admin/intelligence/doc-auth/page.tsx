@@ -305,6 +305,7 @@ function UploadTab({ activeCase }: TabProps) {
   const [checkRecord, setCheckRecord] = useState<DocCheck | null>(null)
   const [uploadError, setUploadError] = useState('')
   const [reviewState, setReviewState] = useState('')
+  const [evidenceCount, setEvidenceCount] = useState(0)
   const fileRef = useRef<HTMLInputElement>(null)
 
   // Adopt the shared Active Visa Case; the tab-level selector still works.
@@ -336,6 +337,7 @@ function UploadTab({ activeCase }: TabProps) {
       if (data.analysis)     setAnalysis(data.analysis)
       if (data.check)        setCheckRecord(data.check)
       if (data.reviewState)  setReviewState(String(data.reviewState))
+      setEvidenceCount(typeof data.evidenceCount === 'number' ? data.evidenceCount : 0)
     } catch { setUploadError('Network error during analysis — please try again.') }
     finally { setLoading(false) }
   }
@@ -414,6 +416,11 @@ function UploadTab({ activeCase }: TabProps) {
                   )}
                 </div>
                 <p className="text-[10px] text-gray-400 mt-1">AI analysis is a review aid — it is not proof of authenticity. Staff make the decision.</p>
+                {evidenceCount > 0 && (
+                  <p className="text-[11px] text-green-700 mt-1 font-semibold">
+                    {evidenceCount} evidence value{evidenceCount === 1 ? '' : 's'} extracted and saved to this case.
+                  </p>
+                )}
               </div>
               <div className="text-right">
                 <div className="text-xs text-gray-500 mb-1">Embassy Readiness</div>

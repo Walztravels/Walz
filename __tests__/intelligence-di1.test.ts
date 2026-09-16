@@ -66,7 +66,7 @@ describe('shared Active Visa Case', () => {
 describe('PDF document analysis', () => {
   it('extracts and analyzes actual PDF text — the filename-guessing prompt is gone', () => {
     expect(uploadRoute).toContain("from '@/lib/extractPdfText'")
-    expect(uploadRoute).toContain('extractPdfText(Buffer.from(buffer))')
+    expect(uploadRoute).toMatch(/extractPdfText\((?:buffer|Buffer\.from\(buffer\))\)/)
     expect(uploadRoute).toContain('buildPdfTextAnalysisPrompt')
     expect(uploadRoute).not.toContain('Based on typical')
     expect(uploadRoute).not.toContain('preliminary assessment')

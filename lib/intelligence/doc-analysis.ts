@@ -59,6 +59,22 @@ export const PDF_UNREADABLE_MESSAGE =
 export const PDF_ANALYSIS_MAX_CHARS = 20_000
 
 /**
+ * Structured-extraction contract appended to the analysis prompt: the
+ * model may fill ONLY the canonical fields defined for the document type
+ * and must omit anything not actually present — extraction, not invention.
+ */
+export function buildExtractionInstruction(fields: Array<{ field: string; dataType: string }>): string {
+  if (fields.length === 0) return ''
+  return [
+    '',
+    'ADDITIONALLY, add an "extractedFields" array to the same JSON object.',
+    'Each entry: {"field": "<one of the allowed fields below>", "value": "<the exact text as it appears in the document>", "confidence": <0-1>}.',
+    'Allowed fields (include ONLY those whose value is actually present in the document; NEVER guess or infer a missing value):',
+    ...fields.map(f => `- ${f.field} (${f.dataType})`),
+  ].join('\n')
+}
+
+/**
  * Build the text-analysis prompt for an extracted PDF. The document text
  * is untrusted candidate-supplied content: it is delimited and the model
  * is told to treat it as data only. Visual checks (stamps, signatures,

@@ -2605,7 +2605,11 @@ model EmbassyIntelligenceFeed {
 
 model DocumentAuthenticityCheck {
   id                String   @id @default(cuid())
-  applicationId     String
+  // Nullable since DI-2: an unlinked upload is NULL, never the literal
+  // string "manual" (migration di2_evidence_engine.sql backfills).
+  applicationId     String?
+  // The privately-stored source file this analysis was run against.
+  documentId        String?
   documentType      String
   fileName          String
   verdict           String
@@ -2622,6 +2626,52 @@ model DocumentAuthenticityCheck {
   checkedBy         String   @default("system")
   @@index([applicationId])
   @@index([verdict])
+}
+
+// ─── Document Intelligence: evidence engine (DI-2) ───────────────────────────
+// Created by prisma/migrations/di2_evidence_engine.sql (hand-run, idempotent).
+
+/// A supporting document retained in PRIVATE storage (service-role access
+/// only — passports and statements never get public URLs).
+model VisaCaseDocument {
+  id            String   @id @default(cuid())
+  applicationId String?                       // NULL = uploaded unlinked
+  bucket        String   @default("visa-documents")
+  storagePath   String                        // private object path
+  documentType  String
+  fileName      String
+  mimeType      String?
+  fileSize      Int?
+  checksum      String?                       // sha256 of the bytes
+  uploadedBy    String
+  createdAt     DateTime @default(now())
+
+  @@index([applicationId])
+  @@index([checksum])
+}
+
+/// One extracted, source-attributed evidence value for a visa case.
+/// Answers: what value, from which source, extracted how, how confident,
+/// for which case. Application-side values are read live from
+/// VisaApplication at comparison time — never duplicated here.
+model VisaCaseEvidence {
+  id               String   @id @default(cuid())
+  applicationId    String
+  sourceType       String                     // document_analysis | bank_analysis | form_extraction | generated_ticket
+  sourceId         String?                    // e.g. DocumentAuthenticityCheck id / VisaCaseDocument id
+  documentType     String?                    // passport, employment_letter, …
+  field            String                     // canonical name, e.g. passport.fullName
+  rawValue         String?  @db.Text          // exactly as extracted
+  normalizedValue  String?                    // canonical comparable form
+  dataType         String   @default("string")// string | date | amount | identifier
+  currency         String?                    // for dataType amount
+  confidence       Float    @default(1)
+  extractionMethod String?                    // pdf_text | ai_vision | ai_document | form_field
+  extractorVersion String?
+  createdAt        DateTime @default(now())
+
+  @@index([applicationId, field])
+  @@index([sourceType, sourceId])
 }
 
 model ClientRiskScore {
