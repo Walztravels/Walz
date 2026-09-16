@@ -2674,6 +2674,50 @@ model VisaCaseEvidence {
   @@index([sourceType, sourceId])
 }
 
+// ─── Document Intelligence: cross-check engine (DI-3) ────────────────────────
+// Created by prisma/migrations/di3_cross_check.sql (hand-run, idempotent).
+
+/// One persisted cross-check run. Reruns create NEW rows — history is
+/// never overwritten.
+model FormCrossCheck {
+  id             String   @id @default(cuid())
+  applicationId  String
+  formType       String
+  fieldsChecked  Int      @default(0)
+  matches        Int      @default(0)
+  partialMatches Int      @default(0)
+  conflicts      Int      @default(0)
+  missing        Int      @default(0)
+  unverified     Int      @default(0)
+  summary        String?  @db.Text          // LLM explanation of the findings (advisory)
+  runBy          String
+  createdAt      DateTime @default(now())
+
+  findings FormCrossCheckFinding[]
+
+  @@index([applicationId, createdAt])
+}
+
+/// One field-level comparison result inside a cross-check run.
+model FormCrossCheckFinding {
+  id                 String  @id @default(cuid())
+  crossCheckId       String
+  crossCheck         FormCrossCheck @relation(fields: [crossCheckId], references: [id], onDelete: Cascade)
+  category           String                  // identity | passport | employment | financial | travel | accommodation | sponsor | documents | generated
+  field              String
+  applicationValue   String?
+  evidenceValue      String?
+  evidenceSourceType String?
+  evidenceSourceId   String?
+  status             String                  // MATCH | PARTIAL_MATCH | CONFLICT | MISSING | UNVERIFIED
+  confidence         Float   @default(1)
+  explanation        String? @db.Text
+  recommendedAction  String?
+
+  @@index([crossCheckId])
+  @@index([status])
+}
+
 model ClientRiskScore {
   id                  String   @id @default(cuid())
   userId              String   @unique

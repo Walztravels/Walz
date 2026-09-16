@@ -88,6 +88,22 @@ export const DOCUMENT_EVIDENCE_FIELDS: Record<string, Array<{ field: string; dat
   travel_history: [
     { field: 'travelHistory.fullName', dataType: 'string' },
   ],
+  // A completed embassy/application form uploaded for cross-checking —
+  // extracted into its own source so DI-3 can diff form vs application vs
+  // supporting documents.
+  embassy_form: [
+    { field: 'form.fullName',       dataType: 'string' },
+    { field: 'form.passportNumber', dataType: 'identifier' },
+    { field: 'form.dateOfBirth',    dataType: 'date' },
+    { field: 'form.travelDate',     dataType: 'date' },
+    { field: 'form.returnDate',     dataType: 'date' },
+    { field: 'form.employer',       dataType: 'string' },
+    { field: 'form.jobTitle',       dataType: 'string' },
+    { field: 'form.monthlyIncome',  dataType: 'amount' },
+    { field: 'form.address',        dataType: 'string' },
+    { field: 'form.email',          dataType: 'string' },
+    { field: 'form.phone',          dataType: 'identifier' },
+  ],
 }
 
 // ── Normalizers (pure, deterministic) ────────────────────────────────────────

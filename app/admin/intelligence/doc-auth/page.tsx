@@ -71,15 +71,23 @@ interface UploadAnalysis {
   consistencyChecks:      Record<string, string>
 }
 
-interface FormCheckResult {
-  overallRisk:          string
-  summaryStatement:     string
-  criticalErrors:       Array<{ field: string; formValue: string; expectedValue: string; embassyImpact: string; correction: string }>
-  warnings:             Array<{ field: string; issue: string; suggestion: string }>
-  fieldVerifications:   Array<{ field: string; status: string; formValue: string; dbValue: string }>
-  missingFields:        string[]
-  recommendedNextSteps: string[]
-  embassyReadiness:     string
+interface CrossCheckFindingView {
+  category: string
+  field: string
+  applicationValue: string | null
+  evidenceValue: string | null
+  evidenceSourceType: string | null
+  status: 'MATCH' | 'PARTIAL_MATCH' | 'CONFLICT' | 'MISSING' | 'UNVERIFIED'
+  explanation: string
+  recommendedAction: string | null
+}
+interface CrossCheckView {
+  counts: { fieldsChecked: number; matches: number; partialMatches: number; conflicts: number; missing: number; unverified: number }
+  findings: CrossCheckFindingView[]
+  summary: string | null
+  formEvidenceCount: number
+  formNote: string | null
+  persisted: boolean
 }
 
 interface ErrorMeta {
@@ -527,7 +535,8 @@ function FormCheckTab({ activeCase }: TabProps) {
   const [formType, setFormType] = useState(FORM_TYPES[0])
   const [appId,    setAppId]    = useState('')
   const [loading,  setLoading]  = useState(false)
-  const [result,   setResult]   = useState<FormCheckResult | null>(null)
+  const [result,   setResult]   = useState<CrossCheckView | null>(null)
+  const [checkError, setCheckError] = useState('')
   const fileRef = useRef<HTMLInputElement>(null)
 
   // Adopt the shared Active Visa Case; the tab-level selector still works.
@@ -537,20 +546,22 @@ function FormCheckTab({ activeCase }: TabProps) {
 
   const submit = async () => {
     if (!appId) return
-    setLoading(true); setResult(null)
+    setLoading(true); setResult(null); setCheckError('')
     try {
       const fd = new FormData()
       if (file) fd.append('file', file)
       fd.append('formType', formType)
       fd.append('applicationId', appId)
       const res  = await fetch('/api/admin/intelligence/embassy-form-check', { method: 'POST', body: fd })
-      const data = await res.json()
-      if (data.result) setResult(data.result)
-    } catch (e) { console.error(e) }
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok || !data.counts) {
+        setCheckError((data.error as string) ?? `Cross-check failed (HTTP ${res.status}). Please try again.`)
+        return
+      }
+      setResult(data as CrossCheckView)
+    } catch { setCheckError('Network error during the cross-check — please try again.') }
     finally { setLoading(false) }
   }
-
-  const riskColor = !result ? '' : { low: 'text-green-600', medium: 'text-yellow-600', high: 'text-orange-600', critical: 'text-red-600' }[result.overallRisk] ?? 'text-gray-600'
 
   return (
     <div className="space-y-6">
@@ -592,86 +603,89 @@ function FormCheckTab({ activeCase }: TabProps) {
         </button>
       </div>
 
-      {result && (
+      {checkError && <p className="text-sm text-red-600 bg-red-50 rounded-lg px-4 py-3">{checkError}</p>}
+
+      {result && (() => {
+        const STATUS_STYLE: Record<string, string> = {
+          MATCH:         'bg-green-100 text-green-700',
+          PARTIAL_MATCH: 'bg-yellow-100 text-yellow-800',
+          CONFLICT:      'bg-red-100 text-red-700',
+          MISSING:       'bg-gray-100 text-gray-500',
+          UNVERIFIED:    'bg-amber-100 text-amber-800',
+        }
+        const CATEGORIES: Array<[string, string]> = [
+          ['identity', 'Identity'], ['passport', 'Passport'], ['employment', 'Employment'],
+          ['financial', 'Financial'], ['travel', 'Travel'], ['accommodation', 'Accommodation'],
+          ['sponsor', 'Sponsor'], ['documents', 'Supporting Documents'], ['generated', 'Generated Documents'],
+        ]
+        const c = result.counts
+        return (
         <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
           <div className="px-6 py-4 border-b border-gray-100">
-            <div className="flex items-center justify-between">
-              <div>
-                <div className="text-xs text-gray-500 uppercase tracking-wide font-semibold">Risk Level</div>
-                <div className={`text-2xl font-black capitalize mt-0.5 ${riskColor}`}>{result.overallRisk}</div>
-              </div>
-              <div className="text-right">
-                <div className="text-xs text-gray-500 mb-1">Embassy Readiness</div>
-                <span className="px-3 py-1 rounded-full text-xs font-bold bg-[#0B1F3A] text-[#C9A84C] uppercase">{result.embassyReadiness?.replace(/_/g,' ')}</span>
-              </div>
+            <h3 className="text-sm font-bold text-[#0B1F3A] uppercase tracking-wide">Case Consistency Review</h3>
+            <p className="text-[10px] text-gray-400 mt-0.5">
+              Field comparisons are computed deterministically from the application and extracted evidence. This is a consistency review — never an approval prediction.
+            </p>
+            <div className="flex gap-4 mt-3 flex-wrap text-center">
+              {[
+                ['Fields checked', c.fieldsChecked, 'text-[#0B1F3A]'],
+                ['Match', c.matches, 'text-green-600'],
+                ['Partial', c.partialMatches, 'text-yellow-600'],
+                ['Conflicts', c.conflicts, 'text-red-600'],
+                ['Missing', c.missing, 'text-gray-500'],
+                ['Unverified', c.unverified, 'text-amber-600'],
+              ].map(([label, n, color]) => (
+                <div key={String(label)}>
+                  <div className={`text-2xl font-black ${color}`}>{n as number}</div>
+                  <div className="text-[10px] text-gray-400 uppercase tracking-wide">{label}</div>
+                </div>
+              ))}
             </div>
-            <p className="text-sm text-gray-600 mt-3 leading-relaxed">{result.summaryStatement}</p>
+            {result.formNote && <p className="text-xs text-amber-700 bg-amber-50 rounded-lg px-3 py-2 mt-3">{result.formNote}</p>}
+            {result.formEvidenceCount > 0 && (
+              <p className="text-xs text-green-700 mt-2">{result.formEvidenceCount} field{result.formEvidenceCount === 1 ? '' : 's'} extracted from the uploaded form.</p>
+            )}
+            {result.summary && <p className="text-sm text-gray-600 mt-3 leading-relaxed whitespace-pre-wrap">{result.summary}</p>}
+            {!result.persisted && (
+              <p className="text-[11px] text-amber-700 mt-2">This run was not saved — the DI-3 database migration has not been applied yet.</p>
+            )}
           </div>
 
-          {result.criticalErrors?.length > 0 && (
-            <div className="p-6 border-b border-gray-100">
-              <h3 className="text-xs font-bold text-red-600 uppercase tracking-wide mb-3 flex items-center gap-1.5">
-                <XCircle className="w-3.5 h-3.5" /> Critical Errors ({result.criticalErrors.length})
-              </h3>
-              <div className="space-y-3">
-                {result.criticalErrors.map((err, i) => (
-                  <div key={i} className="bg-red-50 border border-red-200 rounded-lg p-4">
-                    <div className="font-semibold text-sm text-red-800 mb-2">{err.field}</div>
-                    <div className="grid grid-cols-2 gap-3 text-xs mb-2">
-                      <div><span className="text-red-600 font-semibold">Form says:</span> <span className="text-gray-700">{err.formValue}</span></div>
-                      <div><span className="text-green-600 font-semibold">Should be:</span> <span className="text-gray-700">{err.expectedValue}</span></div>
+          {CATEGORIES.map(([key, label]) => {
+            const rows = result.findings.filter(f => f.category === key)
+            if (rows.length === 0) return null
+            return (
+              <div key={key} className="px-6 py-4 border-b border-gray-100 last:border-0">
+                <h4 className="text-xs font-bold text-gray-500 uppercase tracking-wide mb-3">{label}</h4>
+                <div className="space-y-3">
+                  {rows.map((f, i) => (
+                    <div key={i} className={`rounded-lg border p-3 ${f.status === 'CONFLICT' ? 'border-red-200 bg-red-50/50' : 'border-gray-100'}`}>
+                      <div className="flex items-center gap-2 flex-wrap mb-2">
+                        <span className="text-xs font-semibold text-[#0B1F3A]">{f.field}</span>
+                        <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${STATUS_STYLE[f.status] ?? 'bg-gray-100 text-gray-500'}`}>
+                          {f.status.replace(/_/g, ' ')}
+                        </span>
+                        {f.evidenceSourceType && (
+                          <span className="text-[10px] text-gray-400">source: {f.evidenceSourceType.replace(/_/g, ' ')}</span>
+                        )}
+                      </div>
+                      <div className="grid sm:grid-cols-2 gap-2 text-xs mb-1">
+                        <div><span className="text-gray-400 font-semibold">Application:</span> <span className="text-gray-700">{f.applicationValue ?? '—'}</span></div>
+                        <div><span className="text-gray-400 font-semibold">Evidence:</span> <span className="text-gray-700">{f.evidenceValue ?? '—'}</span></div>
+                      </div>
+                      <p className="text-xs text-gray-500">{f.explanation}</p>
+                      {f.recommendedAction && (
+                        <p className="text-xs text-[#92400E] mt-1"><strong>Action:</strong> {f.recommendedAction}</p>
+                      )}
                     </div>
-                    {err.embassyImpact && <p className="text-xs text-orange-700 bg-orange-50 px-2 py-1 rounded mb-1"><strong>Embassy impact:</strong> {err.embassyImpact}</p>}
-                    {err.correction    && <p className="text-xs text-green-700 bg-green-50 px-2 py-1 rounded"><strong>Correction:</strong> {err.correction}</p>}
-                  </div>
-                ))}
+                  ))}
+                </div>
               </div>
-            </div>
-          )}
-
-          {result.warnings?.length > 0 && (
-            <div className="p-6 border-b border-gray-100">
-              <h3 className="text-xs font-bold text-yellow-600 uppercase tracking-wide mb-3 flex items-center gap-1.5">
-                <AlertTriangle className="w-3.5 h-3.5" /> Warnings ({result.warnings.length})
-              </h3>
-              <div className="space-y-2">
-                {result.warnings.map((w, i) => (
-                  <div key={i} className="bg-yellow-50 border border-yellow-200 rounded-lg px-4 py-3">
-                    <div className="text-xs font-semibold text-yellow-800 mb-1">{w.field}</div>
-                    <p className="text-xs text-yellow-700">{w.issue}</p>
-                    {w.suggestion && <p className="text-xs text-gray-600 mt-1"><strong>Suggestion:</strong> {w.suggestion}</p>}
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {result.missingFields?.length > 0 && (
-            <div className="px-6 py-4 border-b border-gray-100">
-              <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wide mb-2">Missing Fields</h3>
-              <div className="flex flex-wrap gap-2">
-                {result.missingFields.map((f, i) => (
-                  <span key={i} className="px-2.5 py-1 bg-gray-100 text-gray-600 text-xs rounded-lg">{f}</span>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {result.recommendedNextSteps?.length > 0 && (
-            <div className="px-6 py-4">
-              <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wide mb-3">Next Steps</h3>
-              <ol className="space-y-2">
-                {result.recommendedNextSteps.map((s, i) => (
-                  <li key={i} className="flex gap-2 text-sm text-gray-700">
-                    <span className="flex-shrink-0 w-5 h-5 rounded-full bg-[#C9A84C] text-[#0B1F3A] text-xs flex items-center justify-center font-bold">{i+1}</span>
-                    {s}
-                  </li>
-                ))}
-              </ol>
-            </div>
-          )}
+            )
+          })}
         </div>
-      )}
+        )
+      })()}
     </div>
   )
 }
