@@ -1,7 +1,8 @@
 import { getSupabaseAdmin } from '@/lib/supabase'
+import { botChatwootOrNull, logChatwootUnconfigured } from '@/lib/chatwoot/config'
 
 const CHATWOOT_BASE  = 'https://chat.walztravels.com'
-const CHATWOOT_TOKEN = process.env.CHATWOOT_API_TOKEN ?? '1rnd6Rp9GNVKtbJ8238Vg2S1'
+const CHATWOOT_TOKEN = botChatwootOrNull()?.token ?? ''   // fail closed (INBOX-0S.1)
 const ACCOUNT_ID     = '1'
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -39,6 +40,7 @@ export interface MemoryResult {
 // ─── Chatwoot helpers ─────────────────────────────────────────────────────────
 
 async function cwGet(path: string) {
+  if (!CHATWOOT_TOKEN) { logChatwootUnconfigured('jade-memory'); return null }
   const ac = new AbortController()
   const t  = setTimeout(() => ac.abort(), 8000)
   try {

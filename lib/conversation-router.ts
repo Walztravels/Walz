@@ -1,8 +1,11 @@
 import { getSupabaseAdmin } from '@/lib/supabase'
 import { sendConversationAssignedEmail } from '@/lib/email-staff-notification'
+import { botChatwootOrNull, logChatwootUnconfigured } from '@/lib/chatwoot/config'
 
 const CHATWOOT_BASE  = process.env.CHATWOOT_BASE_URL  ?? 'https://chat.walztravels.com'
-const CHATWOOT_TOKEN = process.env.CHATWOOT_API_TOKEN ?? '1rnd6Rp9GNVKtbJ8238Vg2S1'
+// Fail closed (INBOX-0S.1): empty token → assignment calls are skipped
+// with a log instead of using a baked credential.
+const CHATWOOT_TOKEN = botChatwootOrNull()?.token ?? ''
 const ACCOUNT_ID     = process.env.CHATWOOT_ACCOUNT_ID ?? '1'
 
 export interface RoutingDecision {
@@ -153,7 +156,8 @@ export async function applyRouting(
 
   // Assign in Chatwoot
   let assignmentSucceeded = false
-  if (dec.chatwootId) {
+  if (dec.chatwootId && !CHATWOOT_TOKEN) logChatwootUnconfigured('conversation-router assignment')
+  if (dec.chatwootId && CHATWOOT_TOKEN) {
     const assignRes = await fetch(
       `${CHATWOOT_BASE}/api/v1/accounts/${ACCOUNT_ID}/conversations/${conversationId}/assignments`,
       {

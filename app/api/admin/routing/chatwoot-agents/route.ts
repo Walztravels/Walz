@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { getAdminSession } from '@/lib/admin-auth'
+import { botChatwootOrNull } from '@/lib/chatwoot/config'
 
 export const dynamic = 'force-dynamic'
 
@@ -7,9 +8,11 @@ export async function GET() {
   const session = await getAdminSession()
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
+  const cw = botChatwootOrNull()
+  if (!cw) return NextResponse.json({ error: 'Messaging service is not configured.' }, { status: 503 })
   const base    = process.env.CHATWOOT_BASE_URL  ?? 'https://chat.walztravels.com'
-  const token   = process.env.CHATWOOT_API_TOKEN ?? '1rnd6Rp9GNVKtbJ8238Vg2S1'
-  const account = process.env.CHATWOOT_ACCOUNT_ID ?? '1'
+  const token   = cw.token
+  const account = cw.accountId
 
   try {
     const res = await fetch(`${base}/api/v1/accounts/${account}/agents`, {

@@ -3,11 +3,14 @@ import { getAdminSession } from '@/lib/admin-auth'
 import prisma from '@/lib/db'
 import { sendWhatsAppViaTwilio, sendWhatsAppBody, twilioConfigured, twilioTemplateConfigured, isNigeriaPhone, normalisePhone } from '@/lib/twilio-whatsapp'
 import { BUSINESS } from '@/lib/config/business'
+import { adminChatwootOrNull, botChatwootOrNull } from '@/lib/chatwoot/config'
 
 export const dynamic = 'force-dynamic'
 
+// Fail closed: no hardcoded token fallback (INBOX-0S.1).
+const cwCfg = adminChatwootOrNull() ?? botChatwootOrNull()
 const CW_BASE    = process.env.CHATWOOT_BASE_URL    || 'https://chat.walztravels.com'
-const CW_TOKEN   = process.env.CHATWOOT_ADMIN_TOKEN || process.env.CHATWOOT_API_TOKEN || '1rnd6Rp9GNVKtbJ8238Vg2S1'
+const CW_TOKEN   = cwCfg?.token ?? ''
 const CW_ACCOUNT = process.env.CHATWOOT_ACCOUNT_ID  || '1'
 
 function cw(path: string, opts?: RequestInit) {
@@ -62,6 +65,7 @@ async function getWhatsAppInbox(clientPhone?: string): Promise<CWInbox | null> {
 export async function GET() {
   const session = await getAdminSession()
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  if (!cwCfg) return NextResponse.json({ error: 'Messaging service is not configured.' }, { status: 503 })
   const inboxes = await getAllInboxes()
   const pinned  = process.env.CHATWOOT_WHATSAPP_INBOX_ID
   return NextResponse.json({
@@ -142,6 +146,7 @@ async function findOrCreateContact(name: string, phone: string): Promise<[number
 export async function POST(req: Request) {
   const session = await getAdminSession()
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  if (!cwCfg) return NextResponse.json({ error: 'Messaging service is not configured.' }, { status: 503 })
 
   const body = await req.json() as {
     applicationId?:    string  // PortalApplication.id — persists phone on portal record

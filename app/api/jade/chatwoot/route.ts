@@ -31,12 +31,15 @@ import {
 import { conciergeCore }    from '@/lib/concierge/core'
 import { getCategoryBySlug } from '@/lib/concierge/catalogue'
 import { sendClientConfirmation } from '@/lib/concierge/notifications'
+import { botChatwootOrNull, logChatwootUnconfigured } from '@/lib/chatwoot/config'
 
 export const maxDuration = 60
 export const dynamic     = 'force-dynamic'
 
 const CHATWOOT_BASE  = 'https://chat.walztravels.com'
-const CHATWOOT_TOKEN = process.env.CHATWOOT_API_TOKEN ?? '1rnd6Rp9GNVKtbJ8238Vg2S1'
+// Fail closed (INBOX-0S.1): empty token means every helper below returns a
+// controlled failure instead of calling Chatwoot with a baked credential.
+const CHATWOOT_TOKEN = botChatwootOrNull()?.token ?? ''
 const ACCOUNT_ID     = '1'
 const INBOX_ID       = '3'
 
@@ -284,6 +287,7 @@ async function checkJadeSilence(convId: number | null): Promise<{
 // ─── Chatwoot helpers ─────────────────────────────────────────────────────────
 
 async function cwPost(path: string, body: unknown) {
+  if (!CHATWOOT_TOKEN) { logChatwootUnconfigured('jade-widget cwPost'); throw new Error('Chatwoot not configured') }
   const ac = new AbortController()
   const t  = setTimeout(() => ac.abort(), 8000)
   try {
@@ -300,6 +304,7 @@ async function cwPost(path: string, body: unknown) {
 }
 
 async function cwGet(path: string) {
+  if (!CHATWOOT_TOKEN) { logChatwootUnconfigured('jade-widget cwGet'); throw new Error('Chatwoot not configured') }
   const ac = new AbortController()
   const t  = setTimeout(() => ac.abort(), 8000)
   try {

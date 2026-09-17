@@ -1,15 +1,20 @@
 import { NextResponse } from 'next/server'
 import { getAdminSession } from '@/lib/admin-auth'
+import { adminChatwootOrNull } from '@/lib/chatwoot/config'
 
 export const dynamic = 'force-dynamic'
 
-const CW_BASE    = process.env.CHATWOOT_BASE_URL    || 'https://chatwoot-production-d486.up.railway.app'
-const CW_TOKEN   = process.env.CHATWOOT_ADMIN_TOKEN!
-const CW_ACCOUNT = process.env.CHATWOOT_ACCOUNT_ID  || '1'
+// Fail closed (INBOX-0S.1): no non-null assertion on the token — when no
+// Chatwoot token is configured every handler returns a controlled 503.
+const cwCfg = adminChatwootOrNull()
+const CW_BASE    = cwCfg?.base ?? ''
+const CW_TOKEN   = cwCfg?.token ?? ''
+const CW_ACCOUNT = cwCfg?.accountId ?? '1'
 
 export async function GET() {
   const session = await getAdminSession()
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  if (!cwCfg) return NextResponse.json({ error: 'Messaging service is not configured.' }, { status: 503 })
 
   const res  = await fetch(`${CW_BASE}/api/v1/accounts/${CW_ACCOUNT}/agents`, {
     headers: { api_access_token: CW_TOKEN },
@@ -23,6 +28,7 @@ export async function GET() {
 export async function POST(req: Request) {
   const session = await getAdminSession()
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  if (!cwCfg) return NextResponse.json({ error: 'Messaging service is not configured.' }, { status: 503 })
 
   const body = await req.json() as { name: string; email: string; role: string }
 

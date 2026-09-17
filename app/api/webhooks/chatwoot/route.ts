@@ -26,11 +26,14 @@ import { prisma } from '@/lib/db'
 import { saveJadeSession, loadJadeSession, markHandover, markResumed } from '@/lib/jade-session'
 import { routeConversation, applyRouting } from '@/lib/conversation-router'
 import { getResend } from '@/lib/resend'
+import { botChatwootOrNull, logChatwootUnconfigured } from '@/lib/chatwoot/config'
 
 export const dynamic = 'force-dynamic'
 
 const CHATWOOT_BASE      = 'https://chat.walztravels.com'
-const CHATWOOT_TOKEN     = process.env.CHATWOOT_API_TOKEN ?? '1rnd6Rp9GNVKtbJ8238Vg2S1'
+// Fail closed (INBOX-0S.1): no baked token. Message mirroring never needs
+// this; Chatwoot REST enrichment/sends are skipped with a log when unset.
+const CHATWOOT_TOKEN     = botChatwootOrNull()?.token ?? ''
 // Bot token (Chatwoot → Settings → Bots → edit Jade) — makes Jade post as agent_bot, not as a human agent
 const CHATWOOT_BOT_TOKEN = process.env.CHATWOOT_BOT_TOKEN ?? CHATWOOT_TOKEN
 const ACCOUNT_ID         = '1'
@@ -141,6 +144,7 @@ async function getSourceId(payload: CWPayload, convId: number): Promise<string |
 
 // ── Send a message to a Chatwoot conversation ─────────────────────────────────
 async function cwSendMessage(conversationId: number, content: string): Promise<void> {
+  if (!CHATWOOT_BOT_TOKEN) { logChatwootUnconfigured('chatwoot-webhook send'); return }
   try {
     await fetch(`${CHATWOOT_BASE}/api/v1/accounts/${ACCOUNT_ID}/conversations/${conversationId}/messages`, {
       method:  'POST',

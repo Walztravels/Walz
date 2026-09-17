@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getSupabaseAdmin } from '@/lib/supabase'
+import { botChatwootOrNull, logChatwootUnconfigured } from '@/lib/chatwoot/config'
 
 export const dynamic = 'force-dynamic'
 
@@ -29,9 +30,14 @@ export async function GET(req: NextRequest) {
     .select('id, name, email, chatwootAgentId')
     .eq('isEscalation', true)
 
+  const cw = botChatwootOrNull()
+  if (!cw) {
+    logChatwootUnconfigured('routing-escalation')
+    return NextResponse.json({ ok: false, error: 'Chatwoot not configured' }, { status: 503 })
+  }
   const chatwootBase  = process.env.CHATWOOT_BASE_URL   ?? 'https://chat.walztravels.com'
-  const chatwootToken = process.env.CHATWOOT_API_TOKEN  ?? '1rnd6Rp9GNVKtbJ8238Vg2S1'
-  const accountId     = process.env.CHATWOOT_ACCOUNT_ID ?? '1'
+  const chatwootToken = cw.token
+  const accountId     = cw.accountId
 
   let escalated = 0
 

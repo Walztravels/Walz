@@ -2,12 +2,16 @@ import { NextResponse } from 'next/server'
 import { getAdminSession } from '@/lib/admin-auth'
 import { getSupabaseAdmin } from '@/lib/supabase'
 import { sendConversationAssignedEmail } from '@/lib/email-staff-notification'
+import { adminChatwootOrNull } from '@/lib/chatwoot/config'
 
 export const dynamic = 'force-dynamic'
 
-const CW_BASE    = process.env.CHATWOOT_BASE_URL    || 'https://chatwoot-production-d486.up.railway.app'
-const CW_TOKEN   = process.env.CHATWOOT_ADMIN_TOKEN!
-const CW_ACCOUNT = process.env.CHATWOOT_ACCOUNT_ID  || '1'
+// Fail closed (INBOX-0S.1): no non-null assertion on the token — when no
+// Chatwoot token is configured every handler returns a controlled 503.
+const cwCfg = adminChatwootOrNull()
+const CW_BASE    = cwCfg?.base ?? ''
+const CW_TOKEN   = cwCfg?.token ?? ''
+const CW_ACCOUNT = cwCfg?.accountId ?? '1'
 
 export async function POST(
   req: Request,
@@ -15,6 +19,7 @@ export async function POST(
 ) {
   const session = await getAdminSession()
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  if (!cwCfg) return NextResponse.json({ error: 'Messaging service is not configured.' }, { status: 503 })
 
   const { assignee_id } = await req.json() as { assignee_id: number }
 

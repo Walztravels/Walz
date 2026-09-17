@@ -18,9 +18,10 @@ import { getResend } from '@/lib/email-internal'
 import { loadJadeSession, saveJadeSession } from '@/lib/jade-session'
 import { getSupabaseAdmin } from '@/lib/supabase'
 import { resolveInstagramPostContext } from '@/lib/instagram-post'
+import { botChatwootOrNull, logChatwootUnconfigured } from '@/lib/chatwoot/config'
 
 const CHATWOOT_BASE  = 'https://chat.walztravels.com'
-const CHATWOOT_TOKEN = process.env.CHATWOOT_API_TOKEN ?? '1rnd6Rp9GNVKtbJ8238Vg2S1'
+const CHATWOOT_TOKEN = botChatwootOrNull()?.token ?? ''   // fail closed (INBOX-0S.1)
 const ACCOUNT_ID     = '1'
 
 export const dynamic = 'force-dynamic'
@@ -270,6 +271,7 @@ async function silenceJadeOnIgAgent(msg: IGMessage, value: IGValue) {
 
 // ── Check Chatwoot API for human agent activity in this lead's conversation ────
 async function hasAgentRepliedInChatwoot(sourceId: string): Promise<boolean> {
+  if (!CHATWOOT_TOKEN) { logChatwootUnconfigured('meta-webhook agent check'); return false }
   try {
     // Path 1: look up Chatwoot conversation ID from Supabase leads table.
     // The Chatwoot general webhook stores the PSID in whatsapp_number when

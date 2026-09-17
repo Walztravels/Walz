@@ -1,15 +1,21 @@
 import { NextResponse } from 'next/server'
+import { botChatwootOrNull } from '@/lib/chatwoot/config'
 
 export const dynamic = 'force-dynamic'
 
 export async function GET() {
-  const TOKEN = process.env.CHATWOOT_API_TOKEN ?? '1rnd6Rp9GNVKtbJ8238Vg2S1'
+  const TOKEN = botChatwootOrNull()?.token ?? ''
   const BASE  = 'https://chat.walztravels.com'
 
   const result: Record<string, unknown> = {
-    tokenSet:    !!process.env.CHATWOOT_API_TOKEN,
-    tokenFirst4: TOKEN.slice(0, 4),
-    timestamp:   new Date().toISOString(),
+    tokenSet:  TOKEN.length > 0,
+    timestamp: new Date().toISOString(),
+  }
+
+  if (!TOKEN) {
+    result.chatwootConnected = false
+    result.note = 'No Chatwoot token configured — live check skipped'
+    return NextResponse.json(result)
   }
 
   try {
