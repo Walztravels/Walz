@@ -27,22 +27,43 @@
  *                                (can reuse TWILIO_AUTH_TOKEN)
  */
 
-import { NextRequest, NextResponse } from 'next/server'
+import { NextRequest } from 'next/server'
 import { prisma } from '@/lib/db'
 import { normalisePhone } from '@/lib/twilio-whatsapp'
 import { ACTIVE_VISA_STATUSES } from '@/lib/visa-constants'
 import { sendVisaWhatsAppNotification } from '@/lib/email-staff-notification'
+import { verifyTwilioSignature, externalWebhookUrl } from '@/lib/webhooks/verify'
 
 export const dynamic = 'force-dynamic'
 
+const TWIML_OK = '<?xml version="1.0" encoding="UTF-8"?><Response></Response>'
+
 export async function POST(req: NextRequest) {
+  // ── Authentication (INBOX-0S.4) — X-Twilio-Signature over the exact
+  // external URL + sorted POST params. FAIL CLOSED when no auth token is
+  // configured. TWILIO_WEBHOOK_URL pins the console-configured URL; the
+  // fallback reconstructs it from forwarded headers, never req.url's host.
+  const authToken = (process.env.TWILIO_AUTH_TOKEN ?? process.env.TWILIO_WEBHOOK_AUTH_TOKEN ?? '').trim()
+  if (!authToken) {
+    console.error('[twilio-wa] BLOCKED: TWILIO_AUTH_TOKEN not configured — failing closed')
+    return new Response('', { status: 403 })
+  }
+
   // Twilio sends application/x-www-form-urlencoded
   let form: URLSearchParams
   try {
     const text = await req.text()
     form = new URLSearchParams(text)
   } catch {
-    return new Response('', { status: 200 }) // always 200 to stop Twilio retries
+    return new Response('', { status: 400 })   // permanent — malformed body
+  }
+
+  const url = externalWebhookUrl(process.env.TWILIO_WEBHOOK_URL, req.headers, '/api/webhooks/twilio-whatsapp')
+  const params: Record<string, string> = {}
+  form.forEach((v, k) => { params[k] = v })
+  if (!url || !verifyTwilioSignature(url, params, req.headers.get('x-twilio-signature'), authToken)) {
+    console.warn('[twilio-wa] BLOCKED: invalid X-Twilio-Signature')
+    return new Response('', { status: 403 })
   }
 
   // Extract fields from Twilio's payload
@@ -54,10 +75,29 @@ export async function POST(req: NextRequest) {
 
   const fromPhone = rawFrom.replace(/^whatsapp:/i, '').trim()
 
-  await routeInboundWhatsApp({ fromPhone: fromPhone || undefined, bsuid, body, twilioSid: waSid })
+  // Idempotency (0S.4): a Twilio retry with the same MessageSid must not
+  // duplicate the visa-thread message or re-email staff.
+  if (waSid) {
+    const dup = await prisma.visaApplicationMessage
+      .findFirst({ where: { twilioSid: waSid }, select: { id: true } })
+      .catch(() => null)
+    if (dup) {
+      console.log('[twilio-wa] duplicate MessageSid skipped')
+      return new Response(TWIML_OK, { status: 200, headers: { 'Content-Type': 'text/xml' } })
+    }
+  }
+
+  try {
+    await routeInboundWhatsApp({ fromPhone: fromPhone || undefined, bsuid, body, twilioSid: waSid })
+  } catch (e) {
+    // Transient failure: 500 → Twilio retries; the SID dedupe (plus the DB
+    // unique index) makes that retry safe.
+    console.error('[twilio-wa] processing error:', e instanceof Error ? e.message : e)
+    return new Response('', { status: 500 })
+  }
 
   // Twilio expects TwiML or an empty 200 response
-  return new Response('<?xml version="1.0" encoding="UTF-8"?><Response></Response>', {
+  return new Response(TWIML_OK, {
     status: 200,
     headers: { 'Content-Type': 'text/xml' },
   })
@@ -113,18 +153,28 @@ async function routeInboundWhatsApp(payload: {
     return
   }
 
-  // Save the inbound message to the visa application thread
-  await prisma.visaApplicationMessage.create({
-    data: {
-      visaApplicationId: activeApp.id,
-      direction:         'inbound',
-      body:              payload.body,
-      sentBy:            null,
-      fromBsuid:         payload.bsuid ?? null,
-      status:            'delivered',
-      twilioSid:         payload.twilioSid ?? null,
-    },
-  })
+  // Save the inbound message to the visa application thread. The partial
+  // UNIQUE index on twilioSid is the concurrency backstop: the loser of a
+  // duplicate race gets P2002 and stops (no message, no duplicate emails).
+  try {
+    await prisma.visaApplicationMessage.create({
+      data: {
+        visaApplicationId: activeApp.id,
+        direction:         'inbound',
+        body:              payload.body,
+        sentBy:            null,
+        fromBsuid:         payload.bsuid ?? null,
+        status:            'delivered',
+        twilioSid:         payload.twilioSid ?? null,
+      },
+    })
+  } catch (e) {
+    if ((e as { code?: string })?.code === 'P2002') {
+      console.log('[twilio-wa] concurrent duplicate MessageSid — skipped')
+      return
+    }
+    throw e
+  }
 
   // Persist BSUID on the application if newly seen (enables future routing without phone)
   if (payload.bsuid && !activeApp.whatsappBsuid) {

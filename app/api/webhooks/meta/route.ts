@@ -19,6 +19,8 @@ import { loadJadeSession, saveJadeSession } from '@/lib/jade-session'
 import { getSupabaseAdmin } from '@/lib/supabase'
 import { resolveInstagramPostContext } from '@/lib/instagram-post'
 import { botChatwootOrNull, logChatwootUnconfigured } from '@/lib/chatwoot/config'
+import { verifyMetaSignature, maskId } from '@/lib/webhooks/verify'
+import { claimWebhookEvent, releaseWebhookEvent } from '@/lib/webhooks/idempotency'
 
 const CHATWOOT_BASE  = 'https://chat.walztravels.com'
 const CHATWOOT_TOKEN = botChatwootOrNull()?.token ?? ''   // fail closed (INBOX-0S.1)
@@ -49,46 +51,89 @@ export async function GET(req: Request) {
 
 // ── POST — Incoming messages ──────────────────────────────────────────────────
 export async function POST(req: Request) {
+  // ── Authentication (INBOX-0S.4) — X-Hub-Signature-256 over the raw body.
+  // FAIL CLOSED: without META_APP_SECRET nothing is processed.
+  const rawBody = await req.text()
+  const appSecret = (process.env.META_APP_SECRET ?? '').trim()
+  if (!appSecret) {
+    console.error('[meta-webhook] BLOCKED: META_APP_SECRET not configured — failing closed')
+    return NextResponse.json({ error: 'Not configured' }, { status: 503 })
+  }
+  if (!verifyMetaSignature(rawBody, req.headers.get('x-hub-signature-256'), appSecret)) {
+    console.warn('[meta-webhook] BLOCKED: invalid X-Hub-Signature-256')
+    return NextResponse.json({ error: 'Invalid signature' }, { status: 401 })
+  }
+
+  let body: { entry?: Array<{ id?: string; messaging?: MessagePayload[]; changes?: Array<{ field?: string; value?: IGValue }> }> }
   try {
-    const body = await req.json()
+    body = JSON.parse(rawBody)
+  } catch {
+    return NextResponse.json({ error: 'Bad request' }, { status: 400 })   // permanent
+  }
 
-    console.log('[meta-webhook] Received:', JSON.stringify(body, null, 2))
+  // Never log the body — it carries client messages and identifiers.
+  const supabase = getSupabaseAdmin()
+  let transientFailure = false
 
-    for (const entry of body.entry ?? []) {
-
-      // ── Facebook Messenger messages ───────────────────────────────────────
-      for (const messaging of entry.messaging ?? []) {
-        if (messaging.message && !messaging.message.is_echo) {
-          await handleFacebookMessage(messaging)
-        }
+  // Idempotency (0S.4): each provider message id (mid) is claimed before
+  // processing. A Meta retry or concurrent duplicate cannot re-append the
+  // message or re-trigger a Jade reply. On a processing failure the claim
+  // is released and we return 500 so Meta's retry can safely reprocess.
+  const processOnce = async (eventId: string | undefined, kind: string, run: () => Promise<void>) => {
+    let claimed = false
+    if (eventId) {
+      const claim = await claimWebhookEvent(supabase, 'meta', eventId)
+      if (claim === 'duplicate') {
+        console.log(`[meta-webhook] duplicate ${kind} skipped`, { eventId: maskId(eventId) })
+        return
       }
+      claimed = claim === 'claimed'
+    }
+    try {
+      await run()
+    } catch (error) {
+      console.error(`[meta-webhook] ${kind} processing error:`, error instanceof Error ? error.message : error)
+      if (claimed && eventId) await releaseWebhookEvent(supabase, 'meta', eventId)
+      transientFailure = true
+    }
+  }
 
-      // ── Instagram DM messages ─────────────────────────────────────────────
-      for (const change of entry.changes ?? []) {
-        if (change.field === 'messages' && change.value?.messages) {
-          // entry.id is the Walz IG Business Account ID — always reliable.
-          // change.value.id is the same value but typed optional; fall back to entry.id.
-          const walzIgId: string | undefined =
-            change.value.id ?? entry.id ?? process.env.INSTAGRAM_ACCOUNT_ID
-          for (const msg of change.value.messages) {
-            if (walzIgId && msg.from?.id === walzIgId) {
-              // Echo: Walz's own IG account sent a DM — human agent replied from IG app
-              await silenceJadeOnIgAgent(msg, change.value)
-            } else {
-              await handleInstagramMessage(msg, change.value)
-            }
+  for (const entry of body.entry ?? []) {
+
+    // ── Facebook Messenger messages ───────────────────────────────────────
+    for (const messaging of entry.messaging ?? []) {
+      if (messaging.message && !messaging.message.is_echo) {
+        await processOnce(messaging.message.mid, 'fb-message', () => handleFacebookMessage(messaging))
+      }
+    }
+
+    // ── Instagram DM messages ─────────────────────────────────────────────
+    for (const change of entry.changes ?? []) {
+      if (change.field === 'messages' && change.value?.messages) {
+        // entry.id is the Walz IG Business Account ID — always reliable.
+        // change.value.id is the same value but typed optional; fall back to entry.id.
+        const walzIgId: string | undefined =
+          change.value.id ?? entry.id ?? process.env.INSTAGRAM_ACCOUNT_ID
+        for (const msg of change.value.messages) {
+          const eventId = msg.id ?? msg.mid
+          if (walzIgId && msg.from?.id === walzIgId) {
+            // Echo: Walz's own IG account sent a DM — human agent replied from IG app
+            const value = change.value
+            await processOnce(eventId, 'ig-agent-echo', () => silenceJadeOnIgAgent(msg, value))
+          } else {
+            const value = change.value
+            await processOnce(eventId, 'ig-message', () => handleInstagramMessage(msg, value))
           }
         }
       }
     }
-
-    return NextResponse.json({ status: 'ok' })
-
-  } catch (error) {
-    // Always return 200 — Meta will retry on non-200 and flood the endpoint
-    console.error('[meta-webhook] Error:', error)
-    return NextResponse.json({ status: 'ok' }, { status: 200 })
   }
+
+  // Transient failures return 500 so Meta retries; idempotency claims make
+  // that retry safe. Success and pure-duplicate batches return 200.
+  return transientFailure
+    ? NextResponse.json({ status: 'retry' }, { status: 500 })
+    : NextResponse.json({ status: 'ok' })
 }
 
 // ── Facebook Messenger handler ────────────────────────────────────────────────
@@ -233,7 +278,7 @@ async function silenceJadeOnIgAgent(msg: IGMessage, value: IGValue) {
   const customerId: string | undefined = msg.to?.data?.[0]?.id
 
   if (!customerId) {
-    console.warn('[meta-webhook] silenceJadeOnIgAgent: could not determine customer ID', JSON.stringify(msg))
+    console.warn('[meta-webhook] silenceJadeOnIgAgent: could not determine customer ID')
     return
   }
 
@@ -242,7 +287,7 @@ async function silenceJadeOnIgAgent(msg: IGMessage, value: IGValue) {
       where: { source: 'instagram', sourceId: customerId },
       data:  { jadeSilencedAt: new Date(), jadeResumedAt: null },
     })
-    console.log(`[meta-webhook] Jade silenced — agent replied from IG app to ${customerId}`)
+    console.log(`[meta-webhook] Jade silenced — agent replied from IG app to ${maskId(customerId)}`)
   } catch (e) {
     console.error('[meta-webhook] silenceJadeOnIgAgent error:', e)
   }
@@ -336,7 +381,7 @@ async function sendJadeReply(lead: Lead, userMessage: string, source: string, po
   if (lead.sourceId) {
     const igSession = await loadJadeSession(`ig_${lead.sourceId}`).catch(() => null)
     if (igSession?.agentActive === true) {
-      console.log(`[meta-webhook] JadeSession agentActive=true for ig_${lead.sourceId} — silenced`)
+      console.log(`[meta-webhook] JadeSession agentActive=true for ig_${maskId(lead.sourceId)} — silenced`)
       return
     }
 
@@ -354,7 +399,7 @@ async function sendJadeReply(lead: Lead, userMessage: string, source: string, po
         agentActive:         true,
         agentMessages:       igSession2?.agentMessages ?? [],
       }).catch(() => {})
-      console.log(`[meta-webhook] Agent detected via Chatwoot API for ig_${lead.sourceId} — silenced`)
+      console.log(`[meta-webhook] Agent detected via Chatwoot API for ig_${maskId(lead.sourceId)} — silenced`)
       return
     }
   }
@@ -461,10 +506,12 @@ interface MessagePayload {
   sender:    { id: string }
   recipient: { id: string }
   timestamp: number
-  message?: { text?: string; is_echo?: boolean }
+  message?: { text?: string; is_echo?: boolean; mid?: string }
 }
 
 interface IGMessage {
+  id?:          string      // IG message id (dedupe key)
+  mid?:         string
   from?:        { id?: string; username?: string }
   to?:          { data?: Array<{ id: string }> }
   text?:        string

@@ -15,6 +15,7 @@
 
 import { NextResponse } from 'next/server'
 import { getSupabaseAdmin } from '@/lib/supabase'
+import { verifyMetaSignature } from '@/lib/webhooks/verify'
 
 export const dynamic = 'force-dynamic'
 
@@ -33,8 +34,27 @@ export async function GET(req: Request) {
 
 // ── POST — incoming messages ──────────────────────────────────────────────────
 export async function POST(req: Request) {
+  // ── Authentication (INBOX-0S.4) — X-Hub-Signature-256 over the raw body.
+  // FAIL CLOSED: without an app secret nothing is processed.
+  const rawBody = await req.text()
+  const appSecret = (process.env.WHATSAPP_APP_SECRET ?? process.env.META_APP_SECRET ?? '').trim()
+  if (!appSecret) {
+    console.error('[wa-webhook] BLOCKED: WHATSAPP_APP_SECRET/META_APP_SECRET not configured — failing closed')
+    return NextResponse.json({ error: 'Not configured' }, { status: 503 })
+  }
+  if (!verifyMetaSignature(rawBody, req.headers.get('x-hub-signature-256'), appSecret)) {
+    console.warn('[wa-webhook] BLOCKED: invalid X-Hub-Signature-256')
+    return NextResponse.json({ error: 'Invalid signature' }, { status: 401 })
+  }
+
   try {
-    const body  = await req.json()
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let body: any
+    try {
+      body = JSON.parse(rawBody)
+    } catch {
+      return NextResponse.json({ error: 'Bad request' }, { status: 400 })   // permanent
+    }
     const entry = body.entry?.[0]
     const value = entry?.changes?.[0]?.value
 
@@ -69,14 +89,12 @@ export async function POST(req: Request) {
         .maybeSingle()
 
       let leadId: string
+      const isExistingLead = !!existingLead
 
       if (existingLead) {
+        // Unread/preview now update AFTER the message upsert succeeds —
+        // a duplicate delivery must not inflate the count (0S.4).
         leadId = existingLead.id
-        await supabase.from('leads').update({
-          last_message_at:      new Date().toISOString(),
-          last_message_preview: getPreview(message),
-          unread_count:         (existingLead.unread_count ?? 0) + 1,
-        }).eq('id', leadId)
       } else {
         const { data: newLead, error: insertErr } = await supabase
           .from('leads')
@@ -128,14 +146,32 @@ export async function POST(req: Request) {
       }
 
       // Save message ─────────────────────────────────────────────────────────
-      await supabase.from('messages').insert({
+      // upsert + UNIQUE(external_id) closes the check-then-insert race (0S.4)
+      const { data: inserted } = await supabase.from('messages').upsert({
         lead_id:     leadId,
         channel:     'whatsapp',
         direction:   'inbound',
         body:        msgBody,
         attachments: attachments,
         external_id: message.id,
-      })
+      }, { onConflict: 'external_id', ignoreDuplicates: true }).select('id')
+      // A concurrent duplicate lost the race — its Jade reply must not fire twice.
+      if (!inserted?.length) continue
+
+      if (isExistingLead) {
+        const nowIso = new Date().toISOString()
+        const { error: rpcErr } = await supabase.rpc('increment_lead_unread', {
+          p_lead_id: leadId, p_preview: getPreview(message), p_at: nowIso,
+        })
+        if (rpcErr) {
+          // Migration not applied yet — previous (non-atomic) behavior.
+          await supabase.from('leads').update({
+            last_message_at:      nowIso,
+            last_message_preview: getPreview(message),
+            unread_count:         ((existingLead?.unread_count as number | undefined) ?? 0) + 1,
+          }).eq('id', leadId)
+        }
+      }
 
       // Jade auto-reply ──────────────────────────────────────────────────────
       if (message.type === 'text' && msgBody) {

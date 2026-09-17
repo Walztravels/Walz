@@ -53,20 +53,33 @@ async function getEscalationAgents(): Promise<RoutingAgent[]> {
 
 async function getNextRoundRobin(): Promise<RoutingAgent | null> {
   const supabase = getSupabaseAdmin()
-  const agents   = await getActiveRoutingAgents()
-  if (!agents.length) return null
 
-  const next = agents.reduce((a, b) =>
-    a.roundRobinPosition <= b.roundRobinPosition ? a : b,
-  )
+  // Compare-and-swap (INBOX-0S.4): the position bump only applies if the
+  // row still holds the position we read, so two concurrent webhooks can't
+  // both claim the same slot. On contention, retry once with fresh state.
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const agents = await getActiveRoutingAgents()
+    if (!agents.length) return null
 
-  // Bump position by agent count — keeps a persistent rotating queue
-  await supabase
-    .from('RoutingAgent')
-    .update({ roundRobinPosition: next.roundRobinPosition + agents.length, updatedAt: new Date().toISOString() })
-    .eq('id', next.id)
+    const next = agents.reduce((a, b) =>
+      a.roundRobinPosition <= b.roundRobinPosition ? a : b,
+    )
 
-  return next
+    // Bump position by agent count — keeps a persistent rotating queue
+    const { data: claimed } = await supabase
+      .from('RoutingAgent')
+      .update({ roundRobinPosition: next.roundRobinPosition + agents.length, updatedAt: new Date().toISOString() })
+      .eq('id', next.id)
+      .eq('roundRobinPosition', next.roundRobinPosition)
+      .select('id')
+
+    if (claimed?.length) return next
+  }
+
+  // Still contended after a retry — degrade to first active agent so the
+  // conversation is never left unassigned.
+  const agents = await getActiveRoutingAgents()
+  return agents.length ? agents[0] : null
 }
 
 async function getAgentBySpecialism(message: string): Promise<RoutingAgent | null> {

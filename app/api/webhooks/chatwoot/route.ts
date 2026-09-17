@@ -20,13 +20,14 @@
  */
 
 import { NextResponse } from 'next/server'
-import { createHmac, timingSafeEqual } from 'crypto'
 import { getSupabaseAdmin } from '@/lib/supabase'
 import { prisma } from '@/lib/db'
 import { saveJadeSession, loadJadeSession, markHandover, markResumed } from '@/lib/jade-session'
 import { routeConversation, applyRouting } from '@/lib/conversation-router'
 import { getResend } from '@/lib/resend'
 import { botChatwootOrNull, logChatwootUnconfigured } from '@/lib/chatwoot/config'
+import { verifyChatwootRequest, maskId } from '@/lib/webhooks/verify'
+import { claimWebhookEvent } from '@/lib/webhooks/idempotency'
 
 export const dynamic = 'force-dynamic'
 
@@ -43,31 +44,21 @@ const JADE_AGENT_ID = process.env.JADE_CHATWOOT_AGENT_ID
   ? Number(process.env.JADE_CHATWOOT_AGENT_ID)
   : null
 
-// ── Signature verification ────────────────────────────────────────────────────
-async function verifySignature(req: Request, rawBody: string): Promise<boolean> {
-  // Simple token check (X-Chatwoot-Token header)
-  const tokenSecret = process.env.CHATWOOT_WEBHOOK_TOKEN
-  if (tokenSecret) {
-    const provided = req.headers.get('x-chatwoot-token')
-    if (provided === tokenSecret) return true
-  }
-
-  // HMAC fallback (x-chatwoot-signature)
-  const hmacSecret = process.env.CHATWOOT_WEBHOOK_SECRET
-  if (hmacSecret) {
-    const sig = req.headers.get('x-chatwoot-signature')
-    if (!sig) return false
-    const [algo, hex] = sig.split('=')
-    if (algo !== 'sha256' || !hex) return false
-    const expected = createHmac('sha256', hmacSecret).update(rawBody).digest('hex')
-    try {
-      return timingSafeEqual(Buffer.from(hex), Buffer.from(expected))
-    } catch {
-      return false
-    }
-  }
-
-  return true // no secret configured → allow (dev)
+// ── Request verification (INBOX-0S.4) ─────────────────────────────────────────
+// FAIL CLOSED: with no webhook secret configured, nothing is accepted.
+// Chatwoot 4.15 account webhooks send no signature, so the supported
+// mechanism is a shared token in the callback URL (?token=...) configured
+// in Chatwoot → Settings → Integrations → Webhooks; the header and HMAC
+// forms are also honored where a proxy provides them.
+function verifyRequest(req: Request, rawBody: string): 'ok' | 'invalid' | 'unconfigured' {
+  return verifyChatwootRequest({
+    rawBody,
+    headerToken: req.headers.get('x-chatwoot-token'),
+    queryToken:  new URL(req.url).searchParams.get('token'),
+    headerSig:   req.headers.get('x-chatwoot-signature'),
+    tokenSecret: process.env.CHATWOOT_WEBHOOK_TOKEN,
+    hmacSecret:  process.env.CHATWOOT_WEBHOOK_SECRET,
+  })
 }
 
 // ── Resolve Instagram/Facebook PSID for a Chatwoot conversation ─────────────
@@ -84,7 +75,7 @@ async function getSourceId(payload: CWPayload, convId: number): Promise<string |
     ?? payload.contact?.identifier
 
   if (fromPayload) {
-    console.log('[chatwoot-webhook] getSourceId: resolved from payload —', fromPayload)
+    console.log('[chatwoot-webhook] getSourceId: resolved from payload —', maskId(fromPayload))
     return fromPayload
   }
 
@@ -129,7 +120,7 @@ async function getSourceId(payload: CWPayload, convId: number): Promise<string |
       ?? null
 
     if (resolved) {
-      console.log('[chatwoot-webhook] getSourceId: resolved via API fallback —', resolved)
+      console.log('[chatwoot-webhook] getSourceId: resolved via API fallback —', maskId(resolved))
     } else {
       console.warn('[chatwoot-webhook] getSourceId: API fallback returned no source_id for conv', convId)
     }
@@ -163,23 +154,29 @@ async function cwSendMessage(conversationId: number, content: string): Promise<v
 export async function POST(req: Request) {
   try {
     const rawBody = await req.text()
-    console.log('[cw-hook] RECV', rawBody.slice(0, 2000))
 
-    if (!await verifySignature(req, rawBody)) {
-      console.warn('[cw-hook] BLOCKED: signature mismatch')
-      return new Response('Forbidden', { status: 403 })
+    // Never log the body — it carries client message content and identifiers.
+    const verdict = verifyRequest(req, rawBody)
+    if (verdict !== 'ok') {
+      console.warn(`[cw-hook] BLOCKED: ${verdict === 'unconfigured'
+        ? 'no CHATWOOT_WEBHOOK_TOKEN/SECRET configured — failing closed'
+        : 'verification failed'}`)
+      return new Response('Unauthorized', { status: 401 })
     }
 
-    const payload = JSON.parse(rawBody) as CWPayload
+    let payload: CWPayload
+    try {
+      payload = JSON.parse(rawBody) as CWPayload
+    } catch {
+      return new Response('Bad Request', { status: 400 })   // permanent — retrying malformed JSON is useless
+    }
 
     console.log('[cw-hook] IN', {
       event:      payload.event,
-      id:         payload.id,
+      messageId:  payload.id,
       convId:     payload.conversation?.id,
       status:     payload.status,
       assigneeId: payload.conversation?.meta?.assignee?.id ?? null,
-      sourceId:   payload.conversation?.meta?.sender?.identifier
-                  ?? payload.conversation?.contact_inbox?.source_id ?? null,
       sender:     payload.sender?.type ?? null,
     })
 
@@ -241,11 +238,10 @@ async function onConversationStatusChanged(payload: CWPayload) {
       }).catch(() => {})
     }
     console.log('[chatwoot-webhook] status→pending — agent takeover logged:', {
-      conversationId:        convId,
-      sourceIdFromPayload:   payload.conversation?.contact_inbox?.source_id ?? null,
-      sourceIdResolved:      igSourceId,
-      silenceKeyUsed:        silenceKey,
-      jadeSilencedAt:        new Date().toISOString(),
+      conversationId:  convId,
+      sourceIdResolved: maskId(igSourceId),
+      silenceKeyUsed:   maskId(silenceKey),
+      jadeSilencedAt:   new Date().toISOString(),
     })
     return
   }
@@ -256,6 +252,10 @@ async function onConversationStatusChanged(payload: CWPayload) {
     await markResumed(convKey)
 
     if (!session) return
+    // Idempotency (0S.4): only an actual takeover in progress resumes with
+    // a client-facing message. A duplicate 'open' event (or a reopen with
+    // no takeover) finds agentActive already false and stays silent.
+    if (session.agentActive !== true) return
 
     const intent = session.intent
     let context = 'your enquiry'
@@ -298,7 +298,8 @@ async function onConversationUpdated(payload: CWPayload, supabase: SupabaseAdmin
   const sourceId     = payload.conversation?.contact_inbox?.source_id ?? null
 
   console.log('[cw-hook] conv_updated entry', {
-    convId, status: payload.status, assigneeCwId, senderPhone, sourceId,
+    convId, status: payload.status, assigneeCwId,
+    senderPhone: maskId(senderPhone), sourceId: maskId(sourceId),
   })
 
   if (!convId) {
@@ -368,7 +369,8 @@ async function onConversationUpdated(payload: CWPayload, supabase: SupabaseAdmin
     }
 
     console.log('[cw-hook] fallback lookup', {
-      senderPhone, phoneNorm, psidKey, fallbackId: fallbackId ?? 'NO_LEAD',
+      senderPhone: maskId(senderPhone), phoneNorm: maskId(phoneNorm),
+      psidKey: maskId(psidKey), fallbackId: fallbackId ?? 'NO_LEAD',
     })
 
     if (fallbackId) {
@@ -422,7 +424,7 @@ async function onConversationUpdated(payload: CWPayload, supabase: SupabaseAdmin
           data:  prismaUpdate,
         })
         console.log('[cw-hook] prisma mirror', {
-          phone: phoneNorm, updated: result.count, staffId, newStatus,
+          phone: maskId(phoneNorm), updated: result.count, staffId, newStatus,
         })
       } catch (e) {
         console.warn('[cw-hook] prisma mirror failed (non-blocking):', e instanceof Error ? e.message : e)
@@ -456,6 +458,18 @@ async function onMessageCreated(payload: CWPayload, supabase: SupabaseAdmin) {
 
   const convId = payload.conversation?.id ?? payload.id
   if (!convId) return
+
+  // Idempotency (0S.4): claim this provider message id before ANY side
+  // effect — a Chatwoot retry or concurrent duplicate must not re-run
+  // routing, re-silence Jade, or re-mirror. 'unavailable' (ledger table
+  // not migrated yet) degrades to the pre-0S.4 behavior below.
+  if (payload.id) {
+    const claim = await claimWebhookEvent(supabase, 'chatwoot', `cw_msg_${payload.id}`)
+    if (claim === 'duplicate') {
+      console.log('[cw-hook] duplicate message event skipped', { messageId: payload.id, convId })
+      return
+    }
+  }
 
   // ── Auto-routing: assign new inbound conversations to the right agent ──────
   if (payload.message_type === 0 && payload.sender?.type === 'contact') {
@@ -593,11 +607,9 @@ async function onMessageCreated(payload: CWPayload, supabase: SupabaseAdmin) {
 
       console.log('[chatwoot-webhook] Human agent message processed:', {
         conversationId:      convId,
-        agentName,
         jadeSessionSilenced: true,
         messageBuffered:     !!content,
-        sourceIdFromPayload: payload.conversation?.contact_inbox?.source_id ?? null,
-        sourceIdResolved:    igSourceId,
+        sourceIdResolved:    maskId(igSourceId),
       })
     }
   }
@@ -738,7 +750,7 @@ async function onMessageCreated(payload: CWPayload, supabase: SupabaseAdmin) {
           data:  { lastOfflineNotifiedAt: new Date() },
         })
 
-        console.log('[cw-hook] offline-alert sent to', assignedStaff.email, 'for lead', prismaLead.id)
+        console.log('[cw-hook] offline-alert sent for lead', prismaLead.id)
       } catch (e) {
         console.error('[cw-hook] offline-alert failed (non-blocking):', e instanceof Error ? e.message : e)
       }
@@ -748,31 +760,38 @@ async function onMessageCreated(payload: CWPayload, supabase: SupabaseAdmin) {
   const body      = payload.content ?? ''
   const now       = new Date().toISOString()
 
-  await supabase.from('messages').insert({
+  await supabase.from('messages').upsert({
     lead_id:     leadId,
     channel:     detectChannel(payload),
     direction,
     body,
     external_id: externalId,
     attachments: payload.attachments?.length ? payload.attachments : undefined,
-  })
+  }, { onConflict: 'external_id', ignoreDuplicates: true })
 
   // Update lead metadata
-  const updatePayload: Record<string, unknown> = {
-    last_message_at:      now,
-    last_message_preview: direction === 'inbound'
-      ? body.substring(0, 80)
-      : `Agent: ${body.substring(0, 75)}`,
-  }
+  const preview = direction === 'inbound'
+    ? body.substring(0, 80)
+    : `Agent: ${body.substring(0, 75)}`
 
   if (direction === 'inbound') {
-    const currentUnread = leadByConv ? ((leadByConv as { unread_count?: number }).unread_count ?? 0) : 0
-    updatePayload.unread_count = currentUnread + 1
+    // Atomic increment (0S.4) — the old read-modify-write lost updates under
+    // concurrent deliveries and reset the count on the findOrCreateLead path.
+    const { error: rpcErr } = await supabase.rpc('increment_lead_unread', {
+      p_lead_id: leadId, p_preview: preview, p_at: now,
+    })
+    if (rpcErr) {
+      // Migration not applied yet — degrade to the previous behavior.
+      const currentUnread = leadByConv ? ((leadByConv as { unread_count?: number }).unread_count ?? 0) : 0
+      await supabase.from('leads').update({
+        last_message_at: now, last_message_preview: preview, unread_count: currentUnread + 1,
+      }).eq('id', leadId)
+    }
   } else {
-    updatePayload.last_staff_reply_at = now
+    await supabase.from('leads').update({
+      last_message_at: now, last_message_preview: preview, last_staff_reply_at: now,
+    }).eq('id', leadId)
   }
-
-  await supabase.from('leads').update(updatePayload).eq('id', leadId)
 }
 
 // ── Lead helper ───────────────────────────────────────────────────────────────
