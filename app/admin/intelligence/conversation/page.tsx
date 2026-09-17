@@ -113,7 +113,7 @@ export default function ConversationPage() {
           <form onSubmit={analyseConversation} className="space-y-4">
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
               <div>
-                <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1 block">Lead ID (optional)</label>
+                <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1 block">Lead ID (loads the inbox conversation automatically)</label>
                 <input className={INPUT} placeholder="lead_..." value={form.leadId} onChange={e => set('leadId', e.target.value)} />
               </div>
               <div>

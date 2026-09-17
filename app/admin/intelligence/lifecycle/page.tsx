@@ -3,31 +3,31 @@
 import { fetchRecords } from '@/lib/intelligence/fetch-records'
 import { useState, useEffect, useCallback } from 'react'
 
-type Cohort = 'all' | 'champion' | 'loyal' | 'new' | 'at_risk'
+type Cohort = 'all' | 'NEW' | 'VISA_IN_PROGRESS' | 'VISA_DECIDED' | 'QUOTED' | 'BOOKED' | 'POST_TRIP' | 'REPEAT_CLIENT' | 'DORMANT'
 
+/** Deterministic lifecycle rows (INT-6) — prisma column names, honest values. */
 interface LifecyclePrediction {
   id: string
   userId: string
-  userName?: string | null
-  cohort: 'champion' | 'loyal' | 'new' | 'at_risk'
-  predictedLtv: number
-  ltv12mo: number
-  ltv36mo: number
-  nextService?: string | null
-  churnProbability: number
-  referralProbability: number
-  upgradeReadiness: number
-  priceElasticity: number
+  user?: { name?: string | null; email?: string | null } | null
+  cohortLabel: string | null          // lifecycle STAGE
+  nextServiceType?: string | null
+  churnReason?: string | null         // outstanding staff action
+  lastEngagementDate?: string | null
   computedAt: string
 }
 
-const COHORTS: Cohort[] = ['all', 'champion', 'loyal', 'new', 'at_risk']
+const COHORTS: Cohort[] = ['all', 'NEW', 'VISA_IN_PROGRESS', 'VISA_DECIDED', 'QUOTED', 'BOOKED', 'POST_TRIP', 'REPEAT_CLIENT', 'DORMANT']
 
 const COHORT_BADGE: Record<string, string> = {
-  champion: 'bg-[#C9A84C]/10 text-[#C9A84C]',
-  loyal: 'bg-blue-100 text-blue-700',
-  new: 'bg-green-100 text-green-700',
-  at_risk: 'bg-red-100 text-red-700',
+  REPEAT_CLIENT: 'bg-[#C9A84C]/10 text-[#C9A84C]',
+  BOOKED: 'bg-green-100 text-green-700',
+  QUOTED: 'bg-blue-100 text-blue-700',
+  VISA_IN_PROGRESS: 'bg-indigo-100 text-indigo-700',
+  VISA_DECIDED: 'bg-teal-100 text-teal-700',
+  POST_TRIP: 'bg-purple-100 text-purple-700',
+  NEW: 'bg-gray-100 text-gray-600',
+  DORMANT: 'bg-red-100 text-red-700',
 }
 
 const INPUT = 'w-full h-9 px-3 border border-gray-200 rounded-lg text-sm outline-none focus:border-[#C9A84C] bg-white'
@@ -69,10 +69,10 @@ export default function LifecyclePage() {
     }
   }
 
-  const filtered = cohortFilter === 'all' ? predictions : predictions.filter(p => p.cohort === cohortFilter)
+  const filtered = cohortFilter === 'all' ? predictions : predictions.filter(p => p.cohortLabel === cohortFilter)
 
   const cohortCounts = (COHORTS.filter(c => c !== 'all') as string[]).reduce<Record<string, number>>((acc, c) => {
-    acc[c] = predictions.filter(p => p.cohort === c).length
+    acc[c] = predictions.filter(p => p.cohortLabel === c).length
     return acc
   }, {})
 
@@ -81,7 +81,7 @@ export default function LifecyclePage() {
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-2xl font-bold text-[#0B1F3A]">Client Lifecycle Predictions</h1>
-          <p className="text-sm text-gray-500 mt-1">LTV, churn probability, and next-service prediction</p>
+          <p className="text-sm text-gray-500 mt-1">Deterministic lifecycle stages from real events — no predicted probabilities</p>
         </div>
       </div>
 
@@ -147,15 +147,10 @@ export default function LifecyclePage() {
               <thead>
                 <tr className="border-b border-gray-100 bg-gray-50/50">
                   <th className="text-left px-5 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">User</th>
-                  <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Cohort</th>
-                  <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Pred. LTV</th>
-                  <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">LTV 12mo</th>
-                  <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">LTV 36mo</th>
+                  <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Stage</th>
                   <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Next Service</th>
-                  <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Churn %</th>
-                  <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Referral %</th>
-                  <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Upgrade</th>
-                  <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Price Elast.</th>
+                  <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Outstanding Action</th>
+                  <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Last Engagement</th>
                   <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Computed</th>
                 </tr>
               </thead>
@@ -163,26 +158,19 @@ export default function LifecyclePage() {
                 {filtered.map((p) => (
                   <tr key={p.id} className="hover:bg-gray-50/50 transition-colors">
                     <td className="px-5 py-3">
-                      <div className="font-semibold text-[#0B1F3A] text-xs truncate max-w-[120px]">{p.userName ?? p.userId}</div>
-                      <div className="text-xs text-gray-400 font-mono truncate max-w-[120px]">{p.userId}</div>
+                      <div className="font-semibold text-[#0B1F3A] text-xs truncate max-w-[140px]">{p.user?.name ?? p.user?.email ?? p.userId}</div>
+                      <div className="text-xs text-gray-400 font-mono truncate max-w-[140px]">{p.userId}</div>
                     </td>
                     <td className="px-4 py-3">
-                      <span className={`px-2 py-0.5 rounded-full text-xs font-semibold capitalize ${COHORT_BADGE[p.cohort]}`}>
-                        {p.cohort?.replace(/_/g, ' ')}
+                      <span className={`px-2 py-0.5 rounded-full text-xs font-semibold ${COHORT_BADGE[p.cohortLabel ?? ''] ?? 'bg-gray-100 text-gray-500'}`}>
+                        {(p.cohortLabel ?? 'UNKNOWN').replace(/_/g, ' ')}
                       </span>
                     </td>
-                    <td className="px-4 py-3 text-xs font-bold text-[#0B1F3A]">£{p.predictedLtv?.toLocaleString()}</td>
-                    <td className="px-4 py-3 text-xs text-gray-700">£{p.ltv12mo?.toLocaleString()}</td>
-                    <td className="px-4 py-3 text-xs text-gray-700">£{p.ltv36mo?.toLocaleString()}</td>
-                    <td className="px-4 py-3 text-xs text-gray-500 max-w-[100px] truncate">{p.nextService ?? '—'}</td>
-                    <td className="px-4 py-3">
-                      <span className={`text-xs font-bold ${p.churnProbability > 0.5 ? 'text-red-600' : 'text-gray-700'}`}>
-                        {((p.churnProbability ?? 0) * 100).toFixed(0)}%
-                      </span>
+                    <td className="px-4 py-3 text-xs text-gray-700 capitalize">{p.nextServiceType ?? '—'}</td>
+                    <td className="px-4 py-3 text-xs text-gray-600 max-w-[260px]">{p.churnReason ?? '—'}</td>
+                    <td className="px-4 py-3 text-xs text-gray-500">
+                      {p.lastEngagementDate ? new Date(p.lastEngagementDate).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' }) : '—'}
                     </td>
-                    <td className="px-4 py-3 text-xs text-gray-700">{((p.referralProbability ?? 0) * 100).toFixed(0)}%</td>
-                    <td className="px-4 py-3 text-xs text-gray-700">{((p.upgradeReadiness ?? 0) * 100).toFixed(0)}%</td>
-                    <td className="px-4 py-3 text-xs text-gray-700">{p.priceElasticity?.toFixed(2)}</td>
                     <td className="px-4 py-3 text-xs text-gray-400">
                       {new Date(p.computedAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}
                     </td>
