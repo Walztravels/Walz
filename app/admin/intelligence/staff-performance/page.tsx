@@ -60,17 +60,17 @@ export default function StaffPerformancePage() {
     }
   }
 
-  const filtered = burnoutOnly ? metrics.filter(m => m.burnoutFlag) : metrics
+  const filtered = burnoutOnly ? metrics.filter(m => (m.burnoutRisk ?? 0) >= 10) : metrics
 
   return (
     <div>
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-2xl font-bold text-[#0B1F3A]">Staff Performance Intelligence</h1>
-          <p className="text-sm text-gray-500 mt-1">KPIs, burnout detection, and coaching insights</p>
+          <p className="text-sm text-gray-500 mt-1">Operational metrics from real records — workload is an observable count, never a health assessment</p>
         </div>
         <label className="flex items-center gap-2 cursor-pointer">
-          <span className="text-sm font-medium text-gray-600">Burnout Risk Only</span>
+          <span className="text-sm font-medium text-gray-600">High workload only</span>
           <button
             type="button"
             onClick={() => setBurnoutOnly(v => !v)}
@@ -136,7 +136,7 @@ export default function StaffPerformancePage() {
                   <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Doc Quality</th>
                   <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Resp. Time</th>
                   <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Revenue</th>
-                  <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Burnout Risk</th>
+                  <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Workload (open items)</th>
                   <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Flag</th>
                 </tr>
               </thead>
@@ -160,16 +160,16 @@ export default function StaffPerformancePage() {
                       <div className="flex items-center gap-2">
                         <div className="w-16 h-1.5 rounded-full bg-gray-200 overflow-hidden">
                           <div
-                            className={`h-full rounded-full ${m.burnoutRisk >= 70 ? 'bg-red-500' : m.burnoutRisk >= 40 ? 'bg-amber-500' : 'bg-green-500'}`}
-                            style={{ width: `${m.burnoutRisk ?? 0}%` }}
+                            className={`h-full rounded-full ${m.burnoutRisk >= 20 ? 'bg-red-500' : m.burnoutRisk >= 10 ? 'bg-amber-500' : 'bg-green-500'}`}
+                            style={{ width: `${Math.min(100, (m.burnoutRisk ?? 0) * 4)}%` }}
                           />
                         </div>
                         <span className="text-xs text-gray-600">{m.burnoutRisk?.toFixed(0)}</span>
                       </div>
                     </td>
                     <td className="px-4 py-3">
-                      {m.burnoutFlag
-                        ? <span className="px-2 py-0.5 rounded-full text-xs font-bold bg-red-100 text-red-700">At Risk</span>
+                      {(m.burnoutRisk ?? 0) >= 20
+                        ? <span className="px-2 py-0.5 rounded-full text-xs font-bold bg-amber-100 text-amber-800">High workload</span>
                         : <span className="text-gray-300 text-xs">—</span>
                       }
                     </td>
