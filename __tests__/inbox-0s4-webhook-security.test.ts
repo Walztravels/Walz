@@ -47,6 +47,23 @@ describe('Chatwoot webhook verification', () => {
     expect(verifyChatwootRequest({ ...base, rawBody: base.rawBody + ' ', headerSig: sig, tokenSecret: undefined, hmacSecret: secret })).toBe('invalid')
   })
 
+  it('the AgentBot endpoint fails closed too — token verified before the body is read (0S.4A review)', () => {
+    const s = read('app/api/chatwoot/bot/route.ts')
+    expect(s).toContain('verifyChatwootRequest')
+    expect(s).toContain("req.nextUrl.searchParams.get(\"token\")")
+    expect(s).toContain('failing closed')
+    expect(s).toContain('{ status: 401 }')
+    // auth precedes body parse and every side effect
+    expect(s.indexOf('verifyChatwootRequest({')).toBeLessThan(s.indexOf('req.json()'))
+    expect(s.indexOf('verifyChatwootRequest({')).toBeLessThan(s.indexOf('claimWebhookEvent(', s.indexOf('export async function POST')))
+  })
+
+  it('the meta GET handshake no longer logs verify-token characters', () => {
+    const s = read('app/api/webhooks/meta/route.ts')
+    expect(s).not.toContain("token?.slice(0, 6)")
+    expect(s).toContain('tokenPresent')
+  })
+
   it('the route rejects unconfigured/invalid with 401 and never logs the raw body', () => {
     const s = read('app/api/webhooks/chatwoot/route.ts')
     expect(s).toContain("verifyChatwootRequest")

@@ -1,7 +1,7 @@
 /**
  * Webhook idempotency ledger (INBOX-0S.4).
  *
- * webhook_events (see prisma/migrations/inbox_0s4_idempotency.sql) holds
+ * webhook_events (see prisma/migrations/inbox_0s4b_idempotency.sql) holds
  * one row per (provider, provider event id) with a DB UNIQUE constraint.
  * `claimWebhookEvent` inserts with conflict-ignore: the FIRST delivery
  * claims the event and processes it; retries and concurrent duplicates

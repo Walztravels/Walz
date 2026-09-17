@@ -6,7 +6,7 @@
  *
  * Register in Chatwoot: Settings → Integrations → Webhooks → Add
  *   URL:   https://www.walztravels.com/api/webhooks/chatwoot
- *   Events: message_created, conversation_created, conversation_updated, conversation_resolved
+ *   Events: conversation_status_changed (Jade takeover/resume), message_created, conversation_created, conversation_updated, conversation_resolved
  *
  * Required SQL (run once in Supabase SQL Editor):
  *   ALTER TABLE leads ADD COLUMN IF NOT EXISTS chatwoot_conversation_id bigint;

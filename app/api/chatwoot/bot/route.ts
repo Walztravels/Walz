@@ -32,7 +32,8 @@ import {
 } from "@/lib/jade/chatwoot-client";
 import { JADE_TOOLS, executeTool, type ToolContext } from "@/lib/jade/tools";
 import { getSupabaseAdmin } from "@/lib/supabase";
-import { claimWebhookEvent } from "@/lib/webhooks/idempotency";
+import { claimWebhookEvent, type ClaimResult } from "@/lib/webhooks/idempotency";
+import { verifyChatwootRequest } from "@/lib/webhooks/verify";
 import { buildSystemPrompt } from "@/lib/jade/prompt";
 
 export const maxDuration = 60;
@@ -43,6 +44,27 @@ const MODEL = "claude-sonnet-4-6";
 const MAX_TOOL_ROUNDS = 5;
 
 export async function POST(req: NextRequest) {
+  // ── Authentication (INBOX-0S.4A security review) ─────────────────────────
+  // This AgentBot endpoint previously accepted ANY caller: an attacker could
+  // post Jade-attributed messages into real customer conversations, run tool
+  // calls, and pre-claim ledger entries. Same shared-token mechanism as the
+  // account webhook (?token= in the bot's outgoing URL, Chatwoot → Settings
+  // → Bots). FAIL CLOSED, before the body is even read.
+  const verdict = verifyChatwootRequest({
+    rawBody:     "",
+    headerToken: req.headers.get("x-chatwoot-token"),
+    queryToken:  req.nextUrl.searchParams.get("token"),
+    headerSig:   null,
+    tokenSecret: process.env.CHATWOOT_WEBHOOK_TOKEN,
+    hmacSecret:  undefined,
+  });
+  if (verdict !== "ok") {
+    console.warn(`[jade] BLOCKED: ${verdict === "unconfigured"
+      ? "no CHATWOOT_WEBHOOK_TOKEN configured — failing closed"
+      : "bot webhook verification failed"}`);
+    return NextResponse.json({ ok: false }, { status: 401 });
+  }
+
   let payload: any;
   try {
     payload = await req.json();
@@ -109,7 +131,10 @@ export async function POST(req: NextRequest) {
   // before doing ANY work; the ledger's unique key makes exactly one
   // delivery win. 'unavailable' (table not migrated yet) degrades open.
   if (messageId) {
-    const claim = await claimWebhookEvent(getSupabaseAdmin(), "chatwoot-bot", `cw_bot_msg_${messageId}`);
+    let claim: ClaimResult = "unavailable";
+    try {
+      claim = await claimWebhookEvent(getSupabaseAdmin(), "chatwoot-bot", `cw_bot_msg_${messageId}`);
+    } catch { /* Supabase env missing — dedupe degrades open, Jade stays up */ }
     if (claim === "duplicate") {
       console.log(`[jade] duplicate delivery skipped conv=${conversationId} msg=${messageId}`);
       return NextResponse.json({ ok: true, skipped: "duplicate" });

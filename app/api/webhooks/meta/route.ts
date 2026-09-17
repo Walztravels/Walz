@@ -37,7 +37,7 @@ export async function GET(req: Request) {
   const token     = url.searchParams.get('hub.verify_token')
   const challenge = url.searchParams.get('hub.challenge')
 
-  console.log('[meta-webhook] Verification attempt:', { mode, token: token?.slice(0, 6) + '…' })
+  console.log('[meta-webhook] Verification attempt:', { mode, tokenPresent: !!token })
 
   if (mode === 'subscribe' && token === process.env.META_VERIFY_TOKEN) {
     console.log('[meta-webhook] Verified successfully')
