@@ -133,7 +133,8 @@ export default function InboxPage() {
       // Always fetch the full open/resolved list — filter client-side per tab
       const status = tab === 'resolved' ? 'resolved' : 'open'
       const res = await fetch(`/api/admin/conversations?status=${status}`)
-      if (!res.ok) return
+      if (!res.ok) { setConvsError(true); return }
+      setConvsError(false)
 
       // API route unwraps Chatwoot envelope → response is { meta, payload }
       const json = await res.json()
@@ -213,6 +214,8 @@ export default function InboxPage() {
         const updated = conversations.find(c => c.id === selectedRef.current!.id)
         if (updated) setSelected({ ...updated, unread_count: 0 })
       }
+    } catch {
+      setConvsError(true)
     } finally {
       if (showLoad) setLoading(false)
     }
@@ -228,6 +231,10 @@ export default function InboxPage() {
   const [history, setHistory] = useState<{ loadingOlder: boolean; olderError: boolean; beginning: boolean }>({
     loadingOlder: false, olderError: false, beginning: false,
   })
+  // Failure visibility (INBOX-0S.3): a failed load must look like a failure,
+  // never like an empty conversation or an empty inbox.
+  const [msgLoadError, setMsgLoadError] = useState(false)
+  const [convsError, setConvsError]     = useState(false)
   const loadingOlderRef = useRef(false)
 
   const fetchPage = useCallback(async (id: number, before?: number): Promise<CWMessage[]> => {
@@ -243,7 +250,11 @@ export default function InboxPage() {
       const page = await fetchPage(id)
       setMessages(sortPage(page))
       setHistory({ loadingOlder: false, olderError: false, beginning: page.length === 0 })
-    } catch { /* initial load failure — polling retries */ }
+      setMsgLoadError(false)
+    } catch {
+      // Show the failure instead of an empty conversation; polling retries too.
+      setMsgLoadError(true)
+    }
   }, [fetchPage])
 
   /** Poll refresh: merge new messages, keep loaded history intact. */
@@ -251,6 +262,7 @@ export default function InboxPage() {
     try {
       const page = await fetchPage(id)
       setMessages(prev => mergeLatest(prev, sortPage(page)).merged)
+      setMsgLoadError(false)
     } catch { /* transient poll failure — next tick retries */ }
   }, [fetchPage])
 
@@ -352,29 +364,45 @@ export default function InboxPage() {
 
   async function handleAssign(agentId: number) {
     if (!selected) return
-    await fetch(`/api/admin/conversations/${selected.id}/assign`, {
+    const res = await fetch(`/api/admin/conversations/${selected.id}/assign`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ assignee_id: agentId }),
-    })
+    }).catch(() => null)
+    if (!res || !res.ok) {
+      const d = res ? await res.json().catch(() => ({})) as Record<string, string> : {}
+      addToast(d.error ?? 'Could not assign the conversation. Please try again.')
+      return
+    }
     await fetchConvs()
   }
 
   async function handleResolve() {
     if (!selected) return
-    await fetch(`/api/admin/conversations/${selected.id}/resolve`, {
+    const res = await fetch(`/api/admin/conversations/${selected.id}/resolve`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ status: 'resolved' }),
-    })
+    }).catch(() => null)
+    if (!res || !res.ok) {
+      const d = res ? await res.json().catch(() => ({})) as Record<string, string> : {}
+      addToast(d.error ?? 'Could not resolve the conversation. Please try again.')
+      return
+    }
+    // Status updates only after Chatwoot confirms — no optimistic flip.
     setSelected(p => p ? { ...p, status: 'resolved' } : p)
     await fetchConvs()
   }
 
   async function handleReopen() {
     if (!selected) return
-    await fetch(`/api/admin/conversations/${selected.id}/resolve`, {
+    const res = await fetch(`/api/admin/conversations/${selected.id}/resolve`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ status: 'open' }),
-    })
+    }).catch(() => null)
+    if (!res || !res.ok) {
+      const d = res ? await res.json().catch(() => ({})) as Record<string, string> : {}
+      addToast(d.error ?? 'Could not reopen the conversation. Please try again.')
+      return
+    }
     setSelected(p => p ? { ...p, status: 'open' } : p)
     await fetchConvs()
   }
@@ -425,6 +453,12 @@ export default function InboxPage() {
         flex-shrink-0 flex flex-col w-full md:w-64
         ${mobileView === 'list' ? 'flex' : 'hidden'} md:flex
       `}>
+        {convsError && (
+          <div className="flex items-center justify-between gap-2 px-3 py-2 bg-red-500/15 border-b border-red-500/30 text-[11px] text-red-200">
+            <span>Could not load conversations.</span>
+            <button onClick={() => fetchConvs(true)} className="underline font-semibold">Retry</button>
+          </div>
+        )}
         <ConversationList
           conversations={convs}
           selected={selected}
@@ -467,6 +501,8 @@ export default function InboxPage() {
               loadingOlder={history.loadingOlder}
               olderError={history.olderError}
               beginningReached={history.beginning}
+              loadError={msgLoadError}
+              onRetryLoad={() => selected && fetchMessages(selected.id)}
             />
           </div>
         ) : (

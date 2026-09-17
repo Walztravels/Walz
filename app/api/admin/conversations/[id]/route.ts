@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { getAdminSession } from '@/lib/admin-auth'
 import { adminChatwootOrNull } from '@/lib/chatwoot/config'
 import { checkInboxPermission, checkConversationAccess } from '@/lib/inbox/authz'
+import { mapChatwootFailure, safeJson } from '@/lib/inbox/provider'
 
 export const dynamic = 'force-dynamic'
 
@@ -26,8 +27,14 @@ export async function GET(
 
   const res  = await fetch(`${CW_BASE}/api/v1/accounts/${CW_ACCOUNT}/conversations/${params.id}`, {
     headers: { api_access_token: CW_TOKEN },
-  })
-  const data = await res.json()
+  }).catch(() => null)
+  if (!res) return NextResponse.json({ error: 'Could not load the conversation. Please try again.' }, { status: 502 })
+  const data = await safeJson(res)
+  if (!res.ok || data === null) {
+    console.error('[conversation] Chatwoot error:', res.status, JSON.stringify(data)?.slice(0, 300))
+    const mapped = mapChatwootFailure(res.status, 'Loading the conversation')
+    return NextResponse.json({ error: mapped.error }, { status: mapped.status })
+  }
   return NextResponse.json(data)
 }
 
@@ -51,7 +58,9 @@ export async function DELETE(
   if (res.status === 404) return NextResponse.json({ error: 'Conversation not found' }, { status: 404 })
   if (!res.ok) {
     const body = await res.json().catch(() => ({}))
-    return NextResponse.json({ error: body?.message ?? `Chatwoot error (${res.status})` }, { status: res.status })
+    // Log the upstream detail; the browser gets a controlled message.
+    console.error('[conversation delete] Chatwoot error:', res.status, JSON.stringify(body)?.slice(0, 300))
+    return NextResponse.json({ error: 'Delete failed — messaging service error. Please try again.' }, { status: 502 })
   }
 
   return NextResponse.json({ success: true })

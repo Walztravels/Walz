@@ -54,7 +54,7 @@ export async function GET(req: Request) {
 
   if (explicitPage) {
     const data = await fetchPage(Number(explicitPage) || 1)
-    if (!data) return NextResponse.json({ error: 'Chatwoot request failed' }, { status: 502 })
+    if (!data) return NextResponse.json({ error: 'Could not load conversations. Please try again.' }, { status: 502 })
     const inner = (data?.data ?? data) as { meta?: Record<string, unknown>; payload?: unknown[] }
     if (!canViewAllConversations(session) && Array.isArray(inner?.payload)) {
       const myAgentId = await resolveChatwootAgentId(session.email)
@@ -74,7 +74,7 @@ export async function GET(req: Request) {
   for (let page = 1; page <= MAX_PAGES; page++) {
     const data = await fetchPage(page)
     if (!data) {
-      if (page === 1) return NextResponse.json({ error: 'Chatwoot request failed' }, { status: 502 })
+      if (page === 1) return NextResponse.json({ error: 'Could not load conversations. Please try again.' }, { status: 502 })
       break
     }
     const inner     = data.data ?? data

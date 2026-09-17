@@ -20,6 +20,9 @@ interface Props {
   loadingOlder?:     boolean
   olderError?:       boolean
   beginningReached?: boolean
+  /** Initial history load failed — show a failure, never a blank thread (0S.3). */
+  loadError?:        boolean
+  onRetryLoad?:      () => void
 }
 
 /**
@@ -34,6 +37,7 @@ interface Props {
 export function ChatWindow({
   conv, messages, agents, onSend, onAssign, onResolve, onReopen, onBack,
   onLoadOlder, loadingOlder = false, olderError = false, beginningReached = false,
+  loadError = false, onRetryLoad,
 }: Props) {
   const scrollRef  = useRef<HTMLDivElement>(null)
   const nearBottomRef = useRef(true)
@@ -165,7 +169,17 @@ export function ChatWindow({
             )
           )}
 
-          {messages.length === 0 ? (
+          {messages.length === 0 && loadError ? (
+            <div className="h-full flex flex-col items-center justify-center gap-2 text-sm">
+              <p className="text-red-300">Could not load messages.</p>
+              <button
+                onClick={() => onRetryLoad?.()}
+                className="px-3 py-1.5 rounded-lg bg-white/10 text-white/70 text-xs font-semibold hover:bg-white/15 transition-colors"
+              >
+                Retry
+              </button>
+            </div>
+          ) : messages.length === 0 ? (
             <div className="h-full flex items-center justify-center text-white/20 text-sm">
               No messages yet
             </div>

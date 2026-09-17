@@ -152,7 +152,9 @@ describe('behavior preservation (Jade / lifecycle untouched)', () => {
     const s = read('app/api/admin/conversations/[id]/resolve/route.ts')
     expect(s).toContain('/toggle_status')
     expect(s).toContain('JSON.stringify({ status })')
-    expect(s).toContain("body.status ?? 'resolved'")
+    // 0S.3 moved the legacy default (absent status → 'resolved') into
+    // validateResolveStatus — same semantics, now allow-listed.
+    expect(s).toContain('validateResolveStatus(body.status)')
   })
 
   it('assign route still posts to the assignments endpoint with the given assignee_id', () => {

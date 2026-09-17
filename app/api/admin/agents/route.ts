@@ -21,8 +21,12 @@ export async function GET() {
 
   const res  = await fetch(`${CW_BASE}/api/v1/accounts/${CW_ACCOUNT}/agents`, {
     headers: { api_access_token: CW_TOKEN },
-  })
-  const data = await res.json() as unknown[]
+  }).catch(() => null)
+  if (!res || !res.ok) {
+    console.error('[agents] Chatwoot error:', res?.status ?? 'unreachable')
+    return NextResponse.json({ error: 'Could not load agents. Please try again.' }, { status: 502 })
+  }
+  const data = await res.json().catch(() => []) as unknown[]
   // Hide Jade bot (id 5) from UI
   const agents = Array.isArray(data) ? data.filter((a: unknown) => (a as { id: number }).id !== 5) : data
   return NextResponse.json(agents)
@@ -44,7 +48,15 @@ export async function POST(req: Request) {
     method:  'POST',
     headers: { 'Content-Type': 'application/json', api_access_token: CW_TOKEN },
     body:    JSON.stringify({ name: body.name, email: body.email, role: body.role }),
-  })
-  const data = await res.json()
+  }).catch(() => null)
+  if (!res) return NextResponse.json({ error: 'Could not create the agent — messaging service unreachable.' }, { status: 502 })
+  const data = await res.json().catch(() => null)
+  if (!res.ok || data === null) {
+    console.error('[agents create] Chatwoot error:', res.status, JSON.stringify(data)?.slice(0, 300))
+    const msg = res.status === 422
+      ? 'Chatwoot rejected the agent details — the email may already be in use.'
+      : 'Could not create the agent — messaging service error. Please try again.'
+    return NextResponse.json({ error: msg }, { status: res.status === 422 ? 422 : 502 })
+  }
   return NextResponse.json(data)
 }

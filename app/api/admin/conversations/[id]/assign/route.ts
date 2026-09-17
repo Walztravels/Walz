@@ -4,6 +4,7 @@ import { getSupabaseAdmin } from '@/lib/supabase'
 import { sendConversationAssignedEmail } from '@/lib/email-staff-notification'
 import { adminChatwootOrNull } from '@/lib/chatwoot/config'
 import { checkInboxPermission, checkConversationAccess } from '@/lib/inbox/authz'
+import { validateAssigneeId, mapChatwootFailure, safeJson } from '@/lib/inbox/provider'
 
 export const dynamic = 'force-dynamic'
 
@@ -26,7 +27,10 @@ export async function POST(
   const access = await checkConversationAccess(session, params.id)
   if (!access.allowed) return NextResponse.json({ error: access.error }, { status: access.status })
 
-  const { assignee_id } = await req.json() as { assignee_id: number }
+  const body = await req.json().catch(() => ({})) as { assignee_id?: unknown }
+  const av = validateAssigneeId(body.assignee_id)
+  if (!av.ok) return NextResponse.json({ error: av.error }, { status: 400 })
+  const assignee_id = av.id
 
   const res = await fetch(
     `${CW_BASE}/api/v1/accounts/${CW_ACCOUNT}/conversations/${params.id}/assignments`,
@@ -35,8 +39,9 @@ export async function POST(
       headers: { 'Content-Type': 'application/json', api_access_token: CW_TOKEN },
       body:    JSON.stringify({ assignee_id }),
     }
-  )
-  const data = await res.json()
+  ).catch(() => null)
+  if (!res) return NextResponse.json({ error: 'Assignment failed — messaging service unreachable. Please try again.' }, { status: 502 })
+  const data = await safeJson(res)
 
   // On success, look up the assigned agent and send them an email notification
   if (res.ok) {
@@ -58,5 +63,10 @@ export async function POST(
     }
   }
 
-  return NextResponse.json(data)
+  if (!res.ok) {
+    console.error('[assign] Chatwoot error:', res.status, JSON.stringify(data)?.slice(0, 300))
+    const mapped = mapChatwootFailure(res.status, 'Assignment')
+    return NextResponse.json({ error: mapped.error }, { status: mapped.status })
+  }
+  return NextResponse.json(data ?? { ok: true })
 }

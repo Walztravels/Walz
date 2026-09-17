@@ -116,7 +116,8 @@ async function findOrCreateContact(name: string, phone: string): Promise<[number
       ?? ((payload?.contact as Record<string, unknown> | undefined)?.id as number | undefined)
       ?? ((raw.contact as Record<string, unknown> | undefined)?.id as number | undefined)
       ?? null
-    return [id, id ? null : `Contact created but id not found in response: ${JSON.stringify(raw)}`]
+    if (!id) console.error('[whatsapp-chat] contact created but id not found:', JSON.stringify(raw).slice(0, 300))
+    return [id, id ? null : 'Contact was created but could not be read back. Please retry.']
   }
 
   // 422 usually means phone already taken — try searching again with just digits
@@ -135,11 +136,13 @@ async function findOrCreateContact(name: string, phone: string): Promise<[number
       if (match) return [match.id, null]
     }
     const errText = await create.text().catch(() => '')
-    return [null, `Phone may already exist but could not be found. Chatwoot: ${errText.slice(0, 200)}`]
+    console.error('[whatsapp-chat] contact 422 detail:', errText.slice(0, 300))
+    return [null, 'This phone number may already exist in Chatwoot but could not be found. Please check the number.']
   }
 
   const errText = await create.text().catch(() => '')
-  return [null, `Chatwoot contact creation failed (${create.status}): ${errText.slice(0, 200)}`]
+  console.error(`[whatsapp-chat] contact creation failed (${create.status}):`, errText.slice(0, 300))
+  return [null, 'Could not create the contact — messaging service error. Please try again.']
 }
 
 // POST /api/admin/whatsapp-chat

@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { getAdminSession } from '@/lib/admin-auth'
 import { adminChatwootOrNull } from '@/lib/chatwoot/config'
 import { checkInboxPermission, checkConversationAccess } from '@/lib/inbox/authz'
+import { mapChatwootFailure, safeJson } from '@/lib/inbox/provider'
 
 export const dynamic = 'force-dynamic'
 
@@ -34,8 +35,15 @@ export async function GET(
   const res  = await fetch(
     `${CW_BASE}/api/v1/accounts/${CW_ACCOUNT}/conversations/${params.id}/messages${qs}`,
     { headers: { api_access_token: CW_TOKEN } }
-  )
-  const data = await res.json()
+  ).catch(() => null)
+  // A failure must surface as an error, never as an empty conversation.
+  if (!res) return NextResponse.json({ error: 'Could not load messages. Please try again.' }, { status: 502 })
+  const data = await safeJson(res) as { data?: unknown } | null
+  if (!res.ok || data === null) {
+    console.error('[messages] Chatwoot error:', res.status, JSON.stringify(data)?.slice(0, 300))
+    const mapped = mapChatwootFailure(res.status, 'Loading messages')
+    return NextResponse.json({ error: mapped.error }, { status: mapped.status })
+  }
   // Normalise: some Chatwoot versions wrap in { data: { payload } }, others use { payload }
   return NextResponse.json(data?.data ?? data)
 }

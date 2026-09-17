@@ -25,10 +25,13 @@ export async function POST(
   if (!access.allowed) return NextResponse.json({ error: access.error }, { status: access.status })
 
   // Chatwoot uses GET with a side-effect to mark all messages as read
-  await fetch(
+  const res = await fetch(
     `${CW_BASE}/api/v1/accounts/${CW_ACCOUNT}/conversations/${params.id}/read`,
     { method: 'GET', headers: { api_access_token: CW_TOKEN } }
-  ).catch(() => {})
-
+  ).catch(() => null)
+  if (!res || !res.ok) {
+    console.error('[read] Chatwoot error:', res?.status ?? 'unreachable')
+    return NextResponse.json({ error: 'Could not mark the conversation as read.' }, { status: 502 })
+  }
   return NextResponse.json({ ok: true })
 }
