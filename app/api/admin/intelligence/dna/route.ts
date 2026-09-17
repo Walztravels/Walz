@@ -53,7 +53,9 @@ export async function POST(req: NextRequest) {
       averageScore: 0, peakScore: 0, lowestScore: 0, scoreDelta: 0,
       balanceDelta:    dna.balanceTrend.deltaPct ?? 0,
       latestBalance:   latestBalance ?? 0,
-      latestCurrency:  latestCurrency ?? 'NGN',
+      // Empty string = currency genuinely unknown — the UI renders
+      // "currency not specified" rather than defaulting to any symbol.
+      latestCurrency:  latestCurrency ?? '',
       latestStatus:    inputs.snapshots[0]?.status ?? 'unknown',
       provenTraveller: inputs.successCount > 0,
       successCount:    inputs.successCount,

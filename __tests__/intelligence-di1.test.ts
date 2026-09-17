@@ -34,7 +34,10 @@ const caseContext    = read('lib/intelligence/visa-case-context.ts')
 
 describe('shared Active Visa Case', () => {
   it('DocAuthPage owns the case state and renders the shared selector', () => {
-    expect(docAuthPage).toContain('const [activeCase, setActiveCase] = useState<AppSearchResult | null>(null)')
+    // Since the search-UX patch the state setter is wrapped so the selection
+    // also syncs the cross-page store — the page still owns the case state.
+    expect(docAuthPage).toContain('const [activeCase, setActiveCaseState] = useState<AppSearchResult | null>(null)')
+    expect(docAuthPage).toContain('setSharedCase(')
     expect(docAuthPage).toContain('Active Visa Case')
   })
   it('all five tabs receive the active case', () => {

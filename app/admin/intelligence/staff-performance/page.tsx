@@ -1,12 +1,14 @@
 'use client'
 
 import { fetchRecords } from '@/lib/intelligence/fetch-records'
+import StaffSelector, { type StaffRef } from '@/components/admin/intelligence/StaffSelector'
 import { useState, useEffect, useCallback } from 'react'
 
 interface StaffMetric {
   id: string
   staffId: string
   staffName?: string | null
+  staffEmail?: string | null
   period: string
   appsHandled: number
   leads: number
@@ -26,9 +28,10 @@ export default function StaffPerformancePage() {
   const [metrics, setMetrics] = useState<StaffMetric[]>([])
   const [loading, setLoading] = useState(true)
   const [burnoutOnly, setBurnoutOnly] = useState(false)
-  const [period, setPeriod] = useState('2026-06')
-  const [staffId, setStaffId] = useState('')
+  const [period, setPeriod] = useState(() => new Date().toISOString().slice(0, 7))   // current month
+  const [selectedStaff, setSelectedStaff] = useState<StaffRef | null>(null)
   const [computing, setComputing] = useState(false)
+  const [computeNote, setComputeNote] = useState('')
 
   const [loadError, setLoadError] = useState('')
 
@@ -45,16 +48,27 @@ export default function StaffPerformancePage() {
 
   async function computePeriod(e: React.FormEvent) {
     e.preventDefault()
-    if (!staffId.trim()) return
+    if (!selectedStaff) return
     setComputing(true)
+    setComputeNote('')
     try {
-      await fetch('/api/admin/intelligence/staff-performance', {
+      const res  = await fetch('/api/admin/intelligence/staff-performance', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ staffId: staffId.trim(), period }),
+        body: JSON.stringify({ staffId: selectedStaff.id, period }),
       })
-      setStaffId('')
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) { setComputeNote((data.error as string) ?? 'Computation failed - please try again.'); return }
+      // Honest empty state: no per-period activity is stated, never zero-faked.
+      const m = data.payload?.metrics ?? {}
+      const activity = Object.values(m).reduce((sum: number, v) => sum + (Number((v as { value?: number })?.value) || 0), 0)
+      if (activity === 0) {
+        const label = new Date(period + '-01T00:00:00Z').toLocaleDateString('en-GB', { month: 'long', year: 'numeric' })
+        setComputeNote('No recorded performance activity for ' + label + ' for ' + selectedStaff.name + '.')
+      }
       await load()
+    } catch {
+      setComputeNote('Network error - please try again.')
     } finally {
       setComputing(false)
     }
@@ -83,11 +97,9 @@ export default function StaffPerformancePage() {
 
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 mb-6">
         <h2 className="text-sm font-semibold text-[#0B1F3A] mb-4">Compute Period Metrics</h2>
-        <form onSubmit={computePeriod} className="grid grid-cols-1 sm:grid-cols-3 gap-4 items-end">
-          <div>
-            <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1 block">Staff ID</label>
-            <input className={INPUT} placeholder="staff_..." value={staffId} onChange={e => setStaffId(e.target.value)} required />
-          </div>
+        <form onSubmit={computePeriod} className="space-y-4">
+          <StaffSelector value={selectedStaff} onSelect={s => { setSelectedStaff(s); setComputeNote('') }} />
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 items-end">
           <div>
             <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1 block">Period (YYYY-MM)</label>
             <input
@@ -99,12 +111,16 @@ export default function StaffPerformancePage() {
           </div>
           <button
             type="submit"
-            disabled={computing || !staffId.trim()}
+            disabled={computing || !selectedStaff}
             className="h-9 px-5 bg-[#0B1F3A] text-white text-sm font-semibold rounded-lg hover:bg-[#0d2345] disabled:opacity-50 transition-colors"
           >
-            {computing ? 'Computing…' : 'Compute Period'}
+            {computing ? 'Computing…' : 'Compute Performance'}
           </button>
+          </div>
         </form>
+        {computeNote && (
+          <p className="text-xs text-gray-600 bg-gray-50 border border-gray-100 rounded-lg px-3 py-2 mt-3">{computeNote}</p>
+        )}
       </div>
 
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
@@ -144,8 +160,8 @@ export default function StaffPerformancePage() {
                 {filtered.map((m) => (
                   <tr key={m.id} className={`hover:bg-gray-50/50 transition-colors ${m.burnoutFlag ? 'bg-red-50/30' : ''}`}>
                     <td className="px-5 py-3">
-                      <div className="font-semibold text-[#0B1F3A] text-xs">{m.staffName ?? m.staffId}</div>
-                      <div className="text-xs text-gray-400 font-mono truncate max-w-[100px]">{m.staffId}</div>
+                      <div className="font-semibold text-[#0B1F3A] text-xs">{m.staffName ?? 'Staff member'}</div>
+                      {m.staffEmail && <div className="text-xs text-gray-400 truncate max-w-[160px]">{m.staffEmail}</div>}
                     </td>
                     <td className="px-4 py-3 text-xs text-gray-600 font-mono">{m.period}</td>
                     <td className="px-4 py-3 text-xs text-gray-700">{m.appsHandled}</td>

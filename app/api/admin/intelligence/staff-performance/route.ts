@@ -19,9 +19,25 @@ export async function GET(req: NextRequest) {
   if (period) where.period = period
   if (burnoutFlag === 'true') where.burnoutFlag = true
 
-  const metrics = await prisma.staffPerformanceMetric.findMany({ where })
+  const metrics = await prisma.staffPerformanceMetric.findMany({
+    where,
+    orderBy: { updatedAt: 'desc' },
+    take: 100,
+  })
 
-  return NextResponse.json({ metrics })
+  // Display identity join (no FK on the model) — staff never read raw ids.
+  const staffRows = await prisma.staff.findMany({
+    where:  { id: { in: [...new Set(metrics.map(m => m.staffId))] } },
+    select: { id: true, name: true, email: true },
+  })
+  const byId = new Map(staffRows.map(s => [s.id, s]))
+  return NextResponse.json({
+    metrics: metrics.map(m => ({
+      ...m,
+      staffName:  byId.get(m.staffId)?.name ?? null,
+      staffEmail: byId.get(m.staffId)?.email ?? null,
+    })),
+  })
 }
 
 export async function POST(req: NextRequest) {

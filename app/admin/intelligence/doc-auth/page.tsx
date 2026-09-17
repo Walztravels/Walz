@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback, useRef } from 'react'
+import { getActiveCase as getSharedCase, setActiveCase as setSharedCase } from '@/lib/intelligence/active-case-client'
 import {
   Upload, FileText, Ticket, History,
   CheckCircle, AlertTriangle, XCircle, Loader2,
@@ -1865,7 +1866,28 @@ export default function DocAuthPage() {
   const [activeTab,  setActiveTab]  = useState<TabId>('upload')
   // The shared case every tab works around. null = tabs behave standalone
   // exactly as before — backward compatibility is mandatory.
-  const [activeCase, setActiveCase] = useState<AppSearchResult | null>(null)
+  const [activeCase, setActiveCaseState] = useState<AppSearchResult | null>(null)
+  // Cross-page store: the selection follows staff into Financial DNA and
+  // the other hub modules, and is restored when they come back here.
+  const setActiveCase = (app: AppSearchResult | null) => {
+    setActiveCaseState(app)
+    setSharedCase(app ? {
+      applicationId: app.id, userId: null, referenceNumber: app.referenceNumber,
+      clientName: [app.firstName, app.lastName].filter(Boolean).join(' ') || app.referenceNumber,
+      email: null, destinationIso2: app.destinationIso2 ?? null, status: app.status ?? null,
+    } : null)
+  }
+  useEffect(() => {
+    const shared = getSharedCase()
+    if (shared?.applicationId && shared.referenceNumber) {
+      setActiveCaseState({
+        id: shared.applicationId, referenceNumber: shared.referenceNumber,
+        firstName: shared.clientName.split(' ')[0] ?? null,
+        lastName: shared.clientName.split(' ').slice(1).join(' ') || null,
+        destinationIso2: shared.destinationIso2 ?? '', status: shared.status ?? '',
+      } as AppSearchResult)
+    }
+  }, [])
 
   return (
     <div>

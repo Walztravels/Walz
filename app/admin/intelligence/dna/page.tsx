@@ -2,18 +2,26 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import { fetchRecords } from '@/lib/intelligence/fetch-records'
+import IntelligenceCaseSelector from '@/components/admin/intelligence/IntelligenceCaseSelector'
+import type { ActiveCaseRef } from '@/lib/intelligence/active-case-client'
 
 interface DnaRecord {
   id: string
   userId: string
-  userName?: string | null
+  user?: { name?: string | null; email?: string | null } | null
   analysisCount: number
-  averageScore: number
-  peakScore: number
-  trend: 'up' | 'down' | 'stable'
   latestBalance: number
+  latestCurrency: string | null
+  latestStatus?: string | null
   provenTraveller: boolean
-  lastAnalysisAt: string
+  updatedAt: string
+}
+
+/** Money with the STORED currency — never a defaulted symbol. */
+const CURRENCY_SYMBOLS: Record<string, string> = { NGN: '\u20a6', GBP: '\u00a3', USD: '$', EUR: '\u20ac', GHS: '\u20b5', CAD: 'CA$', AED: 'AED ' }
+function money(value: number, currency: string | null): string {
+  if (!currency) return value.toLocaleString() + ' (currency not specified)'
+  return (CURRENCY_SYMBOLS[currency] ?? currency + ' ') + value.toLocaleString()
 }
 
 const INPUT = 'w-full h-9 px-3 border border-gray-200 rounded-lg text-sm outline-none focus:border-[#C9A84C] bg-white'
@@ -41,7 +49,7 @@ function DnaMoney({ label, v }: { label: string; v: DnaValue }) {
       <div className="text-[10px] font-semibold text-gray-400 uppercase tracking-wide">{label}</div>
       {v.value != null ? (
         <>
-          <div className="text-lg font-black text-[#0B1F3A]">{v.currency ? `${v.currency} ` : ''}{v.value.toLocaleString()}</div>
+          <div className="text-lg font-black text-[#0B1F3A]">{money(v.value, v.currency ?? null)}</div>
           {v.basis && <div className="text-[10px] text-gray-400 mt-0.5">{v.basis}</div>}
         </>
       ) : (
@@ -55,7 +63,7 @@ export default function FinancialDnaPage() {
   const [records, setRecords] = useState<DnaRecord[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-  const [selectedUserId, setSelectedUserId] = useState('')
+  const [selectedCase, setSelectedCase] = useState<ActiveCaseRef | null>(null)
   const [computing, setComputing] = useState(false)
   const [dna, setDna] = useState<DnaOutput | null>(null)
 
@@ -72,7 +80,7 @@ export default function FinancialDnaPage() {
 
   async function computeDna(e: React.FormEvent) {
     e.preventDefault()
-    if (!selectedUserId.trim()) return
+    if (!selectedCase?.userId) return
     setComputing(true)
     setDna(null)
     setError(null)
@@ -80,24 +88,17 @@ export default function FinancialDnaPage() {
       const res  = await fetch('/api/admin/intelligence/dna', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userId: selectedUserId.trim() }),
+        body: JSON.stringify({ userId: selectedCase.userId }),
       })
       const data = await res.json().catch(() => ({}))
       if (!res.ok) { setError((data.error as string) ?? `Computation failed (HTTP ${res.status}).`); return }
       if (data.dna) setDna(data.dna as DnaOutput)
-      setSelectedUserId('')
       await load()
     } catch {
       setError('Network error while computing — please try again.')
     } finally {
       setComputing(false)
     }
-  }
-
-  function trendBadge(trend: string) {
-    if (trend === 'up') return <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-green-100 text-green-700">Up</span>
-    if (trend === 'down') return <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-red-100 text-red-700">Down</span>
-    return <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-gray-100 text-gray-500">Stable</span>
   }
 
   return (
@@ -111,19 +112,16 @@ export default function FinancialDnaPage() {
 
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 mb-6">
         <h2 className="text-sm font-semibold text-[#0B1F3A] mb-4">Compute DNA for a Client</h2>
-        <form onSubmit={computeDna} className="flex gap-3 items-end">
-          <div className="flex-1">
-            <label className="text-xs font-semibold text-gray-500 uppercase tracking-wide mb-1 block">User ID</label>
-            <input
-              className={INPUT}
-              placeholder="e.g. clxyz123..."
-              value={selectedUserId}
-              onChange={e => setSelectedUserId(e.target.value)}
-            />
-          </div>
+        <form onSubmit={computeDna} className="space-y-3">
+          <IntelligenceCaseSelector value={selectedCase} onSelect={c => { setSelectedCase(c); setDna(null); setError(null) }} />
+          {selectedCase && !selectedCase.userId && (
+            <p className="text-xs text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-4 py-3">
+              Financial DNA currently requires a client-linked account. This application has not yet been linked to a client profile.
+            </p>
+          )}
           <button
             type="submit"
-            disabled={computing || !selectedUserId.trim()}
+            disabled={computing || !selectedCase?.userId}
             className="h-9 px-5 bg-[#0B1F3A] text-white text-sm font-semibold rounded-lg hover:bg-[#0d2345] disabled:opacity-50 transition-colors"
           >
             {computing ? 'Computing…' : 'Compute DNA'}
@@ -203,10 +201,8 @@ export default function FinancialDnaPage() {
                 <tr className="border-b border-gray-100 bg-gray-50/50">
                   <th className="text-left px-5 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">User</th>
                   <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Analyses</th>
-                  <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Avg Score</th>
-                  <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Peak Score</th>
-                  <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Trend</th>
                   <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Latest Balance</th>
+                  <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Latest Status</th>
                   <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Proven</th>
                   <th className="text-left px-4 py-3 text-xs font-semibold text-gray-500 uppercase tracking-wide">Last Analysis</th>
                 </tr>
@@ -215,14 +211,16 @@ export default function FinancialDnaPage() {
                 {records.map((r) => (
                   <tr key={r.id} className="hover:bg-gray-50/50 transition-colors">
                     <td className="px-5 py-3">
-                      <div className="font-semibold text-[#0B1F3A] text-xs truncate max-w-[140px]">{r.userName ?? r.userId}</div>
-                      <div className="text-xs text-gray-400 font-mono truncate max-w-[140px]">{r.userId}</div>
+                      <div className="font-semibold text-[#0B1F3A] text-xs truncate max-w-[160px]">{r.user?.name ?? r.user?.email ?? 'Client'}</div>
+                      {r.user?.email && <div className="text-xs text-gray-400 truncate max-w-[160px]">{r.user.email}</div>}
                     </td>
                     <td className="px-4 py-3 text-gray-700">{r.analysisCount}</td>
-                    <td className="px-4 py-3 text-gray-700">{r.averageScore?.toFixed(1)}</td>
-                    <td className="px-4 py-3 text-gray-700">{r.peakScore?.toFixed(1)}</td>
-                    <td className="px-4 py-3">{trendBadge(r.trend)}</td>
-                    <td className="px-4 py-3 text-gray-700">£{r.latestBalance?.toLocaleString()}</td>
+                    <td className="px-4 py-3 text-gray-700">
+                      {r.analysisCount > 0 && r.latestBalance != null
+                        ? money(r.latestBalance, r.latestCurrency)
+                        : <span className="text-gray-400">Not available</span>}
+                    </td>
+                    <td className="px-4 py-3 text-xs text-gray-500 capitalize">{r.latestStatus && r.latestStatus !== 'unknown' ? r.latestStatus.toLowerCase() : '—'}</td>
                     <td className="px-4 py-3">
                       {r.provenTraveller
                         ? <span className="px-2 py-0.5 rounded-full text-xs font-semibold bg-green-100 text-green-700">Yes</span>
@@ -230,7 +228,9 @@ export default function FinancialDnaPage() {
                       }
                     </td>
                     <td className="px-4 py-3 text-xs text-gray-400">
-                      {new Date(r.lastAnalysisAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })}
+                      {r.analysisCount > 0 && r.updatedAt && !Number.isNaN(Date.parse(r.updatedAt))
+                        ? new Date(r.updatedAt).toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' })
+                        : 'Never analysed'}
                     </td>
                   </tr>
                 ))}
