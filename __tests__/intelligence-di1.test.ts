@@ -241,7 +241,10 @@ describe('Letter Generator regression', () => {
     }
     expect(letterRoute).toContain('prisma.visaApplication.findUnique')
     expect(letterRoute).toContain("model:      'claude-sonnet-4-6'")
-    expect(letterRoute).not.toMatch(/prisma\.\w+\.create/)   // still stateless in DI-1
+    // DI-4 wraps the result with persistence — but only AFTER generation;
+    // nothing may write to the DB before the model call completes.
+    const beforeGeneration = letterRoute.slice(0, letterRoute.indexOf('messages.create'))
+    expect(beforeGeneration).not.toMatch(/prisma\.\w+\.(create|update|upsert)/)
     expect(docAuthPage).toContain("fetch('/api/admin/intelligence/letter-generator'")
   })
 })

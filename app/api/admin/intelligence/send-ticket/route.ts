@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { Resend } from '@/lib/resend-hardened'
 import { getAdminSession } from '@/lib/admin-auth'
+import prisma from '@/lib/db'
+import { recordCaseEvent } from '@/lib/intelligence/case-events'
 
 export const dynamic     = 'force-dynamic'
 export const maxDuration = 30
@@ -225,6 +227,8 @@ export async function POST(req: NextRequest) {
       pdf_base64:    string
       flightDetails?: FlightDetails
       ticketData?:   Record<string, unknown>
+      applicationId?: string   // DI-4: case linkage for the timeline
+      reference?:     string   // DI-4: the generated ticket's reference
     }
 
     if (!body.email || !body.pdf_base64) {
@@ -244,9 +248,21 @@ export async function POST(req: NextRequest) {
       ? 'Your Hotel Voucher — Walz Travels'
       : 'Your Flight Itinerary — Walz Travels'
     const filename   = isHotel ? 'walz-hotel-voucher.pdf' : 'walz-flight-itinerary.pdf'
+    // Manual-mode tickets carry no flightDetails — derive the email fields
+    // from ticketData instead of throwing (pre-DI-4 this 500'd).
+    const td = (body.ticketData ?? {}) as Record<string, string | undefined>
+    const flightForEmail: FlightDetails | null = body.flightDetails ?? (isHotel ? null : {
+      fromCode: td.from_code ?? '', fromCity: td.from_city ?? '',
+      toCode: td.to_code ?? '', toCity: td.to_city ?? '',
+      airline: td.airline ?? '', flightNumber: td.flight_number ?? '',
+      departureAt: '', arrivalAt: '',
+      duration: td.duration ?? '', cabin: td.cabin_class ?? '',
+      seat: td.seat_number ?? '', baggage: td.baggage_allowance ?? '',
+      pnr: td.pnr ?? '', stops: Number(td.stops ?? 0), price: '',
+    } as unknown as FlightDetails)
     const html       = isHotel
       ? hotelEmailHtml(body.ticketData ?? {}, clientName)
-      : flightEmailHtml(body.flightDetails!, clientName)
+      : flightEmailHtml(flightForEmail as FlightDetails, clientName)
 
     const result = await resend.emails.send({
       from:        FROM,
@@ -264,6 +280,25 @@ export async function POST(req: NextRequest) {
     if (result.error) {
       console.error('[send-ticket]', result.error)
       return NextResponse.json({ error: result.error.message ?? 'Failed to send email' }, { status: 500 })
+    }
+
+    // DI-4: stamp the ticket record and case timeline. Best-effort only.
+    if (body.reference) {
+      await prisma.generatedTicket.updateMany({
+        where: { referenceNumber: body.reference },
+        data:  { sentToEmail: body.email, sentAt: new Date(), status: 'sent' },
+      }).catch(() => {})
+    }
+    if (body.applicationId) {
+      await recordCaseEvent({
+        applicationId: body.applicationId,
+        eventType: 'document_sent',
+        actor: session.email ?? 'admin',
+        refType: 'GeneratedTicket',
+        refId: body.reference ?? null,
+        summary: `${isHotel ? 'Hotel voucher' : 'Flight itinerary'} emailed to client`,
+        metadata: { mode: body.mode, reference: body.reference ?? null },
+      })
     }
 
     return NextResponse.json({ ok: true, messageId: result.data?.id })

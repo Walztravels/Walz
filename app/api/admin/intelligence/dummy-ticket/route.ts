@@ -8,6 +8,7 @@ import { getSupabaseAdmin } from '@/lib/supabase'
 import { hotelbedsRequest } from '@/lib/hotelbeds'
 import React from 'react'
 import { TicketPDFDocument, type TicketData } from '@/components/admin/TicketPDF'
+import { recordCaseEvent } from '@/lib/intelligence/case-events'
 
 export const dynamic     = 'force-dynamic'
 export const maxDuration = 60
@@ -126,6 +127,58 @@ async function uploadPDF(buffer: Buffer, reference: string): Promise<string | nu
   } catch (e) {
     console.warn('[dummy-ticket] upload error:', e)
     return null
+  }
+}
+
+// ─── DI-4: history metadata (additive — generation itself is unchanged) ──────
+// Records the generated artefact in the existing GeneratedTicket table and
+// the case timeline, referencing the ALREADY-uploaded PDF (never duplicated).
+// Best-effort: a history failure must never break ticket generation.
+async function recordTicketHistory(opts: {
+  reference: string
+  ticketType: 'flight' | 'hotel'
+  mode: string
+  clientName: string
+  pdfUrl: string | null
+  applicationId?: string
+  actor: string
+  summary: string
+  details?: Record<string, string | undefined>
+}): Promise<void> {
+  try {
+    await prisma.generatedTicket.create({
+      data: {
+        referenceNumber:   opts.reference,
+        ticketType:        opts.ticketType.toUpperCase(),
+        generatedBy:       opts.actor,
+        clientName:        opts.clientName,
+        visaApplicationId: opts.applicationId ?? null,
+        ticketData:        JSON.stringify({ source: 'doc-intelligence', mode: opts.mode, pdfUrl: opts.pdfUrl }),
+        passengerName:     opts.clientName,
+        flightFrom:        opts.details?.flightFrom ?? null,
+        flightTo:          opts.details?.flightTo ?? null,
+        flightDate:        opts.details?.flightDate ?? null,
+        airline:           opts.details?.airline ?? null,
+        flightNumber:      opts.details?.flightNumber ?? null,
+        pnr:               opts.details?.pnr ?? null,
+        hotelName:         opts.details?.hotelName ?? null,
+        checkInDate:       opts.details?.checkInDate ?? null,
+        checkOutDate:      opts.details?.checkOutDate ?? null,
+      },
+    })
+  } catch (e) {
+    console.warn('[dummy-ticket] history record failed:', e instanceof Error ? e.message.slice(0, 120) : e)
+  }
+  if (opts.applicationId) {
+    await recordCaseEvent({
+      applicationId: opts.applicationId,
+      eventType: 'ticket_generated',
+      actor: opts.actor,
+      refType: 'GeneratedTicket',
+      refId: opts.reference,
+      summary: opts.summary,
+      metadata: { mode: opts.mode, ticketType: opts.ticketType, reference: opts.reference },
+    })
   }
 }
 
@@ -561,6 +614,12 @@ export async function POST(req: NextRequest) {
     try {
       const buf    = await renderTicketPDF(ticketData)
       const pdfUrl = await uploadPDF(buf, reference)
+      await recordTicketHistory({
+        reference, ticketType: 'hotel', mode: 'hotel', clientName, pdfUrl,
+        applicationId: body.applicationId, actor: session.email ?? 'admin',
+        summary: `Hotel voucher — ${hotelNameResolved}`,
+        details: { hotelName: hotelNameResolved, checkInDate: checkIn, checkOutDate: checkOut },
+      })
       return NextResponse.json({
         mode: 'hotel', reference, pdfUrl, pdf_base64: buf.toString('base64'), ticketData,
         real_booking: realBooking,
@@ -626,6 +685,16 @@ export async function POST(req: NextRequest) {
     try {
       const buf    = await renderTicketPDF(ticketData)
       const pdfUrl = await uploadPDF(buf, reference)
+      await recordTicketHistory({
+        reference, ticketType: 'flight', mode: 'manual', clientName, pdfUrl,
+        applicationId: body.applicationId, actor: session.email ?? 'admin',
+        summary: `Flight itinerary (manual) — ${String(ticketData.from_code ?? '')} → ${String(ticketData.to_code ?? '')}`,
+        details: {
+          flightFrom: String(ticketData.from_code ?? ''), flightTo: String(ticketData.to_code ?? ''),
+          flightDate: String(ticketData.departure_date ?? ''), airline: String(ticketData.airline ?? ''),
+          flightNumber: String(ticketData.flight_number ?? ''), pnr: String(ticketData.pnr ?? ''),
+        },
+      })
       return NextResponse.json({ mode: 'manual', reference, pdfUrl, pdf_base64: buf.toString('base64'), ticketData })
     } catch (e) {
       return NextResponse.json({ error: `PDF error: ${String(e)}` }, { status: 500 })
@@ -885,6 +954,16 @@ export async function POST(req: NextRequest) {
 
     const buf    = await renderTicketPDF(ticketData)
     const pdfUrl = await uploadPDF(buf, reference)
+    await recordTicketHistory({
+      reference, ticketType: 'flight', mode: 'live', clientName, pdfUrl,
+      applicationId: body.applicationId, actor: session.email ?? 'admin',
+      summary: `Flight itinerary — ${flightDetails.fromCode} → ${flightDetails.toCode} (${flightDetails.airline})`,
+      details: {
+        flightFrom: flightDetails.fromCode, flightTo: flightDetails.toCode,
+        flightDate: String(ticketData.departure_date ?? ''), airline: flightDetails.airline,
+        flightNumber: flightDetails.flightNumber, pnr: flightDetails.pnr,
+      },
+    })
 
     return NextResponse.json({
       mode:           'live',

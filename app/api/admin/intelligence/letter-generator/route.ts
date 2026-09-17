@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getAnthropic } from '@/lib/anthropic'
 import { getAdminSession } from '@/lib/admin-auth'
 import prisma from '@/lib/db'
+import { recordCaseEvent } from '@/lib/intelligence/case-events'
 
 export const dynamic     = 'force-dynamic'
 export const maxDuration = 60
@@ -144,11 +145,45 @@ export async function POST(req: NextRequest) {
     const letter = res.content[0].type === 'text' ? res.content[0].text : ''
     const letterTypeMeta = LETTER_TYPES.find(l => l.id === letterType)
 
+    // DI-4: wrap the (unchanged) generation result with persistence —
+    // versioned per application+type, appended, never overwritten.
+    // Best-effort: pre-migration failures never block generation.
+    let letterId: string | null = null
+    let version = 1
+    if (letter) {
+      try {
+        version = 1 + await prisma.generatedLetter.count({ where: { applicationId, letterType } })
+        const saved = await prisma.generatedLetter.create({
+          data: {
+            applicationId, letterType,
+            letterLabel: letterTypeMeta?.label ?? letterType,
+            content: letter, version,
+            generatedBy: session.email ?? 'admin',
+          },
+          select: { id: true },
+        })
+        letterId = saved.id
+        await recordCaseEvent({
+          applicationId, eventType: 'letter_generated', actor: session.email ?? 'admin',
+          refType: 'GeneratedLetter', refId: letterId,
+          summary: `${letterTypeMeta?.label ?? letterType} — version ${version}`,
+          metadata: { letterType, version },
+        })
+      } catch (persistErr) {
+        const msg = persistErr instanceof Error ? persistErr.message : ''
+        if (!/does not exist|relation|column/i.test(msg)) {
+          console.error('[letter-generator] persist failed:', msg.slice(0, 160))
+        }
+      }
+    }
+
     return NextResponse.json({
       letter,
       letterType,
       letterLabel: letterTypeMeta?.label ?? letterType,
       application: appData,
+      letterId,
+      version: letterId ? version : null,
     })
   } catch (e) {
     console.error('[letter-generator]', e)

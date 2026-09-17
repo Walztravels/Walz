@@ -7,6 +7,7 @@ import { assessPdfText, buildExtractionInstruction } from '@/lib/intelligence/do
 import { storeCaseDocument } from '@/lib/intelligence/document-store'
 import { saveEvidence, DOCUMENT_EVIDENCE_FIELDS, type ExtractedField } from '@/lib/intelligence/evidence'
 import { runCrossCheck } from '@/lib/intelligence/cross-check'
+import { recordCaseEvent } from '@/lib/intelligence/case-events'
 
 export const dynamic     = 'force-dynamic'
 export const maxDuration = 120
@@ -133,6 +134,13 @@ export async function POST(req: NextRequest) {
     if ('error' in result) {
       return NextResponse.json({ error: 'Application not found' }, { status: 404 })
     }
+
+    await recordCaseEvent({
+      applicationId, eventType: 'cross_check_run', actor: session.email ?? 'admin',
+      refType: 'FormCrossCheck', refId: result.crossCheckId,
+      summary: `${formType}: ${result.counts.fieldsChecked} fields — ${result.counts.matches} match, ${result.counts.conflicts} conflict${result.counts.conflicts === 1 ? '' : 's'}`,
+      metadata: { ...result.counts, formType },
+    })
 
     return NextResponse.json({
       ok: true,

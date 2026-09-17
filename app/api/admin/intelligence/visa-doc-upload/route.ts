@@ -8,6 +8,7 @@ import {
   reviewStateFromVerdict, PDF_UNREADABLE_MESSAGE,
 } from '@/lib/intelligence/doc-analysis'
 import { storeCaseDocument } from '@/lib/intelligence/document-store'
+import { recordCaseEvent } from '@/lib/intelligence/case-events'
 import { saveEvidence, DOCUMENT_EVIDENCE_FIELDS, type ExtractedField } from '@/lib/intelligence/evidence'
 
 export const dynamic     = 'force-dynamic'
@@ -233,6 +234,15 @@ export async function POST(req: NextRequest) {
         extractionMethod: analysisBasis.startsWith('pdf_text') ? 'pdf_text'
                         : analysisBasis === 'pdf_document_vision' ? 'ai_document' : 'ai_vision',
         fields: analysisResult.extractedFields as ExtractedField[],
+      })
+    }
+
+    if (applicationId) {
+      await recordCaseEvent({
+        applicationId, eventType: 'document_analyzed', actor: session.email ?? 'admin',
+        refType: 'DocumentAuthenticityCheck', refId: check.id,
+        summary: `${documentType.replace(/_/g, ' ')} — ${reviewState.replace(/_/g, ' ').toLowerCase()}${evidenceCount ? `, ${evidenceCount} evidence value${evidenceCount === 1 ? '' : 's'}` : ''}`,
+        metadata: { documentType, reviewState, evidenceCount, analysisBasis, documentId: stored.doc.documentId },
       })
     }
 

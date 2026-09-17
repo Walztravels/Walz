@@ -2718,6 +2718,41 @@ model FormCrossCheckFinding {
   @@index([status])
 }
 
+// ─── Document Intelligence: case history (DI-4) ──────────────────────────────
+// Created by prisma/migrations/di4_case_history.sql (hand-run, idempotent).
+
+/// Append-only case intelligence timeline. Historical versions are
+/// preserved — new analyses never overwrite past events.
+model CaseIntelligenceEvent {
+  id            String   @id @default(cuid())
+  applicationId String
+  eventType     String   // document_uploaded | document_analyzed | evidence_extracted | cross_check_run | letter_generated | ticket_generated | document_sent | financial_dna_run | officer_sim_run | readiness_run
+  actor         String   // staff email
+  refType       String?  // related record's model, e.g. DocumentAuthenticityCheck
+  refId         String?
+  summary       String?
+  metadata      Json     @default("{}")
+  createdAt     DateTime @default(now())
+
+  @@index([applicationId, createdAt])
+  @@index([eventType])
+}
+
+/// Persisted generated letters — versioned per application+type, never
+/// overwritten. Generation itself is unchanged; this wraps the result.
+model GeneratedLetter {
+  id            String   @id @default(cuid())
+  applicationId String
+  letterType    String
+  letterLabel   String?
+  content       String   @db.Text
+  version       Int      @default(1)
+  generatedBy   String
+  createdAt     DateTime @default(now())
+
+  @@index([applicationId, createdAt])
+}
+
 model ClientRiskScore {
   id                  String   @id @default(cuid())
   userId              String   @unique

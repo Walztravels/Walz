@@ -699,6 +699,7 @@ function LettersTab({ activeCase }: TabProps) {
   const [loading,      setLoading]      = useState(false)
   const [letter,       setLetter]       = useState('')
   const [letterLabel,  setLetterLabel]  = useState('')
+  const [savedVersion, setSavedVersion] = useState<number | null>(null)
 
   // Adopt the shared Active Visa Case; generation logic is unchanged.
   useEffect(() => {
@@ -714,7 +715,10 @@ function LettersTab({ activeCase }: TabProps) {
         body: JSON.stringify({ letterType, applicationId: appId, extraContext }),
       })
       const data = await res.json()
-      if (data.letter) { setLetter(data.letter); setLetterLabel(data.letterLabel ?? letterType) }
+      if (data.letter) {
+        setLetter(data.letter); setLetterLabel(data.letterLabel ?? letterType)
+        setSavedVersion(typeof data.version === 'number' ? data.version : null)
+      }
     } catch (e) { console.error(e) }
     finally { setLoading(false) }
   }
@@ -757,10 +761,26 @@ function LettersTab({ activeCase }: TabProps) {
       {letter && (
         <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
           <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
-            <h3 className="text-sm font-bold text-[#0B1F3A]">{letterLabel}</h3>
+            <div>
+              <h3 className="text-sm font-bold text-[#0B1F3A]">{letterLabel}</h3>
+              {savedVersion !== null && (
+                <p className="text-[10px] text-green-700 mt-0.5">Saved to case history — version {savedVersion}</p>
+              )}
+            </div>
             <div className="flex gap-2">
               <CopyBtn text={letter} />
-              <button onClick={() => { const w = window.open(); if (w) { w.document.write(`<pre style="font-family:serif;font-size:14px;line-height:1.8;max-width:700px;margin:40px auto;white-space:pre-wrap;">${letter}</pre>`); w.print() } }}
+              <button onClick={() => {
+                // Print via DOM APIs with the letter as TEXT — model output
+                // is never interpolated into HTML (XSS-safe).
+                const w = window.open()
+                if (w) {
+                  const pre = w.document.createElement('pre')
+                  pre.style.cssText = 'font-family:serif;font-size:14px;line-height:1.8;max-width:700px;margin:40px auto;white-space:pre-wrap;'
+                  pre.textContent = letter
+                  w.document.body.appendChild(pre)
+                  w.print()
+                }
+              }}
                 className="flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg border border-gray-200 hover:border-[#C9A84C] hover:text-[#0B1F3A] text-gray-500 transition-colors">
                 <Printer className="w-3.5 h-3.5" /> Print / PDF
               </button>
@@ -799,13 +819,15 @@ interface FlightDetails {
 // ─── Send to Client inline form ───────────────────────────────────────────────
 
 function SendToClientForm({
-  pdfBase64, mode, clientName, flightDetails, ticketData,
+  pdfBase64, mode, clientName, flightDetails, ticketData, applicationId, reference,
 }: {
   pdfBase64:      string
   mode:           string
   clientName:     string
   flightDetails?: FlightDetails | null
   ticketData?:    Record<string, unknown> | null
+  applicationId?: string
+  reference?:     string
 }) {
   const [email,    setEmail]    = useState('')
   const [sending,  setSending]  = useState(false)
@@ -822,6 +844,8 @@ function SendToClientForm({
           email, clientName, mode, pdf_base64: pdfBase64,
           flightDetails: flightDetails ?? undefined,
           ticketData:    ticketData    ?? undefined,
+          applicationId: applicationId || undefined,
+          reference:     reference     || undefined,
         }),
       })
       const data = await res.json()
@@ -998,6 +1022,7 @@ function DummyTicketTab({ activeCase }: TabProps) {
   const [appId,         setAppId]         = useState('')
   const [loading,       setLoading]       = useState(false)
   const [pdfUrl,        setPdfUrl]        = useState('')
+  const [ticketRef,     setTicketRef]     = useState('')
   const [pdfBase64,     setPdfBase64]     = useState('')
   const [blobUrl,       setBlobUrl]       = useState('')
   const [flightDetails, setFlightDetails] = useState<FlightDetails | null>(null)
@@ -1127,7 +1152,7 @@ function DummyTicketTab({ activeCase }: TabProps) {
 
   const resetOutput = () => {
     if (blobUrl) URL.revokeObjectURL(blobUrl)
-    setPdfUrl(''); setPdfBase64(''); setBlobUrl(''); setFlightDetails(null)
+    setPdfUrl(''); setPdfBase64(''); setBlobUrl(''); setFlightDetails(null); setTicketRef('')
     setTicketData(null); setError(''); setErrorMeta(null); setShowSendForm(false)
     setHoldResult(null); setHoldFailed(false); setPassengers([])
   }
@@ -1179,6 +1204,7 @@ function DummyTicketTab({ activeCase }: TabProps) {
       }
 
       if (data.pdfUrl)         setPdfUrl(data.pdfUrl)
+      if (data.reference)      setTicketRef(String(data.reference))
       if (data.ticketData)     setTicketData(data.ticketData as Record<string, unknown>)
       if (data.flight_details) setFlightDetails(data.flight_details as FlightDetails)
       if (data.hold_pnr)       setHoldResult({ pnr: data.hold_pnr as string, expires: (data.hold_expires as string | null) ?? null, orderId: (data.hold_order_id as string | null) ?? null })
@@ -1616,6 +1642,8 @@ function DummyTicketTab({ activeCase }: TabProps) {
                 clientName={clientName}
                 flightDetails={flightDetails}
                 ticketData={ticketData}
+                applicationId={appId}
+                reference={ticketRef}
               />
             )}
           </div>
@@ -1633,6 +1661,50 @@ function DummyTicketTab({ activeCase }: TabProps) {
 }
 
 // ─── Tab: Document History ────────────────────────────────────────────────────
+
+/** Case intelligence timeline (DI-4) — every action on the case, append-only. */
+function CaseTimeline({ appId }: { appId: string }) {
+  const [events, setEvents] = useState<Array<{
+    id: string; eventType: string; actor: string; summary: string | null; createdAt: string
+  }>>([])
+
+  useEffect(() => {
+    let cancelled = false
+    fetch(`/api/admin/intelligence/case-history?applicationId=${encodeURIComponent(appId)}`)
+      .then(r => (r.ok ? r.json() : null))
+      .then(data => { if (!cancelled && Array.isArray(data?.events)) setEvents(data.events) })
+      .catch(() => {})
+    return () => { cancelled = true }
+  }, [appId])
+
+  if (events.length === 0) return null
+  const EVENT_LABELS: Record<string, string> = {
+    document_uploaded: 'Document uploaded', document_analyzed: 'Document analyzed',
+    evidence_extracted: 'Evidence extracted', cross_check_run: 'Form cross-check run',
+    letter_generated: 'Letter generated', ticket_generated: 'Dummy ticket generated',
+    document_sent: 'Document sent to client', financial_dna_run: 'Financial analysis run',
+    officer_sim_run: 'Officer simulation run', readiness_run: 'Readiness review run',
+  }
+  return (
+    <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-5">
+      <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wide mb-3">Case Timeline</h3>
+      <div className="space-y-2.5">
+        {events.map(e => (
+          <div key={e.id} className="flex items-start gap-3 text-xs">
+            <span className="text-gray-400 whitespace-nowrap font-mono">
+              {new Date(e.createdAt).toLocaleString('en-GB', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
+            </span>
+            <div>
+              <span className="font-semibold text-[#0B1F3A]">{EVENT_LABELS[e.eventType] ?? e.eventType}</span>
+              {e.summary && <span className="text-gray-500"> — {e.summary}</span>}
+              <span className="text-gray-300"> · {e.actor}</span>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
 
 function HistoryTab({ activeCase }: TabProps) {
   const [checks,   setChecks]   = useState<DocCheck[]>([])
@@ -1662,6 +1734,7 @@ function HistoryTab({ activeCase }: TabProps) {
           Showing checks for <span className="font-semibold text-[#0B1F3A]">{appLabel(activeCase)}</span> — clear the Active Visa Case to see all.
         </p>
       )}
+      {activeCase && <CaseTimeline appId={activeCase.id} />}
       <div className="flex gap-1 border-b border-gray-200">
         {VERDICT_TABS.map(v => (
           <button key={v} onClick={() => setVerdict(v)}
