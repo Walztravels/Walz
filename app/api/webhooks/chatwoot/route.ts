@@ -760,14 +760,24 @@ async function onMessageCreated(payload: CWPayload, supabase: SupabaseAdmin) {
   const body      = payload.content ?? ''
   const now       = new Date().toISOString()
 
-  await supabase.from('messages').upsert({
+  // Plain insert + unique-violation handling: the partial UNIQUE index
+  // (uq_messages_external_id) enforces dedupe on insert, but PostgREST
+  // cannot name a partial index as an ON CONFLICT arbiter (42P10), so
+  // upsert(onConflict) would fail at runtime. 23505 = concurrent duplicate.
+  const { error: mirrorErr } = await supabase.from('messages').insert({
     lead_id:     leadId,
     channel:     detectChannel(payload),
     direction,
     body,
     external_id: externalId,
     attachments: payload.attachments?.length ? payload.attachments : undefined,
-  }, { onConflict: 'external_id', ignoreDuplicates: true })
+  })
+  if (mirrorErr) {
+    if (mirrorErr.code !== '23505') {
+      console.error('[cw-hook] mirror insert failed:', mirrorErr.code, mirrorErr.message?.slice(0, 120))
+    }
+    return   // duplicate lost the race (or insert failed) — no metadata update
+  }
 
   // Update lead metadata
   const preview = direction === 'inbound'

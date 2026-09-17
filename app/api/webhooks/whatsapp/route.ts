@@ -146,16 +146,25 @@ export async function POST(req: Request) {
       }
 
       // Save message ─────────────────────────────────────────────────────────
-      // upsert + UNIQUE(external_id) closes the check-then-insert race (0S.4)
-      const { data: inserted } = await supabase.from('messages').upsert({
+      // Plain insert + unique-violation handling closes the check-then-insert
+      // race: the partial UNIQUE index (uq_messages_external_id) enforces on
+      // insert, and PostgREST cannot use a partial index as an ON CONFLICT
+      // arbiter (42P10), so upsert(onConflict) is not an option here.
+      const { data: inserted, error: insErr } = await supabase.from('messages').insert({
         lead_id:     leadId,
         channel:     'whatsapp',
         direction:   'inbound',
         body:        msgBody,
         attachments: attachments,
         external_id: message.id,
-      }, { onConflict: 'external_id', ignoreDuplicates: true }).select('id')
-      // A concurrent duplicate lost the race — its Jade reply must not fire twice.
+      }).select('id')
+      if (insErr) {
+        // 23505 = a concurrent duplicate won — its Jade reply must not fire twice.
+        if (insErr.code !== '23505') {
+          console.error('[wa-webhook] message insert failed:', insErr.code, insErr.message?.slice(0, 120))
+        }
+        continue
+      }
       if (!inserted?.length) continue
 
       if (isExistingLead) {

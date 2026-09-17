@@ -233,8 +233,10 @@ describe('retries cannot duplicate messages or Jade replies', () => {
     expect(claim).toBeGreaterThan(-1)
     expect(claim).toBeLessThan(fn.indexOf('routeConversation'))
     expect(claim).toBeLessThan(fn.indexOf('payload.message_type === 1'))
-    // and the mirror insert is DB-conflict-safe
-    expect(fn).toContain("{ onConflict: 'external_id', ignoreDuplicates: true }")
+    // and the mirror insert is DB-conflict-safe via unique-violation handling
+    // (a PARTIAL unique index cannot be an ON CONFLICT arbiter via PostgREST)
+    expect(fn).toContain("mirrorErr.code !== '23505'")
+    expect(fn).not.toContain("onConflict: 'external_id'")
   })
 
   it("a duplicate 'open' status event cannot re-send the welcome-back message", () => {
@@ -262,9 +264,10 @@ describe('retries cannot duplicate messages or Jade replies', () => {
     expect(s.indexOf('duplicate MessageSid skipped')).toBeLessThan(s.indexOf('routeInboundWhatsApp('))
   })
 
-  it('whatsapp cloud upsert gates the Jade reply on winning the insert race', () => {
+  it('whatsapp cloud gates the Jade reply on winning the insert race (23505 = lost)', () => {
     const s = read('app/api/webhooks/whatsapp/route.ts')
-    expect(s).toContain("{ onConflict: 'external_id', ignoreDuplicates: true }")
+    expect(s).toContain("insErr.code !== '23505'")
+    expect(s).not.toContain("onConflict: 'external_id'")
     expect(s).toContain('if (!inserted?.length) continue')
     expect(s.indexOf('if (!inserted?.length) continue')).toBeLessThan(s.indexOf('maybeJadeReply'))
   })
