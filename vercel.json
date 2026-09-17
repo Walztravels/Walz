@@ -56,6 +56,10 @@
   },
   "crons": [
     {
+      "path": "/api/cron/revenue-opportunities",
+      "schedule": "30 6 * * *"
+    },
+    {
       "path": "/api/cron/payroll",
       "schedule": "0 9 * * *"
     },

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getAdminSession } from '@/lib/admin-auth'
 import prisma from '@/lib/db'
+import { generateRevenueOpportunities } from '@/lib/intelligence/revenue-rules'
 
 export const dynamic = 'force-dynamic'
 
@@ -31,6 +32,7 @@ export async function POST(req: NextRequest) {
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const {
+    action,
     userId,
     leadId,
     type,
@@ -42,6 +44,13 @@ export async function POST(req: NextRequest) {
     actionRequired,
     deadline,
   } = await req.json()
+
+  // INT-5: staff-triggered run of the deterministic rules engine —
+  // idempotent, detection only, never contacts a client.
+  if (action === 'generate') {
+    const result = await generateRevenueOpportunities()
+    return NextResponse.json({ ok: true, ...result })
+  }
 
   const opportunity = await prisma.revenueOpportunity.create({
     data: {

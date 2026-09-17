@@ -2787,6 +2787,11 @@ model RevenueOpportunity {
   id             String    @id @default(cuid())
   userId         String?
   leadId         String?
+  // INT-5 idempotency key, e.g. "QUOTE_FOLLOWUP:<quoteId>". Uniqueness is
+  // enforced by a PARTIAL unique index (WHERE dedupeKey IS NOT NULL),
+  // created in int5_revenue_rules.sql — deliberately not representable
+  // as @unique here (same convention as CommercialEvent.eventId).
+  dedupeKey      String?
   type           String
   priority       String    @default("medium")
   title          String

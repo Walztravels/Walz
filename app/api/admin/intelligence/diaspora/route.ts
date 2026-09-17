@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getAdminSession } from '@/lib/admin-auth'
 import prisma from '@/lib/db'
+import { backfillDiasporaIntelligence } from '@/lib/intelligence/diaspora-aggregate'
 
 export const dynamic = 'force-dynamic'
 
@@ -30,6 +31,21 @@ export async function POST(req: NextRequest) {
   const session = await getAdminSession()
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
+  const body = await req.json()
+
+  // INT-4: rebuild aggregates from Walz's own historical applications —
+  // k-anonymous (nationality groups under 5 roll into destination-level
+  // rows), deterministic, no individual-level profiling.
+  if (body.action === 'backfill') {
+    try {
+      const result = await backfillDiasporaIntelligence()
+      return NextResponse.json({ ok: true, ...result })
+    } catch (e) {
+      console.error('[diaspora backfill]', e instanceof Error ? e.message.slice(0, 200) : 'unknown')
+      return NextResponse.json({ error: 'Backfill failed. Please try again.' }, { status: 500 })
+    }
+  }
+
   const {
     passportCountry,
     destinationIso2,
@@ -40,7 +56,7 @@ export async function POST(req: NextRequest) {
     destinationIso2: string
     bankName?: string
     outcome: 'approved' | 'refused'
-  } = await req.json()
+  } = body
 
   const uniqueWhere = { passportCountry_destinationIso2_bankName: { passportCountry, destinationIso2, bankName: bankName ?? '' } }
 

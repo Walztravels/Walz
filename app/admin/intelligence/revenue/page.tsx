@@ -49,15 +49,18 @@ export default function RevenueOpportunitiesPage() {
   })
 
   const [loadError, setLoadError] = useState('')
+  const [generating, setGenerating] = useState(false)
+  const [genNote, setGenNote] = useState('')
 
   const load = useCallback(async () => {
     setLoading(true)
     setLoadError('')
-    const result = await fetchRecords<Opportunity>('/api/admin/intelligence/revenue?status=open', 'opportunities')
+    const qs = statusFilter === 'all' ? '' : `?status=${statusFilter}`
+    const result = await fetchRecords<Opportunity>(`/api/admin/intelligence/revenue${qs}`, 'opportunities')
     if (result.ok) setOpportunities(result.records)
     else { setOpportunities([]); setLoadError(result.error) }
     setLoading(false)
-  }, [])
+  }, [statusFilter])
 
   useEffect(() => { load() }, [load])
 
@@ -101,8 +104,26 @@ export default function RevenueOpportunitiesPage() {
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-2xl font-bold text-[#0B1F3A]">Revenue Opportunities</h1>
-          <p className="text-sm text-gray-500 mt-1">AI-detected upsell and re-engagement opportunities</p>
+          <p className="text-sm text-gray-500 mt-1">Rule-detected upsell and follow-up opportunities from actual client behaviour</p>
         </div>
+        <button
+          onClick={async () => {
+            setGenerating(true)
+            try {
+              const res  = await fetch('/api/admin/intelligence/revenue', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action: 'generate' }),
+              })
+              const data = await res.json().catch(() => ({}))
+              setGenNote(res.ok ? `Detection run: ${data.created ?? 0} new, ${data.skipped ?? 0} already tracked.` : 'Detection run failed — please try again.')
+              await load()
+            } finally { setGenerating(false) }
+          }}
+          disabled={generating}
+          className="flex items-center gap-2 px-4 py-2 border border-[#0B1F3A] text-[#0B1F3A] text-sm font-semibold rounded-xl hover:bg-gray-50 disabled:opacity-50 transition-colors mr-2"
+        >
+          {generating ? 'Detecting…' : 'Run detection'}
+        </button>
         <button
           onClick={() => setShowForm(s => !s)}
           className="flex items-center gap-2 px-4 py-2 bg-[#0B1F3A] text-white text-sm font-semibold rounded-xl hover:bg-[#0d2345] transition-colors"
@@ -113,6 +134,10 @@ export default function RevenueOpportunitiesPage() {
           Add Opportunity
         </button>
       </div>
+
+      {genNote && (
+        <p className="text-xs text-gray-500 bg-gray-50 border border-gray-100 rounded-lg px-3 py-2 mb-4">{genNote}</p>
+      )}
 
       {showForm && (
         <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 mb-6">

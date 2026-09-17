@@ -32,6 +32,8 @@ export default function DiasporaPage() {
   })
   const [submitting, setSubmitting] = useState(false)
   const [loadError, setLoadError] = useState('')
+  const [backfilling, setBackfilling] = useState(false)
+  const [backfillNote, setBackfillNote] = useState('')
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -76,9 +78,33 @@ export default function DiasporaPage() {
       <div className="flex items-center justify-between mb-6">
         <div>
           <h1 className="text-2xl font-bold text-[#0B1F3A]">Diaspora Intelligence</h1>
-          <p className="text-sm text-gray-500 mt-1">Approval benchmarks by nationality and bank</p>
+          <p className="text-sm text-gray-500 mt-1">Aggregate market intelligence from Walz historical cases — groups under 5 are suppressed; never individual profiling</p>
         </div>
+        <button
+          onClick={async () => {
+            setBackfilling(true)
+            try {
+              const res  = await fetch('/api/admin/intelligence/diaspora', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action: 'backfill' }),
+              })
+              const d = await res.json().catch(() => ({}))
+              setBackfillNote(res.ok
+                ? `Backfilled ${d.rowsWritten ?? 0} aggregate rows from ${d.applicationsScanned ?? 0} applications (${d.suppressedGroups ?? 0} small groups suppressed).`
+                : 'Backfill failed — please try again.')
+              await load()
+            } finally { setBackfilling(false) }
+          }}
+          disabled={backfilling}
+          className="px-4 py-2 border border-[#0B1F3A] text-[#0B1F3A] text-sm font-semibold rounded-xl hover:bg-gray-50 disabled:opacity-50 transition-colors"
+        >
+          {backfilling ? 'Backfilling…' : 'Backfill from Walz history'}
+        </button>
       </div>
+
+      {backfillNote && (
+        <p className="text-xs text-gray-500 bg-gray-50 border border-gray-100 rounded-lg px-3 py-2 mb-4">{backfillNote}</p>
+      )}
 
       <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 mb-6">
         <h2 className="text-sm font-semibold text-[#0B1F3A] mb-4">Record Outcome</h2>
