@@ -8,6 +8,7 @@ import { ChatWindow } from './components/ChatWindow'
 import { ClientInfo } from './components/ClientInfo'
 import { ApplicationLookupDrawer } from '@/components/admin/ApplicationLookupDrawer'
 import { StaffModal } from './components/StaffModal'
+import { sortPage, mergeLatest, prependOlder, oldestCursor } from '@/lib/inbox/message-history'
 
 type Tab = 'all' | 'mine' | 'unassigned' | 'resolved'
 
@@ -218,13 +219,62 @@ export default function InboxPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab, profile])
 
-  // ── Fetch messages ──────────────────────────────────────────────────────────
-  const fetchMessages = useCallback(async (id: number) => {
-    const res  = await fetch(`/api/admin/conversations/${id}/messages`)
+  // ── Fetch messages (history-aware) ──────────────────────────────────────────
+  // Initial open: latest page, history state reset. Polling MERGES the
+  // latest page into what's loaded (never replaces — replacing dropped
+  // previously loaded older pages and forced the viewport to the bottom
+  // on every poll). Upward scroll loads older pages via the `before`
+  // cursor with duplicates dropped.
+  const [history, setHistory] = useState<{ loadingOlder: boolean; olderError: boolean; beginning: boolean }>({
+    loadingOlder: false, olderError: false, beginning: false,
+  })
+  const loadingOlderRef = useRef(false)
+
+  const fetchPage = useCallback(async (id: number, before?: number): Promise<CWMessage[]> => {
+    const qs   = before ? `?before=${before}` : ''
+    const res  = await fetch(`/api/admin/conversations/${id}/messages${qs}`)
+    if (!res.ok) throw new Error(`HTTP ${res.status}`)
     const json = await res.json()
-    const msgs: CWMessage[] = json?.payload || json?.data?.payload || []
-    setMessages(msgs.sort((a, b) => a.created_at - b.created_at))
+    return (json?.payload || json?.data?.payload || []) as CWMessage[]
   }, [])
+
+  const fetchMessages = useCallback(async (id: number) => {
+    try {
+      const page = await fetchPage(id)
+      setMessages(sortPage(page))
+      setHistory({ loadingOlder: false, olderError: false, beginning: page.length === 0 })
+    } catch { /* initial load failure — polling retries */ }
+  }, [fetchPage])
+
+  /** Poll refresh: merge new messages, keep loaded history intact. */
+  const refreshMessages = useCallback(async (id: number) => {
+    try {
+      const page = await fetchPage(id)
+      setMessages(prev => mergeLatest(prev, sortPage(page)).merged)
+    } catch { /* transient poll failure — next tick retries */ }
+  }, [fetchPage])
+
+  /** Load the previous page of the conversation (upward scroll). */
+  const loadOlderMessages = useCallback(async () => {
+    const conv = selectedRef.current
+    if (!conv || loadingOlderRef.current) return
+    const cursor = oldestCursor(messagesRef.current)
+    if (!cursor) return
+    loadingOlderRef.current = true
+    setHistory(h => ({ ...h, loadingOlder: true, olderError: false }))
+    try {
+      const page = await fetchPage(conv.id, cursor)
+      const { merged, added } = prependOlder(messagesRef.current, sortPage(page))
+      setMessages(merged)
+      setHistory({ loadingOlder: false, olderError: false, beginning: added === 0 })
+    } catch {
+      setHistory(h => ({ ...h, loadingOlder: false, olderError: true }))
+    } finally {
+      loadingOlderRef.current = false
+    }
+  }, [fetchPage])
+  const messagesRef = useRef<CWMessage[]>([])
+  messagesRef.current = messages
 
   // ── Polling ─────────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -232,10 +282,10 @@ export default function InboxPage() {
     fetchConvs(true)
     const t = setInterval(() => {
       fetchConvs()
-      if (selectedRef.current) fetchMessages(selectedRef.current.id)
+      if (selectedRef.current) refreshMessages(selectedRef.current.id)
     }, 5000)
     return () => clearInterval(t)
-  }, [profile, fetchConvs, fetchMessages])
+  }, [profile, fetchConvs, refreshMessages])
 
   useEffect(() => {
     if (!profile) return
@@ -413,6 +463,10 @@ export default function InboxPage() {
               onResolve={handleResolve}
               onReopen={handleReopen}
               onBack={() => setMobileView('list')}
+              onLoadOlder={loadOlderMessages}
+              loadingOlder={history.loadingOlder}
+              olderError={history.olderError}
+              beginningReached={history.beginning}
             />
           </div>
         ) : (
