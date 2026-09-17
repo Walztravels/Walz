@@ -41,8 +41,15 @@ export function MobileNav({ onOpenDrawer }: MobileNavProps) {
 
   return (
     <nav
+      // Height comes from the shared chrome token (--walz-bottom-nav-h +
+      // env(safe-area-inset-bottom), declared in globals.css, mirrored in
+      // lib/admin/chrome.ts) so fullbleed routes like the inbox reserve
+      // exactly this much space. z-30 = Z_INDEX.nav (nav < fab < drawer < modal < toast).
       className="md:hidden fixed bottom-0 left-0 right-0 z-30 bg-[#0a1628]/95 backdrop-blur-xl border-t border-white/8 flex items-center justify-around px-2"
-      style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
+      style={{
+        height: 'var(--walz-bottom-nav-safe, calc(var(--walz-bottom-nav-h) + env(safe-area-inset-bottom)))',
+        paddingBottom: 'env(safe-area-inset-bottom)',
+      }}
     >
       {TABS.map(({ href, label, icon: Icon, badge }) => {
         const active = isActive(href)

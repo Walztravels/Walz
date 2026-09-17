@@ -437,20 +437,26 @@ export default function InboxPage() {
   }
 
   // ── Render ──────────────────────────────────────────────────────────────────
+  // UX-1 viewport ownership: [data-inbox-fullbleed] makes the admin shell's
+  // <main> drop its padding/scroll (globals.css), so this page owns the box
+  // between AdminHeader and the mobile bottom nav. The root is h-full inside
+  // that correctly-sized box; the pre-auth screen below renders before the
+  // shell hands over the box, so it sizes itself against the dynamic viewport.
   if (!profile && loading) {
     return (
-      <div className="flex items-center justify-center h-screen bg-[#0B1F3A] text-white/40 text-sm">
+      <div data-inbox-fullbleed className="flex items-center justify-center h-full max-h-[100dvh] bg-walz-off-white text-walz-muted-strong text-sm">
         Loading inbox...
       </div>
     )
   }
 
   return (
-    <div className="flex h-[100dvh] bg-[#0B1F3A] overflow-hidden">
+    <div data-inbox-fullbleed className="flex h-full bg-walz-off-white overflow-hidden">
 
-      {/* Conversation list — full screen on mobile (list view), left panel on desktop */}
+      {/* Conversation list — full screen on mobile (list view), left panel on desktop.
+          Keeps its dark navy surface this release (dark rail + light canvas). */}
       <div className={`
-        flex-shrink-0 flex flex-col w-full md:w-64
+        flex-shrink-0 flex flex-col min-h-0 w-full md:w-64
         ${mobileView === 'list' ? 'flex' : 'hidden'} md:flex
       `}>
         {convsError && (
@@ -475,15 +481,15 @@ export default function InboxPage() {
 
       {/* Chat window — full screen on mobile (chat view), flex-1 on desktop */}
       <div className={`
-        flex-1 flex flex-col min-w-0
+        flex-1 flex flex-col min-h-0 min-w-0
         ${mobileView === 'chat' ? 'flex' : 'hidden'} md:flex
       `}>
         {selected ? (
-          <div className="flex-1 flex flex-col relative min-w-0">
+          <div className="flex-1 flex flex-col relative min-h-0 min-w-0">
             {/* Secure Application Lookup — quick action while handling a chat */}
             <button
               onClick={() => setShowAppLookup(true)}
-              className="absolute top-2 right-2 z-20 inline-flex items-center gap-1.5 rounded-full border border-[#C9A84C]/40 bg-[#0B1F3A]/90 px-3 py-1 text-[11px] font-semibold text-[#C9A84C] hover:bg-[#C9A84C]/15 transition-colors"
+              className="absolute top-2 right-2 z-20 inline-flex items-center gap-1.5 rounded-full border border-walz-gold/50 bg-white/95 px-3 py-1 text-[11px] font-semibold text-walz-navy shadow-sm hover:bg-walz-gold/10 transition-colors"
               title="Search an application by Walz Reference (identity verification required)"
             >
               🔎 Application Lookup
@@ -506,7 +512,7 @@ export default function InboxPage() {
             />
           </div>
         ) : (
-          <div className="flex-1 flex flex-col items-center justify-center text-white/20">
+          <div className="flex-1 flex flex-col items-center justify-center text-walz-muted-strong">
             <div className="text-5xl mb-4">💬</div>
             <p className="text-sm">Select a conversation to start</p>
           </div>
@@ -523,7 +529,7 @@ export default function InboxPage() {
 
       {/* Client info — hidden on mobile, visible on large screens only */}
       {selected && (
-        <div className="hidden lg:flex">
+        <div className="hidden lg:flex min-h-0">
           <ClientInfo
             conv={selected}
             agents={agents}
@@ -543,9 +549,10 @@ export default function InboxPage() {
         />
       )}
 
-      <div className="fixed bottom-4 right-4 space-y-2 z-50 pointer-events-none">
+      {/* Toasts — z-[80] = Z_INDEX.toast (lib/admin/chrome.ts) */}
+      <div className="fixed bottom-4 right-4 space-y-2 z-[80] pointer-events-none">
         {toasts.map(t => (
-          <div key={t.id} className="px-4 py-2.5 rounded-xl bg-[#C9A84C] text-[#0B1F3A] text-sm font-semibold shadow-lg">
+          <div key={t.id} className="px-4 py-2.5 rounded-xl bg-walz-gold text-walz-deep-navy text-sm font-semibold shadow-lg">
             {t.msg}
           </div>
         ))}

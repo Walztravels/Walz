@@ -34,12 +34,14 @@ export function MessageBubble({ msg, prevMsg }: Props) {
   const senderName  = msg.sender?.name || (isIncoming ? 'Client' : 'Agent')
   const showDate    = !prevMsg || !sameDay(prevMsg.created_at, msg.created_at)
 
+  // UX-1: the message canvas is a light surface now — separator/timestamp
+  // text flipped to walz tokens for readability. Bubble internals untouched.
   if (isActivity) {
     return (
       <div className="flex items-center gap-2 my-2 px-4">
-        <div className="h-px flex-1 bg-white/10" />
-        <span className="text-[10px] text-white/30 px-2">{msg.content}</span>
-        <div className="h-px flex-1 bg-white/10" />
+        <div className="h-px flex-1 bg-walz-navy/10" />
+        <span className="text-[10px] text-walz-muted-strong px-2">{msg.content}</span>
+        <div className="h-px flex-1 bg-walz-navy/10" />
       </div>
     )
   }
@@ -48,9 +50,9 @@ export function MessageBubble({ msg, prevMsg }: Props) {
     <>
       {showDate && (
         <div className="flex items-center gap-2 my-4 px-4">
-          <div className="h-px flex-1 bg-white/10" />
-          <span className="text-[10px] text-white/40 px-2">{formatDate(msg.created_at)}</span>
-          <div className="h-px flex-1 bg-white/10" />
+          <div className="h-px flex-1 bg-walz-navy/10" />
+          <span className="text-[10px] text-walz-muted-strong px-2">{formatDate(msg.created_at)}</span>
+          <div className="h-px flex-1 bg-walz-navy/10" />
         </div>
       )}
 
@@ -63,9 +65,9 @@ export function MessageBubble({ msg, prevMsg }: Props) {
 
         <div className={`max-w-[70%] ${isIncoming ? '' : 'items-end flex flex-col'}`}>
           {isPrivate ? (
-            <div className="rounded-xl px-3 py-2 bg-amber-900/30 border border-amber-600/30 border-dashed">
-              <p className="text-[10px] text-amber-400 font-semibold mb-1">🔒 Private note</p>
-              <p className="text-sm text-amber-100 whitespace-pre-wrap">{msg.content}</p>
+            <div className="rounded-xl px-3 py-2 bg-amber-500/10 border border-amber-500/40 border-dashed">
+              <p className="text-[10px] text-amber-700 font-semibold mb-1">🔒 Private note</p>
+              <p className="text-sm text-amber-900 whitespace-pre-wrap">{msg.content}</p>
             </div>
           ) : (
             <div className="flex flex-col gap-1.5">
@@ -121,13 +123,13 @@ export function MessageBubble({ msg, prevMsg }: Props) {
             </div>
           )}
           <div className={`flex items-center gap-1 mt-0.5 ${isIncoming ? '' : 'justify-end'}`}>
-            <span className="text-[10px] text-white/30">{formatTime(msg.created_at)}</span>
-            {!isIncoming && <span className="text-[10px] text-white/30">· {senderName}</span>}
+            <span className="text-[10px] text-walz-muted-strong">{formatTime(msg.created_at)}</span>
+            {!isIncoming && <span className="text-[10px] text-walz-muted-strong">· {senderName}</span>}
           </div>
         </div>
 
         {!isIncoming && (
-          <div className="w-7 h-7 rounded-full bg-[#C9A84C]/20 flex items-center justify-center text-[10px] font-bold text-[#C9A84C] flex-shrink-0 mt-1">
+          <div className="w-7 h-7 rounded-full bg-walz-navy flex items-center justify-center text-[10px] font-bold text-walz-gold flex-shrink-0 mt-1">
             {initials(senderName)}
           </div>
         )}

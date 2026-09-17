@@ -1,6 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { usePathname } from 'next/navigation'
 import { Phone, PhoneOff, PhoneIncoming, Mic, MicOff, X, Loader2 } from 'lucide-react'
 import type { Call, Device } from '@twilio/voice-sdk'
 
@@ -11,6 +12,11 @@ function fmt(secs: number) {
 }
 
 export function TwilioPhonePanel() {
+  const pathname = usePathname()
+  // The inbox owns its viewport chrome (UX-1): its composer lives where the
+  // mobile FAB floats, so the FAB must not render there. The device stays
+  // registered and the panel can still open (incoming call / header toggle).
+  const isInbox = pathname?.startsWith('/admin/inbox') ?? false
   const [open,     setOpen]     = useState(false)
   const [status,   setStatus]   = useState<Status>('loading')
   const [callInfo, setCallInfo] = useState<{ from?: string; to?: string } | null>(null)
@@ -260,18 +266,20 @@ export function TwilioPhonePanel() {
         </div>
       )}
 
-      {/* Mobile FAB — always visible */}
-      <button
-        onClick={() => setOpen(o => !o)}
-        aria-label="Phone"
-        className={`md:hidden fixed bottom-20 right-4 z-40 w-12 h-12 rounded-full shadow-xl flex items-center justify-center active:scale-95 transition-all ${
-          status === 'incoming' ? 'bg-blue-500 animate-bounce' :
-          status === 'active'   ? 'bg-emerald-500' :
-          'bg-amber-500'
-        }`}
-      >
-        <Phone className="w-5 h-5 text-black" strokeWidth={1.5} />
-      </button>
+      {/* Mobile FAB — hidden on /admin/inbox (UX-1); z-40 = Z_INDEX.fab */}
+      {!isInbox && (
+        <button
+          onClick={() => setOpen(o => !o)}
+          aria-label="Phone"
+          className={`md:hidden fixed bottom-20 right-4 z-40 w-12 h-12 rounded-full shadow-xl flex items-center justify-center active:scale-95 transition-all ${
+            status === 'incoming' ? 'bg-blue-500 animate-bounce' :
+            status === 'active'   ? 'bg-emerald-500' :
+            'bg-amber-500'
+          }`}
+        >
+          <Phone className="w-5 h-5 text-black" strokeWidth={1.5} />
+        </button>
+      )}
     </>
   )
 }

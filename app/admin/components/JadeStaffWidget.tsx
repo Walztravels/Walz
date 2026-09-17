@@ -156,6 +156,9 @@ export function JadeStaffWidget() {
 
   // Hide on itinerary builder — that page has Jade Copilot instead
   const isBuilder = pathname.includes('/itinerary-planner/')
+  // Hide on the admin inbox — the inbox owns its viewport chrome (UX-1);
+  // the Jade Copilot drawer arrives there in UX-7.
+  const isInbox = pathname.startsWith('/admin/inbox')
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -251,7 +254,7 @@ export function JadeStaffWidget() {
     }
   }, [input, jadeState, pathname, staffName, open])
 
-  if (isBuilder) return null
+  if (isBuilder || isInbox) return null
 
   const fmt = (d: Date) => d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })
 
@@ -260,7 +263,8 @@ export function JadeStaffWidget() {
       {/* Chat panel */}
       {open && (
         <div
-          className="fixed bottom-36 right-5 md:bottom-20 z-[999] flex flex-col"
+          // z-[60] = Z_INDEX.drawer (lib/admin/chrome.ts): nav 30 < fab 40 < drawer 60
+          className="fixed bottom-36 right-5 md:bottom-20 z-[60] flex flex-col"
           style={{ width: 360, height: 520, maxHeight: 'calc(100vh - 100px)' }}
         >
           <div className="flex flex-col h-full bg-[#0C1829] rounded-2xl border border-white/10 shadow-2xl overflow-hidden">
@@ -393,8 +397,8 @@ export function JadeStaffWidget() {
         </div>
       )}
 
-      {/* Floating bubble */}
-      <button onClick={() => setOpen(o => !o)} className="fixed bottom-20 right-5 md:bottom-5 z-[1000] group">
+      {/* Floating bubble — z-40 = Z_INDEX.fab (lib/admin/chrome.ts) */}
+      <button onClick={() => setOpen(o => !o)} className="fixed bottom-20 right-5 md:bottom-5 z-40 group">
         {unread > 0 && !open && (
           <div className="absolute inset-0 rounded-full bg-amber-500/30 animate-ping" />
         )}

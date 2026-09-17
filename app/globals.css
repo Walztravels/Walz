@@ -44,6 +44,15 @@
   --walz-warning:     #D4880A;
   --walz-error:       #C0392B;
 
+  /* ── Admin chrome tokens (INBOX UX-1) ──────────────────────────────────
+     Single source of truth for fixed admin-chrome metrics. Keep in sync
+     with lib/admin/chrome.ts (BOTTOM_NAV_HEIGHT_PX / Z_INDEX). Consumed by
+     components/admin/MobileNav.tsx and the inbox fullbleed rules below. */
+  /* Mobile bottom-nav content height (excludes the iOS home-indicator inset) */
+  --walz-bottom-nav-h: 64px;
+  /* Full reserved space: nav height + env(safe-area-inset-bottom) */
+  --walz-bottom-nav-safe: calc(var(--walz-bottom-nav-h) + env(safe-area-inset-bottom, 0px));
+
   /* shadcn/ui CSS variables */
   --background: 40 33% 96%;
   --foreground: 215 52% 10%;
@@ -80,6 +89,34 @@
   /* Disable smooth-scroll in admin — it conflicts with trackpad momentum on overflow containers */
   html:has([data-admin-layout]) {
     scroll-behavior: auto;
+  }
+
+  /* ── Inbox viewport ownership (INBOX UX-1) ───────────────────────────────
+     A page that marks its root with [data-inbox-fullbleed] owns the space
+     between AdminHeader and (on mobile) the bottom nav: the admin shell's
+     <main> gives up its padding and page scroll, so the ONLY scrollers on
+     the route are the page's internal panes (conversation list, ChatWindow
+     message viewport, ClientInfo panel).
+     :has() is supported by all target browsers (Safari 15.4+, Chrome 105+,
+     Firefox 121+). The element+attribute selector (0,1,1) outranks
+     Tailwind's single-class utilities (0,1,0), so no !important is needed. */
+  main:has([data-inbox-fullbleed]) {
+    padding: 0;
+    overflow: hidden;
+  }
+
+  /* Mobile: reserve the fixed bottom nav (+ safe area) via the shared token
+     so the composer sits fully above it. Everything below this is flex +
+     min-h-0 with no fixed pixel heights, so when the on-screen keyboard
+     resizes the layout viewport (interactiveWidget: 'resizes-content') the
+     whole column chain shrinks correctly. */
+  [data-inbox-fullbleed] {
+    padding-bottom: var(--walz-bottom-nav-safe);
+  }
+  @media (min-width: 768px) {
+    [data-inbox-fullbleed] {
+      padding-bottom: 0;
+    }
   }
 
   body {

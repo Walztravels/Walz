@@ -98,24 +98,24 @@ export function ChatWindow({
 
   return (
     <div className="flex-1 flex flex-col min-w-0 h-full">
-      {/* Header */}
-      <div className="flex-shrink-0 flex items-center justify-between px-3 py-3 border-b border-white/8 bg-[#0B1F3A] gap-2">
+      {/* Header — light surface with walz-border hairline (UX-1) */}
+      <div className="flex-shrink-0 flex items-center justify-between px-3 py-3 border-b border-walz-border bg-white gap-2">
         <div className="flex items-center gap-2 min-w-0">
           {/* Back button — mobile only */}
           {onBack && (
             <button
               onClick={onBack}
-              className="md:hidden flex-shrink-0 p-1.5 -ml-1 rounded-lg text-white/60 hover:text-white hover:bg-white/8 transition-colors"
+              className="md:hidden flex-shrink-0 p-1.5 -ml-1 rounded-lg text-walz-navy/60 hover:text-walz-navy hover:bg-walz-navy/5 transition-colors"
             >
               <ArrowLeft className="w-5 h-5" />
             </button>
           )}
-          <div className="w-8 h-8 rounded-full bg-[#1e3a5f] flex items-center justify-center text-xs font-bold text-[#C9A84C] flex-shrink-0">
+          <div className="w-8 h-8 rounded-full bg-walz-navy flex items-center justify-center text-xs font-bold text-walz-gold flex-shrink-0">
             {initials(sender?.name ?? '?')}
           </div>
           <div className="min-w-0">
-            <p className="text-sm font-semibold text-white truncate">{sender?.name ?? 'Unknown'}</p>
-            <p className="text-[10px] text-white/40">
+            <p className="text-sm font-semibold text-walz-deep-navy truncate">{sender?.name ?? 'Unknown'}</p>
+            <p className="text-[10px] text-walz-muted-strong">
               {channelIcon(conv)} #{conv.id} · {conv.status}
             </p>
           </div>
@@ -125,14 +125,14 @@ export function ChatWindow({
           {!isResolved ? (
             <button
               onClick={onResolve}
-              className="px-3 py-1.5 rounded-lg bg-green-600 text-white text-xs font-semibold hover:bg-green-700 transition-colors"
+              className="px-3 py-1.5 rounded-lg bg-blue-600 text-white text-xs font-semibold hover:bg-blue-700 transition-colors"
             >
               Resolve
             </button>
           ) : (
             <button
               onClick={onReopen}
-              className="px-3 py-1.5 rounded-lg bg-white/10 text-white/70 text-xs font-semibold hover:bg-white/15 transition-colors"
+              className="px-3 py-1.5 rounded-lg bg-walz-navy/5 text-walz-navy text-xs font-semibold hover:bg-walz-navy/10 transition-colors"
             >
               Reopen
             </button>
@@ -140,8 +140,9 @@ export function ChatWindow({
         </div>
       </div>
 
-      {/* Messages — the single vertical history scroll container */}
-      <div className="relative flex-1 min-h-0">
+      {/* Messages — the single vertical history scroll container.
+          Light canvas (walz-off-white) with light chrome above/below (UX-1). */}
+      <div className="relative flex-1 min-h-0 bg-walz-off-white">
         <div
           ref={scrollRef}
           onScroll={handleScroll}
@@ -151,19 +152,19 @@ export function ChatWindow({
           {/* History status row */}
           {messages.length > 0 && (
             beginningReached ? (
-              <p className="text-center text-[10px] text-white/25 py-2">Beginning of conversation</p>
+              <p className="text-center text-[10px] text-walz-muted-strong py-2">Beginning of conversation</p>
             ) : loadingOlder ? (
-              <p className="flex items-center justify-center gap-1.5 text-[10px] text-white/40 py-2">
+              <p className="flex items-center justify-center gap-1.5 text-[10px] text-walz-muted-strong py-2">
                 <Loader2 className="w-3 h-3 animate-spin" /> Loading earlier messages…
               </p>
             ) : olderError ? (
-              <p className="text-center text-[10px] text-red-300 py-2">
+              <p className="text-center text-[10px] text-walz-error py-2">
                 Could not load earlier messages.{' '}
                 <button onClick={() => onLoadOlder?.()} className="underline font-semibold">Retry</button>
               </p>
             ) : (
               <button onClick={() => onLoadOlder?.()}
-                className="block mx-auto text-[10px] text-white/30 hover:text-white/60 py-2">
+                className="block mx-auto text-[10px] text-walz-muted-strong hover:text-walz-navy py-2">
                 Load earlier messages
               </button>
             )
@@ -171,16 +172,16 @@ export function ChatWindow({
 
           {messages.length === 0 && loadError ? (
             <div className="h-full flex flex-col items-center justify-center gap-2 text-sm">
-              <p className="text-red-300">Could not load messages.</p>
+              <p className="text-walz-error">Could not load messages.</p>
               <button
                 onClick={() => onRetryLoad?.()}
-                className="px-3 py-1.5 rounded-lg bg-white/10 text-white/70 text-xs font-semibold hover:bg-white/15 transition-colors"
+                className="px-3 py-1.5 rounded-lg bg-walz-navy/5 text-walz-navy text-xs font-semibold hover:bg-walz-navy/10 transition-colors"
               >
                 Retry
               </button>
             </div>
           ) : messages.length === 0 ? (
-            <div className="h-full flex items-center justify-center text-white/20 text-sm">
+            <div className="h-full flex items-center justify-center text-walz-muted-strong text-sm">
               No messages yet
             </div>
           ) : (
@@ -194,7 +195,7 @@ export function ChatWindow({
         {showNewIndicator && (
           <button
             onClick={() => scrollToBottom('smooth')}
-            className="absolute bottom-3 left-1/2 -translate-x-1/2 flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-[#C9A84C] text-[#0B1F3A] text-xs font-bold shadow-lg"
+            className="absolute bottom-3 left-1/2 -translate-x-1/2 flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-walz-gold text-walz-deep-navy text-xs font-bold shadow-lg"
           >
             New messages <ArrowDown className="w-3.5 h-3.5" />
           </button>

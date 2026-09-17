@@ -53,7 +53,11 @@ export default async function AdminLayout({ children }: { children: React.ReactN
         {/* Top header */}
         <AdminHeader adminEmail={session.email} />
 
-        {/* Scrollable page content — extra bottom padding on mobile for nav bar */}
+        {/* Scrollable page content — extra bottom padding on mobile for nav bar.
+            INBOX UX-1: a route that marks its root with [data-inbox-fullbleed]
+            (the inbox) takes ownership of this box instead — globals.css zeroes
+            the padding and sets overflow:hidden via main:has([data-inbox-fullbleed]),
+            so that route's internal panes are the only scrollers. */}
         <main className="flex-1 min-h-0 overflow-y-auto p-4 md:p-6 lg:p-8 pb-24 md:pb-6 lg:pb-8">
           {children}
         </main>

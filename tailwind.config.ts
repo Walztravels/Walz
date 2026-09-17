@@ -18,7 +18,8 @@ const config: Config = {
         'walz-slate': '#1C3557',
         'walz-white': '#FFFFFF',
         'walz-off-white': '#F7F4EF',
-        'walz-muted': '#8B9BAE',
+        'walz-muted': '#8B9BAE',          // dark-surface secondary text only
+        'walz-muted-strong': '#47586B',   // AA-compliant secondary text on light surfaces (UX-1 review F1)
         'walz-border': '#E2D9CC',
         'walz-success': '#1A7A4A',
         'walz-warning': '#D4880A',
