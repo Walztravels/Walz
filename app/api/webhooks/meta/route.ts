@@ -14,6 +14,7 @@
 
 import { NextResponse } from 'next/server'
 import prisma from '@/lib/db'
+import type { Prisma } from '@prisma/client'
 import { getResend } from '@/lib/email-internal'
 import { loadJadeSession, saveJadeSession } from '@/lib/jade-session'
 import { getSupabaseAdmin } from '@/lib/supabase'
@@ -21,6 +22,7 @@ import { resolveInstagramPostContext } from '@/lib/instagram-post'
 import { botChatwootOrNull, logChatwootUnconfigured } from '@/lib/chatwoot/config'
 import { verifyMetaSignature, maskId } from '@/lib/webhooks/verify'
 import { claimWebhookEvent, releaseWebhookEvent } from '@/lib/webhooks/idempotency'
+import { createLeadRaceSafe } from '@/lib/leads/identity'
 
 const CHATWOOT_BASE  = 'https://chat.walztravels.com'
 const CHATWOOT_TOKEN = botChatwootOrNull()?.token ?? ''   // fail closed (INBOX-0S.1)
@@ -196,6 +198,15 @@ async function handleInstagramMessage(
   })
 }
 
+// Explicit column list for every Lead read-back in this file: the production
+// DB is drifted from schema.prisma (no "lastOfflineNotifiedAt" column), so an
+// unselected read/update P2022s. Mirrors the local Lead interface below.
+const LEAD_SELECT = {
+  id: true, name: true, source: true, sourceId: true, conversation: true,
+  jadeActive: true, jadeSilencedAt: true, jadeResumedAt: true,
+  instagramUsername: true, lastMessage: true, lastMessageAt: true,
+} as const
+
 // ── Upsert lead + trigger Jade ────────────────────────────────────────────────
 async function upsertLead(params: {
   source:             string
@@ -211,12 +222,14 @@ async function upsertLead(params: {
 
   const newMsg: ConversationMessage = { role: 'client', message, timestamp }
 
-  // Look up by source + sourceId
+  // Look up by source + sourceId (fast path; the UNIQUE index + P2002
+  // handling below is the real race protection — 0S.4A)
   const existing = await prisma.lead.findFirst({
     where: { source, sourceId },
+    select: LEAD_SELECT,   // explicit select — survives DB column drift (review H2)
   })
 
-  let lead: Awaited<ReturnType<typeof prisma.lead.findFirst>>
+  let lead: Prisma.LeadGetPayload<{ select: typeof LEAD_SELECT }> | null
 
   if (existing) {
     const conversation: ConversationMessage[] = [...((existing.conversation as unknown as ConversationMessage[]) ?? []), newMsg]
@@ -230,32 +243,51 @@ async function upsertLead(params: {
         lastMessageAt: new Date(timestamp),
         isRead:        false,
       },
+      select: LEAD_SELECT,
     })
 
     await sendJadeReply(lead as Lead, message, source, postContext)
 
   } else {
-    lead = await prisma.lead.create({
-      data: {
-        name,
-        source,
-        sourceId,
-        instagramUsername: instagramUsername ?? null,
-        service:           'Other',
-        whatsapp:          null,
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        conversation:      [newMsg] as any,
-        lastMessage:       message,
-        lastMessageAt:     new Date(timestamp),
-        isRead:            false,
-        jadeActive:        true,
-        assignedTo:        'Glory',
-        platform,
-        status:            'New',
-      },
+    const res = await createLeadRaceSafe(prisma, source, sourceId, {
+      name,
+      instagramUsername: instagramUsername ?? null,
+      service:           'Other',
+      whatsapp:          null,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      conversation:      [newMsg] as any,
+      lastMessage:       message,
+      lastMessageAt:     new Date(timestamp),
+      isRead:            false,
+      jadeActive:        true,
+      assignedTo:        'Glory',
+      platform,
+      status:            'New',
     })
 
-    await sendJadeReply(lead as Lead, message, source, postContext)
+    if (res.created) {
+      lead = await prisma.lead.findUnique({ where: { id: res.id }, select: LEAD_SELECT })
+    } else {
+      // Lost the race — the winner's row is canonical: append this message
+      // there exactly as the existing-lead branch does.
+      const winner = await prisma.lead.findUnique({ where: { id: res.id }, select: LEAD_SELECT })
+      const conversation: ConversationMessage[] = [
+        ...(((winner?.conversation as unknown as ConversationMessage[]) ?? [])), newMsg,
+      ]
+      lead = await prisma.lead.update({
+        where: { id: res.id },
+        data: {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          conversation: conversation as any,
+          lastMessage:   message,
+          lastMessageAt: new Date(timestamp),
+          isRead:        false,
+        },
+        select: LEAD_SELECT,
+      })
+    }
+
+    if (lead) await sendJadeReply(lead as Lead, message, source, postContext)
   }
 
   // Admin notification (non-fatal if it fails)

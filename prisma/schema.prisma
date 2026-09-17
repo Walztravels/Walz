@@ -515,6 +515,7 @@ model Lead {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  @@unique([source, sourceId])   // 0S.4A — Postgres NULLS DISTINCT: rows with NULL sourceId are unaffected
   @@index([status])
   @@index([createdAt])
   @@index([service])

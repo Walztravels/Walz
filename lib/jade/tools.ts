@@ -9,6 +9,7 @@ import {
   type VisaApplicantProfile,
 } from "@/lib/jade/intelligence-v2";
 import { trackCommercialEvent } from "@/lib/commercial/track";
+import { createLeadRaceSafe } from '@/lib/leads/identity'
 
 // Attribution window: bookings made within N days of Jade qualifying a lead count as Jade-assisted
 const JADE_ATTRIBUTION_DAYS = parseInt(process.env.JADE_ATTRIBUTION_DAYS ?? '7', 10)
@@ -665,9 +666,10 @@ async function saveLead(input: any, ctx: ToolContext): Promise<string> {
 
   let leadId: string
 
-  if (existing) {
+  const applyUpdate = async (id: string) => {
     await db.lead.update({
-      where: { id: existing.id },
+      where: { id },
+      select: { id: true },   // survives DB column drift (review H2)
       data: {
         ...(input.name ? { name: input.name } : {}),
         ...(input.email ? { email: input.email } : {}),
@@ -679,24 +681,27 @@ async function saveLead(input: any, ctx: ToolContext): Promise<string> {
         ...(isQualified ? { jadeAssisted: true, jadeQualifiedAt: now } : {}),
       },
     });
+  }
+
+  if (existing) {
+    await applyUpdate(existing.id)
     leadId = existing.id
   } else {
-    const created = await db.lead.create({
-      data: {
-        name: input.name || ctx.contactName || "WhatsApp Lead",
-        email: input.email || null,
-        whatsapp: identifier,
-        source: "whatsapp-jade",
-        sourceId: `jade-wa-${identifier}`,
-        status,
-        lastMessage: details || null,
-        lastMessageAt: now,
-        details: details || null,
-        platform: "WhatsApp",
-        ...(isQualified ? { jadeAssisted: true, jadeQualifiedAt: now } : {}),
-      },
+    // Race-safe (INBOX-0S.4A): the UNIQUE ("source","sourceId") index makes
+    // exactly one concurrent create win; the loser converges on that row.
+    const res = await createLeadRaceSafe(db, "whatsapp-jade", `jade-wa-${identifier}`, {
+      name: input.name || ctx.contactName || "WhatsApp Lead",
+      email: input.email || null,
+      whatsapp: identifier,
+      status,
+      lastMessage: details || null,
+      lastMessageAt: now,
+      details: details || null,
+      platform: "WhatsApp",
+      ...(isQualified ? { jadeAssisted: true, jadeQualifiedAt: now } : {}),
     });
-    leadId = created.id
+    if (!res.created) await applyUpdate(res.id)
+    leadId = res.id
   }
 
   // Track commercial event — fire and forget (lead qualification is high-value signal)

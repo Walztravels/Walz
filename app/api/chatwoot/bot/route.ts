@@ -31,6 +31,8 @@ import {
   markAsRead,
 } from "@/lib/jade/chatwoot-client";
 import { JADE_TOOLS, executeTool, type ToolContext } from "@/lib/jade/tools";
+import { getSupabaseAdmin } from "@/lib/supabase";
+import { claimWebhookEvent } from "@/lib/webhooks/idempotency";
 import { buildSystemPrompt } from "@/lib/jade/prompt";
 
 export const maxDuration = 60;
@@ -100,7 +102,22 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ok: true, skipped: "resolved" });
   }
 
-  console.log(`[jade] incoming conv=${conversationId} msg=${messageId}: "${content.slice(0, 80)}"`);
+  // ---- Idempotency (INBOX-0S.4A) -----------------------------------------
+  // This agent-bot endpoint was the origin of the duplicate-Lead incident:
+  // a duplicate message_created delivery started two full Jade turns (two
+  // customer replies, two save_lead calls). Claim the provider message id
+  // before doing ANY work; the ledger's unique key makes exactly one
+  // delivery win. 'unavailable' (table not migrated yet) degrades open.
+  if (messageId) {
+    const claim = await claimWebhookEvent(getSupabaseAdmin(), "chatwoot-bot", `cw_bot_msg_${messageId}`);
+    if (claim === "duplicate") {
+      console.log(`[jade] duplicate delivery skipped conv=${conversationId} msg=${messageId}`);
+      return NextResponse.json({ ok: true, skipped: "duplicate" });
+    }
+  }
+
+  // No message content in logs (0S.4 PII hygiene).
+  console.log(`[jade] incoming conv=${conversationId} msg=${messageId} len=${content.length}`);
 
   // ---- 2. ACK NOW, think later -------------------------------------------
   // Chatwoot gives agent-bot webhooks ~5s before timing out and handing off.

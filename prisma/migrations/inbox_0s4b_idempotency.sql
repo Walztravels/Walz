@@ -1,10 +1,11 @@
 -- ============================================================
--- INBOX-0S.4 — WEBHOOK IDEMPOTENCY (idempotent, hand-run)
--- Run in Supabase SQL Editor ONLY AFTER inbox_0s4_duplicate_audit.sql
--- comes back clean (no duplicate rows). If the audit found duplicates,
--- STOP — they must be reviewed before any constraint is added; this
--- script never deletes data and will simply FAIL on step 1/3 if
--- duplicates exist.
+-- INBOX-0S.4B — WEBHOOK IDEMPOTENCY (idempotent, hand-run)
+-- Run in Supabase SQL Editor ONLY AFTER (1) inbox_0s4_duplicate_audit.sql
+-- came back clean for messages/visa sections and (2)
+-- inbox_0s4a_lead_cleanup.sql has been run (the separate, auditable
+-- duplicate cleanup — destructive work is never folded in here).
+-- This script never deletes data; it simply FAILS on step 1/3 if
+-- unexpected duplicates exist.
 -- ============================================================
 
 -- 1. Provider message ids become database-enforced unique.
@@ -30,15 +31,20 @@ CREATE TABLE IF NOT EXISTS webhook_events (
 CREATE INDEX IF NOT EXISTS idx_webhook_events_received_at
   ON webhook_events (received_at);
 
--- RLS consistent with the rest of the inbox tables (service-role access).
+-- RLS: SERVICE ROLE ONLY (security review H1). The ledger gates message
+-- processing — if anon/authenticated could write it, pre-inserted claims
+-- would silently suppress real customer messages (an anonymous Jade kill
+-- switch) and deletes would re-enable duplicates. Lock it down explicitly.
 ALTER TABLE webhook_events ENABLE ROW LEVEL SECURITY;
+REVOKE ALL ON TABLE webhook_events FROM anon, authenticated;
+REVOKE ALL ON SEQUENCE webhook_events_id_seq FROM anon, authenticated;
 DO $$ BEGIN
   IF NOT EXISTS (
     SELECT 1 FROM pg_policies
     WHERE tablename = 'webhook_events' AND policyname = 'service_all_webhook_events'
   ) THEN
     CREATE POLICY service_all_webhook_events ON webhook_events
-      FOR ALL USING (true) WITH CHECK (true);
+      FOR ALL TO service_role USING (true) WITH CHECK (true);
   END IF;
 END $$;
 
@@ -62,7 +68,7 @@ AS $$
   SET unread_count         = COALESCE(unread_count, 0) + 1,
       last_message_at      = p_at,
       last_message_preview = p_preview
-  WHERE id = p_lead_id;
+  WHERE id = p_lead_id::uuid;   -- leads.id is uuid in production; callers pass text
 $$;
 
 -- ── Validation ───────────────────────────────────────────────
