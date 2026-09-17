@@ -44,12 +44,33 @@ const BAND_BAR: Record<string, string> = {
 
 const INPUT = 'w-full h-9 px-3 border border-gray-200 rounded-lg text-sm outline-none focus:border-[#C9A84C] bg-white'
 
+/** Deterministic readiness output (INT-3). */
+interface Readiness {
+  overall: number | null
+  dimensionsScored: number
+  note: string
+  dimensions: Array<{
+    key: string; label: string; score: number | null
+    status: 'STRONG' | 'ADEQUATE' | 'ATTENTION' | 'INSUFFICIENT_DATA'
+    evidence: string[]; issues: string[]
+  }>
+}
+
+const READINESS_STATUS_STYLE: Record<string, string> = {
+  STRONG:            'bg-green-100 text-green-700',
+  ADEQUATE:          'bg-blue-100 text-blue-700',
+  ATTENTION:         'bg-amber-100 text-amber-800',
+  INSUFFICIENT_DATA: 'bg-gray-100 text-gray-500',
+}
+
 export default function CrisPage() {
   const [scores, setScores] = useState<CrisScore[]>([])
   const [loading, setLoading] = useState(true)
   const [bandFilter, setBandFilter] = useState<Band>('all')
   const [userId, setUserId] = useState('')
   const [computing, setComputing] = useState(false)
+  const [readiness, setReadiness] = useState<Readiness | null>(null)
+  const [computeError, setComputeError] = useState('')
 
   const [loadError, setLoadError] = useState('')
 
@@ -68,14 +89,21 @@ export default function CrisPage() {
     e.preventDefault()
     if (!userId.trim()) return
     setComputing(true)
+    setReadiness(null)
+    setComputeError('')
     try {
-      await fetch('/api/admin/intelligence/cris', {
+      const res  = await fetch('/api/admin/intelligence/cris', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ userId: userId.trim() }),
       })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) { setComputeError((data.error as string) ?? `Computation failed (HTTP ${res.status}).`); return }
+      if (data.readiness) setReadiness(data.readiness as Readiness)
       setUserId('')
       await load()
+    } catch {
+      setComputeError('Network error while computing — please try again.')
     } finally {
       setComputing(false)
     }
@@ -92,8 +120,8 @@ export default function CrisPage() {
     <div>
       <div className="flex items-center justify-between mb-6">
         <div>
-          <h1 className="text-2xl font-bold text-[#0B1F3A]">Client Risk Intelligence Score (CRIS)</h1>
-          <p className="text-sm text-gray-500 mt-1">Multi-dimensional client risk scoring</p>
+          <h1 className="text-2xl font-bold text-[#0B1F3A]">Application Readiness (CRIS)</h1>
+          <p className="text-sm text-gray-500 mt-1">Deterministic, evidence-backed readiness dimensions — an internal indicator, never a visa-approval probability</p>
         </div>
       </div>
 
@@ -126,6 +154,40 @@ export default function CrisPage() {
           </button>
         </form>
       </div>
+
+      {computeError && (
+        <div className="bg-red-50 border border-red-200 text-red-700 rounded-xl px-4 py-3 text-sm mb-4">{computeError}</div>
+      )}
+
+      {readiness && (
+        <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6 mb-6">
+          <div className="flex items-center justify-between flex-wrap gap-2 mb-1">
+            <h2 className="text-sm font-semibold text-[#0B1F3A]">Application Readiness</h2>
+            <span className="text-2xl font-black text-[#0B1F3A]">{readiness.overall != null ? `${readiness.overall}/100` : '—'}</span>
+          </div>
+          <p className="text-[10px] text-gray-400 mb-4">{readiness.note}</p>
+          <div className="grid sm:grid-cols-2 gap-3">
+            {readiness.dimensions.map(d => (
+              <div key={d.key} className="border border-gray-100 rounded-lg p-3">
+                <div className="flex items-center justify-between mb-1">
+                  <span className="text-xs font-semibold text-[#0B1F3A]">{d.label}</span>
+                  <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${READINESS_STATUS_STYLE[d.status]}`}>
+                    {d.score != null ? `${d.score} · ` : ''}{d.status.replace(/_/g, ' ')}
+                  </span>
+                </div>
+                {d.evidence.length > 0 && (
+                  <p className="text-[10px] text-gray-400 mb-1">Evidence: {d.evidence.join('; ')}</p>
+                )}
+                {d.issues.length > 0 && (
+                  <ul className="text-[11px] text-amber-800 list-disc pl-4 space-y-0.5">
+                    {d.issues.slice(0, 5).map((iss, i) => <li key={i}>{iss}</li>)}
+                  </ul>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Band filter */}
       <div className="flex gap-1 mb-4 border-b border-gray-200">

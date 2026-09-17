@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getAdminSession } from '@/lib/admin-auth'
 import prisma from '@/lib/db'
+import { computeReadinessForUser } from '@/lib/intelligence/readiness'
+import { recordCaseEvent } from '@/lib/intelligence/case-events'
 
 export const dynamic = 'force-dynamic'
 
@@ -26,74 +28,82 @@ export async function GET(req: NextRequest) {
   return NextResponse.json({ scores })
 }
 
+/**
+ * INT-3: APPLICATION READINESS — fully deterministic and explainable.
+ * The randomized placeholder scorer is gone; every number below is
+ * computed from case evidence with the formula documented in
+ * lib/intelligence/readiness.ts, and every dimension carries its
+ * evidence and issues. Dimensions without data are excluded, never
+ * defaulted. This is an internal readiness indicator — NOT a visa
+ * approval probability, and it is never presented as one.
+ */
 export async function POST(req: NextRequest) {
   const session = await getAdminSession()
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const { userId } = await req.json()
+  if (!userId) return NextResponse.json({ error: 'userId required' }, { status: 400 })
 
-  const [visaApplications, portalPayments, portalApplications] = await Promise.all([
-    prisma.visaApplication.findMany({ where: { userId } }),
-    prisma.portalPayment.findMany({ where: { userId } }),
-    prisma.portalApplication.findMany({ where: { userId } }),
-  ])
+  try {
+    const result = await computeReadinessForUser(userId)
+    if (!result.ok) return NextResponse.json({ error: result.error }, { status: 404 })
+    const r = result.readiness
 
-  const visaApps = visaApplications.length
-  const successVisa = visaApplications.filter(
-    (a) => a.status === 'approved'
-  ).length
+    // Deterministic payment reliability from actual payment history (the
+    // one dimension the old scorer computed honestly — kept, but with no
+    // fabricated floor when there is no history).
+    const payments = await prisma.portalPayment.findMany({ where: { userId }, select: { status: true } })
+    const paymentReliability = payments.length > 0
+      ? Math.round((payments.filter(p => p.status === 'completed' || p.status === 'succeeded').length / payments.length) * 100)
+      : null
 
-  const payments = portalPayments.length
-  const successPayments = portalPayments.filter(
-    (p) => p.status === 'completed' || p.status === 'succeeded'
-  ).length
-
-  const applicationQuality = 50 + Math.random() * 10
-  const documentReliability = 50 + Math.random() * 30
-  const paymentReliability =
-    payments > 0 ? Math.min(100, 60 + (successPayments / payments) * 40) : 50
-  const communicationScore = 60 + Math.random() * 30
-  const visaSuccessRate = visaApps > 0 ? (successVisa / visaApps) * 100 : 50
-
-  const overallScore =
-    applicationQuality * 0.3 +
-    documentReliability * 0.25 +
-    paymentReliability * 0.2 +
-    communicationScore * 0.15 +
-    visaSuccessRate * 0.1
-
-  const riskBand =
-    overallScore >= 80
-      ? 'green'
-      : overallScore >= 60
-      ? 'yellow'
-      : overallScore >= 40
-      ? 'orange'
-      : 'red'
-
-  const score = await prisma.clientRiskScore.upsert({
-    where: { userId },
-    update: {
-      applicationQuality,
-      documentReliability,
+    const dim = (key: string) => r.dimensions.find(d => d.key === key)?.score ?? null
+    const scored = [
+      dim('identityConsistency'), dim('documentCompleteness'),
+      dim('financialConsistency'), dim('financialFunding'),
+      dim('travelConsistency'), dim('employmentEvidence'),
       paymentReliability,
-      communicationScore,
-      visaSuccessRate,
-      overallScore,
-      riskBand,
-      updatedAt: new Date(),
-    },
-    create: {
-      userId,
-      applicationQuality,
-      documentReliability,
-      paymentReliability,
-      communicationScore,
-      visaSuccessRate,
-      overallScore,
-      riskBand,
-    },
-  })
+    ].filter((s): s is number => s != null)
+    const overallScore = scored.length ? Math.round(scored.reduce((a, b) => a + b, 0) / scored.length) : 0
+    const riskBand = scored.length === 0 ? 'insufficient_data'
+      : overallScore >= 80 ? 'green' : overallScore >= 60 ? 'yellow' : overallScore >= 40 ? 'orange' : 'red'
 
-  return NextResponse.json({ score })
+    const score = await prisma.clientRiskScore.upsert({
+      where: { userId },
+      update: {
+        applicationQuality:  dim('identityConsistency') ?? 0,
+        documentReliability: dim('documentCompleteness') ?? 0,
+        paymentReliability:  paymentReliability ?? 0,
+        communicationScore:  0,   // no communication instrumentation yet — never invented
+        visaSuccessRate:     dim('financialFunding') ?? 0,
+        overallScore, riskBand,
+        notes: JSON.stringify(r).slice(0, 8000),
+        updatedAt: new Date(),
+      },
+      create: {
+        userId,
+        applicationQuality:  dim('identityConsistency') ?? 0,
+        documentReliability: dim('documentCompleteness') ?? 0,
+        paymentReliability:  paymentReliability ?? 0,
+        communicationScore:  0,
+        visaSuccessRate:     dim('financialFunding') ?? 0,
+        overallScore, riskBand,
+        notes: JSON.stringify(r).slice(0, 8000),
+      },
+    })
+
+    await recordCaseEvent({
+      applicationId: result.applicationId,
+      eventType: 'readiness_run',
+      actor: session.email ?? 'admin',
+      refType: 'ClientRiskScore', refId: score.id,
+      summary: `Readiness ${r.overall ?? '—'}/100 across ${r.dimensionsScored} scored dimension${r.dimensionsScored === 1 ? '' : 's'}`,
+      metadata: { overall: r.overall, dimensionsScored: r.dimensionsScored, version: r.version },
+    })
+
+    return NextResponse.json({ score, readiness: r, paymentReliability })
+  } catch (e) {
+    console.error('[cris]', e instanceof Error ? e.message.slice(0, 200) : 'unknown')
+    return NextResponse.json({ error: 'Readiness computation failed. Please try again.' }, { status: 500 })
+  }
 }
