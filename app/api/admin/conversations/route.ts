@@ -1,6 +1,10 @@
 import { NextResponse } from 'next/server'
 import { getAdminSession } from '@/lib/admin-auth'
 import { adminChatwootOrNull } from '@/lib/chatwoot/config'
+import {
+  checkInboxPermission, canViewAllConversations,
+  canAccessConversation, resolveChatwootAgentId,
+} from '@/lib/inbox/authz'
 
 export const dynamic = 'force-dynamic'
 
@@ -28,6 +32,8 @@ export async function GET(req: Request) {
   const session = await getAdminSession()
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   if (!cwCfg) return NextResponse.json({ error: 'Messaging service is not configured.' }, { status: 503 })
+  const authz = checkInboxPermission(session, 'inbox_view')
+  if (!authz.allowed) return NextResponse.json({ error: authz.error }, { status: authz.status })
 
   const { searchParams } = new URL(req.url)
   const status       = searchParams.get('status')        || 'open'
@@ -49,7 +55,16 @@ export async function GET(req: Request) {
   if (explicitPage) {
     const data = await fetchPage(Number(explicitPage) || 1)
     if (!data) return NextResponse.json({ error: 'Chatwoot request failed' }, { status: 502 })
-    return NextResponse.json(data?.data ?? data)
+    const inner = (data?.data ?? data) as { meta?: Record<string, unknown>; payload?: unknown[] }
+    if (!canViewAllConversations(session) && Array.isArray(inner?.payload)) {
+      const myAgentId = await resolveChatwootAgentId(session.email)
+      inner.payload = inner.payload.filter((c) => {
+        const conv = c as { meta?: { assignee?: { id?: number } | null }; assignee?: { id?: number } | null }
+        const assigneeId = conv.meta?.assignee?.id ?? conv.assignee?.id ?? null
+        return canAccessConversation(assigneeId, myAgentId, false)
+      })
+    }
+    return NextResponse.json(inner)
   }
 
   // Aggregate all pages so no conversation is hidden by pagination
@@ -67,6 +82,19 @@ export async function GET(req: Request) {
     if (page === 1) meta = inner?.meta ?? {}
     payload.push(...pageItems)
     if (pageItems.length < PAGE_SIZE) break
+  }
+
+  // Server-side inbox_view_all enforcement: staff without it receive only
+  // unassigned conversations and those assigned to their own Chatwoot agent.
+  // (The UI applies the same rule; this makes it hold for direct API calls.)
+  if (!canViewAllConversations(session)) {
+    const myAgentId = await resolveChatwootAgentId(session.email)
+    const visible = payload.filter((c) => {
+      const conv = c as { meta?: { assignee?: { id?: number } | null }; assignee?: { id?: number } | null }
+      const assigneeId = conv.meta?.assignee?.id ?? conv.assignee?.id ?? null
+      return canAccessConversation(assigneeId, myAgentId, false)
+    })
+    return NextResponse.json({ meta, payload: visible })
   }
 
   return NextResponse.json({ meta, payload })

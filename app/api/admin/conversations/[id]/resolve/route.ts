@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { getAdminSession } from '@/lib/admin-auth'
 import { adminChatwootOrNull } from '@/lib/chatwoot/config'
+import { checkInboxPermission, checkConversationAccess } from '@/lib/inbox/authz'
 
 export const dynamic = 'force-dynamic'
 
@@ -18,6 +19,10 @@ export async function POST(
   const session = await getAdminSession()
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   if (!cwCfg) return NextResponse.json({ error: 'Messaging service is not configured.' }, { status: 503 })
+  const authz = checkInboxPermission(session, 'inbox_reply')
+  if (!authz.allowed) return NextResponse.json({ error: authz.error }, { status: authz.status })
+  const access = await checkConversationAccess(session, params.id)
+  if (!access.allowed) return NextResponse.json({ error: access.error }, { status: access.status })
 
   const body = await req.json().catch(() => ({})) as { status?: string }
   const status = body.status ?? 'resolved'

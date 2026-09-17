@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { getAdminSession } from '@/lib/admin-auth'
 import { getSupabaseAdmin } from '@/lib/supabase'
+import { checkInboxPermission } from '@/lib/inbox/authz'
 
 export const dynamic = 'force-dynamic'
 
@@ -9,6 +10,8 @@ export const dynamic = 'force-dynamic'
 export async function GET() {
   const session = await getAdminSession()
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const authz = checkInboxPermission(session, 'inbox_view')
+  if (!authz.allowed) return NextResponse.json({ error: authz.error }, { status: authz.status })
 
   const supabase = getSupabaseAdmin()
   const { data, error } = await supabase

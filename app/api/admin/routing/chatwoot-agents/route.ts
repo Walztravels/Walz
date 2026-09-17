@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { getAdminSession } from '@/lib/admin-auth'
 import { botChatwootOrNull } from '@/lib/chatwoot/config'
+import { hasAnyInboxPermission } from '@/lib/inbox/authz'
 
 export const dynamic = 'force-dynamic'
 
@@ -8,6 +9,9 @@ export async function GET() {
   const session = await getAdminSession()
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
+  if (!hasAnyInboxPermission(session, ['inbox_assign', 'settings_integrations'])) {
+    return NextResponse.json({ error: 'You do not have permission to do this.' }, { status: 403 })
+  }
   const cw = botChatwootOrNull()
   if (!cw) return NextResponse.json({ error: 'Messaging service is not configured.' }, { status: 503 })
   const base    = process.env.CHATWOOT_BASE_URL  ?? 'https://chat.walztravels.com'

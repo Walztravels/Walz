@@ -106,10 +106,12 @@ describe('server pagination + RBAC', () => {
     expect(route).toContain('/^\\d+$/.test(before)')
     expect(route).toContain('?before=${before}')
   })
-  it('messages remain session-gated with no staff-assignment filtering (omnichannel history)', () => {
+  it('messages are session-gated and history depth is never filtered by staff (omnichannel history)', () => {
     expect(route).toContain('getAdminSession')
     expect(route).toContain("{ status: 401 }")
-    expect(route).not.toMatch(/assignee|staffId|session\.email/)   // full history for any authorized staff
+    // Conversation-level access control lives in lib/inbox/authz (INBOX-0S.2);
+    // the route itself must not thin out message pages per staff member.
+    expect(route).not.toMatch(/assignee|staffId|session\.email/)
   })
   it('the page polls with the merging refresh, not the replacing initial fetch', () => {
     expect(page).toContain('refreshMessages(selectedRef.current.id)')
