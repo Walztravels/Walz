@@ -47,9 +47,14 @@ export async function GET(req: Request) {
     if (assigneeType) params.set('assignee_type', assigneeType)
     const res = await fetch(`${CW_BASE}/api/v1/accounts/${CW_ACCOUNT}/conversations?${params}`, {
       headers: { api_access_token: CW_TOKEN },
-    })
-    if (!res.ok) return null
-    return res.json().catch(() => null)
+    }).catch((e) => { console.error('[conversations] Chatwoot unreachable:', e instanceof Error ? e.message.slice(0, 120) : e); return null })
+    if (!res) return null
+    if (!res.ok) {
+      // Incident 2026-09-17: upstream failures were invisible in logs.
+      console.error(`[conversations] Chatwoot upstream ${res.status} (page ${page})`)
+      return null
+    }
+    return res.json().catch(() => { console.error('[conversations] Chatwoot non-JSON response'); return null })
   }
 
   if (explicitPage) {

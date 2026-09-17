@@ -466,6 +466,8 @@ export default function InboxPage() {
           </div>
         )}
         <ConversationList
+          loadFailed={convsError}
+          onRetry={() => fetchConvs(true)}
           conversations={convs}
           selected={selected}
           tab={tab}

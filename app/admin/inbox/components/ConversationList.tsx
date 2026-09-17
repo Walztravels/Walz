@@ -17,10 +17,14 @@ interface Props {
   onOpenSettings: () => void
   onDelete?: (convId: number) => void
   counts: { all: number; mine: number; unassigned: number; resolved: number }
+  /** The list request failed — an empty list must read as a failure, not an empty inbox. */
+  loadFailed?: boolean
+  onRetry?: () => void
 }
 
 export function ConversationList({
   conversations, selected, tab, profile, canViewAll = false, onSelect, onTabChange, onOpenSettings, onDelete, counts,
+  loadFailed = false, onRetry,
 }: Props) {
   const [confirmDelete, setConfirmDelete] = useState<number | null>(null)
   const [search, setSearch] = useState('')
@@ -96,7 +100,12 @@ export function ConversationList({
 
       {/* Conversation list */}
       <div className="flex-1 overflow-y-auto">
-        {!displayed || displayed.length === 0 ? (
+        {(!displayed || displayed.length === 0) && loadFailed ? (
+          <div className="py-12 text-center text-xs">
+            <p className="text-red-300">Could not load conversations.</p>
+            <button onClick={() => onRetry?.()} className="mt-2 underline font-semibold text-white/60 hover:text-white">Retry</button>
+          </div>
+        ) : !displayed || displayed.length === 0 ? (
           <div className="py-12 text-center text-white/25 text-xs">
             No conversations
           </div>
