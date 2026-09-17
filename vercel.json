@@ -56,6 +56,10 @@
   },
   "crons": [
     {
+      "path": "/api/cron/embassy-feed",
+      "schedule": "0 6 * * *"
+    },
+    {
       "path": "/api/cron/revenue-opportunities",
       "schedule": "30 6 * * *"
     },

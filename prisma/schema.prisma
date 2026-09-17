@@ -2593,6 +2593,7 @@ model EmbassyIntelligenceFeed {
   previousValue    String?
   newValue         String?
   sourceUrl        String?
+  sourceId         String?                   // registry source (INT-7)
   affectedClients  Int       @default(0)
   notificationSent Boolean   @default(false)
   publishedAt      DateTime  @default(now())
@@ -2601,6 +2602,22 @@ model EmbassyIntelligenceFeed {
   @@index([destination])
   @@index([alertType])
   @@index([severity])
+}
+
+/// INT-7 — snapshot baseline for official-source change detection.
+/// Created by prisma/migrations/int7_embassy_feed.sql (hand-run).
+model EmbassySourceSnapshot {
+  id           String   @id @default(cuid())
+  sourceId     String                       // registry id in lib/embassy-intel/sources.ts
+  contentHash  String                       // sha256 of the normalized extract
+  etag         String?
+  lastModified String?
+  extract      String?  @db.Text            // normalized text / feed GUID list (capped)
+  httpStatus   Int
+  changed      Boolean  @default(false)
+  fetchedAt    DateTime @default(now())
+
+  @@index([sourceId, fetchedAt])
 }
 
 model DocumentAuthenticityCheck {
