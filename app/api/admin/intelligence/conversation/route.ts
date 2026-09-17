@@ -4,6 +4,7 @@ import prisma from '@/lib/db'
 import { getSupabaseAdmin } from '@/lib/supabase'
 import Anthropic from '@anthropic-ai/sdk'
 import { CONVERSATION_EVENT_TYPES } from '@/lib/intelligence/conversation-events'
+import { modelFor } from '@/lib/intelligence/models'
 
 export const dynamic     = 'force-dynamic'
 export const maxDuration = 60
@@ -129,7 +130,7 @@ export async function POST(req: NextRequest) {
   const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
 
   const message = await client.messages.create({
-    model: 'claude-sonnet-4-6',
+    model: modelFor('conversationAnalysis'),
     max_tokens: 1400,
     messages: [
       {

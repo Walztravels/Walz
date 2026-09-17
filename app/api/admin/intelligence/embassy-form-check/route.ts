@@ -7,6 +7,7 @@ import { assessPdfText, buildExtractionInstruction } from '@/lib/intelligence/do
 import { storeCaseDocument } from '@/lib/intelligence/document-store'
 import { saveEvidence, DOCUMENT_EVIDENCE_FIELDS, type ExtractedField } from '@/lib/intelligence/evidence'
 import { runCrossCheck } from '@/lib/intelligence/cross-check'
+import { modelFor } from '@/lib/intelligence/models'
 import { recordCaseEvent } from '@/lib/intelligence/case-events'
 
 export const dynamic     = 'force-dynamic'
@@ -28,7 +29,7 @@ const FORM_TYPES = [
   'Other',
 ]
 
-const EXTRACTION_MODEL = 'claude-sonnet-4-6'
+const EXTRACTION_MODEL = modelFor('formExtraction')
 
 function parseModelJson(res: { content: Array<{ type: string; text?: string }> }): Record<string, unknown> | null {
   const text = res.content[0]?.type === 'text' ? (res.content[0].text ?? '').trim() : ''

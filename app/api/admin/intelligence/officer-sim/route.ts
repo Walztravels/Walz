@@ -4,6 +4,7 @@ import prisma from '@/lib/db'
 import Anthropic from '@anthropic-ai/sdk'
 import { buildCaseDossier } from '@/lib/intelligence/case-dossier'
 import { recordCaseEvent } from '@/lib/intelligence/case-events'
+import { modelFor } from '@/lib/intelligence/models'
 
 export const dynamic = 'force-dynamic'
 
@@ -40,7 +41,7 @@ export async function POST(req: NextRequest) {
   const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
 
   const message = await client.messages.create({
-    model: 'claude-sonnet-4-6',
+    model: modelFor('reviewSimulation'),
     max_tokens: 1500,
     system: [
       'You are an application-review simulator helping visa-agency staff STRESS-TEST an application before submission.',

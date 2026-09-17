@@ -8,6 +8,7 @@ import {
   reviewStateFromVerdict, PDF_UNREADABLE_MESSAGE,
 } from '@/lib/intelligence/doc-analysis'
 import { storeCaseDocument } from '@/lib/intelligence/document-store'
+import { modelFor } from '@/lib/intelligence/models'
 import { recordCaseEvent } from '@/lib/intelligence/case-events'
 import { saveEvidence, DOCUMENT_EVIDENCE_FIELDS, type ExtractedField } from '@/lib/intelligence/evidence'
 
@@ -32,7 +33,7 @@ const DOC_TYPES = [
   'flight_itinerary', 'travel_history', 'tax_return', 'business_registration',
 ]
 
-const ANALYSIS_MODEL = 'claude-sonnet-4-6'
+const ANALYSIS_MODEL = modelFor('documentAnalysis')
 
 const ANALYSIS_PROMPT = `You are a senior document forensics expert specialising in immigration and visa document verification.
 

@@ -3,6 +3,7 @@ import { getAnthropic } from '@/lib/anthropic'
 import {
   normalizeByType, getCaseEvidence, type EvidenceDataType,
 } from '@/lib/intelligence/evidence'
+import { modelFor } from '@/lib/intelligence/models'
 
 /**
  * Embassy Form Cross-Check engine (DI-3).
@@ -261,7 +262,7 @@ export function countFindings(findings: Finding[]) {
   }
 }
 
-const SUMMARY_MODEL = 'claude-sonnet-4-6'
+const SUMMARY_MODEL = modelFor('findingsSummary')
 
 /** Explain the ALREADY-COMPUTED findings for staff. Findings only — no
  *  documents, no case history. A failure yields null, never invented text. */

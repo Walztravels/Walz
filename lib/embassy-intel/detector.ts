@@ -2,6 +2,7 @@ import { createHash } from 'crypto'
 import prisma from '@/lib/db'
 import { getAnthropic } from '@/lib/anthropic'
 import { type EmbassySource } from '@/lib/embassy-intel/sources'
+import { modelFor } from '@/lib/intelligence/models'
 
 /**
  * Embassy change detection (INT-7).
@@ -18,7 +19,7 @@ import { type EmbassySource } from '@/lib/embassy-intel/sources'
 
 const BROWSER_UA = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36'
 const EXTRACT_CAP = 50_000
-export const SUMMARY_MODEL = 'claude-haiku-4-5-20251001'
+export const SUMMARY_MODEL = modelFor('changeSummary')
 
 export const sha256 = (s: string) => createHash('sha256').update(s).digest('hex')
 
