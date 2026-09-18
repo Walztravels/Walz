@@ -3301,6 +3301,18 @@ model PaymentLink {
   pagaMethod    String?                        // checkout | dynamic | persistent | direct_debit
   feeChargedNgn Decimal?  @db.Decimal(10, 2)  // Paga processing fee in NGN
 
+  // UX-4.1B Client Action Centre (columns added via Supabase SQL editor —
+  // inbox_ux41b_payment_request_columns.sql — NEVER prisma db push).
+  // Attach a request to the Inbox conversation + server-resolved identity.
+  conversationId    Int?                       // Chatwoot conversation id
+  visaApplicationId String?                    // from ConversationClientLink (server-resolved)
+  tripId            String?
+  quoteId           String?
+  purpose           String?                    // flight | hotel | visa_service | ...
+  requestedBy       String?                    // staff email that created the request
+  source            String?                    // 'inbox_action_centre'
+  internalNote      String?                    // staff-only — never client-facing
+
   // FX — fare vs charge tracking
   fareCurrency   String?   @map("fare_currency")
   fareAmount     Decimal?  @db.Decimal(12, 2) @map("fare_amount")

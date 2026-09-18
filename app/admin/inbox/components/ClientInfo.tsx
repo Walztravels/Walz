@@ -20,6 +20,8 @@ interface Props {
   linkedApp?: LinkedAppSummary | null
   /** Opens the Secure Application Lookup drawer. */
   onOpenLookup?: () => void
+  /** UX-4.1B: opens the page-level Request Payment drawer. */
+  onOpenPaymentRequest?: () => void
   /** 'overlay' renders full-width for the mobile client-details overlay. */
   variant?: 'rail' | 'overlay'
 }
@@ -49,9 +51,11 @@ type ContextState =
  * change (rail and overlay variants share this component, so both get it).
  * Never fabricates identity: only the server's resolution is rendered.
  */
-function ClientIdentityStatus({ conversationId, onOpenLookup }: {
+function ClientIdentityStatus({ conversationId, onOpenLookup, onOpenPaymentRequest }: {
   conversationId: number
   onOpenLookup?: () => void
+  /** UX-4.1B: opens the Request Payment drawer (page-level). */
+  onOpenPaymentRequest?: () => void
 }) {
   const [state, setState] = useState<ContextState>({ phase: 'loading' })
   const [reloadKey, setReloadKey] = useState(0)
@@ -99,6 +103,29 @@ function ClientIdentityStatus({ conversationId, onOpenLookup }: {
 
       {state.phase === 'ready' && (() => {
         const { resolution, application } = state.context
+        const identityOk = resolution === 'VERIFIED' || resolution === 'LINKED'
+        // UX-4.1B QUICK ACTIONS — one live action; future actions are a
+        // muted roadmap line, never clickable dead buttons. The enable
+        // state mirrors the server's hard invariant (VERIFIED/LINKED only);
+        // the server enforces it again on every mutation.
+        const quickActions = onOpenPaymentRequest ? (
+          <div className="pt-3 mt-3 border-t border-walz-border space-y-2">
+            <p className="text-[10px] font-bold text-walz-muted-strong uppercase tracking-widest">Quick Actions</p>
+            <button
+              onClick={onOpenPaymentRequest}
+              disabled={!identityOk}
+              className="w-full min-h-[44px] py-2 rounded-lg bg-walz-navy text-walz-gold text-xs font-semibold hover:bg-walz-deep-navy transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              Request Payment
+            </button>
+            {!identityOk && (
+              <p className="text-[10px] text-walz-muted-strong">Verify client identity first</p>
+            )}
+            <p className="text-[10px] text-walz-muted-strong" aria-hidden="true">
+              Quote · Visa Form · Itinerary — coming with the next releases
+            </p>
+          </div>
+        ) : null
         if (resolution === 'VERIFIED') {
           return (
             <div className="space-y-1.5">
@@ -111,6 +138,7 @@ function ClientIdentityStatus({ conversationId, onOpenLookup }: {
                   <p className="text-[10px] text-walz-muted-strong">{application.applicationType}</p>
                 </>
               )}
+              {quickActions}
             </div>
           )
         }
@@ -123,6 +151,7 @@ function ClientIdentityStatus({ conversationId, onOpenLookup }: {
               {application && (
                 <p className="text-xs text-walz-navy font-mono">{application.walzRef}</p>
               )}
+              {quickActions}
             </div>
           )
         }
@@ -139,6 +168,7 @@ function ClientIdentityStatus({ conversationId, onOpenLookup }: {
             >
               Verify client identity
             </button>
+            {quickActions}
           </div>
         )
       })()}
@@ -146,7 +176,7 @@ function ClientIdentityStatus({ conversationId, onOpenLookup }: {
   )
 }
 
-export function ClientInfo({ conv, agents, onAssign, onResolve, onReopen, linkedApp, onOpenLookup, variant = 'rail' }: Props) {
+export function ClientInfo({ conv, agents, onAssign, onResolve, onReopen, linkedApp, onOpenLookup, onOpenPaymentRequest, variant = 'rail' }: Props) {
   const sender = conv.meta?.sender
   const isResolved = conv.status === 'resolved'
 
@@ -157,7 +187,7 @@ export function ClientInfo({ conv, agents, onAssign, onResolve, onReopen, linked
     }>
 
       {/* Client identity status — UX-4.1A server-authoritative resolution */}
-      <ClientIdentityStatus conversationId={conv.id} onOpenLookup={onOpenLookup} />
+      <ClientIdentityStatus conversationId={conv.id} onOpenLookup={onOpenLookup} onOpenPaymentRequest={onOpenPaymentRequest} />
 
       {/* Client */}
       <div className="p-4 border-b border-walz-border">

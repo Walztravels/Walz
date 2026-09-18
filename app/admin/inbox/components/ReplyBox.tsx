@@ -4,7 +4,7 @@ import { Send, Lock, Paperclip, X, FileText } from 'lucide-react'
 import { useComposerDraft } from '../ComposerDraftContext'
 
 interface Props {
-  onSend: (content: string, isPrivate: boolean, file?: File) => Promise<void>
+  onSend: (content: string, isPrivate: boolean, file?: File) => Promise<void | boolean>
   disabled?: boolean
 }
 

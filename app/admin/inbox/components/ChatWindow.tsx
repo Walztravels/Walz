@@ -12,7 +12,7 @@ interface Props {
   conv:      CWConversation
   messages:  CWMessage[]
   agents:    CWAgent[]
-  onSend:    (content: string, isPrivate: boolean) => Promise<void>
+  onSend:    (content: string, isPrivate: boolean) => Promise<void | boolean>
   onAssign:  (agentId: number) => Promise<void>
   onResolve: () => Promise<void>
   onReopen:  () => Promise<void>

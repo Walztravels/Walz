@@ -10,6 +10,7 @@ import { InboxJadeCopilot } from './components/InboxJadeCopilot'
 import { ApplicationLookupDrawer } from '@/components/admin/ApplicationLookupDrawer'
 import { StaffModal } from './components/StaffModal'
 import { DetailsDrawer } from './components/DetailsDrawer'
+import { PaymentRequestDrawer } from './components/PaymentRequestDrawer'
 import { ComposerDraftProvider, useComposerDraft } from './ComposerDraftContext'
 import { useInboxScreens, applyInert } from './useInboxScreens'
 import { sortPage, mergeLatest, prependOlder, oldestCursor } from '@/lib/inbox/message-history'
@@ -52,6 +53,8 @@ function InboxPageInner() {
   const [metaCounts, setMetaCounts] = useState({ all: 0, mine: 0, unassigned: 0 })
   const [selected,   setSelected]   = useState<CWConversation | null>(null)
   const [showAppLookup, setShowAppLookup] = useState(false)
+  // UX-4.1B — Request Payment drawer (Client Action Centre)
+  const [paymentOpen, setPaymentOpen] = useState(false)
   const [messages,   setMessages]   = useState<CWMessage[]>([])
   const [agents,     setAgents]     = useState<CWAgent[]>([])
   const [tab,        setTab]        = useState<Tab>('mine')
@@ -112,6 +115,7 @@ function InboxPageInner() {
     if (prevScreenRef.current === screens.screen) return
     prevScreenRef.current = screens.screen
     setCopilotOpen(false)
+    setPaymentOpen(false)   // UX-4.1B: overlays never survive a screen change
     if (!window.matchMedia('(max-width: 767px)').matches) return
     const target = screens.screen
     requestAnimationFrame(() => {
@@ -422,6 +426,10 @@ function InboxPageInner() {
     fetchMessages(conv.id)
     // UX-2: session linkage and the mobile client panel are per-conversation.
     setLinkedApp(prev => (prev && prev.convId === conv.id ? prev : null))
+    // UX-4.1B: the payment drawer is per-conversation too — a conversation
+    // switch (click OR browser Back) must never leave it open against the
+    // new conversation (identity-confusion class).
+    setPaymentOpen(false)
     // Mark as read — suppress the badge for this conversation on every future poll
     // until Chatwoot itself confirms unread_count = 0. Persisted so refresh survives.
     manuallyReadIdsRef.current.add(conv.id)
@@ -439,8 +447,8 @@ function InboxPageInner() {
   }
 
   // ── Actions ─────────────────────────────────────────────────────────────────
-  async function handleSend(content: string, isPrivate: boolean, file?: File) {
-    if (!selected) return
+  async function handleSend(content: string, isPrivate: boolean, file?: File): Promise<boolean> {
+    if (!selected) return false
     let res: Response
     if (file) {
       const form = new FormData()
@@ -457,9 +465,10 @@ function InboxPageInner() {
     if (!res.ok) {
       const d = await res.json().catch(() => ({})) as Record<string, string>
       addToast(d.error ?? `Send failed (${res.status})`)
-      return
+      return false
     }
     await fetchMessages(selected.id)
+    return true
   }
 
   async function handleAssign(agentId: number) {
@@ -674,6 +683,7 @@ function InboxPageInner() {
             onReopen={handleReopen}
             linkedApp={activeLinkedApp}
             onOpenLookup={() => setShowAppLookup(true)}
+            onOpenPaymentRequest={() => setPaymentOpen(true)}
           />
         </div>
       )}
@@ -706,8 +716,21 @@ function InboxPageInner() {
             onReopen={handleReopen}
             linkedApp={activeLinkedApp}
             onOpenLookup={() => { screens.closeDetails(); setShowAppLookup(true) }}
+            onOpenPaymentRequest={() => { screens.closeDetails(); setPaymentOpen(true) }}
           />
         </DetailsDrawer>
+      )}
+
+      {/* Request Payment — UX-4.1B Client Action Centre. Generation never
+          sends; 'Send to client' goes through the EXISTING composer send
+          path (handleSend), never a second messaging pipeline. */}
+      {selected && (
+        <PaymentRequestDrawer
+          open={paymentOpen}
+          onClose={() => setPaymentOpen(false)}
+          conversationId={selected.id}
+          onSendMessage={text => handleSend(text, false)}
+        />
       )}
 
       {showStaff && (
