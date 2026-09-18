@@ -400,10 +400,16 @@ model VisaApplicationToken {
   expiresAt     DateTime
   createdAt     DateTime        @default(now())
 
+  // UX-4.3 — added via Supabase SQL editor (inbox_ux43_visa_form_conversation_columns.sql)
+  // — NEVER prisma db push. Attaches an Inbox-minted token to the conversation.
+  conversationId Int?
+  source         String?
+
   application VisaApplication @relation(fields: [applicationId], references: [id], onDelete: Cascade)
 
   @@index([token])
   @@index([applicationId])
+  @@index([conversationId])
 }
 
 // ===========================
@@ -2093,9 +2099,15 @@ model DocumentRequest {
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 
+  // UX-4.3 — added via Supabase SQL editor (inbox_ux43_visa_form_conversation_columns.sql)
+  // — NEVER prisma db push. Attaches an Inbox-created request to the conversation.
+  conversationId Int?
+  source         String?
+
   uploads       DocumentUpload[]
 
   @@index([token])
+  @@index([conversationId])
   @@index([clientEmail])
   @@index([applicationId])
   @@index([visaAppId])

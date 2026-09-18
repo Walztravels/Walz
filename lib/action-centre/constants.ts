@@ -48,3 +48,34 @@ export function isValidAmountMajor(n: unknown): n is number {
   if (n > MAX_AMOUNT_MAJOR) return false
   return Math.abs(n * 100 - Math.round(n * 100)) < 1e-6
 }
+
+/**
+ * UX-4.3 — visa case types. VisaApplication.visaType is a plain string
+ * (no Prisma enum, matching this app's whole-schema convention) defaulting
+ * to 'tourist' — this is a presentation taxonomy for the Action Centre's
+ * "Create case" form, not a new source of truth on the model.
+ */
+export const VISA_TYPES = ['tourist', 'business', 'student', 'work', 'transit', 'other'] as const
+export type VisaType = typeof VISA_TYPES[number]
+export const VISA_TYPE_LABELS: Record<VisaType, string> = {
+  tourist: 'Tourist / Visitor', business: 'Business', student: 'Student',
+  work: 'Work', transit: 'Transit', other: 'Other',
+}
+
+/**
+ * Destination country options for the Create-case form, derived from the
+ * EXISTING supported-destinations map (lib/visa-config.ts ISO2_TO_SLUG —
+ * already client-safe, already imported by the public /visa pages) rather
+ * than a second, hand-maintained country list. Slug title-cased for
+ * display (e.g. 'south-africa' -> 'South Africa').
+ */
+import { ISO2_TO_SLUG } from '@/lib/visa-config'
+export const DESTINATION_OPTIONS: Array<{ iso2: string; label: string }> =
+  Object.entries(ISO2_TO_SLUG)
+    .map(([iso2, slug]) => {
+      const name = slug.split('-').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')
+      // The Schengen-area countries all share the 'schengen' slug — the
+      // iso2 suffix disambiguates what would otherwise be identical rows.
+      return { iso2, label: slug === 'schengen' ? `${name} (${iso2})` : name }
+    })
+    .sort((a, b) => a.label.localeCompare(b.label))

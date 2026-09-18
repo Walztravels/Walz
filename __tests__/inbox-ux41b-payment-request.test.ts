@@ -368,8 +368,10 @@ describe('Request Payment UI', () => {
     expect(clientInfo).toContain('Request Payment')
     expect(clientInfo).toContain('disabled={!identityOk}')
     expect(clientInfo).toContain('Verify client identity first')
-    expect(clientInfo).toContain('coming with the next releases')
-    const roadmap = clientInfo.slice(clientInfo.indexOf('coming with the next releases') - 300, clientInfo.indexOf('coming with the next releases'))
+    // UX-4.2/4.3 graduated Create Quote and Visa Form from this roadmap
+    // line to live buttons — only Itinerary remains "coming".
+    expect(clientInfo).toContain('coming with the next release')
+    const roadmap = clientInfo.slice(clientInfo.indexOf('coming with the next release') - 300, clientInfo.indexOf('coming with the next release'))
     expect(roadmap).not.toContain('<button')
   })
 

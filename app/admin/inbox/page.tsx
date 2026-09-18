@@ -13,6 +13,7 @@ import { DetailsDrawer } from './components/DetailsDrawer'
 import { PaymentRequestDrawer } from './components/PaymentRequestDrawer'
 import { CreateQuoteDrawer } from './components/CreateQuoteDrawer'
 import { ClientIdentityDrawer } from './components/ClientIdentityDrawer'
+import { VisaFormDrawer } from './components/VisaFormDrawer'
 import { ComposerDraftProvider, useComposerDraft } from './ComposerDraftContext'
 import { useInboxScreens, applyInert } from './useInboxScreens'
 import { sortPage, mergeLatest, prependOlder, oldestCursor } from '@/lib/inbox/message-history'
@@ -61,6 +62,8 @@ function InboxPageInner() {
   const [quoteOpen, setQuoteOpen] = useState(false)
   // UX-4.1C — Find/Create client identity drawer (Client Action Centre)
   const [identityDrawer, setIdentityDrawer] = useState<{ mode: 'find' | 'create' } | null>(null)
+  // UX-4.3 — Visa Form drawer (Client Action Centre)
+  const [visaFormOpen, setVisaFormOpen] = useState(false)
   const [identityRefreshToken, setIdentityRefreshToken] = useState(0)
   const [messages,   setMessages]   = useState<CWMessage[]>([])
   const [agents,     setAgents]     = useState<CWAgent[]>([])
@@ -125,6 +128,7 @@ function InboxPageInner() {
     setPaymentOpen(false)   // UX-4.1B: overlays never survive a screen change
     setQuoteOpen(false)     // UX-4.2: same discipline
     setIdentityDrawer(null) // UX-4.1C: same discipline
+    setVisaFormOpen(false)  // UX-4.3: same discipline
     if (!window.matchMedia('(max-width: 767px)').matches) return
     const target = screens.screen
     requestAnimationFrame(() => {
@@ -441,6 +445,7 @@ function InboxPageInner() {
     setPaymentOpen(false)
     setQuoteOpen(false)
     setIdentityDrawer(null)
+    setVisaFormOpen(false)
     // Mark as read — suppress the badge for this conversation on every future poll
     // until Chatwoot itself confirms unread_count = 0. Persisted so refresh survives.
     manuallyReadIdsRef.current.add(conv.id)
@@ -695,6 +700,7 @@ function InboxPageInner() {
             linkedApp={activeLinkedApp}
             onOpenLookup={() => setShowAppLookup(true)}
             onOpenPaymentRequest={() => setPaymentOpen(true)}
+            onOpenVisaForm={() => setVisaFormOpen(true)}
             onOpenClientIdentity={mode => setIdentityDrawer({ mode })}
             identityRefreshToken={identityRefreshToken}
             onOpenCreateQuote={() => setQuoteOpen(true)}
@@ -731,6 +737,7 @@ function InboxPageInner() {
             linkedApp={activeLinkedApp}
             onOpenLookup={() => { screens.closeDetails(); setShowAppLookup(true) }}
             onOpenPaymentRequest={() => { screens.closeDetails(); setPaymentOpen(true) }}
+            onOpenVisaForm={() => { screens.closeDetails(); setVisaFormOpen(true) }}
             onOpenCreateQuote={() => { screens.closeDetails(); setQuoteOpen(true) }}
             onOpenClientIdentity={mode => { screens.closeDetails(); setIdentityDrawer({ mode }) }}
             identityRefreshToken={identityRefreshToken}
@@ -771,6 +778,17 @@ function InboxPageInner() {
           onClose={() => setIdentityDrawer(null)}
           conversationId={selected.id}
           onLinked={() => setIdentityRefreshToken(t => t + 1)}
+        />
+      )}
+
+      {/* Visa Form — UX-4.3 Client Action Centre. Generation never sends;
+          'Send to client' goes through the EXISTING composer send path. */}
+      {selected && (
+        <VisaFormDrawer
+          open={visaFormOpen}
+          onClose={() => setVisaFormOpen(false)}
+          conversationId={selected.id}
+          onSendMessage={text => handleSend(text, false)}
         />
       )}
 

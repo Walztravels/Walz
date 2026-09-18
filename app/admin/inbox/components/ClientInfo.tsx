@@ -24,6 +24,8 @@ interface Props {
   onOpenPaymentRequest?: () => void
   /** UX-4.2: opens the page-level Create Quote drawer. */
   onOpenCreateQuote?: () => void
+  /** UX-4.3: opens the page-level Visa Form drawer. */
+  onOpenVisaForm?: () => void
   /** UX-4.1C: opens the Find/Create client identity drawer in the given mode. */
   onOpenClientIdentity?: (mode: 'find' | 'create') => void
   /** UX-4.1C: bump after a successful link/create to force the status panel to refetch. */
@@ -68,7 +70,7 @@ type ContextState =
  * Never fabricates identity: only the server's resolution is rendered.
  */
 function ClientIdentityStatus({
-  conversationId, onOpenLookup, onOpenPaymentRequest, onOpenCreateQuote,
+  conversationId, onOpenLookup, onOpenPaymentRequest, onOpenCreateQuote, onOpenVisaForm,
   onOpenClientIdentity, identityRefreshToken,
 }: {
   conversationId: number
@@ -77,6 +79,8 @@ function ClientIdentityStatus({
   onOpenPaymentRequest?: () => void
   /** UX-4.2: opens the Create Quote drawer (page-level). */
   onOpenCreateQuote?: () => void
+  /** UX-4.3: opens the Visa Form drawer (page-level). */
+  onOpenVisaForm?: () => void
   /** UX-4.1C: opens the Find/Create client identity drawer in the given mode. */
   onOpenClientIdentity?: (mode: 'find' | 'create') => void
   /** UX-4.1C: bump this after a successful link/create to force a refetch —
@@ -134,7 +138,7 @@ function ClientIdentityStatus({
         // hard invariant (VERIFIED/LINKED only, re-enforced on every
         // mutation); future actions stay a muted roadmap line, never
         // clickable dead buttons.
-        const quickActions = (onOpenPaymentRequest || onOpenCreateQuote) ? (
+        const quickActions = (onOpenPaymentRequest || onOpenCreateQuote || onOpenVisaForm) ? (
           <div className="pt-3 mt-3 border-t border-walz-border space-y-2">
             <p className="text-[10px] font-bold text-walz-muted-strong uppercase tracking-widest">Quick Actions</p>
             {onOpenPaymentRequest && (
@@ -155,11 +159,20 @@ function ClientIdentityStatus({
                 Create Quote
               </button>
             )}
+            {onOpenVisaForm && (
+              <button
+                onClick={onOpenVisaForm}
+                disabled={!identityOk}
+                className="w-full min-h-[44px] py-2 rounded-lg bg-walz-navy/5 text-walz-navy text-xs font-semibold border border-walz-border hover:bg-walz-navy/10 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                Visa Form
+              </button>
+            )}
             {!identityOk && (
               <p className="text-[10px] text-walz-muted-strong">Verify client identity first</p>
             )}
             <p className="text-[10px] text-walz-muted-strong" aria-hidden="true">
-              Visa Form · Itinerary — coming with the next releases
+              Itinerary — coming with the next release
             </p>
           </div>
         ) : null
@@ -239,7 +252,7 @@ function ClientIdentityStatus({
   )
 }
 
-export function ClientInfo({ conv, agents, onAssign, onResolve, onReopen, linkedApp, onOpenLookup, onOpenPaymentRequest, onOpenCreateQuote, onOpenClientIdentity, identityRefreshToken, variant = 'rail' }: Props) {
+export function ClientInfo({ conv, agents, onAssign, onResolve, onReopen, linkedApp, onOpenLookup, onOpenPaymentRequest, onOpenCreateQuote, onOpenVisaForm, onOpenClientIdentity, identityRefreshToken, variant = 'rail' }: Props) {
   const sender = conv.meta?.sender
   const isResolved = conv.status === 'resolved'
 
@@ -255,6 +268,7 @@ export function ClientInfo({ conv, agents, onAssign, onResolve, onReopen, linked
         onOpenLookup={onOpenLookup}
         onOpenPaymentRequest={onOpenPaymentRequest}
         onOpenCreateQuote={onOpenCreateQuote}
+        onOpenVisaForm={onOpenVisaForm}
         onOpenClientIdentity={onOpenClientIdentity}
         identityRefreshToken={identityRefreshToken}
       />
