@@ -24,6 +24,10 @@ interface Props {
   onOpenPaymentRequest?: () => void
   /** UX-4.2: opens the page-level Create Quote drawer. */
   onOpenCreateQuote?: () => void
+  /** UX-4.1C: opens the Find/Create client identity drawer in the given mode. */
+  onOpenClientIdentity?: (mode: 'find' | 'create') => void
+  /** UX-4.1C: bump after a successful link/create to force the status panel to refetch. */
+  identityRefreshToken?: number
   /** 'overlay' renders full-width for the mobile client-details overlay. */
   variant?: 'rail' | 'overlay'
 }
@@ -40,7 +44,17 @@ function formatDate(ts: number): string {
 interface ClientContextSlice {
   resolution:  'VERIFIED' | 'LINKED' | 'HEURISTIC' | 'UNRESOLVED'
   application: { walzRef: string; applicationType: string; status: string } | null
-  link:        { linkMethod: string } | null
+  link:        { linkMethod: string; clientReference: string | null } | null
+  user:          { name: string | null } | null
+  clientAccount: { name: string | null } | null
+  prismaLead:    { name: string | null } | null
+}
+
+/** UX-4.1C: name + reference to show for a LINKED customer with no
+ *  VisaApplication — first-time/legacy customers linked via Find/Create. */
+function linkedDisplay(ctx: ClientContextSlice): { name: string | null; reference: string | null } {
+  const name = ctx.user?.name ?? ctx.clientAccount?.name ?? ctx.prismaLead?.name ?? null
+  return { name, reference: ctx.link?.clientReference ?? null }
 }
 
 type ContextState =
@@ -53,13 +67,21 @@ type ContextState =
  * change (rail and overlay variants share this component, so both get it).
  * Never fabricates identity: only the server's resolution is rendered.
  */
-function ClientIdentityStatus({ conversationId, onOpenLookup, onOpenPaymentRequest, onOpenCreateQuote }: {
+function ClientIdentityStatus({
+  conversationId, onOpenLookup, onOpenPaymentRequest, onOpenCreateQuote,
+  onOpenClientIdentity, identityRefreshToken,
+}: {
   conversationId: number
   onOpenLookup?: () => void
   /** UX-4.1B: opens the Request Payment drawer (page-level). */
   onOpenPaymentRequest?: () => void
   /** UX-4.2: opens the Create Quote drawer (page-level). */
   onOpenCreateQuote?: () => void
+  /** UX-4.1C: opens the Find/Create client identity drawer in the given mode. */
+  onOpenClientIdentity?: (mode: 'find' | 'create') => void
+  /** UX-4.1C: bump this after a successful link/create to force a refetch —
+   *  identity mutations happen in a page-level drawer, outside this component. */
+  identityRefreshToken?: number
 }) {
   const [state, setState] = useState<ContextState>({ phase: 'loading' })
   const [reloadKey, setReloadKey] = useState(0)
@@ -77,7 +99,7 @@ function ClientIdentityStatus({ conversationId, onOpenLookup, onOpenPaymentReque
       })
       .catch(() => { if (!cancelled) setState({ phase: 'error' }) })
     return () => { cancelled = true }
-  }, [conversationId, reloadKey])
+  }, [conversationId, reloadKey, identityRefreshToken])
 
   return (
     <div className="p-4 border-b border-walz-border">
@@ -158,13 +180,19 @@ function ClientIdentityStatus({ conversationId, onOpenLookup, onOpenPaymentReque
           )
         }
         if (resolution === 'LINKED') {
+          const { name: linkedName, reference: linkedReference } = linkedDisplay(state.context)
           return (
             <div className="space-y-1.5">
               <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full bg-walz-navy/10 text-walz-navy">
                 Linked
               </span>
-              {application && (
+              {application ? (
                 <p className="text-xs text-walz-navy font-mono">{application.walzRef}</p>
+              ) : (
+                <>
+                  {linkedName && <p className="text-xs font-semibold text-walz-deep-navy">{linkedName}</p>}
+                  {linkedReference && <p className="text-xs text-walz-navy font-mono">{linkedReference}</p>}
+                </>
               )}
               {quickActions}
             </div>
@@ -177,11 +205,31 @@ function ClientIdentityStatus({ conversationId, onOpenLookup, onOpenPaymentReque
             <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-700">
               Client identity required
             </span>
+            {/* UX-4.1C: first-time/legacy customers rarely have an
+                application reference in hand — Find/Create are the primary
+                actions; the OTP-verified path (unchanged) stays available
+                as a secondary link for customers who DO have one. */}
+            {onOpenClientIdentity && (
+              <>
+                <button
+                  onClick={() => onOpenClientIdentity('find')}
+                  className="w-full min-h-[44px] py-2 rounded-lg bg-walz-navy text-walz-gold text-xs font-semibold hover:bg-walz-deep-navy transition-colors"
+                >
+                  Find existing client
+                </button>
+                <button
+                  onClick={() => onOpenClientIdentity('create')}
+                  className="w-full min-h-[44px] py-2 rounded-lg bg-walz-navy/5 text-walz-navy text-xs font-semibold border border-walz-border hover:bg-walz-navy/10 transition-colors"
+                >
+                  + Create new client
+                </button>
+              </>
+            )}
             <button
               onClick={onOpenLookup}
-              className="w-full min-h-[44px] py-2 rounded-lg bg-walz-navy text-walz-gold text-xs font-semibold hover:bg-walz-deep-navy transition-colors"
+              className="w-full min-h-[44px] py-2 rounded-lg text-walz-navy text-xs font-semibold hover:underline"
             >
-              Verify client identity
+              Verify via application reference
             </button>
             {quickActions}
           </div>
@@ -191,7 +239,7 @@ function ClientIdentityStatus({ conversationId, onOpenLookup, onOpenPaymentReque
   )
 }
 
-export function ClientInfo({ conv, agents, onAssign, onResolve, onReopen, linkedApp, onOpenLookup, onOpenPaymentRequest, onOpenCreateQuote, variant = 'rail' }: Props) {
+export function ClientInfo({ conv, agents, onAssign, onResolve, onReopen, linkedApp, onOpenLookup, onOpenPaymentRequest, onOpenCreateQuote, onOpenClientIdentity, identityRefreshToken, variant = 'rail' }: Props) {
   const sender = conv.meta?.sender
   const isResolved = conv.status === 'resolved'
 
@@ -202,7 +250,14 @@ export function ClientInfo({ conv, agents, onAssign, onResolve, onReopen, linked
     }>
 
       {/* Client identity status — UX-4.1A server-authoritative resolution */}
-      <ClientIdentityStatus conversationId={conv.id} onOpenLookup={onOpenLookup} onOpenPaymentRequest={onOpenPaymentRequest} onOpenCreateQuote={onOpenCreateQuote} />
+      <ClientIdentityStatus
+        conversationId={conv.id}
+        onOpenLookup={onOpenLookup}
+        onOpenPaymentRequest={onOpenPaymentRequest}
+        onOpenCreateQuote={onOpenCreateQuote}
+        onOpenClientIdentity={onOpenClientIdentity}
+        identityRefreshToken={identityRefreshToken}
+      />
 
       {/* Client */}
       <div className="p-4 border-b border-walz-border">

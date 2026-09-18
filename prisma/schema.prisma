@@ -3176,6 +3176,11 @@ model ConversationClientLink {
   linkedBy               String? // staff email that caused the link
   linkMethod             String // otp_verified | fallback_verified | admin_manual | webhook_backfill
   verificationId         String? // ApplicationVerification.id when verification-backed
+  // UX-4.1C — client-facing reference for LINKED (non-VERIFIED) customers.
+  // Reused from an existing VisaApplication ref when one exists; otherwise
+  // generated once at link time. Added via Supabase SQL editor
+  // (inbox_ux41c_client_reference.sql) — NEVER prisma db push.
+  clientReference        String?
   active                 Boolean  @default(true)
   createdAt              DateTime @default(now()) @db.Timestamptz
   updatedAt              DateTime @default(now()) @updatedAt @db.Timestamptz

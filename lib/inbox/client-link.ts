@@ -28,6 +28,8 @@ export interface UpsertConversationClientLinkInput {
   prismaLeadId?:          string | null
   userId?:                string | null
   clientAccountId?:       string | null
+  /** UX-4.1C — client-facing reference for LINKED (non-VERIFIED) customers. */
+  clientReference?:       string | null
 }
 
 export type UpsertConversationClientLinkResult =
@@ -63,6 +65,7 @@ export async function upsertConversationClientLink(
       prismaLeadId:           input.prismaLeadId ?? null,
       userId:                 input.userId ?? null,
       clientAccountId:        input.clientAccountId ?? null,
+      clientReference:        input.clientReference ?? null,
       active:                 true,
     }
 
@@ -75,8 +78,16 @@ export async function upsertConversationClientLink(
         const created = await prisma.conversationClientLink.create({ data, select: { id: true } })
         return { ok: true, linkId: created.id }
       }
+      // UX-4.1C: compare EVERY identity FK, not just visaApplicationId — two
+      // different Lead/User/ClientAccount links both carry
+      // visaApplicationId: null and must not be conflated as "the same
+      // target" (that would silently overwrite a different customer's
+      // link in place instead of properly deactivating + appending).
       const sameTarget =
-        (existing.visaApplicationId ?? null) === (data.visaApplicationId ?? null)
+        (existing.visaApplicationId ?? null) === (data.visaApplicationId ?? null) &&
+        (existing.userId ?? null)            === (data.userId ?? null) &&
+        (existing.clientAccountId ?? null)   === (data.clientAccountId ?? null) &&
+        (existing.prismaLeadId ?? null)      === (data.prismaLeadId ?? null)
       if (sameTarget) {
         // Method precedence: a manual re-link never downgrades a row that
         // was established through client verification — the verified
@@ -95,6 +106,7 @@ export async function upsertConversationClientLink(
             prismaLeadId:   data.prismaLeadId ?? existing.prismaLeadId,
             userId:         data.userId ?? existing.userId,
             clientAccountId: data.clientAccountId ?? existing.clientAccountId,
+            clientReference: data.clientReference ?? existing.clientReference,
           },
           select: { id: true },
         })

@@ -45,6 +45,9 @@ export interface ClientApplicationDTO {
 export interface ClientLinkDTO {
   id: string; linkMethod: string; linkedBy: string | null
   verificationId: string | null; createdAt: string
+  /** UX-4.1C — client-facing reference for LINKED (non-VERIFIED) customers.
+   *  Prefer application.walzRef for display when both are present. */
+  clientReference: string | null
 }
 
 export interface ClientActionContext {
@@ -78,7 +81,10 @@ export type ResolveClientActionResult =
 
 function cap(s: string): string { return s.charAt(0).toUpperCase() + s.slice(1) }
 
-async function fetchChatwootContact(conversationId: number): Promise<ClientContactDTO | null> {
+/** Exported for UX-4.1C (lib/inbox/client-identity.ts) — the create-new-
+ *  client flow derives its channel identifiers from the SAME server-side
+ *  Chatwoot resolution used here, never from staff-typed form fields. */
+export async function fetchChatwootContact(conversationId: number): Promise<ClientContactDTO | null> {
   const cw = adminChatwootOrNull()
   if (!cw) return null
   try {
@@ -180,6 +186,7 @@ export async function resolveClientActionContext(
       verificationId: string | null; visaApplicationId: string | null
       supabaseLeadId: string | null; prismaLeadId: string | null
       userId: string | null; clientAccountId: string | null; createdAt: Date
+      clientReference: string | null
     } | null = null
     try {
       link = await prisma.conversationClientLink.findFirst({
@@ -198,6 +205,7 @@ export async function resolveClientActionContext(
         linkedBy:       link.linkedBy,
         verificationId: link.verificationId,
         createdAt:      link.createdAt.toISOString(),
+        clientReference: link.clientReference,
       }
       context.resolution  = 'LINKED'
       context.application = await loadApplicationDTO(link.visaApplicationId)

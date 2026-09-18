@@ -12,6 +12,7 @@ import { StaffModal } from './components/StaffModal'
 import { DetailsDrawer } from './components/DetailsDrawer'
 import { PaymentRequestDrawer } from './components/PaymentRequestDrawer'
 import { CreateQuoteDrawer } from './components/CreateQuoteDrawer'
+import { ClientIdentityDrawer } from './components/ClientIdentityDrawer'
 import { ComposerDraftProvider, useComposerDraft } from './ComposerDraftContext'
 import { useInboxScreens, applyInert } from './useInboxScreens'
 import { sortPage, mergeLatest, prependOlder, oldestCursor } from '@/lib/inbox/message-history'
@@ -58,6 +59,9 @@ function InboxPageInner() {
   const [paymentOpen, setPaymentOpen] = useState(false)
   // UX-4.2 — Create Quote drawer (Client Action Centre)
   const [quoteOpen, setQuoteOpen] = useState(false)
+  // UX-4.1C — Find/Create client identity drawer (Client Action Centre)
+  const [identityDrawer, setIdentityDrawer] = useState<{ mode: 'find' | 'create' } | null>(null)
+  const [identityRefreshToken, setIdentityRefreshToken] = useState(0)
   const [messages,   setMessages]   = useState<CWMessage[]>([])
   const [agents,     setAgents]     = useState<CWAgent[]>([])
   const [tab,        setTab]        = useState<Tab>('mine')
@@ -120,6 +124,7 @@ function InboxPageInner() {
     setCopilotOpen(false)
     setPaymentOpen(false)   // UX-4.1B: overlays never survive a screen change
     setQuoteOpen(false)     // UX-4.2: same discipline
+    setIdentityDrawer(null) // UX-4.1C: same discipline
     if (!window.matchMedia('(max-width: 767px)').matches) return
     const target = screens.screen
     requestAnimationFrame(() => {
@@ -435,6 +440,7 @@ function InboxPageInner() {
     // new conversation (identity-confusion class).
     setPaymentOpen(false)
     setQuoteOpen(false)
+    setIdentityDrawer(null)
     // Mark as read — suppress the badge for this conversation on every future poll
     // until Chatwoot itself confirms unread_count = 0. Persisted so refresh survives.
     manuallyReadIdsRef.current.add(conv.id)
@@ -689,6 +695,8 @@ function InboxPageInner() {
             linkedApp={activeLinkedApp}
             onOpenLookup={() => setShowAppLookup(true)}
             onOpenPaymentRequest={() => setPaymentOpen(true)}
+            onOpenClientIdentity={mode => setIdentityDrawer({ mode })}
+            identityRefreshToken={identityRefreshToken}
             onOpenCreateQuote={() => setQuoteOpen(true)}
           />
         </div>
@@ -724,6 +732,8 @@ function InboxPageInner() {
             onOpenLookup={() => { screens.closeDetails(); setShowAppLookup(true) }}
             onOpenPaymentRequest={() => { screens.closeDetails(); setPaymentOpen(true) }}
             onOpenCreateQuote={() => { screens.closeDetails(); setQuoteOpen(true) }}
+            onOpenClientIdentity={mode => { screens.closeDetails(); setIdentityDrawer({ mode }) }}
+            identityRefreshToken={identityRefreshToken}
           />
         </DetailsDrawer>
       )}
@@ -749,6 +759,18 @@ function InboxPageInner() {
           onClose={() => setQuoteOpen(false)}
           conversationId={selected.id}
           onSendMessage={text => handleSend(text, false)}
+        />
+      )}
+
+      {/* Client identity — UX-4.1C Find/Create, extending the same
+          ConversationClientLink surface as UX-4.1A's Application Lookup. */}
+      {selected && identityDrawer && (
+        <ClientIdentityDrawer
+          open
+          initialMode={identityDrawer.mode}
+          onClose={() => setIdentityDrawer(null)}
+          conversationId={selected.id}
+          onLinked={() => setIdentityRefreshToken(t => t + 1)}
         />
       )}
 

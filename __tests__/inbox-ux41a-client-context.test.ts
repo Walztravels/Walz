@@ -295,7 +295,9 @@ describe('ClientInfo identity panel', () => {
   it('fetches the client-context on conversation change (shared by rail + overlay)', () => {
     expect(clientInfo).toContain('/client-context')
     expect(clientInfo).toContain('conversationId={conv.id}')
-    expect(clientInfo).toContain('[conversationId, reloadKey]')
+    // UX-4.1C: extended with identityRefreshToken so a Find/Create link
+    // (mutated in a page-level drawer) forces this panel to refetch too.
+    expect(clientInfo).toContain('[conversationId, reloadKey, identityRefreshToken]')
   })
 
   it('renders the three states: skeleton (motion-safe), failure + Retry, resolution chip', () => {
