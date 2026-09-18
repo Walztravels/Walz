@@ -1,5 +1,6 @@
 'use client'
 import { CWMessage, initials } from '../types'
+import { formatMessageText } from './formatMessageText'
 
 interface Props {
   msg: CWMessage
@@ -68,7 +69,7 @@ export function MessageBubble({ msg, prevMsg }: Props) {
           {isPrivate ? (
             <div className="rounded-xl px-3 py-2 bg-amber-500/10 border border-amber-500/40 border-dashed">
               <p className="text-[10px] text-amber-700 font-semibold mb-1">🔒 Private note</p>
-              <p className="text-sm text-amber-900 whitespace-pre-wrap">{msg.content}</p>
+              <p className="text-sm text-amber-900 whitespace-pre-wrap">{formatMessageText(msg.content)}</p>
             </div>
           ) : (
             <div className="flex flex-col gap-1.5">
@@ -122,7 +123,7 @@ export function MessageBubble({ msg, prevMsg }: Props) {
                       : 'bg-blue-50 border border-blue-200/60 text-walz-deep-navy rounded-tr-sm'
                   }`}
                 >
-                  <p className="text-sm whitespace-pre-wrap">{msg.content}</p>
+                  <p className="text-sm whitespace-pre-wrap">{formatMessageText(msg.content)}</p>
                 </div>
               )}
             </div>

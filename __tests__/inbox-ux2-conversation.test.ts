@@ -70,8 +70,10 @@ describe('clean conversation header', () => {
 
   it('assign + status controls are desktop-only in row 1; mobile gets the compact second row', () => {
     expect(chat).toContain('hidden md:flex items-center gap-2')
-    expect(chat).toMatch(/md:hidden flex items-center[^"]*px-3 pb-2/)
-    expect(chat).toContain('Assigned:')
+    // UX-2 polish: row 2 is a single compact line — AssignDropdown · StatusControl
+    // (py-1.5 max, no plain 'Assigned:' label, no duplicated plain status text).
+    expect(chat).toMatch(/md:hidden flex items-center[^"]*px-3 pb-1\.5/)
+    expect(chat).not.toContain('Assigned:')
   })
 
   it('no standalone Resolve text button outside the status control', () => {

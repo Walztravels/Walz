@@ -94,3 +94,27 @@ export function channelIcon(conv: CWConversation): string {
   if (ch.includes('instagram')) return '📷'
   return '💬'
 }
+
+// UX-2 polish: human-readable channel word for the conversation header.
+// Reads the SAME source as channelIcon (conv.channel ?? conv.meta?.channel).
+const CHANNEL_LABELS: Record<string, string> = {
+  'channel::whatsapp':     'WhatsApp',
+  'channel::instagram':    'Instagram',
+  'instagram':             'Instagram',
+  'channel::facebookpage': 'Messenger',
+  'channel::webwidget':    'Web',
+  'channel::sms':          'SMS',
+  'channel::twiliosms':    'WhatsApp',   // this deployment's WhatsApp inboxes ride Twilio (see whatsapp-chat route)
+  'channel::email':        'Email',
+  'channel::api':          'Chat',
+}
+
+export function channelLabel(conv: CWConversation): string {
+  const raw = (conv.channel ?? conv.meta?.channel ?? '').trim()
+  if (!raw) return 'Chat'
+  const mapped = CHANNEL_LABELS[raw.toLowerCase()]
+  if (mapped) return mapped
+  // Unknown Chatwoot identifier: strip the 'Channel::' prefix, else 'Chat'.
+  const stripped = raw.replace(/^channel::/i, '').trim()
+  return stripped || 'Chat'
+}

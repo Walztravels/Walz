@@ -151,15 +151,18 @@ export function ReplyBox({ onSend, disabled }: Props) {
               >
                 <Paperclip className="w-4 h-4" />
               </button>
-              {/* Ask Jade — compact icon entry beside the actions on mobile */}
+              {/* Ask Jade — compact LABELED chip on mobile (UX-2 polish: the
+                  bare sparkle was undiscoverable). M3 contrast: sparkle stays
+                  gold, the word reads in muted-strong. 44px touch target;
+                  ~64px wide, so [+] 44 + textarea flex-1 + chip + Send fit 390. */}
               <button
                 type="button"
                 onClick={openCopilot}
                 title="Ask Jade"
                 aria-label="Ask Jade"
-                className="md:hidden min-w-[44px] min-h-[44px] -my-3 flex items-center justify-center text-walz-gold hover:opacity-80 transition-opacity text-sm leading-none"
+                className="md:hidden min-w-[44px] min-h-[44px] -my-3 flex items-center justify-center gap-1 px-1.5 rounded-lg text-[11px] font-semibold text-walz-muted-strong hover:text-walz-navy hover:bg-walz-navy/5 transition-colors"
               >
-                ✨
+                <span className="text-walz-gold text-sm leading-none">✨</span> Jade
               </button>
               <input
                 ref={fileInputRef}
@@ -180,14 +183,16 @@ export function ReplyBox({ onSend, disabled }: Props) {
           </div>
         </div>
 
-        {/* Slim bottom row — Staff Jade entry (desktop text button) */}
+        {/* Slim bottom row — Staff Jade entry (desktop). UX-2 polish: a proper
+            compact secondary action (bordered ghost), clearly secondary to the
+            blue Send. No FAB. */}
         <div className="hidden md:flex items-center pt-1.5">
           {/* M3 contrast: the words read in muted-strong (gold text fails AA
               at this size) — only the sparkle stays gold. */}
           <button
             type="button"
             onClick={openCopilot}
-            className="text-[11px] font-semibold text-walz-muted-strong hover:text-walz-navy transition-colors"
+            className="flex items-center gap-1 border border-walz-border rounded-lg px-2.5 py-1.5 hover:bg-walz-navy/5 text-[11px] font-semibold text-walz-muted-strong hover:text-walz-navy transition-colors"
           >
             <span className="text-walz-gold">✨</span> Ask Jade
           </button>

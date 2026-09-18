@@ -1,7 +1,7 @@
 'use client'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { ArrowLeft, ArrowDown, ChevronDown, Loader2 } from 'lucide-react'
-import { CWConversation, CWMessage, CWAgent, initials, channelIcon } from '../types'
+import { CWConversation, CWMessage, CWAgent, initials, channelIcon, channelLabel } from '../types'
 import { MessageBubble } from './MessageBubble'
 import { ReplyBox } from './ReplyBox'
 import { AssignDropdown } from './AssignDropdown'
@@ -124,8 +124,10 @@ export function ChatWindow({
             </div>
             <div className="min-w-0">
               <p className="text-sm font-semibold text-walz-deep-navy truncate">{sender?.name ?? 'Unknown'}</p>
-              <p className="text-[10px] text-walz-muted-strong">
-                {channelIcon(conv)} #{conv.id} · {conv.status}
+              {/* UX-2 polish subtitle (both breakpoints): human channel word,
+                  no status here — status renders EXACTLY once, in StatusControl. */}
+              <p className="text-[10px] text-walz-muted-strong truncate">
+                {channelIcon(conv)} {channelLabel(conv)} · #{conv.id}
               </p>
             </div>
           </div>
@@ -145,11 +147,13 @@ export function ChatWindow({
           </div>
         </div>
 
-        {/* Mobile second row — compact assignment + status */}
-        <div className="md:hidden flex items-center gap-1.5 px-3 pb-2">
-          <span className="text-[10px] text-walz-muted-strong flex-shrink-0">Assigned:</span>
+        {/* Mobile second row — one compact line: assignment · status control.
+            The StatusControl popover IS the status text ('Open ▾'/'Resolved ▾'),
+            so no plain duplicate status string renders here. */}
+        <div className="md:hidden flex items-center gap-1.5 px-3 pb-1.5">
           <AssignDropdown compact agents={agents} current={conv.meta?.assignee ?? conv.assignee} onAssign={onAssign} />
-          <span className="text-[10px] text-walz-muted-strong truncate">· {conv.status}</span>
+          <span className="text-[10px] text-walz-muted-strong flex-shrink-0">·</span>
+          <StatusControl isResolved={isResolved} onResolve={onResolve} onReopen={onReopen} />
         </div>
       </div>
 
