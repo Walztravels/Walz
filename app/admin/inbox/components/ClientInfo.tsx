@@ -1,4 +1,5 @@
 'use client'
+import { useCallback, useEffect, useState } from 'react'
 import { CWConversation, CWAgent, initials, channelIcon } from '../types'
 import { AssignDropdown } from './AssignDropdown'
 
@@ -29,6 +30,122 @@ function formatDate(ts: number): string {
   })
 }
 
+// ── UX-4.1A — server-authoritative client identity status ────────────────────
+
+/** Narrow slice of the client-context DTO this panel renders. */
+interface ClientContextSlice {
+  resolution:  'VERIFIED' | 'LINKED' | 'HEURISTIC' | 'UNRESOLVED'
+  application: { walzRef: string; applicationType: string; status: string } | null
+  link:        { linkMethod: string } | null
+}
+
+type ContextState =
+  | { phase: 'loading' }
+  | { phase: 'error' }
+  | { phase: 'ready'; context: ClientContextSlice }
+
+/**
+ * Compact CLIENT status block — reads /client-context on conversation
+ * change (rail and overlay variants share this component, so both get it).
+ * Never fabricates identity: only the server's resolution is rendered.
+ */
+function ClientIdentityStatus({ conversationId, onOpenLookup }: {
+  conversationId: number
+  onOpenLookup?: () => void
+}) {
+  const [state, setState] = useState<ContextState>({ phase: 'loading' })
+  const [reloadKey, setReloadKey] = useState(0)
+  const retry = useCallback(() => setReloadKey(k => k + 1), [])
+
+  useEffect(() => {
+    let cancelled = false
+    setState({ phase: 'loading' })
+    fetch(`/api/admin/inbox/conversations/${conversationId}/client-context`)
+      .then(async res => {
+        if (!res.ok) throw new Error(String(res.status))
+        const data = await res.json() as { context?: ClientContextSlice }
+        if (!data?.context?.resolution) throw new Error('bad payload')
+        if (!cancelled) setState({ phase: 'ready', context: data.context })
+      })
+      .catch(() => { if (!cancelled) setState({ phase: 'error' }) })
+    return () => { cancelled = true }
+  }, [conversationId, reloadKey])
+
+  return (
+    <div className="p-4 border-b border-walz-border">
+      <p className="text-[10px] font-bold text-walz-muted-strong uppercase tracking-widest mb-3">Client Status</p>
+
+      {state.phase === 'loading' && (
+        <>
+          <span className="sr-only" role="status">Loading client status</span>
+          <div className="space-y-2 motion-safe:animate-pulse" aria-hidden="true">
+            <div className="h-5 w-24 rounded-full bg-walz-navy/10" />
+            <div className="h-3 w-32 rounded bg-walz-navy/10" />
+          </div>
+        </>
+      )}
+
+      {state.phase === 'error' && (
+        <div className="space-y-2">
+          <p className="text-xs text-walz-muted-strong">Could not load client context.</p>
+          <button
+            onClick={retry}
+            className="w-full min-h-[44px] py-2 rounded-lg bg-walz-navy/5 text-walz-navy text-xs font-semibold hover:bg-walz-navy/10 transition-colors border border-walz-border"
+          >
+            Retry
+          </button>
+        </div>
+      )}
+
+      {state.phase === 'ready' && (() => {
+        const { resolution, application } = state.context
+        if (resolution === 'VERIFIED') {
+          return (
+            <div className="space-y-1.5">
+              <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full bg-green-500/15 text-green-700">
+                ✓ Verified
+              </span>
+              {application && (
+                <>
+                  <p className="text-xs text-walz-navy font-mono">{application.walzRef}</p>
+                  <p className="text-[10px] text-walz-muted-strong">{application.applicationType}</p>
+                </>
+              )}
+            </div>
+          )
+        }
+        if (resolution === 'LINKED') {
+          return (
+            <div className="space-y-1.5">
+              <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full bg-walz-navy/10 text-walz-navy">
+                Linked
+              </span>
+              {application && (
+                <p className="text-xs text-walz-navy font-mono">{application.walzRef}</p>
+              )}
+            </div>
+          )
+        }
+        // HEURISTIC and UNRESOLVED both require explicit verification before
+        // any client action — nothing is assumed on the client's behalf.
+        return (
+          <div className="space-y-2">
+            <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-700">
+              Client identity required
+            </span>
+            <button
+              onClick={onOpenLookup}
+              className="w-full min-h-[44px] py-2 rounded-lg bg-walz-navy text-walz-gold text-xs font-semibold hover:bg-walz-deep-navy transition-colors"
+            >
+              Verify client identity
+            </button>
+          </div>
+        )
+      })()}
+    </div>
+  )
+}
+
 export function ClientInfo({ conv, agents, onAssign, onResolve, onReopen, linkedApp, onOpenLookup, variant = 'rail' }: Props) {
   const sender = conv.meta?.sender
   const isResolved = conv.status === 'resolved'
@@ -38,6 +155,9 @@ export function ClientInfo({ conv, agents, onAssign, onResolve, onReopen, linked
       ? 'w-full flex flex-col bg-white h-full overflow-y-auto'
       : 'w-72 flex-shrink-0 flex flex-col bg-white border-l border-walz-border h-full overflow-y-auto'
     }>
+
+      {/* Client identity status — UX-4.1A server-authoritative resolution */}
+      <ClientIdentityStatus conversationId={conv.id} onOpenLookup={onOpenLookup} />
 
       {/* Client */}
       <div className="p-4 border-b border-walz-border">

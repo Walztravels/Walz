@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getAdminSession } from '@/lib/admin-auth'
 import { getStaffPermissionsByEmail } from '@/lib/getStaffPermissions'
 import { rateLimit } from '@/lib/rate-limit'
+import { checkConversationAccess } from '@/lib/inbox/authz'
 import { lookupApplicationByWalzRef, createApplicationVerification } from '@/lib/secure-lookup/service'
 
 export const dynamic = 'force-dynamic'
@@ -35,7 +36,22 @@ export async function POST(req: NextRequest) {
   try { body = await req.json() } catch { /* below */ }
   const ref = typeof body?.ref === 'string' ? body.ref : ''
   if (!ref.trim()) return NextResponse.json({ error: 'Reference required' }, { status: 400 })
-  const conversationId = typeof body?.conversationId === 'string' ? body.conversationId : null
+  let conversationId = typeof body?.conversationId === 'string' ? body.conversationId : null
+
+  // UX-4.1A (security review H1): a verification's conversationId later
+  // materializes as a persistent ConversationClientLink on verify success,
+  // so the binding must be server-validated HERE — never stored as an
+  // arbitrary browser string. Numeric Chatwoot id + this staff member's
+  // conversation access, else the request is rejected (fail closed).
+  if (conversationId !== null) {
+    if (!/^\d+$/.test(conversationId)) {
+      return NextResponse.json({ error: 'Invalid conversation reference' }, { status: 400 })
+    }
+    const access = await checkConversationAccess(session, conversationId)
+    if (!access.allowed) {
+      return NextResponse.json({ error: access.error }, { status: access.status })
+    }
+  }
 
   const result = await lookupApplicationByWalzRef(ref, {
     channel: 'STAFF_SUPPORT', staffEmail: session.email, conversationId,

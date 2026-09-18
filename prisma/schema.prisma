@@ -3158,6 +3158,33 @@ model ConversationRoute {
   @@index([assignedTo])
 }
 
+// ConversationClientLink — UX-4.1A Client Action Centre foundation.
+// Created via Supabase SQL editor (prisma/migrations/inbox_ux41a_conversation_client_link.sql)
+// with RLS service-role-only — NEVER prisma db push or prisma migrate.
+// Schema changes → ALTER TABLE in Supabase SQL editor, then npx prisma generate only.
+// Append-only: unlink/re-link = set active=false + insert a NEW row. A DB-level
+// partial unique index (uq_conversation_client_link_active, WHERE "active" —
+// not expressible in Prisma) enforces at most ONE active row per conversation.
+model ConversationClientLink {
+  id                     String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  chatwootConversationId Int
+  supabaseLeadId         String?  @db.Uuid
+  prismaLeadId           String?
+  userId                 String?
+  clientAccountId        String?
+  visaApplicationId      String?
+  linkedBy               String? // staff email that caused the link
+  linkMethod             String // otp_verified | fallback_verified | admin_manual | webhook_backfill
+  verificationId         String? // ApplicationVerification.id when verification-backed
+  active                 Boolean  @default(true)
+  createdAt              DateTime @default(now()) @db.Timestamptz
+  updatedAt              DateTime @default(now()) @updatedAt @db.Timestamptz
+
+  @@index([chatwootConversationId])
+  @@index([chatwootConversationId, active])
+  @@index([visaApplicationId])
+}
+
 // RoutingAgent — managed via Supabase SQL editor + admin UI.
 // NEVER run prisma db push or prisma migrate for this model.
 // Schema changes → ALTER TABLE in Supabase SQL editor, then npx prisma generate only.

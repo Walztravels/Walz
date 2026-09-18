@@ -20,6 +20,7 @@ import {
   normalizeSpokenDigits, normalizeDateAnswer, normalizePassportSuffix,
   normalizeFreeText, normalizeWalzRef,
 } from './masking'
+import { persistLinkOnVerificationSuccess } from '@/lib/inbox/client-link'
 
 // ── Config ────────────────────────────────────────────────────────────────────
 
@@ -263,6 +264,14 @@ async function markVerified(v: { id: string; staffEmail: string | null; applicat
     staffEmail: v.staffEmail, applicationId: v.applicationId,
     channel: v.channel, conversationId: v.conversationId, method: v.method,
   })
+  // UX-4.1A: persist the conversation→client link. ADDITIVE and
+  // failure-tolerant — a link write failure must never fail the
+  // verification response (the helper never throws; this catch is
+  // belt-and-braces).
+  await persistLinkOnVerificationSuccess({
+    id: v.id, applicationId: v.applicationId, staffEmail: v.staffEmail,
+    conversationId: v.conversationId, method: v.method,
+  }).catch((e: unknown) => console.warn('[client-context] persist-on-verify failed:', e))
 }
 
 export interface VerifyResult {
