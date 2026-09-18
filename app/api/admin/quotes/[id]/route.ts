@@ -99,6 +99,11 @@ export async function PATCH(
     if (!hasPermission(session, 'quotes.send')) {
       return NextResponse.json({ error: 'Forbidden — quotes.send required' }, { status: 403 })
     }
+    // UX-4.2: the Inbox Create Quote drawer finalizes a draft (mints the
+    // real share token) WITHOUT firing the admin email/WhatsApp — staff
+    // deliver the link themselves via the Inbox conversation. Everything
+    // else (token rotation, status, activity log) is unchanged.
+    const suppressNotifications = fields.suppressNotifications === true
 
     // Decode the raw token from secureTokenHash is impossible — generate a new one if needed
     // We store the raw token nowhere — the link is derived at send time from a new token if resending
@@ -124,27 +129,30 @@ export async function PATCH(
         actorType: 'staff',
         eventType: action === 'resend' ? 'resent' : 'sent',
         detail:    `Quote ${action === 'resend' ? 'resent' : 'sent'} to ${quote.clientEmail}`,
+        metadata:  suppressNotifications ? { suppressedNotifications: true } : undefined,
       },
     })
 
     // Generate public link
     const link = `${process.env.NEXT_PUBLIC_APP_URL ?? ''}/quote-proposal/${rawToken}`
 
-    // Send email
-    sendQuoteProposalEmail({
-      to:         quote.clientEmail,
-      clientName: quote.clientName,
-      reference:  quote.reference,
-      title:      quote.title,
-      link,
-      validUntil: updated.validUntil,
-      staffName:  session.name,
-    }).catch(() => {})
+    if (!suppressNotifications) {
+      // Send email
+      sendQuoteProposalEmail({
+        to:         quote.clientEmail,
+        clientName: quote.clientName,
+        reference:  quote.reference,
+        title:      quote.title,
+        link,
+        validUntil: updated.validUntil,
+        staffName:  session.name,
+      }).catch(() => {})
 
-    // Send WhatsApp if client has a phone and Twilio is configured
-    if (quote.clientPhone && twilioConfigured()) {
-      const waMsg = `Hello ${quote.clientName.split(' ')[0]},\n\nYour Walz Travels proposal is ready!\n\n*${quote.title}*\nRef: ${quote.reference}\n\nView your proposal here:\n${link}\n\nValid until ${updated.validUntil.toDateString()}.\n\nQuestions? Reply to this message.`
-      sendWhatsAppBody(quote.clientPhone, waMsg).catch(() => {})
+      // Send WhatsApp if client has a phone and Twilio is configured
+      if (quote.clientPhone && twilioConfigured()) {
+        const waMsg = `Hello ${quote.clientName.split(' ')[0]},\n\nYour Walz Travels proposal is ready!\n\n*${quote.title}*\nRef: ${quote.reference}\n\nView your proposal here:\n${link}\n\nValid until ${updated.validUntil.toDateString()}.\n\nQuestions? Reply to this message.`
+        sendWhatsAppBody(quote.clientPhone, waMsg).catch(() => {})
+      }
     }
 
     return NextResponse.json({ quote: { id: updated.id, status: updated.status, link, token: rawToken } })

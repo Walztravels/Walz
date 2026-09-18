@@ -5,6 +5,10 @@ import { getAdminSession } from '@/lib/admin-auth'
 import { hasPermission } from '@/lib/admin/permissions'
 import { generateQuoteReference } from '@/lib/quote-reference'
 import { sendQuoteProposalEmail } from '@/lib/email-quote-proposal'
+// INBOX UX-4.2 (Create Quote from the Client Action Centre) — used ONLY when
+// the body carries a conversationId; the plain admin path never touches these.
+import { checkInboxPermission, checkConversationAccess } from '@/lib/inbox/authz'
+import { resolveClientActionContext } from '@/lib/inbox/client-context'
 
 export const dynamic = 'force-dynamic'
 
@@ -93,7 +97,11 @@ export async function POST(req: NextRequest) {
 
   const body = await req.json()
 
-  const {
+  // UX-4.2: `let` (was `const`) so the inbox block below may OVERRIDE the
+  // client identity fields from the server-resolved context. When no
+  // conversationId is supplied nothing is ever reassigned.
+  let {
+    // eslint-disable-next-line prefer-const
     clientName, clientEmail, clientPhone, clientCountry,
     currency = 'GBP',
     title, description,
@@ -105,7 +113,78 @@ export async function POST(req: NextRequest) {
     flightOptions = [],
     hotelOptions  = [],
     sendEmail = false,
+    conversationId,
+    source,
   } = body
+
+  let quoteConversationId: number | null = null
+  let quoteSource: string | null = null
+
+  // UX-4.2 — Inbox Create Quote identity gate. Runs ONLY when the body
+  // carries a conversationId (the plain admin wizard never sends one, so
+  // that path is byte-identical to before this block existed).
+  if (conversationId != null) {
+    const convId = Number(conversationId)
+    if (!Number.isInteger(convId) || convId <= 0) {
+      return NextResponse.json({ error: 'Invalid conversation id' }, { status: 400 })
+    }
+    const inboxAuthz = checkInboxPermission(session, 'inbox_view')
+    if (!inboxAuthz.allowed) {
+      return NextResponse.json({ error: inboxAuthz.error }, { status: inboxAuthz.status })
+    }
+    const access = await checkConversationAccess(session, String(convId))
+    if (!access.allowed) {
+      return NextResponse.json({ error: access.error }, { status: access.status })
+    }
+    const resolved = await resolveClientActionContext(convId, session)
+    if (!resolved.ok) {
+      return NextResponse.json({ error: resolved.error, code: 'CLIENT_IDENTITY_REQUIRED' }, { status: resolved.status })
+    }
+    const ctx = resolved.context
+    if (ctx.resolution !== 'VERIFIED' && ctx.resolution !== 'LINKED') {
+      return NextResponse.json(
+        { error: 'Verify the client identity before creating a quote.', code: 'CLIENT_IDENTITY_REQUIRED' },
+        { status: 403 },
+      )
+    }
+    // Identity mandate: client fields come from the SERVER-resolved context
+    // ONLY — the browser-supplied values are DISCARDED entirely (never used
+    // as a fallback) so a missing contact field can never let a forged body
+    // value through. clientName/clientEmail are required on Quote and
+    // clientEmail is exactly what an email send targets, so failing closed
+    // here is mandatory, not optional.
+    if (!ctx.contact?.name || !ctx.contact?.email) {
+      return NextResponse.json(
+        { error: 'This conversation has no client name/email on file — link the client first.', code: 'CLIENT_IDENTITY_REQUIRED' },
+        { status: 403 },
+      )
+    }
+    clientName  = ctx.contact.name
+    clientEmail = ctx.contact.email
+    clientPhone = ctx.contact.phone ?? null
+
+    // Single-currency enforcement (the underlying engine sums blindly
+    // across currencies — the Action Centre must not create that trap).
+    const mismatched = [
+      ...(items as Array<{ currency?: string }>),
+      ...(flightOptions as Array<{ currency?: string }>),
+      ...(hotelOptions as Array<{ currency?: string }>),
+    ].some(x => x.currency && String(x.currency).toUpperCase() !== String(currency).toUpperCase())
+    if (mismatched) {
+      return NextResponse.json(
+        { error: 'All items must use the quote currency.', code: 'INVALID_INPUT' },
+        { status: 400 },
+      )
+    }
+
+    quoteConversationId = convId
+    // 'source' is accepted from the body only as a label; the value is
+    // always 'inbox_action_centre' here since that's the only feature that
+    // sets conversationId today. Not attacker-controllable in any way that
+    // matters (it never gates a permission or a mutation).
+    void source
+    quoteSource = 'inbox_action_centre'
+  }
 
   if (!clientName || !clientEmail || !title) {
     return NextResponse.json({ error: 'clientName, clientEmail and title are required' }, { status: 400 })
@@ -158,6 +237,8 @@ export async function POST(req: NextRequest) {
         subtotalMinor,
         totalMinor:      subtotalMinor,
         internalNotes:   internalNotes ?? null,
+        conversationId:  quoteConversationId,
+        source:          quoteSource,
       },
     })
 
@@ -324,11 +405,13 @@ export async function POST(req: NextRequest) {
 
   const link = `${process.env.NEXT_PUBLIC_APP_URL ?? ''}/quote-proposal/${rawToken}`
 
-  // Optionally send email to client
-  if (sendEmail && body.clientEmail) {
+  // Optionally send email to client — uses the (possibly server-overridden)
+  // clientName/clientEmail, NEVER the raw body, so an inbox-originated
+  // quote can never email an address the browser supplied (UX-4.2).
+  if (sendEmail && clientEmail) {
     sendQuoteProposalEmail({
-      to:         body.clientEmail,
-      clientName: body.clientName,
+      to:         clientEmail,
+      clientName: clientName,
       reference,
       title,
       link,

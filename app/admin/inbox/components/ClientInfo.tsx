@@ -22,6 +22,8 @@ interface Props {
   onOpenLookup?: () => void
   /** UX-4.1B: opens the page-level Request Payment drawer. */
   onOpenPaymentRequest?: () => void
+  /** UX-4.2: opens the page-level Create Quote drawer. */
+  onOpenCreateQuote?: () => void
   /** 'overlay' renders full-width for the mobile client-details overlay. */
   variant?: 'rail' | 'overlay'
 }
@@ -51,11 +53,13 @@ type ContextState =
  * change (rail and overlay variants share this component, so both get it).
  * Never fabricates identity: only the server's resolution is rendered.
  */
-function ClientIdentityStatus({ conversationId, onOpenLookup, onOpenPaymentRequest }: {
+function ClientIdentityStatus({ conversationId, onOpenLookup, onOpenPaymentRequest, onOpenCreateQuote }: {
   conversationId: number
   onOpenLookup?: () => void
   /** UX-4.1B: opens the Request Payment drawer (page-level). */
   onOpenPaymentRequest?: () => void
+  /** UX-4.2: opens the Create Quote drawer (page-level). */
+  onOpenCreateQuote?: () => void
 }) {
   const [state, setState] = useState<ContextState>({ phase: 'loading' })
   const [reloadKey, setReloadKey] = useState(0)
@@ -104,25 +108,36 @@ function ClientIdentityStatus({ conversationId, onOpenLookup, onOpenPaymentReque
       {state.phase === 'ready' && (() => {
         const { resolution, application } = state.context
         const identityOk = resolution === 'VERIFIED' || resolution === 'LINKED'
-        // UX-4.1B QUICK ACTIONS — one live action; future actions are a
-        // muted roadmap line, never clickable dead buttons. The enable
-        // state mirrors the server's hard invariant (VERIFIED/LINKED only);
-        // the server enforces it again on every mutation.
-        const quickActions = onOpenPaymentRequest ? (
+        // UX-4.1B/4.2 QUICK ACTIONS — live actions gated on the server's
+        // hard invariant (VERIFIED/LINKED only, re-enforced on every
+        // mutation); future actions stay a muted roadmap line, never
+        // clickable dead buttons.
+        const quickActions = (onOpenPaymentRequest || onOpenCreateQuote) ? (
           <div className="pt-3 mt-3 border-t border-walz-border space-y-2">
             <p className="text-[10px] font-bold text-walz-muted-strong uppercase tracking-widest">Quick Actions</p>
-            <button
-              onClick={onOpenPaymentRequest}
-              disabled={!identityOk}
-              className="w-full min-h-[44px] py-2 rounded-lg bg-walz-navy text-walz-gold text-xs font-semibold hover:bg-walz-deep-navy transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              Request Payment
-            </button>
+            {onOpenPaymentRequest && (
+              <button
+                onClick={onOpenPaymentRequest}
+                disabled={!identityOk}
+                className="w-full min-h-[44px] py-2 rounded-lg bg-walz-navy text-walz-gold text-xs font-semibold hover:bg-walz-deep-navy transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                Request Payment
+              </button>
+            )}
+            {onOpenCreateQuote && (
+              <button
+                onClick={onOpenCreateQuote}
+                disabled={!identityOk}
+                className="w-full min-h-[44px] py-2 rounded-lg bg-walz-navy/5 text-walz-navy text-xs font-semibold border border-walz-border hover:bg-walz-navy/10 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                Create Quote
+              </button>
+            )}
             {!identityOk && (
               <p className="text-[10px] text-walz-muted-strong">Verify client identity first</p>
             )}
             <p className="text-[10px] text-walz-muted-strong" aria-hidden="true">
-              Quote · Visa Form · Itinerary — coming with the next releases
+              Visa Form · Itinerary — coming with the next releases
             </p>
           </div>
         ) : null
@@ -176,7 +191,7 @@ function ClientIdentityStatus({ conversationId, onOpenLookup, onOpenPaymentReque
   )
 }
 
-export function ClientInfo({ conv, agents, onAssign, onResolve, onReopen, linkedApp, onOpenLookup, onOpenPaymentRequest, variant = 'rail' }: Props) {
+export function ClientInfo({ conv, agents, onAssign, onResolve, onReopen, linkedApp, onOpenLookup, onOpenPaymentRequest, onOpenCreateQuote, variant = 'rail' }: Props) {
   const sender = conv.meta?.sender
   const isResolved = conv.status === 'resolved'
 
@@ -187,7 +202,7 @@ export function ClientInfo({ conv, agents, onAssign, onResolve, onReopen, linked
     }>
 
       {/* Client identity status — UX-4.1A server-authoritative resolution */}
-      <ClientIdentityStatus conversationId={conv.id} onOpenLookup={onOpenLookup} onOpenPaymentRequest={onOpenPaymentRequest} />
+      <ClientIdentityStatus conversationId={conv.id} onOpenLookup={onOpenLookup} onOpenPaymentRequest={onOpenPaymentRequest} onOpenCreateQuote={onOpenCreateQuote} />
 
       {/* Client */}
       <div className="p-4 border-b border-walz-border">

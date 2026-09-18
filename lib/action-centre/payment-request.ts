@@ -44,17 +44,16 @@ import { getFLWKey } from '@/lib/flutterwave-banks'
 import {
   PAYMENT_PURPOSES, PURPOSE_LABELS,
   ACTION_CENTRE_PROVIDERS, type ActionCentreProvider, type PaymentPurpose,
+  isValidAmountMajor,
 } from '@/lib/action-centre/constants'
 
-export { PAYMENT_PURPOSES, PURPOSE_LABELS, ACTION_CENTRE_PROVIDERS }
+export { PAYMENT_PURPOSES, PURPOSE_LABELS, ACTION_CENTRE_PROVIDERS, isValidAmountMajor }
 export type { ActionCentreProvider, PaymentPurpose }
 
 /** processors.ts method key per provider (account-level currency gates). */
 const PROVIDER_METHOD: Record<ActionCentreProvider, string> = {
   stripe: 'STRIPE', flutterwave: 'FLUTTERWAVE', paystack_va: 'PAYSTACK',
 }
-
-const MAX_AMOUNT_MAJOR = 50_000_000
 
 // ── Result types ─────────────────────────────────────────────────────────────
 
@@ -111,17 +110,6 @@ export interface CreatePaymentRequestInput {
 export function txRefFromIdempotencyKey(key: string): string {
   const h = createHash('sha256').update(`walz-action-centre:${key}`).digest('hex')
   return `WACR-${h.slice(0, 20).toUpperCase()}`
-}
-
-/**
- * Amount must be a positive finite number with at most 2 decimals, capped.
- * Epsilon comparison — an exact float check rejects legitimate values
- * (19.99 * 100 === 1998.9999999999998 in IEEE 754).
- */
-export function isValidAmountMajor(n: unknown): n is number {
-  if (typeof n !== 'number' || !Number.isFinite(n) || n <= 0) return false
-  if (n > MAX_AMOUNT_MAJOR) return false
-  return Math.abs(n * 100 - Math.round(n * 100)) < 1e-6
 }
 
 function maskEmail(e: string | null | undefined): string {

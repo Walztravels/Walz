@@ -5017,6 +5017,12 @@ model Quote {
   leadId                  String?   @map("lead_id")
   tripId                  String?   @map("trip_id")
 
+  // INBOX UX-4.2 — Inbox Create Quote (Client Action Centre).
+  // Columns added via the SQL editor (inbox_ux42_quote_conversation_columns.sql)
+  // — NEVER prisma db push. Nullable + additive: only Action-Centre quotes set them.
+  conversationId          Int?      @map("conversation_id")
+  source                  String?
+
   createdAt               DateTime  @default(now()) @map("created_at")
   updatedAt               DateTime  @updatedAt      @map("updated_at")
 
@@ -5033,6 +5039,7 @@ model Quote {
   @@index([secureTokenHash])
   @@index([leadId])
   @@index([tripId])
+  @@index([conversationId])
   @@map("quotes")
 }
 

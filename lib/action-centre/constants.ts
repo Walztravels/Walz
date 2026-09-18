@@ -35,3 +35,16 @@ export const PROVIDER_CURRENCIES: Record<ActionCentreProvider, string[]> = {
   flutterwave: ['NGN', 'GHS', 'KES', 'ZAR', 'UGX', 'TZS', 'XAF', 'XOF', 'RWF', 'USD', 'GBP', 'EUR'],
   paystack_va: ['NGN'],
 }
+
+/**
+ * Amount must be a positive finite number with at most 2 decimals, capped.
+ * Epsilon comparison — an exact float check rejects legitimate values
+ * (19.99 * 100 === 1998.9999999999998 in IEEE 754). Client-safe: used by
+ * both server services (payment-request.ts re-exports this) and UI forms.
+ */
+const MAX_AMOUNT_MAJOR = 50_000_000
+export function isValidAmountMajor(n: unknown): n is number {
+  if (typeof n !== 'number' || !Number.isFinite(n) || n <= 0) return false
+  if (n > MAX_AMOUNT_MAJOR) return false
+  return Math.abs(n * 100 - Math.round(n * 100)) < 1e-6
+}

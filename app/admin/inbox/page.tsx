@@ -11,6 +11,7 @@ import { ApplicationLookupDrawer } from '@/components/admin/ApplicationLookupDra
 import { StaffModal } from './components/StaffModal'
 import { DetailsDrawer } from './components/DetailsDrawer'
 import { PaymentRequestDrawer } from './components/PaymentRequestDrawer'
+import { CreateQuoteDrawer } from './components/CreateQuoteDrawer'
 import { ComposerDraftProvider, useComposerDraft } from './ComposerDraftContext'
 import { useInboxScreens, applyInert } from './useInboxScreens'
 import { sortPage, mergeLatest, prependOlder, oldestCursor } from '@/lib/inbox/message-history'
@@ -55,6 +56,8 @@ function InboxPageInner() {
   const [showAppLookup, setShowAppLookup] = useState(false)
   // UX-4.1B — Request Payment drawer (Client Action Centre)
   const [paymentOpen, setPaymentOpen] = useState(false)
+  // UX-4.2 — Create Quote drawer (Client Action Centre)
+  const [quoteOpen, setQuoteOpen] = useState(false)
   const [messages,   setMessages]   = useState<CWMessage[]>([])
   const [agents,     setAgents]     = useState<CWAgent[]>([])
   const [tab,        setTab]        = useState<Tab>('mine')
@@ -116,6 +119,7 @@ function InboxPageInner() {
     prevScreenRef.current = screens.screen
     setCopilotOpen(false)
     setPaymentOpen(false)   // UX-4.1B: overlays never survive a screen change
+    setQuoteOpen(false)     // UX-4.2: same discipline
     if (!window.matchMedia('(max-width: 767px)').matches) return
     const target = screens.screen
     requestAnimationFrame(() => {
@@ -426,10 +430,11 @@ function InboxPageInner() {
     fetchMessages(conv.id)
     // UX-2: session linkage and the mobile client panel are per-conversation.
     setLinkedApp(prev => (prev && prev.convId === conv.id ? prev : null))
-    // UX-4.1B: the payment drawer is per-conversation too — a conversation
-    // switch (click OR browser Back) must never leave it open against the
+    // UX-4.1B/4.2: action drawers are per-conversation too — a conversation
+    // switch (click OR browser Back) must never leave one open against the
     // new conversation (identity-confusion class).
     setPaymentOpen(false)
+    setQuoteOpen(false)
     // Mark as read — suppress the badge for this conversation on every future poll
     // until Chatwoot itself confirms unread_count = 0. Persisted so refresh survives.
     manuallyReadIdsRef.current.add(conv.id)
@@ -684,6 +689,7 @@ function InboxPageInner() {
             linkedApp={activeLinkedApp}
             onOpenLookup={() => setShowAppLookup(true)}
             onOpenPaymentRequest={() => setPaymentOpen(true)}
+            onOpenCreateQuote={() => setQuoteOpen(true)}
           />
         </div>
       )}
@@ -717,6 +723,7 @@ function InboxPageInner() {
             linkedApp={activeLinkedApp}
             onOpenLookup={() => { screens.closeDetails(); setShowAppLookup(true) }}
             onOpenPaymentRequest={() => { screens.closeDetails(); setPaymentOpen(true) }}
+            onOpenCreateQuote={() => { screens.closeDetails(); setQuoteOpen(true) }}
           />
         </DetailsDrawer>
       )}
@@ -728,6 +735,18 @@ function InboxPageInner() {
         <PaymentRequestDrawer
           open={paymentOpen}
           onClose={() => setPaymentOpen(false)}
+          conversationId={selected.id}
+          onSendMessage={text => handleSend(text, false)}
+        />
+      )}
+
+      {/* Create Quote — UX-4.2 Client Action Centre. Same discipline as
+          Request Payment: creation never sends; explicit Send only, via
+          the EXISTING composer send path. */}
+      {selected && (
+        <CreateQuoteDrawer
+          open={quoteOpen}
+          onClose={() => setQuoteOpen(false)}
           conversationId={selected.id}
           onSendMessage={text => handleSend(text, false)}
         />
