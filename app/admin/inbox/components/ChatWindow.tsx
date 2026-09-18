@@ -114,7 +114,8 @@ export function ChatWindow({
             {onBack && (
               <button
                 onClick={onBack}
-                className="md:hidden flex-shrink-0 p-1.5 -ml-1 rounded-lg text-walz-navy/60 hover:text-walz-navy hover:bg-walz-navy/5 transition-colors"
+                aria-label="Back to conversations"
+                className="md:hidden flex-shrink-0 min-w-[44px] min-h-[44px] -ml-2.5 flex items-center justify-center rounded-lg text-walz-navy/60 hover:text-walz-navy hover:bg-walz-navy/5 transition-colors"
               >
                 <ArrowLeft className="w-5 h-5" />
               </button>

@@ -9,9 +9,10 @@ import { ClientInfo, LinkedAppSummary } from './components/ClientInfo'
 import { InboxJadeCopilot } from './components/InboxJadeCopilot'
 import { ApplicationLookupDrawer } from '@/components/admin/ApplicationLookupDrawer'
 import { StaffModal } from './components/StaffModal'
+import { DetailsDrawer } from './components/DetailsDrawer'
 import { ComposerDraftProvider, useComposerDraft } from './ComposerDraftContext'
+import { useInboxScreens, applyInert } from './useInboxScreens'
 import { sortPage, mergeLatest, prependOlder, oldestCursor } from '@/lib/inbox/message-history'
-import { X } from 'lucide-react'
 
 type Tab = 'all' | 'mine' | 'unassigned' | 'resolved'
 
@@ -57,7 +58,42 @@ function InboxPageInner() {
   const [loading,    setLoading]    = useState(true)
   const [showStaff,  setShowStaff]  = useState(false)
   const [toasts,     setToasts]     = useState<Toast[]>([])
-  const [mobileView, setMobileView] = useState<'list' | 'chat'>('list')
+
+  // ── UX-4: screen-state navigation (below md) ────────────────────────────────
+  // The hook owns screen ('list' | 'chat'), the client-details overlay flag,
+  // URL/history sync (?c=<convId> + popstate) and list scroll restoration.
+  // Both panes stay MOUNTED at every width — below md the off screen slides
+  // away with a transform, so the list scroll position and ChatWindow's
+  // message scroller survive round trips.
+  const screens = useInboxScreens({
+    onNavigateToConv: (convId) => {
+      // popstate landed on ?c=<convId> — select WITHOUT pushing history.
+      // Same conversation still selected → keep messages + scroller untouched.
+      if (selectedRef.current?.id === convId) return true
+      const conv = convsRef.current.find(c => c.id === convId)
+      if (!conv) return false
+      applyConvSelection(conv)
+      return true
+    },
+  })
+  const listColRef = useRef<HTMLDivElement | null>(null)
+  const chatColRef = useRef<HTMLDivElement | null>(null)
+  // Below-md detection — aria-hidden/inert must never touch the md+ layout,
+  // where both panes are genuinely visible side by side.
+  const [isPhone, setIsPhone] = useState(false)
+  useEffect(() => {
+    const mq = window.matchMedia('(max-width: 767px)')
+    const update = () => setIsPhone(mq.matches)
+    update()
+    mq.addEventListener('change', update)
+    return () => mq.removeEventListener('change', update)
+  }, [])
+  const hideList = isPhone && screens.screen === 'chat'
+  const hideChat = isPhone && screens.screen === 'list'
+  useEffect(() => {
+    applyInert(listColRef.current, hideList)
+    applyInert(chatColRef.current, hideChat)
+  }, [hideList, hideChat])
 
   // ── UX-2: conversation-experience state ─────────────────────────────────────
   // Staff Jade copilot panel (stub this release) — opened from ReplyBox via the
@@ -67,8 +103,30 @@ function InboxPageInner() {
   useEffect(() => {
     registerCopilotOpener(() => setCopilotOpen(true))
   }, [registerCopilotOpener])
-  // Mobile "Client details" full-screen overlay (••• menu entry).
-  const [showClientPanel, setShowClientPanel] = useState(false)
+  // UX-4: any screen change closes the copilot sheet and the details drawer
+  // (the hook already closes the drawer; the copilot lives here) and moves
+  // focus below md — into the conversation region on enter, back to the
+  // selected conversation card on return.
+  const prevScreenRef = useRef(screens.screen)
+  useEffect(() => {
+    if (prevScreenRef.current === screens.screen) return
+    prevScreenRef.current = screens.screen
+    setCopilotOpen(false)
+    if (!window.matchMedia('(max-width: 767px)').matches) return
+    const target = screens.screen
+    requestAnimationFrame(() => {
+      if (target === 'chat') {
+        // First button in the conversation region is ChatWindow's back button.
+        const region = chatColRef.current
+        const backBtn = region?.querySelector<HTMLElement>('button')
+        ;(backBtn ?? region)?.focus()
+      } else {
+        const cards = Array.from(listColRef.current?.querySelectorAll<HTMLElement>('[data-conv-card]') ?? [])
+        const idx = convsRef.current.findIndex(c => c.id === selectedRef.current?.id)
+        ;(cards[idx] ?? cards[0])?.focus()
+      }
+    })
+  }, [screens.screen])
   // Session-only conversation→application linkage (no persistence in v1):
   // set when a lookup verification succeeds, keyed by conversation id.
   const [linkedApp, setLinkedApp] = useState<(LinkedAppSummary & { convId: number }) | null>(null)
@@ -76,6 +134,8 @@ function InboxPageInner() {
   const prevConvIdsRef    = useRef<Set<number>>(new Set())
   const selectedRef       = useRef<CWConversation | null>(null)
   selectedRef.current     = selected
+  const convsRef          = useRef<CWConversation[]>([])
+  convsRef.current        = convs
   // Track conversations explicitly opened — keep their unread count zeroed
   // until Chatwoot itself confirms unread_count = 0. Persisted to localStorage
   // so a page refresh doesn't re-show badges that were already cleared.
@@ -231,8 +291,9 @@ function InboxPageInner() {
         : filtered
       setConvs(Array.isArray(displayFiltered) ? displayFiltered : [])
 
-      // Auto-select from ?lead= URL param on first load
-      const urlId = searchParams.get('lead')
+      // Auto-select from the URL on first load — legacy ?lead= (back-compat)
+      // or the canonical UX-4 ?c= param (reload / deep link on a conversation)
+      const urlId = searchParams.get('lead') ?? searchParams.get('c')
       if (urlId && conversations.length > 0 && !selectedRef.current) {
         const match = conversations.find(c => String(c.id) === urlId)
         if (match) doSelectConv(match)
@@ -353,14 +414,14 @@ function InboxPageInner() {
   }
 
   // ── Select ──────────────────────────────────────────────────────────────────
-  function doSelectConv(conv: CWConversation) {
+  /** Selection state only — shared by user selection AND popstate navigation
+   *  (which must never push history again). */
+  function applyConvSelection(conv: CWConversation) {
     setSelected(conv)
     setMessages([])
     fetchMessages(conv.id)
-    setMobileView('chat')
     // UX-2: session linkage and the mobile client panel are per-conversation.
     setLinkedApp(prev => (prev && prev.convId === conv.id ? prev : null))
-    setShowClientPanel(false)
     // Mark as read — suppress the badge for this conversation on every future poll
     // until Chatwoot itself confirms unread_count = 0. Persisted so refresh survives.
     manuallyReadIdsRef.current.add(conv.id)
@@ -369,6 +430,12 @@ function InboxPageInner() {
       setConvs(prev => prev.map(c => c.id === conv.id ? { ...c, unread_count: 0 } : c))
     }
     fetch(`/api/admin/conversations/${conv.id}/read`, { method: 'POST' }).catch(() => {})
+  }
+
+  function doSelectConv(conv: CWConversation) {
+    applyConvSelection(conv)
+    // UX-4: pushState ?c=<convId> + screen → chat (closes the details drawer).
+    screens.selectConversation(conv.id)
   }
 
   // ── Actions ─────────────────────────────────────────────────────────────────
@@ -497,14 +564,24 @@ function InboxPageInner() {
   }
 
   return (
-    <div data-inbox-fullbleed className="flex h-full bg-walz-off-white overflow-hidden">
+    <div data-inbox-fullbleed className="flex h-full bg-walz-off-white overflow-hidden relative">
 
-      {/* Conversation list — full screen on mobile (list view), left panel on desktop.
+      {/* Conversation list — left panel on desktop (side-by-side unchanged).
+          Below md it is a full-size SCREEN that stays MOUNTED and slides away
+          (motion-safe transform, never display:none), so its scroll position
+          and DOM survive round trips; the off screen is aria-hidden + inert.
           Keeps its dark navy surface this release (dark rail + light canvas). */}
-      <div className={`
-        flex-shrink-0 flex flex-col min-h-0 w-full md:w-72 xl:w-80
-        ${mobileView === 'list' ? 'flex' : 'hidden'} md:flex
-      `}>
+      <div
+        ref={el => {
+          listColRef.current = el
+          screens.registerListScroller(el?.querySelector<HTMLElement>('.overflow-y-auto') ?? null)
+        }}
+        aria-hidden={hideList || undefined}
+        className={`
+          flex-shrink-0 flex flex-col min-h-0 w-full md:w-72 xl:w-80
+          max-md:absolute max-md:inset-0 motion-safe:max-md:transition-transform motion-safe:max-md:duration-200
+          ${screens.screen === 'list' ? 'max-md:translate-x-0' : 'max-md:translate-x-[-100%]'}
+        `}>
         {convsError && (
           <div className="flex items-center justify-between gap-2 px-3 py-2 bg-red-500/15 border-b border-red-500/30 text-[11px] text-red-200">
             <span>Could not load conversations.</span>
@@ -528,11 +605,18 @@ function InboxPageInner() {
         />
       </div>
 
-      {/* Chat window — full screen on mobile (chat view), flex-1 on desktop */}
-      <div className={`
-        flex-1 flex flex-col min-h-0 min-w-0
-        ${mobileView === 'chat' ? 'flex' : 'hidden'} md:flex
-      `}>
+      {/* Chat window — flex-1 on desktop; a mounted sliding screen below md
+          (same transform contract as the list — ChatWindow's message scroller
+          keeps its position because the pane never unmounts or display:nones). */}
+      <div
+        ref={chatColRef}
+        aria-hidden={hideChat || undefined}
+        tabIndex={-1}
+        className={`
+          flex-1 flex flex-col min-h-0 min-w-0
+          max-md:absolute max-md:inset-0 motion-safe:max-md:transition-transform motion-safe:max-md:duration-200
+          ${screens.screen === 'chat' ? 'max-md:translate-x-0' : 'max-md:translate-x-[100%]'}
+        `}>
         {selected ? (
           <div className="flex-1 flex flex-col relative min-h-0 min-w-0">
             {/* UX-2: the floating Application Lookup pill is gone — the lookup
@@ -546,7 +630,7 @@ function InboxPageInner() {
               onAssign={handleAssign}
               onResolve={handleResolve}
               onReopen={handleReopen}
-              onBack={() => setMobileView('list')}
+              onBack={screens.back}
               onLoadOlder={loadOlderMessages}
               loadingOlder={history.loadingOlder}
               olderError={history.olderError}
@@ -554,7 +638,7 @@ function InboxPageInner() {
               loadError={msgLoadError}
               onRetryLoad={() => selected && fetchMessages(selected.id)}
               onOpenLookup={() => setShowAppLookup(true)}
-              onOpenClientPanel={() => setShowClientPanel(true)}
+              onOpenClientPanel={screens.openDetails}
             />
           </div>
         ) : (
@@ -607,36 +691,23 @@ function InboxPageInner() {
         recentMessages={recentMessages}
       />
 
-      {/* Mobile "Client details" — minimal full-screen overlay (UX-2 intermediate;
-          the richer DetailsDrawer is UX-4). z-[60] = Z_INDEX.drawer. */}
-      {showClientPanel && selected && (
-        <div
-          className="fixed inset-0 z-[60] bg-white flex flex-col lg:hidden"
-          style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
-        >
-          <div className="flex-shrink-0 flex items-center justify-between px-4 py-3 border-b border-walz-border">
-            <p className="text-sm font-bold text-walz-deep-navy">Client details</p>
-            <button
-              onClick={() => setShowClientPanel(false)}
-              aria-label="Close"
-              className="p-1.5 rounded-lg text-walz-navy/60 hover:text-walz-navy hover:bg-walz-navy/5 transition-colors"
-            >
-              <X className="w-4 h-4" />
-            </button>
-          </div>
-          <div className="flex-1 min-h-0">
-            <ClientInfo
-              variant="overlay"
-              conv={selected}
-              agents={agents}
-              onAssign={handleAssign}
-              onResolve={handleResolve}
-              onReopen={handleReopen}
-              linkedApp={activeLinkedApp}
-              onOpenLookup={() => { setShowClientPanel(false); setShowAppLookup(true) }}
-            />
-          </div>
-        </div>
+      {/* Client details — UX-4 DetailsDrawer (right-side slide-in below lg,
+          drawer z-layer, scrim + Esc + focus restore) replaces the UX-2
+          full-screen overlay for BOTH tablet (md–lg) and mobile. Same open
+          triggers: header ••• 'Client details'. Desktop lg+ keeps the rail. */}
+      {screens.detailsOpen && selected && (
+        <DetailsDrawer open onClose={screens.closeDetails} title="Client details">
+          <ClientInfo
+            variant="overlay"
+            conv={selected}
+            agents={agents}
+            onAssign={handleAssign}
+            onResolve={handleResolve}
+            onReopen={handleReopen}
+            linkedApp={activeLinkedApp}
+            onOpenLookup={() => { screens.closeDetails(); setShowAppLookup(true) }}
+          />
+        </DetailsDrawer>
       )}
 
       {showStaff && (

@@ -74,6 +74,11 @@ export function HeaderActionMenu({
 
   function run(action?: () => void) {
     setOpen(false)
+    // Refocus the ••• trigger BEFORE invoking the action: the menu item
+    // unmounts in this same batch, so an overlay the action opens (e.g. the
+    // DetailsDrawer) would otherwise capture <body> as its focus-restore
+    // target and dump keyboard/SR users at the top of the document on close.
+    triggerRef.current?.focus()
     action?.()
   }
 

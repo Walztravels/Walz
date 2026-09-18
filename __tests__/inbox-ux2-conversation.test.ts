@@ -144,10 +144,16 @@ describe('client panel — APPLICATION section', () => {
     expect(page).toContain('linkedApp.convId === selected.id')
   })
 
-  it('mobile Client details renders ClientInfo in a minimal full-screen overlay', () => {
-    expect(page).toContain('fixed inset-0 z-[60] bg-white flex flex-col lg:hidden')
+  it('below-lg Client details render ClientInfo in the UX-4 DetailsDrawer (the UX-2 overlay evolved as planned)', () => {
+    // UX-4 replaced the interim full-screen overlay with the shared drawer
+    // primitive — same trigger, same ClientInfo overlay variant, same
+    // below-lg-only scope and safe-area padding, now in DetailsDrawer.tsx.
+    const dd = read('app/admin/inbox/components/DetailsDrawer.tsx')
+    expect(page).toContain('DetailsDrawer')
     expect(page).toContain("variant=\"overlay\"")
-    expect(page).toContain('safe-area-inset-bottom')
+    expect(dd).toContain('lg:hidden')
+    expect(dd).toContain('safe-area-inset-bottom')
+    expect(dd).toContain('Z_INDEX.drawer')
   })
 })
 
