@@ -1,6 +1,7 @@
 import { getSupabaseAdmin } from '@/lib/supabase'
 import { sendConversationAssignedEmail } from '@/lib/email-staff-notification'
 import { botChatwootOrNull, logChatwootUnconfigured } from '@/lib/chatwoot/config'
+import { isAutoAssignable } from '@/lib/inbox/assignable'
 
 const CHATWOOT_BASE  = process.env.CHATWOOT_BASE_URL  ?? 'https://chat.walztravels.com'
 // Fail closed (INBOX-0S.1): empty token → assignment calls are skipped
@@ -39,16 +40,22 @@ async function getActiveRoutingAgents(): Promise<RoutingAgent[]> {
     .eq('active', true)
     .eq('isEscalation', false)
     .order('roundRobinPosition', { ascending: true })
-  return (data ?? []) as RoutingAgent[]
+  // Non-routable/test identities (P1 2026-09-18): never auto-assignable,
+  // independent of any row flag. Real staff rows pass through unchanged.
+  return ((data ?? []) as RoutingAgent[]).filter(a => a.chatwootAgentId == null || isAutoAssignable(a.chatwootAgentId))
 }
 
 async function getEscalationAgents(): Promise<RoutingAgent[]> {
   const supabase = getSupabaseAdmin()
+  // P1 2026-09-18: this query previously ignored active=false and had no
+  // identity rule — the inactive TEST identity (Michael, id 1) kept
+  // receiving escalations. Both gates now apply.
   const { data } = await supabase
     .from('RoutingAgent')
     .select('*')
     .eq('isEscalation', true)
-  return (data ?? []) as RoutingAgent[]
+    .eq('active', true)
+  return ((data ?? []) as RoutingAgent[]).filter(a => isAutoAssignable(a.chatwootAgentId))
 }
 
 async function getNextRoundRobin(): Promise<RoutingAgent | null> {
@@ -169,6 +176,12 @@ export async function applyRouting(
 
   // Assign in Chatwoot
   let assignmentSucceeded = false
+  // Final automatic-assignment guard (P1 2026-09-18): whatever decision
+  // source produced this id, a non-routable identity is never assigned.
+  if (dec.chatwootId && !isAutoAssignable(dec.chatwootId)) {
+    console.warn(`[router] blocked automatic assignment to non-routable agent id ${dec.chatwootId} — conversation left unassigned`)
+    dec = { ...dec, chatwootId: null }
+  }
   if (dec.chatwootId && !CHATWOOT_TOKEN) logChatwootUnconfigured('conversation-router assignment')
   if (dec.chatwootId && CHATWOOT_TOKEN) {
     const assignRes = await fetch(

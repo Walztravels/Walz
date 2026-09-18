@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getSupabaseAdmin } from '@/lib/supabase'
 import { botChatwootOrNull, logChatwootUnconfigured } from '@/lib/chatwoot/config'
+import { isAutoAssignable } from '@/lib/inbox/assignable'
 
 export const dynamic = 'force-dynamic'
 
@@ -27,8 +28,9 @@ export async function GET(req: NextRequest) {
 
   const { data: escalationAgents } = await supabase
     .from('RoutingAgent')
-    .select('id, name, email, chatwootAgentId')
+    .select('id, name, email, chatwootAgentId, active')
     .eq('isEscalation', true)
+    .eq('active', true)
 
   const cw = botChatwootOrNull()
   if (!cw) {
@@ -57,8 +59,16 @@ export async function GET(req: NextRequest) {
         },
       ).catch(() => {})
 
-      // Re-assign to first escalation agent if they have a Chatwoot ID
-      const esc = (escalationAgents ?? []).find(a => a.chatwootAgentId)
+      // Re-assign to the first ELIGIBLE escalation agent (P1 2026-09-18:
+      // this previously picked the inactive TEST identity, Michael/id 1 —
+      // conversation #483). Non-routable identities are never selected.
+      const esc = (escalationAgents ?? []).find(a => isAutoAssignable(a.chatwootAgentId))
+      if (!esc) {
+        // Escalation evidence (the private note above) is preserved; the
+        // conversation stays with its current state rather than being
+        // handed to an ineligible identity.
+        console.warn(`[cron:escalation] NO_ELIGIBLE_ESCALATION_AGENT — conversation ${route.chatwootConversationId} not reassigned`)
+      }
       if (esc?.chatwootAgentId) {
         await fetch(
           `${chatwootBase}/api/v1/accounts/${accountId}/conversations/${route.chatwootConversationId}/assignments`,
