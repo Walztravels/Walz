@@ -59,7 +59,7 @@ describe('viewport ownership', () => {
   })
 
   it('the column stack is flex + min-h-0 all the way down (keyboard-safe, no fixed heights)', () => {
-    expect(page).toContain('flex-shrink-0 flex flex-col min-h-0 w-full md:w-64')
+    expect(page).toContain('flex-shrink-0 flex flex-col min-h-0 w-full md:w-72 xl:w-80')
     expect(page).toContain('flex-1 flex flex-col min-h-0 min-w-0')
     expect(page).toContain('flex-1 flex flex-col relative min-h-0 min-w-0')
     expect(page).toContain('hidden lg:flex min-h-0')            // tablet keeps 2 panes; drawer is UX-4
@@ -152,7 +152,7 @@ describe('visual direction — light premium workspace (start)', () => {
     expect(page).toContain('z-[80]')
   })
 
-  it('the conversation list rail keeps its dark surface this release (UX-2/3 scope)', () => {
-    expect(read('app/admin/inbox/components/ConversationList.tsx')).toContain('bg-[#0d2444]')
+  it('the conversation list rail keeps its dark surface, tokenized in UX-3 (bg-walz-navy, no hex)', () => {
+    expect(read('app/admin/inbox/components/ConversationList.tsx')).toContain('bg-walz-navy')
   })
 })

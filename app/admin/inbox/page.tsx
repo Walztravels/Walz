@@ -48,7 +48,6 @@ function InboxPageInner() {
 
   const [profile,    setProfile]    = useState<AdminProfile | null>(null)
   const [convs,      setConvs]      = useState<CWConversation[]>([])
-  const [allPayload, setAllPayload] = useState<CWConversation[]>([])
   const [metaCounts, setMetaCounts] = useState({ all: 0, mine: 0, unassigned: 0 })
   const [selected,   setSelected]   = useState<CWConversation | null>(null)
   const [showAppLookup, setShowAppLookup] = useState(false)
@@ -214,8 +213,6 @@ function InboxPageInner() {
       }
       prevConvIdsRef.current = newIds
 
-      setAllPayload(conversations)
-
       // For any conversation the user has opened this session, hold its badge at
       // zero until Chatwoot itself confirms unread_count = 0 on its end.
       // This prevents polling from reinstating the badge after deselection.
@@ -352,7 +349,7 @@ function InboxPageInner() {
     all:        metaCounts.all,
     mine:       metaCounts.mine,
     unassigned: metaCounts.unassigned,
-    resolved:   tab === 'resolved' ? convs.length : allPayload.filter(c => c.status === 'resolved').length,
+    resolved:   null, // authoritative resolved count is a UX-5 item — null renders no pill badge
   }
 
   // ── Select ──────────────────────────────────────────────────────────────────
@@ -505,7 +502,7 @@ function InboxPageInner() {
       {/* Conversation list — full screen on mobile (list view), left panel on desktop.
           Keeps its dark navy surface this release (dark rail + light canvas). */}
       <div className={`
-        flex-shrink-0 flex flex-col min-h-0 w-full md:w-64
+        flex-shrink-0 flex flex-col min-h-0 w-full md:w-72 xl:w-80
         ${mobileView === 'list' ? 'flex' : 'hidden'} md:flex
       `}>
         {convsError && (
@@ -517,6 +514,7 @@ function InboxPageInner() {
         <ConversationList
           loadFailed={convsError}
           onRetry={() => fetchConvs(true)}
+          loading={loading}
           conversations={convs}
           selected={selected}
           tab={tab}

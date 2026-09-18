@@ -104,6 +104,8 @@ const CHANNEL_LABELS: Record<string, string> = {
   'channel::facebookpage': 'Messenger',
   'channel::webwidget':    'Web',
   'channel::sms':          'SMS',
+  'channel::voice':        'Call',  // UX-3: mapping absorbed from ConversationItem's retired local duplicate
+  'voice':                 'Call',
   'channel::twiliosms':    'WhatsApp',   // this deployment's WhatsApp inboxes ride Twilio (see whatsapp-chat route)
   'channel::email':        'Email',
   'channel::api':          'Chat',
