@@ -441,7 +441,7 @@ export function CreateQuoteDrawer({ open, onClose, conversationId, onSendMessage
                   </div>
                   <input value={itemTitle} onChange={e => setItemTitle(e.target.value)} placeholder="Item title" className={inputCls} />
                   <input value={itemDesc} onChange={e => setItemDesc(e.target.value)} placeholder="Description (optional)" className={inputCls} />
-                  <button type="button" onClick={addItem} className="w-full min-h-[40px] rounded-lg bg-walz-navy/5 text-walz-navy text-xs font-semibold border border-walz-border hover:bg-walz-navy/10 transition-colors">
+                  <button type="button" onClick={addItem} className="w-full min-h-[44px] rounded-lg bg-walz-navy/5 text-walz-navy text-xs font-semibold border border-walz-border hover:bg-walz-navy/10 transition-colors">
                     Add item
                   </button>
                 </div>

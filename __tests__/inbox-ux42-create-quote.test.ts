@@ -163,6 +163,37 @@ describe('hard identity invariant on inbox-originated quotes', () => {
   })
 })
 
+describe('duplicate-draft guard (security closing re-check)', () => {
+  it('a matching recent draft for this conversation → 409 DUPLICATE_DRAFT with the existing id/reference, no second quote created', async () => {
+    mockPrisma.quote.findFirst.mockResolvedValue({ id: 'q-existing', reference: 'WT-Q-20260918-0001', status: 'draft' })
+    const res = await POST(req({
+      conversationId: 318, title: 'Trip', items: [{ type: 'custom', title: 'Item', sellingPriceMinor: 1000, currency: 'GBP' }],
+    }))
+    expect(res.status).toBe(409)
+    const data = await res.json()
+    expect(data.code).toBe('DUPLICATE_DRAFT')
+    expect(data.existing).toEqual({ id: 'q-existing', reference: 'WT-Q-20260918-0001', status: 'draft' })
+    expect(mockPrisma.quote.create).not.toHaveBeenCalled()
+  })
+
+  it('the duplicate check is scoped to THIS conversation — a duplicate found for another conversation could never leak here (query pin)', () => {
+    const block = routeSrc.slice(routeSrc.indexOf('recentDuplicate'), routeSrc.indexOf('const reference = await generateQuoteReference()'))
+    expect(block).toContain('conversationId: quoteConversationId')
+    expect(block).toContain("source:         'inbox_action_centre'")
+    expect(block).toContain("status:         'draft'")
+  })
+
+  it('no conversationId (plain admin path) → the duplicate check never runs', async () => {
+    mockPrisma.quote.findFirst.mockResolvedValue({ id: 'unrelated', reference: 'WT-Q-OTHER', status: 'draft' })
+    const res = await POST(req({
+      clientName: 'Real Client', clientEmail: 'client@walztravels.com', title: 'Trip',
+      items: [{ type: 'custom', title: 'Item', sellingPriceMinor: 1000, currency: 'GBP' }],
+    }))
+    expect(res.status).toBe(200)   // never 409 — findFirst result is irrelevant on this path
+    expect(mockPrisma.quote.create).toHaveBeenCalled()
+  })
+})
+
 describe('plain admin path (no conversationId) is untouched', () => {
   it('creates a quote with body-supplied client fields verbatim — identity gate never runs', async () => {
     const res = await POST(req({
@@ -291,6 +322,28 @@ describe('CreateQuoteDrawer — send/share discipline and a11y (source pins)', (
   it('does not build a second live-search UI; Hotelbeds live search stays excluded (documented)', () => {
     expect(drawerSrc).toContain('Hotelbeds')
     expect(drawerSrc).toContain('excluded regardless')
+  })
+
+  it('Finalize is disabled while in flight (security closing re-check)', () => {
+    const start = drawerSrc.indexOf('onClick={() => void handleFinalize()}')
+    const btn = drawerSrc.slice(start, drawerSrc.indexOf("'Finalize for client'", start))
+    expect(btn).toContain('disabled={finalizing}')
+  })
+
+  it('finalizing always resets in a finally block — never stuck disabled on success, failure, or throw', () => {
+    const fn = drawerSrc.slice(drawerSrc.indexOf('async function handleFinalize'), drawerSrc.indexOf('function buildQuoteMessage'))
+    expect(fn).toContain('finally {')
+    expect(fn).toContain('setFinalizing(false)')
+  })
+
+  it('DUPLICATE_DRAFT renders a clear pointer to the EXISTING draft — never mislabels it as this request’s own success', () => {
+    const fn = drawerSrc.slice(drawerSrc.indexOf('async function handleCreate'), drawerSrc.indexOf('async function handleFinalize'))
+    expect(fn).toContain("data?.code === 'DUPLICATE_DRAFT'")
+    expect(fn).toContain('setDuplicateOf(')
+    // the duplicate branch never sets `quote` (which drives the "Draft created" success copy)
+    expect(fn).not.toMatch(/DUPLICATE_DRAFT[\s\S]{0,120}setQuote\(/)
+    expect(drawerSrc).toContain('A matching draft already exists')
+    expect(drawerSrc).toContain('Open in quote editor')
   })
 })
 
