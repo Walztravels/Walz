@@ -161,6 +161,10 @@ function InboxPageInner() {
       // Always fetch the full open/resolved list — filter client-side per tab
       const status = tab === 'resolved' ? 'resolved' : 'open'
       const res = await fetch(`/api/admin/conversations?status=${status}`)
+      // 401 = session expired (12h JWT) — the middleware rejects before the
+      // route runs. That is not a provider failure: send staff to login
+      // instead of an unwinnable Retry loop (incident 2026-09-18).
+      if (res.status === 401) { router.push('/admin/login'); return }
       if (!res.ok) { setConvsError(true); return }
       setConvsError(false)
 
@@ -268,6 +272,7 @@ function InboxPageInner() {
   const fetchPage = useCallback(async (id: number, before?: number): Promise<CWMessage[]> => {
     const qs   = before ? `?before=${before}` : ''
     const res  = await fetch(`/api/admin/conversations/${id}/messages${qs}`)
+    if (res.status === 401) { router.push('/admin/login'); throw new Error('session expired') }
     if (!res.ok) throw new Error(`HTTP ${res.status}`)
     const json = await res.json()
     return (json?.payload || json?.data?.payload || []) as CWMessage[]
