@@ -31,6 +31,7 @@ export function MessageBubble({ msg, prevMsg }: Props) {
   const isIncoming  = msg.message_type === 0
   const isActivity  = msg.message_type === 2
   const isPrivate   = msg.private
+  const isJade      = msg.content_attributes?.jade_ai === true
   const senderName  = msg.sender?.name || (isIncoming ? 'Client' : 'Agent')
   const showDate    = !prevMsg || !sameDay(prevMsg.created_at, msg.created_at)
 
@@ -58,12 +59,12 @@ export function MessageBubble({ msg, prevMsg }: Props) {
 
       <div className={`flex gap-2.5 px-4 py-1 ${isIncoming ? 'justify-start' : 'justify-end'}`}>
         {isIncoming && (
-          <div className="w-7 h-7 rounded-full bg-[#1e3a5f] flex items-center justify-center text-[10px] font-bold text-[#C9A84C] flex-shrink-0 mt-1">
+          <div className="w-7 h-7 rounded-full bg-walz-navy flex items-center justify-center text-[10px] font-bold text-walz-gold flex-shrink-0 mt-1">
             {initials(senderName)}
           </div>
         )}
 
-        <div className={`max-w-[70%] ${isIncoming ? '' : 'items-end flex flex-col'}`}>
+        <div className={`max-w-[85%] md:max-w-[72%] ${isIncoming ? '' : 'items-end flex flex-col'}`}>
           {isPrivate ? (
             <div className="rounded-xl px-3 py-2 bg-amber-500/10 border border-amber-500/40 border-dashed">
               <p className="text-[10px] text-amber-700 font-semibold mb-1">🔒 Private note</p>
@@ -78,19 +79,19 @@ export function MessageBubble({ msg, prevMsg }: Props) {
                   <img
                     src={att.data_url}
                     alt={att.file_name ?? 'image'}
-                    className="max-w-[260px] max-h-[320px] rounded-xl object-cover cursor-pointer hover:opacity-90 transition-opacity"
+                    className="max-w-[min(260px,100%)] max-h-[320px] rounded-xl object-cover cursor-pointer hover:opacity-90 transition-opacity"
                   />
                 </a>
               ))}
 
               {/* Audio attachments */}
               {msg.attachments?.filter(a => a.file_type === 'audio').map(att => (
-                <audio key={att.id} controls src={att.data_url} className="max-w-[260px] rounded-lg" />
+                <audio key={att.id} controls src={att.data_url} className="max-w-[min(260px,100%)] rounded-lg" />
               ))}
 
               {/* Video attachments */}
               {msg.attachments?.filter(a => a.file_type === 'video').map(att => (
-                <video key={att.id} controls src={att.data_url} className="max-w-[260px] rounded-xl" />
+                <video key={att.id} controls src={att.data_url} className="max-w-[min(260px,100%)] rounded-xl" />
               ))}
 
               {/* File / document attachments */}
@@ -100,21 +101,25 @@ export function MessageBubble({ msg, prevMsg }: Props) {
                   href={att.data_url}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className={`flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-medium underline-offset-2 hover:underline ${
-                    isIncoming ? 'bg-[#1e3a5f] text-blue-300' : 'bg-[#b8903f] text-[#0B1F3A]'
+                  className={`flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-medium underline-offset-2 hover:underline max-w-full ${
+                    isIncoming
+                      ? 'bg-white border border-walz-border text-walz-navy'
+                      : 'bg-blue-50 border border-blue-200/60 text-walz-navy'
                   }`}
                 >
                   📎 {att.file_name ?? 'Download file'}
                 </a>
               ))}
 
-              {/* Text content (skip if empty and there are attachments) */}
+              {/* Text content (skip if empty and there are attachments).
+                  UX-2 palette: white incoming with a walz-border hairline, light Walz
+                  blue staff outgoing — no solid gold slabs; gold marks Jade only. */}
               {msg.content?.trim() && (
                 <div
                   className={`rounded-2xl px-3.5 py-2.5 ${
                     isIncoming
-                      ? 'bg-[#1e3a5f] text-white rounded-tl-sm'
-                      : 'bg-[#C9A84C] text-[#0B1F3A] rounded-tr-sm'
+                      ? 'bg-white border border-walz-border text-walz-deep-navy rounded-tl-sm'
+                      : 'bg-blue-50 border border-blue-200/60 text-walz-deep-navy rounded-tr-sm'
                   }`}
                 >
                   <p className="text-sm whitespace-pre-wrap">{msg.content}</p>
@@ -123,6 +128,13 @@ export function MessageBubble({ msg, prevMsg }: Props) {
             </div>
           )}
           <div className={`flex items-center gap-1 mt-0.5 ${isIncoming ? '' : 'justify-end'}`}>
+            {isJade && (
+              // M3 contrast: the sparkle stays gold; the word reads in
+              // muted-strong (gold text fails AA at this size).
+              <span className="text-[10px] font-semibold text-walz-muted-strong">
+                <span className="text-walz-gold">✨</span> Jade
+              </span>
+            )}
             <span className="text-[10px] text-walz-muted-strong">{formatTime(msg.created_at)}</span>
             {!isIncoming && <span className="text-[10px] text-walz-muted-strong">· {senderName}</span>}
           </div>

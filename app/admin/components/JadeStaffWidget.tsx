@@ -1,163 +1,49 @@
 'use client'
-import { useState, useRef, useEffect, useCallback } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { usePathname } from 'next/navigation'
+import { useStaffJadeChat } from './jade/useStaffJadeChat'
+import { renderMessage } from './jade/renderMessage'
 
-type Message = {
-  role: 'user' | 'assistant'
-  content: string
-  time: Date
-  suggestions?: string[]
-}
-
-type JadeState = 'idle' | 'thinking'
-
-const SESSION_KEY = 'walz_jade_staff_session'
-const SESSION_TTL = 2 * 60 * 60 * 1000
-
-type StoredSession = {
-  messages: Array<{ role: 'user' | 'assistant'; content: string; time: string; suggestions?: string[] }>
-  staffName: string
-  savedAt: number
-}
-
-function loadSession(): StoredSession | null {
-  try {
-    const raw = localStorage.getItem(SESSION_KEY)
-    if (!raw) return null
-    const s: StoredSession = JSON.parse(raw)
-    if (Date.now() - s.savedAt > SESSION_TTL) {
-      localStorage.removeItem(SESSION_KEY)
-      return null
-    }
-    return s
-  } catch { return null }
-}
-
-function saveSession(messages: Message[], staffName: string) {
-  try {
-    const s: StoredSession = {
-      messages: messages.map(m => ({ ...m, time: m.time.toISOString() })),
-      staffName,
-      savedAt: Date.now(),
-    }
-    localStorage.setItem(SESSION_KEY, JSON.stringify(s))
-  } catch { /* quota exceeded or private mode */ }
-}
-
-const GREETINGS = [
-  (name: string) => `Hey ${name} 👋 What do you need?`,
-  (name: string) => `${name}! What's up?`,
-  (name: string) => `Right, what can I help with ${name}?`,
-  (name: string) => `Hey — good to see you ${name}. Fire away.`,
-]
-
-const THINKING_PHRASES = [
-  'On it...',
-  'Just a sec...',
-  'Let me think...',
-  'Checking...',
-  'Got it, one moment...',
-]
-
-// ─── Message renderer ─────────────────────────────────────────────────────────
-
-function renderMessage(content: string): React.ReactNode[] {
-  return content.split('\n').map((line, i) => {
-    if (!line.trim()) return <br key={i} />
-
-    // Parse inline bold **text**
-    const parseBold = (text: string): React.ReactNode => {
-      const parts = text.split(/(\*\*[^*]+\*\*)/g)
-      return (
-        <>
-          {parts.map((p, j) =>
-            p.startsWith('**') && p.endsWith('**')
-              ? <strong key={j} className="text-white font-semibold">{p.slice(2, -2)}</strong>
-              : <span key={j}>{p}</span>
-          )}
-        </>
-      )
-    }
-
-    // Admin path highlighting
-    if (line.trim().startsWith('/admin/') || line.trim().startsWith('→ /admin/')) {
-      return (
-        <p key={i} className="text-amber-400/80 font-mono text-[11px] leading-relaxed bg-amber-500/5 px-2 py-0.5 rounded my-0.5">
-          {line}
-        </p>
-      )
-    }
-
-    // Bullet points
-    if (line.startsWith('- ') || line.startsWith('• ')) {
-      return (
-        <p key={i} className="flex gap-2 text-white/80 leading-relaxed">
-          <span className="text-amber-400 flex-shrink-0 mt-0.5">•</span>
-          <span>{parseBold(line.replace(/^[-•]\s/, ''))}</span>
-        </p>
-      )
-    }
-
-    // Numbered lists
-    if (/^\d+\.\s/.test(line)) {
-      const num = line.match(/^\d+/)?.[0] ?? ''
-      return (
-        <p key={i} className="flex gap-2 text-white/80 leading-relaxed">
-          <span className="text-amber-400 font-bold flex-shrink-0 min-w-[16px]">{num}.</span>
-          <span>{parseBold(line.replace(/^\d+\.\s/, ''))}</span>
-        </p>
-      )
-    }
-
-    return (
-      <p key={i} className="text-white/80 leading-relaxed">
-        {parseBold(line)}
-      </p>
-    )
-  })
-}
+// Chat state, session persistence (walz_jade_staff_session, 2h TTL) and the
+// message renderer moved to ./jade/{useStaffJadeChat,renderMessage} in INBOX
+// UX-2 Phase B so the inbox copilot reuses them. Behavior here is unchanged:
+// same session key, same wire shapes ({ page } context, last-8 history,
+// 500-char truncation), same greetings/thinking phrases, same FAB/panel chrome.
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export function JadeStaffWidget() {
   const pathname = usePathname()
   const [open, setOpen] = useState(false)
-  const [messages, setMessages] = useState<Message[]>([])
-  const [input, setInput] = useState('')
-  const [jadeState, setJadeState] = useState<JadeState>('idle')
   const [unread, setUnread] = useState(0)
-  const [staffName, setStaffName] = useState('')
-  const [initialized, setInitialized] = useState(false)
-  const [suggestions, setSuggestions] = useState<string[]>([])
-  const [thinkingPhrase] = useState(
-    () => THINKING_PHRASES[Math.floor(Math.random() * THINKING_PHRASES.length)]
-  )
+
+  const openRef = useRef(open)
+  useEffect(() => { openRef.current = open }, [open])
+
+  const {
+    messages,
+    input,
+    setInput,
+    jadeState,
+    suggestions,
+    staffName,
+    send,
+    initialize,
+    initialized,
+    thinkingPhrase,
+  } = useStaffJadeChat({
+    sessionKey: 'walz_jade_staff_session',
+    contextBuilder: () => ({ page: pathname }),
+    onAssistantReply: () => { if (!openRef.current) setUnread(n => n + 1) },
+  })
 
   const bottomRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
-  const historyRef = useRef<Message[]>([])
-
-  // Restore session from localStorage on first mount
-  useEffect(() => {
-    const saved = loadSession()
-    if (saved && saved.messages.length > 0) {
-      const restored = saved.messages.map(m => ({ ...m, time: new Date(m.time) }))
-      setMessages(restored)
-      setStaffName(saved.staffName)
-      setInitialized(true)
-    }
-  }, [])
-
-  // Sync history to ref and persist session whenever messages change
-  useEffect(() => {
-    historyRef.current = messages
-    if (messages.length > 0) saveSession(messages, staffName)
-  }, [messages, staffName])
 
   // Hide on itinerary builder — that page has Jade Copilot instead
   const isBuilder = pathname.includes('/itinerary-planner/')
   // Hide on the admin inbox — the inbox owns its viewport chrome (UX-1);
-  // the Jade Copilot drawer arrives there in UX-7.
+  // the inbox has its own Staff Jade panel (InboxJadeCopilot, UX-2 Phase B).
   const isInbox = pathname.startsWith('/admin/inbox')
 
   useEffect(() => {
@@ -166,93 +52,13 @@ export function JadeStaffWidget() {
 
   useEffect(() => {
     if (open && !initialized) {
-      setInitialized(true)
-      void initializeJade()
+      void initialize()
     }
     if (open) {
       setUnread(0)
       setTimeout(() => inputRef.current?.focus(), 200)
     }
-  }, [open, initialized])
-
-  const initializeJade = async () => {
-    try {
-      const res = await fetch('/api/admin/jade/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          message: '__init__',
-          context: { page: pathname },
-          conversationHistory: [],
-        }),
-      })
-      const data = await res.json() as { staffName?: string; suggestions?: string[] }
-      const name = data.staffName || 'there'
-      setStaffName(name)
-      setSuggestions(data.suggestions || [])
-
-      const greetFn = GREETINGS[Math.floor(Math.random() * GREETINGS.length)]
-      setMessages([{
-        role: 'assistant',
-        content: greetFn(name),
-        time: new Date(),
-        suggestions: data.suggestions || [],
-      }])
-    } catch {
-      setMessages([{ role: 'assistant', content: "Hey, what do you need?", time: new Date() }])
-    }
-  }
-
-  const send = useCallback(async (text?: string) => {
-    const msg = (text ?? input).trim()
-    if (!msg || msg === '__init__' || jadeState !== 'idle') return
-
-    setMessages(prev => [...prev, { role: 'user', content: msg, time: new Date() }])
-    setInput('')
-    setJadeState('thinking')
-
-    try {
-      const res = await fetch('/api/admin/jade/chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          message: msg,
-          context: { page: pathname },
-          conversationHistory: historyRef.current
-            .slice(-8)
-            .map(m => ({ role: m.role, content: m.content.substring(0, 500) })),
-        }),
-      })
-
-      const data = await res.json() as {
-        response?: string
-        error?: string
-        staffName?: string
-        suggestions?: string[]
-      }
-
-      if (data.error) throw new Error(data.error)
-
-      if (data.staffName && !staffName) setStaffName(data.staffName)
-      if (data.suggestions?.length) setSuggestions(data.suggestions)
-
-      setMessages(prev => [...prev, {
-        role: 'assistant',
-        content: data.response || "I didn't catch that — try rephrasing?",
-        time: new Date(),
-        suggestions: data.suggestions,
-      }])
-      if (!open) setUnread(n => n + 1)
-    } catch {
-      setMessages(prev => [...prev, {
-        role: 'assistant',
-        content: "Jade is unavailable right now. Try again in a moment.",
-        time: new Date(),
-      }])
-    } finally {
-      setJadeState('idle')
-    }
-  }, [input, jadeState, pathname, staffName, open])
+  }, [open, initialized, initialize])
 
   if (isBuilder || isInbox) return null
 

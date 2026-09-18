@@ -2,12 +2,25 @@
 import { CWConversation, CWAgent, initials, channelIcon } from '../types'
 import { AssignDropdown } from './AssignDropdown'
 
+/** Session-only application linkage (UX-2 — no persistence yet). */
+export interface LinkedAppSummary {
+  walzRef: string
+  applicationType?: string
+  status?: string
+}
+
 interface Props {
   conv:     CWConversation
   agents:   CWAgent[]
   onAssign: (agentId: number) => Promise<void>
   onResolve: () => Promise<void>
   onReopen:  () => Promise<void>
+  /** Verified in THIS session via the lookup drawer; null → "No application linked". */
+  linkedApp?: LinkedAppSummary | null
+  /** Opens the Secure Application Lookup drawer. */
+  onOpenLookup?: () => void
+  /** 'overlay' renders full-width for the mobile client-details overlay. */
+  variant?: 'rail' | 'overlay'
 }
 
 function formatDate(ts: number): string {
@@ -16,12 +29,15 @@ function formatDate(ts: number): string {
   })
 }
 
-export function ClientInfo({ conv, agents, onAssign, onResolve, onReopen }: Props) {
+export function ClientInfo({ conv, agents, onAssign, onResolve, onReopen, linkedApp, onOpenLookup, variant = 'rail' }: Props) {
   const sender = conv.meta?.sender
   const isResolved = conv.status === 'resolved'
 
   return (
-    <div className="w-72 flex-shrink-0 flex flex-col bg-white border-l border-walz-border h-full overflow-y-auto">
+    <div className={variant === 'overlay'
+      ? 'w-full flex flex-col bg-white h-full overflow-y-auto'
+      : 'w-72 flex-shrink-0 flex flex-col bg-white border-l border-walz-border h-full overflow-y-auto'
+    }>
 
       {/* Client */}
       <div className="p-4 border-b border-walz-border">
@@ -82,6 +98,38 @@ export function ClientInfo({ conv, agents, onAssign, onResolve, onReopen }: Prop
           current={conv.meta?.assignee ?? conv.assignee}
           onAssign={onAssign}
         />
+      </div>
+
+      {/* Application — v1 session-only linkage (no conversation→application persistence yet) */}
+      <div className="p-4 border-b border-walz-border">
+        <p className="text-[10px] font-bold text-walz-muted-strong uppercase tracking-widest mb-3">Application</p>
+        {linkedApp ? (
+          <div className="space-y-1.5">
+            <p className="text-xs text-walz-navy font-mono">{linkedApp.walzRef}</p>
+            {linkedApp.applicationType && (
+              <p className="text-xs text-walz-deep-navy">{linkedApp.applicationType}</p>
+            )}
+            {linkedApp.status && (
+              <p className="text-[10px] text-walz-muted-strong">Status: <span className="text-walz-navy font-semibold">{linkedApp.status}</span></p>
+            )}
+            <button
+              onClick={onOpenLookup}
+              className="w-full mt-1 py-2 rounded-lg bg-walz-navy/5 text-walz-navy text-xs font-semibold hover:bg-walz-navy/10 transition-colors border border-walz-border"
+            >
+              Open Application
+            </button>
+          </div>
+        ) : (
+          <div className="space-y-2">
+            <p className="text-xs text-walz-muted-strong">No application linked</p>
+            <button
+              onClick={onOpenLookup}
+              className="w-full py-2 rounded-lg bg-walz-navy/5 text-walz-navy text-xs font-semibold hover:bg-walz-navy/10 transition-colors border border-walz-border"
+            >
+              🔍 Link Application
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Actions */}

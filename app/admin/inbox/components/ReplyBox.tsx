@@ -1,6 +1,7 @@
 'use client'
-import { useState, useRef, KeyboardEvent } from 'react'
+import { useEffect, useState, useRef, KeyboardEvent } from 'react'
 import { Send, Lock, Paperclip, X, FileText } from 'lucide-react'
+import { useComposerDraft } from '../ComposerDraftContext'
 
 interface Props {
   onSend: (content: string, isPrivate: boolean, file?: File) => Promise<void>
@@ -16,6 +17,26 @@ export function ReplyBox({ onSend, disabled }: Props) {
   const [sending, setSending] = useState(false)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+
+  // UX-2: Jade talks to the composer through the draft context — the
+  // ChatWindow → ReplyBox JSX line is pinned, so no new props here.
+  const { registerInserter, openCopilot } = useComposerDraft()
+  useEffect(() => {
+    registerInserter((draft: string) => {
+      setMode('reply')
+      setText(prev => (prev.trim() ? `${prev}\n\n${draft}` : draft))
+      // Refocus + resize after React commits the new value (same autosize rule
+      // as handleInput: grow to content, capped at 120px).
+      requestAnimationFrame(() => {
+        const el = textareaRef.current
+        if (!el) return
+        el.focus()
+        el.style.height = 'auto'
+        el.style.height = Math.min(el.scrollHeight, 120) + 'px'
+        el.setSelectionRange(el.value.length, el.value.length)
+      })
+    })
+  }, [registerInserter])
 
   const isPrivate = mode === 'note'
   const canSend   = (text.trim().length > 0 || file !== null) && !sending && !disabled
@@ -130,6 +151,16 @@ export function ReplyBox({ onSend, disabled }: Props) {
               >
                 <Paperclip className="w-4 h-4" />
               </button>
+              {/* Ask Jade — compact icon entry beside the actions on mobile */}
+              <button
+                type="button"
+                onClick={openCopilot}
+                title="Ask Jade"
+                aria-label="Ask Jade"
+                className="md:hidden min-w-[44px] min-h-[44px] -my-3 flex items-center justify-center text-walz-gold hover:opacity-80 transition-opacity text-sm leading-none"
+              >
+                ✨
+              </button>
               <input
                 ref={fileInputRef}
                 type="file"
@@ -147,6 +178,19 @@ export function ReplyBox({ onSend, disabled }: Props) {
               {sending ? 'Sending…' : 'Send'}
             </button>
           </div>
+        </div>
+
+        {/* Slim bottom row — Staff Jade entry (desktop text button) */}
+        <div className="hidden md:flex items-center pt-1.5">
+          {/* M3 contrast: the words read in muted-strong (gold text fails AA
+              at this size) — only the sparkle stays gold. */}
+          <button
+            type="button"
+            onClick={openCopilot}
+            className="text-[11px] font-semibold text-walz-muted-strong hover:text-walz-navy transition-colors"
+          >
+            <span className="text-walz-gold">✨</span> Ask Jade
+          </button>
         </div>
       </div>
     </div>

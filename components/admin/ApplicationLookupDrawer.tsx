@@ -32,7 +32,12 @@ interface FullView {
 
 type Stage = 'search' | 'masked' | 'otp_sent' | 'fallback' | 'verified' | 'locked'
 
-export function ApplicationLookupDrawer({ conversationId, onClose }: { conversationId?: string; onClose: () => void }) {
+export function ApplicationLookupDrawer({ conversationId, onClose, onVerified }: {
+  conversationId?: string
+  onClose: () => void
+  /** UX-2: fires once a verification succeeds and the secure view loads — session-only linkage signal. */
+  onVerified?: (summary: { walzRef: string; applicationType?: string; status?: string }) => void
+}) {
   const [stage,   setStage]   = useState<Stage>('search')
   const [ref,     setRef]     = useState('')
   const [busy,    setBusy]    = useState(false)
@@ -108,7 +113,15 @@ export function ApplicationLookupDrawer({ conversationId, onClose }: { conversat
     if (data.verified) {
       const res  = await fetch(`/api/admin/applications/secure-view?verificationId=${verifId}&reason=CUSTOMER_SUPPORT`)
       const view = await res.json()
-      if (res.ok) { setFull(view); setStage('verified'); return }
+      if (res.ok) {
+        setFull(view); setStage('verified')
+        onVerified?.({
+          walzRef:         view.application.walzRef,
+          applicationType: view.application.applicationType,
+          status:          view.application.status,
+        })
+        return
+      }
       setError(view.error ?? 'Verified, but the record could not be loaded (check your permissions).')
     } else if (data.locked) {
       setStage('locked')

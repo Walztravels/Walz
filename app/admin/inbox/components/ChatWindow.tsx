@@ -1,10 +1,11 @@
 'use client'
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
-import { ArrowLeft, ArrowDown, Loader2 } from 'lucide-react'
+import { ArrowLeft, ArrowDown, ChevronDown, Loader2 } from 'lucide-react'
 import { CWConversation, CWMessage, CWAgent, initials, channelIcon } from '../types'
 import { MessageBubble } from './MessageBubble'
 import { ReplyBox } from './ReplyBox'
 import { AssignDropdown } from './AssignDropdown'
+import { HeaderActionMenu } from './HeaderActionMenu'
 import { isNearBottom, TOP_TRIGGER_PX } from '@/lib/inbox/message-history'
 
 interface Props {
@@ -23,6 +24,9 @@ interface Props {
   /** Initial history load failed — show a failure, never a blank thread (0S.3). */
   loadError?:        boolean
   onRetryLoad?:      () => void
+  /** UX-2 optional wiring — old call sites still typecheck without these. */
+  onOpenLookup?:      () => void
+  onOpenClientPanel?: () => void
 }
 
 /**
@@ -37,7 +41,7 @@ interface Props {
 export function ChatWindow({
   conv, messages, agents, onSend, onAssign, onResolve, onReopen, onBack,
   onLoadOlder, loadingOlder = false, olderError = false, beginningReached = false,
-  loadError = false, onRetryLoad,
+  loadError = false, onRetryLoad, onOpenLookup, onOpenClientPanel,
 }: Props) {
   const scrollRef  = useRef<HTMLDivElement>(null)
   const nearBottomRef = useRef(true)
@@ -98,45 +102,54 @@ export function ChatWindow({
 
   return (
     <div className="flex-1 flex flex-col min-w-0 h-full">
-      {/* Header — light surface with walz-border hairline (UX-1) */}
-      <div className="flex-shrink-0 flex items-center justify-between px-3 py-3 border-b border-walz-border bg-white gap-2">
-        <div className="flex items-center gap-2 min-w-0">
-          {/* Back button — mobile only */}
-          {onBack && (
-            <button
-              onClick={onBack}
-              className="md:hidden flex-shrink-0 p-1.5 -ml-1 rounded-lg text-walz-navy/60 hover:text-walz-navy hover:bg-walz-navy/5 transition-colors"
-            >
-              <ArrowLeft className="w-5 h-5" />
-            </button>
-          )}
-          <div className="w-8 h-8 rounded-full bg-walz-navy flex items-center justify-center text-xs font-bold text-walz-gold flex-shrink-0">
-            {initials(sender?.name ?? '?')}
+      {/* Header — light surface with walz-border hairline (UX-1).
+          UX-2 clean header: mobile row 1 is ONLY [←][avatar][identity]…[•••];
+          assign + status controls are desktop-only in row 1 and reappear on
+          mobile in a compact second row. Resolve/Reopen lives in the status
+          control popover and the ••• menu — never a standalone header button. */}
+      <div className="flex-shrink-0 border-b border-walz-border bg-white">
+        <div className="flex items-center justify-between px-3 py-3 gap-2">
+          <div className="flex items-center gap-2 min-w-0">
+            {/* Back button — mobile only */}
+            {onBack && (
+              <button
+                onClick={onBack}
+                className="md:hidden flex-shrink-0 p-1.5 -ml-1 rounded-lg text-walz-navy/60 hover:text-walz-navy hover:bg-walz-navy/5 transition-colors"
+              >
+                <ArrowLeft className="w-5 h-5" />
+              </button>
+            )}
+            <div className="w-8 h-8 rounded-full bg-walz-navy flex items-center justify-center text-xs font-bold text-walz-gold flex-shrink-0">
+              {initials(sender?.name ?? '?')}
+            </div>
+            <div className="min-w-0">
+              <p className="text-sm font-semibold text-walz-deep-navy truncate">{sender?.name ?? 'Unknown'}</p>
+              <p className="text-[10px] text-walz-muted-strong">
+                {channelIcon(conv)} #{conv.id} · {conv.status}
+              </p>
+            </div>
           </div>
-          <div className="min-w-0">
-            <p className="text-sm font-semibold text-walz-deep-navy truncate">{sender?.name ?? 'Unknown'}</p>
-            <p className="text-[10px] text-walz-muted-strong">
-              {channelIcon(conv)} #{conv.id} · {conv.status}
-            </p>
+          <div className="flex items-center gap-2 flex-shrink-0">
+            {/* Desktop-only compact controls — row 1 stays clean on mobile */}
+            <div className="hidden md:flex items-center gap-2">
+              <AssignDropdown compact agents={agents} current={conv.meta?.assignee ?? conv.assignee} onAssign={onAssign} />
+              <StatusControl isResolved={isResolved} onResolve={onResolve} onReopen={onReopen} />
+            </div>
+            <HeaderActionMenu
+              isResolved={isResolved}
+              onResolve={() => void onResolve()}
+              onReopen={() => void onReopen()}
+              onOpenLookup={onOpenLookup}
+              onOpenClientPanel={onOpenClientPanel}
+            />
           </div>
         </div>
-        <div className="flex items-center gap-2 flex-shrink-0">
-          <AssignDropdown agents={agents} current={conv.meta?.assignee ?? conv.assignee} onAssign={onAssign} />
-          {!isResolved ? (
-            <button
-              onClick={onResolve}
-              className="px-3 py-1.5 rounded-lg bg-blue-600 text-white text-xs font-semibold hover:bg-blue-700 transition-colors"
-            >
-              Resolve
-            </button>
-          ) : (
-            <button
-              onClick={onReopen}
-              className="px-3 py-1.5 rounded-lg bg-walz-navy/5 text-walz-navy text-xs font-semibold hover:bg-walz-navy/10 transition-colors"
-            >
-              Reopen
-            </button>
-          )}
+
+        {/* Mobile second row — compact assignment + status */}
+        <div className="md:hidden flex items-center gap-1.5 px-3 pb-2">
+          <span className="text-[10px] text-walz-muted-strong flex-shrink-0">Assigned:</span>
+          <AssignDropdown compact agents={agents} current={conv.meta?.assignee ?? conv.assignee} onAssign={onAssign} />
+          <span className="text-[10px] text-walz-muted-strong truncate">· {conv.status}</span>
         </div>
       </div>
 
@@ -206,6 +219,58 @@ export function ChatWindow({
       <div className="flex-shrink-0">
         <ReplyBox onSend={onSend} disabled={isResolved} />
       </div>
+    </div>
+  )
+}
+
+/**
+ * Compact status control (UX-2) — `Open ▾` / `Resolved ▾` popover exposing
+ * the single lifecycle action for the current state. Reuses the existing
+ * onResolve/onReopen handlers; the Resolve/Reopen labels live ONLY here
+ * (and in HeaderActionMenu), never as standalone header buttons.
+ */
+function StatusControl({ isResolved, onResolve, onReopen }: {
+  isResolved: boolean
+  onResolve: () => Promise<void>
+  onReopen:  () => Promise<void>
+}) {
+  const [open, setOpen] = useState(false)
+  return (
+    <div className="relative">
+      <button
+        onClick={() => setOpen(o => !o)}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-walz-navy/5 hover:bg-walz-navy/10 border border-walz-border text-xs font-semibold text-walz-navy transition-colors"
+      >
+        <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${isResolved ? 'bg-gray-400' : 'bg-green-500'}`} />
+        {isResolved ? 'Resolved' : 'Open'}
+        <ChevronDown className="w-3 h-3 text-walz-muted-strong" />
+      </button>
+      {open && (
+        <>
+          <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
+          <div role="menu" className="absolute right-0 top-full mt-1 w-40 rounded-xl bg-white border border-walz-border shadow-xl z-20 p-1.5">
+            {!isResolved ? (
+              <button
+                role="menuitem"
+                onClick={() => { setOpen(false); void onResolve() }}
+                className="w-full px-3 py-2 rounded-lg bg-blue-600 text-white text-xs font-semibold hover:bg-blue-700 transition-colors"
+              >
+                Resolve
+              </button>
+            ) : (
+              <button
+                role="menuitem"
+                onClick={() => { setOpen(false); void onReopen() }}
+                className="w-full px-3 py-2 rounded-lg bg-walz-navy/5 text-walz-navy text-xs font-semibold hover:bg-walz-navy/10 transition-colors"
+              >
+                Reopen
+              </button>
+            )}
+          </div>
+        </>
+      )}
     </div>
   )
 }

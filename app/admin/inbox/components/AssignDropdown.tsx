@@ -8,9 +8,11 @@ interface Props {
   current:  CWAgent | null | undefined
   onAssign: (agentId: number) => Promise<void>
   disabled?: boolean
+  /** UX-2: smaller trigger for tight header rows — truncates the name with a max width. */
+  compact?: boolean
 }
 
-export function AssignDropdown({ agents, current, onAssign, disabled }: Props) {
+export function AssignDropdown({ agents, current, onAssign, disabled, compact }: Props) {
   const [open, setOpen]       = useState(false)
   const [loading, setLoading] = useState(false)
 
@@ -25,19 +27,21 @@ export function AssignDropdown({ agents, current, onAssign, disabled }: Props) {
       <button
         onClick={() => setOpen(o => !o)}
         disabled={disabled || loading}
-        className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg bg-walz-navy/5 hover:bg-walz-navy/10 border border-walz-border text-xs text-walz-navy transition-colors disabled:opacity-50"
+        className={`flex items-center rounded-lg bg-walz-navy/5 hover:bg-walz-navy/10 border border-walz-border text-xs text-walz-navy transition-colors disabled:opacity-50 ${
+          compact ? 'gap-1.5 px-2 py-1 max-w-[150px]' : 'gap-2 px-2.5 py-1.5'
+        }`}
       >
         {current ? (
           <>
-            <span className="w-5 h-5 rounded-full bg-walz-navy text-walz-gold text-[9px] font-bold flex items-center justify-center">
+            <span className="w-5 h-5 rounded-full bg-walz-navy text-walz-gold text-[9px] font-bold flex items-center justify-center flex-shrink-0">
               {initials(current.name)}
             </span>
-            {current.name}
+            <span className={compact ? 'truncate max-w-[96px]' : ''}>{current.name}</span>
           </>
         ) : (
           <span className="text-walz-muted-strong">Assign agent</span>
         )}
-        <ChevronDown className="w-3 h-3 text-walz-muted-strong" />
+        <ChevronDown className="w-3 h-3 text-walz-muted-strong flex-shrink-0" />
       </button>
 
       {open && (

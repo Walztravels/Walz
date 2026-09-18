@@ -13,6 +13,8 @@ export interface CWMessage {
   message_type: number // 0=incoming 1=outgoing 2=activity 3=template
   created_at: number
   private: boolean
+  /** Chatwoot message metadata — jade_ai marks Jade-assisted outgoing messages (UX-2). */
+  content_attributes?: { jade_ai?: boolean }
   sender?: {
     id: number
     name: string

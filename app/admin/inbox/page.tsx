@@ -5,10 +5,13 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import { CWConversation, CWMessage, CWAgent, AdminProfile, EMAIL_TO_AGENT } from './types'
 import { ConversationList } from './components/ConversationList'
 import { ChatWindow } from './components/ChatWindow'
-import { ClientInfo } from './components/ClientInfo'
+import { ClientInfo, LinkedAppSummary } from './components/ClientInfo'
+import { InboxJadeCopilot } from './components/InboxJadeCopilot'
 import { ApplicationLookupDrawer } from '@/components/admin/ApplicationLookupDrawer'
 import { StaffModal } from './components/StaffModal'
+import { ComposerDraftProvider, useComposerDraft } from './ComposerDraftContext'
 import { sortPage, mergeLatest, prependOlder, oldestCursor } from '@/lib/inbox/message-history'
+import { X } from 'lucide-react'
 
 type Tab = 'all' | 'mine' | 'unassigned' | 'resolved'
 
@@ -29,6 +32,17 @@ function beep() {
 interface Toast { id: number; msg: string }
 
 export default function InboxPage() {
+  // UX-2: the composer draft provider wraps everything — OUTSIDE the pinned
+  // data-inbox-fullbleed root — so ReplyBox (pinned JSX line, no new props)
+  // and the Staff Jade copilot can talk through the ref-based context.
+  return (
+    <ComposerDraftProvider>
+      <InboxPageInner />
+    </ComposerDraftProvider>
+  )
+}
+
+function InboxPageInner() {
   const router       = useRouter()
   const searchParams = useSearchParams()
 
@@ -45,6 +59,20 @@ export default function InboxPage() {
   const [showStaff,  setShowStaff]  = useState(false)
   const [toasts,     setToasts]     = useState<Toast[]>([])
   const [mobileView, setMobileView] = useState<'list' | 'chat'>('list')
+
+  // ── UX-2: conversation-experience state ─────────────────────────────────────
+  // Staff Jade copilot panel (stub this release) — opened from ReplyBox via the
+  // composer draft context; while open on desktop it takes the ClientInfo slot.
+  const [copilotOpen, setCopilotOpen] = useState(false)
+  const { registerCopilotOpener } = useComposerDraft()
+  useEffect(() => {
+    registerCopilotOpener(() => setCopilotOpen(true))
+  }, [registerCopilotOpener])
+  // Mobile "Client details" full-screen overlay (••• menu entry).
+  const [showClientPanel, setShowClientPanel] = useState(false)
+  // Session-only conversation→application linkage (no persistence in v1):
+  // set when a lookup verification succeeds, keyed by conversation id.
+  const [linkedApp, setLinkedApp] = useState<(LinkedAppSummary & { convId: number }) | null>(null)
 
   const prevConvIdsRef    = useRef<Set<number>>(new Set())
   const selectedRef       = useRef<CWConversation | null>(null)
@@ -328,6 +356,9 @@ export default function InboxPage() {
     setMessages([])
     fetchMessages(conv.id)
     setMobileView('chat')
+    // UX-2: session linkage and the mobile client panel are per-conversation.
+    setLinkedApp(prev => (prev && prev.convId === conv.id ? prev : null))
+    setShowClientPanel(false)
     // Mark as read — suppress the badge for this conversation on every future poll
     // until Chatwoot itself confirms unread_count = 0. Persisted so refresh survives.
     manuallyReadIdsRef.current.add(conv.id)
@@ -436,6 +467,19 @@ export default function InboxPage() {
     setTimeout(() => setToasts(t => t.filter(x => x.id !== id)), 4000)
   }
 
+  // ── UX-2 derived state ──────────────────────────────────────────────────────
+  // Copilot context: last 12 messages, skipping private notes and activity
+  // rows; client vs agent role from message_type.
+  const recentMessages = messages
+    .filter(m => !m.private && m.message_type !== 2)
+    .slice(-12)
+    .map(m => ({
+      role: m.message_type === 0 ? ('client' as const) : ('agent' as const),
+      text: m.content?.slice(0, 400) ?? '',
+    }))
+  const activeLinkedApp: LinkedAppSummary | null =
+    selected && linkedApp && linkedApp.convId === selected.id ? linkedApp : null
+
   // ── Render ──────────────────────────────────────────────────────────────────
   // UX-1 viewport ownership: [data-inbox-fullbleed] makes the admin shell's
   // <main> drop its padding/scroll (globals.css), so this page owns the box
@@ -488,14 +532,9 @@ export default function InboxPage() {
       `}>
         {selected ? (
           <div className="flex-1 flex flex-col relative min-h-0 min-w-0">
-            {/* Secure Application Lookup — quick action while handling a chat */}
-            <button
-              onClick={() => setShowAppLookup(true)}
-              className="absolute top-2 right-2 z-20 inline-flex items-center gap-1.5 rounded-full border border-walz-gold/50 bg-white/95 px-3 py-1 text-[11px] font-semibold text-walz-navy shadow-sm hover:bg-walz-gold/10 transition-colors"
-              title="Search an application by Walz Reference (identity verification required)"
-            >
-              🔎 Application Lookup
-            </button>
+            {/* UX-2: the floating Application Lookup pill is gone — the lookup
+                now opens from the header ••• menu and the ClientInfo
+                APPLICATION section. */}
             <ChatWindow
               conv={selected}
               messages={messages}
@@ -511,6 +550,8 @@ export default function InboxPage() {
               beginningReached={history.beginning}
               loadError={msgLoadError}
               onRetryLoad={() => selected && fetchMessages(selected.id)}
+              onOpenLookup={() => setShowAppLookup(true)}
+              onOpenClientPanel={() => setShowClientPanel(true)}
             />
           </div>
         ) : (
@@ -526,11 +567,17 @@ export default function InboxPage() {
         <ApplicationLookupDrawer
           conversationId={selected ? String(selected.id) : undefined}
           onClose={() => setShowAppLookup(false)}
+          onVerified={summary => {
+            const conv = selectedRef.current
+            if (conv) setLinkedApp({ convId: conv.id, ...summary })
+          }}
         />
       )}
 
-      {/* Client info — hidden on mobile, visible on large screens only */}
-      {selected && (
+      {/* Client info — hidden on mobile, visible on large screens only.
+          While the copilot is open on desktop, the copilot panel takes this
+          slot so the conversation keeps its width. */}
+      {selected && !copilotOpen && (
         <div className="hidden lg:flex min-h-0">
           <ClientInfo
             conv={selected}
@@ -538,7 +585,54 @@ export default function InboxPage() {
             onAssign={handleAssign}
             onResolve={handleResolve}
             onReopen={handleReopen}
+            linkedApp={activeLinkedApp}
+            onOpenLookup={() => setShowAppLookup(true)}
           />
+        </div>
+      )}
+
+      {/* Staff Jade copilot — stub panel this release (desktop peer panel /
+          mobile bottom sheet live inside the component) */}
+      <InboxJadeCopilot
+        open={copilotOpen}
+        onClose={() => setCopilotOpen(false)}
+        conversationId={selected?.id ?? null}
+        channel={selected ? (selected.channel ?? selected.meta?.channel ?? 'Web').replace('Channel::', '') : ''}
+        contactName={selected?.meta?.sender?.name ?? ''}
+        contactEmail={selected?.meta?.sender?.email}
+        contactPhone={selected?.meta?.sender?.phone_number}
+        recentMessages={recentMessages}
+      />
+
+      {/* Mobile "Client details" — minimal full-screen overlay (UX-2 intermediate;
+          the richer DetailsDrawer is UX-4). z-[60] = Z_INDEX.drawer. */}
+      {showClientPanel && selected && (
+        <div
+          className="fixed inset-0 z-[60] bg-white flex flex-col lg:hidden"
+          style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
+        >
+          <div className="flex-shrink-0 flex items-center justify-between px-4 py-3 border-b border-walz-border">
+            <p className="text-sm font-bold text-walz-deep-navy">Client details</p>
+            <button
+              onClick={() => setShowClientPanel(false)}
+              aria-label="Close"
+              className="p-1.5 rounded-lg text-walz-navy/60 hover:text-walz-navy hover:bg-walz-navy/5 transition-colors"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+          <div className="flex-1 min-h-0">
+            <ClientInfo
+              variant="overlay"
+              conv={selected}
+              agents={agents}
+              onAssign={handleAssign}
+              onResolve={handleResolve}
+              onReopen={handleReopen}
+              linkedApp={activeLinkedApp}
+              onOpenLookup={() => { setShowClientPanel(false); setShowAppLookup(true) }}
+            />
+          </div>
         </div>
       )}
 
