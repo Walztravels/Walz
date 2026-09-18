@@ -89,6 +89,10 @@ export function CreateQuoteDrawer({ open, onClose, conversationId, onSendMessage
   const [submitting, setSubmitting] = useState(false)
   const [submitError, setSubmitError] = useState<string | null>(null)
   const [created, setCreated] = useState(false)  // latch — blocks a second POST
+  // Server-detected duplicate (a matching draft already exists for this
+  // conversation) — no reusable link exists for it (only a token HASH is
+  // stored), so point staff to the existing draft rather than fabricating one.
+  const [duplicateOf, setDuplicateOf] = useState<{ id: string; reference: string } | null>(null)
   const [quote, setQuote] = useState<GeneratedQuote | null>(null)
   const [finalizing, setFinalizing] = useState(false)
   const [copied, setCopied] = useState(false)
@@ -122,7 +126,7 @@ export function CreateQuoteDrawer({ open, onClose, conversationId, onSendMessage
   useEffect(() => {
     if (!open) { setEntered(false); return }
     setTitle(''); setItems([]); setItemTitle(''); setItemDesc(''); setItemPrice('')
-    setSubmitError(null); setCreated(false); setQuote(null); setSent(false); setCopied(false)
+    setSubmitError(null); setCreated(false); setQuote(null); setSent(false); setCopied(false); setDuplicateOf(null)
     setCtx(null); setRecent([])
     void loadContext()
     restoreRef.current =
@@ -201,6 +205,11 @@ export function CreateQuoteDrawer({ open, onClose, conversationId, onSendMessage
       })
       const data = await res.json().catch(() => ({}))
       if (!res.ok) {
+        if (data?.code === 'DUPLICATE_DRAFT' && data?.existing) {
+          setDuplicateOf({ id: data.existing.id, reference: data.existing.reference })
+          setCreated(true)   // still latch — this attempt is resolved, not retryable as-is
+          return
+        }
         setSubmitError(data?.error ?? 'The quote could not be created. Retry.')
         return
       }
@@ -322,7 +331,20 @@ export function CreateQuoteDrawer({ open, onClose, conversationId, onSendMessage
             </div>
           )}
 
-          {quote ? (
+          {duplicateOf ? (
+            <div className="space-y-2">
+              <div className="rounded-xl border border-walz-border bg-walz-off-white p-3">
+                <p className="text-xs font-bold text-walz-deep-navy">A matching draft already exists</p>
+                <p className="text-xs text-walz-muted-strong mt-1">
+                  {duplicateOf.reference} was created moments ago for this conversation with the same title.
+                </p>
+              </div>
+              <a href={`/admin/quotes/${duplicateOf.id}`} target="_blank" rel="noreferrer"
+                className="w-full min-h-[44px] flex items-center justify-center gap-2 rounded-lg bg-walz-navy/5 text-walz-navy text-xs font-semibold border border-walz-border hover:bg-walz-navy/10 transition-colors">
+                Open in quote editor <ExternalLink className="w-3 h-3" />
+              </a>
+            </div>
+          ) : quote ? (
             <div className="space-y-3">
               <div className="rounded-xl border border-walz-border p-3 space-y-1">
                 <p className={labelCls}>{isFinalized ? 'Quote ready to share' : 'Draft created'}</p>
@@ -341,7 +363,8 @@ export function CreateQuoteDrawer({ open, onClose, conversationId, onSendMessage
                   {submitError && <p role="alert" className="text-xs text-red-700">{submitError}</p>}
                   <button
                     onClick={() => void handleFinalize()}
-                    className="w-full min-h-[44px] flex items-center justify-center gap-2 rounded-lg bg-walz-gold text-walz-deep-navy text-sm font-bold hover:brightness-95 transition-all"
+                    disabled={finalizing}
+                    className="w-full min-h-[44px] flex items-center justify-center gap-2 rounded-lg bg-walz-gold text-walz-deep-navy text-sm font-bold hover:brightness-95 transition-all disabled:opacity-60"
                   >
                     {finalizing ? (<><RefreshCw className="w-4 h-4 motion-safe:animate-spin" /> Finalizing…</>) : 'Finalize for client'}
                   </button>
@@ -402,7 +425,7 @@ export function CreateQuoteDrawer({ open, onClose, conversationId, onSendMessage
                     {items.map(i => (
                       <li key={i.key} className="flex items-center justify-between gap-2 text-xs text-walz-deep-navy">
                         <span className="min-w-0 truncate">{i.title} <span className="text-walz-muted-strong">· {currency} {Number(i.priceMajor).toLocaleString()}</span></span>
-                        <button type="button" onClick={() => removeItem(i.key)} aria-label={`Remove ${i.title}`} className="flex-shrink-0 min-w-[32px] min-h-[32px] flex items-center justify-center text-walz-muted-strong hover:text-red-700">
+                        <button type="button" onClick={() => removeItem(i.key)} aria-label={`Remove ${i.title}`} className="flex-shrink-0 min-w-[44px] min-h-[44px] flex items-center justify-center text-walz-muted-strong hover:text-red-700">
                           <Trash2 className="w-3.5 h-3.5" />
                         </button>
                       </li>

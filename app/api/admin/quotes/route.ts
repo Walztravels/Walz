@@ -190,6 +190,37 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'clientName, clientEmail and title are required' }, { status: 400 })
   }
 
+  // UX-4.2 (security review, duplicate/replay): a double-click or network
+  // retry on "Create quote" has no client-generated idempotency key to
+  // dedupe on (unlike Request Payment's txRef), so guard server-side
+  // instead — a near-identical draft for the SAME conversation created in
+  // the last few seconds is treated as a duplicate, not a second quote.
+  // Scoped to inbox-originated quotes only; the plain admin wizard is
+  // unaffected (quoteConversationId is null there).
+  if (quoteConversationId != null) {
+    const recentDuplicate = await prisma.quote.findFirst({
+      where: {
+        conversationId: quoteConversationId,
+        source:         'inbox_action_centre',
+        status:         'draft',
+        title,
+        createdAt:      { gte: new Date(Date.now() - 10_000) },
+      },
+      orderBy: { createdAt: 'desc' },
+      select:  { id: true, reference: true, status: true },
+    })
+    if (recentDuplicate) {
+      return NextResponse.json(
+        {
+          error: 'A matching draft quote was just created for this conversation.',
+          code:  'DUPLICATE_DRAFT',
+          existing: { id: recentDuplicate.id, reference: recentDuplicate.reference, status: recentDuplicate.status },
+        },
+        { status: 409 },
+      )
+    }
+  }
+
   const reference = await generateQuoteReference()
 
   const rawToken = crypto.randomBytes(32).toString('hex')

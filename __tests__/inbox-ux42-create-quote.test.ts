@@ -12,7 +12,7 @@ import fs from 'fs'
 import path from 'path'
 
 const mockPrisma = {
-  quote: { create: jest.fn(), $transaction: undefined as unknown },
+  quote: { create: jest.fn(), findFirst: jest.fn(), $transaction: undefined as unknown },
   quoteItem: { createMany: jest.fn() },
   quoteFlightOption: { create: jest.fn() },
   quoteHotelOption: { create: jest.fn() },
@@ -74,6 +74,7 @@ beforeEach(() => {
   }))
   mockPrisma.quoteItem.createMany.mockResolvedValue({ count: 1 })
   mockPrisma.quoteActivity.create.mockResolvedValue({})
+  mockPrisma.quote.findFirst.mockResolvedValue(null)
 })
 
 describe('hard identity invariant on inbox-originated quotes', () => {
