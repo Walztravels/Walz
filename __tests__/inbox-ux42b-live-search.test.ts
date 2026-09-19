@@ -195,69 +195,107 @@ describe('multiple items across product types attach to the same quote', () => {
 })
 
 describe('CreateQuoteDrawer live search & attach (source-level, matches this repo\'s pattern for this file)', () => {
-  const drawerSrc = fs.readFileSync(
-    path.join(process.cwd(), 'app/admin/inbox/components/CreateQuoteDrawer.tsx'), 'utf8',
+  // QUOTE BUILDER V1.2 step 1: live-search/attach business logic was
+  // mechanically extracted, unchanged, out of CreateQuoteDrawer.tsx into
+  // this hook. Assertions below that target that logic read hookSrc.
+  // QUOTE BUILDER V1.2 step 2/3: the JSX that used to render directly in
+  // CreateQuoteDrawer.tsx (which now renders no workspace JSX of its own —
+  // see CreateQuoteDrawer.tsx's own header comment) moved into the
+  // desktop/tablet/mobile workspace trees; assertions on that JSX below
+  // read the specific tree file(s) it now lives in instead.
+  const hookSrc = fs.readFileSync(
+    path.join(process.cwd(), 'app/admin/inbox/components/quote-builder/useQuoteBuilderState.ts'), 'utf8',
   )
+  // QUOTE BUILDER V1.2: the Visa/Walz-service preset buttons and the
+  // Select & Price pricing breakdown JSX moved out of CreateQuoteDrawer.tsx
+  // into the desktop/mobile ManualItemPanel.tsx and SelectPricePanel.tsx
+  // trees respectively (tablet reuses the mobile SelectPricePanel
+  // unmodified — see tablet/TabletWorkspace.tsx's own comment).
+  const readSrc = (p: string) => fs.readFileSync(path.join(process.cwd(), p), 'utf8')
+  const desktopManualItemSrc = readSrc('app/admin/inbox/components/quote-builder/desktop/panels/ManualItemPanel.tsx')
+  const mobileManualItemSrc = readSrc('app/admin/inbox/components/quote-builder/mobile/panels/ManualItemPanel.tsx')
+  const desktopSelectPriceSrc = readSrc('app/admin/inbox/components/quote-builder/desktop/SelectPricePanel.tsx')
+  const mobileSelectPriceSrc = readSrc('app/admin/inbox/components/quote-builder/mobile/SelectPricePanel.tsx')
 
   it('search calls go through the existing /api/admin/travel-search/* routes only — no new supplier client code', () => {
-    expect(drawerSrc).toContain("fetch('/api/admin/travel-search/flights'")
-    expect(drawerSrc).toContain("fetch('/api/admin/travel-search/hotels'")
-    expect(drawerSrc).toContain("fetch(`/api/admin/travel-search/activities?")
-    expect(drawerSrc).toContain("fetch('/api/admin/travel-search/transfers'")
-    expect(drawerSrc).toContain("fetch('/api/admin/travel-search/add-to-quote'")
-    expect(drawerSrc).not.toMatch(/new Duffel|hotelbedsRequest\(/i)
+    expect(hookSrc).toContain("fetch('/api/admin/travel-search/flights'")
+    expect(hookSrc).toContain("fetch('/api/admin/travel-search/hotels'")
+    expect(hookSrc).toContain("fetch(`/api/admin/travel-search/activities?")
+    expect(hookSrc).toContain("fetch('/api/admin/travel-search/transfers'")
+    expect(hookSrc).toContain("fetch('/api/admin/travel-search/add-to-quote'")
+    expect(hookSrc).not.toMatch(/new Duffel|hotelbedsRequest\(/i)
   })
 
   it('flight/hotel offers require revalidateState === "ok" before confirmAddPending will attach', () => {
-    const fn = drawerSrc.slice(drawerSrc.indexOf('async function confirmAddPending'), drawerSrc.indexOf('async function handleCreate'))
+    const fn = hookSrc.slice(hookSrc.indexOf('async function confirmAddPending'), hookSrc.indexOf('async function handleCreate'))
     expect(fn).toContain("(pending.type === 'flight' || pending.type === 'hotel') && pending.revalidateState !== 'ok'")
-    expect(drawerSrc).toContain("fetch('/api/admin/travel-search/flights/revalidate'")
-    expect(drawerSrc).toContain("fetch('/api/admin/travel-search/hotels/revalidate'")
+    expect(hookSrc).toContain("fetch('/api/admin/travel-search/flights/revalidate'")
+    expect(hookSrc).toContain("fetch('/api/admin/travel-search/hotels/revalidate'")
   })
 
   it('a stale/expired offer surfaces a re-search prompt rather than silently attaching', () => {
-    expect(drawerSrc).toContain("revalidateState: 'stale'")
-    expect(drawerSrc).toContain('This offer has changed. Please re-search.')
+    expect(hookSrc).toContain("revalidateState: 'stale'")
+    // QUOTE BUILDER V1.2: the re-search prompt's default fallback text is
+    // JSX that moved out of CreateQuoteDrawer.tsx into the Select & Price
+    // panel, built independently for desktop and mobile (tablet reuses the
+    // mobile one) — checked in both.
+    expect(desktopSelectPriceSrc).toContain('This offer has changed. Please re-search.')
+    expect(mobileSelectPriceSrc).toContain('This offer has changed. Please re-search.')
   })
 
   it('client-side currency guard blocks attach and never silently sums mismatched currencies', () => {
-    expect(drawerSrc).toContain('const pendingCurrencyMismatch = pending ? pending.offerCurrency.toUpperCase() !== currency.toUpperCase() : false')
-    const fn = drawerSrc.slice(drawerSrc.indexOf('async function confirmAddPending'), drawerSrc.indexOf('async function handleCreate'))
+    expect(hookSrc).toContain('const pendingCurrencyMismatch = pending ? pending.offerCurrency.toUpperCase() !== currency.toUpperCase() : false')
+    const fn = hookSrc.slice(hookSrc.indexOf('async function confirmAddPending'), hookSrc.indexOf('async function handleCreate'))
     expect(fn).toContain('if (pendingCurrencyMismatch)')
   })
 
   it('the draft quote is staged via the SAME handleCreate used by the manual "Create quote" button — no second creation path', () => {
-    const fn = drawerSrc.slice(drawerSrc.indexOf('async function confirmAddPending'), drawerSrc.indexOf('async function handleCreate'))
+    const fn = hookSrc.slice(hookSrc.indexOf('async function confirmAddPending'), hookSrc.indexOf('async function handleCreate'))
     expect(fn).toContain('await handleCreate({ allowEmptyItems: true })')
     // Exactly one call site creates a quote (inside handleCreate) — the
     // live-search path reuses it rather than POSTing /api/admin/quotes again.
-    const occurrences = drawerSrc.split("fetch('/api/admin/quotes'").length - 1
+    const occurrences = hookSrc.split("fetch('/api/admin/quotes'").length - 1
     expect(occurrences).toBe(1)
   })
 
   it('manual item entry is unaffected: addItem/removeItem and the mini-form are untouched', () => {
-    expect(drawerSrc).toContain('function addItem()')
-    expect(drawerSrc).toContain('function removeItem(key: string)')
-    expect(drawerSrc).toContain("if (!itemTitle.trim() || !isValidAmountMajor(Number(itemPrice))) return")
+    expect(hookSrc).toContain('function addItem()')
+    expect(hookSrc).toContain('function removeItem(key: string)')
+    expect(hookSrc).toContain("if (!itemTitle.trim() || !isValidAmountMajor(Number(itemPrice))) return")
   })
 
   it('Visa/Walz-service is wired as a manual-item preset from the existing UK_VISA_FEES source — no new pricing infra, no Visa Application duplication', () => {
-    expect(drawerSrc).toContain("from '@/lib/config/visa-fees'")
-    expect(drawerSrc).toContain('function applyVisaPreset')
-    expect(drawerSrc).toContain("setItemType('visa_service')")
+    // QUOTE BUILDER V1.2: UK_VISA_FEES is imported by the two
+    // ManualItemPanel.tsx trees now (desktop + mobile, tablet reuses the
+    // mobile one) for the JSX preset-button price labels — no longer by
+    // CreateQuoteDrawer.tsx, which renders no workspace JSX of its own
+    // any more — and by useQuoteBuilderState.ts for applyVisaPreset's own
+    // logic (unchanged).
+    expect(desktopManualItemSrc).toContain("from '@/lib/config/visa-fees'")
+    expect(mobileManualItemSrc).toContain("from '@/lib/config/visa-fees'")
+    expect(hookSrc).toContain("from '@/lib/config/visa-fees'")
+    expect(hookSrc).toContain('function applyVisaPreset')
+    expect(hookSrc).toContain("setItemType('visa_service')")
   })
 
   it('pricing surfaces cost -> markup -> client price -> margin using the house pricing engine (lib/pricing/booking-price)', () => {
-    expect(drawerSrc).toContain("from '@/lib/pricing/booking-price'")
-    expect(drawerSrc).toContain('calculateBookingPrice(')
-    expect(drawerSrc).toContain('Supplier / net cost')
-    expect(drawerSrc).toContain('Client price')
-    expect(drawerSrc).toContain('Margin')
+    // QUOTE BUILDER V1.2: this pricing breakdown moved out of
+    // CreateQuoteDrawer.tsx into the dedicated Select & Price panel, built
+    // independently for desktop and for mobile (tablet reuses the mobile
+    // one) — checked in both so the invariant isn't narrowed to one
+    // breakpoint.
+    for (const src of [desktopSelectPriceSrc, mobileSelectPriceSrc]) {
+      expect(src).toContain("from '@/lib/pricing/booking-price'")
+      expect(src).toContain('calculateBookingPrice(')
+      expect(src).toContain('Supplier / net cost')
+      expect(src).toContain('Client price')
+      expect(src).toContain('Margin')
+    }
   })
 
   it('offer details (segments/rates/etc.) are preserved by passing the normalized offer straight through to add-to-quote, never re-derived', () => {
-    expect(drawerSrc).toContain('buildAttachPayload')
-    expect(drawerSrc).toMatch(/type: 'flight', offer: p\.offer as NormalizedFlightOffer/)
-    expect(drawerSrc).toMatch(/type: 'hotel', offer: p\.offer as NormalizedHotelOffer/)
+    expect(hookSrc).toContain('buildAttachPayload')
+    expect(hookSrc).toMatch(/type: 'flight', offer: p\.offer as NormalizedFlightOffer/)
+    expect(hookSrc).toMatch(/type: 'hotel', offer: p\.offer as NormalizedHotelOffer/)
   })
 })

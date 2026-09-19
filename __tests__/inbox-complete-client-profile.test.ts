@@ -36,6 +36,21 @@ const DRAWERS = [
   'app/admin/inbox/components/ItineraryRequestDrawer.tsx',
 ]
 
+// QUOTE BUILDER V1.2: CreateQuoteDrawer.tsx itself no longer renders
+// <CompleteClientProfile> at all — it renders no workspace JSX of its own
+// any more (see its own header comment). The profile-completeness gate now
+// renders independently inside each of the three breakpoint-specific
+// workspace trees instead. Used in place of DRAWERS for the one test below
+// that actually asserts on the <CompleteClientProfile> call site itself.
+const PROFILE_GATE_CONSUMERS = [
+  'app/admin/inbox/components/PaymentRequestDrawer.tsx',
+  'app/admin/inbox/components/VisaFormDrawer.tsx',
+  'app/admin/inbox/components/ItineraryRequestDrawer.tsx',
+  'app/admin/inbox/components/quote-builder/desktop/DesktopWorkspace.tsx',
+  'app/admin/inbox/components/quote-builder/tablet/TabletWorkspace.tsx',
+  'app/admin/inbox/components/quote-builder/mobile/MobileWorkspace.tsx',
+]
+
 // ── Fix 2: Cancel / collapse affordance ─────────────────────────────────────
 
 describe('Fix 2 — Cancel collapses back to the compact summary', () => {
@@ -82,16 +97,38 @@ describe('Fix 2 — Cancel collapses back to the compact summary', () => {
     expect(propsBlock).not.toMatch(/amount|title|destination|visaType|purpose|provider|items\b/i)
   })
 
-  it('every one of the four consuming drawers passes only the documented props — no extra coupling was introduced', () => {
-    for (const path_ of DRAWERS) {
-      const drawerSrc = read(path_)
-      const start = drawerSrc.indexOf('<CompleteClientProfile')
-      const block = drawerSrc.slice(start, drawerSrc.indexOf('/>', start))
-      expect(block).toContain('conversationId={conversationId}')
-      expect(block).toContain('missingFields={profileGate.missingFields}')
-      expect(block).toContain('availableFields={profileGate.availableFields}')
-      expect(block).toContain('crossRecordConflicts={profileGate.crossRecordConflicts}')
+  it('every consumer of CompleteClientProfile passes only the documented props — no extra coupling was introduced', () => {
+    // QUOTE BUILDER V1.2: three of these six call sites (the desktop/
+    // tablet/mobile workspace trees) spell the gate's own field slightly
+    // differently at the call site than the original CreateQuoteDrawer.tsx
+    // did (`state.profileGate.X` or a locally-destructured `gate.X`,
+    // instead of a bare `profileGate.X`) — a cosmetic difference between
+    // three independently-built files, not a change in the underlying
+    // guarantee. The check below asserts the guarantee itself (exactly
+    // these five documented props, sourced from *.missingFields etc., no
+    // extra coupling to a parent's own form fields) rather than pinning
+    // one file's exact variable name.
+    for (const path_ of PROFILE_GATE_CONSUMERS) {
+      const consumerSrc = read(path_)
+      // lastIndexOf, not indexOf: DesktopWorkspace.tsx's own header comment
+      // separately mentions "<CompleteClientProfile>" in prose (explaining
+      // why it needs the extra conversationId prop) — that mention sits
+      // before the real JSX usage, so indexOf would grab the comment
+      // instead of the actual call site.
+      const start = consumerSrc.lastIndexOf('<CompleteClientProfile')
+      expect(start).toBeGreaterThan(-1)
+      const block = consumerSrc.slice(start, consumerSrc.indexOf('/>', start))
+      expect(block).toMatch(/conversationId=\{[^}]+\}/)
+      expect(block).toMatch(/missingFields=\{[^}]*\.missingFields\}/)
+      expect(block).toMatch(/availableFields=\{[^}]*\.availableFields\}/)
+      expect(block).toMatch(/crossRecordConflicts=\{[^}]*\.crossRecordConflicts\}/)
       expect(block).toContain('onComplete={')
+      // No extra coupling: exactly these five documented props, nothing
+      // reaching into a parent's own amount/title/destination/visaType/etc.
+      const propNames = Array.from(block.matchAll(/(\w+)=\{/g)).map(m => m[1])
+      expect(new Set(propNames)).toEqual(new Set([
+        'conversationId', 'missingFields', 'availableFields', 'crossRecordConflicts', 'onComplete',
+      ]))
     }
   })
 })
@@ -162,12 +199,17 @@ describe('Fix 4 — focus moves to the gate on mount', () => {
   })
 
   it('this is owned entirely by CompleteClientProfile — no per-drawer focus-management duplication was added for the gate', () => {
-    for (const path_ of DRAWERS) {
-      const drawerSrc = read(path_)
-      // Every drawer already has ITS OWN focus-trap/restore logic for the
-      // whole panel (closeRef/restoreRef) — this fix must not add a second,
-      // gate-specific focus effect alongside it.
-      expect(drawerSrc).not.toMatch(/profileGate[\s\S]{0,80}\.focus\(\)/)
+    // QUOTE BUILDER V1.2: profileGate itself is no longer referenced at all
+    // in CreateQuoteDrawer.tsx (this check is vacuously true for it now —
+    // still included for completeness) — it moved into the three
+    // breakpoint workspace trees, checked here too since that's where the
+    // real risk of a duplicated focus effect would actually show up.
+    for (const path_ of [...DRAWERS, ...PROFILE_GATE_CONSUMERS]) {
+      const consumerSrc = read(path_)
+      // Every drawer/workspace already has ITS OWN focus-trap/restore logic
+      // for the whole panel (closeRef/restoreRef) — this fix must not add a
+      // second, gate-specific focus effect alongside it.
+      expect(consumerSrc).not.toMatch(/profileGate[\s\S]{0,80}\.focus\(\)/)
     }
   })
 })

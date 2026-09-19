@@ -38,12 +38,17 @@ const read = (p: string) => fs.readFileSync(path.join(process.cwd(), p), 'utf8')
 // ── Fix 1 — 401 handling, source-level ──────────────────────────────────
 
 describe('Fix 1 — session-expiry (401) handling on the 8 new fetch call sites', () => {
-  const drawerSrc = read('app/admin/inbox/components/CreateQuoteDrawer.tsx')
+  // QUOTE BUILDER V1.2 step 1: router acquisition and every one of these
+  // fetch call sites (search/revalidate/add-to-quote/handleCreate) were
+  // mechanically extracted, unchanged, out of CreateQuoteDrawer.tsx into
+  // useQuoteBuilderState.ts — same source, same 401 checks, new home. This
+  // whole describe block's source-pins therefore now read hookSrc.
+  const hookSrc = read('app/admin/inbox/components/quote-builder/useQuoteBuilderState.ts')
   const quotePageSrc = read('app/admin/quotes/[id]/page.tsx')
 
-  it('CreateQuoteDrawer imports useRouter and obtains a router instance (it is a client component with no prior router access)', () => {
-    expect(drawerSrc).toContain("import { useRouter } from 'next/navigation'")
-    expect(drawerSrc).toContain('const router = useRouter()')
+  it('useQuoteBuilderState (extracted from CreateQuoteDrawer) imports useRouter and obtains a router instance (it is a client-side hook with no prior router access)', () => {
+    expect(hookSrc).toContain("import { useRouter } from 'next/navigation'")
+    expect(hookSrc).toContain('const router = useRouter()')
   })
 
   // 8 occurrences of the `return }` variant (the original 7 call sites plus
@@ -53,17 +58,17 @@ describe('Fix 1 — session-expiry (401) handling on the 8 new fetch call sites'
   // even though they predate this release's 8-site fix list). handleCreate
   // uses a `return null` variant (it returns `GeneratedQuote | null`),
   // checked separately below.
-  it('8 fetch call sites in CreateQuoteDrawer check res.status === 401 and redirect to /admin/login (`return` variant)', () => {
-    const occurrences = drawerSrc.split("if (res.status === 401) { router.push('/admin/login'); return }").length - 1
+  it('8 fetch call sites in useQuoteBuilderState check res.status === 401 and redirect to /admin/login (`return` variant)', () => {
+    const occurrences = hookSrc.split("if (res.status === 401) { router.push('/admin/login'); return }").length - 1
     expect(occurrences).toBe(8)
   })
 
   it('handleCreate (the `GeneratedQuote | null`-returning quote-persistence call) also checks res.status === 401', () => {
-    const fnStart = drawerSrc.indexOf('async function handleCreate')
-    const fnEnd = drawerSrc.indexOf('async function handleFinalize')
+    const fnStart = hookSrc.indexOf('async function handleCreate')
+    const fnEnd = hookSrc.indexOf('async function handleFinalize')
     expect(fnStart).toBeGreaterThan(-1)
     expect(fnEnd).toBeGreaterThan(fnStart)
-    const fn = drawerSrc.slice(fnStart, fnEnd)
+    const fn = hookSrc.slice(fnStart, fnEnd)
     expect(fn).toContain("if (res.status === 401) { router.push('/admin/login'); return null }")
     const idx401 = fn.indexOf('res.status === 401')
     const idxOk = fn.indexOf('!res.ok')
@@ -83,10 +88,10 @@ describe('Fix 1 — session-expiry (401) handling on the 8 new fetch call sites'
 
   for (const { needle, label } of DRAWER_CALL_SITES) {
     it(`${label} fetch is followed by the 401 check before its !res.ok branch`, () => {
-      const fetchIdx = drawerSrc.indexOf(needle)
+      const fetchIdx = hookSrc.indexOf(needle)
       expect(fetchIdx).toBeGreaterThan(-1)
-      const next401Idx = drawerSrc.indexOf('res.status === 401', fetchIdx)
-      const nextOkIdx = drawerSrc.indexOf('!res.ok', fetchIdx)
+      const next401Idx = hookSrc.indexOf('res.status === 401', fetchIdx)
+      const nextOkIdx = hookSrc.indexOf('!res.ok', fetchIdx)
       expect(next401Idx).toBeGreaterThan(-1)
       expect(nextOkIdx).toBeGreaterThan(-1)
       expect(next401Idx).toBeLessThan(nextOkIdx)

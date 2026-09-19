@@ -2,13 +2,13 @@
  * INBOX Phase 3 (Agent D — Client Action Centre UX), items A + B.
  *
  * Item A — ActionDrawerShell + drawerFocusTrap: PaymentRequestDrawer,
- * CreateQuoteDrawer, VisaFormDrawer, and ItineraryRequestDrawer now share
- * ONE dialog-chrome component and ONE Tab-cycle/focus-restore helper
- * module instead of four hand-rolled copies. The existing a11y source-pin
- * suites (inbox-ux41b/42/43/44) already prove each drawer's OWN pinned
- * literals (role="dialog", Escape/Tab handling, safe-area, motion-safe)
- * survived the refactor unmodified; this file additionally proves:
- *   (1) the shared modules exist and are what all four drawers import —
+ * VisaFormDrawer, and ItineraryRequestDrawer share ONE dialog-chrome
+ * component and ONE Tab-cycle/focus-restore helper module instead of
+ * hand-rolled copies. The existing a11y source-pin suites
+ * (inbox-ux41b/42/43/44) already prove each drawer's OWN pinned literals
+ * (role="dialog", Escape/Tab handling, safe-area, motion-safe) survived
+ * the refactor unmodified; this file additionally proves:
+ *   (1) the shared modules exist and are what these three drawers import —
  *       i.e. the duplication was actually removed, not just left in place
  *       alongside a new unused file;
  *   (2) ActionDrawerShell's own markup is the exact same contract the old
@@ -20,6 +20,18 @@
  *       judgment-call comment in ActionDrawerShell.tsx) since its own a11y
  *       tests pin literals from its own, more granular Tab-cycle
  *       implementation that the four action drawers' tests don't require.
+ *
+ * QUOTE BUILDER V1.2 (Agent C — State/Integration): CreateQuoteDrawer no
+ * longer uses ActionDrawerShell at all — the whole point of V1.2 is that
+ * Create Quote becomes a large responsive workspace (full-bleed on mobile,
+ * a large comfortably-inset panel on tablet/desktop), not the shared
+ * `max-w-md` right-hand sheet the other three drawers still use. This is
+ * intentional, permanent, and by design — not a regression to relocate
+ * around. It is now covered by its OWN describe block below, asserting the
+ * new QuoteWorkspaceShell.tsx's actual a11y contract (dialog role,
+ * aria-modal, the same shared Tab-trap/focus-restore helpers, safe-area
+ * padding, its own scrim) instead of the ActionDrawerShell-specific checks
+ * that no longer apply to it.
  *
  * Item B — mutual exclusivity: opening any one of the five Client Action
  * Centre overlays (Payment/Quote/Visa Form/Itinerary Request/Identity)
@@ -35,17 +47,30 @@ const shell   = read('app/admin/inbox/components/ActionDrawerShell.tsx')
 const trap    = read('app/admin/inbox/components/drawerFocusTrap.ts')
 const payment = read('app/admin/inbox/components/PaymentRequestDrawer.tsx')
 const quote   = read('app/admin/inbox/components/CreateQuoteDrawer.tsx')
+const quoteShell = read('app/admin/inbox/components/quote-builder/QuoteWorkspaceShell.tsx')
 const visa    = read('app/admin/inbox/components/VisaFormDrawer.tsx')
 const itin    = read('app/admin/inbox/components/ItineraryRequestDrawer.tsx')
 const details = read('app/admin/inbox/components/DetailsDrawer.tsx')
 const page    = read('app/admin/inbox/page.tsx')
 
-const ACTION_DRAWERS = { PaymentRequestDrawer: payment, CreateQuoteDrawer: quote, VisaFormDrawer: visa, ItineraryRequestDrawer: itin }
+// QUOTE BUILDER V1.2 — CreateQuoteDrawer deliberately removed from this
+// group (see file header comment); it keeps the SAME a11y source-pin
+// literals (role="dialog", motion-safe transition, safe-area) at its own
+// call site, and keeps using the shared drawerFocusTrap.ts helpers, but no
+// longer renders through ActionDrawerShell — it has its own
+// QuoteWorkspaceShell instead, covered by its own describe block below.
+const ACTION_DRAWERS = { PaymentRequestDrawer: payment, VisaFormDrawer: visa, ItineraryRequestDrawer: itin }
+// Used only for the checks that still hold true for all four drawers
+// (shared focus-trap helper usage, and the literal role/transition/
+// safe-area pins at each drawer's own call site) — NOT for the
+// ActionDrawerShell-specific checks (import/render/no-hand-rolled-scrim),
+// which are now false by design for CreateQuoteDrawer.
+const ALL_FOUR_DRAWERS = { ...ACTION_DRAWERS, CreateQuoteDrawer: quote }
 
-// ── Item A: shared chrome actually adopted by all four ──────────────────────
+// ── Item A: shared chrome actually adopted by three of the four ─────────────
 
-describe('ActionDrawerShell — adopted by all four Client Action Centre drawers', () => {
-  it('every drawer imports the shared shell and the shared focus-trap helpers', () => {
+describe('ActionDrawerShell — adopted by PaymentRequestDrawer/VisaFormDrawer/ItineraryRequestDrawer', () => {
+  it('each of these three drawers imports the shared shell and the shared focus-trap helpers', () => {
     for (const [name, src] of Object.entries(ACTION_DRAWERS)) {
       expect(src).toContain("import { ActionDrawerShell } from '@/app/admin/inbox/components/ActionDrawerShell'")
       expect(src).toContain('cycleTabFocus')
@@ -58,12 +83,41 @@ describe('ActionDrawerShell — adopted by all four Client Action Centre drawers
     }
   })
 
-  it('each drawer still declares its own role/transition/safe-area literals at the call site (why: see ActionDrawerShell.tsx header comment — the existing a11y source-pin tests read literals from EACH drawer\'s own file)', () => {
-    for (const src of Object.values(ACTION_DRAWERS)) {
+  it('CreateQuoteDrawer still imports the shared focus-trap helpers (drawerFocusTrap.ts is NOT ActionDrawerShell-specific) but no longer imports or renders ActionDrawerShell itself, and owns its own scrim — a deliberate, permanent V1.2 divergence, not a gap', () => {
+    expect(quote).toContain('cycleTabFocus')
+    expect(quote).toContain('captureFocusRestoreTarget')
+    expect(quote).toContain('queryDrawerFocusables')
+    expect(quote).not.toContain("import { ActionDrawerShell } from '@/app/admin/inbox/components/ActionDrawerShell'")
+    expect(quote).not.toContain('<ActionDrawerShell')
+    // Its own shell (QuoteWorkspaceShell), not ActionDrawerShell, owns the
+    // hand-rolled scrim now — checked directly on that file below.
+    expect(quoteShell).toContain('bg-walz-deep-navy/40')
+  })
+
+  it('each of all four drawers still declares its own role/transition/safe-area literals at the call site (why: see ActionDrawerShell.tsx header comment — the existing a11y source-pin tests read literals from EACH drawer\'s own file) — true for CreateQuoteDrawer too, even though it now passes them to QuoteWorkspaceShell instead of ActionDrawerShell', () => {
+    for (const src of Object.values(ALL_FOUR_DRAWERS)) {
       expect(src).toContain('role="dialog"')
       expect(src).toContain("panelTransitionClassName=\"motion-safe:transition-transform motion-safe:duration-200\"")
       expect(src).toContain("paddingBottom: 'env(safe-area-inset-bottom)'")
     }
+  })
+
+  it('QuoteWorkspaceShell (CreateQuoteDrawer\'s own shell) renders the same underlying dialog contract as ActionDrawerShell — scrim with click-to-close, aria-modal, Z_INDEX.drawer, panelRef as the Tab-trap boundary — just a different shape (large workspace, not a right-hand sheet)', () => {
+    expect(quoteShell).toContain('aria-modal="true"')
+    expect(quoteShell).toContain('Z_INDEX.drawer')
+    expect(quoteShell).toContain('absolute inset-0 bg-walz-deep-navy/40')
+    expect(quoteShell).toContain('onClick={onClose}')
+    expect(quoteShell).toContain('ref={panelRef}')
+    // Explicit, non-defaulted role/transition/safe-area props, same
+    // convention as ActionDrawerShell (forced to the literal call site in
+    // CreateQuoteDrawer.tsx, not hidden here).
+    expect(quoteShell).toContain('role: string')
+    expect(quoteShell).toContain('panelTransitionClassName: string')
+    expect(quoteShell).toContain('panelSafeAreaStyle: CSSProperties')
+    // Renders no header/close button of its own — each workspace tree
+    // (Desktop/Tablet/Mobile) renders its own; a second one here would be
+    // redundant (see file header comment).
+    expect(quoteShell).not.toContain('aria-label="Close"')
   })
 
   it('the shell renders the exact same dialog contract the old inline markup did: aria-modal, Z_INDEX.drawer, header (title + Close button), scrollable body', () => {
