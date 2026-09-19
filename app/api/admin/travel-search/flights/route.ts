@@ -98,6 +98,40 @@ export async function POST(req: NextRequest) {
     const body = await req.json()
     const { from, to, depart, return: ret, trip, cabin, adults, children, infants, segments } = body
 
+    // Closing security hardening: the UI already caps multi-city at 5 legs
+    // (CreateQuoteDrawer.tsx / FlightSearchWidget.tsx, MC_MAX_LEGS) — that
+    // cap is client-side only and was never enforced here, so a direct API
+    // call could submit an arbitrarily large segments array straight into
+    // the Duffel request below. Validated up front, using the same inline
+    // "required field" convention this route already uses just below
+    // (a controlled {error} 400, not a new validation schema/library) —
+    // rejects before searchFlights()/Duffel is ever called.
+    if (trip === 'multi-city') {
+      if (!Array.isArray(segments)) {
+        return NextResponse.json({ error: 'Multi-city requires a segments array.' }, { status: 400 })
+      }
+      if (segments.length < 2) {
+        return NextResponse.json({ error: 'Multi-city requires at least 2 segments.' }, { status: 400 })
+      }
+      if (segments.length > 5) {
+        return NextResponse.json({ error: 'Multi-city supports a maximum of 5 segments.' }, { status: 400 })
+      }
+      const IATA_RE = /^[A-Za-z]{3}$/
+      const DATE_RE = /^\d{4}-\d{2}-\d{2}$/
+      for (let i = 0; i < segments.length; i++) {
+        const s = segments[i] as { from?: unknown; to?: unknown; date?: unknown } | null | undefined
+        if (typeof s?.from !== 'string' || !IATA_RE.test(s.from.trim())) {
+          return NextResponse.json({ error: `Segment ${i + 1}: a valid 3-letter "from" airport code is required.` }, { status: 400 })
+        }
+        if (typeof s?.to !== 'string' || !IATA_RE.test(s.to.trim())) {
+          return NextResponse.json({ error: `Segment ${i + 1}: a valid 3-letter "to" airport code is required.` }, { status: 400 })
+        }
+        if (typeof s?.date !== 'string' || !DATE_RE.test(s.date.trim()) || Number.isNaN(new Date(s.date).getTime())) {
+          return NextResponse.json({ error: `Segment ${i + 1}: a valid departure date is required.` }, { status: 400 })
+        }
+      }
+    }
+
     const isMultiCity = trip === 'multi-city' && Array.isArray(segments) && segments.length >= 2
 
     if (!isMultiCity && (!from || !to || !depart)) {

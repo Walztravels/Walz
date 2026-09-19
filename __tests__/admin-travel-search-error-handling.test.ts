@@ -93,6 +93,124 @@ describe('POST /api/admin/travel-search/flights — error handling', () => {
   })
 })
 
+// Closing security hardening (2026-09-19): the UI's multi-city leg builder
+// already caps at 5 legs (CreateQuoteDrawer.tsx / FlightSearchWidget.tsx,
+// MC_MAX_LEGS), but that cap was never enforced server-side — a direct API
+// call could submit an arbitrarily large or malformed segments array
+// straight into the Duffel request. These tests prove the new validation
+// rejects out-of-bounds/malformed multi-city requests with a controlled
+// 4xx JSON error BEFORE searchFlights()/Duffel is ever called, while
+// leaving a valid request, and one-way/round-trip requests, unaffected.
+describe('POST /api/admin/travel-search/flights — multi-city segment validation', () => {
+  const seg = (from: string, to: string, date: string) => ({ from, to, date })
+
+  it('a valid multi-city request (3 well-formed segments) is accepted and reaches searchFlights', async () => {
+    ;(searchFlights as jest.Mock).mockResolvedValue([])
+    const res = await flightsPOST(req({
+      trip: 'multi-city', cabin: 'economy', adults: 1,
+      segments: [seg('LOS', 'DXB', '2026-11-01'), seg('DXB', 'LHR', '2026-11-05'), seg('LHR', 'LOS', '2026-11-10')],
+    }))
+    expect(res.status).toBe(200)
+    expect(searchFlights).toHaveBeenCalledTimes(1)
+    const params = (searchFlights as jest.Mock).mock.calls[0][0]
+    expect(params.legs).toHaveLength(3)
+  })
+
+  it('exactly 5 segments (the UI maximum) is accepted', async () => {
+    ;(searchFlights as jest.Mock).mockResolvedValue([])
+    const segments = [
+      seg('LOS', 'DXB', '2026-11-01'), seg('DXB', 'LHR', '2026-11-03'), seg('LHR', 'CDG', '2026-11-05'),
+      seg('CDG', 'JFK', '2026-11-07'), seg('JFK', 'LOS', '2026-11-10'),
+    ]
+    const res = await flightsPOST(req({ trip: 'multi-city', cabin: 'economy', adults: 1, segments }))
+    expect(res.status).toBe(200)
+    expect(searchFlights).toHaveBeenCalledTimes(1)
+  })
+
+  it('6 segments (one over the maximum) is rejected with a controlled 400, and Duffel is never called', async () => {
+    const segments = [
+      seg('LOS', 'DXB', '2026-11-01'), seg('DXB', 'LHR', '2026-11-03'), seg('LHR', 'CDG', '2026-11-05'),
+      seg('CDG', 'JFK', '2026-11-07'), seg('JFK', 'SYD', '2026-11-09'), seg('SYD', 'LOS', '2026-11-12'),
+    ]
+    const res = await flightsPOST(req({ trip: 'multi-city', cabin: 'economy', adults: 1, segments }))
+    expect(res.status).toBe(400)
+    const json = await res.json()
+    expect(json.error).toMatch(/maximum of 5/i)
+    expect(searchFlights).not.toHaveBeenCalled()
+  })
+
+  it('fewer than 2 segments is rejected (multi-city requires at least 2)', async () => {
+    const res = await flightsPOST(req({ trip: 'multi-city', cabin: 'economy', adults: 1, segments: [seg('LOS', 'DXB', '2026-11-01')] }))
+    expect(res.status).toBe(400)
+    expect((await res.json()).error).toMatch(/at least 2/i)
+    expect(searchFlights).not.toHaveBeenCalled()
+  })
+
+  it('a missing segments array is rejected', async () => {
+    const res = await flightsPOST(req({ trip: 'multi-city', cabin: 'economy', adults: 1 }))
+    expect(res.status).toBe(400)
+    expect((await res.json()).error).toMatch(/segments array/i)
+    expect(searchFlights).not.toHaveBeenCalled()
+  })
+
+  it('a segment with an invalid (non-3-letter) airport code is rejected', async () => {
+    const res = await flightsPOST(req({
+      trip: 'multi-city', cabin: 'economy', adults: 1,
+      segments: [seg('LOS', 'DXB', '2026-11-01'), seg('DUBAI', 'LHR', '2026-11-05')],
+    }))
+    expect(res.status).toBe(400)
+    expect((await res.json()).error).toMatch(/Segment 2.*"from"/i)
+    expect(searchFlights).not.toHaveBeenCalled()
+  })
+
+  it('a segment with a missing/empty "to" field is rejected', async () => {
+    const res = await flightsPOST(req({
+      trip: 'multi-city', cabin: 'economy', adults: 1,
+      segments: [seg('LOS', 'DXB', '2026-11-01'), { from: 'DXB', to: '', date: '2026-11-05' }],
+    }))
+    expect(res.status).toBe(400)
+    expect((await res.json()).error).toMatch(/Segment 2.*"to"/i)
+    expect(searchFlights).not.toHaveBeenCalled()
+  })
+
+  it('a segment with a malformed date is rejected', async () => {
+    const res = await flightsPOST(req({
+      trip: 'multi-city', cabin: 'economy', adults: 1,
+      segments: [seg('LOS', 'DXB', '2026-11-01'), seg('DXB', 'LHR', 'not-a-date')],
+    }))
+    expect(res.status).toBe(400)
+    expect((await res.json()).error).toMatch(/Segment 2.*departure date/i)
+    expect(searchFlights).not.toHaveBeenCalled()
+  })
+
+  it('a segment that is not an object at all is rejected without throwing', async () => {
+    const res = await flightsPOST(req({
+      trip: 'multi-city', cabin: 'economy', adults: 1,
+      segments: [seg('LOS', 'DXB', '2026-11-01'), null],
+    }))
+    expect(res.status).toBe(400)
+    expect(searchFlights).not.toHaveBeenCalled()
+  })
+
+  it('one-way requests are completely unaffected by the new multi-city validation', async () => {
+    ;(searchFlights as jest.Mock).mockResolvedValue([])
+    const res = await flightsPOST(req({ from: 'LHR', to: 'JFK', depart: '2026-11-01', trip: 'one-way', cabin: 'economy', adults: 1 }))
+    expect(res.status).toBe(200)
+    expect(searchFlights).toHaveBeenCalledTimes(1)
+    const params = (searchFlights as jest.Mock).mock.calls[0][0]
+    expect(params.legs).toHaveLength(1)
+  })
+
+  it('round-trip requests are completely unaffected by the new multi-city validation', async () => {
+    ;(searchFlights as jest.Mock).mockResolvedValue([])
+    const res = await flightsPOST(req({ from: 'LHR', to: 'JFK', depart: '2026-11-01', return: '2026-11-10', trip: 'round-trip', cabin: 'economy', adults: 1 }))
+    expect(res.status).toBe(200)
+    expect(searchFlights).toHaveBeenCalledTimes(1)
+    const params = (searchFlights as jest.Mock).mock.calls[0][0]
+    expect(params.legs).toHaveLength(2)
+  })
+})
+
 describe('POST /api/admin/travel-search/transfers — error handling', () => {
   const TRANSFER_BODY = {
     pickupType: 'IATA', pickupCode: 'DXB', dropoffType: 'HOTEL', dropoffCode: 'H123',
