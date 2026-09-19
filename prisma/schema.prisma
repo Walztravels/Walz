@@ -3154,6 +3154,24 @@ model ConversationRoute {
   status                 String   @default("active")
   createdAt              DateTime @default(now()) @db.Timestamptz
 
+  // SLA Escalation System (INBOX-SLA-1) — additive, nullable columns added
+  // via Supabase SQL editor (prisma/migrations/inbox_sla_escalation_columns.sql)
+  // — NEVER prisma db push or prisma migrate. After running the SQL file,
+  // only `npx prisma generate` is needed locally. firstUnattendedAt is the
+  // anchor of the CURRENT unattended episode (recomputed from live
+  // Chatwoot data every cron tick, so it never drifts); the four
+  // *SentAt/*EscalatedAt columns are per-stage idempotency gates, set ONLY
+  // on notification success; escalationResolvedAt marks the episode
+  // attended/resolved. See lib/inbox/sla-escalation.ts for the full state
+  // machine — this is a live 1:1 state row (same as assignedAt/status
+  // already being overwritten on every re-route), not an append-only log.
+  firstUnattendedAt      DateTime? @db.Timestamptz
+  agentReminderSentAt    DateTime? @db.Timestamptz
+  managerEscalatedAt     DateTime? @db.Timestamptz
+  adminEscalatedAt       DateTime? @db.Timestamptz
+  criticalEscalatedAt    DateTime? @db.Timestamptz
+  escalationResolvedAt   DateTime? @db.Timestamptz
+
   @@index([chatwootConversationId])
   @@index([assignedTo])
 }

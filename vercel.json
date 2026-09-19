@@ -7,6 +7,7 @@
   ],
   "functions": {
     "app/api/cron/activity-reconciliation/route.ts": { "maxDuration": 60 },
+    "app/api/cron/routing-escalation/route.ts":  { "maxDuration": 60 },
     "app/api/cron/jade-daily-brief/route.ts":    { "maxDuration": 60 },
     "app/api/cron/jade-brief-delivery/route.ts":   { "maxDuration": 60 },
     "app/api/cron/jade-brief-whatsapp/route.ts":   { "maxDuration": 60 },
@@ -73,7 +74,7 @@
     },
     {
       "path": "/api/cron/routing-escalation",
-      "schedule": "0 8 * * *"
+      "schedule": "*/5 * * * *"
     },
     {
       "path": "/api/cron/check-flight-prices",

@@ -2,8 +2,25 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getSupabaseAdmin } from '@/lib/supabase'
 import { botChatwootOrNull, logChatwootUnconfigured } from '@/lib/chatwoot/config'
 import { isAutoAssignable } from '@/lib/inbox/assignable'
+import { runSlaEscalationSweep } from '@/lib/inbox/sla-escalation'
 
 export const dynamic = 'force-dynamic'
+
+// SLA Escalation System (INBOX-SLA-1) — additive, staged (30/60/90/120min)
+// staff notifications driven off real Chatwoot message history, independent
+// of the 30-minute reassignment logic below. Runs on every invocation of
+// this route regardless of which branch the legacy logic below takes (an
+// empty `stale` bucket, or Chatwoot being unconfigured, must not skip the
+// 60/90/120-minute stages for conversations the legacy bucket isn't
+// currently looking at). Never allowed to affect the legacy response.
+async function runSlaSweepSafely(): Promise<Awaited<ReturnType<typeof runSlaEscalationSweep>> | null> {
+  try {
+    return await runSlaEscalationSweep()
+  } catch (e) {
+    console.error('[cron:sla-escalation] Sweep failed:', e)
+    return null
+  }
+}
 
 export async function GET(req: NextRequest) {
   // Vercel cron authorization
@@ -23,7 +40,8 @@ export async function GET(req: NextRequest) {
     .lt('assignedAt', threshold)
 
   if (!stale?.length) {
-    return NextResponse.json({ escalated: 0 })
+    const sla = await runSlaSweepSafely()
+    return NextResponse.json({ escalated: 0, sla })
   }
 
   const { data: escalationAgents } = await supabase
@@ -35,7 +53,8 @@ export async function GET(req: NextRequest) {
   const cw = botChatwootOrNull()
   if (!cw) {
     logChatwootUnconfigured('routing-escalation')
-    return NextResponse.json({ ok: false, error: 'Chatwoot not configured' }, { status: 503 })
+    const sla = await runSlaSweepSafely()
+    return NextResponse.json({ ok: false, error: 'Chatwoot not configured', sla }, { status: 503 })
   }
   const chatwootBase  = process.env.CHATWOOT_BASE_URL   ?? 'https://chat.walztravels.com'
   const chatwootToken = cw.token
@@ -101,5 +120,7 @@ export async function GET(req: NextRequest) {
     .in('id', ids)
 
   console.log(`[cron:escalation] Escalated ${escalated}/${stale.length} conversations`)
-  return NextResponse.json({ escalated, total: stale.length })
+
+  const sla = await runSlaSweepSafely()
+  return NextResponse.json({ escalated, total: stale.length, sla })
 }
