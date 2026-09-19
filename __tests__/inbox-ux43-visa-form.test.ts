@@ -15,7 +15,7 @@ import fs from 'fs'
 import path from 'path'
 
 const mockPrisma = {
-  visaApplication: { create: jest.fn(), findUnique: jest.fn() },
+  visaApplication: { create: jest.fn(), findUnique: jest.fn(), findMany: jest.fn() },
   visaApplicationToken: { create: jest.fn(), findMany: jest.fn() },
   documentRequest: { create: jest.fn(), findMany: jest.fn() },
   conversationClientLink: { findFirst: jest.fn() },
@@ -68,6 +68,7 @@ beforeEach(() => {
   mockResolve.mockResolvedValue(CTX_WITH_CASE)
   mockUpsertLink.mockResolvedValue({ ok: true, linkId: 'link1' })
   mockPrisma.visaApplication.findUnique.mockResolvedValue(null)
+  mockPrisma.visaApplication.findMany.mockResolvedValue([])
   mockPrisma.visaApplication.create.mockResolvedValue({
     id: 'app-new', referenceNumber: 'WALZ-NEW123', visaType: 'tourist', destinationIso2: 'GB', status: 'draft',
   })
@@ -168,6 +169,42 @@ describe('createVisaCase', () => {
     const res = await createVisaCase({ session: SESSION, conversationId: 318, destinationIso2: 'GB', visaType: 'tourist' })
     expect(res).toMatchObject({ ok: false, code: 'CASE_ALREADY_EXISTS' })
     expect(mockPrisma.visaApplication.create).not.toHaveBeenCalled()
+  })
+
+  it('QA closing-review fix: a client LINKED via user/account (not application) who already has exactly one existing VisaApplication gets LINKED to it, not duplicated', async () => {
+    mockResolve.mockResolvedValue({
+      ok: true, context: { ...CTX_NO_CASE.context, user: { id: 'user-1' } },
+    })
+    mockPrisma.visaApplication.findMany.mockResolvedValue([
+      { id: 'app-existing', referenceNumber: 'WALZ-OLD999', visaType: 'business', destinationIso2: 'CA', status: 'submitted' },
+    ])
+    const res = await createVisaCase({ session: SESSION, conversationId: 318, destinationIso2: 'GB', visaType: 'tourist' })
+    expect(res).toMatchObject({ ok: true, data: { id: 'app-existing', walzRef: 'WALZ-OLD999' } })
+    expect(mockPrisma.visaApplication.create).not.toHaveBeenCalled()   // no duplicate minted
+    const linkCall = mockUpsertLink.mock.calls[0][0]
+    expect(linkCall.visaApplicationId).toBe('app-existing')
+  })
+
+  it('QA closing-review fix: multiple existing VisaApplications for the resolved client fails closed (AMBIGUOUS_APPLICATION), never guesses', async () => {
+    mockResolve.mockResolvedValue({
+      ok: true, context: { ...CTX_NO_CASE.context, user: { id: 'user-1' } },
+    })
+    mockPrisma.visaApplication.findMany.mockResolvedValue([
+      { id: 'app-a', referenceNumber: 'WALZ-A', visaType: 'tourist', destinationIso2: 'CA', status: 'draft' },
+      { id: 'app-b', referenceNumber: 'WALZ-B', visaType: 'work', destinationIso2: 'UK', status: 'submitted' },
+    ])
+    const res = await createVisaCase({ session: SESSION, conversationId: 318, destinationIso2: 'GB', visaType: 'tourist' })
+    expect(res).toMatchObject({ ok: false, code: 'AMBIGUOUS_APPLICATION' })
+    expect(mockPrisma.visaApplication.create).not.toHaveBeenCalled()
+    expect(mockUpsertLink).not.toHaveBeenCalled()
+  })
+
+  it('zero existing applications for the resolved client (by user/account/email) proceeds to create a brand-new case as before', async () => {
+    mockResolve.mockResolvedValue(CTX_NO_CASE)
+    mockPrisma.visaApplication.findMany.mockResolvedValue([])
+    const res = await createVisaCase({ session: SESSION, conversationId: 318, destinationIso2: 'GB', visaType: 'tourist' })
+    expect(res).toMatchObject({ ok: true, data: { id: 'app-new' } })
+    expect(mockPrisma.visaApplication.create).toHaveBeenCalledTimes(1)
   })
 
   it('extends the SAME conversation link (append-only), preserving prior identity FKs', async () => {
@@ -311,7 +348,7 @@ describe('visa route — action dispatch (source pins)', () => {
 
   it('error codes map to sensible HTTP statuses', () => {
     expect(routeSrc).toContain("result.code === 'CLIENT_IDENTITY_REQUIRED' || result.code === 'CLIENT_CONTEXT_MISMATCH' ? 403")
-    expect(routeSrc).toContain("result.code === 'CASE_ALREADY_EXISTS' ? 409")
+    expect(routeSrc).toContain("result.code === 'CASE_ALREADY_EXISTS' || result.code === 'AMBIGUOUS_APPLICATION' ? 409")
   })
 })
 

@@ -30,6 +30,7 @@ import { resolveClientActionContext } from '@/lib/inbox/client-context'
 import { upsertConversationClientLink } from '@/lib/inbox/client-link'
 import { generateVisaRef, ISO2_TO_SLUG } from '@/lib/visa-config'
 import { safeStatusLabel } from '@/lib/secure-lookup/masking'
+import { normalizeEmail } from '@/lib/identity/normalize'
 import { VISA_TYPES, type VisaType } from '@/lib/action-centre/constants'
 
 const SITE = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://www.walztravels.com'
@@ -40,7 +41,7 @@ const DOC_REQUEST_EXPIRY_DAYS = 14
 
 export type VisaActionError =
   | 'CLIENT_IDENTITY_REQUIRED' | 'CLIENT_CONTEXT_MISMATCH' | 'INVALID_INPUT'
-  | 'CASE_ALREADY_EXISTS' | 'NO_CASE_LINKED' | 'PERSIST_FAILED'
+  | 'CASE_ALREADY_EXISTS' | 'NO_CASE_LINKED' | 'PERSIST_FAILED' | 'AMBIGUOUS_APPLICATION'
 
 export type VisaActionResult<T> =
   | { ok: true; data: T }
@@ -83,6 +84,43 @@ function toCaseDTO(app: { id: string; referenceNumber: string; visaType: string;
   }
 }
 
+type ExistingAppRow = { id: string; referenceNumber: string; visaType: string; destinationIso2: string; status: string }
+
+/**
+ * QA finding (UX-4.3 closing review): ConversationClientLink.visaApplicationId
+ * is only populated when staff link a specific application-typed candidate or
+ * via OTP verification against one — NOT when linking a user/clientAccount/
+ * lead candidate that happens to already have a VisaApplication elsewhere.
+ * Without this check, createVisaCase would see ctx.application === null and
+ * mint a DUPLICATE draft for a client who already has a case. Scoped to the
+ * ALREADY-resolved client (ctx.user/ctx.clientAccount/ctx.contact.email) —
+ * this is a narrower, more precise question than findCredibleDuplicate's
+ * "is this unknown contact a known client" (reusing that function here would
+ * false-positive "ambiguous" against the client's own User/ClientAccount/Lead
+ * row matching itself). Same fail-closed philosophy though: zero → create is
+ * safe, exactly one → find/link it, more than one → never guess.
+ */
+async function findExistingApplicationForClient(
+  ctx: { user?: { id: string } | null; clientAccount?: { id: string } | null; contact?: { email?: string | null } | null },
+): Promise<{ status: 'none' } | { status: 'found'; app: ExistingAppRow } | { status: 'ambiguous' }> {
+  const or: Array<Record<string, unknown>> = []
+  if (ctx.user?.id) or.push({ userId: ctx.user.id })
+  if (ctx.clientAccount?.id) or.push({ clientAccountId: ctx.clientAccount.id })
+  const email = normalizeEmail(ctx.contact?.email)
+  if (email) or.push({ email: { equals: email, mode: 'insensitive' } })
+  if (or.length === 0) return { status: 'none' }
+
+  const apps = await prisma.visaApplication.findMany({
+    where: { OR: or },
+    take: 5,
+    orderBy: { updatedAt: 'desc' },
+    select: { id: true, referenceNumber: true, visaType: true, destinationIso2: true, status: true },
+  })
+  if (apps.length === 0) return { status: 'none' }
+  if (apps.length === 1) return { status: 'found', app: apps[0] }
+  return { status: 'ambiguous' }
+}
+
 // ── Create a new visa case ───────────────────────────────────────────────────
 
 export interface CreateVisaCaseInput {
@@ -100,6 +138,38 @@ export async function createVisaCase(input: CreateVisaCaseInput): Promise<VisaAc
   // Send/Resend Form or Request Documents instead of creating a second one.
   if (ctx.application) {
     return { ok: false, code: 'CASE_ALREADY_EXISTS', error: 'This client already has a visa case linked.' }
+  }
+
+  // QA finding (closing review): the conversation may be LINKED via a
+  // user/clientAccount/lead candidate that was never matched against their
+  // pre-existing VisaApplication (that only happens for application-typed
+  // links or OTP verification — see findExistingApplicationForClient's own
+  // comment). Find and link the correct existing case instead of minting a
+  // duplicate; fail closed if the match is ambiguous, never guess.
+  const existing = await findExistingApplicationForClient(ctx)
+  if (existing.status === 'ambiguous') {
+    return {
+      ok: false, code: 'AMBIGUOUS_APPLICATION',
+      error: 'This client has multiple existing visa applications — resolve via Client Identity before creating a new case.',
+    }
+  }
+  if (existing.status === 'found') {
+    const upsert = await upsertConversationClientLink({
+      chatwootConversationId: input.conversationId,
+      linkMethod: 'admin_manual',
+      linkedBy: input.session.email,
+      visaApplicationId: existing.app.id,
+      userId: ctx.user?.id ?? null,
+      clientAccountId: ctx.clientAccount?.id ?? null,
+      prismaLeadId: ctx.prismaLead?.id ?? null,
+      clientReference: ctx.link?.clientReference ?? null,
+    })
+    if (!upsert.ok) {
+      console.error('[action-centre] visa case found but link update failed:', upsert.error)
+      return { ok: false, code: 'PERSIST_FAILED', error: 'Found an existing visa case but could not link it. Retry.' }
+    }
+    console.log(`[action-centre] VISA_CASE_LINKED_EXISTING ref=${existing.app.referenceNumber} conv=${input.conversationId} by=${input.session.email}`)
+    return { ok: true, data: toCaseDTO(existing.app) }
   }
 
   const destinationIso2 = (input.destinationIso2 ?? '').trim().toUpperCase()

@@ -97,7 +97,7 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   if (!result.ok) {
     const status =
       result.code === 'CLIENT_IDENTITY_REQUIRED' || result.code === 'CLIENT_CONTEXT_MISMATCH' ? 403
-      : result.code === 'CASE_ALREADY_EXISTS' ? 409
+      : result.code === 'CASE_ALREADY_EXISTS' || result.code === 'AMBIGUOUS_APPLICATION' ? 409
       : result.code === 'PERSIST_FAILED' ? 502
       : 400
     return NextResponse.json({ error: result.error, code: result.code }, { status })
