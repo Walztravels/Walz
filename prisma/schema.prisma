@@ -3436,8 +3436,21 @@ model Itinerary {
   ferries         String?  @default("[]")
   // Release 6.1: linked portal User. Added via release61_identity_bridge.sql — NOT prisma db push.
   userId          String?  @map("user_id")
+  // Client Action Centre — Quote → Itinerary conversion bridge. Added via
+  // prisma/migrations/action_centre_quote_itinerary_bridge.sql (Supabase
+  // SQL editor) — NEVER prisma db push. quoteId links this draft back to
+  // its source Quote (POST /api/admin/quotes/[id]/convert-to-itinerary);
+  // conversationId is copied from that Quote's own conversationId at
+  // convert time, mirroring the conversationId columns already added to
+  // Quote (inbox_ux42) and TripRequest (inbox_ux44). Both null for every
+  // Itinerary created any other way.
+  quoteId         String?
+  conversationId  Int?
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
+
+  @@index([quoteId])
+  @@index([conversationId])
 }
 
 // TripRequest — created via Supabase SQL editor.
@@ -5070,6 +5083,14 @@ model Quote {
   conversationId          Int?      @map("conversation_id")
   source                  String?
 
+  // Client Action Centre — Quote → Itinerary conversion bridge. Added via
+  // the SQL editor (action_centre_quote_itinerary_bridge.sql) — NEVER
+  // prisma db push. Nullable + additive: set once this Quote has been
+  // converted into a draft Itinerary via
+  // POST /api/admin/quotes/[id]/convert-to-itinerary. Mirrors
+  // TripRequest.itineraryId's existing back-reference role.
+  itineraryId             String?   @map("itinerary_id")
+
   createdAt               DateTime  @default(now()) @map("created_at")
   updatedAt               DateTime  @updatedAt      @map("updated_at")
 
@@ -5087,6 +5108,7 @@ model Quote {
   @@index([leadId])
   @@index([tripId])
   @@index([conversationId])
+  @@index([itineraryId])
   @@map("quotes")
 }
 

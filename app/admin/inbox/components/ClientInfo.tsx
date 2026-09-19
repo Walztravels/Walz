@@ -1,7 +1,8 @@
 'use client'
-import { useCallback, useEffect, useState } from 'react'
 import { CWConversation, CWAgent, initials, channelIcon } from '../types'
 import { AssignDropdown } from './AssignDropdown'
+import { useClientContext, type ClientContextSlice } from '@/lib/inbox/useClientContext'
+import { selectActionStatusChips } from '@/lib/inbox/action-status'
 
 /** Session-only application linkage (UX-2 — no persistence yet). */
 export interface LinkedAppSummary {
@@ -44,16 +45,6 @@ function formatDate(ts: number): string {
 
 // ── UX-4.1A — server-authoritative client identity status ────────────────────
 
-/** Narrow slice of the client-context DTO this panel renders. */
-interface ClientContextSlice {
-  resolution:  'VERIFIED' | 'LINKED' | 'HEURISTIC' | 'UNRESOLVED'
-  application: { walzRef: string; applicationType: string; status: string } | null
-  link:        { linkMethod: string; clientReference: string | null } | null
-  user:          { name: string | null } | null
-  clientAccount: { name: string | null } | null
-  prismaLead:    { name: string | null } | null
-}
-
 /** UX-4.1C: name + reference to show for a LINKED customer with no
  *  VisaApplication — first-time/legacy customers linked via Find/Create. */
 function linkedDisplay(ctx: ClientContextSlice): { name: string | null; reference: string | null } {
@@ -61,14 +52,35 @@ function linkedDisplay(ctx: ClientContextSlice): { name: string | null; referenc
   return { name, reference: ctx.link?.clientReference ?? null }
 }
 
-type ContextState =
-  | { phase: 'loading' }
-  | { phase: 'error' }
-  | { phase: 'ready'; context: ClientContextSlice }
+/** Phase 3 (Agent D — Client Action Centre UX): compact, read-only chips
+ *  for the four Client Action Centre actions — NOT a dashboard. An action
+ *  with no record for this conversation is omitted entirely (no "not
+ *  started" clutter); labels are the server's own status values, verbatim
+ *  (see lib/inbox/action-status.ts) — never invented here. Selection logic
+ *  lives in selectActionStatusChips (unit-tested there) — this component
+ *  only maps the result to markup. */
+function ActionStatusChips({ ctx }: { ctx: ClientContextSlice }) {
+  const chips = selectActionStatusChips(ctx.actionStatus)
+  if (chips.length === 0) return null
+  return (
+    <div className="pt-3 mt-3 border-t border-walz-border space-y-1">
+      <p className="text-[10px] font-bold text-walz-muted-strong uppercase tracking-widest">Action Status</p>
+      {chips.map(({ key, label, status }) => (
+        <p key={key} className="text-xs text-walz-navy">
+          <span className="font-semibold text-walz-deep-navy">{label}:</span> {status}
+        </p>
+      ))}
+    </div>
+  )
+}
 
 /**
  * Compact CLIENT status block — reads /client-context on conversation
  * change (rail and overlay variants share this component, so both get it).
+ * Phase 1 (Agent A — Inbox Performance): the fetch itself now lives in the
+ * shared useClientContext cache (lib/inbox/useClientContext.ts), deduped
+ * with the overlay ClientInfo instance and the 4 Client Action Centre
+ * drawers — this component's render states are otherwise unchanged.
  * Never fabricates identity: only the server's resolution is rendered.
  */
 function ClientIdentityStatus({
@@ -91,23 +103,7 @@ function ClientIdentityStatus({
    *  identity mutations happen in a page-level drawer, outside this component. */
   identityRefreshToken?: number
 }) {
-  const [state, setState] = useState<ContextState>({ phase: 'loading' })
-  const [reloadKey, setReloadKey] = useState(0)
-  const retry = useCallback(() => setReloadKey(k => k + 1), [])
-
-  useEffect(() => {
-    let cancelled = false
-    setState({ phase: 'loading' })
-    fetch(`/api/admin/inbox/conversations/${conversationId}/client-context`)
-      .then(async res => {
-        if (!res.ok) throw new Error(String(res.status))
-        const data = await res.json() as { context?: ClientContextSlice }
-        if (!data?.context?.resolution) throw new Error('bad payload')
-        if (!cancelled) setState({ phase: 'ready', context: data.context })
-      })
-      .catch(() => { if (!cancelled) setState({ phase: 'error' }) })
-    return () => { cancelled = true }
-  }, [conversationId, reloadKey, identityRefreshToken])
+  const { state, retry } = useClientContext(conversationId, identityRefreshToken ?? 0)
 
   return (
     <div className="p-4 border-b border-walz-border">
@@ -199,6 +195,7 @@ function ClientIdentityStatus({
                 </>
               )}
               {quickActions}
+              <ActionStatusChips ctx={state.context} />
             </div>
           )
         }
@@ -218,6 +215,7 @@ function ClientIdentityStatus({
                 </>
               )}
               {quickActions}
+              <ActionStatusChips ctx={state.context} />
             </div>
           )
         }
@@ -255,6 +253,7 @@ function ClientIdentityStatus({
               Verify via application reference
             </button>
             {quickActions}
+            <ActionStatusChips ctx={state.context} />
           </div>
         )
       })()}

@@ -21,7 +21,15 @@ const CW_ACCOUNT = cwCfg?.accountId ?? '1'
 // (including super admins) "not seeing all messages". Aggregate pages up to
 // a sane cap so the admin inbox always has the full open list.
 const PAGE_SIZE = 25
-const MAX_PAGES = 8   // up to 200 conversations per status
+const MAX_PAGES = 8   // up to 200 conversations per status — hard ceiling, never exceeded
+
+// Phase 1 (Agent A — Inbox Performance): walking all MAX_PAGES on EVERY
+// call — including every 5s poll tick from every connected staff member —
+// was unconditional. DEFAULT_MAX_PAGES is the fast depth for an initial
+// load or a fresh tab switch; a caller (the inbox page's "Load more" /
+// per-tick refresh) may request more via ?maxPages=, but never more than
+// MAX_PAGES regardless of what's asked for.
+const DEFAULT_MAX_PAGES = 2   // 50 conversations on first paint
 
 // P1 hotfix (2026-09-19): the 2026-09-17 incident's root cause included
 // Chatwoot fetches here with NO timeout at all, so a degraded upstream
@@ -68,6 +76,15 @@ export async function GET(req: Request) {
 
   // Explicit page request → single-page passthrough (legacy behavior)
   const explicitPage = searchParams.get('page')
+
+  // Phase 1 (Agent A): bound how many pages THIS call walks. Never trust the
+  // caller past MAX_PAGES — clamp regardless of what's requested, and fall
+  // back to the fast default for anything not a positive integer.
+  const requestedMaxPages = ((): number => {
+    const raw = Number(searchParams.get('maxPages'))
+    if (!Number.isFinite(raw) || raw < 1) return DEFAULT_MAX_PAGES
+    return Math.min(Math.floor(raw), MAX_PAGES)
+  })()
 
   async function fetchPage(page: number): Promise<FetchPageResult> {
     const params = new URLSearchParams({ status, page: String(page) })
@@ -141,26 +158,39 @@ export async function GET(req: Request) {
     return NextResponse.json(inner)
   }
 
-  // Aggregate all pages so no conversation is hidden by pagination
+  // Aggregate pages up to requestedMaxPages (bounded above, hard-capped at
+  // MAX_PAGES) so no conversation within that depth is hidden by pagination.
   let meta: Record<string, unknown> = {}
   const payload: unknown[] = []
+  // Phase 1 (Agent A): true when the loop stopped because it hit the
+  // requested depth while the last page was STILL full — there might be
+  // more beyond it. False when the last page came back short (genuinely no
+  // more) or a later page failed outright. Lets the frontend show "Load
+  // more" only when there's a real reason to believe more exists, using the
+  // exact same "page came back short" signal this loop already uses to stop.
+  let hasMore = false
 
-  for (let page = 1; page <= MAX_PAGES; page++) {
+  for (let page = 1; page <= requestedMaxPages; page++) {
     const result = await fetchPage(page)
     if (!result.ok) {
       if (page === 1) return failureResponse(result.status)
+      hasMore = false
       break
     }
     const inner     = result.data.data ?? result.data
     const pageItems = Array.isArray(inner?.payload) ? inner.payload : []
     if (page === 1) meta = inner?.meta ?? {}
     payload.push(...pageItems)
-    if (pageItems.length < PAGE_SIZE) break
+    if (pageItems.length < PAGE_SIZE) { hasMore = false; break }
+    hasMore = true   // this page was full — more MIGHT exist past requestedMaxPages
   }
 
   // Server-side inbox_view_all enforcement: staff without it receive only
   // conversations assigned to their own Chatwoot agent (Mine) — this holds
-  // for direct API calls too, not just the UI's tabs/filters.
+  // for direct API calls too, not just the UI's tabs/filters. The ownership
+  // filter runs over `payload` as collected above — identical regardless of
+  // how many pages requestedMaxPages walked; it holds no assumption about
+  // page count.
   if (!viewAll) {
     const myAgentId = await resolveChatwootAgentId(session.email)
     const visible = payload.filter((c) => {
@@ -168,8 +198,8 @@ export async function GET(req: Request) {
       const assigneeId = conv.meta?.assignee?.id ?? conv.assignee?.id ?? null
       return scopeToMine(assigneeId, myAgentId)
     })
-    return NextResponse.json({ meta, payload: visible })
+    return NextResponse.json({ meta, payload: visible, hasMore })
   }
 
-  return NextResponse.json({ meta, payload })
+  return NextResponse.json({ meta, payload, hasMore })
 }

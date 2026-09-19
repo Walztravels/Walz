@@ -293,11 +293,18 @@ describe('heuristic candidate hygiene (review L2)', () => {
 
 describe('ClientInfo identity panel', () => {
   it('fetches the client-context on conversation change (shared by rail + overlay)', () => {
-    expect(clientInfo).toContain('/client-context')
     expect(clientInfo).toContain('conversationId={conv.id}')
-    // UX-4.1C: extended with identityRefreshToken so a Find/Create link
-    // (mutated in a page-level drawer) forces this panel to refetch too.
-    expect(clientInfo).toContain('[conversationId, reloadKey, identityRefreshToken]')
+    // Phase 1 (Agent A — Inbox Performance): the fetch itself moved into the
+    // shared useClientContext cache/hook — deduped with the overlay
+    // ClientInfo instance and the 4 Client Action Centre drawers, which all
+    // read from the SAME module-level cache keyed by conversationId instead
+    // of each independently hitting /client-context.
+    expect(clientInfo).toContain("from '@/lib/inbox/useClientContext'")
+    // UX-4.1C: identityRefreshToken still threads through unchanged — a
+    // Find/Create link (mutated in a page-level drawer) forces the shared
+    // hook to refetch for every consumer of this conversation, not just
+    // this panel.
+    expect(clientInfo).toContain('useClientContext(conversationId, identityRefreshToken ?? 0)')
   })
 
   it('renders the three states: skeleton (motion-safe), failure + Retry, resolution chip', () => {

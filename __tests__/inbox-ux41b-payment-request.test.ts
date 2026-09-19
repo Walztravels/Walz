@@ -397,7 +397,13 @@ describe('Request Payment UI', () => {
   })
 
   it('mobile: the overlay ClientInfo (DetailsDrawer) gets the same action wiring', () => {
-    expect(page).toContain('onOpenPaymentRequest={() => { screens.closeDetails(); setPaymentOpen(true) }}')
+    // Phase 3 (Agent D — Client Action Centre UX): opening any one of the
+    // five action overlays now closes whichever other was open first (item
+    // B, mutual exclusivity) — openPaymentRequest() wraps setPaymentOpen(true)
+    // with that guard. The overlay still closes Client Details first, then
+    // opens Payment, exactly as before.
+    expect(page).toContain('onOpenPaymentRequest={() => { screens.closeDetails(); openPaymentRequest() }}')
+    expect(page).toContain('function openPaymentRequest() { closeOtherActionOverlays(\'payment\'); setPaymentOpen(true) }')
   })
 })
 

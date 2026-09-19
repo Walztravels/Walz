@@ -12,6 +12,7 @@ import {
 } from '@/lib/admin/permissions'
 import { PERMISSION_GROUPS, ROLE_DEFAULTS } from '@/lib/permissions'
 import { useStaffPermissions } from '@/hooks/useStaffPermissions'
+import { ROLE_CATALOG_MAP, ROLE_MANAGER_ORDER } from '@/lib/rbac/roles'
 
 // ─── Permission groups with descriptions ─────────────────────────────────────
 
@@ -121,21 +122,15 @@ const PERM_GROUPS: { label: string; perms: Permission[] }[] = [
   { label: 'Quotes & Proposals', perms: ['quotes', 'quotes.create', 'quotes.edit', 'quotes.send', 'quotes.delete', 'quotes.convert', 'quotes.view_margin', 'quotes.manage_pricing', 'quotes.extend_validity', 'quotes.view_audit'] },
 ]
 
-const ROLE_META: Record<AdminRole, { label: string; color: string; desc: string }> = {
-  super_admin:        { label: 'Super Admin',              color: 'bg-violet-600', desc: 'Full unrestricted access to everything' },
-  operations_manager: { label: 'Operations Manager',       color: 'bg-blue-600',   desc: 'All ops, clients, bookings, staff oversight, intelligence' },
-  general_manager:    { label: 'General Manager',          color: 'bg-indigo-600', desc: 'Broad access — bookings, clients, visa, tours, intelligence' },
-  senior_manager:     { label: 'Senior Manager',           color: 'bg-teal-700',   desc: 'Bookings, visa, clients, reports, core intelligence' },
-  visa_officer:       { label: 'Visa Officer',             color: 'bg-purple-600', desc: 'Visa applications, documents, Document Intelligence Centre' },
-  coordinator:        { label: 'Coordinator',              color: 'bg-amber-600',  desc: 'Visa + booking coordination, document tools' },
-  flight_staff:       { label: 'Flight Ticketing Staff',   color: 'bg-sky-600',    desc: 'Flights, tickets, PNRs, itinerary generator' },
-  tours_staff:        { label: 'Tours & Activities Staff', color: 'bg-green-600',  desc: 'Tours, activities, vouchers, Jade AI' },
-  hotel_staff:        { label: 'Hotel Reservation Staff',  color: 'bg-cyan-600',   desc: 'Hotel bookings, guest management, Jade AI' },
-  sales_agent:        { label: 'Sales Agent',              color: 'bg-orange-600', desc: 'Assigned leads, CRM, own clients, Jade AI' },
-  accountant:         { label: 'Accountant',               color: 'bg-rose-600',   desc: 'Payments, refunds, financial reports only' },
-  customer_support:   { label: 'Customer Support',         color: 'bg-slate-600',  desc: 'Tickets, client profiles, booking status, Jade AI' },
-  sales_rep:          { label: 'Sales Representative',     color: 'bg-yellow-600', desc: 'Leads and reports only, Jade AI' },
-}
+// Sourced from lib/rbac/roles.ts (the single role catalogue) instead of a
+// locally duplicated map. ROLE_MANAGER_ORDER preserves this page's original
+// role-list ordering, which predates and differs from the Staff page's.
+const ROLE_META: Record<AdminRole, { label: string; color: string; desc: string }> = Object.fromEntries(
+  ROLE_MANAGER_ORDER.map(role => {
+    const entry = ROLE_CATALOG_MAP[role]
+    return [role, { label: entry.label, color: entry.solidClass, desc: entry.managerDescription }]
+  }),
+) as Record<AdminRole, { label: string; color: string; desc: string }>
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 

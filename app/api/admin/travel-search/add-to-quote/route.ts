@@ -2,12 +2,71 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getAdminSession }           from '@/lib/admin-auth'
 import { hasPermission }             from '@/lib/admin/permissions'
 import prisma                        from '@/lib/db'
+import { resolveClientActionContext } from '@/lib/inbox/client-context'
+import { getOffer }                  from '@/lib/flights/duffel'
+import { hotelbedsRequest }          from '@/lib/hotelbeds'
 import type {
   AddToQuotePayload,
   NormalizedFlightSegment,
 } from '@/lib/travel-search/types'
 
 export const dynamic = 'force-dynamic'
+
+// Closing fix (security + QA review, 2026-09-19): re-verify the freshly
+// revalidated supplier cost for flight/hotel attaches instead of trusting
+// the client-submitted costMinor outright. Reuses the exact Duffel/
+// Hotelbeds calls the sibling revalidate routes make — no new supplier
+// infrastructure — then rejects on ANY mismatch (strict, not tolerance-
+// banded) rather than silently accepting a manipulated price.
+async function revalidateFlightTotalMinor(
+  offerId: string,
+): Promise<{ ok: true; totalAmountMinor: number; currency: string | null } | { ok: false; error: string }> {
+  let rawOffer: Record<string, unknown>
+  try {
+    rawOffer = await getOffer(offerId)
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err)
+    if (msg.includes('404') || msg.includes('not_found')) {
+      return { ok: false, error: 'This fare is no longer available. Please re-search.' }
+    }
+    throw err
+  }
+  const data    = (rawOffer.data ?? rawOffer) as Record<string, unknown>
+  const expires = (data.expires_at as string) ?? null
+  if (expires && new Date(expires) < new Date()) {
+    return { ok: false, error: 'This fare has expired. Please re-search.' }
+  }
+  const totalAmount = parseFloat(String((data.total_amount ?? data.base_amount ?? 0)))
+  const currency = (data.total_currency ?? data.base_currency ?? null) as string | null
+  return { ok: true, totalAmountMinor: Math.round(totalAmount * 100), currency }
+}
+
+async function revalidateHotelNetMinor(
+  rateKey: string,
+): Promise<{ ok: true; netMinor: number; currency: string | null } | { ok: false; error: string }> {
+  let data: Record<string, unknown>
+  try {
+    data = await hotelbedsRequest('hotel', '/checkrates', {
+      method: 'POST', body: { rooms: [{ rateKey }] },
+    })
+  } catch (err: unknown) {
+    const msg = err instanceof Error ? err.message : String(err)
+    if (msg.includes('400') || msg.includes('INVALID_RATE')) {
+      return { ok: false, error: 'This rate is no longer available. Please re-search.' }
+    }
+    throw err
+  }
+  const hotels = data.hotels as Array<Record<string, unknown>> | undefined
+  const hotel  = (data.hotel ?? (hotels?.[0]) ?? {}) as Record<string, unknown>
+  const rooms  = (hotel.rooms as Array<Record<string, unknown>>) ?? []
+  const match  = rooms
+    .flatMap(r => ((r.rates as Array<Record<string, unknown>>) ?? []))
+    .find(rate => (rate.rateKey as string) === rateKey)
+  if (!match) return { ok: false, error: 'This rate is no longer available. Please re-search.' }
+  const net = parseFloat(String(match.net ?? match.sellingRate ?? 0))
+  const currency = (match.currency ?? hotel.currency ?? null) as string | null
+  return { ok: true, netMinor: Math.round(net * 100), currency }
+}
 
 function bigintToNumber(obj: unknown): unknown {
   if (typeof obj === 'bigint') return Number(obj)
@@ -36,9 +95,64 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Quote is not editable' }, { status: 409 })
   }
 
+  // Closing fix (security + QA review, 2026-09-19): re-verify identity for
+  // Inbox-originated quotes before this commercial mutation, mirroring the
+  // HARD INVARIANT createPaymentRequest() enforces for every other Action
+  // Centre commercial route (VERIFIED/LINKED only; HEURISTIC/UNRESOLVED
+  // never authorize anything). A quote with no conversationId was built
+  // outside the Inbox (e.g. the standalone travel-search builder) — there
+  // is no conversation to resolve identity against, so this check is
+  // skipped for it; that is the existing, correct scope of the invariant.
+  if (quote.conversationId != null) {
+    const resolved = await resolveClientActionContext(quote.conversationId, session)
+    if (!resolved.ok) {
+      return NextResponse.json({ error: resolved.error, code: 'CLIENT_IDENTITY_REQUIRED' }, { status: resolved.status })
+    }
+    if (resolved.context.resolution !== 'VERIFIED' && resolved.context.resolution !== 'LINKED') {
+      return NextResponse.json(
+        { error: 'Verify the client identity before adding items to this quote.', code: 'CLIENT_IDENTITY_REQUIRED' },
+        { status: 403 },
+      )
+    }
+  }
+
+  // Currency safety (defense in depth — the drawer/page also check this
+  // client-side): a Quote has one currency; totals sum blindly across
+  // items, so an item priced in a different currency must never attach.
+  if (String(payload.currency).toUpperCase() !== String(quote.currency).toUpperCase()) {
+    return NextResponse.json(
+      { error: `This item is priced in ${payload.currency}; the quote uses ${quote.currency}.`, code: 'CURRENCY_MISMATCH' },
+      { status: 400 },
+    )
+  }
+
   if (payload.type === 'flight') {
     const { offer, costMinor, markupMinor, serviceFeeMinor, sellingPriceMinor, currency,
             isRecommended, label, clientNote, internalNote } = payload
+
+    // Price verification (defense in depth — do NOT trust client-submitted
+    // costMinor): re-fetch the live Duffel offer, the same call
+    // /api/admin/travel-search/flights/revalidate makes, and reject on any
+    // mismatch rather than persisting a possibly-manipulated cost.
+    const revalidated = await revalidateFlightTotalMinor(offer.providerOfferId)
+    if (!revalidated.ok) {
+      return NextResponse.json({ error: revalidated.error, code: 'PRICE_REVALIDATION_FAILED' }, { status: 400 })
+    }
+    if (revalidated.totalAmountMinor !== costMinor) {
+      return NextResponse.json(
+        { error: 'This fare’s price has changed since it was selected. Please re-search and try again.', code: 'PRICE_MISMATCH' },
+        { status: 400 },
+      )
+    }
+    // A magnitude match alone isn't enough — the supplier's own currency for
+    // this offer must match what's being persisted, or a numerically-equal
+    // amount in a different currency would silently pass the check above.
+    if (revalidated.currency && revalidated.currency.toUpperCase() !== String(currency).toUpperCase()) {
+      return NextResponse.json(
+        { error: 'This fare is priced in a different currency than expected. Please re-search and try again.', code: 'PRICE_MISMATCH' },
+        { status: 400 },
+      )
+    }
 
     const allSegs: NormalizedFlightSegment[] = [...offer.segments, ...offer.returnSegments]
     const firstSeg = allSegs[0]
@@ -138,6 +252,30 @@ export async function POST(req: NextRequest) {
     const { offer, selectedRateKey, costMinor, markupMinor, serviceFeeMinor,
             sellingPriceMinor, currency, isRecommended, label, clientNote, internalNote } = payload
 
+    // Price verification (defense in depth — do NOT trust client-submitted
+    // costMinor): re-fetch the live Hotelbeds rate, the same call
+    // /api/admin/travel-search/hotels/revalidate makes, and reject on any
+    // mismatch rather than persisting a possibly-manipulated cost.
+    const revalidated = await revalidateHotelNetMinor(selectedRateKey)
+    if (!revalidated.ok) {
+      return NextResponse.json({ error: revalidated.error, code: 'PRICE_REVALIDATION_FAILED' }, { status: 400 })
+    }
+    if (revalidated.netMinor !== costMinor) {
+      return NextResponse.json(
+        { error: 'This rate’s price has changed since it was selected. Please re-search and try again.', code: 'PRICE_MISMATCH' },
+        { status: 400 },
+      )
+    }
+    // A magnitude match alone isn't enough — the supplier's own currency for
+    // this rate must match what's being persisted, or a numerically-equal
+    // amount in a different currency would silently pass the check above.
+    if (revalidated.currency && revalidated.currency.toUpperCase() !== String(currency).toUpperCase()) {
+      return NextResponse.json(
+        { error: 'This rate is priced in a different currency than expected. Please re-search and try again.', code: 'PRICE_MISMATCH' },
+        { status: 400 },
+      )
+    }
+
     const selectedRate = offer.rates.find(r => r.rateKey === selectedRateKey) ?? offer.rates[0]
 
     const hotelOption = await prisma.quoteHotelOption.create({
@@ -200,6 +338,14 @@ export async function POST(req: NextRequest) {
   }
 
   if (payload.type === 'activity' || payload.type === 'transfer') {
+    // KNOWN, SCOPED RESIDUAL GAP (security + QA review, 2026-09-19): unlike
+    // flight/hotel above, there is no existing revalidation route for
+    // activities or transfers (no /api/admin/travel-search/activities|
+    // transfers/revalidate) — Hotelbeds/Viator expose no equivalent
+    // "confirm this rate/offer is still valid at this price" call for these
+    // product types today. The client-submitted net costMinor is trusted
+    // as-is here, pending future revalidation infrastructure for these two
+    // types. Flagged deliberately so this does not read as an oversight.
     const { offer, costMinor, markupMinor, serviceFeeMinor, sellingPriceMinor, currency,
             clientNote, internalNote } = payload
 

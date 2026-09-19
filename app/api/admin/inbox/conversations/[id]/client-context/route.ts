@@ -3,6 +3,7 @@ import { getAdminSession } from '@/lib/admin-auth'
 import { rateLimit } from '@/lib/rate-limit'
 import { checkInboxPermission, checkConversationAccess } from '@/lib/inbox/authz'
 import { resolveClientActionContext } from '@/lib/inbox/client-context'
+import { loadActionStatusSummary } from '@/lib/inbox/action-status'
 import { upsertConversationClientLink, type ConversationLinkMethod } from '@/lib/inbox/client-link'
 import {
   findCredibleDuplicate, resolveExistingReference, generateClientReference,
@@ -70,7 +71,15 @@ export async function GET(
   // them internally as defense in depth — both checks are cached).
   const result = await resolveClientActionContext(convId, session)
   if (!result.ok) return NextResponse.json({ error: result.error }, { status: result.status })
-  return NextResponse.json({ context: result.context })
+
+  // Phase 3 (Agent D — Client Action Centre UX), item C: a pure additive
+  // field on this SAME response — the summary ClientInfo's status chips
+  // read. Never a second endpoint; the shared useClientContext cache reads
+  // this response exactly like every other field on `context`. VisaForm's
+  // status is resolved via the SAME ConversationClientLink → application
+  // path the resolver above already computed — never re-derived.
+  const actionStatus = await loadActionStatusSummary(convId, result.context.application)
+  return NextResponse.json({ context: { ...result.context, actionStatus } })
 }
 
 export async function POST(

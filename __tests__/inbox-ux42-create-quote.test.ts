@@ -324,9 +324,24 @@ describe('CreateQuoteDrawer — send/share discipline and a11y (source pins)', (
     expect(fn).toContain('metadata: {}')
   })
 
-  it('does not build a second live-search UI; Hotelbeds live search stays excluded (documented)', () => {
-    expect(drawerSrc).toContain('Hotelbeds')
-    expect(drawerSrc).toContain('excluded regardless')
+  it('Phase 2 (UX-4.2b): live Flight/Hotel/Activity/Transfer search reuses the existing travel-search infrastructure only — no new supplier calls', () => {
+    expect(drawerSrc).toContain("fetch('/api/admin/travel-search/flights'")
+    expect(drawerSrc).toContain("fetch('/api/admin/travel-search/hotels'")
+    expect(drawerSrc).toContain('fetch(`/api/admin/travel-search/activities?')
+    expect(drawerSrc).toContain("fetch('/api/admin/travel-search/transfers'")
+    expect(drawerSrc).toContain("fetch('/api/admin/travel-search/add-to-quote'")
+    expect(drawerSrc).not.toMatch(/duffel\.|hotelbedsRequest|new Duffel/i)
+  })
+
+  it('live-search attach enforces the single-quote-currency invariant client-side before calling add-to-quote', () => {
+    expect(drawerSrc).toContain('pendingCurrencyMismatch')
+    expect(drawerSrc).toContain('the quote is in')
+  })
+
+  it('flight/hotel offers must revalidate before attach; activity/transfer (no revalidate route) are not blocked on it', () => {
+    expect(drawerSrc).toContain("fetch('/api/admin/travel-search/flights/revalidate'")
+    expect(drawerSrc).toContain("fetch('/api/admin/travel-search/hotels/revalidate'")
+    expect(drawerSrc).toContain("revalidateState !== 'ok'")
   })
 
   it('Finalize is disabled while in flight (security closing re-check)', () => {

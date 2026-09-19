@@ -5,27 +5,17 @@ import { useRouter } from 'next/navigation'
 import {
   UserPlus, RefreshCw, ShieldCheck, Eye, EyeOff, Pencil,
   Trash2, RotateCcw, CheckCircle, XCircle, X, Users, Activity,
-  Globe, ChevronDown, Clock,
+  Globe, ChevronDown, Clock, AlertTriangle,
 } from 'lucide-react'
 import { useStaffPermissions } from '@/hooks/useStaffPermissions'
 import { cn } from '@/lib/utils'
 import { CheckInsTab } from './CheckInsTab'
-
-// ── Types ─────────────────────────────────────────────────────────────────────
-type RbacRole =
-  | 'super_admin'
-  | 'operations_manager'
-  | 'general_manager'
-  | 'senior_manager'
-  | 'visa_officer'
-  | 'flight_staff'
-  | 'tours_staff'
-  | 'hotel_staff'
-  | 'sales_agent'
-  | 'sales_rep'
-  | 'coordinator'
-  | 'accountant'
-  | 'customer_support'
+import {
+  type RbacRole,
+  ASSIGNABLE_STAFF_ROLES,
+  SUPER_ADMIN_ROLE,
+  getRoleCatalogEntry,
+} from '@/lib/rbac/roles'
 
 interface StaffMember {
   id:               string
@@ -50,6 +40,9 @@ interface ActivityEntry {
 }
 
 // ── Role configuration ────────────────────────────────────────────────────────
+// Sourced from lib/rbac/roles.ts (the single role catalogue) — field names
+// (badge/dot instead of badgeClass/dotClass) kept as before so the rest of
+// this file's JSX doesn't need to change.
 const STAFF_ROLES: {
   value:           RbacRole
   label:           string
@@ -57,115 +50,22 @@ const STAFF_ROLES: {
   fullDescription: string   // long — shown in form info box
   badge:           string
   dot:             string
-}[] = [
-  {
-    value:           'operations_manager',
-    label:           'Operations Manager',
-    description:     'All bookings, clients & staff oversight',
-    fullDescription: 'Full operational access. Manages all bookings, clients, visa processing, supplier management and staff performance. Cannot access system settings or API credentials.',
-    badge:           'bg-blue-100 text-blue-700',
-    dot:             'bg-blue-500',
-  },
-  {
-    value:           'general_manager',
-    label:           'General Manager',
-    description:     'Broad access — bookings, clients, visa & tours',
-    fullDescription: 'Operations access. Manages clients, bookings, visa applications and trip planner. Cannot access staff management, settings or financial reports.',
-    badge:           'bg-indigo-100 text-indigo-700',
-    dot:             'bg-indigo-500',
-  },
-  {
-    value:           'senior_manager',
-    label:           'Senior Manager',
-    description:     'Bookings, visa, clients & reports',
-    fullDescription: 'Senior management access. Manages bookings, visa applications and client records. Has access to reports and analytics. Cannot manage staff or settings.',
-    badge:           'bg-teal-100 text-teal-700',
-    dot:             'bg-teal-500',
-  },
-  {
-    value:           'visa_officer',
-    label:           'Visa Officer',
-    description:     'Visa applications, documents & compliance',
-    fullDescription: 'Visa department access only. Processes visa applications, reviews documents, tracks embassy appointments and manages compliance reports.',
-    badge:           'bg-purple-100 text-purple-700',
-    dot:             'bg-purple-500',
-  },
-  {
-    value:           'flight_staff',
-    label:           'Flight Ticketing Staff',
-    description:     'Flights, tickets, PNRs & refunds',
-    fullDescription: 'Flight operations access. Issues and manages tickets, PNR management, refund requests and airline communications. No access to visa or accounts.',
-    badge:           'bg-sky-100 text-sky-700',
-    dot:             'bg-sky-500',
-  },
-  {
-    value:           'tours_staff',
-    label:           'Tours & Activities Staff',
-    description:     'Tours, activities & vouchers',
-    fullDescription: 'Tours department access. Manages tours, Hotelbeds activities, tour guides and customer vouchers.',
-    badge:           'bg-green-100 text-green-700',
-    dot:             'bg-green-500',
-  },
-  {
-    value:           'hotel_staff',
-    label:           'Hotel Reservation Staff',
-    description:     'Hotel bookings & guest management',
-    fullDescription: 'Hotel department access. Manages hotel bookings, supplier relationships and guest management.',
-    badge:           'bg-cyan-100 text-cyan-700',
-    dot:             'bg-cyan-500',
-  },
-  {
-    value:           'sales_agent',
-    label:           'Sales Agent',
-    description:     'Assigned leads, CRM & quotes',
-    fullDescription: 'Sales access only. Manages assigned leads, CRM, quotes and invoices. Can only see their own clients and leads. Cannot see other agents data.',
-    badge:           'bg-orange-100 text-orange-700',
-    dot:             'bg-orange-500',
-  },
-  {
-    value:           'coordinator',
-    label:           'Coordinator',
-    description:     'Visa, clients & bookings coordination',
-    fullDescription: 'Coordination access. Manages visa processing, client files and booking coordination. Cannot see financial reports or staff management.',
-    badge:           'bg-amber-100 text-amber-700',
-    dot:             'bg-amber-500',
-  },
-  {
-    value:           'sales_rep',
-    label:           'Sales Representative',
-    description:     'Leads and reports only',
-    fullDescription: 'Leads and reports only. Manages leads and submits daily reports. View only access to clients.',
-    badge:           'bg-yellow-100 text-yellow-700',
-    dot:             'bg-yellow-500',
-  },
-  {
-    value:           'accountant',
-    label:           'Accountant',
-    description:     'Payments, refunds & financial reports',
-    fullDescription: 'Finance access only. Manages payments, refunds, invoices and revenue reports. Cannot modify bookings or visa files.',
-    badge:           'bg-rose-100 text-rose-700',
-    dot:             'bg-rose-500',
-  },
-  {
-    value:           'customer_support',
-    label:           'Customer Support',
-    description:     'Tickets, client profiles & booking status',
-    fullDescription: 'Support access only. Manages support tickets, client profiles and booking status updates. Cannot issue refunds or access financial data.',
-    badge:           'bg-slate-100 text-slate-700',
-    dot:             'bg-slate-500',
-  },
-]
-
-// super_admin badge — only shown in table, not selectable in form
-const SUPER_ADMIN_BADGE = 'bg-violet-100 text-violet-700'
+}[] = ASSIGNABLE_STAFF_ROLES.map(r => ({
+  value:           r.value,
+  label:           r.label,
+  description:     r.description,
+  fullDescription: r.fullDescription,
+  badge:           r.badgeClass,
+  dot:             r.dotClass,
+}))
 
 function getRoleMeta(role: string) {
-  const found = STAFF_ROLES.find(r => r.value === role)
-  if (found) return found
-  if (role === 'super_admin') return {
-    value: 'super_admin', label: 'Super Admin',
-    description: 'Full system access',
-    badge: SUPER_ADMIN_BADGE, dot: 'bg-violet-500',
+  const entry = getRoleCatalogEntry(role)
+  if (entry) {
+    return {
+      value: entry.value, label: entry.label, description: entry.description,
+      badge: entry.badgeClass, dot: entry.dotClass,
+    }
   }
   return { value: role, label: role, description: '', badge: 'bg-gray-100 text-gray-600', dot: 'bg-gray-400' }
 }
@@ -209,16 +109,34 @@ function StaffModal({
   const [saving,       setSaving]       = useState(false)
   const [error,        setError]        = useState('')
 
+  // Roles that already have a RolePermission row — used to flag/disable roles
+  // that would otherwise silently resolve to zero permissions on login. null
+  // while loading (nothing is disabled yet, matching pre-fetch behavior).
+  const [configuredRoles, setConfiguredRoles] = useState<Set<string> | null>(null)
+  useEffect(() => {
+    let cancelled = false
+    fetch('/api/admin/roles')
+      .then(r => r.json())
+      .then((records: Array<{ role: string }>) => {
+        if (cancelled || !Array.isArray(records)) return
+        setConfiguredRoles(new Set(records.map(r => r.role)))
+      })
+      .catch(() => { /* fail open on the UI hint — the server-side guard still enforces it */ })
+    return () => { cancelled = true }
+  }, [])
+
   const superAdminEntry = {
-    value:           'super_admin' as RbacRole,
-    label:           'Super Admin',
-    description:     'Full system access — all features, settings and staff management',
-    fullDescription: 'Unrestricted access to all features, system settings, API credentials, audit logs and staff management.',
-    badge:           SUPER_ADMIN_BADGE,
-    dot:             'bg-violet-500',
+    value:           SUPER_ADMIN_ROLE.value,
+    label:           SUPER_ADMIN_ROLE.label,
+    description:     SUPER_ADMIN_ROLE.description,
+    fullDescription: SUPER_ADMIN_ROLE.fullDescription,
+    badge:           SUPER_ADMIN_ROLE.badgeClass,
+    dot:             SUPER_ADMIN_ROLE.dotClass,
   }
   const availableRoles = isSuperAdmin ? [superAdminEntry, ...STAFF_ROLES] : STAFF_ROLES
   const selectedRole = availableRoles.find(r => r.value === role) ?? availableRoles[0]
+  const isRoleUnconfigured = (r: RbacRole) =>
+    r !== 'super_admin' && configuredRoles !== null && !configuredRoles.has(r)
 
   async function submit(e: React.FormEvent) {
     e.preventDefault()
@@ -352,9 +270,17 @@ function StaffModal({
                 className="w-full px-3 py-2.5 bg-white border border-gray-200 rounded-xl text-sm text-gray-800 appearance-none focus:outline-none focus:border-[#C9A84C] focus:ring-1 focus:ring-[#C9A84C] pr-9"
               >
                 <option value="" disabled>Select a role…</option>
-                {availableRoles.map(r => (
-                  <option key={r.value} value={r.value}>{r.label}</option>
-                ))}
+                {availableRoles.map(r => {
+                  const unconfigured = isRoleUnconfigured(r.value)
+                  return (
+                    <option
+                      key={r.value} value={r.value} disabled={unconfigured}
+                      title={unconfigured ? 'Not yet configured — visit Role Manager first' : undefined}
+                    >
+                      {r.label}{unconfigured ? ' — not yet configured' : ''}
+                    </option>
+                  )
+                })}
               </select>
               <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
             </div>
@@ -363,6 +289,17 @@ function StaffModal({
               <div className="mt-2 px-3 py-2.5 bg-blue-50 border border-blue-100 rounded-xl flex items-start gap-2">
                 <span className={cn('mt-0.5 w-2 h-2 rounded-full flex-shrink-0', selectedRole.dot)} />
                 <p className="text-xs text-blue-800 leading-relaxed">{selectedRole.fullDescription}</p>
+              </div>
+            )}
+            {/* Not-yet-configured warning — defence in depth alongside the server-side guard */}
+            {role && isRoleUnconfigured(role) && (
+              <div className="mt-2 px-3 py-2.5 bg-orange-50 border border-orange-200 rounded-xl flex items-start gap-2">
+                <AlertTriangle className="w-3.5 h-3.5 text-orange-500 mt-0.5 flex-shrink-0" />
+                <p className="text-xs text-orange-700 leading-relaxed">
+                  This role has no permission profile yet. Configure it in{' '}
+                  <a href="/admin/settings/roles" className="font-semibold underline hover:no-underline">Role Manager</a>{' '}
+                  before assigning it — saving will be rejected until then.
+                </p>
               </div>
             )}
           </div>

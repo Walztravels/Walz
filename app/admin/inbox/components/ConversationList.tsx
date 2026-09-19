@@ -34,6 +34,16 @@ interface Props {
   onRetry?: () => void
   /** Initial list load in flight — an empty list shows skeleton rows, not "empty". */
   loading?: boolean
+  /**
+   * Phase 1 (Agent A — Inbox Performance): true when the server's page walk
+   * stopped at the requested depth on a still-full page — there might be
+   * more conversations beyond what's currently loaded. Drives the
+   * "Load more" affordance below the list.
+   */
+  hasMore?: boolean
+  /** "Load more" request in flight — shows a loading label, not a second click target. */
+  loadingMore?: boolean
+  onLoadMore?: () => void
 }
 
 const SKELETON_ROWS = [0, 1, 2, 3, 4]
@@ -49,7 +59,7 @@ const SKELETON_ROWS = [0, 1, 2, 3, 4]
  */
 export function ConversationList({
   conversations, selected, tab, profile, canViewAll = false, onSelect, onTabChange, onOpenSettings, onDelete, counts,
-  loadFailed = false, onRetry, loading = false,
+  loadFailed = false, onRetry, loading = false, hasMore = false, loadingMore = false, onLoadMore,
 }: Props) {
   const [confirmDelete, setConfirmDelete] = useState<number | null>(null)
   const [search, setSearch] = useState('')
@@ -260,6 +270,22 @@ export function ConversationList({
               )}
             </div>
           ))
+        )}
+        {/* Phase 1 (Agent A — Inbox Performance): only the currently loaded
+            depth is fetched by default and on every poll tick — this is the
+            on-demand escape hatch when the server's aggregation stopped at
+            that depth on a still-full page (hasMore), never client-side
+            filtering of a fetch-everything payload. */}
+        {hasMore && !loadFailed && (
+          <div className="px-4 py-3">
+            <button
+              onClick={() => onLoadMore?.()}
+              disabled={loadingMore}
+              className="w-full min-h-[40px] rounded-lg border border-white/10 text-white/70 text-xs font-semibold hover:bg-white/5 hover:text-white transition-colors disabled:opacity-50"
+            >
+              {loadingMore ? 'Loading…' : 'Load more conversations'}
+            </button>
+          </div>
         )}
       </div>
     </div>

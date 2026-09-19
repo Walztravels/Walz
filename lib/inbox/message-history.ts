@@ -67,3 +67,48 @@ export function isNearBottom(scrollTop: number, scrollHeight: number, clientHeig
 
 /** Distance from the top at which the next older page loads. */
 export const TOP_TRIGGER_PX = 80
+
+// ── Stale-response guard (Phase 1, Agent A — Inbox Performance) ─────────────
+//
+// fetchMessages/refreshMessages had no protection against an out-of-order
+// response: selecting conversation A then quickly B could let A's slower
+// in-flight response resolve AFTER B's and overwrite `messages` with A's
+// stale page (identity-confusion class). Same discipline as
+// PaymentRequestDrawer's loadSeqRef, generalized to be keyed by an id (a
+// conversation id here) so switching to a NEW id invalidates any in-flight
+// request for the OLD one, not just a same-id race.
+
+export interface SeqGuard {
+  /** Call at the START of a request for `id`. Returns the seq to pass to
+   *  isCurrent() once that request resolves. */
+  next(id: number): number
+  /** True if `seq` for `id` is still the most recent request issued for
+   *  that id — i.e. nothing newer (same id or a different one) has started
+   *  since. False means the response is stale and must be discarded. */
+  isCurrent(id: number, seq: number): boolean
+}
+
+/** A tiny "latest request wins" guard. Plain closure state (not a React
+ *  ref) — callers hold one instance per logical stream (e.g. one per
+ *  useRef in a component) for its lifetime.
+ *
+ *  The counter is monotonic ACROSS ALL ids, not reset per id — resetting
+ *  per id would let two different "generations" of a request for the SAME
+ *  id collide on the same seq number after a detour to another id and
+ *  back (id 5 → id 6 → id 5 again can otherwise reissue seq 1 for id 5
+ *  twice), which would wrongly validate a genuinely stale first response
+ *  as current. */
+export function createSeqGuard(): SeqGuard {
+  let globalSeq = 0
+  let current = { id: 0, seq: 0 }
+  return {
+    next(id: number): number {
+      globalSeq += 1
+      current = { id, seq: globalSeq }
+      return globalSeq
+    },
+    isCurrent(id: number, seq: number): boolean {
+      return current.id === id && current.seq === seq
+    },
+  }
+}

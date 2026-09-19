@@ -20,8 +20,7 @@
 //  - status is whatever the server says — never optimistic, never color-only.
 
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { X, Copy, MessageSquarePlus, Send, RefreshCw } from 'lucide-react'
-import { Z_INDEX } from '@/lib/admin/chrome'
+import { Copy, MessageSquarePlus, Send, RefreshCw } from 'lucide-react'
 import { useComposerDraft } from '@/app/admin/inbox/ComposerDraftContext'
 import {
   PAYMENT_PURPOSES, PURPOSE_LABELS,
@@ -30,12 +29,9 @@ import {
 } from '@/lib/action-centre/constants'
 import type { ProfileField } from '@/lib/inbox/client-profile'
 import { CompleteClientProfile } from '@/app/admin/inbox/components/CompleteClientProfile'
-
-interface ContextSlice {
-  resolution: 'VERIFIED' | 'LINKED' | 'HEURISTIC' | 'UNRESOLVED'
-  contact: { name: string | null; email: string | null; phone: string | null } | null
-  application: { id: string; walzRef: string; applicationType: string; status: string } | null
-}
+import { useClientContext } from '@/lib/inbox/useClientContext'
+import { ActionDrawerShell } from '@/app/admin/inbox/components/ActionDrawerShell'
+import { cycleTabFocus, captureFocusRestoreTarget, queryDrawerFocusables } from '@/app/admin/inbox/components/drawerFocusTrap'
 
 interface RequestDTO {
   id: string; txRef: string; provider: string
@@ -52,6 +48,10 @@ export interface PaymentRequestDrawerProps {
   /** Explicit send through the page's EXISTING composer send path.
       Resolves false when the send failed (the page toasts the error). */
   onSendMessage: (text: string) => Promise<boolean>
+  /** UX-4.1C invalidation signal, threaded through so the shared
+   *  client-context cache refetches after a Find/Create link — same token
+   *  page.tsx already passes to ClientInfo. */
+  identityRefreshToken?: number
 }
 
 const STATUS_GLYPH: Record<string, string> = {
@@ -74,15 +74,22 @@ export function buildPaymentMessage(r: RequestDTO): string {
   return `Hello! Your payment request for ${what} (${amount}) is ready — we will follow up with the details.`
 }
 
-export function PaymentRequestDrawer({ open, onClose, conversationId, onSendMessage }: PaymentRequestDrawerProps) {
+export function PaymentRequestDrawer({ open, onClose, conversationId, onSendMessage, identityRefreshToken = 0 }: PaymentRequestDrawerProps) {
   const { insertDraft } = useComposerDraft()
   const panelRef = useRef<HTMLDivElement>(null)
   const closeRef = useRef<HTMLButtonElement>(null)
   const restoreRef = useRef<HTMLElement | null>(null)
   const [entered, setEntered] = useState(false)
 
-  const [ctx, setCtx] = useState<ContextSlice | null>(null)
-  const [ctxError, setCtxError] = useState(false)
+  // Phase 1 (Agent A — Inbox Performance): client-context now comes from the
+  // shared cache/hook (deduped with the rail/overlay ClientInfo and the
+  // sibling action drawers) instead of an independent fetch here. Only
+  // fetches while the drawer is actually open (null conversationId opts the
+  // hook out entirely). `ctx`/`ctxError` below keep the exact same shape and
+  // branches the rest of this file already reads.
+  const { state: ctxState, retry: retryCtx } = useClientContext(open ? conversationId : null, identityRefreshToken)
+  const ctx = ctxState.phase === 'ready' ? ctxState.context : null
+  const ctxError = ctxState.phase === 'error'
   const [recent, setRecent] = useState<RequestDTO[]>([])
 
   // Form state — preserved across failures (never wiped by an API error).
@@ -113,50 +120,39 @@ export function PaymentRequestDrawer({ open, onClose, conversationId, onSendMess
 
   // Stale-response guard: only the freshest load may write state — a slow
   // response for conversation A must never paint over conversation B
-  // (identity-confusion class).
+  // (identity-confusion class). This now guards ONLY the recent-requests
+  // list — client-context has its own guard inside the shared hook.
   const loadSeqRef = useRef(0)
-  const loadContext = useCallback(async () => {
+  const loadRecent = useCallback(async () => {
     const seq = ++loadSeqRef.current
-    setCtxError(false)
     try {
-      const [cRes, rRes] = await Promise.all([
-        fetch(`/api/admin/inbox/conversations/${conversationId}/client-context`),
-        fetch(`/api/admin/inbox/conversations/${conversationId}/payment-request`),
-      ])
+      const rRes = await fetch(`/api/admin/inbox/conversations/${conversationId}/payment-request`)
       if (seq !== loadSeqRef.current) return
-      if (!cRes.ok) throw new Error(String(cRes.status))
-      const cData = await cRes.json()
-      if (seq !== loadSeqRef.current) return
-      setCtx(cData?.context ?? null)
       if (rRes.ok) {
         const rData = await rRes.json()
         if (seq !== loadSeqRef.current) return
         setRecent(Array.isArray(rData?.requests) ? rData.requests : [])
       }
-    } catch {
-      if (seq === loadSeqRef.current) setCtxError(true)
-    }
+    } catch { /* recent list is supplementary — silent failure, as before */ }
   }, [conversationId])
 
-  // Open lifecycle: focus, key, fresh idempotency key, context load.
+  // Open lifecycle: focus, key, fresh idempotency key, recent-requests load
+  // (client-context load is owned by the shared hook above, keyed on `open`).
   useEffect(() => {
     if (!open) { setEntered(false); return }
     idemRef.current = crypto.randomUUID()
     setResult(null); setSubmitError(null); setFatalError(false); setSent(false); setCopied(false)
     setProfileGate(null)
-    setCtx(null); setRecent([])
-    void loadContext()
-    restoreRef.current =
-      document.activeElement instanceof HTMLElement && document.activeElement !== document.body
-        ? document.activeElement
-        : null
+    setRecent([])
+    void loadRecent()
+    restoreRef.current = captureFocusRestoreTarget()
     closeRef.current?.focus()
     const raf = requestAnimationFrame(() => setEntered(true))
     return () => {
       cancelAnimationFrame(raf)
       restoreRef.current?.focus()
     }
-  }, [open, loadContext])
+  }, [open, loadRecent])
 
   // Esc closes; Tab trapped inside the panel (aria-modal honesty).
   useEffect(() => {
@@ -166,16 +162,8 @@ export function PaymentRequestDrawer({ open, onClose, conversationId, onSendMess
       if (e.key !== 'Tab') return
       const panel = panelRef.current
       if (!panel) return
-      const focusables = Array.from(panel.querySelectorAll<HTMLElement>(
-        'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])',
-      )).filter(el => !el.matches(':disabled') && el.offsetParent !== null)
-      if (focusables.length === 0) { e.preventDefault(); return }
-      const first = focusables[0]
-      const last = focusables[focusables.length - 1]
-      const active = document.activeElement as HTMLElement | null
-      if (active == null || !panel.contains(active)) { e.preventDefault(); first.focus(); return }
-      if (e.shiftKey && active === first) { e.preventDefault(); last.focus() }
-      else if (!e.shiftKey && active === last) { e.preventDefault(); first.focus() }
+      const focusables = queryDrawerFocusables(panel).filter(el => !el.matches(':disabled') && el.offsetParent !== null)
+      cycleTabFocus(e, focusables, panel)
     }
     document.addEventListener('keydown', onKey)
     return () => document.removeEventListener('keydown', onKey)
@@ -273,36 +261,21 @@ export function PaymentRequestDrawer({ open, onClose, conversationId, onSendMess
   const labelCls = 'block text-[10px] font-bold text-walz-muted-strong uppercase tracking-widest mb-1'
 
   return (
-    <div className="fixed inset-0" style={{ zIndex: Z_INDEX.drawer }}>
-      <div className="absolute inset-0 bg-walz-deep-navy/40" onClick={onClose} aria-hidden="true" />
-      <div
-        ref={panelRef}
-        role="dialog"
-        aria-modal="true"
-        aria-label="Request payment"
-        className={`absolute inset-y-0 right-0 w-full sm:max-w-md bg-white shadow-2xl flex flex-col
-          motion-safe:transition-transform motion-safe:duration-200
-          ${entered ? 'translate-x-0' : 'translate-x-full'}`}
-        style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
-      >
-        <div className="flex-shrink-0 flex items-center justify-between px-4 py-3 border-b border-walz-border">
-          <p className="text-sm font-bold text-walz-deep-navy">Request payment</p>
-          <button
-            ref={closeRef}
-            onClick={onClose}
-            aria-label="Close"
-            className="min-w-[44px] min-h-[44px] -m-1.5 flex items-center justify-center rounded-lg text-walz-navy/60 hover:text-walz-navy hover:bg-walz-navy/5 transition-colors"
-          >
-            <X className="w-4 h-4" />
-          </button>
-        </div>
-
-        <div className="flex-1 min-h-0 overflow-y-auto p-4 space-y-4">
+    <ActionDrawerShell
+      panelRef={panelRef}
+      closeRef={closeRef}
+      entered={entered}
+      onClose={onClose}
+      title="Request payment"
+      role="dialog"
+      panelTransitionClassName="motion-safe:transition-transform motion-safe:duration-200"
+      panelSafeAreaStyle={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
+    >
           {/* Client (server-resolved, read-only) */}
           {ctxError ? (
             <div className="space-y-2">
               <p className="text-xs text-walz-muted-strong">Could not load client context.</p>
-              <button onClick={() => void loadContext()} className="min-h-[44px] px-4 rounded-lg bg-walz-navy/5 text-walz-navy text-xs font-semibold border border-walz-border hover:bg-walz-navy/10 transition-colors">
+              <button onClick={() => { retryCtx(); void loadRecent() }} className="min-h-[44px] px-4 rounded-lg bg-walz-navy/5 text-walz-navy text-xs font-semibold border border-walz-border hover:bg-walz-navy/10 transition-colors">
                 Retry
               </button>
             </div>
@@ -382,7 +355,7 @@ export function PaymentRequestDrawer({ open, onClose, conversationId, onSendMess
               missingFields={profileGate.missingFields}
               availableFields={profileGate.availableFields}
               crossRecordConflicts={profileGate.crossRecordConflicts}
-              onComplete={() => { setProfileGate(null); void loadContext() }}
+              onComplete={() => { setProfileGate(null); retryCtx(); void loadRecent() }}
             />
           ) : (
             /* Form state */
@@ -465,8 +438,6 @@ export function PaymentRequestDrawer({ open, onClose, conversationId, onSendMess
               </ul>
             </div>
           )}
-        </div>
-      </div>
-    </div>
+    </ActionDrawerShell>
   )
 }

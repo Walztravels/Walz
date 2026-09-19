@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState, useCallback, useRef } from 'react'
-import { useParams } from 'next/navigation'
+import { useParams, useRouter } from 'next/navigation'
 import Link from 'next/link'
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -120,6 +120,10 @@ interface QuoteDetail {
   changesNote?: string
   clientSignatureName?: string
   canDelete?: boolean
+  /** Client Action Centre — Quote → Itinerary conversion bridge. Set once
+   *  this quote has been converted into a draft Itinerary via
+   *  POST /api/admin/quotes/[id]/convert-to-itinerary. */
+  itineraryId?: string | null
   items: QuoteItem[]
   flightOptions: QuoteFlightOption[]
   hotelOptions: QuoteHotelOption[]
@@ -230,6 +234,7 @@ interface Toast {
 
 export default function QuoteDetailPage() {
   const params = useParams()
+  const router = useRouter()
   const id = params.id as string
 
   const [quote,   setQuote]   = useState<QuoteDetail | null>(null)
@@ -247,6 +252,7 @@ export default function QuoteDetailPage() {
   const [cancelReason, setCancelReason] = useState('')
   const [actionBusy,   setActionBusy]   = useState(false)
   const [sentLink,     setSentLink]     = useState<string | null>(null)
+  const [convertBusy,  setConvertBusy]  = useState(false)
 
   // Internal notes
   const [notes,     setNotes]     = useState('')
@@ -342,6 +348,32 @@ export default function QuoteDetailPage() {
       await load()
     } catch (e) {
       addToast('error', e instanceof Error ? e.message : 'Failed to archive')
+    }
+  }
+
+  /**
+   * Client Action Centre — Quote → Itinerary conversion bridge. ONE-WAY,
+   * ON-DEMAND: creates a draft Itinerary from this quote (never sent to
+   * the client automatically) and navigates staff to the existing
+   * itinerary planner editor to review/finish it. Does not modify this
+   * quote's own status — Quote stays the commercial/pricing source of
+   * truth; the itinerary planner + GA0-GA6 public proposal page are
+   * separate, untouched systems.
+   */
+  async function handleConvertToItinerary() {
+    setConvertBusy(true)
+    try {
+      const r = await window.fetch(`/api/admin/quotes/${id}/convert-to-itinerary`, { method: 'POST' })
+      // 401 = session expired — send staff to login instead of an unwinnable
+      // retry loop (incident 2026-09-18), matching every other inbox fetch
+      // path (see lib/inbox/useClientContext.ts).
+      if (r.status === 401) { router.push('/admin/login'); return }
+      const d = await r.json()
+      if (!r.ok) throw new Error(d.error ?? 'Failed to convert to proposal')
+      router.push(`/admin/itinerary-planner/${d.itineraryId}`)
+    } catch (e) {
+      addToast('error', e instanceof Error ? e.message : 'Failed to convert to proposal')
+      setConvertBusy(false)
     }
   }
 
@@ -501,6 +533,22 @@ export default function QuoteDetailPage() {
             >
               Convert to Booking
             </Link>
+          )}
+          {quote.itineraryId ? (
+            <Link
+              href={`/admin/itinerary-planner/${quote.itineraryId}`}
+              className="border border-[#C9A84C] text-[#8a6d1f] bg-[#C9A84C]/10 text-sm font-semibold px-4 py-2 rounded-lg hover:bg-[#C9A84C]/20 transition-colors"
+            >
+              Open Proposal
+            </Link>
+          ) : (
+            <button
+              onClick={() => { void handleConvertToItinerary() }}
+              disabled={convertBusy}
+              className="border border-[#C9A84C] text-[#8a6d1f] bg-[#C9A84C]/10 text-sm font-semibold px-4 py-2 rounded-lg hover:bg-[#C9A84C]/20 transition-colors disabled:opacity-50"
+            >
+              {convertBusy ? 'Converting…' : 'Convert to Proposal'}
+            </button>
           )}
           <button
             onClick={() => { void handleDuplicate() }}
@@ -1009,6 +1057,22 @@ export default function QuoteDetailPage() {
                     📅 Extend validity
                   </button>
                 </>
+              )}
+              {quote.itineraryId ? (
+                <Link
+                  href={`/admin/itinerary-planner/${quote.itineraryId}`}
+                  className="w-full text-left text-sm font-medium text-[#8a6d1f] bg-[#C9A84C]/10 hover:bg-[#C9A84C]/20 px-3 py-2.5 rounded-lg transition-colors"
+                >
+                  🧳 Open proposal
+                </Link>
+              ) : (
+                <button
+                  onClick={() => { void handleConvertToItinerary() }}
+                  disabled={convertBusy}
+                  className="w-full text-left text-sm font-medium text-[#8a6d1f] bg-[#C9A84C]/10 hover:bg-[#C9A84C]/20 px-3 py-2.5 rounded-lg transition-colors disabled:opacity-50"
+                >
+                  🧳 {convertBusy ? 'Converting…' : 'Convert to proposal'}
+                </button>
               )}
               <button
                 onClick={() => { void handleDuplicate() }}

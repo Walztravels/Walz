@@ -17,16 +17,13 @@
 // admin Trip Requests page, linked to from here.
 
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { X, Send, Copy, MessageSquarePlus, RefreshCw, ExternalLink } from 'lucide-react'
-import { Z_INDEX } from '@/lib/admin/chrome'
+import { Send, Copy, MessageSquarePlus, RefreshCw, ExternalLink } from 'lucide-react'
 import { useComposerDraft } from '@/app/admin/inbox/ComposerDraftContext'
 import type { ProfileField } from '@/lib/inbox/client-profile'
 import { CompleteClientProfile } from '@/app/admin/inbox/components/CompleteClientProfile'
-
-interface ContextSlice {
-  resolution: 'VERIFIED' | 'LINKED' | 'HEURISTIC' | 'UNRESOLVED'
-  contact: { name: string | null; email: string | null } | null
-}
+import { useClientContext } from '@/lib/inbox/useClientContext'
+import { ActionDrawerShell } from '@/app/admin/inbox/components/ActionDrawerShell'
+import { cycleTabFocus, captureFocusRestoreTarget, queryDrawerFocusables } from '@/app/admin/inbox/components/drawerFocusTrap'
 
 interface ItineraryRequestDTO {
   id: string; referenceNumber: string; status: string
@@ -38,6 +35,10 @@ export interface ItineraryRequestDrawerProps {
   onClose: () => void
   conversationId: number
   onSendMessage: (text: string) => Promise<boolean>
+  /** UX-4.1C invalidation signal, threaded through so the shared
+   *  client-context cache refetches after a Find/Create link — same token
+   *  page.tsx already passes to ClientInfo. */
+  identityRefreshToken?: number
 }
 
 function statusLabel(status: string): string {
@@ -58,15 +59,19 @@ function expiryLabel(expiresAt: string | null): { text: string; expired: boolean
   return { text: `Expires in ${days} day${days === 1 ? '' : 's'}`, expired: false }
 }
 
-export function ItineraryRequestDrawer({ open, onClose, conversationId, onSendMessage }: ItineraryRequestDrawerProps) {
+export function ItineraryRequestDrawer({ open, onClose, conversationId, onSendMessage, identityRefreshToken = 0 }: ItineraryRequestDrawerProps) {
   const { insertDraft } = useComposerDraft()
   const panelRef = useRef<HTMLDivElement>(null)
   const closeRef = useRef<HTMLButtonElement>(null)
   const restoreRef = useRef<HTMLElement | null>(null)
   const [entered, setEntered] = useState(false)
 
-  const [ctx, setCtx] = useState<ContextSlice | null>(null)
-  const [ctxError, setCtxError] = useState(false)
+  // Phase 1 (Agent A — Inbox Performance): client-context now comes from the
+  // shared cache/hook (deduped with the rail/overlay ClientInfo and the
+  // sibling action drawers) instead of an independent fetch here.
+  const { state: ctxState, retry: retryCtx } = useClientContext(open ? conversationId : null, identityRefreshToken)
+  const ctx = ctxState.phase === 'ready' ? ctxState.context : null
+  const ctxError = ctxState.phase === 'error'
   const [existing, setExisting] = useState<ItineraryRequestDTO | null>(null)
   const [conflict, setConflict] = useState<{ kind: 'itinerary'; ref: string } | { kind: 'ambiguous' } | null>(null)
 
@@ -92,28 +97,18 @@ export function ItineraryRequestDrawer({ open, onClose, conversationId, onSendMe
   const [sent, setSent] = useState(false)
 
   const loadSeqRef = useRef(0)
-  const loadContext = useCallback(async () => {
+  const loadExisting = useCallback(async () => {
     const seq = ++loadSeqRef.current
-    setCtxError(false)
     try {
-      const [cRes, rRes] = await Promise.all([
-        fetch(`/api/admin/inbox/conversations/${conversationId}/client-context`),
-        fetch(`/api/admin/inbox/conversations/${conversationId}/itinerary-request`),
-      ])
+      const rRes = await fetch(`/api/admin/inbox/conversations/${conversationId}/itinerary-request`)
       if (seq !== loadSeqRef.current) return
-      if (!cRes.ok) throw new Error(String(cRes.status))
-      const cData = await cRes.json()
-      if (seq !== loadSeqRef.current) return
-      setCtx(cData?.context ?? null)
       if (rRes.ok) {
         const rData = await rRes.json()
         if (seq !== loadSeqRef.current) return
         const requests: ItineraryRequestDTO[] = Array.isArray(rData?.requests) ? rData.requests : []
         setExisting(requests[0] ?? null)
       }
-    } catch {
-      if (seq === loadSeqRef.current) setCtxError(true)
-    }
+    } catch { /* existing-request lookup is supplementary — silent failure, as before */ }
   }, [conversationId])
 
   useEffect(() => {
@@ -121,19 +116,15 @@ export function ItineraryRequestDrawer({ open, onClose, conversationId, onSendMe
     setDestination(''); setDepartureDate(''); setReturnDate(''); setNumberOfTravellers('')
     setExisting(null); setConflict(null); setProfileGate(null)
     setError(null); setSent(false); setCopied(false)
-    setCtx(null)
-    void loadContext()
-    restoreRef.current =
-      document.activeElement instanceof HTMLElement && document.activeElement !== document.body
-        ? document.activeElement
-        : null
+    void loadExisting()
+    restoreRef.current = captureFocusRestoreTarget()
     closeRef.current?.focus()
     const raf = requestAnimationFrame(() => setEntered(true))
     return () => {
       cancelAnimationFrame(raf)
       restoreRef.current?.focus()
     }
-  }, [open, loadContext])
+  }, [open, loadExisting])
 
   useEffect(() => {
     if (!open) return
@@ -142,16 +133,8 @@ export function ItineraryRequestDrawer({ open, onClose, conversationId, onSendMe
       if (e.key !== 'Tab') return
       const panel = panelRef.current
       if (!panel) return
-      const focusables = Array.from(panel.querySelectorAll<HTMLElement>(
-        'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])',
-      )).filter(el => !el.matches(':disabled') && el.offsetParent !== null)
-      if (focusables.length === 0) { e.preventDefault(); return }
-      const first = focusables[0]
-      const last = focusables[focusables.length - 1]
-      const active = document.activeElement as HTMLElement | null
-      if (active == null || !panel.contains(active)) { e.preventDefault(); first.focus(); return }
-      if (e.shiftKey && active === first) { e.preventDefault(); last.focus() }
-      else if (!e.shiftKey && active === last) { e.preventDefault(); first.focus() }
+      const focusables = queryDrawerFocusables(panel).filter(el => !el.matches(':disabled') && el.offsetParent !== null)
+      cycleTabFocus(e, focusables, panel)
     }
     document.addEventListener('keydown', onKey)
     return () => document.removeEventListener('keydown', onKey)
@@ -235,35 +218,20 @@ export function ItineraryRequestDrawer({ open, onClose, conversationId, onSendMe
   const labelCls = 'block text-[10px] font-bold text-walz-muted-strong uppercase tracking-widest mb-1'
 
   return (
-    <div className="fixed inset-0" style={{ zIndex: Z_INDEX.drawer }}>
-      <div className="absolute inset-0 bg-walz-deep-navy/40" onClick={onClose} aria-hidden="true" />
-      <div
-        ref={panelRef}
-        role="dialog"
-        aria-modal="true"
-        aria-label="Itinerary request"
-        className={`absolute inset-y-0 right-0 w-full sm:max-w-md bg-white shadow-2xl flex flex-col
-          motion-safe:transition-transform motion-safe:duration-200
-          ${entered ? 'translate-x-0' : 'translate-x-full'}`}
-        style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
-      >
-        <div className="flex-shrink-0 flex items-center justify-between px-4 py-3 border-b border-walz-border">
-          <p className="text-sm font-bold text-walz-deep-navy">Itinerary request</p>
-          <button
-            ref={closeRef}
-            onClick={onClose}
-            aria-label="Close"
-            className="min-w-[44px] min-h-[44px] -m-1.5 flex items-center justify-center rounded-lg text-walz-navy/60 hover:text-walz-navy hover:bg-walz-navy/5 transition-colors"
-          >
-            <X className="w-4 h-4" />
-          </button>
-        </div>
-
-        <div className="flex-1 min-h-0 overflow-y-auto p-4 space-y-4">
+    <ActionDrawerShell
+      panelRef={panelRef}
+      closeRef={closeRef}
+      entered={entered}
+      onClose={onClose}
+      title="Itinerary request"
+      role="dialog"
+      panelTransitionClassName="motion-safe:transition-transform motion-safe:duration-200"
+      panelSafeAreaStyle={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
+    >
           {ctxError ? (
             <div className="space-y-2">
               <p className="text-xs text-walz-muted-strong">Could not load client context.</p>
-              <button onClick={() => void loadContext()} className="min-h-[44px] px-4 rounded-lg bg-walz-navy/5 text-walz-navy text-xs font-semibold border border-walz-border hover:bg-walz-navy/10 transition-colors">
+              <button onClick={() => { retryCtx(); void loadExisting() }} className="min-h-[44px] px-4 rounded-lg bg-walz-navy/5 text-walz-navy text-xs font-semibold border border-walz-border hover:bg-walz-navy/10 transition-colors">
                 Retry
               </button>
             </div>
@@ -288,7 +256,7 @@ export function ItineraryRequestDrawer({ open, onClose, conversationId, onSendMe
               missingFields={profileGate.missingFields}
               availableFields={profileGate.availableFields}
               crossRecordConflicts={profileGate.crossRecordConflicts}
-              onComplete={() => { setProfileGate(null); void loadContext() }}
+              onComplete={() => { setProfileGate(null); retryCtx(); void loadExisting() }}
             />
           ) : conflict ? (
             /* Client-wide duplicate found — never offer to create a second one */
@@ -390,8 +358,6 @@ export function ItineraryRequestDrawer({ open, onClose, conversationId, onSendMe
               </button>
             </fieldset>
           )}
-        </div>
-      </div>
-    </div>
+    </ActionDrawerShell>
   )
 }

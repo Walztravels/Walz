@@ -20,18 +20,14 @@
 // Token, and DocumentRequest via the dedicated action-centre service.
 
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { X, Send, Copy, MessageSquarePlus, RefreshCw, FileText, ExternalLink } from 'lucide-react'
-import { Z_INDEX } from '@/lib/admin/chrome'
+import { Send, Copy, MessageSquarePlus, RefreshCw, FileText, ExternalLink } from 'lucide-react'
 import { useComposerDraft } from '@/app/admin/inbox/ComposerDraftContext'
 import { VISA_TYPES, VISA_TYPE_LABELS, DESTINATION_OPTIONS, type VisaType } from '@/lib/action-centre/constants'
 import type { ProfileField } from '@/lib/inbox/client-profile'
 import { CompleteClientProfile } from '@/app/admin/inbox/components/CompleteClientProfile'
-
-interface ContextSlice {
-  resolution: 'VERIFIED' | 'LINKED' | 'HEURISTIC' | 'UNRESOLVED'
-  contact: { name: string | null; email: string | null } | null
-  application: { id: string; walzRef: string; applicationType: string; status: string } | null
-}
+import { useClientContext } from '@/lib/inbox/useClientContext'
+import { ActionDrawerShell } from '@/app/admin/inbox/components/ActionDrawerShell'
+import { cycleTabFocus, captureFocusRestoreTarget, queryDrawerFocusables } from '@/app/admin/inbox/components/drawerFocusTrap'
 
 interface RecentAction {
   kind: 'form_link' | 'document_request'
@@ -44,19 +40,27 @@ export interface VisaFormDrawerProps {
   onClose: () => void
   conversationId: number
   onSendMessage: (text: string) => Promise<boolean>
+  /** UX-4.1C invalidation signal, threaded through so the shared
+   *  client-context cache refetches after a Find/Create link — same token
+   *  page.tsx already passes to ClientInfo. */
+  identityRefreshToken?: number
 }
 
 type View = 'case' | 'link' | 'documents'
 
-export function VisaFormDrawer({ open, onClose, conversationId, onSendMessage }: VisaFormDrawerProps) {
+export function VisaFormDrawer({ open, onClose, conversationId, onSendMessage, identityRefreshToken = 0 }: VisaFormDrawerProps) {
   const { insertDraft } = useComposerDraft()
   const panelRef = useRef<HTMLDivElement>(null)
   const closeRef = useRef<HTMLButtonElement>(null)
   const restoreRef = useRef<HTMLElement | null>(null)
   const [entered, setEntered] = useState(false)
 
-  const [ctx, setCtx] = useState<ContextSlice | null>(null)
-  const [ctxError, setCtxError] = useState(false)
+  // Phase 1 (Agent A — Inbox Performance): client-context now comes from the
+  // shared cache/hook (deduped with the rail/overlay ClientInfo and the
+  // sibling action drawers) instead of an independent fetch here.
+  const { state: ctxState, retry: retryCtx } = useClientContext(open ? conversationId : null, identityRefreshToken)
+  const ctx = ctxState.phase === 'ready' ? ctxState.context : null
+  const ctxError = ctxState.phase === 'error'
   const [recent, setRecent] = useState<RecentAction[]>([])
   const [view, setView] = useState<View>('case')
 
@@ -92,27 +96,17 @@ export function VisaFormDrawer({ open, onClose, conversationId, onSendMessage }:
   const [sent, setSent] = useState(false)
 
   const loadSeqRef = useRef(0)
-  const loadContext = useCallback(async () => {
+  const loadRecent = useCallback(async () => {
     const seq = ++loadSeqRef.current
-    setCtxError(false)
     try {
-      const [cRes, aRes] = await Promise.all([
-        fetch(`/api/admin/inbox/conversations/${conversationId}/client-context`),
-        fetch(`/api/admin/inbox/conversations/${conversationId}/visa`),
-      ])
+      const aRes = await fetch(`/api/admin/inbox/conversations/${conversationId}/visa`)
       if (seq !== loadSeqRef.current) return
-      if (!cRes.ok) throw new Error(String(cRes.status))
-      const cData = await cRes.json()
-      if (seq !== loadSeqRef.current) return
-      setCtx(cData?.context ?? null)
       if (aRes.ok) {
         const aData = await aRes.json()
         if (seq !== loadSeqRef.current) return
         setRecent(Array.isArray(aData?.actions) ? aData.actions : [])
       }
-    } catch {
-      if (seq === loadSeqRef.current) setCtxError(true)
-    }
+    } catch { /* recent list is supplementary — silent failure, as before */ }
   }, [conversationId])
 
   useEffect(() => {
@@ -121,19 +115,16 @@ export function VisaFormDrawer({ open, onClose, conversationId, onSendMessage }:
     setLinkResult(null); setDocsResult(null); setDocsInput(''); setDocsMessage('')
     setView('case'); setError(null); setSent(false); setCopied(false)
     setProfileGate(null)
-    setCtx(null); setRecent([])
-    void loadContext()
-    restoreRef.current =
-      document.activeElement instanceof HTMLElement && document.activeElement !== document.body
-        ? document.activeElement
-        : null
+    setRecent([])
+    void loadRecent()
+    restoreRef.current = captureFocusRestoreTarget()
     closeRef.current?.focus()
     const raf = requestAnimationFrame(() => setEntered(true))
     return () => {
       cancelAnimationFrame(raf)
       restoreRef.current?.focus()
     }
-  }, [open, loadContext])
+  }, [open, loadRecent])
 
   useEffect(() => {
     if (!open) return
@@ -142,16 +133,8 @@ export function VisaFormDrawer({ open, onClose, conversationId, onSendMessage }:
       if (e.key !== 'Tab') return
       const panel = panelRef.current
       if (!panel) return
-      const focusables = Array.from(panel.querySelectorAll<HTMLElement>(
-        'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])',
-      )).filter(el => !el.matches(':disabled') && el.offsetParent !== null)
-      if (focusables.length === 0) { e.preventDefault(); return }
-      const first = focusables[0]
-      const last = focusables[focusables.length - 1]
-      const active = document.activeElement as HTMLElement | null
-      if (active == null || !panel.contains(active)) { e.preventDefault(); first.focus(); return }
-      if (e.shiftKey && active === first) { e.preventDefault(); last.focus() }
-      else if (!e.shiftKey && active === last) { e.preventDefault(); first.focus() }
+      const focusables = queryDrawerFocusables(panel).filter(el => !el.matches(':disabled') && el.offsetParent !== null)
+      cycleTabFocus(e, focusables, panel)
     }
     document.addEventListener('keydown', onKey)
     return () => document.removeEventListener('keydown', onKey)
@@ -191,7 +174,7 @@ export function VisaFormDrawer({ open, onClose, conversationId, onSendMessage }:
         setError(data?.error ?? 'Could not create the visa case. Retry.')
         return
       }
-      await loadContext()   // re-fetch so ctx.application reflects the new case
+      await retryCtx()   // re-fetch so ctx.application reflects the new case
     } catch {
       setError('Could not create the visa case. Retry.')
     } finally {
@@ -325,35 +308,20 @@ export function VisaFormDrawer({ open, onClose, conversationId, onSendMessage }:
   }
 
   return (
-    <div className="fixed inset-0" style={{ zIndex: Z_INDEX.drawer }}>
-      <div className="absolute inset-0 bg-walz-deep-navy/40" onClick={onClose} aria-hidden="true" />
-      <div
-        ref={panelRef}
-        role="dialog"
-        aria-modal="true"
-        aria-label="Visa form"
-        className={`absolute inset-y-0 right-0 w-full sm:max-w-md bg-white shadow-2xl flex flex-col
-          motion-safe:transition-transform motion-safe:duration-200
-          ${entered ? 'translate-x-0' : 'translate-x-full'}`}
-        style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
-      >
-        <div className="flex-shrink-0 flex items-center justify-between px-4 py-3 border-b border-walz-border">
-          <p className="text-sm font-bold text-walz-deep-navy">Visa form</p>
-          <button
-            ref={closeRef}
-            onClick={onClose}
-            aria-label="Close"
-            className="min-w-[44px] min-h-[44px] -m-1.5 flex items-center justify-center rounded-lg text-walz-navy/60 hover:text-walz-navy hover:bg-walz-navy/5 transition-colors"
-          >
-            <X className="w-4 h-4" />
-          </button>
-        </div>
-
-        <div className="flex-1 min-h-0 overflow-y-auto p-4 space-y-4">
+    <ActionDrawerShell
+      panelRef={panelRef}
+      closeRef={closeRef}
+      entered={entered}
+      onClose={onClose}
+      title="Visa form"
+      role="dialog"
+      panelTransitionClassName="motion-safe:transition-transform motion-safe:duration-200"
+      panelSafeAreaStyle={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
+    >
           {ctxError ? (
             <div className="space-y-2">
               <p className="text-xs text-walz-muted-strong">Could not load client context.</p>
-              <button onClick={() => void loadContext()} className="min-h-[44px] px-4 rounded-lg bg-walz-navy/5 text-walz-navy text-xs font-semibold border border-walz-border hover:bg-walz-navy/10 transition-colors">
+              <button onClick={() => { retryCtx(); void loadRecent() }} className="min-h-[44px] px-4 rounded-lg bg-walz-navy/5 text-walz-navy text-xs font-semibold border border-walz-border hover:bg-walz-navy/10 transition-colors">
                 Retry
               </button>
             </div>
@@ -378,7 +346,7 @@ export function VisaFormDrawer({ open, onClose, conversationId, onSendMessage }:
               missingFields={profileGate.missingFields}
               availableFields={profileGate.availableFields}
               crossRecordConflicts={profileGate.crossRecordConflicts}
-              onComplete={() => { setProfileGate(null); void loadContext() }}
+              onComplete={() => { setProfileGate(null); retryCtx(); void loadRecent() }}
             />
           ) : !hasCase ? (
             /* 6B — no case yet: minimal create form */
@@ -479,8 +447,6 @@ export function VisaFormDrawer({ open, onClose, conversationId, onSendMessage }:
               )}
             </div>
           )}
-        </div>
-      </div>
-    </div>
+    </ActionDrawerShell>
   )
 }

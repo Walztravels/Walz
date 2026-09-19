@@ -17,9 +17,20 @@ import { VisaFormDrawer } from './components/VisaFormDrawer'
 import { ItineraryRequestDrawer } from './components/ItineraryRequestDrawer'
 import { ComposerDraftProvider, useComposerDraft } from './ComposerDraftContext'
 import { useInboxScreens, applyInert } from './useInboxScreens'
-import { sortPage, mergeLatest, prependOlder, oldestCursor } from '@/lib/inbox/message-history'
+import { sortPage, mergeLatest, prependOlder, oldestCursor, createSeqGuard } from '@/lib/inbox/message-history'
 
 type Tab = 'all' | 'mine' | 'unassigned' | 'resolved'
+
+// Phase 1 (Agent A — Inbox Performance): the conversations route walked up
+// to 8 Chatwoot pages (200 conversations) on EVERY call, poll ticks
+// included. DEFAULT_LOADED_PAGES is the fast initial/per-tab-switch depth;
+// LOAD_MORE_STEP is how many additional pages "Load more" requests each
+// click; MAX_LOADED_PAGES mirrors the route's own hard ceiling (MAX_PAGES
+// in app/api/admin/conversations/route.ts) so the client never asks for
+// more than the server will ever walk.
+const DEFAULT_LOADED_PAGES = 2
+const LOAD_MORE_STEP = 2
+const MAX_LOADED_PAGES = 8
 
 // ── Notification sound ────────────────────────────────────────────────────────
 function beep() {
@@ -56,6 +67,13 @@ function InboxPageInner() {
   const [convs,      setConvs]      = useState<CWConversation[]>([])
   const [metaCounts, setMetaCounts] = useState({ all: 0, mine: 0, unassigned: 0 })
   const [selected,   setSelected]   = useState<CWConversation | null>(null)
+  // Phase 1 (Agent A — Inbox Performance): how many Chatwoot pages the
+  // CURRENTLY loaded list represents. A ref (not state) so the poll's
+  // setInterval closure always reads the latest depth without needing
+  // fetchConvs to change identity on every "Load more" click.
+  const loadedPagesRef = useRef(DEFAULT_LOADED_PAGES)
+  const [hasMoreConvs, setHasMoreConvs] = useState(false)
+  const [loadingMoreConvs, setLoadingMoreConvs] = useState(false)
   const [showAppLookup, setShowAppLookup] = useState(false)
   // UX-4.1B — Request Payment drawer (Client Action Centre)
   const [paymentOpen, setPaymentOpen] = useState(false)
@@ -68,6 +86,27 @@ function InboxPageInner() {
   // UX-4.4 — Itinerary Request drawer (Client Action Centre)
   const [itineraryRequestOpen, setItineraryRequestOpen] = useState(false)
   const [identityRefreshToken, setIdentityRefreshToken] = useState(0)
+
+  // Phase 3 (Agent D — Client Action Centre UX): the five Client Action
+  // Centre overlays (Payment/Quote/Visa/Itinerary Request/Identity) already
+  // close together on a conversation switch or a mobile screen change
+  // (applyConvSelection, the prevScreenRef effect below) — but opening one
+  // over another was never guarded, so e.g. triggering "Create Quote" while
+  // "Request Payment" was still open would stack both. This mirrors that
+  // EXISTING "close all others" discipline, just triggered on open too.
+  type ActionOverlay = 'payment' | 'quote' | 'visaForm' | 'itineraryRequest' | 'identity'
+  function closeOtherActionOverlays(except: ActionOverlay) {
+    if (except !== 'payment') setPaymentOpen(false)
+    if (except !== 'quote') setQuoteOpen(false)
+    if (except !== 'visaForm') setVisaFormOpen(false)
+    if (except !== 'itineraryRequest') setItineraryRequestOpen(false)
+    if (except !== 'identity') setIdentityDrawer(null)
+  }
+  function openPaymentRequest() { closeOtherActionOverlays('payment'); setPaymentOpen(true) }
+  function openCreateQuote() { closeOtherActionOverlays('quote'); setQuoteOpen(true) }
+  function openVisaForm() { closeOtherActionOverlays('visaForm'); setVisaFormOpen(true) }
+  function openItineraryRequest() { closeOtherActionOverlays('itineraryRequest'); setItineraryRequestOpen(true) }
+  function openClientIdentity(mode: 'find' | 'create') { closeOtherActionOverlays('identity'); setIdentityDrawer({ mode }) }
   const [messages,   setMessages]   = useState<CWMessage[]>([])
   const [agents,     setAgents]     = useState<CWAgent[]>([])
   const [tab,        setTab]        = useState<Tab>('mine')
@@ -245,9 +284,15 @@ function InboxPageInner() {
   const fetchConvs = useCallback(async (showLoad = false) => {
     if (showLoad) setLoading(true)
     try {
-      // Always fetch the full open/resolved list — filter client-side per tab
+      // Always fetch the full open/resolved list — filter client-side per tab.
+      // maxPages bounds how many Chatwoot pages the server walks (Phase 1,
+      // Agent A): the initial/per-tab load asks for DEFAULT_LOADED_PAGES;
+      // "Load more" (handleLoadMoreConvs) bumps loadedPagesRef first, and a
+      // poll tick re-requests exactly the CURRENTLY loaded depth — never
+      // silently re-expanding to a full walk, but still refreshing everything
+      // already loaded.
       const status = tab === 'resolved' ? 'resolved' : 'open'
-      const res = await fetch(`/api/admin/conversations?status=${status}`)
+      const res = await fetch(`/api/admin/conversations?status=${status}&maxPages=${loadedPagesRef.current}`)
       // 401 = session expired (12h JWT) — the middleware rejects before the
       // route runs. That is not a provider failure: send staff to login
       // instead of an unwinnable Retry loop (incident 2026-09-18).
@@ -268,6 +313,14 @@ function InboxPageInner() {
       const json = await res.json()
       const conversations: CWConversation[] = json?.payload || json?.data?.payload || []
       const meta = json?.meta || json?.data?.meta
+      // Phase 1 (Agent A): whether the server's aggregation stopped because
+      // it hit the requested maxPages cap on a still-full page (there MIGHT
+      // be more) vs. a genuinely short final page (there is not) — drives
+      // ConversationList's "Load more" affordance.
+      const hasMore = typeof json?.hasMore === 'boolean' ? json.hasMore
+        : typeof json?.data?.hasMore === 'boolean' ? json.data.hasMore
+        : false
+      setHasMoreConvs(hasMore)
 
       // Compute counts client-side — meta.mine_count from Chatwoot reflects the
       // admin API token user, not the logged-in staff member, so it's always wrong.
@@ -352,6 +405,17 @@ function InboxPageInner() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab, profile])
 
+  /** "Load more" — ConversationList shows this only when hasMoreConvs is
+   *  true (the last fetch's final page was still full). Bumps the loaded
+   *  depth BEFORE re-fetching so the poll's next tick keeps refreshing the
+   *  wider window too, capped at the server's own hard ceiling. */
+  const handleLoadMoreConvs = useCallback(async () => {
+    if (loadingMoreConvs) return
+    loadedPagesRef.current = Math.min(loadedPagesRef.current + LOAD_MORE_STEP, MAX_LOADED_PAGES)
+    setLoadingMoreConvs(true)
+    try { await fetchConvs() } finally { setLoadingMoreConvs(false) }
+  }, [fetchConvs, loadingMoreConvs])
+
   // ── Fetch messages (history-aware) ──────────────────────────────────────────
   // Initial open: latest page, history state reset. Polling MERGES the
   // latest page into what's loaded (never replaces — replacing dropped
@@ -380,13 +444,25 @@ function InboxPageInner() {
     return (json?.payload || json?.data?.payload || []) as CWMessage[]
   }, [])
 
+  // Stale-response guard, keyed by conversation id (same discipline as
+  // PaymentRequestDrawer's loadSeqRef, via the shared createSeqGuard helper
+  // in lib/inbox/message-history.ts): fetchMessages/refreshMessages both
+  // register a new request for whichever id they're called with. Selecting
+  // conversation A then quickly B makes B the "current" id, so A's late
+  // response is recognized as stale and discarded instead of overwriting
+  // B's messages — the identity-confusion class this guard exists to close.
+  const msgSeqGuardRef = useRef(createSeqGuard())
+
   const fetchMessages = useCallback(async (id: number) => {
+    const seq = msgSeqGuardRef.current.next(id)
     try {
       const page = await fetchPage(id)
+      if (!msgSeqGuardRef.current.isCurrent(id, seq)) return
       setMessages(sortPage(page))
       setHistory({ loadingOlder: false, olderError: false, beginning: page.length === 0 })
       setMsgLoadError(false)
     } catch {
+      if (!msgSeqGuardRef.current.isCurrent(id, seq)) return
       // Show the failure instead of an empty conversation; polling retries too.
       setMsgLoadError(true)
     }
@@ -394,8 +470,10 @@ function InboxPageInner() {
 
   /** Poll refresh: merge new messages, keep loaded history intact. */
   const refreshMessages = useCallback(async (id: number) => {
+    const seq = msgSeqGuardRef.current.next(id)
     try {
       const page = await fetchPage(id)
+      if (!msgSeqGuardRef.current.isCurrent(id, seq)) return
       setMessages(prev => mergeLatest(prev, sortPage(page)).merged)
       setMsgLoadError(false)
     } catch { /* transient poll failure — next tick retries */ }
@@ -424,18 +502,37 @@ function InboxPageInner() {
   messagesRef.current = messages
 
   // ── Polling ─────────────────────────────────────────────────────────────────
+  // Overlap guard: a slow tick (e.g. a degraded Chatwoot upstream) must never
+  // let the NEXT 5s tick start a second concurrent fetchConvs+refreshMessages
+  // pair on top of it — pollInFlightRef skips a tick entirely if the previous
+  // one hasn't finished. Visibility backoff: a backgrounded tab has no one
+  // watching it update, so ticks are skipped outright while document.hidden
+  // (Page Visibility API) — the interval keeps running so it resumes on its
+  // own the next tick after the tab becomes visible again, with no separate
+  // "catch up" logic needed.
+  const pollInFlightRef = useRef(false)
   useEffect(() => {
     if (!profile) return
     fetchConvs(true)
     const t = setInterval(() => {
-      fetchConvs()
-      if (selectedRef.current) refreshMessages(selectedRef.current.id)
+      if (document.hidden) return
+      if (pollInFlightRef.current) return
+      pollInFlightRef.current = true
+      Promise.allSettled([
+        fetchConvs(),
+        selectedRef.current ? refreshMessages(selectedRef.current.id) : Promise.resolve(),
+      ]).finally(() => { pollInFlightRef.current = false })
     }, 5000)
     return () => clearInterval(t)
   }, [profile, fetchConvs, refreshMessages])
 
   useEffect(() => {
     if (!profile) return
+    // A tab switch is a genuinely different list (status query changes for
+    // 'resolved', and the ownership/assignee filtering differs per tab) —
+    // start it at the fast default depth rather than re-walking whatever
+    // depth a previous tab had been expanded to.
+    loadedPagesRef.current = DEFAULT_LOADED_PAGES
     fetchConvs(true)
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab])
@@ -655,6 +752,9 @@ function InboxPageInner() {
           onTabChange={setTab}
           onOpenSettings={() => setShowStaff(true)}
           onDelete={profile?.role === 'super_admin' ? handleDeleteConv : undefined}
+          hasMore={hasMoreConvs}
+          loadingMore={loadingMoreConvs}
+          onLoadMore={handleLoadMoreConvs}
         />
       </div>
 
@@ -727,12 +827,12 @@ function InboxPageInner() {
             onReopen={handleReopen}
             linkedApp={activeLinkedApp}
             onOpenLookup={() => setShowAppLookup(true)}
-            onOpenPaymentRequest={() => setPaymentOpen(true)}
-            onOpenVisaForm={() => setVisaFormOpen(true)}
-            onOpenItineraryRequest={() => setItineraryRequestOpen(true)}
-            onOpenClientIdentity={mode => setIdentityDrawer({ mode })}
+            onOpenPaymentRequest={openPaymentRequest}
+            onOpenVisaForm={openVisaForm}
+            onOpenItineraryRequest={openItineraryRequest}
+            onOpenClientIdentity={openClientIdentity}
             identityRefreshToken={identityRefreshToken}
-            onOpenCreateQuote={() => setQuoteOpen(true)}
+            onOpenCreateQuote={openCreateQuote}
           />
         </div>
       )}
@@ -765,11 +865,11 @@ function InboxPageInner() {
             onReopen={handleReopen}
             linkedApp={activeLinkedApp}
             onOpenLookup={() => { screens.closeDetails(); setShowAppLookup(true) }}
-            onOpenPaymentRequest={() => { screens.closeDetails(); setPaymentOpen(true) }}
-            onOpenVisaForm={() => { screens.closeDetails(); setVisaFormOpen(true) }}
-            onOpenItineraryRequest={() => { screens.closeDetails(); setItineraryRequestOpen(true) }}
-            onOpenCreateQuote={() => { screens.closeDetails(); setQuoteOpen(true) }}
-            onOpenClientIdentity={mode => { screens.closeDetails(); setIdentityDrawer({ mode }) }}
+            onOpenPaymentRequest={() => { screens.closeDetails(); openPaymentRequest() }}
+            onOpenVisaForm={() => { screens.closeDetails(); openVisaForm() }}
+            onOpenItineraryRequest={() => { screens.closeDetails(); openItineraryRequest() }}
+            onOpenCreateQuote={() => { screens.closeDetails(); openCreateQuote() }}
+            onOpenClientIdentity={mode => { screens.closeDetails(); openClientIdentity(mode) }}
             identityRefreshToken={identityRefreshToken}
           />
         </DetailsDrawer>
@@ -784,6 +884,7 @@ function InboxPageInner() {
           onClose={() => setPaymentOpen(false)}
           conversationId={selected.id}
           onSendMessage={text => handleSend(text, false)}
+          identityRefreshToken={identityRefreshToken}
         />
       )}
 
@@ -796,6 +897,7 @@ function InboxPageInner() {
           onClose={() => setQuoteOpen(false)}
           conversationId={selected.id}
           onSendMessage={text => handleSend(text, false)}
+          identityRefreshToken={identityRefreshToken}
         />
       )}
 
@@ -819,6 +921,7 @@ function InboxPageInner() {
           onClose={() => setVisaFormOpen(false)}
           conversationId={selected.id}
           onSendMessage={text => handleSend(text, false)}
+          identityRefreshToken={identityRefreshToken}
         />
       )}
 
@@ -832,6 +935,7 @@ function InboxPageInner() {
           onClose={() => setItineraryRequestOpen(false)}
           conversationId={selected.id}
           onSendMessage={text => handleSend(text, false)}
+          identityRefreshToken={identityRefreshToken}
         />
       )}
 

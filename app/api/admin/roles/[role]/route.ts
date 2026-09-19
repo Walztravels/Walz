@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getAdminSession } from '@/lib/admin-auth'
 import { prisma } from '@/lib/db'
 import { clearPermissionsCache } from '@/lib/getStaffPermissions'
+import { getRoleCatalogEntry } from '@/lib/rbac/roles'
 
 /**
  * PATCH /api/admin/roles/[role]
@@ -47,22 +48,12 @@ export async function PATCH(
       return NextResponse.json({ error: 'Invalid permissions payload' }, { status: 400 })
     }
 
-    // Label/color defaults for roles that may not yet exist in DB
-    const ROLE_DISPLAY: Record<string, { label: string; color: string }> = {
-      operations_manager: { label: 'Operations Manager',       color: '#2563EB' },
-      general_manager:    { label: 'General Manager',          color: '#4338CA' },
-      senior_manager:     { label: 'Senior Manager',           color: '#0F766E' },
-      visa_officer:       { label: 'Visa Officer',             color: '#7C3AED' },
-      coordinator:        { label: 'Coordinator',              color: '#D97706' },
-      flight_staff:       { label: 'Flight Ticketing Staff',   color: '#0284C7' },
-      tours_staff:        { label: 'Tours & Activities Staff', color: '#16A34A' },
-      hotel_staff:        { label: 'Hotel Reservation Staff',  color: '#0891B2' },
-      sales_agent:        { label: 'Sales Agent',              color: '#EA580C' },
-      sales_rep:          { label: 'Sales Representative',     color: '#CA8A04' },
-      accountant:         { label: 'Accountant',               color: '#DC2626' },
-      customer_support:   { label: 'Customer Support',         color: '#4B5563' },
-    }
-    const meta = ROLE_DISPLAY[role] ?? { label: role, color: '#6B7280' }
+    // Label/color defaults for roles that may not yet exist in DB — sourced
+    // from the single role catalogue (lib/rbac/roles.ts) instead of a local copy.
+    const catalogEntry = getRoleCatalogEntry(role)
+    const meta = catalogEntry
+      ? { label: catalogEntry.label, color: catalogEntry.hexColor }
+      : { label: role, color: '#6B7280' }
 
     // upsert — creates the record if it doesn't exist yet (supports "Initialize" for new roles)
     const updated = await prisma.rolePermission.upsert({

@@ -185,6 +185,19 @@ export async function getAdminSession(): Promise<AdminSession | null> {
 
   // Merge role defaults + per-staff overrides so session.permissions always reflects
   // the full effective permission set (role change in RoleManager → instant effect).
+  //
+  // Invariant: if staff.role has no RolePermission row, roleRecord is null,
+  // roleDefaults collapses to {}, and mergePermissions() below yields
+  // EMPTY_PERMISSIONS — i.e. zero access. This is intentional, correct,
+  // fail-closed behavior and must not change. What DID need fixing (RBAC
+  // Configuration Integrity, Phase 4) was that a role could reach this point
+  // with no RolePermission row at all, having been silently assigned via
+  // Staff creation/update with no warning — that's what took `coordinator`
+  // and `sales_rep` out of the Inbox in production. The Staff API now refuses
+  // to create/update a Staff record with a role that has no RolePermission
+  // row (see requireConfiguredRole() in lib/rbac/roles.ts; super_admin is
+  // exempt since it never needs one), so this fallback should only ever be
+  // reached for super_admin's env-fallback-adjacent cases, never silently.
   const roleRecord = await prisma.rolePermission.findUnique({
     where:  { role: staff.role },
     select: { permissions: true },

@@ -3,18 +3,19 @@ import bcrypt from 'bcryptjs'
 import { Resend } from '@/lib/resend-hardened'
 import { getAdminSession } from '@/lib/admin-auth'
 import prisma from '@/lib/db'
+import { ALL_ROLE_VALUES, ROLE_CATALOG_MAP, requireConfiguredRole } from '@/lib/rbac/roles'
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-const VALID_ROLES = ['super_admin', 'general_manager', 'senior_manager', 'coordinator', 'sales_rep']
+// All 13 catalogue roles are assignable (previously hardcoded to 5 — a
+// stopgap that silently rejected 8 of the 13 roles the Staff creation UI
+// actually offered). requireConfiguredRole() below is what now stops an
+// assignable-but-unconfigured role from being saved silently.
+const VALID_ROLES: string[] = ALL_ROLE_VALUES
 
-const ROLE_LABELS: Record<string, string> = {
-  super_admin:     'Super Admin',
-  general_manager: 'General Manager',
-  senior_manager:  'Senior Manager',
-  coordinator:     'Coordinator',
-  sales_rep:       'Sales Representative',
-}
+const ROLE_LABELS: Record<string, string> = Object.fromEntries(
+  ALL_ROLE_VALUES.map(v => [v, ROLE_CATALOG_MAP[v].label]),
+)
 
 /** Legacy accessLevel derived from role — used by login alert email */
 const ROLE_TO_ACCESS: Record<string, string> = {
@@ -168,6 +169,17 @@ export async function POST(req: NextRequest) {
   }
   if (!isSuperAdmin && roleStr === 'super_admin') {
     return NextResponse.json({ error: 'Only Super Admins can assign the Super Admin role' }, { status: 403 })
+  }
+
+  // Refuse to create a staff member with a role that has no RolePermission
+  // row — that role would silently resolve to zero permissions on login
+  // (see the invariant documented in lib/admin-auth.ts's getAdminSession()).
+  const roleCheck = await requireConfiguredRole(
+    r => prisma.rolePermission.findUnique({ where: { role: r }, select: { role: true } }),
+    roleStr,
+  )
+  if (!roleCheck.ok) {
+    return NextResponse.json({ error: roleCheck.error }, { status: 400 })
   }
 
   if (String(password).length < 8) {

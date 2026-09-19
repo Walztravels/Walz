@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import bcrypt from 'bcryptjs'
 import { getAdminSession, invalidateAdminSessionCache } from '@/lib/admin-auth'
 import prisma from '@/lib/db'
+import { ALL_ROLE_VALUES, ROLE_CATALOG_MAP, requireConfiguredRole } from '@/lib/rbac/roles'
 
 // ── GET — fetch a single staff member ─────────────────────────────────────────
 export async function GET(
@@ -32,15 +33,15 @@ export async function GET(
   return NextResponse.json({ staff })
 }
 
-const VALID_ROLES = ['super_admin', 'general_manager', 'senior_manager', 'coordinator', 'sales_rep']
+// All 13 catalogue roles are assignable (previously hardcoded to 5 — see
+// app/api/admin/staff/route.ts for the same note). requireConfiguredRole()
+// below is what now stops an assignable-but-unconfigured role from being
+// saved silently.
+const VALID_ROLES: string[] = ALL_ROLE_VALUES
 
-const ROLE_LABELS: Record<string, string> = {
-  super_admin:     'Super Admin',
-  general_manager: 'General Manager',
-  senior_manager:  'Senior Manager',
-  coordinator:     'Coordinator',
-  sales_rep:       'Sales Representative',
-}
+const ROLE_LABELS: Record<string, string> = Object.fromEntries(
+  ALL_ROLE_VALUES.map(v => [v, ROLE_CATALOG_MAP[v].label]),
+)
 
 const ROLE_TO_ACCESS: Record<string, string> = {
   super_admin:     'Admin',
@@ -82,6 +83,15 @@ export async function PUT(
     // Non-super-admins cannot promote anyone to super_admin
     if (!isSuperAdmin && roleStr === 'super_admin') {
       return NextResponse.json({ error: 'Only Super Admins can assign the Super Admin role' }, { status: 403 })
+    }
+    // Refuse to assign a role that has no RolePermission row — it would
+    // silently resolve to zero permissions on this staff member's next login.
+    const roleCheck = await requireConfiguredRole(
+      r => prisma.rolePermission.findUnique({ where: { role: r }, select: { role: true } }),
+      roleStr,
+    )
+    if (!roleCheck.ok) {
+      return NextResponse.json({ error: roleCheck.error }, { status: 400 })
     }
   }
 
