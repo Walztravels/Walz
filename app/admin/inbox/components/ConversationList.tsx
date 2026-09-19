@@ -229,9 +229,31 @@ export function ConversationList({
             <div className="py-12 text-center text-white/50 text-xs">
               No conversations match your search.
             </div>
+          ) : (tab === 'mine' || tab === 'resolved') && hasMore ? (
+            // P1.1 fix (2026-09-19): for Mine/Resolved specifically, the
+            // server's continuation scan (app/api/admin/conversations/
+            // route.ts) only reports hasMore=true when it stopped because
+            // it found enough authorized conversations while upstream data
+            // remained unchecked — which by construction means `displayed`
+            // is never empty here. This branch is defensive, not the normal
+            // path: it exists so a definitive "No conversations assigned to
+            // you" can NEVER be shown while the server itself is still
+            // signalling there's more to check, even if that invariant is
+            // ever violated by a future change to the route. See the
+            // production incident this closes (Oluchi Uko — a staff
+            // member's real assigned conversations were outside the
+            // then-shallow team-wide fetch window and got reported as
+            // "none", the exact false-empty state this branch forecloses).
+            <div className="py-12 text-center text-white/50 text-xs">
+              Still checking your older conversations…
+            </div>
           ) : (
             // Genuine per-queue empty — 'all' keeps the incident-pinned substring,
             // and every literal sits AFTER the failure branch in this source.
+            // For 'mine'/'resolved' this is only reached when hasMore is
+            // false — the server has authoritatively exhausted the
+            // searchable range (or reached its safe ceiling) and found
+            // nothing, not merely "the first shallow page had none."
             <div className="py-12 text-center text-white/50 text-xs">
               {tab === 'mine'       ? 'No conversations assigned to you.'
               : tab === 'unassigned' ? 'No unassigned conversations.'

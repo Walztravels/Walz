@@ -115,7 +115,11 @@ describe('poll overlap guard + visibility backoff', () => {
 
   it('the poll still refreshes both the conversation list and the open conversation each tick', () => {
     const block = pollBlock()
-    expect(block).toContain('fetchConvs()')
+    // P1.1 performance closing fix: a poll tick now explicitly marks
+    // itself (isPoll: true) so fetchConvs can cap a "Load more"-expanded
+    // want-count back down to the cheap default and merge instead of
+    // replace — see DEFAULT_MINE_WANT / isCheapPoll in fetchConvs.
+    expect(block).toContain('fetchConvs(false, { isPoll: true })')
     expect(block).toContain('refreshMessages(selectedRef.current.id)')
   })
 

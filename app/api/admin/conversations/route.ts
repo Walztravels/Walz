@@ -25,11 +25,31 @@ const MAX_PAGES = 8   // up to 200 conversations per status — hard ceiling, ne
 
 // Phase 1 (Agent A — Inbox Performance): walking all MAX_PAGES on EVERY
 // call — including every 5s poll tick from every connected staff member —
-// was unconditional. DEFAULT_MAX_PAGES is the fast depth for an initial
-// load or a fresh tab switch; a caller (the inbox page's "Load more" /
-// per-tick refresh) may request more via ?maxPages=, but never more than
-// MAX_PAGES regardless of what's asked for.
+// was unconditional. DEFAULT_MAX_PAGES is the fast depth for a viewAll
+// session's initial load or a fresh tab switch; a caller (the inbox page's
+// "Load more" / per-tick refresh) may request more via ?maxPages=, but
+// never more than MAX_PAGES regardless of what's asked for. This constant
+// and ?maxPages= now apply ONLY to viewAll (manager/admin) sessions — see
+// the P1.1 fix below for why ordinary staff no longer use it.
 const DEFAULT_MAX_PAGES = 2   // 50 conversations on first paint
+
+// P1.1 fix (2026-09-19): the Phase 1 optimization above bounded how many
+// TEAM-WIDE pages get walked before the ownership filter runs — correct
+// for a viewAll session (nothing is filtered out, so "pages walked" and
+// "results returned" are the same thing), but wrong for an ordinary staff
+// session: if that staff member's assigned conversations aren't among the
+// N most-recently-active conversations for the WHOLE TEAM, the filter
+// finds zero matches within the shallow window and the UI renders "No
+// conversations assigned to you" even though real assigned conversations
+// exist further back (production incident: Oluchi Uko, confirmed via
+// investigation before this fix). Ordinary staff therefore use a
+// different unit entirely: ?wantCount= is how many AUTHORIZED (owned)
+// conversations the caller wants, and the server internally walks as many
+// team-wide pages as needed (bounded by the same MAX_PAGES ceiling) to
+// satisfy it — never trusting ?maxPages= for these sessions at all, since
+// a page count can never correctly express "enough of MY conversations."
+const DEFAULT_WANT_COUNT = 25   // one page's worth of the staff member's OWN conversations
+const MAX_WANT_COUNT     = PAGE_SIZE * 8 // mirrors MAX_PAGES's 200-conversation ceiling in the new unit
 
 // P1 hotfix (2026-09-19): the 2026-09-17 incident's root cause included
 // Chatwoot fetches here with NO timeout at all, so a degraded upstream
@@ -84,6 +104,15 @@ export async function GET(req: Request) {
     const raw = Number(searchParams.get('maxPages'))
     if (!Number.isFinite(raw) || raw < 1) return DEFAULT_MAX_PAGES
     return Math.min(Math.floor(raw), MAX_PAGES)
+  })()
+
+  // P1.1 fix: how many of THIS caller's own conversations they want —
+  // meaningful only for non-viewAll sessions (see DEFAULT_WANT_COUNT doc
+  // comment above). Clamped exactly like requestedMaxPages.
+  const requestedWantCount = ((): number => {
+    const raw = Number(searchParams.get('wantCount'))
+    if (!Number.isFinite(raw) || raw < 1) return DEFAULT_WANT_COUNT
+    return Math.min(Math.floor(raw), MAX_WANT_COUNT)
   })()
 
   async function fetchPage(page: number): Promise<FetchPageResult> {
@@ -158,8 +187,57 @@ export async function GET(req: Request) {
     return NextResponse.json(inner)
   }
 
-  // Aggregate pages up to requestedMaxPages (bounded above, hard-capped at
-  // MAX_PAGES) so no conversation within that depth is hidden by pagination.
+  // P1.1 fix (2026-09-19): ordinary staff (non-viewAll) get a fundamentally
+  // different retrieval strategy — see the DEFAULT_WANT_COUNT doc comment.
+  // Instead of aggregating a bounded TEAM-WIDE window and hoping this
+  // caller's conversations happen to be in it, walk team-wide pages one at
+  // a time, filtering by ownership as each page arrives, and keep going
+  // until EITHER requestedWantCount authorized conversations have been
+  // found, OR Chatwoot itself runs out (a short page), OR the same
+  // MAX_PAGES ceiling every other path respects is reached. This never
+  // returns anyone else's conversations to the browser — only conversations
+  // that already pass scopeToMine are ever pushed into the response.
+  if (!viewAll) {
+    const myAgentId = await resolveChatwootAgentId(session.email)
+    let meta: Record<string, unknown> = {}
+    const visible: unknown[] = []
+    let lastPageFull = false
+    let page = 1
+    for (; page <= MAX_PAGES; page++) {
+      const result = await fetchPage(page)
+      if (!result.ok) {
+        if (page === 1) return failureResponse(result.status)
+        // A later page failing mid-scan is treated the same as exhaustion —
+        // we cannot safely claim more exists past a page we couldn't read.
+        lastPageFull = false
+        break
+      }
+      const inner     = result.data.data ?? result.data
+      const pageItems = Array.isArray(inner?.payload) ? inner.payload : []
+      if (page === 1) meta = inner?.meta ?? {}
+      for (const c of pageItems) {
+        const conv = c as { meta?: { assignee?: { id?: number } | null }; assignee?: { id?: number } | null }
+        const assigneeId = conv.meta?.assignee?.id ?? conv.assignee?.id ?? null
+        if (scopeToMine(assigneeId, myAgentId)) visible.push(c)
+      }
+      lastPageFull = pageItems.length === PAGE_SIZE
+      if (visible.length >= requestedWantCount) break   // found enough for this call
+      if (!lastPageFull) break                          // Chatwoot itself is exhausted
+    }
+    // Fix (P1.1): the old dead-end — hasMore staying true forever once the
+    // hard ceiling was reached, offering a "Load more" that could only ever
+    // re-scan the identical already-exhausted range. lastProcessedPage
+    // clamps to MAX_PAGES because the for-loop's own counter can run one
+    // past it on natural completion (page++ evaluates before the bound
+    // check fails) — that overshoot must not read as "still within budget."
+    const lastProcessedPage = Math.min(page, MAX_PAGES)
+    const atCeiling = lastProcessedPage >= MAX_PAGES
+    const hasMore = lastPageFull && visible.length >= requestedWantCount && !atCeiling
+    return NextResponse.json({ meta, payload: visible, hasMore })
+  }
+
+  // viewAll (manager/admin/super_admin): UNCHANGED from Phase 1 — aggregate
+  // team-wide pages up to requestedMaxPages, no ownership filtering.
   let meta: Record<string, unknown> = {}
   const payload: unknown[] = []
   // Phase 1 (Agent A): true when the loop stopped because it hit the
@@ -183,22 +261,6 @@ export async function GET(req: Request) {
     payload.push(...pageItems)
     if (pageItems.length < PAGE_SIZE) { hasMore = false; break }
     hasMore = true   // this page was full — more MIGHT exist past requestedMaxPages
-  }
-
-  // Server-side inbox_view_all enforcement: staff without it receive only
-  // conversations assigned to their own Chatwoot agent (Mine) — this holds
-  // for direct API calls too, not just the UI's tabs/filters. The ownership
-  // filter runs over `payload` as collected above — identical regardless of
-  // how many pages requestedMaxPages walked; it holds no assumption about
-  // page count.
-  if (!viewAll) {
-    const myAgentId = await resolveChatwootAgentId(session.email)
-    const visible = payload.filter((c) => {
-      const conv = c as { meta?: { assignee?: { id?: number } | null }; assignee?: { id?: number } | null }
-      const assigneeId = conv.meta?.assignee?.id ?? conv.assignee?.id ?? null
-      return scopeToMine(assigneeId, myAgentId)
-    })
-    return NextResponse.json({ meta, payload: visible, hasMore })
   }
 
   return NextResponse.json({ meta, payload, hasMore })

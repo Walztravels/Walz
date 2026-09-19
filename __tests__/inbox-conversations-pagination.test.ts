@@ -121,50 +121,140 @@ describe('maxPages bound', () => {
   })
 })
 
-describe('ownership scoping applies identically regardless of page depth (the actual security boundary)', () => {
-  it('maxPages=1: only page 1s "mine" conversations are returned', async () => {
+describe('P1.1 fix: non-viewAll sessions use wantCount continuation-scan, never maxPages (the actual security boundary + the completeness fix)', () => {
+  it('maxPages is IGNORED entirely for non-viewAll sessions — the old bug: it used to cap how much was walked BEFORE the ownership filter ran, so a staff member whose conversations sat past that cap saw nothing', async () => {
     mockCanViewAllConversations.mockReturnValue(false)
+    // maxPages=1 must NOT limit this to page 1's data — the server ignores
+    // maxPages for non-viewAll entirely and uses the wantCount default (25).
     const res = await GET(req('?maxPages=1'))
     const data = await res.json()
-    // Page 1 = ids 1..25. Mine = id % 3 === 0 → 3,6,9,...,24 → 8 conversations.
-    expect(data.payload).toHaveLength(8)
+    expect(Math.max(...data.payload.map((c: { id: number }) => c.id))).toBeGreaterThan(25)
     expect(data.payload.every((c: { id: number }) => c.id % 3 === 0)).toBe(true)
-    expect(data.payload.every((c: { id: number }) => c.id <= 25)).toBe(true)
-    // Confirms this test's expectation matches the real predicate, not a
-    // reimplemented copy of it.
     expect(canAccessConversation(42, MY_AGENT_ID, false)).toBe(true)
     expect(canAccessConversation(43, MY_AGENT_ID, false)).toBe(false)
   })
 
-  it('maxPages=2: the SAME filter now additionally admits page 2s "mine" conversations — the predicate never changed, only how much was walked', async () => {
+  it('wantCount=8: stops after exactly page 1, since page 1 alone already contains 8 "mine" matches (ids 3..24) and hasMore=true — page 1 was full, more might exist', async () => {
     mockCanViewAllConversations.mockReturnValue(false)
-    const res = await GET(req('?maxPages=2'))
+    const res = await GET(req('?wantCount=8'))
     const data = await res.json()
-    // Pages 1-2 = ids 1..50. Mine = multiples of 3 → 16 conversations.
+    expect((global.fetch as jest.Mock)).toHaveBeenCalledTimes(1)
+    expect(data.payload).toHaveLength(8)
+    expect(data.payload.every((c: { id: number }) => c.id % 3 === 0 && c.id <= 25)).toBe(true)
+    expect(data.hasMore).toBe(true)
+  })
+
+  it('wantCount=16: continues into page 2 to find the remaining 8 matches, stopping there — proves the continuation actually walks forward instead of giving up on a shallow window', async () => {
+    mockCanViewAllConversations.mockReturnValue(false)
+    const res = await GET(req('?wantCount=16'))
+    const data = await res.json()
+    expect((global.fetch as jest.Mock)).toHaveBeenCalledTimes(2)
     expect(data.payload).toHaveLength(16)
     expect(data.payload.every((c: { id: number }) => c.id % 3 === 0)).toBe(true)
     expect(Math.max(...data.payload.map((c: { id: number }) => c.id))).toBeGreaterThan(25)
+    expect(data.hasMore).toBe(true)
   })
 
-  it('a non-view-all session can never widen its result by asking for more pages than it is entitled to see', async () => {
+  it('a large wantCount still only ever returns "mine" conversations, bounded by genuine upstream exhaustion (page 4 is short) — never anyone else\'s data, no matter how far it had to scan', async () => {
     mockCanViewAllConversations.mockReturnValue(false)
-    const res = await GET(req('?maxPages=999'))
+    const res = await GET(req('?wantCount=999'))   // clamped to MAX_WANT_COUNT, still exhausts naturally first
     const data = await res.json()
-    // All 85 raw conversations walked, but still only "mine" comes back —
-    // the ownership filter, not the page cap, is what bounds visibility.
+    expect((global.fetch as jest.Mock)).toHaveBeenCalledTimes(4)   // all 4 mock pages, page 4 short stops it
     expect(data.payload.every((c: { id: number }) => c.id % 3 === 0)).toBe(true)
-    expect(data.payload).toHaveLength(28)   // multiples of 3 from 1..85
+    expect(data.payload).toHaveLength(28)   // every multiple of 3 in ids 1..85 (8 + 8 + 9 + 3 across the 4 pages)
+    expect(data.hasMore).toBe(false)   // genuinely exhausted — the false-empty/false-more bug this fix closes
   })
 
   it('resolveChatwootAgentId is consulted for the ownership filter, and only for non-view-all sessions', async () => {
     mockCanViewAllConversations.mockReturnValue(false)
-    await GET(req('?maxPages=1'))
+    await GET(req('?wantCount=8'))
     expect(mockResolveChatwootAgentId).toHaveBeenCalledWith(SESSION.email)
 
     mockResolveChatwootAgentId.mockClear()
     mockCanViewAllConversations.mockReturnValue(true)
     await GET(req('?maxPages=1'))
     expect(mockResolveChatwootAgentId).not.toHaveBeenCalled()
+  })
+})
+
+describe('P1.1 regression: the exact production bug — an agent with zero matches in the shallow window but real matches further back', () => {
+  // A dedicated dataset: pages 1-2 contain ZERO conversations assigned to
+  // MY_AGENT_ID (the old DEFAULT_LOADED_PAGES=2 window) — every one belongs
+  // to a different agent. Page 3 (full) and page 4 (short) DO contain the
+  // staff member's real assigned conversations. This is Oluchi Uko's exact
+  // production scenario: "No conversations assigned to you" was rendered
+  // even though real assigned conversations existed on later pages.
+  const SPARSE_PAGE_SIZES: Record<number, number> = { 1: 25, 2: 25, 3: 25, 4: 5 }
+  function sparseConv(id: number) {
+    // Pages 1-2 (ids 1-50): never mine. Pages 3-4 (ids 51-80): mine every 3rd id.
+    const assigneeId = id <= 50 ? 99 : (id % 3 === 0 ? MY_AGENT_ID : 98)
+    return { id, meta: { assignee: { id: assigneeId } } }
+  }
+  function sparseFetchMockImpl(url: string) {
+    const u = new URL(url)
+    const page = Number(u.searchParams.get('page'))
+    const size = SPARSE_PAGE_SIZES[page] ?? 0
+    const startId = (page - 1) * 25 + 1
+    const payload = Array.from({ length: size }, (_, i) => sparseConv(startId + i))
+    return Promise.resolve({ ok: true, json: async () => ({ data: { meta: {}, payload } }) } as unknown as Response)
+  }
+
+  beforeEach(() => {
+    mockCanViewAllConversations.mockReturnValue(false)
+    global.fetch = jest.fn(sparseFetchMockImpl) as unknown as typeof fetch
+  })
+
+  it('Mine automatically discovers the agent\'s real conversations on pages 3-4 even though pages 1-2 (the old shallow default window) contain none — this must NOT render as empty', async () => {
+    const res = await GET(req(''))   // no wantCount → DEFAULT_WANT_COUNT=25
+    const data = await res.json()
+    expect((global.fetch as jest.Mock)).toHaveBeenCalledTimes(4)   // had to walk past the old 2-page default to find anything
+    expect(data.payload.length).toBeGreaterThan(0)   // THE regression: this must never be empty
+    expect(data.payload.every((c: { id: number }) => c.id > 50)).toBe(true)   // all genuinely from pages 3-4
+    // ids 51..80, mine = multiples of 3 in that range: 51,54,...,78 → but only up to id 80 (page4 short=5 → ids 76-80) → 51..78 step 3 = 10 matches
+    expect(data.payload).toHaveLength(10)
+    expect(data.hasMore).toBe(false)   // page 4 was short — genuinely exhausted, correctly reported
+  })
+
+  it('Agent B (a different agent id) never receives Agent A\'s conversations from the same sparse dataset', async () => {
+    mockResolveChatwootAgentId.mockResolvedValue(98)   // "Agent B" in this dataset
+    const res = await GET(req(''))
+    const data = await res.json()
+    expect(data.payload.every((c: { id: number }) => c.id > 50 && c.id % 3 !== 0)).toBe(true)
+    expect(data.payload.some((c: { id: number }) => c.id % 3 === 0)).toBe(false)
+  })
+})
+
+describe('P1.1 fix: hasMore never survives past the hard ceiling (the dead-end this closes)', () => {
+  // Every page up to and including MAX_PAGES(8) is full AND contains
+  // exactly one "mine" match — the scan can never reach a large wantCount
+  // and never hits a genuinely short page either. The OLD bug would leave
+  // hasMore=true forever (an unbounded "Load more" that only ever re-scans
+  // the same already-exhausted range); the fix must report hasMore=false
+  // once the ceiling itself is reached, not just once Chatwoot runs dry.
+  function ceilingConv(id: number, page: number) {
+    const assigneeId = id === (page - 1) * 25 + 1 ? MY_AGENT_ID : 97   // exactly 1 mine match per page
+    return { id, meta: { assignee: { id: assigneeId } } }
+  }
+  function fullEveryPageMockImpl(url: string) {
+    const u = new URL(url)
+    const page = Number(u.searchParams.get('page'))
+    if (page > 8) return Promise.resolve({ ok: true, json: async () => ({ data: { meta: {}, payload: [] } }) } as unknown as Response)
+    const startId = (page - 1) * 25 + 1
+    const payload = Array.from({ length: 25 }, (_, i) => ceilingConv(startId + i, page))
+    return Promise.resolve({ ok: true, json: async () => ({ data: { meta: {}, payload } }) } as unknown as Response)
+  }
+
+  beforeEach(() => {
+    mockCanViewAllConversations.mockReturnValue(false)
+    global.fetch = jest.fn(fullEveryPageMockImpl) as unknown as typeof fetch
+  })
+
+  it('wantCount=200 (clamped to the same ceiling) never finds enough — only 8 mine matches exist across all 8 allowed pages — and hasMore is correctly false, not stuck true', async () => {
+    const res = await GET(req('?wantCount=200'))
+    const data = await res.json()
+    expect((global.fetch as jest.Mock)).toHaveBeenCalledTimes(8)   // walked exactly the ceiling, never past it
+    expect(data.payload).toHaveLength(8)   // one match per page × 8 pages
+    expect(data.hasMore).toBe(false)   // THE fix: no dead-end "Load more" once the ceiling is reached
   })
 })
 

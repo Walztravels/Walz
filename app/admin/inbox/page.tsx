@@ -32,6 +32,20 @@ const DEFAULT_LOADED_PAGES = 2
 const LOAD_MORE_STEP = 2
 const MAX_LOADED_PAGES = 8
 
+// P1.1 fix (2026-09-19): DEFAULT_LOADED_PAGES/MAX_LOADED_PAGES above bound
+// TEAM-WIDE pages — correct only for a viewAll (manager/admin) session,
+// where nothing is filtered out server-side. An ordinary staff session's
+// "Mine" can have zero conversations within the first N team-wide pages
+// even though real assigned conversations exist further back (production
+// incident: Oluchi Uko) — so ordinary staff use a completely different
+// unit, mirroring app/api/admin/conversations/route.ts's ?wantCount=: how
+// many of THEIR OWN conversations they want, with the server internally
+// walking as many team pages as needed (same MAX_PAGES ceiling) to find
+// them. MINE_WANT_STEP/MAX_MINE_WANT mirror the server's own constants.
+const DEFAULT_MINE_WANT = 25
+const MINE_WANT_STEP    = 25
+const MAX_MINE_WANT     = 200   // mirrors the server's MAX_WANT_COUNT (PAGE_SIZE * MAX_PAGES)
+
 // ── Notification sound ────────────────────────────────────────────────────────
 function beep() {
   try {
@@ -72,6 +86,15 @@ function InboxPageInner() {
   // setInterval closure always reads the latest depth without needing
   // fetchConvs to change identity on every "Load more" click.
   const loadedPagesRef = useRef(DEFAULT_LOADED_PAGES)
+  // P1.1 fix: per-tab want-count for non-viewAll sessions (see the
+  // DEFAULT_MINE_WANT doc comment above). Keyed by tab so switching
+  // Mine → Resolved → Mine never throws away depth gained via "Load
+  // more" on either — unlike loadedPagesRef above (viewAll's own state,
+  // deliberately left as-is; manager/admin behavior is unchanged by this
+  // fix), this map is never reset by the tab-switch effect below.
+  const mineWantCountRef = useRef<Record<'mine' | 'resolved', number>>({
+    mine: DEFAULT_MINE_WANT, resolved: DEFAULT_MINE_WANT,
+  })
   const [hasMoreConvs, setHasMoreConvs] = useState(false)
   const [loadingMoreConvs, setLoadingMoreConvs] = useState(false)
   const [showAppLookup, setShowAppLookup] = useState(false)
@@ -281,18 +304,44 @@ function InboxPageInner() {
   }, [])
 
   // ── Fetch conversations ─────────────────────────────────────────────────────
-  const fetchConvs = useCallback(async (showLoad = false) => {
+  const fetchConvs = useCallback(async (showLoad = false, opts?: { isPoll?: boolean }) => {
     if (showLoad) setLoading(true)
     try {
       // Always fetch the full open/resolved list — filter client-side per tab.
-      // maxPages bounds how many Chatwoot pages the server walks (Phase 1,
-      // Agent A): the initial/per-tab load asks for DEFAULT_LOADED_PAGES;
-      // "Load more" (handleLoadMoreConvs) bumps loadedPagesRef first, and a
-      // poll tick re-requests exactly the CURRENTLY loaded depth — never
-      // silently re-expanding to a full walk, but still refreshing everything
-      // already loaded.
+      // P1.1 fix: viewAll sessions keep the Phase 1 team-wide maxPages
+      // contract unchanged. Non-viewAll sessions send wantCount instead —
+      // "how many of MY OWN conversations" — per the DEFAULT_MINE_WANT doc
+      // comment above; the server internally walks as many team pages as
+      // needed (never trusting maxPages for these sessions at all) so a
+      // staff member's assigned conversations are found even when they sit
+      // outside the first N team-wide pages.
+      //
+      // Performance closing fix: a ROUTINE poll tick must stay cheap even
+      // after "Load more" has expanded mineWantCountRef well past the
+      // default — re-running the FULL expanded continuation-scan (up to
+      // MAX_PAGES upstream calls) every 5 seconds would quietly reintroduce
+      // the exact per-tick cost Phase 1 eliminated, just narrowed to staff
+      // who both expanded their view AND have sparsely-distributed
+      // conversations. So a poll tick (opts.isPoll) caps its own wantCount
+      // at DEFAULT_MINE_WANT (cheap, typically 1 Chatwoot call) and MERGES
+      // the result into what's already displayed instead of replacing it —
+      // never re-requesting the full expanded depth on a timer, and never
+      // shrinking the rail back down because this cheap check didn't
+      // re-see every already-loaded conversation. Explicit actions (initial
+      // load, tab switch, "Load more" itself, retry) are unaffected — they
+      // always fetch the FULL current depth and replace, giving an
+      // authoritative result exactly when the user asked for one.
       const status = tab === 'resolved' ? 'resolved' : 'open'
-      const res = await fetch(`/api/admin/conversations?status=${status}&maxPages=${loadedPagesRef.current}`)
+      const canViewAllNow = profile?.role === 'super_admin' || profile?.permissions?.inbox_view_all === true
+      const mineTabKey: 'mine' | 'resolved' = tab === 'resolved' ? 'resolved' : 'mine'
+      const isCheapPoll = !!opts?.isPoll && !canViewAllNow
+      const mineWant = isCheapPoll
+        ? Math.min(mineWantCountRef.current[mineTabKey], DEFAULT_MINE_WANT)
+        : mineWantCountRef.current[mineTabKey]
+      const url = canViewAllNow
+        ? `/api/admin/conversations?status=${status}&maxPages=${loadedPagesRef.current}`
+        : `/api/admin/conversations?status=${status}&wantCount=${mineWant}`
+      const res = await fetch(url)
       // 401 = session expired (12h JWT) — the middleware rejects before the
       // route runs. That is not a provider failure: send staff to login
       // instead of an unwinnable Retry loop (incident 2026-09-18).
@@ -382,7 +431,22 @@ function InboxPageInner() {
       const displayFiltered = readIds.size > 0
         ? filtered.map(c => readIds.has(c.id) ? { ...c, unread_count: 0 } : c)
         : filtered
-      setConvs(Array.isArray(displayFiltered) ? displayFiltered : [])
+      const safeFiltered = Array.isArray(displayFiltered) ? displayFiltered : []
+      // Performance closing fix: only when THIS call was a poll tick that
+      // capped its own wantCount below what's actually desired (i.e. the
+      // rail has been "Load more"-expanded past the default) do we merge
+      // instead of replace — a cheap, partial poll response must never
+      // shrink an expanded rail. Every other case (explicit load, tab
+      // switch, Load More itself, retry, or a poll tick that wasn't capped
+      // because the view was never expanded) is a full, authoritative
+      // fetch and replaces the list exactly as before.
+      const wasCappedPoll = isCheapPoll && mineWantCountRef.current[mineTabKey] > DEFAULT_MINE_WANT
+      setConvs(prev => {
+        if (!wasCappedPoll) return safeFiltered
+        const freshIds = new Set(safeFiltered.map(c => c.id))
+        const stillLoadedButNotRefreshed = prev.filter(c => !freshIds.has(c.id))
+        return [...safeFiltered, ...stillLoadedButNotRefreshed]
+      })
 
       // Auto-select from the URL on first load — legacy ?lead= (back-compat)
       // or the canonical UX-4 ?c= param (reload / deep link on a conversation)
@@ -411,10 +475,22 @@ function InboxPageInner() {
    *  wider window too, capped at the server's own hard ceiling. */
   const handleLoadMoreConvs = useCallback(async () => {
     if (loadingMoreConvs) return
-    loadedPagesRef.current = Math.min(loadedPagesRef.current + LOAD_MORE_STEP, MAX_LOADED_PAGES)
+    // P1.1 fix: bump whichever depth this session actually uses (see
+    // fetchConvs above) — viewAll's team-wide page count is untouched;
+    // non-viewAll bumps THIS tab's own want-count, leaving the other tab's
+    // depth (and every other tab) exactly as it was.
+    const canViewAllNow = profile?.role === 'super_admin' || profile?.permissions?.inbox_view_all === true
+    if (canViewAllNow) {
+      loadedPagesRef.current = Math.min(loadedPagesRef.current + LOAD_MORE_STEP, MAX_LOADED_PAGES)
+    } else {
+      const mineTabKey: 'mine' | 'resolved' = tab === 'resolved' ? 'resolved' : 'mine'
+      mineWantCountRef.current[mineTabKey] = Math.min(
+        mineWantCountRef.current[mineTabKey] + MINE_WANT_STEP, MAX_MINE_WANT,
+      )
+    }
     setLoadingMoreConvs(true)
     try { await fetchConvs() } finally { setLoadingMoreConvs(false) }
-  }, [fetchConvs, loadingMoreConvs])
+  }, [fetchConvs, loadingMoreConvs, profile, tab])
 
   // ── Fetch messages (history-aware) ──────────────────────────────────────────
   // Initial open: latest page, history state reset. Polling MERGES the
@@ -519,7 +595,7 @@ function InboxPageInner() {
       if (pollInFlightRef.current) return
       pollInFlightRef.current = true
       Promise.allSettled([
-        fetchConvs(),
+        fetchConvs(false, { isPoll: true }),
         selectedRef.current ? refreshMessages(selectedRef.current.id) : Promise.resolve(),
       ]).finally(() => { pollInFlightRef.current = false })
     }, 5000)
@@ -531,7 +607,15 @@ function InboxPageInner() {
     // A tab switch is a genuinely different list (status query changes for
     // 'resolved', and the ownership/assignee filtering differs per tab) —
     // start it at the fast default depth rather than re-walking whatever
-    // depth a previous tab had been expanded to.
+    // depth a previous tab had been expanded to. This ONLY affects
+    // loadedPagesRef, which viewAll sessions use (unchanged Phase 1
+    // behavior — manager/admin tab-switch depth is deliberately left as
+    // it was). Non-viewAll sessions don't use loadedPagesRef at all
+    // (see fetchConvs/handleLoadMoreConvs) — their per-tab want-count in
+    // mineWantCountRef is intentionally NOT touched here, so Mine →
+    // Resolved → Mine never throws away either tab's discovered depth
+    // (P1.1 fix; this was the exact mechanism that made the production
+    // regression worse than a one-time first-paint miss).
     loadedPagesRef.current = DEFAULT_LOADED_PAGES
     fetchConvs(true)
   // eslint-disable-next-line react-hooks/exhaustive-deps
