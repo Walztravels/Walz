@@ -94,46 +94,60 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
 
-  const body = await req.json()
-  const { from, to, depart, return: ret, trip, cabin, adults, children, infants, segments } = body
+  try {
+    const body = await req.json()
+    const { from, to, depart, return: ret, trip, cabin, adults, children, infants, segments } = body
 
-  const isMultiCity = trip === 'multi-city' && Array.isArray(segments) && segments.length >= 2
+    const isMultiCity = trip === 'multi-city' && Array.isArray(segments) && segments.length >= 2
 
-  if (!isMultiCity && (!from || !to || !depart)) {
-    return NextResponse.json({ error: 'from, to, depart are required' }, { status: 400 })
+    if (!isMultiCity && (!from || !to || !depart)) {
+      return NextResponse.json({ error: 'from, to, depart are required' }, { status: 400 })
+    }
+
+    if (!process.env.DUFFEL_ACCESS_TOKEN) {
+      return NextResponse.json({ error: 'Flight search not configured' }, { status: 503 })
+    }
+
+    const legs = isMultiCity
+      ? (segments as Array<{ from: string; to: string; date: string }>).map(s => ({ from: s.from, to: s.to, date: s.date }))
+      : trip === 'round-trip' && ret
+        ? [{ from, to, date: depart }, { from: to, to: from, date: ret }]
+        : [{ from, to, date: depart }]
+
+    const params: FlightSearchParams = {
+      tripType:   trip ?? 'one-way',
+      cabin:      CABIN_MAP[String(cabin ?? 'economy').toLowerCase()] ?? 'ECONOMY',
+      passengers: {
+        adults:   Number(adults)   || 1,
+        children: Number(children) || 0,
+        infants:  Number(infants)  || 0,
+      },
+      legs,
+    }
+
+    const searchedAt = new Date().toISOString()
+    const results    = assignBadges(await searchFlights(params))
+
+    const offers: NormalizedFlightOffer[] = results.map(it => itineraryToNormalized(it, searchedAt))
+
+    return NextResponse.json({
+      offers,
+      searchedAt,
+      totalOffers: offers.length,
+      provider: 'duffel',
+      searchParams: { from, to, depart, return: ret, trip, cabin, adults, children, infants },
+    })
+
+  } catch (err: unknown) {
+    console.error('[admin/travel-search/flights]', err)
+
+    const msg = err instanceof Error ? err.message : String(err)
+
+    // Surface Duffel validation errors distinctly (mirrors /api/flights/search)
+    if (msg.includes('Duffel') || msg.includes('422') || msg.includes('validation')) {
+      return NextResponse.json({ error: msg, source: 'duffel_error' }, { status: 422 })
+    }
+
+    return NextResponse.json({ error: 'Search failed. Please try again.', source: 'error' }, { status: 500 })
   }
-
-  if (!process.env.DUFFEL_ACCESS_TOKEN) {
-    return NextResponse.json({ error: 'Flight search not configured' }, { status: 503 })
-  }
-
-  const legs = isMultiCity
-    ? (segments as Array<{ from: string; to: string; date: string }>).map(s => ({ from: s.from, to: s.to, date: s.date }))
-    : trip === 'round-trip' && ret
-      ? [{ from, to, date: depart }, { from: to, to: from, date: ret }]
-      : [{ from, to, date: depart }]
-
-  const params: FlightSearchParams = {
-    tripType:   trip ?? 'one-way',
-    cabin:      CABIN_MAP[String(cabin ?? 'economy').toLowerCase()] ?? 'ECONOMY',
-    passengers: {
-      adults:   Number(adults)   || 1,
-      children: Number(children) || 0,
-      infants:  Number(infants)  || 0,
-    },
-    legs,
-  }
-
-  const searchedAt = new Date().toISOString()
-  const results    = assignBadges(await searchFlights(params))
-
-  const offers: NormalizedFlightOffer[] = results.map(it => itineraryToNormalized(it, searchedAt))
-
-  return NextResponse.json({
-    offers,
-    searchedAt,
-    totalOffers: offers.length,
-    provider: 'duffel',
-    searchParams: { from, to, depart, return: ret, trip, cabin, adults, children, infants },
-  })
 }

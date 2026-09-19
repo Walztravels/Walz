@@ -45,7 +45,17 @@ export async function searchActivities(
   const hbError     = hbResult?.status === 'rejected'      ? String((hbResult as PromiseRejectedResult).reason) : undefined
   const viatorError = viatorResult?.status === 'rejected'  ? String((viatorResult as PromiseRejectedResult).reason) : undefined
 
-  const combined = deduplicateActivities([...hbActivities, ...viatorActivities])
+  const deduped = deduplicateActivities([...hbActivities, ...viatorActivities])
+
+  // Viator-first ordering: Viator results are surfaced ahead of Hotelbeds
+  // results (both suppliers are shown — this is display ordering only, not
+  // filtering). Array#filter is stable, so each supplier's own internal
+  // relative order (as produced by deduplicateActivities) is preserved —
+  // this is a partition, not a re-sort.
+  const combined = [
+    ...deduped.filter(a => a.supplier === 'VIATOR'),
+    ...deduped.filter(a => a.supplier !== 'VIATOR'),
+  ]
 
   return {
     activities: combined,

@@ -34,57 +34,76 @@ export async function POST(req: NextRequest) {
     )
   }
 
-  const data = await hotelbedsRequest('transfers', '/transfers/availability', {
-    method: 'POST',
-    body: {
-      language,
-      from: { type: pickupType, code: pickupCode },
-      to:   { type: dropoffType, code: dropoffCode },
-      transfers: [{ transferDate, paxes: [{ type: 'AD', count: adults }, ...(children > 0 ? [{ type: 'CH', count: children }] : [])] }],
-      currency,
-    },
-  })
+  try {
+    const data = await hotelbedsRequest('transfers', '/transfers/availability', {
+      method: 'POST',
+      body: {
+        language,
+        from: { type: pickupType, code: pickupCode },
+        to:   { type: dropoffType, code: dropoffCode },
+        transfers: [{ transferDate, paxes: [{ type: 'AD', count: adults }, ...(children > 0 ? [{ type: 'CH', count: children }] : [])] }],
+        currency,
+      },
+    })
 
-  const searchedAt = new Date().toISOString()
-  const raw = (data.transfers ?? []) as Array<Record<string, unknown>>
+    const searchedAt = new Date().toISOString()
+    const raw = (data.transfers ?? []) as Array<Record<string, unknown>>
 
-  const offers: NormalizedTransferOffer[] = raw.flatMap((t: Record<string, unknown>) => {
-    const categories = (t.categories as Array<Record<string, unknown>>) ?? []
-    if (categories.length === 0) return []
+    const offers: NormalizedTransferOffer[] = raw.flatMap((t: Record<string, unknown>) => {
+      const categories = (t.categories as Array<Record<string, unknown>>) ?? []
+      if (categories.length === 0) return []
 
-    return categories.flatMap((cat: Record<string, unknown>) => {
-      const vehicles = (cat.vehicles as Array<Record<string, unknown>>) ?? []
-      return vehicles.map((v: Record<string, unknown>): NormalizedTransferOffer => {
-        const price = (v.prices as Array<Record<string, unknown>>)?.[0]
-        const net   = parseFloat(String(price?.totalNet ?? price?.net ?? 0))
-        const cur   = (price?.currency as string) ?? currency
+      return categories.flatMap((cat: Record<string, unknown>) => {
+        const vehicles = (cat.vehicles as Array<Record<string, unknown>>) ?? []
+        return vehicles.map((v: Record<string, unknown>): NormalizedTransferOffer => {
+          const price = (v.prices as Array<Record<string, unknown>>)?.[0]
+          const net   = parseFloat(String(price?.totalNet ?? price?.net ?? 0))
+          const cur   = (price?.currency as string) ?? currency
 
-        return {
-          provider:          'hotelbeds',
-          providerRateKey:   String(v.rateKey ?? ''),
-          providerContent:   (t.id as string) ?? null,
-          name:              `${cat.name ?? t.name ?? ''} — ${v.description ?? ''}`.trim().replace(/^ — | — $/g, ''),
-          transferType:      (t.type as string) ?? 'PRIVATE',
-          category:          (cat.name as string) ?? null,
-          capacity:          (v.maxPax as number) ?? null,
-          vehicle:           (v.description as string) ?? null,
-          pickupType,
-          pickupCode,
-          dropoffType,
-          dropoffCode,
-          transferDate,
-          supplierCurrency:     cur,
-          supplierAmount:       net,
-          supplierAmountMinor:  Math.round(net * 100),
-        }
+          return {
+            provider:          'hotelbeds',
+            providerRateKey:   String(v.rateKey ?? ''),
+            providerContent:   (t.id as string) ?? null,
+            name:              `${cat.name ?? t.name ?? ''} — ${v.description ?? ''}`.trim().replace(/^ — | — $/g, ''),
+            transferType:      (t.type as string) ?? 'PRIVATE',
+            category:          (cat.name as string) ?? null,
+            capacity:          (v.maxPax as number) ?? null,
+            vehicle:           (v.description as string) ?? null,
+            pickupType,
+            pickupCode,
+            dropoffType,
+            dropoffCode,
+            transferDate,
+            supplierCurrency:     cur,
+            supplierAmount:       net,
+            supplierAmountMinor:  Math.round(net * 100),
+          }
+        })
       })
     })
-  })
 
-  return NextResponse.json({
-    offers,
-    searchedAt,
-    totalOffers: offers.length,
-    provider: 'hotelbeds',
-  })
+    return NextResponse.json({
+      offers,
+      searchedAt,
+      totalOffers: offers.length,
+      provider: 'hotelbeds',
+    })
+
+  } catch (err: unknown) {
+    console.error('[admin/travel-search/transfers]', err)
+
+    const msg = err instanceof Error ? err.message : String(err)
+
+    // Mirrors /api/hotelbeds/transfers: a Hotelbeds entitlement rejection
+    // (403 "disallowed") or quota exhaustion is a known, non-crashing
+    // condition — surface it distinctly rather than as a generic 500.
+    if (msg.includes('403') || msg.toLowerCase().includes('disallowed') || msg.toLowerCase().includes('quota')) {
+      return NextResponse.json(
+        { error: 'Transfer search is currently unavailable. Please contact us to arrange a transfer.', code: 'TRANSFER_UNAVAILABLE' },
+        { status: 503 },
+      )
+    }
+
+    return NextResponse.json({ error: 'Transfer search failed. Please try again.' }, { status: 500 })
+  }
 }

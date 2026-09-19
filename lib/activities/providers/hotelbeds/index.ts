@@ -199,7 +199,20 @@ function mapHBToNormalized(a: any, destName: string): NormalizedActivity {
     '0'
   )
 
-  const { sellingPrice } = applyActivityMarkup(supplierNetPrice, 'HOTELBEDS', a.currency ?? 'USD')
+  // Honest currency reporting (no conversion): Hotelbeds' Activities API has no
+  // currency-selection parameter (unlike the Hotel API's `currency` field on
+  // POST /hotels) — it always returns prices in whatever currency the account/
+  // contract is priced in. Rather than guessing a fixed label, read whatever
+  // currency actually accompanies the price field we just extracted above, so a
+  // real mismatch against the quote's currency is reported honestly instead of
+  // being silently mislabeled to match.
+  const supplierCurrency: string =
+    a.currency ??
+    a.amountsFrom?.[0]?.currency ??
+    a.rates?.[0]?.rateDetails?.[0]?.currency ??
+    'USD' // last-resort placeholder — only reached when HB's payload carries no currency at all
+
+  const { sellingPrice } = applyActivityMarkup(supplierNetPrice, 'HOTELBEDS', supplierCurrency)
 
   const rawDesc: string = a.content?.description ?? a.content?.briefDescription ?? ''
   const description = rawDesc.replace(/<[^>]*>/g, '').trim()
@@ -235,7 +248,7 @@ function mapHBToNormalized(a: any, destName: string): NormalizedActivity {
 
     categories:      mapHBCategory(categoryCodes) ? [mapHBCategory(categoryCodes)] : [],
     freeCancellation,
-    currency:         a.currency ?? 'USD',
+    currency:         supplierCurrency,
     sellingPrice,
     supplierNetPrice,
     source:           'hotelbeds',
@@ -399,7 +412,11 @@ export class HotelbedsActivityProvider implements ActivityProvider {
         const price = parseFloat(item.amountFrom ?? item.amountsFrom?.[0]?.amount ?? '0')
         if (code && price > 0) {
           priceMap[code] = price
-          currMap[code]  = item.currency ?? 'USD'
+          // Same honest-currency approach as mapHBToNormalized: this live-price
+          // response is the authoritative source, so trust its own currency
+          // field (and its sibling on amountsFrom) over any earlier guess —
+          // never invent a currency Hotelbeds didn't actually send.
+          currMap[code]  = item.currency ?? item.amountsFrom?.[0]?.currency ?? 'USD'
         }
       }
 

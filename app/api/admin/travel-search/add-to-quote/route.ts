@@ -68,6 +68,34 @@ async function revalidateHotelNetMinor(
   return { ok: true, netMinor: Math.round(net * 100), currency }
 }
 
+// Tolerance-banded hotel price re-verification (closing fix, 2026-09-19):
+// the hotel branch's revalidateHotelNetMinor() above makes a SECOND,
+// independent live Hotelbeds /checkrates call — beyond the one the client
+// already made moments earlier via /api/admin/travel-search/hotels/
+// revalidate when staff clicked "Select & price". Hotelbeds documents (see
+// the RECHECK rate-type comment in app/api/admin/travel-search/hotels/
+// route.ts) that some rates are dynamically re-priced on every check BY
+// DESIGN — so two live checks seconds apart can legitimately return a
+// fractionally different net rate with zero price manipulation involved. A
+// strict !== comparison (the original implementation) therefore rejected
+// ordinary, unmodified staff selections on nothing more than live-rate
+// jitter. This band replaces that strict check.
+//
+// Expressed as a PERCENTAGE of the client-submitted cost, not a fixed
+// minor-unit amount, because hotel nightly rates span several orders of
+// magnitude (a ~£30/night budget room vs a ~£3,000/night suite) — a fixed
+// absolute tolerance would be far too tight for the low end or far too loose
+// for the high end. 1% is small enough that it cannot plausibly absorb a
+// materially manipulated price, while comfortably covering ordinary
+// live-rate jitter between two /checkrates calls seconds apart.
+// Math.max(1, …) keeps a non-zero floor so the band never collapses to
+// exact-match at very low cost values.
+const HOTEL_PRICE_TOLERANCE_PERCENT = 0.01
+
+function hotelPriceToleranceMinor(costMinor: number): number {
+  return Math.max(1, Math.round(costMinor * HOTEL_PRICE_TOLERANCE_PERCENT))
+}
+
 function bigintToNumber(obj: unknown): unknown {
   if (typeof obj === 'bigint') return Number(obj)
   if (Array.isArray(obj)) return obj.map(bigintToNumber)
@@ -249,8 +277,11 @@ export async function POST(req: NextRequest) {
   }
 
   if (payload.type === 'hotel') {
+    // sellingPriceMinor is intentionally not destructured from the payload:
+    // it is always recomputed below (freshSellingPriceMinor) from the
+    // freshly-revalidated net cost, never trusted from the client.
     const { offer, selectedRateKey, costMinor, markupMinor, serviceFeeMinor,
-            sellingPriceMinor, currency, isRecommended, label, clientNote, internalNote } = payload
+            currency, isRecommended, label, clientNote, internalNote } = payload
 
     // Price verification (defense in depth — do NOT trust client-submitted
     // costMinor): re-fetch the live Hotelbeds rate, the same call
@@ -260,21 +291,53 @@ export async function POST(req: NextRequest) {
     if (!revalidated.ok) {
       return NextResponse.json({ error: revalidated.error, code: 'PRICE_REVALIDATION_FAILED' }, { status: 400 })
     }
-    if (revalidated.netMinor !== costMinor) {
-      return NextResponse.json(
-        { error: 'This rate’s price has changed since it was selected. Please re-search and try again.', code: 'PRICE_MISMATCH' },
-        { status: 400 },
-      )
-    }
     // A magnitude match alone isn't enough — the supplier's own currency for
     // this rate must match what's being persisted, or a numerically-equal
-    // amount in a different currency would silently pass the check above.
+    // amount in a different currency would silently pass the check below.
+    // No tolerance makes sense here: a currency mismatch is a real bug or a
+    // real data problem, not price jitter, so this stays a hard reject.
     if (revalidated.currency && revalidated.currency.toUpperCase() !== String(currency).toUpperCase()) {
       return NextResponse.json(
         { error: 'This rate is priced in a different currency than expected. Please re-search and try again.', code: 'PRICE_MISMATCH' },
         { status: 400 },
       )
     }
+
+    // Tolerance-banded comparison (see HOTEL_PRICE_TOLERANCE_PERCENT above).
+    // Small drift within the band is treated as live-rate jitter, not a
+    // manipulated price: proceed, but persist the FRESH revalidated net
+    // cost, never the client-submitted (now slightly stale) figure. The
+    // payload only ever carries absolute markup/service-fee minor amounts
+    // (AddToQuotePayload has no markup-percentage field), so those absolute
+    // amounts are preserved unchanged and only cost/selling price move —
+    // consistent with how sellingPrice = net + markup + serviceFee is
+    // computed everywhere else in this codebase (lib/pricing/booking-price.ts).
+    const driftMinor = revalidated.netMinor - costMinor
+    if (Math.abs(driftMinor) > hotelPriceToleranceMinor(costMinor)) {
+      // Drift exceeds tolerance: do NOT flat-reject. Hand back the current
+      // live price so the frontend can show staff "price changed from X to
+      // Y — accept new price?" On acceptance the frontend simply re-submits
+      // add-to-quote with these new* values, which will be an exact (zero-
+      // drift) match against a fresh check and persist normally.
+      const newNetMinor = revalidated.netMinor
+      const newMarkupMinor = markupMinor
+      const newServiceFeeMinor = serviceFeeMinor
+      const newSellingPriceMinor = newNetMinor + newMarkupMinor + newServiceFeeMinor
+      return NextResponse.json(
+        {
+          error: 'This rate’s price has changed since it was selected. Please review the new price.',
+          code: 'PRICE_CHANGED_REQUIRES_ACCEPTANCE',
+          newNetMinor,
+          newMarkupMinor,
+          newServiceFeeMinor,
+          newSellingPriceMinor,
+          currency: revalidated.currency ?? currency,
+        },
+        { status: 409 },
+      )
+    }
+    const freshCostMinor = revalidated.netMinor
+    const freshSellingPriceMinor = freshCostMinor + markupMinor + serviceFeeMinor
 
     const selectedRate = offer.rates.find(r => r.rateKey === selectedRateKey) ?? offer.rates[0]
 
@@ -299,10 +362,10 @@ export async function POST(req: NextRequest) {
         isRefundable:       selectedRate?.isRefundable ?? true,
         supplier:           'hotelbeds',
         supplierRef:        selectedRateKey,
-        costMinor:          BigInt(costMinor),
+        costMinor:          BigInt(freshCostMinor),
         markupMinor:        BigInt(markupMinor),
         serviceFeeMinor:    BigInt(serviceFeeMinor),
-        sellingPriceMinor:  BigInt(sellingPriceMinor),
+        sellingPriceMinor:  BigInt(freshSellingPriceMinor),
         currency,
         sourceType:         'live_search',
         clientNote:         clientNote ?? null,
@@ -318,10 +381,10 @@ export async function POST(req: NextRequest) {
         sourceType:        'live_search',
         supplier:          'Hotelbeds',
         supplierRef:       selectedRateKey,
-        costMinor:         BigInt(costMinor),
+        costMinor:         BigInt(freshCostMinor),
         markupMinor:       BigInt(markupMinor),
         serviceFeeMinor:   BigInt(serviceFeeMinor),
-        sellingPriceMinor: BigInt(sellingPriceMinor),
+        sellingPriceMinor: BigInt(freshSellingPriceMinor),
         currency,
         clientNote:        clientNote ?? null,
         internalNote:      internalNote ?? null,

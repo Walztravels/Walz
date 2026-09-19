@@ -252,15 +252,64 @@ describe('Fix 2b — add-to-quote price verification (flight/hotel only)', () =>
     expect(mockPrisma.quoteHotelOption.create).toHaveBeenCalled()
   })
 
-  it('hotel: rejects (400, PRICE_MISMATCH) when the revalidated net cost differs from client-submitted costMinor', async () => {
-    ;(hotelbedsRequest as jest.Mock).mockResolvedValue({ hotel: { rooms: [{ rates: [{ rateKey: 'rk1', net: '450' }] }] } }) // 45000 vs 40000
+  // Behavior change (deliberate, not a weakening — see the
+  // HOTEL_PRICE_TOLERANCE_PERCENT comment in the route): Hotelbeds
+  // "RECHECK" rates are dynamically re-priced on every /checkrates call by
+  // design, and this route makes an independent second /checkrates call
+  // beyond the client's own revalidate-step call — so ANY drift, including
+  // a single-minor-unit jitter, used to false-positive reject an entirely
+  // legitimate, unmodified staff selection. A tolerance band now absorbs
+  // small drift; large drift is no longer a flat rejection either — it
+  // returns a structured "price changed, please accept" response instead
+  // (covered by the two new tests below). This test now covers a drift
+  // that exceeds the 1% band, asserting the NEW structured-response shape.
+  it('hotel: returns PRICE_CHANGED_REQUIRES_ACCEPTANCE (409) with the fresh price when the revalidated net cost exceeds the tolerance band', async () => {
+    ;(hotelbedsRequest as jest.Mock).mockResolvedValue({ hotel: { rooms: [{ rates: [{ rateKey: 'rk1', net: '450' }] }] } }) // 45000 vs 40000 — 12.5% drift, well past 1%
     const res = await addToQuotePOST(req({
       type: 'hotel', quoteId: 'q1', offer: HOTEL_OFFER, selectedRateKey: 'rk1',
       costMinor: 40000, markupMinor: 7200, serviceFeeMinor: 0, sellingPriceMinor: 47200, currency: 'GBP',
     }))
-    expect(res.status).toBe(400)
-    expect((await res.json()).code).toBe('PRICE_MISMATCH')
+    expect(res.status).toBe(409)
+    const body = await res.json()
+    expect(body.code).toBe('PRICE_CHANGED_REQUIRES_ACCEPTANCE')
+    expect(body.newNetMinor).toBe(45000)
+    expect(body.newMarkupMinor).toBe(7200) // absolute markup preserved unchanged (no % field on the payload)
+    expect(body.newServiceFeeMinor).toBe(0)
+    expect(body.newSellingPriceMinor).toBe(52200) // 45000 + 7200 + 0
+    expect(body.currency).toBe('GBP')
     expect(mockPrisma.quoteHotelOption.create).not.toHaveBeenCalled()
+    expect(mockPrisma.quoteItem.create).not.toHaveBeenCalled()
+  })
+
+  it('hotel: attaches using the FRESH revalidated net cost (not the stale client-submitted one) when drift is within the 1% tolerance band', async () => {
+    // Client submitted 40000; live rate has ticked up to 40200 (0.5% drift,
+    // the kind of single-checkrates-call jitter RECHECK rates produce) —
+    // within the ~1% (400 minor-unit) band, so this must proceed, but the
+    // PERSISTED cost/selling price must be the fresh 40200-based figures,
+    // never the stale client-submitted 40000/47200.
+    ;(hotelbedsRequest as jest.Mock).mockResolvedValue({ hotel: { rooms: [{ rates: [{ rateKey: 'rk1', net: '402' }] }] } })
+    const res = await addToQuotePOST(req({
+      type: 'hotel', quoteId: 'q1', offer: HOTEL_OFFER, selectedRateKey: 'rk1',
+      costMinor: 40000, markupMinor: 7200, serviceFeeMinor: 0, sellingPriceMinor: 47200, currency: 'GBP',
+    }))
+    expect(res.status).toBe(200)
+    expect(mockPrisma.quoteHotelOption.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          costMinor: BigInt(40200),
+          markupMinor: BigInt(7200),
+          sellingPriceMinor: BigInt(47400), // 40200 + 7200 + 0, NOT the stale 47200
+        }),
+      }),
+    )
+    expect(mockPrisma.quoteItem.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          costMinor: BigInt(40200),
+          sellingPriceMinor: BigInt(47400),
+        }),
+      }),
+    )
   })
 
   it('hotel: rejects (400, PRICE_MISMATCH) when the revalidated net cost matches numerically but the supplier currency differs (closing re-check finding)', async () => {

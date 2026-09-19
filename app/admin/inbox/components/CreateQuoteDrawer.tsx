@@ -47,6 +47,7 @@ import type {
 } from '@/lib/travel-search/types'
 import { calculateBookingPrice, defaultMarkupPercent, type BookingProductType, type BookingSupplier } from '@/lib/pricing/booking-price'
 import { UK_VISA_FEES } from '@/lib/config/visa-fees'
+import { AirportDropdown, fetchAirportSuggestions, type ApiAirport } from '@/app/admin/inbox/components/AirportDropdown'
 
 interface QuoteListItem {
   id: string; reference: string; title: string; status: string
@@ -87,6 +88,20 @@ interface AttachedLiveItem {
   costMinor: number; markupMinor: number; serviceFeeMinor: number; sellingPriceMinor: number; currency: string
 }
 
+// Multi-city leg — same shape/behavior as FlightSearchWidget.tsx's MCLeg
+// (from/to display text + resolved IATA code, per-leg suggestion lists),
+// adapted to this drawer's plain <input type="date"> string convention
+// (flDepart/flReturn are already strings here, not Date objects).
+interface FlLeg {
+  from: string; fromCode: string
+  to: string;   toCode: string
+  depart: string
+  fromSug: ApiAirport[]; toSug: ApiAirport[]
+}
+function emptyFlLeg(): FlLeg { return { from: '', fromCode: '', to: '', toCode: '', depart: '', fromSug: [], toSug: [] } }
+// Same cap FlightSearchWidget.tsx's addMcLeg() enforces (mcLegs.length >= 5).
+const MC_MAX_LEGS = 5
+
 interface PendingOffer {
   token: number
   type: LiveServiceType
@@ -102,6 +117,20 @@ interface PendingOffer {
   // 'skip' — no revalidate route for this product (activity/transfer)
   revalidateState: 'skip' | 'checking' | 'ok' | 'stale' | 'error'
   revalidateMessage?: string
+}
+
+// Hotel price-change acceptance (Item E) — the shape add-to-quote's hotel
+// branch returns at 409/PRICE_CHANGED_REQUIRES_ACCEPTANCE, plus the staff's
+// original attempted price (for the "changed from X to Y" display) and the
+// quote id the resubmit needs.
+interface PriceChangeOffer {
+  qid: string
+  oldSellingPriceMinor: number
+  newNetMinor: number
+  newMarkupMinor: number
+  newServiceFeeMinor: number
+  newSellingPriceMinor: number
+  currency: string
 }
 
 function fmtMinor(minor: number, curr: string): string {
@@ -165,14 +194,29 @@ export function CreateQuoteDrawer({ open, onClose, conversationId, onSendMessage
   const [liveSearching, setLiveSearching] = useState(false)
   const [liveError, setLiveError] = useState<string | null>(null)
 
+  // flFrom/flTo are RESOLVED IATA codes only — populated exclusively via an
+  // AirportDropdown selection (Item B), never from raw keystrokes. The
+  // display text the staff actually types lives in flFromQuery/flToQuery.
+  const [flFromQuery, setFlFromQuery] = useState('')
   const [flFrom, setFlFrom] = useState('')
+  const [flFromSug, setFlFromSug] = useState<ApiAirport[]>([])
+  const [flToQuery, setFlToQuery] = useState('')
   const [flTo, setFlTo] = useState('')
+  const [flToSug, setFlToSug] = useState<ApiAirport[]>([])
   const [flDepart, setFlDepart] = useState('')
   const [flReturn, setFlReturn] = useState('')
-  const [flTrip, setFlTrip] = useState<'one-way' | 'round-trip'>('one-way')
+  const [flTrip, setFlTrip] = useState<'one-way' | 'round-trip' | 'multi-city'>('one-way')
   const [flCabin, setFlCabin] = useState('economy')
   const [flAdults, setFlAdults] = useState(1)
   const [flightResults, setFlightResults] = useState<NormalizedFlightOffer[]>([])
+  // Multi-city legs (Item C) — mirrors FlightSearchWidget.tsx's mcLegs
+  // pattern (min 2 legs, cap MC_MAX_LEGS, auto-fill next leg's origin from
+  // the previous leg's destination).
+  const [mcLegs, setMcLegs] = useState<FlLeg[]>([emptyFlLeg(), emptyFlLeg()])
+  const flFromDebounceRef = useRef<ReturnType<typeof setTimeout>>()
+  const flToDebounceRef = useRef<ReturnType<typeof setTimeout>>()
+  const mcFromDebounceRef = useRef<(ReturnType<typeof setTimeout> | undefined)[]>([])
+  const mcToDebounceRef = useRef<(ReturnType<typeof setTimeout> | undefined)[]>([])
 
   const [htDest, setHtDest] = useState('')
   const [htIn, setHtIn] = useState('')
@@ -194,6 +238,15 @@ export function CreateQuoteDrawer({ open, onClose, conversationId, onSendMessage
   const [trDate, setTrDate] = useState('')
   const [trAdults, setTrAdults] = useState(2)
   const [transferResults, setTransferResults] = useState<NormalizedTransferOffer[]>([])
+  // Item D — a calmer, distinct message (not the generic red liveError) for
+  // the known TRANSFER_UNAVAILABLE case, pointing staff at the existing
+  // manual line-item form as the fallback.
+  const [transferUnavailable, setTransferUnavailable] = useState<string | null>(null)
+
+  // Item E — hotel price-change acceptance (add-to-quote 409/
+  // PRICE_CHANGED_REQUIRES_ACCEPTANCE). Set alongside `pending` (never
+  // replacing it — the resubmit needs the same offer/rate).
+  const [priceChange, setPriceChange] = useState<PriceChangeOffer | null>(null)
 
   const [submitting, setSubmitting] = useState(false)
   const [submitError, setSubmitError] = useState<string | null>(null)
@@ -235,12 +288,14 @@ export function CreateQuoteDrawer({ open, onClose, conversationId, onSendMessage
     setProfileGate(null)
     setRecent([])
     // UX-4.2b live-search reset
-    setLiveTab('flight'); setAttachedLive([]); setPending(null)
+    setLiveTab('flight'); setAttachedLive([]); setPending(null); setPriceChange(null)
     setLiveBusy(false); setLiveSearching(false); setLiveError(null)
-    setFlFrom(''); setFlTo(''); setFlDepart(''); setFlReturn(''); setFlTrip('one-way'); setFlCabin('economy'); setFlAdults(1); setFlightResults([])
+    setFlFromQuery(''); setFlFrom(''); setFlFromSug([]); setFlToQuery(''); setFlTo(''); setFlToSug([])
+    setFlDepart(''); setFlReturn(''); setFlTrip('one-way'); setFlCabin('economy'); setFlAdults(1); setFlightResults([])
+    setMcLegs([emptyFlLeg(), emptyFlLeg()])
     setHtDest(''); setHtIn(''); setHtOut(''); setHtAdults(2); setHtRooms(1); setHotelResults([])
     setAcDest(''); setAcFrom(''); setAcTo(''); setAcAdults(2); setActivityResults([])
-    setTrPickupType('IATA'); setTrPickupCode(''); setTrDropType('HOTEL'); setTrDropCode(''); setTrDate(''); setTrAdults(2); setTransferResults([])
+    setTrPickupType('IATA'); setTrPickupCode(''); setTrDropType('HOTEL'); setTrDropCode(''); setTrDate(''); setTrAdults(2); setTransferResults([]); setTransferUnavailable(null)
     void loadRecent()
     restoreRef.current = captureFocusRestoreTarget()
     closeRef.current?.focus()
@@ -293,13 +348,36 @@ export function CreateQuoteDrawer({ open, onClose, conversationId, onSendMessage
   // ── UX-4.2b — live search (Flight/Hotel/Activity/Transfer) ──────────────
   // Every call below hits an existing /api/admin/travel-search/* route —
   // no supplier client code, no parallel normalization layer.
+  // Item A — no structural change needed here: the backend
+  // (app/api/admin/travel-search/flights/route.ts) now always returns a
+  // real `error` message (422 duffel_error / 500 error), and this
+  // `data?.error ?? 'Flight search failed.'` fallback already surfaces it
+  // as-is via the existing liveError banner — it never discards a
+  // server-supplied message.
+  //
+  // Item C — one-way/round-trip and multi-city share the SAME fetch/401/
+  // !res.ok call site (only the request body differs), so this stays a
+  // single call site rather than two — matching how every other live-search
+  // function in this file makes exactly one fetch call.
   async function searchFlightsLive() {
-    if (!flFrom.trim() || !flTo.trim() || !flDepart) { setLiveError('Origin, destination and departure date are required.'); return }
+    let body: Record<string, unknown>
+    if (flTrip === 'multi-city') {
+      const incomplete = mcLegs.some(l => !l.fromCode || !l.toCode || !l.depart)
+      if (incomplete) { setLiveError('Every leg needs an origin, destination and date.'); return }
+      body = {
+        trip: 'multi-city',
+        segments: mcLegs.map(l => ({ from: l.fromCode, to: l.toCode, date: l.depart })),
+        cabin: flCabin, adults: flAdults,
+      }
+    } else {
+      if (!flFrom.trim() || !flTo.trim() || !flDepart) { setLiveError('Select an origin, destination and departure date.'); return }
+      body = { from: flFrom, to: flTo, depart: flDepart, return: flReturn, trip: flTrip, cabin: flCabin, adults: flAdults }
+    }
     setLiveSearching(true); setLiveError(null)
     try {
       const res = await fetch('/api/admin/travel-search/flights', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ from: flFrom, to: flTo, depart: flDepart, return: flReturn, trip: flTrip, cabin: flCabin, adults: flAdults }),
+        body: JSON.stringify(body),
       })
       // 401 = session expired — send staff to login instead of an unwinnable
       // retry loop (incident 2026-09-18). Same branch as every other inbox
@@ -330,7 +408,13 @@ export function CreateQuoteDrawer({ open, onClose, conversationId, onSendMessage
     if (!acDest.trim()) { setLiveError('Destination is required.'); return }
     setLiveSearching(true); setLiveError(null)
     try {
-      const qs = new URLSearchParams({ destination: acDest, adults: String(acAdults) })
+      // QA closing fix: the quote's own currency must reach the search so
+      // Viator (which honors ?currency=) returns offers already priced to
+      // match the quote, instead of always defaulting to GBP regardless of
+      // what currency this quote actually uses — the whole point of the
+      // currency-plumbing fix in app/api/admin/travel-search/activities/
+      // route.ts, which was otherwise unreachable from this drawer.
+      const qs = new URLSearchParams({ destination: acDest, adults: String(acAdults), currency })
       if (acFrom) qs.set('dateFrom', acFrom)
       if (acTo) qs.set('dateTo', acTo)
       const res = await fetch(`/api/admin/travel-search/activities?${qs}`)
@@ -341,9 +425,16 @@ export function CreateQuoteDrawer({ open, onClose, conversationId, onSendMessage
     } catch { setLiveError('Activity search failed.') } finally { setLiveSearching(false) }
   }
 
+  // Item D — the try/catch already prevents any crash on a transfer-search
+  // failure (a network throw lands in the catch below, same as every other
+  // live-search function here). The only change is distinguishing the
+  // known TRANSFER_UNAVAILABLE case (503, Hotelbeds entitlement/quota) with
+  // a calmer message that points staff at the existing manual line-item
+  // form, instead of the generic red liveError used for every other
+  // failure.
   async function searchTransfersLive() {
     if (!trPickupCode.trim() || !trDropCode.trim() || !trDate) { setLiveError('Pickup, dropoff and date are required.'); return }
-    setLiveSearching(true); setLiveError(null)
+    setLiveSearching(true); setLiveError(null); setTransferUnavailable(null)
     try {
       const res = await fetch('/api/admin/travel-search/transfers', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -351,10 +442,72 @@ export function CreateQuoteDrawer({ open, onClose, conversationId, onSendMessage
       })
       if (res.status === 401) { router.push('/admin/login'); return }
       const data = await res.json().catch(() => ({}))
-      if (!res.ok) { setLiveError(data?.error ?? 'Transfer search failed.'); return }
+      if (!res.ok) {
+        if (data?.code === 'TRANSFER_UNAVAILABLE') {
+          setTransferUnavailable('Transfer search is temporarily unavailable. You can still add a transfer manually using the line item form above.')
+          return
+        }
+        setLiveError(data?.error ?? 'Transfer search failed.')
+        return
+      }
       setTransferResults(Array.isArray(data.offers) ? data.offers : [])
     } catch { setLiveError('Transfer search failed.') } finally { setLiveSearching(false) }
   }
+
+  // ── Item B — airport/IATA selection (single from/to) ────────────────────
+  // Same debounced-fetch-then-AirportDropdown pattern FlightSearchWidget.tsx
+  // uses (fetchAirports/onSelect) — flFrom/flTo are only ever set by
+  // selecting a suggestion, never from the raw input value.
+  function onFlFromChange(v: string) {
+    setFlFromQuery(v); setFlFrom('')
+    clearTimeout(flFromDebounceRef.current)
+    flFromDebounceRef.current = setTimeout(() => { void fetchAirportSuggestions(v).then(setFlFromSug) }, 200)
+  }
+  function onFlToChange(v: string) {
+    setFlToQuery(v); setFlTo('')
+    clearTimeout(flToDebounceRef.current)
+    flToDebounceRef.current = setTimeout(() => { void fetchAirportSuggestions(v).then(setFlToSug) }, 200)
+  }
+  function selectFlFrom(a: ApiAirport) { setFlFromQuery(`${a.city} (${a.code})`); setFlFrom(a.code); setFlFromSug([]) }
+  function selectFlTo(a: ApiAirport) { setFlToQuery(`${a.city} (${a.code})`); setFlTo(a.code); setFlToSug([]) }
+
+  // ── Item C — multi-city legs ─────────────────────────────────────────────
+  // Same add/remove/auto-fill behavior as FlightSearchWidget.tsx's
+  // mcLegs/addMcLeg/removeMcLeg/updateMcLeg (min 2 legs, cap MC_MAX_LEGS,
+  // next leg's origin auto-filled from the previous leg's destination).
+  function updateMcLeg(i: number, patch: Partial<FlLeg>) {
+    setMcLegs(prev => {
+      const next = [...prev]
+      next[i] = { ...next[i], ...patch }
+      if (patch.toCode && i < prev.length - 1) {
+        next[i + 1] = { ...next[i + 1], from: next[i].to, fromCode: patch.toCode }
+      }
+      return next
+    })
+  }
+  function addMcLeg() {
+    if (mcLegs.length >= MC_MAX_LEGS) return
+    setMcLegs(prev => {
+      const last = prev[prev.length - 1]
+      return [...prev, { ...emptyFlLeg(), from: last.to, fromCode: last.toCode }]
+    })
+  }
+  function removeMcLeg(i: number) {
+    if (mcLegs.length <= 2) return
+    setMcLegs(prev => prev.filter((_, idx) => idx !== i))
+  }
+  function onMcFromChange(i: number, v: string) {
+    updateMcLeg(i, { from: v, fromCode: '' })
+    clearTimeout(mcFromDebounceRef.current[i])
+    mcFromDebounceRef.current[i] = setTimeout(() => { void fetchAirportSuggestions(v).then(fromSug => updateMcLeg(i, { fromSug })) }, 200)
+  }
+  function onMcToChange(i: number, v: string) {
+    updateMcLeg(i, { to: v, toCode: '' })
+    clearTimeout(mcToDebounceRef.current[i])
+    mcToDebounceRef.current[i] = setTimeout(() => { void fetchAirportSuggestions(v).then(toSug => updateMcLeg(i, { toSug })) }, 200)
+  }
+  function selectMcFrom(i: number, a: ApiAirport) { updateMcLeg(i, { from: `${a.city} (${a.code})`, fromCode: a.code, fromSug: [] }) }
+  function selectMcTo(i: number, a: ApiAirport) { updateMcLeg(i, { to: `${a.city} (${a.code})`, toCode: a.code, toSug: [] }) }
 
   // ── UX-4.2b — pending offer (pricing + revalidation) then attach ────────
   function openPending(type: LiveServiceType, offer: NormalizedOffer, title: string, supplierMinor: number, offerCurrency: string, extra?: { rateKey: string }) {
@@ -363,6 +516,7 @@ export function CreateQuoteDrawer({ open, onClose, conversationId, onSendMessage
     const productType = productTypeFor(type)
     const needsRevalidation = type === 'flight' || type === 'hotel'
     setLiveError(null)
+    setPriceChange(null)
     setPending({
       token: seq, type, offer, title, supplierMinor, offerCurrency, supplier, productType, extra,
       markupPercent: defaultMarkupPercent(productType, supplier),
@@ -422,7 +576,7 @@ export function CreateQuoteDrawer({ open, onClose, conversationId, onSendMessage
     }
   }
 
-  function cancelPending() { setPending(null) }
+  function cancelPending() { setPending(null); setPriceChange(null) }
 
   function buildAttachPayload(qid: string, p: PendingOffer, costMinor: number, markupMinor: number, serviceFeeMinor: number, sellingPriceMinor: number): AddToQuotePayload {
     const base = { quoteId: qid, costMinor, markupMinor, serviceFeeMinor, sellingPriceMinor, currency }
@@ -436,6 +590,20 @@ export function CreateQuoteDrawer({ open, onClose, conversationId, onSendMessage
   // server-side as defense in depth): a Quote has one currency; an offer
   // priced differently must never be silently summed in.
   const pendingCurrencyMismatch = pending ? pending.offerCurrency.toUpperCase() !== currency.toUpperCase() : false
+
+  // Item E — shared by confirmAddPending (first attempt) and
+  // acceptPriceChange (the resubmit with staff-accepted new pricing) so
+  // there is exactly ONE /add-to-quote fetch call site (and one 401 check)
+  // in this file, not two.
+  async function postAddToQuote(payload: AddToQuotePayload): Promise<{ res: Response; data: Record<string, unknown> } | undefined> {
+    const res = await fetch('/api/admin/travel-search/add-to-quote', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    })
+    if (res.status === 401) { router.push('/admin/login'); return }
+    const data = await res.json().catch(() => ({}))
+    return { res, data }
+  }
 
   async function confirmAddPending() {
     if (!pending || liveBusy) return
@@ -462,18 +630,65 @@ export function CreateQuoteDrawer({ open, onClose, conversationId, onSendMessage
       const markupMinor = Math.round(pricing.markupAmount * 100)
       const serviceFeeMinor = Math.round(pricing.serviceFee * 100)
       const sellingPriceMinor = Math.round(pricing.sellingPrice * 100)
-      const res = await fetch('/api/admin/travel-search/add-to-quote', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(buildAttachPayload(qid, pending, costMinor, markupMinor, serviceFeeMinor, sellingPriceMinor)),
-      })
-      if (res.status === 401) { router.push('/admin/login'); return }
-      const data = await res.json().catch(() => ({}))
-      if (!res.ok) { setLiveError(data?.error ?? 'Could not add this item to the quote.'); return }
+      const result = await postAddToQuote(buildAttachPayload(qid, pending, costMinor, markupMinor, serviceFeeMinor, sellingPriceMinor))
+      if (!result) return
+      const { res, data } = result
+      if (!res.ok) {
+        // Item E — a genuine hotel price change beyond the server's 1%
+        // tolerance band (409) is not a flat rejection: hand staff the new
+        // price and an explicit accept action rather than auto-accepting
+        // (business requirement — a real price change always needs a human
+        // click). `pending` is intentionally left set so the resubmit below
+        // has the same offer/rate to attach.
+        if (res.status === 409 && data?.code === 'PRICE_CHANGED_REQUIRES_ACCEPTANCE') {
+          setPriceChange({
+            qid, oldSellingPriceMinor: sellingPriceMinor,
+            newNetMinor: Number(data.newNetMinor), newMarkupMinor: Number(data.newMarkupMinor),
+            newServiceFeeMinor: Number(data.newServiceFeeMinor), newSellingPriceMinor: Number(data.newSellingPriceMinor),
+            currency: typeof data.currency === 'string' ? data.currency : currency,
+          })
+          return
+        }
+        setLiveError(typeof data?.error === 'string' ? data.error : 'Could not add this item to the quote.')
+        return
+      }
       setAttachedLive(prev => [...prev, {
         key: crypto.randomUUID(), type: pending.type, title: pending.title,
         costMinor, markupMinor, serviceFeeMinor, sellingPriceMinor, currency,
       }])
       setPending(null)
+    } catch {
+      setLiveError('Could not add this item to the quote.')
+    } finally {
+      setLiveBusy(false)
+    }
+  }
+
+  function cancelPriceChange() { setPriceChange(null) }
+
+  // Item E — explicit staff acceptance of a genuine price change. Resubmits
+  // the SAME /add-to-quote payload (same offer/rate) but with
+  // costMinor/markupMinor/serviceFeeMinor/sellingPriceMinor replaced by the
+  // server's newNetMinor/newMarkupMinor/newServiceFeeMinor/
+  // newSellingPriceMinor — this lands within tolerance of a fresh check and
+  // succeeds normally. Never called automatically; only from the explicit
+  // "Accept new price" button below.
+  async function acceptPriceChange() {
+    if (!priceChange || !pending || liveBusy) return
+    setLiveBusy(true); setLiveError(null)
+    try {
+      const { qid, newNetMinor, newMarkupMinor, newServiceFeeMinor, newSellingPriceMinor, currency: newCurrency } = priceChange
+      const result = await postAddToQuote(buildAttachPayload(qid, pending, newNetMinor, newMarkupMinor, newServiceFeeMinor, newSellingPriceMinor))
+      if (!result) return
+      const { res, data } = result
+      if (!res.ok) { setLiveError(typeof data?.error === 'string' ? data.error : 'Could not add this item to the quote.'); return }
+      setAttachedLive(prev => [...prev, {
+        key: crypto.randomUUID(), type: pending.type, title: pending.title,
+        costMinor: newNetMinor, markupMinor: newMarkupMinor, serviceFeeMinor: newServiceFeeMinor,
+        sellingPriceMinor: newSellingPriceMinor, currency: newCurrency,
+      }])
+      setPending(null)
+      setPriceChange(null)
     } catch {
       setLiveError('Could not add this item to the quote.')
     } finally {
@@ -807,7 +1022,7 @@ export function CreateQuoteDrawer({ open, onClose, conversationId, onSendMessage
               <p className={labelCls}>Search &amp; add live inventory</p>
               <div className="flex gap-1 flex-wrap">
                 {LIVE_TABS.map(t => (
-                  <button key={t.id} type="button" onClick={() => setLiveTab(t.id)}
+                  <button key={t.id} type="button" onClick={() => { setLiveTab(t.id); setTransferUnavailable(null) }}
                     className={`min-h-[36px] px-3 rounded-lg text-xs font-semibold border transition-colors flex items-center gap-1
                       ${liveTab === t.id ? 'bg-walz-navy text-white border-walz-navy' : 'bg-white text-walz-navy border-walz-border hover:bg-walz-navy/5'}`}>
                     {t.id === 'flight' && <Plane className="w-3 h-3" />}
@@ -823,23 +1038,81 @@ export function CreateQuoteDrawer({ open, onClose, conversationId, onSendMessage
 
               {liveTab === 'flight' && (
                 <div className="space-y-2 rounded-lg border border-walz-border p-2">
-                  <div className="grid grid-cols-2 gap-2">
-                    <input value={flFrom} onChange={e => setFlFrom(e.target.value.toUpperCase())} placeholder="From (LHR)" maxLength={3} className={inputCls} />
-                    <input value={flTo} onChange={e => setFlTo(e.target.value.toUpperCase())} placeholder="To (DXB)" maxLength={3} className={inputCls} />
-                    <input type="date" value={flDepart} onChange={e => setFlDepart(e.target.value)} className={inputCls} />
-                    <input type="date" value={flReturn} onChange={e => setFlReturn(e.target.value)} disabled={flTrip === 'one-way'} className={`${inputCls} disabled:opacity-40`} />
-                    <select value={flTrip} onChange={e => setFlTrip(e.target.value as typeof flTrip)} className={inputCls}>
-                      <option value="one-way">One-way</option>
-                      <option value="round-trip">Round-trip</option>
-                    </select>
-                    <select value={flCabin} onChange={e => setFlCabin(e.target.value)} className={inputCls}>
-                      <option value="economy">Economy</option>
-                      <option value="premium_economy">Premium Economy</option>
-                      <option value="business">Business</option>
-                      <option value="first">First</option>
-                    </select>
-                    <input type="number" min={1} max={9} value={flAdults} onChange={e => setFlAdults(Number(e.target.value))} className={inputCls} />
-                  </div>
+                  {/* Item C — widened One-way | Return | Multi-city (was two options) */}
+                  <select value={flTrip} onChange={e => setFlTrip(e.target.value as typeof flTrip)} className={inputCls}>
+                    <option value="one-way">One-way</option>
+                    <option value="round-trip">Return</option>
+                    <option value="multi-city">Multi-city</option>
+                  </select>
+
+                  {flTrip === 'multi-city' ? (
+                    <div className="space-y-2">
+                      {mcLegs.map((leg, i) => (
+                        <div key={i} className="space-y-1 rounded-lg border border-dashed border-walz-border p-2">
+                          <div className="grid grid-cols-2 gap-2">
+                            <div className="relative">
+                              <input value={leg.from} onChange={e => onMcFromChange(i, e.target.value)}
+                                placeholder={`Leg ${i + 1} from`} aria-label={`Leg ${i + 1} origin`} className={inputCls} />
+                              {leg.fromSug.length > 0 && <AirportDropdown airports={leg.fromSug} onSelect={a => selectMcFrom(i, a)} />}
+                            </div>
+                            <div className="relative">
+                              <input value={leg.to} onChange={e => onMcToChange(i, e.target.value)}
+                                placeholder={`Leg ${i + 1} to`} aria-label={`Leg ${i + 1} destination`} className={inputCls} />
+                              {leg.toSug.length > 0 && <AirportDropdown airports={leg.toSug} onSelect={a => selectMcTo(i, a)} />}
+                            </div>
+                          </div>
+                          <div className="flex gap-2 items-center">
+                            <input type="date" value={leg.depart} onChange={e => updateMcLeg(i, { depart: e.target.value })} className={inputCls} />
+                            {mcLegs.length > 2 && (
+                              <button type="button" onClick={() => removeMcLeg(i)} aria-label={`Remove leg ${i + 1}`}
+                                className="flex-shrink-0 min-w-[44px] min-h-[44px] flex items-center justify-center text-walz-muted-strong hover:text-red-700">
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                      {mcLegs.length < MC_MAX_LEGS && (
+                        <button type="button" onClick={addMcLeg}
+                          className="text-xs font-semibold text-walz-navy hover:underline">
+                          + Add another flight
+                        </button>
+                      )}
+                      <div className="grid grid-cols-2 gap-2">
+                        <select value={flCabin} onChange={e => setFlCabin(e.target.value)} className={inputCls}>
+                          <option value="economy">Economy</option>
+                          <option value="premium_economy">Premium Economy</option>
+                          <option value="business">Business</option>
+                          <option value="first">First</option>
+                        </select>
+                        <input type="number" min={1} max={9} value={flAdults} onChange={e => setFlAdults(Number(e.target.value))} placeholder="Adults" className={inputCls} />
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-2 gap-2">
+                      {/* Item B — real airport selection: flFrom/flTo are resolved
+                          IATA codes populated only via AirportDropdown.onSelect. */}
+                      <div className="relative">
+                        <input value={flFromQuery} onChange={e => onFlFromChange(e.target.value)}
+                          placeholder="From (city or airport)" aria-label="Departure city or airport" className={inputCls} />
+                        {flFromSug.length > 0 && <AirportDropdown airports={flFromSug} onSelect={selectFlFrom} />}
+                      </div>
+                      <div className="relative">
+                        <input value={flToQuery} onChange={e => onFlToChange(e.target.value)}
+                          placeholder="To (city or airport)" aria-label="Destination city or airport" className={inputCls} />
+                        {flToSug.length > 0 && <AirportDropdown airports={flToSug} onSelect={selectFlTo} />}
+                      </div>
+                      <input type="date" value={flDepart} onChange={e => setFlDepart(e.target.value)} className={inputCls} />
+                      <input type="date" value={flReturn} onChange={e => setFlReturn(e.target.value)} disabled={flTrip === 'one-way'} className={`${inputCls} disabled:opacity-40`} />
+                      <select value={flCabin} onChange={e => setFlCabin(e.target.value)} className={inputCls}>
+                        <option value="economy">Economy</option>
+                        <option value="premium_economy">Premium Economy</option>
+                        <option value="business">Business</option>
+                        <option value="first">First</option>
+                      </select>
+                      <input type="number" min={1} max={9} value={flAdults} onChange={e => setFlAdults(Number(e.target.value))} className={inputCls} />
+                    </div>
+                  )}
                   <button type="button" onClick={() => void searchFlightsLive()} disabled={liveSearching}
                     className="w-full min-h-[40px] rounded-lg bg-walz-navy/5 text-walz-navy text-xs font-semibold border border-walz-border hover:bg-walz-navy/10 transition-colors disabled:opacity-60">
                     {liveSearching ? 'Searching…' : 'Search flights'}
@@ -955,6 +1228,15 @@ export function CreateQuoteDrawer({ open, onClose, conversationId, onSendMessage
                     className="w-full min-h-[40px] rounded-lg bg-walz-navy/5 text-walz-navy text-xs font-semibold border border-walz-border hover:bg-walz-navy/10 transition-colors disabled:opacity-60">
                     {liveSearching ? 'Searching…' : 'Search transfers'}
                   </button>
+                  {/* Item D — calmer, distinct message for the known
+                      TRANSFER_UNAVAILABLE case (not the generic red
+                      liveError), pointing staff at the manual line-item
+                      form above as a fully usable fallback. */}
+                  {transferUnavailable && (
+                    <div role="status" className="rounded-lg border border-walz-border bg-walz-off-white p-2 text-xs text-walz-muted-strong">
+                      {transferUnavailable}
+                    </div>
+                  )}
                   {transferResults.length > 0 && (
                     <ul className="space-y-2 max-h-64 overflow-y-auto">
                       {transferResults.map((o, i) => (
@@ -1033,17 +1315,41 @@ export function CreateQuoteDrawer({ open, onClose, conversationId, onSendMessage
                       </div>
                     )
                   })()}
-                  <div className="flex gap-2">
-                    <button type="button" onClick={cancelPending}
-                      className="flex-1 min-h-[40px] rounded-lg border border-walz-border text-walz-navy text-xs font-semibold hover:bg-walz-navy/5 transition-colors">
-                      Cancel
-                    </button>
-                    <button type="button" onClick={() => void confirmAddPending()}
-                      disabled={liveBusy || pendingCurrencyMismatch || ((pending.type === 'flight' || pending.type === 'hotel') && pending.revalidateState !== 'ok')}
-                      className="flex-1 min-h-[40px] rounded-lg bg-walz-gold text-walz-deep-navy text-xs font-bold hover:brightness-95 transition-all disabled:opacity-50">
-                      {liveBusy ? 'Adding…' : 'Add to quote'}
-                    </button>
-                  </div>
+                  {/* Item E — a genuine price change (add-to-quote 409/
+                      PRICE_CHANGED_REQUIRES_ACCEPTANCE) replaces the normal
+                      Cancel/Add-to-quote pair with an explicit accept
+                      prompt — never auto-accepted. */}
+                  {priceChange ? (
+                    <div className="rounded-lg border border-walz-gold bg-white p-2 space-y-2">
+                      <p role="alert" className="text-xs text-walz-deep-navy flex items-start gap-1">
+                        <AlertTriangle className="w-3.5 h-3.5 flex-shrink-0 mt-0.5" />
+                        This rate&apos;s price has changed from {fmtMinor(priceChange.oldSellingPriceMinor, priceChange.currency)} to{' '}
+                        {fmtMinor(priceChange.newSellingPriceMinor, priceChange.currency)}. Accept the new price and add to quote?
+                      </p>
+                      <div className="flex gap-2">
+                        <button type="button" onClick={cancelPriceChange}
+                          className="flex-1 min-h-[40px] rounded-lg border border-walz-border text-walz-navy text-xs font-semibold hover:bg-walz-navy/5 transition-colors">
+                          Cancel
+                        </button>
+                        <button type="button" onClick={() => void acceptPriceChange()} disabled={liveBusy}
+                          className="flex-1 min-h-[40px] rounded-lg bg-walz-gold text-walz-deep-navy text-xs font-bold hover:brightness-95 transition-all disabled:opacity-50">
+                          {liveBusy ? 'Adding…' : 'Accept new price & add to quote'}
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="flex gap-2">
+                      <button type="button" onClick={cancelPending}
+                        className="flex-1 min-h-[40px] rounded-lg border border-walz-border text-walz-navy text-xs font-semibold hover:bg-walz-navy/5 transition-colors">
+                        Cancel
+                      </button>
+                      <button type="button" onClick={() => void confirmAddPending()}
+                        disabled={liveBusy || pendingCurrencyMismatch || ((pending.type === 'flight' || pending.type === 'hotel') && pending.revalidateState !== 'ok')}
+                        className="flex-1 min-h-[40px] rounded-lg bg-walz-gold text-walz-deep-navy text-xs font-bold hover:brightness-95 transition-all disabled:opacity-50">
+                        {liveBusy ? 'Adding…' : 'Add to quote'}
+                      </button>
+                    </div>
+                  )}
                 </div>
               )}
 

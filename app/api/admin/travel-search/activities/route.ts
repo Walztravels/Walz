@@ -7,7 +7,7 @@ import type { NormalizedActivityOffer } from '@/lib/travel-search/types'
 export const dynamic   = 'force-dynamic'
 export const maxDuration = 30
 
-// GET /api/admin/travel-search/activities?destination=Dubai&adults=2&dateFrom=YYYY-MM-DD&dateTo=YYYY-MM-DD
+// GET /api/admin/travel-search/activities?destination=Dubai&adults=2&dateFrom=YYYY-MM-DD&dateTo=YYYY-MM-DD&currency=GBP
 export async function GET(req: NextRequest) {
   const session = await getAdminSession()
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
@@ -20,12 +20,16 @@ export async function GET(req: NextRequest) {
   const adults      = parseInt(searchParams.get('adults') ?? '2', 10)
   const dateFrom    = searchParams.get('dateFrom') ?? undefined
   const dateTo      = searchParams.get('dateTo')   ?? undefined
+  // Optional — quote currency, e.g. from the Quote drawer. Forwarded to Viator so
+  // its results are priced to match; Hotelbeds' activities API has no currency
+  // selection, so this has no effect there (see HotelbedsActivityProvider).
+  const currency    = searchParams.get('currency') ?? undefined
 
   if (!destination.trim()) {
     return NextResponse.json({ error: 'destination is required' }, { status: 400 })
   }
 
-  const result = await searchActivities({ destination, adults, dateFrom, dateTo })
+  const result = await searchActivities({ destination, adults, dateFrom, dateTo, currency })
 
   const searchedAt = new Date().toISOString()
 
