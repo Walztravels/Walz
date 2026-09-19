@@ -171,8 +171,16 @@ describe('queue pills — scrollable tablist, no wrap regression', () => {
     expect(s).toContain('text-white/50 border border-white/10 hover:text-white/80')
   })
 
-  it("the 'All' queue stays canViewAll-conditional", () => {
-    expect(list()).toContain("...(canViewAll ? [{ key: 'all' as Tab, label: 'All' }] : [])")
+  it("the 'All' and 'Unassigned' queues stay canViewAll-conditional (P1 hotfix, 2026-09-19 — Fix 4)", () => {
+    const s = list()
+    const gated = s.slice(s.indexOf('const TABS'), s.indexOf('Arrow left/right'))
+    expect(gated).toContain('canViewAll ? [')
+    expect(gated).toContain("{ key: 'all' as Tab,         label: 'All'         }")
+    expect(gated).toContain("{ key: 'unassigned' as Tab,  label: 'Unassigned'  }")
+    // 'Mine' and 'Resolved' remain unconditional — every staff member gets them.
+    const alwaysOn = gated.slice(gated.indexOf('] : [])'))
+    expect(alwaysOn).toContain("{ key: 'mine',       label: 'Mine'       }")
+    expect(alwaysOn).toContain("{ key: 'resolved',   label: 'Resolved'   }")
   })
 })
 
@@ -242,6 +250,20 @@ describe('a11y and tokenized rail surface', () => {
 
   it('settings button has a ≥44px hit area', () => {
     expect(list()).toContain('min-w-[44px] min-h-[44px]')
+  })
+
+  it('P1 hotfix closing fix: Inbox settings gear is gated on the real settings_integrations permission, not a dead role-string bucket', () => {
+    // Round 2 of the P1 hotfix removed the hardcoded EMAIL_TO_AGENT map,
+    // whose only remaining consumer was this gate's `profile?.role === 'admin'`
+    // check — no REAL staff.role value is ever literally 'admin', so that
+    // check regressed to permanently false for the one account that relied
+    // on the map's shim. The correct fix reads the actual permission that
+    // gates the underlying StaffModal mutation routes (settings_integrations,
+    // see app/api/admin/routing/agents/route.ts), which any legitimately
+    // permissioned staff member holds regardless of role.
+    const s = list()
+    expect(s).toContain("profile?.permissions?.settings_integrations === true")
+    expect(s).not.toContain("profile?.role === 'admin'")
   })
 
   it('the rail root is bg-walz-navy and the touched files carry no hex literals and no amber', () => {

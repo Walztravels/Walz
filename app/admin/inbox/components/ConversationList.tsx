@@ -24,8 +24,13 @@ interface Props {
    * badge rather than a wrong number.
    */
   counts: { all: number; mine: number; unassigned: number; resolved: number | null }
-  /** The list request failed — an empty list must read as a failure, not an empty inbox. */
-  loadFailed?: boolean
+  /**
+   * The list request failed — an empty list must read as a failure, not an
+   * empty inbox. A non-empty string is the server's actual error message
+   * (P1 hotfix, 2026-09-19 — permission-denial vs provider-outage now read
+   * differently); `true`/other truthy falls back to the generic message.
+   */
+  loadFailed?: boolean | string | null
   onRetry?: () => void
   /** Initial list load in flight — an empty list shows skeleton rows, not "empty". */
   loading?: boolean
@@ -60,10 +65,19 @@ export function ConversationList({
     return name.includes(search.trim().toLowerCase()) || preview.includes(search.trim().toLowerCase())
   })
 
+  // Fix 4 (P1 hotfix, 2026-09-19): ordinary staff get Mine + Resolved only.
+  // 'All' and 'Unassigned' are both view-all-gated tabs now — an ordinary
+  // staff member must not be offered a queue the server won't actually
+  // return anything beyond "mine" for (see app/api/admin/conversations
+  // /route.ts). This is the secondary (UI) half of the fix; the server-side
+  // scoping is the real security boundary and holds even if this list ever
+  // rendered these tabs by mistake.
   const TABS: { key: Tab; label: string }[] = [
-    ...(canViewAll ? [{ key: 'all' as Tab, label: 'All' }] : []),
+    ...(canViewAll ? [
+      { key: 'all' as Tab,         label: 'All'         },
+      { key: 'unassigned' as Tab,  label: 'Unassigned'  },
+    ] : []),
     { key: 'mine',       label: 'Mine'       },
-    { key: 'unassigned', label: 'Unassigned' },
     { key: 'resolved',   label: 'Resolved'   },
   ]
 
@@ -108,7 +122,7 @@ export function ConversationList({
             <p className="text-[10px] text-white/50 mt-0.5 truncate">{profile.name}</p>
           )}
         </div>
-        {(profile?.role === 'super_admin' || profile?.role === 'admin') && (
+        {(profile?.role === 'super_admin' || profile?.permissions?.settings_integrations === true) && (
           <button
             onClick={onOpenSettings}
             aria-label="Inbox settings"
@@ -183,7 +197,9 @@ export function ConversationList({
         {displayed.length === 0 ? (
           loadFailed ? (
             <div className="py-12 text-center text-xs">
-              <p className="text-red-300">Could not load conversations.</p>
+              <p className="text-red-300">
+                {typeof loadFailed === 'string' && loadFailed.trim() ? loadFailed : 'Could not load conversations.'}
+              </p>
               <button onClick={() => onRetry?.()} className="mt-2 underline font-semibold text-white/60 hover:text-white">Retry</button>
             </div>
           ) : loading ? (

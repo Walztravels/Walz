@@ -13,18 +13,29 @@
  *
  * Conversation ownership (inbox_view_all=false): a staff member may only
  * touch conversations that are unassigned or assigned to their own
- * Chatwoot agent. The staff → Chatwoot-agent resolution uses the same
- * chain the inbox UI uses, in the same priority order:
+ * Chatwoot agent. The staff → Chatwoot-agent resolution chain:
  *   1. RoutingAgent row (Supabase) by email
  *   2. Chatwoot agent list matched by email
- *   3. EMAIL_TO_AGENT hardcoded map (removed in INBOX-0S.6)
  * Unknown assignee or unresolvable agent id fails CLOSED (denied).
+ *
+ * P1 security hotfix (2026-09-19): a third tier previously lived here — a
+ * hardcoded EMAIL_TO_AGENT email→id map (app/admin/inbox/types.ts) — with
+ * a comment claiming it "was removed in INBOX-0S.6". It was NOT removed;
+ * it was still live and still consulted whenever tiers 1-2 failed to
+ * resolve. That is a real identity-confusion path: a Chatwoot agent id is
+ * a mutable, reassignable number — if a listed email's DB row and live
+ * Chatwoot lookup both failed (e.g. deactivated in Chatwoot but not yet
+ * in RoutingAgent) while that stale numeric id had since been given to a
+ * DIFFERENT live agent, this fallback would resolve the original staff
+ * member to a CURRENT STRANGER's identity and conversation access. The
+ * fallback tier has been removed outright: when tiers 1-2 don't resolve,
+ * resolveChatwootAgentId now returns 0 and every ownership check fails
+ * closed, rather than guessing from stale hardcoded data.
  */
 
 import type { AdminSession } from '@/lib/admin-auth'
 import { adminChatwootOrNull } from '@/lib/chatwoot/config'
 import { getSupabaseAdmin } from '@/lib/supabase'
-import { EMAIL_TO_AGENT } from '@/app/admin/inbox/types'
 
 export type InboxPermissionKey =
   | 'inbox_view' | 'inbox_view_all' | 'inbox_reply' | 'inbox_assign' | 'inbox_delete'
@@ -123,8 +134,10 @@ export async function resolveChatwootAgentId(email: string): Promise<number> {
     }
   }
 
-  // 3. Hardcoded legacy map (removed in INBOX-0S.6)
-  if (!id) id = EMAIL_TO_AGENT[key]?.id ?? EMAIL_TO_AGENT[email]?.id ?? 0
+  // 3. No further fallback (P1 security hotfix, 2026-09-19) — an identity
+  // that tiers 1-2 cannot resolve fails closed (id stays 0) rather than
+  // guessing from the removed EMAIL_TO_AGENT hardcoded map. See the
+  // module doc comment above for why that tier was unsafe.
 
   agentIdCache.set(key, { id, expiresAt: Date.now() + AGENT_ID_CACHE_MS })
   return id

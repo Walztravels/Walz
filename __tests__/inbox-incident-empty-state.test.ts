@@ -24,11 +24,14 @@ describe('conversations route upstream observability', () => {
     expect(route()).toContain('[conversations] Chatwoot non-JSON response')
   })
 
-  it('a thrown fetch degrades to the same controlled null path as a non-2xx', () => {
+  it('a thrown fetch degrades to a distinct network-failure result, still surfaced as a controlled error', () => {
     const s = route()
-    expect(s).toContain('if (!res) return null')
-    // page-1 null still surfaces the controlled 502 (0S.3 contract untouched)
-    expect(s).toContain("{ error: 'Could not load conversations. Please try again.' }")
+    // P1 hotfix (2026-09-19): a thrown/timed-out fetch is now distinguished
+    // from a non-2xx upstream status (both still fail the request, page 1
+    // still surfaces a controlled error — but the message differs).
+    expect(s).toContain("if (!res) return { ok: false, status: 'network' }")
+    expect(s).toContain('mapChatwootFailure')
+    expect(s).toContain('messaging service unreachable')
   })
 })
 
@@ -48,6 +51,15 @@ describe('errored list never masquerades as an empty inbox', () => {
     const s = read('app/admin/inbox/page.tsx')
     expect(s).toContain('loadFailed={convsError}')
     expect(s).toContain('onRetry={() => fetchConvs(true)}')
+  })
+
+  // P1 hotfix (2026-09-19): convsError now carries the server's actual error
+  // message (permission-denial vs provider-outage read differently) instead
+  // of a fixed boolean that always rendered the same generic string.
+  it('convsError carries the distinguishing message, not just a boolean flag', () => {
+    const s = read('app/admin/inbox/page.tsx')
+    expect(s).toContain('useState<string | null>(null)')
+    expect(s).toContain("setConvsError(d.error || 'Could not load conversations. Please try again.')")
   })
 
   it('the plain "No conversations" state still exists for a genuinely empty inbox', () => {

@@ -1,12 +1,29 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getAdminSession } from '@/lib/admin-auth'
 import { getSupabaseAdmin } from '@/lib/supabase'
+import { checkInboxPermission } from '@/lib/inbox/authz'
 
 export const dynamic = 'force-dynamic'
 
+// P1 security hotfix (2026-09-19): this table maps staff email → Chatwoot
+// agent id, the identity resolveChatwootAgentId() trusts to decide which
+// conversations a staff member may see/reply to/reassign. Before this fix
+// GET/POST here (and PATCH/DELETE on [id]) required only a valid session —
+// ANY authenticated staff member could read every colleague's mapping and
+// repoint their own row at someone else's chatwootAgentId, then inherit
+// that colleague's conversation access. 'settings_integrations' is the
+// narrowest existing permission that fits "manage the staff↔Chatwoot
+// routing identity mapping" — by default only super_admin holds it, and
+// it can be granted to a specific trusted staff member without making
+// them a full super_admin.
 export async function GET() {
   const session = await getAdminSession()
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const authz = checkInboxPermission(session, 'settings_integrations')
+  if (!authz.allowed) {
+    console.error('[routing/agents] permission denied for', session.email)
+    return NextResponse.json({ error: authz.error }, { status: authz.status })
+  }
 
   const supabase = getSupabaseAdmin()
   const { data, error } = await supabase
@@ -25,6 +42,11 @@ export async function GET() {
 export async function POST(req: NextRequest) {
   const session = await getAdminSession()
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const authz = checkInboxPermission(session, 'settings_integrations')
+  if (!authz.allowed) {
+    console.error('[routing/agents] permission denied for', session.email)
+    return NextResponse.json({ error: authz.error }, { status: authz.status })
+  }
 
   const body = await req.json() as {
     name:              string

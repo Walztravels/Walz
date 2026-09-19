@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
-import { CWConversation, CWMessage, CWAgent, AdminProfile, EMAIL_TO_AGENT } from './types'
+import { CWConversation, CWMessage, CWAgent, AdminProfile } from './types'
 import { ConversationList } from './components/ConversationList'
 import { ChatWindow } from './components/ChatWindow'
 import { ClientInfo, LinkedAppSummary } from './components/ClientInfo'
@@ -186,16 +186,23 @@ function InboxPageInner() {
         if (!res.ok) { router.push('/admin/login'); return }
         const data = await res.json() as { email?: string; name?: string; role?: string; permissions?: Record<string, boolean> }
         if (!data.email) { router.push('/admin/login'); return }
-        const mapped = EMAIL_TO_AGENT[data.email]
-        // Staff DB role wins over EMAIL_TO_AGENT for super_admin detection
+        // P1 hotfix (2026-09-19), Fix 6: this used to look up a hardcoded
+        // EMAIL_TO_AGENT map (app/admin/inbox/types.ts) as a fallback for
+        // role/chatwootAgentId. That map was never a security boundary —
+        // every real permission check reads session.permissions server-side
+        // (lib/inbox/authz.ts) or profile.permissions.* client-side, never
+        // this display role — but it was stale/inaccurate for any
+        // admin-tier staff member outside its 5-email list. Trusting the
+        // server's own role field directly is strictly more accurate than
+        // the hardcoded guess it replaces.
         const effectiveRole: AdminProfile['role'] =
-          data.role === 'super_admin' ? 'super_admin' : (mapped?.role ?? 'agent')
+          data.role === 'super_admin' ? 'super_admin' : data.role === 'admin' ? 'admin' : 'agent'
         const perms = data.permissions ?? {}
         setProfile({
           email:           data.email,
           name:            data.name ?? data.email,
           role:            effectiveRole,
-          chatwootAgentId: mapped?.id ?? 0,
+          chatwootAgentId: 0,
           permissions:     perms,
         })
         // Default 'all' tab for managers; stay on 'mine' for everyone else
@@ -218,7 +225,7 @@ function InboxPageInner() {
       const dbMappings: { email: string; chatwootAgentId: number }[] =
         Array.isArray(mappingData?.mappings) ? mappingData.mappings : []
       setAgents(agentList)
-      // Priority: DB mapping > Chatwoot email match > EMAIL_TO_AGENT hardcoded
+      // Priority: DB mapping (RoutingAgent) > live Chatwoot agent email match
       setProfile(prev => {
         if (!prev) return prev
         const dbEntry = dbMappings.find(m => m.email?.toLowerCase() === prev.email.toLowerCase())
@@ -241,8 +248,17 @@ function InboxPageInner() {
       // route runs. That is not a provider failure: send staff to login
       // instead of an unwinnable Retry loop (incident 2026-09-18).
       if (res.status === 401) { router.push('/admin/login'); return }
-      if (!res.ok) { setConvsError(true); return }
-      setConvsError(false)
+      if (!res.ok) {
+        // P1 hotfix (2026-09-19): surface the SERVER's actual message —
+        // a permission-scoped rejection (403) now reads differently from a
+        // genuine provider outage (502/503) instead of both collapsing into
+        // one undifferentiated "Could not load conversations. Retry." string.
+        const d = await res.json().catch(() => ({} as Record<string, string>))
+        console.error('[inbox] conversations list failed', res.status, d?.error)
+        setConvsError(d.error || 'Could not load conversations. Please try again.')
+        return
+      }
+      setConvsError(null)
 
       // API route unwraps Chatwoot envelope → response is { meta, payload }
       const json = await res.json()
@@ -268,13 +284,16 @@ function InboxPageInner() {
         filtered = conversations.filter(c => !c.meta?.assignee && !c.assignee)
       }
 
-      // RBAC: staff without inbox_view_all see only their assigned + unassigned conversations
+      // RBAC (P1 hotfix, 2026-09-19): staff without inbox_view_all see Mine
+      // only — the server already scopes the payload this way (Fix 4); this
+      // client-side pass is defence-in-depth, not the security boundary.
+      // Unassigned conversations are deliberately EXCLUDED here now — they
+      // are no longer part of the ordinary-staff list queue.
       const canViewAll = profile?.role === 'super_admin' || profile?.permissions?.inbox_view_all === true
       if (!canViewAll && profile) {
         filtered = filtered.filter(c => {
           const assignee = c.meta?.assignee ?? c.assignee
-          // show: unassigned OR assigned to this user (by chatwoot agent id)
-          return !assignee || (profile.chatwootAgentId > 0 && assignee.id === profile.chatwootAgentId)
+          return !!assignee && profile.chatwootAgentId > 0 && assignee.id === profile.chatwootAgentId
         })
       }
 
@@ -322,7 +341,7 @@ function InboxPageInner() {
         if (updated) setSelected({ ...updated, unread_count: 0 })
       }
     } catch {
-      setConvsError(true)
+      setConvsError('Could not load conversations. Please try again.')
     } finally {
       if (showLoad) setLoading(false)
     }
@@ -341,7 +360,11 @@ function InboxPageInner() {
   // Failure visibility (INBOX-0S.3): a failed load must look like a failure,
   // never like an empty conversation or an empty inbox.
   const [msgLoadError, setMsgLoadError] = useState(false)
-  const [convsError, setConvsError]     = useState(false)
+  // P1 hotfix (2026-09-19): holds the server's actual error message (null =
+  // no failure) instead of a plain boolean, so permission-denial and
+  // provider-outage failures render distinct text. Still truthy/falsy-safe
+  // everywhere it's used as a flag (`convsError &&`, `loadFailed={convsError}`).
+  const [convsError, setConvsError]     = useState<string | null>(null)
   const loadingOlderRef = useRef(false)
 
   const fetchPage = useCallback(async (id: number, before?: number): Promise<CWMessage[]> => {
@@ -609,7 +632,7 @@ function InboxPageInner() {
         `}>
         {convsError && (
           <div className="flex items-center justify-between gap-2 px-3 py-2 bg-red-500/15 border-b border-red-500/30 text-[11px] text-red-200">
-            <span>Could not load conversations.</span>
+            <span>{convsError}</span>
             <button onClick={() => fetchConvs(true)} className="underline font-semibold">Retry</button>
           </div>
         )}

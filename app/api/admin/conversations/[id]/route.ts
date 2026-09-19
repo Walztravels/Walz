@@ -49,6 +49,14 @@ export async function DELETE(
   if (!del.allowed) {
     return NextResponse.json({ error: 'Only staff with the delete-messages permission can delete conversations' }, { status: 403 })
   }
+  // P1 security hotfix (2026-09-19): DELETE was the one route in this
+  // directory that never confirmed the conversation was actually theirs
+  // to touch — a staff member holding inbox_delete (broader than "mine")
+  // could delete ANY conversation, not just one they're unassigned to or
+  // own. Every sibling route (GET above, messages/assign/resolve/reopen)
+  // already gates on ownership; this brings DELETE in line.
+  const access = await checkConversationAccess(session, params.id)
+  if (!access.allowed) return NextResponse.json({ error: access.error }, { status: access.status })
 
   const res = await fetch(`${CW_BASE}/api/v1/accounts/${CW_ACCOUNT}/conversations/${params.id}`, {
     method:  'DELETE',

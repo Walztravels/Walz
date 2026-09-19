@@ -1,12 +1,25 @@
 import { NextResponse } from 'next/server'
 import { getAdminSession } from '@/lib/admin-auth'
 import { getSupabaseAdmin } from '@/lib/supabase'
+import { checkInboxPermission } from '@/lib/inbox/authz'
 
 export const dynamic = 'force-dynamic'
 
+// P1 security hotfix (2026-09-19), Fix 1: this route returned the FULL
+// RoutingAgent roster (email, chatwootAgentId, sipAddress, aircallUserId)
+// plus live ConversationRoute assignment counts to ANY authenticated staff
+// member — no permission check at all. That is the same email→Chatwoot
+// identity mapping data the routing-agent mutation exploit needed, gated
+// here with the same 'settings_integrations' permission already used by
+// app/api/admin/routing/agents/route.ts and its siblings.
 export async function GET() {
   const session = await getAdminSession()
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const authz = checkInboxPermission(session, 'settings_integrations')
+  if (!authz.allowed) {
+    console.error('[routing] permission denied for', session.email)
+    return NextResponse.json({ error: authz.error }, { status: authz.status })
+  }
 
   const supabase = getSupabaseAdmin()
 

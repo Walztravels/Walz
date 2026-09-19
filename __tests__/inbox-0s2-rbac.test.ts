@@ -142,7 +142,11 @@ describe('route wiring — authorization matrix', () => {
     const routing = read('app/api/admin/routing/chatwoot-agents/route.ts')
     expect(routing).toContain("hasAnyInboxPermission(session, ['inbox_assign', 'settings_integrations'])")
     const mapping = read('app/api/admin/inbox-mapping/route.ts')
-    expect(mapping).toContain("checkInboxPermission(session, 'inbox_view')")
+    // P1 hotfix (2026-09-19), Fix 2: tightened from 'inbox_view' (held by
+    // nearly every role) to 'settings_integrations' — this route returns
+    // the same email↔chatwootAgentId reconnaissance data the routing-agent
+    // impersonation exploit needed.
+    expect(mapping).toContain("checkInboxPermission(session, 'settings_integrations')")
     expect(mapping).toContain("session.role !== 'super_admin'")
   })
 })
@@ -166,9 +170,53 @@ describe('behavior preservation (Jade / lifecycle untouched)', () => {
   it('authz module fails closed on indeterminate state and resolves identity in the documented order', () => {
     const s = read('lib/inbox/authz.ts')
     expect(s).toContain('RoutingAgent')                         // 1. DB mapping
-    expect(s).toContain('EMAIL_TO_AGENT')                       // 3. legacy map (0S.6 removes)
     expect(s).toContain('if (assigneeId === undefined) return DENY_CONVERSATION')
     expect(s).toContain('DENY_CONVERSATION')
+  })
+
+  // P1 security hotfix (2026-09-19): the hardcoded EMAIL_TO_AGENT fallback
+  // tier was NOT actually removed in INBOX-0S.6 as the old comment here
+  // claimed — it was still live, and a stale/reassigned numeric Chatwoot
+  // id could resolve one staff member to a CURRENT STRANGER's identity.
+  // It is now genuinely removed: resolution fails closed (id 0) instead.
+  it('the EMAIL_TO_AGENT hardcoded fallback is gone from server-side identity resolution — fails closed instead', () => {
+    const s = read('lib/inbox/authz.ts')
+    // No import of the hardcoded map, and no executable reference to it —
+    // the module doc comment is allowed to mention its NAME for historical/
+    // security context (why it was removed), which is why this checks the
+    // import and the executable usage, not a blanket "string never appears".
+    expect(s).not.toContain("from '@/app/admin/inbox/types'")
+    expect(s).not.toContain('EMAIL_TO_AGENT[')
+    expect(s).not.toMatch(/id = EMAIL_TO_AGENT/)
+    expect(s).toContain('let id = 0')
+    // Only two resolution tiers remain, both documented as such.
+    expect(s).toContain('1. RoutingAgent row (Supabase) by email')
+    expect(s).toContain('2. Chatwoot agent list matched by email')
+  })
+
+  it('resolveChatwootAgentId returns 0 (fail closed) when the DB row and live Chatwoot lookup both fail to resolve', async () => {
+    jest.resetModules()
+    jest.doMock('@/lib/supabase', () => ({
+      getSupabaseAdmin: () => ({
+        from: () => ({
+          select: () => ({
+            eq: () => ({
+              eq: () => ({ maybeSingle: async () => ({ data: null }) }),
+            }),
+          }),
+        }),
+      }),
+    }))
+    jest.doMock('@/lib/chatwoot/config', () => ({
+      adminChatwootOrNull: () => null, // no Chatwoot config → tier 2 also can't resolve
+    }))
+    const { resolveChatwootAgentId, clearInboxAuthzCaches } = await import('@/lib/inbox/authz')
+    clearInboxAuthzCaches()
+    const id = await resolveChatwootAgentId('nobody-in-either-tier@walztravels.com')
+    expect(id).toBe(0)
+    jest.dontMock('@/lib/supabase')
+    jest.dontMock('@/lib/chatwoot/config')
+    jest.resetModules()
   })
 
   it('webhook and Jade surfaces gained no session/RBAC coupling', () => {

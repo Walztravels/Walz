@@ -5,6 +5,7 @@ import {
   checkInboxPermission, canViewAllConversations,
   canAccessConversation, resolveChatwootAgentId,
 } from '@/lib/inbox/authz'
+import { mapChatwootFailure } from '@/lib/inbox/provider'
 
 export const dynamic = 'force-dynamic'
 
@@ -22,52 +23,120 @@ const CW_ACCOUNT = cwCfg?.accountId ?? '1'
 const PAGE_SIZE = 25
 const MAX_PAGES = 8   // up to 200 conversations per status
 
+// P1 hotfix (2026-09-19): the 2026-09-17 incident's root cause included
+// Chatwoot fetches here with NO timeout at all, so a degraded upstream
+// container hung requests instead of failing fast. Matches the pattern
+// already used in lib/inbox/authz.ts (AbortSignal.timeout).
+const CW_FETCH_TIMEOUT_MS = 8000
+
 interface CWListEnvelope {
   data?: { meta?: Record<string, unknown>; payload?: unknown[] }
   meta?: Record<string, unknown>
   payload?: unknown[]
 }
 
+type FetchPageResult =
+  | { ok: true; data: CWListEnvelope }
+  | { ok: false; status: 'network' }
+  | { ok: false; status: number }
+
 export async function GET(req: Request) {
   const session = await getAdminSession()
   if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   if (!cwCfg) return NextResponse.json({ error: 'Messaging service is not configured.' }, { status: 503 })
   const authz = checkInboxPermission(session, 'inbox_view')
-  if (!authz.allowed) return NextResponse.json({ error: authz.error }, { status: authz.status })
+  if (!authz.allowed) {
+    // P1 hotfix: this was the one inbox route left logging nothing on a
+    // permission denial — every sibling route does. Also gives staff a
+    // failure class distinct from a provider outage (see failureResponse
+    // below), instead of both looking identical to the browser.
+    console.error('[conversations] permission denied for', session.email, authz.error)
+    return NextResponse.json({ error: authz.error }, { status: authz.status })
+  }
 
+  const viewAll = canViewAllConversations(session)
   const { searchParams } = new URL(req.url)
-  const status       = searchParams.get('status')        || 'open'
-  const assigneeType = searchParams.get('assignee_type') || ''
+  const status = searchParams.get('status') || 'open'
+  // Fix 4 (P1 hotfix, 2026-09-19): assignee_type is a Chatwoot-side request
+  // hint only — the REAL scope enforcement is the ownership filter applied
+  // below. Staff without inbox_view_all get that filter unconditionally and
+  // can never widen their queue by supplying assignee_type=all/unassigned/
+  // anything else directly against this API, so the hint is simply not
+  // honored for them at all. View-all staff (managers/admins/super admins)
+  // keep their existing passthrough unchanged.
+  const assigneeType = viewAll ? (searchParams.get('assignee_type') || '') : ''
 
   // Explicit page request → single-page passthrough (legacy behavior)
   const explicitPage = searchParams.get('page')
 
-  async function fetchPage(page: number): Promise<CWListEnvelope | null> {
+  async function fetchPage(page: number): Promise<FetchPageResult> {
     const params = new URLSearchParams({ status, page: String(page) })
     if (assigneeType) params.set('assignee_type', assigneeType)
     const res = await fetch(`${CW_BASE}/api/v1/accounts/${CW_ACCOUNT}/conversations?${params}`, {
       headers: { api_access_token: CW_TOKEN },
+      signal: AbortSignal.timeout(CW_FETCH_TIMEOUT_MS),
     }).catch((e) => { console.error('[conversations] Chatwoot unreachable:', e instanceof Error ? e.message.slice(0, 120) : e); return null })
-    if (!res) return null
+    if (!res) return { ok: false, status: 'network' }
     if (!res.ok) {
       // Incident 2026-09-17: upstream failures were invisible in logs.
       console.error(`[conversations] Chatwoot upstream ${res.status} (page ${page})`)
-      return null
+      return { ok: false, status: res.status }
     }
-    return res.json().catch(() => { console.error('[conversations] Chatwoot non-JSON response'); return null })
+    const json = await res.json().catch(() => null)
+    if (json === null) {
+      console.error('[conversations] Chatwoot non-JSON response')
+      return { ok: false, status: 'network' }
+    }
+    return { ok: true, data: json as CWListEnvelope }
+  }
+
+  // Provider-failure mapping (P1 hotfix): routed through the SAME
+  // mapChatwootFailure helper the [id] routes already use, instead of one
+  // fixed generic string regardless of cause — a network/timeout failure
+  // reads differently from an upstream non-2xx status.
+  function failureResponse(status: 'network' | number) {
+    const mapped = status === 'network'
+      ? { status: 502, error: 'Could not load conversations — messaging service unreachable. Please try again.' }
+      : mapChatwootFailure(status, 'Loading conversations')
+    return NextResponse.json({ error: mapped.error }, { status: mapped.status })
+  }
+
+  // Fix 4 (P1 hotfix): ordinary staff (no inbox_view_all) get Mine only from
+  // this list endpoint — never Unassigned, another agent's conversations, or
+  // an unrestricted All queue, no matter what status/assignee_type/other
+  // query param the request carries. canAccessConversation(..., false) also
+  // lets an unassigned conversation (assigneeId === null) through — that
+  // rule is correct and stays UNTOUCHED for per-conversation checks (an
+  // agent may still open/reply/assign an unassigned conversation
+  // individually via its own [id]). Here we apply it MORE STRICTLY by
+  // additionally requiring a non-null assignee, narrowing the predicate to
+  // exactly "mine" for list results only.
+  function scopeToMine(assigneeId: number | null, myAgentId: number): boolean {
+    return assigneeId != null && canAccessConversation(assigneeId, myAgentId, false)
   }
 
   if (explicitPage) {
-    const data = await fetchPage(Number(explicitPage) || 1)
-    if (!data) return NextResponse.json({ error: 'Could not load conversations. Please try again.' }, { status: 502 })
-    const inner = (data?.data ?? data) as { meta?: Record<string, unknown>; payload?: unknown[] }
-    if (!canViewAllConversations(session) && Array.isArray(inner?.payload)) {
-      const myAgentId = await resolveChatwootAgentId(session.email)
-      inner.payload = inner.payload.filter((c) => {
-        const conv = c as { meta?: { assignee?: { id?: number } | null }; assignee?: { id?: number } | null }
-        const assigneeId = conv.meta?.assignee?.id ?? conv.assignee?.id ?? null
-        return canAccessConversation(assigneeId, myAgentId, false)
-      })
+    const result = await fetchPage(Number(explicitPage) || 1)
+    if (!result.ok) return failureResponse(result.status)
+    const inner = (result.data?.data ?? result.data) as { meta?: Record<string, unknown>; payload?: unknown[] }
+    if (!viewAll) {
+      if (Array.isArray(inner?.payload)) {
+        const myAgentId = await resolveChatwootAgentId(session.email)
+        inner.payload = inner.payload.filter((c) => {
+          const conv = c as { meta?: { assignee?: { id?: number } | null }; assignee?: { id?: number } | null }
+          const assigneeId = conv.meta?.assignee?.id ?? conv.assignee?.id ?? null
+          return scopeToMine(assigneeId, myAgentId)
+        })
+      } else {
+        // Fix 4 (P1 hotfix, 2026-09-19): this legacy passthrough branch used
+        // to return `inner` as-is here, UNFILTERED, whenever the upstream
+        // payload shape wasn't an array — inconsistent with the aggregating
+        // path below, which defaults to [] (fails CLOSED) for the exact same
+        // condition. An ordinary staff session must never receive whatever
+        // raw/unexpected object Chatwoot returned. viewAll sessions are
+        // untouched — this branch stays legacy passthrough for them.
+        return NextResponse.json({ meta: inner?.meta ?? {}, payload: [] })
+      }
     }
     return NextResponse.json(inner)
   }
@@ -77,12 +146,12 @@ export async function GET(req: Request) {
   const payload: unknown[] = []
 
   for (let page = 1; page <= MAX_PAGES; page++) {
-    const data = await fetchPage(page)
-    if (!data) {
-      if (page === 1) return NextResponse.json({ error: 'Could not load conversations. Please try again.' }, { status: 502 })
+    const result = await fetchPage(page)
+    if (!result.ok) {
+      if (page === 1) return failureResponse(result.status)
       break
     }
-    const inner     = data.data ?? data
+    const inner     = result.data.data ?? result.data
     const pageItems = Array.isArray(inner?.payload) ? inner.payload : []
     if (page === 1) meta = inner?.meta ?? {}
     payload.push(...pageItems)
@@ -90,14 +159,14 @@ export async function GET(req: Request) {
   }
 
   // Server-side inbox_view_all enforcement: staff without it receive only
-  // unassigned conversations and those assigned to their own Chatwoot agent.
-  // (The UI applies the same rule; this makes it hold for direct API calls.)
-  if (!canViewAllConversations(session)) {
+  // conversations assigned to their own Chatwoot agent (Mine) — this holds
+  // for direct API calls too, not just the UI's tabs/filters.
+  if (!viewAll) {
     const myAgentId = await resolveChatwootAgentId(session.email)
     const visible = payload.filter((c) => {
       const conv = c as { meta?: { assignee?: { id?: number } | null }; assignee?: { id?: number } | null }
       const assigneeId = conv.meta?.assignee?.id ?? conv.assignee?.id ?? null
-      return canAccessConversation(assigneeId, myAgentId, false)
+      return scopeToMine(assigneeId, myAgentId)
     })
     return NextResponse.json({ meta, payload: visible })
   }

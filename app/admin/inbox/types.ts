@@ -63,14 +63,15 @@ export interface AdminProfile {
   permissions: Record<string, boolean>
 }
 
-// email → chatwoot agent mapping (fallback; runtime auto-resolves from Chatwoot agents API)
-export const EMAIL_TO_AGENT: Record<string, { id: number; role: AdminProfile['role'] }> = {
-  'admin@walztravels.com':           { id: 1, role: 'super_admin' },
-  'contact@walztravels.com':         { id: 1, role: 'super_admin' },
-  'reservations@walztravels.com':    { id: 3, role: 'admin' },
-  'visa@walztravels.com':            { id: 4, role: 'agent' },
-  'priscilla.fsr@walztravels.com':   { id: 8, role: 'agent' },
-}
+// P1 security hotfix (2026-09-19), Fix 6: the hardcoded EMAIL_TO_AGENT
+// email→chatwoot-agent map that used to live here was removed. It was
+// never a security boundary (the server independently resolves identity
+// via lib/inbox/authz.ts, and no permission check ever trusted this
+// client-side value) but it WAS a stale, inaccurate display fallback for
+// exactly 5 hardcoded addresses. app/admin/inbox/page.tsx now derives its
+// initial display role straight from /api/admin/me's server-authoritative
+// role, and resolves chatwootAgentId at runtime from the RoutingAgent DB
+// mapping / live Chatwoot agents list — the same two tiers the server uses.
 
 export function timeAgo(ts: number): string {
   const now = Date.now()

@@ -20,7 +20,11 @@ describe('401 session expiry returns staff to login', () => {
   it('the conversation poller redirects on 401 BEFORE the provider-failure state', () => {
     const s = page()
     const guard = s.indexOf("if (res.status === 401) { router.push('/admin/login'); return }")
-    const failure = s.indexOf('if (!res.ok) { setConvsError(true); return }')
+    // P1 hotfix (2026-09-19): the failure branch now reads the server's
+    // message instead of setting a fixed boolean — same 401-first ordering.
+    // Search AFTER guard: an earlier, unrelated `if (!res.ok) {` exists in
+    // the profile-loading effect above fetchConvs.
+    const failure = s.indexOf('if (!res.ok) {', guard)
     expect(guard).toBeGreaterThan(-1)
     expect(failure).toBeGreaterThan(-1)
     expect(guard).toBeLessThan(failure)   // 401 handled first; 403/5xx keep the failure state
@@ -32,7 +36,7 @@ describe('401 session expiry returns staff to login', () => {
 
   it('403 and provider failures still render the controlled failure state (contract unchanged)', () => {
     const s = page()
-    expect(s).toContain('setConvsError(true)')
+    expect(s).toContain("setConvsError(d.error || 'Could not load conversations. Please try again.')")
     expect(s).toContain('loadFailed={convsError}')
     expect(s).toContain('onRetry={() => fetchConvs(true)}')
   })

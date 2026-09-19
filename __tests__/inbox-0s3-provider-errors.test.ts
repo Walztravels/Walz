@@ -171,7 +171,10 @@ describe('failures are visible in the UI, never disguised as empty states', () =
     expect(chat()).toContain('onRetryLoad')
   })
   it('a failed conversation-list load shows a banner with retry, not an empty inbox', () => {
-    expect(page()).toContain('setConvsError(true)')
+    // P1 hotfix (2026-09-19): convsError now carries the server's actual
+    // message rather than a fixed boolean; the generic string survives as
+    // the fallback default when the server didn't supply one.
+    expect(page()).toContain("setConvsError(d.error || 'Could not load conversations. Please try again.')")
     expect(page()).toContain('Could not load conversations.')
     expect(page()).toContain('fetchConvs(true)')
   })
