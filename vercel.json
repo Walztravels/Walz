@@ -74,7 +74,7 @@
     },
     {
       "path": "/api/cron/routing-escalation",
-      "schedule": "*/5 * * * *"
+      "schedule": "0 8 * * *"
     },
     {
       "path": "/api/cron/check-flight-prices",

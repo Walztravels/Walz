@@ -803,14 +803,23 @@ describe('source pins — wiring the plan can\'t reach behaviorally', () => {
   const migration = read('prisma/migrations/inbox_sla_escalation_columns.sql')
   const schema = read('prisma/schema.prisma')
 
-  it('vercel.json runs routing-escalation every 5 minutes, not once daily', () => {
+  it('vercel.json — routing-escalation cadence is TEMPORARILY reverted to daily (incident containment, 2026-09-19)', () => {
+    // INCIDENT: the 5-minute cadence exposed two production bugs on its
+    // very first ticks — an unchecked ConversationRoute stage-column update
+    // that appears not to persist (causing the same stage to re-fire every
+    // tick, i.e. duplicate staff notifications), and an unbounded candidate
+    // query with no .limit() that timed out the 60s function budget. Cadence
+    // is reverted to the prior daily schedule until both are root-caused,
+    // fixed, and independently re-verified. This pin intentionally asserts
+    // the CURRENT contained state, not the eventual target state — update it
+    // back to "*/5 * * * *" only alongside the actual persistence fix.
     const cronsBlock = vercelJson.slice(vercelJson.indexOf('"crons"'))
     const entry = cronsBlock.slice(
       cronsBlock.indexOf('"/api/cron/routing-escalation"'),
       cronsBlock.indexOf('"/api/cron/routing-escalation"') + 120,
     )
-    expect(entry).toContain('"*/5 * * * *"')
-    expect(entry).not.toContain('"0 8 * * *"')
+    expect(entry).toContain('"0 8 * * *"')
+    expect(entry).not.toContain('"*/5 * * * *"')
   })
 
   it('the legacy 30-minute candidate query and status/note evidence are untouched; automatic reassignment is DISABLED (approved policy, 2026-09-18)', () => {
