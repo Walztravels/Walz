@@ -136,7 +136,7 @@ describe('hard identity invariant on inbox-originated quotes', () => {
     expect(mockPrisma.quote.create).not.toHaveBeenCalled()
   })
 
-  it('missing server-resolved email/name fails closed — NEVER falls back to the browser-supplied value', async () => {
+  it('missing contact data fails closed as a PROFILE (not identity) gap — NEVER falls back to the browser-supplied value', async () => {
     mockResolve.mockResolvedValue({
       ok: true,
       context: { ...VERIFIED_CTX.context, contact: { name: null, email: null, phone: null } },
@@ -145,9 +145,14 @@ describe('hard identity invariant on inbox-originated quotes', () => {
       conversationId: 318, clientName: 'FORGED', clientEmail: 'attacker@evil.com', title: 'Trip',
       items: [{ type: 'custom', title: 'Item', sellingPriceMinor: 1000, currency: 'GBP' }],
     }))
-    expect(res.status).toBe(403)
+    // The client IS VERIFIED here — this is the shared Client Profile
+    // Completeness layer (lib/inbox/client-profile.ts), a distinct concept
+    // from CLIENT_IDENTITY_REQUIRED. "Link the client first" would be
+    // conceptually wrong: the client is already linked/verified.
+    expect(res.status).toBe(400)
     const data = await res.json()
-    expect(data.code).toBe('CLIENT_IDENTITY_REQUIRED')
+    expect(data.code).toBe('CLIENT_PROFILE_INCOMPLETE')
+    expect(data.missingFields).toEqual(['name', 'email'])
     expect(mockPrisma.quote.create).not.toHaveBeenCalled()
   })
 

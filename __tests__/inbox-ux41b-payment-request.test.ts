@@ -22,6 +22,13 @@ const mockPrisma = {
     findMany: jest.fn(),
     create: jest.fn(),
   },
+  // Only touched by resolveCanonicalContact (lib/inbox/client-profile.ts,
+  // exercised for real — not mocked — by this file) when a test's ctx sets
+  // ctx.user/ctx.clientAccount/ctx.prismaLead. Every other existing test
+  // here leaves those null, so these mocks are inert for them.
+  user: { findUnique: jest.fn() },
+  clientAccount: { findUnique: jest.fn() },
+  lead: { findUnique: jest.fn() },
 }
 const mockResolve = jest.fn()
 const mockStripePricesCreate = jest.fn()
@@ -38,8 +45,20 @@ jest.mock('stripe', () => {
     paymentLinks: { create: (...a: unknown[]) => mockStripeLinksCreate(...a) },
   }))
 })
+// Route-level test only (see "route response shape" describe block below) —
+// bypasses auth/rate-limit so the REAL POST handler's JSON assembly runs
+// against the REAL createPaymentRequest (still backed by the mocks above).
+jest.mock('@/lib/admin-auth', () => ({
+  getAdminSession: jest.fn().mockResolvedValue({ email: 'staff@walztravels.com', role: 'staff', permissions: { payments_create: true } }),
+}))
+jest.mock('@/lib/rate-limit', () => ({ rateLimit: jest.fn().mockReturnValue({ allowed: true }) }))
+jest.mock('@/lib/inbox/authz', () => ({
+  checkInboxPermission: jest.fn().mockReturnValue({ allowed: true }),
+  checkConversationAccess: jest.fn().mockResolvedValue({ allowed: true }),
+}))
 
 import { createPaymentRequest, txRefFromIdempotencyKey, isValidAmountMajor } from '@/lib/action-centre/payment-request'
+import { POST as paymentRequestPOST } from '@/app/api/admin/inbox/conversations/[id]/payment-request/route'
 
 const read = (p: string) => fs.readFileSync(path.join(process.cwd(), p), 'utf8')
 const service = read('lib/action-centre/payment-request.ts')
@@ -81,6 +100,9 @@ beforeEach(() => {
   mockPrisma.paymentLink.create.mockImplementation(async ({ data }: { data: Record<string, unknown> }) => ({
     id: 'pl1', createdAt: new Date(), accountNumber: null, bankName: null, paymentUrl: null, ...data,
   }))
+  mockPrisma.user.findUnique.mockResolvedValue({ phone: null })
+  mockPrisma.clientAccount.findUnique.mockResolvedValue({ phone: null })
+  mockPrisma.lead.findUnique.mockResolvedValue({ whatsapp: null })
   global.fetch = jest.fn(async () => ({
     json: async () => ({ status: 'success', data: { link: 'https://flw.example/pay/x' } }),
   })) as unknown as typeof fetch
@@ -368,11 +390,10 @@ describe('Request Payment UI', () => {
     expect(clientInfo).toContain('Request Payment')
     expect(clientInfo).toContain('disabled={!identityOk}')
     expect(clientInfo).toContain('Verify client identity first')
-    // UX-4.2/4.3 graduated Create Quote and Visa Form from this roadmap
-    // line to live buttons — only Itinerary remains "coming".
-    expect(clientInfo).toContain('coming with the next release')
-    const roadmap = clientInfo.slice(clientInfo.indexOf('coming with the next release') - 300, clientInfo.indexOf('coming with the next release'))
-    expect(roadmap).not.toContain('<button')
+    // UX-4.2/4.3/4.4 graduated Create Quote, Visa Form, and Itinerary
+    // Request from the "coming with the next release" roadmap line to
+    // live buttons — the roadmap placeholder no longer exists at all.
+    expect(clientInfo).not.toContain('coming with the next release')
   })
 
   it('mobile: the overlay ClientInfo (DetailsDrawer) gets the same action wiring', () => {
@@ -476,6 +497,38 @@ describe('review fixes', () => {
     })
     const res = await createPaymentRequest(baseInput({ provider: 'paystack_va', currency: 'NGN' }))
     expect(res).toMatchObject({ ok: false, code: 'MISSING_CLIENT_CONTACT' })
+    // Regression proof for the crossRecordConflicts QA fix: the overwhelmingly
+    // common case (no cross-record disagreement at all — just a thin
+    // Chatwoot-only contact) must produce a byte-identical shape to before
+    // that fix — an empty array, never undefined and never a populated one.
+    if (!res.ok) expect(res.crossRecordConflicts).toEqual([])
+  })
+
+  it('QA gap fix: two linked records structurally disagreeing on the same field is surfaced via crossRecordConflicts, never silently dropped', async () => {
+    // ctx.user and ctx.clientAccount disagree on email — structurally this
+    // shouldn't happen (client-context.ts hydrates at most one per
+    // conversation) but lib/inbox/client-profile.ts checks defensively
+    // anyway (see its file header) and must never silently pick a winner.
+    mockResolve.mockResolvedValue({
+      ok: true,
+      context: {
+        ...VERIFIED_CTX.context,
+        contact: null,
+        user: { id: 'u1', name: 'Ama', email: 'user-a@example.com' },
+        clientAccount: { id: 'c1', name: 'Ama', email: 'account-b@example.com' },
+      },
+    })
+    const res = await createPaymentRequest(baseInput({ provider: 'paystack_va', currency: 'NGN' }))
+    expect(res).toMatchObject({ ok: false, code: 'MISSING_CLIENT_CONTACT' })
+    if (!res.ok) {
+      // Conflicting field (email) is reported missing (canonical.fields.email
+      // is null, never a guessed winner) AND the disagreement itself is
+      // surfaced distinctly for the UI to render as a warning, not "— Missing".
+      expect(res.missingFields).toContain('email')
+      expect(res.crossRecordConflicts).toEqual([
+        { field: 'email', values: { user: 'user-a@example.com', clientAccount: 'account-b@example.com' } },
+      ])
+    }
   })
 
   it('M1 honesty: the service documents which paths auto-settle and which stay pending-until-verify', () => {
@@ -532,5 +585,84 @@ describe('migration + schema', () => {
     expect(model).toContain('conversationId    Int?')
     expect(model).toContain("source            String?")
     expect(model).toContain('NEVER prisma db push')
+  })
+})
+
+// ── Route response shape (executes the REAL POST handler) ──────────────────
+//
+// Bug found in closing review: every prior test in this file exercises
+// createPaymentRequest() directly, so the route's OWN error-response
+// assembly (app/api/admin/inbox/conversations/[id]/payment-request/route.ts)
+// was never actually invoked by a test — only traced by hand. It had
+// silently never spread missingFields/availableFields/crossRecordConflicts
+// into its JSON response (unlike the Visa/Quote/Itinerary routes, which did),
+// so PaymentRequestDrawer's CompleteClientProfile would have rendered with
+// ZERO fields to fill in — a worse dead end than the original Retry bug.
+// These tests call the real exported POST handler so a future regression
+// here fails a real assertion, not just a source-string pin.
+describe('POST /api/admin/inbox/conversations/[id]/payment-request — real route response shape', () => {
+  function postReq(body: Record<string, unknown>) {
+    return new Request('http://x/api/admin/inbox/conversations/318/payment-request', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+    }) as unknown as Parameters<typeof paymentRequestPOST>[0]
+  }
+  const params = { params: { id: '318' } }
+
+  it('MISSING_CLIENT_CONTACT: the route forwards missingFields/availableFields to the browser', async () => {
+    mockResolve.mockResolvedValue({
+      ok: true,
+      context: { ...VERIFIED_CTX.context, contact: { name: 'Ama', email: null, phone: null } },
+    })
+    const res = await paymentRequestPOST(postReq({
+      amount: 4500, currency: 'NGN', purpose: 'visa_service', provider: 'paystack_va',
+      idempotencyKey: 'route-key-1',
+    }), params)
+    expect(res.status).toBe(400)
+    const data = await res.json()
+    expect(data.code).toBe('MISSING_CLIENT_CONTACT')
+    expect(data.missingFields).toEqual(expect.arrayContaining(['email', 'phone']))
+    expect(data.availableFields).toBeDefined()
+    expect(data.crossRecordConflicts).toBeUndefined() // absent, not an empty array, when there's nothing to report
+  })
+
+  it('a genuine cross-record conflict is forwarded too', async () => {
+    mockResolve.mockResolvedValue({
+      ok: true,
+      context: {
+        ...VERIFIED_CTX.context, contact: null,
+        user: { id: 'u1', name: 'Ama', email: 'user-a@example.com' },
+        clientAccount: { id: 'c1', name: 'Ama', email: 'account-b@example.com' },
+      },
+    })
+    const res = await paymentRequestPOST(postReq({
+      amount: 4500, currency: 'NGN', purpose: 'visa_service', provider: 'paystack_va',
+      idempotencyKey: 'route-key-2',
+    }), params)
+    const data = await res.json()
+    expect(data.code).toBe('MISSING_CLIENT_CONTACT')
+    expect(data.crossRecordConflicts).toEqual([
+      { field: 'email', values: { user: 'user-a@example.com', clientAccount: 'account-b@example.com' } },
+    ])
+  })
+
+  it('a complete-profile client generating via Stripe (no contact requirement) gets a normal success response, unaffected by the fix', async () => {
+    const prevKey = process.env.STRIPE_SECRET_KEY
+    process.env.STRIPE_SECRET_KEY = 'sk_test_x'
+    try {
+      mockResolve.mockResolvedValue(VERIFIED_CTX)
+      mockStripePricesCreate.mockResolvedValue({ id: 'price_1' })
+      mockStripeLinksCreate.mockResolvedValue({ url: 'https://pay.stripe.example/x' })
+      const res = await paymentRequestPOST(postReq({
+        amount: 100, currency: 'GBP', purpose: 'visa_service', provider: 'stripe',
+        idempotencyKey: 'route-key-3',
+      }), params)
+      expect(res.status).toBe(200)
+      const data = await res.json()
+      expect(data.missingFields).toBeUndefined()
+      expect(data.crossRecordConflicts).toBeUndefined()
+    } finally {
+      if (prevKey === undefined) delete process.env.STRIPE_SECRET_KEY
+      else process.env.STRIPE_SECRET_KEY = prevKey
+    }
   })
 })

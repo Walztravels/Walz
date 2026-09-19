@@ -35,6 +35,7 @@ import Stripe from 'stripe'
 import prisma from '@/lib/db'
 import type { AdminSession } from '@/lib/admin-auth'
 import { resolveClientActionContext } from '@/lib/inbox/client-context'
+import { resolveCanonicalContact, evaluateProfileCompleteness, type ProfileField, type CanonicalContactResult } from '@/lib/inbox/client-profile'
 import { calculateFee, formatFeeLabel } from '@/lib/payment-fees'
 import { isCurrencySupported } from '@/lib/payments/processors'
 import { getFLWKey } from '@/lib/flutterwave-banks'
@@ -53,6 +54,23 @@ export type { ActionCentreProvider, PaymentPurpose }
 /** processors.ts method key per provider (account-level currency gates). */
 const PROVIDER_METHOD: Record<ActionCentreProvider, string> = {
   stripe: 'STRIPE', flutterwave: 'FLUTTERWAVE', paystack_va: 'PAYSTACK',
+}
+
+/**
+ * Provider-specific contact requirements, fed into the SHARED completeness
+ * evaluator (lib/inbox/client-profile.ts) — this is the only place that
+ * knows what each provider actually needs:
+ *  - stripe: a generic, non-customer-bound Payment Link — the payer enters
+ *    their own details at Stripe's hosted checkout. No requirement at all.
+ *  - flutterwave: has silent placeholder fallbacks for missing name/email
+ *    ('Client' / 'client@walztravels.com') and never sends phone — a
+ *    separate, pre-existing design choice, out of scope here. Reports zero
+ *    missing fields, matching that existing graceful degradation.
+ *  - paystack_va: the ONLY genuine hard requirement — name, email, AND
+ *    phone are used directly in the Paystack /customer creation call.
+ */
+export const PAYMENT_PROVIDER_REQUIREMENTS: Record<ActionCentreProvider, ProfileField[]> = {
+  stripe: [], flutterwave: [], paystack_va: ['name', 'email', 'phone'],
 }
 
 // ── Result types ─────────────────────────────────────────────────────────────
@@ -84,7 +102,17 @@ export type CreatePaymentRequestResult =
       | 'PROVIDER_UNAVAILABLE' | 'PROVIDER_NOT_CONFIGURED' | 'PERSIST_FAILED'
       error: string
       /** For DUPLICATE_PENDING: the existing request staff can reuse. */
-      existing?: PaymentRequestDTO }
+      existing?: PaymentRequestDTO
+      /** For MISSING_CLIENT_CONTACT: which fields are absent (shared
+       *  Client Profile Completeness layer — lib/inbox/client-profile.ts),
+       *  so the drawer can render field-by-field status instead of a
+       *  single sentence, and drive the "Complete client profile" gate. */
+      missingFields?: ProfileField[]
+      availableFields?: Partial<Record<ProfileField, string>>
+      /** For MISSING_CLIENT_CONTACT only — QA gap fix: a genuine cross-record
+       *  data-integrity conflict (see lib/inbox/client-profile.ts), never an
+       *  ordinarily-missing field. Structurally should stay empty/absent. */
+      crossRecordConflicts?: CanonicalContactResult['crossRecordConflicts'] }
 
 export interface CreatePaymentRequestInput {
   session: AdminSession
@@ -251,16 +279,26 @@ export async function createPaymentRequest(
     }
   }
 
-  // (5) Client contact from the SERVER-resolved context (never the browser).
-  const clientName  = ctx.contact?.name  ?? ''
-  const clientEmail = ctx.contact?.email ?? ''
-  const clientPhone = ctx.contact?.phone ?? ''
-  if (acProvider === 'paystack_va' && (!clientEmail || !clientName || !clientPhone)) {
+  // (5) Client contact — the SHARED canonical resolution (never the
+  //     browser), blending ctx.contact (Chatwoot) with whichever linked
+  //     CRM record is authoritative (lib/inbox/client-profile.ts). This is
+  //     what actually fixes the "staff fills the missing field but
+  //     Generate still fails" bug: ctx.contact alone is Chatwoot-only and
+  //     never reflects a User/ClientAccount/Lead column staff just filled.
+  const canonical = await resolveCanonicalContact(ctx)
+  const completeness = evaluateProfileCompleteness(canonical, PAYMENT_PROVIDER_REQUIREMENTS[acProvider])
+  if (!completeness.complete) {
     return {
       ok: false, code: 'MISSING_CLIENT_CONTACT',
       error: 'Paystack bank transfer needs the client’s name, email and phone on file.',
+      missingFields: completeness.missingFields,
+      availableFields: completeness.availableFields,
+      crossRecordConflicts: completeness.crossRecordConflicts,
     }
   }
+  const clientName  = canonical.fields.name?.value  ?? ''
+  const clientEmail = canonical.fields.email?.value ?? ''
+  const clientPhone = canonical.fields.phone?.value ?? ''
 
   const desc = (description ?? '').trim() || PURPOSE_LABELS[purpose as PaymentPurpose]
 

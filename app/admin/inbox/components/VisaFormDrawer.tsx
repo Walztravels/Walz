@@ -24,6 +24,8 @@ import { X, Send, Copy, MessageSquarePlus, RefreshCw, FileText, ExternalLink } f
 import { Z_INDEX } from '@/lib/admin/chrome'
 import { useComposerDraft } from '@/app/admin/inbox/ComposerDraftContext'
 import { VISA_TYPES, VISA_TYPE_LABELS, DESTINATION_OPTIONS, type VisaType } from '@/lib/action-centre/constants'
+import type { ProfileField } from '@/lib/inbox/client-profile'
+import { CompleteClientProfile } from '@/app/admin/inbox/components/CompleteClientProfile'
 
 interface ContextSlice {
   resolution: 'VERIFIED' | 'LINKED' | 'HEURISTIC' | 'UNRESOLVED'
@@ -76,6 +78,15 @@ export function VisaFormDrawer({ open, onClose, conversationId, onSendMessage }:
   const [docsResult, setDocsResult] = useState<{ uploadLink: string; requestedDocs: string[] } | null>(null)
 
   const [error, setError] = useState<string | null>(null)
+  // Profile Completeness gate (shared layer) — set on CLIENT_PROFILE_INCOMPLETE
+  // from ANY of the three actions below. Distinct from an identity failure:
+  // the client IS VERIFIED/LINKED; their profile just lacks data this
+  // action needs. Blocks all three views uniformly (create/link/documents
+  // all route through the same requireLinkedIdentity in the service).
+  const [profileGate, setProfileGate] = useState<{
+    missingFields: ProfileField[]; availableFields: Partial<Record<ProfileField, string>>
+    crossRecordConflicts: ProfileField[]
+  } | null>(null)
   const [copied, setCopied] = useState(false)
   const [sending, setSending] = useState(false)
   const [sent, setSent] = useState(false)
@@ -109,6 +120,7 @@ export function VisaFormDrawer({ open, onClose, conversationId, onSendMessage }:
     setDestinationIso2(''); setVisaType('tourist'); setPurposeOfVisit(''); setArrivalDate('')
     setLinkResult(null); setDocsResult(null); setDocsInput(''); setDocsMessage('')
     setView('case'); setError(null); setSent(false); setCopied(false)
+    setProfileGate(null)
     setCtx(null); setRecent([])
     void loadContext()
     restoreRef.current =
@@ -155,6 +167,7 @@ export function VisaFormDrawer({ open, onClose, conversationId, onSendMessage }:
     if (!destinationIso2) { setError('Choose a destination country.'); return }
     setCreating(true)
     setError(null)
+    setProfileGate(null)
     try {
       const res = await fetch(`/api/admin/inbox/conversations/${conversationId}/visa`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -165,7 +178,19 @@ export function VisaFormDrawer({ open, onClose, conversationId, onSendMessage }:
         }),
       })
       const data = await res.json().catch(() => ({}))
-      if (!res.ok) { setError(data?.error ?? 'Could not create the visa case. Retry.'); return }
+      if (!res.ok) {
+        if (data?.code === 'CLIENT_PROFILE_INCOMPLETE') {
+          setProfileGate({
+            missingFields: Array.isArray(data?.missingFields) ? data.missingFields : [],
+            availableFields: data?.availableFields ?? {},
+            crossRecordConflicts: Array.isArray(data?.crossRecordConflicts)
+              ? data.crossRecordConflicts.map((c: { field: ProfileField }) => c.field) : [],
+          })
+          return
+        }
+        setError(data?.error ?? 'Could not create the visa case. Retry.')
+        return
+      }
       await loadContext()   // re-fetch so ctx.application reflects the new case
     } catch {
       setError('Could not create the visa case. Retry.')
@@ -178,13 +203,26 @@ export function VisaFormDrawer({ open, onClose, conversationId, onSendMessage }:
     if (minting) return
     setMinting(true)
     setError(null)
+    setProfileGate(null)
     try {
       const res = await fetch(`/api/admin/inbox/conversations/${conversationId}/visa`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'mint_link', applicationId: ctx?.application?.id }),
       })
       const data = await res.json().catch(() => ({}))
-      if (!res.ok) { setError(data?.error ?? 'Could not generate the form link. Retry.'); return }
+      if (!res.ok) {
+        if (data?.code === 'CLIENT_PROFILE_INCOMPLETE') {
+          setProfileGate({
+            missingFields: Array.isArray(data?.missingFields) ? data.missingFields : [],
+            availableFields: data?.availableFields ?? {},
+            crossRecordConflicts: Array.isArray(data?.crossRecordConflicts)
+              ? data.crossRecordConflicts.map((c: { field: ProfileField }) => c.field) : [],
+          })
+          return
+        }
+        setError(data?.error ?? 'Could not generate the form link. Retry.')
+        return
+      }
       setLinkResult({ link: data.result.link, expiresAt: data.result.expiresAt })
       setView('link')
     } catch {
@@ -200,6 +238,7 @@ export function VisaFormDrawer({ open, onClose, conversationId, onSendMessage }:
     if (docs.length === 0) { setError('List at least one document (comma-separated).'); return }
     setRequestingDocs(true)
     setError(null)
+    setProfileGate(null)
     try {
       const res = await fetch(`/api/admin/inbox/conversations/${conversationId}/visa`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -209,7 +248,19 @@ export function VisaFormDrawer({ open, onClose, conversationId, onSendMessage }:
         }),
       })
       const data = await res.json().catch(() => ({}))
-      if (!res.ok) { setError(data?.error ?? 'Could not create the document request. Retry.'); return }
+      if (!res.ok) {
+        if (data?.code === 'CLIENT_PROFILE_INCOMPLETE') {
+          setProfileGate({
+            missingFields: Array.isArray(data?.missingFields) ? data.missingFields : [],
+            availableFields: data?.availableFields ?? {},
+            crossRecordConflicts: Array.isArray(data?.crossRecordConflicts)
+              ? data.crossRecordConflicts.map((c: { field: ProfileField }) => c.field) : [],
+          })
+          return
+        }
+        setError(data?.error ?? 'Could not create the document request. Retry.')
+        return
+      }
       setDocsResult({ uploadLink: data.result.uploadLink, requestedDocs: data.result.requestedDocs })
     } catch {
       setError('Could not create the document request. Retry.')
@@ -321,6 +372,14 @@ export function VisaFormDrawer({ open, onClose, conversationId, onSendMessage }:
                 Verify or link the client before using the Visa Form action.
               </p>
             </div>
+          ) : profileGate ? (
+            <CompleteClientProfile
+              conversationId={conversationId}
+              missingFields={profileGate.missingFields}
+              availableFields={profileGate.availableFields}
+              crossRecordConflicts={profileGate.crossRecordConflicts}
+              onComplete={() => { setProfileGate(null); void loadContext() }}
+            />
           ) : !hasCase ? (
             /* 6B — no case yet: minimal create form */
             <fieldset disabled={creating} className="space-y-3 disabled:opacity-60">

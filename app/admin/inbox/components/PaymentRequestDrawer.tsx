@@ -28,6 +28,8 @@ import {
   ACTION_CENTRE_PROVIDERS, PROVIDER_LABELS, PROVIDER_CURRENCIES,
   type ActionCentreProvider, type PaymentPurpose,
 } from '@/lib/action-centre/constants'
+import type { ProfileField } from '@/lib/inbox/client-profile'
+import { CompleteClientProfile } from '@/app/admin/inbox/components/CompleteClientProfile'
 
 interface ContextSlice {
   resolution: 'VERIFIED' | 'LINKED' | 'HEURISTIC' | 'UNRESOLVED'
@@ -96,6 +98,13 @@ export function PaymentRequestDrawer({ open, onClose, conversationId, onSendMess
   // retrying could mint a second one, so the Generate button is withdrawn.
   const [fatalError, setFatalError] = useState(false)
   const [result, setResult] = useState<RequestDTO | null>(null)
+  // Profile Completeness gate (shared layer) — set when the server reports
+  // MISSING_CLIENT_CONTACT with which fields are absent. Distinct from
+  // submitError/Retry: this is not a retryable provider failure.
+  const [profileGate, setProfileGate] = useState<{
+    missingFields: ProfileField[]; availableFields: Partial<Record<ProfileField, string>>
+    crossRecordConflicts: ProfileField[]
+  } | null>(null)
   const [copied, setCopied] = useState(false)
   const [sending, setSending] = useState(false)
   const [sent, setSent] = useState(false)
@@ -134,6 +143,7 @@ export function PaymentRequestDrawer({ open, onClose, conversationId, onSendMess
     if (!open) { setEntered(false); return }
     idemRef.current = crypto.randomUUID()
     setResult(null); setSubmitError(null); setFatalError(false); setSent(false); setCopied(false)
+    setProfileGate(null)
     setCtx(null); setRecent([])
     void loadContext()
     restoreRef.current =
@@ -185,6 +195,7 @@ export function PaymentRequestDrawer({ open, onClose, conversationId, onSendMess
     if (submitting) return
     setSubmitting(true)
     setSubmitError(null)
+    setProfileGate(null)
     try {
       const res = await fetch(`/api/admin/inbox/conversations/${conversationId}/payment-request`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -203,6 +214,18 @@ export function PaymentRequestDrawer({ open, onClose, conversationId, onSendMess
         if (data?.code === 'DUPLICATE_PENDING' && data?.existing) {
           setResult(data.existing as RequestDTO)
           setSubmitError(null)
+          return
+        }
+        // Missing contact data is not a retryable provider failure — clicking
+        // Retry would fail identically forever. Show the profile-completion
+        // gate instead of the generic error + Retry path.
+        if (data?.code === 'MISSING_CLIENT_CONTACT') {
+          setProfileGate({
+            missingFields: Array.isArray(data?.missingFields) ? data.missingFields : [],
+            availableFields: data?.availableFields ?? {},
+            crossRecordConflicts: Array.isArray(data?.crossRecordConflicts)
+              ? data.crossRecordConflicts.map((c: { field: ProfileField }) => c.field) : [],
+          })
           return
         }
         if (data?.code === 'PERSIST_FAILED') setFatalError(true)
@@ -353,6 +376,14 @@ export function PaymentRequestDrawer({ open, onClose, conversationId, onSendMess
                 </button>
               </div>
             </div>
+          ) : profileGate ? (
+            <CompleteClientProfile
+              conversationId={conversationId}
+              missingFields={profileGate.missingFields}
+              availableFields={profileGate.availableFields}
+              crossRecordConflicts={profileGate.crossRecordConflicts}
+              onComplete={() => { setProfileGate(null); void loadContext() }}
+            />
           ) : (
             /* Form state */
             <fieldset disabled={!identityOk || submitting} className="space-y-3 disabled:opacity-60">

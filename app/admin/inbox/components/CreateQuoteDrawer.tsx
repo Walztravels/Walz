@@ -30,6 +30,8 @@ import { X, Copy, MessageSquarePlus, Send, RefreshCw, Trash2, ExternalLink } fro
 import { Z_INDEX } from '@/lib/admin/chrome'
 import { useComposerDraft } from '@/app/admin/inbox/ComposerDraftContext'
 import { isValidAmountMajor } from '@/lib/action-centre/constants'
+import type { ProfileField } from '@/lib/inbox/client-profile'
+import { CompleteClientProfile } from '@/app/admin/inbox/components/CompleteClientProfile'
 
 interface ContextSlice {
   resolution: 'VERIFIED' | 'LINKED' | 'HEURISTIC' | 'UNRESOLVED'
@@ -93,6 +95,12 @@ export function CreateQuoteDrawer({ open, onClose, conversationId, onSendMessage
   // conversation) — no reusable link exists for it (only a token HASH is
   // stored), so point staff to the existing draft rather than fabricating one.
   const [duplicateOf, setDuplicateOf] = useState<{ id: string; reference: string } | null>(null)
+  // Profile Completeness gate (shared layer) — set on CLIENT_PROFILE_INCOMPLETE.
+  // Distinct from an identity failure: the client IS VERIFIED/LINKED here.
+  const [profileGate, setProfileGate] = useState<{
+    missingFields: ProfileField[]; availableFields: Partial<Record<ProfileField, string>>
+    crossRecordConflicts: ProfileField[]
+  } | null>(null)
   const [quote, setQuote] = useState<GeneratedQuote | null>(null)
   const [finalizing, setFinalizing] = useState(false)
   const [copied, setCopied] = useState(false)
@@ -127,6 +135,7 @@ export function CreateQuoteDrawer({ open, onClose, conversationId, onSendMessage
     if (!open) { setEntered(false); return }
     setTitle(''); setItems([]); setItemTitle(''); setItemDesc(''); setItemPrice('')
     setSubmitError(null); setCreated(false); setQuote(null); setSent(false); setCopied(false); setDuplicateOf(null)
+    setProfileGate(null)
     setCtx(null); setRecent([])
     void loadContext()
     restoreRef.current =
@@ -186,6 +195,7 @@ export function CreateQuoteDrawer({ open, onClose, conversationId, onSendMessage
     if (items.length === 0) { setSubmitError('Add at least one line item.'); return }
     setSubmitting(true)
     setSubmitError(null)
+    setProfileGate(null)
     try {
       const res = await fetch('/api/admin/quotes', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -208,6 +218,18 @@ export function CreateQuoteDrawer({ open, onClose, conversationId, onSendMessage
         if (data?.code === 'DUPLICATE_DRAFT' && data?.existing) {
           setDuplicateOf({ id: data.existing.id, reference: data.existing.reference })
           setCreated(true)   // still latch — this attempt is resolved, not retryable as-is
+          return
+        }
+        // Profile incomplete is not a retryable creation failure — show the
+        // completion gate instead, preserving the draft (title/items/etc.)
+        // already entered below.
+        if (data?.code === 'CLIENT_PROFILE_INCOMPLETE') {
+          setProfileGate({
+            missingFields: Array.isArray(data?.missingFields) ? data.missingFields : [],
+            availableFields: data?.availableFields ?? {},
+            crossRecordConflicts: Array.isArray(data?.crossRecordConflicts)
+              ? data.crossRecordConflicts.map((c: { field: ProfileField }) => c.field) : [],
+          })
           return
         }
         setSubmitError(data?.error ?? 'The quote could not be created. Retry.')
@@ -397,6 +419,14 @@ export function CreateQuoteDrawer({ open, onClose, conversationId, onSendMessage
                 </div>
               )}
             </div>
+          ) : profileGate ? (
+            <CompleteClientProfile
+              conversationId={conversationId}
+              missingFields={profileGate.missingFields}
+              availableFields={profileGate.availableFields}
+              crossRecordConflicts={profileGate.crossRecordConflicts}
+              onComplete={() => { setProfileGate(null); void loadContext() }}
+            />
           ) : (
             <fieldset disabled={!identityOk || submitting} className="space-y-3 disabled:opacity-60">
               <div>

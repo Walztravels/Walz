@@ -100,7 +100,15 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
       : result.code === 'CASE_ALREADY_EXISTS' || result.code === 'AMBIGUOUS_APPLICATION' ? 409
       : result.code === 'PERSIST_FAILED' ? 502
       : 400
-    return NextResponse.json({ error: result.error, code: result.code }, { status })
+    return NextResponse.json(
+      {
+        error: result.error, code: result.code,
+        ...(result.missingFields ? { missingFields: result.missingFields, availableFields: result.availableFields } : {}),
+        ...(result.crossRecordConflicts && result.crossRecordConflicts.length > 0
+          ? { crossRecordConflicts: result.crossRecordConflicts } : {}),
+      },
+      { status },
+    )
   }
   return NextResponse.json({ result: result.data })
 }

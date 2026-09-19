@@ -26,12 +26,18 @@
 
 import prisma from '@/lib/db'
 import type { AdminSession } from '@/lib/admin-auth'
-import { resolveClientActionContext } from '@/lib/inbox/client-context'
+import { resolveClientActionContext, type ClientActionContext } from '@/lib/inbox/client-context'
+import { resolveCanonicalContact, evaluateProfileCompleteness, type ProfileField, type CanonicalContactResult } from '@/lib/inbox/client-profile'
 import { upsertConversationClientLink } from '@/lib/inbox/client-link'
 import { generateVisaRef, ISO2_TO_SLUG } from '@/lib/visa-config'
 import { safeStatusLabel } from '@/lib/secure-lookup/masking'
 import { normalizeEmail } from '@/lib/identity/normalize'
 import { VISA_TYPES, type VisaType } from '@/lib/action-centre/constants'
+
+/** Create Quote uses the same pair (name+email) — see app/api/admin/quotes/
+ *  route.ts. Encoded per-feature by design (lib/inbox/client-profile.ts
+ *  evaluates; it never invents requirements). */
+const VISA_FORM_REQUIRED_FIELDS: ProfileField[] = ['name', 'email']
 
 const SITE = process.env.NEXT_PUBLIC_SITE_URL ?? 'https://www.walztravels.com'
 const TOKEN_EXPIRY_DAYS = 7
@@ -42,10 +48,23 @@ const DOC_REQUEST_EXPIRY_DAYS = 14
 export type VisaActionError =
   | 'CLIENT_IDENTITY_REQUIRED' | 'CLIENT_CONTEXT_MISMATCH' | 'INVALID_INPUT'
   | 'CASE_ALREADY_EXISTS' | 'NO_CASE_LINKED' | 'PERSIST_FAILED' | 'AMBIGUOUS_APPLICATION'
+  // Shared Client Profile Completeness layer (lib/inbox/client-profile.ts):
+  // the client IS already VERIFIED/LINKED (a distinct concept from this
+  // code) but their profile is missing data this action needs.
+  | 'CLIENT_PROFILE_INCOMPLETE'
 
 export type VisaActionResult<T> =
   | { ok: true; data: T }
-  | { ok: false; code: VisaActionError; error: string }
+  | {
+      ok: false; code: VisaActionError; error: string
+      /** For CLIENT_PROFILE_INCOMPLETE only. */
+      missingFields?: ProfileField[]
+      availableFields?: Partial<Record<ProfileField, string>>
+      /** For CLIENT_PROFILE_INCOMPLETE only — QA gap fix: a genuine
+       *  cross-record data-integrity conflict (see lib/inbox/client-profile.ts),
+       *  never an ordinarily-missing field. Structurally should stay empty/absent. */
+      crossRecordConflicts?: CanonicalContactResult['crossRecordConflicts']
+    }
 
 export interface VisaCaseDTO {
   id: string; walzRef: string; visaType: string
@@ -68,13 +87,32 @@ async function requireLinkedIdentity(conversationId: number, session: AdminSessi
       error: 'Verify or link the client identity before using the Visa Form action.',
     }
   }
-  if (!ctx.contact?.name || !ctx.contact?.email) {
+  // IDENTITY (who is this?) vs PROFILE COMPLETENESS (do we have the data
+  // this action needs?) are distinct — the client above IS already
+  // VERIFIED/LINKED. lib/inbox/client-profile.ts's canonical resolution
+  // blends ctx.contact (Chatwoot) with whichever User/ClientAccount/Lead
+  // is actually linked, so a field staff already filled in elsewhere is
+  // recognised here too.
+  const canonical = await resolveCanonicalContact(ctx)
+  const completeness = evaluateProfileCompleteness(canonical, VISA_FORM_REQUIRED_FIELDS)
+  if (!completeness.complete) {
     return {
-      ok: false as const, code: 'CLIENT_IDENTITY_REQUIRED' as const,
-      error: 'This conversation has no client name/email on file — link the client first.',
+      ok: false as const, code: 'CLIENT_PROFILE_INCOMPLETE' as const,
+      error: 'This client’s profile is missing information the Visa Form action needs.',
+      missingFields: completeness.missingFields,
+      availableFields: completeness.availableFields,
+      crossRecordConflicts: completeness.crossRecordConflicts,
     }
   }
-  return { ok: true as const, ctx }
+  // Server-derived contact for everything below — the CANONICAL values
+  // (never raw ctx.contact alone, which may be thinner) — but never a
+  // browser-typed one.
+  const contact = {
+    name: canonical.fields.name?.value ?? null,
+    email: canonical.fields.email?.value ?? null,
+    phone: canonical.fields.phone?.value ?? null,
+  }
+  return { ok: true as const, ctx: { ...ctx, contact } as ClientActionContext }
 }
 
 function toCaseDTO(app: { id: string; referenceNumber: string; visaType: string; destinationIso2: string; status: string }): VisaCaseDTO {

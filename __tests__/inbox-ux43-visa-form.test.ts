@@ -121,12 +121,16 @@ describe.each([
     expect(res).toMatchObject({ ok: false, code: 'CLIENT_IDENTITY_REQUIRED' })
   })
 
-  it('missing server-resolved email/name fails closed — never falls back to a browser value', async () => {
+  it('missing contact data fails closed as a PROFILE (not identity) gap — never falls back to a browser value', async () => {
     mockResolve.mockResolvedValue({
       ok: true, context: { ...baseCtx.context, contact: { name: null, email: null, phone: null } },
     })
     const res = await call()
-    expect(res).toMatchObject({ ok: false, code: 'CLIENT_IDENTITY_REQUIRED' })
+    // The client IS VERIFIED/LINKED here — this is the shared Client
+    // Profile Completeness layer (lib/inbox/client-profile.ts), a distinct
+    // concept from CLIENT_IDENTITY_REQUIRED. "Link the client first" would
+    // be conceptually wrong: the client is already linked.
+    expect(res).toMatchObject({ ok: false, code: 'CLIENT_PROFILE_INCOMPLETE', missingFields: ['name', 'email'] })
   })
 })
 
@@ -429,10 +433,9 @@ describe('page wiring: visa form drawer force-closed on conversation change and 
 })
 
 describe('ClientInfo Quick Actions: Visa Form gated identically to Request Payment/Create Quote', () => {
-  it('a third live button exists, disabled below VERIFIED/LINKED; the roadmap line now only lists Itinerary', () => {
+  it('a third live button exists, disabled below VERIFIED/LINKED', () => {
     expect(clientInfoSrc).toContain('Visa Form')
     expect(clientInfoSrc).toContain('onOpenVisaForm')
-    expect(clientInfoSrc).toContain('Itinerary — coming with the next release')
     expect(clientInfoSrc).not.toContain('Visa Form · Itinerary')
   })
 })

@@ -9,6 +9,12 @@ import { sendQuoteProposalEmail } from '@/lib/email-quote-proposal'
 // the body carries a conversationId; the plain admin path never touches these.
 import { checkInboxPermission, checkConversationAccess } from '@/lib/inbox/authz'
 import { resolveClientActionContext } from '@/lib/inbox/client-context'
+import { resolveCanonicalContact, evaluateProfileCompleteness, type ProfileField } from '@/lib/inbox/client-profile'
+
+/** Visa Form uses the same pair (name+email) — see lib/action-centre/
+ *  visa-form.ts. Encoded per-feature by design (lib/inbox/client-profile.ts
+ *  evaluates; it never invents requirements). */
+const QUOTE_REQUIRED_FIELDS: ProfileField[] = ['name', 'email']
 
 export const dynamic = 'force-dynamic'
 
@@ -153,15 +159,34 @@ export async function POST(req: NextRequest) {
     // value through. clientName/clientEmail are required on Quote and
     // clientEmail is exactly what an email send targets, so failing closed
     // here is mandatory, not optional.
-    if (!ctx.contact?.name || !ctx.contact?.email) {
+    //
+    // IDENTITY (who is this?) vs PROFILE COMPLETENESS (do we have the data
+    // this action needs?) are distinct concepts (shared Client Profile
+    // Completeness layer — lib/inbox/client-profile.ts). The client above
+    // is already VERIFIED/LINKED; "link the client first" would be wrong
+    // here — the canonical resolution below also picks up a name/email
+    // from whichever User/ClientAccount/Lead is actually linked, not just
+    // Chatwoot's own (possibly thinner) contact record.
+    const canonical = await resolveCanonicalContact(ctx)
+    const completeness = evaluateProfileCompleteness(canonical, QUOTE_REQUIRED_FIELDS)
+    if (!completeness.complete) {
       return NextResponse.json(
-        { error: 'This conversation has no client name/email on file — link the client first.', code: 'CLIENT_IDENTITY_REQUIRED' },
-        { status: 403 },
+        {
+          error: 'This client’s profile is missing information needed to create a quote.',
+          code: 'CLIENT_PROFILE_INCOMPLETE',
+          missingFields: completeness.missingFields,
+          availableFields: completeness.availableFields,
+          // QA gap fix: a genuine cross-record data-integrity conflict (see
+          // lib/inbox/client-profile.ts) — never an ordinarily-missing field.
+          // Structurally should stay empty; purely additive when it is.
+          crossRecordConflicts: completeness.crossRecordConflicts,
+        },
+        { status: 400 },
       )
     }
-    clientName  = ctx.contact.name
-    clientEmail = ctx.contact.email
-    clientPhone = ctx.contact.phone ?? null
+    clientName  = canonical.fields.name!.value
+    clientEmail = canonical.fields.email!.value
+    clientPhone = canonical.fields.phone?.value ?? null
 
     // Single-currency enforcement (the underlying engine sums blindly
     // across currencies — the Action Centre must not create that trap).
