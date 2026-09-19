@@ -1,14 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getSupabaseAdmin } from '@/lib/supabase'
 import { botChatwootOrNull, logChatwootUnconfigured } from '@/lib/chatwoot/config'
-import { isAutoAssignable } from '@/lib/inbox/assignable'
 import { runSlaEscalationSweep } from '@/lib/inbox/sla-escalation'
 
 export const dynamic = 'force-dynamic'
 
 // SLA Escalation System (INBOX-SLA-1) — additive, staged (30/60/90/120min)
 // staff notifications driven off real Chatwoot message history, independent
-// of the 30-minute reassignment logic below. Runs on every invocation of
+// of the 30-minute private-note logic below. Runs on every invocation of
 // this route regardless of which branch the legacy logic below takes (an
 // empty `stale` bucket, or Chatwoot being unconfigured, must not skip the
 // 60/90/120-minute stages for conversations the legacy bucket isn't
@@ -44,12 +43,6 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ escalated: 0, sla })
   }
 
-  const { data: escalationAgents } = await supabase
-    .from('RoutingAgent')
-    .select('id, name, email, chatwootAgentId, active')
-    .eq('isEscalation', true)
-    .eq('active', true)
-
   const cw = botChatwootOrNull()
   if (!cw) {
     logChatwootUnconfigured('routing-escalation')
@@ -64,7 +57,8 @@ export async function GET(req: NextRequest) {
 
   for (const route of stale) {
     try {
-      // Add private note in Chatwoot
+      // Add private note in Chatwoot — historical/visible evidence that the
+      // 30-minute threshold was crossed. Preserved as-is.
       await fetch(
         `${chatwootBase}/api/v1/accounts/${accountId}/conversations/${route.chatwootConversationId}/messages`,
         {
@@ -78,33 +72,23 @@ export async function GET(req: NextRequest) {
         },
       ).catch(() => {})
 
-      // Re-assign to the first ELIGIBLE escalation agent (P1 2026-09-18:
-      // this previously picked the inactive TEST identity, Michael/id 1 —
-      // conversation #483). Non-routable identities are never selected.
-      const esc = (escalationAgents ?? []).find(a => isAutoAssignable(a.chatwootAgentId))
-      if (!esc) {
-        // Escalation evidence (the private note above) is preserved; the
-        // conversation stays with its current state rather than being
-        // handed to an ineligible identity.
-        console.warn(`[cron:escalation] NO_ELIGIBLE_ESCALATION_AGENT — conversation ${route.chatwootConversationId} not reassigned`)
-      }
-      if (esc?.chatwootAgentId) {
-        await fetch(
-          `${chatwootBase}/api/v1/accounts/${accountId}/conversations/${route.chatwootConversationId}/assignments`,
-          {
-            method:  'POST',
-            headers: { api_access_token: chatwootToken, 'Content-Type': 'application/json' },
-            body:    JSON.stringify({ assignee_id: esc.chatwootAgentId }),
-          },
-        ).catch(() => {})
-      }
-
-      // Log notifications
-      for (const agent of escalationAgents ?? []) {
-        console.log(
-          `[cron:escalation] Notify ${agent.name} (${agent.email}): Conversation #${route.chatwootConversationId} unattended 30min`,
-        )
-      }
+      // POLICY (approved 2026-09-18): automatic reassignment/takeover at 30
+      // minutes is DISABLED. This block previously reassigned the Chatwoot
+      // conversation to the first isAutoAssignable() escalation agent —
+      // that transferred ownership away from the originally-assigned agent,
+      // which conflicts with the approved SLA policy (notify-only through
+      // 30/60/90/120 minutes; reassignment is a separate, not-yet-approved
+      // policy). Ownership must NOT change here. isAutoAssignable() and the
+      // Michael/Jade non-routable protection remain fully intact and in use
+      // elsewhere (lib/conversation-router.ts for normal routing,
+      // lib/inbox/sla-escalation.ts for SLA notification recipients) — this
+      // route simply no longer calls the Chatwoot /assignments endpoint.
+      //
+      // Notification of the assigned agent/manager/escalation group at
+      // 30/60/90/120 minutes is now handled by runSlaSweepSafely() below
+      // (lib/inbox/sla-escalation.ts), which sends real staff notifications
+      // without ever mutating Chatwoot's assignee or ConversationRoute's
+      // assignedTo/assignedToName.
 
       escalated++
     } catch (e) {

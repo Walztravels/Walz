@@ -1,16 +1,20 @@
 /**
  * Inbox SLA Escalation System (INBOX-SLA-1).
  *
- * ADDITIVE to the existing app/api/cron/routing-escalation/route.ts cron —
- * this module does NOT replace or alter the existing 30-minute
- * "reassign to an eligible escalation agent" behavior. It runs
+ * ADDITIVE to the existing app/api/cron/routing-escalation/route.ts cron.
+ * That route's 30-minute private-note-posting behavior is unchanged; its
+ * automatic Chatwoot REASSIGNMENT at 30 minutes has been DISABLED (approved
+ * policy, 2026-09-18) — see the comment at that call site. This module runs
  * independently, driven by the SAME cron tick, and answers a different
  * question: not "has ConversationRoute.status flipped", but "has a real,
  * public, staff-authored reply actually landed since the customer's last
  * message" — the exact gap the routing-side status/assignedAt fields can't
  * answer (ConversationRoute.assignedAt only reflects when the conversation
  * was FIRST auto-routed, and the legacy 30-minute logic flips `status` to
- * 'escalated' regardless of whether a human ever replied).
+ * 'escalated' regardless of whether a human ever replied). Per the same
+ * approved policy, THIS module never mutates Chatwoot's assignee or
+ * ConversationRoute's assignedTo/assignedToName either — every stage is
+ * notify-only.
  *
  * UNATTENDED definition (spec): no message with message_type===1
  * (outgoing) AND private===false, after the latest customer message
@@ -62,24 +66,26 @@
  *   2. createStaffNotification's sourceId dedup
  *      (`sla:<stage>:<conversationId>:<episode-anchor-ms>`) is a second,
  *      belt-and-suspenders guard in case the column write is ever lost.
- * A stage column is set ONLY when at least one in-app notification
- * actually succeeded (or there were zero eligible recipients at all, which
- * is treated as a safe terminal no-op so the cron doesn't retry a
- * situation that won't change on its own) — never on notification
- * *failure*, so a transient createStaffNotification error simply retries
- * on the next 5-minute tick instead of being falsely marked "done". Email
- * is a best-effort side channel and NEVER affects this gate either way.
+ * A stage column is set ONLY when EVERY attempted recipient's in-app
+ * notification succeeded this tick (or already exists from an earlier
+ * tick), or there were zero eligible recipients at all (a safe terminal
+ * no-op so the cron doesn't retry a situation that won't change on its
+ * own) — never when even one attempted recipient's notification failed, so
+ * a transient createStaffNotification error for a single recipient (e.g.
+ * the manager, while the agent's succeeds) simply retries THAT recipient
+ * on the next 5-minute tick instead of the whole stage being falsely
+ * marked "done" (see fireStage's `allSucceeded` gate). Email is a
+ * best-effort side channel and NEVER affects this gate either way.
  *
  * DECISION — existing 30-minute Chatwoot note vs. new Level 1: the legacy
  * cron already posts a client-thread-visible private note at 30 minutes
- * ("⚠️ Escalation: ... Originally assigned to X") and reassigns to an
- * eligible escalation agent. That note is treated as ALREADY satisfying
- * "Level 1 observable in the client thread" — this module's Level 1 stage
- * therefore posts NO additional Chatwoot note (see SLA_STAGES,
- * postsChatwootNote:false for level 1) and only adds a NEW, staff-facing
- * in-app notification + best-effort email reminder. Levels 2/3/4 (60/90/
- * 120min) have no legacy equivalent, so they each post their own new,
- * level-specific private note.
+ * ("⚠️ Escalation: ... Originally assigned to X"). That note is treated as
+ * ALREADY satisfying "Level 1 observable in the client thread" — this
+ * module's Level 1 stage therefore posts NO additional Chatwoot note (see
+ * SLA_STAGES, postsChatwootNote:false for level 1) and only adds a NEW,
+ * staff-facing in-app notification + best-effort email reminder. Levels
+ * 2/3/4 (60/90/120min) have no legacy equivalent, so they each post their
+ * own new, level-specific private note.
  *
  * BUSINESS HOURS: none. V1 runs continuously 24/7 — there is no reusable
  * staff-hours source in this codebase (lib/config/support-hours.ts is an
@@ -223,9 +229,10 @@ export async function resolveManagerRecipients(agentStaff: StaffLite | null): Pr
 
 /**
  * Level-3 "escalation group": the same RoutingAgent.isEscalation pool the
- * legacy 30-minute reassignment already uses, matched to Staff by email so
- * they can receive an in-app StaffNotification (RoutingAgent has no direct
- * FK to Staff).
+ * legacy routing-escalation cron already resolves eligibility from, matched
+ * to Staff by email so they can receive an in-app StaffNotification
+ * (RoutingAgent has no direct FK to Staff). Notification-only — this
+ * module never reassigns the conversation to anyone in this pool.
  */
 export async function resolveEscalationGroupRecipients(): Promise<StaffLite[]> {
   try {
@@ -254,11 +261,13 @@ export async function resolveCriticalRecipients(): Promise<StaffLite[]> {
 
 /**
  * The CURRENTLY assigned agent — resolved from Chatwoot's live assignee id,
- * NOT from ConversationRoute.assignedTo/assignedToName. The legacy
- * 30-minute logic reassigns the conversation IN Chatwoot but never updates
- * this row, so those fields can go stale the moment an escalation
- * reassignment happens. Falls back to the originally-recorded RoutingAgent
- * only when the live Chatwoot lookup is unavailable.
+ * NOT from ConversationRoute.assignedTo/assignedToName. A staff member can
+ * still manually reassign a conversation in Chatwoot (or via
+ * app/api/admin/conversations/[id]/assign/route.ts) without this row being
+ * updated, so those fields can go stale independent of anything in this
+ * module or the (now notify-only) legacy 30-minute cron logic. Falls back
+ * to the originally-recorded RoutingAgent only when the live Chatwoot
+ * lookup is unavailable.
  */
 export async function resolveAgentStaff(
   route: Pick<ConversationRouteRow, 'assignedTo'>,

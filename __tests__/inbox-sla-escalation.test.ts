@@ -667,6 +667,134 @@ describe('runSlaEscalationSweep — staged thresholds', () => {
   })
 })
 
+// ── Notify-only invariant: this module never reassigns anyone ──────────────
+// (SLA policy correction, 2026-09-18) — every stage sends notifications
+// only; ConversationRoute.assignedTo/assignedToName and Chatwoot's assignee
+// must never change as a side effect of any stage firing.
+
+describe('SLA module is notify-only at every stage — assignee never mutated', () => {
+  const NOW = Date.parse('2026-09-18T12:00:00Z')
+
+  it('30 min → Level 1 fires, same assignee, no Chatwoot /assignments call', async () => {
+    const route = baseRoute()
+    fakeSupabaseInstance = makeFakeSupabase({ ConversationRoute: [route], RoutingAgent: [] })
+    mockStaff.findFirst.mockResolvedValue(AGENT)
+    mockFetchSequence([messagesResponse([msg(0, { minutesAgo: 30, nowMs: NOW })]), conversationResponse('open', 10)])
+    await runSlaEscalationSweep({ nowMs: NOW })
+    expect(route.assignedTo).toBe('routing-agent-uuid')
+    expect(route.assignedToName).toBe(AGENT.name)
+    const urls = (global.fetch as jest.Mock).mock.calls.map(c => String(c[0]))
+    expect(urls.every(u => !u.includes('/assignments'))).toBe(true)
+  })
+
+  it('60 min → manager notified, same assignee, no /assignments call (manager notification never mutates assignee)', async () => {
+    const route = baseRoute()
+    fakeSupabaseInstance = makeFakeSupabase({ ConversationRoute: [route], RoutingAgent: [] })
+    mockStaff.findFirst.mockResolvedValue(AGENT)
+    mockStaff.findUnique.mockResolvedValue(MANAGER)
+    mockFetchSequence([messagesResponse([msg(0, { minutesAgo: 60, nowMs: NOW })]), conversationResponse('open', 10)])
+    await runSlaEscalationSweep({ nowMs: NOW })
+    const staffIds = mockCreateStaffNotification.mock.calls.map(c => c[0].staffId)
+    expect(staffIds).toContain(MANAGER.id) // manager was actually notified
+    expect(route.assignedTo).toBe('routing-agent-uuid')
+    expect(route.assignedToName).toBe(AGENT.name)
+    const urls = (global.fetch as jest.Mock).mock.calls.map(c => String(c[0]))
+    expect(urls.every(u => !u.includes('/assignments'))).toBe(true)
+  })
+
+  it('90 min → escalation group notified, same assignee, no /assignments call (escalation-group notification never mutates assignee)', async () => {
+    const route = baseRoute()
+    fakeSupabaseInstance = makeFakeSupabase({
+      ConversationRoute: [route],
+      RoutingAgent: [{ email: 'escalator@walztravels.com', isEscalation: true, active: true }],
+    })
+    mockStaff.findFirst.mockResolvedValue(AGENT)
+    mockStaff.findUnique.mockResolvedValue(MANAGER)
+    mockStaff.findMany.mockResolvedValueOnce([{ ...MANAGER, id: 'staff-escalator', email: 'escalator@walztravels.com' }])
+    mockFetchSequence([messagesResponse([msg(0, { minutesAgo: 90, nowMs: NOW })]), conversationResponse('open', 10)])
+    await runSlaEscalationSweep({ nowMs: NOW })
+    const staffIds = mockCreateStaffNotification.mock.calls.map(c => c[0].staffId)
+    expect(staffIds).toContain('staff-escalator') // escalation group was actually notified
+    expect(route.assignedTo).toBe('routing-agent-uuid')
+    expect(route.assignedToName).toBe(AGENT.name)
+    const urls = (global.fetch as jest.Mock).mock.calls.map(c => String(c[0]))
+    expect(urls.every(u => !u.includes('/assignments'))).toBe(true)
+  })
+
+  it('120 min → critical admins notified, same assignee — no configured takeover/reassignment policy exists at any level', async () => {
+    const route = baseRoute()
+    fakeSupabaseInstance = makeFakeSupabase({
+      ConversationRoute: [route],
+      RoutingAgent: [{ email: 'escalator@walztravels.com', isEscalation: true, active: true }],
+    })
+    mockStaff.findFirst.mockResolvedValue(AGENT)
+    mockStaff.findUnique.mockResolvedValue(MANAGER)
+    mockStaff.findMany.mockImplementation(async ({ where }: { where: Record<string, unknown> }) => {
+      if ((where as { email?: { in: string[] } })?.email) return [{ ...MANAGER, id: 'staff-escalator', email: 'escalator@walztravels.com' }]
+      if ((where as { role?: string })?.role === 'super_admin') return [{ ...MANAGER, id: 'staff-critical', role: 'super_admin' }]
+      return [MANAGER]
+    })
+    mockFetchSequence([messagesResponse([msg(0, { minutesAgo: 120, nowMs: NOW })]), conversationResponse('open', 10)])
+    const result = await runSlaEscalationSweep({ nowMs: NOW })
+    expect(result.stagesFired).toBe(4)
+    const staffIds = mockCreateStaffNotification.mock.calls.map(c => c[0].staffId)
+    expect(staffIds).toContain('staff-critical') // critical tier was actually notified
+    expect(route.assignedTo).toBe('routing-agent-uuid') // still the original agent — no takeover policy implemented
+    expect(route.assignedToName).toBe(AGENT.name)
+    const urls = (global.fetch as jest.Mock).mock.calls.map(c => String(c[0]))
+    expect(urls.every(u => !u.includes('/assignments'))).toBe(true)
+  })
+
+  it('two simultaneous stale conversations in one tick each keep their OWN distinct assignee (no cross-contamination)', async () => {
+    const routeA = baseRoute({ id: 'route-a', chatwootConversationId: '701', assignedTo: 'routing-agent-a', assignedToName: 'Ama Agent' })
+    const routeB = baseRoute({ id: 'route-b', chatwootConversationId: '702', assignedTo: 'routing-agent-b', assignedToName: 'Grace Manager' })
+    fakeSupabaseInstance = makeFakeSupabase({ ConversationRoute: [routeA, routeB], RoutingAgent: [] })
+    mockStaff.findFirst
+      .mockResolvedValueOnce(AGENT)   // route A's live Chatwoot assignee resolves to AGENT
+      .mockResolvedValueOnce(MANAGER) // route B's live Chatwoot assignee resolves to a DIFFERENT staff member
+    mockFetchSequence([
+      messagesResponse([msg(0, { minutesAgo: 30, nowMs: NOW })]), conversationResponse('open', 10), // route A
+      messagesResponse([msg(0, { minutesAgo: 30, nowMs: NOW })]), conversationResponse('open', 11), // route B
+    ])
+    await runSlaEscalationSweep({ nowMs: NOW })
+
+    expect(routeA.assignedTo).toBe('routing-agent-a')
+    expect(routeA.assignedToName).toBe('Ama Agent')
+    expect(routeB.assignedTo).toBe('routing-agent-b')
+    expect(routeB.assignedToName).toBe('Grace Manager')
+
+    // Each conversation's OWN resolved agent got notified — not a shared/
+    // stale value bleeding across iterations of the sweep's route loop.
+    const staffIds = mockCreateStaffNotification.mock.calls.map(c => c[0].staffId)
+    expect(staffIds).toContain(AGENT.id)
+    expect(staffIds).toContain(MANAGER.id)
+
+    const urls = (global.fetch as jest.Mock).mock.calls.map(c => String(c[0]))
+    expect(urls.every(u => !u.includes('/assignments'))).toBe(true)
+  })
+
+  it('Michael/Jade never become the assignee even when they are the only resolvable recipients at every tier', async () => {
+    const route = baseRoute()
+    fakeSupabaseInstance = makeFakeSupabase({
+      ConversationRoute: [route],
+      RoutingAgent: [{ email: MICHAEL.email, isEscalation: true, active: true }],
+    })
+    mockStaff.findFirst.mockResolvedValue({ ...AGENT, managerId: null })
+    mockStaff.findMany.mockImplementation(async ({ where }: { where: Record<string, unknown> }) => {
+      if ((where as { email?: { in: string[] } })?.email) return [MICHAEL] // escalation group resolves only to Michael
+      if ((where as { role?: string })?.role === 'super_admin') return [JADE] // critical pool resolves only to Jade
+      return [MICHAEL, JADE] // manager fallback resolves only to Michael/Jade
+    })
+    mockFetchSequence([messagesResponse([msg(0, { minutesAgo: 120, nowMs: NOW })]), conversationResponse('open', 10)])
+    await runSlaEscalationSweep({ nowMs: NOW })
+    const notifiedIds = mockCreateStaffNotification.mock.calls.map(c => c[0].staffId)
+    expect(notifiedIds).not.toContain(MICHAEL.id)
+    expect(notifiedIds).not.toContain(JADE.id)
+    expect(route.assignedTo).toBe('routing-agent-uuid') // assignee is untouched regardless — this module never writes it
+    expect(route.assignedToName).toBe(AGENT.name)
+  })
+})
+
 // ── Source pins ──────────────────────────────────────────────────────────────
 
 describe('source pins — wiring the plan can\'t reach behaviorally', () => {
@@ -685,12 +813,21 @@ describe('source pins — wiring the plan can\'t reach behaviorally', () => {
     expect(entry).not.toContain('"0 8 * * *"')
   })
 
-  it('the legacy 30-minute reassignment logic is untouched — same query, same private note, same isAutoAssignable filter', () => {
+  it('the legacy 30-minute candidate query and status/note evidence are untouched; automatic reassignment is DISABLED (approved policy, 2026-09-18)', () => {
     expect(cronRoute).toContain(".eq('status', 'active')")
     expect(cronRoute).toContain(".lt('assignedAt', threshold)")
     expect(cronRoute).toContain('This conversation has been unattended for over 30 minutes. Originally assigned to')
-    expect(cronRoute).toContain('isAutoAssignable(a.chatwootAgentId)')
     expect(cronRoute).toContain("status: 'escalated'")
+    // The original reassignment call (and its isAutoAssignable-filtered
+    // agent selection) has been removed outright — a code comment may still
+    // mention isAutoAssignable by name to explain why, but the function is
+    // no longer imported/called from this file. See
+    // __tests__/routing-eligibility.test.ts and
+    // __tests__/inbox-routing-escalation-no-reassign.test.ts for the full
+    // behavioral + source-pin coverage of that removal.
+    expect(cronRoute).not.toContain("import { isAutoAssignable }")
+    expect(cronRoute).not.toContain('isAutoAssignable(a.chatwootAgentId)')
+    expect(cronRoute).not.toMatch(/fetch\(\s*`[^`]*\/assignments/)
   })
 
   it('the cron route wires in the new sweep additively (never replacing the legacy response)', () => {
@@ -741,6 +878,12 @@ describe('source pins — wiring the plan can\'t reach behaviorally', () => {
     expect(slaLib).not.toContain('payment-request')
     expect(slaLib).not.toContain('admin/quotes')
     expect(slaLib).not.toContain('visa-form')
+  })
+
+  it('never calls the Chatwoot /assignments endpoint at any stage — notify-only, by construction', () => {
+    const slaLib = read('lib/inbox/sla-escalation.ts')
+    expect(slaLib).not.toMatch(/fetch\(\s*`[^`]*\/assignments/)
+    expect(slaLib).not.toContain('assignee_id')
   })
 
   it('never logs message content — only ids, staff identity, levels and durations', () => {

@@ -90,25 +90,41 @@ describe('escalation routing never selects Michael', () => {
   })
 })
 
-describe('escalation cron never assigns to Michael', () => {
-  it('the cron selects only eligible escalation agents (active + auto-assignable)', () => {
+describe('escalation cron never reassigns anyone — automatic reassignment disabled (approved policy, 2026-09-18)', () => {
+  // SLA policy update: the cron's original 30-minute auto-reassignment
+  // (which is what put Michael on conversation #483 in the first place) is
+  // no longer a guarded selection — it has been removed outright. Notify
+  // only through 30/60/90/120 minutes; ownership never changes here.
+  it('the cron never calls the Chatwoot /assignments endpoint at all', () => {
     const s = cron()
-    expect(s).toContain(".eq('active', true)")
-    expect(s).toContain('find(a => isAutoAssignable(a.chatwootAgentId))')
-    expect(s).not.toContain('find(a => a.chatwootAgentId)')   // the defective selector is gone
+    // A code comment is allowed to mention the endpoint by name (explaining
+    // why it's no longer called) — what must be absent is an actual fetch()
+    // call built against that URL shape, or the request body it needs.
+    expect(s).not.toMatch(/fetch\(\s*`[^`]*\/assignments/)
+    expect(s).not.toContain('assignee_id')
   })
 
-  it('no eligible escalation target → note preserved, NO_ELIGIBLE_ESCALATION_AGENT emitted, no reassignment', () => {
+  it('the cron no longer selects, fetches, or reasons about escalation agents for reassignment purposes', () => {
     const s = cron()
-    const note = s.indexOf('Escalation: This conversation has been unattended')
-    const signal = s.indexOf('NO_ELIGIBLE_ESCALATION_AGENT')
-    const assignPost = s.indexOf('/assignments')
-    expect(note).toBeGreaterThan(-1)              // escalation evidence still posted
-    expect(signal).toBeGreaterThan(-1)            // operational signal
-    expect(note).toBeLessThan(signal)             // note happens regardless of eligibility
-    expect(signal).toBeLessThan(assignPost)       // the skip branch precedes the POST
-    // the POST remains guarded on an eligible agent
-    expect(s).toContain('if (esc?.chatwootAgentId) {')
+    expect(s).not.toContain("from('RoutingAgent')")
+    expect(s).not.toContain('find(a => isAutoAssignable(a.chatwootAgentId))')
+    expect(s).not.toContain('find(a => a.chatwootAgentId)')   // the original defective selector — also gone
+    expect(s).not.toContain('NO_ELIGIBLE_ESCALATION_AGENT')   // dead signal from the removed reassignment branch
+  })
+
+  it('the 30-minute private note (historical evidence) is still posted', () => {
+    const s = cron()
+    expect(s).toContain('Escalation: This conversation has been unattended')
+    expect(s).toContain('private:       true')
+  })
+
+  it('isAutoAssignable and the non-routable rule remain intact and in use elsewhere (not deleted, just no longer called from this route)', () => {
+    expect(isAutoAssignable(1)).toBe(false)
+    expect(isAutoAssignable(5)).toBe(false)
+    const router_s = router()
+    const slaLib = read('lib/inbox/sla-escalation.ts')
+    expect(router_s).toContain('isAutoAssignable(a.chatwootAgentId)')
+    expect(slaLib).toContain('isAutoAssignable')
   })
 })
 
