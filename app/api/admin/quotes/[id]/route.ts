@@ -341,6 +341,47 @@ export async function PATCH(
     'status',
   ]
 
+  // Currency-integrity guard (V1.2.1.1 hardening) — fail-closed only, no
+  // conversion, no relabeling, no FX. This generic path let staff PATCH
+  // Quote.currency at ANY status with no check at all, updating only the
+  // Quote row while every already-persisted QuoteItem/QuoteFlightOption/
+  // QuoteHotelOption kept its own currency and cost/selling-price amounts
+  // untouched — silently desynchronizing parent and children with zero
+  // recomputation and zero audit trail. Audited every caller in the repo
+  // (Quote Builder's handleFinalize, the quote editor's action-based PATCHes,
+  // the new-quote wizard) — none sends `currency` here; this field was
+  // reachable but unused. Zero legitimate workflow depends on changing
+  // currency through this path, so this is pure hardening, not a behavior
+  // removal. True multi-currency re-pricing (server-authoritative FX,
+  // preserving original supplier amounts for reconciliation) is a separate,
+  // not-yet-built workstream — this guard only prevents the unsafe no-op
+  // relabel in the meantime.
+  if ('currency' in fields) {
+    if (quote.status !== 'draft') {
+      return NextResponse.json(
+        {
+          error: 'Quote currency can only be changed while the quote is still a draft.',
+          code: 'CURRENCY_LOCKED',
+        },
+        { status: 409 },
+      )
+    }
+    const [itemCount, flightOptionCount, hotelOptionCount] = await Promise.all([
+      prisma.quoteItem.count({ where: { quoteId: params.id } }),
+      prisma.quoteFlightOption.count({ where: { quoteId: params.id } }),
+      prisma.quoteHotelOption.count({ where: { quoteId: params.id } }),
+    ])
+    if (itemCount > 0 || flightOptionCount > 0 || hotelOptionCount > 0) {
+      return NextResponse.json(
+        {
+          error: 'Quote currency can only be changed before any priced item is added to the quote.',
+          code: 'CURRENCY_LOCKED',
+        },
+        { status: 409 },
+      )
+    }
+  }
+
   const updateData: Record<string, unknown> = {}
   for (const key of allowedFields) {
     if (key in fields) {
