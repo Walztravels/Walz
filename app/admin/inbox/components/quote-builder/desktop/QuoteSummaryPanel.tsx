@@ -73,6 +73,19 @@ export function QuoteSummaryPanel({ state }: QuoteSummaryPanelProps) {
     isFinalized, recent,
   } = state
 
+  // V1.2.1 P1 fix — quote.status is the SERVER field, and the finalize
+  // action (handleFinalize -> PATCH {action:'send', suppressNotifications:
+  // true}) sets it to 'sent' the moment a share link is minted, regardless
+  // of whether anything was ever actually messaged to the client (see
+  // app/api/admin/quotes/[id]/route.ts). Finalize != Send is still true in
+  // the actual architecture — this app already tracks the real outcome of
+  // an explicit send via the local `sent` flag (only true after
+  // handleSendToClient's onSendMessage call succeeds). Rendering
+  // statusLabel(quote.status) directly produced "Status: Sent" sitting
+  // right above "Nothing has been sent to the client yet." — a truthful
+  // label derived from local state instead of the overloaded server field.
+  const deliveryStatusLabel = !isFinalized ? statusLabel(quote?.status ?? 'draft') : sent ? 'Sent to client' : 'Ready to share'
+
   const liveCost = attachedLive.reduce((sum, i) => sum + i.costMinor, 0) / 100
   const liveMarkup = attachedLive.reduce((sum, i) => sum + i.markupMinor, 0) / 100
   const liveServiceFee = attachedLive.reduce((sum, i) => sum + i.serviceFeeMinor, 0) / 100
@@ -221,8 +234,7 @@ export function QuoteSummaryPanel({ state }: QuoteSummaryPanelProps) {
           <div className="rounded-xl border border-walz-border p-3 space-y-1">
             <p className={labelCls}>{isFinalized ? 'Quote ready to share' : 'Draft created'}</p>
             <p className="text-sm font-semibold text-walz-deep-navy">{quote.reference}</p>
-            <p className="text-xs text-walz-navy break-all">{quote.link}</p>
-            <p className="text-xs text-walz-muted-strong">Status: {statusLabel(quote.status)}</p>
+            <p className="text-xs text-walz-muted-strong">Status: {deliveryStatusLabel}</p>
           </div>
           {!isFinalized ? (
             <div className="space-y-2">
@@ -243,6 +255,9 @@ export function QuoteSummaryPanel({ state }: QuoteSummaryPanelProps) {
           ) : (
             <div className="space-y-2">
               <p className="text-xs text-walz-muted-strong">Nothing has been sent to the client yet. Choose how to share it:</p>
+              <a href={quote.link} target="_blank" rel="noreferrer" className="text-xs text-walz-navy underline inline-flex items-center gap-1">
+                Preview <ExternalLink className="w-3 h-3" />
+              </a>
               <button
                 type="button" onClick={() => void handleCopy()}
                 className="w-full min-h-[44px] flex items-center justify-center gap-2 rounded-lg bg-walz-navy/5 text-walz-navy text-sm font-semibold border border-walz-border hover:bg-walz-navy/10 transition-colors focus:outline-none focus:ring-2 focus:ring-walz-gold/60"

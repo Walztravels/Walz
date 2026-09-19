@@ -49,6 +49,14 @@ export function QuoteBasketSheet({ state, onAddAnother }: QuoteBasketSheetProps)
 
   const total = estimateQuoteTotal(state)
 
+  // V1.2.1 P1 fix — see desktop/QuoteSummaryPanel.tsx's identical comment.
+  // quote.status is a server field that becomes 'sent' the moment Finalize
+  // mints a share link (suppressNotifications:true or not) — it does not
+  // mean the client was ever actually messaged. The local `sent` flag (set
+  // only after handleSendToClient's onSendMessage succeeds) is the truthful
+  // signal; this derives the displayed label from that instead.
+  const deliveryStatusLabel = !isFinalized ? statusLabel(quote?.status ?? 'draft') : sent ? 'Sent to client' : 'Ready to share'
+
   return (
     <div className="p-4 space-y-4">
       {onAddAnother && (
@@ -152,8 +160,7 @@ export function QuoteBasketSheet({ state, onAddAnother }: QuoteBasketSheetProps)
           <div className="rounded-xl border border-walz-border p-3 space-y-1">
             <p className={labelCls}>{isFinalized ? 'Quote ready to share' : 'Draft created'}</p>
             <p className="text-sm font-semibold text-walz-deep-navy">{quote.reference}</p>
-            <p className="text-xs text-walz-navy break-all">{quote.link}</p>
-            <p className="text-xs text-walz-muted-strong">Status: {statusLabel(quote.status)}</p>
+            <p className="text-xs text-walz-muted-strong">Status: {deliveryStatusLabel}</p>
           </div>
           {!isFinalized ? (
             <div className="space-y-2">
@@ -181,6 +188,9 @@ export function QuoteBasketSheet({ state, onAddAnother }: QuoteBasketSheetProps)
               <p className="text-sm text-walz-muted-strong">
                 Nothing has been sent to the client yet. Choose how to share it:
               </p>
+              <a href={quote.link} target="_blank" rel="noreferrer" className="text-sm text-walz-navy underline inline-flex items-center gap-1">
+                Preview <ExternalLink className="w-3.5 h-3.5" />
+              </a>
               <button type="button" onClick={() => void handleCopy()}
                 className="w-full min-h-[48px] flex items-center justify-center gap-2 rounded-lg bg-walz-navy/5 text-walz-navy text-sm font-semibold border border-walz-border hover:bg-walz-navy/10 transition-colors">
                 <Copy className="w-4 h-4" /> {copied ? 'Copied' : 'Copy link'}

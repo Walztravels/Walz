@@ -56,7 +56,7 @@ const SERVICE_TILES: { key: ServiceKey; label: string; Icon: typeof Plane }[] = 
   { key: 'transfer', label: 'Transfer', Icon: Car },
   { key: 'visa', label: 'Visa', Icon: Stamp },
   { key: 'walz_service', label: 'Walz Service', Icon: Sparkles },
-  { key: 'manual', label: 'Other / Manual', Icon: ClipboardList },
+  { key: 'manual', label: 'Custom Item', Icon: ClipboardList },
 ]
 
 // QUOTE BUILDER V1.2 scope decision (documented in the release report,

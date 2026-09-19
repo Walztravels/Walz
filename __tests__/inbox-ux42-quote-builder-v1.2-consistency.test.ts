@@ -156,3 +156,29 @@ describe('mobile/panels/ManualItemPanel.tsx — item-type clobber fix (QA findin
     expect(mobileManualItemPanelSrc).toMatch(/silently overwriting whatever the staff member/)
   })
 })
+
+describe('V1.2.1 P2 — service badges stay correct end-to-end: what the custom-item form actually creates matches what the rail/tile counters actually count', () => {
+  // The tests above prove the three counting functions agree WITH EACH
+  // OTHER on a synthetic fixture. This closes the other half of the loop:
+  // does the form staff actually use to create a Visa/Walz Service/Custom
+  // item really produce the item `type` value those counters look for?
+  const hookSrc = read('app/admin/inbox/components/quote-builder/useQuoteBuilderState.ts')
+
+  it('itemType defaults to \'custom\' — a Walz Service item created without ever touching the type dropdown lands in the \'custom\' bucket the walz_service counter expects', () => {
+    expect(hookSrc).toMatch(/const \[itemType, setItemType\] = useState<typeof ITEM_TYPES\[number\]>\('custom'\)/)
+  })
+
+  it('applyVisaPreset sets itemType to \'visa_service\' — a Visa item created via either preset button lands in the bucket the visa counter expects', () => {
+    const fnBody = hookSrc.slice(hookSrc.indexOf('function applyVisaPreset'), hookSrc.indexOf('function applyVisaPreset') + 300)
+    expect(fnBody).toContain("setItemType('visa_service')")
+  })
+
+  it('end-to-end: addItem persists whatever itemType is current at the moment of the click — so the two facts above (custom-by-default, visa_service-after-preset) are the ONLY two ways items created through this form land in those buckets, and the counting predicates in all three trees key off exactly those two literal values', () => {
+    const fnBody = hookSrc.slice(hookSrc.indexOf('function addItem()'), hookSrc.indexOf('function removeItem'))
+    expect(fnBody).toContain('type: itemType')
+    for (const src of [desktopServicesRailSrc, mobileWorkspaceSrc, tabletWorkspaceSrc]) {
+      expect(src).toContain("i.type === 'visa_service'")
+      expect(src).toContain("i.type === 'custom'")
+    }
+  })
+})

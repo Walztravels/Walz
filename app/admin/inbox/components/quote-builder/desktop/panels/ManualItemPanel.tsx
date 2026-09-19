@@ -1,6 +1,6 @@
 'use client'
 
-// QUOTE BUILDER V1.2 (desktop) — Visa / Walz Service / Manual Item center
+// QUOTE BUILDER V1.2 (desktop) — Visa / Walz Service / Custom Item center
 // workspace. All three rail entries route to the SAME underlying mechanism
 // (state.items/addItem/removeItem/applyVisaPreset) — there is no dedicated
 // "walz_service" item type in the schema, and this component does not add
@@ -34,7 +34,7 @@ const COPY: Record<ManualItemPanelProps['variant'], { title: string; blurb: stri
     blurb: 'Add a Walz-branded service (concierge, planning, etc.) as a line item on this quote.',
   },
   manual: {
-    title: 'Manual Item',
+    title: 'Custom Item',
     blurb: 'Add any other line item that doesn’t come from live search — package, tour, or a custom charge.',
   },
 }
@@ -70,7 +70,7 @@ export function ManualItemPanel({ state, variant }: ManualItemPanelProps) {
       )}
 
       <div className="rounded-xl border border-walz-border bg-white p-4 space-y-3">
-        <p className={labelCls}>{variant === 'visa' ? 'Or add a custom line item' : 'Line item'}</p>
+        <p className={labelCls}>{variant === 'visa' ? 'Or add a custom line item' : 'Custom item'}</p>
         <div className="grid grid-cols-2 gap-3">
           <div>
             <label className={labelCls} htmlFor="dw-item-type">Type</label>
@@ -96,7 +96,7 @@ export function ManualItemPanel({ state, variant }: ManualItemPanelProps) {
           onClick={addItem}
           className="w-full min-h-[44px] rounded-lg bg-walz-navy/5 text-walz-navy text-sm font-semibold border border-walz-border hover:bg-walz-navy/10 transition-colors focus:outline-none focus:ring-2 focus:ring-walz-gold/60"
         >
-          Add item
+          {variant === 'manual' ? 'Add Custom Item' : 'Add item'}
         </button>
       </div>
     </div>

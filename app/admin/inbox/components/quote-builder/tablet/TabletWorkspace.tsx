@@ -69,7 +69,7 @@ const SERVICE_TABS: { key: ServiceKey; label: string; Icon: typeof Plane }[] = [
   { key: 'transfer', label: 'Transfer', Icon: Car },
   { key: 'visa', label: 'Visa', Icon: Stamp },
   { key: 'walz_service', label: 'Walz Service', Icon: Sparkles },
-  { key: 'manual', label: 'Other', Icon: ClipboardList },
+  { key: 'manual', label: 'Custom Item', Icon: ClipboardList },
 ]
 
 // Identical resolution to mobile/MobileWorkspace.tsx's countFor — kept as

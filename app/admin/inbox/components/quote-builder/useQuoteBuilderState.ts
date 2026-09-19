@@ -192,6 +192,18 @@ export function useQuoteBuilderState({ open, onClose, conversationId, onSendMess
   const [attachedLive, setAttachedLive] = useState<AttachedLiveItem[]>([])
   const [pending, setPending] = useState<PendingOffer | null>(null)
   const pendingSeqRef = useRef(0)
+  // V1.2.1 P1 fix — every live-search call and every add-to-quote attempt
+  // (confirmAddPending/acceptPriceChange) shares this one counter. Each
+  // bumps it and captures its own value before doing any async work; a
+  // response is only allowed to write liveError/results/transferUnavailable
+  // if its captured value still matches the current counter. Production
+  // symptom this closes: staff got a PRICE_MISMATCH error from a slow
+  // add-to-quote attempt, then ran a fresh successful hotel search — the
+  // stale error response from the earlier attempt arrived afterward and
+  // overwrote the now-correct, error-free state with its own leftover
+  // message. A genuinely current search/attempt is never suppressed by
+  // this — only a response that a newer action has already superseded.
+  const liveOpSeqRef = useRef(0)
   const [liveBusy, setLiveBusy] = useState(false)
   const [liveSearching, setLiveSearching] = useState(false)
   const [liveError, setLiveError] = useState<string | null>(null)
@@ -342,6 +354,7 @@ export function useQuoteBuilderState({ open, onClose, conversationId, onSendMess
   // single call site rather than two — matching how every other live-search
   // function in this file makes exactly one fetch call.
   async function searchFlightsLive() {
+    const opSeq = ++liveOpSeqRef.current
     let body: Record<string, unknown>
     if (flTrip === 'multi-city') {
       const incomplete = mcLegs.some(l => !l.fromCode || !l.toCode || !l.depart)
@@ -366,12 +379,14 @@ export function useQuoteBuilderState({ open, onClose, conversationId, onSendMess
       // fetch path (see lib/inbox/useClientContext.ts).
       if (res.status === 401) { router.push('/admin/login'); return }
       const data = await res.json().catch(() => ({}))
+      if (opSeq !== liveOpSeqRef.current) return // superseded by a newer search/attempt
       if (!res.ok) { setLiveError(data?.error ?? 'Flight search failed.'); return }
       setFlightResults(Array.isArray(data.offers) ? data.offers : [])
-    } catch { setLiveError('Flight search failed.') } finally { setLiveSearching(false) }
+    } catch { if (opSeq === liveOpSeqRef.current) setLiveError('Flight search failed.') } finally { setLiveSearching(false) }
   }
 
   async function searchHotelsLive() {
+    const opSeq = ++liveOpSeqRef.current
     if (!htDest.trim() || !htIn || !htOut) { setLiveError('Destination, check-in and check-out are required.'); return }
     setLiveSearching(true); setLiveError(null)
     try {
@@ -381,12 +396,14 @@ export function useQuoteBuilderState({ open, onClose, conversationId, onSendMess
       })
       if (res.status === 401) { router.push('/admin/login'); return }
       const data = await res.json().catch(() => ({}))
+      if (opSeq !== liveOpSeqRef.current) return // superseded by a newer search/attempt
       if (!res.ok) { setLiveError(data?.error ?? 'Hotel search failed.'); return }
       setHotelResults(Array.isArray(data.offers) ? data.offers : [])
-    } catch { setLiveError('Hotel search failed.') } finally { setLiveSearching(false) }
+    } catch { if (opSeq === liveOpSeqRef.current) setLiveError('Hotel search failed.') } finally { setLiveSearching(false) }
   }
 
   async function searchActivitiesLive() {
+    const opSeq = ++liveOpSeqRef.current
     if (!acDest.trim()) { setLiveError('Destination is required.'); return }
     setLiveSearching(true); setLiveError(null)
     try {
@@ -402,9 +419,10 @@ export function useQuoteBuilderState({ open, onClose, conversationId, onSendMess
       const res = await fetch(`/api/admin/travel-search/activities?${qs}`)
       if (res.status === 401) { router.push('/admin/login'); return }
       const data = await res.json().catch(() => ({}))
+      if (opSeq !== liveOpSeqRef.current) return // superseded by a newer search/attempt
       if (!res.ok) { setLiveError(data?.error ?? 'Activity search failed.'); return }
       setActivityResults(Array.isArray(data.offers) ? data.offers : [])
-    } catch { setLiveError('Activity search failed.') } finally { setLiveSearching(false) }
+    } catch { if (opSeq === liveOpSeqRef.current) setLiveError('Activity search failed.') } finally { setLiveSearching(false) }
   }
 
   // Item D — the try/catch already prevents any crash on a transfer-search
@@ -415,6 +433,7 @@ export function useQuoteBuilderState({ open, onClose, conversationId, onSendMess
   // form, instead of the generic red liveError used for every other
   // failure.
   async function searchTransfersLive() {
+    const opSeq = ++liveOpSeqRef.current
     if (!trPickupCode.trim() || !trDropCode.trim() || !trDate) { setLiveError('Pickup, dropoff and date are required.'); return }
     setLiveSearching(true); setLiveError(null); setTransferUnavailable(null)
     try {
@@ -424,6 +443,7 @@ export function useQuoteBuilderState({ open, onClose, conversationId, onSendMess
       })
       if (res.status === 401) { router.push('/admin/login'); return }
       const data = await res.json().catch(() => ({}))
+      if (opSeq !== liveOpSeqRef.current) return // superseded by a newer search/attempt
       if (!res.ok) {
         if (data?.code === 'TRANSFER_UNAVAILABLE') {
           setTransferUnavailable('Transfer search is temporarily unavailable. You can still add a transfer manually using the line item form above.')
@@ -433,7 +453,7 @@ export function useQuoteBuilderState({ open, onClose, conversationId, onSendMess
         return
       }
       setTransferResults(Array.isArray(data.offers) ? data.offers : [])
-    } catch { setLiveError('Transfer search failed.') } finally { setLiveSearching(false) }
+    } catch { if (opSeq === liveOpSeqRef.current) setLiveError('Transfer search failed.') } finally { setLiveSearching(false) }
   }
 
   // ── Item B — airport/IATA selection (single from/to) ────────────────────
@@ -589,6 +609,7 @@ export function useQuoteBuilderState({ open, onClose, conversationId, onSendMess
 
   async function confirmAddPending() {
     if (!pending || liveBusy) return
+    const opSeq = ++liveOpSeqRef.current
     if (pendingCurrencyMismatch) {
       setLiveError(`This offer is priced in ${pending.offerCurrency}; the quote is in ${currency}. Change the quote currency above or search again in ${currency}.`)
       return
@@ -631,7 +652,9 @@ export function useQuoteBuilderState({ open, onClose, conversationId, onSendMess
           })
           return
         }
-        setLiveError(typeof data?.error === 'string' ? data.error : 'Could not add this item to the quote.')
+        if (opSeq === liveOpSeqRef.current) {
+          setLiveError(typeof data?.error === 'string' ? data.error : 'Could not add this item to the quote.')
+        }
         return
       }
       setAttachedLive(prev => [...prev, {
@@ -640,7 +663,7 @@ export function useQuoteBuilderState({ open, onClose, conversationId, onSendMess
       }])
       setPending(null)
     } catch {
-      setLiveError('Could not add this item to the quote.')
+      if (opSeq === liveOpSeqRef.current) setLiveError('Could not add this item to the quote.')
     } finally {
       setLiveBusy(false)
     }
@@ -657,13 +680,19 @@ export function useQuoteBuilderState({ open, onClose, conversationId, onSendMess
   // "Accept new price" button below.
   async function acceptPriceChange() {
     if (!priceChange || !pending || liveBusy) return
+    const opSeq = ++liveOpSeqRef.current
     setLiveBusy(true); setLiveError(null)
     try {
       const { qid, newNetMinor, newMarkupMinor, newServiceFeeMinor, newSellingPriceMinor, currency: newCurrency } = priceChange
       const result = await postAddToQuote(buildAttachPayload(qid, pending, newNetMinor, newMarkupMinor, newServiceFeeMinor, newSellingPriceMinor))
       if (!result) return
       const { res, data } = result
-      if (!res.ok) { setLiveError(typeof data?.error === 'string' ? data.error : 'Could not add this item to the quote.'); return }
+      if (!res.ok) {
+        if (opSeq === liveOpSeqRef.current) {
+          setLiveError(typeof data?.error === 'string' ? data.error : 'Could not add this item to the quote.')
+        }
+        return
+      }
       setAttachedLive(prev => [...prev, {
         key: crypto.randomUUID(), type: pending.type, title: pending.title,
         costMinor: newNetMinor, markupMinor: newMarkupMinor, serviceFeeMinor: newServiceFeeMinor,
@@ -672,7 +701,7 @@ export function useQuoteBuilderState({ open, onClose, conversationId, onSendMess
       setPending(null)
       setPriceChange(null)
     } catch {
-      setLiveError('Could not add this item to the quote.')
+      if (opSeq === liveOpSeqRef.current) setLiveError('Could not add this item to the quote.')
     } finally {
       setLiveBusy(false)
     }

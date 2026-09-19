@@ -27,7 +27,7 @@ const ROWS: { key: ServiceKey; label: string; icon: typeof Plane }[] = [
   { key: 'transfer', label: 'Transfer', icon: Car },
   { key: 'visa', label: 'Visa', icon: Stamp },
   { key: 'walz_service', label: 'Walz Service', icon: Sparkles },
-  { key: 'manual', label: 'Manual Item', icon: FileText },
+  { key: 'manual', label: 'Custom Item', icon: FileText },
 ]
 
 function countFor(state: QuoteBuilderState, key: ServiceKey): number {

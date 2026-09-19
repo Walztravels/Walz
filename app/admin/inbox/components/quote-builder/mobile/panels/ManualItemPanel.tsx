@@ -65,7 +65,7 @@ export function ManualItemPanel({ state, variant }: ManualItemPanelProps) {
 
       <div className="space-y-2 rounded-xl border border-dashed border-walz-border p-3">
         <p className={labelCls}>
-          {variant === 'manual' ? 'Line item' : variant === 'visa' ? 'Visa service item' : 'Walz service item'}
+          {variant === 'manual' ? 'Custom item' : variant === 'visa' ? 'Visa service item' : 'Walz service item'}
         </p>
         <div className="grid grid-cols-2 gap-2">
           <select value={itemType} onChange={e => setItemType(e.target.value as typeof itemType)} className={inputCls}>
@@ -80,7 +80,7 @@ export function ManualItemPanel({ state, variant }: ManualItemPanelProps) {
           onClick={addItem}
           className="w-full min-h-[48px] rounded-lg bg-walz-gold text-walz-deep-navy text-sm font-bold hover:brightness-95 transition-all"
         >
-          Add item
+          {variant === 'manual' ? 'Add Custom Item' : 'Add item'}
         </button>
       </div>
 

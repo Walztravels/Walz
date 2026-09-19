@@ -3,7 +3,7 @@
 // QUOTE BUILDER V1.2 (desktop) — Transfer search workspace (center column).
 // Item D (from the original drawer): TRANSFER_UNAVAILABLE (503, Hotelbeds
 // entitlement/quota) gets a calm role="status" banner instead of the
-// generic red liveError, and now points at the Manual Item rail entry via
+// generic red liveError, and now points at the Custom Item rail entry via
 // an explicit "Add Manual Transfer" action (selectService('manual')) rather
 // than a plain "above" text reference, since the manual form no longer sits
 // directly below this one in a desktop 3-column layout.
