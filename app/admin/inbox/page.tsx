@@ -14,6 +14,7 @@ import { PaymentRequestDrawer } from './components/PaymentRequestDrawer'
 import { CreateQuoteDrawer } from './components/CreateQuoteDrawer'
 import { ClientIdentityDrawer } from './components/ClientIdentityDrawer'
 import { VisaFormDrawer } from './components/VisaFormDrawer'
+import { ItineraryRequestDrawer } from './components/ItineraryRequestDrawer'
 import { ComposerDraftProvider, useComposerDraft } from './ComposerDraftContext'
 import { useInboxScreens, applyInert } from './useInboxScreens'
 import { sortPage, mergeLatest, prependOlder, oldestCursor } from '@/lib/inbox/message-history'
@@ -64,6 +65,8 @@ function InboxPageInner() {
   const [identityDrawer, setIdentityDrawer] = useState<{ mode: 'find' | 'create' } | null>(null)
   // UX-4.3 — Visa Form drawer (Client Action Centre)
   const [visaFormOpen, setVisaFormOpen] = useState(false)
+  // UX-4.4 — Itinerary Request drawer (Client Action Centre)
+  const [itineraryRequestOpen, setItineraryRequestOpen] = useState(false)
   const [identityRefreshToken, setIdentityRefreshToken] = useState(0)
   const [messages,   setMessages]   = useState<CWMessage[]>([])
   const [agents,     setAgents]     = useState<CWAgent[]>([])
@@ -129,6 +132,7 @@ function InboxPageInner() {
     setQuoteOpen(false)     // UX-4.2: same discipline
     setIdentityDrawer(null) // UX-4.1C: same discipline
     setVisaFormOpen(false)  // UX-4.3: same discipline
+    setItineraryRequestOpen(false)  // UX-4.4: same discipline
     if (!window.matchMedia('(max-width: 767px)').matches) return
     const target = screens.screen
     requestAnimationFrame(() => {
@@ -469,6 +473,7 @@ function InboxPageInner() {
     setQuoteOpen(false)
     setIdentityDrawer(null)
     setVisaFormOpen(false)
+    setItineraryRequestOpen(false)
     // Mark as read — suppress the badge for this conversation on every future poll
     // until Chatwoot itself confirms unread_count = 0. Persisted so refresh survives.
     manuallyReadIdsRef.current.add(conv.id)
@@ -724,6 +729,7 @@ function InboxPageInner() {
             onOpenLookup={() => setShowAppLookup(true)}
             onOpenPaymentRequest={() => setPaymentOpen(true)}
             onOpenVisaForm={() => setVisaFormOpen(true)}
+            onOpenItineraryRequest={() => setItineraryRequestOpen(true)}
             onOpenClientIdentity={mode => setIdentityDrawer({ mode })}
             identityRefreshToken={identityRefreshToken}
             onOpenCreateQuote={() => setQuoteOpen(true)}
@@ -761,6 +767,7 @@ function InboxPageInner() {
             onOpenLookup={() => { screens.closeDetails(); setShowAppLookup(true) }}
             onOpenPaymentRequest={() => { screens.closeDetails(); setPaymentOpen(true) }}
             onOpenVisaForm={() => { screens.closeDetails(); setVisaFormOpen(true) }}
+            onOpenItineraryRequest={() => { screens.closeDetails(); setItineraryRequestOpen(true) }}
             onOpenCreateQuote={() => { screens.closeDetails(); setQuoteOpen(true) }}
             onOpenClientIdentity={mode => { screens.closeDetails(); setIdentityDrawer({ mode }) }}
             identityRefreshToken={identityRefreshToken}
@@ -810,6 +817,19 @@ function InboxPageInner() {
         <VisaFormDrawer
           open={visaFormOpen}
           onClose={() => setVisaFormOpen(false)}
+          conversationId={selected.id}
+          onSendMessage={text => handleSend(text, false)}
+        />
+      )}
+
+      {/* Itinerary Request — UX-4.4 Client Action Centre. Generation never
+          sends; 'Send to client' goes through the EXISTING composer send
+          path. Conversion into an Itinerary happens in the existing admin
+          Trip Requests / itinerary planner — never in this drawer. */}
+      {selected && (
+        <ItineraryRequestDrawer
+          open={itineraryRequestOpen}
+          onClose={() => setItineraryRequestOpen(false)}
           conversationId={selected.id}
           onSendMessage={text => handleSend(text, false)}
         />

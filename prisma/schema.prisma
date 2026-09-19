@@ -3508,7 +3508,19 @@ model TripRequest {
   updatedAt             DateTime  @updatedAt
   user                  User?     @relation(fields: [userId], references: [id], onDelete: SetNull)
 
+  // Added via inbox_ux44_itinerary_request_conversation_columns.sql (Supabase
+  // SQL editor) — NEVER prisma db push. Client Action Centre — Itinerary
+  // Request (UX-4.4): attaches a TripRequest to the Inbox conversation it
+  // was generated from, mirroring Request Payment / Create Quote / Visa
+  // Form. expiresAt closes a pre-existing token-hygiene gap (this model's
+  // token previously had no expiry at all); it is only set for requests
+  // generated via the Inbox Action Centre.
+  conversationId Int?
+  source         String?
+  expiresAt      DateTime? @db.Timestamptz
+
   @@index([userId])
+  @@index([conversationId])
 }
 
 // ===========================

@@ -7,6 +7,15 @@ export async function GET(_req: NextRequest, { params }: { params: Promise<{ tok
   const { token } = await params
   const request = await prisma.tripRequest.findUnique({ where: { token } })
   if (!request) return NextResponse.json({ error: 'Invalid or expired link' }, { status: 404 })
+  // Security review (MEDIUM): expiresAt was minted (UX-4.4) but never
+  // enforced anywhere, making a 14-day intake link work forever. Additive
+  // and backward-compatible: expiresAt is nullable, and every pre-existing
+  // TripRequest row (created before this column existed, or via a path
+  // that never set it) has a null expiresAt and is completely unaffected —
+  // only a row with a real, past expiresAt is rejected here.
+  if (request.expiresAt && request.expiresAt.getTime() < Date.now()) {
+    return NextResponse.json({ error: 'Invalid or expired link' }, { status: 404 })
+  }
   if (request.status === 'submitted' || request.status === 'viewed' || request.status === 'converted') {
     return NextResponse.json({ request, alreadySubmitted: true })
   }
@@ -20,6 +29,13 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ tok
   const { token } = await params
   const request = await prisma.tripRequest.findUnique({ where: { token } })
   if (!request) return NextResponse.json({ error: 'Invalid link' }, { status: 404 })
+  // Security review (MEDIUM): same expiry enforcement as GET above — a
+  // submission through an expired link must be rejected, not accepted with
+  // fresh PII. Additive/backward-compatible: a null expiresAt (every
+  // pre-existing row) is unaffected; only a real, past expiresAt rejects.
+  if (request.expiresAt && request.expiresAt.getTime() < Date.now()) {
+    return NextResponse.json({ error: 'Invalid or expired link' }, { status: 404 })
+  }
 
   const body = await req.json()
   const ua = req.headers.get('user-agent') || ''
