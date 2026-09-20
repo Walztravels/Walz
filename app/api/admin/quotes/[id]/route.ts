@@ -7,16 +7,48 @@ import { sendQuoteProposalEmail } from '@/lib/email-quote-proposal'
 import { sendWhatsAppBody, twilioConfigured } from '@/lib/twilio-whatsapp'
 import { generateQuoteReference } from '@/lib/quote-reference'
 import { propagateJadeAttribution } from '@/lib/commercial/track'
+import { resolveClientActionContext } from '@/lib/inbox/client-context'
 
 export const dynamic = 'force-dynamic'
+
+// Supplier-cost/margin fields present on the Quote row itself AND (as of
+// V1.3) on each nested QuoteItem/QuoteFlightOption/QuoteHotelOption row —
+// none of this may reach staff lacking quotes.view_margin.
+const MARGIN_FIELDS = [
+  'costMinor', 'markupMinor', 'serviceFeeMinor',
+  'supplierCostMinor', 'supplierCurrency', 'fxRate', 'fxRateAt', 'fxSource',
+] as const
+
+// Statuses a revision may be created from — every status this codebase's own
+// send/proposal-action/expiry code paths actually assign to a quote that has
+// left 'draft' and reached the client (app/admin/quotes/[id]/page.tsx's own
+// isSent/isAccepted groupings + the quote-proposal action route's 'declined'/
+// 'changes_requested'/'expired'). Deliberately excludes: 'draft' (no
+// revision needed — edit it directly), and 'converted'/'cancelled'/
+// 'archived' (dead-end terminal states a staff member retired on purpose —
+// revising those would resurrect a quote nobody asked to reopen). Not a new
+// status; purely a read of the existing lifecycle's own vocabulary.
+const REVISION_ELIGIBLE_STATUSES = new Set([
+  'sent', 'viewed', 'accepted', 'declined', 'changes_requested', 'expired',
+])
+
+function stripMarginFields(row: Record<string, unknown>) {
+  const clean = { ...row }
+  for (const key of MARGIN_FIELDS) delete clean[key]
+  return clean
+}
 
 function serializeQuote(q: Record<string, unknown>, canViewMargin: boolean) {
   const safe = { ...q }
   // Strip internal financial fields unless staff has view_margin permission
   if (!canViewMargin) {
     delete safe.internalNotes
-    for (const key of ['costMinor', 'markupMinor', 'serviceFeeMinor'] as const) {
-      delete safe[key]
+    for (const key of MARGIN_FIELDS) delete safe[key]
+    for (const arrayKey of ['items', 'flightOptions', 'hotelOptions'] as const) {
+      const rows = safe[arrayKey]
+      if (Array.isArray(rows)) {
+        safe[arrayKey] = rows.map(row => stripMarginFields(row as Record<string, unknown>))
+      }
     }
   }
   return safe
@@ -221,22 +253,19 @@ export async function PATCH(
         },
       })
 
-      if (full.items.length) {
-        await tx.quoteItem.createMany({
-          data: full.items.map(({ id: _id, quoteId: _qid, createdAt: _ca, updatedAt: _ua, metadata, ...rest }) => ({
-            ...rest, quoteId: q.id,
-            costMinor: rest.costMinor, markupMinor: rest.markupMinor,
-            serviceFeeMinor: rest.serviceFeeMinor, sellingPriceMinor: rest.sellingPriceMinor,
-            metadata: metadata ?? {},
-          })),
-        })
-      }
-
+      // V1.3 fix: QuoteItem gained flightOptionId/hotelOptionId FK fields
+      // (linking a generic totals-row back to its richer option row). A
+      // naive `...rest` copy of items BEFORE the options exist would copy
+      // those ids pointing at the ORIGINAL quote's option rows, not this
+      // duplicate's — options are created FIRST here so each item's link
+      // can be remapped to the new option's id via oldId->newId maps.
+      const flightOptionIdMap = new Map<string, string>()
       for (const fo of full.flightOptions) {
-        const { id: _fid, quoteId: _qid, createdAt: _ca, updatedAt: _ua, segments, ...foRest } = fo
+        const { id: oldId, quoteId: _qid, createdAt: _ca, updatedAt: _ua, segments, ...foRest } = fo
         const created = await tx.quoteFlightOption.create({
           data: { ...foRest, quoteId: q.id },
         })
+        flightOptionIdMap.set(oldId, created.id)
         if (segments.length) {
           await tx.quoteFlightSegment.createMany({
             data: segments.map(({ id: _sid, flightOptionId: _foid, ...sRest }) => ({
@@ -246,9 +275,24 @@ export async function PATCH(
         }
       }
 
+      const hotelOptionIdMap = new Map<string, string>()
       for (const ho of full.hotelOptions) {
-        const { id: _hid, quoteId: _qid, createdAt: _ca, updatedAt: _ua, ...hoRest } = ho
-        await tx.quoteHotelOption.create({ data: { ...hoRest, quoteId: q.id } })
+        const { id: oldId, quoteId: _qid, createdAt: _ca, updatedAt: _ua, ...hoRest } = ho
+        const created = await tx.quoteHotelOption.create({ data: { ...hoRest, quoteId: q.id } })
+        hotelOptionIdMap.set(oldId, created.id)
+      }
+
+      if (full.items.length) {
+        await tx.quoteItem.createMany({
+          data: full.items.map(({ id: _id, quoteId: _qid, createdAt: _ca, updatedAt: _ua, metadata, flightOptionId, hotelOptionId, ...rest }) => ({
+            ...rest, quoteId: q.id,
+            costMinor: rest.costMinor, markupMinor: rest.markupMinor,
+            serviceFeeMinor: rest.serviceFeeMinor, sellingPriceMinor: rest.sellingPriceMinor,
+            metadata: metadata ?? {},
+            flightOptionId: flightOptionId ? (flightOptionIdMap.get(flightOptionId) ?? null) : null,
+            hotelOptionId: hotelOptionId ? (hotelOptionIdMap.get(hotelOptionId) ?? null) : null,
+          })),
+        })
       }
 
       await tx.quoteActivity.create({
@@ -264,6 +308,164 @@ export async function PATCH(
     const link = `${process.env.NEXT_PUBLIC_APP_URL ?? ''}/quote-proposal/${rawToken}`
     return NextResponse.json({
       quote: { id: newQuote.id, reference: newQuote.reference, token: rawToken, link, status: newQuote.status },
+    })
+  }
+
+  // V1.3 — Create Revision. When a quote needs commercial changes after
+  // being issued/finalized, this creates a NEW, fully independent, editable
+  // Quote row (deep-copying items/flight+hotel options/media, exactly like
+  // `duplicate` above) rather than repurposing QuoteVersion (which has
+  // exactly one live use elsewhere — a thin client-acceptance marker, kept
+  // completely untouched here) or mutating the original in place. The
+  // original quote — its status, acceptance record, sent link, and any
+  // existing itineraryId — is never modified except for having
+  // isLatestRevision flipped to false. A revision is a PURE database
+  // operation: no email/WhatsApp send, no 'sent' QuoteActivity — staff
+  // finalize and send the new revision later through the exact same
+  // existing action:'send' flow the original used.
+  if (action === 'create_revision') {
+    if (!hasPermission(session, 'quotes.create')) {
+      return NextResponse.json({ error: 'Forbidden — quotes.create required' }, { status: 403 })
+    }
+
+    // Server-side lifecycle gate — must not rely on the UI only rendering
+    // the Create Revision button once finalized. Fails closed with zero
+    // writes for any status outside the allowed set, including a direct
+    // API call that bypasses the button entirely.
+    if (!REVISION_ELIGIBLE_STATUSES.has(quote.status)) {
+      return NextResponse.json(
+        { error: 'This quote is not in a state that supports creating a revision.', code: 'QUOTE_NOT_ELIGIBLE_FOR_REVISION' },
+        { status: 409 },
+      )
+    }
+
+    const full = await prisma.quote.findUnique({
+      where: { id: params.id },
+      include: {
+        items:         true,
+        flightOptions: { include: { segments: true } },
+        hotelOptions:  true,
+        media:         true,
+      },
+    })
+    if (!full) return NextResponse.json({ error: 'Quote not found' }, { status: 404 })
+
+    if (quote.conversationId != null) {
+      const resolved = await resolveClientActionContext(quote.conversationId, session)
+      if (!resolved.ok) {
+        return NextResponse.json({ error: resolved.error, code: 'CLIENT_IDENTITY_REQUIRED' }, { status: resolved.status })
+      }
+      if (resolved.context.resolution !== 'VERIFIED' && resolved.context.resolution !== 'LINKED') {
+        return NextResponse.json(
+          { error: 'Verify the client identity before creating a revision of this quote.', code: 'CLIENT_IDENTITY_REQUIRED' },
+          { status: 403 },
+        )
+      }
+    }
+
+    const rootQuoteId = full.rootQuoteId ?? full.id
+    const rootReference = full.rootQuoteId
+      ? (await prisma.quote.findUnique({ where: { id: rootQuoteId }, select: { reference: true } }))?.reference ?? full.reference
+      : full.reference
+
+    const rawToken = crypto.randomBytes(32).toString('hex')
+    const secureTokenHash = crypto.createHash('sha256').update(rawToken).digest('hex')
+    const validUntil = new Date()
+    validUntil.setDate(validUntil.getDate() + 14)
+    const nextRevisionNumber = full.revisionNumber + 1
+    const reference = `${rootReference}-R${nextRevisionNumber}`
+
+    const newQuote = await prisma.$transaction(async (tx) => {
+      // Deliberately not copied: sentAt/firstViewedAt/lastViewedAt/
+      // viewCount/acceptedAt/acceptedVersion/acceptedIp/acceptedUserAgent/
+      // clientSignatureName/declinedAt/declineReason/changesRequestedAt/
+      // changesNote/convertedAt/convertedBookingId/itineraryId — lifecycle
+      // facts specific to the instance they happened to, not attributes of
+      // the trip. itineraryId in particular starts null so this revision's
+      // Quote->Itinerary conversion (if any) is fully independent of the
+      // original's — converting this revision never touches or un-converts
+      // the original's already-existing itinerary.
+      const q = await tx.quote.create({
+        data: {
+          reference, secureTokenHash,
+          clientName: full.clientName, clientEmail: full.clientEmail,
+          clientPhone: full.clientPhone, clientCountry: full.clientCountry,
+          currency: full.currency, title: full.title,
+          description: full.description, status: 'draft', validUntil,
+          createdBy: session.email, assignedTo: full.assignedTo,
+          depositMinor: full.depositMinor, depositCurrency: full.depositCurrency,
+          depositPercentage: full.depositPercentage,
+          subtotalMinor: full.subtotalMinor, totalMinor: full.totalMinor,
+          markupMinor: full.markupMinor, serviceChargeMinor: full.serviceChargeMinor,
+          discountMinor: full.discountMinor,
+          internalNotes: full.internalNotes,
+          leadId: full.leadId, tripId: full.tripId,
+          conversationId: full.conversationId, source: full.source,
+          rootQuoteId, revisionNumber: nextRevisionNumber, isLatestRevision: true,
+        },
+      })
+
+      const flightOptionIdMap = new Map<string, string>()
+      for (const fo of full.flightOptions) {
+        const { id: oldId, quoteId: _qid, createdAt: _ca, updatedAt: _ua, segments, ...foRest } = fo
+        const created = await tx.quoteFlightOption.create({ data: { ...foRest, quoteId: q.id } })
+        flightOptionIdMap.set(oldId, created.id)
+        if (segments.length) {
+          await tx.quoteFlightSegment.createMany({
+            data: segments.map(({ id: _sid, flightOptionId: _foid, ...sRest }) => ({ ...sRest, flightOptionId: created.id })),
+          })
+        }
+      }
+
+      const hotelOptionIdMap = new Map<string, string>()
+      for (const ho of full.hotelOptions) {
+        const { id: oldId, quoteId: _qid, createdAt: _ca, updatedAt: _ua, ...hoRest } = ho
+        const created = await tx.quoteHotelOption.create({ data: { ...hoRest, quoteId: q.id } })
+        hotelOptionIdMap.set(oldId, created.id)
+      }
+
+      if (full.items.length) {
+        await tx.quoteItem.createMany({
+          data: full.items.map(({ id: _id, quoteId: _qid, createdAt: _ca, updatedAt: _ua, metadata, flightOptionId, hotelOptionId, ...rest }) => ({
+            ...rest, quoteId: q.id,
+            metadata: metadata ?? {},
+            flightOptionId: flightOptionId ? (flightOptionIdMap.get(flightOptionId) ?? null) : null,
+            hotelOptionId: hotelOptionId ? (hotelOptionIdMap.get(hotelOptionId) ?? null) : null,
+          })),
+        })
+      }
+
+      // QuoteMedia — copied here (a gap `duplicate` above still has,
+      // deliberately left as-is/out of scope for this change) since a
+      // finalized, priced quote worth revising is likely to already carry
+      // client-visible hotel/flight images.
+      if (full.media.length) {
+        await tx.quoteMedia.createMany({
+          data: full.media.map(({ id: _mid, quoteId: _qid, createdAt: _ca, flightOptionId, hotelOptionId, ...mRest }) => ({
+            ...mRest, quoteId: q.id,
+            flightOptionId: flightOptionId ? (flightOptionIdMap.get(flightOptionId) ?? null) : null,
+            hotelOptionId: hotelOptionId ? (hotelOptionIdMap.get(hotelOptionId) ?? null) : null,
+          })),
+        })
+      }
+
+      // Flip the previous latest revision off — atomic with the new row's
+      // creation, so a concurrent reader can never see two rows both
+      // marked isLatestRevision:true for the same root.
+      await tx.quote.update({ where: { id: full.id }, data: { isLatestRevision: false } })
+
+      await tx.quoteActivity.create({
+        data: { quoteId: full.id, actor: session.email, actorType: 'staff', eventType: 'revised', detail: `Superseded by revision ${nextRevisionNumber} (${reference})` },
+      })
+      await tx.quoteActivity.create({
+        data: { quoteId: q.id, actor: session.email, actorType: 'staff', eventType: 'revised', detail: `Created as revision ${nextRevisionNumber} of ${rootReference}` },
+      })
+
+      return q
+    })
+
+    return NextResponse.json({
+      quote: { id: newQuote.id, reference: newQuote.reference, status: newQuote.status, revisionNumber: newQuote.revisionNumber },
     })
   }
 

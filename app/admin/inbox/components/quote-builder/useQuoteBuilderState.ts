@@ -73,6 +73,12 @@ export const LIVE_TABS: { id: LiveServiceType; label: string }[] = [
 export interface AttachedLiveItem {
   key: string; type: LiveServiceType; title: string
   costMinor: number; markupMinor: number; serviceFeeMinor: number; sellingPriceMinor: number; currency: string
+  // V1.3 — the server-assigned QuoteItem.id, captured from add-to-quote's
+  // response (every branch returns `item: {...}` — see
+  // app/api/admin/travel-search/add-to-quote/route.ts). Required for
+  // Remove/Edit-pricing/Replace, which must reference a specific server row,
+  // not just this client-side display list.
+  itemId: string
 }
 
 // Multi-city leg — same shape/behavior as FlightSearchWidget.tsx's MCLeg
@@ -607,6 +613,129 @@ export function useQuoteBuilderState({ open, onClose, conversationId, onSendMess
     return { res, data }
   }
 
+  // V1.3 — Remove / Edit-pricing for an already-attached live-search item.
+  // Closes the known V1.1/V1.2 limitation (attachedLive items were
+  // permanently read-only). Both call the new item-level endpoint
+  // (app/api/admin/quotes/[id]/items/[itemId]/route.ts), reusing the exact
+  // 401-redirect / liveBusy / liveError conventions every other live-search
+  // function in this file already follows. `attachedLive.itemId` is the
+  // server-assigned QuoteItem.id captured at attach time in
+  // confirmAddPending/acceptPriceChange above.
+  async function removeAttachedItem(key: string) {
+    if (liveBusy || !quote) return
+    const target = attachedLive.find(i => i.key === key)
+    if (!target?.itemId) return
+    setLiveBusy(true); setLiveError(null)
+    try {
+      const res = await fetch(`/api/admin/quotes/${quote.id}/items/${target.itemId}`, { method: 'DELETE' })
+      if (res.status === 401) { router.push('/admin/login'); return }
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) { setLiveError(typeof data?.error === 'string' ? data.error : 'Could not remove this item.'); return }
+      setAttachedLive(prev => prev.filter(i => i.key !== key))
+    } catch {
+      setLiveError('Could not remove this item.')
+    } finally {
+      setLiveBusy(false)
+    }
+  }
+
+  async function updateAttachedItemPricing(key: string, markupMinor: number, serviceFeeMinor: number) {
+    if (liveBusy || !quote) return
+    const target = attachedLive.find(i => i.key === key)
+    if (!target?.itemId) return
+    setLiveBusy(true); setLiveError(null)
+    try {
+      const res = await fetch(`/api/admin/quotes/${quote.id}/items/${target.itemId}`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ markupMinor, serviceFeeMinor }),
+      })
+      if (res.status === 401) { router.push('/admin/login'); return }
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) { setLiveError(typeof data?.error === 'string' ? data.error : 'Could not update this item\'s pricing.'); return }
+      const updated = data?.item as { markupMinor?: number; serviceFeeMinor?: number; sellingPriceMinor?: number } | undefined
+      setAttachedLive(prev => prev.map(i => i.key === key
+        ? {
+            ...i,
+            markupMinor: updated?.markupMinor ?? markupMinor,
+            serviceFeeMinor: updated?.serviceFeeMinor ?? serviceFeeMinor,
+            sellingPriceMinor: updated?.sellingPriceMinor ?? i.sellingPriceMinor,
+          }
+        : i))
+    } catch {
+      setLiveError('Could not update this item\'s pricing.')
+    } finally {
+      setLiveBusy(false)
+    }
+  }
+
+  // V1.3 — atomic draft currency recalculation. The ONLY sanctioned way to
+  // change currency once items exist (the generic quote PATCH's currency-
+  // integrity guard blocks that path outright). Calls the dedicated
+  // recalculate endpoint, which converts every item server-side in one
+  // transaction, then refreshes attachedLive from the response's
+  // authoritative figures — matching each entry back to its server row by
+  // itemId so client-side `key` identity (and therefore any expanded/
+  // selected UI state keyed on it) survives the refresh.
+  async function recalculateCurrency(targetCurrency: typeof CURRENCIES[number]) {
+    if (!quote || liveBusy) return
+    setLiveBusy(true); setLiveError(null)
+    try {
+      const res = await fetch(`/api/admin/quotes/${quote.id}/recalculate-currency`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ targetCurrency }),
+      })
+      if (res.status === 401) { router.push('/admin/login'); return }
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) { setLiveError(typeof data?.error === 'string' ? data.error : 'Could not recalculate the quote currency.'); return }
+      setCurrency(targetCurrency)
+      if (Array.isArray(data.items)) {
+        const byId = new Map((data.items as Array<Record<string, unknown>>).map(i => [String(i.id), i]))
+        setAttachedLive(prev => prev.map(item => {
+          const fresh = byId.get(item.itemId)
+          if (!fresh) return item
+          return {
+            ...item,
+            costMinor: Number(fresh.costMinor), markupMinor: Number(fresh.markupMinor),
+            serviceFeeMinor: Number(fresh.serviceFeeMinor), sellingPriceMinor: Number(fresh.sellingPriceMinor),
+            currency: String(fresh.currency),
+          }
+        }))
+      }
+    } catch {
+      setLiveError('Could not recalculate the quote currency.')
+    } finally {
+      setLiveBusy(false)
+    }
+  }
+
+  // V1.3 — Create Revision. A pure database operation (never sends
+  // anything to the client) that returns the new revision's id/reference
+  // on success. The Quote Builder's own state stays pointed at THIS quote —
+  // matching the existing `duplicate` action's UI convention (quotes/[id]/
+  // page.tsx's handleDuplicate opens the new quote in a separate tab/
+  // window rather than hot-swapping the current editor's state), staff
+  // review/continue the new revision by opening it, not by staying inside
+  // this same drawer instance.
+  async function createRevision(): Promise<{ id: string; reference: string } | null> {
+    if (!quote || liveBusy) return null
+    setLiveBusy(true); setLiveError(null)
+    try {
+      const res = await fetch(`/api/admin/quotes/${quote.id}`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'create_revision' }),
+      })
+      if (res.status === 401) { router.push('/admin/login'); return null }
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) { setLiveError(typeof data?.error === 'string' ? data.error : 'Could not create a revision.'); return null }
+      return (data?.quote as { id: string; reference: string } | undefined) ?? null
+    } catch {
+      setLiveError('Could not create a revision.')
+      return null
+    } finally {
+      setLiveBusy(false)
+    }
+  }
+
   async function confirmAddPending() {
     if (!pending || liveBusy) return
     const opSeq = ++liveOpSeqRef.current
@@ -660,6 +789,7 @@ export function useQuoteBuilderState({ open, onClose, conversationId, onSendMess
       setAttachedLive(prev => [...prev, {
         key: crypto.randomUUID(), type: pending.type, title: pending.title,
         costMinor, markupMinor, serviceFeeMinor, sellingPriceMinor, currency,
+        itemId: String((data?.item as { id?: unknown } | undefined)?.id ?? ''),
       }])
       setPending(null)
     } catch {
@@ -697,6 +827,7 @@ export function useQuoteBuilderState({ open, onClose, conversationId, onSendMess
         key: crypto.randomUUID(), type: pending.type, title: pending.title,
         costMinor: newNetMinor, markupMinor: newMarkupMinor, serviceFeeMinor: newServiceFeeMinor,
         sellingPriceMinor: newSellingPriceMinor, currency: newCurrency,
+        itemId: String((data?.item as { id?: unknown } | undefined)?.id ?? ''),
       }])
       setPending(null)
       setPriceChange(null)
@@ -857,6 +988,7 @@ export function useQuoteBuilderState({ open, onClose, conversationId, onSendMess
     // pending offer pricing + revalidation + attach
     priceChange, openPending, revalidateFlight, revalidateHotel, cancelPending,
     buildAttachPayload, pendingCurrencyMismatch, postAddToQuote, confirmAddPending, cancelPriceChange, acceptPriceChange,
+    removeAttachedItem, updateAttachedItemPricing, recalculateCurrency, createRevision,
     // quote creation / finalize / share
     submitting, submitError, created, duplicateOf, profileGate, setProfileGate, quote, finalizing, copied, sending, sent,
     handleCreate, handleFinalize, buildQuoteMessage, handleCopy, handleInsert, handleSendToClient,

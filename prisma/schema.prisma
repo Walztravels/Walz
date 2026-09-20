@@ -5091,6 +5091,21 @@ model Quote {
   // TripRequest.itineraryId's existing back-reference role.
   itineraryId             String?   @map("itinerary_id")
 
+  // V1.3 — quote revisions. rootQuoteId is null on the original quote itself
+  // and points at the original on every revision; revisionNumber/
+  // isLatestRevision default correctly for every pre-existing row (each is
+  // trivially its own only/latest revision). Added via the SQL editor
+  // (v1_3_quote_builder migration) — NEVER prisma db push.
+  rootQuoteId             String?   @map("root_quote_id")
+  revisionNumber          Int       @default(1)    @map("revision_number")
+  isLatestRevision        Boolean   @default(true) @map("is_latest_revision")
+
+  // V1.3 — optimistic-concurrency token for multi-row mutations (Remove/
+  // Edit-pricing/Recalculate-currency). Deliberately separate from `version`
+  // (the existing resend counter, read by acceptedVersion) to avoid
+  // colliding with its established meaning.
+  rowVersion              Int       @default(0) @map("row_version")
+
   createdAt               DateTime  @default(now()) @map("created_at")
   updatedAt               DateTime  @updatedAt      @map("updated_at")
 
@@ -5101,6 +5116,9 @@ model Quote {
   versions      QuoteVersion[]
   activity      QuoteActivity[]
 
+  rootQuote     Quote?    @relation("QuoteRevisions", fields: [rootQuoteId], references: [id])
+  revisions     Quote[]   @relation("QuoteRevisions")
+
   @@index([status])
   @@index([createdBy])
   @@index([clientEmail])
@@ -5109,6 +5127,7 @@ model Quote {
   @@index([tripId])
   @@index([conversationId])
   @@index([itineraryId])
+  @@index([rootQuoteId])
   @@map("quotes")
 }
 
@@ -5133,6 +5152,25 @@ model QuoteItem {
   sellingPriceMinor BigInt   @default(0) @map("selling_price_minor")
   currency          String
 
+  // V1.3 — supplier financial provenance + FX audit. All nullable: NULL on
+  // every pre-migration row and on any item where supplierCurrency already
+  // equals the quote's currency (no conversion performed). costMinor/
+  // currency above remain "converted amount, in quote currency" exactly as
+  // before — these are purely additive, never a replacement for them.
+  supplierCostMinor BigInt?  @map("supplier_cost_minor")
+  supplierCurrency  String?  @map("supplier_currency")
+  fxRate            Decimal? @db.Decimal(18,8) @map("fx_rate")
+  fxRateAt          DateTime? @map("fx_rate_at")
+  fxSource          String?  @map("fx_source")
+
+  // V1.3 — links this generic totals-row back to the richer option row the
+  // add-to-quote route dual-writes alongside it (flight/hotel only; null
+  // for activity/transfer/manual, which have no option row). Lets
+  // Remove/Edit-pricing touch both rows atomically instead of correlating
+  // by (type, supplierRef) convention.
+  flightOptionId    String?  @map("flight_option_id")
+  hotelOptionId     String?  @map("hotel_option_id")
+
   clientVisible     Boolean  @default(true)  @map("client_visible")
   showPriceToClient Boolean  @default(true)  @map("show_price_to_client")
 
@@ -5144,9 +5182,13 @@ model QuoteItem {
   createdAt         DateTime @default(now()) @map("created_at")
   updatedAt         DateTime @updatedAt      @map("updated_at")
 
-  quote             Quote    @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+  quote             Quote              @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+  flightOption      QuoteFlightOption? @relation(fields: [flightOptionId], references: [id], onDelete: Cascade)
+  hotelOption       QuoteHotelOption?  @relation(fields: [hotelOptionId], references: [id], onDelete: Cascade)
 
   @@index([quoteId])
+  @@index([flightOptionId])
+  @@index([hotelOptionId])
   @@map("quote_items")
 }
 
@@ -5191,6 +5233,14 @@ model QuoteFlightOption {
   sellingPriceMinor   BigInt    @default(0) @map("selling_price_minor")
   currency            String
 
+  // V1.3 — supplier financial provenance + FX audit (see QuoteItem's
+  // identical fields for the full rationale). Nullable, additive only.
+  supplierCostMinor   BigInt?   @map("supplier_cost_minor")
+  supplierCurrency    String?   @map("supplier_currency")
+  fxRate              Decimal?  @db.Decimal(18,8) @map("fx_rate")
+  fxRateAt            DateTime? @map("fx_rate_at")
+  fxSource            String?   @map("fx_source")
+
   fareExpiresAt       DateTime? @map("fare_expires_at")
 
   sourceType          String    @default("manual") @map("source_type")
@@ -5204,6 +5254,7 @@ model QuoteFlightOption {
   quote               Quote     @relation(fields: [quoteId], references: [id], onDelete: Cascade)
   segments            QuoteFlightSegment[]
   media               QuoteMedia[]
+  items               QuoteItem[]
 
   @@index([quoteId])
   @@map("quote_flight_options")
@@ -5284,6 +5335,14 @@ model QuoteHotelOption {
   currency            String
   showPerNight        Boolean   @default(false) @map("show_per_night")
 
+  // V1.3 — supplier financial provenance + FX audit (see QuoteItem's
+  // identical fields for the full rationale). Nullable, additive only.
+  supplierCostMinor   BigInt?   @map("supplier_cost_minor")
+  supplierCurrency    String?   @map("supplier_currency")
+  fxRate              Decimal?  @db.Decimal(18,8) @map("fx_rate")
+  fxRateAt            DateTime? @map("fx_rate_at")
+  fxSource            String?   @map("fx_source")
+
   sourceType          String    @default("manual") @map("source_type")
 
   clientNote          String?   @db.Text @map("client_note")
@@ -5294,6 +5353,7 @@ model QuoteHotelOption {
 
   quote               Quote     @relation(fields: [quoteId], references: [id], onDelete: Cascade)
   media               QuoteMedia[]
+  items               QuoteItem[]
 
   @@index([quoteId])
   @@map("quote_hotel_options")

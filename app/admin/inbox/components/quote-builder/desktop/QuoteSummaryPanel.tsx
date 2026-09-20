@@ -22,21 +22,25 @@
 // Quote" button; draft -> Preview link + "Finalize for client"; finalized
 // -> Copy/Insert/Send/Open-in-editor, unchanged.
 //
-// Live-attached items render as read-only "Added" entries — there is no
-// existing API to edit/remove an item after it's attached to the quote
-// (only manual state.items support removeItem). This is a known V1.1
-// backend gap, not something to fake client-side.
+// V1.3 — live-attached items now support Remove / Edit pricing / Replace
+// via the item-level endpoint (see useQuoteBuilderState.ts's
+// removeAttachedItem/updateAttachedItemPricing), closing the V1.1/V1.2 gap
+// noted above in earlier revisions of this file. Quote currency can also be
+// changed after items exist via the dedicated recalculateCurrency action
+// (never the plain setCurrency setter once items are present — that would
+// silently relabel amounts without converting them), and a finalized quote
+// can spin off an independent draft revision via createRevision.
 //
 // duplicateOf/profileGate are handled one level up in DesktopWorkspace.tsx
 // as full-workspace overrides, so this panel only ever renders in the
 // normal (no gate) state.
 
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import {
   Activity, AlertTriangle, ChevronDown, ChevronUp, Copy, ExternalLink, FileText,
   Hotel, MessageSquarePlus, Plane, RefreshCw, Send, Sparkles, Stamp, Trash2, Car,
 } from 'lucide-react'
-import type { LiveServiceType, QuoteBuilderState, ServiceKey } from '@/app/admin/inbox/components/quote-builder/useQuoteBuilderState'
+import type { AttachedLiveItem, LiveServiceType, QuoteBuilderState, ServiceKey } from '@/app/admin/inbox/components/quote-builder/useQuoteBuilderState'
 import { fmtMinor, statusLabel, CURRENCIES } from '@/app/admin/inbox/components/quote-builder/useQuoteBuilderState'
 import { inputCls, labelCls } from '@/app/admin/inbox/components/quote-builder/styles'
 
@@ -71,7 +75,88 @@ export function QuoteSummaryPanel({ state }: QuoteSummaryPanelProps) {
     submitting, submitError, quote, finalizing, copied, sending, sent,
     handleCreate, handleFinalize, handleCopy, handleInsert, handleSendToClient,
     isFinalized, recent,
+    removeAttachedItem, updateAttachedItemPricing, recalculateCurrency, createRevision,
+    liveBusy, liveError,
   } = state
+
+  // V1.3 — always-fresh mirror of state.liveError, so an async handler that
+  // `await`s a hook action (recalculateCurrency, createRevision) can check
+  // the OUTCOME afterwards without reading a stale value captured by its
+  // own closure at click-time (the `state` prop only reflects the render
+  // that created this closure — plain `state.liveError` after an `await`
+  // would still be whatever it was before the call started).
+  const liveErrorRef = useRef(liveError)
+  liveErrorRef.current = liveError
+
+  // V1.3 — inline "Edit pricing" for one attached item at a time. Plain
+  // local UI state (per this file's own established convention: the shared
+  // hook only owns business/network state).
+  const [pricingEditKey, setPricingEditKey] = useState<string | null>(null)
+  const [pricingEditMarkup, setPricingEditMarkup] = useState('')
+  const [pricingEditFee, setPricingEditFee] = useState('')
+  const [pricingEditValidationError, setPricingEditValidationError] = useState<string | null>(null)
+
+  function beginPricingEdit(item: AttachedLiveItem) {
+    setPricingEditKey(item.key)
+    setPricingEditMarkup(String(item.markupMinor))
+    setPricingEditFee(String(item.serviceFeeMinor))
+    setPricingEditValidationError(null)
+  }
+  function cancelPricingEdit() { setPricingEditKey(null); setPricingEditValidationError(null) }
+  async function savePricingEdit(key: string) {
+    const markupInput = pricingEditMarkup.trim()
+    const feeInput = pricingEditFee.trim()
+    const markupMinor = Math.round(Number(markupInput))
+    const serviceFeeMinor = Math.round(Number(feeInput))
+    if (
+      markupInput === '' || feeInput === '' ||
+      !Number.isFinite(markupMinor) || !Number.isFinite(serviceFeeMinor) ||
+      markupMinor < 0 || serviceFeeMinor < 0
+    ) {
+      setPricingEditValidationError('Markup and service fee must be non-negative numbers.')
+      return
+    }
+    setPricingEditValidationError(null)
+    await updateAttachedItemPricing(key, markupMinor, serviceFeeMinor)
+    if (!liveErrorRef.current) setPricingEditKey(null)
+  }
+  async function replaceItem(item: AttachedLiveItem) {
+    await removeAttachedItem(item.key)
+    if (!liveErrorRef.current) selectService(item.type)
+  }
+
+  // V1.3 — currency change confirmation once items exist. `pendingCurrency`
+  // is the staff's dropdown selection awaiting confirmation; the actual
+  // `currency` state never changes until Recalculate succeeds.
+  const [pendingCurrency, setPendingCurrency] = useState<typeof currency | null>(null)
+  function handleCurrencyChange(next: typeof currency) {
+    if (next === currency) return
+    if (!hasAnyItems) { setCurrency(next); return }
+    setPendingCurrency(next)
+  }
+  function cancelCurrencyChange() { setPendingCurrency(null) }
+  async function confirmCurrencyChange() {
+    if (!pendingCurrency) return
+    await recalculateCurrency(pendingCurrency)
+    if (!liveErrorRef.current) setPendingCurrency(null)
+  }
+
+  // V1.3 — Create Revision success feedback (finalized-quote branch only).
+  const [revisionCreated, setRevisionCreated] = useState<{ id: string; reference: string } | null>(null)
+  const [revisionFailed, setRevisionFailed] = useState(false)
+  async function handleCreateRevision() {
+    setRevisionCreated(null)
+    setRevisionFailed(false)
+    const revision = await createRevision()
+    if (revision) {
+      setRevisionCreated(revision)
+      // Matches quotes/[id]/page.tsx's handleDuplicate: same-origin admin
+      // navigation, new tab, no `noreferrer` needed.
+      window.open(`/admin/quotes/${revision.id}`, '_blank')
+    } else {
+      setRevisionFailed(true)
+    }
+  }
 
   // V1.2.1 P1 fix — quote.status is the SERVER field, and the finalize
   // action (handleFinalize -> PATCH {action:'send', suppressNotifications:
@@ -109,20 +194,59 @@ export function QuoteSummaryPanel({ state }: QuoteSummaryPanelProps) {
               placeholder="Travel quote" className={inputCls}
             />
           </div>
-          <div className="grid grid-cols-2 gap-2">
-            <div>
-              <label className={labelCls} htmlFor="dw-q-currency">Currency</label>
-              <select id="dw-q-currency" value={currency} onChange={e => setCurrency(e.target.value as typeof currency)} className={inputCls}>
-                {CURRENCIES.map(c => <option key={c} value={c}>{c}</option>)}
-              </select>
-            </div>
-            <div>
-              <label className={labelCls} htmlFor="dw-q-valid">Valid (days)</label>
-              <input id="dw-q-valid" inputMode="numeric" value={validDays} onChange={e => setValidDays(e.target.value)} className={inputCls} />
-            </div>
+          <div>
+            <label className={labelCls} htmlFor="dw-q-valid">Valid (days)</label>
+            <input id="dw-q-valid" inputMode="numeric" value={validDays} onChange={e => setValidDays(e.target.value)} className={inputCls} />
           </div>
         </div>
       )}
+
+      {/* ── Quote currency ─────────────────────────────────────────── */}
+      {/* V1.3 — the currency control stays visible for the life of the
+          quote (draft or finalized), but its behavior differs: no items yet
+          -> plain setCurrency; items exist and still a draft -> confirm +
+          recalculateCurrency (the only sanctioned way to change currency
+          once items exist — a direct setCurrency there would silently
+          relabel amounts); finalized -> read-only, Create Revision is the
+          sanctioned path instead. */}
+      <div>
+        <label className={labelCls} htmlFor="dw-q-currency">Currency</label>
+        {isFinalized ? (
+          <p className={`${inputCls} flex items-center bg-walz-off-white text-walz-muted-strong`}>{currency}</p>
+        ) : (
+          <select
+            id="dw-q-currency"
+            value={pendingCurrency ?? currency}
+            onChange={e => handleCurrencyChange(e.target.value as typeof currency)}
+            disabled={liveBusy}
+            className={inputCls}
+          >
+            {CURRENCIES.map(c => <option key={c} value={c}>{c}</option>)}
+          </select>
+        )}
+        {pendingCurrency && (
+          <div role="alertdialog" aria-label="Confirm currency change" className="mt-2 rounded-lg border border-walz-gold bg-walz-off-white p-3 space-y-1.5 text-xs">
+            <p className="font-semibold text-walz-deep-navy">Change quote currency?</p>
+            <p className="font-mono text-walz-deep-navy">{currency} → {pendingCurrency}</p>
+            <p className="text-walz-muted-strong">Existing quote items will be recalculated using current exchange rates.</p>
+            {liveError && <p role="alert" className="text-red-700 flex items-center gap-1"><AlertTriangle className="w-3.5 h-3.5 flex-shrink-0" /> {liveError}</p>}
+            <div className="flex gap-2 pt-1">
+              <button
+                type="button" onClick={cancelCurrencyChange} disabled={liveBusy}
+                className="flex-1 min-h-[36px] rounded-lg border border-walz-border text-walz-navy text-xs font-semibold hover:bg-walz-navy/5 transition-colors disabled:opacity-60 focus:outline-none focus:ring-2 focus:ring-walz-gold/60"
+              >
+                Cancel
+              </button>
+              <button
+                type="button" onClick={() => void confirmCurrencyChange()} disabled={liveBusy}
+                className="flex-1 min-h-[36px] flex items-center justify-center gap-1 rounded-lg bg-walz-gold text-walz-deep-navy text-xs font-bold hover:brightness-95 transition-all disabled:opacity-60 focus:outline-none focus:ring-2 focus:ring-walz-gold/60"
+              >
+                {liveBusy ? (<><RefreshCw className="w-3 h-3 motion-safe:animate-spin" /> Recalculating…</>) : `Recalculate in ${pendingCurrency}`}
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
 
       {/* ── Line items ─────────────────────────────────────────────── */}
       <div className="space-y-1.5">
@@ -130,9 +254,14 @@ export function QuoteSummaryPanel({ state }: QuoteSummaryPanelProps) {
           <p className="text-xs text-walz-muted-strong">No items yet — select a service on the left to search or add one.</p>
         )}
 
+        {liveError && !pendingCurrency && !revisionFailed && (
+          <p role="alert" className="text-xs text-red-700 flex items-center gap-1"><AlertTriangle className="w-3.5 h-3.5 flex-shrink-0" /> {liveError}</p>
+        )}
+
         {attachedLive.map(item => {
           const Icon = LIVE_ICON[item.type]
           const isOpen = expanded.has(item.key)
+          const isEditingPrice = pricingEditKey === item.key
           return (
             <div key={item.key} className="rounded-lg border border-walz-border p-2">
               <div className="flex items-center gap-2">
@@ -144,19 +273,84 @@ export function QuoteSummaryPanel({ state }: QuoteSummaryPanelProps) {
                 {isOpen ? <ChevronUp className="w-3.5 h-3.5 text-walz-muted-strong flex-shrink-0" /> : <ChevronDown className="w-3.5 h-3.5 text-walz-muted-strong flex-shrink-0" />}
               </div>
               {isOpen && (
-                <div className="mt-1.5 pl-5 space-y-0.5 text-[11px] text-walz-muted-strong">
+                <div className="mt-1.5 pl-5 space-y-1 text-[11px] text-walz-muted-strong">
                   <div className="flex justify-between"><span>Net cost</span><span className="font-mono">{fmtMinor(item.costMinor, item.currency)}</span></div>
-                  <div className="flex justify-between"><span>Markup</span><span className="font-mono">{fmtMinor(item.markupMinor, item.currency)}</span></div>
-                  <div className="flex justify-between"><span>Service fee</span><span className="font-mono">{fmtMinor(item.serviceFeeMinor, item.currency)}</span></div>
+
+                  {isEditingPrice ? (
+                    <div className="space-y-1.5 rounded-lg border border-walz-border bg-walz-off-white p-2">
+                      <div className="grid grid-cols-2 gap-2">
+                        <div>
+                          <label className={labelCls} htmlFor={`dw-ep-markup-${item.key}`}>Markup (minor units)</label>
+                          <input
+                            id={`dw-ep-markup-${item.key}`} type="number" min={0} inputMode="numeric"
+                            value={pricingEditMarkup} onChange={e => setPricingEditMarkup(e.target.value)}
+                            className={inputCls}
+                          />
+                        </div>
+                        <div>
+                          <label className={labelCls} htmlFor={`dw-ep-fee-${item.key}`}>Service fee (minor units)</label>
+                          <input
+                            id={`dw-ep-fee-${item.key}`} type="number" min={0} inputMode="numeric"
+                            value={pricingEditFee} onChange={e => setPricingEditFee(e.target.value)}
+                            className={inputCls}
+                          />
+                        </div>
+                      </div>
+                      {pricingEditValidationError && (
+                        <p role="alert" className="text-red-700 flex items-center gap-1"><AlertTriangle className="w-3.5 h-3.5 flex-shrink-0" /> {pricingEditValidationError}</p>
+                      )}
+                      <div className="flex gap-1.5">
+                        <button
+                          type="button" onClick={cancelPricingEdit} disabled={liveBusy}
+                          className="flex-1 min-h-[28px] rounded border border-walz-border text-walz-navy text-[11px] font-semibold hover:bg-walz-navy/5 transition-colors disabled:opacity-60 focus:outline-none focus:ring-2 focus:ring-walz-gold/60"
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          type="button" onClick={() => void savePricingEdit(item.key)} disabled={liveBusy}
+                          className="flex-1 min-h-[28px] rounded bg-walz-gold text-walz-deep-navy text-[11px] font-bold hover:brightness-95 transition-all disabled:opacity-60 focus:outline-none focus:ring-2 focus:ring-walz-gold/60"
+                        >
+                          {liveBusy ? 'Saving…' : 'Save'}
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <>
+                      <div className="flex justify-between"><span>Markup</span><span className="font-mono">{fmtMinor(item.markupMinor, item.currency)}</span></div>
+                      <div className="flex justify-between"><span>Service fee</span><span className="font-mono">{fmtMinor(item.serviceFeeMinor, item.currency)}</span></div>
+                    </>
+                  )}
+
                   <div className="flex items-center justify-between pt-1">
                     <span className="text-green-700 text-[10px] font-semibold">Added</span>
                     <button type="button" onClick={() => selectService(item.type)} className="text-walz-navy underline focus:outline-none">
                       Search more {item.type}
                     </button>
                   </div>
-                  <p className="text-[10px] text-walz-muted-strong/80 pt-1">
-                    Editing or removing an attached item isn&apos;t available yet — a known gap, not this screen&apos;s bug.
-                  </p>
+
+                  {!isFinalized && !isEditingPrice && (
+                    <div className="flex items-center gap-2.5 pt-1">
+                      <button
+                        type="button" onClick={() => beginPricingEdit(item)} disabled={liveBusy}
+                        className="text-walz-navy underline focus:outline-none disabled:opacity-60 focus:ring-2 focus:ring-walz-gold/60 rounded"
+                      >
+                        Edit pricing
+                      </button>
+                      <button
+                        type="button" onClick={() => void replaceItem(item)} disabled={liveBusy}
+                        className="text-walz-navy underline focus:outline-none disabled:opacity-60 focus:ring-2 focus:ring-walz-gold/60 rounded"
+                      >
+                        Replace
+                      </button>
+                      <button
+                        type="button" onClick={() => void removeAttachedItem(item.key)} disabled={liveBusy}
+                        aria-label={`Remove ${item.title}`}
+                        className="ml-auto flex-shrink-0 min-w-[28px] min-h-[28px] flex items-center justify-center text-walz-muted-strong hover:text-red-700 focus:outline-none focus:ring-2 focus:ring-walz-gold/60 rounded disabled:opacity-60"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -279,6 +473,27 @@ export function QuoteSummaryPanel({ state }: QuoteSummaryPanelProps) {
               <a href={`/admin/quotes/${quote.id}`} target="_blank" rel="noreferrer" className="w-full min-h-[44px] flex items-center justify-center gap-2 rounded-lg text-walz-navy text-sm font-semibold hover:underline">
                 Open in quote editor <ExternalLink className="w-3.5 h-3.5" />
               </a>
+
+              {/* V1.3 — a finalized/sent quote needs commercial changes ->
+                  spin off an independent draft revision (never mutate the
+                  finalized quote itself). */}
+              <div className="pt-2 border-t border-walz-border space-y-1.5">
+                <button
+                  type="button" onClick={() => void handleCreateRevision()} disabled={liveBusy}
+                  className="w-full min-h-[44px] flex items-center justify-center gap-2 rounded-lg bg-walz-navy/5 text-walz-navy text-sm font-semibold border border-walz-border hover:bg-walz-navy/10 transition-colors disabled:opacity-60 focus:outline-none focus:ring-2 focus:ring-walz-gold/60"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${liveBusy ? 'motion-safe:animate-spin' : ''}`} /> {liveBusy ? 'Creating revision…' : 'Create Revision'}
+                </button>
+                <p className="text-[10px] text-walz-muted-strong">
+                  Creates a new, independent draft quote with the same items — nothing is sent to the client.
+                </p>
+                {revisionCreated && (
+                  <p role="status" className="text-xs text-green-700">Revision {revisionCreated.reference} created.</p>
+                )}
+                {revisionFailed && liveError && (
+                  <p role="alert" className="text-xs text-red-700 flex items-center gap-1"><AlertTriangle className="w-3.5 h-3.5 flex-shrink-0" /> {liveError}</p>
+                )}
+              </div>
             </div>
           )}
         </div>

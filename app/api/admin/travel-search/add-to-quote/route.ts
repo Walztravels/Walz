@@ -5,6 +5,8 @@ import prisma                        from '@/lib/db'
 import { resolveClientActionContext } from '@/lib/inbox/client-context'
 import { getOffer }                  from '@/lib/flights/duffel'
 import { hotelbedsRequest }          from '@/lib/hotelbeds'
+import { updateQuoteTotals }         from '@/lib/quotes/update-totals'
+import { convertSupplierAmount, convertMinorUnitAmount } from '@/lib/pricing/fx-convert'
 import type {
   AddToQuotePayload,
   NormalizedFlightSegment,
@@ -144,15 +146,14 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  // Currency safety (defense in depth — the drawer/page also check this
-  // client-side): a Quote has one currency; totals sum blindly across
-  // items, so an item priced in a different currency must never attach.
-  if (String(payload.currency).toUpperCase() !== String(quote.currency).toUpperCase()) {
-    return NextResponse.json(
-      { error: `This item is priced in ${payload.currency}; the quote uses ${quote.currency}.`, code: 'CURRENCY_MISMATCH' },
-      { status: 400 },
-    )
-  }
+  // V1.3 — currency handling moved into each branch below (server-side FX
+  // conversion for flight/hotel; unchanged strict-match for activity/
+  // transfer until their own FX step). There is no longer a single blanket
+  // "payload.currency must equal quote.currency" gate here: a payload whose
+  // stated currency differs from the quote's is no longer automatically
+  // rejected — for flight/hotel it is independently converted server-side
+  // (see convertSupplierAmount below), never relabeled and never trusting
+  // any client-submitted rate/converted amount.
 
   if (payload.type === 'flight') {
     const { offer, costMinor, markupMinor, serviceFeeMinor, sellingPriceMinor, currency,
@@ -172,14 +173,55 @@ export async function POST(req: NextRequest) {
         { status: 400 },
       )
     }
-    // A magnitude match alone isn't enough — the supplier's own currency for
-    // this offer must match what's being persisted, or a numerically-equal
-    // amount in a different currency would silently pass the check above.
+    // A magnitude match alone isn't enough — the CLAIMED currency (payload's
+    // `currency`, the currency costMinor/markupMinor/etc. were actually
+    // computed in) must match the supplier's own TRUE live currency for this
+    // offer, or a numerically-equal amount in a different currency would
+    // silently pass the check above. This is unchanged and unrelated to
+    // whether that (verified) supplier currency equals the quote's own
+    // currency — that relationship is handled by the FX step next.
     if (revalidated.currency && revalidated.currency.toUpperCase() !== String(currency).toUpperCase()) {
       return NextResponse.json(
         { error: 'This fare is priced in a different currency than expected. Please re-search and try again.', code: 'PRICE_MISMATCH' },
         { status: 400 },
       )
+    }
+
+    // V1.3 — server-authoritative FX. `currency` above is the VERIFIED
+    // supplier currency (just confirmed to match Duffel's own live offer
+    // currency). If it differs from the quote's target currency, convert
+    // every minor-unit figure by the SAME server-fetched rate (never a
+    // client-submitted one) — scaling cost, markup, and service fee
+    // together preserves the cost+markup+fee=selling relationship and the
+    // markup's original percentage, without requiring any change to how
+    // staff/the client currently compute markup (a percentage of supplier
+    // cost) ahead of the later UI-integration phase. The verified supplier
+    // amount is preserved unconverted in supplierCostMinor/supplierCurrency
+    // for margin/reconciliation, per the non-negotiable "never relabel"
+    // requirement.
+    let finalCostMinor = costMinor
+    let finalMarkupMinor = markupMinor
+    let finalServiceFeeMinor = serviceFeeMinor
+    let finalSellingPriceMinor = sellingPriceMinor
+    let finalCurrency = currency
+    let fxFields: { supplierCostMinor: bigint; supplierCurrency: string; fxRate: string; fxRateAt: Date; fxSource: string } | null = null
+
+    if (String(currency).toUpperCase() !== String(quote.currency).toUpperCase()) {
+      const converted = await convertSupplierAmount({
+        supplierAmountMinor: costMinor, supplierCurrency: currency, targetCurrency: quote.currency,
+      })
+      if (!converted.ok) {
+        return NextResponse.json({ error: converted.message, code: converted.code }, { status: 502 })
+      }
+      finalCostMinor = converted.convertedAmountMinor
+      finalMarkupMinor = convertMinorUnitAmount(markupMinor, converted.rate, quote.currency)
+      finalServiceFeeMinor = convertMinorUnitAmount(serviceFeeMinor, converted.rate, quote.currency)
+      finalSellingPriceMinor = finalCostMinor + finalMarkupMinor + finalServiceFeeMinor
+      finalCurrency = quote.currency
+      fxFields = {
+        supplierCostMinor: BigInt(costMinor), supplierCurrency: currency,
+        fxRate: converted.rate, fxRateAt: new Date(converted.rateTimestamp), fxSource: converted.source,
+      }
     }
 
     const allSegs: NormalizedFlightSegment[] = [...offer.segments, ...offer.returnSegments]
@@ -208,11 +250,12 @@ export async function POST(req: NextRequest) {
         checkedPieces:    offer.checkedPieces,
         checkedWeight:    offer.checkedWeight,
         duffelOfferId:    offer.providerOfferId,
-        costMinor:        BigInt(costMinor),
-        markupMinor:      BigInt(markupMinor),
-        serviceFeeMinor:  BigInt(serviceFeeMinor),
-        sellingPriceMinor: BigInt(sellingPriceMinor),
-        currency,
+        costMinor:        BigInt(finalCostMinor),
+        markupMinor:      BigInt(finalMarkupMinor),
+        serviceFeeMinor:  BigInt(finalServiceFeeMinor),
+        sellingPriceMinor: BigInt(finalSellingPriceMinor),
+        currency:         finalCurrency,
+        ...(fxFields ?? {}),
         fareExpiresAt:    offer.offerExpiresAt ? new Date(offer.offerExpiresAt) : null,
         sourceType:       'live_search',
         clientNote:       clientNote ?? null,
@@ -257,11 +300,13 @@ export async function POST(req: NextRequest) {
         sourceType:        'live_search',
         supplier:          offer.airline,
         supplierRef:       offer.providerOfferId,
-        costMinor:         BigInt(costMinor),
-        markupMinor:       BigInt(markupMinor),
-        serviceFeeMinor:   BigInt(serviceFeeMinor),
-        sellingPriceMinor: BigInt(sellingPriceMinor),
-        currency,
+        costMinor:         BigInt(finalCostMinor),
+        markupMinor:       BigInt(finalMarkupMinor),
+        serviceFeeMinor:   BigInt(finalServiceFeeMinor),
+        sellingPriceMinor: BigInt(finalSellingPriceMinor),
+        currency:          finalCurrency,
+        ...(fxFields ?? {}),
+        flightOptionId:    flightOption.id,
         clientNote:        clientNote ?? null,
         internalNote:      internalNote ?? null,
       },
@@ -337,7 +382,42 @@ export async function POST(req: NextRequest) {
       )
     }
     const freshCostMinor = revalidated.netMinor
-    const freshSellingPriceMinor = freshCostMinor + markupMinor + serviceFeeMinor
+
+    // V1.3 — server-authoritative FX (see the identical flight-branch
+    // comment above for the full rationale: scale cost+markup+fee together
+    // by one server-fetched rate, preserve the verified supplier amount
+    // unconverted for margin/reconciliation, never trust a client rate).
+    // Note: the existing PRICE_CHANGED_REQUIRES_ACCEPTANCE 409 response
+    // above deliberately still returns UNCONVERTED (supplier-currency)
+    // new* figures — its resubmit round-trip re-enters this same branch and
+    // is converted here exactly like a fresh attach; converting it in two
+    // places would double-convert. This is correct as long as the payload's
+    // `currency` field is always genuinely the supplier currency at the
+    // point of resubmission, which remains true until the UI-integration
+    // phase changes what the client sends here.
+    let finalCostMinor = freshCostMinor
+    let finalMarkupMinor = markupMinor
+    let finalServiceFeeMinor = serviceFeeMinor
+    let finalCurrency = currency
+    let fxFields: { supplierCostMinor: bigint; supplierCurrency: string; fxRate: string; fxRateAt: Date; fxSource: string } | null = null
+
+    if (String(currency).toUpperCase() !== String(quote.currency).toUpperCase()) {
+      const converted = await convertSupplierAmount({
+        supplierAmountMinor: freshCostMinor, supplierCurrency: currency, targetCurrency: quote.currency,
+      })
+      if (!converted.ok) {
+        return NextResponse.json({ error: converted.message, code: converted.code }, { status: 502 })
+      }
+      finalCostMinor = converted.convertedAmountMinor
+      finalMarkupMinor = convertMinorUnitAmount(markupMinor, converted.rate, quote.currency)
+      finalServiceFeeMinor = convertMinorUnitAmount(serviceFeeMinor, converted.rate, quote.currency)
+      finalCurrency = quote.currency
+      fxFields = {
+        supplierCostMinor: BigInt(freshCostMinor), supplierCurrency: currency,
+        fxRate: converted.rate, fxRateAt: new Date(converted.rateTimestamp), fxSource: converted.source,
+      }
+    }
+    const freshSellingPriceMinor = finalCostMinor + finalMarkupMinor + finalServiceFeeMinor
 
     const selectedRate = offer.rates.find(r => r.rateKey === selectedRateKey) ?? offer.rates[0]
 
@@ -362,11 +442,12 @@ export async function POST(req: NextRequest) {
         isRefundable:       selectedRate?.isRefundable ?? true,
         supplier:           'hotelbeds',
         supplierRef:        selectedRateKey,
-        costMinor:          BigInt(freshCostMinor),
-        markupMinor:        BigInt(markupMinor),
-        serviceFeeMinor:    BigInt(serviceFeeMinor),
+        costMinor:          BigInt(finalCostMinor),
+        markupMinor:        BigInt(finalMarkupMinor),
+        serviceFeeMinor:    BigInt(finalServiceFeeMinor),
         sellingPriceMinor:  BigInt(freshSellingPriceMinor),
-        currency,
+        currency:           finalCurrency,
+        ...(fxFields ?? {}),
         sourceType:         'live_search',
         clientNote:         clientNote ?? null,
         internalNote:       internalNote ?? null,
@@ -381,11 +462,13 @@ export async function POST(req: NextRequest) {
         sourceType:        'live_search',
         supplier:          'Hotelbeds',
         supplierRef:       selectedRateKey,
-        costMinor:         BigInt(freshCostMinor),
-        markupMinor:       BigInt(markupMinor),
-        serviceFeeMinor:   BigInt(serviceFeeMinor),
+        costMinor:         BigInt(finalCostMinor),
+        markupMinor:       BigInt(finalMarkupMinor),
+        serviceFeeMinor:   BigInt(finalServiceFeeMinor),
         sellingPriceMinor: BigInt(freshSellingPriceMinor),
-        currency,
+        currency:          finalCurrency,
+        ...(fxFields ?? {}),
+        hotelOptionId:     hotelOption.id,
         clientNote:        clientNote ?? null,
         internalNote:      internalNote ?? null,
       },
@@ -432,6 +515,41 @@ export async function POST(req: NextRequest) {
           : (activityOffer?.providerCode ?? null))
       : (transferOffer?.providerRateKey ?? null)
 
+    // V1.3 — server-authoritative FX, SAME conversion mechanism as flight/
+    // hotel above, but converting a WEAKER-CONFIDENCE input: costMinor here
+    // is the client-submitted figure, never independently re-verified
+    // against a live supplier call (the residual gap documented above —
+    // this FX step does not change or paper over that; it converts
+    // whatever figure was trusted going in, exactly as honestly as
+    // flight/hotel convert their independently-verified figure). Logged
+    // distinctly so this lower-confidence path is never confused with
+    // flight/hotel's revalidated one.
+    let finalCostMinor = costMinor
+    let finalMarkupMinor = markupMinor
+    let finalServiceFeeMinor = serviceFeeMinor
+    let finalSellingPriceMinor = sellingPriceMinor
+    let finalCurrency = currency
+    let fxFields: { supplierCostMinor: bigint; supplierCurrency: string; fxRate: string; fxRateAt: Date; fxSource: string } | null = null
+
+    if (String(currency).toUpperCase() !== String(quote.currency).toUpperCase()) {
+      const converted = await convertSupplierAmount({
+        supplierAmountMinor: costMinor, supplierCurrency: currency, targetCurrency: quote.currency,
+      })
+      if (!converted.ok) {
+        return NextResponse.json({ error: converted.message, code: converted.code }, { status: 502 })
+      }
+      finalCostMinor = converted.convertedAmountMinor
+      finalMarkupMinor = convertMinorUnitAmount(markupMinor, converted.rate, quote.currency)
+      finalServiceFeeMinor = convertMinorUnitAmount(serviceFeeMinor, converted.rate, quote.currency)
+      finalSellingPriceMinor = finalCostMinor + finalMarkupMinor + finalServiceFeeMinor
+      finalCurrency = quote.currency
+      fxFields = {
+        supplierCostMinor: BigInt(costMinor), supplierCurrency: currency,
+        fxRate: converted.rate, fxRateAt: new Date(converted.rateTimestamp), fxSource: converted.source,
+      }
+      console.log(`[add-to-quote] fx_convert_unverified type=${payload.type} pair=${currency}/${quote.currency} rate=${converted.rate}`)
+    }
+
     const item = await prisma.quoteItem.create({
       data: {
         quoteId:           quote.id,
@@ -440,11 +558,12 @@ export async function POST(req: NextRequest) {
         sourceType:        'live_search',
         supplier:          supplierName,
         supplierRef:       supplierRef,
-        costMinor:         BigInt(costMinor),
-        markupMinor:       BigInt(markupMinor),
-        serviceFeeMinor:   BigInt(serviceFeeMinor),
-        sellingPriceMinor: BigInt(sellingPriceMinor),
-        currency,
+        costMinor:         BigInt(finalCostMinor),
+        markupMinor:       BigInt(finalMarkupMinor),
+        serviceFeeMinor:   BigInt(finalServiceFeeMinor),
+        sellingPriceMinor: BigInt(finalSellingPriceMinor),
+        currency:          finalCurrency,
+        ...(fxFields ?? {}),
         clientNote:        clientNote ?? null,
         internalNote:      internalNote ?? null,
         // bigintToNumber removes BigInt values that JSON.stringify can't handle
@@ -461,25 +580,3 @@ export async function POST(req: NextRequest) {
   return NextResponse.json({ error: 'Unknown product type' }, { status: 400 })
 }
 
-async function updateQuoteTotals(quoteId: string) {
-  const [items, quote] = await Promise.all([
-    prisma.quoteItem.findMany({ where: { quoteId } }),
-    (prisma.quote as any).findUnique({ where: { id: quoteId }, select: { markupMinor: true, serviceChargeMinor: true, discountMinor: true } }),
-  ])
-  if (!quote) return
-  const { calculateProposalPricing } = await import('@/lib/pricing/proposal-pricing')
-  const subtotalMinor = items.reduce((s, i) => s + i.sellingPriceMinor, BigInt(0))
-  const result = calculateProposalPricing({
-    subtotalMinor,
-    markupMinor:        (quote as any).markupMinor ?? BigInt(0),
-    serviceChargeMinor: (quote as any).serviceChargeMinor ?? BigInt(0),
-    discountMinor:      (quote as any).discountMinor ?? BigInt(0),
-  })
-  await prisma.quote.update({
-    where: { id: quoteId },
-    data: {
-      subtotalMinor: result.subtotalMinor,
-      totalMinor:    result.totalMinor,
-    },
-  })
-}

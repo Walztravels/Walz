@@ -180,7 +180,13 @@ export function MobileWorkspace({ state, onClose, conversationId, closeButtonRef
       </div>
     )
   } else if (screen === 'basket') {
-    body = <QuoteBasketSheet state={state} onAddAnother={() => setScreen('services')} />
+    // V1.3 — `onReplaceItem` (optional, additive — see QuoteBasketSheet's own
+    // prop-doc comment) fires only after a "Replace" on an attached item has
+    // actually removed it and switched state.activeService/liveTab to that
+    // item's service type; this mirrors selectTile()'s own screen transition
+    // above so Replace lands on the same search screen tapping that service
+    // tile from the Services grid would.
+    body = <QuoteBasketSheet state={state} onAddAnother={() => setScreen('services')} onReplaceItem={() => setScreen('search')} />
   } else {
     showHeaderBack = true
     const onSearched = () => setScreen('results')

@@ -20,6 +20,7 @@
 
 import fs from 'fs'
 import path from 'path'
+import { Prisma } from '@prisma/client'
 
 const mockPrisma = {
   quote:            { findUnique: jest.fn(), update: jest.fn() },
@@ -39,10 +40,16 @@ jest.mock('@/lib/admin/permissions', () => ({ hasPermission: () => true }))
 // __tests__/inbox-ux42c-closing-fixes.test.ts).
 jest.mock('@/lib/flights/duffel', () => ({ getOffer: jest.fn() }))
 jest.mock('@/lib/hotelbeds', () => ({ hotelbedsRequest: jest.fn() }))
+// V1.3 — the route now independently converts a supplier-currency amount
+// into the quote's own currency (server-authoritative FX) instead of
+// hard-rejecting any mismatch outright. Mocked so these tests never make a
+// real external exchangerate-api.com call.
+jest.mock('@/lib/fx', () => ({ getStandardRate: jest.fn() }))
 
 import { getAdminSession } from '@/lib/admin-auth'
 import { getOffer } from '@/lib/flights/duffel'
 import { hotelbedsRequest } from '@/lib/hotelbeds'
+import { getStandardRate } from '@/lib/fx'
 import { POST } from '@/app/api/admin/travel-search/add-to-quote/route'
 
 const SESSION = { email: 'staff@walztravels.com', role: 'staff', name: 'Staff', permissions: {} }
@@ -115,26 +122,56 @@ describe('add-to-quote currency guard (server-side defense in depth)', () => {
     expect(mockPrisma.quoteItem.create).toHaveBeenCalled()
   })
 
-  it('flight: mismatched currency (USD item vs GBP quote) is rejected before any write', async () => {
+  it('flight: a payload claiming USD when the live Duffel offer is actually GBP is still rejected before any write — PRICE_MISMATCH, not a currency-conversion case (the CLAIM about the supplier currency is false, so this is a data-integrity rejection, unrelated to whether GBP legitimately differs from the quote\'s own currency)', async () => {
     const res = await POST(req({
       type: 'flight', quoteId: 'q1', offer: FLIGHT_OFFER,
       costMinor: 50000, markupMinor: 2500, serviceFeeMinor: 0, sellingPriceMinor: 52500, currency: 'USD',
     }))
     expect(res.status).toBe(400)
     const data = await res.json()
-    expect(data.code).toBe('CURRENCY_MISMATCH')
+    expect(data.code).toBe('PRICE_MISMATCH')
     expect(mockPrisma.quoteFlightOption.create).not.toHaveBeenCalled()
     expect(mockPrisma.quoteItem.create).not.toHaveBeenCalled()
   })
 
-  it('hotel: mismatched currency (EUR item vs GBP quote) is rejected before any write', async () => {
+  // V1.3 — a genuinely different supplier currency (EUR hotel, GBP quote,
+  // both truthfully verified/claimed) is no longer rejected outright: the
+  // route independently converts it server-side. This replaces the old
+  // "hard reject any mismatch" test with a positive assertion that real
+  // conversion (not relabeling) took place.
+  it('hotel: a genuinely different, truthfully-claimed supplier currency (EUR item, GBP quote) is converted server-side, never relabeled', async () => {
+    ;(getStandardRate as jest.Mock).mockResolvedValue({
+      baseCurrency: 'EUR', quoteCurrency: 'GBP',
+      rawRate: new Prisma.Decimal('0.85'),
+      rateSource: 'STANDARD_MARKET', provider: 'exchangerate-api', fetchedAt: new Date('2026-09-19T12:00:00.000Z'),
+    })
     const res = await POST(req({
       type: 'hotel', quoteId: 'q1', offer: HOTEL_OFFER, selectedRateKey: 'rk1',
       costMinor: 40000, markupMinor: 7200, serviceFeeMinor: 0, sellingPriceMinor: 47200, currency: 'EUR',
     }))
-    expect(res.status).toBe(400)
-    expect((await res.json()).code).toBe('CURRENCY_MISMATCH')
+    expect(res.status).toBe(200)
+    expect(getStandardRate).toHaveBeenCalledWith('EUR', 'GBP', expect.any(Number))
+    expect(mockPrisma.quoteHotelOption.create).toHaveBeenCalled()
+    const createArgs = mockPrisma.quoteHotelOption.create.mock.calls[0][0]
+    // 400.00 EUR net * 0.85 = 340.00 GBP -> 34000 minor units. Never the
+    // original 40000 relabeled as GBP.
+    expect(createArgs.data.costMinor).toBe(BigInt(34000))
+    expect(createArgs.data.currency).toBe('GBP')
+    expect(createArgs.data.supplierCostMinor).toBe(BigInt(40000))
+    expect(createArgs.data.supplierCurrency).toBe('EUR')
+    expect(createArgs.data.fxRate).toBe('0.85')
+  })
+
+  it('hotel: when the FX conversion fails (provider unavailable), the request is rejected before any write — never a fabricated 1:1 fallback', async () => {
+    ;(getStandardRate as jest.Mock).mockResolvedValue(null)
+    const res = await POST(req({
+      type: 'hotel', quoteId: 'q1', offer: HOTEL_OFFER, selectedRateKey: 'rk1',
+      costMinor: 40000, markupMinor: 7200, serviceFeeMinor: 0, sellingPriceMinor: 47200, currency: 'EUR',
+    }))
+    expect(res.status).toBe(502)
+    expect((await res.json()).code).toBe('FX_RATE_UNAVAILABLE')
     expect(mockPrisma.quoteHotelOption.create).not.toHaveBeenCalled()
+    expect(mockPrisma.quoteItem.create).not.toHaveBeenCalled()
   })
 
   it('hotel: matching currency attaches successfully', async () => {
@@ -146,13 +183,40 @@ describe('add-to-quote currency guard (server-side defense in depth)', () => {
     expect(mockPrisma.quoteHotelOption.create).toHaveBeenCalled()
   })
 
-  it('activity: mismatched currency is rejected before any write', async () => {
+  // V1.3 — activity/transfer have no supplier revalidation (documented,
+  // pre-existing gap, unchanged), but DO now convert a differing currency —
+  // the same mechanism as flight/hotel, applied to a weaker-confidence
+  // (client-submitted, unverified) input. Replaces the old hard-reject test
+  // with a positive assertion that conversion actually occurred.
+  it('activity: a differing currency (NGN item, GBP quote) is converted server-side — same FX mechanism as flight/hotel, applied to the unverified client-submitted cost', async () => {
+    ;(getStandardRate as jest.Mock).mockResolvedValue({
+      baseCurrency: 'NGN', quoteCurrency: 'GBP',
+      rawRate: new Prisma.Decimal('0.0005'),
+      rateSource: 'STANDARD_MARKET', provider: 'exchangerate-api', fetchedAt: new Date('2026-09-19T12:00:00.000Z'),
+    })
     const res = await POST(req({
       type: 'activity', quoteId: 'q1', offer: ACTIVITY_OFFER,
       costMinor: 5000, markupMinor: 1000, serviceFeeMinor: 0, sellingPriceMinor: 6000, currency: 'NGN',
     }))
-    expect(res.status).toBe(400)
-    expect((await res.json()).code).toBe('CURRENCY_MISMATCH')
+    expect(res.status).toBe(200)
+    expect(getStandardRate).toHaveBeenCalledWith('NGN', 'GBP', expect.any(Number))
+    expect(mockPrisma.quoteItem.create).toHaveBeenCalled()
+    const createArgs = mockPrisma.quoteItem.create.mock.calls[0][0]
+    // 50.00 NGN * 0.0005 = 0.025 GBP -> rounds to 0.03 -> 3 minor units.
+    expect(createArgs.data.costMinor).toBe(BigInt(3))
+    expect(createArgs.data.currency).toBe('GBP')
+    expect(createArgs.data.supplierCostMinor).toBe(BigInt(5000))
+    expect(createArgs.data.supplierCurrency).toBe('NGN')
+  })
+
+  it('activity: FX failure is rejected before any write, same as hotel/flight', async () => {
+    ;(getStandardRate as jest.Mock).mockResolvedValue(null)
+    const res = await POST(req({
+      type: 'activity', quoteId: 'q1', offer: ACTIVITY_OFFER,
+      costMinor: 5000, markupMinor: 1000, serviceFeeMinor: 0, sellingPriceMinor: 6000, currency: 'NGN',
+    }))
+    expect(res.status).toBe(502)
+    expect((await res.json()).code).toBe('FX_RATE_UNAVAILABLE')
     expect(mockPrisma.quoteItem.create).not.toHaveBeenCalled()
   })
 
@@ -164,14 +228,38 @@ describe('add-to-quote currency guard (server-side defense in depth)', () => {
     expect(res.status).toBe(200)
   })
 
-  it('the guard is checked before any .create() call — source pin', () => {
+  // V1.3 — the old blanket "payload.currency !== quote.currency ->
+  // CURRENCY_MISMATCH" check (a single pre-branch gate) no longer exists —
+  // it has been replaced by per-branch server-authoritative FX conversion,
+  // confirmed behaviorally above. The equivalent invariant worth pinning
+  // now is that every branch's FX-failure check ("FX_RATE_UNAVAILABLE" /
+  // "FX_RATE_IMPLAUSIBLE") is still checked and returned BEFORE that
+  // branch's own .create() calls — i.e. a failed conversion can never
+  // reach a database write, exactly the same "guard before create"
+  // property the old test pinned, applied to the new mechanism.
+  it('FX failure codes are checked (and returned) before that branch\'s own .create() calls — source pin, checked per branch', () => {
     const routeSrc = fs.readFileSync(
       path.join(process.cwd(), 'app/api/admin/travel-search/add-to-quote/route.ts'), 'utf8',
     )
-    const guardIdx = routeSrc.indexOf('CURRENCY_MISMATCH')
-    const firstCreateIdx = routeSrc.indexOf('.create(')
-    expect(guardIdx).toBeGreaterThan(-1)
-    expect(guardIdx).toBeLessThan(firstCreateIdx)
+    expect(routeSrc).not.toContain('CURRENCY_MISMATCH')
+    expect((routeSrc.match(/converted\.code/g) ?? []).length).toBe(3) // flight, hotel, activity/transfer branches
+
+    const branchBounds: [string, string | null][] = [
+      ["payload.type === 'flight'", "payload.type === 'hotel'"],
+      ["payload.type === 'hotel'", "payload.type === 'activity'"],
+      ["payload.type === 'activity'", null],
+    ]
+    for (const [startNeedle, endNeedle] of branchBounds) {
+      const start = routeSrc.indexOf(startNeedle)
+      const end = endNeedle ? routeSrc.indexOf(endNeedle) : routeSrc.length
+      expect(start).toBeGreaterThan(-1)
+      const branchSrc = routeSrc.slice(start, end)
+      const guardIdx = branchSrc.indexOf('converted.code')
+      const firstCreateIdx = branchSrc.indexOf('.create(')
+      expect(guardIdx).toBeGreaterThan(-1)
+      expect(firstCreateIdx).toBeGreaterThan(-1)
+      expect(guardIdx).toBeLessThan(firstCreateIdx)
+    }
   })
 })
 

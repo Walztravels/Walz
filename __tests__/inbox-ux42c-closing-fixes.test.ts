@@ -51,16 +51,19 @@ describe('Fix 1 — session-expiry (401) handling on the 8 new fetch call sites'
     expect(hookSrc).toContain('const router = useRouter()')
   })
 
-  // 8 occurrences of the `return }` variant (the original 7 call sites plus
-  // handleFinalize, added in a follow-up closing pass once QA additionally
-  // flagged that handleCreate/handleFinalize — CreateQuoteDrawer's two
-  // pre-existing quote-persistence calls — were the same regression class
-  // even though they predate this release's 8-site fix list). handleCreate
-  // uses a `return null` variant (it returns `GeneratedQuote | null`),
-  // checked separately below.
-  it('8 fetch call sites in useQuoteBuilderState check res.status === 401 and redirect to /admin/login (`return` variant)', () => {
+  // 11 occurrences of the `return }` variant: the original 8 (7 call sites
+  // plus handleFinalize, added in a follow-up closing pass once QA flagged
+  // that handleCreate/handleFinalize — CreateQuoteDrawer's two pre-existing
+  // quote-persistence calls — were the same regression class even though
+  // they predate this release's 8-site fix list) plus 3 more added by
+  // V1.3's removeAttachedItem/updateAttachedItemPricing/recalculateCurrency
+  // (the new Remove/Edit-pricing/Recalculate-currency endpoint calls),
+  // which follow the identical 401-redirect convention. createRevision (a
+  // `{id,reference} | null`-returning call, like handleCreate) uses a
+  // `return null` variant instead, checked separately below.
+  it('11 fetch call sites in useQuoteBuilderState check res.status === 401 and redirect to /admin/login (`return` variant)', () => {
     const occurrences = hookSrc.split("if (res.status === 401) { router.push('/admin/login'); return }").length - 1
-    expect(occurrences).toBe(8)
+    expect(occurrences).toBe(11)
   })
 
   it('handleCreate (the `GeneratedQuote | null`-returning quote-persistence call) also checks res.status === 401', () => {
