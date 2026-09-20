@@ -1,6 +1,6 @@
 'use client'
 import { useEffect, useState, useRef, KeyboardEvent } from 'react'
-import { Send, Lock, Paperclip, X, FileText } from 'lucide-react'
+import { Send, Lock, Paperclip, X, FileText, Wand2 } from 'lucide-react'
 import { useComposerDraft } from '../ComposerDraftContext'
 
 interface Props {
@@ -20,23 +20,42 @@ export function ReplyBox({ onSend, disabled }: Props) {
 
   // UX-2: Jade talks to the composer through the draft context — the
   // ChatWindow → ReplyBox JSX line is pinned, so no new props here.
-  const { registerInserter, openCopilot } = useComposerDraft()
+  const { registerInserter, openCopilot, registerReplacer, registerTextProvider, openJadeMenu } = useComposerDraft()
+
+  function refocusAndResize() {
+    requestAnimationFrame(() => {
+      const el = textareaRef.current
+      if (!el) return
+      el.focus()
+      el.style.height = 'auto'
+      el.style.height = Math.min(el.scrollHeight, 120) + 'px'
+      el.setSelectionRange(el.value.length, el.value.length)
+    })
+  }
+
   useEffect(() => {
     registerInserter((draft: string) => {
       setMode('reply')
       setText(prev => (prev.trim() ? `${prev}\n\n${draft}` : draft))
-      // Refocus + resize after React commits the new value (same autosize rule
-      // as handleInput: grow to content, capped at 120px).
-      requestAnimationFrame(() => {
-        const el = textareaRef.current
-        if (!el) return
-        el.focus()
-        el.style.height = 'auto'
-        el.style.height = Math.min(el.scrollHeight, 120) + 'px'
-        el.setSelectionRange(el.value.length, el.value.length)
-      })
+      refocusAndResize()
     })
   }, [registerInserter])
+
+  // V1.4 — Jade writing-assist transforms (Fix Writing/Professionalize/tone/
+  // Translate) act on whatever staff already typed and REPLACE it outright,
+  // never appending like insertDraft does. Deliberately does NOT touch
+  // `mode` — a private note must never silently become a reply (or vice
+  // versa) just because a transform was applied (owner decision 14).
+  useEffect(() => {
+    registerReplacer((next: string) => {
+      setText(next)
+      refocusAndResize()
+    })
+  }, [registerReplacer])
+
+  useEffect(() => {
+    registerTextProvider(() => ({ text, mode }))
+  }, [registerTextProvider, text, mode])
 
   const isPrivate = mode === 'note'
   const canSend   = (text.trim().length > 0 || file !== null) && !sending && !disabled
@@ -164,6 +183,22 @@ export function ReplyBox({ onSend, disabled }: Props) {
               >
                 <span className="text-walz-gold text-sm leading-none">✨</span> Jade
               </button>
+              {/* V1.4 — a SEPARATE structured writing-assist menu (Fix Writing,
+                  tone changes, Translate, Draft Reply, Summarize, Suggested
+                  Actions), distinct from the free-form "Ask Jade" chat above.
+                  Distinguished by icon (wand, not sparkle) and label ("Write"
+                  vs "Jade") so staff can tell the two triggers apart — never
+                  icon-only (see the "bare sparkle was undiscoverable" note
+                  on the button above; the same mistake applies here). */}
+              <button
+                type="button"
+                onClick={openJadeMenu}
+                title="Write with Jade"
+                aria-label="Write with Jade"
+                className="md:hidden min-w-[44px] min-h-[44px] -my-3 flex items-center justify-center gap-1 px-1.5 rounded-lg text-[11px] font-semibold text-walz-muted-strong hover:text-walz-navy hover:bg-walz-navy/5 transition-colors"
+              >
+                <Wand2 className="w-3.5 h-3.5 text-blue-600" /> Write
+              </button>
               <input
                 ref={fileInputRef}
                 type="file"
@@ -195,6 +230,15 @@ export function ReplyBox({ onSend, disabled }: Props) {
             className="flex items-center gap-1 border border-walz-border rounded-lg px-2.5 py-1.5 hover:bg-walz-navy/5 text-[11px] font-semibold text-walz-muted-strong hover:text-walz-navy transition-colors"
           >
             <span className="text-walz-gold">✨</span> Ask Jade
+          </button>
+          {/* V1.4 — separate structured writing-assist trigger, next to but
+              visually distinct from Ask Jade (icon + label both differ). */}
+          <button
+            type="button"
+            onClick={openJadeMenu}
+            className="ml-1.5 flex items-center gap-1 border border-walz-border rounded-lg px-2.5 py-1.5 hover:bg-walz-navy/5 text-[11px] font-semibold text-walz-muted-strong hover:text-walz-navy transition-colors"
+          >
+            <Wand2 className="w-3 h-3 text-blue-600" /> Write with Jade
           </button>
         </div>
       </div>

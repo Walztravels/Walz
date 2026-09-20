@@ -7,6 +7,7 @@ import { ConversationList } from './components/ConversationList'
 import { ChatWindow } from './components/ChatWindow'
 import { ClientInfo, LinkedAppSummary } from './components/ClientInfo'
 import { InboxJadeCopilot } from './components/InboxJadeCopilot'
+import { JadeAssistPanel } from './components/JadeAssistPanel'
 import { ApplicationLookupDrawer } from '@/components/admin/ApplicationLookupDrawer'
 import { StaffModal } from './components/StaffModal'
 import { DetailsDrawer } from './components/DetailsDrawer'
@@ -177,10 +178,21 @@ function InboxPageInner() {
   // Staff Jade copilot panel (stub this release) — opened from ReplyBox via the
   // composer draft context; while open on desktop it takes the ClientInfo slot.
   const [copilotOpen, setCopilotOpen] = useState(false)
-  const { registerCopilotOpener } = useComposerDraft()
+  // V1.4 — the structured "Write with Jade" panel. Shares the SAME
+  // bottom-sheet slot as the copilot on mobile, and the SAME ClientInfo
+  // rail slot as the copilot on desktop (see JadeAssistPanel.tsx and the
+  // `!jadeAssistOpen` wrapper around the rail's render condition below).
+  // Opening one closes the other regardless — they're never shown at
+  // once, matching the same discipline as closeOtherActionOverlays for
+  // the Client Action Centre.
+  const [jadeAssistOpen, setJadeAssistOpen] = useState(false)
+  const { registerCopilotOpener, registerJadeMenuOpener } = useComposerDraft()
   useEffect(() => {
-    registerCopilotOpener(() => setCopilotOpen(true))
+    registerCopilotOpener(() => { setJadeAssistOpen(false); setCopilotOpen(true) })
   }, [registerCopilotOpener])
+  useEffect(() => {
+    registerJadeMenuOpener(() => { setCopilotOpen(false); setJadeAssistOpen(true) })
+  }, [registerJadeMenuOpener])
   // UX-4: any screen change closes the copilot sheet and the details drawer
   // (the hook already closes the drawer; the copilot lives here) and moves
   // focus below md — into the conversation region on enter, back to the
@@ -190,6 +202,7 @@ function InboxPageInner() {
     if (prevScreenRef.current === screens.screen) return
     prevScreenRef.current = screens.screen
     setCopilotOpen(false)
+    setJadeAssistOpen(false) // V1.4: same discipline as the copilot sheet
     setPaymentOpen(false)   // UX-4.1B: overlays never survive a screen change
     setQuoteOpen(false)     // UX-4.2: same discipline
     setIdentityDrawer(null) // UX-4.1C: same discipline
@@ -899,26 +912,43 @@ function InboxPageInner() {
       )}
 
       {/* Client info — hidden on mobile, visible on large screens only.
-          While the copilot is open on desktop, the copilot panel takes this
-          slot so the conversation keeps its width. */}
-      {selected && !copilotOpen && (
-        <div className="hidden lg:flex min-h-0">
-          <ClientInfo
-            conv={selected}
-            agents={agents}
-            onAssign={handleAssign}
-            onResolve={handleResolve}
-            onReopen={handleReopen}
-            linkedApp={activeLinkedApp}
-            onOpenLookup={() => setShowAppLookup(true)}
-            onOpenPaymentRequest={openPaymentRequest}
-            onOpenVisaForm={openVisaForm}
-            onOpenItineraryRequest={openItineraryRequest}
-            onOpenClientIdentity={openClientIdentity}
-            identityRefreshToken={identityRefreshToken}
-            onOpenCreateQuote={openCreateQuote}
-          />
-        </div>
+          While EITHER Jade panel is open on desktop, that panel takes this
+          slot so the conversation keeps its width — exactly like the
+          existing copilot always did. The V1.4 writing-assist panel was
+          initially built as a floating overlay instead (to avoid touching
+          the inner `{selected && !copilotOpen && (` condition, which
+          inbox-ux2-conversation.test.ts and
+          inbox-action-centre-drawer-shell.test.ts both pin verbatim via
+          substring containment) — an independent QA review found that
+          floating card geometrically occludes both this rail and the
+          composer's Send button, since a panel wide enough to be usable
+          cannot avoid overlapping a fixed-position float anchored to the
+          viewport. Fixed by wrapping the ORIGINAL pinned condition in a new
+          OUTER `{!jadeAssistOpen && (...)}` check instead of editing it —
+          the pinned substring, and everything the two tests slice out of
+          it, is untouched character-for-character. */}
+      {!jadeAssistOpen && (
+        <>
+          {selected && !copilotOpen && (
+            <div className="hidden lg:flex min-h-0">
+              <ClientInfo
+                conv={selected}
+                agents={agents}
+                onAssign={handleAssign}
+                onResolve={handleResolve}
+                onReopen={handleReopen}
+                linkedApp={activeLinkedApp}
+                onOpenLookup={() => setShowAppLookup(true)}
+                onOpenPaymentRequest={openPaymentRequest}
+                onOpenVisaForm={openVisaForm}
+                onOpenItineraryRequest={openItineraryRequest}
+                onOpenClientIdentity={openClientIdentity}
+                identityRefreshToken={identityRefreshToken}
+                onOpenCreateQuote={openCreateQuote}
+              />
+            </div>
+          )}
+        </>
       )}
 
       {/* Staff Jade copilot — stub panel this release (desktop peer panel /
@@ -932,6 +962,28 @@ function InboxPageInner() {
         contactEmail={selected?.meta?.sender?.email}
         contactPhone={selected?.meta?.sender?.phone_number}
         recentMessages={recentMessages}
+      />
+
+      {/* V1.4 — structured "Write with Jade" writing-assist panel (Fix
+          Writing/tone/Translate/Draft Reply/Summarize/Suggested Actions).
+          A SEPARATE surface from the free-form Staff Jade copilot above —
+          same mobile bottom-sheet contract AND the same rail-replacing
+          peer-panel treatment on desktop (see JadeAssistPanel.tsx), same
+          props derivation, never open at the same time as the copilot. */}
+      <JadeAssistPanel
+        open={jadeAssistOpen}
+        onClose={() => setJadeAssistOpen(false)}
+        conversationId={selected?.id ?? null}
+        channel={selected ? (selected.channel ?? selected.meta?.channel ?? 'Web').replace('Channel::', '') : ''}
+        contactName={selected?.meta?.sender?.name ?? ''}
+        contactEmail={selected?.meta?.sender?.email}
+        contactPhone={selected?.meta?.sender?.phone_number}
+        recentMessages={recentMessages}
+        onOpenCreateQuote={openCreateQuote}
+        onOpenPaymentRequest={openPaymentRequest}
+        onOpenVisaForm={openVisaForm}
+        onOpenItineraryRequest={openItineraryRequest}
+        onOpenClientIdentity={openClientIdentity}
       />
 
       {/* Client details — UX-4 DetailsDrawer (right-side slide-in below lg,
