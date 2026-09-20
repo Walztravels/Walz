@@ -8,6 +8,7 @@ import { ChatWindow } from './components/ChatWindow'
 import { ClientInfo, LinkedAppSummary } from './components/ClientInfo'
 import { InboxJadeCopilot } from './components/InboxJadeCopilot'
 import { JadeAssistPanel } from './components/JadeAssistPanel'
+import { AskTeamPanel } from './components/AskTeamPanel'
 import { ApplicationLookupDrawer } from '@/components/admin/ApplicationLookupDrawer'
 import { StaffModal } from './components/StaffModal'
 import { DetailsDrawer } from './components/DetailsDrawer'
@@ -186,13 +187,21 @@ function InboxPageInner() {
   // once, matching the same discipline as closeOtherActionOverlays for
   // the Client Action Centre.
   const [jadeAssistOpen, setJadeAssistOpen] = useState(false)
-  const { registerCopilotOpener, registerJadeMenuOpener } = useComposerDraft()
+  // Team Hub — "Ask Team" panel. A THIRD surface sharing the same
+  // mutual-exclusion discipline as the two Jade panels above: opening any
+  // one of the three closes the other two, and none renders while another
+  // is open (see the outer-wrap extension below).
+  const [askTeamOpen, setAskTeamOpen] = useState(false)
+  const { registerCopilotOpener, registerJadeMenuOpener, registerAskTeamOpener } = useComposerDraft()
   useEffect(() => {
-    registerCopilotOpener(() => { setJadeAssistOpen(false); setCopilotOpen(true) })
+    registerCopilotOpener(() => { setJadeAssistOpen(false); setAskTeamOpen(false); setCopilotOpen(true) })
   }, [registerCopilotOpener])
   useEffect(() => {
-    registerJadeMenuOpener(() => { setCopilotOpen(false); setJadeAssistOpen(true) })
+    registerJadeMenuOpener(() => { setCopilotOpen(false); setAskTeamOpen(false); setJadeAssistOpen(true) })
   }, [registerJadeMenuOpener])
+  useEffect(() => {
+    registerAskTeamOpener(() => { setCopilotOpen(false); setJadeAssistOpen(false); setAskTeamOpen(true) })
+  }, [registerAskTeamOpener])
   // UX-4: any screen change closes the copilot sheet and the details drawer
   // (the hook already closes the drawer; the copilot lives here) and moves
   // focus below md — into the conversation region on enter, back to the
@@ -203,6 +212,7 @@ function InboxPageInner() {
     prevScreenRef.current = screens.screen
     setCopilotOpen(false)
     setJadeAssistOpen(false) // V1.4: same discipline as the copilot sheet
+    setAskTeamOpen(false)   // Team Hub: same discipline as the two Jade sheets
     setPaymentOpen(false)   // UX-4.1B: overlays never survive a screen change
     setQuoteOpen(false)     // UX-4.2: same discipline
     setIdentityDrawer(null) // UX-4.1C: same discipline
@@ -926,7 +936,17 @@ function InboxPageInner() {
           viewport. Fixed by wrapping the ORIGINAL pinned condition in a new
           OUTER `{!jadeAssistOpen && (...)}` check instead of editing it —
           the pinned substring, and everything the two tests slice out of
-          it, is untouched character-for-character. */}
+          it, is untouched character-for-character.
+
+          Team Hub's "Ask Team" panel (askTeamOpen) gets its OWN additional
+          outer wrap layer rather than editing the existing `{!jadeAssistOpen
+          && (` line in place — __tests__/jade-assist-panel-desktop-layout.
+          test.ts pins THAT exact substring too (`{!jadeAssistOpen && (` immediately
+          followed by `<>` then the `{selected && !copilotOpen && (` line).
+          Nesting one more `{!askTeamOpen && (...)}` around the untouched
+          block keeps every pinned substring byte-for-byte intact. */}
+      {!askTeamOpen && (
+      <>
       {!jadeAssistOpen && (
         <>
           {selected && !copilotOpen && (
@@ -949,6 +969,8 @@ function InboxPageInner() {
             </div>
           )}
         </>
+      )}
+      </>
       )}
 
       {/* Staff Jade copilot — stub panel this release (desktop peer panel /
@@ -984,6 +1006,17 @@ function InboxPageInner() {
         onOpenVisaForm={openVisaForm}
         onOpenItineraryRequest={openItineraryRequest}
         onOpenClientIdentity={openClientIdentity}
+      />
+
+      {/* Team Hub — "Ask Team" panel. Opened via the composer's Ask Team
+          button (ComposerDraftContext's openAskTeam), scoped to whichever
+          Inbox conversation is currently selected. Same mutual-exclusion
+          discipline as the two Jade panels above (see askTeamOpen state
+          and its resets). */}
+      <AskTeamPanel
+        open={askTeamOpen}
+        onClose={() => setAskTeamOpen(false)}
+        conversationId={selected?.id ?? null}
       />
 
       {/* Client details — UX-4 DetailsDrawer (right-side slide-in below lg,

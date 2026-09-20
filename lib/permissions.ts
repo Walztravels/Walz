@@ -103,6 +103,12 @@ export type PermissionKey =
   | 'inbox_reply'
   | 'inbox_assign'
   | 'inbox_delete'
+  // Team Hub — baseline messaging/DM/call access derives from active Staff
+  // status alone (gated via getAdminSession()'s own isActive check, not a
+  // permission key here — see lib/team/authz.ts). These two keys are ONLY
+  // for elevated, non-default capabilities layered on top.
+  | 'team_hub_channel_manage'  // create/archive channels, manage PRIVATE channel membership
+  | 'team_hub_admin'           // Team Hub system settings, health, audit-event viewing
   // Notifications
   | 'notifications_view'
   | 'notifications_send'
@@ -227,6 +233,8 @@ export const EMPTY_PERMISSIONS: Permissions = {
   inbox_reply: false,
   inbox_assign: false,
   inbox_delete: false,
+  team_hub_channel_manage: false,
+  team_hub_admin: false,
   notifications_view: false,
   notifications_send: false,
   notifications_broadcast: false,

@@ -15,6 +15,7 @@ type Notif = {
   sourceId: string | null
   sourceType: string | null
   createdAt: string
+  data?: { conversationId?: string; messageId?: string } | null
 }
 
 const CAT_ICON: Record<string, string> = {
@@ -30,6 +31,15 @@ const CAT_ICON: Record<string, string> = {
 function sourceLink(n: Notif): string | null {
   if (n.sourceType === 'announcement' && n.sourceId) return `/admin/staff-updates/${n.sourceId}`
   if (n.sourceType === 'brief') return '/admin/jade/briefs'
+  // Team Hub V1 — deep-link into the conversation (and, when available,
+  // straight to the specific message) via the `data` JSON payload written
+  // by lib/team/notify.ts's wrapper functions.
+  if (n.sourceType === 'team_dm' || n.sourceType === 'team_mention' || n.sourceType === 'team_channel_invite' || n.sourceType === 'team_thread_reply') {
+    const conversationId = n.data?.conversationId
+    if (!conversationId) return null
+    const messageId = n.data?.messageId
+    return messageId ? `/admin/team?c=${conversationId}&m=${messageId}` : `/admin/team?c=${conversationId}`
+  }
   return null
 }
 

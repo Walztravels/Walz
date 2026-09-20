@@ -141,6 +141,28 @@ export async function middleware(req: NextRequest) {
     return NextResponse.next()
   }
 
+  // ── Team Hub Twilio routes (QA finding: defense-in-depth) ────────────────────
+  // These live outside /api/admin/team on purpose (see app/api/team/twilio/
+  // token/route.ts's header — deliberately isolated from client-calling
+  // infra), which meant they previously had no middleware-level auth net at
+  // all, relying solely on each route's own getAdminSession() check.
+  if (pathname.startsWith('/api/team')) {
+    // The voice webhook is called BY TWILIO'S SERVERS, not a staff browser —
+    // it carries no admin session cookie and never can. It authenticates
+    // itself independently (Twilio's signed `From` param, active-staff and
+    // conversation-membership checks — see the route's own header), exactly
+    // like the Resend-inbound-webhook exclusion above. Gating it here would
+    // 401 every legitimate call.
+    if (pathname === '/api/team/twilio/voice') {
+      return NextResponse.next()
+    }
+    const session = await verifyAdminCookie(req)
+    if (!session) {
+      return NextResponse.json({ error: 'Unauthorised' }, { status: 401 })
+    }
+    return NextResponse.next()
+  }
+
   // ── User-facing protected routes (next-auth) ──────────────────────────────────
   // cookieName must match authOptions.cookies.sessionToken.name exactly —
   // getToken() defaults to __Secure-* on HTTPS which mismatches our explicit name
@@ -178,6 +200,7 @@ export const config = {
   matcher: [
     '/admin/:path*',
     '/api/admin/:path*',
+    '/api/team/:path*',
     '/dashboard',
     '/dashboard/:path*',
     '/portal',

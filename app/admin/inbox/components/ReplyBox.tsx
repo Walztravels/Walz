@@ -1,7 +1,9 @@
 'use client'
 import { useEffect, useState, useRef, KeyboardEvent } from 'react'
-import { Send, Lock, Paperclip, X, FileText, Wand2 } from 'lucide-react'
+import { useSearchParams } from 'next/navigation'
+import { Send, Lock, Paperclip, X, FileText, Wand2, Users } from 'lucide-react'
 import { useComposerDraft } from '../ComposerDraftContext'
+import { consumePendingClientDraft } from '@/lib/team/client-reply-handoff'
 
 interface Props {
   onSend: (content: string, isPrivate: boolean, file?: File) => Promise<void | boolean>
@@ -20,7 +22,7 @@ export function ReplyBox({ onSend, disabled }: Props) {
 
   // UX-2: Jade talks to the composer through the draft context — the
   // ChatWindow → ReplyBox JSX line is pinned, so no new props here.
-  const { registerInserter, openCopilot, registerReplacer, registerTextProvider, openJadeMenu } = useComposerDraft()
+  const { registerInserter, openCopilot, registerReplacer, registerTextProvider, openJadeMenu, openAskTeam } = useComposerDraft()
 
   function refocusAndResize() {
     requestAnimationFrame(() => {
@@ -56,6 +58,21 @@ export function ReplyBox({ onSend, disabled }: Props) {
   useEffect(() => {
     registerTextProvider(() => ({ text, mode }))
   }, [registerTextProvider, text, mode])
+
+  // Team Hub "Prepare Client Reply" handoff — see lib/team/client-reply-handoff.ts.
+  // Consumed at most once per conversation id; never auto-sends, only prefills
+  // for staff to review (owner "NO AUTO-SEND" invariant).
+  const searchParams = useSearchParams()
+  useEffect(() => {
+    const conversationId = searchParams.get('c') ?? searchParams.get('lead')
+    if (!conversationId) return
+    const pending = consumePendingClientDraft(conversationId)
+    if (!pending) return
+    setMode('reply')
+    setText(prev => (prev.trim() ? prev : pending))
+    refocusAndResize()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams])
 
   const isPrivate = mode === 'note'
   const canSend   = (text.trim().length > 0 || file !== null) && !sending && !disabled
@@ -199,6 +216,20 @@ export function ReplyBox({ onSend, disabled }: Props) {
               >
                 <Wand2 className="w-3.5 h-3.5 text-blue-600" /> Write
               </button>
+              {/* Team Hub — "Ask Team" opens the AskTeamPanel to message a
+                  colleague / ask a channel / start an internal discussion
+                  about this client conversation. A SEPARATE, additive
+                  trigger from the two Jade buttons above — distinguished by
+                  icon (people, not sparkle/wand) and label. */}
+              <button
+                type="button"
+                onClick={openAskTeam}
+                title="Ask Team"
+                aria-label="Ask Team"
+                className="md:hidden min-w-[44px] min-h-[44px] -my-3 flex items-center justify-center gap-1 px-1.5 rounded-lg text-[11px] font-semibold text-walz-muted-strong hover:text-walz-navy hover:bg-walz-navy/5 transition-colors"
+              >
+                <Users className="w-3.5 h-3.5 text-emerald-600" /> Team
+              </button>
               <input
                 ref={fileInputRef}
                 type="file"
@@ -239,6 +270,15 @@ export function ReplyBox({ onSend, disabled }: Props) {
             className="ml-1.5 flex items-center gap-1 border border-walz-border rounded-lg px-2.5 py-1.5 hover:bg-walz-navy/5 text-[11px] font-semibold text-walz-muted-strong hover:text-walz-navy transition-colors"
           >
             <Wand2 className="w-3 h-3 text-blue-600" /> Write with Jade
+          </button>
+          {/* Team Hub — desktop "Ask Team" trigger, additive sibling to the
+              two Jade buttons above. */}
+          <button
+            type="button"
+            onClick={openAskTeam}
+            className="ml-1.5 flex items-center gap-1 border border-walz-border rounded-lg px-2.5 py-1.5 hover:bg-walz-navy/5 text-[11px] font-semibold text-walz-muted-strong hover:text-walz-navy transition-colors"
+          >
+            <Users className="w-3 h-3 text-emerald-600" /> Ask Team
           </button>
         </div>
       </div>

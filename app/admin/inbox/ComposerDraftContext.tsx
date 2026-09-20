@@ -25,6 +25,14 @@
 //     existing free-form Ask Jade panel). Both remain; they serve different
 //     purposes and neither replaces the other.
 //
+// Team Hub "Ask Team" addition follows the exact same pattern:
+//   - openAskTeam/registerAskTeamOpener: opens the AskTeamPanel (message a
+//     colleague / ask a channel / start a discussion about the currently-
+//     selected Inbox conversation). A THIRD, independent surface — never
+//     open at the same time as the copilot or the Jade writing-assist menu
+//     (the inbox page's own mutual-exclusion wiring enforces that, exactly
+//     like it already does for the other two).
+//
 // All functions are no-ops until something registers — safe to call anywhere.
 
 import { createContext, useContext, useMemo, useRef, ReactNode } from 'react'
@@ -55,6 +63,10 @@ export interface ComposerDraftApi {
   openJadeMenu: () => void
   /** The inbox page registers how the Jade assist menu opens. */
   registerJadeMenuOpener: (fn: () => void) => void
+  /** Open the Team Hub "Ask Team" panel for the currently-selected Inbox conversation (no-op until the page registers). */
+  openAskTeam: () => void
+  /** The inbox page registers how the Ask Team panel opens. */
+  registerAskTeamOpener: (fn: () => void) => void
 }
 
 const noop = () => {}
@@ -71,6 +83,8 @@ const ComposerDraftContext = createContext<ComposerDraftApi>({
   registerTextProvider: noop,
   openJadeMenu: noop,
   registerJadeMenuOpener: noop,
+  openAskTeam: noop,
+  registerAskTeamOpener: noop,
 })
 
 export function ComposerDraftProvider({ children }: { children: ReactNode }) {
@@ -79,6 +93,7 @@ export function ComposerDraftProvider({ children }: { children: ReactNode }) {
   const replacerRef = useRef<(text: string) => void>(noop)
   const textProviderRef = useRef<() => ComposerTextSnapshot>(defaultTextProvider)
   const jadeMenuOpenerRef = useRef<() => void>(noop)
+  const askTeamOpenerRef = useRef<() => void>(noop)
 
   const api = useMemo<ComposerDraftApi>(() => ({
     insertDraft:            (text: string) => inserterRef.current(text),
@@ -91,6 +106,8 @@ export function ComposerDraftProvider({ children }: { children: ReactNode }) {
     registerTextProvider:   (fn: () => ComposerTextSnapshot) => { textProviderRef.current = fn },
     openJadeMenu:           () => jadeMenuOpenerRef.current(),
     registerJadeMenuOpener: (fn: () => void) => { jadeMenuOpenerRef.current = fn },
+    openAskTeam:            () => askTeamOpenerRef.current(),
+    registerAskTeamOpener:  (fn: () => void) => { askTeamOpenerRef.current = fn },
   }), [])
 
   return (

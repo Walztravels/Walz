@@ -593,6 +593,19 @@ model Staff {
   announcements    StaffAnnouncement[]
   notifications    StaffNotification[]
 
+  // Team Hub (V1) — internal staff communication. See the "Team Hub" model
+  // block at the end of this file for the full feature.
+  teamConversationsCreated TeamConversation[]       @relation("TeamConversationCreator")
+  teamMemberships          TeamConversationMember[]
+  teamMessagesAuthored     TeamMessage[]            @relation("TeamMessageAuthor")
+  teamMessagesDeleted      TeamMessage[]            @relation("TeamMessageDeletedBy")
+  teamReactions            TeamMessageReaction[]
+  teamMentionsReceived     TeamMention[]
+  teamAttachmentsUploaded  TeamMessageAttachment[]
+  teamCallsInitiated       TeamCallRecord[]
+  teamCallParticipations   TeamCallParticipant[]
+  teamInboxLinksCreated    TeamInboxDiscussionLink[]
+
   @@index([email])
   @@index([isActive])
   @@index([accessLevel])
@@ -5884,4 +5897,292 @@ model CvExtraction {
   @@index([documentId, checksum])
   @@index([applicationId, createdAt])
   @@map("cv_extractions")
+}
+
+// ── Team Hub (V1) — internal staff communication ─────────────────────────────
+//
+// Native staff-to-staff messaging (DMs, group DMs, channels), threads,
+// reactions, mentions, attachments, call history, and a controlled bridge
+// to the client-facing Inbox. Entirely additive — no existing table is
+// altered. Applied via a hand-run Supabase SQL editor migration, per this
+// repository's own established convention — NEVER `prisma db push`/
+// `prisma migrate`.
+//
+// One `TeamConversation` row represents a DM, a group DM, or a channel
+// (`type` discriminator) rather than three separate tables — all three need
+// identical membership/message/thread/reaction/attachment machinery, and a
+// single `TeamConversationMember` table is what makes DM-uniqueness (dmKey,
+// below) and the per-conversation read-cursor (lastReadMessageId/At) clean.
+//
+// Threads are NOT a separate table — `TeamMessage.parentMessageId` is a
+// self-relation (mirroring this schema's own `Staff.managerId` pattern):
+// null = top-level message, non-null = a threaded reply to that message.
+// Unread state is NOT one row per user per message — it lives as two
+// cursor fields directly on `TeamConversationMember`.
+
+model TeamConversation {
+  id                 String    @id @default(cuid())
+  type               String    @map("type")                 // 'DM' | 'GROUP' | 'CHANNEL' — CHECK-constrained in SQL
+  name               String?                                  // null for DM; required for GROUP/CHANNEL
+  description        String?   @db.Text
+  slug               String?   @unique                        // channels only, e.g. "reservations"
+  visibility         String?   @map("visibility")            // 'PUBLIC' | 'PRIVATE' — channels only, CHECK-constrained
+  // PUBLIC channels are freely joinable by any active staff member UNLESS
+  // this is false, in which case the channel is still discoverable/listed
+  // but membership is invitation-only (owner decision — "membership-
+  // controlled" public channels). Irrelevant for PRIVATE (always
+  // invite-only) and DM/GROUP (membership is fixed at creation + explicit
+  // add, never self-join).
+  joinable           Boolean   @default(true) @map("joinable")
+  // Canonical, sorted "<minStaffId>:<maxStaffId>" pair — set ONLY for
+  // type='DM'. A partial unique index (SQL, WHERE type='DM') guarantees
+  // at most one DM conversation ever exists between the same two staff
+  // members, enforced at the database level, not just in application code.
+  dmKey              String?   @unique @map("dm_key")
+  archived           Boolean   @default(false)
+  createdBy          String    @map("created_by")
+  createdAt          DateTime  @default(now()) @map("created_at")
+  updatedAt          DateTime  @updatedAt @map("updated_at")
+
+  creator            Staff                     @relation("TeamConversationCreator", fields: [createdBy], references: [id], onDelete: Restrict)
+  members            TeamConversationMember[]
+  messages           TeamMessage[]
+  calls              TeamCallRecord[]
+
+  @@index([type])
+  @@index([archived])
+  @@map("team_conversations")
+}
+
+model TeamConversationMember {
+  id                String    @id @default(cuid())
+  conversationId    String    @map("conversation_id")
+  staffId           String    @map("staff_id")
+  // 'member' | 'admin' — 'admin' means channel creator/owner or an
+  // explicitly-authorized channel manager for THIS conversation; only
+  // relevant for GROUP/CHANNEL membership management (owner decision 5).
+  role              String    @default("member") @map("role")
+  // Read-cursor — NEVER a per-message row. Unread count for this member is
+  // computed live: COUNT(team_messages WHERE conversation_id=X AND
+  // created_at > lastReadAt AND deleted_at IS NULL).
+  lastReadMessageId String?   @map("last_read_message_id")
+  lastReadAt        DateTime? @map("last_read_at")
+  mutedUntil        DateTime? @map("muted_until")
+  joinedAt          DateTime  @default(now()) @map("joined_at")
+  // Soft-remove — a departed member's past messages remain attributed to
+  // them (Message.authorId is a separate, onDelete:Restrict relation) even
+  // after they leave/are removed.
+  leftAt            DateTime? @map("left_at")
+
+  conversation      TeamConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  staff             Staff            @relation(fields: [staffId], references: [id], onDelete: Cascade)
+
+  @@unique([conversationId, staffId])
+  @@index([staffId])
+  @@index([conversationId])
+  @@map("team_conversation_members")
+}
+
+model TeamMessage {
+  id               String    @id @default(cuid())
+  conversationId   String    @map("conversation_id")
+  authorId         String    @map("author_id")
+  // null = top-level message; non-null = a threaded reply to that message
+  // (self-relation — no separate thread table).
+  parentMessageId  String?   @map("parent_message_id")
+  body             String    @db.Text
+  editedAt         DateTime? @map("edited_at")
+  // Tombstone — NEVER hard-deleted. Author self-delete or an authorized
+  // Team Hub administrator's moderation delete (owner decision 7); which
+  // one is recorded via deletedBy, distinct from authorId, for audit.
+  deletedAt        DateTime? @map("deleted_at")
+  deletedBy        String?   @map("deleted_by")
+  createdAt        DateTime  @default(now()) @map("created_at")
+
+  conversation     TeamConversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  author           Staff            @relation("TeamMessageAuthor", fields: [authorId], references: [id], onDelete: Restrict)
+  deletedByStaff   Staff?           @relation("TeamMessageDeletedBy", fields: [deletedBy], references: [id], onDelete: SetNull)
+  parentMessage    TeamMessage?     @relation("TeamMessageReplies", fields: [parentMessageId], references: [id])
+  replies          TeamMessage[]    @relation("TeamMessageReplies")
+
+  reactions        TeamMessageReaction[]
+  mentions         TeamMention[]
+  attachments      TeamMessageAttachment[]
+  inboxDiscussionLink TeamInboxDiscussionLink?
+
+  @@index([conversationId, createdAt])
+  @@index([parentMessageId])
+  @@index([authorId])
+  @@map("team_messages")
+}
+
+model TeamMessageReaction {
+  id         String   @id @default(cuid())
+  messageId  String   @map("message_id")
+  staffId    String   @map("staff_id")
+  emoji      String
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  message    TeamMessage @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  staff      Staff       @relation(fields: [staffId], references: [id], onDelete: Cascade)
+
+  @@unique([messageId, staffId, emoji])
+  @@index([messageId])
+  @@map("team_message_reactions")
+}
+
+model TeamMention {
+  id               String   @id @default(cuid())
+  messageId        String   @map("message_id")
+  mentionedStaffId String   @map("mentioned_staff_id")
+  createdAt        DateTime @default(now()) @map("created_at")
+
+  message          TeamMessage @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  mentionedStaff   Staff       @relation(fields: [mentionedStaffId], references: [id], onDelete: Cascade)
+
+  @@unique([messageId, mentionedStaffId])
+  @@index([mentionedStaffId, createdAt])
+  @@map("team_mentions")
+}
+
+model TeamMessageAttachment {
+  id             String   @id @default(cuid())
+  messageId      String   @map("message_id")
+  // Supabase Storage path only — NEVER a signed URL. A fresh, short-lived
+  // signed URL is minted at retrieval time after re-verifying conversation
+  // membership (mirrors lib/storage/secure-documents.ts exactly).
+  storageKey     String   @map("storage_key")
+  filename       String
+  contentType    String   @map("content_type")
+  sizeBytes      Int      @map("size_bytes")
+  uploadedBy     String   @map("uploaded_by")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  message        TeamMessage @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  uploader       Staff       @relation(fields: [uploadedBy], references: [id], onDelete: Restrict)
+
+  @@index([messageId])
+  @@map("team_message_attachments")
+}
+
+model TeamCallRecord {
+  id                String    @id @default(cuid())
+  conversationId    String    @map("conversation_id")
+  // The staff member who STARTED the call. For a DM this is the caller in
+  // the ordinary sense; for a GROUP/CHANNEL call this is whoever pressed
+  // "Start Call" — NOT an ongoing "host" role with special call-control
+  // powers, just the audit-trail originator (any current member may join,
+  // same as the starter).
+  callerId          String    @map("caller_id")
+  // DM ONLY — String[] of Staff.id (caller + callee), a plain JSON array,
+  // matching this field's original V1 (1:1) design. GROUP/CHANNEL calls use
+  // the `participants` relation below instead (a group's membership is
+  // dynamic — join/leave with real timestamps — which a flat array can't
+  // represent); this field is simply unused (empty array) for those calls.
+  participantIds    Json      @default("[]") @map("participant_ids")
+  // GROUP/CHANNEL ONLY — the Twilio <Conference> friendly name, generated
+  // SERVER-SIDE at call-start time and NEVER returned in any API response
+  // to the browser. The client only ever knows this TeamCallRecord's id;
+  // the voice webhook resolves the actual conference name from THIS
+  // column, server-side, after independently re-verifying the caller's
+  // live membership — so "knowing a room/conference identifier" is never
+  // itself sufficient to join (security review requirement). Null for DM
+  // calls, which dial a specific <Client> identity instead of a conference.
+  conferenceName    String?   @map("conference_name")
+  // Opaque reference into whichever calling provider issued the call
+  // (Twilio Call SID for a DM leg — this table is provider-agnostic by
+  // design). Not meaningful for a GROUP/CHANNEL call, which has one leg
+  // per participant (see TeamCallParticipant); left null for those.
+  providerCallId    String?   @map("provider_call_id")
+  // DM statuses:    INITIATING | RINGING | ANSWERED | DECLINED | BUSY | MISSED | ENDED | FAILED
+  // GROUP/CHANNEL statuses: STARTED | ACTIVE | ENDED | FAILED
+  //   STARTED — created, no participant has joined yet (rare/transient: the
+  //             starter is added as a participant in the same transaction
+  //             that creates the record, so this collapses into ACTIVE
+  //             almost immediately in practice).
+  //   ACTIVE  — at least one participant currently has no leftAt.
+  //   ENDED   — the last remaining participant left (clean end) — see
+  //             TeamCallParticipant's header for the exact transition rule.
+  //   FAILED  — could not be established (provider error).
+  // A DM call and a GROUP/CHANNEL call never share a status value, so the
+  // two vocabularies coexisting in one CHECK-constrained column (this
+  // repo's established String+CHECK convention — see TeamConversation.type)
+  // is unambiguous per row via `conversation.type`.
+  status            String    @map("status")
+  startedAt         DateTime  @default(now()) @map("started_at")
+  answeredAt        DateTime? @map("answered_at")
+  endedAt           DateTime? @map("ended_at")
+  durationSeconds   Int?      @map("duration_seconds")
+
+  conversation      TeamConversation      @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  caller            Staff                 @relation(fields: [callerId], references: [id], onDelete: Restrict)
+  participants      TeamCallParticipant[]
+
+  @@index([conversationId, startedAt])
+  // Serves "is there already an active call for this conversation" lookups
+  // (the concurrency-guard read path — the WRITE-side guarantee is the
+  // partial unique index created directly in prisma/migrations/
+  // team_hub_v1_core.sql, `WHERE status IN ('STARTED','ACTIVE')` — Prisma's
+  // schema DSL cannot express a partial index, so, exactly like dmKey's own
+  // enforcement above, the SQL migration is the sole source of truth for
+  // this constraint; this index is a plain, unfiltered performance index).
+  @@index([conversationId, status])
+  @@index([callerId])
+  @@map("team_calls")
+}
+
+// GROUP/CHANNEL call membership — dynamic, unlike a DM's fixed 2-party
+// participantIds array. One row per (callRecordId, staffId): created on
+// first join, `leftAt` stamped on leave, cleared (rejoin) if the same
+// staff member joins again during the same still-active call. This is the
+// authoritative "who is currently in this call" source — the JOIN route
+// re-checks live TeamConversationMember (not this table) for authorization
+// on every join attempt, so a removed member cannot create a new row here
+// even if they hold a stale callRecordId/conferenceId from before removal.
+model TeamCallParticipant {
+  id           String    @id @default(cuid())
+  callRecordId String    @map("call_record_id")
+  staffId      String    @map("staff_id")
+  joinedAt     DateTime  @default(now()) @map("joined_at")
+  leftAt       DateTime? @map("left_at")
+
+  callRecord   TeamCallRecord @relation(fields: [callRecordId], references: [id], onDelete: Cascade)
+  staff        Staff          @relation(fields: [staffId], references: [id], onDelete: Cascade)
+
+  @@unique([callRecordId, staffId])
+  @@index([callRecordId])
+  @@map("team_call_participants")
+}
+
+// Links ONE specific Team Hub message (the "context card" that started a
+// client clarification) to ONE Chatwoot Inbox conversation. Deliberately
+// NOT a link on the conversation/DM as a whole — the same Joe<->Priscilla
+// DM may contain ordinary chat, a Client A clarification, more ordinary
+// chat, and a later Client B clarification, each independently linked to
+// its own triggering message. `contextSnapshot` holds only the minimal
+// safe fields (client display name, coarse area/application-type label) —
+// never a transcript, never PII — captured at link time so this table
+// itself never needs to re-resolve full Inbox identity to render a card.
+model TeamInboxDiscussionLink {
+  id                     String   @id @default(cuid())
+  messageId              String   @unique @map("message_id")
+  chatwootConversationId Int      @map("chatwoot_conversation_id")
+  // OPEN | ANSWERED | RESOLVED
+  status                 String   @default("OPEN") @map("status")
+  contextSnapshot        Json?    @map("context_snapshot")
+  linkedBy               String   @map("linked_by")
+  createdAt              DateTime @default(now()) @map("created_at")
+  updatedAt              DateTime @updatedAt @map("updated_at")
+
+  message                TeamMessage @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  linkedByStaff          Staff       @relation(fields: [linkedBy], references: [id], onDelete: Restrict)
+
+  @@index([chatwootConversationId])
+  // Ask Team / Inbox clarification chip (action-status.ts) reads "the most
+  // recent link for this Inbox conversation, filterable by status" — this
+  // composite index serves that lookup without a second index. Additive
+  // only; the model already carried status/chatwootConversationId/
+  // contextSnapshot before this change, so no other schema edit was needed.
+  @@index([chatwootConversationId, status])
+  @@map("team_inbox_discussion_links")
 }

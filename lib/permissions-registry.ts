@@ -104,6 +104,8 @@ export const PERMISSION_REGISTRY = {
   notifications_view:       { label: 'View Notifications',   section: 'Inbox & Communications', desc: 'See system notifications' },
   notifications_send:       { label: 'Send Notifications',   section: 'Inbox & Communications', desc: 'Send notifications to staff or clients' },
   notifications_broadcast:  { label: 'Broadcast Notifications', section: 'Inbox & Communications', desc: 'Send mass notifications to all staff' },
+  team_hub_channel_manage:  { label: 'Manage Team Hub Channels', section: 'Inbox & Communications', desc: 'Create/archive channels, manage private channel membership' },
+  team_hub_admin:           { label: 'Team Hub Administration',  section: 'Inbox & Communications', desc: 'Team Hub system settings, health, and audit events — never private-message content' },
 
   // STAFF MANAGEMENT
   staff_view:           { label: 'View Staff',               section: 'Staff Management',       desc: 'See staff list and profiles' },

@@ -2,6 +2,7 @@
 
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
+import { useEffect, useState } from 'react'
 import {
   X, LogOut, GitBranch, Phone,
   LayoutDashboard, TrendingUp, MessageSquare,
@@ -15,6 +16,7 @@ import {
   ShieldCheck, Star, Mail, AlertTriangle,
   Brain, Dna, Radio, AlertOctagon, Zap, UserCheck, Sparkles,
   Ticket, Receipt,
+  Users2,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useStaffPermissions } from '@/hooks/useStaffPermissions'
@@ -27,6 +29,7 @@ const ICON_MAP: Record<string, React.ElementType> = {
   Sliders, Shield, Package, Wrench, Activity, Key, Settings, MapPin, Signal,
   Globe, Image, ShieldCheck, Tag, Star, Mail, AlertTriangle, Brain, Dna, Radio,
   AlertOctagon, Zap, UserCheck, Sparkles, Ticket, Receipt, GitBranch, Phone,
+  Users2,
 }
 
 interface MobileMoreDrawerProps {
@@ -38,6 +41,23 @@ export function MobileMoreDrawer({ isOpen, onClose }: MobileMoreDrawerProps) {
   const pathname = usePathname()
   const router   = useRouter()
   const { profile, loading } = useStaffPermissions()
+  const [teamHubUnread, setTeamHubUnread] = useState(0)
+
+  // Team Hub unread badge — simple poll (this drawer has no realtime
+  // subscription of its own; AdminSidebar.tsx owns the live
+  // postgres_changes wiring for the desktop nav).
+  useEffect(() => {
+    const fetchTeamHubUnread = async () => {
+      try {
+        const res  = await fetch('/api/admin/team/unread-count')
+        const data = await res.json() as { unreadCount?: number }
+        setTeamHubUnread(data.unreadCount ?? 0)
+      } catch { /* non-fatal */ }
+    }
+    fetchTeamHubUnread()
+    const interval = setInterval(fetchTeamHubUnread, 45 * 1000)
+    return () => clearInterval(interval)
+  }, [])
 
   const staffForNav  = profile ? { role: profile.role, permissions: profile.permissions } : { role: '', permissions: {} }
   const navSections  = getNavForStaff(staffForNav)
@@ -119,6 +139,11 @@ export function MobileMoreDrawer({ isOpen, onClose }: MobileMoreDrawerProps) {
                     >
                       {Icon && <Icon className="w-4 h-4 flex-shrink-0" />}
                       <span className="flex-1">{label}</span>
+                      {href === '/admin/team' && teamHubUnread > 0 && (
+                        <span className="min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center">
+                          {teamHubUnread > 99 ? '99+' : teamHubUnread}
+                        </span>
+                      )}
                     </Link>
                   )
                 })}

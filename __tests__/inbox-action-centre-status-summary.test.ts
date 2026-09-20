@@ -13,13 +13,16 @@
  *  - a query failure fails closed to an all-null summary, never a throw.
  *  - selectActionStatusChips (the pure selector ClientInfo's chips render
  *    from) omits nulls and preserves each present entry's raw status.
+ *  - Team Hub "Ask Team" clarification (5th, additive chip): OPEN/ANSWERED
+ *    map to display-only labels, RESOLVED is omitted like "no record".
  */
 
 const mockPrisma = {
-  paymentLink:     { findFirst: jest.fn() },
-  quote:           { findFirst: jest.fn() },
-  tripRequest:     { findFirst: jest.fn() },
-  visaApplication: { findUnique: jest.fn() },
+  paymentLink:            { findFirst: jest.fn() },
+  quote:                  { findFirst: jest.fn() },
+  tripRequest:            { findFirst: jest.fn() },
+  visaApplication:        { findUnique: jest.fn() },
+  teamInboxDiscussionLink: { findFirst: jest.fn() },
 }
 
 jest.mock('@/lib/db', () => ({ __esModule: true, default: mockPrisma }))
@@ -35,12 +38,13 @@ beforeEach(() => {
   mockPrisma.quote.findFirst.mockResolvedValue(null)
   mockPrisma.tripRequest.findFirst.mockResolvedValue(null)
   mockPrisma.visaApplication.findUnique.mockResolvedValue(null)
+  mockPrisma.teamInboxDiscussionLink.findFirst.mockResolvedValue(null)
 })
 
 describe('loadActionStatusSummary', () => {
   it('returns null for every action when no records exist', async () => {
     const summary = await loadActionStatusSummary(CONV_ID, null)
-    expect(summary).toEqual({ payment: null, quote: null, visaForm: null, itineraryRequest: null })
+    expect(summary).toEqual({ payment: null, quote: null, visaForm: null, itineraryRequest: null, teamClarification: null })
   })
 
   it('resolves payment/quote/itineraryRequest by conversationId, most-recent-first', async () => {
@@ -107,7 +111,7 @@ describe('loadActionStatusSummary', () => {
 
 describe('selectActionStatusChips', () => {
   it('omits every action with no record — no "not started" clutter', () => {
-    const summary: ActionStatusSummary = { payment: null, quote: null, visaForm: null, itineraryRequest: null }
+    const summary: ActionStatusSummary = { payment: null, quote: null, visaForm: null, itineraryRequest: null, teamClarification: null }
     expect(selectActionStatusChips(summary)).toEqual([])
   })
 
@@ -122,6 +126,7 @@ describe('selectActionStatusChips', () => {
       quote: null,
       visaForm: { status: 'In Progress', updatedAt: '2026-01-01T00:00:00.000Z' },
       itineraryRequest: { status: 'submitted', updatedAt: '2026-01-01T00:00:00.000Z' },
+      teamClarification: null,
     }
     const chips = selectActionStatusChips(summary)
     expect(chips).toEqual([
@@ -133,13 +138,49 @@ describe('selectActionStatusChips', () => {
     expect(chips.find(c => c.key === 'quote')).toBeUndefined()
   })
 
-  it('all four present renders all four, in a stable order', () => {
+  it('all five present renders all five, in a stable order', () => {
     const summary: ActionStatusSummary = {
       payment: { status: 'paid', updatedAt: '' },
       quote: { status: 'accepted', updatedAt: '' },
       visaForm: { status: 'Approved', updatedAt: '' },
       itineraryRequest: { status: 'converted', updatedAt: '' },
+      teamClarification: { status: 'Awaiting team', updatedAt: '' },
     }
-    expect(selectActionStatusChips(summary).map(c => c.key)).toEqual(['payment', 'quote', 'visaForm', 'itineraryRequest'])
+    expect(selectActionStatusChips(summary).map(c => c.key)).toEqual(['payment', 'quote', 'visaForm', 'itineraryRequest', 'teamClarification'])
+  })
+})
+
+describe('loadActionStatusSummary — Team Hub "Ask Team" clarification chip (additive 5th chip)', () => {
+  it('is null when no TeamInboxDiscussionLink exists for this conversation', async () => {
+    const summary = await loadActionStatusSummary(CONV_ID, null)
+    expect(summary.teamClarification).toBeNull()
+    expect(mockPrisma.teamInboxDiscussionLink.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { chatwootConversationId: CONV_ID }, orderBy: { createdAt: 'desc' } }),
+    )
+  })
+
+  it('maps OPEN to the amber "Awaiting team" display label', async () => {
+    mockPrisma.teamInboxDiscussionLink.findFirst.mockResolvedValue({ status: 'OPEN', updatedAt: new Date('2026-03-01') })
+    const summary = await loadActionStatusSummary(CONV_ID, null)
+    expect(summary.teamClarification).toEqual({ status: 'Awaiting team', updatedAt: new Date('2026-03-01').toISOString() })
+  })
+
+  it('maps ANSWERED to the blue "Team responded" display label', async () => {
+    mockPrisma.teamInboxDiscussionLink.findFirst.mockResolvedValue({ status: 'ANSWERED', updatedAt: new Date('2026-03-02') })
+    const summary = await loadActionStatusSummary(CONV_ID, null)
+    expect(summary.teamClarification).toEqual({ status: 'Team responded', updatedAt: new Date('2026-03-02').toISOString() })
+  })
+
+  it('omits RESOLVED entirely — same "no record" treatment as the other four chips', async () => {
+    mockPrisma.teamInboxDiscussionLink.findFirst.mockResolvedValue({ status: 'RESOLVED', updatedAt: new Date('2026-03-03') })
+    const summary = await loadActionStatusSummary(CONV_ID, null)
+    expect(summary.teamClarification).toBeNull()
+  })
+
+  it('never restructures or affects the other four chips', async () => {
+    mockPrisma.paymentLink.findFirst.mockResolvedValue({ status: 'pending', updatedAt: new Date('2026-01-01') })
+    mockPrisma.teamInboxDiscussionLink.findFirst.mockResolvedValue({ status: 'OPEN', updatedAt: new Date('2026-03-01') })
+    const summary = await loadActionStatusSummary(CONV_ID, null)
+    expect(summary.payment).toEqual({ status: 'pending', updatedAt: new Date('2026-01-01').toISOString() })
   })
 })

@@ -20,6 +20,7 @@ import {
   Link2,
   ChevronRight,
   Bell,
+  Users2,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useStaffPermissions } from '@/hooks/useStaffPermissions'
@@ -88,6 +89,7 @@ const ICON_MAP: Record<string, React.ElementType> = {
   Phone,
   Link2,
   Bell,
+  Users2,
 }
 
 const LOGO_CACHE_KEY = 'walz_logo_url'
@@ -114,6 +116,7 @@ export function AdminSidebar() {
   const [logoUrl,          setLogoUrl]          = useState('/walz-logo.svg')
   const [unreadCount,      setUnreadCount]      = useState(0)
   const [pendingLinkCount, setPendingLinkCount] = useState(0)
+  const [teamHubUnread,    setTeamHubUnread]    = useState(0)
   const [expanded,         setExpanded]         = useState<Set<string>>(() => new Set(['OVERVIEW']))
 
   // ── Logo loader ──────────────────────────────────────────────────────────────
@@ -169,13 +172,35 @@ export function AdminSidebar() {
     fetchLinkCount()
     const linkInterval = setInterval(fetchLinkCount, 5 * 60 * 1000)
 
+    // Team Hub unread badge — poll only (45s), deliberately NOT a
+    // `postgres_changes` subscription. Security review finding: Team Hub
+    // tables are service-role-only (REVOKE ALL FROM anon, authenticated in
+    // prisma/migrations/team_hub_v1_core.sql) because this app has no
+    // Supabase-Auth-issued per-staff JWT for RLS to key off of, so an
+    // anon-key subscription on team_messages could never actually receive
+    // an event — and, worse, would be an attractive nuisance for a future
+    // "fix" that loosens that RLS to make it work, which would leak every
+    // private DM/channel message company-wide (this specific subscription
+    // had no table filter at all). Do not re-add one — see
+    // app/admin/team/hooks/useTeamRealtimeMessages.ts's header comment for
+    // the correct (Broadcast, service-role-published) fast-follow design.
+    const fetchTeamHubUnread = async () => {
+      try {
+        const res  = await fetch('/api/admin/team/unread-count')
+        const data = await res.json() as { unreadCount?: number }
+        setTeamHubUnread(data.unreadCount ?? 0)
+      } catch { /* non-fatal */ }
+    }
+    fetchTeamHubUnread()
+    const teamHubInterval = setInterval(fetchTeamHubUnread, 45 * 1000)
+
     const sb = createClient(url, key)
     const channel = sb
       .channel('sidebar-unread')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'leads' }, () => fetchUnread())
       .subscribe()
 
-    return () => { sb.removeChannel(channel); clearInterval(linkInterval) }
+    return () => { sb.removeChannel(channel); clearInterval(linkInterval); clearInterval(teamHubInterval) }
   }, [])
 
   // ── Auto-expand the section containing the active route ───────────────────
@@ -333,6 +358,11 @@ export function AdminSidebar() {
                             {href === '/admin/clients/link-applications' && pendingLinkCount > 0 && (
                               <span className="min-w-[18px] h-[18px] px-1 rounded-full bg-amber-500 text-white text-[10px] font-bold flex items-center justify-center">
                                 {pendingLinkCount}
+                              </span>
+                            )}
+                            {href === '/admin/team' && teamHubUnread > 0 && (
+                              <span className="min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center">
+                                {teamHubUnread > 99 ? '99+' : teamHubUnread}
                               </span>
                             )}
                           </Link>

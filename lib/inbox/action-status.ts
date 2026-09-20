@@ -43,18 +43,26 @@ export interface ActionStatusSummary {
   quote: ActionStatusEntry | null
   visaForm: ActionStatusEntry | null
   itineraryRequest: ActionStatusEntry | null
+  /** Team Hub "Ask Team" clarification (TeamInboxDiscussionLink) — additive
+   *  fifth chip. See loadActionStatusSummary for the OPEN/ANSWERED/RESOLVED
+   *  → display-status mapping; RESOLVED is never surfaced as an entry here
+   *  (omitted, same as "no record" for the other four chips). */
+  teamClarification: ActionStatusEntry | null
 }
 
-const EMPTY_SUMMARY: ActionStatusSummary = { payment: null, quote: null, visaForm: null, itineraryRequest: null }
+const EMPTY_SUMMARY: ActionStatusSummary = {
+  payment: null, quote: null, visaForm: null, itineraryRequest: null, teamClarification: null,
+}
 
 export interface ActionStatusChip {
-  key: 'payment' | 'quote' | 'visaForm' | 'itineraryRequest'
+  key: 'payment' | 'quote' | 'visaForm' | 'itineraryRequest' | 'teamClarification'
   label: string
   status: string
 }
 
 const CHIP_LABELS: Record<ActionStatusChip['key'], string> = {
   payment: 'Payment', quote: 'Quote', visaForm: 'Visa form', itineraryRequest: 'Itinerary request',
+  teamClarification: 'Team clarification',
 }
 
 /** Pure selection/formatting logic for ClientInfo's status chips — kept
@@ -72,6 +80,18 @@ export function selectActionStatusChips(summary: ActionStatusSummary | null | un
     .filter((c): c is ActionStatusChip => c !== null)
 }
 
+/** OPEN → "Awaiting team", ANSWERED → "Team responded", RESOLVED → omitted
+ *  entirely (same "no record" treatment as every other chip with nothing
+ *  to show) — the raw model status is never surfaced verbatim for this one
+ *  chip since OPEN/ANSWERED/RESOLVED read oddly as staff-facing labels. */
+function teamClarificationEntry(
+  link: { status: string; updatedAt: Date } | null,
+): ActionStatusEntry | null {
+  if (!link || link.status === 'RESOLVED') return null
+  const label = link.status === 'ANSWERED' ? 'Team responded' : 'Awaiting team'
+  return { status: label, updatedAt: link.updatedAt.toISOString() }
+}
+
 /**
  * @param conversationId Chatwoot conversation id.
  * @param application The SAME `application` DTO resolveClientActionContext
@@ -84,7 +104,7 @@ export async function loadActionStatusSummary(
   application: ClientApplicationDTO | null,
 ): Promise<ActionStatusSummary> {
   try {
-    const [payment, quote, itineraryRequest, visaApp] = await Promise.all([
+    const [payment, quote, itineraryRequest, visaApp, teamLink] = await Promise.all([
       prisma.paymentLink.findFirst({
         where:   { conversationId },
         orderBy: { createdAt: 'desc' },
@@ -105,6 +125,15 @@ export async function loadActionStatusSummary(
       application
         ? prisma.visaApplication.findUnique({ where: { id: application.id }, select: { updatedAt: true } }).catch(() => null)
         : Promise.resolve(null),
+      // Team Hub "Ask Team" clarification — most recent link for this Inbox
+      // conversation, across every Team Hub message ever linked to it.
+      // Optional chaining guards a mock/test double that predates this
+      // model, matching this module's own fail-closed-to-null discipline.
+      (prisma.teamInboxDiscussionLink?.findFirst({
+        where:   { chatwootConversationId: conversationId },
+        orderBy: { createdAt: 'desc' },
+        select:  { status: true, updatedAt: true },
+      }) ?? Promise.resolve(null)).catch(() => null),
     ])
 
     return {
@@ -116,6 +145,7 @@ export async function loadActionStatusSummary(
       itineraryRequest: itineraryRequest
         ? { status: itineraryRequest.status, updatedAt: itineraryRequest.updatedAt.toISOString() }
         : null,
+      teamClarification: teamClarificationEntry(teamLink),
     }
   } catch (e) {
     // Fail closed — same discipline as resolveClientActionContext: a
