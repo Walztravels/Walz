@@ -1,6 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { getAdminSession } from '@/lib/admin-auth'
 import prisma from '@/lib/db'
+import { PRIVACY_SECTIONS, TERMS_SECTIONS } from '@/lib/content/legal-content'
+
+// Groups that carry legally-significant, compliance-filed language (incl. an
+// active Twilio A2P 10DLC SMS filing). Editing these must be restricted to
+// super_admin only — see GET/POST below.
+const SUPER_ADMIN_ONLY_GROUPS = new Set(['privacy', 'terms'])
 
 const DEFAULTS: Record<string, { label: string; value: string; group: string }> = {
   // About page
@@ -19,23 +25,59 @@ const DEFAULTS: Record<string, { label: string; value: string; group: string }> 
   brand_tagline:       { label: 'Brand Tagline',    group: 'general', value: 'Global Travel. Expert Care.' },
   footer_pitch:        { label: 'Footer Pitch',     group: 'general', value: 'Flights. Visas. Hotels. Tours. Expertly handled for every journey.' },
   meta_description:    { label: 'Meta Description', group: 'general', value: 'Walz Travels — expert flight bookings, visa processing, private tours and hotel reservations for the global African diaspora.' },
+  // Privacy Policy (/privacy) — one row per section title/body, matching the
+  // granularity of the About tab above. Verbatim source: lib/content/legal-content.ts
+  ...Object.fromEntries(
+    PRIVACY_SECTIONS.flatMap((s) => [
+      [`${s.key}_title`, { label: `Privacy — ${s.title} (Heading)`, group: 'privacy', value: s.title }],
+      [`${s.key}_body`,  { label: `Privacy — ${s.title} (Body)`,    group: 'privacy', value: s.body }],
+    ])
+  ),
+  // Terms of Service (/terms) — same pattern as Privacy above.
+  ...Object.fromEntries(
+    TERMS_SECTIONS.flatMap((s) => [
+      [`${s.key}_title`, { label: `Terms — ${s.title} (Heading)`, group: 'terms', value: s.title }],
+      [`${s.key}_body`,  { label: `Terms — ${s.title} (Body)`,    group: 'terms', value: s.body }],
+    ])
+  ),
 }
 
 export async function GET() {
-  if (!(await getAdminSession())) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const session = await getAdminSession()
+  if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   const rows = await prisma.siteContent.findMany()
   const dbMap: Record<string, string> = {}
   for (const r of rows) dbMap[r.key] = r.value
   const result: Record<string, { label: string; value: string; group: string }> = {}
   for (const [key, def] of Object.entries(DEFAULTS)) {
+    // Privacy/Terms carry compliance-filed legal language (incl. an active
+    // Twilio A2P 10DLC SMS filing) — never expose them to non-super_admin
+    // staff, even read-only, so the admin editor never shows an edit surface
+    // a general staff member can't actually save to.
+    if (SUPER_ADMIN_ONLY_GROUPS.has(def.group) && session.role !== 'super_admin') continue
     result[key] = { label: def.label, value: dbMap[key] ?? def.value, group: def.group }
   }
   return NextResponse.json(result)
 }
 
 export async function POST(req: NextRequest) {
-  if (!(await getAdminSession())) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const session = await getAdminSession()
+  if (!session) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   const body = await req.json() as Record<string, string>
+
+  // Fail closed: reject the whole request if it touches a super_admin-only
+  // group (privacy/terms) and the caller isn't super_admin. Other groups
+  // (about/homepage/general) keep their existing, unchanged behavior.
+  for (const key of Object.keys(body)) {
+    const group = DEFAULTS[key]?.group
+    if (group && SUPER_ADMIN_ONLY_GROUPS.has(group) && session.role !== 'super_admin') {
+      return NextResponse.json(
+        { error: 'Forbidden — Privacy Policy and Terms of Service content can only be edited by a super admin.' },
+        { status: 403 },
+      )
+    }
+  }
+
   await Promise.all(
     Object.entries(body).map(([key, value]) =>
       prisma.siteContent.upsert({

@@ -3,12 +3,14 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import {
   Save, Plus, Trash2, GripVertical, RefreshCw, CheckCircle,
-  ToggleLeft, ToggleRight, X, Upload, ChevronDown, ChevronUp,
+  ToggleLeft, ToggleRight, X, Upload, ChevronDown, ChevronUp, ShieldAlert,
 } from 'lucide-react'
+import { useStaffPermissions } from '@/hooks/useStaffPermissions'
+import { PRIVACY_SECTIONS, TERMS_SECTIONS } from '@/lib/content/legal-content'
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
-type Tab = 'about' | 'homepage' | 'general'
+type Tab = 'about' | 'homepage' | 'general' | 'privacy' | 'terms'
 
 interface TimelineEvent {
   id: string; icon: string; title: string; description: string; order: number; active: boolean
@@ -37,10 +39,90 @@ function SaveBadge({ saved }: { saved: boolean }) {
   )
 }
 
+/**
+ * Renders one Heading + Body editor per section for a legal page group
+ * (Privacy Policy / Terms of Service). One SiteContent row per field —
+ * `${section.key}_title` and `${section.key}_body` — matching the
+ * granularity already used by the About tab (one row per paragraph block).
+ */
+function LegalContentTab({
+  groupLabel, groupNote, group, sections, content, ctValues, setCtValues, ctSaving, ctSaved, onSave,
+}: {
+  groupLabel: string
+  groupNote:  string
+  group:      string
+  sections:   { key: string; title: string }[]
+  content:    SiteContentMap
+  ctValues:   Record<string, string>
+  setCtValues: React.Dispatch<React.SetStateAction<Record<string, string>>>
+  ctSaving:   string | null
+  ctSaved:    string | null
+  onSave:     () => void
+}) {
+  return (
+    <div className="space-y-6 max-w-3xl">
+      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+        <div className="px-6 py-4 border-b border-gray-100 flex items-center justify-between">
+          <div>
+            <h2 className="font-bold text-[#0B1F3A]">{groupLabel}</h2>
+            <p className="text-xs text-gray-400 mt-0.5">{groupNote}</p>
+          </div>
+          <SaveBadge saved={ctSaved === group} />
+        </div>
+        <div className="divide-y divide-gray-100">
+          {sections.map((s) => {
+            const titleKey = `${s.key}_title`
+            const bodyKey  = `${s.key}_body`
+            if (!content[titleKey] && !content[bodyKey]) return null
+            return (
+              <div key={s.key} className="px-6 py-5 space-y-3">
+                <div>
+                  <label className="block text-xs font-semibold text-gray-500 mb-1">Heading</label>
+                  <input
+                    value={ctValues[titleKey] ?? ''}
+                    onChange={(e) => setCtValues((v) => ({ ...v, [titleKey]: e.target.value }))}
+                    className="w-full border border-gray-200 rounded-xl px-4 py-2.5 text-sm font-semibold outline-none focus:border-[#C9A84C]"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-gray-500 mb-1">Body</label>
+                  <textarea
+                    value={ctValues[bodyKey] ?? ''}
+                    onChange={(e) => setCtValues((v) => ({ ...v, [bodyKey]: e.target.value }))}
+                    rows={6}
+                    className="w-full border border-gray-200 rounded-xl px-4 py-3 text-sm outline-none focus:border-[#C9A84C] resize-y"
+                  />
+                </div>
+              </div>
+            )
+          })}
+        </div>
+        <div className="px-6 py-5">
+          <button
+            onClick={onSave}
+            disabled={ctSaving === group}
+            className="flex items-center gap-2 bg-[#0B1F3A] hover:bg-[#1a3358] text-white px-5 py-2.5 rounded-xl text-sm font-semibold disabled:opacity-60"
+          >
+            {ctSaving === group ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
+            Save {groupLabel}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ── Main page ─────────────────────────────────────────────────────────────────
 
 export default function ContentManagerPage() {
   const [tab, setTab] = useState<Tab>('about')
+  const { role: staffRole, loading: roleLoading } = useStaffPermissions()
+  // Privacy Policy and Terms of Service carry compliance-filed legal language
+  // (incl. an active Twilio A2P 10DLC SMS filing) and must never be editable
+  // by general staff — the API already fails closed on this (see
+  // app/api/admin/content/site/route.ts); this just keeps the tabs from
+  // appearing for someone who couldn't save to them anyway.
+  const isSuperAdmin = staffRole === 'super_admin'
 
   // About tab state
   const [timeline, setTimeline]         = useState<TimelineEvent[]>([])
@@ -228,8 +310,13 @@ export default function ContentManagerPage() {
       </div>
 
       {/* Tabs */}
-      <div className="flex gap-1 bg-gray-100 p-1 rounded-xl mb-8 max-w-sm">
-        {(['about', 'homepage', 'general'] as Tab[]).map((t) => (
+      <div className="flex gap-1 bg-gray-100 p-1 rounded-xl mb-8 max-w-2xl flex-wrap">
+        {(
+          [
+            'about', 'homepage', 'general',
+            ...(isSuperAdmin ? (['privacy', 'terms'] as Tab[]) : []),
+          ] as Tab[]
+        ).map((t) => (
           <button
             key={t}
             onClick={() => setTab(t)}
@@ -237,10 +324,29 @@ export default function ContentManagerPage() {
               tab === t ? 'bg-white text-[#0B1F3A] shadow-sm' : 'text-gray-500 hover:text-[#0B1F3A]'
             }`}
           >
-            {t === 'about' ? 'About Page' : t === 'homepage' ? 'Homepage' : 'General'}
+            {t === 'about' ? 'About Page'
+              : t === 'homepage' ? 'Homepage'
+              : t === 'privacy' ? 'Privacy Policy'
+              : t === 'terms' ? 'Terms of Service'
+              : 'General'}
           </button>
         ))}
       </div>
+
+      {/* Legally-significant pages are super_admin only — if a non-super_admin
+          somehow lands on this tab (e.g. stale link, role changed mid-session),
+          show why instead of a silently-empty section. */}
+      {(tab === 'privacy' || tab === 'terms') && !roleLoading && !isSuperAdmin && (
+        <div className="max-w-2xl bg-amber-50 border border-amber-200 rounded-2xl p-6 flex items-start gap-3">
+          <ShieldAlert className="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" />
+          <div>
+            <p className="font-semibold text-[#0B1F3A] text-sm">Super Admin access required</p>
+            <p className="text-gray-500 text-sm mt-1">
+              Privacy Policy and Terms of Service contain compliance-filed legal language and can only be viewed or edited by a super admin.
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* ── ABOUT TAB ─────────────────────────────────────────────────────── */}
       {tab === 'about' && (
@@ -640,6 +746,38 @@ export default function ContentManagerPage() {
             )
           })()}
         </div>
+      )}
+
+      {/* ── PRIVACY POLICY TAB (super_admin only) ─────────────────────────── */}
+      {tab === 'privacy' && isSuperAdmin && !ctLoading && (
+        <LegalContentTab
+          groupLabel="Privacy Policy"
+          groupNote="Renders at /privacy — includes SMS opt-in / data-sharing language for the Twilio A2P 10DLC filing. Super admin only."
+          group="privacy"
+          sections={PRIVACY_SECTIONS}
+          content={content}
+          ctValues={ctValues}
+          setCtValues={setCtValues}
+          ctSaving={ctSaving}
+          ctSaved={ctSaved}
+          onSave={() => saveContentGroup('privacy')}
+        />
+      )}
+
+      {/* ── TERMS OF SERVICE TAB (super_admin only) ───────────────────────── */}
+      {tab === 'terms' && isSuperAdmin && !ctLoading && (
+        <LegalContentTab
+          groupLabel="Terms of Service"
+          groupNote="Renders at /terms — includes the SMS Messaging section for the Twilio A2P 10DLC filing. Super admin only."
+          group="terms"
+          sections={TERMS_SECTIONS}
+          content={content}
+          ctValues={ctValues}
+          setCtValues={setCtValues}
+          ctSaving={ctSaving}
+          ctSaved={ctSaved}
+          onSave={() => saveContentGroup('terms')}
+        />
       )}
     </div>
   )
