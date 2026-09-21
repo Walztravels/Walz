@@ -24,7 +24,10 @@ jest.mock('@/lib/team/calls', () => ({
   startOrJoinGroupCall: jest.fn(),
 }))
 jest.mock('@/lib/team/notify', () => ({ notifyCallStarted: jest.fn() }))
+// Team Hub V1.1 — missed-call EMAIL candidate scheduler (separate module).
+jest.mock('@/lib/team/email-notify', () => ({ scheduleMissedCallEmailCandidates: jest.fn() }))
 
+import { scheduleMissedCallEmailCandidates } from '@/lib/team/email-notify'
 import { getAdminSession } from '@/lib/admin-auth'
 import { checkConversationMembership } from '@/lib/team/authz'
 import { createCallRecord, updateCallRecordStatus, startOrJoinGroupCall } from '@/lib/team/calls'
@@ -216,5 +219,33 @@ describe('PATCH /conversations/[id]/calls/[callId] — status update, caller/cal
     const res = await patchCall(postReq({ status: 'ENDED' }), { params: { id: CONVO_ID, callId: 'call1' } })
     expect(res.status).toBe(400)
     expect(updateCallRecordStatus).not.toHaveBeenCalled()
+  })
+
+  // ── Team Hub V1.1 — missed-call email candidate (additive) ────────────
+  it('schedules a missed-call email candidate ONLY when the persisted record reaches MISSED', async () => {
+    mockPrisma.teamCallRecord.findFirst.mockResolvedValue({ id: 'call1', callerId: 's1', participantIds: ['s1', 's2'] })
+    ;(updateCallRecordStatus as jest.Mock).mockResolvedValue({ id: 'call1', status: 'MISSED', answeredAt: null, endedAt: new Date(), durationSeconds: null })
+    const res = await patchCall(postReq({ status: 'MISSED' }), { params: { id: CONVO_ID, callId: 'call1' } })
+    expect(res.status).toBe(200)
+    expect(scheduleMissedCallEmailCandidates).toHaveBeenCalledWith('call1')
+  })
+
+  it('schedules nothing for any other terminal status', async () => {
+    mockPrisma.teamCallRecord.findFirst.mockResolvedValue({ id: 'call1', callerId: 's1', participantIds: ['s1', 's2'] })
+    for (const status of ['ANSWERED', 'ENDED', 'DECLINED', 'BUSY', 'FAILED']) {
+      ;(updateCallRecordStatus as jest.Mock).mockResolvedValue({ id: 'call1', status, answeredAt: null, endedAt: new Date(), durationSeconds: null })
+      await patchCall(postReq({ status }), { params: { id: CONVO_ID, callId: 'call1' } })
+    }
+    expect(scheduleMissedCallEmailCandidates).not.toHaveBeenCalled()
+  })
+
+  it('still returns 200 when missed-call email scheduling throws (failure isolation)', async () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
+    mockPrisma.teamCallRecord.findFirst.mockResolvedValue({ id: 'call1', callerId: 's1', participantIds: ['s1', 's2'] })
+    ;(updateCallRecordStatus as jest.Mock).mockResolvedValue({ id: 'call1', status: 'MISSED', answeredAt: null, endedAt: new Date(), durationSeconds: null })
+    ;(scheduleMissedCallEmailCandidates as jest.Mock).mockRejectedValueOnce(new Error('db down'))
+    const res = await patchCall(postReq({ status: 'MISSED' }), { params: { id: CONVO_ID, callId: 'call1' } })
+    expect(res.status).toBe(200)
+    warn.mockRestore()
   })
 })

@@ -28,7 +28,11 @@ jest.mock('@/lib/team/notify', () => ({
   notifyNewDirectMessage: jest.fn(),
   notifyChannelInvite: jest.fn(),
 }))
+// Team Hub V1.1 — invite EMAIL candidate scheduler (separate module; the
+// notify wrappers above are untouched by that feature).
+jest.mock('@/lib/team/email-notify', () => ({ scheduleInviteEmailCandidates: jest.fn() }))
 
+import { scheduleInviteEmailCandidates } from '@/lib/team/email-notify'
 import { getAdminSession } from '@/lib/admin-auth'
 import { rateLimit } from '@/lib/rate-limit'
 import { createOrGetDm, createGroup, createChannel, listConversationsForStaff } from '@/lib/team/conversations'
@@ -127,6 +131,23 @@ describe('POST create GROUP — notifyChannelInvite wiring', () => {
     expect(notifyChannelInvite).not.toHaveBeenCalledWith('s1', expect.anything())
   })
 
+  it('schedules invite email candidates for the same members, never the creator', async () => {
+    mockPrisma.staff.findMany.mockResolvedValue([{ id: 's2' }, { id: 's3' }])
+    ;(createGroup as jest.Mock).mockResolvedValue('group-1')
+    await createConversation(postReq({ type: 'GROUP', name: 'Ops Squad', memberStaffIds: ['s2', 's3'] }))
+    expect(scheduleInviteEmailCandidates).toHaveBeenCalledWith('group-1', ['s2', 's3'], 'Staff One')
+  })
+
+  it('still creates the group when invite email scheduling throws (failure isolation)', async () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
+    mockPrisma.staff.findMany.mockResolvedValue([{ id: 's2' }])
+    ;(createGroup as jest.Mock).mockResolvedValue('group-1')
+    ;(scheduleInviteEmailCandidates as jest.Mock).mockRejectedValueOnce(new Error('db down'))
+    const res = await createConversation(postReq({ type: 'GROUP', name: 'Ops Squad', memberStaffIds: ['s2'] }))
+    expect(res.status).toBe(200)
+    warn.mockRestore()
+  })
+
   it('rejects a group with no other members before ever calling createGroup', async () => {
     const res = await createConversation(postReq({ type: 'GROUP', name: 'Solo', memberStaffIds: [] }))
     expect(res.status).toBe(400)
@@ -145,10 +166,27 @@ describe('POST create CHANNEL — notifyChannelInvite wiring', () => {
     expect(notifyChannelInvite).toHaveBeenCalledWith('s2', expect.objectContaining({ conversationId: 'chan-1', channelName: 'Leadership', inviterName: 'Staff One' }))
   })
 
+  it('schedules invite email candidates for PRIVATE-channel initial members', async () => {
+    mockPrisma.staff.findMany.mockResolvedValue([{ id: 's2' }])
+    ;(createChannel as jest.Mock).mockResolvedValue('chan-1')
+    await createConversation(postReq({
+      type: 'CHANNEL', name: 'Leadership', visibility: 'PRIVATE', initialMemberStaffIds: ['s2'],
+    }))
+    expect(scheduleInviteEmailCandidates).toHaveBeenCalledWith('chan-1', ['s2'], 'Staff One')
+  })
+
   it('sends no invite notification for a PUBLIC channel (no initial members — self-joinable)', async () => {
     ;(createChannel as jest.Mock).mockResolvedValue('chan-2')
     const res = await createConversation(postReq({ type: 'CHANNEL', name: 'General', visibility: 'PUBLIC' }))
     expect(res.status).toBe(200)
     expect(notifyChannelInvite).not.toHaveBeenCalled()
+    expect(scheduleInviteEmailCandidates).toHaveBeenCalledWith('chan-2', [], 'Staff One')
+  })
+
+  it('never schedules an invite email candidate for a brand-new DM (the first MESSAGE is what triggers a DM email)', async () => {
+    mockPrisma.staff.findUnique.mockResolvedValue({ id: 's2', isActive: true })
+    ;(createOrGetDm as jest.Mock).mockResolvedValue({ conversationId: 'dm-1', created: true })
+    await createConversation(postReq({ type: 'DM', staffId: 's2' }))
+    expect(scheduleInviteEmailCandidates).not.toHaveBeenCalled()
   })
 })

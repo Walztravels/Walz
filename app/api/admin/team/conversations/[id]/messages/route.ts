@@ -4,6 +4,7 @@ import prisma from '@/lib/db'
 import { rateLimit } from '@/lib/rate-limit'
 import { currentStaffId, checkConversationMembership } from '@/lib/team/authz'
 import { notifyMention, notifyThreadReply } from '@/lib/team/notify'
+import { scheduleMessageEmailCandidates } from '@/lib/team/email-notify'
 
 export const dynamic = 'force-dynamic'
 
@@ -156,6 +157,28 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   )
   if (parentAuthorId && parentAuthorId !== staffId && currentMemberIds.has(parentAuthorId)) {
     await notifyThreadReply(parentAuthorId, { conversationId: params.id, messageId: message.id, replierName: session.name, preview })
+  }
+
+  // Team Hub V1.1 — email notification CANDIDATES (never a send; the
+  // /api/cron/team-email-notifications tick decides, after the debounce,
+  // whether this was actually missed). Additive and strictly best-effort:
+  // lib/team/notify.ts above is untouched, and this whole block is
+  // try/catch'd so a scheduling failure can never fail the message send.
+  // The function itself resolves mention-beats-thread-reply priority and
+  // only emits DM candidates for DM conversations — ordinary top-level
+  // channel/group messages produce no candidate at all.
+  try {
+    await scheduleMessageEmailCandidates({
+      conversationId: params.id,
+      messageId: message.id,
+      authorStaffId: staffId,
+      authorName: session.name,
+      mentionedStaffIds: validMentionIds.filter(id => id !== staffId),
+      threadParentAuthorId:
+        parentAuthorId && parentAuthorId !== staffId && currentMemberIds.has(parentAuthorId) ? parentAuthorId : null,
+    })
+  } catch (e) {
+    console.warn('[team-messages] email candidate scheduling failed (non-fatal):', e)
   }
 
   // Ask Team / Inbox clarification — best-effort OPEN→ANSWERED transition:

@@ -3,6 +3,7 @@ import { getAdminSession } from '@/lib/admin-auth'
 import prisma from '@/lib/db'
 import { currentStaffId, checkConversationMembership } from '@/lib/team/authz'
 import { updateCallRecordStatus, type TeamCallStatus } from '@/lib/team/calls'
+import { scheduleMissedCallEmailCandidates } from '@/lib/team/email-notify'
 
 export const dynamic = 'force-dynamic'
 
@@ -66,6 +67,19 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
 
   const updated = await updateCallRecordStatus(call.id, body.status as TeamCallStatus)
   if (!updated) return NextResponse.json({ error: 'Call not found.' }, { status: 404 })
+
+  // Team Hub V1.1 — missed-call email candidate for the callee(s). Sourced
+  // ONLY from the persisted TeamCallRecord reaching status 'MISSED' (the
+  // scheduler re-reads the record and refuses any other status), never
+  // inferred from the request body or from a ring timeout. Best-effort:
+  // the call-status update must never fail because of this.
+  if (updated.status === 'MISSED') {
+    try {
+      await scheduleMissedCallEmailCandidates(updated.id)
+    } catch (e) {
+      console.warn('[team-calls] missed-call email scheduling failed (non-fatal):', e)
+    }
+  }
 
   return NextResponse.json({
     call: {

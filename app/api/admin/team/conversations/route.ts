@@ -6,6 +6,7 @@ import { currentStaffId } from '@/lib/team/authz'
 import { createOrGetDm, createGroup, createChannel, listConversationsForStaff } from '@/lib/team/conversations'
 import { logTeamActivity } from '@/lib/team/activity'
 import { notifyNewDirectMessage, notifyChannelInvite } from '@/lib/team/notify'
+import { scheduleInviteEmailCandidates } from '@/lib/team/email-notify'
 
 export const dynamic = 'force-dynamic'
 
@@ -116,11 +117,20 @@ async function createGroupConversation(body: CreateBody, staffId: string, sessio
   await logTeamActivity(session, 'team_group_created', conversationId, `name=${name} members=${activeMembers.length + 1}`)
 
   // Notify every OTHER member added at creation time (never the creator).
+  const invitedMemberIds = activeMembers.map(m => m.id).filter(id => id !== staffId)
   await Promise.all(
-    activeMembers
-      .filter(m => m.id !== staffId)
-      .map(m => notifyChannelInvite(m.id, { conversationId, channelName: name, inviterName: session.name })),
+    invitedMemberIds
+      .map(id => notifyChannelInvite(id, { conversationId, channelName: name, inviterName: session.name })),
   )
+
+  // Team Hub V1.1 — email candidates for the SAME genuinely-new members
+  // (a brand-new group's members were, by definition, not in it before).
+  // Best-effort: creating the group must never fail because of this.
+  try {
+    await scheduleInviteEmailCandidates(conversationId, invitedMemberIds, session.name)
+  } catch (e) {
+    console.warn('[team-conversations] group invite email scheduling failed (non-fatal):', e)
+  }
 
   return NextResponse.json({ conversationId })
 }
@@ -157,11 +167,20 @@ async function createChannelConversation(body: CreateBody, staffId: string, sess
   // Notify every OTHER initial member added at creation time (PRIVATE
   // channels only — PUBLIC channels have no initialMemberStaffIds, since
   // they're self-joinable per owner decision 5).
+  const invitedMemberIds = initialMemberStaffIds.filter(id => id !== staffId)
   await Promise.all(
-    initialMemberStaffIds
-      .filter(id => id !== staffId)
+    invitedMemberIds
       .map(id => notifyChannelInvite(id, { conversationId, channelName: name, inviterName: session.name })),
   )
+
+  // Team Hub V1.1 — email candidates for the same brand-new PRIVATE-channel
+  // members. PUBLIC channels have no initialMemberStaffIds (they are
+  // self-joinable), so joining one never emails anybody. Best-effort.
+  try {
+    await scheduleInviteEmailCandidates(conversationId, invitedMemberIds, session.name)
+  } catch (e) {
+    console.warn('[team-conversations] channel invite email scheduling failed (non-fatal):', e)
+  }
 
   return NextResponse.json({ conversationId })
 }

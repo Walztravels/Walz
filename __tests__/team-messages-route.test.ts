@@ -26,11 +26,15 @@ jest.mock('@/lib/team/authz', () => ({
 }))
 jest.mock('@/lib/team/activity', () => ({ logTeamActivity: jest.fn() }))
 jest.mock('@/lib/team/notify', () => ({ notifyMention: jest.fn(), notifyThreadReply: jest.fn() }))
+// Team Hub V1.1 — the EMAIL candidate scheduler sits alongside the notify
+// wrappers above (a separate module; lib/team/notify.ts itself is untouched).
+jest.mock('@/lib/team/email-notify', () => ({ scheduleMessageEmailCandidates: jest.fn() }))
 
 import { getAdminSession } from '@/lib/admin-auth'
 import { rateLimit } from '@/lib/rate-limit'
 import { checkConversationMembership, canEditMessage, canDeleteMessage } from '@/lib/team/authz'
 import { notifyMention, notifyThreadReply } from '@/lib/team/notify'
+import { scheduleMessageEmailCandidates } from '@/lib/team/email-notify'
 import { GET as listMessages, POST as sendMessage } from '@/app/api/admin/team/conversations/[id]/messages/route'
 import { PATCH as editMessage, DELETE as deleteMessage } from '@/app/api/admin/team/conversations/[id]/messages/[messageId]/route'
 import { POST as bumpRead } from '@/app/api/admin/team/conversations/[id]/read/route'
@@ -204,6 +208,41 @@ describe('POST send message — identity, validation, mentions, threads', () => 
     expect(mockPrisma.teamConversationMember.findMany).toHaveBeenCalledWith(expect.objectContaining({
       where: expect.objectContaining({ staffId: { in: expect.arrayContaining(['s2']) }, leftAt: null }),
     }))
+  })
+
+  // ── Team Hub V1.1 — email notification candidates (additive) ───────────
+  it('passes the validated mention list and thread-parent author to the email scheduler', async () => {
+    mockPrisma.teamMessage.findFirst.mockResolvedValue({ id: 'root1', authorId: 's3' })
+    mockPrisma.teamConversationMember.findMany.mockResolvedValue([{ staffId: 's2' }, { staffId: 's3' }])
+    const res = await sendMessage(
+      postReq({ body: 'reply @s2', parentMessageId: 'root1', mentionedStaffIds: ['s2'] }),
+      { params: { id: CONVO_ID } },
+    )
+    expect(res.status).toBe(200)
+    expect(scheduleMessageEmailCandidates).toHaveBeenCalledWith({
+      conversationId: CONVO_ID,
+      messageId: 'm-new',
+      authorStaffId: 's1',
+      authorName: 'Staff One',
+      mentionedStaffIds: ['s2'],
+      threadParentAuthorId: 's3',
+    })
+  })
+
+  it('passes no thread-parent author when the parent author has left the conversation', async () => {
+    mockPrisma.teamMessage.findFirst.mockResolvedValue({ id: 'root1', authorId: 's2' })
+    mockPrisma.teamConversationMember.findMany.mockResolvedValue([])
+    await sendMessage(postReq({ body: 'reply', parentMessageId: 'root1' }), { params: { id: CONVO_ID } })
+    expect(scheduleMessageEmailCandidates).toHaveBeenCalledWith(expect.objectContaining({ threadParentAuthorId: null, mentionedStaffIds: [] }))
+  })
+
+  it('still sends the message when email-candidate scheduling throws (failure isolation)', async () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {})
+    ;(scheduleMessageEmailCandidates as jest.Mock).mockRejectedValueOnce(new Error('db down'))
+    const res = await sendMessage(postReq({ body: 'hi' }), { params: { id: CONVO_ID } })
+    expect(res.status).toBe(200)
+    await expect(res.json()).resolves.toMatchObject({ message: { id: 'm-new' } })
+    warn.mockRestore()
   })
 })
 

@@ -606,6 +606,10 @@ model Staff {
   teamCallParticipations   TeamCallParticipant[]
   teamInboxLinksCreated    TeamInboxDiscussionLink[]
 
+  // Team Hub V1.1 — staff email notifications (additive).
+  teamEmailCandidates      TeamEmailNotificationCandidate[]
+  teamEmailPreference      TeamEmailNotificationPreference?
+
   @@index([email])
   @@index([isActive])
   @@index([accessLevel])
@@ -5540,6 +5544,26 @@ model StaffNotification {
   @@index([staffId, read])
   @@index([staffId, createdAt])
   @@index([staffId, archived])
+  // Composite uniqueness on (staffId, sourceId) — added via a hand-run
+  // Supabase SQL editor migration (prisma/migrations/
+  // staff_notification_sourceid_unique.sql) — NEVER prisma db push. Closes
+  // a real production race: lib/notifications/staff.ts's
+  // createStaffNotification() previously did findFirst({staffId,sourceId})
+  // THEN create() with no atomicity between the two, so two concurrent
+  // callers with the identical (staffId, sourceId) — e.g. two overlapping
+  // SLA-escalation cron invocations — could both pass the "does this
+  // already exist" check before either insert landed, producing two
+  // StaffNotification rows sharing one sourceId (confirmed in production:
+  // duplicate rows for the same sla:<stage>:<conversationId>:<anchorMs>
+  // sourceId, created ~563ms apart). `sourceId` is nullable and shared by
+  // several OTHER notification call sites that never pass one at all —
+  // Postgres treats each NULL as distinct under a standard unique
+  // constraint, so those callers are completely unaffected; only rows that
+  // both share the SAME staffId AND the SAME non-null sourceId collide,
+  // which is exactly the intended idempotency key every existing caller
+  // already assumed (see recovery/detect.ts, recovery/detect-leads.ts,
+  // the itinerary-fulfilment route, and lib/inbox/sla-escalation.ts).
+  @@unique([staffId, sourceId], map: "StaffNotification_staffId_sourceId_key")
 }
 
 model BriefDeliveryLog {
@@ -6185,4 +6209,91 @@ model TeamInboxDiscussionLink {
   // contextSnapshot before this change, so no other schema edit was needed.
   @@index([chatwootConversationId, status])
   @@map("team_inbox_discussion_links")
+}
+
+// ─────────────────────────────────────────────────────────────────────────
+// Team Hub V1.1 — STAFF EMAIL NOTIFICATIONS (additive; nothing above this
+// line was modified). Two new tables only:
+//
+//   team_email_notification_candidates — "a pending reason to maybe email
+//     this staff member". Written by lib/team/email-notify.ts's thin
+//     schedulers, which sit ALONGSIDE (never inside) lib/team/notify.ts's
+//     dashboard-notification wrappers. Drained by the
+//     /api/cron/team-email-notifications Vercel Cron.
+//
+//   team_email_notification_preferences — per-staff category toggles, ALL
+//     ON by default (a MISSING row means "everything on", so no staff
+//     action is ever required to start receiving these).
+//
+// This model owns its OWN idempotency key — @@unique([staffId, sourceId,
+// kind]) — and is deliberately INDEPENDENT of StaffNotification's dedup
+// mechanism. StaffNotification, StaffNotificationCategory and
+// lib/notifications/staff.ts are untouched by this feature.
+// ─────────────────────────────────────────────────────────────────────────
+
+model TeamEmailNotificationCandidate {
+  id              String    @id @default(cuid())
+  staffId         String    @map("staff_id")
+  // 'DM' | 'MENTION' | 'THREAD_REPLY' | 'MISSED_CALL' | 'INVITE' —
+  // CHECK-constrained in SQL (this repo's String+CHECK convention, see
+  // TeamConversation.type). There is deliberately NO kind for ordinary
+  // top-level channel/group message activity: it is never emailed, and is
+  // not a switchable-off preference either.
+  kind            String    @map("kind")
+  conversationId  String    @map("conversation_id")
+  // The event's natural identity, mirroring lib/team/notify.ts's own
+  // sourceId convention: TeamMessage.id (DM/MENTION/THREAD_REPLY),
+  // TeamCallRecord.id (MISSED_CALL), TeamConversation.id (INVITE).
+  sourceId        String    @map("source_id")
+  // Staff display name of whoever caused the event (sender/mentioner/
+  // caller/inviter). Never message content — the one-line preview shown in
+  // the email is re-read from team_messages at SEND time, after membership
+  // and read-state are re-verified, so nothing here can go stale or leak.
+  actorName       String?   @map("actor_name")
+  // PENDING → SENDING (optimistic claim) → SENT, or → CANCELLED (a
+  // re-check invalidated it) / FAILED (send failed MAX_ATTEMPTS times).
+  status          String    @default("PENDING") @map("status")
+  // now() + the debounce window at creation time. The cron only considers
+  // candidates whose scheduledSendAt has elapsed, so a burst of messages
+  // collapses into one email.
+  scheduledSendAt DateTime  @map("scheduled_send_at")
+  eventAt         DateTime  @default(now()) @map("event_at")
+  attempts        Int       @default(0) @map("attempts")
+  sentAt          DateTime? @map("sent_at")
+  resolvedAt      DateTime? @map("resolved_at")
+  // Metadata only — 'already_read' | 'message_deleted' | 'not_member' |
+  // 'call_not_missed' | 'preference_off' | 'staff_inactive' |
+  // 'conversation_gone' | 'superseded_by_mention' | 'unknown_kind'
+  // (defensive, practically unreachable — see chk_..._kind). Never content.
+  cancelReason    String?   @map("cancel_reason")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  staff           Staff     @relation(fields: [staffId], references: [id], onDelete: Cascade)
+
+  // THIS feature's own idempotency key — never StaffNotification's.
+  @@unique([staffId, sourceId, kind])
+  // The cron's own scan predicate (status + due time).
+  @@index([status, scheduledSendAt])
+  // Per-staff grouping + the 15-minute cooldown lookup.
+  @@index([staffId, status, scheduledSendAt])
+  @@index([staffId, status, sentAt])
+  @@map("team_email_notification_candidates")
+}
+
+model TeamEmailNotificationPreference {
+  id                 String   @id @default(cuid())
+  staffId            String   @unique @map("staff_id")
+  directMessages     Boolean  @default(true) @map("direct_messages")
+  // One toggle covers @mentions AND thread replies (they are one product
+  // concept — "someone is talking to me directly in a conversation").
+  mentionsAndThreads Boolean  @default(true) @map("mentions_and_threads")
+  missedCalls        Boolean  @default(true) @map("missed_calls")
+  invites            Boolean  @default(true) @map("invites")
+  createdAt          DateTime @default(now()) @map("created_at")
+  updatedAt          DateTime @updatedAt @map("updated_at")
+
+  staff              Staff    @relation(fields: [staffId], references: [id], onDelete: Cascade)
+
+  @@map("team_email_notification_preferences")
 }

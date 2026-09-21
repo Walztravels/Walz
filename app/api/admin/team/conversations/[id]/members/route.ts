@@ -4,6 +4,7 @@ import prisma from '@/lib/db'
 import { checkConversationMembership, checkCanManageMembership } from '@/lib/team/authz'
 import { logTeamActivity } from '@/lib/team/activity'
 import { notifyChannelInvite } from '@/lib/team/notify'
+import { scheduleInviteEmailCandidates } from '@/lib/team/email-notify'
 
 export const dynamic = 'force-dynamic'
 
@@ -59,6 +60,16 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
   const target = await prisma.staff.findUnique({ where: { id: targetId }, select: { id: true, isActive: true } })
   if (!target || !target.isActive) return NextResponse.json({ error: 'That staff member is not available.' }, { status: 400 })
 
+  // "Genuinely new membership" means: not currently an active member.
+  // Re-saving the member list, or re-adding someone who is already in the
+  // conversation, must not be treated as a fresh invitation (V1.1 email
+  // rule) — read the live state BEFORE the upsert collapses the two cases.
+  const existingMembership = await prisma.teamConversationMember.findFirst({
+    where: { conversationId: params.id, staffId: targetId, leftAt: null },
+    select: { id: true },
+  })
+  const isNewMembership = !existingMembership
+
   await prisma.teamConversationMember.upsert({
     where: { conversationId_staffId: { conversationId: params.id, staffId: targetId } },
     update: { leftAt: null },
@@ -72,6 +83,16 @@ export async function POST(req: NextRequest, { params }: { params: { id: string 
     channelName: conversation?.name ?? 'a conversation',
     inviterName: session.name,
   })
+
+  // Team Hub V1.1 — email candidate, ONLY for genuinely new membership.
+  // Best-effort: adding the member must never fail because of this.
+  if (isNewMembership) {
+    try {
+      await scheduleInviteEmailCandidates(params.id, [targetId], session.name)
+    } catch (e) {
+      console.warn('[team-members] invite email scheduling failed (non-fatal):', e)
+    }
+  }
 
   return NextResponse.json({ ok: true })
 }
