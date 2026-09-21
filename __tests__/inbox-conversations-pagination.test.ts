@@ -258,6 +258,49 @@ describe('P1.1 fix: hasMore never survives past the hard ceiling (the dead-end t
   })
 })
 
+describe('P1 fix (2026-09-21): non-viewAll responses expose the server\'s resolved myAgentId', () => {
+  // Production incident: the client resolves ITS OWN copy of the caller's
+  // Chatwoot agent id via a separate two-tier lookup (GET /api/admin/
+  // inbox-mapping, then GET /api/admin/agents) and re-filters an
+  // already-scoped "mine" list against it. The 2026-09-19 security hotfix
+  // gated inbox-mapping behind 'settings_integrations', which ordinary
+  // staff never hold — so for any staff member whose Chatwoot agent email
+  // differs from their admin login email (exactly the case the
+  // RoutingAgent DB mapping exists for), the client's own resolution gets
+  // permanently stuck at 0, even though this route already found their
+  // real, non-empty "mine" list using resolveChatwootAgentId server-side
+  // (no permission gate — a direct Supabase lookup). That stuck-at-0 id
+  // then zeroed the client's redundant re-filter forever while `hasMore`
+  // stayed true (ConversationList's "Still checking your older
+  // conversations…" branch never clearing) — confirmed in production logs:
+  // visa@walztravels.com hit `[inbox-mapping] permission denied`
+  // continuously for 2 days. The fix: return the value this route ALREADY
+  // computed (zero extra cost) so the client can use it directly instead
+  // of trusting its own possibly-stuck resolution.
+  it('the non-viewAll payload includes myAgentId, matching what resolveChatwootAgentId resolved', async () => {
+    mockCanViewAllConversations.mockReturnValue(false)
+    const res = await GET(req('?wantCount=8'))
+    const data = await res.json()
+    expect(data.myAgentId).toBe(MY_AGENT_ID)
+  })
+
+  it('myAgentId reflects whatever resolveChatwootAgentId returns, even for an agent id the client could never have matched on its own', async () => {
+    mockCanViewAllConversations.mockReturnValue(false)
+    mockResolveChatwootAgentId.mockResolvedValue(777)
+    const res = await GET(req('?wantCount=1'))
+    const data = await res.json()
+    expect(data.myAgentId).toBe(777)
+  })
+
+  it('the viewAll branch is untouched — no myAgentId key, no resolveChatwootAgentId call, no added cost per Phase 1\'s per-poll performance mandate', async () => {
+    mockCanViewAllConversations.mockReturnValue(true)
+    const res = await GET(req('?maxPages=1'))
+    const data = await res.json()
+    expect(data.myAgentId).toBeUndefined()
+    expect(mockResolveChatwootAgentId).not.toHaveBeenCalled()
+  })
+})
+
 describe('401/403 handled before any Chatwoot call', () => {
   it('no session → 401, zero Chatwoot fetches', async () => {
     mockGetSession.mockResolvedValue(null)

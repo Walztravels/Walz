@@ -19,7 +19,14 @@ describe('401 session expiry returns staff to login', () => {
 
   it('the conversation poller redirects on 401 BEFORE the provider-failure state', () => {
     const s = page()
-    const guard = s.indexOf("if (res.status === 401) { router.push('/admin/login'); return }")
+    // Incident fix (2026-09-21, Finding 2): this branch is no longer a
+    // single line — it's now also gated by the same stale-response guard
+    // as fetchConvs' success path (see __tests__/inbox-poll-and-stale-
+    // response.test.ts), so an older, slower 401 landing after a newer
+    // call already succeeded doesn't force an unwanted redirect. The
+    // redirect itself is unchanged: it still fires, still before the
+    // provider-failure branch.
+    const guard = s.indexOf('if (res.status === 401) {')
     // P1 hotfix (2026-09-19): the failure branch now reads the server's
     // message instead of setting a fixed boolean — same 401-first ordering.
     // Search AFTER guard: an earlier, unrelated `if (!res.ok) {` exists in
@@ -28,6 +35,16 @@ describe('401 session expiry returns staff to login', () => {
     expect(guard).toBeGreaterThan(-1)
     expect(failure).toBeGreaterThan(-1)
     expect(guard).toBeLessThan(failure)   // 401 handled first; 403/5xx keep the failure state
+    const branch = s.slice(guard, failure)
+    expect(branch).toContain("router.push('/admin/login')")
+    // Strengthened per closing review: prove the staleness guard sits
+    // BEFORE the redirect within this branch, not merely that both are
+    // present somewhere in it — a guard placed after router.push would
+    // still pass the two assertions above while doing nothing useful.
+    const guardIdx = branch.indexOf("if (!convsSeqGuardRef.current.isCurrent(0, convsSeq)) return")
+    const pushIdx  = branch.indexOf("router.push('/admin/login')")
+    expect(guardIdx).toBeGreaterThan(-1)
+    expect(guardIdx).toBeLessThan(pushIdx)
   })
 
   it('the message poller redirects on 401 instead of surfacing a load error', () => {

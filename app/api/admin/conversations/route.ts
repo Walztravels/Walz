@@ -233,7 +233,29 @@ export async function GET(req: Request) {
     const lastProcessedPage = Math.min(page, MAX_PAGES)
     const atCeiling = lastProcessedPage >= MAX_PAGES
     const hasMore = lastPageFull && visible.length >= requestedWantCount && !atCeiling
-    return NextResponse.json({ meta, payload: visible, hasMore })
+    // P1 fix (2026-09-21): expose the server's OWN authoritative agent-id
+    // resolution (already computed above for scopeToMine — free to return,
+    // no extra Chatwoot/Supabase calls) so the client never has to re-derive
+    // it. The client's own resolution (app/admin/inbox/page.tsx) walks
+    // GET /api/admin/inbox-mapping (tier 1) then GET /api/admin/agents
+    // (tier 2) — but the 2026-09-19 security hotfix gated inbox-mapping
+    // behind 'settings_integrations', which ordinary staff never hold, so
+    // tier 1 always 403s for them now and they fall to tier 2 (matching
+    // their login email against the live Chatwoot agent list) with no
+    // further fallback. A staff member whose Chatwoot agent email differs
+    // from their admin login email — precisely the case the RoutingAgent
+    // DB mapping (tier 1) exists to cover — can never resolve past 0 on
+    // the client, even though this route already found their real,
+    // non-empty "mine" list server-side (tier 1 here queries Supabase
+    // directly with no permission gate). That 0 fed the client's own
+    // redundant re-filter of an already-scoped list, permanently zeroing
+    // `displayed` while `hasMore` stayed true — the "Still checking your
+    // older conversations…" branch in ConversationList.tsx, stuck forever
+    // because the mismatch never resolves on its own (confirmed in
+    // production logs: visa@walztravels.com hit `[inbox-mapping]
+    // permission denied` continuously for 2 days). Returning myAgentId
+    // here lets the client use the SAME value this route already trusted.
+    return NextResponse.json({ meta, payload: visible, hasMore, myAgentId })
   }
 
   // viewAll (manager/admin/super_admin): UNCHANGED from Phase 1 — aggregate

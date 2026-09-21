@@ -265,6 +265,22 @@ function InboxPageInner() {
   const [linkedApp, setLinkedApp] = useState<(LinkedAppSummary & { convId: number }) | null>(null)
 
   const prevConvIdsRef    = useRef<Set<number>>(new Set())
+  // Incident fix (2026-09-21): fetchConvs is invoked from THREE uncoordinated
+  // call sites — the poll effect (both its immediate call and every 5s tick),
+  // the tab-switch effect, and handleLoadMoreConvs — with no guard against
+  // two of them being in flight at once (pollInFlightRef below only stops a
+  // tick from overlapping the tick AFTER it, not a concurrent call from a
+  // different effect). On a slow/variable connection (mobile data) two such
+  // calls can complete OUT OF ORDER: a newer call finishes first and adds a
+  // just-arrived conversation to prevConvIdsRef, then an OLDER, slower call
+  // finishes and does `prevConvIdsRef.current = newIds` with ITS OWN
+  // (older, pre-arrival) snapshot — wholesale overwriting the ref and
+  // "un-seeing" that conversation. The very next poll tick then detects the
+  // same conversation as new all over again → the exact production bug
+  // (mobile toasts appearing twice, sometimes seconds apart). Same
+  // stale-response class, and same fix, as fetchMessages/refreshMessages'
+  // msgSeqGuardRef below — just never applied to fetchConvs itself.
+  const convsSeqGuardRef  = useRef(createSeqGuard())
   const selectedRef       = useRef<CWConversation | null>(null)
   selectedRef.current     = selected
   const convsRef          = useRef<CWConversation[]>([])
@@ -356,6 +372,11 @@ function InboxPageInner() {
   // ── Fetch conversations ─────────────────────────────────────────────────────
   const fetchConvs = useCallback(async (showLoad = false, opts?: { isPoll?: boolean }) => {
     if (showLoad) setLoading(true)
+    // Registered BEFORE the request goes out (mirrors fetchPage's own
+    // msgSeqGuardRef.current.next(id) call) — a call that starts LATER
+    // always wins isCurrent() over one already in flight, regardless of
+    // which one's response actually arrives first.
+    const convsSeq = convsSeqGuardRef.current.next(0)
     try {
       // Always fetch the full open/resolved list — filter client-side per tab.
       // P1.1 fix: viewAll sessions keep the Phase 1 team-wide maxPages
@@ -395,7 +416,16 @@ function InboxPageInner() {
       // 401 = session expired (12h JWT) — the middleware rejects before the
       // route runs. That is not a provider failure: send staff to login
       // instead of an unwinnable Retry loop (incident 2026-09-18).
-      if (res.status === 401) { router.push('/admin/login'); return }
+      // Finding 2 fix (2026-09-21 incident): guarded by the SAME staleness
+      // check as the success path below (and fetchMessages' own catch
+      // block) — an OLDER, slower call landing a 401 AFTER a NEWER call has
+      // already succeeded must never force a redirect; the current
+      // session/view is proven fine by the newer response.
+      if (res.status === 401) {
+        if (!convsSeqGuardRef.current.isCurrent(0, convsSeq)) return
+        router.push('/admin/login')
+        return
+      }
       if (!res.ok) {
         // P1 hotfix (2026-09-19): surface the SERVER's actual message —
         // a permission-scoped rejection (403) now reads differently from a
@@ -403,13 +433,23 @@ function InboxPageInner() {
         // one undifferentiated "Could not load conversations. Retry." string.
         const d = await res.json().catch(() => ({} as Record<string, string>))
         console.error('[inbox] conversations list failed', res.status, d?.error)
+        // Finding 2 fix: same staleness discipline as the 401 branch above
+        // and the success path below — a stale failure is silently
+        // discarded rather than stomping a freshly-loaded, working list.
+        if (!convsSeqGuardRef.current.isCurrent(0, convsSeq)) return
         setConvsError(d.error || 'Could not load conversations. Please try again.')
         return
       }
-      setConvsError(null)
-
       // API route unwraps Chatwoot envelope → response is { meta, payload }
       const json = await res.json()
+      // Stale-response guard: a NEWER fetchConvs call (poll tick, tab switch,
+      // or "Load more") has already started since this one went out —
+      // discard this response wholesale rather than let it clobber
+      // prevConvIdsRef/convs/metaCounts with an older snapshot. Checked
+      // BEFORE any setState/ref write below, same discipline as
+      // fetchMessages/refreshMessages' msgSeqGuardRef guard.
+      if (!convsSeqGuardRef.current.isCurrent(0, convsSeq)) return
+      setConvsError(null)
       const conversations: CWConversation[] = json?.payload || json?.data?.payload || []
       const meta = json?.meta || json?.data?.meta
       // Phase 1 (Agent A): whether the server's aggregation stopped because
@@ -421,9 +461,34 @@ function InboxPageInner() {
         : false
       setHasMoreConvs(hasMore)
 
+      // P1 fix (2026-09-21): for non-viewAll callers the route already
+      // resolved (and used) the caller's real Chatwoot agent id server-side
+      // — it costs nothing extra to read it back here. The client's OWN
+      // resolution (the agents+inbox-mapping effect below) can get
+      // permanently stuck at 0 for a staff member whose Chatwoot agent
+      // email differs from their admin login email: the 2026-09-19 hotfix
+      // gated GET /api/admin/inbox-mapping (tier 1, the RoutingAgent DB
+      // mapping — exactly the override that case needs) behind
+      // 'settings_integrations', which ordinary staff never hold, so tier 1
+      // always 403s for them and tier 2 (matching login email against the
+      // live Chatwoot agent list) has nothing left to fall back on. That
+      // stuck-at-0 id then fed the redundant re-filter below, permanently
+      // zeroing the Mine/Resolved list while `hasMore` stayed true —
+      // production incident: visa@walztravels.com, confirmed via Vercel
+      // logs showing continuous `[inbox-mapping] permission denied` over
+      // 2 days. Prefer this authoritative value when present, and sync it
+      // into `profile` so every other consumer (this function's next call
+      // included) sees the correct id too, not just this one pass.
+      const serverAgentId = typeof json?.myAgentId === 'number' && json.myAgentId > 0 ? json.myAgentId
+        : typeof json?.data?.myAgentId === 'number' && json.data.myAgentId > 0 ? json.data.myAgentId
+        : null
+      if (serverAgentId != null && serverAgentId !== profile?.chatwootAgentId) {
+        setProfile(prev => (prev ? { ...prev, chatwootAgentId: serverAgentId } : prev))
+      }
+
       // Compute counts client-side — meta.mine_count from Chatwoot reflects the
       // admin API token user, not the logged-in staff member, so it's always wrong.
-      const myId = profile?.chatwootAgentId ?? 0
+      const myId = serverAgentId ?? profile?.chatwootAgentId ?? 0
       setMetaCounts({
         all:        conversations.length,
         mine:       myId > 0 ? conversations.filter(c => (c.meta?.assignee ?? c.assignee)?.id === myId).length : 0,
@@ -434,7 +499,7 @@ function InboxPageInner() {
       let filtered = conversations
       if (tab === 'mine') {
         filtered = conversations.filter(c =>
-          (c.meta?.assignee ?? c.assignee)?.id === profile?.chatwootAgentId
+          (c.meta?.assignee ?? c.assignee)?.id === myId
         )
       } else if (tab === 'unassigned') {
         filtered = conversations.filter(c => !c.meta?.assignee && !c.assignee)
@@ -449,7 +514,7 @@ function InboxPageInner() {
       if (!canViewAll && profile) {
         filtered = filtered.filter(c => {
           const assignee = c.meta?.assignee ?? c.assignee
-          return !!assignee && profile.chatwootAgentId > 0 && assignee.id === profile.chatwootAgentId
+          return !!assignee && myId > 0 && assignee.id === myId
         })
       }
 
@@ -512,6 +577,11 @@ function InboxPageInner() {
         if (updated) setSelected({ ...updated, unread_count: 0 })
       }
     } catch {
+      // Finding 2 fix (2026-09-21 incident): mirrors fetchMessages' own
+      // catch block above — an older, slower call that throws (network
+      // failure) after a newer call already succeeded must be discarded as
+      // stale, not shown as a fresh error over a working list.
+      if (!convsSeqGuardRef.current.isCurrent(0, convsSeq)) return
       setConvsError('Could not load conversations. Please try again.')
     } finally {
       if (showLoad) setLoading(false)
@@ -539,7 +609,24 @@ function InboxPageInner() {
       )
     }
     setLoadingMoreConvs(true)
-    try { await fetchConvs() } finally { setLoadingMoreConvs(false) }
+    // Finding 1 fix (2026-09-21 incident): this fetch is heavier and
+    // naturally slower than a routine poll tick (multi-page/wantCount-
+    // widened vs. the poll's own cheap, capped request) — without
+    // coordination, a 5s poll tick that starts WHILE this is still in
+    // flight finishes first, becomes "current" under convsSeqGuardRef's
+    // staleness rule, and causes THIS call's later-arriving response (the
+    // one the user actually asked for) to be discarded as stale. Setting
+    // pollInFlightRef — the SAME flag the poll effect below already uses to
+    // stop its own ticks from overlapping each other — makes the interval
+    // simply skip a tick while Load More is running, instead of racing it.
+    // Reset in `finally` (mirroring setLoadingMoreConvs right below) so a
+    // thrown/rejected fetchConvs can never leave polling permanently
+    // skipped.
+    pollInFlightRef.current = true
+    try { await fetchConvs() } finally {
+      setLoadingMoreConvs(false)
+      pollInFlightRef.current = false
+    }
   }, [fetchConvs, loadingMoreConvs, profile, tab])
 
   // ── Fetch messages (history-aware) ──────────────────────────────────────────
