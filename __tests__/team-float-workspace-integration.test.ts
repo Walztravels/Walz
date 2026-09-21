@@ -100,6 +100,22 @@ describe('PREPARE CLIENT REPLY SAFETY — Composer never offers "insert into cur
   })
 })
 
+describe('REGRESSION — legacy AskTeamPanel drawer actually closes when CASE 3 hands off to the floating workspace', () => {
+  it('page.tsx\'s onCreated callback both opens the floating tab AND closes the legacy drawer, so the drawer never survives as the final visible state', () => {
+    const s = pageSrc()
+    const idx = s.indexOf('onCreated={info =>')
+    expect(idx).toBeGreaterThan(-1)
+    // Slice just this callback's body (up to the closing `}}` of the JSX prop).
+    const end = s.indexOf('\n        }}', idx)
+    const body = s.slice(idx, end)
+    expect(body).toContain('floatTeam.openCreatedTab(')
+    expect(body).toContain('setAskTeamOpen(false)')
+    // The close must happen as part of THIS callback, not rely on some other
+    // unrelated effect — i.e. it appears textually after openCreatedTab is invoked.
+    expect(body.indexOf('floatTeam.openCreatedTab(')).toBeLessThan(body.indexOf('setAskTeamOpen(false)'))
+  })
+})
+
 describe('CASE 3 create flow — AskTeamPanel onCreated is additive, never mutates the existing create/link logic', () => {
   it('onCreated is optional and fired only after a successful link, using the create flow\'s own result — no second API call to create a conversation', () => {
     const s = askTeamSrc()

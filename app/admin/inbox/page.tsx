@@ -1075,6 +1075,13 @@ function InboxPageInner() {
             clientName: info.clientName,
             clientRef: `#${info.inboxConversationId}`,
           })
+          // Bug fix (2026-09-20): the legacy drawer never closed itself here,
+          // so staff were left looking at its "Sent to your team" done view
+          // as the FINAL state instead of the floating workspace that just
+          // opened behind/alongside it. Closing it is this callback's job —
+          // AskTeamPanel is fully controlled (open/onClose props), it never
+          // closes itself on success.
+          setAskTeamOpen(false)
         }}
       />
 
