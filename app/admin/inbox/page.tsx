@@ -9,6 +9,8 @@ import { ClientInfo, LinkedAppSummary } from './components/ClientInfo'
 import { InboxJadeCopilot } from './components/InboxJadeCopilot'
 import { JadeAssistPanel } from './components/JadeAssistPanel'
 import { AskTeamPanel } from './components/AskTeamPanel'
+import { FloatingTeamWorkspace } from './team-float/FloatingTeamWorkspace'
+import { useFloatingTeamWorkspace } from './team-float/useFloatingTeamWorkspace'
 import { ApplicationLookupDrawer } from '@/components/admin/ApplicationLookupDrawer'
 import { StaffModal } from './components/StaffModal'
 import { DetailsDrawer } from './components/DetailsDrawer'
@@ -193,6 +195,12 @@ function InboxPageInner() {
   // is open (see the outer-wrap extension below).
   const [askTeamOpen, setAskTeamOpen] = useState(false)
   const { registerCopilotOpener, registerJadeMenuOpener, registerAskTeamOpener } = useComposerDraft()
+  // Floating Ask Team Workspace — owns floating tabs/window state (see that
+  // hook's own header). Instantiated here (the persistent shell tier) so
+  // its `askTeamFor` action is reachable from the Ask Team button below,
+  // and so it survives every conversation switch exactly like the three
+  // panel-open booleans above.
+  const floatTeam = useFloatingTeamWorkspace()
   useEffect(() => {
     registerCopilotOpener(() => { setJadeAssistOpen(false); setAskTeamOpen(false); setCopilotOpen(true) })
   }, [registerCopilotOpener])
@@ -200,8 +208,27 @@ function InboxPageInner() {
     registerJadeMenuOpener(() => { setCopilotOpen(false); setAskTeamOpen(false); setJadeAssistOpen(true) })
   }, [registerJadeMenuOpener])
   useEffect(() => {
-    registerAskTeamOpener(() => { setCopilotOpen(false); setJadeAssistOpen(false); setAskTeamOpen(true) })
-  }, [registerAskTeamOpener])
+    // CASE 1/2/3 (Floating Ask Team Workspace spec): CASE 1 (already open as
+    // a floating tab) and CASE 2 (a non-resolved discussion is linked but
+    // not currently open) are resolved entirely by floatTeam.askTeamFor —
+    // it focuses/opens the floating tab and never opens this drawer. Only
+    // CASE 3 (nothing exists yet) falls through to the EXISTING create flow
+    // (AskTeamPanel, unchanged) — see its own onCreated hook below for how
+    // the newly-created discussion then also becomes a floating tab.
+    registerAskTeamOpener(() => {
+      setCopilotOpen(false)
+      setJadeAssistOpen(false)
+      const conv = selectedRef.current
+      if (!conv) { setAskTeamOpen(true); return }
+      void floatTeam.askTeamFor({
+        inboxConversationId: conv.id,
+        clientName: conv.meta?.sender?.name || 'Client',
+        clientRef: `#${conv.id}`,
+      }).then(resolution => {
+        if (resolution.case === 3) setAskTeamOpen(true)
+      })
+    })
+  }, [registerAskTeamOpener, floatTeam])
   // UX-4: any screen change closes the copilot sheet and the details drawer
   // (the hook already closes the drawer; the copilot lives here) and moves
   // focus below md — into the conversation region on enter, back to the
@@ -694,6 +721,27 @@ function InboxPageInner() {
     screens.selectConversation(conv.id)
   }
 
+  // Floating Ask Team Workspace — "Linked to {Client}" / "Go to {Client}"
+  // navigation. Reuses the EXISTING selection path above when the target
+  // conversation is already loaded; otherwise fetches it directly through
+  // the existing, unmodified GET /api/admin/conversations/[id] route (same
+  // checkInboxPermission + checkConversationAccess gate every other Inbox
+  // read already goes through — no new authorization code, no duplicate
+  // Inbox view) so "Go to {Client}" also works for a conversation outside
+  // the currently loaded page/tab (e.g. resolved, or filtered out of Mine).
+  function navigateToInboxConversation(inboxConversationId: number) {
+    const existing = convsRef.current.find(c => c.id === inboxConversationId)
+    if (existing) { doSelectConv(existing); return }
+    fetch(`/api/admin/conversations/${inboxConversationId}`)
+      .then(res => (res.ok ? res.json() : null))
+      .then((data: CWConversation | null) => {
+        if (!data || typeof data.id !== 'number') return
+        setConvs(prev => (prev.some(c => c.id === data.id) ? prev : [data, ...prev]))
+        doSelectConv(data)
+      })
+      .catch(() => { /* best-effort — the floating workspace's own link still shows the client name/ref even if this navigation fails */ })
+  }
+
   // ── Actions ─────────────────────────────────────────────────────────────────
   async function handleSend(content: string, isPrivate: boolean, file?: File): Promise<boolean> {
     if (!selected) return false
@@ -1017,6 +1065,29 @@ function InboxPageInner() {
         open={askTeamOpen}
         onClose={() => setAskTeamOpen(false)}
         conversationId={selected?.id ?? null}
+        onCreated={info => {
+          // CASE 3 (Floating Ask Team Workspace): the drawer's OWN
+          // create-and-link flow just succeeded — add the resulting real
+          // TeamConversation as a floating tab. Never creates a second one.
+          floatTeam.openCreatedTab({
+            id: info.teamConversationId,
+            inboxConversationId: info.inboxConversationId,
+            clientName: info.clientName,
+            clientRef: `#${info.inboxConversationId}`,
+          })
+        }}
+      />
+
+      {/* Floating Ask Team Workspace — mounted at this SAME persistent
+          shell tier as AskTeamPanel/the two Jade panels above (never inside
+          ChatWindow, which unmounts when `selected` is null) so it survives
+          every Inbox conversation switch. See useFloatingTeamWorkspace.ts
+          and FloatingTeamWorkspace.tsx for the full architecture. */}
+      <FloatingTeamWorkspace
+        api={floatTeam}
+        viewingInboxConversationId={selected?.id ?? null}
+        viewingClientName={selected?.meta?.sender?.name ?? null}
+        onNavigateToInbox={navigateToInboxConversation}
       />
 
       {/* Client details — UX-4 DetailsDrawer (right-side slide-in below lg,

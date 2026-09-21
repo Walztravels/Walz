@@ -33,11 +33,33 @@ export interface ComposerProps {
   onUploadAttachment: (file: File, caption?: string) => Promise<ActionResult>
   /** Present only when this conversation has an active (OPEN/ANSWERED) inbox clarification link. */
   activeInboxConversationId?: number | null
+  /**
+   * Floating Ask Team Workspace ONLY (all three below are undefined/absent
+   * for the standalone Team Hub page, which keeps its exact original
+   * "Draft handed off" + open-link behavior). When provided, the display
+   * name of the client `activeInboxConversationId` is linked to, and
+   * whether that linked conversation is the one CURRENTLY VISIBLE in the
+   * Inbox (as opposed to some other conversation the staff member has
+   * navigated to while this floating tab stayed open in the background).
+   *
+   * RELEASE-BLOCKING SAFETY: when `isViewingLinkedInbox` is false, the
+   * post-handoff UI below shows ONLY "Go to {client}" / "Copy Reply" — it
+   * never offers anything resembling "insert into current reply". This
+   * mirrors (does not replace) the actual safety mechanism, which is
+   * structural: `confirmHandoff` below only ever writes the draft to
+   * sessionStorage keyed by `activeInboxConversationId` (see
+   * lib/team/client-reply-handoff.ts) — it can never write into whatever
+   * Inbox conversation happens to be on screen, matched or not.
+   */
+  linkedClientName?: string | null
+  isViewingLinkedInbox?: boolean
+  onGoToLinkedConversation?: () => void
 }
 
 export function Composer({
   conversationId, parentMessageId = null, disabled, disabledReason, placeholder,
   onSend, onUploadAttachment, activeInboxConversationId,
+  linkedClientName, isViewingLinkedInbox, onGoToLinkedConversation,
 }: ComposerProps) {
   const [text, setText] = useState('')
   const [sending, setSending] = useState(false)
@@ -278,15 +300,54 @@ export function Composer({
             ) : prepareError ? (
               <p className="text-xs text-walz-error">{prepareError}</p>
             ) : prepareDone ? (
-              <div className="space-y-3">
-                <p className="text-sm text-walz-navy">Draft handed off. Review and send it from the Inbox.</p>
-                <a
-                  href={`/admin/inbox?c=${activeInboxConversationId}`}
-                  className="inline-flex items-center gap-1.5 rounded-lg border border-walz-border px-3 py-2 text-sm font-semibold text-walz-navy hover:bg-walz-navy/5"
-                >
-                  Open Client Conversation <ExternalLink className="w-3.5 h-3.5" />
-                </a>
-              </div>
+              onGoToLinkedConversation ? (
+                isViewingLinkedInbox ? (
+                  <div className="space-y-3">
+                    <p className="text-sm text-walz-navy">Draft handed off. Review and send it from the Inbox.</p>
+                    <button
+                      type="button"
+                      onClick={onGoToLinkedConversation}
+                      className="inline-flex items-center gap-1.5 rounded-lg border border-walz-border px-3 py-2 text-sm font-semibold text-walz-navy hover:bg-walz-navy/5"
+                    >
+                      Open Client Conversation <ExternalLink className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    <p className="text-sm text-walz-navy">Reply prepared for {linkedClientName ?? 'the client'}.</p>
+                    <p className="text-xs text-walz-muted-strong">
+                      You're currently viewing a different Inbox conversation — this draft is only waiting for{' '}
+                      {linkedClientName ?? 'that client'}'s conversation and will never appear in the one you have open now.
+                    </p>
+                    <div className="flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        onClick={onGoToLinkedConversation}
+                        className="inline-flex items-center gap-1.5 rounded-lg bg-blue-600 text-white px-3 py-2 text-sm font-semibold hover:bg-blue-700"
+                      >
+                        Go to {linkedClientName ?? 'client'} <ExternalLink className="w-3.5 h-3.5" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => { void navigator.clipboard?.writeText(prepareText) }}
+                        className="inline-flex items-center gap-1.5 rounded-lg border border-walz-border px-3 py-2 text-sm font-semibold text-walz-navy hover:bg-walz-navy/5"
+                      >
+                        Copy Reply
+                      </button>
+                    </div>
+                  </div>
+                )
+              ) : (
+                <div className="space-y-3">
+                  <p className="text-sm text-walz-navy">Draft handed off. Review and send it from the Inbox.</p>
+                  <a
+                    href={`/admin/inbox?c=${activeInboxConversationId}`}
+                    className="inline-flex items-center gap-1.5 rounded-lg border border-walz-border px-3 py-2 text-sm font-semibold text-walz-navy hover:bg-walz-navy/5"
+                  >
+                    Open Client Conversation <ExternalLink className="w-3.5 h-3.5" />
+                  </a>
+                </div>
+              )
             ) : (
               <>
                 <textarea

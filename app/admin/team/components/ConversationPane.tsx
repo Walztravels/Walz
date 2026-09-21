@@ -22,10 +22,20 @@ export interface ConversationPaneProps extends Pick<
   'currentStaff' | 'selected' | 'inboxLink' | 'onLinkChanged' | 'activeInboxConversationId' | 'openThread' | 'onOpenMembers' | 'onOpenCallHistory'
 > {
   onBack?: () => void
+  /**
+   * Floating Ask Team Workspace ONLY — passed straight through to Composer
+   * (see that component's own header comment for the safety rationale).
+   * Undefined for every existing standalone Team Hub call site, which keeps
+   * their exact original Composer behavior.
+   */
+  linkedClientName?: string | null
+  isViewingLinkedInbox?: boolean
+  onGoToLinkedConversation?: () => void
 }
 
 export function ConversationPane({
   currentStaff, selected, inboxLink, onLinkChanged, activeInboxConversationId, openThread, onOpenMembers, onOpenCallHistory, onBack,
+  linkedClientName, isViewingLinkedInbox, onGoToLinkedConversation,
 }: ConversationPaneProps) {
   // Called unconditionally (hooks rule) even during the loading/forbidden/
   // not-found/error branches below — the hook itself is a no-op until both
@@ -113,6 +123,9 @@ export function ConversationPane({
         onSend={selected.messages.sendMessage}
         onUploadAttachment={selected.messages.uploadAttachment}
         activeInboxConversationId={activeInboxConversationId}
+        linkedClientName={linkedClientName}
+        isViewingLinkedInbox={isViewingLinkedInbox}
+        onGoToLinkedConversation={onGoToLinkedConversation}
       />
     </div>
   )

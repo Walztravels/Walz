@@ -24,12 +24,15 @@ import {
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { useStaffPermissions } from '@/hooks/useStaffPermissions'
+import { useFloatingTeamHubOptional, useSharedTeamHubUnreadCount } from '@/app/admin/team/floating/FloatingTeamHubProvider'
 import {
   getNavForStaff,
   ROLE_BADGE_CLASSES,
   ROLE_LABELS,
   type AdminRole,
 } from '@/lib/admin/permissions'
+
+const TEAM_HUB_HREF = '/admin/team'
 
 // ── Icon map: string name → Lucide component ──────────────────────────────────
 const ICON_MAP: Record<string, React.ElementType> = {
@@ -116,8 +119,25 @@ export function AdminSidebar() {
   const [logoUrl,          setLogoUrl]          = useState('/walz-logo.svg')
   const [unreadCount,      setUnreadCount]      = useState(0)
   const [pendingLinkCount, setPendingLinkCount] = useState(0)
-  const [teamHubUnread,    setTeamHubUnread]    = useState(0)
   const [expanded,         setExpanded]         = useState<Set<string>>(() => new Set(['OVERVIEW']))
+
+  // Team Hub unread badge — reads the ALREADY-POLLED count off the
+  // Admin-wide Floating Team Hub's shared provider (see
+  // FloatingTeamHubContext.tsx's useSharedTeamHubUnreadCount()) instead of
+  // running its own independent 45s interval against the same
+  // /api/admin/team/unread-count endpoint, so this sidebar badge and the
+  // floating window/minimized-bar badge can never transiently disagree —
+  // both read the SAME poll instance. Falls back to an independent poll
+  // only if the floating provider genuinely isn't mounted.
+  const teamHubUnread = useSharedTeamHubUnreadCount()
+
+  // Sidebar click behavior for the Team Hub nav item: opens/restores the
+  // floating window instead of navigating, from any Admin page other than
+  // /admin/team itself (Admin-wide Floating Team Hub — UI-only presentation
+  // layer over the existing, unmodified Team Hub backend/business logic).
+  // Optional context hook: if the provider is somehow not mounted, this is
+  // `null` and the item below falls back to its original plain-Link behavior.
+  const floatingTeamHub = useFloatingTeamHubOptional()
 
   // ── Logo loader ──────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -172,35 +192,13 @@ export function AdminSidebar() {
     fetchLinkCount()
     const linkInterval = setInterval(fetchLinkCount, 5 * 60 * 1000)
 
-    // Team Hub unread badge — poll only (45s), deliberately NOT a
-    // `postgres_changes` subscription. Security review finding: Team Hub
-    // tables are service-role-only (REVOKE ALL FROM anon, authenticated in
-    // prisma/migrations/team_hub_v1_core.sql) because this app has no
-    // Supabase-Auth-issued per-staff JWT for RLS to key off of, so an
-    // anon-key subscription on team_messages could never actually receive
-    // an event — and, worse, would be an attractive nuisance for a future
-    // "fix" that loosens that RLS to make it work, which would leak every
-    // private DM/channel message company-wide (this specific subscription
-    // had no table filter at all). Do not re-add one — see
-    // app/admin/team/hooks/useTeamRealtimeMessages.ts's header comment for
-    // the correct (Broadcast, service-role-published) fast-follow design.
-    const fetchTeamHubUnread = async () => {
-      try {
-        const res  = await fetch('/api/admin/team/unread-count')
-        const data = await res.json() as { unreadCount?: number }
-        setTeamHubUnread(data.unreadCount ?? 0)
-      } catch { /* non-fatal */ }
-    }
-    fetchTeamHubUnread()
-    const teamHubInterval = setInterval(fetchTeamHubUnread, 45 * 1000)
-
     const sb = createClient(url, key)
     const channel = sb
       .channel('sidebar-unread')
       .on('postgres_changes', { event: '*', schema: 'public', table: 'leads' }, () => fetchUnread())
       .subscribe()
 
-    return () => { sb.removeChannel(channel); clearInterval(linkInterval); clearInterval(teamHubInterval) }
+    return () => { sb.removeChannel(channel); clearInterval(linkInterval) }
   }, [])
 
   // ── Auto-expand the section containing the active route ───────────────────
@@ -337,19 +335,14 @@ export function AdminSidebar() {
                       {items.map(({ href, label, icon }) => {
                         const Icon   = ICON_MAP[icon]
                         const active = isActive(href)
-                        return (
-                          <Link
-                            key={href}
-                            href={href}
-                            className={cn(
-                              'flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium transition-all',
-                              active
-                                ? 'bg-[#C9A84C] text-[#0B1F3A]'
-                                : 'text-white/65 hover:bg-white/8 hover:text-white',
-                            )}
-                          >
-                            {Icon && <Icon className="w-4 h-4 flex-shrink-0" />}
-                            <span className="flex-1">{label}</span>
+                        const itemClassName = cn(
+                          'w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium transition-all text-left',
+                          active
+                            ? 'bg-[#C9A84C] text-[#0B1F3A]'
+                            : 'text-white/65 hover:bg-white/8 hover:text-white',
+                        )
+                        const badges = (
+                          <>
                             {href === '/admin/inbox' && unreadCount > 0 && (
                               <span className="min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center">
                                 {unreadCount > 99 ? '99+' : unreadCount}
@@ -360,11 +353,52 @@ export function AdminSidebar() {
                                 {pendingLinkCount}
                               </span>
                             )}
-                            {href === '/admin/team' && teamHubUnread > 0 && (
+                            {href === TEAM_HUB_HREF && teamHubUnread > 0 && (
                               <span className="min-w-[18px] h-[18px] px-1 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center">
                                 {teamHubUnread > 99 ? '99+' : teamHubUnread}
                               </span>
                             )}
+                          </>
+                        )
+
+                        // Team Hub, from anywhere other than /admin/team itself: open/restore
+                        // the floating window instead of navigating away — the current page
+                        // stays the active route (and stays visually active in the sidebar,
+                        // since `active` above is driven only by `pathname`, unaffected by the
+                        // floating window's own open/minimized state). On /admin/team itself,
+                        // or if the floating provider isn't mounted for any reason, this stays
+                        // a plain Link — clicking it while already there just stays put.
+                        if (href === TEAM_HUB_HREF && !active && floatingTeamHub) {
+                          const isFloatingOpen = floatingTeamHub.windowState !== 'closed'
+                          return (
+                            <button
+                              key={href}
+                              type="button"
+                              onClick={() => floatingTeamHub.openOrRestore()}
+                              className={itemClassName}
+                              aria-label={`${label}${isFloatingOpen ? ' (open)' : ''}`}
+                            >
+                              {Icon && <Icon className="w-4 h-4 flex-shrink-0" />}
+                              <span className="flex-1 flex items-center gap-1.5">
+                                {label}
+                                {isFloatingOpen && (
+                                  <span
+                                    aria-hidden="true"
+                                    title="Team Hub is open"
+                                    className="w-1.5 h-1.5 rounded-full bg-emerald-400 flex-shrink-0"
+                                  />
+                                )}
+                              </span>
+                              {badges}
+                            </button>
+                          )
+                        }
+
+                        return (
+                          <Link key={href} href={href} className={itemClassName}>
+                            {Icon && <Icon className="w-4 h-4 flex-shrink-0" />}
+                            <span className="flex-1">{label}</span>
+                            {badges}
                           </Link>
                         )
                       })}

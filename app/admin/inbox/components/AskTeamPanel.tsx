@@ -36,6 +36,17 @@ export interface AskTeamPanelProps {
   onClose: () => void
   /** The currently-selected Inbox (Chatwoot) conversation id, or null when nothing is selected. */
   conversationId: number | null
+  /**
+   * Floating Ask Team Workspace CASE 3 hook — called once immediately after
+   * a NEW Team conversation is created and successfully linked, so the
+   * floating workspace can open a tab for it. This never creates a second
+   * TeamConversation — it fires only after this panel's own existing
+   * create-and-link flow (unchanged) already succeeded. Optional and
+   * additive: the drawer's own "Sent to your team" / "Open in Team Hub"
+   * confirmation view below is completely unchanged whether or not a
+   * caller passes this.
+   */
+  onCreated?: (info: { teamConversationId: string; inboxConversationId: number; clientName: string }) => void
 }
 
 type View = 'menu' | 'colleague' | 'channel' | 'discussion' | 'compose' | 'sending' | 'done'
@@ -84,7 +95,7 @@ function CallStaffStub({ staffName }: { staffName: string }) {
   )
 }
 
-export function AskTeamPanel({ open, onClose, conversationId }: AskTeamPanelProps) {
+export function AskTeamPanel({ open, onClose, conversationId, onCreated }: AskTeamPanelProps) {
   const [view, setView] = useState<View>('menu')
   const [contextCard, setContextCard] = useState<ContextCard | null>(null)
 
@@ -239,6 +250,13 @@ export function AskTeamPanel({ open, onClose, conversationId }: AskTeamPanelProp
 
       setDoneInfo({ teamConversationId, messageId: msgData.message.id, linked })
       setView('done')
+      if (linked) {
+        onCreated?.({
+          teamConversationId,
+          inboxConversationId: conversationId,
+          clientName: contextCard?.clientDisplayName ?? 'Client',
+        })
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Something went wrong. Please try again.')
       setView('compose')
