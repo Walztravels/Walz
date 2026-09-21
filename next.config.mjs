@@ -42,20 +42,39 @@ const nextConfig = {
   // ── Redirects ─────────────────────────────────────────────────────────────
   async redirects() {
     return [
+      // NOTE: source excludes /api/** — see the P1 postmortem below. A
+      // host-conditioned redirect with source '/:path*' matches EVERY path,
+      // API/webhook routes included, and Vercel compiles next.config.js
+      // redirects into a static routes-manifest.json rule served at its
+      // edge/CDN layer *before* any Next.js middleware or function runs.
+      // That meant a POST to https://walztravels.com/api/team/twilio/voice
+      // (the apex Voice URL the Twilio Console was told to use) got 308'd
+      // by the edge with no app code ever invoked — confirmed by Vercel
+      // runtime logs showing zero function/middleware trace for that path
+      // during the incident window, and zero 308-status log lines at all
+      // across the deployment despite routes-manifest.json compiling this
+      // exact rule with statusCode 308. Twilio's webhook client does not
+      // treat that redirect as usable TwiML, so it surfaced its own
+      // generic "We are sorry, an application error has occurred" message.
+      // The negative-lookahead source below is Next.js's own documented
+      // pattern for carving a prefix out of a redirect (see
+      // vercel.com/docs/routing/redirects/configuration-redirects); ordinary
+      // page routes at the apex are unaffected and still redirect to
+      // https://www.walztravels.com as before.
       {
-        source:      '/:path*',
+        source:      '/:path((?!api/).*)',
         has:         [{ type: 'host', value: 'walztravels.us' }],
         destination: 'https://www.walztravels.com/:path*',
         permanent:   true,
       },
       {
-        source:      '/:path*',
+        source:      '/:path((?!api/).*)',
         has:         [{ type: 'host', value: 'www.walztravels.us' }],
         destination: 'https://www.walztravels.com/:path*',
         permanent:   true,
       },
       {
-        source:      '/:path*',
+        source:      '/:path((?!api/).*)',
         has:         [{ type: 'host', value: 'walztravels.com' }],
         destination: 'https://www.walztravels.com/:path*',
         permanent:   true,
