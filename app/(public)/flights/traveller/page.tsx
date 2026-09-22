@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import { useFlightStore } from '@/store/flightStore'
 import { formatTime, formatDuration } from '@/lib/flights/utils'
 import { useFlightPrice } from '@/lib/hooks/useFlightPrice'
+import { SmsCustomerCareConsent } from '@/components/consent/SmsCustomerCareConsent'
 import type { Passenger } from '@/lib/flights/types'
 
 const STEPS        = ['Search', 'Seats', 'Travellers', 'Extras', 'Review', 'Pay']
@@ -51,6 +52,11 @@ export default function TravellerPage() {
   const [tried,   setTried]  = useState(false)
   const [meals,   setMeals]  = useState<string[]>(Array(count).fill('No preference'))
 
+  // A2P 10DLC CUSTOMER_CARE consent. Initialised FALSE and never set true
+  // by anything but the user's own click on its own checkbox — no default,
+  // no "select all", no coupling to any other agreement control.
+  const [smsConsent, setSmsConsent] = useState(false)
+
   const cur    = pax[active]
   const isLead = active === 0
   const seg    = selected?.segments[0]
@@ -90,6 +96,22 @@ export default function TravellerPage() {
       if (firstErrPax !== -1) setActive(firstErrPax)
       return
     }
+    // Record the SMS customer-care consent at the moment of the
+    // affirmative act, not after payment — that timestamp is what an A2P
+    // audit asks for. Fire-and-forget on purpose: consent is explicitly
+    // "not a condition of purchase", so a failure here must never stop the
+    // traveller continuing. The route itself writes NOTHING unless
+    // `consent` is strictly true (see lib/consent/purposes.ts).
+    void fetch('/api/consent/sms-customer-care', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        phone: pax[0]?.phone ?? '',
+        consent: smsConsent,
+        capturePage: '/flights/traveller',
+      }),
+    }).catch(() => { /* never block the booking on a consent side-write */ })
+
     setPassengers(pax)
     setStep('extras')
     router.push('/flights/extras')
@@ -382,6 +404,18 @@ export default function TravellerPage() {
                           onChange={e => update(active, 'phone', e.target.value)} />
                       ), 'For flight alerts and urgent updates')}
                     </div>
+
+                    {/*
+                      A2P 10DLC CUSTOMER_CARE consent — its OWN independent
+                      checkbox, unticked by default, never required, and the
+                      only control on this page that toggles it. The generic
+                      Terms & Conditions tickbox lives on a different step
+                      (/flights/review) and has no connection to this one.
+                    */}
+                    <SmsCustomerCareConsent
+                      checked={smsConsent}
+                      onChange={setSmsConsent}
+                    />
                   </div>
                 </>
               )}

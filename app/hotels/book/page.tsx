@@ -8,6 +8,7 @@ import {
   ChevronLeft, ChevronRight, CheckCircle, Loader2, X, AlertCircle,
 } from 'lucide-react'
 import { PaymentForm } from '@/components/booking/PaymentForm'
+import { SmsCustomerCareConsent } from '@/components/consent/SmsCustomerCareConsent'
 import { generateBookingReference } from '@/lib/utils'
 import { formatPrice, cn } from '@/lib/utils'
 import type { HotelResult } from '@/types/booking'
@@ -131,6 +132,11 @@ function BookingPanel({ hotel, meta, nights }: { hotel: HotelResult; meta: Hotel
   const [hbRef,        setHbRef]       = useState('')
   const [rateComments, setRateComments] = useState<string[]>([])
 
+  // A2P 10DLC CUSTOMER_CARE consent. Initialised FALSE and never set true
+  // by anything but the user's own click on its own checkbox — mirrors
+  // app/(public)/flights/traveller/page.tsx and app/book/page.tsx exactly.
+  const [smsConsent, setSmsConsent] = useState(false)
+
   const total    = hotel.totalPrice.amount
   const currency = hotel.totalPrice.currency
   const bookRef  = generateBookingReference()
@@ -149,6 +155,26 @@ function BookingPanel({ hotel, meta, nights }: { hotel: HotelResult; meta: Hotel
     if (!email.trim() || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { setError('Please enter a valid email.'); return false }
     if (!phone.trim())                                { setError('Please enter your phone number.'); return false }
     setError(null); return true
+  }
+
+  function handleContinueToPayment() {
+    if (!validate()) return
+    // Record the SMS customer-care consent at the moment of the
+    // affirmative act, before payment — not a condition of purchase, so a
+    // failure here must never block checkout. Mirrors the exact pattern in
+    // app/(public)/flights/traveller/page.tsx and app/book/page.tsx: the
+    // route itself writes NOTHING unless `consent` is strictly true (see
+    // lib/consent/purposes.ts).
+    void fetch('/api/consent/sms-customer-care', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        phone,
+        consent: smsConsent,
+        capturePage: '/hotels/book',
+      }),
+    }).catch(() => { /* never block the booking on a consent side-write */ })
+    setStep('payment')
   }
 
   async function handlePaymentSuccess(transactionId: string | number, gateway: 'flutterwave' | 'stripe') {
@@ -204,6 +230,17 @@ function BookingPanel({ hotel, meta, nights }: { hotel: HotelResult; meta: Hotel
         </div>
       ))}
 
+      {/*
+        A2P 10DLC CUSTOMER_CARE consent — its OWN independent checkbox,
+        unticked by default, never required, and the only control on this
+        page that toggles it. Reuses the exact same component and API route
+        as the flights/traveller and /book call sites.
+      */}
+      <SmsCustomerCareConsent
+        checked={smsConsent}
+        onChange={setSmsConsent}
+      />
+
       {/* Price summary */}
       <div className="bg-walz-off-white border border-walz-border rounded-xl p-4 space-y-2 text-sm">
         <div className="flex justify-between text-walz-muted">
@@ -241,7 +278,7 @@ function BookingPanel({ hotel, meta, nights }: { hotel: HotelResult; meta: Hotel
 
       {error && <p className="text-walz-error text-xs bg-red-50 border border-red-100 rounded-xl p-3">{error}</p>}
 
-      <button onClick={() => { if (validate()) setStep('payment') }}
+      <button onClick={handleContinueToPayment}
         className="w-full bg-walz-gold hover:bg-walz-gold-light text-walz-deep-navy font-bold py-4 rounded-xl text-base transition-colors">
         Continue to Payment →
       </button>

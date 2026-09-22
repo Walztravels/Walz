@@ -3796,6 +3796,62 @@ model WhatsAppConsent {
   @@map("whatsapp_consents")
 }
 
+/// Walz Consent Foundation V1 — multi-purpose, affirmative, auditable consent.
+///
+/// Keyed on (normalizedNumber, purpose) because consent attaches to the
+/// ENDPOINT that receives the message, and each purpose is INDEPENDENT: a
+/// person may be GRANTED for SMS_CUSTOMER_CARE while having no row at all
+/// for SMS_MARKETING. Granting one purpose never implies another.
+///
+/// A (number, purpose) pair with NO ROW has no consent — the same design as
+/// WhatsAppConsent's "no row is UNKNOWN, not eligible". The presence of a
+/// phone number on a Lead, VisaApplication, Client or historical booking is
+/// NOT consent: there is deliberately no backfill script, and the only path
+/// to a row is decideConsentWrite() in lib/consent/purposes.ts, reached from
+/// a real consent-capture checkbox a human ticked.
+///
+/// WHATSAPP_MARKETING exists here for taxonomy/reporting consistency ONLY.
+/// It is NOT read by lib/whatsapp/broadcast/consent.ts, which keeps using
+/// WhatsAppConsent exclusively. Unifying the two is a separate, explicit,
+/// owner-approved decision that has not been made.
+model ConsentRecord {
+  id               String    @id @default(cuid())
+  // E.164, from normalizePhoneE164() in lib/identity/normalize.ts —
+  // server-side, never trusted from the client.
+  normalizedNumber String    @map("normalized_number")
+  // 'SMS_CUSTOMER_CARE' | 'SMS_MARKETING' | 'WHATSAPP_MARKETING'
+  // — CHECK-constrained in SQL (TEXT + CHECK, repo convention).
+  purpose          String    @map("purpose")
+  // 'GRANTED' | 'NOT_GRANTED' | 'REVOKED' — CHECK-constrained in SQL.
+  status           String    @map("status")
+  // Free-form provenance, e.g. 'booking_checkout_sms_customer_care'.
+  // Intentionally not an enum, matching WhatsAppConsent.source.
+  source           String?   @map("source")
+
+  // ── Audit context: enough to defend this record to a carrier ──────────
+  /// Path of the page the box was ticked on, e.g. '/book'.
+  capturePage      String?   @map("capture_page")
+  /// Which disclosure wording was agreed to, e.g. 'sms-customer-care-v1'.
+  disclosureVersion String?  @map("disclosure_version")
+  /// Mirrors the consent-adjacent capture pattern already used by
+  /// app/api/credit-card-authorization/[token]/route.ts (ip + user agent).
+  ipAddress        String?   @map("ip_address")
+  userAgent        String?   @map("user_agent")
+  /// Short human-readable proof pointer (booking reference, form id).
+  evidence         String?   @map("evidence")
+
+  consentedAt      DateTime? @map("consented_at")
+  revokedAt        DateTime? @map("revoked_at")
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
+
+  // Consent identity IS (number, purpose) — one row per pair, so a second
+  // affirmative action updates rather than duplicating.
+  @@unique([normalizedNumber, purpose])
+  @@index([purpose, status])
+  @@map("consent_records")
+}
+
 model TravelPostTenant {
   id           String    @id @default(cuid())
   agencyName   String

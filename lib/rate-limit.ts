@@ -80,3 +80,11 @@ export function tripClaimRateLimit(ip: string): RateLimitResult {
 export function tripRevalidateRateLimit(ip: string): RateLimitResult {
   return rateLimit({ key: `trip-reval:${ip}`, limit: 20, windowMs: 60 * 1000 })
 }
+
+// Public consent capture (POST /api/consent/sms-customer-care). Generous
+// enough that a real person correcting a typo and resubmitting is never
+// blocked, tight enough that the endpoint cannot be used to mass-write
+// consent rows for numbers the submitter does not own.
+export function consentCaptureRateLimit(ip: string): RateLimitResult {
+  return rateLimit({ key: `consent-capture:${ip}`, limit: 10, windowMs: 10 * 60 * 1000 })
+}

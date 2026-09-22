@@ -103,7 +103,7 @@ We do not collect sensitive personal data (such as health data) unless you volun
 
 We do not sell your personal data to third parties for marketing purposes.
 
-We do not sell or share your SMS opt-in data or personal information with third parties for marketing purposes.`,
+Mobile information — including your mobile phone number and your SMS opt-in consent — will not be shared with third parties or affiliates for marketing or promotional purposes. Your SMS consent and the phone number you provide for SMS are excluded from every category of data sharing described above: they are used only by Walz Travels to send you the messages you asked to receive.`,
   },
   {
     key: 'privacy_s6',
@@ -283,7 +283,15 @@ If you have a complaint, please contact us first at contact@walztravels.com. We 
   {
     key: 'terms_s13',
     title: '13. SMS Messaging',
-    body: `By opting in to receive SMS messages from Walz Travels, you agree to receive text messages related to bookings, verification codes, support and occasional promotional offers. Message and data rates may apply. Message frequency varies. Reply HELP for help or STOP to opt out at any time. Carriers are not liable for delayed or undelivered messages.`,
+    body: `Walz Travels operates separate SMS programmes and you opt in to each one independently. Ticking the box for one does not opt you in to the other, and we will not move you between them without a fresh opt-in.
+
+Customer care SMS: when you tick the SMS consent box on a Walz Travels booking, enquiry or application form, you agree to receive text messages from Walz Travels about your bookings, travel arrangements, visa and application updates, customer support requests, payment reminders and other service-related communications. Consent is not a condition of purchase — you can complete any booking or application without ticking the box.
+
+Marketing SMS: promotional and marketing text messages are a separate opt-in. We will never send them on the basis of your customer care consent alone.
+
+For both programmes: message frequency varies. Message and data rates may apply. Reply STOP to opt out at any time, or reply HELP for help. You can also email contact@walztravels.com to be removed. Carriers are not liable for delayed or undelivered messages.
+
+We do not sell or share your mobile information — including your phone number and your SMS consent — with third parties or affiliates for marketing or promotional purposes. See our Privacy Policy for details.`,
   },
   {
     key: 'terms_s14',

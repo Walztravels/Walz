@@ -70,12 +70,27 @@ function mergeWithDefaults(rows: Row[], defaults: { key: string; title: string; 
 // ── Verbatim content fidelity ───────────────────────────────────────────────
 
 describe('legal content fidelity', () => {
-  it('privacy §5 (Data Sharing) keeps the original no-sale sentence and adds the exact SMS opt-in sentence', () => {
+  /**
+   * UPDATED by Walz Consent Foundation V1 (A2P 10DLC).
+   *
+   * The sentence this test previously pinned —
+   *   "We do not sell or share your SMS opt-in data or personal
+   *    information with third parties for marketing purposes."
+   * — did not satisfy Twilio's actual A2P 10DLC review requirement, which
+   * asks for MOBILE INFORMATION (the phone number itself, not only "opt-in
+   * data") and names AFFILIATES alongside third parties. Twilio rejected
+   * the CUSTOMER_CARE campaign with error 30896. The replacement below is
+   * pinned just as strictly; the original no-sale sentence is untouched.
+   */
+  it('privacy §5 (Data Sharing) keeps the original no-sale sentence and carries the A2P mobile-information sentence', () => {
     const s5 = PRIVACY_SECTIONS.find((s) => s.key === 'privacy_s5')
     expect(s5).toBeDefined()
     expect(s5!.body).toContain('We do not sell your personal data to third parties for marketing purposes.')
     expect(s5!.body).toContain(
-      'We do not sell or share your SMS opt-in data or personal information with third parties for marketing purposes.'
+      'Mobile information — including your mobile phone number and your SMS opt-in consent — will not be shared with third parties or affiliates for marketing or promotional purposes.'
+    )
+    expect(s5!.body).toContain(
+      'excluded from every category of data sharing described above'
     )
   })
 
@@ -85,12 +100,36 @@ describe('legal content fidelity', () => {
     expect(s7?.title).toBe('7. Your Rights')
   })
 
-  it('terms includes a new "SMS Messaging" section with the exact required wording', () => {
+  /**
+   * UPDATED by Walz Consent Foundation V1 (A2P 10DLC).
+   *
+   * The previous single paragraph bundled "occasional promotional offers"
+   * into the SAME opt-in as booking and support messages. That directly
+   * contradicts a CUSTOMER_CARE campaign registration and contradicts the
+   * new consent checkbox, which promises service messages only. The
+   * section now separates the two programmes. Every element the old
+   * assertion locked (frequency, rates, STOP, HELP, carrier non-liability)
+   * is still pinned below, plus the not-a-condition-of-purchase statement.
+   */
+  it('terms "SMS Messaging" separates customer care from marketing and keeps every required element', () => {
     const smsSection = TERMS_SECTIONS.find((s) => s.title.includes('SMS Messaging'))
     expect(smsSection).toBeDefined()
-    expect(smsSection!.body).toBe(
-      'By opting in to receive SMS messages from Walz Travels, you agree to receive text messages related to bookings, verification codes, support and occasional promotional offers. Message and data rates may apply. Message frequency varies. Reply HELP for help or STOP to opt out at any time. Carriers are not liable for delayed or undelivered messages.'
-    )
+    const body = smsSection!.body
+
+    // The two programmes are described separately and independently.
+    expect(body).toContain('Customer care SMS:')
+    expect(body).toContain('Marketing SMS:')
+    expect(body).toContain('Ticking the box for one does not opt you in to the other')
+    expect(body).toContain('Consent is not a condition of purchase')
+
+    // Every carrier-required element the previous wording carried.
+    expect(body).toContain('message frequency varies')
+    expect(body).toContain('Message and data rates may apply')
+    expect(body).toContain('Reply STOP to opt out at any time, or reply HELP for help')
+    expect(body).toContain('Carriers are not liable for delayed or undelivered messages')
+
+    // The bundled-marketing wording is gone.
+    expect(body).not.toContain('occasional promotional offers')
   })
 
   it('terms still ends with a Contact section after the SMS Messaging insertion', () => {

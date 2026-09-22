@@ -7,6 +7,7 @@ import { User, Plus, Trash2, ChevronDown, ChevronUp, MessageCircle } from 'lucid
 import { useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { SmsCustomerCareConsent } from '@/components/consent/SmsCustomerCareConsent'
 import { cn } from '@/lib/utils'
 import type { BookingPassenger } from '@/types/booking'
 
@@ -36,7 +37,16 @@ type FormData = z.infer<typeof formSchema>
 
 interface PassengerFormProps {
   initialPassengerCount?: number
-  onSubmit: (passengers: BookingPassenger[], contactEmail: string, contactPhone: string) => void
+  /**
+   * `smsConsent` is the user's own tick of the independent A2P 10DLC
+   * customer-care checkbox. It is never true unless they clicked it.
+   */
+  onSubmit: (
+    passengers: BookingPassenger[],
+    contactEmail: string,
+    contactPhone: string,
+    smsConsent: boolean,
+  ) => void
   isLoading?: boolean
 }
 
@@ -62,6 +72,12 @@ const COUNTRIES = [
 
 export function PassengerForm({ initialPassengerCount = 1, onSubmit, isLoading = false }: PassengerFormProps) {
   const [expandedPassengers, setExpandedPassengers] = useState<Set<number>>(new Set([0]))
+
+  // A2P 10DLC CUSTOMER_CARE consent. Initialised FALSE; only the user's
+  // click on its own checkbox ever changes it. Deliberately NOT part of
+  // the zod schema above — it is not a validated, required field, because
+  // consent is not a condition of purchase.
+  const [smsConsent, setSmsConsent] = useState(false)
 
   const {
     register,
@@ -101,7 +117,7 @@ export function PassengerForm({ initialPassengerCount = 1, onSubmit, isLoading =
   }
 
   const handleFormSubmit = (data: FormData) =>
-    onSubmit(data.passengers as BookingPassenger[], data.contactEmail, data.contactPhone)
+    onSubmit(data.passengers as BookingPassenger[], data.contactEmail, data.contactPhone, smsConsent)
 
   const today = new Date().toISOString().split('T')[0]
   const minExpiry = new Date()
@@ -151,6 +167,15 @@ export function PassengerForm({ initialPassengerCount = 1, onSubmit, isLoading =
               <p className="text-walz-error text-xs mt-1">{errors.contactPhone.message}</p>
             )}
           </div>
+        </div>
+
+        {/*
+          A2P 10DLC CUSTOMER_CARE consent — its OWN independent checkbox,
+          unticked by default, not part of the zod schema and therefore
+          never required to submit. Nothing else on this form toggles it.
+        */}
+        <div className="mt-4">
+          <SmsCustomerCareConsent checked={smsConsent} onChange={setSmsConsent} />
         </div>
       </div>
 
